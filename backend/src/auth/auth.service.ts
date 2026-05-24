@@ -10,30 +10,21 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
-  async register(data: {
-    fullName: string;
-    email: string;
-    password: string;
-    phone?: string;
-  }) {
-    const existing = await this.usersService.findByEmail(data.email);
-    if (existing) {
-      throw new UnauthorizedException('Email already exists');
-    }
-    const user = await this.usersService.create(data);
-    const token = this.jwtService.sign({ sub: user.id, role: user.role });
-    return { token, user: { id: user.id, email: user.email, role: user.role } };
-  }
-
   async login(email: string, password: string) {
     const user = await this.usersService.findByEmail(email);
-    if (!user) throw new UnauthorizedException('Invalid credentials');
+
+    // Deliberately generic message — don't reveal whether email exists or account is deactivated
+    const invalid = () => new UnauthorizedException('Invalid credentials');
+
+    if (!user) throw invalid();
+    if (!user.active) throw invalid();
 
     const valid = await bcrypt.compare(password, user.password);
-    if (!valid) throw new UnauthorizedException('Invalid credentials');
+    if (!valid) throw invalid();
 
+    // fullName is excluded from the token — embed only what auth decisions need
     const token = this.jwtService.sign({ sub: user.id, role: user.role });
-    return { token, user: { id: user.id, email: user.email, role: user.role } };
+    return { token, user: { id: user.id, email: user.email, role: user.role, fullName: user.fullName } };
   }
 
   async validateUser(id: string) {

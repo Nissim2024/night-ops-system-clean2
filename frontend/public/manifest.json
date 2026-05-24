@@ -1,6 +1,6 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "DeployCenter",
+  "name": "DeployCenter — מרכז שליטה ופריסה",
   "icons": [
     {
       "src": "favicon.ico",

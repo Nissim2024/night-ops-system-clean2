@@ -1,0 +1,51 @@
+import { Injectable } from '@nestjs/common';
+import { PrismaClient, Role } from '@prisma/client';
+
+const prisma = new PrismaClient({
+  datasources: { db: { url: process.env.DATABASE_URL } },
+});
+
+export const ALL_PERMISSIONS = [
+  'screen:prep', 'screen:handoff', 'screen:timeline',
+  'screen:night', 'screen:summary', 'screen:admin',
+  'action:import', 'action:gonogo', 'action:task_status', 'action:user_manage',
+  'action:override_version_edit', 'action:select_all_tasks', 'action:template_delete',
+];
+
+const DEFAULTS: Record<string, string[]> = {
+  ADMIN:           [...ALL_PERMISSIONS], // includes action:template_delete
+  RELEASE_MANAGER: ['screen:prep','screen:handoff','screen:timeline','screen:night','screen:summary','action:import','action:gonogo','action:task_status','action:override_version_edit','action:select_all_tasks'],
+  TEAM_LEAD:       ['screen:handoff','screen:timeline','screen:night','screen:summary','action:task_status'],
+  EMPLOYEE:        ['action:task_status'],
+  VIEWER:          ['screen:timeline','screen:night','screen:summary'],
+};
+
+@Injectable()
+export class PermissionsService {
+  async getAll(): Promise<Record<string, string[]>> {
+    await this.ensureDefaults();
+    const rows = await prisma.rolePermissions.findMany();
+    return rows.reduce((acc, row) => {
+      acc[row.role] = row.permissions as string[];
+      return acc;
+    }, {} as Record<string, string[]>);
+  }
+
+  async updateRole(role: Role, permissions: string[]) {
+    const valid = permissions.filter(p => ALL_PERMISSIONS.includes(p));
+    return prisma.rolePermissions.upsert({
+      where: { role },
+      update: { permissions: valid },
+      create: { role, permissions: valid },
+    });
+  }
+
+  private async ensureDefaults() {
+    for (const [role, permissions] of Object.entries(DEFAULTS)) {
+      const exists = await prisma.rolePermissions.findUnique({ where: { role: role as Role } });
+      if (!exists) {
+        await prisma.rolePermissions.create({ data: { role: role as Role, permissions } });
+      }
+    }
+  }
+}

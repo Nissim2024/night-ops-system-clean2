@@ -1,0 +1,20 @@
+# Environment variables — NEVER commit these
+.env
+.env.*
+!.env.example
+
+# QC users fallback list — contains PII (real names and emails)
+src/users/qc-users-fallback.json
+
+# Build output
+dist/
+node_modules/
+
+# Logs
+*.log
+backend-*.log
+backend-*.txt
+
+# Debug scripts
+check-*.js
+check-*.mjs

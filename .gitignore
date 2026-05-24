@@ -1,0 +1,9 @@
+node_modules/
+dist/
+build/
+.env
+*.log
+backend-log.txt
+backend.log
+frontend/frontend-dev.log
+frontend/frontend-restart.log

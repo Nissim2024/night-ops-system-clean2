@@ -13,6 +13,7 @@ interface UseSocketOptions {
   onVersionUpdated?: (version: any) => void;
   onUserOnline?: (user: any) => void;
   onUserOffline?: (user: any) => void;
+  onJoined?: (users: any[]) => void;
 }
 
 export const useSocket = (options: UseSocketOptions) => {
@@ -35,6 +36,10 @@ export const useSocket = (options: UseSocketOptions) => {
         fullName: optionsRef.current.fullName,
         teamId: optionsRef.current.teamId,
       });
+    });
+
+    socket.on('JOINED', (payload) => {
+      optionsRef.current.onJoined?.(payload.connectedUsers ?? []);
     });
 
     socket.on('TASK_UPDATED', (task) => {

@@ -9,10 +9,18 @@ import {
   Query,
   Request,
   UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import { TasksService } from './tasks.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 import { TaskStatus, Priority } from '@prisma/client';
+
+const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
+const LEADS_UP = ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN'];
+
+function requireRole(req: any, roles: string[], msg = 'אין הרשאה לבצע פעולה זו') {
+  if (!roles.includes(req.user.role)) throw new ForbiddenException(msg);
+}
 
 @UseGuards(JwtGuard)
 @Controller('tasks')
@@ -21,11 +29,12 @@ export class TasksController {
 
   @Get()
   findAll(
+    @Request() req: any,
     @Query('status') status?: TaskStatus,
     @Query('teamId') teamId?: string,
     @Query('versionId') versionId?: string,
   ) {
-    return this.tasksService.findAll({ status, teamId, versionId });
+    return this.tasksService.findAll({ status, teamId, versionId }, req.user);
   }
 
   @Get(':id')
@@ -44,6 +53,7 @@ export class TasksController {
     assignedUserId?: string;
     dueDate?: string;
   }, @Request() req: any) {
+    requireRole(req, LEADS_UP, 'נדרשת הרשאת ראש צוות ומעלה ליצירת משימה');
     return this.tasksService.create({
       ...body,
       createdBy: req.user.sub,
@@ -73,8 +83,15 @@ export class TasksController {
     return this.tasksService.update(id, body, req.user.sub);
   }
 
+  @Post(':id/duplicate')
+  duplicate(@Param('id') id: string, @Request() req: any) {
+    requireRole(req, LEADS_UP, 'נדרשת הרשאת ראש צוות ומעלה לשכפול משימה');
+    return this.tasksService.duplicate(id, req.user.sub);
+  }
+
   @Delete(':id')
   remove(@Param('id') id: string, @Request() req: any) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול למחוק משימה');
     return this.tasksService.remove(id, req.user.sub);
   }
 }

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
@@ -16,13 +16,13 @@ const borders = { top: border, bottom: border, left: border, right: border };
 @Injectable()
 export class SummaryService {
 
-  async generateSummary(versionId: string, headline: string, morningNotes: string) {
+  async generateSummary(versionId: string, headline: string, morningNotes: string, isRehearsal = false, preloadedTasks?: any[]) {
     const version = await prisma.version.findUnique({
       where: { id: versionId },
       include: { creator: { select: { fullName: true } } },
     });
 
-    const tasks = await prisma.task.findMany({
+    const tasks = preloadedTasks ?? await prisma.task.findMany({
       where: { versionId },
       include: { assignedTeam: { select: { name: true } } },
       orderBy: { orderIndex: 'asc' },
@@ -49,8 +49,13 @@ export class SummaryService {
           new Paragraph({
             alignment: AlignmentType.CENTER,
             spacing: { before: 200, after: 200 },
-            children: [new TextRun({ text: `סיכום גרסת ${version?.name}`, bold: true, size: 48, font: 'Arial', color: '1E3A5F' })],
+            children: [new TextRun({ text: isRehearsal ? `סיכום חזרה גנרלית — גרסת ${version?.name}` : `סיכום גרסת ${version?.name}`, bold: true, size: 48, font: 'Arial', color: isRehearsal ? '8B4000' : '1E3A5F' })],
           }),
+          ...(isRehearsal ? [new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 100 },
+            children: [new TextRun({ text: '⚠ מסמך זה הופק מחזרה גנרלית ואינו משקף לילה אמיתי', bold: true, size: 22, font: 'Arial', color: 'C0392B' })],
+          })] : []),
           new Paragraph({
             alignment: AlignmentType.CENTER,
             spacing: { after: 400 },
@@ -126,5 +131,131 @@ export class SummaryService {
     });
 
     return Packer.toBuffer(doc);
+  }
+
+  async generateRehearsalSummary(versionId: string, headline: string, morningNotes: string) {
+    const version = await prisma.version.findUnique({
+      where: { id: versionId },
+      include: { creator: { select: { fullName: true } } },
+    }) as any;
+    if (!version) throw new Error('Version not found');
+
+    const tasks: any[] = version.lastRehearsalSnapshot ?? [];
+    return this.generateSummary(versionId, headline, morningNotes, true, tasks);
+  }
+
+  async findByVersion(versionId: string) {
+    return prisma.nightSummary.findUnique({ where: { versionId } });
+  }
+
+  async approve(versionId: string, userId: string, headline?: string, morningNotes?: string, crData?: any, force = false) {
+    if (!force) {
+      // WAITING = morning-after (phase 4) tasks not yet started — must not block night summary.
+      // Only OPEN / IN_PROGRESS / BLOCKED tasks in phases 1-3 should block approval.
+      const openCount = await prisma.task.count({
+        where: {
+          versionId,
+          status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK', 'WAITING'] as any },
+        },
+      });
+      if (openCount > 0) {
+        throw new BadRequestException(
+          `לא ניתן לאשר סיכום — ${openCount} משימות לילה שטרם הושלמו`
+        );
+      }
+    }
+
+    const version = await prisma.version.findUnique({ where: { id: versionId } });
+
+    const ops: Promise<any>[] = [
+      prisma.nightSummary.upsert({
+        where: { versionId },
+        update: { sentAt: new Date(), sentBy: userId, headline: headline ?? null, morningNotes: morningNotes ?? null, crData: crData ?? null },
+        create: { versionId, sentAt: new Date(), sentBy: userId, headline: headline ?? null, morningNotes: morningNotes ?? null, crData: crData ?? null },
+      }),
+    ];
+
+    // Only advance to COMPLETED if currently MORNING_AFTER — not for already-COMPLETED or ROLLED_BACK
+    if (version?.status === 'MORNING_AFTER') {
+      ops.push(prisma.version.update({ where: { id: versionId }, data: { status: 'COMPLETED' as any } }));
+    }
+
+    const [summary] = await Promise.all(ops);
+    return summary;
+  }
+
+  async findRehearsalByVersion(versionId: string) {
+    return (prisma as any).rehearsalSummary.findUnique({ where: { versionId } });
+  }
+
+  async approveRehearsal(versionId: string, userId: string, headline?: string, morningNotes?: string, crData?: any) {
+    const version = await prisma.version.findUnique({ where: { id: versionId } });
+    if (!version) throw new Error('Version not found');
+
+    // If still in REHEARSAL: validate tasks before approving
+    if ((version as any).status === 'REHEARSAL') {
+      const openCount = await prisma.task.count({
+        where: {
+          versionId,
+          status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK'] as any },
+        },
+      });
+      if (openCount > 0) {
+        throw new BadRequestException(
+          `לא ניתן לאשר סיכום חזרה — ${openCount} משימות עדיין לא הושלמו`
+        );
+      }
+    }
+
+    // If still in REHEARSAL: save snapshot, reset tasks, return to APPROVED
+    if ((version as any).status === 'REHEARSAL') {
+      const tasks = await prisma.task.findMany({
+        where: { versionId },
+        include: { assignedTeam: { select: { id: true, name: true } } },
+        orderBy: { orderIndex: 'asc' },
+      });
+
+      await prisma.task.updateMany({
+        where: { versionId },
+        data: {
+          status: 'WAITING',
+          actualStart: null,
+          actualFinish: null,
+          startedAt: null,
+          completedAt: null,
+          blockedReason: null,
+          delayReason: null,
+          followupNotes: null,
+          morningFollowup: false,
+        },
+      });
+
+      await prisma.version.update({
+        where: { id: versionId },
+        data: {
+          status: 'APPROVED',
+          actualStart: null,
+          lastRehearsalSnapshot: tasks as any,
+          lastRehearsalAt: new Date(),
+        } as any,
+      });
+    }
+
+    return (prisma as any).rehearsalSummary.upsert({
+      where: { versionId },
+      update: { sentAt: new Date(), sentBy: userId, headline: headline ?? null, morningNotes: morningNotes ?? null, crData: crData ?? null },
+      create: { versionId, sentAt: new Date(), sentBy: userId, headline: headline ?? null, morningNotes: morningNotes ?? null, crData: crData ?? null },
+    });
+  }
+
+  async generateNightSummary(versionId: string, headline: string, morningNotes: string) {
+    const version = await prisma.version.findUnique({
+      where: { id: versionId },
+      include: { creator: { select: { fullName: true } } },
+    }) as any;
+    if (!version) throw new Error('Version not found');
+
+    const tasks: any[] = version.lastNightSnapshot ?? [];
+    return this.generateSummary(versionId, headline, morningNotes, false, tasks);
   }
 }

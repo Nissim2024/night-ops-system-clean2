@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import { DeployCenterLogo } from './DeployCenterLogo';
 
 const API = 'http://localhost:3000';
 
@@ -19,6 +20,9 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
     setError('');
     try {
       const res = await axios.post(`${API}/auth/login`, { email, password });
+      if (res.data.user?.fullName) {
+        localStorage.setItem('deploycenter_fullName', res.data.user.fullName);
+      }
       onLogin(res.data.token);
     } catch {
       setError('אימייל או סיסמה שגויים');
@@ -44,11 +48,7 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
         boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
       }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <div style={{ fontSize: '48px' }}>🌙</div>
-          <h1 style={{ color: '#1a2332', margin: '8px 0 4px', fontSize: '28px' }}>
-            NightOps
-          </h1>
-          <p style={{ color: '#666', margin: 0 }}>מערכת ניהול עבודות לילה</p>
+          <DeployCenterLogo variant="login" />
         </div>
 
         <form onSubmit={handleSubmit}>

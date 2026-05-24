@@ -4,7 +4,8 @@ import { VersionsView } from './VersionsView';
 import { TeamView } from './TeamView';
 import { WarRoom } from './WarRoom';
 import { ImportView } from './ImportView';
-import { NightSummary } from './NightSummary';const SummaryVersionPicker: React.FC<{ token: string }> = ({ token }) => {
+import { NightSummary } from './NightSummary';
+import { DeployCenterLogo } from './DeployCenterLogo';const SummaryVersionPicker: React.FC<{ token: string }> = ({ token }) => {
   const [versions, setVersions] = React.useState<any[]>([]);
   const [selectedId, setSelectedId] = React.useState('');
   const headers = { Authorization: `Bearer ${token}` };
@@ -38,7 +39,7 @@ import { NightSummary } from './NightSummary';const SummaryVersionPicker: React.
       ) : (
         <div>
           <button onClick={() => setSelectedId('')} style={{ marginBottom: '16px', padding: '8px 16px', background: '#f0f0f0', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>→ חזור לבחירת גרסה</button>
-          <NightSummary token={token} versionId={selectedId} versionName={selected?.name || ''} />
+          <NightSummary token={token} versionId={selectedId} versionName={selected?.name || ''} isRehearsal={selected?.status === 'REHEARSAL'} />
         </div>
       )}
     </div>
@@ -77,6 +78,7 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [loading, setLoading] = useState(true);
   const [onlineUsers, setOnlineUsers] = useState<any[]>([]);
   const [lastAlert, setLastAlert] = useState<string | null>(null);
+  const [activeVersion, setActiveVersion] = useState<{ id: string; name: string; status: string } | null>(null);
   const [newTask, setNewTask] = useState({
     title: '', description: '', crNumber: '',
     application: '', priority: 'MEDIUM', assignedTeamId: '',
@@ -96,6 +98,7 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
     onGoDecision: (decision) => {
       setLastAlert(decision.go ? `GO! ${decision.message}` : `NO GO! ${decision.message}`);
     },
+    onJoined:      (users) => setOnlineUsers(users.filter((u, i, arr) => arr.findIndex(x => x.userId === u.userId) === i)),
     onUserOnline: (user) => {
       setOnlineUsers(prev => [...prev.filter(u => u.userId !== user.userId), user]);
     },
@@ -103,6 +106,14 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
       setOnlineUsers(prev => prev.filter(u => u.userId !== user.userId));
     },
   });
+
+  const fetchActiveVersion = async () => {
+    try {
+      const res = await axios.get(`${API}/versions`, { headers });
+      const found = res.data.find((v: any) => v.status === 'ACTIVE' || v.status === 'REHEARSAL');
+      setActiveVersion(found ? { id: found.id, name: found.name, status: found.status } : null);
+    } catch { /* ignore */ }
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -117,7 +128,7 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(); fetchActiveVersion(); }, []);
 
   const updateStatus = async (taskId: string, status: string) => {
     try {
@@ -155,10 +166,7 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
   return (
     <div style={{ minHeight: '100vh', background: '#f0f2f5', fontFamily: 'Arial, sans-serif', direction: 'rtl' }}>
       <div style={{ background: 'linear-gradient(135deg, #1a2332 0%, #2d4a7a 100%)', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '64px', boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ fontSize: '24px' }}>🌙</span>
-          <span style={{ color: 'white', fontSize: '20px', fontWeight: 'bold' }}>NightOps Platform</span>
-        </div>
+        <DeployCenterLogo variant="nav" />
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           {navItems.map(item => (
             <button key={item.key} onClick={() => setView(item.key)} style={{ padding: '8px 16px', background: view === item.key ? 'rgba(255,255,255,0.25)' : 'transparent', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontWeight: view === item.key ? 'bold' : 'normal', fontSize: '14px' }}>
@@ -179,8 +187,24 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
       </div>
 
       <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
-        {view === 'versions' && <VersionsView token={token} />}
-        {view === 'war-room' && <WarRoom token={token} versionId="cc33b0a8-8409-4a1f-a2d6-0c2ed3f77398" versionName="ITv03-2026" />}
+        {view === 'versions' && (
+          <VersionsView
+            token={token}
+            onGoLive={(versionId, versionName, isRehearsal) => {
+              setActiveVersion({ id: versionId, name: versionName, status: isRehearsal ? 'REHEARSAL' : 'ACTIVE' });
+              setView('war-room');
+            }}
+          />
+        )}
+        {view === 'war-room' && (
+          activeVersion
+            ? <WarRoom token={token} versionId={activeVersion.id} versionName={activeVersion.name} isRehearsal={activeVersion.status === 'REHEARSAL'} onlineUsers={onlineUsers} onVersionEnded={fetchActiveVersion} />
+            : <div style={{ textAlign: 'center', padding: '80px', color: '#666' }}>
+                <div style={{ fontSize: '48px', marginBottom: '16px' }}>🌙</div>
+                <div style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '8px' }}>אין לילה פעיל כרגע</div>
+                <div style={{ fontSize: '14px' }}>הפעל גרסה (או חזרה גנרלית) ממסך "גרסאות"</div>
+              </div>
+        )}
         {view === 'import' && <ImportView token={token} onImportSuccess={() => setView('versions')} />}
          {view === 'summary' && (
           <SummaryVersionPicker token={token} />
@@ -275,7 +299,7 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
                   <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>צוות</label>
                   <select value={newTask.assignedTeamId} onChange={e => setNewTask({ ...newTask, assignedTeamId: e.target.value })} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px' }}>
                     <option value="">בחר צוות</option>
-                    {teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}
+                    {teams.filter((team: any) => team.active).map((team: any) => <option key={team.id} value={team.id}>{team.name}</option>)}
                   </select>
                 </div>
                 <button type="submit" style={{ width: '100%', padding: '14px', background: '#1a2332', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' }}>צור משימה</button>

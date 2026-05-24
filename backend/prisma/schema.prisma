@@ -1,0 +1,403 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  RELEASE_MANAGER
+  TEAM_LEAD
+  EMPLOYEE
+  VIEWER
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  BLOCKED
+  WAITING
+  DONE
+  FAILED
+  ROLLED_BACK
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum VersionStatus {
+  DRAFT
+  COLLECTING
+  REFINING
+  REVIEW
+  APPROVED
+  REHEARSAL
+  ACTIVE
+  MORNING_AFTER
+  COMPLETED
+  ROLLED_BACK
+}
+
+enum Environment {
+  HOT
+  HOTNET
+  BOTH
+}
+
+enum ExecutionStatus {
+  NOT_TESTED
+  PASSED
+  FAILED
+  PARTIAL
+}
+
+enum SubmissionStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SUBMITTED
+}
+
+// ── Models ───────────────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(uuid())
+  fullName  String
+  email     String   @unique
+  phone     String?
+  password  String
+  role      Role     @default(EMPLOYEE)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  teamMemberships   TeamMember[]
+  createdVersions   Version[]          @relation("createdByUser")
+  approvedVersions  Version[]          @relation("approvedByUser")
+  createdTasks      Task[]             @relation("taskCreator")
+  assignedTasks     Task[]             @relation("taskAssignee")
+  auditLogs         AuditLog[]
+  submissions       TeamSubmission[]
+  versionTemplates  VersionTemplate[]
+}
+
+model Team {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  members       TeamMember[]
+  assignedTasks Task[]           @relation("taskAssignedTeam")
+  phases        Phase[]
+  submissions   TeamSubmission[]
+  crPlans       CrPlan[]
+}
+
+model TeamMember {
+  userId String
+  teamId String
+  isLead Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id])
+  team Team @relation(fields: [teamId], references: [id])
+
+  @@id([userId, teamId])
+}
+
+model Version {
+  id                      String        @id @default(uuid())
+  name                    String
+  description             String?
+  status                  VersionStatus @default(DRAFT)
+  collectionDeadline      DateTime?
+  reviewMeetingTime       DateTime?
+  plannedStart            DateTime?
+  plannedEnd              DateTime?
+  actualStart             DateTime?
+  completedAt             DateTime?
+  importedFileName        String?
+  createdBy               String
+  approvedBy              String?
+  approvedAt              DateTime?
+  lastRehearsalSnapshot   Json?
+  lastRehearsalAt         DateTime?
+  lastNightSnapshot       Json?
+  lastNightAt             DateTime?
+  isArchived              Boolean       @default(false)
+  archivedAt              DateTime?
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
+
+  qcReleaseId      String?
+  qcRelease        QcRelease?        @relation(fields: [qcReleaseId], references: [id])
+
+  creator          User              @relation("createdByUser", fields: [createdBy], references: [id])
+  approver         User?             @relation("approvedByUser", fields: [approvedBy], references: [id])
+  phases           Phase[]
+  submissions      TeamSubmission[]
+  nightSummary     NightSummary?
+  rehearsalSummary RehearsalSummary?
+  taskProposals    TaskProposal[]
+  crPlans          CrPlan[]
+}
+
+model Phase {
+  id          String      @id @default(uuid())
+  versionId   String
+  teamId      String?
+  name        String
+  orderIndex  Int
+  environment Environment @default(BOTH)
+  plannedStart DateTime?
+  plannedEnd  DateTime?
+  createdAt   DateTime    @default(now())
+
+  version   Version    @relation(fields: [versionId], references: [id])
+  team      Team?      @relation(fields: [teamId], references: [id])
+  subPhases SubPhase[]
+}
+
+model SubPhase {
+  id         String   @id @default(uuid())
+  phaseId    String
+  name       String
+  orderIndex Int
+  createdAt  DateTime @default(now())
+
+  phase Phase  @relation(fields: [phaseId], references: [id])
+  tasks Task[]
+}
+
+model Task {
+  id                String          @id @default(uuid())
+  title             String
+  description       String?
+  crNumber          String?
+  application       String?
+  status            TaskStatus      @default(OPEN)
+  priority          Priority        @default(MEDIUM)
+  assignedTeamId    String?
+  assignedUserId    String?
+  assignedUserName  String?
+  blockedReason     String?
+  completedAt       DateTime?
+  createdBy         String
+  createdByTeamLead String?
+  environment       Environment     @default(BOTH)
+  executionStatus   ExecutionStatus @default(NOT_TESTED)
+  followupNotes     String?
+  isCritical        Boolean         @default(false)
+  isCriticalForGo   Boolean         @default(false)
+  lastEditedAt      DateTime?
+  lastEditedBy      String?
+  morningFollowup   Boolean         @default(false)
+  notes             String?
+  dependencyNote    String?
+  duration          String?
+  orderIndex        Int             @default(0)
+  startedAt         DateTime?
+  actualStart       DateTime?
+  actualFinish      DateTime?
+  delayReason       String?
+  subPhaseId        String?
+  testerInNight     String?
+  testerInVersion   String?
+  versionId         String?
+  plannedStart      DateTime?
+  plannedEnd        DateTime?
+  dueDate           DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  assignedTeam Team?              @relation("taskAssignedTeam", fields: [assignedTeamId], references: [id])
+  assignedUser User?              @relation("taskAssignee", fields: [assignedUserId], references: [id])
+  creator      User               @relation("taskCreator", fields: [createdBy], references: [id])
+  subPhase     SubPhase?          @relation(fields: [subPhaseId], references: [id])
+  auditLogs    AuditLog[]
+  dependencies TaskDependency[]   @relation("taskDeps")
+  dependents   TaskDependency[]   @relation("taskDependents")
+}
+
+model TaskDependency {
+  taskId          String
+  dependsOnTaskId String
+  createdAt       DateTime @default(now())
+
+  task      Task @relation("taskDeps", fields: [taskId], references: [id])
+  dependsOn Task @relation("taskDependents", fields: [dependsOnTaskId], references: [id])
+
+  @@id([taskId, dependsOnTaskId])
+}
+
+model TeamSubmission {
+  id          String           @id @default(uuid())
+  versionId   String
+  teamId      String
+  status      SubmissionStatus @default(NOT_STARTED)
+  submittedBy String?
+  submittedAt DateTime?
+  taskCount   Int              @default(0)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  version   Version @relation(fields: [versionId], references: [id])
+  team      Team    @relation(fields: [teamId], references: [id])
+  submitter User?   @relation(fields: [submittedBy], references: [id])
+
+  @@unique([versionId, teamId])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String
+  taskId     String?
+  action     String
+  beforeData Json?
+  afterData  Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  user User  @relation(fields: [userId], references: [id])
+  task Task? @relation(fields: [taskId], references: [id])
+}
+
+model RolePermissions {
+  role        Role     @id
+  permissions Json     // string[]
+  updatedAt   DateTime @updatedAt
+}
+
+model RehearsalSummary {
+  id           String    @id @default(uuid())
+  versionId    String    @unique
+  headline     String?
+  morningNotes String?
+  crData       Json?
+  sentAt       DateTime?
+  sentBy       String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  version Version @relation(fields: [versionId], references: [id])
+}
+
+model EmailRecipient {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model QcRelease {
+  id               String    @id @default(uuid())
+  relId            Int       @unique
+  relParentId      Int?
+  relName          String
+  relStartDate     DateTime?
+  relEndDate       DateTime?
+  relTeam          String?
+  goLiveCycleId    Int?
+  goLiveDate       DateTime?
+  rehearsalCycleId Int?
+  rehearsalDate    DateTime?
+  filterDate       DateTime? // REL_USER_03 — filter: show in dropdown only if > today
+  active           Boolean   @default(true)
+  lastSyncAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  versions Version[]
+}
+
+model VersionTemplate {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  structure   Json
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  creator User @relation(fields: [createdBy], references: [id])
+}
+
+enum ProposalStatus {
+  DRAFT
+  READY
+}
+
+model TaskProposal {
+  id            String         @id @default(uuid())
+  versionId     String
+  teamId        String
+  submittedBy   String
+  title         String
+  app           String?
+  estimatedMins Int?
+  crNumber      String?
+  notes              String?
+  assignedUserName   String?        // whom the team lead designates as responsible
+  crLabel            String?        // display label from QC for the linked CR
+  phase         Int            // 1=בוקר גרסה, 2=HOTNET, 3=HOT, 4=בוקר לאחר
+  status        ProposalStatus @default(DRAFT)
+  usedInTaskId  String?        // set when manager picks this proposal
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  version Version @relation(fields: [versionId], references: [id])
+}
+
+model CrPlan {
+  id                String   @id @default(uuid())
+  versionId         String
+  teamId            String
+  crNumber          String
+  crLabel           String?
+  rollbackPlan      String?
+  gradualRollout    Boolean  @default(false)
+  gradualDetails    String?
+  nightTestingNotes String?
+  morningMonitoring String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  version Version       @relation(fields: [versionId], references: [id])
+  team    Team          @relation(fields: [teamId], references: [id])
+  crDeps  CrDependency[]
+
+  @@unique([versionId, teamId, crNumber])
+}
+
+model CrDependency {
+  id          String @id @default(uuid())
+  crPlanId    String
+  dependsOnCr String
+
+  crPlan CrPlan @relation(fields: [crPlanId], references: [id], onDelete: Cascade)
+}
+
+model NightSummary {
+  id                 String    @id @default(uuid())
+  versionId          String    @unique
+  headline           String?
+  morningNotes       String?
+  crData             Json?
+  recipientsSnapshot Json?
+  sentAt             DateTime?
+  sentBy             String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  version Version @relation(fields: [versionId], references: [id])
+}

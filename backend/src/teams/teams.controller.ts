@@ -7,9 +7,18 @@ import {
   Body,
   Param,
   UseGuards,
+  Request,
+  ForbiddenException,
 } from '@nestjs/common';
 import { TeamsService } from './teams.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
+
+const ADMINS    = ['ADMIN'];
+const MANAGERS  = ['RELEASE_MANAGER', 'ADMIN'];
+
+function requireRole(req: any, roles: string[], msg = 'אין הרשאה לבצע פעולה זו') {
+  if (!roles.includes(req.user.role)) throw new ForbiddenException(msg);
+}
 
 @UseGuards(JwtGuard)
 @Controller('teams')
@@ -27,12 +36,14 @@ export class TeamsController {
   }
 
   @Post()
-  create(@Body() body: { name: string; description?: string }) {
+  create(@Body() body: { name: string; description?: string }, @Request() req: any) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול ליצור צוות');
     return this.teamsService.create(body);
   }
 
   @Post('seed')
-  seedDefaultTeams() {
+  seedDefaultTeams(@Request() req: any) {
+    requireRole(req, ADMINS, 'רק מנהל מערכת יכול לאתחל צוותי ברירת מחדל');
     return this.teamsService.seedDefaultTeams();
   }
 
@@ -40,7 +51,9 @@ export class TeamsController {
   addMember(
     @Param('id') teamId: string,
     @Body() body: { userId: string; isLead?: boolean },
+    @Request() req: any,
   ) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לשייך משתמשים לצוות');
     return this.teamsService.addMember(teamId, body.userId, body.isLead);
   }
 
@@ -48,7 +61,9 @@ export class TeamsController {
   removeMember(
     @Param('id') teamId: string,
     @Param('userId') userId: string,
+    @Request() req: any,
   ) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול להסיר משתמשים מצוות');
     return this.teamsService.removeMember(teamId, userId);
   }
 
@@ -56,7 +71,15 @@ export class TeamsController {
   update(
     @Param('id') id: string,
     @Body() body: { name?: string; description?: string; active?: boolean },
+    @Request() req: any,
   ) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לעדכן פרטי צוות');
     return this.teamsService.update(id, body);
+  }
+
+  @Delete(':id')
+  delete(@Param('id') id: string, @Request() req: any) {
+    requireRole(req, ADMINS, 'רק מנהל מערכת יכול למחוק צוות');
+    return this.teamsService.delete(id);
   }
 }

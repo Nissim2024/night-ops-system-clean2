@@ -5,6 +5,9 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 @Injectable()
 export class JwtGuard implements CanActivate {
@@ -19,14 +22,24 @@ export class JwtGuard implements CanActivate {
     }
 
     const token = authHeader.split(' ')[1];
+    const secret = process.env.JWT_SECRET;
 
     try {
-      const payload = this.jwtService.verify(token, {
-        secret: process.env.JWT_SECRET || 'fallback-secret',
+      const payload = this.jwtService.verify(token, { secret });
+
+      // Re-check active status on every request — catches deactivated users mid-session
+      const user = await prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { active: true },
       });
+      if (!user?.active) {
+        throw new UnauthorizedException('Account is deactivated');
+      }
+
       request.user = payload;
       return true;
-    } catch {
+    } catch (err) {
+      if (err instanceof UnauthorizedException) throw err;
       throw new UnauthorizedException('Invalid or expired token');
     }
   }

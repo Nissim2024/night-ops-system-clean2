@@ -1,19 +1,22 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Login } from './components/Login';
-import { Dashboard } from './components/Dashboard';
+import { ManagerDashboard } from './components/ManagerDashboard';
+import { EmployeeDashboard } from './components/EmployeeDashboard';
+import { PermissionsProvider } from './context/PermissionsContext';
 
 function App() {
   const [token, setToken] = useState<string | null>(
-    localStorage.getItem('nightops_token')
+    localStorage.getItem('deploycenter_token')
   );
 
   const handleLogin = (newToken: string) => {
-    localStorage.setItem('nightops_token', newToken);
+    localStorage.setItem('deploycenter_token', newToken);
     setToken(newToken);
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('nightops_token');
+    localStorage.removeItem('deploycenter_token');
+    localStorage.removeItem('deploycenter_fullName');
     setToken(null);
   };
 
@@ -21,7 +24,17 @@ function App() {
     return <Login onLogin={handleLogin} />;
   }
 
-  return <Dashboard token={token} onLogout={handleLogout} />;
+  const payload = JSON.parse(atob(token.split('.')[1]));
+  const isManager = ['ADMIN', 'RELEASE_MANAGER', 'TEAM_LEAD'].includes(payload.role);
+
+  return (
+    <PermissionsProvider token={token} role={payload.role}>
+      {isManager
+        ? <ManagerDashboard token={token} onLogout={handleLogout} />
+        : <EmployeeDashboard token={token} onLogout={handleLogout} />
+      }
+    </PermissionsProvider>
+  );
 }
 
 export default App;

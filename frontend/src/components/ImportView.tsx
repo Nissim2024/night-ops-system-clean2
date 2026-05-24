@@ -11,6 +11,7 @@ interface Props {
 export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
   const [file, setFile] = useState<File | null>(null);
   const [versionName, setVersionName] = useState('');
+  const [plannedStart, setPlannedStart] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +29,7 @@ export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('versionName', versionName);
+      if (plannedStart) formData.append('plannedStart', plannedStart);
 
       const res = await axios.post(`${API}/import/excel`, formData, {
         headers: { ...headers, 'Content-Type': 'multipart/form-data' },
@@ -63,6 +65,27 @@ export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
             placeholder="לדוגמה: ITv04-2026"
             style={{ width: '100%', padding: '12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px', boxSizing: 'border-box' }}
           />
+        </div>
+
+        {/* תאריך התחלה */}
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold', color: '#333' }}>
+            תאריך התחלה של הפעילות
+            <span style={{ fontWeight: 'normal', color: '#888', fontSize: '13px', marginRight: '8px' }}>
+              (אופציונלי — אם לא ממולא, ייקחו התאריכים מהקובץ)
+            </span>
+          </label>
+          <input
+            type="date"
+            value={plannedStart}
+            onChange={e => setPlannedStart(e.target.value)}
+            style={{ width: '100%', padding: '12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px', boxSizing: 'border-box' }}
+          />
+          {plannedStart && (
+            <div style={{ marginTop: '6px', fontSize: '13px', color: '#2980b9', background: '#e8f4fd', padding: '8px 12px', borderRadius: '6px' }}>
+              📅 תאריך הגרסה <strong>{new Date(plannedStart + 'T12:00:00').toLocaleDateString('he-IL')}</strong> יוחל על כל שעות הקובץ — שעת הסיום תחושב מהמשך
+            </div>
+          )}
         </div>
 
         {/* בחירת קובץ */}
@@ -112,13 +135,14 @@ export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
         {result && result.success && (
           <div style={{ marginTop: '24px', background: '#d5f0dc', border: '2px solid #27ae60', borderRadius: '8px', padding: '20px' }}>
             <h3 style={{ margin: '0 0 12px', color: '#1a5c2a' }}>הייבוא הושלם בהצלחה!</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
               {[
-                { label: 'שלבים', value: result.stats.phases },
-                { label: 'תת-שלבים', value: result.stats.subPhases },
-                { label: 'משימות', value: result.stats.tasks },
+                { label: 'שלבים',          value: result.stats.phases },
+                { label: 'תת-שלבים',       value: result.stats.subPhases },
+                { label: 'משימות',          value: result.stats.tasks },
                 { label: 'נקודות GO/NO GO', value: result.stats.goNoGo },
-                { label: 'התראות', value: result.stats.alerts },
+                { label: 'התראות',          value: result.stats.alerts },
+                { label: 'תלויות שקושרו',  value: result.stats.depsLinked ?? 0 },
               ].map(s => (
                 <div key={s.label} style={{ background: 'white', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
                   <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#27ae60' }}>{s.value}</div>
@@ -129,6 +153,14 @@ export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
             <div style={{ marginTop: '12px', fontSize: '13px', color: '#1a5c2a' }}>
               גרסה <strong>{result.stats.versionName}</strong> נוצרה — עבור לטאב גרסאות לצפייה.
             </div>
+            {result.stats.missingDepRows?.length > 0 && (
+              <div style={{ marginTop: '12px', background: '#fff3e0', border: '1px solid #e67e22', borderRadius: '6px', padding: '10px 14px' }}>
+                <strong style={{ color: '#8b4000', fontSize: '13px' }}>⚠️ תלויות שלא נמצאו ({result.stats.missingDepRows.length} שורות):</strong>
+                <div style={{ color: '#8b4000', fontSize: '12px', marginTop: '4px' }}>
+                  שורות {result.stats.missingDepRows.sort((a: number, b: number) => a - b).join(', ')} — ייתכן שמספרי השורות לא תואמים לשורות קיימות בקובץ.
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -141,17 +173,54 @@ export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
 
       {/* הסבר מבנה הקובץ */}
       <div style={{ background: 'white', borderRadius: '12px', padding: '24px', marginTop: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-        <h3 style={{ margin: '0 0 16px', color: '#1a2332', fontSize: '15px' }}>מבנה הקובץ הנתמך</h3>
+        <h3 style={{ margin: '0 0 4px', color: '#1a2332', fontSize: '15px' }}>מבנה הקובץ הנתמך</h3>
+        <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#888' }}>קובץ Excel עם העמודות הבאות (לפי סדר)</p>
+
+        {/* Column map table */}
+        <div style={{ overflowX: 'auto', marginBottom: '20px' }}>
+          <table style={{ borderCollapse: 'collapse', fontSize: '13px', width: '100%' }}>
+            <thead>
+              <tr style={{ background: '#f4f6f8' }}>
+                {['עמודה', 'שם', 'תיאור', 'דוגמה'].map(h => (
+                  <th key={h} style={{ padding: '8px 12px', border: '1px solid #e0e0e0', textAlign: 'right', color: '#555', fontWeight: 'bold' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { col: 'A', name: 'Start Date',                desc: 'תאריך ושעת התחלה',               example: '15/01/2026 02:00' },
+                { col: 'B', name: 'Duration',                  desc: 'משך פעילות (טקסט חופשי)',        example: '45 mins, 1:30h' },
+                { col: 'C', name: 'Finish Date',               desc: 'תאריך ושעת סיום',                example: '15/01/2026 04:30' },
+                { col: 'D', name: 'CR#',                       desc: 'מספר CR / בקשת שינוי',           example: 'CR-1234' },
+                { col: 'E', name: 'Activity Name',             desc: 'שם המשימה (צבע = סוג השורה)',    example: 'הורדת מערכת בילי' },
+                { col: 'F', name: 'Application',               desc: 'מערכת / אפליקציה',               example: 'CRM, EAI, OSB' },
+                { col: 'G', name: 'Team',                      desc: 'שם הצוות האחראי',                example: 'NOC, EAI Team' },
+                { col: 'H', name: 'Resource Names',            desc: 'שם העובד האחראי',               example: 'ישראל ישראלי' },
+                { col: 'I', name: 'Predecessors',              desc: 'תלויות — מספרי שורה מופרדים בפסיק', example: '3, 7' },
+              ].map((r, i) => (
+                <tr key={r.col} style={{ background: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                  <td style={{ padding: '7px 12px', border: '1px solid #e0e0e0', fontWeight: 'bold', color: '#1a2332', textAlign: 'center' }}>{r.col}</td>
+                  <td style={{ padding: '7px 12px', border: '1px solid #e0e0e0', fontWeight: 'bold', color: '#2d4a7a', whiteSpace: 'nowrap' }}>{r.name}</td>
+                  <td style={{ padding: '7px 12px', border: '1px solid #e0e0e0', color: '#555' }}>{r.desc}</td>
+                  <td style={{ padding: '7px 12px', border: '1px solid #e0e0e0', color: '#888', fontStyle: 'italic' }}>{r.example}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Row type color legend */}
+        <h4 style={{ margin: '0 0 10px', color: '#1a2332', fontSize: '13px' }}>סוג שורה לפי צבע רקע (עמודה B)</h4>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {[
-            { color: '#00B0F0', label: 'שלב ראשי (Phase)', example: 'פעילות לילה — HOTNET' },
-            { color: '#BF9000', label: 'תת-שלב (Sub-Phase)', example: 'הורדת מערכות' },
-            { color: '#FFFFFF', label: 'משימה רגילה', example: 'הורדת מערכת בילי', border: true },
-            { color: '#00B050', label: 'נקודת GO/NO GO', example: 'החלטת GO/NO GO HOTNET' },
-            { color: '#FF0000', label: 'התראה / תזכורת', example: 'בדיקת תקינות לאחר הקפצה' },
+            { hex: '#00B0F0', label: 'שלב ראשי (Phase)',    example: 'פעילות לילה — HOTNET' },
+            { hex: '#BF9000', label: 'תת-שלב (Sub-Phase)',  example: 'הורדת מערכות' },
+            { hex: '#FFFFFF', label: 'משימה רגילה',          example: 'הורדת מערכת בילי',  border: true },
+            { hex: '#00B050', label: 'נקודת GO/NO GO',       example: 'החלטת GO/NO GO HOTNET' },
+            { hex: '#FF0000', label: 'התראה / תזכורת',      example: 'בדיקת תקינות לאחר הקפצה' },
           ].map(item => (
             <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div style={{ width: '24px', height: '24px', background: `#${item.color}`, borderRadius: '4px', border: item.border ? '1px solid #ddd' : 'none', flexShrink: 0 }} />
+              <div style={{ width: '24px', height: '24px', background: item.hex, borderRadius: '4px', border: (item as any).border ? '1px solid #ddd' : 'none', flexShrink: 0 }} />
               <div>
                 <span style={{ fontWeight: 'bold', fontSize: '13px' }}>{item.label}</span>
                 <span style={{ color: '#999', fontSize: '12px', marginRight: '8px' }}>— {item.example}</span>
