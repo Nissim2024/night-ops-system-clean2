@@ -67,7 +67,13 @@ export class VersionsService {
       },
     });
     if (!version) throw new NotFoundException('Version not found');
-    return version;
+
+    const involvedProposals = await (prisma.taskProposal as any).findMany({
+      where: { versionId: id, crNumber: { not: null } },
+      distinct: ['teamId'],
+      select: { teamId: true },
+    });
+    return { ...version, involvedTeamIds: involvedProposals.map((p: any) => p.teamId) };
   }
 
   async create(data: {
@@ -129,6 +135,39 @@ export class VersionsService {
         teamId: data.teamId,
       },
     });
+  }
+
+  async updatePhase(phaseId: string, data: { name?: string; isGoNoGo?: boolean }) {
+    const phase = await prisma.phase.findUnique({ where: { id: phaseId } });
+    if (!phase) throw new NotFoundException('Phase not found');
+
+    if (data.isGoNoGo) {
+      // Only one phase per version may be the goNogo gate — clear others first
+      await prisma.phase.updateMany({
+        where: { versionId: phase.versionId },
+        data: { isGoNoGo: false },
+      });
+    }
+
+    return prisma.phase.update({ where: { id: phaseId }, data });
+  }
+
+  async deletePhase(phaseId: string) {
+    const phase = await prisma.phase.findUnique({
+      where: { id: phaseId },
+      include: { subPhases: { include: { tasks: { select: { id: true } } } } },
+    });
+    if (!phase) throw new NotFoundException('Phase not found');
+
+    const taskCount = phase.subPhases.reduce((sum, sp) => sum + sp.tasks.length, 0);
+    if (taskCount > 0) {
+      throw new BadRequestException(`לא ניתן למחוק שלב עם ${taskCount} משימות`);
+    }
+
+    // Delete subPhases first, then the phase
+    await prisma.subPhase.deleteMany({ where: { phaseId } });
+    await prisma.phase.delete({ where: { id: phaseId } });
+    return { deleted: true };
   }
 
   async addSubPhase(phaseId: string, data: { name: string; orderIndex: number }) {
@@ -237,7 +276,7 @@ async addTask(subPhaseId: string, data: {
         ],
       },
       {
-        name: 'פעילות לילה — HOT', orderIndex: 3, environment: 'HOT',
+        name: 'פעילות לילה — HOT', orderIndex: 3, environment: 'HOT', isGoNoGo: true,
         subPhases: [
           'טרום הורדת מערכות', 'הורדת מערכות', 'הטמעת קוד',
           'העלאת מערכות', 'בקרות העלאת מערכות', 'שחרור מערכות',
@@ -245,7 +284,7 @@ async addTask(subPhaseId: string, data: {
         ],
       },
       {
-        name: 'פעילויות בוקר לאחר גרסה', orderIndex: 4, environment: 'BOTH',
+        name: 'פעילויות בוקר לאחר גרסה', orderIndex: 4, environment: 'BOTH', isGoNoGo: false,
         subPhases: ['החזרת תהליכים', 'הטמעות קוד יום אחרי', 'בקרות ומעקב ממשקים'],
       },
     ];
@@ -253,7 +292,7 @@ async addTask(subPhaseId: string, data: {
     let taskCount = 0;
     for (const phaseData of TEMPLATE_PHASES) {
       const phase = await prisma.phase.create({
-        data: { versionId, name: phaseData.name, orderIndex: phaseData.orderIndex, environment: phaseData.environment as any },
+        data: { versionId, name: phaseData.name, orderIndex: phaseData.orderIndex, environment: phaseData.environment as any, isGoNoGo: (phaseData as any).isGoNoGo ?? false },
       });
       for (let si = 0; si < phaseData.subPhases.length; si++) {
         const sub = await prisma.subPhase.create({
@@ -317,7 +356,7 @@ async addTask(subPhaseId: string, data: {
     });
   }
 
-  async updateStatus(id: string, status: VersionStatus, userId: string) {
+  async updateStatus(id: string, status: VersionStatus, userId: string, force = false) {
     const version = await prisma.version.findUnique({ where: { id } });
     if (!version) throw new NotFoundException('Version not found');
 
@@ -340,6 +379,27 @@ async addTask(subPhaseId: string, data: {
       throw new BadRequestException(
         `מעבר סטטוס לא חוקי: "${version.status}" → "${status}"`
       );
+    }
+
+    // COLLECTING → REFINING: involved teams (those with CR proposals) must have submitted
+    // force=true lets a manager override this check
+    if (version.status === VersionStatus.COLLECTING && status === VersionStatus.REFINING && !force) {
+      const involvedProposals = await (prisma.taskProposal as any).findMany({
+        where: { versionId: id, crNumber: { not: null } },
+        distinct: ['teamId'],
+        select: { teamId: true },
+      });
+      const involvedTeamIds = involvedProposals.map((p: any) => p.teamId);
+      if (involvedTeamIds.length > 0) {
+        const notSubmitted = await prisma.teamSubmission.findMany({
+          where: { versionId: id, teamId: { in: involvedTeamIds }, status: { not: 'SUBMITTED' } },
+          include: { team: { select: { name: true } } },
+        });
+        if (notSubmitted.length > 0) {
+          const teamNames = notSubmitted.map((s: any) => s.team.name).join(', ');
+          throw new BadRequestException(`הצוותים הבאים טרם הגישו: ${teamNames}`);
+        }
+      }
     }
 
     // Only one active/rehearsal/morning-after version at a time
@@ -470,10 +530,28 @@ async addTask(subPhaseId: string, data: {
     return prisma.version.update({ where: { id }, data: { status: VersionStatus.APPROVED } });
   }
 
-  async submitTeamTasks(versionId: string, teamId: string, userId: string) {
+  async submitTeamTasks(versionId: string, teamId: string, userId: string, userRole: string) {
+    // TEAM_LEAD may only submit their own team; managers may submit any team
+    const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
+    if (!MANAGERS.includes(userRole)) {
+      // Accept either isLead=true OR TEAM_LEAD role with any membership in the team
+      const membership = await prisma.teamMember.findFirst({
+        where: { userId, teamId },
+      });
+      if (!membership) {
+        throw new ForbiddenException('ניתן להגיש רק עבור הצוות שאתה מוביל');
+      }
+    }
+
     const taskCount = await prisma.task.count({
       where: { versionId, assignedTeamId: teamId },
     });
+
+    // Idempotent: if already submitted, return current record without updating submittedAt
+    const existing = await prisma.teamSubmission.findUnique({
+      where: { versionId_teamId: { versionId, teamId } },
+    });
+    if (existing?.status === 'SUBMITTED') return existing;
 
     return prisma.teamSubmission.update({
       where: { versionId_teamId: { versionId, teamId } },
@@ -518,6 +596,11 @@ async addTask(subPhaseId: string, data: {
     await prisma.teamSubmission.deleteMany({ where: { versionId: id } });
     await prisma.nightSummary.deleteMany({ where: { versionId: id } });
     await (prisma as any).rehearsalSummary.deleteMany({ where: { versionId: id } });
+    // Use raw SQL for newer tables in case Prisma client hasn't been regenerated
+    await prisma.$executeRawUnsafe(`DELETE FROM "TaskProposal" WHERE "versionId" = $1`, id);
+    // CrDependency cascades automatically (onDelete: Cascade on crPlanId FK)
+    await prisma.$executeRawUnsafe(`DELETE FROM "CrPlan" WHERE "versionId" = $1`, id);
+    await prisma.$executeRawUnsafe(`DELETE FROM "VersionCrAssignment" WHERE "versionId" = $1`, id);
     await prisma.version.delete({ where: { id } });
 
     return { message: 'הגרסה נמחקה בהצלחה' };
@@ -1094,7 +1177,7 @@ async addTask(subPhaseId: string, data: {
         ],
       },
       {
-        name: 'פעילות לילה — HOT', orderIndex: 3, environment: 'HOT',
+        name: 'פעילות לילה — HOT', orderIndex: 3, environment: 'HOT', isGoNoGo: true,
         subPhases: [
           { name: 'טרום הורדת מערכות', orderIndex: 1 },
           { name: 'הורדת מערכות', orderIndex: 2 },
@@ -1106,7 +1189,7 @@ async addTask(subPhaseId: string, data: {
         ],
       },
       {
-        name: 'פעילויות בוקר לאחר גרסה', orderIndex: 4, environment: 'BOTH',
+        name: 'פעילויות בוקר לאחר גרסה', orderIndex: 4, environment: 'BOTH', isGoNoGo: false,
         subPhases: [
           { name: 'החזרת תהליכים', orderIndex: 1 },
           { name: 'הטמעות קוד יום אחרי', orderIndex: 2 },
@@ -1123,6 +1206,7 @@ async addTask(subPhaseId: string, data: {
           name: phase.name,
           orderIndex: phase.orderIndex,
           environment: phase.environment as any,
+          isGoNoGo: (phase as any).isGoNoGo ?? false,
         },
       });
 

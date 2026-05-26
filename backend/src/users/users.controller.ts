@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, UseGuards, Request, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request, ForbiddenException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 
@@ -60,6 +60,12 @@ export class UsersController {
   ) {
     requireRole(req, ADMINS, 'רק מנהל מערכת יכול לאפס סיסמה');
     return this.usersService.resetPassword(id, body.newPassword);
+  }
+
+  @Delete(':id')
+  deleteUser(@Param('id') id: string, @Request() req: any) {
+    requireRole(req, ADMINS, 'רק מנהל מערכת יכול למחוק משתמשים');
+    return this.usersService.delete(id, req.user.sub);
   }
 
   @Post('sync-qc')

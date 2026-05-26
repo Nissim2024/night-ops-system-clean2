@@ -96,11 +96,12 @@ model Team {
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
 
-  members       TeamMember[]
-  assignedTasks Task[]           @relation("taskAssignedTeam")
-  phases        Phase[]
-  submissions   TeamSubmission[]
-  crPlans       CrPlan[]
+  members          TeamMember[]
+  assignedTasks    Task[]               @relation("taskAssignedTeam")
+  phases           Phase[]
+  submissions      TeamSubmission[]
+  crPlans          CrPlan[]
+  versionCrAssignments VersionCrAssignment[]
 }
 
 model TeamMember {
@@ -143,12 +144,13 @@ model Version {
 
   creator          User              @relation("createdByUser", fields: [createdBy], references: [id])
   approver         User?             @relation("approvedByUser", fields: [approvedBy], references: [id])
-  phases           Phase[]
-  submissions      TeamSubmission[]
-  nightSummary     NightSummary?
-  rehearsalSummary RehearsalSummary?
-  taskProposals    TaskProposal[]
-  crPlans          CrPlan[]
+  phases               Phase[]
+  submissions          TeamSubmission[]
+  nightSummary         NightSummary?
+  rehearsalSummary     RehearsalSummary?
+  taskProposals        TaskProposal[]
+  crPlans              CrPlan[]
+  versionCrAssignments VersionCrAssignment[]
 }
 
 model Phase {
@@ -158,6 +160,7 @@ model Phase {
   name        String
   orderIndex  Int
   environment Environment @default(BOTH)
+  isGoNoGo   Boolean     @default(false)
   plannedStart DateTime?
   plannedEnd  DateTime?
   createdAt   DateTime    @default(now())
@@ -400,4 +403,27 @@ model NightSummary {
   updatedAt          DateTime  @updatedAt
 
   version Version @relation(fields: [versionId], references: [id])
+}
+
+model SystemParam {
+  key       String   @id
+  value     String
+  label     String
+  type      String   @default("text")
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
+
+model VersionCrAssignment {
+  id        String   @id @default(uuid())
+  versionId String
+  crNumber  String
+  crLabel   String?
+  teamId    String
+  createdAt DateTime @default(now())
+
+  version Version @relation(fields: [versionId], references: [id])
+  team    Team    @relation(fields: [teamId], references: [id])
+
+  @@unique([versionId, crNumber, teamId])
 }

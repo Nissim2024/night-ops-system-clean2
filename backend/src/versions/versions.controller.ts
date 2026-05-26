@@ -74,6 +74,22 @@ export class VersionsController {
     return this.versionsService.seedTemplate(id, req.user.sub);
   }
 
+  @Patch('phases/:phaseId')
+  updatePhase(
+    @Param('phaseId') phaseId: string,
+    @Body() body: { name?: string; isGoNoGo?: boolean },
+    @Request() req: any,
+  ) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לערוך שלב');
+    return this.versionsService.updatePhase(phaseId, body);
+  }
+
+  @Delete('phases/:phaseId')
+  deletePhase(@Param('phaseId') phaseId: string, @Request() req: any) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול למחוק שלב');
+    return this.versionsService.deletePhase(phaseId);
+  }
+
   @Post('phases/:phaseId/sub-phases')
   addSubPhase(@Param('phaseId') phaseId: string, @Body() body: {
     name: string;
@@ -90,9 +106,9 @@ export class VersionsController {
   }
 
   @Patch(':id/status')
-  updateStatus(@Param('id') id: string, @Body() body: { status: VersionStatus }, @Request() req: any) {
+  updateStatus(@Param('id') id: string, @Body() body: { status: VersionStatus; force?: boolean }, @Request() req: any) {
     requireRole(req, MANAGERS, 'רק מנהל לילה יכול לשנות סטטוס גרסה');
-    return this.versionsService.updateStatus(id, body.status, req.user.sub);
+    return this.versionsService.updateStatus(id, body.status, req.user.sub, body.force ?? false);
   }
 
   @Patch(':id/archive')
@@ -120,7 +136,7 @@ export class VersionsController {
     @Request() req: any,
   ) {
     requireRole(req, LEADS_UP, 'נדרשת הרשאת ראש צוות ומעלה להגשת צוות');
-    return this.versionsService.submitTeamTasks(versionId, teamId, req.user.sub);
+    return this.versionsService.submitTeamTasks(versionId, teamId, req.user.sub, req.user.role);
   }
 
   @Get(':id/submissions')

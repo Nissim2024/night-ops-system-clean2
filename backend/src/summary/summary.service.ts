@@ -150,14 +150,36 @@ export class SummaryService {
 
   async approve(versionId: string, userId: string, headline?: string, morningNotes?: string, crData?: any, force = false) {
     if (!force) {
-      // WAITING = morning-after (phase 4) tasks not yet started — must not block night summary.
-      // Only OPEN / IN_PROGRESS / BLOCKED tasks in phases 1-3 should block approval.
-      const openCount = await prisma.task.count({
-        where: {
-          versionId,
-          status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK', 'WAITING'] as any },
-        },
+      // Tasks in phases after the isGoNoGo phase (morning-after phases) must not block approval.
+      // Find the goNogo phase; if none set, fall back to excluding WAITING status.
+      const goNogoPhase = await prisma.phase.findFirst({
+        where: { versionId, isGoNoGo: true },
+        select: { orderIndex: true },
       });
+
+      let openCount: number;
+      if (goNogoPhase) {
+        // Count tasks in phases up to (and including) the isGoNoGo phase.
+        // OR tasks with no subPhase — they are not morning-after tasks so they must block.
+        openCount = await prisma.task.count({
+          where: {
+            versionId,
+            status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK'] as any },
+            OR: [
+              { subPhase: { phase: { versionId, orderIndex: { lte: goNogoPhase.orderIndex } } } },
+              { subPhaseId: null },
+            ],
+          },
+        });
+      } else {
+        openCount = await prisma.task.count({
+          where: {
+            versionId,
+            status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK', 'WAITING'] as any },
+          },
+        });
+      }
+
       if (openCount > 0) {
         throw new BadRequestException(
           `לא ניתן לאשר סיכום — ${openCount} משימות לילה שטרם הושלמו`
@@ -192,14 +214,34 @@ export class SummaryService {
     const version = await prisma.version.findUnique({ where: { id: versionId } });
     if (!version) throw new Error('Version not found');
 
-    // If still in REHEARSAL: validate tasks before approving
+    // If still in REHEARSAL: validate tasks before approving (same phase-aware logic)
     if ((version as any).status === 'REHEARSAL') {
-      const openCount = await prisma.task.count({
-        where: {
-          versionId,
-          status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK'] as any },
-        },
+      const goNogoPhase = await prisma.phase.findFirst({
+        where: { versionId, isGoNoGo: true },
+        select: { orderIndex: true },
       });
+
+      let openCount: number;
+      if (goNogoPhase) {
+        openCount = await prisma.task.count({
+          where: {
+            versionId,
+            status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK'] as any },
+            OR: [
+              { subPhase: { phase: { versionId, orderIndex: { lte: goNogoPhase.orderIndex } } } },
+              { subPhaseId: null },
+            ],
+          },
+        });
+      } else {
+        openCount = await prisma.task.count({
+          where: {
+            versionId,
+            status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK'] as any },
+          },
+        });
+      }
+
       if (openCount > 0) {
         throw new BadRequestException(
           `לא ניתן לאשר סיכום חזרה — ${openCount} משימות עדיין לא הושלמו`

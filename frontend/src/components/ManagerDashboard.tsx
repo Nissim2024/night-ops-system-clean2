@@ -53,6 +53,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [dialog, setDialog]                     = useState<DialogConfig | null>(null);
   const [toasts, setToasts]                     = useState<ToastItem[]>([]);
   const [warRoomRefresh, setWarRoomRefresh]      = useState(0);
+  const [myTeamId, setMyTeamId]                 = useState('');
 
   const payload  = JSON.parse(atob(token.split('.')[1]));
   const fullName = localStorage.getItem('deploycenter_fullName') || payload.fullName || 'מנהל';
@@ -69,22 +70,43 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
     return can(`screen:${key}`);
   });
 
-  // ברגע שההרשאות נטענות — קבע שלב ראשון
+  const hasAutoNavigated = React.useRef(false);
+
+  // Smart auto-navigation: once on initial load, land the user at the stage matching the system's current state
   useEffect(() => {
-    if (allowedKeys.length > 0 && !allowedKeys.includes(stage)) {
+    if (hasAutoNavigated.current) return;
+    if (!allowedKeys.length || !versions.length) return;
+
+    hasAutoNavigated.current = true;
+
+    const activeVer = versions.find((v: any) =>
+      !v.isArchived && ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(v.status)
+    );
+    const planningVer = versions.find((v: any) =>
+      !v.isArchived && ['DRAFT', 'COLLECTING', 'REFINING', 'REVIEW', 'APPROVED'].includes(v.status)
+    );
+    const completedVer = versions.find((v: any) =>
+      !v.isArchived && ['COMPLETED', 'ROLLED_BACK'].includes(v.status)
+    );
+
+    if (activeVer) {
+      setSelectedVersionId(activeVer.id);
+      if (allowedKeys.includes('handoff'))      setStage('handoff');
+      else if (allowedKeys.includes('night'))   setStage('night');
+      else                                       setStage(allowedKeys[0]);
+    } else if (planningVer) {
+      setSelectedVersionId(planningVer.id);
+      if (allowedKeys.includes('prep'))          setStage('prep');
+      else if (allowedKeys.includes('cr-review')) setStage('cr-review');
+      else                                       setStage(allowedKeys[0]);
+    } else if (completedVer) {
+      setSelectedVersionId(completedVer.id);
+      if (allowedKeys.includes('summary'))       setStage('summary');
+      else                                       setStage(allowedKeys[0]);
+    } else {
       setStage(allowedKeys[0]);
     }
-  }, [allowedKeys.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // TEAM_LEAD + feature flag: auto-navigate to prep when there's an active COLLECTING version
-  useEffect(() => {
-    if (!FEATURES.TEAM_LEAD_PROPOSAL || payload.role !== 'TEAM_LEAD' || !versions.length) return;
-    const collectingVersion = versions.find((v: any) => !v.isArchived && v.status === 'COLLECTING');
-    if (collectingVersion && allowedKeys.includes('prep')) {
-      setSelectedVersionId(collectingVersion.id);
-      setStage('prep');
-    }
-  }, [versions.length, allowedKeys.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [allowedKeys.join(','), versions.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useSocket({
     userId: payload.sub,
@@ -160,6 +182,17 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
 
   useEffect(() => {
     fetchVersions();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch own team for TEAM_LEAD role (used to filter tasks by team when lacking view_all_teams permission)
+  useEffect(() => {
+    if (payload.role !== 'TEAM_LEAD') return;
+    axios.get(`${API}/teams`, { headers }).then(res => {
+      const team = res.data.find((t: any) =>
+        t.members?.some((m: any) => m.userId === payload.sub || m.user?.id === payload.sub)
+      );
+      if (team) setMyTeamId(team.id);
+    }).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync filter to match selected version's category (when dropdown changes or on initial load)
@@ -671,7 +704,15 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                     )}
                   </div>
                 )}
-                <TeamView token={token} versionId={selectedVersionId} onTaskUpdated={fetchVersions} onSummaryReady={setSummaryReady} onCurrentPhaseChange={setCurrentPhaseName} refreshKey={warRoomRefresh} />
+                <TeamView
+                  token={token}
+                  versionId={selectedVersionId}
+                  teamId={payload.role === 'TEAM_LEAD' && !can('action:view_all_teams') ? myTeamId || undefined : undefined}
+                  onTaskUpdated={fetchVersions}
+                  onSummaryReady={setSummaryReady}
+                  onCurrentPhaseChange={setCurrentPhaseName}
+                  refreshKey={warRoomRefresh}
+                />
               </div>
             ) : (
               <NoActiveVersionMessage />

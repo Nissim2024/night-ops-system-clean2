@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 
 const API = 'http://localhost:3000';
 
@@ -100,8 +101,14 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   const [crItems, setCrItems]           = useState<CrItem[]>([]);
   const [users, setUsers]               = useState<User[]>([]);
   const [myTeamName, setMyTeamName]     = useState('');
+  const [myTeamId, setMyTeamId]         = useState('');
   const [teams, setTeams]               = useState<any[]>([]);
   const [loading, setLoading]           = useState(true);
+
+  // Submission state
+  const [submissionDone, setSubmissionDone] = useState(false);
+  const [submitting, setSubmitting]         = useState(false);
+  const [submitError, setSubmitError]       = useState<string | null>(null);
 
   // Proposal form
   const [showForm, setShowForm]         = useState(false);
@@ -116,6 +123,13 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   const [expandedPlans, setExpandedPlans] = useState<Set<string>>(new Set());
   const [crPlanForms, setCrPlanForms]   = useState<Record<string, CrPlanForm>>({});
   const [savingPlan, setSavingPlan]     = useState<string | null>(null);
+
+  // Sync state
+  const [syncLoading, setSyncLoading]   = useState(false);
+  const [syncError, setSyncError]       = useState<string | null>(null);
+
+  // Dialog state
+  const [dialog, setDialog] = useState<DialogConfig | null>(null);
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -149,7 +163,6 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   }, [versionId]); // eslint-disable-line
 
   useEffect(() => {
-    axios.get(`${API}/qc/cr-items`, { headers }).then(r => setCrItems(r.data)).catch(() => {});
     axios.get(`${API}/users`, { headers })
       .then(r => setUsers(r.data.filter((u: any) => u.active)
         .sort((a: any, b: any) => a.fullName.localeCompare(b.fullName, 'he'))))
@@ -160,11 +173,22 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   }, [versionId]); // eslint-disable-line
 
   useEffect(() => {
-    if (!myTeamName && proposals.length > 0 && teams.length > 0) {
+    if (!myTeamId && proposals.length > 0 && teams.length > 0) {
       const t = teams.find((x: any) => x.id === proposals[0].teamId);
-      if (t) setMyTeamName(t.name);
+      if (t) { setMyTeamName(t.name); setMyTeamId(t.id); }
     }
   }, [teams, proposals]); // eslint-disable-line
+
+  // Fetch submission status for this team
+  useEffect(() => {
+    if (!myTeamId || !versionId) return;
+    axios.get(`${API}/versions/${versionId}/submissions`, { headers })
+      .then(r => {
+        const mine = (r.data as any[]).find(s => s.teamId === myTeamId);
+        if (mine?.status === 'SUBMITTED') setSubmissionDone(true);
+      })
+      .catch(() => {});
+  }, [myTeamId, versionId]); // eslint-disable-line
 
   // Initialize crPlanForm for new CRs not yet saved
   useEffect(() => {
@@ -189,9 +213,13 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     return acc;
   }, {} as Record<string, Proposal[]>);
 
-  const crGroups = Object.entries(grouped)
-    .filter(([key]) => key !== FREE_KEY)
-    .sort(([a], [b]) => a.localeCompare(b));
+  const allCrKeys = new Set([
+    ...Object.keys(grouped).filter(k => k !== FREE_KEY),
+    ...Object.keys(crPlans),
+  ]);
+  const crGroups: [string, Proposal[]][] = Array.from(allCrKeys)
+    .sort()
+    .map(cr => [cr, grouped[cr] || []]);
   const freeGroup = grouped[FREE_KEY] || [];
 
   // All CR numbers that appear in proposals (for dependency picker)
@@ -252,16 +280,66 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     } finally { setSaving(false); }
   };
 
-  const remove = async (p: Proposal) => {
-    if (!window.confirm(`למחוק את "${p.title}"?`)) return;
-    await axios.delete(`${API}/task-proposals/${p.id}`, { headers });
-    await fetchProposals();
+  const remove = (p: Proposal) => {
+    setDialog({
+      title: 'מחיקת צעד',
+      message: `האם למחוק את הצעד "${p.title}"?\nפעולה זו בלתי הפיכה.`,
+      variant: 'danger',
+      confirmLabel: 'מחק',
+      cancelLabel: 'ביטול',
+      onConfirm: async () => {
+        await axios.delete(`${API}/task-proposals/${p.id}`, { headers });
+        await fetchProposals();
+      },
+      onCancel: () => {},
+    });
   };
 
   const toggleStatus = async (p: Proposal) => {
     const next = p.status === 'DRAFT' ? 'READY' : 'DRAFT';
     await axios.patch(`${API}/task-proposals/${p.id}`, { status: next }, { headers });
     await fetchProposals();
+  };
+
+  const syncCrItems = async () => {
+    setSyncLoading(true); setSyncError(null);
+    try {
+      const res = await axios.get(`${API}/import/crs-for-team?versionId=${versionId}`, { headers });
+      const crs: { crNumber: string; crLabel: string; application: string }[] = res.data;
+      if (crs.length === 0) {
+        setSyncError('לא נמצאו CR-ים עבור הצוות שלך בגרסה זו בקובץ');
+        return;
+      }
+      // Update the CR items list for the dropdown picker
+      setCrItems(crs.map(c => ({ id: c.crNumber, label: c.crLabel })));
+      // Create CrPlan entry for each CR found
+      await Promise.all(crs.map(c =>
+        axios.post(`${API}/cr-plans/version/${versionId}`, {
+          crNumber: c.crNumber,
+          crLabel: c.crLabel,
+        }, { headers }).catch(() => { /* skip if already exists */ })
+      ));
+      await fetchCrPlans();
+    } catch (e: any) {
+      setSyncError(e.response?.data?.message ?? 'שגיאה בטעינה מהקובץ — בדוק שהנתיב מוגדר נכון בפרמטרי המערכת');
+    } finally { setSyncLoading(false); }
+  };
+
+  const deleteCrGroup = (crNumber: string) => {
+    setDialog({
+      title: `מחיקת CR ${crNumber}`,
+      message: 'כל הצעדים תחת CR זה יימחקו.\nהפעולה בלתי הפיכה — האם להמשיך?',
+      variant: 'danger',
+      confirmLabel: 'מחק CR',
+      cancelLabel: 'ביטול',
+      onConfirm: async () => {
+        await axios.delete(`${API}/task-proposals/version/${versionId}/cr/${crNumber}`, { headers });
+        const plan = crPlans[crNumber];
+        if (plan) await axios.delete(`${API}/cr-plans/${plan.id}`, { headers });
+        await Promise.all([fetchProposals(), fetchCrPlans()]);
+      },
+      onCancel: () => {},
+    });
   };
 
   const togglePlanExpanded = (crNumber: string) => {
@@ -296,6 +374,17 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     finally { setSavingPlan(null); }
   };
 
+  const submitDone = async () => {
+    if (!myTeamId) return;
+    setSubmitting(true); setSubmitError(null);
+    try {
+      await axios.post(`${API}/versions/${versionId}/submit/${myTeamId}`, {}, { headers });
+      setSubmissionDone(true);
+    } catch (e: any) {
+      setSubmitError(e.response?.data?.message ?? 'שגיאה בהגשה');
+    } finally { setSubmitting(false); }
+  };
+
   const totalReady = proposals.filter(p => p.status === 'READY').length;
 
   // ── Form ────────────────────────────────────────────────────────────────────
@@ -313,6 +402,14 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             {form.isFree ? (
               <div style={{ padding: '8px 12px', background: '#f0f0f0', borderRadius: '6px', fontSize: '13px', color: '#666' }}>
                 ללא CR — משימה תשתיתית / כללית
+              </div>
+            ) : form.crNumber && form.crLabel ? (
+              // CR pre-set from CR group — show read-only badge with full label
+              <div style={{ padding: '8px 12px', background: '#e8f4fd', border: '1px solid #aed6f1', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ background: '#1a2332', color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold', fontFamily: 'monospace', flexShrink: 0 }}>
+                  {form.crNumber}
+                </span>
+                <span style={{ fontSize: '13px', color: '#1a5276', fontWeight: 'bold' }}>{form.crLabel.replace(`${form.crNumber} - `, '')}</span>
               </div>
             ) : (
               <>
@@ -435,6 +532,10 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         <span style={{ flex: 1, fontSize: '13px', fontWeight: 'bold', color: '#1a2332' }}>{p.title}</span>
         {p.usedInTaskId ? (
           <span style={{ fontSize: '11px', color: '#27ae60', fontWeight: 'bold', whiteSpace: 'nowrap', flexShrink: 0 }}>✅ בתוכנית</span>
+        ) : submissionDone ? (
+          <span style={{ fontSize: '11px', color: p.status === 'READY' ? '#27ae60' : '#f39c12', fontWeight: 'bold', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            {p.status === 'READY' ? '✓ מוכן' : 'טיוטא'}
+          </span>
         ) : (
           <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
             <button onClick={() => toggleStatus(p)} style={{
@@ -616,12 +717,22 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           >
             {isPlanExpanded ? '▲ תכנית CR' : `${hasPlanData ? '✓ ' : ''}📋 תכנית CR`}
           </button>
-          <button onClick={() => openAdd(crNumber, label)} style={{
-            padding: '4px 12px', background: '#2d4a7a', color: 'white',
-            border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', whiteSpace: 'nowrap',
-          }}>
-            + הוסף צעד
-          </button>
+          {!submissionDone && (
+            <button onClick={() => openAdd(crNumber, label)} style={{
+              padding: '4px 12px', background: '#2d4a7a', color: 'white',
+              border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', whiteSpace: 'nowrap',
+            }}>
+              + הוסף צעד
+            </button>
+          )}
+          {!submissionDone && (
+            <button onClick={() => deleteCrGroup(crNumber)} style={{
+              padding: '4px 10px', background: '#fee', color: '#e74c3c',
+              border: '1px solid #fcc', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', whiteSpace: 'nowrap',
+            }}>
+              🗑 מחק CR
+            </button>
+          )}
         </div>
 
         {isPlanExpanded && renderCrPlanPanel(crNumber)}
@@ -634,6 +745,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div style={{ direction: 'rtl', fontFamily: 'Arial, sans-serif' }}>
+      <ConfirmDialog config={dialog} onClose={() => setDialog(null)} />
 
       {/* Header */}
       <div style={{
@@ -653,27 +765,82 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
               {totalReady}/{proposals.length} מוכן
             </span>
           )}
-          <button onClick={() => openAdd()} style={{
-            padding: '8px 18px', background: 'rgba(255,255,255,0.2)', color: 'white',
-            border: '1px solid rgba(255,255,255,0.4)', borderRadius: '8px',
-            cursor: 'pointer', fontWeight: 'bold', fontSize: '13px',
-          }}>
-            + הוסף משימה
-          </button>
+          {!submissionDone && (
+            <button
+              onClick={syncCrItems}
+              disabled={syncLoading}
+              style={{
+                padding: '8px 18px', background: syncLoading ? 'rgba(255,255,255,0.1)' : 'rgba(46,204,113,0.35)',
+                color: 'white', border: '1px solid rgba(46,204,113,0.6)', borderRadius: '8px',
+                cursor: syncLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap',
+              }}
+            >
+              {syncLoading ? '⏳ מסנכרן...' : '🔄 סנכרן רשימת פיתוחים'}
+            </button>
+          )}
+          {!submissionDone && (
+            <button onClick={() => openAdd()} style={{
+              padding: '8px 18px', background: 'rgba(255,255,255,0.2)', color: 'white',
+              border: '1px solid rgba(255,255,255,0.4)', borderRadius: '8px',
+              cursor: 'pointer', fontWeight: 'bold', fontSize: '13px',
+            }}>
+              + הוסף משימה
+            </button>
+          )}
+          {submissionDone ? (
+            <span style={{ padding: '8px 18px', background: '#27ae60', color: 'white', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px' }}>
+              הוגש ✓
+            </span>
+          ) : (
+            <button
+              onClick={submitDone}
+              disabled={submitting}
+              style={{ padding: '8px 18px', background: submitting ? '#aaa' : '#e74c3c', color: 'white', border: 'none', borderRadius: '8px', cursor: submitting ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+            >
+              {submitting ? '...' : 'סיימתי הגשה'}
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Form */}
-      {showForm && renderForm()}
+      {/* Sync error */}
+      {syncError && (
+        <div style={{ background: '#fee', border: '1px solid #e74c3c', borderRadius: '8px', padding: '10px 16px', marginBottom: '12px', fontSize: '13px', color: '#c0392b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          ⚠️ {syncError}
+          <button onClick={() => setSyncError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', fontWeight: 'bold', marginRight: 'auto' }}>×</button>
+        </div>
+      )}
 
-      {/* Content */}
+      {/* Submission error */}
+      {submitError && (
+        <div style={{ background: '#fee', border: '1px solid #e74c3c', borderRadius: '8px', padding: '10px 16px', marginBottom: '12px', fontSize: '13px', color: '#c0392b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          ⚠️ {submitError}
+          <button onClick={() => setSubmitError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', fontWeight: 'bold', marginRight: 'auto' }}>×</button>
+        </div>
+      )}
+
+      {/* Submitted banner */}
+      {submissionDone && (
+        <div style={{ background: '#e8f8e8', border: '2px solid #27ae60', borderRadius: '10px', padding: '14px 20px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{ fontSize: '24px' }}>✅</span>
+          <div>
+            <div style={{ fontWeight: 'bold', color: '#1a5c2a', fontSize: '15px' }}>ההגשה הושלמה</div>
+            <div style={{ fontSize: '13px', color: '#27ae60', marginTop: '2px' }}>מנהל הלילה יוכל לקדם את התוכנית לשלב הבא לאחר שכל הצוותים יגישו</div>
+          </div>
+        </div>
+      )}
+
+      {/* Form */}
+      {!submissionDone && showForm && renderForm()}
+
+      {/* Content — read-only after submission */}
       {loading ? (
         <div style={{ padding: '40px', textAlign: 'center', color: '#888' }}>טוען...</div>
-      ) : proposals.length === 0 && !showForm ? (
+      ) : crGroups.length === 0 && freeGroup.length === 0 && !showForm ? (
         <div style={{ padding: '60px 40px', textAlign: 'center', background: 'white', borderRadius: '12px', color: '#aaa' }}>
           <div style={{ fontSize: '48px', marginBottom: '12px' }}>📋</div>
           <div style={{ fontSize: '16px', marginBottom: '6px', color: '#666' }}>אין משימות עדיין</div>
-          <div style={{ fontSize: '13px' }}>לחץ "הוסף משימה" — בחר CR מה-QC או סמן "ללא CR" למשימות תשתית</div>
+          <div style={{ fontSize: '13px' }}>לחץ "🔄 סנכרן רשימת פיתוחים" לטעינה אוטומטית של CR-ים מקובץ הפיתוחים</div>
         </div>
       ) : (
         <>
@@ -691,12 +858,14 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                   ללא CR
                 </span>
                 <span style={{ fontSize: '13px', color: '#666', flex: 1 }}>משימות תשתיתיות / כלליות</span>
-                <button onClick={() => openAdd(undefined, undefined, true)} style={{
-                  padding: '4px 12px', background: '#7f8c8d', color: 'white',
-                  border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', whiteSpace: 'nowrap',
-                }}>
-                  + הוסף משימה
-                </button>
+                {!submissionDone && (
+                  <button onClick={() => openAdd(undefined, undefined, true)} style={{
+                    padding: '4px 12px', background: '#7f8c8d', color: 'white',
+                    border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', whiteSpace: 'nowrap',
+                  }}>
+                    + הוסף משימה
+                  </button>
+                )}
               </div>
               {freeGroup.sort((a, b) => a.phase - b.phase).map(renderRow)}
             </div>

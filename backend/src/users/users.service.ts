@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, ConflictException, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
@@ -172,7 +172,7 @@ const HARDCODED_QC_USERS: QcUser[] = [
 @Injectable()
 export class UsersService {
   async findByEmail(email: string) {
-    return prisma.user.findUnique({ where: { email } });
+    return prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
   }
 
   async findById(id: string) {
@@ -242,6 +242,38 @@ export class UsersService {
     if (!user) throw new NotFoundException('User not found');
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await prisma.user.update({ where: { id }, data: { password: hashedPassword } });
+    return { ok: true };
+  }
+
+  async delete(id: string, requestingUserId: string): Promise<{ ok: true }> {
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException('משתמש לא נמצא');
+
+    if (id === requestingUserId)
+      throw new ForbiddenException('לא ניתן למחוק את החשבון שלך');
+
+    if (ADMIN_EMAILS.map(e => e.toLowerCase()).includes(user.email.toLowerCase()))
+      throw new ForbiddenException('לא ניתן למחוק חשבון מנהל מוגן');
+
+    const [versionCount, taskCount, templateCount] = await Promise.all([
+      prisma.version.count({ where: { createdBy: id } }),
+      prisma.task.count({ where: { createdBy: id } }),
+      prisma.versionTemplate.count({ where: { createdBy: id } }),
+    ]);
+
+    if (versionCount > 0 || taskCount > 0 || templateCount > 0)
+      throw new ConflictException(
+        `לא ניתן למחוק — למשתמש יש ${versionCount} גרסאות, ${taskCount} משימות, ${templateCount} תבניות במערכת. השתמש בהשבתה במקום.`
+      );
+
+    await prisma.$transaction([
+      prisma.teamMember.deleteMany({ where: { userId: id } }),
+      prisma.teamSubmission.updateMany({ where: { submittedBy: id }, data: { submittedBy: null } }),
+      prisma.task.updateMany({ where: { assignedUserId: id }, data: { assignedUserId: null, assignedUserName: null } }),
+      prisma.auditLog.deleteMany({ where: { userId: id } }),
+      prisma.user.delete({ where: { id } }),
+    ]);
+
     return { ok: true };
   }
 

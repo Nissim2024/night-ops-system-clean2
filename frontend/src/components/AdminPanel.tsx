@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { usePermissions } from '../context/PermissionsContext';
+import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 
 const API = 'http://localhost:3000';
 
@@ -49,7 +50,7 @@ interface QcRelease {
 }
 
 export const AdminPanel: React.FC<Props> = ({ token }) => {
-  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users'>('users');
+  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params'>('users');
   const { allPermissions, updateRole, saving: permSaving } = usePermissions();
   const [users, setUsers]     = useState<any[]>([]);
   const [teams, setTeams]     = useState<any[]>([]);
@@ -64,6 +65,13 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
   // QC Users sync state
   const [userSyncing, setUserSyncing]       = useState(false);
   const [userSyncResult, setUserSyncResult] = useState<string | null>(null);
+
+  // System params state
+  const [systemParams, setSystemParams]     = useState<{ key: string; label: string; value: string; type: string }[]>([]);
+  const [editingParam, setEditingParam]     = useState<string | null>(null);
+  const [paramValue, setParamValue]         = useState('');
+  const [savingParam, setSavingParam]       = useState(false);
+  const [paramError, setParamError]         = useState<string | null>(null);
 
   // User form state
   const [showUserForm, setShowUserForm]   = useState(false);
@@ -91,6 +99,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
   // User search & filter
   const [userSearch, setUserSearch]     = useState('');
   const [userRoleFilter, setUserRoleFilter] = useState<string>('');
+  const [dialog, setDialog] = useState<DialogConfig | null>(null);
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -98,14 +107,16 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
     setLoading(true);
     setError(null);
     try {
-      const [u, t, qc] = await Promise.all([
+      const [u, t, qc, sp] = await Promise.all([
         axios.get(`${API}/users`, { headers }),
         axios.get(`${API}/teams`, { headers }),
         axios.get(`${API}/qc-releases`, { headers }),
+        axios.get(`${API}/system-params`, { headers }),
       ]);
       setUsers(u.data);
       setTeams(t.data);
       setQcReleases(qc.data);
+      setSystemParams(sp.data);
     } catch (e: any) {
       setError(e?.response?.data?.message || 'שגיאה בטעינת נתונים');
     } finally {
@@ -142,19 +153,39 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
     }
   };
 
-  const syncQcUsers = async () => {
-    if (!window.confirm('פעולה זו תסנכרן את רשימת המשתמשים עם רשימת משתמשי QC.\nמשתמשים שאינם ברשימה יושבתו. להמשיך?')) return;
-    setUserSyncing(true);
-    setUserSyncResult(null);
+  const syncQcUsers = () => {
+    setDialog({
+      title: 'סנכרון משתמשי QC',
+      message: 'פעולה זו תסנכרן את רשימת המשתמשים עם רשימת משתמשי QC.\nמשתמשים שאינם ברשימה יושבתו.',
+      variant: 'warning',
+      confirmLabel: 'סנכרן',
+      cancelLabel: 'ביטול',
+      onConfirm: async () => {
+        setUserSyncing(true);
+        setUserSyncResult(null);
+        try {
+          const res = await axios.post(`${API}/users/sync-qc`, {}, { headers });
+          setUserSyncResult(`✓ נוצרו: ${res.data.created} | עודכנו: ${res.data.updated} | הושבתו: ${res.data.deactivated}`);
+          fetchAll();
+        } catch (e: any) {
+          setUserSyncResult(`שגיאה: ${e?.response?.data?.message || e.message}`);
+        } finally {
+          setUserSyncing(false);
+        }
+      },
+      onCancel: () => {},
+    });
+  };
+
+  const saveParam = async (key: string) => {
+    setSavingParam(true); setParamError(null);
     try {
-      const res = await axios.post(`${API}/users/sync-qc`, {}, { headers });
-      setUserSyncResult(`✓ נוצרו: ${res.data.created} | עודכנו: ${res.data.updated} | הושבתו: ${res.data.deactivated}`);
-      fetchAll();
+      await axios.patch(`${API}/system-params/${key}`, { value: paramValue }, { headers });
+      setSystemParams(prev => prev.map(p => p.key === key ? { ...p, value: paramValue } : p));
+      setEditingParam(null);
     } catch (e: any) {
-      setUserSyncResult(`שגיאה: ${e?.response?.data?.message || e.message}`);
-    } finally {
-      setUserSyncing(false);
-    }
+      setParamError(e?.response?.data?.message || 'שגיאה בשמירה');
+    } finally { setSavingParam(false); }
   };
 
   useEffect(() => { fetchAll(); }, []); // eslint-disable-line
@@ -227,6 +258,26 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
     }
   };
 
+  const deleteUser = (u: any) => {
+    setDialog({
+      title: 'מחיקת משתמש',
+      message: `למחוק לצמיתות את "${u.fullName}"?\n\nהמשתמש יוסר מהמערכת לחלוטין — לא ניתן לשחזר.\nאם למשתמש יש גרסאות/משימות במערכת, המחיקה תיחסם — השתמש בהשבתה במקום.`,
+      variant: 'danger',
+      confirmLabel: 'מחק לצמיתות',
+      cancelLabel: 'ביטול',
+      onConfirm: async () => {
+        setError(null);
+        try {
+          await axios.delete(`${API}/users/${u.id}`, { headers });
+          fetchAll();
+        } catch (e: any) {
+          setError(e?.response?.data?.message || 'שגיאה במחיקת המשתמש');
+        }
+      },
+      onCancel: () => {},
+    });
+  };
+
   const doResetPassword = async () => {
     if (!resetUserId || !newPassword.trim()) return;
     setSavingPwd(true);
@@ -290,15 +341,24 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
     }
   };
 
-  const deleteTeam = async (t: any) => {
-    if (!window.confirm(`למחוק את הצוות "${t.name}"?\nפעולה זו בלתי הפיכה.`)) return;
-    setError(null);
-    try {
-      await axios.delete(`${API}/teams/${t.id}`, { headers });
-      fetchAll();
-    } catch (e: any) {
-      setError(e?.response?.data?.message || e?.response?.data?.error || 'שגיאה במחיקת הצוות');
-    }
+  const deleteTeam = (t: any) => {
+    setDialog({
+      title: `מחיקת צוות`,
+      message: `האם למחוק את הצוות "${t.name}"?\nפעולה זו בלתי הפיכה.`,
+      variant: 'danger',
+      confirmLabel: 'מחק צוות',
+      cancelLabel: 'ביטול',
+      onConfirm: async () => {
+        setError(null);
+        try {
+          await axios.delete(`${API}/teams/${t.id}`, { headers });
+          fetchAll();
+        } catch (e: any) {
+          setError(e?.response?.data?.message || e?.response?.data?.error || 'שגיאה במחיקת הצוות');
+        }
+      },
+      onCancel: () => {},
+    });
   };
 
   // ── Render ────────────────────────────────────────────────────────────
@@ -313,6 +373,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
 
   return (
     <div style={{ direction: 'rtl', fontFamily: 'Arial' }}>
+      <ConfirmDialog config={dialog} onClose={() => setDialog(null)} />
 
       {/* Header */}
       <div style={{ background: 'white', borderRadius: '12px', padding: '20px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
@@ -324,6 +385,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
             { key: 'permissions', label: '🔐 הרשאות' },
             { key: 'qc-releases', label: '📋 גרסאות QC' },
             { key: 'qc-users',    label: '🔄 סנכרון משתמשים' },
+            { key: 'params',      label: '⚙️ פרמטרי מערכת' },
           ] as const).map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} style={{
               padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer',
@@ -559,6 +621,10 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                             <button onClick={() => toggleActive(u)} title={u.active ? 'השבת' : 'הפעל'}
                               style={{ padding: '5px 10px', background: u.active ? '#e74c3c' : '#27ae60', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
                               {u.active ? '🚫' : '✅'}
+                            </button>
+                            <button onClick={() => deleteUser(u)} title="מחק משתמש"
+                              style={{ padding: '5px 10px', background: '#7f1d1d', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                              🗑️
                             </button>
                           </div>
                         </td>
@@ -826,6 +892,76 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
           {/* ── PERMISSIONS TAB ── */}
           {tab === 'permissions' && (
             <PermissionsTab allPermissions={allPermissions} updateRole={updateRole} saving={permSaving} />
+          )}
+
+          {/* ── SYSTEM PARAMS TAB ── */}
+          {tab === 'params' && (
+            <div style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+              <h3 style={{ margin: '0 0 4px', color: '#1a2332' }}>⚙️ פרמטרי מערכת</h3>
+              <p style={{ margin: '0 0 20px', fontSize: '13px', color: '#888' }}>הגדרות גלובליות השולטות בתהליכים במערכת</p>
+              {paramError && (
+                <div style={{ background: '#fee', border: '1px solid #e74c3c', borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', fontSize: '13px', color: '#c0392b' }}>
+                  ⚠️ {paramError}
+                </div>
+              )}
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#f0f4f8' }}>
+                    {['תיאור', 'מפתח', 'ערך נוכחי', 'פעולות'].map(h => (
+                      <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: '12px', color: '#555', fontWeight: 'bold', border: '1px solid #e0e0e0' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {systemParams.map(p => (
+                    <tr key={p.key} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                      <td style={{ padding: '12px 14px', fontSize: '14px', fontWeight: 'bold', color: '#1a2332', border: '1px solid #e0e0e0' }}>{p.label}</td>
+                      <td style={{ padding: '12px 14px', fontFamily: 'monospace', fontSize: '12px', color: '#666', border: '1px solid #e0e0e0' }}>{p.key}</td>
+                      <td style={{ padding: '12px 14px', border: '1px solid #e0e0e0', minWidth: '260px' }}>
+                        {editingParam === p.key ? (
+                          <input
+                            autoFocus
+                            value={paramValue}
+                            onChange={e => setParamValue(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') saveParam(p.key); if (e.key === 'Escape') setEditingParam(null); }}
+                            style={{ width: '100%', padding: '6px 10px', border: '2px solid #2d4a7a', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', direction: 'ltr' }}
+                            placeholder="הזן ערך..."
+                          />
+                        ) : (
+                          <span style={{ fontSize: '13px', color: p.value ? '#333' : '#bbb', fontStyle: p.value ? 'normal' : 'italic', direction: 'ltr', display: 'inline-block' }}>
+                            {p.value || 'לא הוגדר'}
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 14px', border: '1px solid #e0e0e0', whiteSpace: 'nowrap' }}>
+                        {editingParam === p.key ? (
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button onClick={() => saveParam(p.key)} disabled={savingParam}
+                              style={{ padding: '5px 14px', background: savingParam ? '#aaa' : '#27ae60', color: 'white', border: 'none', borderRadius: '6px', cursor: savingParam ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                              {savingParam ? '...' : 'שמור'}
+                            </button>
+                            <button onClick={() => { setEditingParam(null); setParamError(null); }}
+                              style={{ padding: '5px 12px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                              ביטול
+                            </button>
+                          </div>
+                        ) : (
+                          <button onClick={() => { setEditingParam(p.key); setParamValue(p.value); setParamError(null); }}
+                            style={{ padding: '5px 14px', background: '#2d4a7a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                            ✏️ ערוך
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {systemParams.length === 0 && (
+                    <tr>
+                      <td colSpan={4} style={{ padding: '30px', textAlign: 'center', color: '#aaa', fontSize: '13px' }}>אין פרמטרים מוגדרים</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           )}
         </>
       )}

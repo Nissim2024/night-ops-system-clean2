@@ -1,5 +1,5 @@
 import {
-  Controller, Post, UploadedFile, UseInterceptors,
+  Controller, Post, Get, Query, UploadedFile, UseInterceptors,
   Body, Request, UseGuards, ForbiddenException, BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -21,6 +21,15 @@ const ALLOWED_MIMETYPES = [
 @Controller('import')
 export class ImportController {
   constructor(private importService: ImportService) {}
+
+  @Get('crs-for-team')
+  async getCrsForTeam(
+    @Query('versionId') versionId: string,
+    @Request() req: any,
+  ) {
+    if (!versionId) throw new BadRequestException('versionId חסר');
+    return this.importService.fetchCrsForTeam(versionId, req.user.sub);
+  }
 
   @Post('excel')
   @UseInterceptors(FileInterceptor('file'))

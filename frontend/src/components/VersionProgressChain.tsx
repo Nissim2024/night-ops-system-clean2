@@ -20,9 +20,9 @@ const STAGES = [
     color: '#2d4a7a',
     subs: [
       { label: 'טיוטא',              status: 'DRAFT'      },
-      { label: 'מעבר על התוכנית',   status: 'COLLECTING'  },
-      { label: 'בחינת תוכנית',      status: 'REFINING'    },
-      { label: 'סקירת תוכנית',      status: 'REVIEW'      },
+      { label: 'איסוף משימות',        status: 'COLLECTING'  },
+      { label: 'עריכת תוכנית',       status: 'REFINING'    },
+      { label: 'אישור גורמים',       status: 'REVIEW'      },
       { label: 'אישור תוכנית',      status: 'APPROVED'    },
     ],
   },

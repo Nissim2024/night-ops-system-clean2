@@ -89,6 +89,8 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
     } catch { /* silent */ }
   };
 
+  const [planningVersion, setPlanningVersion] = useState<any>(null);
+
   useEffect(() => {
     setLoading(true);
     Promise.all([
@@ -101,9 +103,17 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
           t.members?.some((m: any) => m.userId === userId || m.user?.id === userId)
         );
         setMyTeam(team || null);
-        const active = versionsRes.data.find((v: any) => ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(v.status));
+        const allVersions: any[] = versionsRes.data;
+        const active = allVersions.find((v: any) => ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(v.status));
         setActiveVersion(active || null);
-        if (active) fetchTaskStats(active.id);
+        if (active) {
+          fetchTaskStats(active.id);
+        } else {
+          const planning = allVersions.find((v: any) =>
+            !v.isArchived && ['DRAFT', 'COLLECTING', 'REFINING', 'REVIEW', 'APPROVED'].includes(v.status)
+          );
+          setPlanningVersion(planning || null);
+        }
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -211,16 +221,33 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 </div>
                 <TeamView token={token} teamId={myTeam.id} teamName={myTeam.name} versionId={activeVersion.id} userId={payload.sub} userName={fullName} refreshKey={refreshKey} hideAddTask />
               </>
-            ) : (
-              <div style={{
-                textAlign: 'center', padding: '80px', color: '#666',
-                background: 'white', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-              }}>
-                <div style={{ fontSize: '64px' }}>🌙</div>
-                <h2 style={{ color: '#1a2332', marginTop: '16px' }}>אין פעילות פעילה הלילה</h2>
-                <p style={{ color: '#888' }}>הגרסה עדיין בשלב תכנון. המתן להנחיות מנהל הלילה.</p>
-              </div>
-            )}
+            ) : (() => {
+              const PLANNING_MSG: Record<string, { icon: string; title: string; sub: string }> = {
+                DRAFT:     { icon: '📝', title: 'הגרסה בשלב טיוטה',         sub: 'מנהל הלילה מכין את תוכנית העבודה. המתן לפתיחת שלב האיסוף.' },
+                COLLECTING:{ icon: '📋', title: 'שלב איסוף המשימות פתוח',   sub: 'ראשי הצוותים מגישים הצעות למשימות. ההרצה תתחיל לאחר אישור התוכנית.' },
+                REFINING:  { icon: '🔧', title: 'התוכנית בעריכה פנימית',    sub: 'מנהל הלילה עורך ומסדר את המשימות. בקרוב תשלח לאישור.' },
+                REVIEW:    { icon: '🔍', title: 'התוכנית ממתינה לאישור',    sub: 'הגרסה נמצאת בסקירה. ההרצה תחל לאחר קבלת אישורים.' },
+                APPROVED:  { icon: '✅', title: 'הגרסה אושרה — מוכנים!',   sub: 'התוכנית סגורה ומאושרת. ההרצה עתידה להתחיל בקרוב.' },
+              };
+              const info = planningVersion
+                ? (PLANNING_MSG[planningVersion.status] ?? { icon: '🌙', title: 'אין פעילות פעילה', sub: 'המתן להנחיות מנהל הלילה.' })
+                : { icon: '🌙', title: 'אין פעילות פעילה הלילה', sub: 'אין גרסה פעילה כעת. המתן להנחיות מנהל הלילה.' };
+              return (
+                <div style={{
+                  textAlign: 'center', padding: '80px', color: '#666',
+                  background: 'white', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                }}>
+                  <div style={{ fontSize: '64px' }}>{info.icon}</div>
+                  <h2 style={{ color: '#1a2332', marginTop: '16px' }}>{info.title}</h2>
+                  <p style={{ color: '#888' }}>{info.sub}</p>
+                  {planningVersion && (
+                    <div style={{ marginTop: '16px', background: '#f8f9fa', borderRadius: '10px', padding: '10px 20px', display: 'inline-block', fontSize: '13px', color: '#555' }}>
+                      גרסה: <strong>{planningVersion.name}</strong>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </>
         ) : (
           <div style={{

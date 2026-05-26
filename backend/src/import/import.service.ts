@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
+import * as fs from 'fs';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
@@ -384,6 +385,19 @@ export class ImportService {
       }
     }
 
+    // Auto-set isGoNoGo on the second-to-last phase (the last phase = morning-after)
+    if (phaseOrder >= 2) {
+      const allPhases = await prisma.phase.findMany({
+        where: { versionId: version.id },
+        orderBy: { orderIndex: 'asc' },
+        select: { id: true },
+      });
+      const goNogoPhaseId = allPhases[allPhases.length - 2]?.id;
+      if (goNogoPhaseId) {
+        await prisma.phase.update({ where: { id: goNogoPhaseId }, data: { isGoNoGo: true } });
+      }
+    }
+
     return {
       success: true,
       message: `הייבוא הושלם בהצלחה`,
@@ -399,5 +413,124 @@ export class ImportService {
         missingDepRows,
       },
     };
+  }
+
+  // ── Team column mapping: DB team name → Excel column header(s) ──
+  private static readonly TEAM_COLUMNS: Record<string, string[]> = {
+    'CAWA Team':               ['CAWA'],
+    'CRM Dev Team':            ['CRM'],
+    'Cyber Security Team':     ['CYBER', 'Cyber PT', 'אבט"מ'],
+    'DBA Team':                ['DBA'],
+    'EAI Team':                ['EAI'],
+    'ERP Team':                ['ERP'],
+    'ETL Team':                ['ETL'],
+    'IVR Team':                ['IVR'],
+    'JACADA Team':             ['JACADA'],
+    'MAILIT Team':             ['MAILIT'],
+    'NC Team':                 ['NC'],
+    'NETCOL Team':             ['NETCOL'],
+    'OSS Team':                ['OSS'],
+    'PrintBoss Team':          ['PRINTBOS'],
+    'Provisioning Team':       ['PROV'],
+    'PT Team':                 ['PT'],
+    'QA Team':                 ['QA', 'QA BI', 'QA מוצרים'],
+    'BI Team':                 ['BI'],
+    'REMEDY Team':             ['REMEDY'],
+    'Setup Team':              ['SETUP', 'Setup יש'],
+    'TV Team':                 ['TV'],
+    'Web Dev Team':            ['WEB'],
+    'NETC Team':               ['WIZ'],
+    'Billing Operations Team': ['תפעול בילינג'],
+    'Telecom Team':            ['תקשורת'],
+  };
+
+  async fetchCrsForTeam(versionId: string, userId: string): Promise<{ crNumber: string; crLabel: string; application: string }[]> {
+    // 1. Read file path from SystemParam
+    const param = await prisma.systemParam.findUnique({ where: { key: 'EXCEL_FILE_PATH' } });
+    const filePath = param?.value?.trim();
+    if (!filePath) throw new BadRequestException('נתיב קובץ הגשת פיתוחים לא הוגדר בפרמטרי המערכת');
+    if (!fs.existsSync(filePath)) throw new BadRequestException(`הקובץ לא נמצא בנתיב: ${filePath}`);
+
+    // 2. Get version name
+    const version = await prisma.version.findUnique({ where: { id: versionId }, select: { name: true } });
+    if (!version) throw new BadRequestException('גרסה לא נמצאה');
+
+    // 3. Find team for this user (any membership — role is already verified by JWT)
+    const membership = await prisma.teamMember.findFirst({
+      where: { userId },
+      include: { team: true },
+    });
+    if (!membership) throw new BadRequestException('המשתמש אינו משויך לאף צוות');
+
+    const teamName = membership.team.name;
+    const teamCols = ImportService.TEAM_COLUMNS[teamName];
+    if (!teamCols || teamCols.length === 0) throw new BadRequestException(`לא הוגדרו עמודות לצוות "${teamName}" בקובץ`);
+
+    // 4. Parse Excel
+    const buffer = fs.readFileSync(filePath);
+    const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    if (rows.length < 2) return [];
+
+    // 5. Find header row by scanning first 10 rows for 'CR #'
+    const REQUIRED_COLS = ['# CR', 'כותרת', 'גרסה'];
+    let headerRowIdx = -1;
+    for (let i = 0; i < Math.min(10, rows.length); i++) {
+      const row = (rows[i] as any[]).map(h => String(h ?? '').trim());
+      if (REQUIRED_COLS.every(col => row.includes(col))) {
+        headerRowIdx = i;
+        break;
+      }
+    }
+    if (headerRowIdx === -1) {
+      // Log what we found for easier debugging
+      const sample = (rows[0] as any[]).slice(0, 10).map(h => String(h ?? '').trim()).join(', ');
+      throw new BadRequestException(`מבנה הקובץ אינו תקין — עמודות חובה חסרות. עמודות שנמצאו בשורה 1: ${sample}`);
+    }
+
+    const headers: string[] = (rows[headerRowIdx] as any[]).map(h => String(h ?? '').trim());
+    const colIdx = (name: string) => headers.findIndex(h => h === name);
+
+    const crCol     = colIdx('# CR');
+    const titleCol  = colIdx('כותרת');
+    const verCol    = colIdx('גרסה');
+    const statusCol = colIdx('סטטוס');
+    const appCol    = colIdx('מאפיין');
+
+    const teamColIdxs = teamCols.map(colIdx).filter(i => i !== -1);
+
+    // 6. Filter rows
+    const results: { crNumber: string; crLabel: string; application: string }[] = [];
+    const seen = new Set<string>();
+
+    for (let r = headerRowIdx + 1; r < rows.length; r++) {
+      const row = rows[r] as any[];
+      const rowVersion = String(row[verCol] ?? '').trim();
+      const rowStatus  = String(row[statusCol] ?? '').trim();
+      const crNumber   = String(row[crCol] ?? '').trim();
+      const title      = String(row[titleCol] ?? '').trim();
+
+      if (!crNumber || !title) continue;
+      if (rowVersion !== version.name) continue;
+      if (rowStatus === 'מבוטל') continue;
+
+      // Check if any team column > 1
+      const involved = teamColIdxs.some(ci => {
+        const val = parseFloat(String(row[ci] ?? '0').replace(/[^\d.]/g, ''));
+        return !isNaN(val) && val > 1;
+      });
+      if (!involved) continue;
+      if (seen.has(crNumber)) continue;
+
+      seen.add(crNumber);
+      results.push({
+        crNumber,
+        crLabel: `${crNumber} - ${title}`,
+        application: appCol !== -1 ? String(row[appCol] ?? '').trim() : '',
+      });
+    }
+
+    return results;
   }
 }

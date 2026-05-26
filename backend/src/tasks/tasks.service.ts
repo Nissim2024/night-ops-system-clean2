@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { EventsGateway } from '../events/events.gateway';
 import { PrismaClient, TaskStatus, Priority } from '@prisma/client';
 
@@ -92,6 +92,7 @@ export class TasksService {
     dueDate?: string;
     createdBy: string;
   }) {
+    if (!data.title?.trim()) throw new BadRequestException('שדה "כותרת" הוא חובה');
     const task = await prisma.task.create({
       data: {
         ...data,
@@ -120,7 +121,12 @@ export class TasksService {
     status: TaskStatus,
     userId: string,
     ipAddress?: string,
+    blockedReason?: string,
   ) {
+    const VALID_STATUSES: TaskStatus[] = ['OPEN', 'WAITING', 'IN_PROGRESS', 'DONE', 'FAILED', 'ROLLED_BACK', 'BLOCKED'];
+    if (!VALID_STATUSES.includes(status)) {
+      throw new BadRequestException(`סטטוס לא חוקי: "${status}". ערכים מותרים: ${VALID_STATUSES.join(', ')}`);
+    }
     const before = await prisma.task.findUnique({ where: { id } });
     if (!before) throw new NotFoundException('Task not found');
 
@@ -130,6 +136,9 @@ export class TasksService {
     }
     if (status === 'DONE' || status === 'FAILED') {
       statusData.actualFinish = new Date();
+    }
+    if (status === 'BLOCKED' && blockedReason !== undefined) {
+      statusData.blockedReason = blockedReason;
     }
 
     const task = await prisma.task.update({
@@ -153,11 +162,20 @@ export class TasksService {
     });
 
     this.eventsGateway.emitTaskUpdated(task);
+
     if (status === 'BLOCKED') {
       this.eventsGateway.emitTaskBlocked(task);
+    } else if (before.status === 'BLOCKED') {
+      // was blocked, now unblocked
+      this.eventsGateway.emitTaskUnblocked(task);
     }
 
-    if (status === 'DONE') {
+    if (status === 'OPEN') {
+      this.eventsGateway.emitTaskOpen(task);
+    } else if (status === 'IN_PROGRESS') {
+      this.eventsGateway.emitTaskStarted(task);
+    } else if (status === 'DONE') {
+      this.eventsGateway.emitTaskCompleted(task);
       await this.autoOpenDependents(id);
     }
 

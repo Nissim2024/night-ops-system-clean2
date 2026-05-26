@@ -136,17 +136,23 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
       try {
         const versionRes = await axios.get(`${API}/versions/${versionId}`, { headers });
         setVersion(versionRes.data);
+        let loadedTasks: any[] = [];
         if (isRehearsal) {
           if (versionRes.data.status === 'REHEARSAL') {
             const tasksRes = await axios.get(`${API}/tasks?versionId=${versionId}`, { headers });
-            setTasks(tasksRes.data);
+            loadedTasks = tasksRes.data;
           } else {
-            setTasks(versionRes.data.lastRehearsalSnapshot ?? []);
+            loadedTasks = versionRes.data.lastRehearsalSnapshot ?? [];
           }
         } else {
           const tasksRes = await axios.get(`${API}/tasks?versionId=${versionId}`, { headers });
-          setTasks(tasksRes.data);
+          loadedTasks = tasksRes.data;
         }
+        setTasks(loadedTasks);
+        // Pre-fill any reasons that were already saved to the DB
+        const saved: Record<string, string> = {};
+        loadedTasks.forEach((t: any) => { if (t.delayReason) saved[t.id] = t.delayReason; });
+        if (Object.keys(saved).length > 0) setDelayReasons(saved);
       } catch (err) { console.error(err); }
       finally { setLoading(false); }
     };
@@ -165,15 +171,22 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
   const nonWaitingTasks = tasks.filter(t => t.status !== 'WAITING');
   const incompleteCount = nonWaitingTasks.filter(t => t.status !== 'DONE').length;
 
-  // Phase-4 (morning-after) tasks must never block the night summary — summary covers only
-  // the night activity (phases 1-3). Exclude them from all goNogo counts unconditionally.
+  // Tasks in phases AFTER the isGoNoGo phase (morning-after phases) must never block approval.
+  // The isGoNoGo phase is configurable; fall back to treating the last phase as morning-after.
   const isActiveRun = version?.status === 'ACTIVE' && !isRehearsal;
   const morningSubPhaseIds = React.useMemo<Set<string>>(() => {
     if (!version?.phases?.length) return new Set();
-    const sorted = [...version.phases].sort((a: any, b: any) => b.orderIndex - a.orderIndex);
-    const lastPhase = sorted[0];
     const ids = new Set<string>();
-    (lastPhase.subPhases ?? []).forEach((sp: any) => ids.add(sp.id));
+    const goNogoPhase = version.phases.find((p: any) => p.isGoNoGo);
+    if (goNogoPhase) {
+      version.phases
+        .filter((p: any) => p.orderIndex > goNogoPhase.orderIndex)
+        .forEach((ph: any) => (ph.subPhases ?? []).forEach((sp: any) => ids.add(sp.id)));
+    } else {
+      // Fallback: treat last phase as morning-after
+      const sorted = [...version.phases].sort((a: any, b: any) => b.orderIndex - a.orderIndex);
+      (sorted[0].subPhases ?? []).forEach((sp: any) => ids.add(sp.id));
+    }
     return ids;
   }, [version]);
 
@@ -181,7 +194,9 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 
   // For active runs and rehearsals, WAITING tasks = morning-after tasks that weren't executed yet.
   // They must not block summary approval — the summary is about the night activity only.
-  const goNogoWaiting = (isActiveRun || isRehearsal) ? 0 : waitingTasks.length;
+  // For active runs, WAITING tasks are morning-after tasks and don't block GO.
+  // For rehearsal or other states, only morning-phase tasks (after isGoNoGo) are excluded.
+  const goNogoWaiting = isActiveRun ? 0 : waitingTasks.filter(t => !isMorningTask(t)).length;
   const goNogoBlocked = blockedTasks.filter(t => !isMorningTask(t)).length;
   const goNogoInc     = nonWaitingTasks.filter(t => t.status !== 'DONE' && !isMorningTask(t)).length;
   const isGoNogo      = tasks.length > 0 && goNogoWaiting === 0 && goNogoBlocked === 0 && goNogoInc === 0;
@@ -243,6 +258,12 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
   const approveSummary = async () => {
     setApproveLoading(true); setApproveError(null);
     try {
+      // Persist any locally-typed delay reasons to the DB before approving
+      await Promise.all(
+        overrunTasks
+          .filter(t => (delayReasons[t.id] || '').trim())
+          .map(t => axios.patch(`${API}/tasks/${t.id}`, { delayReason: delayReasons[t.id].trim() }, { headers }))
+      );
       const endpoint = isRehearsal ? `${API}/summary/${versionId}/rehearsal/approve` : `${API}/summary/${versionId}/approve`;
       const force = canForceApprove && !isGoNogo;
       const res = await axios.post(endpoint, { headline, morningNotes, ...(force && { force: true }) }, { headers });

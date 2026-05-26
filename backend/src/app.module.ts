@@ -16,14 +16,19 @@ import { QcReleasesModule } from './qc-releases/qc-releases.module';
 import { VersionTemplatesModule } from './version-templates/version-templates.module';
 import { TaskProposalsModule } from './task-proposals/task-proposals.module';
 import { CrPlansModule } from './cr-plans/cr-plans.module';
+import { PushModule } from './push/push.module';
+import { VersionCrAssignmentsModule } from './version-cr-assignments/version-cr-assignments.module';
+import { SystemParamsModule } from './system-params/system-params.module';
 
 @Module({
   imports: [
     // Global rate limiting: max 100 requests per minute per IP
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    PushModule,
     AuthModule, UsersModule, TasksModule, TeamsModule, VersionsModule,
     EventsModule, ImportModule, SummaryModule, PermissionsModule, QcModule, QcReleasesModule,
-    VersionTemplatesModule, TaskProposalsModule, CrPlansModule,
+    VersionTemplatesModule, TaskProposalsModule, CrPlansModule, VersionCrAssignmentsModule,
+    SystemParamsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
