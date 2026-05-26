@@ -12,10 +12,12 @@ import { AdminPanel } from './AdminPanel';
 import { usePermissions } from '../context/PermissionsContext';
 import { playTaskReady } from '../utils/sound';
 import { DeployCenterLogo } from './DeployCenterLogo';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 import { VersionProgressChain } from './VersionProgressChain';
 import { TeamLeadProposalView } from './TeamLeadProposalView';
 import { CrHandoffView } from './CrHandoffView';
 import { FEATURES } from '../featureFlags';
+import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 
 const API = 'http://localhost:3000';
 
@@ -24,13 +26,20 @@ interface Props {
   onLogout: () => void;
 }
 
+interface ToastItem {
+  id: string;
+  type: 'blocked' | 'go' | 'nogo' | 'version' | 'info';
+  title: string;
+  body?: string;
+}
+
 export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [stage, setStage]                       = useState('');
   const [prepTab, setPrepTab]                   = useState<'versions' | 'import'>('versions');
   const [versions, setVersions]                 = useState<any[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState('');
   const [onlineUsers, setOnlineUsers]           = useState<any[]>([]);
-  const [alert, setAlert]                       = useState<string | null>(null);
+
   const [endNightLoading, setEndNightLoading]   = useState(false);
   const [endNightError, setEndNightError]       = useState<string | null>(null);
   const [endNightBlockers, setEndNightBlockers] = useState<any[]>([]);
@@ -41,11 +50,15 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [blockerReasons, setBlockerReasons]     = useState<Record<string, string>>({});
   const [savingReason, setSavingReason]         = useState<string | null>(null);
   const [activeRunPhase, setActiveRunPhase]     = useState<number>(1);
+  const [dialog, setDialog]                     = useState<DialogConfig | null>(null);
+  const [toasts, setToasts]                     = useState<ToastItem[]>([]);
+  const [warRoomRefresh, setWarRoomRefresh]      = useState(0);
 
   const payload  = JSON.parse(atob(token.split('.')[1]));
   const fullName = localStorage.getItem('deploycenter_fullName') || payload.fullName || 'מנהל';
   const headers  = { Authorization: `Bearer ${token}` };
   const { can } = usePermissions();
+  const push = usePushNotifications(token);
 
   const ALL_STAGE_KEYS = ['prep', 'cr-review', 'handoff', 'timeline', 'night', 'summary', 'admin'];
   const allowedKeys = ALL_STAGE_KEYS.filter(key => {
@@ -63,14 +76,12 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
     }
   }, [allowedKeys.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // TEAM_LEAD + feature flag: auto-navigate to prep when there's a planning version
+  // TEAM_LEAD + feature flag: auto-navigate to prep when there's an active COLLECTING version
   useEffect(() => {
     if (!FEATURES.TEAM_LEAD_PROPOSAL || payload.role !== 'TEAM_LEAD' || !versions.length) return;
-    const planningVersion = versions.find((v: any) =>
-      !v.isArchived && !['ACTIVE', 'REHEARSAL', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(v.status)
-    );
-    if (planningVersion && allowedKeys.includes('prep') && stage === allowedKeys[0]) {
-      setSelectedVersionId(planningVersion.id);
+    const collectingVersion = versions.find((v: any) => !v.isArchived && v.status === 'COLLECTING');
+    if (collectingVersion && allowedKeys.includes('prep')) {
+      setSelectedVersionId(collectingVersion.id);
       setStage('prep');
     }
   }, [versions.length, allowedKeys.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -79,16 +90,52 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
     userId: payload.sub,
     fullName,
     onTaskUpdated: (task) => {
+      setWarRoomRefresh(n => n + 1);
+      window.dispatchEvent(new CustomEvent('deploycenter:taskUpdated', { detail: task }));
       if (task?.assignedUserId === payload.sub && task?.status === 'OPEN') {
         playTaskReady();
-        showAlert(`🔔 משימה מוכנה: ${task.title}`);
+        showToast({ type: 'info', title: '🔔 משימה מוכנה להתחלה', body: task.title }, 8000);
+        return;
+      }
+      if (['RELEASE_MANAGER', 'ADMIN'].includes(payload.role)) {
+        const userName = task?.assignedUserName || task?.assignedUser?.fullName || '';
+        const name = userName ? `${userName}: ` : '';
+        if (task?.status === 'IN_PROGRESS') {
+          showToast({ type: 'info', title: '▶️ משימה החלה', body: `${name}${task.title}` }, 6000);
+        } else if (task?.status === 'DONE') {
+          showToast({ type: 'go', title: '✅ משימה הושלמה', body: `${name}${task.title}` }, 6000);
+        }
       }
     },
-    onTaskBlocked: (task) => showAlert(`⚠️ חסום: ${task.title}`),
-    onGoDecision:  (d)    => showAlert(d.go ? `✅ GO! ${d.message}` : `❌ NO GO! ${d.message}`),
-    onJoined:      (users) => setOnlineUsers(users.filter((u, i, arr) => arr.findIndex(x => x.userId === u.userId) === i)),
-    onUserOnline:  (u)    => setOnlineUsers(prev => [...prev.filter(x => x.userId !== u.userId), u]),
-    onUserOffline: (u)    => setOnlineUsers(prev => prev.filter(x => x.userId !== u.userId)),
+    onTaskBlocked: (task) => {
+      setWarRoomRefresh(n => n + 1);
+      window.dispatchEvent(new CustomEvent('deploycenter:taskUpdated', { detail: task }));
+      showToast({
+        type: 'blocked',
+        title: `🚨 משימה חסומה`,
+        body: `${task.title}${task.blockedReason ? ` — ${task.blockedReason}` : ''}`,
+      }, 12000);
+    },
+    onGoDecision: (d) => {
+      showToast({
+        type: d.go ? 'go' : 'nogo',
+        title: d.go ? '✅ GO — ניתן להמשיך!' : '🛑 NO GO — עצור!',
+        body: d.message || undefined,
+      }, d.go ? 8000 : 12000);
+    },
+    onVersionUpdated: (v) => {
+      const labels: Record<string, { title: string; body: string; type: ToastItem['type'] }> = {
+        ACTIVE:        { type: 'version', title: '🌙 ליל ההטמעה מתחיל!',   body: `גרסה ${v.name} עברה למצב פעיל` },
+        MORNING_AFTER: { type: 'version', title: '☀️ בוקר שלמחרת',          body: `גרסה ${v.name} — שלב הבוקר החל` },
+        COMPLETED:     { type: 'go',      title: '✅ גרסה הושלמה',           body: `גרסה ${v.name} הושלמה בהצלחה` },
+        ROLLED_BACK:   { type: 'blocked', title: '⏪ Rollback בוצע',         body: `גרסה ${v.name} — בוצע חזרה לאחור` },
+      };
+      const info = labels[v.status];
+      if (info) showToast(info, v.status === 'ROLLED_BACK' ? 15000 : 8000);
+    },
+    onJoined:     (users) => setOnlineUsers(users.filter((u, i, arr) => arr.findIndex(x => x.userId === u.userId) === i)),
+    onUserOnline: (u)     => setOnlineUsers(prev => [...prev.filter(x => x.userId !== u.userId), u]),
+    onUserOffline:(u)     => setOnlineUsers(prev => prev.filter(x => x.userId !== u.userId)),
   });
 
   const fetchVersions = () => {
@@ -233,10 +280,13 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
     finally { setSavingReason(null); }
   };
 
-  const showAlert = (msg: string) => {
-    setAlert(msg);
-    setTimeout(() => setAlert(null), 5000);
+  const showToast = (toast: Omit<ToastItem, 'id'>, duration = 9000) => {
+    const id = `${Date.now()}-${Math.random()}`;
+    setToasts(prev => [...prev.slice(-4), { ...toast, id }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duration);
   };
+
+  const dismissToast = (id: string) => setToasts(prev => prev.filter(t => t.id !== id));
 
   const ACTIVE_STATUSES = ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'];
 
@@ -375,14 +425,6 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
 
         {/* Right side */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {alert && (
-            <div style={{
-              padding: '8px 16px', background: 'rgba(231,76,60,0.9)',
-              color: 'white', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold',
-            }}>
-              {alert}
-            </div>
-          )}
           <div style={{
             display: 'flex', alignItems: 'center', gap: '4px',
             background: 'rgba(255,255,255,0.1)', padding: '6px 12px', borderRadius: '8px',
@@ -390,6 +432,20 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
             <span style={{ fontSize: '10px', color: '#2ecc71' }}>●</span>
             <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.9)' }}>{onlineUsers.length} מחוברים</span>
           </div>
+          <button
+            onClick={push.subscribed ? push.unsubscribe : push.subscribe}
+            disabled={push.loading || !push.supported}
+            title={!push.supported ? 'דפדפן זה אינו תומך ב-Push (נסה Chrome)' : push.subscribed ? 'בטל התראות Push' : 'הפעל התראות Push'}
+            style={{
+              padding: '7px 12px', fontSize: '18px', border: 'none', borderRadius: '8px',
+              cursor: push.supported ? 'pointer' : 'not-allowed',
+              background: push.subscribed ? 'rgba(46,204,113,0.3)' : 'rgba(255,255,255,0.12)',
+              color: push.supported ? 'white' : 'rgba(255,255,255,0.4)',
+              transition: 'background 0.2s',
+            }}
+          >
+            {push.loading ? '⏳' : push.subscribed ? '🔔' : '🔕'}
+          </button>
           <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '14px' }}>👤 {fullName}</span>
           <button
             onClick={onLogout}
@@ -412,13 +468,45 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
         <div style={{ flex: 1, padding: '24px', overflowY: 'auto', minWidth: 0 }}>
 
           {/* ── Stage 1: הכנה ── */}
-          {stage === 'prep' && (
-            FEATURES.TEAM_LEAD_PROPOSAL && payload.role === 'TEAM_LEAD' && selectedVersionId && selectedVersion && !['ACTIVE', 'REHEARSAL', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(selectedVersion.status)
-              ? <TeamLeadProposalView token={token} versionId={selectedVersionId} versionName={selectedVersion.name} />
-              : prepTab === 'import' && can('action:import')
-                ? <ImportView token={token} onImportSuccess={() => setPrepTab('versions')} />
-                : <VersionsView token={token} onImportClick={can('action:import') ? () => setPrepTab('import') : undefined} onVersionsChanged={fetchVersions} onGoLive={handleGoLive} onVersionFocus={handleVersionFocus} />
-          )}
+          {stage === 'prep' && (() => {
+            // TEAM_LEAD never sees the full plan — only the collection screen
+            if (FEATURES.TEAM_LEAD_PROPOSAL && payload.role === 'TEAM_LEAD') {
+              // Collection screen only when version is COLLECTING
+              if (selectedVersionId && selectedVersion?.status === 'COLLECTING') {
+                return <TeamLeadProposalView token={token} versionId={selectedVersionId} versionName={selectedVersion.name} />;
+              }
+              // Any other status → status message (no plan view)
+              const STATUS_MSG: Record<string, { icon: string; title: string; sub: string }> = {
+                DRAFT:         { icon: '📝', title: 'הגרסה בשלב טיוטה',      sub: 'שלב איסוף המשימות טרם נפתח. המתן להודעה ממנהל הלילה.' },
+                REFINING:      { icon: '🔧', title: 'שלב האיסוף הסתיים',      sub: 'הגרסה בעריכה פנימית. לא ניתן להוסיף הצעות כעת.' },
+                REVIEW:        { icon: '🔍', title: 'הגרסה בשלב סקירה',       sub: 'ממתינים לאישור הנהלה. לא ניתן לשנות הצעות כעת.' },
+                APPROVED:      { icon: '✅', title: 'הגרסה אושרה',             sub: 'התוכנית סגורה ומאושרת. ההרצה עתידה להתחיל.' },
+                REHEARSAL:     { icon: '🎭', title: 'חזרה גנרלית בעיצומה',   sub: 'הגרסה בחזרה גנרלית. עקוב אחר עדכוני הצוות בלשונית ביצוע.' },
+                ACTIVE:        { icon: '🚀', title: 'הגרסה בהרצה',            sub: 'הגרסה בהרצה פעילה. עקוב אחר המשימות בלשונית ביצוע.' },
+                MORNING_AFTER: { icon: '🌅', title: 'בוקר לאחר גרסה',        sub: 'שלב הבוקר בעיצומו. בדוק את משימותיך בלשונית ביצוע.' },
+                COMPLETED:     { icon: '🎉', title: 'הגרסה הושלמה',           sub: 'הגרסה נסגרה בהצלחה.' },
+                ROLLED_BACK:   { icon: '🔄', title: 'הגרסה בוצע עליה Rollback', sub: 'הגרסה בוטלה.' },
+              };
+              const info = STATUS_MSG[selectedVersion?.status] ?? { icon: '⏳', title: 'ממתין...', sub: 'אין גרסה פעילה כרגע.' };
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '16px', direction: 'rtl' }}>
+                  <div style={{ fontSize: '64px' }}>{info.icon}</div>
+                  <h2 style={{ margin: 0, color: '#1a2332', fontSize: '22px' }}>{info.title}</h2>
+                  <p style={{ margin: 0, color: '#666', fontSize: '15px', textAlign: 'center', maxWidth: '420px' }}>{info.sub}</p>
+                  {selectedVersion && (
+                    <div style={{ background: 'white', borderRadius: '12px', padding: '10px 24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', fontSize: '14px', color: '#555', marginTop: '8px' }}>
+                      גרסה: <strong>{selectedVersion.name}</strong>
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            // Managers / others: full plan view
+            if (prepTab === 'import' && can('action:import')) {
+              return <ImportView token={token} onImportSuccess={() => setPrepTab('versions')} />;
+            }
+            return <VersionsView token={token} onImportClick={can('action:import') ? () => setPrepTab('import') : undefined} onVersionsChanged={fetchVersions} onGoLive={handleGoLive} onVersionFocus={handleVersionFocus} />;
+          })()}
 
           {/* ── Stage cr-review: סקירת CRים ── */}
           {stage === 'cr-review' && selectedVersionId && (
@@ -486,27 +574,34 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                           </button>
                         )}
                         <button
-                          onClick={async () => {
-                            if (!window.confirm('לסגור את הגרסה? (ניתן לארכב אותה לאחר מכן)')) return;
-                            setEndNightLoading(true);
-                            setEndNightError(null);
-                            setEndNightBlockers([]);
-                            try {
-                              await axios.patch(`${API}/versions/${selectedVersionId}/status`, { status: 'COMPLETED' }, { headers });
-                              await fetchVersions();
-                            } catch (err: any) {
-                              const msg = err?.response?.data?.message || err?.message || 'שגיאה';
-                              setEndNightError(msg);
-                              if (msg.includes('עיכוב')) {
-                                try {
-                                  const res = await axios.get(`${API}/tasks?versionId=${selectedVersionId}`, { headers });
-                                  setEndNightBlockers(computeBlockers(res.data));
-                                } catch { /* ignore */ }
+                          onClick={() => setDialog({
+                            title: 'סגירת גרסה',
+                            message: 'לסגור את הגרסה?\nניתן לארכב אותה לאחר מכן.',
+                            variant: 'warning',
+                            confirmLabel: 'סגור גרסה',
+                            cancelLabel: 'ביטול',
+                            onConfirm: async () => {
+                              setEndNightLoading(true);
+                              setEndNightError(null);
+                              setEndNightBlockers([]);
+                              try {
+                                await axios.patch(`${API}/versions/${selectedVersionId}/status`, { status: 'COMPLETED' }, { headers });
+                                await fetchVersions();
+                              } catch (err: any) {
+                                const msg = err?.response?.data?.message || err?.message || 'שגיאה';
+                                setEndNightError(msg);
+                                if (msg.includes('עיכוב')) {
+                                  try {
+                                    const res = await axios.get(`${API}/tasks?versionId=${selectedVersionId}`, { headers });
+                                    setEndNightBlockers(computeBlockers(res.data));
+                                  } catch { /* ignore */ }
+                                }
+                              } finally {
+                                setEndNightLoading(false);
                               }
-                            } finally {
-                              setEndNightLoading(false);
-                            }
-                          }}
+                            },
+                            onCancel: () => {},
+                          })}
                           disabled={endNightLoading}
                           style={{ padding: '8px 20px', background: endNightLoading ? '#aaa' : '#1a5c2a', color: 'white', border: 'none', borderRadius: '8px', cursor: endNightLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}
                         >
@@ -576,7 +671,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                     )}
                   </div>
                 )}
-                <TeamView token={token} versionId={selectedVersionId} onTaskUpdated={fetchVersions} onSummaryReady={setSummaryReady} onCurrentPhaseChange={setCurrentPhaseName} />
+                <TeamView token={token} versionId={selectedVersionId} onTaskUpdated={fetchVersions} onSummaryReady={setSummaryReady} onCurrentPhaseChange={setCurrentPhaseName} refreshKey={warRoomRefresh} />
               </div>
             ) : (
               <NoActiveVersionMessage />
@@ -621,6 +716,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                   onlineUsers={onlineUsers}
                   isRehearsal={selectedVersion?.status === 'REHEARSAL'}
                   hideGoNogo={false}
+                  refreshSignal={warRoomRefresh}
                 />
               </div>
             ) : <NoActiveVersionMessage />
@@ -654,18 +750,25 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                     </div>
                     {!selectedVersion?.isArchived && (
                       <button
-                        onClick={async () => {
-                          if (!window.confirm('להעביר את הגרסה לארכיון?')) return;
-                          setArchiveLoading(true);
-                          try {
-                            await axios.patch(`${API}/versions/${selectedVersionId}/archive`, {}, { headers });
-                            await fetchVersions();
-                          } catch (err: any) {
-                            showAlert(err?.response?.data?.message || 'שגיאה בהעברה לארכיון');
-                          } finally {
-                            setArchiveLoading(false);
-                          }
-                        }}
+                        onClick={() => setDialog({
+                          title: 'העברה לארכיון',
+                          message: 'להעביר את הגרסה לארכיון?\nהיא תוסר מהרשימה הפעילה אך ניתן לשחזרה.',
+                          variant: 'warning',
+                          confirmLabel: 'העבר לארכיון',
+                          cancelLabel: 'ביטול',
+                          onConfirm: async () => {
+                            setArchiveLoading(true);
+                            try {
+                              await axios.patch(`${API}/versions/${selectedVersionId}/archive`, {}, { headers });
+                              await fetchVersions();
+                            } catch (err: any) {
+                              showToast({ type: 'blocked', title: 'שגיאה', body: err?.response?.data?.message || 'שגיאה בהעברה לארכיון' }, 8000);
+                            } finally {
+                              setArchiveLoading(false);
+                            }
+                          },
+                          onCancel: () => {},
+                        })}
                         disabled={archiveLoading}
                         style={{ padding: '8px 20px', background: archiveLoading ? '#aaa' : '#6c3483', color: 'white', border: 'none', borderRadius: '8px', cursor: archiveLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap' }}
                       >
@@ -741,6 +844,58 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
         {/* ─── Sidebar ─── */}
         <Sidebar stages={visibleStages} activeStage={stage} onStageChange={setStage} />
       </div>
+
+      <ConfirmDialog config={dialog} onClose={() => setDialog(null)} />
+
+      {/* ─── Toast notifications ─── */}
+      {toasts.length > 0 && (
+        <div style={{
+          position: 'fixed', bottom: '24px', left: '24px',
+          zIndex: 9999, display: 'flex', flexDirection: 'column', gap: '10px',
+          pointerEvents: 'none',
+        }}>
+          {toasts.map(toast => {
+            const colors: Record<ToastItem['type'], { bg: string; border: string }> = {
+              blocked: { bg: '#c0392b', border: '#e74c3c' },
+              nogo:    { bg: '#c0392b', border: '#e74c3c' },
+              go:      { bg: '#1e8449', border: '#27ae60' },
+              version: { bg: '#1a5276', border: '#2980b9' },
+              info:    { bg: '#1a2332', border: '#2d4a7a' },
+            };
+            const c = colors[toast.type];
+            return (
+              <div key={toast.id} className="toast-slide-in" style={{
+                pointerEvents: 'auto',
+                minWidth: '300px', maxWidth: '440px',
+                background: c.bg,
+                border: `2px solid ${c.border}`,
+                color: 'white',
+                borderRadius: '12px',
+                padding: '14px 16px',
+                boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px',
+                direction: 'rtl',
+              }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: toast.body ? '4px' : 0 }}>
+                    {toast.title}
+                  </div>
+                  {toast.body && <div style={{ fontSize: '13px', opacity: 0.92, lineHeight: '1.4' }}>{toast.body}</div>}
+                </div>
+                <button
+                  onClick={() => dismissToast(toast.id)}
+                  style={{
+                    background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white',
+                    borderRadius: '50%', width: '22px', height: '22px', cursor: 'pointer',
+                    fontSize: '11px', fontWeight: 'bold', flexShrink: 0, lineHeight: '22px',
+                    textAlign: 'center', padding: 0,
+                  }}
+                >✕</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { io } from 'socket.io-client';
 import { usePermissions } from '../context/PermissionsContext';
 
 const API = 'http://localhost:3000';
@@ -13,6 +14,7 @@ interface Props {
   onTeamClick?: (teamId: string, teamName: string) => void;
   onlineUsers?: { userId: string; fullName: string; teamId?: string }[];
   onVersionEnded?: () => void;
+  refreshSignal?: number;
 }
 
 type GoStatus = 'checking' | 'go' | 'nogo' | null;
@@ -74,7 +76,7 @@ const GoNoGoPanel: React.FC<GoNoPanelProps> = ({ env, label, status, details, en
   );
 };
 
-export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehearsal = false, hideGoNogo = false, onTeamClick, onlineUsers = [], onVersionEnded }) => {
+export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehearsal = false, hideGoNogo = false, onTeamClick, onlineUsers = [], onVersionEnded, refreshSignal }) => {
   const { can } = usePermissions();
   const [version, setVersion] = useState<any>(null);
   const [allTasks, setAllTasks] = useState<any[]>([]);
@@ -84,6 +86,14 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
   const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set());
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const [planView, setPlanView] = useState<'overview' | 'plan' | 'connected'>('overview');
+  const [subscribedUserIds, setSubscribedUserIds] = useState<string[]>([]);
+  const [pushEnabled, setPushEnabled] = useState(true);
+  const [pushToggling, setPushToggling] = useState(false);
+  const [blockingTask, setBlockingTask] = useState<{ id: string; title: string } | null>(null);
+  const [blockingReason, setBlockingReason] = useState('');
+
+  const payload = JSON.parse(atob(token.split('.')[1]));
+  const isManager = ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role);
 
   // GO/NO GO state per environment
   const [goStatus, setGoStatus] = useState<Record<string, GoStatus>>({});
@@ -91,8 +101,10 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
 
   const headers = { Authorization: `Bearer ${token}` };
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchDataRef = React.useRef<(silent?: boolean) => Promise<void>>(undefined);
+
+  const fetchData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [versionRes, teamsRes] = await Promise.all([
         axios.get(`${API}/versions/${versionId}`, { headers }),
@@ -113,10 +125,36 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
       setAllTasks(tasks);
       setTeams(teamsRes.data);
     } catch (err) { console.error(err); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   };
 
-  useEffect(() => { fetchData(); }, [versionId]);
+  fetchDataRef.current = fetchData;
+
+  useEffect(() => { fetchData(); }, [versionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Socket: full refetch when any task changes (updates both overview and plan tabs)
+  useEffect(() => {
+    const socket = io('http://localhost:3000', { transports: ['websocket'] });
+    socket.on('TASK_UPDATED', () => fetchDataRef.current?.(true));
+    socket.on('TASK_BLOCKED', () => fetchDataRef.current?.(true));
+    return () => { socket.disconnect(); };
+  }, []);
+
+  // refreshSignal from ManagerDashboard — direct refetch, no debounce
+  useEffect(() => { if (refreshSignal) fetchDataRef.current?.(true); }, [refreshSignal]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Polling fallback — guarantees data stays current even if socket/signal fails
+  useEffect(() => {
+    const interval = setInterval(() => fetchDataRef.current?.(true), 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Fetch push subscription list + push enabled status
+  useEffect(() => {
+    const h = { Authorization: `Bearer ${token}` };
+    axios.get(`${API}/push/subscribed-users`, { headers: h }).then(r => setSubscribedUserIds(r.data)).catch(() => {});
+    axios.get(`${API}/push/status`, { headers: h }).then(r => setPushEnabled(r.data.enabled)).catch(() => {});
+  }, [token]);
 
   // Tasks per environment (based on phase environment)
   const getEnvTasks = (env: string) =>
@@ -189,10 +227,16 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
     { value: 'ROLLED_BACK', label: 'Rollback', color: '#7f8c8d' },
   ];
 
-  const updateTaskStatus = async (taskId: string, status: string) => {
+  const updateTaskStatus = async (taskId: string, status: string, blockedReason?: string) => {
+    if (status === 'BLOCKED' && blockedReason === undefined) {
+      const task = allTasks.find(t => t.id === taskId);
+      setBlockingTask({ id: taskId, title: task?.title || taskId });
+      setBlockingReason('');
+      return;
+    }
     setUpdatingTaskId(taskId);
     try {
-      await axios.patch(`${API}/tasks/${taskId}/status`, { status }, { headers });
+      await axios.patch(`${API}/tasks/${taskId}/status`, { status, ...(blockedReason !== undefined && { blockedReason }) }, { headers });
       await fetchData();
     } catch (err) { console.error(err); }
     finally { setUpdatingTaskId(null); }
@@ -227,9 +271,31 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
             <h2 style={{ margin: '0 0 4px', fontSize: '24px' }}>{isRehearsal ? '🎭 ' : ''}War Room — {versionName}</h2>
             <p style={{ margin: 0, opacity: 0.8, fontSize: '14px' }}>{isRehearsal ? 'חזרה גנרלית — בזמן אמת' : 'מבט-על בזמן אמת'}</p>
           </div>
-          <button onClick={fetchData} style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.2)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>
-            רענן
-          </button>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {isManager && (
+              <button
+                disabled={pushToggling}
+                onClick={async () => {
+                  setPushToggling(true);
+                  try {
+                    const r = await axios.post(`${API}/push/toggle`, { enabled: !pushEnabled }, { headers });
+                    setPushEnabled(r.data.enabled);
+                  } catch {} finally { setPushToggling(false); }
+                }}
+                title={pushEnabled ? 'כבה התראות Push לכולם' : 'הפעל התראות Push לכולם'}
+                style={{
+                  padding: '8px 14px', borderRadius: '8px', cursor: pushToggling ? 'not-allowed' : 'pointer',
+                  fontSize: '13px', fontWeight: 'bold', border: 'none',
+                  background: pushEnabled ? 'rgba(39,174,96,0.85)' : 'rgba(231,76,60,0.85)',
+                  color: 'white',
+                }}>
+                {pushEnabled ? '🔔 Push פעיל' : '🔕 Push כבוי'}
+              </button>
+            )}
+            <button onClick={() => fetchData()} style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.2)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>
+              רענן
+            </button>
+          </div>
         </div>
 
         <div style={{ marginTop: '20px' }}>
@@ -328,7 +394,17 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontWeight: task.status === 'IN_PROGRESS' ? 'bold' : 'normal', color: '#1a2332', fontSize: '13px' }}>{task.title}</div>
                               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
-                                {task.assignedUserName && <span style={{ fontSize: '11px', color: '#666' }}>👤 {task.assignedUserName}</span>}
+                                {task.assignedUserName && (
+                                  <span style={{ fontSize: '11px', color: '#666', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                    👤 {task.assignedUserName}
+                                    {task.assignedUserId && !subscribedUserIds.includes(task.assignedUserId) && (
+                                      <span title="משתמש לא מנוי להתראות — שקול להתקשר" style={{
+                                        background: '#e74c3c', color: 'white', borderRadius: '4px',
+                                        padding: '0 4px', fontSize: '10px', fontWeight: 'bold', whiteSpace: 'nowrap',
+                                      }}>📵 להתקשר</span>
+                                    )}
+                                  </span>
+                                )}
                                 {task.assignedTeam?.name && <span style={{ fontSize: '11px', color: '#666' }}>👥 {task.assignedTeam.name}</span>}
                                 {task.duration && <span style={{ fontSize: '11px', color: '#b7950b' }}>⏱ {task.duration}</span>}
                                 {task.blockedReason && <span style={{ fontSize: '11px', color: '#e74c3c' }}>סיבה: {task.blockedReason}</span>}
@@ -672,6 +748,58 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
         </div>
       )}
       </>}
+
+      {/* ── דיאלוג סיבת חסימה ── */}
+      {blockingTask && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+          zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+          onClick={() => setBlockingTask(null)}
+        >
+          <div
+            style={{ background: 'white', borderRadius: '14px', padding: '28px 32px', minWidth: '380px', maxWidth: '480px', boxShadow: '0 8px 32px rgba(0,0,0,0.3)', direction: 'rtl' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+              <span style={{ fontSize: '22px' }}>🚨</span>
+              <h3 style={{ margin: 0, color: '#c0392b', fontSize: '17px' }}>סיבת חסימה</h3>
+            </div>
+            <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#555' }}>
+              משימה: <strong>{blockingTask.title}</strong>
+            </p>
+            <textarea
+              autoFocus
+              value={blockingReason}
+              onChange={e => setBlockingReason(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  updateTaskStatus(blockingTask.id, 'BLOCKED', blockingReason.trim());
+                  setBlockingTask(null);
+                }
+              }}
+              placeholder="הזן את סיבת החסימה... (חובה)"
+              rows={3}
+              style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', resize: 'vertical', boxSizing: 'border-box', direction: 'rtl' }}
+            />
+            <div style={{ display: 'flex', gap: '10px', marginTop: '16px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setBlockingTask(null)}
+                style={{ padding: '9px 20px', borderRadius: '8px', border: '1px solid #ccc', background: 'white', cursor: 'pointer', fontSize: '14px' }}
+              >ביטול</button>
+              <button
+                onClick={() => {
+                  updateTaskStatus(blockingTask.id, 'BLOCKED', blockingReason.trim());
+                  setBlockingTask(null);
+                }}
+                disabled={!blockingReason.trim()}
+                style={{ padding: '9px 22px', borderRadius: '8px', border: 'none', background: blockingReason.trim() ? '#e74c3c' : '#ccc', color: 'white', cursor: blockingReason.trim() ? 'pointer' : 'not-allowed', fontWeight: 'bold', fontSize: '14px' }}
+              >אשר חסימה</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
