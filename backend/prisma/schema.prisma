@@ -244,15 +244,16 @@ model TaskDependency {
 }
 
 model TeamSubmission {
-  id          String           @id @default(uuid())
-  versionId   String
-  teamId      String
-  status      SubmissionStatus @default(NOT_STARTED)
-  submittedBy String?
-  submittedAt DateTime?
-  taskCount   Int              @default(0)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  id                     String           @id @default(uuid())
+  versionId              String
+  teamId                 String
+  status                 SubmissionStatus @default(NOT_STARTED)
+  submittedBy            String?
+  submittedAt            DateTime?
+  taskCount              Int              @default(0)
+  notRequiredForApproval Boolean          @default(false)
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
 
   version   Version @relation(fields: [versionId], references: [id])
   team      Team    @relation(fields: [teamId], references: [id])

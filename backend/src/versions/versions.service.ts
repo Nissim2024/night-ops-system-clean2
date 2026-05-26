@@ -68,12 +68,12 @@ export class VersionsService {
     });
     if (!version) throw new NotFoundException('Version not found');
 
-    const involvedProposals = await (prisma.taskProposal as any).findMany({
-      where: { versionId: id, crNumber: { not: null } },
+    const involvedPlans = await (prisma.crPlan as any).findMany({
+      where: { versionId: id },
       distinct: ['teamId'],
       select: { teamId: true },
     });
-    return { ...version, involvedTeamIds: involvedProposals.map((p: any) => p.teamId) };
+    return { ...version, involvedTeamIds: involvedPlans.map((p: any) => p.teamId) };
   }
 
   async create(data: {
@@ -356,6 +356,14 @@ async addTask(subPhaseId: string, data: {
     });
   }
 
+  async setNotRequiredForApproval(versionId: string, teamId: string, notRequiredForApproval: boolean) {
+    return prisma.teamSubmission.upsert({
+      where: { versionId_teamId: { versionId, teamId } },
+      update: { notRequiredForApproval },
+      create: { versionId, teamId, notRequiredForApproval },
+    });
+  }
+
   async updateStatus(id: string, status: VersionStatus, userId: string, force = false) {
     const version = await prisma.version.findUnique({ where: { id } });
     if (!version) throw new NotFoundException('Version not found');
@@ -381,18 +389,23 @@ async addTask(subPhaseId: string, data: {
       );
     }
 
-    // COLLECTING → REFINING: involved teams (those with CR proposals) must have submitted
+    // COLLECTING → REFINING: involved teams (those with CrPlans) must have submitted
     // force=true lets a manager override this check
     if (version.status === VersionStatus.COLLECTING && status === VersionStatus.REFINING && !force) {
-      const involvedProposals = await (prisma.taskProposal as any).findMany({
-        where: { versionId: id, crNumber: { not: null } },
+      const involvedPlans = await (prisma.crPlan as any).findMany({
+        where: { versionId: id },
         distinct: ['teamId'],
         select: { teamId: true },
       });
-      const involvedTeamIds = involvedProposals.map((p: any) => p.teamId);
+      const involvedTeamIds = involvedPlans.map((p: any) => p.teamId);
       if (involvedTeamIds.length > 0) {
         const notSubmitted = await prisma.teamSubmission.findMany({
-          where: { versionId: id, teamId: { in: involvedTeamIds }, status: { not: 'SUBMITTED' } },
+          where: {
+            versionId: id,
+            teamId: { in: involvedTeamIds },
+            status: { not: 'SUBMITTED' },
+            notRequiredForApproval: false,
+          },
           include: { team: { select: { name: true } } },
         });
         if (notSubmitted.length > 0) {

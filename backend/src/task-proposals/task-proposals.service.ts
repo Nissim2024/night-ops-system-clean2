@@ -104,6 +104,21 @@ export class TaskProposalsService {
     return { ok: true };
   }
 
+  async removeByCr(versionId: string, crNumber: string, user: { sub: string; role: string }) {
+    const membership = await prisma.teamMember.findFirst({
+      where: { userId: user.sub },
+      select: { teamId: true },
+    });
+    await prisma.taskProposal.deleteMany({
+      where: {
+        versionId,
+        crNumber,
+        ...(membership && !MANAGERS.includes(user.role) ? { teamId: membership.teamId } : {}),
+      },
+    });
+    return { ok: true };
+  }
+
   async markUsed(id: string, taskId: string) {
     return prisma.taskProposal.update({
       where: { id },

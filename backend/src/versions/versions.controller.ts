@@ -41,6 +41,17 @@ export class VersionsController {
     return this.versionsService.create({ ...body, createdBy: req.user.sub });
   }
 
+  @Patch(':id/submissions/:teamId/not-required')
+  setNotRequired(
+    @Param('id') versionId: string,
+    @Param('teamId') teamId: string,
+    @Body() body: { notRequiredForApproval: boolean },
+    @Request() req: any,
+  ) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לסמן צוות כלא נדרש');
+    return this.versionsService.setNotRequiredForApproval(versionId, teamId, body.notRequiredForApproval);
+  }
+
   @Patch(':id/planned-end')
   updatePlannedEnd(
     @Param('id') id: string,

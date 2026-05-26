@@ -592,10 +592,17 @@ export class ImportService {
     });
     const teamsWithProposals = new Set(proposals.map(p => p.teamId));
 
+    const notRequiredSubs = await prisma.teamSubmission.findMany({
+      where: { versionId, notRequiredForApproval: true },
+      select: { teamId: true },
+    });
+    const notRequiredIds = new Set(notRequiredSubs.map((s: any) => s.teamId));
+
     const missing: string[] = [];
     for (const teamName of involvedTeamNames) {
       const teamId = teamIdByName[teamName];
       if (!teamId) continue;
+      if (notRequiredIds.has(teamId)) continue;
       if (!teamsWithProposals.has(teamId)) missing.push(teamName);
     }
 

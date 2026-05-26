@@ -32,6 +32,16 @@ export class TaskProposalsController {
     return this.service.update(id, req.user, body);
   }
 
+  @Delete('version/:versionId/cr/:crNumber')
+  removeByCr(
+    @Param('versionId') versionId: string,
+    @Param('crNumber') crNumber: string,
+    @Request() req: any,
+  ) {
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.removeByCr(versionId, crNumber, req.user);
+  }
+
   @Delete(':id')
   remove(@Param('id') id: string, @Request() req: any) {
     if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');

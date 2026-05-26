@@ -46,6 +46,7 @@ import { DeployCenterLogo } from './DeployCenterLogo';const SummaryVersionPicker
   );
 };
 import { useSocket } from '../hooks/useSocket';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 
 const API = 'http://localhost:3000';
 
@@ -86,6 +87,8 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
 
   const headers = { Authorization: `Bearer ${token}` };
   const tokenPayload = JSON.parse(atob(token.split('.')[1]));
+
+  const push = usePushNotifications(token);
 
   useSocket({
     userId: tokenPayload.sub,
@@ -166,23 +169,41 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
   return (
     <div style={{ minHeight: '100vh', background: '#f0f2f5', fontFamily: 'Arial, sans-serif', direction: 'rtl' }}>
       <div style={{ background: 'linear-gradient(135deg, #1a2332 0%, #2d4a7a 100%)', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '64px', boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>
-        <DeployCenterLogo variant="nav" />
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          {navItems.map(item => (
-            <button key={item.key} onClick={() => setView(item.key)} style={{ padding: '8px 16px', background: view === item.key ? 'rgba(255,255,255,0.25)' : 'transparent', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontWeight: view === item.key ? 'bold' : 'normal', fontSize: '14px' }}>
-              {item.label}
-            </button>
-          ))}
-          {lastAlert && (
-            <div style={{ padding: '8px 16px', background: 'rgba(231,76,60,0.9)', color: 'white', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold' }}>
-              {lastAlert}
-            </div>
-          )}
+        {/* Right side: logo + push bell + online + logout — always visible */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          <DeployCenterLogo variant="nav" />
+          <button
+            onClick={push.subscribed ? push.unsubscribe : push.subscribe}
+            disabled={push.loading || !push.supported}
+            title={!push.supported ? 'דפדפן זה אינו תומך ב-Push (נסה Chrome)' : push.subscribed ? 'בטל התראות Push' : 'הפעל התראות Push'}
+            style={{
+              padding: '7px 12px', fontSize: '18px', border: 'none', borderRadius: '8px',
+              cursor: push.supported ? 'pointer' : 'not-allowed',
+              background: push.subscribed ? 'rgba(46,204,113,0.3)' : 'rgba(255,255,255,0.12)',
+              color: push.supported ? 'white' : 'rgba(255,255,255,0.4)',
+              transition: 'background 0.2s',
+            }}
+          >
+            {push.loading ? '⏳' : push.subscribed ? '🔔' : '🔕'}
+          </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', background: 'rgba(255,255,255,0.1)', borderRadius: '8px' }}>
             <span style={{ fontSize: '10px', color: '#2ecc71' }}>●</span>
             <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.9)' }}>{onlineUsers.length} מחוברים</span>
           </div>
           <button onClick={onLogout} style={{ padding: '8px 16px', background: 'rgba(231,76,60,0.7)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>יציאה</button>
+        </div>
+        {/* Left side: nav items + alerts — can overflow */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', overflow: 'hidden' }}>
+          {lastAlert && (
+            <div style={{ padding: '8px 16px', background: 'rgba(231,76,60,0.9)', color: 'white', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold', flexShrink: 0 }}>
+              {lastAlert}
+            </div>
+          )}
+          {navItems.map(item => (
+            <button key={item.key} onClick={() => setView(item.key)} style={{ padding: '8px 16px', background: view === item.key ? 'rgba(255,255,255,0.25)' : 'transparent', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontWeight: view === item.key ? 'bold' : 'normal', fontSize: '14px', whiteSpace: 'nowrap' }}>
+              {item.label}
+            </button>
+          ))}
         </div>
       </div>
 

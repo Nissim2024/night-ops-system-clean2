@@ -199,8 +199,8 @@ export const VersionsView: React.FC<Props> = ({ token, onImportClick, onVersions
     } finally { setCreatingFromTemplate(false); }
   };
 
-  const updateStatus = async (id: string, status: string): Promise<void> => {
-    await axios.patch(`${API}/versions/${id}/status`, { status }, { headers });
+  const updateStatus = async (id: string, status: string, force?: boolean): Promise<void> => {
+    await axios.patch(`${API}/versions/${id}/status`, { status, ...(force ? { force: true } : {}) }, { headers });
     await fetchVersions();
     await fetchVersion(id);
     onVersionsChanged?.();
@@ -282,7 +282,7 @@ export const VersionsView: React.FC<Props> = ({ token, onImportClick, onVersions
         userRole={userRole}
         onBack={() => { setSelected(null); fetchVersions(); }}
         onRefresh={() => fetchVersion(selected.id)}
-        onStatusChange={(status) => updateStatus(selected.id, status)}
+        onStatusChange={(status, force) => updateStatus(selected.id, status, force)}
         onGoLive={onGoLive}
       />
     );
@@ -553,20 +553,27 @@ export const VersionsView: React.FC<Props> = ({ token, onImportClick, onVersions
                   {outerCan('action:template_delete') && (
                     <button
                       disabled={deletingTemplateId === t.id}
-                      onClick={async () => {
-                        if (!window.confirm(`למחוק את התבנית "${t.name}"?`)) return;
-                        setDeletingTemplateId(t.id);
-                        try {
-                          await axios.delete(`${API}/version-templates/${t.id}`, { headers });
-                          const updated = templates.filter((x: any) => x.id !== t.id);
-                          setTemplates(updated);
-                          if (updated.length === 0) setShowTemplates(false);
-                        } catch {
-                          alert('שגיאה במחיקת התבנית');
-                        } finally {
-                          setDeletingTemplateId(null);
-                        }
-                      }}
+                      onClick={() => setOuterDialog({
+                        title: `מחיקת תבנית`,
+                        message: `למחוק את התבנית "${t.name}"?\nהפעולה בלתי הפיכה.`,
+                        variant: 'danger',
+                        confirmLabel: 'מחק תבנית',
+                        cancelLabel: 'ביטול',
+                        onConfirm: async () => {
+                          setDeletingTemplateId(t.id);
+                          try {
+                            await axios.delete(`${API}/version-templates/${t.id}`, { headers });
+                            const updated = templates.filter((x: any) => x.id !== t.id);
+                            setTemplates(updated);
+                            if (updated.length === 0) setShowTemplates(false);
+                          } catch {
+                            alert('שגיאה במחיקת התבנית');
+                          } finally {
+                            setDeletingTemplateId(null);
+                          }
+                        },
+                        onCancel: () => {},
+                      })}
                       style={{ padding: '6px 14px', background: deletingTemplateId === t.id ? '#ccc' : '#e74c3c', color: 'white', border: 'none', borderRadius: '8px', cursor: deletingTemplateId === t.id ? 'not-allowed' : 'pointer', fontSize: '13px', flexShrink: 0 }}
                     >
                       {deletingTemplateId === t.id ? 'מוחק...' : '🗑 מחק'}
@@ -682,7 +689,7 @@ const VersionDetail: React.FC<{
   userRole: string;
   onBack: () => void;
   onRefresh: () => void;
-  onStatusChange: (s: string) => Promise<void>;
+  onStatusChange: (s: string, force?: boolean) => Promise<void>;
   onGoLive?: (versionId: string, versionName: string, isRehearsal: boolean) => void;
 }> = ({ version, token, userRole, onBack, onRefresh, onStatusChange, onGoLive }) => {
   const headers = { Authorization: `Bearer ${token}` };
@@ -697,17 +704,24 @@ const VersionDetail: React.FC<{
 
   const [statusError, setStatusError] = useState<string | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
+  const [forceDialog, setForceDialog] = useState<{ teams: string; targetStatus: string } | null>(null);
 
-  const handleStatusChange = async (s: string) => {
+  const handleStatusChange = async (s: string, force?: boolean) => {
     setStatusError(null);
     setStatusLoading(true);
     try {
-      await onStatusChange(s);
+      await onStatusChange(s, force);
       if ((s === 'ACTIVE' || s === 'REHEARSAL') && onGoLive) {
         onGoLive(version.id, version.name, s === 'REHEARSAL');
       }
     } catch (err: any) {
-      setStatusError(err?.response?.data?.message || err?.message || 'שגיאה');
+      const msg: string = err?.response?.data?.message || err?.message || 'שגיאה';
+      if (!force && msg.startsWith('הצוותים הבאים טרם הגישו:')) {
+        const teams = msg.replace('הצוותים הבאים טרם הגישו: ', '');
+        setForceDialog({ teams, targetStatus: s });
+      } else {
+        setStatusError(msg);
+      }
     } finally {
       setStatusLoading(false);
     }
@@ -771,6 +785,14 @@ const VersionDetail: React.FC<{
   const [reassigning, setReassigning] = useState(false);
   const [reassignResult, setReassignResult] = useState<{ updated: number; toUserName: string } | null>(null);
 
+  // Phase management
+  const [editingPhaseId, setEditingPhaseId] = useState<string | null>(null);
+  const [editingPhaseName, setEditingPhaseName] = useState('');
+  const [addingPhase, setAddingPhase] = useState(false);
+  const [newPhaseName, setNewPhaseName] = useState('');
+  const [phaseManageLoading, setPhaseManageLoading] = useState(false);
+  const [phaseManageError, setPhaseManageError] = useState<string | null>(null);
+
   useEffect(() => {
     axios.get(`${API}/teams`, { headers }).then(r => setTeams(r.data));
     axios.get(`${API}/users`, { headers })
@@ -792,6 +814,60 @@ const VersionDetail: React.FC<{
 
   const toggleSubPhase = (id: string) => {
     setCollapsedSubPhases(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+
+  const savePhaseRename = async (phaseId: string) => {
+    const name = editingPhaseName.trim();
+    if (!name) return;
+    setPhaseManageLoading(true);
+    setPhaseManageError(null);
+    try {
+      await axios.patch(`${API}/versions/phases/${phaseId}`, { name }, { headers });
+      setEditingPhaseId(null);
+      onRefresh();
+    } catch (err: any) {
+      setPhaseManageError(err?.response?.data?.message || 'שגיאה בשינוי שם');
+    } finally { setPhaseManageLoading(false); }
+  };
+
+  const setGoNogoPhase = async (phaseId: string) => {
+    setPhaseManageLoading(true);
+    setPhaseManageError(null);
+    try {
+      await axios.patch(`${API}/versions/phases/${phaseId}`, { isGoNoGo: true }, { headers });
+      onRefresh();
+    } catch (err: any) {
+      setPhaseManageError(err?.response?.data?.message || 'שגיאה');
+    } finally { setPhaseManageLoading(false); }
+  };
+
+  const deletePhase = async (phaseId: string, phaseName: string) => {
+    showConfirm('מחיקת שלב', `למחוק את השלב "${phaseName}"? פעולה זו אינה הפיכה.`, async () => {
+      setPhaseManageLoading(true);
+      setPhaseManageError(null);
+      try {
+        await axios.delete(`${API}/versions/phases/${phaseId}`, { headers });
+        onRefresh();
+      } catch (err: any) {
+        setPhaseManageError(err?.response?.data?.message || 'שגיאה במחיקת שלב');
+      } finally { setPhaseManageLoading(false); }
+    });
+  };
+
+  const addPhase = async () => {
+    const name = newPhaseName.trim();
+    if (!name) return;
+    const maxOrder = Math.max(0, ...(version.phases || []).map((p: any) => p.orderIndex));
+    setPhaseManageLoading(true);
+    setPhaseManageError(null);
+    try {
+      await axios.post(`${API}/versions/${version.id}/phases`, { name, orderIndex: maxOrder + 1 }, { headers });
+      setAddingPhase(false);
+      setNewPhaseName('');
+      onRefresh();
+    } catch (err: any) {
+      setPhaseManageError(err?.response?.data?.message || 'שגיאה בהוספת שלב');
+    } finally { setPhaseManageLoading(false); }
   };
 
   const formatTime = (iso: string) => iso ? new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '';
@@ -1296,6 +1372,34 @@ const VersionDetail: React.FC<{
 
   return (
     <div>
+      {/* ── Force-advance confirmation dialog ── */}
+      {forceDialog && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'white', borderRadius: '14px', padding: '28px 32px', maxWidth: '480px', width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
+            <div style={{ fontSize: '22px', marginBottom: '10px' }}>⚠️</div>
+            <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#1a2332', marginBottom: '10px' }}>לא כל הצוותים המעורבים הגישו</div>
+            <div style={{ fontSize: '14px', color: '#555', marginBottom: '8px' }}>
+              הצוותים הבאים רשומים כמעורבים ב-CR אך טרם הגישו את המשימות שלהם:
+            </div>
+            <div style={{ background: '#fff3cd', border: '1px solid #f39c12', borderRadius: '8px', padding: '10px 14px', fontSize: '14px', fontWeight: 'bold', color: '#7d4e00', marginBottom: '18px' }}>
+              {forceDialog.teams}
+            </div>
+            <div style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>
+              כמנהל לילה, ביכולתך לאשר ולהמשיך בכל זאת.
+            </div>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setForceDialog(null)} style={{ padding: '9px 20px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>ביטול</button>
+              <button
+                onClick={async () => { const s = forceDialog.targetStatus; setForceDialog(null); await handleStatusChange(s, true); }}
+                style={{ padding: '9px 20px', background: '#e67e22', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}
+              >
+                אשר ודחוף קדימה בכל זאת
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Version header ── */}
       <div style={{ background: 'white', borderRadius: '12px', padding: '20px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
@@ -1337,6 +1441,15 @@ const VersionDetail: React.FC<{
             )}
 
             {/* Status progression */}
+            {isManager && version.status === 'COLLECTING' && (
+              <button onClick={() => handleStatusChange('DRAFT')} disabled={statusLoading} style={{ padding: '8px 16px', background: '#f0f0f0', color: '#666', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>← חזור לטיוטה</button>
+            )}
+            {isManager && version.status === 'REFINING' && (
+              <button onClick={() => handleStatusChange('COLLECTING')} disabled={statusLoading} style={{ padding: '8px 16px', background: '#f0f0f0', color: '#666', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>← חזור לאיסוף</button>
+            )}
+            {isManager && version.status === 'REVIEW' && (
+              <button onClick={() => handleStatusChange('REFINING')} disabled={statusLoading} style={{ padding: '8px 16px', background: '#f0f0f0', color: '#666', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>← חזור לעידון</button>
+            )}
             {version.status === 'APPROVED' && (
               <button onClick={() => handleStatusChange('DRAFT')} disabled={statusLoading} style={{ padding: '8px 16px', background: '#f0f0f0', color: '#666', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>← איפוס לטיוטה</button>
             )}
@@ -1346,7 +1459,25 @@ const VersionDetail: React.FC<{
               </button>
             )}
             {nextStatus && (
-              <button onClick={() => handleStatusChange(nextStatus)} disabled={statusLoading} style={{ padding: '10px 20px', background: statusLoading ? '#aaa' : STATUS_COLORS[nextStatus], color: 'white', border: 'none', borderRadius: '8px', cursor: statusLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
+              <button
+                onClick={async () => {
+                  if (nextStatus === 'REFINING') {
+                    try {
+                      const res = await axios.get(`${API}/import/teams-without-proposals?versionId=${version.id}`, { headers });
+                      const missing: string[] = res.data || [];
+                      if (missing.length > 0) {
+                        setForceDialog({ teams: missing.join(', '), targetStatus: 'REFINING' });
+                        return;
+                      }
+                    } catch (err: any) {
+                      setStatusError('שגיאה בבדיקת הגשות צוותים: ' + (err?.response?.data?.message || err?.message || 'שגיאה לא ידועה'));
+                      return;
+                    }
+                  }
+                  handleStatusChange(nextStatus);
+                }}
+                disabled={statusLoading}
+                style={{ padding: '10px 20px', background: statusLoading ? '#aaa' : STATUS_COLORS[nextStatus], color: 'white', border: 'none', borderRadius: '8px', cursor: statusLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
                 {statusLoading ? '...' : `${nextLabel} →`}
               </button>
             )}
@@ -1427,20 +1558,61 @@ const VersionDetail: React.FC<{
         );})()}
 
         {version.submissions?.length > 0 && (
-          <div style={{ marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', color: '#999' }}>סנן לפי צוות:</span>
-            <span onClick={() => setFilterTeam(null)} style={{ padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', background: filterTeam === null ? '#1a2332' : '#f0f0f0', color: filterTeam === null ? 'white' : '#666' }}>כולם</span>
-            {version.submissions.map((sub: any) => (
-              <span key={sub.id} onClick={() => setFilterTeam(filterTeam === sub.team.id ? null : sub.team.id)}
-                style={{
-                  padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
-                  background: filterTeam === sub.team.id ? '#1a2332' : sub.status === 'SUBMITTED' ? '#d5f0dc' : sub.status === 'IN_PROGRESS' ? '#fff0e0' : '#f0f0f0',
-                  color: filterTeam === sub.team.id ? 'white' : sub.status === 'SUBMITTED' ? '#1a5c2a' : sub.status === 'IN_PROGRESS' ? '#8b4000' : '#666',
-                  border: filterTeam === sub.team.id ? '2px solid #1a2332' : '2px solid transparent',
-                }}>
-                {sub.team.name}: {sub.status === 'SUBMITTED' ? 'הגיש' : sub.status === 'IN_PROGRESS' ? 'בתהליך' : 'לא התחיל'}
-              </span>
-            ))}
+          <div style={{ marginTop: '12px' }}>
+            {/* COLLECTING: prominent submission status panel (involved teams only) */}
+            {version.status === 'COLLECTING' && (() => {
+              const involvedIds: string[] = version.involvedTeamIds ?? [];
+              const involvedSubs = involvedIds.length > 0
+                ? version.submissions.filter((s: any) => involvedIds.includes(s.teamId))
+                : [];
+              const submittedInvolved = involvedSubs.filter((s: any) => s.status === 'SUBMITTED');
+              const allDone = involvedSubs.length > 0 && submittedInvolved.length === involvedSubs.length;
+              return (
+                <div style={{ background: allDone ? '#e8f8e8' : involvedSubs.length === 0 ? '#f0f0f0' : '#fff8e1', border: `1px solid ${allDone ? '#27ae60' : involvedSubs.length === 0 ? '#ccc' : '#f39c12'}`, borderRadius: '10px', padding: '12px 16px', marginBottom: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 'bold', fontSize: '13px', color: allDone ? '#1a5c2a' : involvedSubs.length === 0 ? '#999' : '#7d4e00', flexShrink: 0 }}>
+                      {involvedSubs.length === 0
+                        ? '⏳ ממתין לצוותים'
+                        : allDone
+                          ? '✅ כל הצוותים המעורבים הגישו'
+                          : `⏳ הגישו: ${submittedInvolved.length}/${involvedSubs.length} מהצוותים המעורבים`}
+                    </span>
+                    {involvedSubs.map((sub: any) => (
+                      <span key={sub.id}
+                        onClick={() => setFilterTeam(filterTeam === sub.team.id ? null : sub.team.id)}
+                        title={`צוות ${sub.team.name} — ${sub.status === 'SUBMITTED' ? 'הגיש' : 'לא הגיש'}`}
+                        style={{
+                          padding: '3px 10px', borderRadius: '16px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
+                          background: sub.status === 'SUBMITTED' ? '#d5f0dc' : '#f5e6c8',
+                          color: sub.status === 'SUBMITTED' ? '#1a5c2a' : '#7d4e00',
+                          border: filterTeam === sub.team.id ? '2px solid #1a2332' : '2px solid transparent',
+                        }}>
+                        {sub.status === 'SUBMITTED' ? '✓' : '○'} {sub.team.name}
+                      </span>
+                    ))}
+                    {involvedSubs.length === 0 && (
+                      <span style={{ fontSize: '12px', color: '#999' }}>אין צוותים עם CR עדיין — ניתן להמשיך ללא הגבלה</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+            {/* Team filter pills (always shown) */}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', color: '#999' }}>סנן לפי צוות:</span>
+              <span onClick={() => setFilterTeam(null)} style={{ padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', background: filterTeam === null ? '#1a2332' : '#f0f0f0', color: filterTeam === null ? 'white' : '#666' }}>כולם</span>
+              {version.submissions.map((sub: any) => (
+                <span key={sub.id} onClick={() => setFilterTeam(filterTeam === sub.team.id ? null : sub.team.id)}
+                  style={{
+                    padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
+                    background: filterTeam === sub.team.id ? '#1a2332' : sub.status === 'SUBMITTED' ? '#d5f0dc' : sub.status === 'IN_PROGRESS' ? '#fff0e0' : '#f0f0f0',
+                    color: filterTeam === sub.team.id ? 'white' : sub.status === 'SUBMITTED' ? '#1a5c2a' : sub.status === 'IN_PROGRESS' ? '#8b4000' : '#666',
+                    border: filterTeam === sub.team.id ? '2px solid #1a2332' : '2px solid transparent',
+                  }}>
+                  {sub.team.name}: {sub.status === 'SUBMITTED' ? 'הגיש' : sub.status === 'IN_PROGRESS' ? 'בתהליך' : 'לא התחיל'}
+                </span>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -1522,12 +1694,48 @@ const VersionDetail: React.FC<{
         const phaseTimes = getHierarchyTimes(phaseTasks, phaseCutoff);
 
         return (
-          <div key={phase.id} style={{ background: 'white', borderRadius: '12px', padding: '20px', marginBottom: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-            <h3 onClick={() => togglePhase(phase.id)} style={{ margin: '0 0 16px', color: '#1a2332', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' as any, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '14px', color: '#999' }}>{collapsedPhases.has(phase.id) ? '►' : '▼'}</span>
-              <span style={{ background: phase.environment === 'HOT' ? '#fee' : phase.environment === 'HOTNET' ? '#e8f4fd' : '#f0f0f0', color: phase.environment === 'HOT' ? '#c0392b' : phase.environment === 'HOTNET' ? '#2980b9' : '#666', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>{phase.environment}</span>
-              {phase.name}
-              <span style={{ fontSize: '12px', color: '#999', fontWeight: 'normal' }}>({phase.subPhases?.length || 0} תת-שלבים)</span>
+          <div key={phase.id} style={{ background: 'white', borderRadius: '12px', padding: '20px', marginBottom: '16px', boxShadow: phase.isGoNoGo ? '0 2px 8px rgba(39,174,96,0.25), 0 0 0 2px #27ae6033' : '0 2px 8px rgba(0,0,0,0.08)' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+              {/* Clickable phase title */}
+              <h3 onClick={() => togglePhase(phase.id)} style={{ margin: 0, color: '#1a2332', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' as any, flexWrap: 'wrap', flex: 1 }}>
+                <span style={{ fontSize: '14px', color: '#999' }}>{collapsedPhases.has(phase.id) ? '►' : '▼'}</span>
+                <span style={{ background: phase.environment === 'HOT' ? '#fee' : phase.environment === 'HOTNET' ? '#e8f4fd' : '#f0f0f0', color: phase.environment === 'HOT' ? '#c0392b' : phase.environment === 'HOTNET' ? '#2980b9' : '#666', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>{phase.environment}</span>
+                {editingPhaseId === phase.id ? (
+                  <span onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <input
+                      autoFocus
+                      value={editingPhaseName}
+                      onChange={e => setEditingPhaseName(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') savePhaseRename(phase.id); if (e.key === 'Escape') setEditingPhaseId(null); }}
+                      style={{ padding: '4px 8px', border: '2px solid #2d4a7a', borderRadius: '6px', fontSize: '15px', fontWeight: 'bold', width: '260px' }}
+                    />
+                    <button onClick={() => savePhaseRename(phase.id)} disabled={phaseManageLoading} style={{ padding: '3px 10px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>שמור</button>
+                    <button onClick={() => setEditingPhaseId(null)} style={{ padding: '3px 8px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>×</button>
+                  </span>
+                ) : (
+                  <span>{phase.name}</span>
+                )}
+                {FEATURES.TEAM_LEAD_PROPOSAL && (() => {
+                  const pending = proposals.filter((p: any) => p.phase === phase.orderIndex && !p.usedInTaskId).length;
+                  if (!pending) return null;
+                  return (
+                    <span title={`${pending} הצעות ראשי צוותים ממתינות לשיבוץ`} style={{
+                      background: '#e67e22', color: 'white',
+                      padding: '2px 9px', borderRadius: '10px',
+                      fontSize: '11px', fontWeight: 'bold',
+                      animation: 'pulse 2s infinite',
+                      cursor: 'default', whiteSpace: 'nowrap',
+                    }}>
+                      💡 {pending} הצעות ממתינות
+                    </span>
+                  );
+                })()}
+                {phase.isGoNoGo && (
+                  <span style={{ background: '#eafaf1', color: '#1e8449', padding: '2px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold', border: '1px solid #27ae6060', whiteSpace: 'nowrap' }}>
+                    🚦 שלב GO/NO GO
+                  </span>
+                )}
+                <span style={{ fontSize: '12px', color: '#999', fontWeight: 'normal' }}>({phase.subPhases?.length || 0} תת-שלבים)</span>
               {phaseTimes && (
                 <span style={{ fontSize: '12px', background: phaseTimes.overrun ? '#fee' : '#fff8e1', color: phaseTimes.overrun ? '#c0392b' : '#e65100', padding: '2px 10px', borderRadius: '12px', fontWeight: phaseTimes.overrun ? 'bold' : 'normal', marginRight: '4px', border: phaseTimes.overrun ? '1px solid #e74c3c' : 'none' }}>
                   {phaseTimes.overrun ? '⚠️ ' : '⏰ '}
@@ -1542,7 +1750,38 @@ const VersionDetail: React.FC<{
                   יעד: {formatDateTimeShort(phaseCutoff.toISOString())}
                 </span>
               )}
-            </h3>
+              </h3>
+
+              {/* Phase management actions (managers only, non-locked) */}
+              {isManager && !isLocked && editingPhaseId !== phase.id && (
+                <div style={{ display: 'flex', gap: '5px', alignItems: 'center', flexShrink: 0 }}>
+                  <button
+                    title="שנה שם שלב"
+                    onClick={() => { setEditingPhaseId(phase.id); setEditingPhaseName(phase.name); }}
+                    style={{ padding: '3px 8px', background: '#f0f4ff', color: '#2d4a7a', border: '1px solid #c0cfe8', borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>
+                    ✏️
+                  </button>
+                  {!phase.isGoNoGo && (
+                    <button
+                      title="הגדר שלב זה כנקודת GO/NO GO"
+                      onClick={() => setGoNogoPhase(phase.id)}
+                      disabled={phaseManageLoading}
+                      style={{ padding: '3px 8px', background: '#f0faf4', color: '#27ae60', border: '1px solid #a9dfbf', borderRadius: '5px', cursor: 'pointer', fontSize: '12px', whiteSpace: 'nowrap' }}>
+                      🚦 קבע GO/NO GO
+                    </button>
+                  )}
+                  {(phase.subPhases ?? []).every((sp: any) => (sp.tasks ?? []).length === 0) && (
+                    <button
+                      title="מחק שלב (ריק)"
+                      onClick={() => deletePhase(phase.id, phase.name)}
+                      disabled={phaseManageLoading}
+                      style={{ padding: '3px 8px', background: '#fff0f0', color: '#c0392b', border: '1px solid #e8a0a0', borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>
+                      🗑️
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
 
             {!collapsedPhases.has(phase.id) && phase.subPhases?.map((sub: any) => {
               const subTimes = getHierarchyTimes(sub.tasks || [], phaseCutoff);
@@ -1892,11 +2131,18 @@ const VersionDetail: React.FC<{
                                   <button onClick={() => duplicateTask(task.id)} style={{ padding: '4px 10px', background: '#7f8c8d', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }} title="שכפל משימה">⧉</button>
                                   {isManager && (
                                     <button
-                                      onClick={async () => {
-                                        if (!window.confirm(`להפוך את "${task.title}" לתת-שלב? המשימה תימחק וייווצר תת-שלב חדש במקומה.`)) return;
-                                        await axios.post(`${API}/versions/tasks/${task.id}/promote`, {}, { headers });
-                                        onRefresh();
-                                      }}
+                                      onClick={() => setDialog({
+                                        title: 'המרה לתת-שלב',
+                                        message: `להפוך את "${task.title}" לתת-שלב?\nהמשימה תימחק וייווצר תת-שלב חדש במקומה.\nהפעולה בלתי הפיכה.`,
+                                        variant: 'warning',
+                                        confirmLabel: 'המר לתת-שלב',
+                                        cancelLabel: 'ביטול',
+                                        onConfirm: async () => {
+                                          await axios.post(`${API}/versions/tasks/${task.id}/promote`, {}, { headers });
+                                          onRefresh();
+                                        },
+                                        onCancel: () => {},
+                                      })}
                                       style={{ padding: '4px 10px', background: '#8e44ad', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}
                                       title="הפוך לתת-שלב">
                                       ▲ תת-שלב
@@ -1924,9 +2170,12 @@ const VersionDetail: React.FC<{
                         const phaseProposals = proposals.filter((p: any) => p.phase === phase.orderIndex);
                         if (phaseProposals.length === 0) return null;
                         return (
-                          <div style={{ marginBottom: '12px', background: 'white', border: '1px solid #bee3f8', borderRadius: '8px', padding: '10px 14px' }}>
-                            <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#2c5282', marginBottom: '8px' }}>
-                              📋 הצעות ראשי צוותים לשלב זה ({phaseProposals.length})
+                          <div style={{ marginBottom: '12px', background: '#f0faf4', border: '2px solid #27ae60', borderRadius: '8px', padding: '10px 14px' }}>
+                            <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#1a5c2a', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ background: '#27ae60', color: 'white', padding: '2px 8px', borderRadius: '10px', fontSize: '11px' }}>
+                                {phaseProposals.length}
+                              </span>
+                              💡 הצעות ראשי צוותים לשלב זה
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '200px', overflowY: 'auto' }}>
                               {phaseProposals.map((p: any) => {
@@ -1948,19 +2197,19 @@ const VersionDetail: React.FC<{
                                     if (p.teamId) setSelectedTeam(p.teamId);
                                   }} style={{
                                     padding: '6px 10px', borderRadius: '6px', cursor: 'pointer',
-                                    background: isSelected ? '#2d4a7a' : '#f8fafc',
-                                    border: `1px solid ${isSelected ? '#2d4a7a' : '#e0e8f0'}`,
+                                    background: isSelected ? '#1a5c2a' : 'white',
+                                    border: `1px solid ${isSelected ? '#1a5c2a' : '#a8d5b5'}`,
                                     display: 'flex', alignItems: 'center', gap: '6px',
                                   }}>
                                     {p.crNumber && (
-                                      <span style={{ background: isSelected ? 'rgba(255,255,255,0.2)' : '#1a2332', color: 'white', padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontFamily: 'monospace', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                      <span style={{ background: isSelected ? 'rgba(255,255,255,0.25)' : '#1a2332', color: 'white', padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontFamily: 'monospace', whiteSpace: 'nowrap', flexShrink: 0 }}>
                                         {p.crNumber}
                                       </span>
                                     )}
                                     <span style={{ fontWeight: 'bold', fontSize: '13px', color: isSelected ? 'white' : '#1a2332', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                       {p.title}
                                     </span>
-                                    <span style={{ fontSize: '11px', color: isSelected ? 'rgba(255,255,255,0.75)' : '#888', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                    <span style={{ fontSize: '11px', color: isSelected ? 'rgba(255,255,255,0.8)' : '#666', whiteSpace: 'nowrap', flexShrink: 0 }}>
                                       {[teamName, p.app, p.estimatedMins ? `${p.estimatedMins} דק'` : ''].filter(Boolean).join(' · ')}
                                     </span>
                                   </div>
@@ -1969,11 +2218,11 @@ const VersionDetail: React.FC<{
                             </div>
                             {selectedProposalId && (
                               <button type="button" onClick={() => { setSelectedProposalId(null); setNewTask(EMPTY_TASK); }}
-                                style={{ marginTop: '6px', fontSize: '11px', color: '#c0392b', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                                style={{ marginTop: '6px', fontSize: '11px', color: '#888', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
                                 ✕ נקה בחירה
                               </button>
                             )}
-                            <div style={{ fontSize: '11px', color: '#888', marginTop: '5px' }}>לחץ על הצעה לטעינה אוטומטית — ניתן לערוך לפני השמירה</div>
+                            <div style={{ fontSize: '11px', color: '#555', marginTop: '5px' }}>לחץ על הצעה לטעינה אוטומטית — ניתן לערוך לפני השמירה</div>
                           </div>
                         );
                       })()}
@@ -2106,6 +2355,38 @@ const VersionDetail: React.FC<{
           </div>
         );
       })}
+
+      {/* ── Add Phase + error ── */}
+      {isManager && !isLocked && (
+        <div style={{ marginBottom: '12px' }}>
+          {phaseManageError && (
+            <div style={{ background: '#fee', border: '1px solid #e74c3c', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', color: '#c0392b', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              ⚠️ {phaseManageError}
+              <button onClick={() => setPhaseManageError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', fontWeight: 'bold' }}>×</button>
+            </div>
+          )}
+          {addingPhase ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'white', borderRadius: '10px', padding: '12px 16px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+              <input
+                autoFocus
+                value={newPhaseName}
+                onChange={e => setNewPhaseName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') addPhase(); if (e.key === 'Escape') { setAddingPhase(false); setNewPhaseName(''); } }}
+                placeholder="שם השלב החדש"
+                style={{ flex: 1, padding: '8px 12px', border: '2px solid #2d4a7a', borderRadius: '6px', fontSize: '14px' }}
+              />
+              <button onClick={addPhase} disabled={!newPhaseName.trim() || phaseManageLoading} style={{ padding: '8px 16px', background: '#2d4a7a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>הוסף</button>
+              <button onClick={() => { setAddingPhase(false); setNewPhaseName(''); }} style={{ padding: '8px 14px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>ביטול</button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setAddingPhase(true)}
+              style={{ padding: '8px 18px', background: 'white', color: '#2d4a7a', border: '2px dashed #2d4a7a', borderRadius: '10px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', width: '100%' }}>
+              + הוסף שלב
+            </button>
+          )}
+        </div>
+      )}
     </>}
 
       {/* ── דיאלוג אישור העברת משימה ── */}

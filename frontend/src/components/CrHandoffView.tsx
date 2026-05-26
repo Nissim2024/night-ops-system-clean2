@@ -79,6 +79,7 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
   const [dialog, setDialog]             = useState<DialogConfig | null>(null);
   const [missingTeams, setMissingTeams] = useState<string[]>([]);
   const [bannerOpen, setBannerOpen]     = useState(true);
+  const [togglingTeam, setTogglingTeam] = useState<string | null>(null);
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -101,6 +102,18 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
   };
 
   useEffect(() => { load(); }, [versionId]); // eslint-disable-line
+
+  const markNotRequired = async (teamDisplayName: string) => {
+    const team = teams.find((t: any) => t.name === teamDisplayName);
+    if (!team) return;
+    setTogglingTeam(teamDisplayName);
+    try {
+      await axios.patch(`${API}/versions/${versionId}/submissions/${team.id}/not-required`, { notRequiredForApproval: true }, { headers });
+      const res = await axios.get(`${API}/import/teams-without-proposals?versionId=${versionId}`, { headers }).catch(() => ({ data: [] }));
+      setMissingTeams(res.data);
+    } catch { /* silent */ }
+    finally { setTogglingTeam(null); }
+  };
 
   const teamName = (teamId: string) => teams.find(t => t.id === teamId)?.name || '';
 
@@ -337,10 +350,17 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
               <div style={{ fontSize: '22px', fontWeight: 'bold' }}>{totalInPlan}</div>
               <div style={{ fontSize: '11px', opacity: 0.7 }}>בתוכנית</div>
             </div>
-            <button onClick={onGoToPlan} style={{
-              padding: '10px 20px', background: '#27ae60', color: 'white',
-              border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px',
-            }}>עבור לתוכנית ←</button>
+            <button
+              onClick={missingTeams.length > 0 ? undefined : onGoToPlan}
+              disabled={missingTeams.length > 0}
+              title={missingTeams.length > 0 ? 'יש צוותים שלא הגישו — סמן אותם כ"לא נדרש" כדי להמשיך' : ''}
+              style={{
+                padding: '10px 20px',
+                background: missingTeams.length > 0 ? '#aaa' : '#27ae60',
+                color: 'white', border: 'none', borderRadius: '8px',
+                cursor: missingTeams.length > 0 ? 'not-allowed' : 'pointer',
+                fontWeight: 'bold', fontSize: '13px',
+              }}>עבור לתוכנית ←</button>
           </div>
         </div>
       </div>
@@ -356,11 +376,27 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
             <span style={{ marginRight: 'auto', color: '#e67e22', fontSize: '12px' }}>{bannerOpen ? '▲ סגור' : '▼ פרוט'}</span>
           </div>
           {bannerOpen && (
-            <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ fontSize: '12px', color: '#7d4e00', marginBottom: '2px' }}>
+                לחץ "לא נדרש לאישור" כדי לאפשר מעבר לתוכנית ללא אישור הצוות:
+              </div>
               {missingTeams.map(t => (
-                <span key={t} style={{ background: '#fadbd8', color: '#c0392b', padding: '3px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold' }}>
-                  {t}
-                </span>
+                <div key={t} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ background: '#fadbd8', color: '#c0392b', padding: '3px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold', minWidth: '120px' }}>
+                    {t}
+                  </span>
+                  <button
+                    onClick={() => markNotRequired(t)}
+                    disabled={togglingTeam === t}
+                    style={{
+                      padding: '3px 12px', background: togglingTeam === t ? '#ccc' : '#e67e22',
+                      color: 'white', border: 'none', borderRadius: '12px',
+                      cursor: togglingTeam === t ? 'not-allowed' : 'pointer',
+                      fontSize: '11px', fontWeight: 'bold',
+                    }}>
+                    {togglingTeam === t ? '...' : 'לא נדרש לאישור ✓'}
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -500,10 +536,17 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
 
       {totalProposals > 0 && (
         <div style={{ marginTop: '20px', textAlign: 'center' }}>
-          <button onClick={onGoToPlan} style={{
-            padding: '12px 32px', background: '#27ae60', color: 'white',
-            border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px',
-          }}>
+          <button
+            onClick={missingTeams.length > 0 ? undefined : onGoToPlan}
+            disabled={missingTeams.length > 0}
+            title={missingTeams.length > 0 ? 'יש צוותים שלא הגישו — סמן אותם כ"לא נדרש" כדי להמשיך' : ''}
+            style={{
+              padding: '12px 32px',
+              background: missingTeams.length > 0 ? '#aaa' : '#27ae60',
+              color: 'white', border: 'none', borderRadius: '10px',
+              cursor: missingTeams.length > 0 ? 'not-allowed' : 'pointer',
+              fontWeight: 'bold', fontSize: '15px',
+            }}>
             עבור לתוכנית ←
           </button>
           <div style={{ fontSize: '12px', color: '#aaa', marginTop: '8px' }}>

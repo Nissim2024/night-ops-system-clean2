@@ -398,8 +398,7 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
   const updateStatus = async (taskId: string, status: string, reason?: string) => {
     setUpdatingId(taskId);
     try {
-      await axios.patch(`${API}/tasks/${taskId}/status`, { status }, { headers });
-      if (reason) await axios.patch(`${API}/tasks/${taskId}`, { blockedReason: reason }, { headers });
+      await axios.patch(`${API}/tasks/${taskId}/status`, { status, ...(reason && { blockedReason: reason }) }, { headers });
       setShowBlockedInput(null);
       fetchTasks();
       onTaskUpdated?.();
