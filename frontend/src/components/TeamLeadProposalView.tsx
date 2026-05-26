@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 
@@ -18,8 +18,29 @@ const PHASE_BADGE: Record<number, { bg: string; color: string }> = {
   4: { bg: '#f5e8fd', color: '#8e44ad' },
 };
 
-const APPS = ['WIZ', 'CRM', 'EAI', 'OSB', 'DP', 'NC', 'ERP', 'ETL', 'אחר'];
+const APPS = [
+  'BILI', 'CRM', 'OSB', 'DP', 'WEB-RETAIL', 'WEB-NEXT', 'WEB-HOT',
+  'TOP', 'IRB', 'NC', 'ERP', 'CONNECT', 'CREDIT GUARD', 'ARCHIVE',
+  'PRINT BOSS', 'NIFI', 'CAWA', 'BEERI', 'IVR', 'MEDIATION',
+  'PROVISIONING LDAP', 'PROVISIONING TIBCO', 'PROVISIONING NAGRA',
+  'PROVISIONING OTT', 'PROVISIONING TEL', 'REMEDY', 'ZOO', 'אחר',
+];
 const FREE_KEY = '__FREE__';
+
+const TEAM_APPS: Record<string, string[]> = {
+  'NETC Team':               ['BILI', 'IRB'],
+  'CRM Dev Team':            ['CRM', 'TOP', 'CONNECT'],
+  'EAI Team':                ['OSB', 'DP', 'MEDIATION', 'PROVISIONING LDAP', 'PROVISIONING TIBCO', 'PROVISIONING NAGRA', 'PROVISIONING OTT', 'PROVISIONING TEL'],
+  'Web Dev Team':            ['WEB-RETAIL', 'WEB-NEXT', 'WEB-HOT'],
+  'NC Team':                 ['NC'],
+  'ERP Team':                ['ERP'],
+  'Operations Team':         ['CREDIT GUARD', 'ARCHIVE', 'PRINT BOSS', 'BEERI'],
+  'Billing Operations Team': ['CREDIT GUARD', 'ARCHIVE', 'PRINT BOSS', 'BEERI'],
+  'SHOB Team':               ['NIFI', 'CAWA'],
+  'IVR Team':                ['IVR'],
+  'OSS Team':                ['REMEDY', 'ZOO'],
+  // Teams not listed → show all APPS (fallback handled below)
+};
 
 interface Proposal {
   id: string;
@@ -45,6 +66,7 @@ interface CrPlanData {
   gradualDetails?: string;
   nightTestingNotes?: string;
   morningMonitoring?: string;
+  notNeededForPlan: boolean;
   crDeps: { id: string; dependsOnCr: string }[];
 }
 
@@ -127,6 +149,9 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   // Sync state
   const [syncLoading, setSyncLoading]   = useState(false);
   const [syncError, setSyncError]       = useState<string | null>(null);
+
+  // "Not needed" toggle state
+  const [togglingNotNeeded, setTogglingNotNeeded] = useState<Set<string>>(new Set());
 
   // Dialog state
   const [dialog, setDialog] = useState<DialogConfig | null>(null);
@@ -228,7 +253,9 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   const getCrLabel = (crNum: string) => {
     const fromApi = crItems.find(c => c.id === crNum);
     if (fromApi) return fromApi.label;
-    return proposals.find(x => x.crNumber === crNum)?.crLabel || '';
+    const fromProposal = proposals.find(x => x.crNumber === crNum)?.crLabel;
+    if (fromProposal) return fromProposal;
+    return crPlans[crNum]?.crLabel || '';
   };
 
   const openAdd = (crNumber?: string, crLabel?: string, isFree?: boolean) => {
@@ -374,8 +401,36 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     finally { setSavingPlan(null); }
   };
 
+  const toggleNotNeeded = async (crNumber: string) => {
+    const current = crPlans[crNumber]?.notNeededForPlan ?? false;
+    setTogglingNotNeeded(prev => new Set(prev).add(crNumber));
+    try {
+      const label = getCrLabel(crNumber) || crPlans[crNumber]?.crLabel || '';
+      const res = await axios.post(`${API}/cr-plans/version/${versionId}`, {
+        crNumber,
+        crLabel: label || undefined,
+        notNeededForPlan: !current,
+      }, { headers });
+      setCrPlans(prev => ({ ...prev, [crNumber]: { ...(prev[crNumber] || res.data), ...res.data } }));
+    } catch { /* silent */ }
+    finally { setTogglingNotNeeded(prev => { const next = new Set(prev); next.delete(crNumber); return next; }); }
+  };
+
   const submitDone = async () => {
     if (!myTeamId) return;
+
+    // Validate: every CR must be either "not needed" or have at least one READY proposal
+    const draftCrs: string[] = [];
+    for (const [crNumber, crProposals] of crGroups) {
+      if (crPlans[crNumber]?.notNeededForPlan) continue;
+      const hasReady = crProposals.some(p => p.status === 'READY' || p.usedInTaskId);
+      if (!hasReady) draftCrs.push(crNumber);
+    }
+    if (draftCrs.length > 0) {
+      setSubmitError(`לא ניתן להגיש — יש CR-ים שלא טופלו: ${draftCrs.join(', ')}. יש לסמן לפחות צעד אחד כ"מוכן", או לסמן את ה-CR כ"לא נדרש לתוכנית".`);
+      return;
+    }
+
     setSubmitting(true); setSubmitError(null);
     try {
       await axios.post(`${API}/versions/${versionId}/submit/${myTeamId}`, {}, { headers });
@@ -386,6 +441,27 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   };
 
   const totalReady = proposals.filter(p => p.status === 'READY').length;
+
+  // Filter users to team members only
+  const teamUsers = useMemo(() => {
+    if (!myTeamId || !teams.length) return users;
+    const myTeam = teams.find((t: any) => t.id === myTeamId);
+    if (!myTeam?.members?.length) return users;
+    const memberIds = new Set((myTeam.members as any[]).map((m: any) => m.user.id));
+    const filtered = users.filter(u => memberIds.has(u.id));
+    return filtered.length > 0 ? filtered : users;
+  }, [myTeamId, teams, users]);
+
+  // Apps for this team — DB first, then static map, then all. Always ends with "אחר".
+  const teamAppList = useMemo(() => {
+    const withOther = (list: string[]) =>
+      list.includes('אחר') ? list : [...list, 'אחר'];
+    const myTeam = teams.find((t: any) => t.id === myTeamId);
+    if (myTeam?.apps?.length) return withOther(myTeam.apps as string[]);
+    const staticApps = TEAM_APPS[myTeamName];
+    if (staticApps) return withOther(staticApps);
+    return APPS; // all apps (includes 'אחר')
+  }, [myTeamId, myTeamName, teams]);
 
   // ── Form ────────────────────────────────────────────────────────────────────
   const renderForm = () => (
@@ -458,7 +534,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           <label style={labelStyle}>מערכת</label>
           <select value={form.app} onChange={e => setForm(f => ({ ...f, app: e.target.value }))} style={inputStyle}>
             <option value="">-- בחר --</option>
-            {APPS.map(a => <option key={a} value={a}>{a}</option>)}
+            {teamAppList.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
         </div>
 
@@ -486,7 +562,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           <label style={labelStyle}>עובד אחראי</label>
           <select value={form.assignedUserName} onChange={e => setForm(f => ({ ...f, assignedUserName: e.target.value }))} style={inputStyle}>
             <option value="">-- בחר עובד --</option>
-            {users.map(u => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
+            {teamUsers.map(u => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
           </select>
         </div>
 
@@ -692,32 +768,64 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     const readyCount = crProposals.filter(p => p.status === 'READY' || p.usedInTaskId).length;
     const isPlanExpanded = expandedPlans.has(crNumber);
     const hasPlanData = !!crPlans[crNumber];
+    const isNotNeeded = crPlans[crNumber]?.notNeededForPlan === true;
+    const isTogglingNN = togglingNotNeeded.has(crNumber);
 
     return (
-      <div key={crNumber} style={{ background: 'white', borderRadius: '10px', padding: '14px 16px', marginBottom: '10px', boxShadow: '0 2px 6px rgba(0,0,0,0.06)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: crProposals.length ? '10px' : '0' }}>
-          <span style={{ background: '#1a2332', color: 'white', padding: '3px 10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+      <div key={crNumber} style={{
+        background: isNotNeeded ? '#f5f5f5' : 'white',
+        borderRadius: '10px', padding: '14px 16px', marginBottom: '10px',
+        boxShadow: '0 2px 6px rgba(0,0,0,0.06)',
+        border: isNotNeeded ? '1px solid #bdc3c7' : '1px solid transparent',
+        opacity: isNotNeeded ? 0.75 : 1,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: crProposals.length && !isNotNeeded ? '10px' : '0' }}>
+          <span style={{ background: isNotNeeded ? '#7f8c8d' : '#1a2332', color: 'white', padding: '3px 10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
             {crNumber}
           </span>
-          <span style={{ fontSize: '13px', color: '#444', flex: 1, fontWeight: label ? 'normal' : undefined }}>
+          <span style={{ fontSize: '13px', color: isNotNeeded ? '#999' : '#444', flex: 1, textDecoration: isNotNeeded ? 'line-through' : 'none' }}>
             {label || ''}
           </span>
-          <span style={{ fontSize: '11px', color: '#888', whiteSpace: 'nowrap' }}>
-            {readyCount}/{crProposals.length} מוכן
-          </span>
-          <button
-            onClick={() => togglePlanExpanded(crNumber)}
-            style={{
-              padding: '4px 10px',
-              background: isPlanExpanded ? '#6c3483' : hasPlanData ? '#e8d5f7' : '#f0f0f0',
-              color: isPlanExpanded ? 'white' : hasPlanData ? '#6c3483' : '#666',
-              border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px',
-              fontWeight: 'bold', whiteSpace: 'nowrap',
-            }}
-          >
-            {isPlanExpanded ? '▲ תכנית CR' : `${hasPlanData ? '✓ ' : ''}📋 תכנית CR`}
-          </button>
+          {!isNotNeeded && (
+            <span style={{ fontSize: '11px', color: '#888', whiteSpace: 'nowrap' }}>
+              {readyCount}/{crProposals.length} מוכן
+            </span>
+          )}
           {!submissionDone && (
+            <button
+              onClick={() => toggleNotNeeded(crNumber)}
+              disabled={isTogglingNN}
+              title={isNotNeeded ? 'לחץ לביטול הסימון' : 'סמן CR זה כלא נדרש לתוכנית העלייה'}
+              style={{
+                padding: '4px 10px',
+                background: isNotNeeded ? '#7f8c8d' : 'white',
+                color: isNotNeeded ? 'white' : '#7f8c8d',
+                border: '1px solid #bdc3c7',
+                borderRadius: '6px', cursor: isTogglingNN ? 'not-allowed' : 'pointer',
+                fontSize: '11px', fontWeight: 'bold', whiteSpace: 'nowrap',
+              }}
+            >
+              {isTogglingNN ? '...' : isNotNeeded ? '✗ לא נדרש לתוכנית' : 'לא נדרש לתוכנית'}
+            </button>
+          )}
+          {isNotNeeded && submissionDone && (
+            <span style={{ fontSize: '11px', color: '#7f8c8d', whiteSpace: 'nowrap' }}>✗ לא נדרש לתוכנית</span>
+          )}
+          {!isNotNeeded && (
+            <button
+              onClick={() => togglePlanExpanded(crNumber)}
+              style={{
+                padding: '4px 10px',
+                background: isPlanExpanded ? '#6c3483' : hasPlanData ? '#e8d5f7' : '#f0f0f0',
+                color: isPlanExpanded ? 'white' : hasPlanData ? '#6c3483' : '#666',
+                border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px',
+                fontWeight: 'bold', whiteSpace: 'nowrap',
+              }}
+            >
+              {isPlanExpanded ? '▲ תכנית CR' : `${hasPlanData ? '✓ ' : ''}📋 תכנית CR`}
+            </button>
+          )}
+          {!submissionDone && !isNotNeeded && (
             <button onClick={() => openAdd(crNumber, label)} style={{
               padding: '4px 12px', background: '#2d4a7a', color: 'white',
               border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', whiteSpace: 'nowrap',
@@ -735,9 +843,9 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           )}
         </div>
 
-        {isPlanExpanded && renderCrPlanPanel(crNumber)}
+        {!isNotNeeded && isPlanExpanded && renderCrPlanPanel(crNumber)}
 
-        {crProposals.sort((a, b) => a.phase - b.phase).map(renderRow)}
+        {!isNotNeeded && crProposals.sort((a, b) => a.phase - b.phase).map(renderRow)}
       </div>
     );
   };

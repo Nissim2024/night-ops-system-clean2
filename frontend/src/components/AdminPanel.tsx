@@ -5,6 +5,14 @@ import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 
 const API = 'http://localhost:3000';
 
+const APPS = [
+  'BILI', 'CRM', 'OSB', 'DP', 'WEB-RETAIL', 'WEB-NEXT', 'WEB-HOT',
+  'TOP', 'IRB', 'NC', 'ERP', 'CONNECT', 'CREDIT GUARD', 'ARCHIVE',
+  'PRINT BOSS', 'NIFI', 'CAWA', 'BEERI', 'IVR', 'MEDIATION',
+  'PROVISIONING LDAP', 'PROVISIONING TIBCO', 'PROVISIONING NAGRA',
+  'PROVISIONING OTT', 'PROVISIONING TEL', 'REMEDY', 'ZOO', 'אחר',
+];
+
 const ROLES = ['EMPLOYEE', 'TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN', 'VIEWER'];
 const ROLE_LABELS: Record<string, string> = {
   EMPLOYEE: 'עובד', TEAM_LEAD: 'ראש צוות',
@@ -89,6 +97,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
   const [editingTeamId, setEditingTeamId]   = useState<string | null>(null);
   const [editTeamName, setEditTeamName]     = useState('');
   const [editTeamDesc, setEditTeamDesc]     = useState('');
+  const [editTeamApps, setEditTeamApps]     = useState<string[]>([]);
   const [savingEditTeam, setSavingEditTeam] = useState(false);
 
   // Password reset
@@ -323,6 +332,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
     setEditingTeamId(t.id);
     setEditTeamName(t.name);
     setEditTeamDesc(t.description || '');
+    setEditTeamApps(t.apps || []);
   };
 
   const saveTeamEdit = async (e: React.FormEvent) => {
@@ -331,7 +341,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
     setSavingEditTeam(true);
     setError(null);
     try {
-      await axios.patch(`${API}/teams/${editingTeamId}`, { name: editTeamName, description: editTeamDesc }, { headers });
+      await axios.patch(`${API}/teams/${editingTeamId}`, { name: editTeamName, description: editTeamDesc, apps: editTeamApps }, { headers });
       setEditingTeamId(null);
       fetchAll();
     } catch (e: any) {
@@ -710,6 +720,30 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                               <input style={inputStyle} value={editTeamDesc}
                                 onChange={e => setEditTeamDesc(e.target.value)} />
                             </div>
+                            <div style={{ marginBottom: '12px' }}>
+                              <label style={{ ...labelStyle, marginBottom: '6px' }}>מערכות אחראיות</label>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                {APPS.map(a => {
+                                  const checked = editTeamApps.includes(a);
+                                  return (
+                                    <label key={a} style={{
+                                      display: 'flex', alignItems: 'center', gap: '4px',
+                                      fontSize: '12px', cursor: 'pointer',
+                                      background: checked ? '#e8f4fd' : '#f5f5f5',
+                                      border: `1px solid ${checked ? '#3498db' : '#ddd'}`,
+                                      borderRadius: '6px', padding: '4px 10px',
+                                      color: checked ? '#2980b9' : '#666', fontWeight: checked ? 'bold' : 'normal',
+                                    }}>
+                                      <input type="checkbox" checked={checked} style={{ margin: 0 }}
+                                        onChange={e => setEditTeamApps(prev =>
+                                          e.target.checked ? [...prev, a] : prev.filter(x => x !== a)
+                                        )} />
+                                      {a}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
                             <div style={{ display: 'flex', gap: '8px' }}>
                               <button type="submit" disabled={savingEditTeam} style={{
                                 padding: '6px 14px', background: savingEditTeam ? '#ccc' : '#27ae60',
@@ -752,7 +786,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                               {members.length} חברים
                             </div>
                             {members.length > 0 && (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: t.apps?.length ? '10px' : '0' }}>
                                 {members.map(m => (
                                   <span key={m.id} style={{
                                     background: '#e8f4fd', color: '#2980b9',
@@ -761,6 +795,21 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                                     {m.fullName}
                                   </span>
                                 ))}
+                              </div>
+                            )}
+                            {t.apps?.length > 0 && (
+                              <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: '8px', marginTop: members.length ? '0' : '4px' }}>
+                                <div style={{ fontSize: '11px', color: '#aaa', marginBottom: '4px' }}>מערכות אחראיות</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                  {(t.apps as string[]).map(a => (
+                                    <span key={a} style={{
+                                      background: '#e8f8f0', color: '#1e8449',
+                                      padding: '2px 7px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold',
+                                    }}>
+                                      {a}
+                                    </span>
+                                  ))}
+                                </div>
                               </div>
                             )}
                           </>

@@ -533,4 +533,72 @@ export class ImportService {
 
     return results;
   }
+
+  async teamsWithoutProposals(versionId: string): Promise<string[]> {
+    const param = await prisma.systemParam.findUnique({ where: { key: 'EXCEL_FILE_PATH' } });
+    const filePath = param?.value?.trim();
+    if (!filePath || !fs.existsSync(filePath)) return [];
+
+    const version = await prisma.version.findUnique({ where: { id: versionId }, select: { name: true } });
+    if (!version) return [];
+
+    const buffer = fs.readFileSync(filePath);
+    const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    if (rows.length < 2) return [];
+
+    const REQUIRED_COLS = ['# CR', 'כותרת', 'גרסה'];
+    let headerRowIdx = -1;
+    for (let i = 0; i < Math.min(10, rows.length); i++) {
+      const row = (rows[i] as any[]).map(h => String(h ?? '').trim());
+      if (REQUIRED_COLS.every(col => row.includes(col))) { headerRowIdx = i; break; }
+    }
+    if (headerRowIdx === -1) return [];
+
+    const headers: string[] = (rows[headerRowIdx] as any[]).map(h => String(h ?? '').trim());
+    const colIdx = (name: string) => headers.findIndex(h => h === name);
+    const verCol    = colIdx('גרסה');
+    const statusCol = colIdx('סטטוס');
+
+    const involvedTeamNames = new Set<string>();
+    for (const [teamName, teamCols] of Object.entries(ImportService.TEAM_COLUMNS)) {
+      const teamColIdxs = teamCols.map(colIdx).filter(i => i !== -1);
+      if (teamColIdxs.length === 0) continue;
+      for (let r = headerRowIdx + 1; r < rows.length; r++) {
+        const row = rows[r] as any[];
+        if (String(row[verCol] ?? '').trim() !== version.name) continue;
+        if (String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
+        const involved = teamColIdxs.some(ci => {
+          const val = parseFloat(String(row[ci] ?? '0').replace(/[^\d.]/g, ''));
+          return !isNaN(val) && val > 1;
+        });
+        if (involved) { involvedTeamNames.add(teamName); break; }
+      }
+    }
+
+    if (involvedTeamNames.size === 0) return [];
+
+    const allTeams = await prisma.team.findMany({
+      where: { name: { in: [...involvedTeamNames] } },
+      select: { id: true, name: true },
+    });
+    const teamIdByName: Record<string, string> = {};
+    allTeams.forEach(t => { teamIdByName[t.name] = t.id; });
+
+    const proposals = await prisma.taskProposal.findMany({
+      where: { versionId },
+      select: { teamId: true },
+    });
+    const teamsWithProposals = new Set(proposals.map(p => p.teamId));
+
+    const missing: string[] = [];
+    for (const teamName of involvedTeamNames) {
+      const teamId = teamIdByName[teamName];
+      if (!teamId) continue;
+      if (!teamsWithProposals.has(teamId)) missing.push(teamName);
+    }
+
+    return missing.sort((a, b) => a.localeCompare(b, 'he'));
+  }
 }

@@ -38,6 +38,7 @@ export class CrPlansService {
       nightTestingNotes?: string;
       morningMonitoring?: string;
       dependsOnCrs?: string[];
+      notNeededForPlan?: boolean;
     },
   ) {
     const membership = await prisma.teamMember.findFirst({

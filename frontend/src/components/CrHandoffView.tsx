@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
+import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 
 const API = 'http://localhost:3000';
 
@@ -17,7 +18,13 @@ const PHASE_BADGE: Record<number, { bg: string; color: string }> = {
   4: { bg: '#f5e8fd', color: '#8e44ad' },
 };
 
-const APPS = ['WIZ', 'CRM', 'EAI', 'OSB', 'DP', 'NC', 'ERP', 'ETL', 'אחר'];
+const APPS = [
+  'BILI', 'CRM', 'OSB', 'DP', 'WEB-RETAIL', 'WEB-NEXT', 'WEB-HOT',
+  'TOP', 'IRB', 'NC', 'ERP', 'CONNECT', 'CREDIT GUARD', 'ARCHIVE',
+  'PRINT BOSS', 'NIFI', 'CAWA', 'BEERI', 'IVR', 'MEDIATION',
+  'PROVISIONING LDAP', 'PROVISIONING TIBCO', 'PROVISIONING NAGRA',
+  'PROVISIONING OTT', 'PROVISIONING TEL', 'REMEDY', 'ZOO', 'אחר',
+];
 
 interface Proposal {
   id: string;
@@ -69,21 +76,26 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
   const [editingId, setEditingId]       = useState<string | null>(null);
   const [editForm, setEditForm]         = useState({ ...emptyEdit });
   const [savingId, setSavingId]         = useState<string | null>(null);
+  const [dialog, setDialog]             = useState<DialogConfig | null>(null);
+  const [missingTeams, setMissingTeams] = useState<string[]>([]);
+  const [bannerOpen, setBannerOpen]     = useState(true);
 
   const headers = { Authorization: `Bearer ${token}` };
 
   const load = async () => {
     try {
-      const [propRes, planRes, teamRes, userRes] = await Promise.all([
+      const [propRes, planRes, teamRes, userRes, missingRes] = await Promise.all([
         axios.get(`${API}/task-proposals/version/${versionId}`, { headers }),
         axios.get(`${API}/cr-plans/version/${versionId}`, { headers }),
         axios.get(`${API}/teams`, { headers }),
         axios.get(`${API}/users`, { headers }),
+        axios.get(`${API}/import/teams-without-proposals?versionId=${versionId}`, { headers }).catch(() => ({ data: [] })),
       ]);
       setProposals(propRes.data);
       setCrPlans(planRes.data);
       setTeams(teamRes.data);
       setUsers(userRes.data.filter((u: any) => u.active));
+      setMissingTeams(missingRes.data);
     } catch { /* silent */ }
     finally { setLoading(false); }
   };
@@ -147,10 +159,19 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
     await load();
   };
 
-  const deleteProposal = async (p: Proposal) => {
-    if (!window.confirm(`למחוק את "${p.title}"?`)) return;
-    await axios.delete(`${API}/task-proposals/${p.id}`, { headers });
-    await load();
+  const deleteProposal = (p: Proposal) => {
+    setDialog({
+      title: 'מחיקת הצעה',
+      message: `האם למחוק את "${p.title}"?\nפעולה זו בלתי הפיכה.`,
+      variant: 'danger',
+      confirmLabel: 'מחק',
+      cancelLabel: 'ביטול',
+      onConfirm: async () => {
+        await axios.delete(`${API}/task-proposals/${p.id}`, { headers });
+        await load();
+      },
+      onCancel: () => {},
+    });
   };
 
   const startEdit = (p: Proposal) => {
@@ -295,6 +316,7 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
 
   return (
     <div style={{ direction: 'rtl', fontFamily: 'Arial, sans-serif' }}>
+      <ConfirmDialog config={dialog} onClose={() => setDialog(null)} />
 
       {/* Header */}
       <div style={{
@@ -322,6 +344,28 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
           </div>
         </div>
       </div>
+
+      {/* Missing teams banner */}
+      {missingTeams.length > 0 && (
+        <div style={{ background: '#fef9e7', border: '1px solid #f39c12', borderRadius: '10px', padding: '12px 16px', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }} onClick={() => setBannerOpen(b => !b)}>
+            <span style={{ fontSize: '18px' }}>⚠️</span>
+            <span style={{ fontWeight: 'bold', color: '#d35400', fontSize: '14px' }}>
+              {missingTeams.length} צוותים מעורבים בגרסה טרם הגישו תוכניות
+            </span>
+            <span style={{ marginRight: 'auto', color: '#e67e22', fontSize: '12px' }}>{bannerOpen ? '▲ סגור' : '▼ פרוט'}</span>
+          </div>
+          {bannerOpen && (
+            <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+              {missingTeams.map(t => (
+                <span key={t} style={{ background: '#fadbd8', color: '#c0392b', padding: '3px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold' }}>
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Controls */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', alignItems: 'center', flexWrap: 'wrap' }}>

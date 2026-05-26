@@ -61,7 +61,7 @@ export class TeamsService {
     });
   }
 
-  async update(id: string, data: { name?: string; description?: string; active?: boolean }) {
+  async update(id: string, data: { name?: string; description?: string; active?: boolean; apps?: string[] }) {
     const team = await prisma.team.findUnique({ where: { id } });
     if (!team) throw new NotFoundException('Team not found');
     return prisma.team.update({ where: { id }, data });

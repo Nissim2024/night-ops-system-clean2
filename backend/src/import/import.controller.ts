@@ -31,6 +31,16 @@ export class ImportController {
     return this.importService.fetchCrsForTeam(versionId, req.user.sub);
   }
 
+  @Get('teams-without-proposals')
+  async getTeamsWithoutProposals(
+    @Query('versionId') versionId: string,
+    @Request() req: any,
+  ) {
+    requireRole(req, MANAGERS);
+    if (!versionId) throw new BadRequestException('versionId חסר');
+    return this.importService.teamsWithoutProposals(versionId);
+  }
+
   @Post('excel')
   @UseInterceptors(FileInterceptor('file'))
   async importExcel(
