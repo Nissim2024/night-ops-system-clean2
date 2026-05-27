@@ -77,7 +77,7 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
   const [editForm, setEditForm]         = useState({ ...emptyEdit });
   const [savingId, setSavingId]         = useState<string | null>(null);
   const [dialog, setDialog]             = useState<DialogConfig | null>(null);
-  const [missingTeams, setMissingTeams] = useState<string[]>([]);
+  const [missingTeams, setMissingTeams] = useState<{ name: string; crCount: number; notRequired: boolean }[]>([]);
   const [bannerOpen, setBannerOpen]     = useState(true);
   const [togglingTeam, setTogglingTeam] = useState<string | null>(null);
 
@@ -350,58 +350,94 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
               <div style={{ fontSize: '22px', fontWeight: 'bold' }}>{totalInPlan}</div>
               <div style={{ fontSize: '11px', opacity: 0.7 }}>בתוכנית</div>
             </div>
-            <button
-              onClick={missingTeams.length > 0 ? undefined : onGoToPlan}
-              disabled={missingTeams.length > 0}
-              title={missingTeams.length > 0 ? 'יש צוותים שלא הגישו — סמן אותם כ"לא נדרש" כדי להמשיך' : ''}
-              style={{
-                padding: '10px 20px',
-                background: missingTeams.length > 0 ? '#aaa' : '#27ae60',
-                color: 'white', border: 'none', borderRadius: '8px',
-                cursor: missingTeams.length > 0 ? 'not-allowed' : 'pointer',
-                fontWeight: 'bold', fontSize: '13px',
-              }}>עבור לתוכנית ←</button>
+            {(() => {
+              const pendingCount = missingTeams.filter(mt => !mt.notRequired).length;
+              return (
+                <button
+                  onClick={pendingCount > 0 ? undefined : onGoToPlan}
+                  disabled={pendingCount > 0}
+                  title={pendingCount > 0 ? 'יש צוותים שלא הגישו — סמן אותם כ"לא נדרש" כדי להמשיך' : ''}
+                  style={{
+                    padding: '10px 20px',
+                    background: pendingCount > 0 ? '#aaa' : '#27ae60',
+                    color: 'white', border: 'none', borderRadius: '8px',
+                    cursor: pendingCount > 0 ? 'not-allowed' : 'pointer',
+                    fontWeight: 'bold', fontSize: '13px',
+                  }}>עבור לתוכנית ←</button>
+              );
+            })()}
           </div>
         </div>
       </div>
 
-      {/* Missing teams banner */}
-      {missingTeams.length > 0 && (
-        <div style={{ background: '#fef9e7', border: '1px solid #f39c12', borderRadius: '10px', padding: '12px 16px', marginBottom: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }} onClick={() => setBannerOpen(b => !b)}>
-            <span style={{ fontSize: '18px' }}>⚠️</span>
-            <span style={{ fontWeight: 'bold', color: '#d35400', fontSize: '14px' }}>
-              {missingTeams.length} צוותים מעורבים בגרסה טרם הגישו תוכניות
-            </span>
-            <span style={{ marginRight: 'auto', color: '#e67e22', fontSize: '12px' }}>{bannerOpen ? '▲ סגור' : '▼ פרוט'}</span>
-          </div>
-          {bannerOpen && (
-            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ fontSize: '12px', color: '#7d4e00', marginBottom: '2px' }}>
-                לחץ "לא נדרש לאישור" כדי לאפשר מעבר לתוכנית ללא אישור הצוות:
-              </div>
-              {missingTeams.map(t => (
-                <div key={t} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ background: '#fadbd8', color: '#c0392b', padding: '3px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold', minWidth: '120px' }}>
-                    {t}
-                  </span>
-                  <button
-                    onClick={() => markNotRequired(t)}
-                    disabled={togglingTeam === t}
-                    style={{
-                      padding: '3px 12px', background: togglingTeam === t ? '#ccc' : '#e67e22',
-                      color: 'white', border: 'none', borderRadius: '12px',
-                      cursor: togglingTeam === t ? 'not-allowed' : 'pointer',
-                      fontSize: '11px', fontWeight: 'bold',
-                    }}>
-                    {togglingTeam === t ? '...' : 'לא נדרש לאישור ✓'}
-                  </button>
-                </div>
-              ))}
+      {/* Missing / not-required teams banner */}
+      {missingTeams.length > 0 && (() => {
+        const pendingTeams   = missingTeams.filter(mt => !mt.notRequired);
+        const approvedTeams  = missingTeams.filter(mt => mt.notRequired);
+        return (
+          <div style={{ background: '#fef9e7', border: '1px solid #f39c12', borderRadius: '10px', padding: '12px 16px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }} onClick={() => setBannerOpen(b => !b)}>
+              <span style={{ fontSize: '18px' }}>{pendingTeams.length > 0 ? '⚠️' : '✅'}</span>
+              <span style={{ fontWeight: 'bold', color: pendingTeams.length > 0 ? '#d35400' : '#1e8449', fontSize: '14px' }}>
+                {pendingTeams.length > 0
+                  ? `${pendingTeams.length} צוותים מעורבים טרם הגישו תוכניות`
+                  : 'כל הצוותים הגישו או סומנו כ"לא נדרש"'}
+              </span>
+              <span style={{ marginRight: 'auto', color: '#e67e22', fontSize: '12px' }}>{bannerOpen ? '▲ סגור' : '▼ פרוט'}</span>
             </div>
-          )}
-        </div>
-      )}
+            {bannerOpen && (
+              <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {pendingTeams.length > 0 && (
+                  <div style={{ fontSize: '12px', color: '#7d4e00', marginBottom: '2px' }}>
+                    לחץ "לא נדרש לאישור" כדי לאפשר מעבר לתוכנית ללא אישור הצוות:
+                  </div>
+                )}
+                {pendingTeams.map(mt => (
+                  <div key={mt.name} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ background: '#fadbd8', color: '#c0392b', padding: '3px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold', minWidth: '120px' }}>
+                      {mt.name}
+                    </span>
+                    {mt.crCount > 0 && (
+                      <span style={{ background: '#e8f4fd', color: '#2980b9', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 'bold' }}>
+                        {mt.crCount} CR
+                      </span>
+                    )}
+                    <button
+                      onClick={() => markNotRequired(mt.name)}
+                      disabled={togglingTeam === mt.name}
+                      style={{
+                        padding: '3px 12px', background: togglingTeam === mt.name ? '#ccc' : '#e67e22',
+                        color: 'white', border: 'none', borderRadius: '12px',
+                        cursor: togglingTeam === mt.name ? 'not-allowed' : 'pointer',
+                        fontSize: '11px', fontWeight: 'bold',
+                      }}>
+                      {togglingTeam === mt.name ? '...' : 'לא נדרש לאישור ✓'}
+                    </button>
+                  </div>
+                ))}
+                {approvedTeams.length > 0 && (
+                  <>
+                    {pendingTeams.length > 0 && <div style={{ borderTop: '1px solid #f0d9a0', margin: '4px 0' }} />}
+                    <div style={{ fontSize: '11px', color: '#888', marginBottom: '2px' }}>צוותים שסומנו כ"לא נדרש לאישור":</div>
+                    {approvedTeams.map(mt => (
+                      <div key={mt.name} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ background: '#d5f5e3', color: '#1e8449', padding: '3px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold', minWidth: '120px' }}>
+                          ✓ {mt.name}
+                        </span>
+                        {mt.crCount > 0 && (
+                          <span style={{ background: '#e8f4fd', color: '#2980b9', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 'bold' }}>
+                            {mt.crCount} CR
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Controls */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -537,14 +573,14 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
       {totalProposals > 0 && (
         <div style={{ marginTop: '20px', textAlign: 'center' }}>
           <button
-            onClick={missingTeams.length > 0 ? undefined : onGoToPlan}
-            disabled={missingTeams.length > 0}
-            title={missingTeams.length > 0 ? 'יש צוותים שלא הגישו — סמן אותם כ"לא נדרש" כדי להמשיך' : ''}
+            onClick={missingTeams.filter(mt => !mt.notRequired).length > 0 ? undefined : onGoToPlan}
+            disabled={missingTeams.filter(mt => !mt.notRequired).length > 0}
+            title={missingTeams.filter(mt => !mt.notRequired).length > 0 ? 'יש צוותים שלא הגישו — סמן אותם כ"לא נדרש" כדי להמשיך' : ''}
             style={{
               padding: '12px 32px',
-              background: missingTeams.length > 0 ? '#aaa' : '#27ae60',
+              background: missingTeams.filter(mt => !mt.notRequired).length > 0 ? '#aaa' : '#27ae60',
               color: 'white', border: 'none', borderRadius: '10px',
-              cursor: missingTeams.length > 0 ? 'not-allowed' : 'pointer',
+              cursor: missingTeams.filter(mt => !mt.notRequired).length > 0 ? 'not-allowed' : 'pointer',
               fontWeight: 'bold', fontSize: '15px',
             }}>
             עבור לתוכנית ←

@@ -64,6 +64,7 @@ interface Props {
   onVersionsChanged?: () => void;
   onGoLive?: (versionId: string, versionName: string, isRehearsal: boolean) => void;
   onVersionFocus?: (versionId: string) => void;
+  onGoToAdmin?: () => void;
 }
 
 const EMPTY_TASK = { title: '', assignedUserName: '', crNumber: '', application: '', environment: 'BOTH', notes: '', dependencyNote: '', duration: '', plannedStart: '', plannedEnd: '', _durationMins: '' };
@@ -79,7 +80,7 @@ const defaultPlannedEnd = (plannedStart: string): string => {
   return d.toISOString().slice(0, 16);
 };
 
-export const VersionsView: React.FC<Props> = ({ token, onImportClick, onVersionsChanged, onGoLive, onVersionFocus }) => {
+export const VersionsView: React.FC<Props> = ({ token, onImportClick, onVersionsChanged, onGoLive, onVersionFocus, onGoToAdmin }) => {
   const [versions, setVersions] = useState<Version[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -96,8 +97,6 @@ export const VersionsView: React.FC<Props> = ({ token, onImportClick, onVersions
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [creatingFromTemplate, setCreatingFromTemplate] = useState(false);
   const [outerDialog, setOuterDialog] = useState<DialogConfig | null>(null);
-  const [showTemplates, setShowTemplates] = useState(false);
-  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
 
   const headers = { Authorization: `Bearer ${token}` };
   const tokenPayload = token ? JSON.parse(atob(token.split('.')[1])) : {};
@@ -301,16 +300,6 @@ export const VersionsView: React.FC<Props> = ({ token, onImportClick, onVersions
           </button>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
-          {onImportClick && (
-            <button onClick={onImportClick} style={{ padding: '10px 20px', background: '#2d7a2d', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
-              📤 ייבוא מ-Excel
-            </button>
-          )}
-          {isManager && templates.length > 0 && (
-            <button onClick={() => setShowTemplates(true)} style={{ padding: '10px 20px', background: '#5d4e8a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
-              📋 תבניות ({templates.length})
-            </button>
-          )}
           <button onClick={() => { setShowNew(true); setImportFile(null); }} style={{ padding: '10px 20px', background: '#1a2332', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
             + גרסה חדשה
           </button>
@@ -530,61 +519,6 @@ export const VersionsView: React.FC<Props> = ({ token, onImportClick, onVersions
       )}
       <ConfirmDialog config={outerDialog} onClose={() => setOuterDialog(null)} />
 
-      {/* ── Templates management modal ── */}
-      {showTemplates && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'white', borderRadius: '14px', padding: '28px', width: '520px', maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,0.25)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ margin: 0, color: '#1a2332' }}>📋 ניהול תבניות</h3>
-              <button onClick={() => setShowTemplates(false)} style={{ background: 'none', border: 'none', fontSize: '22px', cursor: 'pointer', color: '#888' }}>✕</button>
-            </div>
-            <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {templates.length === 0 ? (
-                <p style={{ color: '#888', textAlign: 'center' }}>אין תבניות שמורות</p>
-              ) : templates.map((t: any) => (
-                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', border: '1px solid #e0e0e0', borderRadius: '10px', background: '#fafafa' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#1a2332' }}>{t.name}</div>
-                    {t.description && <div style={{ fontSize: '12px', color: '#777', marginTop: '2px' }}>{t.description}</div>}
-                    <div style={{ fontSize: '11px', color: '#aaa', marginTop: '3px' }}>
-                      נוצר ע"י {t.creator?.fullName ?? '—'} · {t.createdAt ? new Date(t.createdAt).toLocaleDateString('he-IL') : ''}
-                    </div>
-                  </div>
-                  {outerCan('action:template_delete') && (
-                    <button
-                      disabled={deletingTemplateId === t.id}
-                      onClick={() => setOuterDialog({
-                        title: `מחיקת תבנית`,
-                        message: `למחוק את התבנית "${t.name}"?\nהפעולה בלתי הפיכה.`,
-                        variant: 'danger',
-                        confirmLabel: 'מחק תבנית',
-                        cancelLabel: 'ביטול',
-                        onConfirm: async () => {
-                          setDeletingTemplateId(t.id);
-                          try {
-                            await axios.delete(`${API}/version-templates/${t.id}`, { headers });
-                            const updated = templates.filter((x: any) => x.id !== t.id);
-                            setTemplates(updated);
-                            if (updated.length === 0) setShowTemplates(false);
-                          } catch {
-                            alert('שגיאה במחיקת התבנית');
-                          } finally {
-                            setDeletingTemplateId(null);
-                          }
-                        },
-                        onCancel: () => {},
-                      })}
-                      style={{ padding: '6px 14px', background: deletingTemplateId === t.id ? '#ccc' : '#e74c3c', color: 'white', border: 'none', borderRadius: '8px', cursor: deletingTemplateId === t.id ? 'not-allowed' : 'pointer', fontSize: '13px', flexShrink: 0 }}
-                    >
-                      {deletingTemplateId === t.id ? 'מוחק...' : '🗑 מחק'}
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -734,6 +668,8 @@ const VersionDetail: React.FC<{
   const [editFilters, setEditFilters] = useState({ user: '', team: '', app: '' });
   const [editSaveOk, setEditSaveOk] = useState(false);
   const [newDepId, setNewDepId] = useState('');
+  const [newTaskDepIds, setNewTaskDepIds] = useState<string[]>([]);
+  const [newDepAddSelectId, setNewDepAddSelectId] = useState('');
   const [dragging, setDragging] = useState<{ taskId: string; fromSubId: string } | null>(null);
   const [dragOverSubId, setDragOverSubId] = useState<string | null>(null);
   const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
@@ -1278,13 +1214,23 @@ const VersionDetail: React.FC<{
         plannedEnd: rest.plannedEnd ? toUtcIso(rest.plannedEnd) : undefined,
       };
       const res = await axios.post(`${API}/versions/sub-phases/${subPhaseId}/tasks`, taskData, { headers });
+      const newTaskId = res.data.id;
       if (FEATURES.TEAM_LEAD_PROPOSAL && selectedProposalId) {
-        await axios.patch(`${API}/task-proposals/${selectedProposalId}/mark-used`, { taskId: res.data.id }, { headers }).catch(() => {});
+        await axios.patch(`${API}/task-proposals/${selectedProposalId}/mark-used`, { taskId: newTaskId }, { headers }).catch(() => {});
         setSelectedProposalId(null);
         setProposals(prev => prev.filter(p => p.id !== selectedProposalId));
       }
+      if (newTaskDepIds.length) {
+        await Promise.all(
+          newTaskDepIds.map(depId =>
+            axios.post(`${API}/versions/tasks/${newTaskId}/dependencies`, { dependsOnTaskId: depId }, { headers }).catch(() => {})
+          )
+        );
+      }
       setAddingTask(null);
       setNewTask(EMPTY_TASK);
+      setNewTaskDepIds([]);
+      setNewDepAddSelectId('');
       setSelectedTeam('');
       onRefresh();
     } catch (err) { console.error(err); }
@@ -2343,9 +2289,65 @@ const VersionDetail: React.FC<{
                         <input placeholder="הערת תלות (תלוי ב...)" value={newTask.dependencyNote} onChange={e => setNewTask({ ...newTask, dependencyNote: e.target.value })} style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }} />
                         <input placeholder="הערה כללית" value={newTask.notes} onChange={e => setNewTask({ ...newTask, notes: e.target.value })} style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }} />
                       </div>
+                      {/* Dependency task selector */}
+                      {(() => {
+                        const allTasksInScope = version.phases
+                          .filter((p: any) => p.orderIndex <= phase.orderIndex)
+                          .flatMap((p: any) => (p.subPhases || []).flatMap((s: any) => (s.tasks || [])));
+                        const available = allTasksInScope.filter((t: any) => !newTaskDepIds.includes(t.id));
+                        if (allTasksInScope.length === 0) return null;
+                        return (
+                          <div style={{ background: '#f9f9ff', border: '1px solid #ddd', borderRadius: '6px', padding: '8px 10px', marginBottom: '8px' }}>
+                            <label style={{ fontSize: '11px', color: '#777', display: 'block', marginBottom: '6px' }}>תלויות — המשימה תחכה לסיום:</label>
+                            {newTaskDepIds.length > 0 && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
+                                {newTaskDepIds.map(depId => {
+                                  const depTask = allTasksInScope.find((t: any) => t.id === depId);
+                                  return (
+                                    <span key={depId} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#e8f4fd', color: '#2d4a7a', padding: '2px 8px', borderRadius: '12px', fontSize: '12px' }}>
+                                      🔗 {depTask?.title || depId}
+                                      <button type="button" onClick={() => setNewTaskDepIds(ids => ids.filter(id => id !== depId))}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', fontWeight: 'bold', fontSize: '13px', padding: '0 2px', lineHeight: 1 }}>✕</button>
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            {available.length > 0 && (
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                <select value={newDepAddSelectId} onChange={e => setNewDepAddSelectId(e.target.value)}
+                                  style={{ flex: 1, padding: '5px 7px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '12px' }}>
+                                  <option value="">— בחר משימה תלויה —</option>
+                                  {version.phases
+                                    .filter((p: any) => p.orderIndex <= phase.orderIndex)
+                                    .map((p: any) => (
+                                      <optgroup key={p.id} label={p.name}>
+                                        {(p.subPhases || []).flatMap((s: any) =>
+                                          (s.tasks || [])
+                                            .filter((t: any) => !newTaskDepIds.includes(t.id))
+                                            .map((t: any) => (
+                                              <option key={t.id} value={t.id}>{t.title}</option>
+                                            ))
+                                        )}
+                                      </optgroup>
+                                    ))}
+                                </select>
+                                <button type="button" disabled={!newDepAddSelectId}
+                                  onClick={() => { if (!newDepAddSelectId) return; setNewTaskDepIds(ids => [...ids, newDepAddSelectId]); setNewDepAddSelectId(''); }}
+                                  style={{ padding: '5px 12px', background: newDepAddSelectId ? '#2d4a7a' : '#ccc', color: 'white', border: 'none', borderRadius: '6px', cursor: newDepAddSelectId ? 'pointer' : 'not-allowed', fontSize: '12px', whiteSpace: 'nowrap' }}>
+                                  + הוסף
+                                </button>
+                              </div>
+                            )}
+                            {available.length === 0 && newTaskDepIds.length === 0 && (
+                              <span style={{ fontSize: '12px', color: '#aaa' }}>אין משימות קודמות זמינות לקישור</span>
+                            )}
+                          </div>
+                        );
+                      })()}
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button onClick={() => addTask(sub.id)} disabled={!newTask.title} style={{ padding: '8px 16px', background: newTask.title ? '#27ae60' : '#ccc', color: 'white', border: 'none', borderRadius: '6px', cursor: newTask.title ? 'pointer' : 'not-allowed', fontSize: '13px', fontWeight: 'bold' }}>הוסף</button>
-                        <button onClick={() => setAddingTask(null)} style={{ padding: '8px 16px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>ביטול</button>
+                        <button onClick={() => { setAddingTask(null); setNewTask(EMPTY_TASK); setNewTaskDepIds([]); setNewDepAddSelectId(''); }} style={{ padding: '8px 16px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>ביטול</button>
                       </div>
                     </div>
                   )}

@@ -534,7 +534,7 @@ export class ImportService {
     return results;
   }
 
-  async teamsWithoutProposals(versionId: string): Promise<string[]> {
+  async teamsWithoutProposals(versionId: string): Promise<{ name: string; crCount: number }[]> {
     const param = await prisma.systemParam.findUnique({ where: { key: 'EXCEL_FILE_PATH' } });
     const filePath = param?.value?.trim();
     if (!filePath || !fs.existsSync(filePath)) return [];
@@ -560,8 +560,10 @@ export class ImportService {
     const colIdx = (name: string) => headers.findIndex(h => h === name);
     const verCol    = colIdx('גרסה');
     const statusCol = colIdx('סטטוס');
+    const crCol     = colIdx('# CR');
 
-    const involvedTeamNames = new Set<string>();
+    // Build a map: teamName → Set of unique CR numbers they're involved in
+    const crsByTeam: Record<string, Set<string>> = {};
     for (const [teamName, teamCols] of Object.entries(ImportService.TEAM_COLUMNS)) {
       const teamColIdxs = teamCols.map(colIdx).filter(i => i !== -1);
       if (teamColIdxs.length === 0) continue;
@@ -573,10 +575,15 @@ export class ImportService {
           const val = parseFloat(String(row[ci] ?? '0').replace(/[^\d.]/g, ''));
           return !isNaN(val) && val > 1;
         });
-        if (involved) { involvedTeamNames.add(teamName); break; }
+        if (involved) {
+          if (!crsByTeam[teamName]) crsByTeam[teamName] = new Set();
+          const crNum = crCol !== -1 ? String(row[crCol] ?? '').trim() : '';
+          if (crNum) crsByTeam[teamName].add(crNum);
+        }
       }
     }
 
+    const involvedTeamNames = new Set(Object.keys(crsByTeam));
     if (involvedTeamNames.size === 0) return [];
 
     const allTeams = await prisma.team.findMany({
@@ -598,14 +605,18 @@ export class ImportService {
     });
     const notRequiredIds = new Set(notRequiredSubs.map((s: any) => s.teamId));
 
-    const missing: string[] = [];
+    const missing: { name: string; crCount: number; notRequired: boolean }[] = [];
     for (const teamName of involvedTeamNames) {
       const teamId = teamIdByName[teamName];
       if (!teamId) continue;
-      if (notRequiredIds.has(teamId)) continue;
-      if (!teamsWithProposals.has(teamId)) missing.push(teamName);
+      const isNotRequired = notRequiredIds.has(teamId);
+      const hasProposals = teamsWithProposals.has(teamId);
+      // Include: teams that haven't submitted (pending) OR teams marked as not-required
+      if (isNotRequired || !hasProposals) {
+        missing.push({ name: teamName, crCount: crsByTeam[teamName]?.size ?? 0, notRequired: isNotRequired });
+      }
     }
 
-    return missing.sort((a, b) => a.localeCompare(b, 'he'));
+    return missing.sort((a, b) => a.name.localeCompare(b.name, 'he'));
   }
 }

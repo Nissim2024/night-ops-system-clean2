@@ -1,5 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import * as XLSX from 'xlsx';
+import * as fs from 'fs';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
@@ -171,5 +173,77 @@ export class QcReleasesService implements OnModuleInit {
     const release = await prisma.qcRelease.findUnique({ where: { id } });
     if (!release) throw new Error('לא נמצאה גרסת QC');
     return prisma.qcRelease.update({ where: { id }, data: { active: !release.active } });
+  }
+
+  // Deterministic integer hash for a version name (used as synthetic relId for CR_LIST imports)
+  private nameHash(s: string): number {
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) h = (((h << 5) + h) ^ s.charCodeAt(i)) | 0;
+    return (h >>> 1) || 1; // logical right-shift → always in [1, 2^31-1], within PostgreSQL INT range
+  }
+
+  // Reads unique version names from the CR_LIST Excel (column 'גרסה'), filters by year suffix,
+  // and upserts each as a QcRelease — only adds delta, never deletes existing records.
+  async syncFromExcel(buffer: Buffer, fromYear = 2026): Promise<{ synced: number }> {
+    const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as any[][];
+
+    // Find header row (same pattern as import.service.ts)
+    const REQUIRED_COLS = ['# CR', 'כותרת', 'גרסה'];
+    let headerRowIdx = -1;
+    for (let i = 0; i < Math.min(10, rows.length); i++) {
+      const row = rows[i].map((h: any) => String(h ?? '').trim());
+      if (REQUIRED_COLS.every(col => row.includes(col))) { headerRowIdx = i; break; }
+    }
+    if (headerRowIdx === -1) {
+      const sample = rows[0]?.slice(0, 8).map((h: any) => String(h ?? '').trim()).join(', ') ?? '';
+      throw new Error(`מבנה הקובץ אינו תקין — עמודות "# CR", "כותרת", "גרסה" חסרות. עמודות שנמצאו: ${sample}`);
+    }
+
+    const headers: string[] = rows[headerRowIdx].map((h: any) => String(h ?? '').trim());
+    const colIdx = (name: string) => headers.findIndex(h => h === name);
+    const verCol    = colIdx('גרסה');
+    const statusCol = colIdx('סטטוס');
+
+    // Filter versions by year: last 3 chars of name must match last 3 digits of fromYear (e.g. "026")
+    const expectedSuffix = String(fromYear).slice(-3);
+    const versionNames = new Set<string>();
+
+    for (let r = headerRowIdx + 1; r < rows.length; r++) {
+      const row = rows[r];
+      const vName = String(row[verCol] ?? '').trim();
+      if (!vName) continue;
+      if (statusCol !== -1 && String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
+      if (vName.slice(-3) !== expectedSuffix) continue;
+      versionNames.add(vName);
+    }
+
+    // Upsert each unique version name — delta only (never deletes existing)
+    // filterDate = Dec 31 of the year so the release stays active in the dropdown until year end
+    const yearEnd = new Date(fromYear, 11, 31);
+
+    let synced = 0;
+    for (const relName of versionNames) {
+      const relId = this.nameHash(relName);
+      await prisma.qcRelease.upsert({
+        where: { relId },
+        create: { relId, relName, filterDate: yearEnd, lastSyncAt: new Date() },
+        update: { relName, lastSyncAt: new Date(), active: true },
+      });
+      synced++;
+    }
+
+    this.logger.log(`QC releases synced from CR_LIST: ${synced} versions for year ${fromYear}`);
+    return { synced };
+  }
+
+  async syncFromFilePath(fromYear = 2026): Promise<{ synced: number }> {
+    const param = await prisma.systemParam.findUnique({ where: { key: 'EXCEL_FILE_PATH' } });
+    const filePath = param?.value?.trim();
+    if (!filePath) throw new Error('נתיב קובץ Excel לא הוגדר בפרמטרי המערכת (EXCEL_FILE_PATH)');
+    if (!fs.existsSync(filePath)) throw new Error(`הקובץ לא נמצא: ${filePath}`);
+    const buffer = fs.readFileSync(filePath);
+    return this.syncFromExcel(buffer, fromYear);
   }
 }

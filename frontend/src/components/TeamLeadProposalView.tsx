@@ -194,15 +194,20 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
       .catch(() => {});
     axios.get(`${API}/teams`, { headers }).then(r => setTeams(r.data)).catch(() => {});
     fetchProposals();
-    fetchCrPlans();
+    fetchCrPlans().then(() => syncCrItems(true)); // auto-load CRs from file (silent, delta only)
   }, [versionId]); // eslint-disable-line
 
+  // Initialize myTeamId from JWT + teams data — don't wait for proposals to exist
   useEffect(() => {
-    if (!myTeamId && proposals.length > 0 && teams.length > 0) {
-      const t = teams.find((x: any) => x.id === proposals[0].teamId);
-      if (t) { setMyTeamName(t.name); setMyTeamId(t.id); }
-    }
-  }, [teams, proposals]); // eslint-disable-line
+    if (myTeamId || !teams.length || !token) return;
+    try {
+      const { sub: userId } = JSON.parse(atob(token.split('.')[1]));
+      const myTeam = teams.find((t: any) =>
+        (t.members || []).some((m: any) => m.user?.id === userId)
+      );
+      if (myTeam) { setMyTeamId(myTeam.id); setMyTeamName(myTeam.name); }
+    } catch { /* silent */ }
+  }, [teams, token]); // eslint-disable-line
 
   // Fetch submission status for this team
   useEffect(() => {
@@ -328,18 +333,22 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     await fetchProposals();
   };
 
-  const syncCrItems = async () => {
-    setSyncLoading(true); setSyncError(null);
+  const syncCrItems = async (silent = false) => {
+    if (!silent) { setSyncLoading(true); setSyncError(null); }
     try {
       const res = await axios.get(`${API}/import/crs-for-team?versionId=${versionId}`, { headers });
       const crs: { crNumber: string; crLabel: string; application: string }[] = res.data;
       if (crs.length === 0) {
-        setSyncError('לא נמצאו CR-ים עבור הצוות שלך בגרסה זו בקובץ');
+        if (!silent) setSyncError('לא נמצאו CR-ים עבור הצוות שלך בגרסה זו בקובץ');
         return;
       }
-      // Update the CR items list for the dropdown picker
-      setCrItems(crs.map(c => ({ id: c.crNumber, label: c.crLabel })));
-      // Create CrPlan entry for each CR found
+      // Merge into crItems — only add CRs not already present (delta, no deletion)
+      setCrItems(prev => {
+        const existingIds = new Set(prev.map(c => c.id));
+        const toAdd = crs.filter(c => !existingIds.has(c.crNumber));
+        return [...prev, ...toAdd.map(c => ({ id: c.crNumber, label: c.crLabel }))];
+      });
+      // Create CrPlan entry for each CR found (skip existing ones)
       await Promise.all(crs.map(c =>
         axios.post(`${API}/cr-plans/version/${versionId}`, {
           crNumber: c.crNumber,
@@ -347,9 +356,8 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         }, { headers }).catch(() => { /* skip if already exists */ })
       ));
       await fetchCrPlans();
-    } catch (e: any) {
-      setSyncError(e.response?.data?.message ?? 'שגיאה בטעינה מהקובץ — בדוק שהנתיב מוגדר נכון בפרמטרי המערכת');
-    } finally { setSyncLoading(false); }
+    } catch { /* silent on auto-load; error shown only on manual sync */ }
+    finally { if (!silent) setSyncLoading(false); }
   };
 
   const deleteCrGroup = (crNumber: string) => {
@@ -875,7 +883,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           )}
           {!submissionDone && (
             <button
-              onClick={syncCrItems}
+              onClick={() => syncCrItems(false)}
               disabled={syncLoading}
               style={{
                 padding: '8px 18px', background: syncLoading ? 'rgba(255,255,255,0.1)' : 'rgba(46,204,113,0.35)',

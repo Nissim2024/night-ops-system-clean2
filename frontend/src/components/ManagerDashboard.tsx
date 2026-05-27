@@ -100,8 +100,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
       else if (allowedKeys.includes('cr-review')) setStage('cr-review');
       else                                       setStage(allowedKeys[0]);
     } else if (completedVer) {
-      setSelectedVersionId(completedVer.id);
-      if (allowedKeys.includes('summary'))       setStage('summary');
+      // Don't auto-select completed/archived versions — user chooses from archive filter
+      setVersionFilter('archived');
+      if (allowedKeys.includes('prep'))          setStage('prep');
       else                                       setStage(allowedKeys[0]);
     } else {
       setStage(allowedKeys[0]);
@@ -169,7 +170,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
         if (active) return active.id;
         const inactive = r.data.find((v: any) => !v.isArchived && !['ACTIVE', 'REHEARSAL', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(v.status));
         if (inactive) return inactive.id;
-        return r.data.find((v: any) => v.isArchived || ['COMPLETED', 'ROLLED_BACK'].includes(v.status))?.id || r.data[0]?.id || '';
+        // Never auto-select archived/completed versions — user must choose explicitly
+        return '';
       });
     });
   };
@@ -206,16 +208,23 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
     setVersionFilter(cat);
   }, [selectedVersionId]); // eslint-disable-line
 
-  // When filter tab changes, auto-select first version in that filter if current isn't in it
+  // When filter tab changes: auto-select for active/inactive; archive requires manual pick
   useEffect(() => {
     if (!versions.length) return;
-    const filtered = versions.filter((v: any) =>
-      v.isArchived || ['COMPLETED', 'ROLLED_BACK'].includes(v.status) ? versionFilter === 'archived' :
-      ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(v.status) ? versionFilter === 'active' :
-      versionFilter === 'inactive'
-    );
-    if (filtered.length > 0 && !filtered.some((v: any) => v.id === selectedVersionId)) {
-      setSelectedVersionId(filtered[0].id);
+    const filtered = versions.filter((v: any) => versionCategory(v) === versionFilter);
+    if (filtered.length === 0) {
+      // No versions in this category — clear selection
+      setSelectedVersionId('');
+    } else if (versionFilter === 'archived') {
+      // Archive: only keep current if it's in the list; never auto-pick
+      if (!filtered.some((v: any) => v.id === selectedVersionId)) {
+        setSelectedVersionId('');
+      }
+    } else {
+      // Active / inactive: auto-select first if current isn't in the list
+      if (!filtered.some((v: any) => v.id === selectedVersionId)) {
+        setSelectedVersionId(filtered[0].id);
+      }
     }
   }, [versionFilter]); // eslint-disable-line
 
@@ -343,6 +352,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const vStatus = selectedVersion?.status;
   const isRehearsal = vStatus === 'REHEARSAL';
   const isMorningAfter = vStatus === 'MORNING_AFTER';
+
+  // True when a version-specific stage should show NoVersionsForFilter instead of content
+  const noVersionGuard = filteredVersions.length === 0 || (versionFilter === 'archived' && !selectedVersionId);
 
   const STAGES: Stage[] = [
     {
@@ -489,8 +501,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
         </div>
       </div>
 
-      {/* ─── Progress Chain ─── */}
-      {selectedVersion && (
+      {/* ─── Progress Chain — only when selected version matches current filter ─── */}
+      {selectedVersion && filteredVersions.some(v => v.id === selectedVersionId) && (
         <VersionProgressChain versionStatus={selectedVersion.status} activeRunPhase={activeRunPhase} />
       )}
 
@@ -538,21 +550,24 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
             if (prepTab === 'import' && can('action:import')) {
               return <ImportView token={token} onImportSuccess={() => setPrepTab('versions')} />;
             }
-            return <VersionsView token={token} onImportClick={can('action:import') ? () => setPrepTab('import') : undefined} onVersionsChanged={fetchVersions} onGoLive={handleGoLive} onVersionFocus={handleVersionFocus} />;
+            return <VersionsView key={versionFilter} token={token} onImportClick={can('action:import') ? () => setPrepTab('import') : undefined} onVersionsChanged={fetchVersions} onGoLive={handleGoLive} onVersionFocus={handleVersionFocus} onGoToAdmin={() => setStage('admin')} />;
           })()}
 
           {/* ── Stage cr-review: סקירת CRים ── */}
-          {stage === 'cr-review' && selectedVersionId && (
-            <CrHandoffView
-              token={token}
-              versionId={selectedVersionId}
-              versionName={selectedVersion?.name || ''}
-              onGoToPlan={() => setStage('prep')}
-            />
+          {stage === 'cr-review' && (
+            noVersionGuard
+              ? <NoVersionsForFilter filter={versionFilter} />
+              : <CrHandoffView
+                  token={token}
+                  versionId={selectedVersionId}
+                  versionName={selectedVersion?.name || ''}
+                  onGoToPlan={() => setStage('prep')}
+                />
           )}
 
           {/* ── Stage 2: ביצוע ── */}
           {stage === 'handoff' && (
+            noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
             ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(selectedVersion?.status) ? (
               <div>
                 {selectedVersion?.status === 'REHEARSAL' ? (
@@ -721,13 +736,14 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
 
           {/* ── Stage 4: ציר זמן ── */}
           {stage === 'timeline' && (
-            selectedVersionId
-              ? <TimelineView token={token} versionId={selectedVersionId} versionName={selectedVersion?.name || ''} />
-              : <EmptyVersionMessage />
+            noVersionGuard
+              ? <NoVersionsForFilter filter={versionFilter} />
+              : <TimelineView token={token} versionId={selectedVersionId} versionName={selectedVersion?.name || ''} />
           )}
 
           {/* ── Stage 5: לילה ── */}
           {stage === 'night' && (
+            noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
             ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(selectedVersion?.status) ? (
               <div>
                 <div style={{
@@ -770,6 +786,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
 
           {/* ── Stage 6: סיכום ── */}
           {stage === 'summary' && (
+            noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
             selectedVersionId ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
 
@@ -947,6 +964,23 @@ const EmptyVersionMessage: React.FC = () => (
     <p style={{ fontSize: '16px', marginTop: '12px' }}>בחר גרסה מהתפריט בכותרת</p>
   </div>
 );
+
+const NoVersionsForFilter: React.FC<{ filter: 'active' | 'inactive' | 'archived' }> = ({ filter }) => {
+  const config = {
+    active:   { icon: '🟢', title: 'אין גרסאות פעילות כרגע', sub: 'לא קיימת גרסה במצב ACTIVE, REHEARSAL או MORNING_AFTER.\nעבור למסך הכנה כדי להפעיל גרסה.' },
+    inactive: { icon: '📋', title: 'אין גרסאות בשלב תכנון', sub: 'צור גרסה חדשה ממסך הכנה כדי להתחיל.' },
+    archived: { icon: '📦', title: 'בחר גרסה מהארכיון', sub: 'בחר גרסה מהתפריט הנפתח בכותרת כדי לצפות בנתוניה.' },
+  }[filter];
+  return (
+    <div style={{ textAlign: 'center', padding: '80px', color: '#666', background: 'white', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+      <div style={{ fontSize: '48px' }}>{config.icon}</div>
+      <h3 style={{ color: '#1a2332', marginTop: '16px', marginBottom: '8px' }}>{config.title}</h3>
+      {config.sub.split('\n').map((line, i) => (
+        <p key={i} style={{ fontSize: '14px', color: '#888', margin: '4px 0' }}>{line}</p>
+      ))}
+    </div>
+  );
+};
 
 const NoActiveVersionMessage: React.FC = () => (
   <div style={{ textAlign: 'center', padding: '80px', color: '#666', background: 'white', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>

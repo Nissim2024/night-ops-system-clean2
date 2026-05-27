@@ -58,7 +58,7 @@ interface QcRelease {
 }
 
 export const AdminPanel: React.FC<Props> = ({ token }) => {
-  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params'>('users');
+  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates'>('users');
   const { allPermissions, updateRole, saving: permSaving } = usePermissions();
   const [users, setUsers]     = useState<any[]>([]);
   const [teams, setTeams]     = useState<any[]>([]);
@@ -70,6 +70,11 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
   const [qcSyncing, setQcSyncing]           = useState(false);
   const [qcSyncResult, setQcSyncResult]     = useState<string | null>(null);
 
+  // QC Excel sync state (uses EXCEL_FILE_PATH system param — no upload needed)
+  const [excelSyncing, setExcelSyncing]       = useState(false);
+  const [excelSyncResult, setExcelSyncResult] = useState<string | null>(null);
+  const [excelYear, setExcelYear]             = useState(new Date().getFullYear());
+
   // QC Users sync state
   const [userSyncing, setUserSyncing]       = useState(false);
   const [userSyncResult, setUserSyncResult] = useState<string | null>(null);
@@ -80,6 +85,12 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
   const [paramValue, setParamValue]         = useState('');
   const [savingParam, setSavingParam]       = useState(false);
   const [paramError, setParamError]         = useState<string | null>(null);
+
+  // Templates state
+  const [templates, setTemplates]             = useState<any[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
+  const [templateError, setTemplateError]     = useState<string | null>(null);
 
   // User form state
   const [showUserForm, setShowUserForm]   = useState(false);
@@ -133,6 +144,31 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
     }
   };
 
+  const fetchTemplates = async () => {
+    setTemplatesLoading(true);
+    setTemplateError(null);
+    try {
+      const res = await axios.get(`${API}/version-templates`, { headers });
+      setTemplates(res.data);
+    } catch {
+      setTemplateError('שגיאה בטעינת תבניות');
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+
+  const deleteTemplate = async (id: string) => {
+    setDeletingTemplateId(id);
+    try {
+      await axios.delete(`${API}/version-templates/${id}`, { headers });
+      setTemplates(prev => prev.filter(t => t.id !== id));
+    } catch {
+      setTemplateError('שגיאה במחיקת התבנית');
+    } finally {
+      setDeletingTemplateId(null);
+    }
+  };
+
   const syncQcReleases = async () => {
     setQcSyncing(true);
     setQcSyncResult(null);
@@ -149,6 +185,25 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
       setQcSyncResult(`שגיאה: ${e?.response?.data?.message || e.message}`);
     } finally {
       setQcSyncing(false);
+    }
+  };
+
+  const syncQcFromExcel = async () => {
+    setExcelSyncing(true);
+    setExcelSyncResult(null);
+    try {
+      const res = await axios.post(`${API}/qc-releases/sync-excel-path?fromYear=${excelYear}`, {}, { headers });
+      if (res.data.error) {
+        setExcelSyncResult(`⚠️ ${res.data.error}`);
+      } else {
+        setExcelSyncResult(`✓ סונכרנו ${res.data.synced} גרסאות QC מהקובץ`);
+        const qcRes = await axios.get(`${API}/qc-releases`, { headers });
+        setQcReleases(qcRes.data);
+      }
+    } catch (e: any) {
+      setExcelSyncResult(`שגיאה: ${e?.response?.data?.message || e.message}`);
+    } finally {
+      setExcelSyncing(false);
     }
   };
 
@@ -396,6 +451,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
             { key: 'qc-releases', label: '📋 גרסאות QC' },
             { key: 'qc-users',    label: '🔄 סנכרון משתמשים' },
             { key: 'params',      label: '⚙️ פרמטרי מערכת' },
+            { key: 'templates',   label: '📁 תבניות גרסה' },
           ] as const).map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} style={{
               padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer',
@@ -839,10 +895,45 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                 </div>
 
                 {qcSyncResult && (
-                  <div style={{ background: qcSyncResult.startsWith('✓') ? '#d5f5e3' : '#fee', border: `1px solid ${qcSyncResult.startsWith('✓') ? '#a9dfbf' : '#f99'}`, borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', fontSize: '13px', color: qcSyncResult.startsWith('✓') ? '#1e8449' : '#c0392b' }}>
+                  <div style={{ background: qcSyncResult.startsWith('✓') ? '#d5f5e3' : '#fee', border: `1px solid ${qcSyncResult.startsWith('✓') ? '#a9dfbf' : '#f99'}`, borderRadius: '8px', padding: '10px 16px', marginBottom: '8px', fontSize: '13px', color: qcSyncResult.startsWith('✓') ? '#1e8449' : '#c0392b' }}>
                     {qcSyncResult}
                   </div>
                 )}
+
+                {/* Excel sync — reads from EXCEL_FILE_PATH system param */}
+                <div style={{ borderTop: '1px solid #eee', paddingTop: '14px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#444', marginBottom: '3px' }}>📥 סנכרן מקובץ Excel (CR_LIST)</div>
+                    <div style={{ fontSize: '12px', color: '#888' }}>קורא מהנתיב המוגדר בפרמטר EXCEL_FILE_PATH — ללא חיבור Oracle</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <label style={{ fontSize: '12px', color: '#555', whiteSpace: 'nowrap' }}>שנה:</label>
+                    <input
+                      type="number"
+                      value={excelYear}
+                      onChange={e => setExcelYear(Number(e.target.value))}
+                      style={{ width: '80px', padding: '6px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}
+                      min={2020} max={2099}
+                    />
+                  </div>
+                  <button
+                    onClick={syncQcFromExcel}
+                    disabled={excelSyncing}
+                    style={{
+                      padding: '8px 18px', background: excelSyncing ? '#ccc' : '#27ae60',
+                      color: 'white', border: 'none', borderRadius: '8px',
+                      cursor: excelSyncing ? 'not-allowed' : 'pointer',
+                      fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {excelSyncing ? 'מסנכרן...' : '📥 סנכרן מ-Excel'}
+                  </button>
+                  {excelSyncResult && (
+                    <div style={{ background: excelSyncResult.startsWith('✓') ? '#d5f5e3' : '#fee', border: `1px solid ${excelSyncResult.startsWith('✓') ? '#a9dfbf' : '#f99'}`, borderRadius: '8px', padding: '8px 14px', fontSize: '13px', color: excelSyncResult.startsWith('✓') ? '#1e8449' : '#c0392b' }}>
+                      {excelSyncResult}
+                    </div>
+                  )}
+                </div>
 
                 {qcReleases.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '40px', color: '#888' }}>
@@ -942,6 +1033,61 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
           {tab === 'permissions' && (
             <PermissionsTab allPermissions={allPermissions} updateRole={updateRole} saving={permSaving} />
           )}
+
+          {/* ── SYSTEM PARAMS TAB ── */}
+          {/* ── TEMPLATES TAB ── */}
+          {tab === 'templates' && (() => {
+            if (!templates.length && !templatesLoading) fetchTemplates();
+            return (
+              <div style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <div>
+                    <h3 style={{ margin: '0 0 4px', color: '#1a2332' }}>📁 תבניות גרסה ({templates.length})</h3>
+                    <p style={{ margin: 0, fontSize: '13px', color: '#888' }}>תבניות שמורות ליצירת גרסאות עתידיות</p>
+                  </div>
+                  <button onClick={fetchTemplates} disabled={templatesLoading}
+                    style={{ padding: '8px 16px', background: '#f0f0f0', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                    {templatesLoading ? '...' : '🔄 רענן'}
+                  </button>
+                </div>
+                {templateError && (
+                  <div style={{ background: '#fee', border: '1px solid #e74c3c', borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', fontSize: '13px', color: '#c0392b' }}>
+                    ⚠️ {templateError}
+                    <button onClick={() => setTemplateError(null)} style={{ marginRight: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', fontWeight: 'bold' }}>×</button>
+                  </div>
+                )}
+                {templatesLoading ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: '#aaa' }}>טוען תבניות...</div>
+                ) : templates.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: '#aaa' }}>
+                    <div style={{ fontSize: '36px', marginBottom: '8px' }}>📭</div>
+                    <p>אין תבניות שמורות — שמור תבנית מגרסה קיימת</p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {templates.map((t: any) => (
+                      <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 18px', border: '1px solid #e0e0e0', borderRadius: '10px', background: '#fafafa' }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 'bold', fontSize: '15px', color: '#1a2332' }}>{t.name}</div>
+                          {t.description && <div style={{ fontSize: '12px', color: '#777', marginTop: '2px' }}>{t.description}</div>}
+                          <div style={{ fontSize: '11px', color: '#aaa', marginTop: '4px' }}>
+                            נוצר ע"י {t.creator?.fullName ?? '—'} · {t.createdAt ? new Date(t.createdAt).toLocaleDateString('he-IL') : ''}
+                          </div>
+                        </div>
+                        <button
+                          disabled={deletingTemplateId === t.id}
+                          onClick={() => deleteTemplate(t.id)}
+                          style={{ padding: '7px 16px', background: deletingTemplateId === t.id ? '#ccc' : '#e74c3c', color: 'white', border: 'none', borderRadius: '8px', cursor: deletingTemplateId === t.id ? 'not-allowed' : 'pointer', fontSize: '13px', whiteSpace: 'nowrap' }}
+                        >
+                          {deletingTemplateId === t.id ? 'מוחק...' : '🗑 מחק'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* ── SYSTEM PARAMS TAB ── */}
           {tab === 'params' && (
