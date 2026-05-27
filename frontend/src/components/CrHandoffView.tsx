@@ -79,6 +79,7 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
   const [dialog, setDialog]             = useState<DialogConfig | null>(null);
   const [missingTeams, setMissingTeams] = useState<{ name: string; crCount: number; notRequired: boolean }[]>([]);
   const [bannerOpen, setBannerOpen]     = useState(true);
+  const [bannerResolved, setBannerResolved] = useState(false);
   const [togglingTeam, setTogglingTeam] = useState<string | null>(null);
 
   const headers = { Authorization: `Bearer ${token}` };
@@ -102,6 +103,16 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
   };
 
   useEffect(() => { load(); }, [versionId]); // eslint-disable-line
+
+  // Auto-collapse banner when all pending teams have been handled
+  useEffect(() => {
+    const pending = missingTeams.filter(mt => !mt.notRequired);
+    if (pending.length === 0 && missingTeams.length > 0 && !bannerResolved) {
+      setBannerResolved(true);
+      setBannerOpen(false); // collapse automatically
+    }
+    if (missingTeams.length === 0) setBannerResolved(false);
+  }, [missingTeams]); // eslint-disable-line
 
   const markNotRequired = async (teamDisplayName: string) => {
     const team = teams.find((t: any) => t.name === teamDisplayName);

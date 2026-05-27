@@ -60,7 +60,6 @@ interface QcRelease {
 
 interface Props {
   token: string;
-  onImportClick?: () => void;
   onVersionsChanged?: () => void;
   onGoLive?: (versionId: string, versionName: string, isRehearsal: boolean) => void;
   onVersionFocus?: (versionId: string) => void;
@@ -80,7 +79,7 @@ const defaultPlannedEnd = (plannedStart: string): string => {
   return d.toISOString().slice(0, 16);
 };
 
-export const VersionsView: React.FC<Props> = ({ token, onImportClick, onVersionsChanged, onGoLive, onVersionFocus, onGoToAdmin }) => {
+export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLive, onVersionFocus, onGoToAdmin }) => {
   const [versions, setVersions] = useState<Version[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [loading, setLoading] = useState(true);

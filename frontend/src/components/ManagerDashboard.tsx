@@ -550,7 +550,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
             if (prepTab === 'import' && can('action:import')) {
               return <ImportView token={token} onImportSuccess={() => setPrepTab('versions')} />;
             }
-            return <VersionsView key={versionFilter} token={token} onImportClick={can('action:import') ? () => setPrepTab('import') : undefined} onVersionsChanged={fetchVersions} onGoLive={handleGoLive} onVersionFocus={handleVersionFocus} onGoToAdmin={() => setStage('admin')} />;
+            return <VersionsView key={versionFilter} token={token} onVersionsChanged={fetchVersions} onGoLive={handleGoLive} onVersionFocus={handleVersionFocus} onGoToAdmin={() => setStage('admin')} />;
           })()}
 
           {/* ── Stage cr-review: סקירת CRים ── */}
@@ -908,7 +908,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
       {/* ─── Toast notifications ─── */}
       {toasts.length > 0 && (
         <div style={{
-          position: 'fixed', bottom: '24px', left: '24px',
+          position: 'fixed', bottom: '24px', right: '24px',
           zIndex: 9999, display: 'flex', flexDirection: 'column', gap: '10px',
           pointerEvents: 'none',
         }}>
