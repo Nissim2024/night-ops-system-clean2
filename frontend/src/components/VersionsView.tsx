@@ -1251,31 +1251,36 @@ const VersionDetail: React.FC<{
     } catch (err) { console.error(err); }
   };
 
-  const addDep = async (taskId: string, dependsOnTaskId: string, depTask: any) => {
-    if (!dependsOnTaskId) return;
-    try {
-      await axios.post(`${API}/versions/tasks/${taskId}/dependencies`, { dependsOnTaskId }, { headers });
-      setEditingTask((prev: any) => ({
-        ...prev,
-        dependencies: [...(prev.dependencies || []), {
-          dependsOnTaskId,
-          dependsOn: { id: depTask.id, title: depTask.title, status: depTask.status },
-        }],
-      }));
-      setNewDepId('');
-      onRefresh();
-    } catch (err) { console.error(err); }
+  // Dependency changes are buffered in editingTask local state and only sent to the API on Save.
+  // On Cancel the user discards changes without any network call having been made.
+  const addDep = (depTask: any) => {
+    const dependsOnTaskId = newDepId;
+    if (!dependsOnTaskId || !depTask) return;
+    setEditingTask((prev: any) => {
+      const newDep = {
+        dependsOnTaskId,
+        dependsOn: { id: depTask.id, title: depTask.title, status: depTask.status, plannedEnd: depTask.plannedEnd },
+      };
+      let updated: any = { ...prev, dependencies: [...(prev.dependencies || []), newDep] };
+      // Auto-advance plannedStart to right after the dependency's planned end
+      if (depTask.plannedEnd) {
+        const depEndLocal = utcToLocalInputStr(depTask.plannedEnd);
+        if (!prev.plannedStart || new Date(depTask.plannedEnd) > new Date(prev.plannedStart)) {
+          updated = { ...updated, plannedStart: depEndLocal };
+          const mins = parseInt(prev._durationMins);
+          if (mins > 0) updated = { ...updated, plannedEnd: calcEndFromMins(depEndLocal, mins) };
+        }
+      }
+      return updated;
+    });
+    setNewDepId('');
   };
 
-  const removeDep = async (taskId: string, dependsOnTaskId: string) => {
-    try {
-      await axios.post(`${API}/versions/tasks/${taskId}/dependencies/remove`, { dependsOnTaskId }, { headers });
-      setEditingTask((prev: any) => ({
-        ...prev,
-        dependencies: prev.dependencies?.filter((d: any) => d.dependsOnTaskId !== dependsOnTaskId),
-      }));
-      onRefresh();
-    } catch (err) { console.error(err); }
+  const removeDep = (dependsOnTaskId: string) => {
+    setEditingTask((prev: any) => ({
+      ...prev,
+      dependencies: prev.dependencies?.filter((d: any) => d.dependsOnTaskId !== dependsOnTaskId),
+    }));
   };
 
   const deleteTask = (taskId: string, taskTitle?: string) => {
@@ -1292,7 +1297,7 @@ const VersionDetail: React.FC<{
 
   const updateTask = async (taskId: string, data: any) => {
     try {
-      const { _durationMins, ...rest } = data;
+      const { _durationMins, _originalDeps, dependencies, ...rest } = data;
       const mins = parseInt(_durationMins);
       if (mins > 0) {
         rest.duration = minsToStr(mins);
@@ -1301,6 +1306,19 @@ const VersionDetail: React.FC<{
       if (rest.plannedStart) rest.plannedStart = toUtcIso(rest.plannedStart);
       if (rest.plannedEnd) rest.plannedEnd = toUtcIso(rest.plannedEnd);
       await axios.patch(`${API}/tasks/${taskId}`, rest, { headers });
+
+      // Apply buffered dependency changes (diff between original snapshot and current state)
+      const origIds = (_originalDeps || []).map((d: any) => d.dependsOnTaskId as string);
+      const curIds  = (dependencies || []).map((d: any) => d.dependsOnTaskId as string);
+      const origSet = new Set<string>(origIds);
+      const curSet  = new Set<string>(curIds);
+      const toRemove = origIds.filter((id: string) => !curSet.has(id));
+      const toAdd    = curIds.filter((id: string) => !origSet.has(id));
+      await Promise.all([
+        ...toRemove.map((id: string) => axios.post(`${API}/versions/tasks/${taskId}/dependencies/remove`, { dependsOnTaskId: id }, { headers })),
+        ...toAdd.map((id: string) => axios.post(`${API}/versions/tasks/${taskId}/dependencies`, { dependsOnTaskId: id }, { headers })),
+      ]);
+
       setEditSaveOk(true);
       setTimeout(() => { setEditSaveOk(false); setEditingTask(null); }, 900);
       onRefresh();
@@ -1409,9 +1427,10 @@ const VersionDetail: React.FC<{
                   if (nextStatus === 'REFINING') {
                     try {
                       const res = await axios.get(`${API}/import/teams-without-proposals?versionId=${version.id}`, { headers });
-                      const missing: string[] = res.data || [];
-                      if (missing.length > 0) {
-                        setForceDialog({ teams: missing.join(', '), targetStatus: 'REFINING' });
+                      const missing: { name: string; crCount: number; notRequired: boolean }[] = res.data || [];
+                      const pending = missing.filter((t: any) => !t.notRequired);
+                      if (pending.length > 0) {
+                        setForceDialog({ teams: pending.map((t: any) => t.name).join(', '), targetStatus: 'REFINING' });
                         return;
                       }
                     } catch (err: any) {
@@ -1943,7 +1962,7 @@ const VersionDetail: React.FC<{
                                       <span key={dep.dependsOnTaskId} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#e8f4fd', color: '#2d4a7a', padding: '2px 8px', borderRadius: '12px', fontSize: '12px' }}>
                                         🔗 {dep.dependsOn?.title || dep.dependsOnTaskId}
                                         <button
-                                          onClick={() => removeDep(task.id, dep.dependsOnTaskId)}
+                                          onClick={() => removeDep(dep.dependsOnTaskId)}
                                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', fontWeight: 'bold', fontSize: '13px', padding: '0 2px', lineHeight: 1 }}>
                                           ✕
                                         </button>
@@ -1977,7 +1996,7 @@ const VersionDetail: React.FC<{
                                       disabled={!newDepId}
                                       onClick={() => {
                                         const depTask = eligibleTasks.find((t: any) => t.id === newDepId);
-                                        if (depTask) addDep(task.id, newDepId, depTask);
+                                        if (depTask) addDep(depTask);
                                       }}
                                       style={{ padding: '5px 12px', background: newDepId ? '#2d4a7a' : '#ccc', color: 'white', border: 'none', borderRadius: '6px', cursor: newDepId ? 'pointer' : 'not-allowed', fontSize: '12px', whiteSpace: 'nowrap' }}>
                                       + הוסף
@@ -2096,6 +2115,7 @@ const VersionDetail: React.FC<{
                                   <button onClick={() => {
                                     const base = { ...task, assignedTeamId: task.assignedTeam?.id || task.assignedTeamId };
                                     base._durationMins = task.duration ? (parseDurationToMinutes(task.duration) ?? '') : '';
+                                    base._originalDeps = [...(task.dependencies || [])];
                                     setEditingTask(base);
                                     setEditFilters({ user: '', team: '', app: '' });
                                     setEditSaveOk(false);
