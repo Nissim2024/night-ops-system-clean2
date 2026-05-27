@@ -1259,18 +1259,26 @@ const VersionDetail: React.FC<{
     setEditingTask((prev: any) => {
       const newDep = {
         dependsOnTaskId,
-        dependsOn: { id: depTask.id, title: depTask.title, status: depTask.status, plannedEnd: depTask.plannedEnd },
+        dependsOn: { id: depTask.id, title: depTask.title, status: depTask.status },
       };
       let updated: any = { ...prev, dependencies: [...(prev.dependencies || []), newDep] };
-      // Auto-advance plannedStart to right after the dependency's planned end
+
+      // Compute dep's effective end time as a local input string
+      // Prefer explicit plannedEnd; fall back to plannedStart + duration
+      let depEndLocal: string | null = null;
       if (depTask.plannedEnd) {
-        const depEndLocal = utcToLocalInputStr(depTask.plannedEnd);
-        if (!prev.plannedStart || new Date(depTask.plannedEnd) > new Date(prev.plannedStart)) {
-          updated = { ...updated, plannedStart: depEndLocal };
-          const mins = parseInt(prev._durationMins);
-          if (mins > 0) updated = { ...updated, plannedEnd: calcEndFromMins(depEndLocal, mins) };
-        }
+        depEndLocal = utcToLocalInputStr(depTask.plannedEnd);
+      } else if (depTask.plannedStart && depTask.duration) {
+        const depMins = parseDurationToMinutes(depTask.duration);
+        if (depMins) depEndLocal = calcEndFromMins(utcToLocalInputStr(depTask.plannedStart), depMins);
       }
+
+      if (depEndLocal) {
+        updated = { ...updated, plannedStart: depEndLocal };
+        const taskMins = parseInt(prev._durationMins);
+        if (taskMins > 0) updated = { ...updated, plannedEnd: calcEndFromMins(depEndLocal, taskMins) };
+      }
+
       return updated;
     });
     setNewDepId('');
