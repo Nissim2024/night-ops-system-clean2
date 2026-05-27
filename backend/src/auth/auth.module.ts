@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
+import { LdapService } from './ldap.service';
 import { UsersModule } from '../users/users.module';
 
 @Module({
@@ -17,7 +18,7 @@ import { UsersModule } from '../users/users.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService],
+  providers: [AuthService, LdapService],
   exports: [AuthService],
 })
 export class AuthModule {}

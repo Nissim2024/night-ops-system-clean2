@@ -58,7 +58,7 @@ interface QcRelease {
 }
 
 export const AdminPanel: React.FC<Props> = ({ token }) => {
-  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates'>('users');
+  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'ldap'>('users');
   const { allPermissions, updateRole, saving: permSaving } = usePermissions();
   const [users, setUsers]     = useState<any[]>([]);
   const [teams, setTeams]     = useState<any[]>([]);
@@ -91,6 +91,10 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const [templateError, setTemplateError]     = useState<string | null>(null);
+
+  // LDAP / AD state
+  const [ldapTesting, setLdapTesting]         = useState(false);
+  const [ldapTestResult, setLdapTestResult]   = useState<{ success: boolean; message: string } | null>(null);
 
   // User form state
   const [showUserForm, setShowUserForm]   = useState(false);
@@ -239,6 +243,19 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
       },
       onCancel: () => {},
     });
+  };
+
+  const testLdap = async () => {
+    setLdapTesting(true);
+    setLdapTestResult(null);
+    try {
+      const res = await axios.post(`${API}/auth/ldap-test`, {}, { headers });
+      setLdapTestResult(res.data);
+    } catch (e: any) {
+      setLdapTestResult({ success: false, message: e?.response?.data?.message || e.message });
+    } finally {
+      setLdapTesting(false);
+    }
   };
 
   const saveParam = async (key: string) => {
@@ -452,6 +469,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
             { key: 'qc-users',    label: '🔄 סנכרון משתמשים' },
             { key: 'params',      label: '⚙️ פרמטרי מערכת' },
             { key: 'templates',   label: '📁 תבניות גרסה' },
+            { key: 'ldap',        label: '🔒 AD / LDAP' },
           ] as const).map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} style={{
               padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer',
@@ -1085,6 +1103,149 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                     ))}
                   </div>
                 )}
+              </div>
+            );
+          })()}
+
+          {/* ── LDAP / AD TAB ── */}
+          {tab === 'ldap' && (() => {
+            const ldapParams = systemParams.filter(p => p.key.startsWith('LDAP_'));
+            const isEnabled = ldapParams.find(p => p.key === 'LDAP_ENABLED')?.value === 'true';
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+                {/* Status card */}
+                <div style={{
+                  background: 'white', borderRadius: '12px', padding: '24px',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                  borderRight: `4px solid ${isEnabled ? '#27ae60' : '#aaa'}`,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                    <div>
+                      <h3 style={{ margin: '0 0 4px', color: '#1a2332' }}>🔒 Active Directory / LDAP</h3>
+                      <p style={{ margin: 0, fontSize: '13px', color: '#888' }}>
+                        כשמופעל — משתמשים מתחברים עם שם משתמש AD. חשבונות המנהל הטכני משתמשים תמיד בהתחברות מקומית.
+                      </p>
+                    </div>
+                    <span style={{
+                      padding: '6px 18px', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold',
+                      background: isEnabled ? '#d5f5e3' : '#f0f0f0',
+                      color: isEnabled ? '#1e8449' : '#777',
+                    }}>
+                      {isEnabled ? 'מופעל' : 'מושבת'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Config fields */}
+                <div style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                  <h3 style={{ margin: '0 0 6px', color: '#1a2332' }}>הגדרות חיבור</h3>
+                  <p style={{ margin: '0 0 20px', fontSize: '13px', color: '#888' }}>
+                    שנה ערך → לחץ Enter לשמירה מיידית
+                  </p>
+                  {paramError && (
+                    <div style={{ background: '#fee', border: '1px solid #e74c3c', borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', fontSize: '13px', color: '#c0392b' }}>
+                      ⚠️ {paramError}
+                    </div>
+                  )}
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: '#f0f4f8' }}>
+                        {['תיאור', 'מפתח', 'ערך', 'פעולות'].map(h => (
+                          <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: '12px', color: '#555', fontWeight: 'bold', border: '1px solid #e0e0e0' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ldapParams.length === 0 ? (
+                        <tr><td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: '#aaa', fontSize: '13px' }}>טוען הגדרות LDAP...</td></tr>
+                      ) : ldapParams.map(p => (
+                        <tr key={p.key} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                          <td style={{ padding: '12px 14px', fontSize: '13px', fontWeight: 'bold', color: '#1a2332', border: '1px solid #e0e0e0' }}>
+                            {p.label.replace(/^LDAP[^:]*: /, '')}
+                          </td>
+                          <td style={{ padding: '12px 14px', fontFamily: 'monospace', fontSize: '11px', color: '#888', border: '1px solid #e0e0e0' }}>{p.key}</td>
+                          <td style={{ padding: '12px 14px', border: '1px solid #e0e0e0', minWidth: '240px' }}>
+                            {editingParam === p.key ? (
+                              <input
+                                autoFocus
+                                type={p.type === 'password' ? 'password' : 'text'}
+                                value={paramValue}
+                                onChange={e => setParamValue(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') saveParam(p.key); if (e.key === 'Escape') setEditingParam(null); }}
+                                style={{ width: '100%', padding: '6px 10px', border: '2px solid #2d4a7a', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', direction: 'ltr' }}
+                              />
+                            ) : (
+                              <span style={{ fontSize: '13px', color: p.value ? '#333' : '#bbb', fontStyle: p.value ? 'normal' : 'italic', direction: 'ltr', display: 'inline-block' }}>
+                                {p.type === 'password' && p.value ? '••••••••' : (p.value || 'לא הוגדר')}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '10px 14px', border: '1px solid #e0e0e0', whiteSpace: 'nowrap' }}>
+                            {editingParam === p.key ? (
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                <button onClick={() => saveParam(p.key)} disabled={savingParam}
+                                  style={{ padding: '5px 14px', background: savingParam ? '#aaa' : '#27ae60', color: 'white', border: 'none', borderRadius: '6px', cursor: savingParam ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                                  {savingParam ? '...' : 'שמור'}
+                                </button>
+                                <button onClick={() => { setEditingParam(null); setParamError(null); }}
+                                  style={{ padding: '5px 12px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                                  ביטול
+                                </button>
+                              </div>
+                            ) : (
+                              <button onClick={() => { setEditingParam(p.key); setParamValue(p.value); setParamError(null); }}
+                                style={{ padding: '5px 14px', background: '#2d4a7a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                                ✏️ ערוך
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Test connection */}
+                <div style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                  <h3 style={{ margin: '0 0 8px', color: '#1a2332' }}>בדיקת חיבור</h3>
+                  <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#888' }}>
+                    בודק את החיבור לשרת LDAP ואת חשבון השירות (Bind DN). לא מאמת משתמש ספציפי.
+                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={testLdap}
+                      disabled={ldapTesting}
+                      style={{
+                        padding: '9px 22px', background: ldapTesting ? '#aaa' : '#2d4a7a',
+                        color: 'white', border: 'none', borderRadius: '8px',
+                        cursor: ldapTesting ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '14px',
+                      }}
+                    >
+                      {ldapTesting ? 'בודק...' : '🔌 בדוק חיבור'}
+                    </button>
+                    {ldapTestResult && (
+                      <div style={{
+                        padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold',
+                        background: ldapTestResult.success ? '#d5f5e3' : '#fadbd8',
+                        color: ldapTestResult.success ? '#1e8449' : '#c0392b',
+                      }}>
+                        {ldapTestResult.success ? '✓' : '✕'} {ldapTestResult.message}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Info */}
+                <div style={{ background: '#f8f9fa', borderRadius: '12px', padding: '20px', border: '1px solid #e0e0e0', fontSize: '13px', color: '#555', lineHeight: '1.7' }}>
+                  <strong style={{ color: '#1a2332', display: 'block', marginBottom: '8px' }}>כיצד ההתחברות פועלת:</strong>
+                  <ul style={{ margin: 0, paddingRight: '20px' }}>
+                    <li>כשה-LDAP מופעל, המשתמשים מזינים את <strong>שם המשתמש ב-AD</strong> (לא אימייל) ואת הסיסמה שלהם.</li>
+                    <li>המערכת מאמתת מול Active Directory ומביאה את כתובת האימייל של המשתמש.</li>
+                    <li>המשתמש חייב להיות <strong>מוגדר מראש</strong> במערכת (לשוניות "משתמשים") עם אותה כתובת אימייל.</li>
+                    <li>חשבונות <code>nissim@test.com</code> ודומיהם תמיד משתמשים בהתחברות מקומית.</li>
+                  </ul>
+                </div>
               </div>
             );
           })()}

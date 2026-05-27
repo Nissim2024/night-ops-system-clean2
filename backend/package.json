@@ -36,6 +36,7 @@
     "class-validator": "^0.15.1",
     "docx": "^9.6.1",
     "helmet": "^8.1.0",
+    "ldapts": "^8.1.8",
     "multer": "^2.1.1",
     "oracledb": "^6.10.0",
     "passport": "^0.7.0",

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { DeployCenterLogo } from './DeployCenterLogo';
 
@@ -9,23 +9,30 @@ interface Props {
 }
 
 export const Login: React.FC<Props> = ({ onLogin }) => {
-  const [email, setEmail] = useState('nissim@test.com');
+  const [username, setUsername] = useState('nissim@test.com');
   const [password, setPassword] = useState('123456');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [ldapEnabled, setLdapEnabled] = useState(false);
+
+  useEffect(() => {
+    axios.get(`${API}/auth/config`)
+      .then(res => setLdapEnabled(!!res.data.ldapEnabled))
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
     try {
-      const res = await axios.post(`${API}/auth/login`, { email, password });
+      const res = await axios.post(`${API}/auth/login`, { email: username, password });
       if (res.data.user?.fullName) {
         localStorage.setItem('deploycenter_fullName', res.data.user.fullName);
       }
       onLogin(res.data.token);
     } catch {
-      setError('אימייל או סיסמה שגויים');
+      setError(ldapEnabled ? 'שם משתמש או סיסמה שגויים' : 'אימייל או סיסמה שגויים');
     } finally {
       setLoading(false);
     }
@@ -51,15 +58,34 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
           <DeployCenterLogo variant="login" />
         </div>
 
+        {ldapEnabled && (
+          <div style={{
+            background: '#e8f0fe',
+            border: '1px solid #3d7ef5',
+            borderRadius: '8px',
+            padding: '10px 14px',
+            marginBottom: '20px',
+            fontSize: '13px',
+            color: '#2d4a7a',
+            textAlign: 'right',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}>
+            <span style={{ fontSize: '16px' }}>🔒</span>
+            <span>כניסה דרך Active Directory</span>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', marginBottom: '6px', color: '#333', fontWeight: 'bold', textAlign: 'right' }}>
-              אימייל
+              {ldapEnabled ? 'שם משתמש (AD)' : 'אימייל'}
             </label>
             <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
+              type={ldapEnabled ? 'text' : 'email'}
+              value={username}
+              onChange={e => setUsername(e.target.value)}
               style={{
                 width: '100%',
                 padding: '12px',
