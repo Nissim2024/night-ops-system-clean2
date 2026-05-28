@@ -84,6 +84,18 @@ export class TasksController {
     return this.tasksService.update(id, body, req.user.sub);
   }
 
+  @Patch(':id/rollback-status')
+  rollbackStatus(@Param('id') id: string, @Request() req: any) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול להחזיר סטטוס');
+    return this.tasksService.rollbackStatus(id, req.user.sub);
+  }
+
+  @Patch(':id/waive-gonogo')
+  waiveGoNoGo(@Param('id') id: string, @Request() req: any) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לבצע Waive');
+    return this.tasksService.waiveGoNoGo(id, req.user.sub);
+  }
+
   @Post(':id/duplicate')
   duplicate(@Param('id') id: string, @Request() req: any) {
     requireRole(req, LEADS_UP, 'נדרשת הרשאת ראש צוות ומעלה לשכפול משימה');

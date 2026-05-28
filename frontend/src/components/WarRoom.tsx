@@ -26,10 +26,15 @@ interface GoNoPanelProps {
   details: { incomplete: number; blocked: number; blockedNoReason: string[] } | undefined;
   envTasks: any[];
   onCheck: (env: string) => void;
+  failedTasks?: any[];
+  onWaive?: (taskId: string) => void;
+  isManager?: boolean;
 }
 
-const GoNoGoPanel: React.FC<GoNoPanelProps> = ({ env, label, status, details, envTasks, onCheck }) => {
+const GoNoGoPanel: React.FC<GoNoPanelProps> = ({ env, label, status, details, envTasks, onCheck, failedTasks = [], onWaive, isManager }) => {
   const canCheck = envTasks.length > 0;
+  const unwaived = failedTasks.filter((t: any) => !t.goNoGoWaived);
+  const waived = failedTasks.filter((t: any) => t.goNoGoWaived);
   return (
     <div style={{ background: '#f8f9fa', borderRadius: '10px', padding: '16px', border: '1px solid #e0e0e0', minWidth: '280px', flex: 1 }}>
       <div style={{ fontWeight: 'bold', color: '#1a2332', marginBottom: '10px', fontSize: '14px' }}>{label}</div>
@@ -61,12 +66,43 @@ const GoNoGoPanel: React.FC<GoNoPanelProps> = ({ env, label, status, details, en
               ))}
             </div>
           )}
-          {details.blocked > 0 && <div>{details.blocked} משימות חסומות</div>}
+          {details.blocked > 0 && <div>{details.blocked} משימות חסומות/נכשלו</div>}
           {details.blockedNoReason?.length > 0 && (
             <div style={{ marginTop: '6px', borderTop: '1px solid #f5b7b1', paddingTop: '6px' }}>
               <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>⚠️ חסומות ללא סיבה:</div>
               {details.blockedNoReason.map((title: string, i: number) => (
                 <div key={i} style={{ fontSize: '12px' }}>• {title}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {/* משימות נכשלות — אישור דילוג (מנהל בלבד) */}
+      {isManager && failedTasks.length > 0 && (
+        <div style={{ marginTop: '12px', borderTop: '1px solid #e0e0e0', paddingTop: '10px' }}>
+          <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#c0392b', marginBottom: '6px' }}>
+            ⚠️ משימות נכשלות ({failedTasks.length})
+          </div>
+          {unwaived.map((t: any) => (
+            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', background: '#fee', borderRadius: '6px', padding: '4px 8px' }}>
+              <span style={{ flex: 1, fontSize: '12px', color: '#c0392b' }}>{t.title}</span>
+              <button onClick={() => onWaive?.(t.id)}
+                style={{ padding: '2px 8px', fontSize: '11px', background: '#e67e22', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                ✓ אשר דילוג
+              </button>
+            </div>
+          ))}
+          {waived.length > 0 && (
+            <div style={{ marginTop: waived.length > 0 ? '4px' : 0 }}>
+              <div style={{ fontSize: '11px', color: '#888', marginBottom: '3px' }}>מאושרים לדילוג:</div>
+              {waived.map((t: any) => (
+                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px', background: '#f0faf4', borderRadius: '6px', padding: '3px 8px' }}>
+                  <span style={{ flex: 1, fontSize: '12px', color: '#27ae60' }}>✓ {t.title}</span>
+                  <button onClick={() => onWaive?.(t.id)}
+                    style={{ padding: '2px 6px', fontSize: '10px', background: '#bdc3c7', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    בטל
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -124,6 +160,9 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
       );
       setAllTasks(tasks);
       setTeams(teamsRes.data);
+      // Any task change potentially invalidates a previous GO result — force re-check
+      setGoStatus({});
+      setGoDetails({});
     } catch (err) { console.error(err); }
     finally { if (!silent) setLoading(false); }
   };
@@ -170,8 +209,8 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
     // This correctly excludes post-night BOTH phases that come after HOT/HOTNET.
     const allRequired = allTasks.filter(t => t._phaseOrderIndex <= targetOrderIndex);
 
-    const incomplete = allRequired.filter(t => t.status !== 'DONE').length;
-    const blocked = allRequired.filter(t => t.status === 'BLOCKED' || t.status === 'FAILED').length;
+    const incomplete = allRequired.filter(t => t.status !== 'DONE' && !t.goNoGoWaived).length;
+    const blocked = allRequired.filter(t => (t.status === 'BLOCKED' || t.status === 'FAILED') && !t.goNoGoWaived).length;
     const blockedNoReason = allRequired
       .filter(t => t.status === 'BLOCKED' && !t.blockedReason)
       .map((t: any) => t.title);
@@ -206,6 +245,7 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
       done: teamTasks.filter(t => t.status === 'DONE').length,
       inProgress: teamTasks.filter(t => t.status === 'IN_PROGRESS').length,
       blocked: teamTasks.filter(t => t.status === 'BLOCKED').length,
+      failed: teamTasks.filter(t => t.status === 'FAILED').length,
       waiting: teamTasks.filter(t => t.status === 'WAITING').length,
       open: teamTasks.filter(t => t.status === 'OPEN').length,
     };
@@ -226,6 +266,32 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
     { value: 'FAILED', label: 'נכשל', color: '#c0392b' },
     { value: 'ROLLED_BACK', label: 'Rollback', color: '#7f8c8d' },
   ];
+
+  const ROLLBACK_MAP: Record<string, string> = {
+    FAILED: 'IN_PROGRESS', DONE: 'IN_PROGRESS', IN_PROGRESS: 'OPEN',
+    OPEN: 'WAITING', ROLLED_BACK: 'IN_PROGRESS', BLOCKED: 'OPEN',
+  };
+
+  const rollbackTaskStatus = async (taskId: string) => {
+    setUpdatingTaskId(taskId);
+    try {
+      await axios.patch(`${API}/tasks/${taskId}/rollback-status`, {}, { headers });
+      await fetchData(true);
+    } catch (err) { console.error(err); }
+    finally { setUpdatingTaskId(null); }
+  };
+
+  const waiveTask = async (taskId: string) => {
+    try {
+      await axios.patch(`${API}/tasks/${taskId}/waive-gonogo`, {}, { headers });
+      await fetchData(true);
+    } catch (err) { console.error(err); }
+  };
+
+  const getGoRequiredTasks = (env: string) => {
+    const targetOrderIndex = allTasks.find(t => t._phaseEnv === env)?._phaseOrderIndex ?? 999;
+    return allTasks.filter(t => t._phaseOrderIndex <= targetOrderIndex);
+  };
 
   const updateTaskStatus = async (taskId: string, status: string, blockedReason?: string) => {
     if (status === 'BLOCKED' && blockedReason === undefined) {
@@ -330,8 +396,10 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
         <div style={{ background: 'white', borderRadius: '12px', padding: '20px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
           <h3 style={{ margin: '0 0 16px', color: '#1a2332' }}>GO / NO GO — לפי סביבה</h3>
           <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-            <GoNoGoPanel env="HOTNET" label="פעילות לילה — HOTNET" status={goStatus['HOTNET']} details={goDetails['HOTNET']} envTasks={getEnvTasks('HOTNET')} onCheck={checkGoForEnv} />
-            <GoNoGoPanel env="HOT" label="פעילות לילה — HOT" status={goStatus['HOT']} details={goDetails['HOT']} envTasks={getEnvTasks('HOT')} onCheck={checkGoForEnv} />
+            <GoNoGoPanel env="HOTNET" label="פעילות לילה — HOTNET" status={goStatus['HOTNET']} details={goDetails['HOTNET']} envTasks={getEnvTasks('HOTNET')} onCheck={checkGoForEnv}
+              failedTasks={getGoRequiredTasks('HOTNET').filter(t => t.status === 'FAILED')} onWaive={waiveTask} isManager={isManager} />
+            <GoNoGoPanel env="HOT" label="פעילות לילה — HOT" status={goStatus['HOT']} details={goDetails['HOT']} envTasks={getEnvTasks('HOT')} onCheck={checkGoForEnv}
+              failedTasks={getGoRequiredTasks('HOT').filter(t => t.status === 'FAILED')} onWaive={waiveTask} isManager={isManager} />
           </div>
         </div>
       )}
@@ -418,6 +486,15 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                                 color: statusDef.color, background: statusDef.color + '18', cursor: 'pointer', minWidth: '90px' }}>
                               {TASK_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                             </select>
+                            {isManager && ROLLBACK_MAP[task.status] && (
+                              <button
+                                onClick={() => rollbackTaskStatus(task.id)}
+                                disabled={updatingTaskId === task.id}
+                                title={`החזר ל-${ROLLBACK_MAP[task.status]}`}
+                                style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #e67e22', background: '#fff8f0', color: '#e67e22', cursor: 'pointer', fontSize: '12px', whiteSpace: 'nowrap', fontWeight: 'bold' }}>
+                                ◀ החזר
+                              </button>
+                            )}
                           </div>
                         );
                       })}
@@ -632,7 +709,7 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
           return (
             <div key={team.id}
               onClick={() => setSelectedTeam(isSelected ? null : team.id)}
-              style={{ background: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: stats.blocked > 0 ? '2px solid #e74c3c' : isSelected ? '2px solid #2d4a7a' : '1px solid #e0e0e0', cursor: 'pointer', transition: 'all 0.2s' }}>
+              style={{ background: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: (stats.blocked > 0 || stats.failed > 0) ? '2px solid #e74c3c' : isSelected ? '2px solid #2d4a7a' : '1px solid #e0e0e0', cursor: 'pointer', transition: 'all 0.2s' }}>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                 <h4
@@ -647,6 +724,7 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                   {team.name}
                 </h4>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  {stats.failed > 0 && <span style={{ background: '#fee', color: '#c0392b', padding: '2px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold' }}>{stats.failed} נכשל</span>}
                   {stats.blocked > 0 && <span style={{ background: '#fee', color: '#e74c3c', padding: '2px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold' }}>{stats.blocked} חסום</span>}
                   <span style={{ fontSize: '16px' }}>{isSelected ? '▲' : '▼'}</span>
                 </div>
@@ -668,6 +746,7 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                   { label: 'בביצוע', value: stats.inProgress, color: '#f39c12' },
                   { label: 'פתוח', value: stats.open, color: '#3498db' },
                   { label: 'ממתין', value: stats.waiting, color: '#9b59b6' },
+                  { label: 'נכשל', value: stats.failed, color: '#c0392b' },
                 ].filter(s => s.value > 0).map(s => (
                   <span key={s.label} style={{ background: s.color + '22', color: s.color, padding: '2px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold' }}>
                     {s.value} {s.label}

@@ -1,0 +1,14 @@
+{
+  "name": "nightops-playwright-tests",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "playwright test",
+    "test:schedule": "playwright test tc-schedule",
+    "test:permissions": "playwright test tc009",
+    "test:all": "playwright test --reporter=list",
+    "report": "playwright show-report report"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.60.0"
+  }
+}

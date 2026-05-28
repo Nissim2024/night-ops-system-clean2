@@ -58,7 +58,7 @@ interface QcRelease {
 }
 
 export const AdminPanel: React.FC<Props> = ({ token }) => {
-  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'ldap'>('users');
+  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'ldap' | 'email'>('users');
   const { allPermissions, updateRole, saving: permSaving } = usePermissions();
   const [users, setUsers]     = useState<any[]>([]);
   const [teams, setTeams]     = useState<any[]>([]);
@@ -95,6 +95,10 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
   // LDAP / AD state
   const [ldapTesting, setLdapTesting]         = useState(false);
   const [ldapTestResult, setLdapTestResult]   = useState<{ success: boolean; message: string } | null>(null);
+
+  // Email state
+  const [emailTesting, setEmailTesting]       = useState(false);
+  const [emailTestResult, setEmailTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // User form state
   const [showUserForm, setShowUserForm]   = useState(false);
@@ -255,6 +259,22 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
       setLdapTestResult({ success: false, message: e?.response?.data?.message || e.message });
     } finally {
       setLdapTesting(false);
+    }
+  };
+
+  const testEmailConfig = async () => {
+    setEmailTesting(true);
+    setEmailTestResult(null);
+    try {
+      await axios.post(`${API}/summary/test-version-id/send-email`,
+        { subject: 'בדיקת חיבור', text: 'מייל בדיקה מהמערכת' },
+        { headers }
+      );
+      setEmailTestResult({ success: true, message: 'שליחת מייל הצליחה' });
+    } catch (e: any) {
+      setEmailTestResult({ success: false, message: e?.response?.data?.message || e.message });
+    } finally {
+      setEmailTesting(false);
     }
   };
 
@@ -470,6 +490,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
             { key: 'params',      label: '⚙️ פרמטרי מערכת' },
             { key: 'templates',   label: '📁 תבניות גרסה' },
             { key: 'ldap',        label: '🔒 AD / LDAP' },
+            { key: 'email',       label: '📧 הגדרות מייל' },
           ] as const).map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} style={{
               padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer',
@@ -1244,6 +1265,127 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                     <li>המערכת מאמתת מול Active Directory ומביאה את כתובת האימייל של המשתמש.</li>
                     <li>המשתמש חייב להיות <strong>מוגדר מראש</strong> במערכת (לשוניות "משתמשים") עם אותה כתובת אימייל.</li>
                     <li>חשבונות <code>nissim@test.com</code> ודומיהם תמיד משתמשים בהתחברות מקומית.</li>
+                  </ul>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ── EMAIL TAB ── */}
+          {tab === 'email' && (() => {
+            const emailParams = systemParams.filter(p => p.key.startsWith('EMAIL_'));
+            const isEnabled = emailParams.find(p => p.key === 'EMAIL_ENABLED')?.value === 'true';
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {/* Status card */}
+                <div style={{ background: isEnabled ? '#d5f5e3' : '#f5f5f5', borderRadius: '12px', padding: '20px 24px', border: `2px solid ${isEnabled ? '#27ae60' : '#ccc'}`, display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <span style={{ fontSize: '32px' }}>{isEnabled ? '📧' : '📪'}</span>
+                  <div>
+                    <div style={{ fontWeight: 'bold', fontSize: '16px', color: isEnabled ? '#1e8449' : '#555' }}>
+                      {isEnabled ? 'שליחת מייל מופעלת' : 'שליחת מייל מושבתת'}
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#777', marginTop: '2px' }}>
+                      הגדר <code>EMAIL_ENABLED = true</code> להפעלה
+                    </div>
+                  </div>
+                </div>
+
+                {/* Config table */}
+                <div style={{ background: 'white', borderRadius: '12px', padding: '20px 24px', boxShadow: '0 2px 8px rgba(0,0,0,0.07)', border: '1px solid #e0e0e0' }}>
+                  <div style={{ fontWeight: 'bold', fontSize: '15px', color: '#1a2332', marginBottom: '16px' }}>⚙️ הגדרות SMTP</div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: '#f0f4f8' }}>
+                        {['תיאור', 'מפתח', 'ערך', 'פעולות'].map(h => (
+                          <th key={h} style={{ padding: '9px 14px', textAlign: 'right', fontSize: '12px', color: '#555', fontWeight: 'bold', border: '1px solid #e0e0e0' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {emailParams.map(p => (
+                        <tr key={p.key} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                          <td style={{ padding: '10px 14px', fontSize: '13px', fontWeight: 'bold', color: '#1a2332', border: '1px solid #e0e0e0' }}>{p.label}</td>
+                          <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: '11px', color: '#666', border: '1px solid #e0e0e0' }}>{p.key}</td>
+                          <td style={{ padding: '10px 14px', border: '1px solid #e0e0e0', minWidth: '240px' }}>
+                            {editingParam === p.key ? (
+                              <input
+                                autoFocus
+                                type={p.type === 'password' ? 'password' : 'text'}
+                                value={paramValue}
+                                onChange={e => setParamValue(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') saveParam(p.key); if (e.key === 'Escape') setEditingParam(null); }}
+                                style={{ width: '100%', padding: '5px 9px', border: '2px solid #2d4a7a', borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box', direction: 'ltr' }}
+                              />
+                            ) : (
+                              <span style={{ fontSize: '13px', color: p.value ? '#333' : '#bbb', fontStyle: p.value ? 'normal' : 'italic', direction: 'ltr', display: 'inline-block' }}>
+                                {p.type === 'password' && p.value ? '••••••••' : (p.value || 'לא הוגדר')}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '8px 14px', border: '1px solid #e0e0e0', whiteSpace: 'nowrap' }}>
+                            {editingParam === p.key ? (
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                <button onClick={() => saveParam(p.key)} disabled={savingParam}
+                                  style={{ padding: '4px 12px', background: savingParam ? '#aaa' : '#27ae60', color: 'white', border: 'none', borderRadius: '6px', cursor: savingParam ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                                  {savingParam ? '...' : 'שמור'}
+                                </button>
+                                <button onClick={() => { setEditingParam(null); setParamError(null); }}
+                                  style={{ padding: '4px 10px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                                  ביטול
+                                </button>
+                              </div>
+                            ) : (
+                              <button onClick={() => { setEditingParam(p.key); setParamValue(p.value); setParamError(null); }}
+                                style={{ padding: '4px 12px', background: '#2d4a7a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                                ✏️ ערוך
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Test */}
+                <div style={{ background: 'white', borderRadius: '12px', padding: '20px 24px', boxShadow: '0 2px 8px rgba(0,0,0,0.07)', border: '1px solid #e0e0e0' }}>
+                  <div style={{ fontWeight: 'bold', fontSize: '15px', color: '#1a2332', marginBottom: '12px' }}>🔌 בדיקת שליחה</div>
+                  <p style={{ fontSize: '13px', color: '#666', margin: '0 0 14px' }}>
+                    שולח מייל בדיקה לרשימת התפוצה המוגדרת ב-<code>EMAIL_DISTRIBUTION_LIST</code>.
+                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={testEmailConfig}
+                      disabled={emailTesting || !isEnabled}
+                      style={{
+                        padding: '9px 22px', background: emailTesting ? '#aaa' : !isEnabled ? '#ccc' : '#2980b9',
+                        color: 'white', border: 'none', borderRadius: '8px',
+                        cursor: (emailTesting || !isEnabled) ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '14px',
+                      }}
+                    >
+                      {emailTesting ? 'שולח...' : '📤 שלח מייל בדיקה'}
+                    </button>
+                    {!isEnabled && <span style={{ fontSize: '12px', color: '#999' }}>יש להפעיל EMAIL_ENABLED תחילה</span>}
+                    {emailTestResult && (
+                      <div style={{
+                        padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold',
+                        background: emailTestResult.success ? '#d5f5e3' : '#fadbd8',
+                        color: emailTestResult.success ? '#1e8449' : '#c0392b',
+                      }}>
+                        {emailTestResult.success ? '✓' : '✕'} {emailTestResult.message}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Info */}
+                <div style={{ background: '#f8f9fa', borderRadius: '12px', padding: '20px', border: '1px solid #e0e0e0', fontSize: '13px', color: '#555', lineHeight: '1.7' }}>
+                  <strong style={{ color: '#1a2332', display: 'block', marginBottom: '8px' }}>הגדרות SMTP נפוצות:</strong>
+                  <ul style={{ margin: 0, paddingRight: '20px' }}>
+                    <li>Gmail: <code>HOST=smtp.gmail.com, PORT=587, SECURE=false</code> — נדרש App Password</li>
+                    <li>Outlook/Office365: <code>HOST=smtp.office365.com, PORT=587, SECURE=false</code></li>
+                    <li>שרת פנימי: <code>HOST=mail.corp.local, PORT=25, SECURE=false</code> (ללא משתמש/סיסמה)</li>
+                    <li><code>EMAIL_DISTRIBUTION_LIST</code> — רשימת נמענים מופרדת בפסיקים: <code>a@corp.com, b@corp.com</code></li>
                   </ul>
                 </div>
               </div>

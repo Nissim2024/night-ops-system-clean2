@@ -90,8 +90,6 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
   const [loading,             setLoading]             = useState(true);
   const [headline,            setHeadline]            = useState('');
   const [morningNotes,        setMorningNotes]        = useState('');
-  const [delayReasons,        setDelayReasons]        = useState<Record<string, string>>({});
-  const [overrunsCollapsed,   setOverrunsCollapsed]   = useState(false);
   const [summaryRecord,       setSummaryRecord]       = useState<any>(null);
   const [readConfirmed,       setReadConfirmed]       = useState(false);
   const [approveLoading,      setApproveLoading]      = useState(false);
@@ -103,6 +101,10 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
   const [coverageRemarks,     setCoverageRemarks]     = useState<Record<number, string>>({});
   const [defectRemarks,       setDefectRemarks]       = useState<Record<string, string>>({});
   const [copied,              setCopied]              = useState(false);
+  const [emailSending,        setEmailSending]        = useState(false);
+  const [emailStatus,         setEmailStatus]         = useState<'idle' | 'ok' | 'err'>('idle');
+  const [emailError,          setEmailError]          = useState('');
+  const [emailEnabled,        setEmailEnabled]        = useState(false);
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -132,6 +134,34 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
   }, [versionId, isRehearsal]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    axios.get(`${API}/summary/email/config`, { headers })
+      .then(r => setEmailEnabled(!!r.data.enabled))
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const sendEmail = async () => {
+    setEmailSending(true);
+    setEmailStatus('idle');
+    setEmailError('');
+    try {
+      const subject = isRehearsal
+        ? `סיכום חזרה גנרלית — גרסת ${versionName}`
+        : `סיכום ליל ההטמעה — גרסת ${versionName}`;
+      await axios.post(`${API}/summary/${versionId}/send-email`, {
+        subject,
+        text: buildEmailText(),
+      }, { headers });
+      setEmailStatus('ok');
+      setTimeout(() => setEmailStatus('idle'), 4000);
+    } catch (err: any) {
+      setEmailError(err?.response?.data?.message || 'שגיאה בשליחת המייל');
+      setEmailStatus('err');
+    } finally {
+      setEmailSending(false);
+    }
+  };
+
+  useEffect(() => {
     const fetchData = async () => {
       try {
         const versionRes = await axios.get(`${API}/versions/${versionId}`, { headers });
@@ -149,10 +179,6 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
           loadedTasks = tasksRes.data;
         }
         setTasks(loadedTasks);
-        // Pre-fill any reasons that were already saved to the DB
-        const saved: Record<string, string> = {};
-        loadedTasks.forEach((t: any) => { if (t.delayReason) saved[t.id] = t.delayReason; });
-        if (Object.keys(saved).length > 0) setDelayReasons(saved);
       } catch (err) { console.error(err); }
       finally { setLoading(false); }
     };
@@ -197,24 +223,13 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
   // For active runs, WAITING tasks are morning-after tasks and don't block GO.
   // For rehearsal or other states, only morning-phase tasks (after isGoNoGo) are excluded.
   const goNogoWaiting = isActiveRun ? 0 : waitingTasks.filter(t => !isMorningTask(t)).length;
-  const goNogoBlocked = blockedTasks.filter(t => !isMorningTask(t)).length;
-  const goNogoInc     = nonWaitingTasks.filter(t => t.status !== 'DONE' && !isMorningTask(t)).length;
+  const goNogoBlocked = blockedTasks.filter(t => !isMorningTask(t) && !t.goNoGoWaived).length;
+  const goNogoInc     = nonWaitingTasks.filter(t => t.status !== 'DONE' && !isMorningTask(t) && !t.goNoGoWaived).length;
   const isGoNogo      = tasks.length > 0 && goNogoWaiting === 0 && goNogoBlocked === 0 && goNogoInc === 0;
 
-  const cutoff: Date | null = (() => {
-    if (version?.plannedEnd) return new Date(version.plannedEnd);
-    const allStarts = tasks.filter(t => t.plannedStart).map(t => new Date(t.plannedStart).getTime());
-    if (allStarts.length) {
-      const d = new Date(Math.min(...allStarts));
-      d.setDate(d.getDate() + 1); d.setHours(4, 0, 0, 0);
-      return d;
-    }
-    return null;
-  })();
+  const failedNightTasks = tasks.filter(t => t.status === 'FAILED' && !isMorningTask(t));
 
-  const overrunTasks      = cutoff ? tasks.filter(t => t.actualFinish && new Date(t.actualFinish) > cutoff) : [];
-  const allReasonsEntered = overrunTasks.every(t => (delayReasons[t.id] || '').trim().length > 0);
-  const canDownload       = (isGoNogo && allReasonsEntered) || canForceApprove;
+  const canDownload = isGoNogo || canForceApprove;
 
   // ── Phase timeline (phases 2 & 3 by orderIndex, using nested tasks from version) ──
   const phaseTimelines = React.useMemo(() => {
@@ -258,12 +273,6 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
   const approveSummary = async () => {
     setApproveLoading(true); setApproveError(null);
     try {
-      // Persist any locally-typed delay reasons to the DB before approving
-      await Promise.all(
-        overrunTasks
-          .filter(t => (delayReasons[t.id] || '').trim())
-          .map(t => axios.patch(`${API}/tasks/${t.id}`, { delayReason: delayReasons[t.id].trim() }, { headers }))
-      );
       const endpoint = isRehearsal ? `${API}/summary/${versionId}/rehearsal/approve` : `${API}/summary/${versionId}/approve`;
       const force = canForceApprove && !isGoNogo;
       const res = await axios.post(endpoint, { headline, morningNotes, ...(force && { force: true }) }, { headers });
@@ -272,6 +281,14 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
     } catch (err: any) {
       setApproveError(err?.response?.data?.message || 'שגיאה באישור הסיכום');
     } finally { setApproveLoading(false); }
+  };
+
+  const waiveTask = async (taskId: string) => {
+    try {
+      await axios.patch(`${API}/tasks/${taskId}/waive-gonogo`, {}, { headers });
+      const tasksRes = await axios.get(`${API}/tasks?versionId=${versionId}`, { headers });
+      setTasks(tasksRes.data);
+    } catch (err) { console.error(err); }
   };
 
   const buildEmailText = (): string => {
@@ -390,7 +407,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
           <span style={{ fontSize: '22px', fontWeight: 'bold', color: effectiveGo ? '#27ae60' : '#e74c3c' }}>
             {effectiveGo
               ? (isGoNogo
-                  ? (canDownload ? '✅ GO — ניתן להוציא סיכום' : '⚠️ ממתין להשלמת סיבות חריגה')
+                  ? '✅ GO — ניתן להוציא סיכום'
                   : '✅ GO — הגרסה עברה בהצלחה, המשך בפעילויות הבוקר שלאחר הגרסה')
               : '🛑 NO GO — לא ניתן להוציא סיכום'}
           </span>
@@ -398,8 +415,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
             <div style={{ fontSize: '13px', color: '#e74c3c', marginTop: '4px' }}>
               {waitingTasks.length > 0 && <span>⏳ {waitingTasks.length} משימות ממתינות (טרם הופעלו) | </span>}
               {incompleteCount > 0 && <span>{incompleteCount} משימות לא הושלמו | </span>}
-              {blockedTasks.length > 0 && <span>{blockedTasks.length} משימות חסומות | </span>}
-              {!allReasonsEntered && overrunTasks.length > 0 && <span>חסרות סיבות לחריגות ({overrunTasks.filter(t => !(delayReasons[t.id] || '').trim()).length})</span>}
+              {blockedTasks.length > 0 && <span>{blockedTasks.length} משימות חסומות</span>}
             </div>
           )}
         </div>
@@ -644,47 +660,6 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
           </div>
         )}
 
-        {/* ── חריגות שעת סיום ── */}
-        {overrunTasks.length > 0 && (
-          <div style={{ background: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '2px solid #e67e22' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-              <h3 style={{ margin: 0, color: '#c0392b', fontSize: '15px' }}>
-                ⚠️ חריגות שעת סיום ({overrunTasks.length})
-                {allReasonsEntered && <span style={{ marginRight: '8px', color: '#27ae60', fontSize: '13px' }}>✓ כל הסיבות הוזנו</span>}
-              </h3>
-              <button onClick={() => setOverrunsCollapsed(c => !c)} style={{ padding: '4px 12px', background: '#f0f0f0', border: '1px solid #ccc', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
-                {overrunsCollapsed ? '▼ פתח' : '▲ קפל'}
-              </button>
-            </div>
-            {!overrunsCollapsed && (
-              <p style={{ margin: '0 0 14px', fontSize: '13px', color: '#e67e22' }}>
-                שעת סיום מתוכנן: <strong>{cutoff ? fmtDateTime(cutoff.toISOString()) : '04:00'}</strong> — המשימות הבאות חרגו ממנה. חובה להזין סיבה.
-              </p>
-            )}
-            {!overrunsCollapsed && overrunTasks.map(task => (
-              <div key={task.id} style={{ background: '#fff8f0', borderRadius: '8px', padding: '14px', marginBottom: '10px', border: '1px solid #f0c080' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
-                  <div>
-                    <span style={{ fontWeight: 'bold', color: '#1a2332', fontSize: '14px' }}>{task.title}</span>
-                    <span style={{ marginRight: '12px', fontSize: '12px', color: '#666' }}>
-                      {task.actualStart && <>▶ {fmtTime(task.actualStart)} </>}
-                      {task.actualFinish && <>■ {fmtTime(task.actualFinish)}</>}
-                    </span>
-                  </div>
-                  <span style={{ background: '#fee', color: '#c0392b', padding: '2px 10px', borderRadius: '10px', fontSize: '12px', fontWeight: 'bold' }}>
-                    +{Math.round((new Date(task.actualFinish).getTime() - cutoff!.getTime()) / 60000)} דק' חריגה
-                  </span>
-                </div>
-                <textarea placeholder="סיבת החריגה * (חובה)" value={delayReasons[task.id] || ''}
-                  onChange={e => setDelayReasons(prev => ({ ...prev, [task.id]: e.target.value }))} rows={2}
-                  style={{ width: '100%', padding: '8px', border: `2px solid ${(delayReasons[task.id] || '').trim() ? '#27ae60' : '#e74c3c'}`, borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'Arial', direction: 'rtl' }} />
-              </div>
-            ))}
-            {!overrunsCollapsed && !allReasonsEntered && <div style={{ color: '#e74c3c', fontSize: '13px', marginTop: '4px' }}>* יש למלא סיבה לכל החריגות לפני ייצוא הסיכום</div>}
-            {overrunsCollapsed && !allReasonsEntered && <div style={{ color: '#e74c3c', fontSize: '13px', marginTop: '6px' }}>{overrunTasks.filter(t => !(delayReasons[t.id] || '').trim()).length} חריגות ממתינות לסיבה</div>}
-          </div>
-        )}
-
         {/* ── הערות לצוות הבוקר ── */}
         <div style={{ background: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
           <h3 style={{ margin: '0 0 12px', color: '#1a2332', fontSize: '15px' }}>הערות לצוות הבוקר</h3>
@@ -692,6 +667,32 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
             placeholder="פריטים שדורשים מעקב בוקר..."
             rows={3} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'Arial', direction: 'rtl' }} />
         </div>
+
+        {/* ── משימות נכשלות — אישור דילוג (מנהל בלבד) ── */}
+        {canForceApprove && failedNightTasks.length > 0 && !summaryRecord?.sentAt && (
+          <div style={{ background: 'white', border: '2px solid #e74c3c', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', marginBottom: '0' }}>
+            <h3 style={{ margin: '0 0 12px', color: '#c0392b', fontSize: '15px' }}>⚠️ משימות נכשלות ({failedNightTasks.length})</h3>
+            <p style={{ margin: '0 0 12px', fontSize: '13px', color: '#666' }}>
+              סמן משימות שנכשלו כ"מאושר לדילוג" כדי לאפשר הפקת סיכום מבלי לעקוף GO/NO GO.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {failedNightTasks.map(t => (
+                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', borderRadius: '8px', background: t.goNoGoWaived ? '#f0fff4' : '#fee', border: `1px solid ${t.goNoGoWaived ? '#27ae60' : '#f5b7b1'}` }}>
+                  <span style={{ flex: 1, fontSize: '13px', color: t.goNoGoWaived ? '#1e8449' : '#c0392b', fontWeight: t.goNoGoWaived ? 'normal' : 'bold' }}>
+                    {t.goNoGoWaived ? '✓ ' : '✗ '}{t.title}
+                  </span>
+                  {t.assignedTeam?.name && <span style={{ fontSize: '11px', color: '#888' }}>{t.assignedTeam.name}</span>}
+                  <button
+                    onClick={() => waiveTask(t.id)}
+                    style={{ padding: '4px 12px', fontSize: '12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap',
+                      background: t.goNoGoWaived ? '#bdc3c7' : '#e67e22', color: 'white' }}>
+                    {t.goNoGoWaived ? 'בטל אישור' : '✓ אשר דילוג'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── אישור סיכום ── */}
         <div style={{ background: summaryRecord?.sentAt ? '#f0fff4' : 'white', border: `2px solid ${summaryRecord?.sentAt ? '#27ae60' : '#e67e22'}`, borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
@@ -711,10 +712,22 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                   style={{ padding: '10px 24px', background: copied ? '#27ae60' : '#6c3483', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', transition: 'background 0.2s' }}>
                   {copied ? '✓ הועתק!' : '📋 העתק לאימייל'}
                 </button>
-                <button onClick={() => alert('שירות שליחת מייל יהיה זמין בקרוב')}
-                  style={{ padding: '10px 24px', background: '#2980b9', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
-                  📧 שלח במייל לרשימת תפוצה
+                <button
+                  onClick={emailEnabled ? sendEmail : () => alert('שירות המייל אינו מופעל — הגדר SMTP בפאנל הניהול')}
+                  disabled={emailSending}
+                  style={{
+                    padding: '10px 24px',
+                    background: emailSending ? '#95a5a6' : emailStatus === 'ok' ? '#27ae60' : emailStatus === 'err' ? '#e74c3c' : emailEnabled ? '#2980b9' : '#aaa',
+                    color: 'white', border: 'none', borderRadius: '8px',
+                    cursor: emailSending ? 'not-allowed' : 'pointer',
+                    fontWeight: 'bold', fontSize: '14px', transition: 'background 0.2s',
+                  }}
+                >
+                  {emailSending ? '⏳ שולח...' : emailStatus === 'ok' ? '✓ נשלח!' : emailStatus === 'err' ? '✗ שגיאה' : '📧 שלח במייל לרשימת תפוצה'}
                 </button>
+                {emailStatus === 'err' && emailError && (
+                  <div style={{ fontSize: '12px', color: '#c0392b', marginTop: '4px' }}>{emailError}</div>
+                )}
               </div>
             </div>
           ) : (

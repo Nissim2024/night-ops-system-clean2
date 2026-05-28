@@ -140,6 +140,14 @@ export class TasksService {
     if (status === 'BLOCKED' && blockedReason !== undefined) {
       statusData.blockedReason = blockedReason;
     }
+    // Any transition to or from FAILED invalidates a prior waiver:
+    // - new failure (→ FAILED): fresh incident, old approval no longer relevant
+    // - re-run (FAILED → *): task is being retried, waiver must not carry over
+    if (status === 'FAILED' || before.status === 'FAILED') {
+      statusData.goNoGoWaived = false;
+      statusData.waivedBy = null;
+      statusData.waivedAt = null;
+    }
 
     const task = await prisma.task.update({
       where: { id },
@@ -270,6 +278,64 @@ export class TasksService {
         this.eventsGateway.emitTaskUpdated(opened as any);
       }
     }
+  }
+
+  async rollbackStatus(id: string, userId: string) {
+    const task = await prisma.task.findUnique({ where: { id } });
+    if (!task) throw new NotFoundException('Task not found');
+
+    const ROLLBACK_MAP: Record<string, string> = {
+      FAILED: 'IN_PROGRESS',
+      DONE: 'IN_PROGRESS',
+      IN_PROGRESS: 'OPEN',
+      OPEN: 'WAITING',
+      ROLLED_BACK: 'IN_PROGRESS',
+      BLOCKED: 'OPEN',
+    };
+    const prevStatus = ROLLBACK_MAP[task.status];
+    if (!prevStatus) throw new BadRequestException(`לא ניתן להחזיר סטטוס "${task.status}" אחורה`);
+
+    const updated = await prisma.task.update({
+      where: { id },
+      data: {
+        status: prevStatus as any,
+        blockedReason: prevStatus !== 'BLOCKED' ? null : undefined,
+        // Rolling back from FAILED means a re-run is imminent — clear the waiver
+        ...(task.status === 'FAILED' ? { goNoGoWaived: false, waivedBy: null, waivedAt: null } : {}),
+      } as any,
+      include: {
+        assignedTeam: true,
+        assignedUser: { select: { id: true, fullName: true, email: true } },
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId, taskId: id, action: 'STATUS_CHANGED',
+        beforeData: { status: task.status } as any,
+        afterData: { status: prevStatus } as any,
+      },
+    });
+
+    this.eventsGateway.emitTaskUpdated(updated as any);
+    return updated;
+  }
+
+  async waiveGoNoGo(id: string, userId: string) {
+    const task = await prisma.task.findUnique({ where: { id } });
+    if (!task) throw new NotFoundException('Task not found');
+
+    const waived = !(task as any).goNoGoWaived;
+    const updated = await prisma.task.update({
+      where: { id },
+      data: {
+        goNoGoWaived: waived,
+        waivedBy: waived ? userId : null,
+        waivedAt: waived ? new Date() : null,
+      } as any,
+    });
+    this.eventsGateway.emitTaskUpdated(updated as any);
+    return updated;
   }
 
   async duplicate(id: string, userId: string) {

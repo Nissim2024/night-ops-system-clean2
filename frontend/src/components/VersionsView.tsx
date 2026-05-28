@@ -1256,22 +1256,29 @@ const VersionDetail: React.FC<{
   const addDep = (depTask: any) => {
     const dependsOnTaskId = newDepId;
     if (!dependsOnTaskId || !depTask) return;
+
+    // Compute dep's effective end time OUTSIDE setEditingTask so it runs synchronously.
+    // Prefer explicit plannedEnd; fall back to plannedStart + duration.
+    let depEndLocal: string | null = null;
+    if (depTask.plannedEnd) {
+      depEndLocal = utcToLocalInputStr(depTask.plannedEnd);
+    }
+    if (!depEndLocal && depTask.plannedStart) {
+      const startLocal = utcToLocalInputStr(depTask.plannedStart);
+      const depMins = parseDurationToMinutes(depTask.duration || '');
+      if (depMins && depMins > 0) {
+        depEndLocal = calcEndFromMins(startLocal, depMins);
+      }
+    }
+    // eslint-disable-next-line no-console
+    console.log('[EDIT_ADD_DEP]', { title: depTask.title, plannedEnd: depTask.plannedEnd, plannedStart: depTask.plannedStart, duration: depTask.duration, depEndLocal });
+
     setEditingTask((prev: any) => {
       const newDep = {
         dependsOnTaskId,
         dependsOn: { id: depTask.id, title: depTask.title, status: depTask.status },
       };
       let updated: any = { ...prev, dependencies: [...(prev.dependencies || []), newDep] };
-
-      // Compute dep's effective end time as a local input string
-      // Prefer explicit plannedEnd; fall back to plannedStart + duration
-      let depEndLocal: string | null = null;
-      if (depTask.plannedEnd) {
-        depEndLocal = utcToLocalInputStr(depTask.plannedEnd);
-      } else if (depTask.plannedStart && depTask.duration) {
-        const depMins = parseDurationToMinutes(depTask.duration);
-        if (depMins) depEndLocal = calcEndFromMins(utcToLocalInputStr(depTask.plannedStart), depMins);
-      }
 
       if (depEndLocal) {
         updated = { ...updated, plannedStart: depEndLocal };
@@ -1979,38 +1986,67 @@ const VersionDetail: React.FC<{
                                   </div>
                                 )}
                                 {/* הוספת תלות */}
-                                {available.length > 0 && (
-                                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                    <select
-                                      value={newDepId}
-                                      onChange={e => setNewDepId(e.target.value)}
-                                      style={{ flex: 1, padding: '5px 7px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '12px' }}>
-                                      <option value="">— בחר משימה תלויה —</option>
-                                      {version.phases
-                                        .filter((p: any) => p.orderIndex <= phase.orderIndex)
-                                        .map((p: any) => (
-                                          <optgroup key={p.id} label={p.name}>
-                                            {(p.subPhases || []).flatMap((s: any) =>
-                                              (s.tasks || [])
-                                                .filter((t: any) => t.id !== task.id && !alreadyLinked.has(t.id))
-                                                .map((t: any) => (
-                                                  <option key={t.id} value={t.id}>{t.title}</option>
-                                                ))
-                                            )}
-                                          </optgroup>
-                                        ))}
-                                    </select>
-                                    <button
-                                      disabled={!newDepId}
-                                      onClick={() => {
-                                        const depTask = eligibleTasks.find((t: any) => t.id === newDepId);
-                                        if (depTask) addDep(depTask);
-                                      }}
-                                      style={{ padding: '5px 12px', background: newDepId ? '#2d4a7a' : '#ccc', color: 'white', border: 'none', borderRadius: '6px', cursor: newDepId ? 'pointer' : 'not-allowed', fontSize: '12px', whiteSpace: 'nowrap' }}>
-                                      + הוסף
-                                    </button>
-                                  </div>
-                                )}
+                                {available.length > 0 && (() => {
+                                  // Preview the dep's computed end time before the user clicks הוסף
+                                  const previewDep = newDepId ? eligibleTasks.find((t: any) => t.id === newDepId) : null;
+                                  let previewEnd: string | null = null;
+                                  if (previewDep) {
+                                    if (previewDep.plannedEnd) {
+                                      previewEnd = utcToLocalInputStr(previewDep.plannedEnd);
+                                    } else if (previewDep.plannedStart) {
+                                      const pMins = parseDurationToMinutes(previewDep.duration || '');
+                                      previewEnd = pMins && pMins > 0
+                                        ? calcEndFromMins(utcToLocalInputStr(previewDep.plannedStart), pMins)
+                                        : null;
+                                    }
+                                  }
+                                  const previewTime = previewEnd
+                                    ? new Date(previewEnd).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
+                                    : null;
+                                  return (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                        <select
+                                          value={newDepId}
+                                          onChange={e => setNewDepId(e.target.value)}
+                                          style={{ flex: 1, padding: '5px 7px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '12px' }}>
+                                          <option value="">— בחר משימה תלויה —</option>
+                                          {version.phases
+                                            .filter((p: any) => p.orderIndex <= phase.orderIndex)
+                                            .map((p: any) => (
+                                              <optgroup key={p.id} label={p.name}>
+                                                {(p.subPhases || []).flatMap((s: any) =>
+                                                  (s.tasks || [])
+                                                    .filter((t: any) => t.id !== task.id && !alreadyLinked.has(t.id))
+                                                    .map((t: any) => (
+                                                      <option key={t.id} value={t.id}>{t.title}</option>
+                                                    ))
+                                                )}
+                                              </optgroup>
+                                            ))}
+                                        </select>
+                                        <button
+                                          disabled={!newDepId}
+                                          onClick={() => {
+                                            const depTask = eligibleTasks.find((t: any) => t.id === newDepId);
+                                            // eslint-disable-next-line no-console
+                                            console.log('[EDIT_DEP_BTN]', { newDepId, found: !!depTask, depTask });
+                                            if (depTask) addDep(depTask);
+                                          }}
+                                          style={{ padding: '5px 12px', background: newDepId ? '#2d4a7a' : '#ccc', color: 'white', border: 'none', borderRadius: '6px', cursor: newDepId ? 'pointer' : 'not-allowed', fontSize: '12px', whiteSpace: 'nowrap' }}>
+                                          + הוסף
+                                        </button>
+                                      </div>
+                                      {previewDep && (
+                                        <div style={{ fontSize: '11px', color: previewTime ? '#2d7a3a' : '#999', paddingRight: '2px' }}>
+                                          {previewTime
+                                            ? `⏰ שעת תחילה תתעדכן ל: ${previewTime}`
+                                            : '⚠️ לתלות זו אין תזמון — שעת תחילה לא תתעדכן אוטומטית'}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                                 {available.length === 0 && (editingTask.dependencies || []).length === 0 && (
                                   <span style={{ fontSize: '12px', color: '#aaa' }}>אין משימות קודמות זמינות לקישור</span>
                                 )}
@@ -2199,27 +2235,27 @@ const VersionDetail: React.FC<{
                           </div>
                         );
                       })()}
-                      {/* Row 1: title | user (filtered) | team (filtered) */}
+                      {/* Row 1: title | team | user (filtered by team) */}
                       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
                         <input placeholder="שם המשימה *" value={newTask.title} onChange={e => setNewTask({ ...newTask, title: e.target.value })} style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }} />
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                          <input value={editFilters.user} onChange={e => setEditFilters(f => ({ ...f, user: e.target.value }))}
-                            placeholder="סנן עובד..." style={{ padding: '4px 7px', border: '1px solid #ddd', borderRadius: '6px 6px 0 0', fontSize: '11px', borderBottom: 'none' }} />
-                          <select value={newTask.assignedUserName} onChange={e => setNewTask({ ...newTask, assignedUserName: e.target.value })}
-                            style={{ padding: '5px 7px', border: '1px solid #ddd', borderRadius: '0 0 6px 6px', fontSize: '13px', borderTop: 'none' }}>
-                            <option value="">-- עובד אחראי --</option>
-                            {users.filter(u => !editFilters.user || u.fullName.toLowerCase().startsWith(editFilters.user.toLowerCase())).map(u => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
-                          </select>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                          <input value={editFilters.team} onChange={e => setEditFilters(f => ({ ...f, team: e.target.value }))}
-                            placeholder="סנן צוות..." style={{ padding: '4px 7px', border: '1px solid #ddd', borderRadius: '6px 6px 0 0', fontSize: '11px', borderBottom: 'none' }} />
-                          <select value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)}
-                            style={{ padding: '5px 7px', border: '1px solid #ddd', borderRadius: '0 0 6px 6px', fontSize: '13px', borderTop: 'none' }}>
-                            <option value="">צוות</option>
-                            {teams.filter((t: any) => t.active && (!editFilters.team || t.name.toLowerCase().startsWith(editFilters.team.toLowerCase()))).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                          </select>
-                        </div>
+                        <select value={selectedTeam} onChange={e => {
+                          setSelectedTeam(e.target.value);
+                          setNewTask((t: any) => ({ ...t, assignedUserName: '' }));
+                        }}
+                          style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}>
+                          <option value="">צוות</option>
+                          {teams.filter((t: any) => t.active).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        </select>
+                        <select value={newTask.assignedUserName} onChange={e => setNewTask({ ...newTask, assignedUserName: e.target.value })}
+                          style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}>
+                          <option value="">-- עובד אחראי --</option>
+                          {(selectedTeam
+                            ? (teams.find((t: any) => t.id === selectedTeam)?.members || [])
+                                .map((m: any) => m.user)
+                                .sort((a: any, b: any) => a.fullName.localeCompare(b.fullName, 'he'))
+                            : users
+                          ).map((u: any) => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
+                        </select>
                       </div>
                       {/* Row 2: CR# | app (filtered) | env | duration (minutes) */}
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
@@ -2262,15 +2298,14 @@ const VersionDetail: React.FC<{
                             </div>
                           );
                         })()}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                          <input value={editFilters.app} onChange={e => setEditFilters(f => ({ ...f, app: e.target.value }))}
-                            placeholder="סנן..." style={{ padding: '4px 7px', border: '1px solid #ddd', borderRadius: '6px 6px 0 0', fontSize: '11px', borderBottom: 'none' }} />
-                          <select value={newTask.application} onChange={e => setNewTask({ ...newTask, application: e.target.value })}
-                            style={{ padding: '5px 7px', border: '1px solid #ddd', borderRadius: '0 0 6px 6px', fontSize: '13px', borderTop: 'none' }}>
-                            <option value="">Application</option>
-                            {APPS.filter(a => !editFilters.app || a.toLowerCase().startsWith(editFilters.app.toLowerCase())).map(a => <option key={a} value={a}>{a}</option>)}
-                          </select>
-                        </div>
+                        <select value={newTask.application} onChange={e => setNewTask({ ...newTask, application: e.target.value })}
+                          style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}>
+                          <option value="">Application</option>
+                          {(selectedTeam && (teams.find((t: any) => t.id === selectedTeam)?.apps || []).length > 0
+                            ? teams.find((t: any) => t.id === selectedTeam).apps
+                            : APPS
+                          ).map((a: string) => <option key={a} value={a}>{a}</option>)}
+                        </select>
                         <select value={newTask.environment} onChange={e => setNewTask({ ...newTask, environment: e.target.value })} style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}>
                           <option value="BOTH">HOT + HOTNET</option>
                           <option value="HOT">HOT בלבד</option>
@@ -2360,7 +2395,30 @@ const VersionDetail: React.FC<{
                                     ))}
                                 </select>
                                 <button type="button" disabled={!newDepAddSelectId}
-                                  onClick={() => { if (!newDepAddSelectId) return; setNewTaskDepIds(ids => [...ids, newDepAddSelectId]); setNewDepAddSelectId(''); }}
+                                  onClick={() => {
+                                    if (!newDepAddSelectId) return;
+                                    const depTask = allTasksInScope.find((t: any) => t.id === newDepAddSelectId);
+                                    // eslint-disable-next-line no-console
+                                    console.log('[NEW_DEP]', { id: newDepAddSelectId, found: !!depTask, scopeCount: allTasksInScope.length, plannedEnd: depTask?.plannedEnd, plannedStart: depTask?.plannedStart, duration: depTask?.duration });
+                                    setNewTaskDepIds(ids => [...ids, newDepAddSelectId]);
+                                    setNewDepAddSelectId('');
+                                    if (!depTask) return;
+                                    // compute dep end time
+                                    let depEnd = '';
+                                    if (depTask.plannedEnd) {
+                                      depEnd = utcToLocalInputStr(String(depTask.plannedEnd));
+                                    } else if (depTask.plannedStart) {
+                                      const sl = utcToLocalInputStr(String(depTask.plannedStart));
+                                      const dm = parseDurationToMinutes(String(depTask.duration || ''));
+                                      if (dm && dm > 0) depEnd = calcEndFromMins(sl, dm);
+                                    }
+                                    if (!depEnd) return;
+                                    // update newTask with new start (and recompute end if duration set)
+                                    const tm = parseInt(newTask._durationMins);
+                                    const patch: any = { plannedStart: depEnd };
+                                    if (tm > 0) patch.plannedEnd = calcEndFromMins(depEnd, tm);
+                                    setNewTask((t: any) => ({ ...t, ...patch }));
+                                  }}
                                   style={{ padding: '5px 12px', background: newDepAddSelectId ? '#2d4a7a' : '#ccc', color: 'white', border: 'none', borderRadius: '6px', cursor: newDepAddSelectId ? 'pointer' : 'not-allowed', fontSize: '12px', whiteSpace: 'nowrap' }}>
                                   + הוסף
                                 </button>

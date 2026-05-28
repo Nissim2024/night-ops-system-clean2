@@ -1,9 +1,10 @@
 import {
   Controller, Post, Get, Body, Param, Res, UseGuards,
-  Request, ForbiddenException,
+  Request, ForbiddenException, BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { SummaryService } from './summary.service';
+import { EmailService } from '../email/email.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 
 const MANAGERS  = ['RELEASE_MANAGER', 'ADMIN'];
@@ -16,7 +17,10 @@ function requireRole(req: any, roles: string[], msg = 'אין הרשאה לבצ�
 @UseGuards(JwtGuard)
 @Controller('summary')
 export class SummaryController {
-  constructor(private summaryService: SummaryService) {}
+  constructor(
+    private summaryService: SummaryService,
+    private emailService: EmailService,
+  ) {}
 
   @Get(':versionId')
   async getSummary(@Param('versionId') versionId: string) {
@@ -111,5 +115,26 @@ export class SummaryController {
       'Content-Length': buffer.length,
     });
     res.send(buffer);
+  }
+
+  @Get('email/config')
+  async getEmailConfig() {
+    return this.emailService.getConfig();
+  }
+
+  @Post(':versionId/send-email')
+  async sendEmail(
+    @Param('versionId') _versionId: string,
+    @Request() req: any,
+    @Body() body: { subject: string; text: string; extraRecipients?: string[] },
+  ) {
+    requireRole(req, LEADS_UP, 'נדרשת הרשאת ראש צוות ומעלה לשליחת מייל');
+    if (!body.subject || !body.text) throw new BadRequestException('חסר נושא או גוף המייל');
+    try {
+      await this.emailService.sendEmail(body.subject, body.text, body.extraRecipients);
+      return { ok: true };
+    } catch (err: any) {
+      throw new BadRequestException(err.message || 'שגיאה בשליחת המייל');
+    }
   }
 }

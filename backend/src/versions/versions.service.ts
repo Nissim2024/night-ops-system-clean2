@@ -200,6 +200,13 @@ async addTask(subPhaseId: string, data: {
       }
     }
 
+    const lastTask = await prisma.task.findFirst({
+      where: { subPhaseId },
+      orderBy: { orderIndex: 'desc' },
+      select: { orderIndex: true },
+    });
+    const nextOrderIndex = data.orderIndex !== undefined ? data.orderIndex : (lastTask?.orderIndex ?? -1) + 1;
+
     return prisma.task.create({
       data: {
         subPhaseId,
@@ -213,7 +220,7 @@ async addTask(subPhaseId: string, data: {
         environment: (data.environment as any) || 'BOTH',
         assignedTeamId: data.assignedTeamId,
         assignedUserName: data.assignedUserName,
-        orderIndex: data.orderIndex || 0,
+        orderIndex: nextOrderIndex,
         isCritical: data.isCritical || false,
         plannedStart: data.plannedStart ? new Date(data.plannedStart) : undefined,
         plannedEnd: data.plannedEnd ? new Date(data.plannedEnd) : undefined,
