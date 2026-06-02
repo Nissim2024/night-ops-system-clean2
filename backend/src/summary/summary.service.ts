@@ -148,20 +148,194 @@ export class SummaryService {
     return prisma.nightSummary.findUnique({ where: { versionId } });
   }
 
-  async approve(versionId: string, userId: string, headline?: string, morningNotes?: string, crData?: any, force = false) {
-    if (!force) {
-      // Tasks in phases after the isGoNoGo phase (morning-after phases) must not block approval.
-      // Find the goNogo phase; if none set, fall back to excluding WAITING status.
-      const goNogoPhase = await prisma.phase.findFirst({
-        where: { versionId, isGoNoGo: true },
-        select: { orderIndex: true },
-      });
+  async updateApproved(versionId: string, headline?: string, morningNotes?: string, crData?: any) {
+    const existing = await prisma.nightSummary.findUnique({ where: { versionId } });
+    if (!existing) throw new BadRequestException('הסיכום טרם אושר — אין מה לעדכן');
+    return prisma.nightSummary.update({
+      where: { versionId },
+      data: {
+        ...(headline !== undefined && { headline }),
+        ...(morningNotes !== undefined && { morningNotes }),
+        ...(crData !== undefined && { crData }),
+      },
+    });
+  }
 
-      let openCount: number;
+  async approve(versionId: string, userId: string, headline?: string, morningNotes?: string, crData?: any, force = false) {
+    // Always find the GoNoGo phase — needed for both force and non-force paths.
+    const goNogoPhase = await prisma.phase.findFirst({
+      where: { versionId, isGoNoGo: true },
+      select: { orderIndex: true },
+    });
+
+    // ── 1. Deployment-phase check (ALWAYS enforced — even with force) ──
+    // Tasks in phases up to and including the GoNoGo phase MUST be terminal.
+    // 'force' only waives the morning-after requirement — never the deployment itself.
+    if (goNogoPhase) {
+      const deploymentOpenCount = await prisma.task.count({
+        where: {
+          versionId,
+          status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK'] as any },
+          OR: [
+            { subPhase: { phase: { versionId, orderIndex: { lte: goNogoPhase.orderIndex } } } },
+            { subPhaseId: null },
+          ],
+        },
+      });
+      if (deploymentOpenCount > 0) {
+        throw new BadRequestException(
+          `לא ניתן לאשר סיכום — ${deploymentOpenCount} משימות הטמעה (שלבים עד GO/NO GO) שטרם הושלמו. ` +
+          `אישור בעקיפה אפשרי רק כשמשימות הבוקר שלאחר ה-GO לא הושלמו`
+        );
+      }
+    }
+
+    // ── 2. Rollback-required failures check (ALWAYS enforced — even with force) ──
+    // If any FAILED task has a reason that requires rollback → cannot approve, must rollback first.
+    const failedTasks = await prisma.task.findMany({
+      where: { versionId, status: 'FAILED', failedReason: { not: null } },
+      select: { id: true, title: true, failedReason: true },
+    });
+    if (failedTasks.length > 0) {
+      const rollbackReasons = await (prisma as any).failureReason.findMany({
+        where: { requiresRollback: true, isActive: true },
+        select: { reason: true },
+      });
+      const rollbackReasonSet = new Set(rollbackReasons.map((r: any) => r.reason));
+      const mustRollback = failedTasks.filter(t => rollbackReasonSet.has(t.failedReason!));
+      if (mustRollback.length > 0) {
+        const names = mustRollback.map(t => `"${t.title}" (${t.failedReason})`).join(', ');
+        throw new BadRequestException(
+          `לא ניתן לאשר סיכום — המשימות הבאות נכשלו עם סיבה שמחייבת Rollback לגרסה: ${names}. ` +
+          `יש לבצע Rollback לפני אישור הסיכום`
+        );
+      }
+    }
+
+    // ── 3. Phase overrun delay-reason check (ALWAYS enforced) ──
+    // If a phase overran by more than the configured threshold, a delay reason is required.
+    const thresholdParam = await prisma.systemParam.findUnique({
+      where: { key: 'SUMMARY_OVERRUN_THRESHOLD_MINS' },
+    });
+    const thresholdMins = parseInt(thresholdParam?.value ?? '30', 10);
+
+    const phases = await prisma.phase.findMany({
+      where: { versionId },
+      include: {
+        subPhases: {
+          include: { tasks: { select: { plannedEnd: true, actualFinish: true } } },
+        },
+      },
+      orderBy: { orderIndex: 'asc' },
+    });
+
+    const missingReasonPhases: string[] = [];
+    for (const phase of phases) {
+      const phaseTasks = phase.subPhases.flatMap((s: any) => s.tasks);
+      const plannedEnds = phaseTasks.filter((t: any) => t.plannedEnd).map((t: any) => new Date(t.plannedEnd).getTime());
+      const actualEnds  = phaseTasks.filter((t: any) => t.actualFinish).map((t: any) => new Date(t.actualFinish).getTime());
+      if (!plannedEnds.length || !actualEnds.length) continue;
+
+      const plannedEndMs = Math.max(...plannedEnds);
+      const actualEndMs  = Math.max(...actualEnds);
+      const overrunMins  = Math.round((actualEndMs - plannedEndMs) / 60000);
+
+      if (overrunMins > thresholdMins) {
+        const providedReason = crData?.phaseDelayReasons?.[phase.id] ?? crData?.phaseDelayReasons?.[phase.name];
+        if (!providedReason?.trim()) {
+          missingReasonPhases.push(`"${phase.name}" (חריגה של ${overrunMins} דק')`);
+        }
+      }
+    }
+    if (missingReasonPhases.length > 0) {
+      throw new BadRequestException(
+        `נדרשת סיבת חריגת זמן (מעל ${thresholdMins} דק') לשלבים הבאים: ${missingReasonPhases.join(', ')}`
+      );
+    }
+
+    // ── 4. Morning-after check (waivable with force for ADMIN / RELEASE_MANAGER) ──
+    if (!force) {
+      let morningOpenCount: number;
       if (goNogoPhase) {
-        // Count tasks in phases up to (and including) the isGoNoGo phase.
-        // OR tasks with no subPhase — they are not morning-after tasks so they must block.
-        openCount = await prisma.task.count({
+        morningOpenCount = await prisma.task.count({
+          where: {
+            versionId,
+            status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK', 'WAITING'] as any },
+            subPhase: { phase: { versionId, orderIndex: { gt: goNogoPhase.orderIndex } } },
+          },
+        });
+      } else {
+        morningOpenCount = await prisma.task.count({
+          where: {
+            versionId,
+            status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK', 'WAITING'] as any },
+          },
+        });
+      }
+      if (morningOpenCount > 0) {
+        throw new BadRequestException(
+          `לא ניתן לאשר סיכום — ${morningOpenCount} משימות בוקר שטרם הושלמו. מנהל מוסמך יכול לאשר בעקיפה`
+        );
+      }
+    }
+
+    const version = await prisma.version.findUnique({ where: { id: versionId } });
+    const now = new Date();
+
+    // ── 5. Save the summary ──
+    const ops: Promise<any>[] = [
+      prisma.nightSummary.upsert({
+        where: { versionId },
+        update: {
+          sentAt: now,
+          sentBy: userId,
+          headline: headline ?? null,
+          morningNotes: morningNotes ?? null,
+          crData: crData ?? null,
+          ...(force && { forceApprovedBy: userId, forceApprovedAt: now }),
+        },
+        create: {
+          versionId,
+          sentAt: now,
+          sentBy: userId,
+          headline: headline ?? null,
+          morningNotes: morningNotes ?? null,
+          crData: crData ?? null,
+          ...(force && { forceApprovedBy: userId, forceApprovedAt: now }),
+        },
+      }),
+    ];
+
+    // Advance to COMPLETED only when ALL tasks are terminal.
+    // If morning tasks remain (force-approve scenario), stay in MORNING_AFTER.
+    if (version?.status === 'MORNING_AFTER') {
+      const anyOpenTask = await prisma.task.count({
+        where: { versionId, status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK'] as any } },
+      });
+      if (anyOpenTask === 0) {
+        ops.push(prisma.version.update({ where: { id: versionId }, data: { status: 'COMPLETED' as any } }));
+      }
+    }
+
+    const [summary] = await Promise.all(ops);
+    return summary;
+  }
+
+  async canDownload(versionId: string, userRole: string): Promise<{ allowed: boolean; reason?: string }> {
+    const isManager = ['RELEASE_MANAGER', 'ADMIN'].includes(userRole);
+    const summary = await prisma.nightSummary.findUnique({ where: { versionId } });
+
+    // Already approved — anyone with LEADS_UP role can download
+    if (summary?.sentAt) return { allowed: true };
+
+    // Not yet approved — check if deployment tasks are all terminal (isGoNogo equivalent)
+    const goNogoPhase = await prisma.phase.findFirst({
+      where: { versionId, isGoNoGo: true },
+      select: { orderIndex: true },
+    });
+
+    const openDeploymentCount = goNogoPhase
+      ? await prisma.task.count({
           where: {
             versionId,
             status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK'] as any },
@@ -170,40 +344,19 @@ export class SummaryService {
               { subPhaseId: null },
             ],
           },
+        })
+      : await prisma.task.count({
+          where: { versionId, status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK', 'WAITING'] as any } },
         });
-      } else {
-        openCount = await prisma.task.count({
-          where: {
-            versionId,
-            status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK', 'WAITING'] as any },
-          },
-        });
-      }
 
-      if (openCount > 0) {
-        throw new BadRequestException(
-          `לא ניתן לאשר סיכום — ${openCount} משימות לילה שטרם הושלמו`
-        );
-      }
-    }
+    if (openDeploymentCount === 0) return { allowed: true };
 
-    const version = await prisma.version.findUnique({ where: { id: versionId } });
+    if (isManager) return { allowed: true };
 
-    const ops: Promise<any>[] = [
-      prisma.nightSummary.upsert({
-        where: { versionId },
-        update: { sentAt: new Date(), sentBy: userId, headline: headline ?? null, morningNotes: morningNotes ?? null, crData: crData ?? null },
-        create: { versionId, sentAt: new Date(), sentBy: userId, headline: headline ?? null, morningNotes: morningNotes ?? null, crData: crData ?? null },
-      }),
-    ];
-
-    // Only advance to COMPLETED if currently MORNING_AFTER — not for already-COMPLETED or ROLLED_BACK
-    if (version?.status === 'MORNING_AFTER') {
-      ops.push(prisma.version.update({ where: { id: versionId }, data: { status: 'COMPLETED' as any } }));
-    }
-
-    const [summary] = await Promise.all(ops);
-    return summary;
+    return {
+      allowed: false,
+      reason: `הדוח זמין להורדה רק לאחר השלמת כל משימות ההטמעה או לאחר אישור מנהל לילה`,
+    };
   }
 
   async findRehearsalByVersion(versionId: string) {

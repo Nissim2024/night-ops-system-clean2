@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { DeployCenterLogo } from './DeployCenterLogo';
+import { C, FONT } from '../theme';
 
 const API = 'http://localhost:3000';
 
@@ -11,8 +12,8 @@ interface Props {
 export const Login: React.FC<Props> = ({ onLogin }) => {
   const [username, setUsername] = useState('nissim@test.com');
   const [password, setPassword] = useState('123456');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [error, setError]       = useState('');
+  const [loading, setLoading]   = useState(false);
   const [ldapEnabled, setLdapEnabled] = useState(false);
 
   useEffect(() => {
@@ -38,94 +39,118 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
     }
   };
 
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '12px 14px',
+    background: C.bgNested,
+    border: `1px solid ${C.border}`,
+    borderRadius: '8px',
+    fontSize: '15px',
+    color: C.textPrimary,
+    fontFamily: FONT,
+    boxSizing: 'border-box',
+    outline: 'none',
+    direction: 'ltr',
+  };
+
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #1a2332 0%, #2d4a7a 100%)',
+      background: C.bgApp,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      fontFamily: 'Arial, sans-serif',
+      fontFamily: FONT,
     }}>
+      {/* Subtle background grid */}
       <div style={{
-        background: 'white',
+        position: 'fixed', inset: 0, pointerEvents: 'none',
+        backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(45,125,210,0.08) 1px, transparent 0)',
+        backgroundSize: '32px 32px',
+      }} />
+
+      <div style={{
+        position: 'relative',
+        background: C.bgCard,
         borderRadius: '16px',
         padding: '48px',
         width: '400px',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+        border: `1px solid ${C.border}`,
+        boxShadow: '0 24px 64px rgba(0,0,0,0.6)',
       }}>
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '36px' }}>
           <DeployCenterLogo variant="login" />
+          <div style={{ marginTop: '12px', fontSize: '13px', color: C.textMuted }}>
+            מערכת ניהול ליל ההטמעה
+          </div>
         </div>
 
         {ldapEnabled && (
           <div style={{
-            background: '#e8f0fe',
-            border: '1px solid #3d7ef5',
+            background: 'rgba(45,125,210,0.12)',
+            border: `1px solid ${C.brand}`,
             borderRadius: '8px',
             padding: '10px 14px',
             marginBottom: '20px',
             fontSize: '13px',
-            color: '#2d4a7a',
+            color: C.brand,
             textAlign: 'right',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
           }}>
-            <span style={{ fontSize: '16px' }}>🔒</span>
+            <span style={{ fontSize: '15px' }}>🔒</span>
             <span>כניסה דרך Active Directory</span>
           </div>
         )}
 
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', marginBottom: '6px', color: '#333', fontWeight: 'bold', textAlign: 'right' }}>
+            <label style={{
+              display: 'block', marginBottom: '8px',
+              color: C.textSecondary, fontWeight: '500', fontSize: '14px',
+              textAlign: 'right',
+            }}>
               {ldapEnabled ? 'שם משתמש (AD)' : 'אימייל'}
             </label>
             <input
               type={ldapEnabled ? 'text' : 'email'}
               value={username}
               onChange={e => setUsername(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '12px',
-                border: '2px solid #e0e0e0',
-                borderRadius: '8px',
-                fontSize: '16px',
-                boxSizing: 'border-box',
-                direction: 'ltr',
-              }}
+              style={inputStyle}
+              onFocus={e => { e.target.style.borderColor = C.brand; }}
+              onBlur={e => { e.target.style.borderColor = C.border; }}
             />
           </div>
 
-          <div style={{ marginBottom: '24px' }}>
-            <label style={{ display: 'block', marginBottom: '6px', color: '#333', fontWeight: 'bold', textAlign: 'right' }}>
+          <div style={{ marginBottom: '28px' }}>
+            <label style={{
+              display: 'block', marginBottom: '8px',
+              color: C.textSecondary, fontWeight: '500', fontSize: '14px',
+              textAlign: 'right',
+            }}>
               סיסמה
             </label>
             <input
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '12px',
-                border: '2px solid #e0e0e0',
-                borderRadius: '8px',
-                fontSize: '16px',
-                boxSizing: 'border-box',
-              }}
+              style={inputStyle}
+              onFocus={e => { e.target.style.borderColor = C.brand; }}
+              onBlur={e => { e.target.style.borderColor = C.border; }}
             />
           </div>
 
           {error && (
             <div style={{
-              background: '#fee',
-              border: '1px solid #fcc',
+              background: C.bgFailed,
+              border: `1px solid ${C.statusFailed}`,
               borderRadius: '8px',
               padding: '12px',
               marginBottom: '16px',
-              color: '#c00',
+              color: C.statusFailed,
               textAlign: 'center',
+              fontSize: '14px',
             }}>
               {error}
             </div>
@@ -137,13 +162,15 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
             style={{
               width: '100%',
               padding: '14px',
-              background: loading ? '#999' : '#1a2332',
+              background: loading ? C.bgHover : C.brand,
               color: 'white',
               border: 'none',
               borderRadius: '8px',
-              fontSize: '16px',
-              fontWeight: 'bold',
+              fontSize: '15px',
+              fontWeight: '600',
               cursor: loading ? 'not-allowed' : 'pointer',
+              fontFamily: FONT,
+              transition: 'background 0.15s',
             }}
           >
             {loading ? 'מתחבר...' : 'התחברות'}

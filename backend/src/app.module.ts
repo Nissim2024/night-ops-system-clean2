@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -19,16 +20,21 @@ import { CrPlansModule } from './cr-plans/cr-plans.module';
 import { PushModule } from './push/push.module';
 import { VersionCrAssignmentsModule } from './version-cr-assignments/version-cr-assignments.module';
 import { SystemParamsModule } from './system-params/system-params.module';
+import { FailureReasonsModule } from './failure-reasons/failure-reasons.module';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: `.env.${process.env.NODE_ENV || 'dev'}`,
+    }),
     // Global rate limiting: max 100 requests per minute per IP
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     PushModule,
     AuthModule, UsersModule, TasksModule, TeamsModule, VersionsModule,
     EventsModule, ImportModule, SummaryModule, PermissionsModule, QcModule, QcReleasesModule,
     VersionTemplatesModule, TaskProposalsModule, CrPlansModule, VersionCrAssignmentsModule,
-    SystemParamsModule,
+    SystemParamsModule, FailureReasonsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1,0 +1,39 @@
+{
+  "dev": {
+    "commit": "1d97caa3",
+    "message": "feat: complete functional system — pre-UX-redesign snapshot",
+    "deployedAt": "2026-06-01T19:34:00+03:00",
+    "schema": "prisma db push",
+    "changes": [
+      "env separation DEV/TEST/PROD",
+      "TeamLeadProposalView: remove systems auto-fill",
+      "TeamLeadProposalView: remove systems tags from CR header",
+      "TeamLeadProposalView: default crType = פיתוח חדש",
+      "TeamLeadProposalView: remove ללא CR checkbox from task form",
+      "TeamLeadProposalView: validate required fields before READY",
+      "TeamLeadProposalView: warn before overwriting task description"
+    ]
+  },
+  "test": {
+    "commit": "1d97caa3",
+    "message": "feat: complete functional system — pre-UX-redesign snapshot",
+    "deployedAt": "2026-06-01T21:10:00+03:00",
+    "schema": "prisma db push",
+    "changes": [
+      "env separation DEV/TEST/PROD",
+      "TeamLeadProposalView: remove systems auto-fill",
+      "TeamLeadProposalView: remove systems tags from CR header",
+      "TeamLeadProposalView: default crType = פיתוח חדש",
+      "TeamLeadProposalView: remove ללא CR checkbox from task form",
+      "TeamLeadProposalView: validate required fields before READY",
+      "TeamLeadProposalView: warn before overwriting task description"
+    ]
+  },
+  "prod": {
+    "commit": null,
+    "message": null,
+    "deployedAt": null,
+    "schema": null,
+    "changes": []
+  }
+}

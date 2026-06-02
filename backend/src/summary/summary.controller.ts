@@ -1,5 +1,5 @@
 import {
-  Controller, Post, Get, Body, Param, Res, UseGuards,
+  Controller, Post, Get, Patch, Body, Param, Res, UseGuards,
   Request, ForbiddenException, BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
@@ -38,6 +38,16 @@ export class SummaryController {
     return this.summaryService.approve(versionId, req.user.sub, body.headline, body.morningNotes, body.crData, !!(body.force && canForce));
   }
 
+  @Patch(':versionId')
+  async updateSummary(
+    @Param('versionId') versionId: string,
+    @Request() req: any,
+    @Body() body: { headline?: string; morningNotes?: string; crData?: any },
+  ) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לעדכן סיכום מאושר');
+    return this.summaryService.updateApproved(versionId, body.headline, body.morningNotes, body.crData);
+  }
+
   @Get(':versionId/rehearsal')
   async getRehearsalSummary(@Param('versionId') versionId: string) {
     return this.summaryService.findRehearsalByVersion(versionId);
@@ -61,6 +71,8 @@ export class SummaryController {
     @Res() res: Response,
   ) {
     requireRole(req, LEADS_UP, 'נדרשת הרשאת ראש צוות ומעלה להורדת דוח');
+    const gate = await this.summaryService.canDownload(versionId, req.user.role);
+    if (!gate.allowed) throw new ForbiddenException(gate.reason);
     const buffer = await this.summaryService.generateNightSummary(
       versionId,
       body.headline || '',

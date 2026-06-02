@@ -1,4 +1,5 @@
 import React from 'react';
+import { C, FONT } from '../theme';
 
 export interface Stage {
   key: string;
@@ -21,21 +22,25 @@ export const Sidebar: React.FC<Props> = ({ stages, activeStage, onStageChange })
     <div style={{
       width: '220px',
       minWidth: '220px',
-      background: 'white',
-      borderRight: '1px solid #e0e0e0',
+      background: C.bgCard,
+      borderRight: `1px solid ${C.border}`,
       padding: '20px 12px',
       display: 'flex',
       flexDirection: 'column',
-      gap: '6px',
-      boxShadow: '-2px 0 8px rgba(0,0,0,0.06)',
+      gap: '4px',
+      fontFamily: FONT,
     }}>
-      <div style={{ fontSize: '12px', color: '#999', fontWeight: 'bold', marginBottom: '10px', textAlign: 'center', letterSpacing: '1px', textTransform: 'uppercase' }}>
+      <div style={{
+        fontSize: '11px', color: C.textMuted, fontWeight: '600',
+        marginBottom: '12px', textAlign: 'center',
+        letterSpacing: '1px', textTransform: 'uppercase',
+      }}>
         שלבים בגרסה
       </div>
 
       {stages.map((stage, idx) => {
         const isActive = stage.key === activeStage;
-        const isDone = idx < activeIndex;
+        const isDone   = idx < activeIndex;
 
         return (
           <button
@@ -45,49 +50,49 @@ export const Sidebar: React.FC<Props> = ({ stages, activeStage, onStageChange })
               display: 'flex',
               alignItems: 'center',
               gap: '10px',
-              padding: '12px 14px',
-              borderRadius: '12px',
+              padding: '11px 14px',
+              borderRadius: '10px',
               cursor: 'pointer',
-              border: isActive ? '2px solid #2d4a7a' : '2px solid transparent',
-              background: isActive ? '#1a2332' : isDone ? '#f0f7ff' : '#f8f9fa',
+              border: isActive ? `1px solid ${C.brand}` : `1px solid transparent`,
+              background: isActive ? C.brandDim : 'transparent',
               textAlign: 'right',
               direction: 'rtl',
               width: '100%',
               transition: 'all 0.15s ease',
             }}
             onMouseEnter={e => {
-              if (!isActive) e.currentTarget.style.background = isDone ? '#e0eefa' : '#f0f0f0';
+              if (!isActive) e.currentTarget.style.background = C.bgHover;
             }}
             onMouseLeave={e => {
-              if (!isActive) e.currentTarget.style.background = isDone ? '#f0f7ff' : '#f8f9fa';
+              if (!isActive) e.currentTarget.style.background = 'transparent';
             }}
           >
             <div style={{
-              width: '30px',
-              height: '30px',
+              width: '28px',
+              height: '28px',
               borderRadius: '50%',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              background: isActive ? 'rgba(255,255,255,0.2)' : isDone ? '#27ae60' : '#e0e0e0',
-              color: isActive ? 'white' : isDone ? 'white' : '#666',
-              fontWeight: 'bold',
-              fontSize: '13px',
               flexShrink: 0,
+              background: isActive ? 'rgba(255,255,255,0.15)' : isDone ? C.statusDone : C.bgNested,
+              color: isActive ? 'white' : isDone ? 'white' : C.textMuted,
+              fontWeight: '600',
+              fontSize: '12px',
             }}>
               {isDone ? '✓' : stage.step}
             </div>
             <div style={{ flex: 1 }}>
               <div style={{
-                fontWeight: 'bold',
-                fontSize: '14px',
-                color: isActive ? 'white' : isDone ? '#1a5276' : '#333',
+                fontWeight: '600',
+                fontSize: '13px',
+                color: isActive ? C.textPrimary : isDone ? C.statusDone : C.textSecondary,
               }}>
                 {stage.icon} {stage.label}
               </div>
               <div style={{
                 fontSize: '11px',
-                color: isActive ? 'rgba(255,255,255,0.65)' : '#999',
+                color: isActive ? 'rgba(255,255,255,0.5)' : C.textMuted,
                 marginTop: '2px',
               }}>
                 {stage.description}

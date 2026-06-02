@@ -6,10 +6,10 @@ const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
 
 @Injectable()
 export class CrPlansService {
-  async findForVersion(versionId: string, user: { sub: string; role: string }) {
+  async findForVersion(versionId: string, user: { sub: string; role: string }, filterTeamId?: string) {
     if (MANAGERS.includes(user.role)) {
       return prisma.crPlan.findMany({
-        where: { versionId },
+        where: { versionId, ...(filterTeamId ? { teamId: filterTeamId } : {}) },
         include: { crDeps: true, team: { select: { id: true, name: true } } },
         orderBy: [{ teamId: 'asc' }, { crNumber: 'asc' }],
       });
@@ -32,6 +32,14 @@ export class CrPlansService {
     dto: {
       crNumber: string;
       crLabel?: string;
+      crManager?: string;
+      crDescription?: string;
+      crType?: string;
+      riskLevel?: string;
+      systems?: string[];
+      workPlan?: string;
+      scripts?: string;
+      runTimes?: string;
       rollbackPlan?: string;
       gradualRollout?: boolean;
       gradualDetails?: string;
@@ -39,18 +47,26 @@ export class CrPlansService {
       morningMonitoring?: string;
       dependsOnCrs?: string[];
       notNeededForPlan?: boolean;
+      teamIdOverride?: string;
     },
   ) {
-    const membership = await prisma.teamMember.findFirst({
-      where: { userId: user.sub },
-      select: { teamId: true },
-    });
-    if (!membership) throw new ForbiddenException('לא שויכת לצוות');
+    let resolvedTeamId: string;
 
-    const { dependsOnCrs = [], ...fields } = dto;
+    if (MANAGERS.includes(user.role) && dto.teamIdOverride) {
+      resolvedTeamId = dto.teamIdOverride;
+    } else {
+      const membership = await prisma.teamMember.findFirst({
+        where: { userId: user.sub },
+        select: { teamId: true },
+      });
+      if (!membership) throw new ForbiddenException('לא שויכת לצוות');
+      resolvedTeamId = membership.teamId;
+    }
+
+    const { dependsOnCrs = [], teamIdOverride: _removed, ...fields } = dto;
 
     const existing = await prisma.crPlan.findFirst({
-      where: { versionId, crNumber: dto.crNumber, teamId: membership.teamId },
+      where: { versionId, crNumber: dto.crNumber, teamId: resolvedTeamId },
     });
 
     if (existing) {
@@ -68,12 +84,28 @@ export class CrPlansService {
     return prisma.crPlan.create({
       data: {
         versionId,
-        teamId: membership.teamId,
+        teamId: resolvedTeamId,
         ...fields,
         crDeps: { create: dependsOnCrs.map(cr => ({ dependsOnCr: cr })) },
       },
       include: { crDeps: true },
     });
+  }
+
+  async approveCr(versionId: string, crNumber: string) {
+    await prisma.crPlan.updateMany({
+      where: { versionId, crNumber },
+      data: { planApproved: true, planApprovedAt: new Date() },
+    });
+    return { ok: true, crNumber };
+  }
+
+  async unapproveCr(versionId: string, crNumber: string) {
+    await prisma.crPlan.updateMany({
+      where: { versionId, crNumber },
+      data: { planApproved: false, planApprovedAt: null },
+    });
+    return { ok: true, crNumber };
   }
 
   async remove(id: string, user: { sub: string; role: string }) {

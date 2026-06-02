@@ -1,19 +1,53 @@
 services:
 
-  postgres:
+  # ─── DEV ────────────────────────────────────────────────────────────────────
+  postgres-dev:
+    profiles: [dev]
     image: postgres:16
-    container_name: nightops-postgres
+    container_name: nightops-postgres-dev
     restart: unless-stopped
     environment:
       POSTGRES_USER: nightops_user
       POSTGRES_PASSWORD: nightops_pass
-      POSTGRES_DB: nightops
+      POSTGRES_DB: nightops_dev
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_dev_data:/var/lib/postgresql/data
 
+  # ─── TEST ───────────────────────────────────────────────────────────────────
+  postgres-test:
+    profiles: [test]
+    image: postgres:16
+    container_name: nightops-postgres-test
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nightops_user
+      POSTGRES_PASSWORD: nightops_pass
+      POSTGRES_DB: nightops_test
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+
+  # ─── PROD ───────────────────────────────────────────────────────────────────
+  postgres-prod:
+    profiles: [prod]
+    image: postgres:16
+    container_name: nightops-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nightops_user
+      POSTGRES_PASSWORD: nightops_pass
+      POSTGRES_DB: nightops_prod
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+
+  # ─── SHARED ─────────────────────────────────────────────────────────────────
   redis:
+    profiles: [dev, test, prod]
     image: redis:7-alpine
     container_name: nightops-redis
     restart: unless-stopped
@@ -23,6 +57,7 @@ services:
       - redis_data:/data
 
   pgadmin:
+    profiles: [dev, test]
     image: dpage/pgadmin4
     container_name: nightops-pgadmin
     restart: unless-stopped
@@ -31,9 +66,9 @@ services:
       PGADMIN_DEFAULT_PASSWORD: admin123
     ports:
       - "5050:80"
-    depends_on:
-      - postgres
 
 volumes:
-  postgres_data:
+  postgres_dev_data:
+  postgres_test_data:
+  postgres_prod_data:
   redis_data:

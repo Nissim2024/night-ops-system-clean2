@@ -5,7 +5,10 @@ import { TeamView } from './TeamView';
 import { WarRoom } from './WarRoom';
 import { ImportView } from './ImportView';
 import { NightSummary } from './NightSummary';
-import { DeployCenterLogo } from './DeployCenterLogo';const SummaryVersionPicker: React.FC<{ token: string }> = ({ token }) => {
+import { DeployCenterLogo } from './DeployCenterLogo';
+import { CrReviewView } from './CrReviewView';
+
+const SummaryVersionPicker: React.FC<{ token: string }> = ({ token }) => {
   const [versions, setVersions] = React.useState<any[]>([]);
   const [selectedId, setSelectedId] = React.useState('');
   const headers = { Authorization: `Bearer ${token}` };
@@ -159,6 +162,7 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
     { key: 'versions', label: 'גרסאות' },
     { key: 'war-room', label: 'War Room' },
     { key: 'team-view', label: 'תצוגת צוות' },
+    { key: 'cr-review', label: 'סקירת CR' },
     { key: 'import', label: 'ייבוא Excel' },
     { key: 'summary', label: 'סיכום לילה' },
     { key: 'tasks', label: 'משימות' },
@@ -192,8 +196,8 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
           </div>
           <button onClick={onLogout} style={{ padding: '8px 16px', background: 'rgba(231,76,60,0.7)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>יציאה</button>
         </div>
-        {/* Left side: nav items + alerts — can overflow */}
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', overflow: 'hidden' }}>
+        {/* Left side: nav items + alerts */}
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', flex: 1, justifyContent: 'flex-end', paddingRight: '12px' }}>
           {lastAlert && (
             <div style={{ padding: '8px 16px', background: 'rgba(231,76,60,0.9)', color: 'white', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold', flexShrink: 0 }}>
               {lastAlert}
@@ -226,6 +230,7 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
                 <div style={{ fontSize: '14px' }}>הפעל גרסה (או חזרה גנרלית) ממסך "גרסאות"</div>
               </div>
         )}
+        {view === 'cr-review' && <CrReviewView token={token} />}
         {view === 'import' && <ImportView token={token} onImportSuccess={() => setView('versions')} />}
          {view === 'summary' && (
           <SummaryVersionPicker token={token} />

@@ -2,35 +2,45 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { usePermissions } from '../context/PermissionsContext';
 import { TeamView } from './TeamView';
+import { TeamLeadProposalView } from './TeamLeadProposalView';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
+import { PlanWizard } from './PlanWizard';
+import { CrPlanReviewPanel } from './CrPlanReviewPanel';
 import { FEATURES } from '../featureFlags';
+import { C, FONT } from '../theme';
 
 const API = 'http://localhost:3000';
 
 const STATUS_COLORS: Record<string, string> = {
-  DRAFT: '#95a5a6', COLLECTING: '#3498db', REFINING: '#e67e22',
+  DRAFT: '#95a5a6', CR_REVIEW: '#8b5cf6', COLLECTING: '#3498db', REFINING: '#e67e22',
   REVIEW: '#9b59b6', APPROVED: '#27ae60', REHEARSAL: '#f39c12',
   ACTIVE: '#e74c3c', MORNING_AFTER: '#8e44ad', COMPLETED: '#1a5c2a', ROLLED_BACK: '#7f8c8d',
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  DRAFT: 'טיוטה', COLLECTING: 'איסוף משימות', REFINING: 'טיוב תלויות',
+  DRAFT: 'טיוטה', CR_REVIEW: 'סקירת תוכניות CR', COLLECTING: 'איסוף משימות', REFINING: 'טיוב תלויות',
   REVIEW: 'ישיבת מעבר', APPROVED: 'מאושר', REHEARSAL: 'חזרה גנרלית',
   ACTIVE: 'פעיל', MORNING_AFTER: 'פעילות בוקר לאחר גרסה', COMPLETED: 'הושלם', ROLLED_BACK: 'Rollback',
 };
 
 const NEXT_STATUS: Record<string, string> = {
-  DRAFT: 'COLLECTING', COLLECTING: 'REFINING', REFINING: 'REVIEW',
+  DRAFT: 'CR_REVIEW', CR_REVIEW: 'COLLECTING', COLLECTING: 'REFINING', REFINING: 'REVIEW',
   REVIEW: 'APPROVED', APPROVED: 'REHEARSAL',
 };
 
 const NEXT_LABEL: Record<string, string> = {
-  DRAFT: 'פתח לאיסוף משימות', COLLECTING: 'עבור לטיוב',
+  DRAFT: 'פתח לסקירת תוכניות CR', CR_REVIEW: 'פתח לאיסוף משימות', COLLECTING: 'עבור לטיוב',
   REFINING: 'פתח ישיבת מעבר', REVIEW: 'אשר תוכנית',
   APPROVED: 'התחל חזרה גנרלית',
 };
 
-const APPS = ['WIZ', 'CRM', 'EAI', 'OSB', 'DP', 'NC', 'ERP', 'ETL', 'OTHER'];
+const APPS = [
+  'BILI', 'CRM', 'OSB', 'DP', 'WEB-RETAIL', 'WEB-NEXT', 'WEB-HOT',
+  'TOP', 'IRB', 'NC', 'ERP', 'CONNECT', 'CREDIT GUARD', 'ARCHIVE',
+  'PRINT BOSS', 'NIFI', 'CAWA', 'BEERI', 'IVR', 'MEDIATION',
+  'PROVISIONING LDAP', 'PROVISIONING TIBCO', 'PROVISIONING NAGRA',
+  'PROVISIONING OTT', 'PROVISIONING TEL', 'REMEDY', 'ZOO', 'אחר',
+];
 
 interface Version {
   id: string;
@@ -39,6 +49,7 @@ interface Version {
   status: string;
   plannedStart: string;
   plannedEnd?: string;
+  reviewMeetingTime?: string;
   importedFileName?: string;
   createdAt: string;
   approvedAt?: string;
@@ -84,7 +95,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
   const [selected, setSelected] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
-  const [newVersion, setNewVersion] = useState({ name: '', description: '', plannedStart: '', plannedEnd: '', qcReleaseId: '' });
+  const [newVersion, setNewVersion] = useState({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', qcReleaseId: '' });
   const [qcReleases, setQcReleases] = useState<QcRelease[]>([]);
   const [creatingTemplate, setCreatingTemplate] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -144,7 +155,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
       }, { headers });
       const versionId = res.data.id;
       setShowNew(false);
-      setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', qcReleaseId: '' });
+      setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', qcReleaseId: '' });
       await fetchVersions();
       await fetchVersion(versionId);
       onVersionsChanged?.();
@@ -164,7 +175,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
       const res = await axios.post(`${API}/import/excel`, formData, { headers });
       if (res.data.success) {
         setShowNew(false);
-        setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', qcReleaseId: '' });
+        setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', qcReleaseId: '' });
         setImportFile(null);
         await fetchVersions();
         onVersionsChanged?.();
@@ -187,7 +198,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
       const versionId = res.data.id;
       await axios.post(`${API}/version-templates/${selectedTemplateId}/apply-to-version/${versionId}`, {}, { headers });
       setShowNew(false);
-      setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', qcReleaseId: '' });
+      setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', qcReleaseId: '' });
       setSelectedTemplateId('');
       await fetchVersions();
       await fetchVersion(versionId);
@@ -287,32 +298,32 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
   }
 
   return (
-    <div>
+    <div style={{ fontFamily: FONT }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <h2 style={{ color: '#1a2332', margin: 0 }}>גרסאות ({versions.filter(v => !['COMPLETED','ROLLED_BACK'].includes(v.status)).length})</h2>
+          <h2 style={{ color: C.textPrimary, margin: 0 }}>גרסאות ({versions.filter(v => !['COMPLETED','ROLLED_BACK'].includes(v.status)).length})</h2>
           <button
             onClick={() => setShowArchived(a => !a)}
-            style={{ padding: '6px 14px', background: showArchived ? '#7f8c8d' : '#f0f0f0', color: showArchived ? 'white' : '#555', border: '1px solid #ccc', borderRadius: '20px', cursor: 'pointer', fontSize: '13px' }}
+            style={{ padding: '6px 14px', background: showArchived ? C.bgHover : C.bgNested, color: showArchived ? C.textPrimary : C.textMuted, border: `1px solid ${C.border}`, borderRadius: '20px', cursor: 'pointer', fontSize: '13px', fontFamily: FONT }}
           >
             📦 ארכיון ({versions.filter(v => ['COMPLETED','ROLLED_BACK'].includes(v.status)).length})
           </button>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
-          <button onClick={() => { setShowNew(true); setImportFile(null); }} style={{ padding: '10px 20px', background: '#1a2332', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
+          <button onClick={() => { setShowNew(true); setImportFile(null); }} style={{ padding: '10px 20px', background: C.brand, color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', fontFamily: FONT }}>
             + גרסה חדשה
           </button>
         </div>
       </div>
 
       {showNew && (
-        <div style={{ background: 'white', borderRadius: '12px', padding: '24px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', border: '2px solid #1a2332' }}>
-          <h3 style={{ margin: '0 0 20px', color: '#1a2332' }}>יצירת גרסה חדשה</h3>
+        <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', marginBottom: '24px', border: `2px solid ${C.brand}` }}>
+          <h3 style={{ margin: '0 0 20px', color: C.textPrimary }}>יצירת גרסה חדשה</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
 
             {/* שם גרסה — dropdown מ-QC או הקלדה חופשית */}
             <div>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: '#333', fontSize: '14px' }}>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>
                 שם גרסה *
                 {qcReleases.length === 0 && (
                   <span style={{ fontSize: '11px', color: '#e67e22', marginRight: '6px', fontWeight: 'normal' }}>
@@ -331,7 +342,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
                     setNewVersion(v => ({ ...v, qcReleaseId: val, name: rel?.relName || v.name }));
                   }
                 }}
-                style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '13px', boxSizing: 'border-box', marginBottom: '6px' }}
+                style={{ width: '100%', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '13px', boxSizing: 'border-box', marginBottom: '6px', background: C.bgNested, color: C.textPrimary }}
               >
                 <option value="__manual__">✏️ הקלד ידנית</option>
                 {qcReleases.length > 0 && <option disabled>── גרסאות QC ──</option>}
@@ -347,28 +358,28 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
                 value={newVersion.name}
                 onChange={e => setNewVersion(v => ({ ...v, name: e.target.value, qcReleaseId: '' }))}
                 placeholder="לדוגמה: ITv04-2026"
-                style={{ width: '100%', padding: '10px', border: `2px solid ${newVersion.qcReleaseId ? '#27ae60' : '#e0e0e0'}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }}
+                style={{ width: '100%', padding: '10px', border: `2px solid ${newVersion.qcReleaseId ? C.statusDone : C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
               />
             </div>
 
             <div>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: '#333', fontSize: '14px' }}>
-                תאריך ושעת התחלה מתוכנן <span style={{ color: '#e74c3c' }}>*</span>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>
+                תאריך ושעת התחלה מתוכנן <span style={{ color: C.statusBlocked }}>*</span>
               </label>
               <input
                 type="datetime-local"
                 value={newVersion.plannedStart}
                 onChange={e => handlePlannedStartChange(e.target.value)}
-                style={{ width: '100%', padding: '10px', border: `2px solid ${!newVersion.plannedStart ? '#e74c3c' : '#27ae60'}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }}
+                style={{ width: '100%', padding: '10px', border: `2px solid ${!newVersion.plannedStart ? C.statusBlocked : C.statusDone}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary, colorScheme: 'dark' }}
               />
               {!newVersion.plannedStart && (
                 <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#e74c3c' }}>שדה חובה — נדרש לחישוב ברירות מחדל בתזמון</p>
               )}
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: '#333', fontSize: '14px' }}>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>
                 שעת סיום מתוכנן
-                {!isManager && <span style={{ fontSize: '11px', color: '#e74c3c', marginRight: '4px' }}>(מנהל לילה בלבד)</span>}
+                {!isManager && <span style={{ fontSize: '11px', color: C.statusBlocked, marginRight: '4px' }}>(מנהל לילה בלבד)</span>}
               </label>
               <input
                 type="datetime-local"
@@ -376,25 +387,34 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
                 onChange={e => setNewVersion({ ...newVersion, plannedEnd: e.target.value })}
                 disabled={!isManager}
                 placeholder="ברירת מחדל: 04:00 למחרת"
-                style={{ width: '100%', padding: '10px', border: `2px solid ${isManager ? '#e0e0e0' : '#f0f0f0'}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: isManager ? 'white' : '#fafafa', color: isManager ? 'inherit' : '#999' }}
+                style={{ width: '100%', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: isManager ? C.bgNested : C.bgHover, color: isManager ? C.textPrimary : C.textDisabled, colorScheme: 'dark' }}
               />
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: '#333', fontSize: '14px' }}>תיאור</label>
-              <input value={newVersion.description} onChange={e => setNewVersion({ ...newVersion, description: e.target.value })} placeholder="תיאור קצר" style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }} />
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>📅 מועד ישיבת מעבר / סקירת תוכנית</label>
+              <input
+                type="datetime-local"
+                value={newVersion.reviewMeetingTime}
+                onChange={e => setNewVersion({ ...newVersion, reviewMeetingTime: e.target.value })}
+                style={{ width: '100%', padding: '10px', border: `2px solid ${C.brand}66`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary, colorScheme: 'dark' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>תיאור</label>
+              <input value={newVersion.description} onChange={e => setNewVersion({ ...newVersion, description: e.target.value })} placeholder="תיאור קצר" style={{ width: '100%', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
             </div>
           </div>
 
           {/* ── Create options ── */}
-          <div style={{ borderTop: '1px solid #eee', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {/* Row 1: compact template selector */}
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <label style={{ fontSize: '13px', color: '#555', fontWeight: 'bold', whiteSpace: 'nowrap' }}>📋 תבנית שמורה:</label>
+              <label style={{ fontSize: '13px', color: C.textSecondary, fontWeight: 'bold', whiteSpace: 'nowrap' }}>📋 תבנית שמורה:</label>
               {templates.length > 0 ? (
                 <select
                   value={selectedTemplateId}
                   onChange={e => setSelectedTemplateId(e.target.value)}
-                  style={{ padding: '7px 10px', border: '2px solid #27ae60', borderRadius: '8px', fontSize: '13px', maxWidth: '280px' }}
+                  style={{ padding: '7px 10px', border: `2px solid ${C.statusDone}`, borderRadius: '8px', fontSize: '13px', maxWidth: '280px', background: C.bgNested, color: C.textPrimary }}
                 >
                   <option value="">-- בחר תבנית --</option>
                   {templates.map((t: any) => (
@@ -402,7 +422,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
                   ))}
                 </select>
               ) : (
-                <span style={{ fontSize: '12px', color: '#aaa', fontStyle: 'italic' }}>אין תבניות שמורות — שמור תבנית מגרסה קיימת</span>
+                <span style={{ fontSize: '12px', color: C.textMuted, fontStyle: 'italic' }}>אין תבניות שמורות — שמור תבנית מגרסה קיימת</span>
               )}
             </div>
 
@@ -411,18 +431,18 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
               <button
                 onClick={createFromTemplate}
                 disabled={creatingFromTemplate || !selectedTemplateId || !newVersion.name.trim() || !newVersion.plannedStart}
-                style={{ padding: '9px 18px', background: !selectedTemplateId || !newVersion.name.trim() || !newVersion.plannedStart ? '#ccc' : '#27ae60', color: 'white', border: 'none', borderRadius: '8px', cursor: !selectedTemplateId || !newVersion.name.trim() || !newVersion.plannedStart ? 'not-allowed' : 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap', fontSize: '13px' }}>
+                style={{ padding: '9px 18px', background: !selectedTemplateId || !newVersion.name.trim() || !newVersion.plannedStart ? C.textDisabled : C.statusDone, color: 'white', border: 'none', borderRadius: '8px', cursor: !selectedTemplateId || !newVersion.name.trim() || !newVersion.plannedStart ? 'not-allowed' : 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap', fontSize: '13px' }}>
                 {creatingFromTemplate ? 'יוצר...' : '📋 צור תוכנית גרסה מתבנית שמורה'}
               </button>
               <button
                 onClick={createEmpty}
                 disabled={creatingTemplate || !newVersion.name.trim() || !newVersion.plannedStart}
-                style={{ padding: '9px 18px', background: creatingTemplate || !newVersion.name.trim() || !newVersion.plannedStart ? '#ccc' : '#7f3fbf', color: 'white', border: 'none', borderRadius: '8px', cursor: creatingTemplate || !newVersion.name.trim() || !newVersion.plannedStart ? 'not-allowed' : 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap', fontSize: '13px' }}>
+                style={{ padding: '9px 18px', background: creatingTemplate || !newVersion.name.trim() || !newVersion.plannedStart ? C.textDisabled : C.statusWaiting, color: 'white', border: 'none', borderRadius: '8px', cursor: creatingTemplate || !newVersion.name.trim() || !newVersion.plannedStart ? 'not-allowed' : 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap', fontSize: '13px' }}>
                 {creatingTemplate ? 'יוצר...' : '📄 גרסה ריקה'}
               </button>
 
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <label style={{ padding: '9px 18px', background: '#2d4a7a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap', fontSize: '13px' }}>
+                <label style={{ padding: '9px 18px', background: C.brandDim, color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap', fontSize: '13px' }}>
                   📤 {importFile ? importFile.name : 'ייבוא מ-Excel'}
                   <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
                     onChange={e => setImportFile(e.target.files?.[0] || null)} />
@@ -431,7 +451,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
                   <button
                     onClick={importFromFile}
                     disabled={importing || !newVersion.name.trim() || !newVersion.plannedStart}
-                    style={{ padding: '9px 14px', background: importing || !newVersion.name.trim() || !newVersion.plannedStart ? '#ccc' : '#1a5c2a', color: 'white', border: 'none', borderRadius: '8px', cursor: importing || !newVersion.name.trim() || !newVersion.plannedStart ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}>
+                    style={{ padding: '9px 14px', background: importing || !newVersion.name.trim() || !newVersion.plannedStart ? C.textDisabled : C.statusDone, color: 'white', border: 'none', borderRadius: '8px', cursor: importing || !newVersion.name.trim() || !newVersion.plannedStart ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}>
                     {importing ? 'מייבא...' : 'ייבא'}
                   </button>
                 )}
@@ -456,18 +476,18 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
       )}
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '60px', color: '#666' }}>טוען...</div>
+        <div style={{ textAlign: 'center', padding: '60px', color: C.textMuted }}>טוען...</div>
       ) : versions.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px', color: '#666' }}>
+        <div style={{ textAlign: 'center', padding: '60px', color: C.textMuted }}>
           <div style={{ fontSize: '48px' }}>📋</div>
           <p>אין גרסאות עדיין — צור את הראשונה!</p>
         </div>
       ) : (
         <>
         {actionError && (
-          <div style={{ background: '#fee', border: '1px solid #e74c3c', borderRadius: '8px', padding: '10px 16px', marginBottom: '12px', color: '#c0392b', fontSize: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '8px', padding: '10px 16px', marginBottom: '12px', color: C.statusFailed, fontSize: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>{actionError}</span>
-            <button onClick={() => setActionError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', fontWeight: 'bold', fontSize: '16px' }}>×</button>
+            <button onClick={() => setActionError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.statusFailed, fontWeight: 'bold', fontSize: '16px' }}>×</button>
           </div>
         )}
 
@@ -489,8 +509,8 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
         {showArchived && (
           <div style={{ marginTop: '24px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-              <h3 style={{ margin: 0, color: '#7f8c8d' }}>📦 ארכיון</h3>
-              <span style={{ fontSize: '12px', color: '#aaa' }}>גרסאות שהסתיימו — ניתן לשחזר</span>
+              <h3 style={{ margin: 0, color: C.textMuted }}>📦 ארכיון</h3>
+              <span style={{ fontSize: '12px', color: C.textDisabled }}>גרסאות שהסתיימו — ניתן לשחזר</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', opacity: 0.8 }}>
               {versions
@@ -507,7 +527,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
                 />
               ))}
               {versions.filter(v => ['COMPLETED', 'ROLLED_BACK'].includes(v.status)).length === 0 && (
-                <div style={{ textAlign: 'center', padding: '30px', color: '#aaa', background: 'white', borderRadius: '12px' }}>
+                <div style={{ textAlign: 'center', padding: '30px', color: C.textMuted, background: C.bgCard, borderRadius: '12px', border: `1px solid ${C.border}` }}>
                   אין גרסאות בארכיון
                 </div>
               )}
@@ -538,34 +558,34 @@ const VersionCard: React.FC<{
 }> = ({ v, isDeleting, onOpen, onDelete, onArchive, onRestore }) => (
   <div
     onClick={onOpen}
-    style={{ background: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderRight: `5px solid ${STATUS_COLORS[v.status]}`, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-    onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.15)')}
-    onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)')}
+    style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', borderRight: `5px solid ${STATUS_COLORS[v.status]}`, border: `1px solid ${C.border}`, borderRightWidth: '5px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: FONT }}
+    onMouseEnter={e => (e.currentTarget.style.background = C.bgHover)}
+    onMouseLeave={e => (e.currentTarget.style.background = C.bgCard)}
   >
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '6px', flexWrap: 'wrap' }}>
-        <span style={{ fontWeight: 'bold', fontSize: '18px', color: '#1a2332' }}>{v.name}</span>
+        <span style={{ fontWeight: 'bold', fontSize: '18px', color: C.textPrimary }}>{v.name}</span>
         <span style={{ background: STATUS_COLORS[v.status], color: 'white', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold' }}>{STATUS_LABELS[v.status]}</span>
         {v.status === 'APPROVED' && v.lastRehearsalAt && (
-          <span style={{ background: '#eaf0fb', color: '#2d4a7a', padding: '3px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', border: '1px solid #b6caf5' }}>
+          <span style={{ background: 'rgba(45,125,210,0.15)', color: C.brand, padding: '3px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', border: `1px solid ${C.brand}44` }}>
             🚀 ממתין לפעילות ההטמעה בייצור
           </span>
         )}
         {v.status === 'MORNING_AFTER' && (
-          <span style={{ background: '#f3e8ff', color: '#6c3483', padding: '3px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', border: '1px solid #d7bff5' }}>
+          <span style={{ background: 'rgba(163,113,247,0.15)', color: C.statusWaiting, padding: '3px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', border: `1px solid ${C.statusWaiting}44` }}>
             🌅 ממתין לפעילות בוקר
           </span>
         )}
         {v.status === 'COMPLETED' && (
-          <span style={{ background: '#d5f0dc', color: '#1a5c2a', padding: '3px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', border: '1px solid #a9dfbf' }}>
+          <span style={{ background: C.bgDone, color: C.statusDone, padding: '3px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', border: `1px solid ${C.statusDone}44` }}>
             ✅ גרסה בייצור{v.lastNightAt ? ` · ${fmtDateTime(v.lastNightAt)}` : ''}
           </span>
         )}
       </div>
-      <div style={{ display: 'flex', gap: '16px', fontSize: '13px', color: '#666', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '16px', fontSize: '13px', color: C.textMuted, flexWrap: 'wrap' }}>
         {v.description && <span>{v.description}</span>}
         {v.importedFileName && (
-          <span style={{ background: '#f0f7ff', color: '#2d4a7a', padding: '1px 8px', borderRadius: '10px' }}>
+          <span style={{ background: 'rgba(45,125,210,0.12)', color: C.brand, padding: '1px 8px', borderRadius: '10px' }}>
             📎 {v.importedFileName}
           </span>
         )}
@@ -573,25 +593,30 @@ const VersionCard: React.FC<{
           <span>📅 התחלה: {fmtDateTime(v.plannedStart)}</span>
         )}
         {v.plannedEnd && (
-          <span style={{ color: '#e65100' }}>🏁 סיום מתוכנן: {fmtDateTime(v.plannedEnd)}</span>
+          <span style={{ color: C.statusInProgress }}>🏁 סיום מתוכנן: {fmtDateTime(v.plannedEnd)}</span>
+        )}
+        {v.reviewMeetingTime && (
+          <span style={{ background: 'rgba(41,128,185,0.12)', color: '#1a5276', padding: '1px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+            🗓 ישיבת מעבר: {fmtDateTime(v.reviewMeetingTime)}
+          </span>
         )}
         <span>👤 {v.creator?.fullName}</span>
         <span>🗓 נוצר: {new Date(v.createdAt).toLocaleDateString('he-IL')}</span>
         {v.approvedAt && v.approver && (
-          <span style={{ color: '#27ae60' }}>✅ אושר: {new Date(v.approvedAt).toLocaleDateString('he-IL')} ע"י {v.approver.fullName}</span>
+          <span style={{ color: C.statusDone }}>✅ אושר: {new Date(v.approvedAt).toLocaleDateString('he-IL')} ע"י {v.approver.fullName}</span>
         )}
         {v.taskCount !== undefined && (
-          <span style={{ background: '#e8f4fd', color: '#2980b9', padding: '1px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+          <span style={{ background: 'rgba(88,166,255,0.12)', color: C.statusOpen, padding: '1px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
             {v.taskCount} משימות
           </span>
         )}
         {v.lastRehearsalAt && (
-          <span style={{ background: '#fff3e0', color: '#8B4000', padding: '1px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+          <span style={{ background: 'rgba(210,153,34,0.15)', color: C.statusInProgress, padding: '1px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
             🎭 חזרה: {fmtDateTime(v.lastRehearsalAt)}
           </span>
         )}
         {v.lastNightAt && (
-          <span style={{ background: '#e8f4fd', color: '#1a5276', padding: '1px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+          <span style={{ background: 'rgba(88,166,255,0.12)', color: C.statusOpen, padding: '1px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
             🌙 הטמעה: {fmtDateTime(v.lastNightAt)}
           </span>
         )}
@@ -599,19 +624,19 @@ const VersionCard: React.FC<{
     </div>
     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
       {onRestore && (
-        <button onClick={onRestore} style={{ padding: '6px 12px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>↩ שחזר</button>
+        <button onClick={onRestore} style={{ padding: '6px 12px', background: C.statusDone, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>↩ שחזר</button>
       )}
       {onArchive && (
-        <button onClick={onArchive} style={{ padding: '6px 12px', background: '#7f8c8d', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>📦 ארכיון</button>
+        <button onClick={onArchive} style={{ padding: '6px 12px', background: C.bgHover, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>📦 ארכיון</button>
       )}
       <button
         onClick={onDelete}
         disabled={isDeleting}
-        style={{ padding: '6px 12px', background: isDeleting ? '#f0f0f0' : '#fee', color: isDeleting ? '#999' : '#e74c3c', border: `1px solid ${isDeleting ? '#ccc' : '#e74c3c'}`, borderRadius: '6px', cursor: isDeleting ? 'not-allowed' : 'pointer', fontSize: '12px' }}
+        style={{ padding: '6px 12px', background: isDeleting ? C.bgNested : C.bgBlocked, color: isDeleting ? C.textDisabled : C.statusFailed, border: `1px solid ${isDeleting ? C.border : C.statusFailed + '44'}`, borderRadius: '6px', cursor: isDeleting ? 'not-allowed' : 'pointer', fontSize: '12px', fontFamily: FONT }}
       >
         {isDeleting ? 'מוחק...' : '🗑 מחק'}
       </button>
-      <span style={{ color: '#999', fontSize: '20px', marginRight: '4px' }}>←</span>
+      <span style={{ color: C.textMuted, fontSize: '20px', marginRight: '4px' }}>←</span>
     </div>
   </div>
 );
@@ -687,6 +712,10 @@ const VersionDetail: React.FC<{
   const [plannedEndValue, setPlannedEndValue] = useState(
     version.plannedEnd ? new Date(version.plannedEnd).toISOString().slice(0, 16) : ''
   );
+  const [editingReviewMeeting, setEditingReviewMeeting] = useState(false);
+  const [reviewMeetingValue, setReviewMeetingValue] = useState(
+    version.reviewMeetingTime ? new Date(version.reviewMeetingTime).toISOString().slice(0, 16) : ''
+  );
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [reschPhaseStarts, setReschPhaseStarts] = useState<Record<string, string>>({});
   const [reschPhaseEnds, setReschPhaseEnds] = useState<Record<string, string>>({});
@@ -719,6 +748,35 @@ const VersionDetail: React.FC<{
   const [reassignPhaseId, setReassignPhaseId] = useState('');
   const [reassigning, setReassigning] = useState(false);
   const [reassignResult, setReassignResult] = useState<{ updated: number; toUserName: string } | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [crSummary, setCrSummary] = useState<any[] | null>(null);
+  const [crSummaryLoading, setCrSummaryLoading] = useState(false);
+  const [crSummaryExpanded, setCrSummaryExpanded] = useState(false);
+  const [teamPanelOpen, setTeamPanelOpen] = useState<{ teamId: string; teamName: string } | null>(null);
+  const [crAllApproved, setCrAllApproved] = useState(false);
+  const [crReviewExpanded, setCrReviewExpanded] = useState(false);
+  const [crPanelRefreshKey, setCrPanelRefreshKey] = useState(0);
+
+  const refreshCrSummary = () => {
+    if (!isManager) return;
+    setCrSummaryLoading(true);
+    // Re-sync from file then refresh summary
+    axios.post(`${API}/version-cr-assignments/version/${version.id}/sync`, {}, { headers })
+      .catch(() => {})
+      .finally(() => {
+        axios.get(`${API}/import/cr-summary?versionId=${version.id}`, { headers })
+          .then(r => setCrSummary(r.data))
+          .catch(() => {})
+          .finally(() => setCrSummaryLoading(false));
+      });
+  };
+
+  const closeTeamPanel = () => {
+    setTeamPanelOpen(null);
+    onRefresh();
+    refreshCrSummary();
+    setCrPanelRefreshKey(k => k + 1);
+  };
 
   // Phase management
   const [editingPhaseId, setEditingPhaseId] = useState<string | null>(null);
@@ -735,6 +793,23 @@ const VersionDetail: React.FC<{
       .catch(() => {});
     axios.get(`${API}/version-templates`, { headers }).then(r => setLocalTemplates(r.data)).catch(() => {});
     axios.get(`${API}/qc/cr-items`, { headers }).then(r => setCrItems(r.data)).catch(() => {});
+    if (['COLLECTING', 'CR_REVIEW'].includes(version.status) && isManager) {
+      // Auto-sync CR assignments from Excel in background, then fetch summary
+      setCrSummaryLoading(true);
+      axios.post(`${API}/version-cr-assignments/version/${version.id}/sync`, {}, { headers })
+        .catch(() => {})
+        .finally(() => {
+          axios.get(`${API}/import/cr-summary?versionId=${version.id}`, { headers })
+            .then(r => setCrSummary(r.data))
+            .catch(() => setCrSummary(null))
+            .finally(() => setCrSummaryLoading(false));
+        });
+    }
+    if (FEATURES.TEAM_LEAD_PROPOSAL && isManager) {
+      axios.get(`${API}/task-proposals/version/${version.id}`, { headers })
+        .then(r => setProposals(r.data.filter((p: any) => !p.usedInTaskId)))
+        .catch(() => {});
+    }
   }, []); // eslint-disable-line
 
   const showAlert = (title: string, message: string, variant: DialogConfig['variant'] = 'info') =>
@@ -905,14 +980,6 @@ const VersionDetail: React.FC<{
     const dur = startIso && endIso ? calcDuration(startIso, endIso) : null;
     const effectiveCutoff = phaseCutoff !== undefined ? phaseCutoff : cutoff;
     const overrun = !!(effectiveCutoff && maxEnd && maxEnd > effectiveCutoff.getTime());
-    if (phaseCutoff) {
-      console.log('[overrun]', {
-        maxEndUTC: endIso,
-        cutoffUTC: effectiveCutoff?.toISOString(),
-        diffMs: maxEnd && effectiveCutoff ? maxEnd - effectiveCutoff.getTime() : null,
-        overrun,
-      });
-    }
     return { startIso, endIso, dur, overrun, effectiveCutoff };
   };
 
@@ -924,6 +991,16 @@ const VersionDetail: React.FC<{
       onRefresh();
     } catch (err: any) {
       showAlert('שגיאה', err?.response?.data?.message || 'שגיאה בשמירת שעת סיום', 'danger');
+    }
+  };
+
+  const saveReviewMeetingTime = async () => {
+    try {
+      await axios.patch(`${API}/versions/${version.id}/review-meeting-time`, { reviewMeetingTime: reviewMeetingValue || null }, { headers });
+      setEditingReviewMeeting(false);
+      onRefresh();
+    } catch (err: any) {
+      showAlert('שגיאה', err?.response?.data?.message || 'שגיאה בשמירת מועד הישיבה', 'danger');
     }
   };
 
@@ -1110,10 +1187,7 @@ const VersionDetail: React.FC<{
             duration: durationMins > 0 ? minsToStr(durationMins) : (u.duration ?? undefined),
           };
         });
-      console.log('[applySchedule] phases to save:', phases.map(p => ({ phaseId: p.phaseId, endTime: p.endTime })));
-      console.log('[applySchedule] sending', updates.length, 'updates, sample:', updates[0]);
       const res = await axios.post(`${API}/versions/${version.id}/apply-schedule`, { updates, phases }, { headers });
-      console.log('[applySchedule] response:', res.data);
       setRescheduleOpen(false);
       setReschPreview(null);
       setReschTaskOverrides({});
@@ -1270,9 +1344,6 @@ const VersionDetail: React.FC<{
         depEndLocal = calcEndFromMins(startLocal, depMins);
       }
     }
-    // eslint-disable-next-line no-console
-    console.log('[EDIT_ADD_DEP]', { title: depTask.title, plannedEnd: depTask.plannedEnd, plannedStart: depTask.plannedStart, duration: depTask.duration, depEndLocal });
-
     setEditingTask((prev: any) => {
       const newDep = {
         dependsOnTaskId,
@@ -1391,14 +1462,25 @@ const VersionDetail: React.FC<{
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
             {/* UI utilities */}
-            <button onClick={() => setCollapsedPhases(new Set(version.phases?.map((p: any) => p.id)))} style={{ padding: '6px 14px', background: '#e8ecf0', color: '#333', border: '1px solid #ccc', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>▶ קפל הכל</button>
-            <button onClick={() => { setCollapsedPhases(new Set()); setCollapsedSubPhases(new Set()); }} style={{ padding: '6px 14px', background: '#e8ecf0', color: '#333', border: '1px solid #ccc', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>▼ פתח הכל</button>
+            {version.status !== 'CR_REVIEW' && <button onClick={() => setCollapsedPhases(new Set(version.phases?.map((p: any) => p.id)))} style={{ padding: '6px 14px', background: '#e8ecf0', color: '#333', border: '1px solid #ccc', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>▶ קפל הכל</button>}
+            {version.status !== 'CR_REVIEW' && <button onClick={() => { setCollapsedPhases(new Set()); setCollapsedSubPhases(new Set()); }} style={{ padding: '6px 14px', background: '#e8ecf0', color: '#333', border: '1px solid #ccc', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>▼ פתח הכל</button>}
 
-            {/* Manager tools */}
-            {isManager && (
-              <button onClick={openReschedule} style={{ padding: '6px 14px', background: '#2d4a7a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>📅 הכן ותזמן</button>
-            )}
-            {isManager && (
+            {/* Manager tools — הכן ותזמן והחלף עובד הועברו לאשף הכנת תוכנית */}
+            {isManager && version.status !== 'CR_REVIEW' && (() => {
+              const ws = version.wizardState as Record<string, string | null> | null;
+              const stepKeys = ['step1', 'step2', 'step3', 'step4', 'step5'];
+              const doneCount = ws ? stepKeys.filter(k => ws[k] === 'done').length : 0;
+              const allDone = doneCount === 5;
+              return (
+                <button
+                  onClick={() => setWizardOpen(true)}
+                  style={{ padding: '6px 14px', background: allDone ? '#16a34a' : '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
+                >
+                  {allDone ? '✅ תוכנית מוכנה — ערוך' : `🔧 הכן תוכנית${ws ? ` ${doneCount}/5` : ''}`}
+                </button>
+              );
+            })()}
+            {isManager && version.status !== 'CR_REVIEW' && (
               <button
                 onClick={() => {
                   setSaveTemplateMode(localTemplates.length > 0 ? 'update' : 'new');
@@ -1410,17 +1492,16 @@ const VersionDetail: React.FC<{
                 💾 שמור כתבנית
               </button>
             )}
-            {isManager && (
-              <button
-                onClick={() => { setReassignOpen(true); setReassignFrom(''); setReassignTo(''); setReassignPhaseId(''); setReassignResult(null); }}
-                style={{ padding: '6px 14px', background: '#e67e22', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
-                🔄 החלף עובד
-              </button>
-            )}
 
             {/* Status progression */}
             {isManager && version.status === 'COLLECTING' && (
               <button onClick={() => handleStatusChange('DRAFT')} disabled={statusLoading} style={{ padding: '8px 16px', background: '#f0f0f0', color: '#666', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>← חזור לטיוטה</button>
+            )}
+            {isManager && version.status === 'CR_REVIEW' && (
+              <button onClick={() => handleStatusChange('DRAFT')} disabled={statusLoading} style={{ padding: '8px 16px', background: '#f0f0f0', color: '#666', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>← חזור לטיוטה</button>
+            )}
+            {isManager && version.status === 'COLLECTING' && (
+              <button onClick={() => handleStatusChange('CR_REVIEW')} disabled={statusLoading} style={{ padding: '8px 16px', background: '#f0f0f0', color: '#666', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>← חזור לסקירת CR</button>
             )}
             {isManager && version.status === 'REFINING' && (
               <button onClick={() => handleStatusChange('COLLECTING')} disabled={statusLoading} style={{ padding: '8px 16px', background: '#f0f0f0', color: '#666', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>← חזור לאיסוף</button>
@@ -1439,6 +1520,10 @@ const VersionDetail: React.FC<{
             {nextStatus && (
               <button
                 onClick={async () => {
+                  if (nextStatus === 'COLLECTING' && version.status === 'CR_REVIEW' && !crAllApproved) {
+                    setStatusError('לא ניתן לפתוח לאיסוף משימות — יש CR-ים שטרם אושרו. אשר את כל תוכניות ה-CR תחילה.');
+                    return;
+                  }
                   if (nextStatus === 'REFINING') {
                     try {
                       const res = await axios.get(`${API}/import/teams-without-proposals?versionId=${version.id}`, { headers });
@@ -1455,8 +1540,13 @@ const VersionDetail: React.FC<{
                   }
                   handleStatusChange(nextStatus);
                 }}
-                disabled={statusLoading}
-                style={{ padding: '10px 20px', background: statusLoading ? '#aaa' : STATUS_COLORS[nextStatus], color: 'white', border: 'none', borderRadius: '8px', cursor: statusLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
+                disabled={statusLoading || (nextStatus === 'COLLECTING' && version.status === 'CR_REVIEW' && !crAllApproved)}
+                title={nextStatus === 'COLLECTING' && version.status === 'CR_REVIEW' && !crAllApproved ? 'יש לאשר את כל תוכניות ה-CR תחילה' : undefined}
+                style={{
+                  padding: '10px 20px', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '14px',
+                  background: statusLoading || (nextStatus === 'COLLECTING' && version.status === 'CR_REVIEW' && !crAllApproved) ? '#aaa' : STATUS_COLORS[nextStatus],
+                  cursor: statusLoading || (nextStatus === 'COLLECTING' && version.status === 'CR_REVIEW' && !crAllApproved) ? 'not-allowed' : 'pointer',
+                }}>
                 {statusLoading ? '...' : `${nextLabel} →`}
               </button>
             )}
@@ -1518,6 +1608,30 @@ const VersionDetail: React.FC<{
               </>
             )}
           </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            📅 <strong>ישיבת מעבר:</strong>
+            {editingReviewMeeting ? (
+              <>
+                <input
+                  type="datetime-local"
+                  value={reviewMeetingValue}
+                  onChange={e => setReviewMeetingValue(e.target.value)}
+                  style={{ padding: '4px 8px', border: '1px solid #aed6f1', borderRadius: '6px', fontSize: '13px' }}
+                />
+                <button onClick={saveReviewMeetingTime} style={{ padding: '4px 10px', background: '#2980b9', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>שמור</button>
+                <button onClick={() => setEditingReviewMeeting(false)} style={{ padding: '4px 10px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>ביטול</button>
+              </>
+            ) : (
+              <>
+                <span style={{ color: version.reviewMeetingTime ? '#1a5276' : '#aaa', fontWeight: version.reviewMeetingTime ? '600' : 'normal' }}>
+                  {version.reviewMeetingTime ? fmtDateTime(version.reviewMeetingTime) : 'לא נקבע'}
+                </span>
+                {isManager && (
+                  <button onClick={() => setEditingReviewMeeting(true)} style={{ padding: '2px 8px', background: '#e8f4fd', color: '#2980b9', border: '1px solid #aed6f1', borderRadius: '6px', cursor: 'pointer', fontSize: '11px' }}>עריכה</button>
+                )}
+              </>
+            )}
+          </span>
           {version.creator && <span>👤 {version.creator.fullName}</span>}
           {version.approvedAt && version.approver && (
             <span style={{ color: '#27ae60' }}>✅ אושר: {new Date(version.approvedAt).toLocaleDateString('he-IL')} ע"י {version.approver.fullName}</span>
@@ -1536,59 +1650,181 @@ const VersionDetail: React.FC<{
 
         );})()}
 
+        {/* CR_REVIEW: פאנל הצוותים בלבד — בתוך החלונית */}
+        {version.status === 'CR_REVIEW' && isManager && (
+          <div style={{ marginTop: '16px' }}>
+            <CrPlanReviewPanel
+              token={token}
+              versionId={version.id}
+              versionStatus={version.status}
+              isManager={isManager}
+              section="teams"
+              refreshKey={crPanelRefreshKey}
+              onAllApproved={setCrAllApproved}
+              onTeamReview={(teamId, teamName) => setTeamPanelOpen({ teamId, teamName })}
+            />
+          </div>
+        )}
+
         {version.submissions?.length > 0 && (
           <div style={{ marginTop: '12px' }}>
-            {/* COLLECTING: prominent submission status panel (involved teams only) */}
-            {version.status === 'COLLECTING' && (() => {
-              const involvedIds: string[] = version.involvedTeamIds ?? [];
-              const involvedSubs = involvedIds.length > 0
-                ? version.submissions.filter((s: any) => involvedIds.includes(s.teamId))
-                : [];
-              const submittedInvolved = involvedSubs.filter((s: any) => s.status === 'SUBMITTED');
-              const allDone = involvedSubs.length > 0 && submittedInvolved.length === involvedSubs.length;
-              return (
-                <div style={{ background: allDone ? '#e8f8e8' : involvedSubs.length === 0 ? '#f0f0f0' : '#fff8e1', border: `1px solid ${allDone ? '#27ae60' : involvedSubs.length === 0 ? '#ccc' : '#f39c12'}`, borderRadius: '10px', padding: '12px 16px', marginBottom: '8px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                    <span style={{ fontWeight: 'bold', fontSize: '13px', color: allDone ? '#1a5c2a' : involvedSubs.length === 0 ? '#999' : '#7d4e00', flexShrink: 0 }}>
-                      {involvedSubs.length === 0
-                        ? '⏳ ממתין לצוותים'
-                        : allDone
-                          ? '✅ כל הצוותים המעורבים הגישו'
-                          : `⏳ הגישו: ${submittedInvolved.length}/${involvedSubs.length} מהצוותים המעורבים`}
-                    </span>
-                    {involvedSubs.map((sub: any) => (
-                      <span key={sub.id}
-                        onClick={() => setFilterTeam(filterTeam === sub.team.id ? null : sub.team.id)}
-                        title={`צוות ${sub.team.name} — ${sub.status === 'SUBMITTED' ? 'הגיש' : 'לא הגיש'}`}
-                        style={{
-                          padding: '3px 10px', borderRadius: '16px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
-                          background: sub.status === 'SUBMITTED' ? '#d5f0dc' : '#f5e6c8',
-                          color: sub.status === 'SUBMITTED' ? '#1a5c2a' : '#7d4e00',
-                          border: filterTeam === sub.team.id ? '2px solid #1a2332' : '2px solid transparent',
-                        }}>
-                        {sub.status === 'SUBMITTED' ? '✓' : '○'} {sub.team.name}
-                      </span>
-                    ))}
-                    {involvedSubs.length === 0 && (
-                      <span style={{ fontSize: '12px', color: '#999' }}>אין צוותים עם CR עדיין — ניתן להמשיך ללא הגבלה</span>
-                    )}
+            {/* COLLECTING: detailed CR-based submission status panel */}
+            {version.status === 'COLLECTING' && isManager && (() => {
+              if (crSummaryLoading) return (
+                <div style={{ padding: '9px 14px', color: '#64748b', fontSize: '13px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '6px' }}>
+                  ⏳ טוען סטטוס הגשות...
+                </div>
+              );
+
+              if (!crSummary || crSummary.length === 0) {
+                const involvedIds: string[] = version.involvedTeamIds ?? [];
+                const involvedSubs = involvedIds.length > 0 ? version.submissions.filter((s: any) => involvedIds.includes(s.teamId)) : [];
+                const submitted = involvedSubs.filter((s: any) => s.status === 'SUBMITTED').length;
+                return (
+                  <div style={{ padding: '9px 14px', background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: '8px', fontSize: '13px', color: '#92400e', marginBottom: '6px' }}>
+                    📋 הגישו: {submitted}/{involvedSubs.length} צוותים
+                    {involvedSubs.length === 0 && ' — אין צוותים מעורבים מוגדרים'}
+                    <span style={{ fontSize: '11px', marginRight: '8px', opacity: 0.75 }}>(קובץ CR_LIST לא מוגדר — לא ניתן להציג פירוט לפי CR)</span>
                   </div>
+                );
+              }
+
+              const ORDER: Record<string, number> = { PARTIAL: 0, NONE: 1, COMPLETE: 2, NOT_REQUIRED: 3 };
+              const sorted = [...crSummary].sort((a: any, b: any) => (ORDER[a.status] ?? 9) - (ORDER[b.status] ?? 9));
+              const completeCount = crSummary.filter((t: any) => t.status === 'COMPLETE' || t.status === 'NOT_REQUIRED').length;
+              const total = crSummary.length;
+              const allDone = completeCount === total;
+
+              // ── helpers ──────────────────────────────────────────────────
+              const statusMeta = (t: any): { desc: string; accent: string; textColor: string } => {
+                const rem = t.crListCount - t.proposedCount;
+                switch (t.status) {
+                  case 'PARTIAL':
+                    return { accent: '#f59e0b', textColor: '#78350f',
+                      desc: `הגישו ${t.proposedCount} מתוך ${t.crListCount} פיתוחים — נותרו ${rem} להשלמה` };
+                  case 'NONE':
+                    return { accent: '#ef4444', textColor: '#7f1d1d',
+                      desc: `טרם נכנסו למערכת — ${t.crListCount} פיתוח${t.crListCount !== 1 ? 'ים' : ''} ממתין${t.crListCount !== 1 ? 'ים' : ''}` };
+                  case 'COMPLETE':
+                    return { accent: '#16a34a', textColor: '#14532d',
+                      desc: t.notNeededCount > 0
+                        ? `הגישו ${t.proposedCount} פיתוחים, ${t.notNeededCount} לא נדרש — הכל טופל ✓`
+                        : `הגישו את כל ${t.crListCount} הפיתוחים ✓` };
+                  case 'ALL_NOT_NEEDED':
+                    return { accent: '#94a3b8', textColor: '#475569',
+                      desc: `כל ${t.crListCount} הפיתוחים סומנו כ"לא נדרש לתוכנית" — הוגש` };
+                  case 'SUBMITTED_EMPTY':
+                    return { accent: '#f59e0b', textColor: '#78350f',
+                      desc: 'הוגש ללא פיתוחים ולא סומנו "לא נדרש" — נדרשת בדיקה' };
+                  case 'NOT_REQUIRED':
+                    return { accent: '#94a3b8', textColor: '#64748b',
+                      desc: 'לא נדרש לגרסה זו' };
+                  default:
+                    return { accent: '#94a3b8', textColor: '#64748b', desc: '' };
+                }
+              };
+
+              return (
+                <div style={{ background: 'white', border: `1px solid ${allDone ? '#bbf7d0' : '#fecaca'}`, borderRadius: '10px', overflow: 'hidden', marginBottom: '6px', boxShadow: allDone ? 'none' : '0 0 0 3px rgba(239,68,68,0.08)' }}>
+                  <style>{`
+                    @keyframes cr-pulse {
+                      0%, 100% { background-color: #fff1f2; }
+                      50%       { background-color: #fde8e8; }
+                    }
+                    .cr-header-alert { animation: cr-pulse 2s ease-in-out infinite; cursor: pointer; }
+                    .cr-header-ok    { background: #f0fdf4; cursor: pointer; }
+                  `}</style>
+
+                  {/* Collapsible header */}
+                  <div
+                    className={allDone ? 'cr-header-ok' : 'cr-header-alert'}
+                    onClick={() => setCrSummaryExpanded(e => !e)}
+                    style={{ padding: '10px 16px', borderBottom: crSummaryExpanded ? '1px solid #f1f5f9' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none' }}
+                  >
+                    <span style={{ fontSize: '13px', fontWeight: '700', color: allDone ? '#15803d' : '#dc2626', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '16px' }}>{allDone ? '✅' : '●'}</span>
+                      {allDone
+                        ? `כל ${total} הצוותים הגישו את פיתוחיהם`
+                        : `הגישו הכל: ${completeCount} מתוך ${total} צוותים — לחץ לפירוט`}
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        onClick={e => { e.stopPropagation(); refreshCrSummary(); }}
+                        disabled={crSummaryLoading}
+                        title="סנכרן מחדש מקובץ CR_LIST"
+                        style={{ fontSize: '11px', padding: '3px 10px', background: 'white', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: crSummaryLoading ? 'not-allowed' : 'pointer', color: '#475569', opacity: crSummaryLoading ? 0.5 : 1 }}
+                      >
+                        {crSummaryLoading ? '⏳' : '🔄'} סנכרן
+                      </button>
+                      <span style={{ fontSize: '13px', color: '#94a3b8', transform: crSummaryExpanded ? 'rotate(180deg)' : 'none', display: 'inline-block', transition: 'transform 0.2s' }}>▼</span>
+                    </div>
+                  </div>
+
+                  {/* Expandable cards grid */}
+                  {crSummaryExpanded && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '10px', padding: '12px' }}>
+                      {sorted.map((t: any) => {
+                        const { desc, accent, textColor } = statusMeta(t);
+                        const canReview = t.teamId && t.status !== 'NOT_REQUIRED';
+
+                        const cardBg: Record<string, string> = {
+                          PARTIAL:        '#fafafa',
+                          NONE:           '#fafafa',
+                          SUBMITTED_EMPTY:'#fafafa',
+                          COMPLETE:       '#fafafa',
+                          NOT_REQUIRED:   '#f4f4f5',
+                        };
+
+                        return (
+                          <div key={t.teamId || t.teamName} style={{
+                            borderRadius: '10px',
+                            border: `1px solid ${accent}33`,
+                            borderTop: `4px solid ${accent}`,
+                            background: cardBg[t.status] ?? 'white',
+                            padding: '12px 14px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                            boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                          }}>
+                            <span style={{ fontWeight: '800', fontSize: '14px', color: '#1a2332', lineHeight: 1.2 }}>
+                              {t.teamName}
+                            </span>
+                            <span style={{ fontSize: '12px', color: textColor, lineHeight: 1.5, flex: 1 }}>
+                              {desc}
+                            </span>
+                            {canReview && (
+                              <button
+                                onClick={() => setTeamPanelOpen({ teamId: t.teamId, teamName: t.teamName })}
+                                style={{ marginTop: '4px', padding: '5px 0', background: 'transparent', color: '#2d4a7a', border: '1px solid #2d4a7a', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', width: '100%' }}
+                              >
+                                סקירה ←
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })()}
-            {/* Team filter pills (always shown) */}
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{ fontSize: '12px', color: '#999' }}>סנן לפי צוות:</span>
-              <span onClick={() => setFilterTeam(null)} style={{ padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', background: filterTeam === null ? '#1a2332' : '#f0f0f0', color: filterTeam === null ? 'white' : '#666' }}>כולם</span>
-              {version.submissions.map((sub: any) => (
+            {/* Team filter pills — ניטרלי, ללא סטטוס הגשה (הסטטוס מוצג בטבלה למעלה) */}
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', marginTop: '4px' }}>
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>סנן:</span>
+              <span onClick={() => setFilterTeam(null)} style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', background: filterTeam === null ? '#1a2332' : '#f0f0f0', color: filterTeam === null ? 'white' : '#666' }}>כולם</span>
+              {(version.status === 'CR_REVIEW'
+                ? version.submissions.filter((sub: any) => (version.involvedTeamIds ?? []).includes(sub.teamId))
+                : version.submissions
+              ).map((sub: any) => (
                 <span key={sub.id} onClick={() => setFilterTeam(filterTeam === sub.team.id ? null : sub.team.id)}
                   style={{
-                    padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
-                    background: filterTeam === sub.team.id ? '#1a2332' : sub.status === 'SUBMITTED' ? '#d5f0dc' : sub.status === 'IN_PROGRESS' ? '#fff0e0' : '#f0f0f0',
-                    color: filterTeam === sub.team.id ? 'white' : sub.status === 'SUBMITTED' ? '#1a5c2a' : sub.status === 'IN_PROGRESS' ? '#8b4000' : '#666',
-                    border: filterTeam === sub.team.id ? '2px solid #1a2332' : '2px solid transparent',
+                    padding: '3px 10px', borderRadius: '20px', fontSize: '11px', cursor: 'pointer',
+                    background: filterTeam === sub.team.id ? '#1a2332' : '#f0f0f0',
+                    color: filterTeam === sub.team.id ? 'white' : '#555',
+                    border: filterTeam === sub.team.id ? '1px solid #1a2332' : '1px solid transparent',
                   }}>
-                  {sub.team.name}: {sub.status === 'SUBMITTED' ? 'הגיש' : sub.status === 'IN_PROGRESS' ? 'בתהליך' : 'לא התחיל'}
+                  {sub.team.name}
                 </span>
               ))}
             </div>
@@ -1596,24 +1832,72 @@ const VersionDetail: React.FC<{
         )}
       </div>
 
+      {/* ── CR_REVIEW: רשימת פיתוחים — מחוץ לחלונית ── */}
+      {version.status === 'CR_REVIEW' && isManager && (
+        <div style={{ marginTop: '12px' }}>
+          <CrPlanReviewPanel
+            token={token}
+            versionId={version.id}
+            versionStatus={version.status}
+            isManager={isManager}
+            section="crs"
+            refreshKey={crPanelRefreshKey}
+            onAllApproved={setCrAllApproved}
+            onTeamReview={(teamId, teamName) => setTeamPanelOpen({ teamId, teamName })}
+          />
+        </div>
+      )}
+
+      {/* ── CR Review panel during COLLECTING (sidebar mode) ── */}
+      {version.status === 'COLLECTING' && isManager && (
+        <div style={{ marginBottom: '16px', background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '12px', overflow: 'hidden' }}>
+          <div
+            style={{ padding: '12px 20px', background: crAllApproved ? 'rgba(63,185,80,0.12)' : 'rgba(248,81,73,0.08)', borderBottom: crSummaryExpanded ? `1px solid ${C.border}` : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', userSelect: 'none' }}
+            onClick={() => setCrSummaryExpanded(p => !p)}
+          >
+            <span style={{ fontSize: '13px', fontWeight: '700', color: crAllApproved ? C.statusDone : C.statusBlocked, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>{crAllApproved ? '✅' : '●'}</span>
+              📋 סקירת תוכניות CR
+              {!crAllApproved && <span style={{ fontSize: '11px', color: C.statusBlocked, background: 'rgba(248,81,73,0.15)', padding: '2px 8px', borderRadius: '10px', marginRight: '4px' }}>יש CR-ים ממתינים</span>}
+              {crAllApproved  && <span style={{ fontSize: '11px', color: C.statusDone,  background: 'rgba(63,185,80,0.15)',  padding: '2px 8px', borderRadius: '10px', marginRight: '4px' }}>✓ הכל אושר</span>}
+            </span>
+            <span style={{ color: C.textMuted, fontSize: '13px' }}>{crSummaryExpanded ? '▲ סגור' : '▼ פתח לסקירה'}</span>
+          </div>
+          {crSummaryExpanded && (
+            <div style={{ padding: '16px 20px' }}>
+              <CrPlanReviewPanel
+                token={token}
+                versionId={version.id}
+                versionStatus={version.status}
+                isManager={isManager}
+                onAllApproved={setCrAllApproved}
+                onTeamReview={(teamId, teamName) => setTeamPanelOpen({ teamId, teamName })}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── View mode tabs ── */}
-      <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', background: 'white', borderRadius: '10px', padding: '6px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+      {version.status !== 'CR_REVIEW' && (
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', background: C.bgNested, borderRadius: '10px', padding: '6px', border: `1px solid ${C.border}` }}>
         <button
           onClick={() => setViewMode('detail')}
-          style={{ flex: 1, padding: '8px 0', background: viewMode === 'detail' ? '#1a2332' : 'transparent', color: viewMode === 'detail' ? 'white' : '#666', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}
+          style={{ flex: 1, padding: '8px 0', background: viewMode === 'detail' ? C.brandDim : 'transparent', color: viewMode === 'detail' ? C.textPrimary : C.textMuted, border: viewMode === 'detail' ? `1px solid ${C.brand}` : '1px solid transparent', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', fontFamily: FONT }}
         >
           ⚙️ עריכת גרסה
         </button>
         <button
           onClick={() => setViewMode('plan')}
-          style={{ flex: 1, padding: '8px 0', background: viewMode === 'plan' ? '#2d4a7a' : 'transparent', color: viewMode === 'plan' ? 'white' : '#666', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}
+          style={{ flex: 1, padding: '8px 0', background: viewMode === 'plan' ? C.brandDim : 'transparent', color: viewMode === 'plan' ? C.textPrimary : C.textMuted, border: viewMode === 'plan' ? `1px solid ${C.brand}` : '1px solid transparent', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', fontFamily: FONT }}
         >
           🔍 תוכנית ביצוע + חריגות
         </button>
       </div>
+      )}
 
       {/* ── Plan view (TeamView with anomaly detection) ── */}
-      {viewMode === 'plan' && (
+      {viewMode === 'plan' && version.status !== 'CR_REVIEW' && (
         <div>
           <div style={{
             background: 'linear-gradient(135deg, #2c3e50 0%, #4a6741 100%)',
@@ -1645,17 +1929,17 @@ const VersionDetail: React.FC<{
         </div>
       )}
 
-      {viewMode === 'detail' && <>
+      {viewMode === 'detail' && version.status !== 'CR_REVIEW' && <>
 
       {/* ── Lock banner ── */}
       {isLocked && (
-        <div style={{ background: '#fff3e0', border: '2px solid #e65100', borderRadius: '10px', padding: '12px 20px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ background: C.bgInProgress, border: `2px solid ${C.statusInProgress}44`, borderRadius: '10px', padding: '12px 20px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ fontSize: '24px' }}>🔒</span>
           <div>
-            <div style={{ fontWeight: 'bold', color: '#b7380a', fontSize: '15px' }}>
+            <div style={{ fontWeight: 'bold', color: C.statusInProgress, fontSize: '15px' }}>
               {['APPROVED', 'ACTIVE'].includes(version.status) ? 'גרסה נעולה לעריכה' : 'גרסה פעילה — מצב קריאה בלבד'}
             </div>
-            <div style={{ color: '#e65100', fontSize: '13px', marginTop: '2px' }}>
+            <div style={{ color: C.textSecondary, fontSize: '13px', marginTop: '2px' }}>
               {['APPROVED', 'ACTIVE'].includes(version.status)
                 ? 'לא ניתן לערוך משימות בסטטוס זה — נדרשת הרשאת override'
                 : 'לא ניתן להוסיף, לערוך או למחוק משימות בזמן ביצוע'}
@@ -1673,10 +1957,10 @@ const VersionDetail: React.FC<{
         const phaseTimes = getHierarchyTimes(phaseTasks, phaseCutoff);
 
         return (
-          <div key={phase.id} style={{ background: 'white', borderRadius: '12px', padding: '20px', marginBottom: '16px', boxShadow: phase.isGoNoGo ? '0 2px 8px rgba(39,174,96,0.25), 0 0 0 2px #27ae6033' : '0 2px 8px rgba(0,0,0,0.08)' }}>
+          <div key={phase.id} style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', marginBottom: '16px', border: phase.isGoNoGo ? `1px solid ${C.statusDone}44` : `1px solid ${C.border}`, boxShadow: phase.isGoNoGo ? `0 0 0 2px ${C.statusDone}22` : 'none' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
               {/* Clickable phase title */}
-              <h3 onClick={() => togglePhase(phase.id)} style={{ margin: 0, color: '#1a2332', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' as any, flexWrap: 'wrap', flex: 1 }}>
+              <h3 onClick={() => togglePhase(phase.id)} style={{ margin: 0, color: C.textPrimary, fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' as any, flexWrap: 'wrap', flex: 1 }}>
                 <span style={{ fontSize: '14px', color: '#999' }}>{collapsedPhases.has(phase.id) ? '►' : '▼'}</span>
                 <span style={{ background: phase.environment === 'HOT' ? '#fee' : phase.environment === 'HOTNET' ? '#e8f4fd' : '#f0f0f0', color: phase.environment === 'HOT' ? '#c0392b' : phase.environment === 'HOTNET' ? '#2980b9' : '#666', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>{phase.environment}</span>
                 {editingPhaseId === phase.id ? (
@@ -1686,10 +1970,10 @@ const VersionDetail: React.FC<{
                       value={editingPhaseName}
                       onChange={e => setEditingPhaseName(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') savePhaseRename(phase.id); if (e.key === 'Escape') setEditingPhaseId(null); }}
-                      style={{ padding: '4px 8px', border: '2px solid #2d4a7a', borderRadius: '6px', fontSize: '15px', fontWeight: 'bold', width: '260px' }}
+                      style={{ padding: '4px 8px', border: `2px solid ${C.brand}`, borderRadius: '6px', fontSize: '15px', fontWeight: 'bold', width: '260px', background: C.bgNested, color: C.textPrimary }}
                     />
-                    <button onClick={() => savePhaseRename(phase.id)} disabled={phaseManageLoading} style={{ padding: '3px 10px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>שמור</button>
-                    <button onClick={() => setEditingPhaseId(null)} style={{ padding: '3px 8px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>×</button>
+                    <button onClick={() => savePhaseRename(phase.id)} disabled={phaseManageLoading} style={{ padding: '3px 10px', background: C.statusDone, color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>שמור</button>
+                    <button onClick={() => setEditingPhaseId(null)} style={{ padding: '3px 8px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>×</button>
                   </span>
                 ) : (
                   <span>{phase.name}</span>
@@ -1710,13 +1994,13 @@ const VersionDetail: React.FC<{
                   );
                 })()}
                 {phase.isGoNoGo && (
-                  <span style={{ background: '#eafaf1', color: '#1e8449', padding: '2px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold', border: '1px solid #27ae6060', whiteSpace: 'nowrap' }}>
+                  <span style={{ background: C.bgDone, color: C.statusDone, padding: '2px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold', border: `1px solid ${C.statusDone}44`, whiteSpace: 'nowrap' }}>
                     🚦 שלב GO/NO GO
                   </span>
                 )}
-                <span style={{ fontSize: '12px', color: '#999', fontWeight: 'normal' }}>({phase.subPhases?.length || 0} תת-שלבים)</span>
+                <span style={{ fontSize: '12px', color: C.textMuted, fontWeight: 'normal' }}>({phase.subPhases?.length || 0} תת-שלבים)</span>
               {phaseTimes && (
-                <span style={{ fontSize: '12px', background: phaseTimes.overrun ? '#fee' : '#fff8e1', color: phaseTimes.overrun ? '#c0392b' : '#e65100', padding: '2px 10px', borderRadius: '12px', fontWeight: phaseTimes.overrun ? 'bold' : 'normal', marginRight: '4px', border: phaseTimes.overrun ? '1px solid #e74c3c' : 'none' }}>
+                <span style={{ fontSize: '12px', background: phaseTimes.overrun ? C.bgBlocked : C.bgNested, color: phaseTimes.overrun ? C.statusFailed : C.statusInProgress, padding: '2px 10px', borderRadius: '12px', fontWeight: phaseTimes.overrun ? 'bold' : 'normal', marginRight: '4px', border: phaseTimes.overrun ? `1px solid ${C.statusFailed}44` : `1px solid ${C.border}` }}>
                   {phaseTimes.overrun ? '⚠️ ' : '⏰ '}
                   {phaseTimes.startIso ? formatTime(phaseTimes.startIso) : '?'}
                   {phaseTimes.endIso ? ` — ${formatTime(phaseTimes.endIso)}` : ''}
@@ -1725,7 +2009,7 @@ const VersionDetail: React.FC<{
                 </span>
               )}
               {phaseCutoff && (
-                <span style={{ fontSize: '11px', color: phaseTimes?.overrun ? '#c0392b' : '#999', background: phaseTimes?.overrun ? '#fff0f0' : '#f5f5f5', padding: '1px 7px', borderRadius: '8px', border: '1px solid #e0e0e0' }}>
+                <span style={{ fontSize: '11px', color: phaseTimes?.overrun ? C.statusFailed : C.textMuted, background: phaseTimes?.overrun ? C.bgBlocked : C.bgNested, padding: '1px 7px', borderRadius: '8px', border: `1px solid ${C.border}` }}>
                   יעד: {formatDateTimeShort(phaseCutoff.toISOString())}
                 </span>
               )}
@@ -1737,7 +2021,7 @@ const VersionDetail: React.FC<{
                   <button
                     title="שנה שם שלב"
                     onClick={() => { setEditingPhaseId(phase.id); setEditingPhaseName(phase.name); }}
-                    style={{ padding: '3px 8px', background: '#f0f4ff', color: '#2d4a7a', border: '1px solid #c0cfe8', borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>
+                    style={{ padding: '3px 8px', background: C.bgNested, color: C.brand, border: `1px solid ${C.brandDim}`, borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>
                     ✏️
                   </button>
                   {!phase.isGoNoGo && (
@@ -1745,7 +2029,7 @@ const VersionDetail: React.FC<{
                       title="הגדר שלב זה כנקודת GO/NO GO"
                       onClick={() => setGoNogoPhase(phase.id)}
                       disabled={phaseManageLoading}
-                      style={{ padding: '3px 8px', background: '#f0faf4', color: '#27ae60', border: '1px solid #a9dfbf', borderRadius: '5px', cursor: 'pointer', fontSize: '12px', whiteSpace: 'nowrap' }}>
+                      style={{ padding: '3px 8px', background: C.bgDone, color: C.statusDone, border: `1px solid ${C.statusDone}44`, borderRadius: '5px', cursor: 'pointer', fontSize: '12px', whiteSpace: 'nowrap' }}>
                       🚦 קבע GO/NO GO
                     </button>
                   )}
@@ -1754,7 +2038,7 @@ const VersionDetail: React.FC<{
                       title="מחק שלב (ריק)"
                       onClick={() => deletePhase(phase.id, phase.name)}
                       disabled={phaseManageLoading}
-                      style={{ padding: '3px 8px', background: '#fff0f0', color: '#c0392b', border: '1px solid #e8a0a0', borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>
+                      style={{ padding: '3px 8px', background: C.bgBlocked, color: C.statusFailed, border: `1px solid ${C.statusFailed}44`, borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>
                       🗑️
                     </button>
                   )}
@@ -1788,14 +2072,14 @@ const VersionDetail: React.FC<{
                     setMoveConfirm({ taskId: dragging.taskId, taskTitle: draggedTask.title, targetSubId: sub.id, targetSubName: sub.name });
                     setDragging(null);
                   }}
-                  style={{ marginBottom: '12px', paddingRight: '16px', borderRight: dragOverSubId === sub.id ? '3px solid #2d4a7a' : '3px solid #e0e0e0', background: dragOverSubId === sub.id ? '#f0f4ff' : 'transparent', borderRadius: dragOverSubId === sub.id ? '0 8px 8px 0' : undefined, transition: 'background 0.15s, border-color 0.15s' }}>
+                  style={{ marginBottom: '12px', paddingRight: '16px', borderRight: dragOverSubId === sub.id ? `3px solid ${C.brand}` : `3px solid ${C.border}`, background: dragOverSubId === sub.id ? C.bgHover : 'transparent', borderRadius: dragOverSubId === sub.id ? '0 8px 8px 0' : undefined, transition: 'background 0.15s, border-color 0.15s' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <h4 onClick={() => toggleSubPhase(sub.id)} style={{ margin: 0, color: '#444', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', userSelect: 'none' as any, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '11px', color: '#bbb' }}>{collapsedSubPhases.has(sub.id) ? '►' : '▼'}</span>
+                    <h4 onClick={() => toggleSubPhase(sub.id)} style={{ margin: 0, color: C.textPrimary, fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', userSelect: 'none' as any, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '11px', color: C.textMuted }}>{collapsedSubPhases.has(sub.id) ? '►' : '▼'}</span>
                       {sub.name}
-                      <span style={{ fontSize: '11px', color: '#bbb', fontWeight: 'normal' }}>({sub.tasks?.length || 0})</span>
+                      <span style={{ fontSize: '11px', color: C.textMuted, fontWeight: 'normal' }}>({sub.tasks?.length || 0})</span>
                       {subTimes && (
-                        <span style={{ fontSize: '11px', background: subTimes.overrun ? '#fee' : '#f3f0ff', color: subTimes.overrun ? '#c0392b' : '#5b2d90', padding: '1px 8px', borderRadius: '10px', fontWeight: subTimes.overrun ? 'bold' : 'normal', border: subTimes.overrun ? '1px solid #e74c3c' : 'none' }}>
+                        <span style={{ fontSize: '11px', background: subTimes.overrun ? C.bgBlocked : C.bgInProgress, color: subTimes.overrun ? C.statusFailed : C.statusInProgress, padding: '1px 8px', borderRadius: '10px', fontWeight: subTimes.overrun ? 'bold' : 'normal', border: subTimes.overrun ? `1px solid ${C.statusFailed}44` : 'none' }}>
                           {subTimes.overrun ? '⚠️ ' : '⏰ '}
                           {subTimes.startIso ? formatTime(subTimes.startIso) : '?'}
                           {subTimes.endIso ? ` — ${formatTime(subTimes.endIso)}` : ''}
@@ -1813,7 +2097,7 @@ const VersionDetail: React.FC<{
                       if (FEATURES.TEAM_LEAD_PROPOSAL) {
                         axios.get(`${API}/task-proposals/version/${version.id}`, { headers }).then(r => setProposals(r.data.filter((p: any) => !p.usedInTaskId))).catch(() => {});
                       }
-                    }} style={{ padding: '4px 12px', background: '#1a2332', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>+ משימה</button>}
+                    }} style={{ padding: '4px 12px', background: C.brandDim, color: 'white', border: `1px solid ${C.brand}`, borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>+ משימה</button>}
                   </div>
 
                   {!collapsedSubPhases.has(sub.id) && (() => {
@@ -1838,14 +2122,18 @@ const VersionDetail: React.FC<{
                               <select value={editingTask.assignedUserName || ''} onChange={e => setEditingTask({ ...editingTask, assignedUserName: e.target.value })}
                                 style={{ padding: '5px 7px', border: '1px solid #ddd', borderRadius: '0 0 6px 6px', fontSize: '13px', borderTop: 'none' }}>
                                 <option value="">-- עובד --</option>
-                                {users.filter(u => !editFilters.user || u.fullName.toLowerCase().startsWith(editFilters.user.toLowerCase())).map(u => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
+                                {(editingTask.assignedTeamId
+                                  ? (teams.find((t: any) => t.id === editingTask.assignedTeamId)?.members || []).map((m: any) => m.user).filter(Boolean)
+                                  : users
+                                ).filter((u: any) => !editFilters.user || u.fullName.toLowerCase().startsWith(editFilters.user.toLowerCase()))
+                                  .map((u: any) => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
                               </select>
                             </div>
                             {/* Team with letter filter */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                               <input value={editFilters.team} onChange={e => setEditFilters(f => ({ ...f, team: e.target.value }))}
                                 placeholder="סנן צוות..." style={{ padding: '4px 7px', border: '1px solid #ddd', borderRadius: '6px 6px 0 0', fontSize: '11px', borderBottom: 'none' }} />
-                              <select value={editingTask.assignedTeamId || ''} onChange={e => setEditingTask({ ...editingTask, assignedTeamId: e.target.value })}
+                              <select value={editingTask.assignedTeamId || ''} onChange={e => setEditingTask({ ...editingTask, assignedTeamId: e.target.value, assignedUserName: '', application: '' })}
                                 style={{ padding: '5px 7px', border: '1px solid #ddd', borderRadius: '0 0 6px 6px', fontSize: '13px', borderTop: 'none' }}>
                                 <option value="">צוות</option>
                                 {teams.filter((t: any) => t.active && (!editFilters.team || t.name.toLowerCase().startsWith(editFilters.team.toLowerCase()))).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -1902,7 +2190,13 @@ const VersionDetail: React.FC<{
                               <select value={editingTask.application || ''} onChange={e => setEditingTask({ ...editingTask, application: e.target.value })}
                                 style={{ padding: '5px 7px', border: '1px solid #ddd', borderRadius: '0 0 6px 6px', fontSize: '13px', borderTop: 'none' }}>
                                 <option value="">Application</option>
-                                {APPS.filter(a => !editFilters.app || a.toLowerCase().startsWith(editFilters.app.toLowerCase())).map(a => <option key={a} value={a}>{a}</option>)}
+                                {(editingTask.assignedTeamId
+                                  ? (teams.find((t: any) => t.id === editingTask.assignedTeamId)?.apps?.length
+                                      ? teams.find((t: any) => t.id === editingTask.assignedTeamId).apps
+                                      : APPS)
+                                  : APPS
+                                ).filter((a: string) => !editFilters.app || a.toLowerCase().startsWith(editFilters.app.toLowerCase()))
+                                  .map((a: string) => <option key={a} value={a}>{a}</option>)}
                               </select>
                             </div>
                             <select value={editingTask.environment || 'BOTH'} onChange={e => setEditingTask({ ...editingTask, environment: e.target.value })} style={{ padding: '7px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}>
@@ -2029,8 +2323,6 @@ const VersionDetail: React.FC<{
                                           disabled={!newDepId}
                                           onClick={() => {
                                             const depTask = eligibleTasks.find((t: any) => t.id === newDepId);
-                                            // eslint-disable-next-line no-console
-                                            console.log('[EDIT_DEP_BTN]', { newDepId, found: !!depTask, depTask });
                                             if (depTask) addDep(depTask);
                                           }}
                                           style={{ padding: '5px 12px', background: newDepId ? '#2d4a7a' : '#ccc', color: 'white', border: 'none', borderRadius: '6px', cursor: newDepId ? 'pointer' : 'not-allowed', fontSize: '12px', whiteSpace: 'nowrap' }}>
@@ -2078,94 +2370,125 @@ const VersionDetail: React.FC<{
                                 e.stopPropagation();
                                 if (!dragging || dragging.fromSubId !== sub.id || dragging.taskId === task.id) return;
                                 setDragOverTaskId(null);
-                                // Insert dragged task before this task
                                 const currentTasks = [...(sub.tasks || [])].sort((a: any, b: any) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
                                 const withoutDragged = currentTasks.filter((t: any) => t.id !== dragging.taskId);
                                 const dropIdx = withoutDragged.findIndex((t: any) => t.id === task.id);
                                 const draggedTask = currentTasks.find((t: any) => t.id === dragging.taskId)!;
                                 withoutDragged.splice(dropIdx, 0, draggedTask);
-                                const newOrder = withoutDragged.map((t: any) => t.id);
-                                axios.post(`${API}/versions/sub-phases/${sub.id}/reorder`, { taskIds: newOrder }, { headers }).then(() => onRefresh()).catch(console.error);
+                                axios.post(`${API}/versions/sub-phases/${sub.id}/reorder`, { taskIds: withoutDragged.map((t: any) => t.id) }, { headers }).then(() => onRefresh()).catch(console.error);
                                 setDragging(null);
                               }}
-                              style={{ background: dragOverTaskId === task.id ? '#ddeeff' : dragging?.taskId === task.id ? '#e8edf5' : '#f8f9fa', borderRadius: '8px', padding: '10px 14px', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', opacity: dragging?.taskId === task.id ? 0.5 : 1, cursor: isLocked ? 'default' : 'grab', borderTop: dragOverTaskId === task.id ? '2px solid #2d6abe' : undefined }}>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
-                                  <span style={{ fontSize: '11px', background: '#e0e0e0', color: '#555', padding: '1px 6px', borderRadius: '4px', fontFamily: 'monospace', minWidth: '28px', textAlign: 'center' }}>#{displayOrder}</span>
-                                  <span style={{ fontWeight: 'bold', color: '#1a2332', fontSize: '14px' }}>{task.title}</span>
+                              style={{
+                                background: dragOverTaskId === task.id ? '#ddeeff' : dragging?.taskId === task.id ? '#e8edf5' : '#fff',
+                                borderRadius: '8px', marginBottom: '4px',
+                                border: '1px solid #e0e6ec',
+                                borderRight: `3px solid ${task.environment === 'HOT' ? '#e74c3c' : task.environment === 'HOTNET' ? '#2980b9' : '#bdc3c7'}`,
+                                borderTop: dragOverTaskId === task.id ? '2px solid #2d6abe' : undefined,
+                                opacity: dragging?.taskId === task.id ? 0.5 : 1,
+                                cursor: isLocked ? 'default' : 'grab',
+                                overflow: 'hidden',
+                                display: 'grid',
+                                gridTemplateColumns: '3fr 1.5fr 1.4fr auto',
+                                alignItems: 'stretch',
+                                minHeight: '52px',
+                              }}>
+
+                              {/* ── Zone 1: # · כותרת · CR · תלויות ── */}
+                              <div style={{ padding: '9px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '4px', minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: '11px', background: '#ecf0f1', color: '#7f8c8d', padding: '1px 6px', borderRadius: '4px', fontFamily: 'monospace', minWidth: '26px', textAlign: 'center', flexShrink: 0 }}>#{displayOrder}</span>
+                                  <span style={{ fontWeight: 'bold', color: '#1a2332', fontSize: '14px', lineHeight: '1.3' }}>{task.title}</span>
+                                  {task.isCritical && <span style={{ fontSize: '10px', background: '#fee', color: '#e74c3c', padding: '1px 5px', borderRadius: '4px', fontWeight: 'bold' }}>קריטי</span>}
+                                  {task.isCriticalForGo && <span style={{ fontSize: '10px', background: '#fff3e0', color: '#d35400', padding: '1px 5px', borderRadius: '4px', fontWeight: 'bold' }}>GO/NO GO</span>}
+                                </div>
+                                <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                  {task.crNumber && task.crNumber.split(',').map((cr: string) => cr.trim()).filter(Boolean).map((cr: string) => (
+                                    <span key={cr} style={{ fontSize: '11px', background: '#e8f4fd', color: '#2980b9', padding: '1px 6px', borderRadius: '4px', fontWeight: '600' }}>CR# {cr}</span>
+                                  ))}
                                   {task.dependencies?.length > 0 && (() => {
                                     const names = task.dependencies.map((d: any) => d.dependsOn?.title).filter(Boolean);
                                     if (!names.length) return null;
-                                    const multi = names.length > 1;
                                     return (
-                                      <span style={{ fontSize: '12px', color: '#6c3483', background: '#f5eef8', padding: '2px 9px', borderRadius: '10px', border: '1px solid #d2b4de', whiteSpace: 'nowrap' }}>
-                                        🔗 לא לפני ש{multi ? 'משימות' : 'משימה'} {names.join(', ')} {multi ? 'מבוצעות' : 'מבוצעת'}
+                                      <span style={{ fontSize: '11px', color: '#6c3483', background: '#f5eef8', padding: '1px 7px', borderRadius: '8px', border: '1px solid #d2b4de' }}>
+                                        🔗 {names.join(' · ')}
                                       </span>
                                     );
                                   })()}
-                                </div>
-                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                  {task.assignedUserName && <span style={{ fontSize: '12px', color: '#666' }}>👤 {task.assignedUserName}</span>}
-                                  {task.assignedTeam && <span style={{ fontSize: '12px', color: '#666' }}>👥 {task.assignedTeam.name}</span>}
-                                  {task.crNumber && task.crNumber.split(',').map((cr: string) => cr.trim()).filter(Boolean).map((cr: string) => (
-                                    <span key={cr} style={{ fontSize: '12px', background: '#e8f4fd', color: '#2980b9', padding: '1px 6px', borderRadius: '4px' }}>CR# {cr}</span>
-                                  ))}
-                                  {task.application && <span style={{ fontSize: '12px', background: '#f0f0f0', color: '#555', padding: '1px 6px', borderRadius: '4px' }}>{task.application}</span>}
-                                  <span style={{ fontSize: '12px', background: task.environment === 'HOT' ? '#fee' : task.environment === 'HOTNET' ? '#e8f4fd' : '#f0f0f0', color: task.environment === 'HOT' ? '#c0392b' : task.environment === 'HOTNET' ? '#2980b9' : '#555', padding: '1px 6px', borderRadius: '4px' }}>{task.environment}</span>
-                                  {task.duration && <span style={{ fontSize: '12px', background: '#fef9e7', color: '#b7950b', padding: '1px 6px', borderRadius: '4px' }}>⏱ {task.duration}</span>}
-                                  {(task.plannedStart || displayEnd) && (
-                                    <span style={{ fontSize: '12px', background: '#fff3e0', color: '#e65100', padding: '1px 6px', borderRadius: '4px' }}>
-                                      📅 {task.plannedStart ? `${formatDate(task.plannedStart)} ` : ''}{formatTime(task.plannedStart)}
-                                      {displayEnd && ` — ${formatTime(displayEnd)}`}
-                                      {computedEnd && !task.plannedEnd && ' (מחושב)'}
-                                      {task.plannedStart && displayEnd && calcDuration(task.plannedStart, displayEnd) && ` · ${calcDuration(task.plannedStart, displayEnd)}`}
-                                    </span>
-                                  )}
-                                  {task.startedAt && task.completedAt && (
-                                    <span style={{ fontSize: '12px', background: '#e8f5e9', color: '#2e7d32', padding: '1px 6px', borderRadius: '4px' }}>
-                                      ✅ {formatTime(task.startedAt)} — {formatTime(task.completedAt)}
-                                      {calcDuration(task.startedAt, task.completedAt) && ` (${calcDuration(task.startedAt, task.completedAt)})`}
-                                    </span>
-                                  )}
-                                  {task.dependencyNote && <span style={{ fontSize: '12px', background: '#f9ebff', color: '#7d3c98', padding: '1px 6px', borderRadius: '4px' }}>🔗 {task.dependencyNote}</span>}
-                                  {task.notes && <span style={{ fontSize: '12px', background: '#f0f0f0', color: '#555', padding: '1px 6px', borderRadius: '4px' }}>📝 {task.notes}</span>}
-                                  {task.isCritical && <span style={{ fontSize: '12px', background: '#fee', color: '#e74c3c', padding: '1px 6px', borderRadius: '4px' }}>קריטי</span>}
-                                  {task.isCriticalForGo && <span style={{ fontSize: '12px', background: '#fff3e0', color: '#d35400', padding: '1px 6px', borderRadius: '4px' }}>GO/NO GO</span>}
+                                  {task.dependencyNote && <span style={{ fontSize: '11px', background: '#f9ebff', color: '#7d3c98', padding: '1px 6px', borderRadius: '4px' }}>🔗 {task.dependencyNote}</span>}
+                                  {task.notes && <span style={{ fontSize: '11px', background: '#f5f5f5', color: '#666', padding: '1px 6px', borderRadius: '4px' }}>📝 {task.notes}</span>}
                                 </div>
                               </div>
-                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginRight: '8px', flexShrink: 0 }}>
-                                <span style={{ fontSize: '12px', background: '#e8f4fd', color: '#2980b9', padding: '3px 8px', borderRadius: '12px' }}>{task.status}</span>
-                                {!isLocked && <>
-                                  <button onClick={() => duplicateTask(task.id)} style={{ padding: '4px 10px', background: '#7f8c8d', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }} title="שכפל משימה">⧉</button>
-                                  {isManager && (
-                                    <button
-                                      onClick={() => setDialog({
-                                        title: 'המרה לתת-שלב',
-                                        message: `להפוך את "${task.title}" לתת-שלב?\nהמשימה תימחק וייווצר תת-שלב חדש במקומה.\nהפעולה בלתי הפיכה.`,
-                                        variant: 'warning',
-                                        confirmLabel: 'המר לתת-שלב',
-                                        cancelLabel: 'ביטול',
-                                        onConfirm: async () => {
-                                          await axios.post(`${API}/versions/tasks/${task.id}/promote`, {}, { headers });
-                                          onRefresh();
-                                        },
-                                        onCancel: () => {},
-                                      })}
-                                      style={{ padding: '4px 10px', background: '#8e44ad', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}
-                                      title="הפוך לתת-שלב">
-                                      ▲ תת-שלב
-                                    </button>
-                                  )}
-                                  <button onClick={() => {
-                                    const base = { ...task, assignedTeamId: task.assignedTeam?.id || task.assignedTeamId };
-                                    base._durationMins = task.duration ? (parseDurationToMinutes(task.duration) ?? '') : '';
-                                    base._originalDeps = [...(task.dependencies || [])];
-                                    setEditingTask(base);
-                                    setEditFilters({ user: '', team: '', app: '' });
-                                    setEditSaveOk(false);
-                                  }} style={{ padding: '4px 10px', background: '#f39c12', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>עריכה</button>
-                                  <button onClick={() => deleteTask(task.id, task.title)} style={{ padding: '4px 10px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>מחק</button>
-                                </>}
+
+                              {/* ── Zone 2: צוות · עובד · app · env ── */}
+                              <div style={{ padding: '9px 12px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '4px', borderRight: '1px solid #e8ecf0', background: '#fafbfc' }}>
+                                {task.assignedTeam?.name && (
+                                  <span style={{ fontSize: '12px', background: '#e3f2fd', color: '#1565c0', padding: '2px 8px', borderRadius: '4px', fontWeight: '600', display: 'inline-block' }}>
+                                    👥 {task.assignedTeam.name}
+                                  </span>
+                                )}
+                                <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                  {task.assignedUserName && <span style={{ fontSize: '12px', color: '#444' }}>👤 {task.assignedUserName}</span>}
+                                  {task.application && <span style={{ fontSize: '11px', background: '#f0f0f0', color: '#555', padding: '1px 5px', borderRadius: '4px' }}>{task.application}</span>}
+                                  <span style={{ fontSize: '11px', fontWeight: '600', background: task.environment === 'HOT' ? '#fdedec' : task.environment === 'HOTNET' ? '#eaf4fd' : '#f0f3f4', color: task.environment === 'HOT' ? '#c0392b' : task.environment === 'HOTNET' ? '#2471a3' : '#7f8c8d', padding: '1px 6px', borderRadius: '4px' }}>
+                                    {task.environment === 'BOTH' ? 'HOT+HOTNET' : task.environment}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* ── Zone 3: משך + זמן ── */}
+                              <div style={{ padding: '9px 12px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '4px', borderRight: '1px solid #e8ecf0', background: '#fafbfc' }}>
+                                {task.duration && (
+                                  <span style={{ fontSize: '12px', background: '#fef9e7', color: '#9a7d0a', padding: '2px 8px', borderRadius: '4px', fontWeight: '600', textAlign: 'center' }}>⏱ {task.duration}</span>
+                                )}
+                                {(task.plannedStart || displayEnd) && (
+                                  <span style={{ fontSize: '12px', color: '#e65100', textAlign: 'center', background: '#fff8f0', padding: '2px 8px', borderRadius: '4px' }}>
+                                    {task.plannedStart && <span style={{ fontSize: '11px', color: '#aaa', marginLeft: '4px' }}>{formatDate(task.plannedStart)}</span>}
+                                    {formatTime(task.plannedStart)}{displayEnd ? ` — ${formatTime(displayEnd)}` : ''}
+                                    {computedEnd && !task.plannedEnd && <span style={{ fontSize: '10px', color: '#aaa' }}> *</span>}
+                                  </span>
+                                )}
+                                {task.startedAt && task.completedAt && (
+                                  <span style={{ fontSize: '11px', background: '#e8f5e9', color: '#1e8449', padding: '2px 8px', borderRadius: '4px', textAlign: 'center' }}>
+                                    ✅ {formatTime(task.startedAt)} — {formatTime(task.completedAt)}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* ── Zone 4: סטטוס + כפתורים ── */}
+                              <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '5px', minWidth: '100px' }}>
+                                <span style={{ fontSize: '11px', background: task.status === 'DONE' ? '#e8f5e9' : task.status === 'IN_PROGRESS' ? '#fff3cd' : '#e8f4fd', color: task.status === 'DONE' ? '#1e8449' : task.status === 'IN_PROGRESS' ? '#856404' : '#2471a3', padding: '3px 10px', borderRadius: '10px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                                  {task.status}
+                                </span>
+                                {!isLocked && (
+                                  <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                                    <button onClick={() => duplicateTask(task.id)} style={{ padding: '3px 8px', background: '#95a5a6', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '11px' }} title="שכפל">⧉</button>
+                                    {isManager && (
+                                      <button
+                                        onClick={() => setDialog({
+                                          title: 'המרה לתת-שלב',
+                                          message: `להפוך את "${task.title}" לתת-שלב?\nהמשימה תימחק וייווצר תת-שלב חדש במקומה.\nהפעולה בלתי הפיכה.`,
+                                          variant: 'warning',
+                                          confirmLabel: 'המר לתת-שלב',
+                                          cancelLabel: 'ביטול',
+                                          onConfirm: async () => {
+                                            await axios.post(`${API}/versions/tasks/${task.id}/promote`, {}, { headers });
+                                            onRefresh();
+                                          },
+                                          onCancel: () => {},
+                                        })}
+                                        style={{ padding: '3px 8px', background: '#8e44ad', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '11px' }} title="המר לתת-שלב">▲</button>
+                                    )}
+                                    <button onClick={() => {
+                                      const base = { ...task, assignedTeamId: task.assignedTeam?.id || task.assignedTeamId };
+                                      base._durationMins = task.duration ? (parseDurationToMinutes(task.duration) ?? '') : '';
+                                      base._originalDeps = [...(task.dependencies || [])];
+                                      setEditingTask(base);
+                                      setEditFilters({ user: '', team: '', app: '' });
+                                      setEditSaveOk(false);
+                                    }} style={{ padding: '3px 8px', background: '#e67e22', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '11px' }}>✏️</button>
+                                    <button onClick={() => deleteTask(task.id, task.title)} style={{ padding: '3px 8px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '11px' }}>🗑</button>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           );
@@ -2190,6 +2513,7 @@ const VersionDetail: React.FC<{
                               {phaseProposals.map((p: any) => {
                                 const isSelected = selectedProposalId === p.id;
                                 const teamName = teams.find((t: any) => t.id === p.teamId)?.name || '';
+                                const sel = isSelected;
                                 return (
                                   <div key={p.id} onClick={() => {
                                     setSelectedProposalId(p.id);
@@ -2205,22 +2529,51 @@ const VersionDetail: React.FC<{
                                     }));
                                     if (p.teamId) setSelectedTeam(p.teamId);
                                   }} style={{
-                                    padding: '6px 10px', borderRadius: '6px', cursor: 'pointer',
-                                    background: isSelected ? '#1a5c2a' : 'white',
-                                    border: `1px solid ${isSelected ? '#1a5c2a' : '#a8d5b5'}`,
-                                    display: 'flex', alignItems: 'center', gap: '6px',
+                                    padding: '10px 12px', borderRadius: '8px', cursor: 'pointer',
+                                    background: sel ? '#1a5c2a' : 'white',
+                                    border: `1px solid ${sel ? '#27ae60' : '#c3e6cb'}`,
+                                    borderRight: `4px solid ${sel ? '#27ae60' : '#a8d5b5'}`,
+                                    transition: 'all 0.15s',
                                   }}>
-                                    {p.crNumber && (
-                                      <span style={{ background: isSelected ? 'rgba(255,255,255,0.25)' : '#1a2332', color: 'white', padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontFamily: 'monospace', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                                        {p.crNumber}
+                                    {/* שורה 1: CR badge + כותרת */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                                      {p.crNumber && (
+                                        <span style={{ background: sel ? 'rgba(255,255,255,0.2)' : '#1a2332', color: 'white', padding: '2px 8px', borderRadius: '5px', fontSize: '11px', fontFamily: 'monospace', flexShrink: 0, fontWeight: '700' }}>
+                                          {p.crNumber}
+                                        </span>
+                                      )}
+                                      <span style={{ fontWeight: '700', fontSize: '14px', color: sel ? 'white' : '#1a2332', flex: 1 }}>
+                                        {p.title}
                                       </span>
-                                    )}
-                                    <span style={{ fontWeight: 'bold', fontSize: '13px', color: isSelected ? 'white' : '#1a2332', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                      {p.title}
-                                    </span>
-                                    <span style={{ fontSize: '11px', color: isSelected ? 'rgba(255,255,255,0.8)' : '#666', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                                      {[teamName, p.app, p.estimatedMins ? `${p.estimatedMins} דק'` : ''].filter(Boolean).join(' · ')}
-                                    </span>
+                                    </div>
+                                    {/* שורה 2: badges */}
+                                    <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                      {teamName && (
+                                        <span style={{ fontSize: '12px', background: sel ? 'rgba(255,255,255,0.15)' : '#eef3fb', color: sel ? 'rgba(255,255,255,0.9)' : '#2d4a7a', padding: '2px 8px', borderRadius: '5px', fontWeight: '600' }}>
+                                          👥 {teamName}
+                                        </span>
+                                      )}
+                                      {p.app && (
+                                        <span style={{ fontSize: '12px', background: sel ? 'rgba(255,255,255,0.15)' : '#f0f4fa', color: sel ? 'rgba(255,255,255,0.9)' : '#333', padding: '2px 8px', borderRadius: '5px', fontWeight: '600', border: `1px solid ${sel ? 'transparent' : '#dde3ee'}` }}>
+                                          {p.app}
+                                        </span>
+                                      )}
+                                      {p.estimatedMins && (
+                                        <span style={{ fontSize: '12px', color: sel ? 'rgba(255,255,255,0.8)' : '#555', fontWeight: '600' }}>
+                                          ⏱ {p.estimatedMins} דק'
+                                        </span>
+                                      )}
+                                      {p.assignedUserName && (
+                                        <span style={{ fontSize: '12px', color: sel ? 'rgba(255,255,255,0.75)' : '#666' }}>
+                                          👤 {p.assignedUserName}
+                                        </span>
+                                      )}
+                                      {p.notes && (
+                                        <span style={{ fontSize: '11px', color: sel ? 'rgba(255,255,255,0.65)' : '#888', fontStyle: 'italic' }}>
+                                          💬 {p.notes}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 );
                               })}
@@ -2398,8 +2751,6 @@ const VersionDetail: React.FC<{
                                   onClick={() => {
                                     if (!newDepAddSelectId) return;
                                     const depTask = allTasksInScope.find((t: any) => t.id === newDepAddSelectId);
-                                    // eslint-disable-next-line no-console
-                                    console.log('[NEW_DEP]', { id: newDepAddSelectId, found: !!depTask, scopeCount: allTasksInScope.length, plannedEnd: depTask?.plannedEnd, plannedStart: depTask?.plannedStart, duration: depTask?.duration });
                                     setNewTaskDepIds(ids => [...ids, newDepAddSelectId]);
                                     setNewDepAddSelectId('');
                                     if (!depTask) return;
@@ -3063,6 +3414,43 @@ const VersionDetail: React.FC<{
           </div>
         );
       })()}
+
+      {/* ── פאנל סקירת הגשת צוות ── */}
+      {teamPanelOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 3000, direction: 'rtl' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,20,40,0.6)' }} onClick={closeTeamPanel} />
+          <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: '800px', maxWidth: '95vw', background: 'white', boxShadow: '-8px 0 32px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 20px', background: '#1a2332', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+              <div>
+                <div style={{ fontWeight: 'bold', fontSize: '16px' }}>📋 סקירת הגשת משימות</div>
+                <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>{teamPanelOpen.teamName} — {version.name}</div>
+              </div>
+              <button onClick={closeTeamPanel} style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>✕ סגור</button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              <TeamLeadProposalView
+                token={token}
+                versionId={version.id}
+                versionName={version.name}
+                teamIdOverride={teamPanelOpen.teamId}
+                teamNameOverride={teamPanelOpen.teamName}
+                isManager={isManager}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── אשף הכנת תוכנית ── */}
+      {wizardOpen && (
+        <PlanWizard
+          version={version}
+          token={token}
+          users={users}
+          onClose={() => setWizardOpen(false)}
+          onRefresh={() => { onRefresh(); }}
+        />
+      )}
   </div>
   );
 };

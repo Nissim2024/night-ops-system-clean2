@@ -8,13 +8,13 @@ const prisma = new PrismaClient({
 export const ALL_PERMISSIONS = [
   'screen:prep', 'screen:handoff', 'screen:timeline',
   'screen:night', 'screen:summary', 'screen:admin',
-  'action:import', 'action:gonogo', 'action:task_status', 'action:user_manage',
-  'action:override_version_edit', 'action:select_all_tasks', 'action:template_delete',
+  'action:import', 'action:gonogo', 'action:task_status', 'action:open_task_for_execution',
+  'action:user_manage', 'action:override_version_edit', 'action:select_all_tasks', 'action:template_delete',
 ];
 
 const DEFAULTS: Record<string, string[]> = {
-  ADMIN:           [...ALL_PERMISSIONS], // includes action:template_delete
-  RELEASE_MANAGER: ['screen:prep','screen:handoff','screen:timeline','screen:night','screen:summary','action:import','action:gonogo','action:task_status','action:override_version_edit','action:select_all_tasks'],
+  ADMIN:           [...ALL_PERMISSIONS],
+  RELEASE_MANAGER: ['screen:prep','screen:handoff','screen:timeline','screen:night','screen:summary','action:import','action:gonogo','action:task_status','action:open_task_for_execution','action:override_version_edit','action:select_all_tasks'],
   TEAM_LEAD:       ['screen:handoff','screen:timeline','screen:night','screen:summary','action:task_status'],
   EMPLOYEE:        ['action:task_status'],
   VIEWER:          ['screen:timeline','screen:night','screen:summary'],

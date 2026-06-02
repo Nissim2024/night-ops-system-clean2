@@ -363,6 +363,35 @@ async addTask(subPhaseId: string, data: {
     });
   }
 
+  async cancelRehearsal(id: string) {
+    const version = await prisma.version.findUnique({ where: { id } });
+    if (!version) throw new NotFoundException('Version not found');
+    if (version.status !== VersionStatus.REHEARSAL) {
+      throw new BadRequestException('הגרסה אינה במצב חזרה גנרלית');
+    }
+
+    // Block if any task has already started
+    const startedCount = await prisma.task.count({
+      where: { versionId: id, actualStart: { not: null } },
+    });
+    if (startedCount > 0) {
+      throw new BadRequestException(
+        `לא ניתן לבטל — ${startedCount} משימות כבר החלו לרוץ`
+      );
+    }
+
+    // Reset all tasks to WAITING
+    await prisma.task.updateMany({
+      where: { versionId: id },
+      data: { status: 'WAITING', actualStart: null, actualFinish: null, blockedReason: null },
+    });
+
+    return prisma.version.update({
+      where: { id },
+      data: { status: VersionStatus.APPROVED, actualStart: null },
+    });
+  }
+
   async setNotRequiredForApproval(versionId: string, teamId: string, notRequiredForApproval: boolean) {
     return prisma.teamSubmission.upsert({
       where: { versionId_teamId: { versionId, teamId } },
@@ -377,8 +406,9 @@ async addTask(subPhaseId: string, data: {
 
     // State machine: enforce allowed transitions
     const ALLOWED: Partial<Record<VersionStatus, VersionStatus[]>> = {
-      [VersionStatus.DRAFT]:         [VersionStatus.COLLECTING, VersionStatus.APPROVED],
-      [VersionStatus.COLLECTING]:    [VersionStatus.REFINING, VersionStatus.APPROVED, VersionStatus.DRAFT],
+      [VersionStatus.DRAFT]:         [VersionStatus.CR_REVIEW, VersionStatus.COLLECTING, VersionStatus.APPROVED],
+      [VersionStatus.CR_REVIEW]:     [VersionStatus.COLLECTING, VersionStatus.DRAFT],
+      [VersionStatus.COLLECTING]:    [VersionStatus.REFINING, VersionStatus.APPROVED, VersionStatus.DRAFT, VersionStatus.CR_REVIEW],
       [VersionStatus.REFINING]:      [VersionStatus.REVIEW, VersionStatus.COLLECTING],
       [VersionStatus.REVIEW]:        [VersionStatus.APPROVED, VersionStatus.REFINING],
       [VersionStatus.APPROVED]:      [VersionStatus.REHEARSAL, VersionStatus.ACTIVE, VersionStatus.DRAFT],
@@ -419,6 +449,17 @@ async addTask(subPhaseId: string, data: {
           const teamNames = notSubmitted.map((s: any) => s.team.name).join(', ');
           throw new BadRequestException(`הצוותים הבאים טרם הגישו: ${teamNames}`);
         }
+      }
+
+      // All CrPlans must be approved by manager before moving to REFINING
+      const unapprovedPlans = await prisma.crPlan.findMany({
+        where: { versionId: id, planApproved: false, notNeededForPlan: false },
+        distinct: ['crNumber'] as any,
+        select: { crNumber: true },
+      });
+      if (unapprovedPlans.length > 0) {
+        const crNums = unapprovedPlans.map((p: any) => p.crNumber).join(', ');
+        throw new BadRequestException(`לא ניתן לעבור לשלב הבא — יש ${unapprovedPlans.length} CR שטרם אושרו: ${crNums}`);
       }
     }
 
@@ -467,14 +508,14 @@ async addTask(subPhaseId: string, data: {
         version.status === VersionStatus.MORNING_AFTER;
 
       if (isPostNight) {
-        // Check 1: all tasks must be terminal
+        // Check 1: all tasks must be terminal (skippable with force for MANAGER/ADMIN)
         const pendingCount = await prisma.task.count({
           where: {
             versionId: id,
             status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK'] as any },
           },
         });
-        if (pendingCount > 0) {
+        if (pendingCount > 0 && !force) {
           throw new BadRequestException(
             `לא ניתן לסיים פעילות: ${pendingCount} משימות עדיין לא הושלמו`
           );
@@ -529,6 +570,15 @@ async addTask(subPhaseId: string, data: {
     });
   }
 
+  async updateReviewMeetingTime(id: string, reviewMeetingTime: string | null) {
+    const version = await prisma.version.findUnique({ where: { id } });
+    if (!version) throw new NotFoundException('Version not found');
+    return (prisma.version.update as any)({
+      where: { id },
+      data: { reviewMeetingTime: reviewMeetingTime ? new Date(reviewMeetingTime) : null },
+    });
+  }
+
   async archiveVersion(id: string) {
     const version = await prisma.version.findUnique({ where: { id } });
     if (!version) throw new NotFoundException('Version not found');
@@ -566,6 +616,35 @@ async addTask(subPhaseId: string, data: {
     const taskCount = await prisma.task.count({
       where: { versionId, assignedTeamId: teamId },
     });
+
+    // Validate submission: allow if all CrPlans are "not needed", block if active CRs have no proposals
+    const crPlans = await prisma.crPlan.findMany({
+      where: { versionId, teamId },
+      select: { notNeededForPlan: true },
+    });
+
+    const proposalCount = await prisma.taskProposal.count({ where: { versionId, teamId } });
+
+    if (crPlans.length > 0) {
+      const allNotNeeded = crPlans.every((cp: any) => cp.notNeededForPlan);
+      if (!allNotNeeded && proposalCount === 0) {
+        throw new BadRequestException('לא ניתן להגיש — יש פיתוחים הדורשים משימות. הוסף משימות או סמן "לא נדרש לתוכנית" עבור כל פיתוח.');
+      }
+      // allNotNeeded === true → all CRs acknowledged, submission allowed with 0 proposals
+    } else {
+      // No CrPlans synced yet — require at least one proposal
+      if (proposalCount === 0) {
+        throw new BadRequestException('לא ניתן להגיש — לא נמצאו משימות. סנכרן את רשימת הפיתוחים ומלא משימות לפני ההגשה.');
+      }
+    }
+
+    // Block submission if any proposal is still in DRAFT (not ready, not already used in a task)
+    const draftCount = await prisma.taskProposal.count({
+      where: { versionId, teamId, status: 'DRAFT', usedInTaskId: null },
+    });
+    if (draftCount > 0) {
+      throw new BadRequestException(`לא ניתן להגיש — ${draftCount} משימ${draftCount === 1 ? 'ה' : 'ות'} עדיין בטיוטא. סמן אותן כ"מוכן" לפני ההגשה.`);
+    }
 
     // Idempotent: if already submitted, return current record without updating submittedAt
     const existing = await prisma.teamSubmission.findUnique({
@@ -1135,6 +1214,141 @@ async addTask(subPhaseId: string, data: {
     return { preview: false, updated: updates.length, cleared: staleTaskIds.length, ...(phaseAdjustments.length && { phaseAdjustments }) };
   }
 
+  async getSubPhases(versionId: string) {
+    const phases = await prisma.phase.findMany({
+      where: { versionId },
+      include: { subPhases: { orderBy: { orderIndex: 'asc' }, select: { id: true, name: true, orderIndex: true } } },
+      orderBy: { orderIndex: 'asc' },
+    });
+    return phases.map(p => ({
+      id: p.id, name: p.name, orderIndex: p.orderIndex,
+      environment: p.environment,
+      subPhases: p.subPhases,
+    }));
+  }
+
+  async getCrReview(versionId: string) {
+    // Primary source: CrPlan (submitted by team leads)
+    // Fallback enrichment: VersionCrAssignment for crLabel
+    const allPlans = await prisma.crPlan.findMany({
+      where: { versionId },
+      select: { crNumber: true, crLabel: true },
+    });
+
+    const vcaMap = new Map<string, string | null>();
+    const vcas = await prisma.versionCrAssignment.findMany({
+      where: { versionId },
+      select: { crNumber: true, crLabel: true },
+    });
+    for (const v of vcas) {
+      if (!vcaMap.has(v.crNumber)) vcaMap.set(v.crNumber, v.crLabel ?? null);
+    }
+
+    const crMap = new Map<string, string | null>();
+    for (const p of allPlans) {
+      if (!crMap.has(p.crNumber)) {
+        crMap.set(p.crNumber, p.crLabel ?? vcaMap.get(p.crNumber) ?? null);
+      }
+    }
+    // Also include CRs that are in VCA but not in CrPlan
+    for (const [crNum, crLabel] of vcaMap) {
+      if (!crMap.has(crNum)) crMap.set(crNum, crLabel);
+    }
+
+    // Sort by crNumber
+    const sortedEntries = Array.from(crMap.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+
+    const result: any[] = [];
+
+    for (const [crNumber, crLabel] of sortedEntries) {
+      const crPlans = await prisma.crPlan.findMany({
+        where: { versionId, crNumber },
+        include: {
+          team: {
+            select: {
+              id: true,
+              name: true,
+              members: {
+                where: { isLead: true },
+                include: { user: { select: { id: true, fullName: true } } },
+              },
+            },
+          },
+        },
+      });
+
+      // Task proposals grouped by phase
+      const proposals = await prisma.taskProposal.findMany({
+        where: { versionId, crNumber },
+        select: {
+          id: true, teamId: true, title: true, app: true,
+          estimatedMins: true, phase: true, notes: true,
+          assignedUserName: true, status: true,
+        },
+        orderBy: { phase: 'asc' },
+      });
+
+      // Enrich proposals with team names
+      const teamNameMap: Record<string, string> = {};
+      for (const plan of crPlans) {
+        if (plan.team) teamNameMap[plan.teamId] = plan.team.name;
+      }
+      // Fill in any team IDs from proposals that are not in crPlans
+      const missingIds = [...new Set(proposals.map(p => p.teamId).filter(id => !teamNameMap[id]))];
+      if (missingIds.length > 0) {
+        const extraTeams = await prisma.team.findMany({ where: { id: { in: missingIds } }, select: { id: true, name: true } });
+        for (const t of extraTeams) teamNameMap[t.id] = t.name;
+      }
+
+      const proposalsByPhase: Record<number, any[]> = { 1: [], 2: [], 3: [], 4: [] };
+      for (const p of proposals) {
+        const phase = p.phase ?? 1;
+        if (!proposalsByPhase[phase]) proposalsByPhase[phase] = [];
+        proposalsByPhase[phase].push({ ...p, teamName: teamNameMap[p.teamId] ?? p.teamId });
+      }
+
+      const teams = crPlans.map((plan: any) => ({
+        teamId: plan.teamId,
+        teamName: plan.team?.name ?? '',
+        teamLead: plan.team?.members?.[0]?.user?.fullName ?? null,
+        crPlan: {
+          crManager: plan.crManager ?? null,
+          crDescription: plan.crDescription ?? null,
+          crType: plan.crType ?? null,
+          riskLevel: plan.riskLevel ?? null,
+          systems: plan.systems ?? [],
+          nightTestingNotes: plan.nightTestingNotes ?? null,
+          gradualRollout: plan.gradualRollout,
+          gradualDetails: plan.gradualDetails ?? null,
+          rollbackPlan: plan.rollbackPlan ?? null,
+          morningMonitoring: plan.morningMonitoring ?? null,
+          notNeededForPlan: plan.notNeededForPlan,
+        },
+      }));
+
+      const managers = [...new Set(
+        teams.map((t: any) => t.teamLead).filter(Boolean) as string[]
+      )];
+
+      const crApproved = crPlans.length > 0 && crPlans.every((p: any) => p.planApproved);
+      const planApprovedAt = crPlans.find((p: any) => p.planApprovedAt)?.planApprovedAt ?? null;
+
+      result.push({
+        crNumber,
+        crLabel: crLabel ?? crNumber,
+        managers,
+        hasGradualRollout: teams.some((t: any) => t.crPlan.gradualRollout),
+        crApproved,
+        planApprovedAt,
+        teams,
+        proposalsByPhase,
+        totalProposals: proposals.length,
+      });
+    }
+
+    return result;
+  }
+
   async fixTaskOrder(versionId: string) {
     const phases = await prisma.phase.findMany({
       where: { versionId },
@@ -1243,5 +1457,115 @@ async addTask(subPhaseId: string, data: {
     }
 
     return { message: 'שלבים ברירת מחדל נוצרו', phases: createdPhases };
+  }
+
+  async updateWizardState(versionId: string, state: Record<string, string | null>) {
+    const version = await prisma.version.findUnique({ where: { id: versionId } });
+    if (!version) throw new NotFoundException('Version not found');
+    return prisma.version.update({ where: { id: versionId }, data: { wizardState: state } });
+  }
+
+  async detectAnomalies(versionId: string) {
+    const phases = await prisma.phase.findMany({
+      where: { versionId },
+      include: {
+        subPhases: {
+          orderBy: { orderIndex: 'asc' },
+          include: {
+            tasks: {
+              orderBy: { orderIndex: 'asc' },
+              include: {
+                dependencies: {
+                  include: { dependsOn: { select: { id: true, title: true } } },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { orderIndex: 'asc' },
+    });
+
+    const anomalies: {
+      type: string;
+      phaseId: string;
+      phaseName: string;
+      phaseEnd: string;
+      taskId: string;
+      taskTitle: string;
+      taskEnd: string;
+      overrunMins: number;
+      duration: string | null;
+      assignedUserName: string | null;
+      dependencies: { taskId: string; taskTitle: string }[];
+    }[] = [];
+
+    for (const phase of phases) {
+      if (!phase.plannedEnd) continue;
+      const phaseEnd = new Date(phase.plannedEnd);
+
+      for (const sub of phase.subPhases) {
+        for (const task of sub.tasks) {
+          if (!task.plannedEnd) continue;
+          const taskEnd = new Date(task.plannedEnd as any);
+          if (taskEnd.getTime() > phaseEnd.getTime()) {
+            anomalies.push({
+              type: 'PHASE_OVERRUN',
+              phaseId: phase.id,
+              phaseName: phase.name,
+              phaseEnd: phase.plannedEnd.toISOString(),
+              taskId: task.id,
+              taskTitle: task.title,
+              taskEnd: (task.plannedEnd as any).toISOString(),
+              overrunMins: Math.round((taskEnd.getTime() - phaseEnd.getTime()) / 60000),
+              duration: task.duration,
+              assignedUserName: task.assignedUserName,
+              dependencies: (task as any).dependencies.map((d: any) => ({
+                taskId: d.dependsOnTaskId,
+                taskTitle: d.dependsOn?.title ?? d.dependsOnTaskId,
+              })),
+            });
+          }
+        }
+      }
+    }
+
+    return { anomalies, count: anomalies.length };
+  }
+
+  async sortByPlannedStart(versionId: string) {
+    const phases = await prisma.phase.findMany({
+      where: { versionId },
+      include: {
+        subPhases: {
+          include: {
+            tasks: { orderBy: { orderIndex: 'asc' } },
+          },
+        },
+      },
+    });
+
+    const ops: any[] = [];
+    let reordered = 0;
+
+    for (const phase of phases) {
+      for (const sub of phase.subPhases) {
+        const withTime = sub.tasks
+          .filter((t: any) => t.plannedStart)
+          .sort((a: any, b: any) => new Date(a.plannedStart).getTime() - new Date(b.plannedStart).getTime());
+        const withoutTime = sub.tasks.filter((t: any) => !t.plannedStart);
+        const sorted = [...withTime, ...withoutTime];
+
+        sorted.forEach((task: any, idx: number) => {
+          if (task.orderIndex !== idx + 1) {
+            ops.push(prisma.task.update({ where: { id: task.id }, data: { orderIndex: idx + 1 } }));
+            reordered++;
+          }
+        });
+      }
+    }
+
+    if (ops.length > 0) await prisma.$transaction(ops);
+    return { reordered };
   }
 }

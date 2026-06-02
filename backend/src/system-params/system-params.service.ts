@@ -12,6 +12,24 @@ const DEFAULT_PARAMS = [
     label: 'נתיב קובץ הגשת פיתוחים',
     type: 'text',
   },
+  {
+    key: 'SUMMARY_OVERRUN_THRESHOLD_MINS',
+    value: '30',
+    label: 'סף חריגת זמן לדוח סיכום (דקות) — חריגה גדולה מזה מחייבת הסבר',
+    type: 'number',
+  },
+  {
+    key: 'WIZARD_AUTO_OPEN',
+    value: 'true',
+    label: 'פתח אשף הכנת תוכנית אוטומטית ביצירת גרסה מתבנית',
+    type: 'boolean',
+  },
+  {
+    key: 'USER_DEPS_CROSS_PHASE',
+    value: 'false',
+    label: 'אפשר יצירת תלויות per-user בין שלבים שונים (ברירת מחדל: בתוך שלב בלבד)',
+    type: 'boolean',
+  },
 ];
 
 @Injectable()

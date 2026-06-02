@@ -137,6 +137,7 @@ model Version {
   lastNightAt             DateTime?
   isArchived              Boolean       @default(false)
   archivedAt              DateTime?
+  wizardState             Json?
   createdAt               DateTime      @default(now())
   updatedAt               DateTime      @updatedAt
 
@@ -223,6 +224,8 @@ model Task {
   goNoGoWaived      Boolean         @default(false)
   waivedBy          String?
   waivedAt          DateTime?
+  failedReason      String?
+  failureReasonId   String?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
@@ -345,6 +348,13 @@ enum ProposalStatus {
   READY
 }
 
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  NEEDS_REVISION
+}
+
 model TaskProposal {
   id            String         @id @default(uuid())
   versionId     String
@@ -358,8 +368,13 @@ model TaskProposal {
   assignedUserName   String?        // whom the team lead designates as responsible
   crLabel            String?        // display label from QC for the linked CR
   phase         Int            // 1=בוקר גרסה, 2=HOTNET, 3=HOT, 4=בוקר לאחר
+  system        String?        // CRM / WIZ / ETL / EAI / MEDIATION …
+  actionType    String?        // הטמעת קוד / פרמטרים / הרשאות / תהליך / הסבה / פעולה ידנית
+  subPhaseId    String?        // exact sub-phase chosen (optional, used at conversion)
   status        ProposalStatus @default(DRAFT)
   usedInTaskId  String?        // set when manager picks this proposal
+  reviewStatus  ReviewStatus   @default(PENDING)
+  reviewNote    String?        // manager comment when rejecting / returning
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
@@ -372,6 +387,16 @@ model CrPlan {
   teamId            String
   crNumber          String
   crLabel           String?
+  crManager         String?  // מנהל CR מהקובץ
+  crDescription     String?  // פרטים מהקובץ
+  crType            String?  // תיקון תקלה / פיתוח / תשתית
+  riskLevel         String?  // LOW / MEDIUM / HIGH
+  systems           String[] @default([])
+  planApproved      Boolean  @default(false)
+  planApprovedAt    DateTime?
+  workPlan          String?
+  scripts           String?
+  runTimes          String?
   rollbackPlan      String?
   gradualRollout    Boolean  @default(false)
   gradualDetails    String?
@@ -405,10 +430,21 @@ model NightSummary {
   recipientsSnapshot Json?
   sentAt             DateTime?
   sentBy             String?
+  forceApprovedBy    String?
+  forceApprovedAt    DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
   version Version @relation(fields: [versionId], references: [id])
+}
+
+model FailureReason {
+  id               String   @id @default(uuid())
+  reason           String   @unique
+  requiresRollback Boolean  @default(false)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
 
 model SystemParam {

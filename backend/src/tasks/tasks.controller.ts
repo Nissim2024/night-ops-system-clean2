@@ -63,7 +63,7 @@ export class TasksController {
   @Patch(':id/status')
   updateStatus(
     @Param('id') id: string,
-    @Body() body: { status: TaskStatus; blockedReason?: string },
+    @Body() body: { status: TaskStatus; blockedReason?: string; failedReason?: string },
     @Request() req: any,
   ) {
     return this.tasksService.updateStatus(
@@ -72,6 +72,7 @@ export class TasksController {
       req.user.sub,
       req.ip,
       body.blockedReason,
+      body.failedReason,
     );
   }
 

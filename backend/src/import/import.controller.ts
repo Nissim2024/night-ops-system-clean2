@@ -25,10 +25,21 @@ export class ImportController {
   @Get('crs-for-team')
   async getCrsForTeam(
     @Query('versionId') versionId: string,
+    @Query('teamId') teamId: string | undefined,
     @Request() req: any,
   ) {
     if (!versionId) throw new BadRequestException('versionId חסר');
-    return this.importService.fetchCrsForTeam(versionId, req.user.sub);
+    return this.importService.fetchCrsForTeam(versionId, req.user.sub, req.user.role, teamId);
+  }
+
+  @Get('cr-summary')
+  async getCrSummary(
+    @Query('versionId') versionId: string,
+    @Request() req: any,
+  ) {
+    requireRole(req, MANAGERS);
+    if (!versionId) throw new BadRequestException('versionId חסר');
+    return this.importService.getCrSummary(versionId);
   }
 
   @Get('teams-without-proposals')

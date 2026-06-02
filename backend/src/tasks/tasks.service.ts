@@ -122,6 +122,7 @@ export class TasksService {
     userId: string,
     ipAddress?: string,
     blockedReason?: string,
+    failedReason?: string,
   ) {
     const VALID_STATUSES: TaskStatus[] = ['OPEN', 'WAITING', 'IN_PROGRESS', 'DONE', 'FAILED', 'ROLLED_BACK', 'BLOCKED'];
     if (!VALID_STATUSES.includes(status)) {
@@ -129,6 +130,41 @@ export class TasksService {
     }
     const before = await prisma.task.findUnique({ where: { id } });
     if (!before) throw new NotFoundException('Task not found');
+
+    // Phase-gate: only in ACTIVE mode (not REHEARSAL — planned times are for the real night, not the drill)
+    if (status === 'OPEN' && before.status === 'WAITING' && before.subPhaseId) {
+      const subPhase = await prisma.subPhase.findUnique({
+        where: { id: before.subPhaseId },
+        select: { phase: { select: { orderIndex: true, versionId: true, plannedStart: true } } },
+      });
+      if (subPhase) {
+        const { orderIndex, versionId, plannedStart } = subPhase.phase;
+        const version = await prisma.version.findUnique({ where: { id: versionId }, select: { status: true } });
+        if (version?.status === 'ACTIVE') {
+          const phaseStartArrived = plannedStart != null && new Date(plannedStart) <= new Date();
+          if (!phaseStartArrived) {
+            const prevPhases = await prisma.phase.findMany({
+              where: { versionId, orderIndex: { lt: orderIndex } },
+              select: { id: true, name: true, orderIndex: true },
+            });
+            if (prevPhases.length > 0) {
+              const incomplete = await prisma.task.count({
+                where: {
+                  subPhase: { phaseId: { in: prevPhases.map(p => p.id) } },
+                  status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK'] },
+                },
+              });
+              if (incomplete > 0) {
+                const lastPhase = prevPhases.sort((a, b) => b.orderIndex - a.orderIndex)[0];
+                throw new ForbiddenException(
+                  `לא ניתן לפתוח משימה — ${incomplete} משימות בשלב "${lastPhase.name}" טרם הסתיימו`,
+                );
+              }
+            }
+          }
+        }
+      }
+    }
 
     const statusData: any = { status };
     if (status === 'IN_PROGRESS' && !before.actualStart) {
@@ -140,6 +176,32 @@ export class TasksService {
     if (status === 'BLOCKED' && blockedReason !== undefined) {
       statusData.blockedReason = blockedReason;
     }
+
+    // ── Failure reason validation ──
+    // When marking FAILED: require a reason from the FailureReason catalogue.
+    // If no catalogue entries exist yet, we skip the requirement (graceful degradation).
+    let failureReasonRecord: { id: string; requiresRollback: boolean } | null = null;
+    if (status === 'FAILED') {
+      const catalogueCount = await (prisma as any).failureReason.count({ where: { isActive: true } });
+      if (catalogueCount > 0) {
+        if (!failedReason?.trim()) {
+          throw new BadRequestException('נדרשת סיבת כישלון — בחר סיבה מהרשימה');
+        }
+        failureReasonRecord = await (prisma as any).failureReason.findFirst({
+          where: { reason: failedReason.trim(), isActive: true },
+          select: { id: true, requiresRollback: true },
+        });
+        if (!failureReasonRecord) {
+          throw new BadRequestException(`סיבת הכישלון "${failedReason}" אינה קיימת ברשימה המאושרת`);
+        }
+        statusData.failedReason = failedReason.trim();
+        statusData.failureReasonId = failureReasonRecord.id;
+      } else if (failedReason?.trim()) {
+        // Catalogue empty but reason was provided — save it as free text
+        statusData.failedReason = failedReason.trim();
+      }
+    }
+
     // Any transition to or from FAILED invalidates a prior waiver:
     // - new failure (→ FAILED): fresh incident, old approval no longer relevant
     // - re-run (FAILED → *): task is being retried, waiver must not carry over
@@ -164,7 +226,11 @@ export class TasksService {
         taskId: id,
         action: 'STATUS_CHANGED',
         beforeData: { status: before.status } as any,
-        afterData: { status } as any,
+        afterData: {
+          status,
+          ...(failedReason && { failedReason }),
+          ...(failureReasonRecord?.requiresRollback && { requiresRollback: true }),
+        } as any,
         ipAddress,
       },
     });
@@ -174,7 +240,6 @@ export class TasksService {
     if (status === 'BLOCKED') {
       this.eventsGateway.emitTaskBlocked(task);
     } else if (before.status === 'BLOCKED') {
-      // was blocked, now unblocked
       this.eventsGateway.emitTaskUnblocked(task);
     }
 
@@ -187,7 +252,8 @@ export class TasksService {
       await this.autoOpenDependents(id);
     }
 
-    return task;
+    // Return requiresRollback flag alongside the task so the frontend can warn the user
+    return { ...task, requiresRollback: failureReasonRecord?.requiresRollback ?? false };
   }
 
   async update(id: string, data: any, userId: string) {

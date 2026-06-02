@@ -444,94 +444,181 @@ export class ImportService {
     'Telecom Team':            ['תקשורת'],
   };
 
-  async fetchCrsForTeam(versionId: string, userId: string): Promise<{ crNumber: string; crLabel: string; application: string }[]> {
-    // 1. Read file path from SystemParam
+  async fetchCrsForTeam(versionId: string, userId: string, userRole: string, teamIdOverride?: string): Promise<{ crNumber: string; crLabel: string; application: string; crManager: string; crDescription: string }[]> {
+    const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
+
+    // Resolve team ID
+    let resolvedTeamId: string;
+    if (teamIdOverride && MANAGERS.includes(userRole)) {
+      resolvedTeamId = teamIdOverride;
+    } else {
+      const membership = await prisma.teamMember.findFirst({ where: { userId }, select: { teamId: true } });
+      if (!membership) throw new BadRequestException('המשתמש אינו משויך לאף צוות');
+      resolvedTeamId = membership.teamId;
+    }
+
+    // Primary: read from VersionCrAssignment table (populated by sync)
+    const dbAssignments = await prisma.versionCrAssignment.findMany({
+      where: { versionId, teamId: resolvedTeamId },
+      orderBy: { crNumber: 'asc' },
+    });
+    if (dbAssignments.length > 0) {
+      return dbAssignments.map(a => ({
+        crNumber:      a.crNumber,
+        crLabel:       a.crLabel ?? `${a.crNumber}`,
+        application:   a.application ?? '',
+        crManager:     a.crManager ?? '',
+        crDescription: a.crDescription ?? '',
+      }));
+    }
+
+    // Fallback: read directly from Excel file (before first sync)
     const param = await prisma.systemParam.findUnique({ where: { key: 'EXCEL_FILE_PATH' } });
     const filePath = param?.value?.trim();
     if (!filePath) throw new BadRequestException('נתיב קובץ הגשת פיתוחים לא הוגדר בפרמטרי המערכת');
     if (!fs.existsSync(filePath)) throw new BadRequestException(`הקובץ לא נמצא בנתיב: ${filePath}`);
 
-    // 2. Get version name
     const version = await prisma.version.findUnique({ where: { id: versionId }, select: { name: true } });
     if (!version) throw new BadRequestException('גרסה לא נמצאה');
 
-    // 3. Find team for this user (any membership — role is already verified by JWT)
-    const membership = await prisma.teamMember.findFirst({
-      where: { userId },
-      include: { team: true },
-    });
-    if (!membership) throw new BadRequestException('המשתמש אינו משויך לאף צוות');
+    const team = await prisma.team.findUnique({ where: { id: resolvedTeamId }, select: { name: true } });
+    if (!team) throw new BadRequestException('צוות לא נמצא');
+    const teamCols = ImportService.TEAM_COLUMNS[team.name];
+    if (!teamCols || teamCols.length === 0) throw new BadRequestException(`לא הוגדרו עמודות לצוות "${team.name}" בקובץ`);
 
-    const teamName = membership.team.name;
-    const teamCols = ImportService.TEAM_COLUMNS[teamName];
-    if (!teamCols || teamCols.length === 0) throw new BadRequestException(`לא הוגדרו עמודות לצוות "${teamName}" בקובץ`);
-
-    // 4. Parse Excel
     const buffer = fs.readFileSync(filePath);
     const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
     if (rows.length < 2) return [];
 
-    // 5. Find header row by scanning first 10 rows for 'CR #'
     const REQUIRED_COLS = ['# CR', 'כותרת', 'גרסה'];
     let headerRowIdx = -1;
     for (let i = 0; i < Math.min(10, rows.length); i++) {
       const row = (rows[i] as any[]).map(h => String(h ?? '').trim());
-      if (REQUIRED_COLS.every(col => row.includes(col))) {
-        headerRowIdx = i;
-        break;
-      }
+      if (REQUIRED_COLS.every(col => row.includes(col))) { headerRowIdx = i; break; }
     }
     if (headerRowIdx === -1) {
-      // Log what we found for easier debugging
       const sample = (rows[0] as any[]).slice(0, 10).map(h => String(h ?? '').trim()).join(', ');
       throw new BadRequestException(`מבנה הקובץ אינו תקין — עמודות חובה חסרות. עמודות שנמצאו בשורה 1: ${sample}`);
     }
 
     const headers: string[] = (rows[headerRowIdx] as any[]).map(h => String(h ?? '').trim());
     const colIdx = (name: string) => headers.findIndex(h => h === name);
-
-    const crCol     = colIdx('# CR');
-    const titleCol  = colIdx('כותרת');
-    const verCol    = colIdx('גרסה');
-    const statusCol = colIdx('סטטוס');
-    const appCol    = colIdx('מאפיין');
-
+    const crCol = colIdx('# CR'); const titleCol = colIdx('כותרת'); const verCol = colIdx('גרסה');
+    const statusCol = colIdx('סטטוס'); const appCol = colIdx('מאפיין');
     const teamColIdxs = teamCols.map(colIdx).filter(i => i !== -1);
+    const COL_DESCRIPTION = 5; const COL_MANAGER = 9;
 
-    // 6. Filter rows
-    const results: { crNumber: string; crLabel: string; application: string }[] = [];
+    const results: { crNumber: string; crLabel: string; application: string; crManager: string; crDescription: string }[] = [];
     const seen = new Set<string>();
-
     for (let r = headerRowIdx + 1; r < rows.length; r++) {
       const row = rows[r] as any[];
-      const rowVersion = String(row[verCol] ?? '').trim();
-      const rowStatus  = String(row[statusCol] ?? '').trim();
-      const crNumber   = String(row[crCol] ?? '').trim();
-      const title      = String(row[titleCol] ?? '').trim();
-
+      const crNumber = String(row[crCol] ?? '').trim();
+      const title    = String(row[titleCol] ?? '').trim();
       if (!crNumber || !title) continue;
-      if (rowVersion !== version.name) continue;
-      if (rowStatus === 'מבוטל') continue;
-
-      // Check if any team column > 1
+      if (String(row[verCol] ?? '').trim() !== version.name) continue;
+      if (String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
       const involved = teamColIdxs.some(ci => {
         const val = parseFloat(String(row[ci] ?? '0').replace(/[^\d.]/g, ''));
         return !isNaN(val) && val > 1;
       });
-      if (!involved) continue;
-      if (seen.has(crNumber)) continue;
-
+      if (!involved || seen.has(crNumber)) continue;
       seen.add(crNumber);
       results.push({
-        crNumber,
-        crLabel: `${crNumber} - ${title}`,
-        application: appCol !== -1 ? String(row[appCol] ?? '').trim() : '',
+        crNumber, crLabel: `${crNumber} - ${title}`,
+        application:   appCol !== -1 ? String(row[appCol] ?? '').trim() : '',
+        crManager:     String(row[COL_MANAGER]     ?? '').trim(),
+        crDescription: String(row[COL_DESCRIPTION] ?? '').trim(),
       });
     }
-
     return results;
+  }
+
+  async getCrSummary(versionId: string): Promise<{
+    teamId: string;
+    teamName: string;
+    crListCount: number;
+    proposedCount: number;
+    submissionStatus: string;
+    notRequired: boolean;
+    status: 'NONE' | 'PARTIAL' | 'COMPLETE' | 'NOT_REQUIRED' | 'NO_FILE' | 'SUBMITTED_EMPTY' | 'ALL_NOT_NEEDED';
+  }[]> {
+    // Primary: read from VersionCrAssignment table (populated by sync)
+    const dbAssignments = await prisma.versionCrAssignment.findMany({
+      where: { versionId },
+      include: { team: { select: { id: true, name: true } } },
+    });
+
+    // Build crsByTeam from DB
+    const crsByTeamId: Record<string, Set<string>> = {};
+    const teamNameById: Record<string, string> = {};
+    for (const a of dbAssignments) {
+      if (!crsByTeamId[a.teamId]) crsByTeamId[a.teamId] = new Set();
+      crsByTeamId[a.teamId].add(a.crNumber);
+      teamNameById[a.teamId] = a.team.name;
+    }
+
+    // If no DB assignments, return empty (frontend will trigger sync)
+    const involvedTeamIds = Object.keys(crsByTeamId);
+    if (involvedTeamIds.length === 0) return [];
+
+    // Count proposals per team
+    const proposals = await prisma.taskProposal.findMany({
+      where: { versionId },
+      select: { teamId: true },
+    });
+    const proposalCountByTeam: Record<string, number> = {};
+    for (const p of proposals) {
+      if (!p.teamId) continue;
+      proposalCountByTeam[p.teamId] = (proposalCountByTeam[p.teamId] ?? 0) + 1;
+    }
+
+    // Submission status
+    const submissions = await prisma.teamSubmission.findMany({
+      where: { versionId },
+      select: { teamId: true, status: true, notRequiredForApproval: true },
+    });
+    const subByTeam: Record<string, { status: string; notRequired: boolean }> = {};
+    for (const s of submissions) {
+      subByTeam[s.teamId] = { status: s.status, notRequired: (s as any).notRequiredForApproval ?? false };
+    }
+
+    // CrPlan not-needed stats
+    const allCrPlans = await prisma.crPlan.findMany({
+      where: { versionId },
+      select: { teamId: true, notNeededForPlan: true },
+    });
+    const crPlanStatsByTeam: Record<string, { total: number; notNeeded: number }> = {};
+    for (const cp of allCrPlans) {
+      if (!cp.teamId) continue;
+      if (!crPlanStatsByTeam[cp.teamId]) crPlanStatsByTeam[cp.teamId] = { total: 0, notNeeded: 0 };
+      crPlanStatsByTeam[cp.teamId].total++;
+      if (cp.notNeededForPlan) crPlanStatsByTeam[cp.teamId].notNeeded++;
+    }
+
+    return involvedTeamIds.map(teamId => {
+      const teamName       = teamNameById[teamId] ?? '';
+      const crListCount    = crsByTeamId[teamId]?.size ?? 0;
+      const proposedCount  = proposalCountByTeam[teamId] ?? 0;
+      const sub            = subByTeam[teamId];
+      const submissionStatus = sub?.status ?? 'NOT_STARTED';
+      const notRequired    = sub?.notRequired ?? false;
+      const cpStats        = crPlanStatsByTeam[teamId];
+      const allCrPlansNotNeeded = !!(cpStats && cpStats.total > 0 && cpStats.total === cpStats.notNeeded);
+      const notNeededCount = cpStats?.notNeeded ?? 0;
+      const handledCount   = proposedCount + notNeededCount;
+
+      let status: 'NONE' | 'PARTIAL' | 'COMPLETE' | 'NOT_REQUIRED' | 'NO_FILE' | 'SUBMITTED_EMPTY' | 'ALL_NOT_NEEDED';
+      if (notRequired) status = 'NOT_REQUIRED';
+      else if (submissionStatus === 'SUBMITTED' && proposedCount === 0 && allCrPlansNotNeeded) status = 'ALL_NOT_NEEDED';
+      else if (submissionStatus === 'SUBMITTED' && proposedCount === 0) status = 'SUBMITTED_EMPTY';
+      else if (proposedCount === 0) status = 'NONE';
+      else if (handledCount >= crListCount) status = 'COMPLETE';
+      else status = 'PARTIAL';
+
+      return { teamId, teamName, crListCount, proposedCount, notNeededCount, submissionStatus, notRequired, status };
+    }).sort((a, b) => a.teamName.localeCompare(b.teamName, 'he'));
   }
 
   async teamsWithoutProposals(versionId: string): Promise<{ name: string; crCount: number }[]> {

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Request, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Request, UseGuards, ForbiddenException } from '@nestjs/common';
 import { TaskProposalsService } from './task-proposals.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 
@@ -11,9 +11,13 @@ export class TaskProposalsController {
   constructor(private service: TaskProposalsService) {}
 
   @Get('version/:versionId')
-  getForVersion(@Param('versionId') versionId: string, @Request() req: any) {
+  getForVersion(
+    @Param('versionId') versionId: string,
+    @Query('teamId') teamId: string | undefined,
+    @Request() req: any,
+  ) {
     if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
-    return this.service.findForVersion(versionId, req.user);
+    return this.service.findForVersion(versionId, req.user, teamId);
   }
 
   @Post('version/:versionId')
@@ -52,5 +56,21 @@ export class TaskProposalsController {
   markUsed(@Param('id') id: string, @Request() req: any, @Body() body: { taskId: string }) {
     if (!MANAGERS.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת מנהל');
     return this.service.markUsed(id, body.taskId);
+  }
+
+  @Patch(':id/review')
+  review(
+    @Param('id') id: string,
+    @Request() req: any,
+    @Body() body: { reviewStatus: string; reviewNote?: string },
+  ) {
+    if (!MANAGERS.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת מנהל');
+    return this.service.review(id, body);
+  }
+
+  @Post('version/:versionId/convert-approved')
+  convertApproved(@Param('versionId') versionId: string, @Request() req: any) {
+    if (!MANAGERS.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת מנהל');
+    return this.service.convertApprovedToTasks(versionId, req.user.sub);
   }
 }

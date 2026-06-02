@@ -62,6 +62,16 @@ export class VersionsController {
     return this.versionsService.updatePlannedEnd(id, body.plannedEnd);
   }
 
+  @Patch(':id/review-meeting-time')
+  updateReviewMeetingTime(
+    @Param('id') id: string,
+    @Body() body: { reviewMeetingTime: string | null },
+    @Request() req: any,
+  ) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לעדכן מועד ישיבת המעבר');
+    return this.versionsService.updateReviewMeetingTime(id, body.reviewMeetingTime);
+  }
+
   @Post(':id/phases')
   addPhase(@Param('id') id: string, @Body() body: {
     name: string;
@@ -138,6 +148,12 @@ export class VersionsController {
   endRehearsal(@Param('id') id: string, @Request() req: any) {
     requireRole(req, MANAGERS, 'רק מנהל לילה יכול לסיים חזרה גנרלית');
     return this.versionsService.endRehearsal(id);
+  }
+
+  @Post(':id/cancel-rehearsal')
+  cancelRehearsal(@Param('id') id: string, @Request() req: any) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לבטל חזרה גנרלית');
+    return this.versionsService.cancelRehearsal(id);
   }
 
   @Post(':id/submit/:teamId')
@@ -244,6 +260,37 @@ export class VersionsController {
   ) {
     requireRole(req, LEADS_UP, 'נדרשת הרשאת ראש צוות ומעלה לסידור מחדש');
     return this.versionsService.reorderSubPhaseTasks(subPhaseId, body.taskIds ?? []);
+  }
+
+  @Patch(':id/wizard-state')
+  updateWizardState(
+    @Param('id') id: string,
+    @Body() body: { state: Record<string, string | null> },
+    @Request() req: any,
+  ) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לעדכן מצב אשף');
+    return this.versionsService.updateWizardState(id, body.state);
+  }
+
+  @Get(':id/cr-review')
+  getCrReview(@Param('id') id: string) {
+    return this.versionsService.getCrReview(id);
+  }
+
+  @Get(':id/sub-phases')
+  getSubPhases(@Param('id') id: string) {
+    return this.versionsService.getSubPhases(id);
+  }
+
+  @Get(':id/detect-anomalies')
+  detectAnomalies(@Param('id') id: string) {
+    return this.versionsService.detectAnomalies(id);
+  }
+
+  @Post(':id/sort-by-planned-start')
+  sortByPlannedStart(@Param('id') id: string, @Request() req: any) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול למיין משימות');
+    return this.versionsService.sortByPlannedStart(id);
   }
 
   @Post(':id/reschedule')
