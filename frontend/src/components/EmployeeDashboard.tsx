@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { TeamView } from './TeamView';
 import { VersionProgressChain } from './VersionProgressChain';
@@ -7,7 +7,7 @@ import { playTaskReady } from '../utils/sound';
 import { DeployCenterLogo } from './DeployCenterLogo';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 
-const API = 'http://localhost:3000';
+const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 interface ToastItem {
   id: number;

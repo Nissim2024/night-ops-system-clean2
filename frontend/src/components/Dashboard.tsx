@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { VersionsView } from './VersionsView';
 import { TeamView } from './TeamView';
@@ -51,7 +51,7 @@ const SummaryVersionPicker: React.FC<{ token: string }> = ({ token }) => {
 import { useSocket } from '../hooks/useSocket';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 
-const API = 'http://localhost:3000';
+const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 const STATUS_COLORS: Record<string, string> = {
   OPEN: '#3498db', IN_PROGRESS: '#f39c12', BLOCKED: '#e74c3c',

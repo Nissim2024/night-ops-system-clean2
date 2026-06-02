@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { usePermissions } from '../context/PermissionsContext';
 import { FEATURES } from '../featureFlags';
 import { C, FONT } from '../theme';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 
-const API = 'http://localhost:3000';
+const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 const APPS = [
   'BILI', 'CRM', 'OSB', 'DP', 'WEB-RETAIL', 'WEB-NEXT', 'WEB-HOT',

@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { usePermissions } from '../context/PermissionsContext';
 import { C, FONT, statusColor, statusBg } from '../theme';
 
-const API = 'http://localhost:3000';
+const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 interface Props {
   token: string;
@@ -171,7 +171,7 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
   useEffect(() => { fetchData(); }, [versionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const socket = io('http://localhost:3000', { transports: ['websocket'] });
+    const socket = io(process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`, { transports: ['websocket'] });
     socket.on('TASK_UPDATED', () => fetchDataRef.current?.(true));
     socket.on('TASK_BLOCKED', () => fetchDataRef.current?.(true));
     return () => { socket.disconnect(); };

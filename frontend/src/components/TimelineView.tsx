@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 
-const API = 'http://localhost:3000';
+const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 const STATUS_COLOR: Record<string, string> = {
   OPEN: '#3498db', IN_PROGRESS: '#f39c12', BLOCKED: '#e74c3c',

@@ -36,6 +36,7 @@ enum Priority {
 
 enum VersionStatus {
   DRAFT
+  CR_REVIEW
   COLLECTING
   REFINING
   REVIEW
@@ -457,12 +458,15 @@ model SystemParam {
 }
 
 model VersionCrAssignment {
-  id        String   @id @default(uuid())
-  versionId String
-  crNumber  String
-  crLabel   String?
-  teamId    String
-  createdAt DateTime @default(now())
+  id            String   @id @default(uuid())
+  versionId     String
+  crNumber      String
+  crLabel       String?
+  teamId        String
+  crManager     String?
+  crDescription String?
+  application   String?
+  syncedAt      DateTime @default(now())
 
   version Version @relation(fields: [versionId], references: [id])
   team    Team    @relation(fields: [teamId], references: [id])

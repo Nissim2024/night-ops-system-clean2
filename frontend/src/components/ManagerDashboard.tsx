@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { VersionsView } from './VersionsView';
 import { ImportView } from './ImportView';
@@ -21,7 +21,7 @@ import { FEATURES } from '../featureFlags';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { C, FONT } from '../theme';
 
-const API = 'http://localhost:3000';
+const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 interface Props {
   token: string;

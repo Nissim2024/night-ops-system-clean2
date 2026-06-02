@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 
-const API = 'http://localhost:3000';
+const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 const PHASE_LABELS: Record<number, string> = {
   1: 'שלב 1 — בוקר לפני גרסה',

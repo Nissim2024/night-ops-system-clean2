@@ -15,18 +15,28 @@
     ]
   },
   "test": {
-    "commit": "1d97caa3",
-    "message": "feat: complete functional system — pre-UX-redesign snapshot",
-    "deployedAt": "2026-06-01T21:10:00+03:00",
+    "commit": "ec415cdd",
+    "message": "feat: execution UX, phase-gate, summary improvements, data fixes",
+    "deployedAt": "2026-06-02T22:00:00+03:00",
     "schema": "prisma db push",
     "changes": [
-      "env separation DEV/TEST/PROD",
-      "TeamLeadProposalView: remove systems auto-fill",
-      "TeamLeadProposalView: remove systems tags from CR header",
-      "TeamLeadProposalView: default crType = פיתוח חדש",
-      "TeamLeadProposalView: remove ללא CR checkbox from task form",
-      "TeamLeadProposalView: validate required fields before READY",
-      "TeamLeadProposalView: warn before overwriting task description"
+      "TeamView: 3-zone execution layout, full-width grid, enlarged fonts",
+      "TeamView: phase-gate blocks opening next phase until previous completes",
+      "TeamView: openNoDeps opens one phase at a time in order",
+      "TeamView: select-all per hierarchy with confirmation dialog",
+      "TeamView: team-scoped user/app dropdowns",
+      "VersionsView: 4-column grid task layout",
+      "VersionsView: team-scoped user/app dropdowns in edit form",
+      "ManagerDashboard: fix rehearsal navigation",
+      "ManagerDashboard: COMPLETED stays in inactive tab",
+      "ManagerDashboard: force-close version with pending tasks",
+      "ManagerDashboard: cancel rehearsal if no tasks started",
+      "Sidebar: hide cr-review step",
+      "NightSummary: HTML email RTL support, all phases in timeline",
+      "NightSummary: allow approval with WAITING morning tasks",
+      "NightSummary: PATCH endpoint to edit approved summary",
+      "Backend: phase-gate on WAITING→OPEN, cancelRehearsal, force-complete",
+      "Schema: wizardState, failedReason, ReviewStatus enum, FailureReason model, CrPlan fields"
     ]
   },
   "prod": {

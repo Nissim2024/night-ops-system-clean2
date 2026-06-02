@@ -30,6 +30,22 @@ export const Sidebar: React.FC<Props> = ({ stages, activeStage, onStageChange })
       gap: '4px',
       fontFamily: FONT,
     }}>
+      {process.env.REACT_APP_ENV && process.env.REACT_APP_ENV !== 'dev' && (
+        <div style={{
+          background: process.env.REACT_APP_ENV === 'test' ? '#b45309' : '#7c3aed',
+          color: 'white',
+          fontSize: '11px',
+          fontWeight: '700',
+          textAlign: 'center',
+          padding: '4px 8px',
+          borderRadius: '6px',
+          marginBottom: '10px',
+          letterSpacing: '1.5px',
+          textTransform: 'uppercase',
+        }}>
+          {process.env.REACT_APP_ENV}
+        </div>
+      )}
       <div style={{
         fontSize: '11px', color: C.textMuted, fontWeight: '600',
         marginBottom: '12px', textAlign: 'center',

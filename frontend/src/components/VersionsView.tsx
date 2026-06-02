@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { usePermissions } from '../context/PermissionsContext';
 import { TeamView } from './TeamView';
@@ -9,7 +9,7 @@ import { CrPlanReviewPanel } from './CrPlanReviewPanel';
 import { FEATURES } from '../featureFlags';
 import { C, FONT } from '../theme';
 
-const API = 'http://localhost:3000';
+const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: '#95a5a6', CR_REVIEW: '#8b5cf6', COLLECTING: '#3498db', REFINING: '#e67e22',
