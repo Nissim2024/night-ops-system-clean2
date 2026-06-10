@@ -175,7 +175,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
   const H_PHASE    = 36;
   const H_SUBPHASE = 30;
   const H_TASK     = 46;
-  const LABEL_W    = 230;
+  const LABEL_W    = 340;
 
   // ── Reusable grid + now-line ─────────────────────────────────────────
   const grid = (h: number) => (
@@ -369,11 +369,11 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
 
                 {/* Impact table */}
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                     <thead>
                       <tr style={{ background: '#f4f6f8', textAlign: 'right' }}>
                         {['משימה', 'שלב', 'תחילה מתוכנן', 'סיום מתוכנן', 'תחילה חדשה', 'סיום חדש', 'הזזה'].map(h => (
-                          <th key={h} style={{ padding: '8px 10px', borderBottom: '2px solid #e0e0e0', fontWeight: 'bold', color: '#555', whiteSpace: 'nowrap' }}>{h}</th>
+                          <th key={h} style={{ padding: '10px 12px', borderBottom: '2px solid #ccc', fontWeight: 'bold', color: '#1a2332', whiteSpace: 'nowrap', fontSize: '13px' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
@@ -383,29 +383,29 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                           background: row.isCritical ? '#fff5f5' : (i % 2 === 0 ? 'white' : '#fafafa'),
                           borderRight: row.isCritical ? '3px solid #e74c3c' : '3px solid transparent',
                         }}>
-                          <td style={{ padding: '7px 10px', borderBottom: '1px solid #eee', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {row.isCritical && <span style={{ color: '#e74c3c', marginLeft: '4px', fontSize: '11px' }}>●</span>}
-                            {row.task.title}
+                          <td style={{ padding: '9px 12px', borderBottom: '1px solid #eee', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {row.isCritical && <span style={{ color: '#e74c3c', marginLeft: '4px', fontSize: '12px' }}>●</span>}
+                            <span style={{ fontWeight: '500', color: '#1a2332' }}>{row.task.title}</span>
                             {row.task.assignedTeamName && (
-                              <span style={{ color: '#aaa', fontSize: '11px', marginRight: '6px' }}>({row.task.assignedTeamName})</span>
+                              <span style={{ color: '#555', fontSize: '12px', marginRight: '6px' }}> ({row.task.assignedTeamName})</span>
                             )}
                           </td>
-                          <td style={{ padding: '7px 10px', borderBottom: '1px solid #eee', color: '#666', whiteSpace: 'nowrap' }}>
+                          <td style={{ padding: '9px 12px', borderBottom: '1px solid #eee', color: '#333', whiteSpace: 'nowrap' }}>
                             {row.task.phaseName}
                           </td>
-                          <td style={{ padding: '7px 10px', borderBottom: '1px solid #eee', color: '#888', whiteSpace: 'nowrap' }}>
+                          <td style={{ padding: '9px 12px', borderBottom: '1px solid #eee', color: '#444', whiteSpace: 'nowrap' }}>
                             {fmt(new Date(row.task.plannedStart))}
                           </td>
-                          <td style={{ padding: '7px 10px', borderBottom: '1px solid #eee', color: '#888', whiteSpace: 'nowrap' }}>
+                          <td style={{ padding: '9px 12px', borderBottom: '1px solid #eee', color: '#444', whiteSpace: 'nowrap' }}>
                             {fmt(new Date(row.task.plannedEnd))}
                           </td>
-                          <td style={{ padding: '7px 10px', borderBottom: '1px solid #eee', fontWeight: 'bold', color: '#e67e22', whiteSpace: 'nowrap' }}>
+                          <td style={{ padding: '9px 12px', borderBottom: '1px solid #eee', fontWeight: 'bold', color: '#e67e22', whiteSpace: 'nowrap' }}>
                             {fmt(row.projectedStart)}
                           </td>
-                          <td style={{ padding: '7px 10px', borderBottom: '1px solid #eee', fontWeight: 'bold', color: '#e74c3c', whiteSpace: 'nowrap' }}>
+                          <td style={{ padding: '9px 12px', borderBottom: '1px solid #eee', fontWeight: 'bold', color: '#e74c3c', whiteSpace: 'nowrap' }}>
                             {fmt(row.projectedEnd)}
                           </td>
-                          <td style={{ padding: '7px 10px', borderBottom: '1px solid #eee', color: '#e74c3c', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                          <td style={{ padding: '9px 12px', borderBottom: '1px solid #eee', color: '#e74c3c', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
                             +{fmtMin(row.shiftMin)}
                           </td>
                         </tr>
@@ -413,7 +413,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                     </tbody>
                   </table>
                 </div>
-                <div style={{ fontSize: '11px', color: '#aaa', marginTop: '8px' }}>
+                <div style={{ fontSize: '12px', color: '#555', marginTop: '8px' }}>
                   ● = משימה קריטית (מתחילה עד 5 דקות אחרי סיום המשימה המעוכבת) | הסימולציה מניחה שמשך המשימות נשמר
                 </div>
               </div>
@@ -435,7 +435,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
           {/* ── Time axis (sticky top) ─── */}
           <div style={{ display: 'flex', height: 48, borderBottom: '2px solid #ddd', position: 'sticky', top: 0, zIndex: 20, background: 'white' }}>
             {labelCell(
-              <span style={{ fontSize: '12px', color: '#999', fontWeight: 'bold' }}>משימה / זמן</span>,
+              <span style={{ fontSize: '13px', color: '#333', fontWeight: 'bold' }}>משימה / זמן</span>,
               '#f8f9fa', 48
             )}
             <div style={{ flex: 1, position: 'relative' }}>
@@ -474,7 +474,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                     <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#7ecfff', marginLeft: '6px', whiteSpace: 'nowrap' }}>
                       {phase.environment}
                     </span>
-                    <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.65)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.9)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {phase.name}
                     </span>
                   </>,
@@ -495,13 +495,13 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                     <div style={{ display: 'flex', height: H_SUBPHASE, cursor: 'pointer' }} onClick={() => toggle(sp.id)}>
                       {labelCell(
                         <>
-                          <span style={{ fontSize: '9px', color: '#aaa', marginLeft: '4px' }}>
+                          <span style={{ fontSize: '10px', color: '#666', marginLeft: '4px' }}>
                             {collapsed.has(sp.id) ? '►' : '▼'}
                           </span>
-                          <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#333', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#1a2332', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {sp.name}
                           </span>
-                          <span style={{ fontSize: '10px', color: '#aaa', marginRight: 'auto', marginLeft: '4px', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontSize: '11px', color: '#666', marginRight: 'auto', marginLeft: '4px', whiteSpace: 'nowrap' }}>
                             ({spTasks.length})
                           </span>
                         </>,
@@ -534,10 +534,10 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                           {labelCell(
                             <>
                               <div style={{ flex: 1, overflow: 'hidden' }}>
-                                <div style={{ fontSize: '12px', color: '#1a2332', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={task.title}>
+                                <div style={{ fontSize: '13px', fontWeight: '500', color: '#1a2332', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={task.title}>
                                   {task.title}
                                 </div>
-                                <div style={{ fontSize: '10px', color: '#aaa', marginTop: '2px' }}>
+                                <div style={{ fontSize: '11px', color: '#555', marginTop: '2px' }}>
                                   {task.assignedTeam?.name && `👥 ${task.assignedTeam.name}`}
                                   {task.assignedUserName && ` · ${task.assignedUserName}`}
                                 </div>

@@ -12,6 +12,7 @@ datasource db {
 enum Role {
   ADMIN
   RELEASE_MANAGER
+  CR_MANAGER
   TEAM_LEAD
   EMPLOYEE
   VIEWER
@@ -88,6 +89,10 @@ model User {
   auditLogs         AuditLog[]
   submissions       TeamSubmission[]
   versionTemplates  VersionTemplate[]
+  testerProfile     TesterProfile?
+  leaveRequests     LeaveRequest[]
+  qaAssignments     QaAssignment[]
+  qaCycleTasks      QaCycleTask[]
 }
 
 model Team {
@@ -95,8 +100,9 @@ model Team {
   name        String
   description String?
   apps        String[] @default([])
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
+  active       Boolean  @default(true)
+  requiresPlan Boolean  @default(true)
+  createdAt    DateTime @default(now())
 
   members          TeamMember[]
   assignedTasks    Task[]               @relation("taskAssignedTeam")
@@ -153,7 +159,9 @@ model Version {
   rehearsalSummary     RehearsalSummary?
   taskProposals        TaskProposal[]
   crPlans              CrPlan[]
+  qaAssignments        QaAssignment[]
   versionCrAssignments VersionCrAssignment[]
+  qaWorkPlan           QaWorkPlan?
 }
 
 model Phase {
@@ -382,6 +390,13 @@ model TaskProposal {
   version Version @relation(fields: [versionId], references: [id])
 }
 
+enum CrPlanSubmissionStatus {
+  DRAFT
+  SUBMITTED
+  RETURNED
+  APPROVED
+}
+
 model CrPlan {
   id                String   @id @default(uuid())
   versionId         String
@@ -404,8 +419,21 @@ model CrPlan {
   nightTestingNotes String?
   morningMonitoring String?
   notNeededForPlan  Boolean  @default(false)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  // ── תוכניות הטמעה — מחזור הגשה/סקירה/אישור ──
+  submissionStatus       CrPlanSubmissionStatus @default(DRAFT)
+  submittedAt            DateTime?
+  submittedByName        String?
+  returnReason           String?
+  returnedAt             DateTime?
+  approvedByName         String?
+  reviewNote             String?
+  // ── אישור מנהל CR (שלב לפני סקירה) ──
+  crManagerApproved      Boolean   @default(false)
+  crManagerApprovedAt    DateTime?
+  crManagerApprovedBy    String?
+  crManagerNote          String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   version Version       @relation(fields: [versionId], references: [id])
   team    Team          @relation(fields: [teamId], references: [id])
@@ -458,18 +486,187 @@ model SystemParam {
 }
 
 model VersionCrAssignment {
-  id            String   @id @default(uuid())
-  versionId     String
-  crNumber      String
-  crLabel       String?
-  teamId        String
-  crManager     String?
-  crDescription String?
-  application   String?
-  syncedAt      DateTime @default(now())
+  id                    String   @id @default(uuid())
+  versionId             String
+  crNumber              String
+  crLabel               String?
+  teamId                String
+  crManager             String?
+  crDescription         String?
+  application           String?
+  qaEffort              Float?   // QA effort in DAYS (from CR_LIST QA+QA_BI cols ÷ 8)
+  qaEffortOverride      Float?   // manual override — not overwritten on re-sync
+  requiredSkillMinLevel Int?     // minimum skill level to test this CR (default 1)
+  isStandAlone          Boolean  @default(false)
+  syncedAt              DateTime @default(now())
 
   version Version @relation(fields: [versionId], references: [id])
   team    Team    @relation(fields: [teamId], references: [id])
 
   @@unique([versionId, crNumber, teamId])
+}
+
+// ── Leaves / Seasons ─────────────────────────────────────────────────────────
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  DECLINED
+}
+
+model Season {
+  id        String   @id @default(uuid())
+  name      String
+  dateRange String
+  isActive  Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dates    SeasonDate[]
+  requests LeaveRequest[]
+}
+
+model SeasonDate {
+  id       String   @id @default(uuid())
+  seasonId String
+  date     DateTime
+  label    String
+  type     String   // "holiday" | "chol_hamoed"
+  orderIndex Int    @default(0)
+
+  season Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+}
+
+model LeaveRequest {
+  id        String      @id @default(uuid())
+  userId    String
+  seasonId  String?
+  date      DateTime
+  kind      String      // "leave" | "work"
+  reason    String?
+  status    LeaveStatus @default(PENDING)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  season Season? @relation(fields: [seasonId], references: [id])
+}
+
+// ── QA Module ────────────────────────────────────────────────────────────────
+
+enum SkillType {
+  Professional
+  Applications
+  Tools
+  Personal
+  Business
+}
+
+model Skill {
+  id        String    @id @default(uuid())
+  name      String    @unique
+  type      SkillType
+  weight    Int       @default(3)
+  createdAt DateTime  @default(now())
+
+  testerSkills TesterSkill[]
+}
+
+model TesterProfile {
+  userId    String   @id
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  testerSkills TesterSkill[]
+}
+
+model TesterSkill {
+  userId    String
+  skillId   String
+  level     Int      @default(1) // 1–5
+  updatedAt DateTime @updatedAt
+
+  tester TesterProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  skill  Skill         @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@id([userId, skillId])
+}
+
+model QaAssignment {
+  id           String   @id @default(uuid())
+  versionId    String
+  crNumber     String
+  crLabel      String?
+  application  String?  // denormalized from VersionCrAssignment (for continuity queries)
+  userId       String
+  qaEffort     Float?   // denormalized days (for load-balancing queries)
+  autoScore    Int?     // computed score at assignment time (0-100)
+  notes        String?
+  assignedBy   String?
+  isStandAlone Boolean? // null=inherit VCA; true=SA; false=force integrative
+  cycles       String[] @default([]) // e.g. ["CYCLE_1","CYCLE_2","CYCLE_3","STAND_ALONE","UAT"]
+  sortOrder    Int?     // tester queue position (1, 2, 3…)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, crNumber])
+}
+
+// ── QA Work Plan ─────────────────────────────────────────────────────────────
+
+model QaWorkPlan {
+  id           String    @id @default(uuid())
+  versionId    String    @unique
+  status       String    @default("DRAFT")  // DRAFT | APPROVED
+  cycle1Start  DateTime
+  testingEnd   DateTime
+  notes        String?
+  createdBy    String?
+  approvedBy   String?
+  approvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  version Version   @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  cycles  QaCycle[]
+}
+
+model QaCycle {
+  id           String   @id @default(uuid())
+  workPlanId   String
+  cycleType    String   // CYCLE_1 | CYCLE_2 | CYCLE_3 | STAND_ALONE | REHEARSAL | GO_LIVE
+  plannedStart DateTime
+  plannedEnd   DateTime
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workPlan QaWorkPlan    @relation(fields: [workPlanId], references: [id], onDelete: Cascade)
+  tasks    QaCycleTask[]
+}
+
+model QaCycleTask {
+  id           String   @id @default(uuid())
+  cycleId      String
+  crNumber     String
+  crLabel      String?
+  taskType     String   @default("CR")  // CR | STAND_ALONE | REGRESSION
+  userId       String
+  effortDays   Float
+  plannedStart DateTime
+  plannedEnd   DateTime
+  isActive     Boolean  @default(true)
+  isPrimary    Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  cycle QaCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  user  User    @relation(fields: [userId], references: [id])
 }

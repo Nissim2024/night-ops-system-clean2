@@ -35,12 +35,21 @@ const TEAM_COLUMNS: Record<string, string[]> = {
 export class VersionCrAssignmentsService {
 
   async findForVersion(versionId: string, user: { sub: string; role: string }) {
+    // Exclude assignments from teams that don't require plan submission
+    const exemptRows: any[] = await prisma.$queryRawUnsafe(
+      `SELECT id FROM "Team" WHERE "requiresPlan" = false`,
+    );
+    const exemptTeamIds = exemptRows.map((r: any) => String(r.id));
+
     if (MANAGERS.includes(user.role)) {
-      return prisma.versionCrAssignment.findMany({
+      const all = await prisma.versionCrAssignment.findMany({
         where: { versionId },
         include: { team: { select: { id: true, name: true } } },
         orderBy: [{ teamId: 'asc' }, { crNumber: 'asc' }],
       });
+      return exemptTeamIds.length > 0
+        ? all.filter((a: any) => !exemptTeamIds.includes(String(a.teamId)))
+        : all;
     }
     const membership = await prisma.teamMember.findFirst({
       where: { userId: user.sub },
@@ -94,10 +103,45 @@ export class VersionCrAssignmentsService {
     const teamIdByName: Record<string, string> = {};
     allTeams.forEach(t => { teamIdByName[t.name] = t.id; });
 
-    // Collect assignments: { crNumber, crLabel, teamId, crManager, crDescription, application }
+    const QA_TEAM_NAME = 'QA Team';
+    const parseDay = (v: any) => { const n = parseFloat(String(v ?? '0').replace(/[^\d.]/g, '')); return isNaN(n) ? 0 : n; };
+
+    // ── Pass 1: determine eligible CRs (must have BOTH QA effort AND non-QA team effort) ──
+    // A CR is a "mixed team CR" only when QA is involved AND at least one other team has work days.
+    const qaCRs    = new Set<string>(); // CRs with QA effort >= 1 day
+    const nonQaCRs = new Set<string>(); // CRs with at least one non-QA team effort > 0.3 days
+
+    for (const [teamName, teamCols] of Object.entries(TEAM_COLUMNS)) {
+      const teamColIdxs = teamCols.map(colIdx).filter(i => i !== -1);
+      if (teamColIdxs.length === 0) continue;
+
+      for (let r = headerRowIdx + 1; r < rows.length; r++) {
+        const row = rows[r] as any[];
+        if (String(row[verCol] ?? '').trim() !== version.name) continue;
+        if (String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
+
+        const crNumber = crCol !== -1 ? String(row[crCol] ?? '').trim() : '';
+        const title    = titleCol !== -1 ? String(row[titleCol] ?? '').trim() : '';
+        if (!crNumber || !title) continue;
+
+        if (teamName === QA_TEAM_NAME) {
+          const qaDay = teamColIdxs.length > 0 ? parseDay(row[teamColIdxs[0]]) : 0;
+          if (qaDay >= 1) qaCRs.add(crNumber);
+        } else {
+          const involved = teamColIdxs.some(ci => parseDay(row[ci]) > 0.3);
+          if (involved) nonQaCRs.add(crNumber);
+        }
+      }
+    }
+
+    // Only CRs appearing in BOTH sets enter the version scope
+    const eligibleCRs = new Set([...qaCRs].filter(cr => nonQaCRs.has(cr)));
+
+    // ── Pass 2: collect assignments for eligible CRs only ──
     type Assignment = {
       crNumber: string; crLabel: string; teamId: string;
       crManager: string; crDescription: string; application: string;
+      qaEffort?: number; // DAYS — only for QA Team rows
     };
     const assignments: Assignment[] = [];
     const seen = new Set<string>(); // "crNumber|teamId"
@@ -113,15 +157,23 @@ export class VersionCrAssignmentsService {
         if (String(row[verCol] ?? '').trim() !== version.name) continue;
         if (String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
 
-        const involved = teamColIdxs.some(ci => {
-          const val = parseFloat(String(row[ci] ?? '0').replace(/[^\d.]/g, ''));
-          return !isNaN(val) && val > 0.3;
-        });
-        if (!involved) continue;
-
         const crNumber = crCol !== -1 ? String(row[crCol] ?? '').trim() : '';
         const title    = titleCol !== -1 ? String(row[titleCol] ?? '').trim() : '';
         if (!crNumber || !title) continue;
+
+        // Skip CRs that don't satisfy the mixed-team condition
+        if (!eligibleCRs.has(crNumber)) continue;
+
+        let qaEffortDays: number | undefined;
+
+        if (teamName === QA_TEAM_NAME) {
+          const qaDay = teamColIdxs.length > 0 ? parseDay(row[teamColIdxs[0]]) : 0;
+          if (qaDay < 1) continue;
+          qaEffortDays = qaDay;
+        } else {
+          const involved = teamColIdxs.some(ci => parseDay(row[ci]) > 0.3);
+          if (!involved) continue;
+        }
 
         const key = `${crNumber}|${teamId}`;
         if (seen.has(key)) continue;
@@ -134,6 +186,7 @@ export class VersionCrAssignmentsService {
           crManager:     String(row[COL_MANAGER]     ?? '').trim(),
           crDescription: String(row[COL_DESCRIPTION] ?? '').trim(),
           application:   appCol !== -1 ? String(row[appCol] ?? '').trim() : '',
+          ...(qaEffortDays !== undefined ? { qaEffort: qaEffortDays } : {}),
         });
       }
     }
@@ -155,6 +208,7 @@ export class VersionCrAssignmentsService {
           crDescription: a.crDescription || null,
           application:   a.application || null,
           syncedAt:      now,
+          ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
         },
         update: {
           crLabel:       a.crLabel,
@@ -162,24 +216,38 @@ export class VersionCrAssignmentsService {
           crDescription: a.crDescription || null,
           application:   a.application || null,
           syncedAt:      now,
+          // always refresh qaEffort from file; manual overrides go in qaEffortOverride
+          ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
         },
       });
       synced++;
       teamsTouched.add(a.teamId);
     }
 
-    // Remove assignments that are no longer in the file (CR removed or cancelled)
+    // Remove assignments no longer in file.
+    // If a CrPlan exists for a stale CR, auto-mark it notNeededForPlan so it no longer
+    // blocks status transitions — instead of keeping the VCA alive (which caused ghost CRs
+    // to permanently block CR_REVIEW→REFINING even after the CR was removed from Excel).
     const currentKeys = new Set(assignments.map(a => `${a.crNumber}|${a.teamId}`));
     const existing = await prisma.versionCrAssignment.findMany({ where: { versionId }, select: { id: true, crNumber: true, teamId: true } });
-    const toDelete = existing.filter(e => !currentKeys.has(`${e.crNumber}|${e.teamId}`));
-    if (toDelete.length > 0) {
-      await prisma.versionCrAssignment.deleteMany({ where: { id: { in: toDelete.map(e => e.id) } } });
+    const staleIds = existing.filter(e => !currentKeys.has(`${e.crNumber}|${e.teamId}`)).map(e => e.id);
+    let autoMarked = 0;
+    if (staleIds.length > 0) {
+      const staleCrNumbers = existing.filter(e => staleIds.includes(e.id)).map(e => e.crNumber);
+      const result = await prisma.crPlan.updateMany({
+        where: { versionId, crNumber: { in: staleCrNumbers }, notNeededForPlan: false },
+        data: { notNeededForPlan: true },
+      });
+      autoMarked = result.count;
+      await prisma.versionCrAssignment.deleteMany({ where: { id: { in: staleIds } } });
     }
 
     return {
       synced,
       teamsUpdated: teamsTouched.size,
-      skipped: toDelete.length > 0 ? `הוסרו ${toDelete.length} CR שבוטלו / נמחקו מהקובץ` : '',
+      skipped: staleIds.length > 0
+        ? `הוסרו ${staleIds.length} CR שבוטלו / נמחקו מהקובץ${autoMarked > 0 ? ` (${autoMarked} תוכניות סומנו כ"לא נדרש")` : ''}`
+        : '',
     };
   }
 

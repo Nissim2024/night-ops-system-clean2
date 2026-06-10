@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT } from '../theme';
+import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
+import { Card, Badge, StatCard, ProgressBar, SectionHeader, Alert, TextArea, Button } from './ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -10,6 +11,7 @@ interface Props {
   versionName: string;
   isRehearsal?: boolean;
   onApproved?: () => void;
+  onGoToHub?: () => void;
 }
 
 interface Defect {
@@ -85,7 +87,7 @@ function badgeStyle(bg: string, color: string): React.CSSProperties {
   return { background: bg, color, padding: '4px 14px', borderRadius: '20px', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap' };
 }
 
-export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, isRehearsal = false, onApproved }) => {
+export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, isRehearsal = false, onApproved, onGoToHub }) => {
   const [tasks,               setTasks]               = useState<any[]>([]);
   const [version,             setVersion]             = useState<any>(null);
   const [loading,             setLoading]             = useState(true);
@@ -120,6 +122,8 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
       const endpoint = isRehearsal ? `${API}/summary/${versionId}/rehearsal` : `${API}/summary/${versionId}`;
       const res = await axios.get(endpoint, { headers });
       setSummaryRecord(res.data);
+      if (res.data?.headline)     setHeadline(res.data.headline);
+      if (res.data?.morningNotes) setMorningNotes(res.data.morningNotes);
     } catch { /* not yet created */ }
   };
 
@@ -147,6 +151,13 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
     setEmailStatus('idle');
     setEmailError('');
     try {
+      // שמור headline/morningNotes אם הסיכום כבר מאושר
+      if (summaryRecord) {
+        try {
+          const updated = await axios.patch(`${API}/summary/${versionId}`, { headline, morningNotes }, { headers });
+          setSummaryRecord(updated.data);
+        } catch { /* שגיאת שמירה לא חוסמת שליחת מייל */ }
+      }
       const subject = isRehearsal
         ? `‏סיכום חזרה גנרלית (${versionName})`
         : `‏סיכום ליל ההטמעה (${versionName})`;
@@ -653,8 +664,8 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 </head>
 <body dir="rtl" style="margin:0;padding:0;background:#f4f6f8;font-family:Arial,Helvetica,sans-serif;direction:rtl;">
 <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f4f6f8">
-<tr><td align="center" style="padding:16px 8px;">
-<table width="640" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="max-width:640px;">
+<tr><td style="padding:8px;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff">
 
   <!-- HEADER -->
   <tr><td bgcolor="#1e3a5f" align="center" style="padding:28px 32px;">
@@ -713,7 +724,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 </body></html>`;
   };
 
-  const tdBase: React.CSSProperties = { padding: '6px 8px', border: `1px solid ${C.border}`, fontSize: '12px', verticalAlign: 'top', color: C.textSecondary };
+  const tdBase: React.CSSProperties = { padding: '8px 10px', border: `1px solid ${C.border}`, fontSize: '13px', verticalAlign: 'middle', color: C.textSecondary };
 
   const timelineDelayBadge = (delayMins: number | null) => {
     if (delayMins === null) return <span style={badgeStyle(C.bgHover, C.textMuted)}>— ממתין לנתונים</span>;
@@ -725,8 +736,13 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 
   return (
     <div style={{ direction: 'rtl', fontFamily: FONT }}>
-      <h2 style={{ color: isRehearsal ? '#f39c12' : C.textPrimary, margin: '0 0 20px', fontSize: '20px' }}>
-        {isRehearsal ? '🎭 סיכום חזרה גנרלית' : '🌙 סיכום ליל ההטמעה'} (<bdi>{versionName}</bdi>)
+      <h2 style={{ color: isRehearsal ? C.warning : C.textPrimary, margin: '0 0 20px', fontSize: '20px' }}>
+        {isRehearsal ? '🎭 סיכום חזרה גנרלית' : '🌙 סיכום ליל ההטמעה'} (
+        <bdi
+          onClick={onGoToHub}
+          title={onGoToHub ? 'עבור לדף הנחיתה' : undefined}
+          style={{ cursor: onGoToHub ? 'pointer' : 'default', textDecoration: onGoToHub ? 'underline dotted' : 'none' }}
+        >{versionName}</bdi>)
       </h2>
 
       {/* ── Rollback required warning ── */}
@@ -751,82 +767,129 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         );
       })()}
 
-      {/* GO/NO GO Banner */}
+      {/* ── GO/NO GO Banner ── */}
       <div style={{
+        borderRadius: RADIUS['2xl'],
+        padding: `${SP[5]} ${SP[6]}`,
+        marginBottom: SP[5],
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        gap: SP[4],
         background: effectiveGo ? C.goBg : C.nogoBg,
         border: `2px solid ${effectiveGo ? C.goBorder : C.nogoBorder}`,
-        borderRadius: '12px', padding: '16px 24px', marginBottom: '20px',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        boxShadow: effectiveGo
+          ? `0 4px 20px rgba(55,196,122,0.15)`
+          : `0 4px 20px rgba(240,106,106,0.15)`,
+        position: 'relative', overflow: 'hidden',
       }}>
-        <div>
-          <span style={{ fontSize: '20px', fontWeight: 'bold', color: effectiveGo ? C.goText : C.nogoText }}>
-            {effectiveGo
-              ? (isGoNogo
-                  ? '✅ GO — ניתן להוציא סיכום'
-                  : '✅ GO — הגרסה עברה בהצלחה, המשך בפעילויות הבוקר שלאחר הגרסה')
-              : '🛑 NO GO — לא ניתן להוציא סיכום'}
-          </span>
+        {/* Background pulse */}
+        <div style={{
+          position: 'absolute', inset: 0, pointerEvents: 'none',
+          background: effectiveGo
+            ? 'radial-gradient(ellipse at 80% 50%, rgba(86,211,100,0.06), transparent)'
+            : 'radial-gradient(ellipse at 80% 50%, rgba(248,81,73,0.06), transparent)',
+        }} />
+
+        <div style={{ flex: 1, position: 'relative' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: SP[3], marginBottom: SP[2],
+          }}>
+            <span style={{ fontSize: '24px' }}>{effectiveGo ? '✅' : '🛑'}</span>
+            <span style={{
+              ...TEXT.xl, fontWeight: WEIGHT.bold,
+              color: effectiveGo ? C.goText : C.nogoText,
+            }}>
+              {effectiveGo
+                ? (isGoNogo ? 'GO — ניתן להוציא סיכום' : 'GO — הגרסה עברה בהצלחה')
+                : 'NO GO — לא ניתן להוציא סיכום'}
+            </span>
+          </div>
           {!isGoNogo && (
-            <div style={{ fontSize: '13px', color: C.nogoText, marginTop: '4px' }}>
-              {waitingTasks.length > 0 && <span>⏳ {waitingTasks.length} משימות ממתינות (טרם הופעלו) | </span>}
-              {incompleteCount > 0 && <span>{incompleteCount} משימות לא הושלמו | </span>}
-              {blockedTasks.length > 0 && <span>{blockedTasks.length} משימות חסומות</span>}
+            <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
+              {waitingTasks.length > 0 && (
+                <Badge color={C.statusWaiting} bg={C.bgWaiting}>⏳ {waitingTasks.length} ממתינות</Badge>
+              )}
+              {incompleteCount > 0 && (
+                <Badge color={C.warning} bg={C.bgInProgress}>{incompleteCount} לא הושלמו</Badge>
+              )}
+              {blockedTasks.length > 0 && (
+                <Badge color={C.statusBlocked} bg={C.bgBlocked}>{blockedTasks.length} חסומות</Badge>
+              )}
             </div>
           )}
         </div>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '28px', fontWeight: 'bold', color: effectiveGo ? C.goText : C.nogoText }}>{progressPercent}%</div>
-          <div style={{ fontSize: '12px', color: C.textMuted }}>הושלם</div>
+
+        {/* Progress ring */}
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[1],
+          flexShrink: 0, position: 'relative',
+        }}>
+          <svg width="72" height="72" viewBox="0 0 72 72" style={{ transform: 'rotate(-90deg)' }}>
+            <circle cx="36" cy="36" r="30" fill="none" stroke={effectiveGo ? `${C.success}22` : `${C.danger}22`} strokeWidth="5"/>
+            <circle cx="36" cy="36" r="30" fill="none"
+              stroke={effectiveGo ? C.success : C.danger}
+              strokeWidth="5" strokeLinecap="round"
+              strokeDasharray={`${2 * Math.PI * 30}`}
+              strokeDashoffset={`${2 * Math.PI * 30 * (1 - progressPercent / 100)}`}
+              style={{ transition: 'stroke-dashoffset 0.8s ease' }}
+            />
+            <text x="36" y="36" textAnchor="middle" dominantBaseline="central"
+              style={{ transform: 'rotate(90deg) translateY(-72px)' }}
+              fill={effectiveGo ? C.success : C.danger}
+              fontSize="16" fontWeight="700" fontFamily={FONT}>
+              {progressPercent}%
+            </text>
+          </svg>
+          <span style={{ ...TEXT.xs, color: C.textMuted }}>הושלם</span>
         </div>
       </div>
 
-      {/* Progress Bar */}
-      <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', marginBottom: '16px', border: `1px solid ${C.border}` }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px', color: C.textMuted }}>
-          <span>התקדמות כללית</span>
-          <span>{doneTasks.length}/{tasks.length} משימות</span>
-        </div>
-        <div style={{ background: C.bgHover, borderRadius: '8px', height: '14px', overflow: 'hidden', marginBottom: '16px' }}>
-          <div style={{ background: effectiveGo ? C.statusDone : C.brand, width: `${progressPercent}%`, height: '100%', borderRadius: '8px', transition: 'width 0.5s' }} />
-        </div>
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-          {[
-            { label: 'הושלמו',  value: doneTasks.length,       color: C.statusDone },
-            { label: 'בביצוע',  value: inProgressTasks.length, color: C.statusInProgress },
-            { label: 'פתוחות',  value: openTasks.length,       color: C.statusOpen },
-            { label: 'ממתינות', value: waitingTasks.length,    color: C.statusWaiting },
-            { label: 'חסומות',  value: blockedTasks.length,    color: C.statusBlocked },
-          ].map(s => (
-            <div key={s.label} style={{ background: s.color + '22', color: s.color, padding: '4px 12px', borderRadius: '12px', fontSize: '13px', fontWeight: 'bold' }}>
-              {s.value} {s.label}
-            </div>
-          ))}
-        </div>
+      {/* ── KPI Stats ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: SP[3], marginBottom: SP[5] }}>
+        {[
+          { label: 'הושלמו',  value: doneTasks.length,       color: C.statusDone    },
+          { label: 'בביצוע',  value: inProgressTasks.length, color: C.statusInProgress },
+          { label: 'פתוחות',  value: openTasks.length,       color: C.statusOpen    },
+          { label: 'ממתינות', value: waitingTasks.length,    color: C.statusWaiting },
+          { label: 'חסומות',  value: blockedTasks.length,    color: C.statusBlocked },
+        ].map(s => (
+          <StatCard key={s.label} label={s.label} value={s.value} color={s.color} />
+        ))}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* ── Progress bar ── */}
+      <Card style={{ marginBottom: SP[4] }}>
+        <ProgressBar
+          value={doneTasks.length} max={tasks.length}
+          color={effectiveGo ? C.success : C.brand}
+          label="התקדמות כללית"
+          showValue
+          height={8}
+        />
+      </Card>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
 
         {/* ── עיקרי הדברים ── */}
-        <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}` }}>
-          <h3 style={{ margin: '0 0 12px', color: C.textPrimary, fontSize: '15px' }}>עיקרי הדברים</h3>
+        <Card>
+          <SectionHeader title="עיקרי הדברים" style={{ marginBottom: SP[3] }} />
           {autoHeadline && (
-            <div style={{ background: C.bgDone, border: `1px solid ${C.statusDone}44`, borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '14px', color: C.statusDone, fontWeight: 'bold' }}>
-              ✅ {autoHeadline}
-            </div>
+            <Alert variant="success" style={{ marginBottom: SP[3] }}>
+              {autoHeadline}
+            </Alert>
           )}
           <textarea value={headline} onChange={e => setHeadline(e.target.value)}
             placeholder={autoHeadline ? 'הוסף הערות נוספות אם נדרש...' : 'לדוגמה: העלאת הגרסה הסתיימה בהצלחה בהוט ובהוטנט'}
             rows={3} style={{
-              width: '100%', padding: '10px', border: `1px solid ${C.borderEm}`, borderRadius: '8px',
-              fontSize: '14px', boxSizing: 'border-box', resize: 'vertical', fontFamily: FONT, direction: 'rtl',
-              background: C.bgNested, color: C.textPrimary, outline: 'none',
+              width: '100%', padding: SP[3], border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.md,
+              ...TEXT.base, boxSizing: 'border-box', resize: 'vertical', fontFamily: FONT, direction: 'rtl',
+              background: C.bgNested, color: C.textPrimary, outline: 'none', transition: EASE.fast,
             }} />
-        </div>
+        </Card>
 
         {/* ── Timeline ── */}
         {phaseTimelines.length > 0 && (
           <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}` }}>
-            <h3 style={{ margin: '0 0 16px', color: C.textPrimary, fontSize: '15px' }}>⏱ לוחות זמנים</h3>
+            <h3 style={{ margin: '0 0 16px', color: C.textPrimary, fontSize: '16px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>⏱ לוחות זמנים</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {phaseTimelines.map((pt, idx) => {
                 const isLate  = pt.delayMins !== null && pt.delayMins >= SIGNIFICANT_MINS;
@@ -837,30 +900,33 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                 const envColor    = pt.environment === 'HOT' ? C.statusFailed : C.statusOpen;
                 const envBg       = pt.environment === 'HOT' ? 'rgba(248,81,73,0.15)' : 'rgba(88,166,255,0.15)';
                 return (
-                  <div key={idx} style={{ border: `2px solid ${borderColor}`, borderRadius: '10px', padding: '14px 18px', background: bgColor }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ background: envBg, color: envColor, padding: '2px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold' }}>{pt.environment}</span>
-                        <span style={{ fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>{pt.name}</span>
-                        <span style={{ fontSize: '12px', color: C.textMuted }}>{pt.doneTasks}/{pt.totalTasks} משימות</span>
+                  <div key={idx} style={{ border: `2px solid ${borderColor}`, borderRadius: '12px', padding: '16px 20px', background: bgColor, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+                    {/* Header row */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                        <span style={{ background: envBg, color: envColor, padding: '3px 12px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold', border: `1px solid ${envColor}33` }}>{pt.environment}</span>
+                        <span style={{ fontWeight: '700', color: C.textPrimary, fontSize: '15px' }}>{pt.name}</span>
+                        <span style={{ fontSize: '12px', color: C.textMuted, background: C.bgNested, padding: '2px 8px', borderRadius: '8px' }}>{pt.doneTasks}/{pt.totalTasks} משימות</span>
                       </div>
                       {timelineDelayBadge(pt.delayMins)}
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', fontSize: '12px', marginBottom: '10px' }}>
+                    {/* Timing grid */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginBottom: '12px' }}>
                       {[
-                        { label: 'התחלה מתוכננת', value: pt.plannedStart ? fmtTime(pt.plannedStart.toISOString()) : '—', color: C.textMuted },
+                        { label: 'התחלה מתוכננת', value: pt.plannedStart ? fmtTime(pt.plannedStart.toISOString()) : '—', color: C.textSecondary },
                         { label: 'סיום מתוכנן',   value: pt.plannedEnd   ? fmtTime(pt.plannedEnd.toISOString())   : '—', color: C.statusInProgress },
                         { label: 'התחלה בפועל',   value: pt.actualStart  ? fmtTime(pt.actualStart.toISOString())  : '—', color: C.statusOpen },
                         { label: 'סיום בפועל',    value: pt.actualEnd    ? fmtTime(pt.actualEnd.toISOString())    : '—', color: isLate ? C.statusFailed : C.statusDone },
                       ].map(f => (
-                        <div key={f.label} style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '6px', padding: '6px 10px' }}>
-                          <div style={{ color: C.textMuted, fontSize: '10px', marginBottom: '2px' }}>{f.label}</div>
-                          <div style={{ fontWeight: 'bold', color: f.color, fontSize: '13px' }}>{f.value}</div>
+                        <div key={f.label} style={{ background: '#FFFFFF', border: `1px solid ${C.border}`, borderRadius: '8px', padding: '8px 12px' }}>
+                          <div style={{ color: C.textMuted, fontSize: '11px', marginBottom: '4px', fontWeight: '500' }}>{f.label}</div>
+                          <div style={{ fontWeight: '700', color: f.color, fontSize: '15px', letterSpacing: '0.3px' }}>{f.value}</div>
                         </div>
                       ))}
                     </div>
+                    {/* Delay reason */}
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                      <label style={{ fontSize: '11px', color: C.textMuted, paddingTop: '8px', flexShrink: 0 }}>
+                      <label style={{ fontSize: '12px', color: isLate ? C.statusFailed : C.textMuted, paddingTop: '8px', flexShrink: 0, fontWeight: isLate ? '600' : 'normal' }}>
                         {isLate ? '⚠️ סיבת חריגה *' : 'סיבת חריגה / הערה'}
                       </label>
                       <textarea
@@ -869,10 +935,10 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                         placeholder={isLate ? 'חובה — הסבר מדוע חרגו מלוחות הזמנים' : 'אופציונלי'}
                         rows={2}
                         style={{
-                          flex: 1, padding: '6px 10px',
-                          border: `1px solid ${isLate && !(phaseDelayReasons[idx] || '').trim() ? C.statusFailed : C.borderEm}`,
-                          borderRadius: '6px', fontSize: '12px', resize: 'vertical', fontFamily: FONT, direction: 'rtl',
-                          background: 'rgba(0,0,0,0.2)', color: C.textPrimary, outline: 'none',
+                          flex: 1, padding: '7px 10px',
+                          border: `1px solid ${isLate && !(phaseDelayReasons[idx] || '').trim() ? C.statusFailed : C.border}`,
+                          borderRadius: '6px', fontSize: '13px', resize: 'vertical', fontFamily: FONT, direction: 'rtl',
+                          background: C.bgNested, color: C.textPrimary, outline: 'none',
                         }}
                       />
                     </div>
@@ -903,7 +969,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         {(
           <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ margin: 0, color: C.textPrimary, fontSize: '15px' }}>🧪 תכולת בדיקות (QC Test Coverage)</h3>
+              <h3 style={{ margin: 0, color: C.textPrimary, fontSize: '16px', fontWeight: '700' }}>🧪 תכולת בדיקות (QC Test Coverage)</h3>
               <span style={{ fontSize: '11px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
             </div>
             {qcLoading ? (
@@ -914,9 +980,9 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                   <thead>
-                    <tr style={{ background: C.bgNested }}>
+                    <tr style={{ background: C.bgActive }}>
                       {['#', 'פרויקט/רגרסיה/באג', 'כותרת / CR', 'אחראי', 'Passed', 'Failed', 'Not Completed', 'Blocked', 'Not Run', 'הערות'].map(h => (
-                        <th key={h} style={{ padding: '7px 8px', textAlign: 'right', color: C.textSecondary, fontWeight: 'bold', whiteSpace: 'nowrap', border: `1px solid ${C.border}`, fontSize: '11px' }}>{h}</th>
+                        <th key={h} style={{ padding: '9px 10px', textAlign: 'right', color: C.textPrimary, fontWeight: '600', whiteSpace: 'nowrap', border: `1px solid ${C.border}`, fontSize: '12px' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -1093,7 +1159,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
               </div>
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
                 {canForceApprove && !editingApproved && (
-                  <button onClick={() => setEditingApproved(true)}
+                  <button onClick={() => { setHeadline(summaryRecord?.headline || ''); setMorningNotes(summaryRecord?.morningNotes || ''); setEditingApproved(true); }}
                     style={{ padding: '10px 18px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', fontFamily: FONT }}>
                     ✏️ ערוך דוח
                   </button>

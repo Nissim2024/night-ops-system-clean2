@@ -14,6 +14,7 @@ interface UseSocketOptions {
   onUserOnline?: (user: any) => void;
   onUserOffline?: (user: any) => void;
   onJoined?: (users: any[]) => void;
+  onProposalCreated?: (data: { versionId: string }) => void;
 }
 
 export const useSocket = (options: UseSocketOptions) => {
@@ -64,6 +65,10 @@ export const useSocket = (options: UseSocketOptions) => {
 
     socket.on('USER_OFFLINE', (user) => {
       optionsRef.current.onUserOffline?.(user);
+    });
+
+    socket.on('PROPOSAL_CREATED', (data) => {
+      optionsRef.current.onProposalCreated?.(data);
     });
 
     socket.on('disconnect', () => {

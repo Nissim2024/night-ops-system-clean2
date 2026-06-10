@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaClient, VersionStatus } from '@prisma/client';
+import { EmailService } from '../email/email.service';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
@@ -7,6 +8,7 @@ const prisma = new PrismaClient({
 
 @Injectable()
 export class VersionsService {
+  constructor(private readonly emailService: EmailService) {}
 
   async findAll() {
     const [versions, taskCounts] = await Promise.all([
@@ -15,6 +17,8 @@ export class VersionsService {
           creator: { select: { id: true, fullName: true } },
           approver: { select: { id: true, fullName: true } },
           _count: { select: { phases: true } },
+          nightSummary:     { select: { sentAt: true, forceApprovedBy: true } },
+          rehearsalSummary: { select: { sentAt: true } },
         },
         orderBy: { createdAt: 'desc' },
       }),
@@ -231,7 +235,7 @@ async addTask(subPhaseId: string, data: {
     });
   }
 
-  async reassignTasks(versionId: string, fromUserName: string, toUserId: string, phaseId?: string) {
+  async reassignTasks(versionId: string, fromUserName: string | null, toUserId: string, phaseId?: string, fromTeamId?: string) {
     const [version, toUser] = await Promise.all([
       prisma.version.findUnique({ where: { id: versionId } }),
       prisma.user.findUnique({
@@ -242,11 +246,17 @@ async addTask(subPhaseId: string, data: {
     if (!version) throw new NotFoundException('Version not found');
     if (!toUser) throw new NotFoundException('User not found');
 
-    const teamId = toUser.teamMemberships.length === 1
+    const toTeamId = toUser.teamMemberships.length === 1
       ? toUser.teamMemberships[0].teamId
       : undefined;
 
-    const where: any = { versionId, assignedUserName: fromUserName };
+    const where: any = { versionId };
+    if (fromUserName === null) {
+      where.assignedUserName = null;
+      if (fromTeamId) where.assignedTeamId = fromTeamId;
+    } else {
+      where.assignedUserName = fromUserName;
+    }
     if (phaseId) where.subPhase = { phaseId };
 
     const result = await prisma.task.updateMany({
@@ -254,7 +264,7 @@ async addTask(subPhaseId: string, data: {
       data: {
         assignedUserId: toUser.id,
         assignedUserName: toUser.fullName,
-        ...(teamId ? { assignedTeamId: teamId } : {}),
+        ...(toTeamId ? { assignedTeamId: toTeamId } : {}),
       },
     });
 
@@ -313,6 +323,7 @@ async addTask(subPhaseId: string, data: {
               title: `משימה ${ti}`,
               orderIndex: ti,
               status: 'WAITING',
+              environment: phaseData.environment as any,
               createdBy,
               createdByTeamLead: createdBy,
             },
@@ -405,11 +416,12 @@ async addTask(subPhaseId: string, data: {
     if (!version) throw new NotFoundException('Version not found');
 
     // State machine: enforce allowed transitions
+    // New order: DRAFT → COLLECTING → CR_REVIEW → REFINING → REVIEW → APPROVED
     const ALLOWED: Partial<Record<VersionStatus, VersionStatus[]>> = {
-      [VersionStatus.DRAFT]:         [VersionStatus.CR_REVIEW, VersionStatus.COLLECTING, VersionStatus.APPROVED],
-      [VersionStatus.CR_REVIEW]:     [VersionStatus.COLLECTING, VersionStatus.DRAFT],
-      [VersionStatus.COLLECTING]:    [VersionStatus.REFINING, VersionStatus.APPROVED, VersionStatus.DRAFT, VersionStatus.CR_REVIEW],
-      [VersionStatus.REFINING]:      [VersionStatus.REVIEW, VersionStatus.COLLECTING],
+      [VersionStatus.DRAFT]:         [VersionStatus.COLLECTING, VersionStatus.CR_REVIEW, VersionStatus.APPROVED],
+      [VersionStatus.COLLECTING]:    [VersionStatus.CR_REVIEW, VersionStatus.DRAFT],
+      [VersionStatus.CR_REVIEW]:     [VersionStatus.REFINING, VersionStatus.COLLECTING, VersionStatus.DRAFT],
+      [VersionStatus.REFINING]:      [VersionStatus.REVIEW, VersionStatus.CR_REVIEW],
       [VersionStatus.REVIEW]:        [VersionStatus.APPROVED, VersionStatus.REFINING],
       [VersionStatus.APPROVED]:      [VersionStatus.REHEARSAL, VersionStatus.ACTIVE, VersionStatus.DRAFT],
       [VersionStatus.ACTIVE]:        [VersionStatus.MORNING_AFTER, VersionStatus.ROLLED_BACK],
@@ -426,15 +438,24 @@ async addTask(subPhaseId: string, data: {
       );
     }
 
-    // COLLECTING → REFINING: involved teams (those with CrPlans) must have submitted
+    // CR_REVIEW → REFINING: involved teams must have submitted and CrPlans must be approved
     // force=true lets a manager override this check
-    if (version.status === VersionStatus.COLLECTING && status === VersionStatus.REFINING && !force) {
+    if (version.status === VersionStatus.CR_REVIEW && status === VersionStatus.REFINING && !force) {
       const involvedPlans = await (prisma.crPlan as any).findMany({
         where: { versionId: id },
         distinct: ['teamId'],
         select: { teamId: true },
       });
-      const involvedTeamIds = involvedPlans.map((p: any) => p.teamId);
+      const allInvolvedTeamIds = involvedPlans.map((p: any) => p.teamId);
+      // Exclude teams that don't require plan submission from enforcement (raw SQL bypasses Prisma cache)
+      let involvedTeamIds: string[] = allInvolvedTeamIds;
+      if (allInvolvedTeamIds.length > 0) {
+        const requiredRows: any[] = await prisma.$queryRawUnsafe(
+          `SELECT id FROM "Team" WHERE id = ANY($1::uuid[]) AND "requiresPlan" = true`,
+          allInvolvedTeamIds,
+        );
+        involvedTeamIds = requiredRows.map((t: any) => t.id);
+      }
       if (involvedTeamIds.length > 0) {
         const notSubmitted = await prisma.teamSubmission.findMany({
           where: {
@@ -451,15 +472,38 @@ async addTask(subPhaseId: string, data: {
         }
       }
 
-      // All CrPlans must be approved by manager before moving to REFINING
+      // All CrPlans must be approved — only for CRs that still have an active assignment
+      const activeAssignments = await prisma.versionCrAssignment.findMany({
+        where: { versionId: id },
+        select: { crNumber: true },
+      });
+      const activeCrNumbers = new Set(activeAssignments.map((a: any) => a.crNumber));
       const unapprovedPlans = await prisma.crPlan.findMany({
         where: { versionId: id, planApproved: false, notNeededForPlan: false },
         distinct: ['crNumber'] as any,
         select: { crNumber: true },
       });
-      if (unapprovedPlans.length > 0) {
-        const crNums = unapprovedPlans.map((p: any) => p.crNumber).join(', ');
-        throw new BadRequestException(`לא ניתן לעבור לשלב הבא — יש ${unapprovedPlans.length} CR שטרם אושרו: ${crNums}`);
+      const blockingPlans = unapprovedPlans.filter((p: any) => activeCrNumbers.has(p.crNumber));
+      if (blockingPlans.length > 0) {
+        const crNums = blockingPlans.map((p: any) => p.crNumber).join(', ');
+        throw new BadRequestException(`לא ניתן לעבור לשלב הבא — יש ${blockingPlans.length} CR שטרם אושרו: ${crNums}`);
+      }
+    }
+
+    // REFINING → REVIEW: all active CRs must be approved by CR Manager
+    if (version.status === VersionStatus.REFINING && status === VersionStatus.REVIEW && !force) {
+      const unapproved = await (prisma.crPlan as any).findFirst({
+        where: { versionId: id, crManagerApproved: false, notNeededForPlan: false },
+        select: { crNumber: true },
+      });
+      if (unapproved) {
+        const pending = await (prisma.crPlan as any).findMany({
+          where: { versionId: id, crManagerApproved: false, notNeededForPlan: false },
+          distinct: ['crNumber'],
+          select: { crNumber: true },
+        });
+        const crNums = pending.map((p: any) => p.crNumber).join(', ');
+        throw new BadRequestException(`לא ניתן לעבור לסקירה — יש ${pending.length} CR שטרם אושרו ע"י מנהל CR: ${crNums}`);
       }
     }
 
@@ -561,6 +605,18 @@ async addTask(subPhaseId: string, data: {
     return prisma.version.update({ where: { id }, data });
   }
 
+  async updateFields(id: string, data: { plannedStart?: string | null; plannedEnd?: string | null; reviewMeetingTime?: string | null; name?: string; description?: string }) {
+    const version = await prisma.version.findUnique({ where: { id } });
+    if (!version) throw new NotFoundException('Version not found');
+    const update: any = {};
+    if ('plannedStart'     in data) update.plannedStart     = data.plannedStart     ? new Date(data.plannedStart)     : null;
+    if ('plannedEnd'       in data) update.plannedEnd       = data.plannedEnd       ? new Date(data.plannedEnd)       : null;
+    if ('reviewMeetingTime' in data) update.reviewMeetingTime = data.reviewMeetingTime ? new Date(data.reviewMeetingTime) : null;
+    if ('name'        in data && data.name)        update.name        = data.name;
+    if ('description' in data)                     update.description = data.description ?? null;
+    return prisma.version.update({ where: { id }, data: update });
+  }
+
   async updatePlannedEnd(id: string, plannedEnd: string) {
     const version = await prisma.version.findUnique({ where: { id } });
     if (!version) throw new NotFoundException('Version not found');
@@ -597,7 +653,7 @@ async addTask(subPhaseId: string, data: {
     if (version.status !== VersionStatus.COMPLETED && version.status !== VersionStatus.ROLLED_BACK) {
       throw new BadRequestException('רק גרסאות מהארכיון ניתן לשחזר');
     }
-    return prisma.version.update({ where: { id }, data: { status: VersionStatus.APPROVED } });
+    return prisma.version.update({ where: { id }, data: { status: VersionStatus.APPROVED, isArchived: false, archivedAt: null } });
   }
 
   async submitTeamTasks(versionId: string, teamId: string, userId: string, userRole: string) {
@@ -882,29 +938,134 @@ async addTask(subPhaseId: string, data: {
     return { resolved: rootPrereqIds.length };
   }
 
+  // Snapshot plannedEnd for every task in a version (used for diff after cascade).
+  private async snapshotEnds(versionId: string): Promise<Map<string, number>> {
+    const tasks = await prisma.task.findMany({
+      where: { versionId, plannedEnd: { not: null } },
+      select: { id: true, plannedEnd: true },
+    });
+    return new Map(tasks.map(t => [t.id, new Date(t.plannedEnd as any).getTime()]));
+  }
+
+  // Compare current task times against a before-snapshot and return the most affected sub-phases.
+  private async diffEnds(
+    versionId: string,
+    before: Map<string, number>,
+  ): Promise<{ subPhaseName: string; phaseName: string; deltaMinutes: number }[]> {
+    if (before.size === 0) return [];
+    const after = await prisma.task.findMany({
+      where: { id: { in: [...before.keys()] } },
+      select: {
+        id: true, plannedEnd: true, subPhaseId: true,
+        subPhase: { select: { name: true, phase: { select: { name: true } } } },
+      },
+    });
+    const subPhaseMap = new Map<string, { subPhaseName: string; phaseName: string; deltaMinutes: number }>();
+    for (const t of after) {
+      if (!t.subPhaseId || !t.plannedEnd) continue;
+      const beforeMs = before.get(t.id);
+      if (beforeMs === undefined) continue;
+      const delta = Math.round((new Date(t.plannedEnd as any).getTime() - beforeMs) / 60000);
+      if (delta === 0) continue;
+      const existing = subPhaseMap.get(t.subPhaseId);
+      if (!existing || Math.abs(delta) > Math.abs(existing.deltaMinutes)) {
+        subPhaseMap.set(t.subPhaseId, {
+          subPhaseName: (t as any).subPhase?.name ?? '',
+          phaseName: (t as any).subPhase?.phase?.name ?? '',
+          deltaMinutes: delta,
+        });
+      }
+    }
+    return Array.from(subPhaseMap.values())
+      .filter(v => v.deltaMinutes !== 0)
+      .sort((a, b) => Math.abs(b.deltaMinutes) - Math.abs(a.deltaMinutes))
+      .slice(0, 4);
+  }
+
+  // After removing a dependency, recalculate the task's start time.
+  // • Remaining deps exist → start = max(remaining deps' ends)
+  // • No deps left         → start = sub-phase baseline (min plannedStart of sibling tasks)
+  private async recalculateAfterDepRemoval(taskId: string): Promise<void> {
+    const [task, remainingDeps] = await Promise.all([
+      prisma.task.findUnique({ where: { id: taskId }, select: { duration: true, subPhaseId: true } }),
+      prisma.taskDependency.findMany({
+        where: { taskId },
+        include: { dependsOn: { select: { plannedEnd: true } } },
+      }),
+    ]);
+    if (!task) return;
+
+    let newStart: Date | null = null;
+
+    if (remainingDeps.length > 0) {
+      // Use max end of remaining deps
+      for (const dep of remainingDeps) {
+        const end = (dep as any).dependsOn?.plannedEnd;
+        if (end) { const d = new Date(end); if (!newStart || d > newStart) newStart = d; }
+      }
+    } else if (task.subPhaseId) {
+      // No deps left — go back to sub-phase baseline: min plannedStart of sibling tasks
+      const sibling = await prisma.task.findFirst({
+        where: { subPhaseId: task.subPhaseId, id: { not: taskId }, plannedStart: { not: null } },
+        orderBy: { plannedStart: 'asc' },
+        select: { plannedStart: true },
+      });
+      if (sibling?.plannedStart) {
+        newStart = new Date(sibling.plannedStart as any);
+      } else {
+        // No siblings with times — use phase plannedStart if available
+        const sub = await (prisma.subPhase as any).findUnique({
+          where: { id: task.subPhaseId },
+          select: { phase: { select: { plannedStart: true } } },
+        });
+        if (sub?.phase?.plannedStart) newStart = new Date(sub.phase.plannedStart);
+      }
+    }
+
+    if (!newStart) return;
+
+    const mins = this.parseMinsShared(task.duration);
+    const newEnd = mins && mins > 0 ? new Date(newStart.getTime() + mins * 60000) : null;
+    await prisma.task.update({
+      where: { id: taskId },
+      data: { plannedStart: newStart, ...(newEnd ? { plannedEnd: newEnd } : {}) },
+    });
+  }
+
   async addDependency(taskId: string, dependsOnTaskId: string) {
     if (taskId === dependsOnTaskId) {
       throw new BadRequestException('משימה לא יכולה להיות תלויה בעצמה');
     }
-    // Circular dependency check: would `dependsOnTaskId` end up depending on `taskId`?
     if (await this.dependsTransitively(dependsOnTaskId, taskId)) {
       throw new BadRequestException('לא ניתן להוסיף תלות — תיווצר תלות מעגלית');
     }
 
-    const dep = await prisma.taskDependency.create({
-      data: { taskId, dependsOnTaskId },
+    // Idempotent: if dependency already exists return it without cascading again
+    const existing = await prisma.taskDependency.findUnique({
+      where: { taskId_dependsOnTaskId: { taskId, dependsOnTaskId } },
     });
+    if (existing) return { dep: existing, affected: [] };
 
-    // Cascade: push taskId (and its dependents) based on the new dependency's end time
+    const dep = await prisma.taskDependency.create({ data: { taskId, dependsOnTaskId } });
+
+    const root = await prisma.task.findUnique({ where: { id: dependsOnTaskId }, select: { versionId: true } });
+    const before = root?.versionId ? await this.snapshotEnds(root.versionId) : new Map<string, number>();
     await this.cascadeDependencyTimes(dependsOnTaskId);
+    const affected = root?.versionId ? await this.diffEnds(root.versionId, before) : [];
 
-    return dep;
+    return { dep, affected };
   }
 
   async removeDependency(taskId: string, dependsOnTaskId: string) {
-    return prisma.taskDependency.delete({
-      where: { taskId_dependsOnTaskId: { taskId, dependsOnTaskId } },
-    });
+    const task = await prisma.task.findUnique({ where: { id: taskId }, select: { versionId: true } });
+    const before = task?.versionId ? await this.snapshotEnds(task.versionId) : new Map<string, number>();
+
+    await prisma.taskDependency.delete({ where: { taskId_dependsOnTaskId: { taskId, dependsOnTaskId } } });
+    await this.recalculateAfterDepRemoval(taskId);
+    await this.cascadeDependencyTimes(taskId);
+
+    const affected = task?.versionId ? await this.diffEnds(task.versionId, before) : [];
+    return { affected };
   }
 
   async deleteCrossPhaseUserDeps(versionId: string) {
@@ -1567,5 +1728,46 @@ async addTask(subPhaseId: string, data: {
 
     if (ops.length > 0) await prisma.$transaction(ops);
     return { reordered };
+  }
+
+  async sendCollectingReminder(versionId: string): Promise<{ sent: number; skipped: number; teams: string[] }> {
+    const version = await prisma.version.findUnique({ where: { id: versionId } });
+    if (!version) throw new NotFoundException('Version not found');
+
+    // Find submissions that are NOT yet submitted
+    const pendingSubmissions = await prisma.teamSubmission.findMany({
+      where: { versionId, status: { not: 'SUBMITTED' } },
+      include: { team: { include: { members: { where: { isLead: true }, include: { user: { select: { id: true, fullName: true, email: true } } } } } } },
+    });
+
+    if (pendingSubmissions.length === 0) return { sent: 0, skipped: 0, teams: [] };
+
+    const meetingLine = version.reviewMeetingTime
+      ? `ישיבת המעבר מתוכננת ל: ${new Date(version.reviewMeetingTime).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+      : 'מועד ישיבת המעבר טרם נקבע';
+
+    const subject = `תזכורת: הגשת פיתוחים לגרסה ${version.name}`;
+    let sent = 0;
+    let skipped = 0;
+    const teamNames: string[] = [];
+
+    for (const sub of pendingSubmissions) {
+      const leads = sub.team.members.map((m: any) => m.user).filter((u: any) => u?.email);
+      if (leads.length === 0) { skipped++; continue; }
+
+      const teamName = sub.team.name;
+      teamNames.push(teamName);
+      const body =
+        `שלום,\n\n` +
+        `צוות ${teamName} עדיין לא השלים את הגשת ה-CR לגרסה ${version.name}.\n\n` +
+        `${meetingLine}\n\n` +
+        `אנא היכנסו למערכת Night Ops והשלימו את הגשת הפיתוחים בהקדם האפשרי.\n\n` +
+        `בברכה,\nמנהל הלילה`;
+
+      await this.emailService.sendEmail(subject, body, leads.map((u: any) => u.email));
+      sent++;
+    }
+
+    return { sent, skipped, teams: teamNames };
   }
 }

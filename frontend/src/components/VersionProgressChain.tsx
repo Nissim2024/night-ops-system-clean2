@@ -1,12 +1,16 @@
 import React from 'react';
+import { C, FONT, TEXT, WEIGHT, EASE } from '../theme';
 
 interface Props {
   versionStatus: string;
-  activeRunPhase?: number; // 1-4: which phase is currently active within ACTIVE/REHEARSAL
+  activeRunPhase?: number;
+  rehearsalDone?: boolean;
+  summaryBeforeMorning?: boolean;
+  onStageClick?: (stageId: string) => void;
 }
 
 const STATUS_ORDER = [
-  'DRAFT', 'COLLECTING', 'REFINING', 'REVIEW', 'APPROVED',
+  'DRAFT', 'COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED',
   'REHEARSAL',
   'ACTIVE', 'MORNING_AFTER',
   'COMPLETED',
@@ -14,58 +18,51 @@ const STATUS_ORDER = [
 
 const STAGES = [
   {
-    id: 'prep',
-    label: 'הכנת התוכנית',
-    icon: '📋',
-    color: '#2d4a7a',
+    id: 'prep', label: 'תכנון', icon: '📋',
+    color: '#388bfd', glowColor: 'rgba(56,139,253,0.30)',
     subs: [
-      { label: 'טיוטא',              status: 'DRAFT'      },
-      { label: 'איסוף משימות',        status: 'COLLECTING'  },
-      { label: 'עריכת תוכנית',       status: 'REFINING'    },
-      { label: 'אישור גורמים',       status: 'REVIEW'      },
-      { label: 'אישור תוכנית',      status: 'APPROVED'    },
+      { label: 'טיוטה',       status: 'DRAFT',      key: 'draft'      },
+      { label: 'איסוף',       status: 'COLLECTING', key: 'collecting' },
+      { label: 'סקירת CR',    status: 'CR_REVIEW',  key: 'cr_review'  },
+      { label: 'טיוב',        status: 'REFINING',   key: 'refining'   },
+      { label: 'ישיבת מעבר', status: 'REVIEW',     key: 'review'     },
+      { label: 'אישור',       status: 'APPROVED',   key: 'approved'   },
     ],
   },
   {
-    id: 'rehearsal',
-    label: 'חזרה גנרלית',
-    icon: '🎭',
-    color: '#e67e22',
+    id: 'rehearsal', label: 'חזרה', icon: '🎭',
+    color: '#f0883e', glowColor: 'rgba(240,136,62,0.30)',
     subs: [
-      { label: 'שלב 1 — בוקר גרסה',   status: 'REHEARSAL' },
-      { label: 'שלב 2 — לילה HOTNET',  status: 'REHEARSAL' },
-      { label: 'שלב 3 — לילה HOT',     status: 'REHEARSAL' },
-      { label: 'שלב 4 — בוקר לאחר',   status: 'REHEARSAL' },
-      { label: 'אישור סיכום פעילות',   status: 'REHEARSAL' },
+      { label: 'שלב 1', status: 'REHEARSAL', key: 'r1' },
+      { label: 'שלב 2', status: 'REHEARSAL', key: 'r2' },
+      { label: 'שלב 3', status: 'REHEARSAL', key: 'r3' },
+      { label: 'שלב 4', status: 'REHEARSAL', key: 'r4' },
+      { label: 'סיכום', status: 'REHEARSAL', key: 'r5' },
     ],
   },
   {
-    id: 'run',
-    label: 'הרצה בפועל',
-    icon: '🚀',
-    color: '#c0392b',
+    id: 'run', label: 'הטמעה', icon: '🚀',
+    color: '#ff7b72', glowColor: 'rgba(255,123,114,0.30)',
     subs: [
-      { label: 'שלב 1 — בוקר גרסה',      status: 'ACTIVE'        },
-      { label: 'שלב 2 — לילה HOTNET',     status: 'ACTIVE'        },
-      { label: 'שלב 3 — לילה HOT',        status: 'ACTIVE'        },
-      { label: 'שלב 4 — בוקר לאחר גרסה', status: 'MORNING_AFTER' },
-      { label: 'אישור סיכום פעילות',      status: 'MORNING_AFTER' },
+      { label: 'שלב 1', status: 'ACTIVE',        key: 'phase1' },
+      { label: 'שלב 2', status: 'ACTIVE',        key: 'phase2' },
+      { label: 'שלב 3', status: 'ACTIVE',        key: 'phase3' },
+      { label: 'בוקר',  status: 'MORNING_AFTER', key: 'morning' },
+      { label: 'סיכום', status: 'MORNING_AFTER', key: 'summary' },
     ],
   },
   {
-    id: 'done',
-    label: 'גרסה הוטמעה',
-    icon: '🎉',
-    color: '#27ae60',
-    subs: [
-      { label: 'הוטמעה בהצלחה', status: 'COMPLETED' },
-    ],
+    id: 'done', label: 'הושלם', icon: '✅',
+    color: '#56d364', glowColor: 'rgba(86,211,100,0.30)',
+    subs: [{ label: 'בייצור', status: 'COMPLETED', key: 'completed' }],
   },
 ];
 
 type NodeState = 'done' | 'active' | 'pending';
 
-function subState(subStatus: string, current: string): NodeState {
+function subState(subStatus: string, current: string, rehearsalDone = false): NodeState {
+  // החזרה הגנרלית הושלמה — הגרסה חזרה ל-APPROVED, אבל REHEARSAL צריך להיות done
+  if (subStatus === 'REHEARSAL' && rehearsalDone && current === 'APPROVED') return 'done';
   const ci = STATUS_ORDER.indexOf(current);
   const si = STATUS_ORDER.indexOf(subStatus);
   if (ci === -1 || si === -1) return 'pending';
@@ -74,150 +71,199 @@ function subState(subStatus: string, current: string): NodeState {
   return 'pending';
 }
 
-// For the 'run' stage subs 0-2 (phases 1-3, all mapped to 'ACTIVE' status),
-// use activeRunPhase to distinguish done vs active vs pending within the same status.
 function runSubStateByPhase(subIdx: number, current: string, activeRunPhase: number): NodeState {
   if (!['ACTIVE', 'REHEARSAL'].includes(current)) return subState(STAGES[2].subs[subIdx].status, current);
   if (subIdx < 3) {
-    const phaseNum = subIdx + 1; // 1-based
+    const phaseNum = subIdx + 1;
     if (phaseNum < activeRunPhase) return 'done';
     if (phaseNum === activeRunPhase) return 'active';
     return 'pending';
   }
-  // subs 3-4 (MORNING_AFTER): pending while still ACTIVE/REHEARSAL
   return 'pending';
 }
 
-function mainState(subs: { status: string }[], current: string, stageId: string, activeRunPhase: number): NodeState {
+function mainState(subs: { status: string }[], current: string, stageId: string, activeRunPhase: number, rehearsalDone = false): NodeState {
   const states = subs.map((s, i) =>
-    stageId === 'run' ? runSubStateByPhase(i, current, activeRunPhase) : subState(s.status, current)
+    stageId === 'run' ? runSubStateByPhase(i, current, activeRunPhase) : subState(s.status, current, rehearsalDone)
   );
   if (states.every(s => s === 'done')) return 'done';
   if (states.some(s => s === 'done' || s === 'active')) return 'active';
   return 'pending';
 }
 
-const DONE_COLOR  = '#27ae60';
-const ACTIVE_RING = '0 0 0 3px rgba(255,255,255,0.9), 0 0 0 5px';
-const GRAY        = '#c8d0d8';
+const STAGE_LABEL: Record<string, string> = {
+  DRAFT: 'טיוטה', COLLECTING: 'איסוף משימות', CR_REVIEW: 'סקירת CR',
+  REFINING: 'טיוב תוכנית', REVIEW: 'ישיבת מעבר', APPROVED: 'תוכנית מאושרת',
+  REHEARSAL: 'חזרה גנרלית', ACTIVE: 'לילה פעיל', MORNING_AFTER: 'בוקר שלאחר',
+  COMPLETED: 'הושלם', ROLLED_BACK: 'Rollback',
+};
 
-function circleStyle(state: NodeState, color: string, size: number): React.CSSProperties {
-  const bg =
-    state === 'done'   ? DONE_COLOR :
-    state === 'active' ? color :
-    '#e8ecf0';
-  const border =
-    state === 'done'   ? `2px solid ${DONE_COLOR}` :
-    state === 'active' ? `2px solid ${color}` :
-    '2px solid #c0c8d0';
-  const shadow =
-    state === 'active' ? `${ACTIVE_RING} ${color}66` : 'none';
-  return {
-    width: size, height: size, borderRadius: '50%',
-    background: bg, border, boxShadow: shadow,
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    flexShrink: 0, position: 'relative',
-    transition: 'all 0.3s ease',
-  };
-}
-
-function lineStyle(state: NodeState, color: string): React.CSSProperties {
-  const bg =
-    state === 'done'   ? DONE_COLOR :
-    state === 'active' ? `${color}80` :
-    GRAY;
-  return {
-    flex: 1, height: 3, background: bg,
-    transition: 'background 0.3s ease',
-    minWidth: 12,
-  };
-}
-
-export const VersionProgressChain: React.FC<Props> = ({ versionStatus, activeRunPhase = 1 }) => {
-  const effective = versionStatus === 'ROLLED_BACK' ? 'MORNING_AFTER' : versionStatus;
+export const VersionProgressChain: React.FC<Props> = ({ versionStatus, activeRunPhase = 1, rehearsalDone = false, summaryBeforeMorning = false, onStageClick }) => {
+  const effective    = versionStatus === 'ROLLED_BACK' ? 'MORNING_AFTER' : versionStatus;
   const isRolledBack = versionStatus === 'ROLLED_BACK';
+
+  // סדר דינמי: סיכום לפני בוקר כשאושר לפני שמשימות הבוקר הסתיימו
+  const STAGES_DISPLAY = STAGES.map(stage => {
+    if (stage.id !== 'run' || !summaryBeforeMorning) return stage;
+    const subs = [...stage.subs];
+    const morningIdx = subs.findIndex(s => s.key === 'morning');
+    const summaryIdx = subs.findIndex(s => s.key === 'summary');
+    if (morningIdx >= 0 && summaryIdx >= 0) {
+      [subs[morningIdx], subs[summaryIdx]] = [subs[summaryIdx], subs[morningIdx]];
+    }
+    return { ...stage, subs };
+  });
+
+  const currentLabel = STAGE_LABEL[versionStatus] ?? versionStatus;
 
   return (
     <div style={{
-      background: 'white',
-      borderBottom: '1px solid #e0e4e8',
-      padding: '10px 32px 6px',
+      background: `linear-gradient(180deg, ${C.bgElevated} 0%, ${C.bgCard} 100%)`,
+      borderBottom: `1px solid ${C.border}`,
+      padding: '8px 32px 10px',
       direction: 'rtl',
-      boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.20)',
+      position: 'relative',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
-        {STAGES.map((stage, si) => {
-          const mState = mainState(stage.subs, effective, stage.id, activeRunPhase);
+      {/* Subtle top highlight */}
+      <div style={{
+        position: 'absolute', top: 0, right: 0, left: 0, height: '1px',
+        background: 'linear-gradient(90deg, transparent, rgba(56,139,253,0.20), transparent)',
+      }} />
+
+      {/* "נמצאים ב" indicator */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
+        <span style={{ fontSize: '11px', color: C.textMuted, fontFamily: FONT }}>
+          📍 שלב נוכחי: <strong style={{ color: C.textSecondary }}>{currentLabel}</strong>
+          {rehearsalDone && versionStatus === 'APPROVED' && (
+            <span style={{ marginRight: '8px', color: '#f0883e', fontSize: '10px' }}>✓ חזרה גנרלית הושלמה</span>
+          )}
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', position: 'relative', overflow: 'hidden' }}>
+        {STAGES_DISPLAY.map((stage, si) => {
+          const mState = mainState(stage.subs, effective, stage.id, activeRunPhase, rehearsalDone);
+          const isClickable = onStageClick && (mState === 'done' || mState === 'active');
+
+          const nodeBg =
+            mState === 'done'   ? C.success :
+            mState === 'active' ? stage.color :
+            C.bgActive;
+
+          const nodeColor = mState === 'pending' ? C.textDisabled : 'white';
+
           return (
             <React.Fragment key={stage.id}>
-              {/* ── Main stage node ── */}
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
-                <div style={circleStyle(mState, stage.color, 38)}>
+              {/* ── Main stage bubble ── */}
+              <div
+                onClick={() => isClickable && onStageClick?.(stage.id)}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', flexShrink: 0, cursor: isClickable ? 'pointer' : 'default' }}
+              >
+                <div style={{
+                  width: '36px', height: '36px', borderRadius: '50%',
+                  background: nodeBg,
+                  border: mState === 'active'
+                    ? `2px solid ${stage.color}`
+                    : mState === 'done'
+                    ? `2px solid ${C.success}`
+                    : `2px solid ${C.borderEm}`,
+                  boxShadow: mState === 'active'
+                    ? `0 0 0 4px ${stage.glowColor}, 0 0 12px ${stage.glowColor}`
+                    : mState === 'done'
+                    ? `0 0 0 3px rgba(86,211,100,0.15)`
+                    : 'none',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '15px', flexShrink: 0, position: 'relative',
+                  transition: EASE.slow,
+                  color: nodeColor,
+                }}>
                   {mState === 'done' && !isRolledBack
-                    ? <span style={{ fontSize: 16 }}>✓</span>
-                    : <span style={{ fontSize: 15 }}>{stage.icon}</span>
+                    ? <svg width="14" height="12" viewBox="0 0 14 12" fill="none"><path d="M1 6L5 10L13 2" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    : <span>{stage.icon}</span>
                   }
-                  {/* Pulse ring for active main stage */}
+
+                  {/* Pulse ring for active */}
                   {mState === 'active' && (
                     <span style={{
-                      position: 'absolute', inset: -5, borderRadius: '50%',
+                      position: 'absolute', inset: '-6px', borderRadius: '50%',
                       border: `2px solid ${stage.color}`,
-                      opacity: 0.4, animation: 'pulse 1.8s infinite',
+                      opacity: 0.5,
+                      animation: 'chain-pulse 2s ease-in-out infinite',
                       pointerEvents: 'none',
                     }} />
                   )}
                 </div>
+
                 <span style={{
-                  fontSize: 10, fontWeight: 'bold', whiteSpace: 'nowrap',
-                  color: mState === 'active' ? stage.color : mState === 'done' ? DONE_COLOR : '#9aaabb',
-                  letterSpacing: '0.2px',
+                  ...TEXT.xs, fontWeight: WEIGHT.semibold,
+                  fontFamily: FONT, whiteSpace: 'nowrap',
+                  color: mState === 'active' ? stage.color
+                       : mState === 'done'   ? C.success
+                       : C.textDisabled,
+                  transition: EASE.fast,
                 }}>
                   {isRolledBack && si === 2 ? '🔄 Rollback' : stage.label}
                 </span>
               </div>
 
-              {/* ── Sub-stages + connector to next main stage ── */}
+              {/* ── Sub-stages connector row ── */}
               {si < STAGES.length - 1 && (() => {
                 const elements: React.ReactNode[] = [];
                 stage.subs.forEach((sub, subIdx) => {
                   const sState = stage.id === 'run'
                     ? runSubStateByPhase(subIdx, effective, activeRunPhase)
-                    : subState(sub.status, effective);
-                  // connector before sub
+                    : subState(sub.status, effective, rehearsalDone);
+
+                  const lineColor =
+                    sState === 'done'   ? C.success :
+                    sState === 'active' ? `${stage.color}70` :
+                    C.bgActive;
+
                   elements.push(
-                    <div key={`line-pre-${subIdx}`} style={lineStyle(sState, stage.color)} />
+                    <div key={`pre-${subIdx}`} style={{
+                      flex: 1, height: '2px', background: lineColor,
+                      minWidth: '8px', transition: EASE.slow,
+                    }} />
                   );
-                  // sub circle
+
                   elements.push(
                     <div key={`sub-${subIdx}`} title={sub.label}
-                      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                      <div style={circleStyle(sState, stage.color, 22)}>
+                      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', flexShrink: 0 }}
+                    >
+                      <div style={{
+                        width: '18px', height: '18px', borderRadius: '50%',
+                        background: sState === 'done' ? C.success : sState === 'active' ? stage.color : C.bgNested,
+                        border: `1.5px solid ${sState === 'done' ? C.success : sState === 'active' ? stage.color : C.borderEm}`,
+                        boxShadow: sState === 'active' ? `0 0 6px ${stage.glowColor}` : 'none',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: EASE.slow,
+                      }}>
                         {sState === 'done' && (
-                          <span style={{ fontSize: 10, color: 'white' }}>✓</span>
+                          <svg width="8" height="7" viewBox="0 0 8 7" fill="none">
+                            <path d="M1 3.5L3 5.5L7 1.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
                         )}
                         {sState === 'active' && (
-                          <span style={{
-                            width: 8, height: 8, borderRadius: '50%',
-                            background: 'white', opacity: 0.9,
-                            animation: 'pulse 1.4s infinite',
-                          }} />
+                          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'white', opacity: 0.9 }} />
                         )}
                       </div>
                       <span style={{
-                        fontSize: 9, whiteSpace: 'nowrap', maxWidth: 64,
-                        overflow: 'hidden', textOverflow: 'ellipsis',
-                        color: sState === 'active' ? stage.color : sState === 'done' ? DONE_COLOR : '#b0bec5',
+                        fontSize: '8px', fontFamily: FONT, whiteSpace: 'nowrap',
+                        color: sState === 'active' ? stage.color : sState === 'done' ? C.success : C.textDisabled,
+                        transition: EASE.fast,
                       }}>
                         {sub.label}
                       </span>
                     </div>
                   );
                 });
-                // connector after last sub (before next main stage)
-                const nextStage = STAGES[si + 1];
-                const nextMState = mainState(nextStage.subs, effective, nextStage.id, activeRunPhase);
+
+                const nextStage  = STAGES_DISPLAY[si + 1];
+                const nextMState = mainState(nextStage.subs, effective, nextStage.id, activeRunPhase, rehearsalDone);
+                const postLineColor = nextMState === 'done' ? C.success : nextMState === 'active' ? `${nextStage.color}70` : C.bgActive;
                 elements.push(
-                  <div key="line-post" style={lineStyle(nextMState, nextStage.color)} />
+                  <div key="post" style={{ flex: 1, height: '2px', background: postLineColor, minWidth: '8px', transition: EASE.slow }} />
                 );
                 return elements;
               })()}
@@ -227,9 +273,9 @@ export const VersionProgressChain: React.FC<Props> = ({ versionStatus, activeRun
       </div>
 
       <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 0.4; transform: scale(1); }
-          50% { opacity: 0.8; transform: scale(1.12); }
+        @keyframes chain-pulse {
+          0%, 100% { opacity: 0.3; transform: scale(1); }
+          50% { opacity: 0.7; transform: scale(1.15); }
         }
       `}</style>
     </div>

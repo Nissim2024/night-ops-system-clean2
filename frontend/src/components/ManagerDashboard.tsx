@@ -5,7 +5,7 @@ import { ImportView } from './ImportView';
 import { WarRoom } from './WarRoom';
 import { NightSummary } from './NightSummary';
 import { TeamView } from './TeamView';
-import { Sidebar, Stage } from './Sidebar';
+import { Sidebar } from './Sidebar';
 import { useSocket } from '../hooks/useSocket';
 import { TimelineView } from './TimelineView';
 import { AdminPanel } from './AdminPanel';
@@ -14,12 +14,22 @@ import { playTaskReady } from '../utils/sound';
 import { DeployCenterLogo } from './DeployCenterLogo';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { VersionProgressChain } from './VersionProgressChain';
+import { VersionHub } from './VersionHub';
 import { TeamLeadProposalView } from './TeamLeadProposalView';
 import { CrHandoffView } from './CrHandoffView';
 import { CrReviewView } from './CrReviewView';
+import { ImplementationPlansView } from './ImplementationPlansView';
+import { CrManagerView } from './CrManagerView';
+import { QaSeasonsView } from './qa/QaSeasonsView';
+import { QaLeavesView } from './qa/QaLeavesView';
+import { QaSkillsView } from './qa/QaSkillsView';
+import { QaTestersView } from './qa/QaTestersView';
+import QaAssignmentView from './qa/QaAssignmentView';
+import QaWorkPlanView from './qa/QaWorkPlanView';
 import { FEATURES } from '../featureFlags';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
-import { C, FONT } from '../theme';
+import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, versionStatusColor, versionStatusLabel } from '../theme';
+import { Avatar, Badge, VersionStatusChip } from './ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -36,8 +46,12 @@ interface ToastItem {
 }
 
 export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
-  const [stage, setStage]                       = useState('');
-  const [prepTab, setPrepTab]                   = useState<'versions' | 'import'>('versions');
+  type Tab = 'list' | 'version-detail' | 'proposals' | 'cr-review' | 'board' | 'overview' | 'timeline' | 'dashboard' | 'summary-rehearsal' | 'summary-night' | 'admin' | 'implementation-plans' | 'cr-manager';
+  const [activeTab, setActiveTab]               = useState<Tab>(() => {
+    try { return JSON.parse(atob(token.split('.')[1])).role === 'CR_MANAGER' ? 'cr-manager' : 'list'; }
+    catch { return 'list'; }
+  });
+  const [myTasksMode, setMyTasksMode]           = useState(false);
   const [versions, setVersions]                 = useState<any[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState('');
   const [onlineUsers, setOnlineUsers]           = useState<any[]>([]);
@@ -57,6 +71,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [toasts, setToasts]                     = useState<ToastItem[]>([]);
   const [warRoomRefresh, setWarRoomRefresh]      = useState(0);
   const [myTeamId, setMyTeamId]                 = useState('');
+  const [openNewVersionForm, setOpenNewVersionForm] = useState(false);
+  const [activeModule, setActiveModule] = useState<'deployments' | 'qa'>('deployments');
+  const [activeQaView, setActiveQaView]  = useState('testers');
 
   const payload  = JSON.parse(atob(token.split('.')[1]));
   const fullName = localStorage.getItem('deploycenter_fullName') || payload.fullName || 'מנהל';
@@ -64,55 +81,17 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const { can } = usePermissions();
   const push = usePushNotifications(token);
 
-  const ALL_STAGE_KEYS = ['prep', 'cr-review', 'handoff', 'timeline', 'night', 'summary', 'admin'];
-  const allowedKeys = ALL_STAGE_KEYS.filter(key => {
-    if (key === 'admin' && payload.role === 'ADMIN') return true;
-    if (key === 'prep' && FEATURES.TEAM_LEAD_PROPOSAL && payload.role === 'TEAM_LEAD') return true;
-    if (key === 'cr-review' && FEATURES.CR_PLAN_HANDOFF && ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role)) return true;
-    if (key === 'cr-review') return false; // hide from others
-    return can(`screen:${key}`);
-  });
-
-  const hasAutoNavigated = React.useRef(false);
-
-  // Smart auto-navigation: once on initial load, land the user at the stage matching the system's current state
+  // לחיצה על גרסה בתפריט → תמיד דף נחיתה (Hub)
   useEffect(() => {
-    if (hasAutoNavigated.current) return;
-    if (!allowedKeys.length || !versions.length) return;
-
-    hasAutoNavigated.current = true;
-
-    const activeVer = versions.find((v: any) =>
-      !v.isArchived && ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(v.status)
+    if (!selectedVersionId || !versions.length) return;
+    const v = versions.find(x => x.id === selectedVersionId);
+    setActiveTab(
+      payload.role === 'CR_MANAGER' ? 'cr-manager' :
+      payload.role === 'TEAM_LEAD' && v?.status === 'COLLECTING' ? 'proposals' :
+      'list'
     );
-    const planningVer = versions.find((v: any) =>
-      !v.isArchived && ['DRAFT', 'COLLECTING', 'REFINING', 'REVIEW', 'APPROVED'].includes(v.status)
-    );
-    const completedVer = versions.find((v: any) =>
-      !v.isArchived && ['COMPLETED', 'ROLLED_BACK'].includes(v.status)
-    );
-
-    if (activeVer) {
-      setSelectedVersionId(activeVer.id);
-      if (allowedKeys.includes('handoff'))      setStage('handoff');
-      else if (allowedKeys.includes('night'))   setStage('night');
-      else                                       setStage(allowedKeys[0]);
-    } else if (planningVer) {
-      setSelectedVersionId(planningVer.id);
-      if (allowedKeys.includes('prep'))          setStage('prep');
-      else if (allowedKeys.includes('cr-review')) setStage('cr-review');
-      else                                       setStage(allowedKeys[0]);
-    } else if (completedVer) {
-      // Completed (but not archived) versions stay in 'inactive' tab
-      setSelectedVersionId(completedVer.id);
-      setVersionFilter('inactive');
-      if (allowedKeys.includes('summary'))       setStage('summary');
-      else if (allowedKeys.includes('prep'))     setStage('prep');
-      else                                       setStage(allowedKeys[0]);
-    } else {
-      setStage(allowedKeys[0]);
-    }
-  }, [allowedKeys.join(','), versions.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    setMyTasksMode(false);
+  }, [selectedVersionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useSocket({
     userId: payload.sub,
@@ -164,6 +143,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
     onJoined:     (users) => setOnlineUsers(users.filter((u, i, arr) => arr.findIndex(x => x.userId === u.userId) === i)),
     onUserOnline: (u)     => setOnlineUsers(prev => [...prev.filter(x => x.userId !== u.userId), u]),
     onUserOffline:(u)     => setOnlineUsers(prev => prev.filter(x => x.userId !== u.userId)),
+    onProposalCreated: (data) => {
+      window.dispatchEvent(new CustomEvent('deploycenter:proposalCreated', { detail: data }));
+    },
   });
 
   const fetchVersions = () => {
@@ -184,7 +166,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const handleGoLive = (versionId: string, _versionName: string, isRehearsal: boolean) => {
     setVersionFilter('active');
     setSelectedVersionId(versionId);
-    setStage('handoff');
+    setActiveTab('board');
     fetchVersions();
   };
 
@@ -203,16 +185,15 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
     }).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync filter to match selected version's category (when dropdown changes or on initial load)
+  // Sync filter to match selected version's category (when version changes or its status changes)
+  const selectedVersionStatus = versions.find((x: any) => x.id === selectedVersionId)?.status;
+  const selectedVersionIsArchived = versions.find((x: any) => x.id === selectedVersionId)?.isArchived;
   useEffect(() => {
     if (!selectedVersionId || !versions.length) return;
     const v = versions.find((x: any) => x.id === selectedVersionId);
     if (!v) return;
-    const cat: 'active' | 'inactive' | 'archived' =
-      v.isArchived || ['COMPLETED', 'ROLLED_BACK'].includes(v.status) ? 'archived' :
-      ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(v.status) ? 'active' : 'inactive';
-    setVersionFilter(cat);
-  }, [selectedVersionId]); // eslint-disable-line
+    setVersionFilter(versionCategory(v));
+  }, [selectedVersionId, selectedVersionStatus, selectedVersionIsArchived]); // eslint-disable-line
 
   // When filter tab changes: auto-select for active/inactive; archive requires manual pick
   useEffect(() => {
@@ -303,7 +284,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
       // Transition to morning-after phase (not directly to COMPLETED)
       await axios.patch(`${API}/versions/${selectedVersionId}/status`, { status: 'MORNING_AFTER' }, { headers });
       await fetchVersions();
-      setStage('summary');
+      setActiveTab('summary-night');
     } catch (err: any) {
       setEndNightError(err?.response?.data?.message || err?.message || 'שגיאה');
     } finally {
@@ -351,6 +332,13 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
     if (v) {
       setVersionFilter(versionCategory(v));
       setSelectedVersionId(versionId);
+      // Always navigate on version click — including same-version re-click (useEffect won't fire then)
+      setActiveTab(
+        payload.role === 'CR_MANAGER' ? 'cr-manager' :
+        payload.role === 'TEAM_LEAD' && v.status === 'COLLECTING' ? 'proposals' :
+        'list'
+      );
+      setMyTasksMode(false);
     }
   };
 
@@ -359,231 +347,341 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const isRehearsal = vStatus === 'REHEARSAL';
   const isMorningAfter = vStatus === 'MORNING_AFTER';
 
-  // True when a version-specific stage should show NoVersionsForFilter instead of content
+  // True when a version-specific tab should show NoVersionsForFilter instead of content
   const noVersionGuard = filteredVersions.length === 0 || (versionFilter === 'archived' && !selectedVersionId);
 
-  const STAGES: Stage[] = [
-    {
-      key: 'prep',
-      label: 'בנייה ואישור',
-      icon: '📋',
-      description: 'תוכנית העבודה',
-      step: 1,
-    },
-    {
-      key: 'cr-review',
-      label: 'סקירת CRים',
-      icon: '🔍',
-      description: 'סיכום הגשות לפני שיוך',
-      step: 2,
-    },
-    {
-      key: 'handoff',
-      label: isRehearsal ? 'חזרה גנרלית' : 'ביצוע הטמעה',
-      icon: isRehearsal ? '🎭' : '🚀',
-      description: isRehearsal ? 'הרצת תוכנית בחזרה גנרלית'
-        : currentPhaseName ? `עכשיו: ${currentPhaseName}`
-        : isMorningAfter ? 'שלב 4 — בוקר לאחר גרסה'
-        : 'הרצת תוכנית ההטמעה',
-      step: 3,
-    },
-    {
-      key: 'timeline',
-      label: 'ציר זמן',
-      icon: '⏱',
-      description: 'תוכנית vs בפועל',
-      step: 4,
-    },
-    {
-      key: 'night',
-      label: 'בקרת ביצוע',
-      icon: '📡',
-      description: 'מעקב ובקרה בזמן אמת',
-      step: 5,
-    },
-    {
-      key: 'summary',
-      label: 'דוח סיכום פעילות',
-      icon: '📊',
-      description: isRehearsal ? 'סיכום וממצאי החזרה הגנרלית' : (vStatus === 'ACTIVE' || vStatus === 'MORNING_AFTER' || vStatus === 'COMPLETED') ? 'סיכום וממצאי ליל ההטמעה' : 'סיכום הפעילות',
-      step: 6,
-    },
-    {
-      key: 'admin',
-      label: 'ניהול',
-      icon: '⚙️',
-      description: 'משתמשים וצוותים',
-      step: 7,
-    },
+  const isExecution = ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(vStatus ?? '');
+  const hasRun = !!(selectedVersion?.lastRehearsalAt ||
+    ['REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(vStatus ?? ''));
+  // סיכום אושר לפני שמשימות הבוקר הסתיימו (force-approved while morning tasks pending)
+  const summaryBeforeMorning = !!(selectedVersion?.nightSummary?.forceApprovedBy && vStatus !== 'COMPLETED');
+
+  const TABS: { key: Tab; label: string; icon: string }[] = [
+    { key: 'list',           label: 'גרסה',     icon: '🏠' },
+    { key: 'version-detail', label: 'פרטים',    icon: '📋' },
+    { key: 'proposals',      label: 'הגשות',    icon: '📝' },
+    { key: 'cr-review', label: 'סקירת CR', icon: '🔍' },
+    { key: 'board',     label: 'לוח',      icon: '⬛' },
+    { key: 'overview',  label: 'סקירה',    icon: '👥' },
+    { key: 'timeline',  label: 'ציר זמן',  icon: '⏱' },
+    { key: 'dashboard', label: 'לוח בקרה', icon: '🎛' },
+    { key: 'summary-rehearsal',    label: 'סיכום חזרה',   icon: '🎭' },
+    { key: 'summary-night',       label: 'סיכום לילה',   icon: '🌙' },
+    { key: 'implementation-plans', label: 'תוכניות הטמעה', icon: '📁' },
+    { key: 'cr-manager',          label: 'לוח מנהל CR',   icon: '🛡' },
   ];
 
-  const visibleStages = STAGES.filter(s => allowedKeys.includes(s.key) && s.key !== 'cr-review');
+  const crManagerTab = TABS.find(t => t.key === 'cr-manager')!;
+  const visibleTabs = [
+    // CR Manager tab is always shown for CR_MANAGER (cross-version, no version selection needed)
+    ...(['CR_MANAGER', 'RELEASE_MANAGER', 'ADMIN'].includes(payload.role) ? [crManagerTab] : []),
+    ...(selectedVersionId ? TABS.filter(tab => {
+      if (tab.key === 'cr-manager') return false;
+      switch (tab.key) {
+        case 'list':           return true;
+        case 'version-detail': return can('screen:prep');
+        case 'proposals': return payload.role === 'TEAM_LEAD'
+          ? ['COLLECTING', 'CR_REVIEW'].includes(vStatus ?? '')
+          : ['COLLECTING', 'CR_REVIEW', 'REFINING'].includes(vStatus ?? '') && can('screen:prep');
+        case 'cr-review': return ['COLLECTING', 'CR_REVIEW', 'REFINING'].includes(vStatus ?? '') &&
+                                 ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role);
+        case 'board':     return isExecution || ['COMPLETED', 'ROLLED_BACK'].includes(vStatus ?? '');
+        case 'overview':  return isExecution;
+        case 'timeline':  return can('screen:timeline') && !!(hasRun || selectedVersion?.plannedStart);
+        case 'dashboard': return isExecution && can('screen:night');
+        case 'summary-rehearsal': return can('screen:summary') && !!selectedVersion?.lastRehearsalAt;
+        case 'summary-night':    return can('screen:summary') && !!(selectedVersion?.actualStart || ['ACTIVE','MORNING_AFTER','COMPLETED','ROLLED_BACK'].includes(vStatus ?? ''));
+        case 'implementation-plans': return ['COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED', 'REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(vStatus ?? '') &&
+                                            ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'].includes(payload.role);
+        default:          return false;
+      }
+    }) : []),
+  ];
 
   return (
-    <div style={{ minHeight: '100vh', background: C.bgApp, fontFamily: FONT, direction: 'rtl', color: C.textPrimary }}>
+    <div style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', background: C.bgApp, fontFamily: FONT, direction: 'rtl', color: C.textPrimary }}>
 
       {/* ─── Header ─── */}
       <div style={{
         background: C.headerBg,
-        padding: '0 24px',
+        padding: `0 ${SP[6]}`,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        height: '60px',
+        height: '58px',
         borderBottom: `1px solid ${C.border}`,
-        position: 'sticky', top: 0, zIndex: 100,
+        flexShrink: 0, zIndex: 100,
         fontFamily: FONT,
+        boxShadow: SHADOW.xs,
       }}>
-        {/* Left side (RTL = right in DOM order) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        {/* ── Right side: Logo + current version indicator ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
           <DeployCenterLogo variant="nav" />
-          {versions.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {/* Filter tabs */}
-              {(['active', 'inactive', 'archived'] as const).map(f => {
-                const labels: Record<string, string> = { active: '🟢 פעילות', inactive: '📋 לא פעילות', archived: '📦 ארכיון' };
-                const count = versions.filter(v => versionCategory(v) === f).length;
-                return (
-                  <button key={f} onClick={() => setVersionFilter(f)} style={{
-                    padding: '4px 10px', border: 'none', borderRadius: '6px', cursor: 'pointer',
-                    fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap', fontFamily: FONT,
-                    background: versionFilter === f ? C.brand : 'rgba(255,255,255,0.08)',
-                    color: versionFilter === f ? 'white' : 'rgba(255,255,255,0.7)',
-                    transition: 'background 0.15s',
-                  }}>
-                    {labels[f]} {count > 0 && <span style={{ opacity: 0.7 }}>({count})</span>}
-                  </button>
-                );
-              })}
-              {/* Version select */}
-              <select
-                value={filteredVersions.some(v => v.id === selectedVersionId) ? selectedVersionId : ''}
-                onChange={e => setSelectedVersionId(e.target.value)}
-                style={{
-                  padding: '6px 12px', borderRadius: '8px', border: `1px solid ${C.borderEm}`,
-                  background: C.bgNested, color: C.textPrimary,
-                  fontSize: '14px', cursor: 'pointer', maxWidth: '200px', fontFamily: FONT,
-                }}
+          {selectedVersion && (
+            <>
+              <div style={{ width: '1px', height: '20px', background: C.border }} />
+              <span
+                onClick={() => setActiveTab('list')}
+                title="עבור לדף הנחיתה"
+                style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: C.textPrimary, fontFamily: FONT, cursor: 'pointer', textDecoration: 'underline dotted' }}
               >
-                {filteredVersions.length === 0
-                  ? <option value="" style={{ color: C.textPrimary, background: C.bgNested }}>אין גרסאות</option>
-                  : filteredVersions.map(v => (
-                    <option key={v.id} value={v.id} style={{ color: C.textPrimary, background: C.bgNested }}>
-                      {v.status === 'ACTIVE' ? '🟢 ' : v.status === 'REHEARSAL' ? '🎭 ' : v.status === 'MORNING_AFTER' ? '🌅 ' : ''}{v.name}
-                    </option>
-                  ))
-                }
-              </select>
-            </div>
+                {selectedVersion.name}
+              </span>
+              <VersionStatusChip status={selectedVersion.status} size="xs" />
+            </>
           )}
         </div>
 
-        {/* Right side */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        {/* ── Left side: Online users, Push, User, Logout ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
+
+          {/* Online users */}
           <div style={{
-            display: 'flex', alignItems: 'center', gap: '5px',
-            background: 'rgba(63,185,80,0.12)', padding: '5px 10px', borderRadius: '8px',
-            border: '1px solid rgba(63,185,80,0.3)',
+            display: 'flex', alignItems: 'center', gap: SP[2],
+            background: C.successBg,
+            border: `1px solid ${C.success}33`,
+            padding: '4px 10px', borderRadius: RADIUS.full,
           }}>
-            <span style={{ fontSize: '8px', color: C.statusDone }}>●</span>
-            <span style={{ fontSize: '12px', color: C.textSecondary }}>{onlineUsers.length} מחוברים</span>
+            <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: C.success, boxShadow: `0 0 5px ${C.success}80` }} />
+            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.success }}>{onlineUsers.length}</span>
+            <span style={{ ...TEXT.xs, color: C.textMuted }}>מחוברים</span>
           </div>
+
+          {/* Push notification toggle */}
           <button
             onClick={push.subscribed ? push.unsubscribe : push.subscribe}
             disabled={push.loading || !push.supported}
-            title={!push.supported ? 'דפדפן זה אינו תומך ב-Push (נסה Chrome)' : push.subscribed ? 'בטל התראות Push' : 'הפעל התראות Push'}
+            title={!push.supported ? 'דפדפן זה אינו תומך ב-Push' : push.subscribed ? 'בטל התראות' : 'הפעל התראות'}
             style={{
-              padding: '6px 11px', fontSize: '17px', border: `1px solid ${C.border}`, borderRadius: '8px',
+              width: '34px', height: '34px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: `1px solid ${push.subscribed ? C.success + '44' : C.border}`,
+              borderRadius: RADIUS.md,
               cursor: push.supported ? 'pointer' : 'not-allowed',
-              background: push.subscribed ? 'rgba(63,185,80,0.15)' : C.bgNested,
-              color: push.supported ? C.textSecondary : C.textDisabled,
-              transition: 'background 0.15s',
+              background: push.subscribed ? C.successBg : C.bgNested,
+              fontSize: '16px',
+              transition: EASE.fast,
+              opacity: push.supported ? 1 : 0.4,
             }}
           >
             {push.loading ? '⏳' : push.subscribed ? '🔔' : '🔕'}
           </button>
-          <span style={{ color: C.textMuted, fontSize: '13px' }}>👤 {fullName}</span>
+
+          {/* Divider */}
+          <div style={{ width: '1px', height: '20px', background: C.border }} />
+
+          {/* User */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+            <Avatar name={fullName} size={28} />
+            <span style={{ ...TEXT.sm, color: C.textSecondary, maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {fullName}
+            </span>
+            <Badge color={
+              payload.role === 'ADMIN' ? C.statusFailed :
+              payload.role === 'RELEASE_MANAGER' ? C.brand :
+              payload.role === 'CR_MANAGER' ? C.statusOpen :
+              payload.role === 'TEAM_LEAD' ? C.warning : C.textMuted
+            } bg={
+              payload.role === 'ADMIN' ? C.dangerBg :
+              payload.role === 'RELEASE_MANAGER' ? C.brandDim :
+              payload.role === 'CR_MANAGER' ? C.infoBg :
+              payload.role === 'TEAM_LEAD' ? C.warningBg : C.bgActive
+            }>
+              {payload.role === 'ADMIN' ? 'ADMIN' :
+               payload.role === 'RELEASE_MANAGER' ? 'MANAGER' :
+               payload.role === 'CR_MANAGER' ? 'CR MGR' :
+               payload.role === 'TEAM_LEAD' ? 'LEAD' : payload.role}
+            </Badge>
+          </div>
+
+          {/* Logout */}
           <button
             onClick={onLogout}
+            title="יציאה מהמערכת"
             style={{
-              padding: '6px 14px', background: 'transparent', color: C.textMuted,
-              border: `1px solid ${C.border}`, borderRadius: '8px', cursor: 'pointer',
-              fontSize: '13px', fontFamily: FONT,
-              transition: 'all 0.15s',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: '32px', height: '32px',
+              background: 'transparent', color: C.textMuted,
+              border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer',
+              transition: EASE.fast,
             }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = C.statusFailed; e.currentTarget.style.color = C.statusFailed; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; }}
+            onMouseEnter={e => {
+              e.currentTarget.style.borderColor = C.danger + '44';
+              e.currentTarget.style.color = C.danger;
+              e.currentTarget.style.background = C.dangerBg;
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.borderColor = C.border;
+              e.currentTarget.style.color = C.textMuted;
+              e.currentTarget.style.background = 'transparent';
+            }}
           >
-            יציאה
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
           </button>
         </div>
       </div>
 
       {/* ─── Progress Chain — only when selected version matches current filter ─── */}
-      {selectedVersion && filteredVersions.some(v => v.id === selectedVersionId) && (
-        <VersionProgressChain versionStatus={selectedVersion.status} activeRunPhase={activeRunPhase} />
+      {activeModule === 'deployments' && selectedVersion && versionFilter !== 'archived' && filteredVersions.some(v => v.id === selectedVersionId) && (
+        <VersionProgressChain
+          versionStatus={selectedVersion.status}
+          activeRunPhase={activeRunPhase}
+          rehearsalDone={!!selectedVersion.lastRehearsalAt}
+          summaryBeforeMorning={summaryBeforeMorning}
+          onStageClick={(stageId) => {
+            if (stageId === 'rehearsal' && selectedVersion.lastRehearsalAt) setActiveTab('summary-rehearsal');
+            else if (stageId === 'run' || stageId === 'done') setActiveTab(isExecution ? 'board' : 'summary-night');
+            else if (stageId === 'prep') setActiveTab('list');
+          }}
+        />
+      )}
+
+      {/* ─── Tab Bar — Admin only ─── */}
+      {activeModule === 'deployments' && payload.role === 'ADMIN' && activeTab === 'admin' && (
+        <div style={{
+          background: C.headerBg, borderBottom: `1px solid ${C.border}`,
+          display: 'flex', alignItems: 'center', padding: `0 ${SP[4]}`,
+          flexShrink: 0, zIndex: 90, boxShadow: SHADOW.xs,
+        }}>
+          <button onClick={() => setActiveTab('list')}
+            style={{ padding: `12px ${SP[4]}`, background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONT, ...TEXT.sm, color: C.textMuted, display: 'flex', alignItems: 'center', gap: '5px' }}>
+            ← חזור
+          </button>
+          <button onClick={() => setActiveTab('admin')}
+            style={{ padding: `12px ${SP[4]}`, background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, borderBottom: `2px solid ${C.brand}`, marginBottom: '-1px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ fontSize: '13px' }}>⚙️</span>
+            ניהול
+          </button>
+        </div>
       )}
 
       {/* ─── Body ─── */}
-      <div style={{ display: 'flex', minHeight: 'calc(100vh - 64px)' }}>
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
 
-        {/* Main content */}
-        <div style={{ flex: 1, padding: '24px', overflowY: 'auto', minWidth: 0, background: C.bgApp }}>
+        {/* ─── Sidebar (first = right in RTL) ─── */}
+        <Sidebar
+          versions={versions}
+          selectedVersionId={selectedVersionId}
+          onVersionChange={handleVersionFocus}
+          myTasksActive={myTasksMode}
+          onMyTasksClick={() => { setMyTasksMode(m => !m); setActiveTab('board'); }}
+          showAdmin={payload.role === 'ADMIN'}
+          onAdminClick={() => { setActiveModule('deployments'); setActiveTab('admin'); }}
+          activeTab={activeTab}
+          onNewVersionClick={['ADMIN', 'RELEASE_MANAGER'].includes(payload.role) ? () => { setSelectedVersionId(''); setVersionFilter('inactive'); setActiveTab('list'); setOpenNewVersionForm(true); } : undefined}
+          activeModule={activeModule}
+          onModuleChange={m => { if (m === 'qa' && payload.role !== 'ADMIN') return; setActiveModule(m); if (m === 'qa') setActiveQaView('testers'); }}
+          activeQaView={activeQaView}
+          onQaViewChange={setActiveQaView}
+          canAccessQa={payload.role === 'ADMIN'}
+          showLeaves={payload.role !== 'ADMIN'}
+          leavesActive={activeModule === 'qa' && activeQaView === 'leaves'}
+          onLeavesClick={() => { setActiveModule('qa'); setActiveQaView('leaves'); }}
+        />
 
-          {/* ── Stage 1: הכנה ── */}
-          {stage === 'prep' && (() => {
-            // TEAM_LEAD never sees the full plan — only the collection screen
-            if (FEATURES.TEAM_LEAD_PROPOSAL && payload.role === 'TEAM_LEAD') {
-              // Show proposal view during CR_REVIEW (team leads fill CrPlan details) and COLLECTING (task proposals)
-              if (selectedVersionId && selectedVersion && ['CR_REVIEW', 'COLLECTING'].includes(selectedVersion.status)) {
-                return <TeamLeadProposalView token={token} versionId={selectedVersionId} versionName={selectedVersion.name} reviewMeetingTime={selectedVersion.reviewMeetingTime} />;
-              }
-              // Any other status → status message (no plan view)
-              const STATUS_MSG: Record<string, { icon: string; title: string; sub: string }> = {
-                DRAFT:         { icon: '📝', title: 'הגרסה בשלב טיוטה',      sub: 'שלב איסוף המשימות טרם נפתח. המתן להודעה ממנהל הלילה.' },
-                CR_REVIEW:     { icon: '🔍', title: 'סקירת תוכניות CR',       sub: 'המנהל סוקר את תוכניות ה-CR. ניתן לצפות ולעדכן את תוכנית הצוות.' },
-                REFINING:      { icon: '🔧', title: 'שלב האיסוף הסתיים',      sub: 'הגרסה בעריכה פנימית. לא ניתן להוסיף הצעות כעת.' },
-                REVIEW:        { icon: '🔍', title: 'הגרסה בשלב סקירה',       sub: 'ממתינים לאישור הנהלה. לא ניתן לשנות הצעות כעת.' },
-                APPROVED:      { icon: '✅', title: 'הגרסה אושרה',             sub: 'התוכנית סגורה ומאושרת. ההרצה עתידה להתחיל.' },
-                REHEARSAL:     { icon: '🎭', title: 'חזרה גנרלית בעיצומה',   sub: 'הגרסה בחזרה גנרלית. עקוב אחר עדכוני הצוות בלשונית ביצוע.' },
-                ACTIVE:        { icon: '🚀', title: 'הגרסה בהרצה',            sub: 'הגרסה בהרצה פעילה. עקוב אחר המשימות בלשונית ביצוע.' },
-                MORNING_AFTER: { icon: '🌅', title: 'בוקר לאחר גרסה',        sub: 'שלב הבוקר בעיצומו. בדוק את משימותיך בלשונית ביצוע.' },
-                COMPLETED:     { icon: '🎉', title: 'הגרסה הושלמה',           sub: 'הגרסה נסגרה בהצלחה.' },
-                ROLLED_BACK:   { icon: '🔄', title: 'הגרסה בוצע עליה Rollback', sub: 'הגרסה בוטלה.' },
-              };
-              const info = STATUS_MSG[selectedVersion?.status] ?? { icon: '⏳', title: 'ממתין...', sub: 'אין גרסה פעילה כרגע.' };
+        {/* Main content (second = left in RTL) */}
+        <div style={{ flex: 1, padding: '24px', overflowY: 'auto', minWidth: 0, minHeight: 0, background: C.bgApp }}>
+
+          {/* ── Module: ניהול QA ── */}
+          {activeModule === 'qa' && <QaModulePlaceholder view={activeQaView} token={token} role={payload.role} />}
+
+          {activeModule === 'deployments' && (<>
+
+          {/* ── Tab: רשימה / Hub ── */}
+          {activeTab === 'list' && (() => {
+            // Archived filter with no version selected → prompt to pick one
+            if (versionFilter === 'archived' && !selectedVersionId)
+              return <NoVersionsForFilter filter={versionFilter} />;
+
+            const EXEC_STATUSES = ['REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'];
+            // TEAM_LEAD sees VersionHub in planning statuses too (to reach implementation-plans card)
+            const TEAM_LEAD_HUB_STATUSES = ['COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED'];
+            const isExecVersion = selectedVersion && (
+              EXEC_STATUSES.includes(selectedVersion.status) ||
+              (payload.role === 'TEAM_LEAD' && TEAM_LEAD_HUB_STATUSES.includes(selectedVersion.status))
+            );
+
+            // גרסה בביצוע / סגורה (+ TEAM_LEAD בתכנון) → VersionHub
+            if (selectedVersionId && selectedVersion && isExecVersion) {
               return (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '16px', direction: 'rtl' }}>
-                  <div style={{ fontSize: '64px' }}>{info.icon}</div>
-                  <h2 style={{ margin: 0, color: '#1a2332', fontSize: '22px' }}>{info.title}</h2>
-                  <p style={{ margin: 0, color: '#666', fontSize: '15px', textAlign: 'center', maxWidth: '420px' }}>{info.sub}</p>
-                  {selectedVersion && (
-                    <div style={{ background: 'white', borderRadius: '12px', padding: '10px 24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', fontSize: '14px', color: '#555', marginTop: '8px' }}>
-                      גרסה: <strong>{selectedVersion.name}</strong>
-                    </div>
-                  )}
-                </div>
+                <VersionHub
+                  version={selectedVersion}
+                  onNavigate={tab => setActiveTab(tab as any)}
+                  userRole={payload.role}
+                  token={token}
+                  onVersionUpdated={fetchVersions}
+                />
               );
             }
-            // Managers / others: full plan view
-            if (prepTab === 'import' && can('action:import')) {
-              return <ImportView token={token} onImportSuccess={() => setPrepTab('versions')} />;
-            }
-            return <VersionsView key={versionFilter} token={token} onVersionsChanged={fetchVersions} onGoLive={handleGoLive} onVersionFocus={handleVersionFocus} onGoToAdmin={() => setStage('admin')} />;
+
+            // גרסה בתכנון OR אין גרסה → VersionsView (מסך בנייה)
+            return (
+              <ListTabContent
+                token={token}
+                selectedVersionId={selectedVersionId}
+                selectedVersion={selectedVersion}
+                versionFilter={versionFilter}
+                fetchVersions={fetchVersions}
+                handleGoLive={handleGoLive}
+                handleVersionFocus={handleVersionFocus}
+                onGoToAdmin={() => setActiveTab('admin')}
+                autoNew={openNewVersionForm}
+                onAutoNewConsumed={() => setOpenNewVersionForm(false)}
+              />
+            );
           })()}
 
-          {/* ── Stage cr-review: סקירת CRים ── */}
-          {stage === 'cr-review' && (
-            noVersionGuard
-              ? <NoVersionsForFilter filter={versionFilter} />
-              : <CrReviewView
-                  token={token}
-                  versionId={selectedVersionId}
-                  versionName={selectedVersion?.name || ''}
-                />
+          {/* ── Tab: פרטי גרסה (VersionsView) ── */}
+          {activeTab === 'version-detail' && (
+            <ListTabContent
+              token={token}
+              selectedVersionId={selectedVersionId}
+              selectedVersion={selectedVersion}
+              versionFilter={versionFilter}
+              fetchVersions={fetchVersions}
+              handleGoLive={handleGoLive}
+              handleVersionFocus={handleVersionFocus}
+              onGoToAdmin={() => setActiveTab('admin')}
+            />
           )}
 
-          {/* ── Stage 2: ביצוע ── */}
-          {stage === 'handoff' && (
+          {/* ── Tab: הגשות ── */}
+          {activeTab === 'proposals' && (
             noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
+            selectedVersionId && selectedVersion ? (
+              <TeamLeadProposalView
+                token={token}
+                versionId={selectedVersionId}
+                versionName={selectedVersion.name}
+                reviewMeetingTime={selectedVersion.reviewMeetingTime}
+              />
+            ) : <EmptyVersionMessage />
+          )}
+
+          {/* ── Tab: סקירת CR ── */}
+          {activeTab === 'cr-review' && (
+            noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
+            selectedVersionId && selectedVersion ? (
+              <CrReviewView
+                token={token}
+                versionId={selectedVersionId}
+                versionName={selectedVersion.name}
+              />
+            ) : <EmptyVersionMessage />
+          )}
+
+
+          {/* ── Tab: לוח (ביצוע) ── */}
+          {activeTab === 'board' && (
+            noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
+            ['COMPLETED', 'ROLLED_BACK'].includes(selectedVersion?.status) ? (
+              <div>
+                <div style={{ background: C.bgCard, borderRadius: '10px', padding: '12px 18px', marginBottom: '14px', border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', color: C.textMuted }}>
+                  🔒 <strong style={{ color: C.textSecondary }}>גרסה סגורה — תצוגה בלבד</strong>
+                </div>
+                <TeamView token={token} versionId={selectedVersionId} onTaskUpdated={fetchVersions} onSummaryReady={setSummaryReady} onCurrentPhaseChange={setCurrentPhaseName} refreshKey={warRoomRefresh} />
+              </div>
+            ) :
             ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(selectedVersion?.status) ? (
               <div>
                 {selectedVersion?.status === 'REHEARSAL' ? (
@@ -607,7 +705,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                           try {
                             await axios.post(`${API}/versions/${selectedVersionId}/cancel-rehearsal`, {}, { headers });
                             setVersionFilter('inactive');
-                            setStage('prep');
+                            setActiveTab('list');
                             fetchVersions();
                           } catch (err: any) {
                             alert(err?.response?.data?.message || 'לא ניתן לבטל את החזרה הגנרלית');
@@ -620,7 +718,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                       </button>
                       {summaryReady && (
                         <button
-                          onClick={() => setStage('summary')}
+                          onClick={() => setActiveTab('summary-night')}
                           style={{ padding: '8px 20px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap' }}
                         >
                           עבור לדוח הסיכום ←
@@ -649,7 +747,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                       <div style={{ display: 'flex', gap: '8px' }}>
                         {summaryReady && (
                           <button
-                            onClick={() => setStage('summary')}
+                            onClick={() => setActiveTab('summary-night')}
                             style={{ padding: '8px 20px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap' }}
                           >
                             עבור לדוח הסיכום ←
@@ -669,6 +767,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                               setEndNightPending(0);
                               try {
                                 await axios.patch(`${API}/versions/${selectedVersionId}/status`, { status: 'COMPLETED' }, { headers });
+                                setVersionFilter('inactive');
                                 await fetchVersions();
                               } catch (err: any) {
                                 const msg = err?.response?.data?.message || err?.message || 'שגיאה';
@@ -765,7 +864,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                         {summaryReady && (
                           <button
-                            onClick={() => setStage('summary')}
+                            onClick={() => setActiveTab('summary-night')}
                             style={{ padding: '8px 20px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap' }}
                           >
                             עבור לדוח הסיכום ←
@@ -791,7 +890,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 <TeamView
                   token={token}
                   versionId={selectedVersionId}
-                  teamId={payload.role === 'TEAM_LEAD' && !can('action:view_all_teams') ? myTeamId || undefined : undefined}
+                  teamId={!myTasksMode && payload.role === 'TEAM_LEAD' && !can('action:view_all_teams') ? myTeamId || undefined : undefined}
+                  userId={myTasksMode ? payload.sub : undefined}
+                  userName={myTasksMode ? fullName : undefined}
                   onTaskUpdated={fetchVersions}
                   onSummaryReady={setSummaryReady}
                   onCurrentPhaseChange={setCurrentPhaseName}
@@ -803,173 +904,168 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
             )
           )}
 
-          {/* ── Stage 4: ציר זמן ── */}
-          {stage === 'timeline' && (
+          {/* ── Tab: ציר זמן ── */}
+          {activeTab === 'timeline' && (
             noVersionGuard
               ? <NoVersionsForFilter filter={versionFilter} />
               : <TimelineView token={token} versionId={selectedVersionId} versionName={selectedVersion?.name || ''} />
           )}
 
-          {/* ── Stage 5: לילה ── */}
-          {stage === 'night' && (
+          {/* ── Tab: סקירה — מצב שלבים וצוותים (ללא GO/NOGO) ── */}
+          {activeTab === 'overview' && (
             noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
-            ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(selectedVersion?.status) ? (
-              <div>
-                <div style={{
-                  background: isRehearsal
-                    ? 'linear-gradient(135deg, #7d3c00 0%, #f39c12 100%)'
-                    : isMorningAfter ? 'linear-gradient(135deg, #6c3483 0%, #8e44ad 100%)' : '#1a2332',
-                  border: `2px solid ${isRehearsal ? '#e67e22' : isMorningAfter ? '#8e44ad' : '#2d4a7a'}`,
-                  borderRadius: '12px',
-                  padding: '14px 20px', marginBottom: '20px',
-                  display: 'flex', alignItems: 'center', gap: '12px',
-                }}>
-                  <span style={{ fontSize: '22px' }}>{isRehearsal ? '🎭' : isMorningAfter ? '🌅' : '🌙'}</span>
-                  <div>
-                    <div style={{ fontWeight: 'bold', color: 'white' }}>
-                      {isRehearsal ? 'חזרה גנרלית — מעקב התקדמות' : isMorningAfter ? 'ביצוע — לילה ובוקר לאחר גרסה' : 'לילה פעיל — מעקב בזמן אמת'}
-                    </div>
-                    <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.65)', marginTop: '2px' }}>
-                      {isRehearsal ? 'מצב אימון — שינויים לא יכנסו לייצור' : isMorningAfter ? 'מעקב בזמן אמת — משימות לילה ובוקר' : 'המערכת מתריעה על חסימות וסטטוסים בזמן אמת'}
-                    </div>
-                  </div>
-                </div>
-                <WarRoom
-                  token={token}
-                  versionId={selectedVersionId}
-                  versionName={selectedVersion?.name || ''}
-                  onTeamClick={() => setStage('handoff')}
-                  onlineUsers={onlineUsers}
-                  isRehearsal={selectedVersion?.status === 'REHEARSAL'}
-                  hideGoNogo={false}
-                  refreshSignal={warRoomRefresh}
-                />
-              </div>
+            isExecution ? (
+              <WarRoom
+                token={token}
+                versionId={selectedVersionId}
+                versionName={selectedVersion?.name || ''}
+                onTeamClick={() => setActiveTab('board')}
+                onlineUsers={onlineUsers}
+                isRehearsal={selectedVersion?.status === 'REHEARSAL'}
+                hideGoNogo={true}
+                refreshSignal={warRoomRefresh}
+                onGoToHub={() => setActiveTab('list')}
+              />
             ) : <NoActiveVersionMessage />
           )}
 
-          {/* ── Stage 7: ניהול ── */}
-          {stage === 'admin' && (
+          {/* ── Tab: לוח בקרה — WarRoom מלא עם GO/NOGO ── */}
+          {activeTab === 'dashboard' && (
+            noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
+            isExecution ? (
+              <WarRoom
+                token={token}
+                versionId={selectedVersionId}
+                versionName={selectedVersion?.name || ''}
+                onTeamClick={() => setActiveTab('board')}
+                onlineUsers={onlineUsers}
+                isRehearsal={selectedVersion?.status === 'REHEARSAL'}
+                hideGoNogo={false}
+                refreshSignal={warRoomRefresh}
+                onGoToHub={() => setActiveTab('list')}
+              />
+            ) : <NoActiveVersionMessage />
+          )}
+
+          {/* ── Tab: ניהול ── */}
+          {activeTab === 'admin' && (
             <AdminPanel token={token} />
           )}
 
-          {/* ── Stage 6: סיכום ── */}
-          {stage === 'summary' && (
+          {/* ── Tab: סיכום חזרה גנרלית ── */}
+          {activeTab === 'summary-rehearsal' && (
             noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
-            selectedVersionId ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+            selectedVersionId && selectedVersion ? (
+              <div>
+                <div style={{ background: 'linear-gradient(135deg, #7d3c00 0%, #f39c12 100%)', borderRadius: '12px', padding: '14px 20px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span style={{ fontSize: '22px' }}>🎭</span>
+                  <div>
+                    <div style={{ fontWeight: 'bold', color: 'white', fontSize: '15px' }}>סיכום חזרה גנרלית — {selectedVersion.name}</div>
+                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', marginTop: '2px' }}>
+                      {selectedVersion.lastRehearsalAt
+                        ? `הורצה ב-${new Date(selectedVersion.lastRehearsalAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+                        : 'חזרה גנרלית פעילה'}
+                    </div>
+                  </div>
+                </div>
+                <NightSummary
+                  token={token}
+                  versionId={selectedVersionId}
+                  versionName={selectedVersion.name}
+                  isRehearsal={true}
+                  onApproved={async () => { await fetchVersions(); }}
+                  onGoToHub={() => setActiveTab('list')}
+                />
+              </div>
+            ) : <EmptyVersionMessage />
+          )}
 
-                {/* ── גרסה סגורה (COMPLETED/ROLLED_BACK) ── */}
-                {['COMPLETED', 'ROLLED_BACK'].includes(selectedVersion?.status) && (
-                  <div style={{ background: 'white', borderRadius: '12px', padding: '20px 24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                      <span style={{ fontSize: '36px' }}>{selectedVersion?.isArchived ? '📦' : '✅'}</span>
+          {/* ── Tab: סיכום ליל ההטמעה ── */}
+          {activeTab === 'summary-night' && (
+            noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
+            selectedVersionId && selectedVersion ? (
+              <div>
+                {/* בלוק ארכיון — רק למנהל, רק בגרסה סגורה */}
+                {['COMPLETED', 'ROLLED_BACK'].includes(selectedVersion.status) && payload.role === 'ADMIN' && (
+                  <div style={{ background: C.bgCard, borderRadius: '12px', padding: '16px 20px', marginBottom: '20px', border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <span style={{ fontSize: '28px' }}>{selectedVersion.isArchived ? '📦' : '✅'}</span>
                       <div>
-                        <div style={{ fontWeight: 'bold', color: '#1a2332', fontSize: '15px' }}>
-                          {selectedVersion?.isArchived ? 'גרסה בארכיון' : 'גרסה סגורה'}
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#aaa', marginTop: '3px' }}>
-                          {selectedVersion?.isArchived
-                            ? 'גרסה זו הועברה לארכיון — ניתן לשחזר מעמוד ניהול הגרסאות'
-                            : 'ניתן לארכב את הגרסה כדי להסירה מהרשימה הפעילה'}
-                        </div>
+                        <div style={{ fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>{selectedVersion.isArchived ? 'גרסה בארכיון' : 'גרסה סגורה'}</div>
+                        <div style={{ fontSize: '12px', color: C.textMuted }}>{selectedVersion.isArchived ? 'ניתן לשחזר מניהול גרסאות' : 'ADMIN — ניתן לארכב'}</div>
                       </div>
                     </div>
-                    {!selectedVersion?.isArchived && (
+                    {!selectedVersion.isArchived && (
                       <button
-                        onClick={() => setDialog({
-                          title: 'העברה לארכיון',
-                          message: 'להעביר את הגרסה לארכיון?\nהיא תוסר מהרשימה הפעילה אך ניתן לשחזרה.',
-                          variant: 'warning',
-                          confirmLabel: 'העבר לארכיון',
-                          cancelLabel: 'ביטול',
-                          onConfirm: async () => {
-                            setArchiveLoading(true);
-                            try {
-                              await axios.patch(`${API}/versions/${selectedVersionId}/archive`, {}, { headers });
-                              await fetchVersions();
-                            } catch (err: any) {
-                              showToast({ type: 'blocked', title: 'שגיאה', body: err?.response?.data?.message || 'שגיאה בהעברה לארכיון' }, 8000);
-                            } finally {
-                              setArchiveLoading(false);
-                            }
-                          },
+                        onClick={() => setDialog({ title: 'העברה לארכיון', message: 'להעביר לארכיון?', variant: 'warning', confirmLabel: 'העבר', cancelLabel: 'ביטול',
+                          onConfirm: async () => { setArchiveLoading(true); try { await axios.patch(`${API}/versions/${selectedVersionId}/archive`, {}, { headers }); await fetchVersions(); } catch {} finally { setArchiveLoading(false); } },
                           onCancel: () => {},
                         })}
                         disabled={archiveLoading}
-                        style={{ padding: '8px 20px', background: archiveLoading ? '#aaa' : '#6c3483', color: 'white', border: 'none', borderRadius: '8px', cursor: archiveLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap' }}
-                      >
-                        {archiveLoading ? '...' : '📦 העבר לארכיון'}
+                        style={{ padding: '7px 16px', background: '#6c3483', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
+                        📦 ארכיון
                       </button>
                     )}
                   </div>
                 )}
-
-                {/* ── סיכום ליל ההטמעה ── */}
-                {['ACTIVE', 'MORNING_AFTER', 'COMPLETED'].includes(selectedVersion?.status) && (
+                {/* גרסה סגורה — תצוגה בלבד */}
+                {['COMPLETED', 'ROLLED_BACK'].includes(selectedVersion.status) && payload.role !== 'ADMIN' && (
+                  <div style={{ background: C.bgCard, borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: C.textMuted }}>
+                    🔒 גרסה סגורה — תצוגה בלבד
+                  </div>
+                )}
+                <div style={{ background: 'linear-gradient(135deg, #1a2332 0%, #0d1b2a 100%)', borderRadius: '12px', padding: '14px 20px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span style={{ fontSize: '22px' }}>🌙</span>
                   <div>
-                    <div style={{
-                      background: '#1a2332', borderRadius: '12px', padding: '14px 20px', marginBottom: '20px',
-                      display: 'flex', alignItems: 'center', gap: '12px',
-                    }}>
-                      <span style={{ fontSize: '22px' }}>🌙</span>
-                      <div>
-                        <div style={{ fontWeight: 'bold', color: 'white', fontSize: '15px' }}>סיכום ליל ההטמעה</div>
-                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.65)', marginTop: '2px' }}>הפק ואשר את דוח הסיכום</div>
-                      </div>
+                    <div style={{ fontWeight: 'bold', color: 'white', fontSize: '15px' }}>סיכום ליל ההטמעה — {selectedVersion.name}</div>
+                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.65)', marginTop: '2px' }}>
+                      {selectedVersion.actualStart
+                        ? `הרצה התחילה: ${new Date(selectedVersion.actualStart).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+                        : 'הפק ואשר את דוח הסיכום'}
                     </div>
-                    <NightSummary
-                      token={token}
-                      versionId={selectedVersionId}
-                      versionName={selectedVersion?.name || ''}
-                      isRehearsal={false}
-                      onApproved={() => fetchVersions()}
-                    />
                   </div>
-                )}
-
-                {/* ── סיכום חזרה גנרלית ── */}
-                {(selectedVersion?.lastRehearsalAt || selectedVersion?.status === 'REHEARSAL') && (
-                  <div>
-                    <div style={{
-                      background: 'linear-gradient(135deg, #7d3c00 0%, #f39c12 100%)',
-                      borderRadius: '12px', padding: '14px 20px', marginBottom: '20px',
-                      display: 'flex', alignItems: 'center', gap: '12px',
-                    }}>
-                      <span style={{ fontSize: '22px' }}>🎭</span>
-                      <div>
-                        <div style={{ fontWeight: 'bold', color: 'white', fontSize: '15px' }}>סיכום חזרה גנרלית</div>
-                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', marginTop: '2px' }}>
-                          {selectedVersion?.lastRehearsalAt
-                            ? `הופעלה ב-${new Date(selectedVersion.lastRehearsalAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
-                            : 'חזרה גנרלית פעילה — אשר את הסיכום לאיפוס ומעבר לשלב ההטמעה'}
-                        </div>
-                      </div>
-                    </div>
-                    <NightSummary
-                      token={token}
-                      versionId={selectedVersionId}
-                      versionName={selectedVersion?.name || ''}
-                      isRehearsal={true}
-                      onApproved={async () => { await fetchVersions(); setStage('prep'); }}
-                    />
-                  </div>
-                )}
-
-                {/* אם אין עדיין שום ריצה */}
-                {!selectedVersion?.lastRehearsalAt && !['REHEARSAL', 'ACTIVE', 'MORNING_AFTER'].includes(selectedVersion?.status) && !['COMPLETED', 'ROLLED_BACK'].includes(selectedVersion?.status) && (
-                  <div style={{ textAlign: 'center', padding: '60px', color: '#666', background: 'white', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-                    <div style={{ fontSize: '48px' }}>📋</div>
-                    <p style={{ fontSize: '16px', marginTop: '12px' }}>הדוח יהיה זמין לאחר הרצת החזרה הגנרלית או ליל ההטמעה</p>
-                  </div>
-                )}
+                </div>
+                <NightSummary
+                  token={token}
+                  versionId={selectedVersionId}
+                  versionName={selectedVersion.name}
+                  isRehearsal={false}
+                  onApproved={() => fetchVersions()}
+                  onGoToHub={() => setActiveTab('list')}
+                />
               </div>
             ) : <EmptyVersionMessage />
           )}
-        </div>
+          {/* ── Tab: לוח מנהל CR ── */}
+          {activeTab === 'cr-manager' && (
+            <CrManagerView token={token} />
+          )}
 
-        {/* ─── Sidebar ─── */}
-        <Sidebar stages={visibleStages} activeStage={stage} onStageChange={setStage} />
+          {/* ── Tab: תוכניות הטמעה ── */}
+          {activeTab === 'implementation-plans' && (
+            noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
+            selectedVersionId && selectedVersion ? (
+              <div>
+                <div style={{ background: C.bgCard, borderRadius: '10px', padding: '12px 18px', marginBottom: '16px', border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span style={{ fontSize: '22px' }}>📁</span>
+                  <div>
+                    <div style={{ fontWeight: '700', color: C.textPrimary, fontSize: '15px' }}>תוכניות הטמעה — {selectedVersion.name}</div>
+                    <div style={{ fontSize: '12px', color: C.textMuted, marginTop: '2px' }}>הגשה, סקירה ואישור תוכניות מנהל CR</div>
+                  </div>
+                </div>
+                <ImplementationPlansView
+                  token={token}
+                  versionId={selectedVersionId}
+                  versionStatus={selectedVersion.status}
+                  userRole={payload.role}
+                  userId={payload.sub}
+                />
+              </div>
+            ) : <EmptyVersionMessage />
+          )}
+
+          </>)}
+        </div>
       </div>
 
       <ConfirmDialog config={dialog} onClose={() => setDialog(null)} />
@@ -982,12 +1078,12 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           pointerEvents: 'none',
         }}>
           {toasts.map(toast => {
-            const colors: Record<ToastItem['type'], { bg: string; border: string }> = {
-              blocked: { bg: '#2d0f0f', border: C.statusFailed },
-              nogo:    { bg: '#2d0f0f', border: C.statusFailed },
-              go:      { bg: '#0d2818', border: C.statusDone },
-              version: { bg: C.bgNested, border: C.brand },
-              info:    { bg: C.bgNested, border: C.border },
+            const colors: Record<ToastItem['type'], { bg: string; border: string; color: string }> = {
+              blocked: { bg: '#2d0f0f', border: C.statusFailed, color: 'white' },
+              nogo:    { bg: '#2d0f0f', border: C.statusFailed, color: 'white' },
+              go:      { bg: '#0d2818', border: C.statusDone,   color: 'white' },
+              version: { bg: C.bgCard,  border: C.brand,        color: C.textPrimary },
+              info:    { bg: C.bgCard,  border: C.border,        color: C.textPrimary },
             };
             const c = colors[toast.type];
             return (
@@ -996,7 +1092,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 minWidth: '300px', maxWidth: '440px',
                 background: c.bg,
                 border: `2px solid ${c.border}`,
-                color: 'white',
+                color: c.color,
                 borderRadius: '12px',
                 padding: '14px 16px',
                 boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
@@ -1063,4 +1159,73 @@ const NoActiveVersionMessage: React.FC = () => (
     <p style={{ fontSize: '14px', color: C.textMuted }}>מסך זה זמין רק כאשר גרסה הופעלה ללילה</p>
     <p style={{ fontSize: '13px', color: C.textDisabled }}>עבור למסך הכנה ושנה את סטטוס הגרסה ל-ACTIVE</p>
   </div>
+);
+
+// ── QA Module placeholder ────────────────────────────────────────────────────
+
+const QA_VIEW_META: Record<string, { icon: string; title: string; sub: string }> = {
+  testers:    { icon: '👥', title: 'בודקים',        sub: 'ניהול פרופילי בודקים, הוספה ועריכה' },
+  skills:     { icon: '🧠', title: 'מטריצת סקילים', sub: 'הגדרת סקילים ורמות מיומנות לכל בודק' },
+  leaves:     { icon: '📅', title: 'חופשות',         sub: '' },
+  assignment: { icon: '🎯', title: 'שיבוץ משימות',  sub: 'יצירת משימת דפלוימנט והרצת מנוע ההמלצות' },
+  workplan:   { icon: '📋', title: 'תוכנית עבודה',  sub: 'תכנון סבבי בדיקות וייצוא לאקסל' },
+  seasons:    { icon: '🏖', title: 'עונות שיא',      sub: '' },
+};
+
+const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string }> = ({ view, token, role }) => {
+  // Leaves board is accessible to all authenticated users; everything else is ADMIN-only
+  if (role !== 'ADMIN' && view !== 'leaves') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '12px', color: C.textMuted }}>
+        <div style={{ fontSize: '48px' }}>🔒</div>
+        <div style={{ fontSize: '18px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>אין הרשאת גישה</div>
+        <div style={{ fontSize: '14px', color: C.textMuted }}>אזור זה מיועד למנהלי מערכת בלבד</div>
+      </div>
+    );
+  }
+  if (view === 'leaves')     return <QaLeavesView role={role} token={token} />;
+  if (view === 'testers')    return <QaTestersView token={token} />;
+  if (view === 'seasons')    return <QaSeasonsView token={token} />;
+  if (view === 'skills')     return <QaSkillsView token={token} />;
+  if (view === 'assignment') return <QaAssignmentView token={token} />;
+  if (view === 'workplan')   return <QaWorkPlanView token={token} />;
+
+  const meta = QA_VIEW_META[view] ?? { icon: '👥', title: 'ניהול QA', sub: '' };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '16px', color: C.textMuted }}>
+      <div style={{ fontSize: '56px', lineHeight: 1 }}>{meta.icon}</div>
+      <div style={{ fontSize: '20px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>{meta.title}</div>
+      <div style={{ fontSize: '14px', color: C.textMuted }}>{meta.sub}</div>
+      <div style={{ marginTop: '8px', background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '10px 20px', fontSize: '13px', color: C.textDisabled }}>
+        בפיתוח — יתווסף בקרוב
+      </div>
+    </div>
+  );
+};
+
+// ── LIST tab — Asana-style TaskListView, editable in planning phases ──
+const PLANNING_STATUSES = new Set(['DRAFT', 'CR_REVIEW', 'COLLECTING', 'REFINING', 'REVIEW', 'APPROVED']);
+
+const ListTabContent: React.FC<{
+  token: string;
+  selectedVersionId: string;
+  selectedVersion: any;
+  versionFilter: string;
+  fetchVersions: () => void;
+  handleGoLive: (id: string, name: string, isRehearsal: boolean) => void;
+  handleVersionFocus: (id: string) => void;
+  onGoToAdmin: () => void;
+  autoNew?: boolean;
+  onAutoNewConsumed?: () => void;
+}> = ({ token, selectedVersionId, selectedVersion, versionFilter, fetchVersions, handleGoLive, handleVersionFocus, onGoToAdmin, autoNew, onAutoNewConsumed }) => (
+  <VersionsView
+    key={selectedVersionId || versionFilter + (autoNew ? '-new' : '')}
+    token={token}
+    onVersionsChanged={() => { fetchVersions(); onAutoNewConsumed?.(); }}
+    onGoLive={handleGoLive}
+    onVersionFocus={handleVersionFocus}
+    onGoToAdmin={onGoToAdmin}
+    initialSelectedId={selectedVersionId}
+    autoNew={autoNew}
+  />
 );

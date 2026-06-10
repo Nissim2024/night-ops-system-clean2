@@ -7,29 +7,24 @@ import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { PlanWizard } from './PlanWizard';
 import { CrPlanReviewPanel } from './CrPlanReviewPanel';
 import { FEATURES } from '../featureFlags';
-import { C, FONT } from '../theme';
+import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE,
+         versionStatusColor, versionStatusBg, versionStatusLabel, statusColor } from '../theme';
+import { Button, Card, VersionStatusChip, Badge, SectionHeader, EmptyState, Divider, Alert, Avatar, StatusChip } from './ui';
+import { TaskDetailPanel } from './TaskDetailPanel';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
-const STATUS_COLORS: Record<string, string> = {
-  DRAFT: '#95a5a6', CR_REVIEW: '#8b5cf6', COLLECTING: '#3498db', REFINING: '#e67e22',
-  REVIEW: '#9b59b6', APPROVED: '#27ae60', REHEARSAL: '#f39c12',
-  ACTIVE: '#e74c3c', MORNING_AFTER: '#8e44ad', COMPLETED: '#1a5c2a', ROLLED_BACK: '#7f8c8d',
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  DRAFT: 'טיוטה', CR_REVIEW: 'סקירת תוכניות CR', COLLECTING: 'איסוף משימות', REFINING: 'טיוב תלויות',
-  REVIEW: 'ישיבת מעבר', APPROVED: 'מאושר', REHEARSAL: 'חזרה גנרלית',
-  ACTIVE: 'פעיל', MORNING_AFTER: 'פעילות בוקר לאחר גרסה', COMPLETED: 'הושלם', ROLLED_BACK: 'Rollback',
-};
+// Keep legacy maps for any inline usage not yet migrated
+const STATUS_COLORS: Record<string, string> = versionStatusColor as any;
+const STATUS_LABELS: Record<string, string> = versionStatusLabel as any;
 
 const NEXT_STATUS: Record<string, string> = {
-  DRAFT: 'CR_REVIEW', CR_REVIEW: 'COLLECTING', COLLECTING: 'REFINING', REFINING: 'REVIEW',
+  DRAFT: 'COLLECTING', COLLECTING: 'CR_REVIEW', CR_REVIEW: 'REFINING', REFINING: 'REVIEW',
   REVIEW: 'APPROVED', APPROVED: 'REHEARSAL',
 };
 
 const NEXT_LABEL: Record<string, string> = {
-  DRAFT: 'פתח לסקירת תוכניות CR', CR_REVIEW: 'פתח לאיסוף משימות', COLLECTING: 'עבור לטיוב',
+  DRAFT: 'פתח לאיסוף משימות', COLLECTING: 'פתח לסקירת תוכניות CR', CR_REVIEW: 'עבור לטיוב',
   REFINING: 'פתח ישיבת מעבר', REVIEW: 'אשר תוכנית',
   APPROVED: 'התחל חזרה גנרלית',
 };
@@ -58,6 +53,8 @@ interface Version {
   taskCount?: number;
   lastRehearsalAt?: string;
   lastNightAt?: string;
+  isArchived?: boolean;
+  archivedAt?: string;
 }
 
 interface QcRelease {
@@ -75,6 +72,8 @@ interface Props {
   onGoLive?: (versionId: string, versionName: string, isRehearsal: boolean) => void;
   onVersionFocus?: (versionId: string) => void;
   onGoToAdmin?: () => void;
+  initialSelectedId?: string;
+  autoNew?: boolean;
 }
 
 const EMPTY_TASK = { title: '', assignedUserName: '', crNumber: '', application: '', environment: 'BOTH', notes: '', dependencyNote: '', duration: '', plannedStart: '', plannedEnd: '', _durationMins: '' };
@@ -90,11 +89,11 @@ const defaultPlannedEnd = (plannedStart: string): string => {
   return d.toISOString().slice(0, 16);
 };
 
-export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLive, onVersionFocus, onGoToAdmin }) => {
+export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLive, onVersionFocus, onGoToAdmin, initialSelectedId, autoNew }) => {
   const [versions, setVersions] = useState<Version[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [showNew, setShowNew] = useState(false);
+  const [showNew, setShowNew] = useState(autoNew ?? false);
   const [newVersion, setNewVersion] = useState({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', qcReleaseId: '' });
   const [qcReleases, setQcReleases] = useState<QcRelease[]>([]);
   const [creatingTemplate, setCreatingTemplate] = useState(false);
@@ -107,6 +106,14 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [creatingFromTemplate, setCreatingFromTemplate] = useState(false);
   const [outerDialog, setOuterDialog] = useState<DialogConfig | null>(null);
+  const [depToastOuter, setDepToastOuter] = useState<any[] | null>(null);
+  const depToastTimerOuter = React.useRef<any>(null);
+  const showDepToastOuter = (affected: any[]) => {
+    if (!affected?.length) return;
+    if (depToastTimerOuter.current) clearTimeout(depToastTimerOuter.current);
+    setDepToastOuter(affected);
+    depToastTimerOuter.current = setTimeout(() => setDepToastOuter(null), 6000);
+  };
 
   const headers = { Authorization: `Bearer ${token}` };
   const tokenPayload = token ? JSON.parse(atob(token.split('.')[1])) : {};
@@ -136,6 +143,11 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
     axios.get(`${API}/qc-releases/active`, { headers }).then(res => setQcReleases(res.data)).catch(() => {});
     axios.get(`${API}/version-templates`, { headers }).then(res => setTemplates(res.data)).catch(() => {});
   }, []); // eslint-disable-line
+
+  // Auto-select version when initialSelectedId changes (e.g. from sidebar selection)
+  useEffect(() => {
+    if (initialSelectedId) fetchVersion(initialSelectedId);
+  }, [initialSelectedId]); // eslint-disable-line
 
   const handlePlannedStartChange = (val: string) => {
     setNewVersion(prev => ({
@@ -250,7 +262,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
         setOuterDialog(null);
         setActionError(null);
         try {
-          await axios.patch(`${API}/versions/${id}/status`, { status: 'COMPLETED' }, { headers });
+          await axios.patch(`${API}/versions/${id}/archive`, {}, { headers });
           await fetchVersions();
           onVersionsChanged?.();
         } catch (err: any) {
@@ -285,15 +297,46 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
 
   if (selected) {
     return (
-      <VersionDetail
-        version={selected}
-        token={token}
-        userRole={userRole}
-        onBack={() => { setSelected(null); fetchVersions(); }}
-        onRefresh={() => fetchVersion(selected.id)}
-        onStatusChange={(status, force) => updateStatus(selected.id, status, force)}
-        onGoLive={onGoLive}
-      />
+      <>
+        <VersionDetail
+          version={selected}
+          token={token}
+          userRole={userRole}
+          onBack={() => { setSelected(null); fetchVersions(); }}
+          onRefresh={() => fetchVersion(selected.id)}
+          onStatusChange={(status, force) => updateStatus(selected.id, status, force)}
+          onGoLive={onGoLive}
+          showDepToast={showDepToastOuter}
+        />
+        {depToastOuter && depToastOuter.length > 0 && (
+          <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 99999, display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '340px', pointerEvents: 'auto' }}>
+            {depToastOuter.map((item: any, i: number) => {
+              const noTiming = item.deltaMinutes === 0;
+              const shortened = item.deltaMinutes < 0;
+              const absMins = Math.abs(item.deltaMinutes);
+              const label = item.subPhaseName ? `"${item.subPhaseName}"` : item.phaseName ? `"${item.phaseName}"` : '';
+              const bg = noTiming ? '#e8f4fd' : shortened ? '#d4edda' : '#fff3cd';
+              const border = noTiming ? '#17a2b8' : shortened ? '#28a745' : '#ffc107';
+              const textColor = noTiming ? '#0c5460' : shortened ? '#155724' : '#856404';
+              const icon = noTiming ? '🔗' : shortened ? '⏫' : '⏬';
+              return (
+                <div key={i} style={{ background: bg, border: `1px solid ${border}`, borderRadius: '10px', padding: '10px 14px', fontSize: '13px', color: textColor, boxShadow: '0 4px 16px rgba(0,0,0,0.2)', display: 'flex', alignItems: 'flex-start', gap: '8px', direction: 'rtl' }}>
+                  <span style={{ fontSize: '16px', lineHeight: 1 }}>{icon}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 'bold', marginBottom: '2px' }}>
+                      {noTiming ? (item.action === 'הסרה' ? 'תלות הוסרה' : 'תלות נוספה') : 'עדכון לוחות זמנים'}
+                    </div>
+                    {!noTiming && label && <div>תת-שלב {label} <strong>{shortened ? 'קוצר' : 'הוארך'} ב-{absMins} דק'</strong></div>}
+                    {!noTiming && item.phaseName && item.subPhaseName && <div style={{ fontSize: '11px', opacity: 0.8, marginTop: '2px' }}>שלב: {item.phaseName}</div>}
+                    {noTiming && <div style={{ fontSize: '12px', opacity: 0.8 }}>אין משימות עם לוח זמנים מוגדר</div>}
+                  </div>
+                  <button onClick={() => setDepToastOuter(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: textColor, fontSize: '16px', padding: 0, lineHeight: 1, opacity: 0.6 }}>✕</button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </>
     );
   }
 
@@ -301,18 +344,47 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
     <div style={{ fontFamily: FONT }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <h2 style={{ color: C.textPrimary, margin: 0 }}>גרסאות ({versions.filter(v => !['COMPLETED','ROLLED_BACK'].includes(v.status)).length})</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
+            <h2 style={{ ...TEXT['2xl'], fontWeight: WEIGHT.bold, color: C.textPrimary, margin: 0, fontFamily: FONT }}>
+              גרסאות
+            </h2>
+            <Badge color={C.textMuted} bg={C.bgActive}>
+              {versions.filter(v => !v.isArchived).length}
+            </Badge>
+          </div>
           <button
             onClick={() => setShowArchived(a => !a)}
-            style={{ padding: '6px 14px', background: showArchived ? C.bgHover : C.bgNested, color: showArchived ? C.textPrimary : C.textMuted, border: `1px solid ${C.border}`, borderRadius: '20px', cursor: 'pointer', fontSize: '13px', fontFamily: FONT }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: SP[2],
+              padding: '5px 14px',
+              background: showArchived ? C.bgActive : C.bgNested,
+              color: showArchived ? C.textPrimary : C.textMuted,
+              border: `1px solid ${showArchived ? C.borderEm : C.border}`,
+              borderRadius: RADIUS.full, cursor: 'pointer',
+              ...TEXT.xs, fontWeight: WEIGHT.semibold, fontFamily: FONT,
+              transition: EASE.fast,
+            }}
           >
-            📦 ארכיון ({versions.filter(v => ['COMPLETED','ROLLED_BACK'].includes(v.status)).length})
+            <span>📦</span>
+            ארכיון
+            <Badge color={C.textDisabled} bg={C.bgHover}>
+              {versions.filter(v => v.isArchived).length}
+            </Badge>
           </button>
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button onClick={() => { setShowNew(true); setImportFile(null); }} style={{ padding: '10px 20px', background: C.brand, color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', fontFamily: FONT }}>
-            + גרסה חדשה
-          </button>
+        <div style={{ display: 'flex', gap: SP[2] }}>
+          <Button
+            variant="primary"
+            size="md"
+            onClick={() => { setShowNew(true); setImportFile(null); }}
+            icon={
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+            }
+          >
+            גרסה חדשה
+          </Button>
         </div>
       </div>
 
@@ -326,7 +398,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
               <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>
                 שם גרסה *
                 {qcReleases.length === 0 && (
-                  <span style={{ fontSize: '11px', color: '#e67e22', marginRight: '6px', fontWeight: 'normal' }}>
+                  <span style={{ fontSize: '11px', color: C.warning, marginRight: '6px', fontWeight: 'normal' }}>
                     (סנכרן גרסאות QC מ-AdminPanel)
                   </span>
                 )}
@@ -370,10 +442,10 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
                 type="datetime-local"
                 value={newVersion.plannedStart}
                 onChange={e => handlePlannedStartChange(e.target.value)}
-                style={{ width: '100%', padding: '10px', border: `2px solid ${!newVersion.plannedStart ? C.statusBlocked : C.statusDone}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary, colorScheme: 'dark' }}
+                style={{ width: '100%', padding: '10px', border: `2px solid ${!newVersion.plannedStart ? C.statusBlocked : C.statusDone}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
               />
               {!newVersion.plannedStart && (
-                <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#e74c3c' }}>שדה חובה — נדרש לחישוב ברירות מחדל בתזמון</p>
+                <p style={{ margin: '4px 0 0', fontSize: '11px', color: C.danger }}>שדה חובה — נדרש לחישוב ברירות מחדל בתזמון</p>
               )}
             </div>
             <div>
@@ -387,7 +459,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
                 onChange={e => setNewVersion({ ...newVersion, plannedEnd: e.target.value })}
                 disabled={!isManager}
                 placeholder="ברירת מחדל: 04:00 למחרת"
-                style={{ width: '100%', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: isManager ? C.bgNested : C.bgHover, color: isManager ? C.textPrimary : C.textDisabled, colorScheme: 'dark' }}
+                style={{ width: '100%', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: isManager ? C.bgNested : C.bgHover, color: isManager ? C.textPrimary : C.textDisabled }}
               />
             </div>
             <div>
@@ -396,7 +468,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
                 type="datetime-local"
                 value={newVersion.reviewMeetingTime}
                 onChange={e => setNewVersion({ ...newVersion, reviewMeetingTime: e.target.value })}
-                style={{ width: '100%', padding: '10px', border: `2px solid ${C.brand}66`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary, colorScheme: 'dark' }}
+                style={{ width: '100%', padding: '10px', border: `2px solid ${C.brand}66`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
               />
             </div>
             <div>
@@ -442,7 +514,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
               </button>
 
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <label style={{ padding: '9px 18px', background: C.brandDim, color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap', fontSize: '13px' }}>
+                <label style={{ padding: '9px 18px', background: C.brand, color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap', fontSize: '13px' }}>
                   📤 {importFile ? importFile.name : 'ייבוא מ-Excel'}
                   <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
                     onChange={e => setImportFile(e.target.files?.[0] || null)} />
@@ -456,15 +528,15 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
                   </button>
                 )}
                 {importFile && (
-                  <button onClick={() => setImportFile(null)} style={{ padding: '9px 12px', background: '#f0f0f0', color: '#666', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '12px' }}>✕</button>
+                  <button onClick={() => setImportFile(null)} style={{ padding: '9px 12px', background: C.bgNested, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '12px' }}>✕</button>
                 )}
               </div>
 
-              <button onClick={() => { setShowNew(false); setImportFile(null); setSelectedTemplateId(''); }} style={{ padding: '9px 18px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>ביטול</button>
+              <button onClick={() => { setShowNew(false); setImportFile(null); setSelectedTemplateId(''); }} style={{ padding: '9px 18px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.lg, cursor: 'pointer' }}>ביטול</button>
             </div>
           </div>
           {(!newVersion.name.trim() || !newVersion.plannedStart) && (
-            <p style={{ margin: '10px 0 0', fontSize: '12px', color: '#e74c3c' }}>
+            <p style={{ margin: '10px 0 0', fontSize: '12px', color: C.danger }}>
               {!newVersion.name.trim() && !newVersion.plannedStart
                 ? 'נדרשים שם גרסה ותאריך התחלה לפני יצירה'
                 : !newVersion.name.trim()
@@ -493,14 +565,14 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {versions
-            .filter(v => !['COMPLETED', 'ROLLED_BACK'].includes(v.status))
+            .filter(v => !v.isArchived)
             .map(v => (
             <VersionCard
               key={v.id}
               v={v}
               isDeleting={deletingId === v.id}
               onOpen={() => fetchVersion(v.id)}
-              onDelete={(e) => deleteVersion(v.id, v.name, e)}
+              onDelete={userRole === 'ADMIN' ? (e) => deleteVersion(v.id, v.name, e) : undefined}
               onArchive={(e) => archiveVersion(v.id, e)}
             />
           ))}
@@ -514,14 +586,14 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', opacity: 0.8 }}>
               {versions
-                .filter(v => ['COMPLETED', 'ROLLED_BACK'].includes(v.status))
+                .filter(v => v.isArchived)
                 .map(v => (
                 <VersionCard
                   key={v.id}
                   v={v}
                   isDeleting={deletingId === v.id}
                   onOpen={() => fetchVersion(v.id)}
-                  onDelete={(e) => deleteVersion(v.id, v.name, e)}
+                  onDelete={userRole === 'ADMIN' ? (e) => deleteVersion(v.id, v.name, e) : undefined}
                   onArchive={undefined}
                   onRestore={(e) => restoreVersion(v.id, e)}
                 />
@@ -552,92 +624,179 @@ const VersionCard: React.FC<{
   v: Version;
   isDeleting: boolean;
   onOpen: () => void;
-  onDelete: (e: React.MouseEvent) => void;
+  onDelete?: (e: React.MouseEvent) => void;
   onArchive?: (e: React.MouseEvent) => void;
   onRestore?: (e: React.MouseEvent) => void;
-}> = ({ v, isDeleting, onOpen, onDelete, onArchive, onRestore }) => (
-  <div
-    onClick={onOpen}
-    style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', borderRight: `5px solid ${STATUS_COLORS[v.status]}`, border: `1px solid ${C.border}`, borderRightWidth: '5px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: FONT }}
-    onMouseEnter={e => (e.currentTarget.style.background = C.bgHover)}
-    onMouseLeave={e => (e.currentTarget.style.background = C.bgCard)}
-  >
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '6px', flexWrap: 'wrap' }}>
-        <span style={{ fontWeight: 'bold', fontSize: '18px', color: C.textPrimary }}>{v.name}</span>
-        <span style={{ background: STATUS_COLORS[v.status], color: 'white', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold' }}>{STATUS_LABELS[v.status]}</span>
-        {v.status === 'APPROVED' && v.lastRehearsalAt && (
-          <span style={{ background: 'rgba(45,125,210,0.15)', color: C.brand, padding: '3px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', border: `1px solid ${C.brand}44` }}>
-            🚀 ממתין לפעילות ההטמעה בייצור
-          </span>
-        )}
-        {v.status === 'MORNING_AFTER' && (
-          <span style={{ background: 'rgba(163,113,247,0.15)', color: C.statusWaiting, padding: '3px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', border: `1px solid ${C.statusWaiting}44` }}>
-            🌅 ממתין לפעילות בוקר
-          </span>
-        )}
-        {v.status === 'COMPLETED' && (
-          <span style={{ background: C.bgDone, color: C.statusDone, padding: '3px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', border: `1px solid ${C.statusDone}44` }}>
-            ✅ גרסה בייצור{v.lastNightAt ? ` · ${fmtDateTime(v.lastNightAt)}` : ''}
-          </span>
-        )}
-      </div>
-      <div style={{ display: 'flex', gap: '16px', fontSize: '13px', color: C.textMuted, flexWrap: 'wrap' }}>
-        {v.description && <span>{v.description}</span>}
-        {v.importedFileName && (
-          <span style={{ background: 'rgba(45,125,210,0.12)', color: C.brand, padding: '1px 8px', borderRadius: '10px' }}>
-            📎 {v.importedFileName}
-          </span>
-        )}
-        {v.plannedStart && (
-          <span>📅 התחלה: {fmtDateTime(v.plannedStart)}</span>
-        )}
-        {v.plannedEnd && (
-          <span style={{ color: C.statusInProgress }}>🏁 סיום מתוכנן: {fmtDateTime(v.plannedEnd)}</span>
-        )}
-        {v.reviewMeetingTime && (
-          <span style={{ background: 'rgba(41,128,185,0.12)', color: '#1a5276', padding: '1px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
-            🗓 ישיבת מעבר: {fmtDateTime(v.reviewMeetingTime)}
-          </span>
-        )}
-        <span>👤 {v.creator?.fullName}</span>
-        <span>🗓 נוצר: {new Date(v.createdAt).toLocaleDateString('he-IL')}</span>
-        {v.approvedAt && v.approver && (
-          <span style={{ color: C.statusDone }}>✅ אושר: {new Date(v.approvedAt).toLocaleDateString('he-IL')} ע"י {v.approver.fullName}</span>
-        )}
-        {v.taskCount !== undefined && (
-          <span style={{ background: 'rgba(88,166,255,0.12)', color: C.statusOpen, padding: '1px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
-            {v.taskCount} משימות
-          </span>
-        )}
-        {v.lastRehearsalAt && (
-          <span style={{ background: 'rgba(210,153,34,0.15)', color: C.statusInProgress, padding: '1px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
-            🎭 חזרה: {fmtDateTime(v.lastRehearsalAt)}
-          </span>
-        )}
-        {v.lastNightAt && (
-          <span style={{ background: 'rgba(88,166,255,0.12)', color: C.statusOpen, padding: '1px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
-            🌙 הטמעה: {fmtDateTime(v.lastNightAt)}
-          </span>
-        )}
-      </div>
-    </div>
-    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
-      {onRestore && (
-        <button onClick={onRestore} style={{ padding: '6px 12px', background: C.statusDone, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>↩ שחזר</button>
+}> = ({ v, isDeleting, onOpen, onDelete, onArchive, onRestore }) => {
+  const [hovered, setHovered] = React.useState(false);
+  const statusColor = versionStatusColor[v.status] ?? C.textMuted;
+  const isActive = ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(v.status);
+
+  return (
+    <div
+      onClick={onOpen}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: hovered ? C.bgHover : C.bgElevated,
+        borderRadius: RADIUS.xl,
+        padding: `${SP[4]} ${SP[5]}`,
+        border: `1px solid ${hovered ? C.borderEm : C.border}`,
+        borderRight: `3px solid ${statusColor}`,
+        cursor: 'pointer',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        fontFamily: FONT, gap: SP[4],
+        transition: EASE.fast,
+        boxShadow: hovered ? SHADOW.md : SHADOW.sm,
+        position: 'relative', overflow: 'hidden',
+      }}
+    >
+      {/* Glow for active versions */}
+      {isActive && (
+        <div style={{
+          position: 'absolute', top: 0, right: 0, bottom: 0, width: '120px', pointerEvents: 'none',
+          background: `linear-gradient(to left, ${statusColor}08, transparent)`,
+        }} />
       )}
-      {onArchive && (
-        <button onClick={onArchive} style={{ padding: '6px 12px', background: C.bgHover, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>📦 ארכיון</button>
-      )}
-      <button
-        onClick={onDelete}
-        disabled={isDeleting}
-        style={{ padding: '6px 12px', background: isDeleting ? C.bgNested : C.bgBlocked, color: isDeleting ? C.textDisabled : C.statusFailed, border: `1px solid ${isDeleting ? C.border : C.statusFailed + '44'}`, borderRadius: '6px', cursor: isDeleting ? 'not-allowed' : 'pointer', fontSize: '12px', fontFamily: FONT }}
+
+      {/* Left: metadata */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Row 1: Name + chips */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: SP[2], flexWrap: 'wrap' }}>
+          <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{v.name}</span>
+          <VersionStatusChip status={v.status} size="sm" />
+          {v.status === 'APPROVED' && v.lastRehearsalAt && (
+            <Badge color={C.brand} bg={C.brandDim}>🚀 ממתין לייצור</Badge>
+          )}
+          {v.status === 'MORNING_AFTER' && (
+            <Badge color={C.statusWaiting} bg={C.bgWaiting}>🌅 פעילות בוקר</Badge>
+          )}
+          {v.status === 'COMPLETED' && (
+            <Badge color={C.success} bg={C.successBg}>✅ בייצור</Badge>
+          )}
+        </div>
+
+        {/* Row 2: Meta info */}
+        <div style={{ display: 'flex', gap: SP[4], flexWrap: 'wrap', alignItems: 'center' }}>
+          {v.description && (
+            <span style={{ ...TEXT.sm, color: C.textMuted }}>{v.description}</span>
+          )}
+          {v.importedFileName && (
+            <span style={{ ...TEXT.xs, color: C.textLink, display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+              {v.importedFileName}
+            </span>
+          )}
+          {v.plannedStart && (
+            <span style={{ ...TEXT.xs, color: C.textMuted, display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              {fmtDateTime(v.plannedStart)}
+            </span>
+          )}
+          {v.plannedEnd && (
+            <span style={{ ...TEXT.xs, color: C.warning, display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              {fmtDateTime(v.plannedEnd)}
+            </span>
+          )}
+          {v.reviewMeetingTime && (
+            <span style={{ ...TEXT.xs, color: C.brand, display: 'flex', alignItems: 'center', gap: '4px' }}>
+              🗓 ישיבת מעבר: {fmtDateTime(v.reviewMeetingTime)}
+            </span>
+          )}
+          {v.taskCount !== undefined && (
+            <Badge color={C.statusOpen} bg={C.bgOpen}>{v.taskCount} משימות</Badge>
+          )}
+          <span style={{ ...TEXT.xs, color: C.textDisabled }}>
+            {v.creator?.fullName} · {new Date(v.createdAt).toLocaleDateString('he-IL')}
+          </span>
+          {v.lastRehearsalAt && (
+            <Badge color={C.warning} bg={C.bgInProgress}>🎭 {fmtDateTime(v.lastRehearsalAt)}</Badge>
+          )}
+        </div>
+      </div>
+
+      {/* Right: actions */}
+      <div
+        style={{ display: 'flex', gap: SP[2], alignItems: 'center', flexShrink: 0 }}
+        onClick={e => e.stopPropagation()}
       >
-        {isDeleting ? 'מוחק...' : '🗑 מחק'}
-      </button>
-      <span style={{ color: C.textMuted, fontSize: '20px', marginRight: '4px' }}>←</span>
+        {onRestore && (
+          <Button variant="success" size="sm" onClick={e => onRestore(e as any)}>↩ שחזר</Button>
+        )}
+        {onArchive && (
+          <Button variant="ghost" size="sm" onClick={e => onArchive(e as any)}>📦</Button>
+        )}
+        {onDelete && (
+          <Button
+            variant="danger"
+            size="sm"
+            loading={isDeleting}
+            onClick={e => onDelete(e as any)}
+          >
+            {isDeleting ? 'מוחק...' : '🗑'}
+          </Button>
+        )}
+        <span style={{ color: C.brand, fontSize: '16px', marginRight: SP[1] }}>←</span>
+      </div>
     </div>
+  );
+};
+
+// ── Task table column widths (used by header + rows) ─────────────────────────
+// Fixed-width columns (px). name + deps are flex (see VersionTaskHeader / task row).
+const TV = { num: 36, dur: 88, start: 118, end: 118, team: 128, assignee: 148, app: 110, env: 96, status: 116, actions: 96 };
+
+// Team color palette — consistent per team name via hash
+const TEAM_PALETTE = [
+  { bg: '#dbeafe', color: '#1e40af' }, { bg: '#dcfce7', color: '#166534' },
+  { bg: '#fef3c7', color: '#92400e' }, { bg: '#fce7f3', color: '#9d174d' },
+  { bg: '#ede9fe', color: '#5b21b6' }, { bg: '#ffedd5', color: '#9a3412' },
+  { bg: '#cffafe', color: '#164e63' }, { bg: '#f0fdf4', color: '#14532d' },
+  { bg: '#fdf4ff', color: '#7e22ce' }, { bg: '#fff1f2', color: '#9f1239' },
+];
+const teamColorFor = (name: string) => {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return TEAM_PALETTE[h % TEAM_PALETTE.length];
+};
+const isNextDay = (startIso: string, endIso: string) => {
+  if (!startIso || !endIso) return false;
+  return new Date(endIso).setHours(0,0,0,0) > new Date(startIso).setHours(0,0,0,0);
+};
+// Flex-grow ratios: name gets 3 parts, deps gets 2 parts of the remaining space
+const TV_NAME_FLEX = 3;
+const TV_DEPS_FLEX = 2;
+
+const VColH: React.FC<{ label: string; width?: number; flexGrow?: number; center?: boolean }> = ({ label, width, flexGrow, center }) => (
+  <div style={{
+    width: width ? `${width}px` : undefined,
+    flex: flexGrow ? `${flexGrow} 1 0` : undefined,
+    flexShrink: width ? 0 : undefined,
+    minWidth: flexGrow ? '80px' : undefined,
+    padding: `0 ${SP[2]}`, fontSize: '12px', fontWeight: WEIGHT.semibold, color: C.textMuted, fontFamily: FONT,
+    textAlign: (center ? 'center' : 'right') as any, textTransform: 'uppercase' as any, letterSpacing: '0.04em', whiteSpace: 'nowrap' as any,
+  }}>{label}</div>
+);
+
+const VersionTaskHeader: React.FC<{ isLocked: boolean }> = ({ isLocked }) => (
+  <div style={{
+    display: 'flex', alignItems: 'center',
+    background: C.bgNested, borderBottom: `2px solid ${C.border}`,
+    padding: `${SP[1]} 0`, userSelect: 'none' as any,
+  }}>
+    <div style={{ width: `${TV.num}px`, flexShrink: 0 }} />
+    <VColH label="שם משימה"  flexGrow={TV_NAME_FLEX} />
+    <VColH label="תלויות"    flexGrow={TV_DEPS_FLEX} />
+    <VColH label="משך"       width={TV.dur}      center />
+    <VColH label="התחלה"    width={TV.start}    center />
+    <VColH label="סיום"     width={TV.end}      center />
+    <VColH label="צוות"     width={TV.team}     center />
+    <VColH label="אחראי"    width={TV.assignee} center />
+    <VColH label="אפליקציה" width={TV.app}      center />
+    <VColH label="סביבה"    width={TV.env}      center />
+    <VColH label="סטטוס"    width={TV.status}   center />
+    {!isLocked && <div style={{ width: `${TV.actions}px`, flexShrink: 0 }} />}
   </div>
 );
 
@@ -649,7 +808,8 @@ const VersionDetail: React.FC<{
   onRefresh: () => void;
   onStatusChange: (s: string, force?: boolean) => Promise<void>;
   onGoLive?: (versionId: string, versionName: string, isRehearsal: boolean) => void;
-}> = ({ version, token, userRole, onBack, onRefresh, onStatusChange, onGoLive }) => {
+  showDepToast?: (affected: any[]) => void;
+}> = ({ version, token, userRole, onBack, onRefresh, onStatusChange, onGoLive, showDepToast }) => {
   const headers = { Authorization: `Bearer ${token}` };
   const isManager = ['RELEASE_MANAGER', 'ADMIN'].includes(userRole);
   const { can } = usePermissions();
@@ -749,6 +909,9 @@ const VersionDetail: React.FC<{
   const [reassigning, setReassigning] = useState(false);
   const [reassignResult, setReassignResult] = useState<{ updated: number; toUserName: string } | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [collectingTeamsExpanded, setCollectingTeamsExpanded] = useState(false);
+  const [reminderSending, setReminderSending] = useState(false);
+  const [reminderResult, setReminderResult] = useState<{ sent: number; teams: string[] } | null>(null);
   const [crSummary, setCrSummary] = useState<any[] | null>(null);
   const [crSummaryLoading, setCrSummaryLoading] = useState(false);
   const [crSummaryExpanded, setCrSummaryExpanded] = useState(false);
@@ -756,6 +919,17 @@ const VersionDetail: React.FC<{
   const [crAllApproved, setCrAllApproved] = useState(false);
   const [crReviewExpanded, setCrReviewExpanded] = useState(false);
   const [crPanelRefreshKey, setCrPanelRefreshKey] = useState(0);
+  const [selectedTask, setSelectedTask] = useState<any | null>(null);
+  const [selectedTaskSubId, setSelectedTaskSubId] = useState<string | undefined>();
+  const [selectedTaskPhaseOrder, setSelectedTaskPhaseOrder] = useState<number>(0);
+  const [selectedTaskPhaseStart, setSelectedTaskPhaseStart] = useState<string | undefined>();
+  const [selectedTaskPhaseEnd, setSelectedTaskPhaseEnd] = useState<string | undefined>();
+
+  useEffect(() => {
+    if (!crSummary || crSummary.length === 0) return;
+    const done = crSummary.filter((t: any) => t.status === 'COMPLETE' || t.status === 'NOT_REQUIRED').length;
+    setCrAllApproved(done === crSummary.length);
+  }, [crSummary]); // eslint-disable-line
 
   const refreshCrSummary = () => {
     if (!isManager) return;
@@ -769,6 +943,14 @@ const VersionDetail: React.FC<{
           .catch(() => {})
           .finally(() => setCrSummaryLoading(false));
       });
+  };
+
+  const refreshProposals = () => {
+    if (FEATURES.TEAM_LEAD_PROPOSAL && isManager) {
+      axios.get(`${API}/task-proposals/version/${version.id}`, { headers })
+        .then(r => setProposals(r.data.filter((p: any) => !p.usedInTaskId)))
+        .catch(() => {});
+    }
   };
 
   const closeTeamPanel = () => {
@@ -793,24 +975,43 @@ const VersionDetail: React.FC<{
       .catch(() => {});
     axios.get(`${API}/version-templates`, { headers }).then(r => setLocalTemplates(r.data)).catch(() => {});
     axios.get(`${API}/qc/cr-items`, { headers }).then(r => setCrItems(r.data)).catch(() => {});
-    if (['COLLECTING', 'CR_REVIEW'].includes(version.status) && isManager) {
+    if (version.status === 'CR_REVIEW' && isManager) {
       // Auto-sync CR assignments from Excel in background, then fetch summary
       setCrSummaryLoading(true);
       axios.post(`${API}/version-cr-assignments/version/${version.id}/sync`, {}, { headers })
-        .catch(() => {})
+        .catch((e: any) => { console.warn('[CR Sync]', e?.response?.data?.message || e?.message); })
         .finally(() => {
           axios.get(`${API}/import/cr-summary?versionId=${version.id}`, { headers })
-            .then(r => setCrSummary(r.data))
+            .then(r => setCrSummary(r.data?.length > 0 ? r.data : null))
             .catch(() => setCrSummary(null))
             .finally(() => setCrSummaryLoading(false));
         });
     }
+  }, []); // eslint-disable-line
+
+  // Reload proposals whenever the version refreshes (onRefresh triggers re-render with new version object)
+  useEffect(() => {
     if (FEATURES.TEAM_LEAD_PROPOSAL && isManager) {
       axios.get(`${API}/task-proposals/version/${version.id}`, { headers })
         .then(r => setProposals(r.data.filter((p: any) => !p.usedInTaskId)))
         .catch(() => {});
     }
-  }, []); // eslint-disable-line
+  }, [version.id, version.updatedAt ?? version.id]); // eslint-disable-line
+
+  // Real-time: reload proposals when a team lead submits a new proposal
+  useEffect(() => {
+    if (!FEATURES.TEAM_LEAD_PROPOSAL || !isManager) return;
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.versionId === version.id) {
+        axios.get(`${API}/task-proposals/version/${version.id}`, { headers })
+          .then(r => setProposals(r.data.filter((p: any) => !p.usedInTaskId)))
+          .catch(() => {});
+      }
+    };
+    window.addEventListener('deploycenter:proposalCreated', handler);
+    return () => window.removeEventListener('deploycenter:proposalCreated', handler);
+  }, [version.id, isManager]); // eslint-disable-line
 
   const showAlert = (title: string, message: string, variant: DialogConfig['variant'] = 'info') =>
     setDialog({ title, message, variant, onConfirm: () => setDialog(null) });
@@ -871,12 +1072,26 @@ const VersionDetail: React.FC<{
     setPhaseManageLoading(true);
     setPhaseManageError(null);
     try {
-      await axios.post(`${API}/versions/${version.id}/phases`, { name, orderIndex: maxOrder + 1 }, { headers });
+      const phaseRes = await axios.post(`${API}/versions/${version.id}/phases`, { name, orderIndex: maxOrder + 1 }, { headers });
+      await axios.post(`${API}/versions/phases/${phaseRes.data.id}/sub-phases`, { name: 'כללי', orderIndex: 1 }, { headers });
       setAddingPhase(false);
       setNewPhaseName('');
       onRefresh();
     } catch (err: any) {
       setPhaseManageError(err?.response?.data?.message || 'שגיאה בהוספת שלב');
+    } finally { setPhaseManageLoading(false); }
+  };
+
+  const addSubPhase = async (phaseId: string) => {
+    setPhaseManageLoading(true);
+    setPhaseManageError(null);
+    try {
+      const phase = (version.phases || []).find((p: any) => p.id === phaseId);
+      const maxOrder = Math.max(0, ...(phase?.subPhases || []).map((s: any) => s.orderIndex));
+      await axios.post(`${API}/versions/phases/${phaseId}/sub-phases`, { name: 'כללי', orderIndex: maxOrder + 1 }, { headers });
+      onRefresh();
+    } catch (err: any) {
+      setPhaseManageError(err?.response?.data?.message || 'שגיאה בהוספת תת-שלב');
     } finally { setPhaseManageLoading(false); }
   };
 
@@ -1010,10 +1225,10 @@ const VersionDetail: React.FC<{
 
     // Fixed default times per phase position (Day D = version.plannedStart date)
     const PHASE_DEFAULTS = [
-      { startH: 8,  startM: 0,  startOff: 0, endH: 15, endM: 29, endOff: 0 }, // Phase 1: בוקר גרסה
-      { startH: 22, startM: 0,  startOff: 0, endH: 23, endM: 59, endOff: 0 }, // Phase 2: לילה HOTNET — מסתיים לפני חצות (יום D)
-      { startH: 23, startM: 45, startOff: 0, endH: 4,  endM: 20, endOff: 1 }, // Phase 3: לילה HOT
-      { startH: 8,  startM: 0,  startOff: 1, endH: 16, endM: 15, endOff: 1 }, // Phase 4: בוקר לאחר
+      { startH: 8,  startM: 30, startOff: 0, endH: 16, endM: 30, endOff: 0 }, // Phase 1: בוקר גרסה      08:30 → 16:30 יום D
+      { startH: 22, startM: 0,  startOff: 0, endH: 23, endM: 59, endOff: 0 }, // Phase 2: לילה HOTNET    22:00 → 23:59 יום D
+      { startH: 0,  startM: 48, startOff: 1, endH: 4,  endM: 0,  endOff: 1 }, // Phase 3: לילה HOT       00:48 → 04:00 יום D+1
+      { startH: 7,  startM: 30, startOff: 1, endH: 16, endM: 30, endOff: 1 }, // Phase 4: בוקר לאחר      07:30 → 16:30 יום D+1
     ];
 
     // Base date: take the date component of version.plannedStart in local time
@@ -1400,10 +1615,19 @@ const VersionDetail: React.FC<{
       const curSet  = new Set<string>(curIds);
       const toRemove = origIds.filter((id: string) => !curSet.has(id));
       const toAdd    = curIds.filter((id: string) => !origSet.has(id));
-      await Promise.all([
+      const depResponses = await Promise.all([
         ...toRemove.map((id: string) => axios.post(`${API}/versions/tasks/${taskId}/dependencies/remove`, { dependsOnTaskId: id }, { headers })),
         ...toAdd.map((id: string) => axios.post(`${API}/versions/tasks/${taskId}/dependencies`, { dependsOnTaskId: id }, { headers })),
       ]);
+      if (toRemove.length > 0 || toAdd.length > 0) {
+        const allAffected = depResponses.flatMap((r: any) => r.data?.affected ?? []);
+        if (allAffected.length > 0) {
+          showDepToast?.(allAffected);
+        } else {
+          const action = toAdd.length > 0 ? 'הוספה' : 'הסרה';
+          showDepToast?.([{ subPhaseName: '', phaseName: '', deltaMinutes: 0, action } as any]);
+        }
+      }
 
       setEditSaveOk(true);
       setTimeout(() => { setEditSaveOk(false); setEditingTask(null); }, 900);
@@ -1423,24 +1647,24 @@ const VersionDetail: React.FC<{
     <div>
       {/* ── Force-advance confirmation dialog ── */}
       {forceDialog && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'white', borderRadius: '14px', padding: '28px 32px', maxWidth: '480px', width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
+        <div style={{ position: 'fixed', inset: 0, background: C.bgOverlay, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: C.bgCard, borderRadius: RADIUS['2xl'], padding: '28px 32px', maxWidth: '480px', width: '90%', boxShadow: SHADOW.floating, border: `1px solid ${C.border}` }}>
             <div style={{ fontSize: '22px', marginBottom: '10px' }}>⚠️</div>
-            <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#1a2332', marginBottom: '10px' }}>לא כל הצוותים המעורבים הגישו</div>
-            <div style={{ fontSize: '14px', color: '#555', marginBottom: '8px' }}>
+            <div style={{ fontWeight: 'bold', fontSize: '16px', color: C.textPrimary, marginBottom: '10px' }}>לא כל הצוותים המעורבים הגישו</div>
+            <div style={{ fontSize: '14px', color: C.textSecondary, marginBottom: '8px' }}>
               הצוותים הבאים רשומים כמעורבים ב-CR אך טרם הגישו את המשימות שלהם:
             </div>
-            <div style={{ background: '#fff3cd', border: '1px solid #f39c12', borderRadius: '8px', padding: '10px 14px', fontSize: '14px', fontWeight: 'bold', color: '#7d4e00', marginBottom: '18px' }}>
+            <div style={{ background: C.warningBg, border: `1px solid ${C.warning}44`, borderRadius: RADIUS.lg, padding: '10px 14px', fontSize: '14px', fontWeight: 'bold', color: C.warning, marginBottom: '18px' }}>
               {forceDialog.teams}
             </div>
-            <div style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>
+            <div style={{ fontSize: '13px', color: C.textMuted, marginBottom: '20px' }}>
               כמנהל לילה, ביכולתך לאשר ולהמשיך בכל זאת.
             </div>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setForceDialog(null)} style={{ padding: '9px 20px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>ביטול</button>
+              <button onClick={() => setForceDialog(null)} style={{ padding: '9px 20px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '14px' }}>ביטול</button>
               <button
                 onClick={async () => { const s = forceDialog.targetStatus; setForceDialog(null); await handleStatusChange(s, true); }}
-                style={{ padding: '9px 20px', background: '#e67e22', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}
+                style={{ padding: '9px 20px', background: C.warning, color: 'white', border: 'none', borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}
               >
                 אשר ודחוף קדימה בכל זאת
               </button>
@@ -1450,20 +1674,43 @@ const VersionDetail: React.FC<{
       )}
 
       {/* ── Version header ── */}
-      <div style={{ background: 'white', borderRadius: '12px', padding: '20px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+      <div style={{ background: C.bgCard, borderRadius: RADIUS.xl, padding: '20px', marginBottom: '20px', boxShadow: SHADOW.sm, border: `1px solid ${C.border}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <button onClick={onBack} style={{ padding: '8px 16px', background: '#f0f0f0', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>→ חזור</button>
+            <button onClick={onBack} style={{ padding: '8px 16px', background: C.bgNested, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '14px', color: C.textSecondary }}>→ חזור</button>
             <div>
-              <h2 style={{ margin: 0, color: '#1a2332' }}>{version.name}</h2>
-              {version.description && <p style={{ margin: '4px 0 0', color: '#666', fontSize: '14px' }}>{version.description}</p>}
+              <h2 style={{ margin: 0, color: C.textPrimary }}>{version.name}</h2>
+              {version.description && <p style={{ margin: '4px 0 0', color: C.textMuted, fontSize: '14px' }}>{version.description}</p>}
             </div>
-            <span style={{ background: STATUS_COLORS[version.status], color: 'white', padding: '6px 14px', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold' }}>{STATUS_LABELS[version.status]}</span>
+            <VersionStatusChip status={version.status} size="md" />
+            {/* Total task count badge — updates live on add/remove */}
+            {(() => {
+              const total = (version.phases ?? []).flatMap((p: any) => (p.subPhases ?? []).flatMap((s: any) => s.tasks ?? [])).length;
+              if (total === 0) return null;
+              const done = (version.phases ?? []).flatMap((p: any) => (p.subPhases ?? []).flatMap((s: any) => (s.tasks ?? []).filter((t: any) => t.status === 'DONE'))).length;
+              return (
+                <span title="סה״כ משימות בתוכנית" style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: '12px', padding: '3px 10px', fontSize: '12px', color: C.textSecondary, fontWeight: '600', whiteSpace: 'nowrap' }}>
+                  📋 {done > 0 ? `${done}/${total}` : total} משימות
+                </span>
+              );
+            })()}
+            {/* Total pending proposals badge */}
+            {FEATURES.TEAM_LEAD_PROPOSAL && isManager && proposals.filter(p => !p.usedInTaskId).length > 0 && (
+              <span style={{
+                background: '#e67e22', color: 'white',
+                padding: '3px 12px', borderRadius: '12px',
+                fontSize: '13px', fontWeight: 'bold',
+                animation: 'pulse 2s infinite',
+                whiteSpace: 'nowrap',
+              }}>
+                💡 {proposals.filter(p => !p.usedInTaskId).length} הצעות ממתינות לשיבוץ
+              </span>
+            )}
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
             {/* UI utilities */}
-            {version.status !== 'CR_REVIEW' && <button onClick={() => setCollapsedPhases(new Set(version.phases?.map((p: any) => p.id)))} style={{ padding: '6px 14px', background: '#e8ecf0', color: '#333', border: '1px solid #ccc', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>▶ קפל הכל</button>}
-            {version.status !== 'CR_REVIEW' && <button onClick={() => { setCollapsedPhases(new Set()); setCollapsedSubPhases(new Set()); }} style={{ padding: '6px 14px', background: '#e8ecf0', color: '#333', border: '1px solid #ccc', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>▼ פתח הכל</button>}
+            {version.status !== 'CR_REVIEW' && <button onClick={() => setCollapsedPhases(new Set(version.phases?.map((p: any) => p.id)))} style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px' }}>▶ קפל הכל</button>}
+            {version.status !== 'CR_REVIEW' && <button onClick={() => { setCollapsedPhases(new Set()); setCollapsedSubPhases(new Set()); }} style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px' }}>▼ פתח הכל</button>}
 
             {/* Manager tools — הכן ותזמן והחלף עובד הועברו לאשף הכנת תוכנית */}
             {isManager && version.status !== 'CR_REVIEW' && (() => {
@@ -1474,7 +1721,7 @@ const VersionDetail: React.FC<{
               return (
                 <button
                   onClick={() => setWizardOpen(true)}
-                  style={{ padding: '6px 14px', background: allDone ? '#16a34a' : '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
+                  style={{ padding: '6px 14px', background: allDone ? C.success : C.statusWaiting, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
                 >
                   {allDone ? '✅ תוכנית מוכנה — ערוך' : `🔧 הכן תוכנית${ws ? ` ${doneCount}/5` : ''}`}
                 </button>
@@ -1488,42 +1735,35 @@ const VersionDetail: React.FC<{
                   setSaveTemplateName('');
                   setSaveTemplateOpen(true);
                 }}
-                style={{ padding: '6px 14px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
+                style={{ padding: '6px 14px', background: C.success, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
                 💾 שמור כתבנית
               </button>
             )}
 
-            {/* Status progression */}
+            {/* Status progression — back buttons (new order: DRAFT→COLLECTING→CR_REVIEW→REFINING) */}
             {isManager && version.status === 'COLLECTING' && (
-              <button onClick={() => handleStatusChange('DRAFT')} disabled={statusLoading} style={{ padding: '8px 16px', background: '#f0f0f0', color: '#666', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>← חזור לטיוטה</button>
+              <button onClick={() => handleStatusChange('DRAFT')} disabled={statusLoading} style={{ padding: '8px 16px', background: C.bgNested, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '14px' }}>← חזור לטיוטה</button>
             )}
             {isManager && version.status === 'CR_REVIEW' && (
-              <button onClick={() => handleStatusChange('DRAFT')} disabled={statusLoading} style={{ padding: '8px 16px', background: '#f0f0f0', color: '#666', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>← חזור לטיוטה</button>
-            )}
-            {isManager && version.status === 'COLLECTING' && (
-              <button onClick={() => handleStatusChange('CR_REVIEW')} disabled={statusLoading} style={{ padding: '8px 16px', background: '#f0f0f0', color: '#666', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>← חזור לסקירת CR</button>
+              <button onClick={() => handleStatusChange('COLLECTING')} disabled={statusLoading} style={{ padding: '8px 16px', background: C.bgNested, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '14px' }}>← חזור לאיסוף</button>
             )}
             {isManager && version.status === 'REFINING' && (
-              <button onClick={() => handleStatusChange('COLLECTING')} disabled={statusLoading} style={{ padding: '8px 16px', background: '#f0f0f0', color: '#666', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>← חזור לאיסוף</button>
+              <button onClick={() => handleStatusChange('CR_REVIEW')} disabled={statusLoading} style={{ padding: '8px 16px', background: C.bgNested, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '14px' }}>← חזור לסקירת CR</button>
             )}
             {isManager && version.status === 'REVIEW' && (
-              <button onClick={() => handleStatusChange('REFINING')} disabled={statusLoading} style={{ padding: '8px 16px', background: '#f0f0f0', color: '#666', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>← חזור לעידון</button>
+              <button onClick={() => handleStatusChange('REFINING')} disabled={statusLoading} style={{ padding: '8px 16px', background: C.bgNested, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '14px' }}>← חזור לטיוב</button>
             )}
             {version.status === 'APPROVED' && (
-              <button onClick={() => handleStatusChange('DRAFT')} disabled={statusLoading} style={{ padding: '8px 16px', background: '#f0f0f0', color: '#666', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>← איפוס לטיוטה</button>
+              <button onClick={() => handleStatusChange('DRAFT')} disabled={statusLoading} style={{ padding: '8px 16px', background: C.bgNested, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '14px' }}>← איפוס לטיוטה</button>
             )}
             {version.status === 'APPROVED' && !version.lastRehearsalAt && (
-              <button onClick={() => handleStatusChange('ACTIVE')} disabled={statusLoading} style={{ padding: '10px 20px', background: statusLoading ? '#aaa' : '#95a5a6', color: 'white', border: 'none', borderRadius: '8px', cursor: statusLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
+              <button onClick={() => handleStatusChange('ACTIVE')} disabled={statusLoading} style={{ padding: '10px 20px', background: statusLoading ? C.textDisabled : C.textMuted, color: 'white', border: 'none', borderRadius: RADIUS.lg, cursor: statusLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
                 {statusLoading ? '...' : 'הפעל ללא חזרה →'}
               </button>
             )}
             {nextStatus && (
               <button
                 onClick={async () => {
-                  if (nextStatus === 'COLLECTING' && version.status === 'CR_REVIEW' && !crAllApproved) {
-                    setStatusError('לא ניתן לפתוח לאיסוף משימות — יש CR-ים שטרם אושרו. אשר את כל תוכניות ה-CR תחילה.');
-                    return;
-                  }
                   if (nextStatus === 'REFINING') {
                     try {
                       const res = await axios.get(`${API}/import/teams-without-proposals?versionId=${version.id}`, { headers });
@@ -1540,20 +1780,20 @@ const VersionDetail: React.FC<{
                   }
                   handleStatusChange(nextStatus);
                 }}
-                disabled={statusLoading || (nextStatus === 'COLLECTING' && version.status === 'CR_REVIEW' && !crAllApproved)}
-                title={nextStatus === 'COLLECTING' && version.status === 'CR_REVIEW' && !crAllApproved ? 'יש לאשר את כל תוכניות ה-CR תחילה' : undefined}
+                disabled={statusLoading || (false)}
+                title={false ? 'יש לאשר את כל תוכניות ה-CR תחילה' : undefined}
                 style={{
                   padding: '10px 20px', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '14px',
-                  background: statusLoading || (nextStatus === 'COLLECTING' && version.status === 'CR_REVIEW' && !crAllApproved) ? '#aaa' : STATUS_COLORS[nextStatus],
-                  cursor: statusLoading || (nextStatus === 'COLLECTING' && version.status === 'CR_REVIEW' && !crAllApproved) ? 'not-allowed' : 'pointer',
+                  background: statusLoading || (false) ? '#aaa' : STATUS_COLORS[nextStatus],
+                  cursor: statusLoading || (false) ? 'not-allowed' : 'pointer',
                 }}>
                 {statusLoading ? '...' : `${nextLabel} →`}
               </button>
             )}
             {statusError && (
-              <div style={{ background: '#fee', border: '1px solid #e74c3c', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', color: '#c0392b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}44`, borderRadius: RADIUS.lg, padding: '8px 14px', fontSize: '13px', color: C.danger, display: 'flex', alignItems: 'center', gap: '8px' }}>
                 ⚠️ {statusError}
-                <button onClick={() => setStatusError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', fontWeight: 'bold' }}>×</button>
+                <button onClick={() => setStatusError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.danger, fontWeight: 'bold' }}>×</button>
               </div>
             )}
           </div>
@@ -1565,9 +1805,9 @@ const VersionDetail: React.FC<{
           const phaseB = sortedPhases[1]; // 2nd phase = ליל HOTNET
           const phaseC = sortedPhases[2]; // 3rd phase = לילה HOT
           return (
-        <div style={{ marginTop: '14px', display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '13px', color: '#555', alignItems: 'center' }}>
+        <div style={{ marginTop: '14px', display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '13px', color: C.textSecondary, alignItems: 'center' }}>
           {version.importedFileName && (
-            <span style={{ background: '#f0f7ff', color: '#2d4a7a', padding: '3px 10px', borderRadius: '12px', fontWeight: 'bold' }}>
+            <span style={{ background: C.infoBg, color: C.info, padding: '3px 10px', borderRadius: RADIUS.full, fontWeight: 'bold' }}>
               📎 {version.importedFileName}
             </span>
           )}
@@ -1583,7 +1823,7 @@ const VersionDetail: React.FC<{
           <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             🏁 <strong>סיום מתוכנן:</strong>
             {phaseC?.plannedEnd ? (
-              <span style={{ color: '#e65100' }} title={`שעת סיום של "${phaseC.name}"`}>
+              <span style={{ color: C.warning }} title={`שעת סיום של "${phaseC.name}"`}>
                 {fmtDateTime(phaseC.plannedEnd)}
               </span>
             ) : editingPlannedEnd ? (
@@ -1592,18 +1832,18 @@ const VersionDetail: React.FC<{
                   type="datetime-local"
                   value={plannedEndValue}
                   onChange={e => setPlannedEndValue(e.target.value)}
-                  style={{ padding: '4px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}
+                  style={{ padding: '4px 8px', border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.md, fontSize: '13px' }}
                 />
-                <button onClick={savePlannedEnd} style={{ padding: '4px 10px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>שמור</button>
-                <button onClick={() => setEditingPlannedEnd(false)} style={{ padding: '4px 10px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>ביטול</button>
+                <button onClick={savePlannedEnd} style={{ padding: '4px 10px', background: C.success, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '12px' }}>שמור</button>
+                <button onClick={() => setEditingPlannedEnd(false)} style={{ padding: '4px 10px', background: C.bgNested, color: C.textSecondary, border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '12px' }}>ביטול</button>
               </>
             ) : (
               <>
-                <span style={{ color: version.plannedEnd ? '#e65100' : '#aaa' }}>
+                <span style={{ color: version.plannedEnd ? C.warning : C.textDisabled }}>
                   {version.plannedEnd ? fmtDateTime(version.plannedEnd) : 'לא הוגדר (ברירת מחדל: 04:00)'}
                 </span>
                 {isManager && (
-                  <button onClick={() => setEditingPlannedEnd(true)} style={{ padding: '2px 8px', background: '#fff3e0', color: '#e65100', border: '1px solid #ffcc80', borderRadius: '6px', cursor: 'pointer', fontSize: '11px' }}>עריכה</button>
+                  <button onClick={() => setEditingPlannedEnd(true)} style={{ padding: '2px 8px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}44`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '11px' }}>עריכה</button>
                 )}
               </>
             )}
@@ -1616,28 +1856,28 @@ const VersionDetail: React.FC<{
                   type="datetime-local"
                   value={reviewMeetingValue}
                   onChange={e => setReviewMeetingValue(e.target.value)}
-                  style={{ padding: '4px 8px', border: '1px solid #aed6f1', borderRadius: '6px', fontSize: '13px' }}
+                  style={{ padding: '4px 8px', border: `1px solid ${C.borderFocus}`, borderRadius: RADIUS.md, fontSize: '13px' }}
                 />
-                <button onClick={saveReviewMeetingTime} style={{ padding: '4px 10px', background: '#2980b9', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>שמור</button>
-                <button onClick={() => setEditingReviewMeeting(false)} style={{ padding: '4px 10px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>ביטול</button>
+                <button onClick={saveReviewMeetingTime} style={{ padding: '4px 10px', background: C.info, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '12px' }}>שמור</button>
+                <button onClick={() => setEditingReviewMeeting(false)} style={{ padding: '4px 10px', background: C.bgNested, color: C.textSecondary, border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '12px' }}>ביטול</button>
               </>
             ) : (
               <>
-                <span style={{ color: version.reviewMeetingTime ? '#1a5276' : '#aaa', fontWeight: version.reviewMeetingTime ? '600' : 'normal' }}>
+                <span style={{ color: version.reviewMeetingTime ? C.info : C.textDisabled, fontWeight: version.reviewMeetingTime ? '600' : 'normal' }}>
                   {version.reviewMeetingTime ? fmtDateTime(version.reviewMeetingTime) : 'לא נקבע'}
                 </span>
                 {isManager && (
-                  <button onClick={() => setEditingReviewMeeting(true)} style={{ padding: '2px 8px', background: '#e8f4fd', color: '#2980b9', border: '1px solid #aed6f1', borderRadius: '6px', cursor: 'pointer', fontSize: '11px' }}>עריכה</button>
+                  <button onClick={() => setEditingReviewMeeting(true)} style={{ padding: '2px 8px', background: C.infoBg, color: C.info, border: `1px solid ${C.borderFocus}44`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '11px' }}>עריכה</button>
                 )}
               </>
             )}
           </span>
           {version.creator && <span>👤 {version.creator.fullName}</span>}
           {version.approvedAt && version.approver && (
-            <span style={{ color: '#27ae60' }}>✅ אושר: {new Date(version.approvedAt).toLocaleDateString('he-IL')} ע"י {version.approver.fullName}</span>
+            <span style={{ color: C.success }}>✅ אושר: {new Date(version.approvedAt).toLocaleDateString('he-IL')} ע"י {version.approver.fullName}</span>
           )}
           {version.lastRehearsalAt && (
-            <span style={{ background: '#fff3e0', color: '#8B4000', padding: '3px 10px', borderRadius: '12px', fontWeight: 'bold', fontSize: '12px' }}>
+            <span style={{ background: C.warningBg, color: C.warning, padding: '3px 10px', borderRadius: RADIUS.full, fontWeight: 'bold', fontSize: '12px' }}>
               🎭 חזרה גנרלית: {new Date(version.lastRehearsalAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
@@ -1650,26 +1890,10 @@ const VersionDetail: React.FC<{
 
         );})()}
 
-        {/* CR_REVIEW: פאנל הצוותים בלבד — בתוך החלונית */}
-        {version.status === 'CR_REVIEW' && isManager && (
-          <div style={{ marginTop: '16px' }}>
-            <CrPlanReviewPanel
-              token={token}
-              versionId={version.id}
-              versionStatus={version.status}
-              isManager={isManager}
-              section="teams"
-              refreshKey={crPanelRefreshKey}
-              onAllApproved={setCrAllApproved}
-              onTeamReview={(teamId, teamName) => setTeamPanelOpen({ teamId, teamName })}
-            />
-          </div>
-        )}
-
         {version.submissions?.length > 0 && (
           <div style={{ marginTop: '12px' }}>
-            {/* COLLECTING: detailed CR-based submission status panel */}
-            {version.status === 'COLLECTING' && isManager && (() => {
+            {/* CR_REVIEW: detailed CR-based submission status panel */}
+            {version.status === 'CR_REVIEW' && isManager && (() => {
               if (crSummaryLoading) return (
                 <div style={{ padding: '9px 14px', color: '#64748b', fontSize: '13px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '6px' }}>
                   ⏳ טוען סטטוס הגשות...
@@ -1677,14 +1901,16 @@ const VersionDetail: React.FC<{
               );
 
               if (!crSummary || crSummary.length === 0) {
-                const involvedIds: string[] = version.involvedTeamIds ?? [];
-                const involvedSubs = involvedIds.length > 0 ? version.submissions.filter((s: any) => involvedIds.includes(s.teamId)) : [];
-                const submitted = involvedSubs.filter((s: any) => s.status === 'SUBMITTED').length;
+                // Sync pending or file not configured — show sync prompt only, no team cards
                 return (
-                  <div style={{ padding: '9px 14px', background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: '8px', fontSize: '13px', color: '#92400e', marginBottom: '6px' }}>
-                    📋 הגישו: {submitted}/{involvedSubs.length} צוותים
-                    {involvedSubs.length === 0 && ' — אין צוותים מעורבים מוגדרים'}
-                    <span style={{ fontSize: '11px', marginRight: '8px', opacity: 0.75 }}>(קובץ CR_LIST לא מוגדר — לא ניתן להציג פירוט לפי CR)</span>
+                  <div style={{ padding: '10px 16px', background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: '10px', marginBottom: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '13px', color: '#92400e' }}>
+                      ⏳ טוען נתוני CR מהקובץ... לחץ <strong>🔄 סנכרן</strong> לרענון
+                    </span>
+                    <button onClick={refreshCrSummary} disabled={crSummaryLoading}
+                      style={{ fontSize: '12px', padding: '4px 12px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '6px', cursor: crSummaryLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', opacity: crSummaryLoading ? 0.6 : 1 }}>
+                      {crSummaryLoading ? '⏳' : '🔄'} סנכרן
+                    </button>
                   </div>
                 );
               }
@@ -1695,109 +1921,60 @@ const VersionDetail: React.FC<{
               const total = crSummary.length;
               const allDone = completeCount === total;
 
-              // ── helpers ──────────────────────────────────────────────────
               const statusMeta = (t: any): { desc: string; accent: string; textColor: string } => {
                 const rem = t.crListCount - t.proposedCount;
                 switch (t.status) {
-                  case 'PARTIAL':
-                    return { accent: '#f59e0b', textColor: '#78350f',
-                      desc: `הגישו ${t.proposedCount} מתוך ${t.crListCount} פיתוחים — נותרו ${rem} להשלמה` };
-                  case 'NONE':
-                    return { accent: '#ef4444', textColor: '#7f1d1d',
-                      desc: `טרם נכנסו למערכת — ${t.crListCount} פיתוח${t.crListCount !== 1 ? 'ים' : ''} ממתין${t.crListCount !== 1 ? 'ים' : ''}` };
-                  case 'COMPLETE':
-                    return { accent: '#16a34a', textColor: '#14532d',
-                      desc: t.notNeededCount > 0
-                        ? `הגישו ${t.proposedCount} פיתוחים, ${t.notNeededCount} לא נדרש — הכל טופל ✓`
-                        : `הגישו את כל ${t.crListCount} הפיתוחים ✓` };
-                  case 'ALL_NOT_NEEDED':
-                    return { accent: '#94a3b8', textColor: '#475569',
-                      desc: `כל ${t.crListCount} הפיתוחים סומנו כ"לא נדרש לתוכנית" — הוגש` };
-                  case 'SUBMITTED_EMPTY':
-                    return { accent: '#f59e0b', textColor: '#78350f',
-                      desc: 'הוגש ללא פיתוחים ולא סומנו "לא נדרש" — נדרשת בדיקה' };
-                  case 'NOT_REQUIRED':
-                    return { accent: '#94a3b8', textColor: '#64748b',
-                      desc: 'לא נדרש לגרסה זו' };
-                  default:
-                    return { accent: '#94a3b8', textColor: '#64748b', desc: '' };
+                  case 'PARTIAL':      return { accent: '#f59e0b', textColor: '#78350f', desc: `הגישו ${t.proposedCount} מתוך ${t.crListCount} פיתוחים — נותרו ${rem} להשלמה` };
+                  case 'NONE':         return { accent: '#ef4444', textColor: '#7f1d1d', desc: `טרם נכנסו למערכת — ${t.crListCount} פיתוח${t.crListCount !== 1 ? 'ים' : ''} ממתין${t.crListCount !== 1 ? 'ים' : ''}` };
+                  case 'COMPLETE':     return { accent: '#16a34a', textColor: '#14532d', desc: t.notNeededCount > 0 ? `הגישו ${t.proposedCount} פיתוחים, ${t.notNeededCount} לא נדרש — הכל טופל ✓` : `הגישו את כל ${t.crListCount} הפיתוחים ✓` };
+                  case 'ALL_NOT_NEEDED': return { accent: '#94a3b8', textColor: '#475569', desc: `כל ${t.crListCount} הפיתוחים סומנו כ"לא נדרש לתוכנית" — הוגש` };
+                  case 'SUBMITTED_EMPTY': return { accent: '#f59e0b', textColor: '#78350f', desc: 'הוגש ללא פיתוחים ולא סומנו "לא נדרש" — נדרשת בדיקה' };
+                  case 'NOT_REQUIRED': return { accent: '#94a3b8', textColor: '#64748b', desc: 'לא נדרש לגרסה זו' };
+                  default:             return { accent: '#94a3b8', textColor: '#64748b', desc: '' };
                 }
               };
 
               return (
                 <div style={{ background: 'white', border: `1px solid ${allDone ? '#bbf7d0' : '#fecaca'}`, borderRadius: '10px', overflow: 'hidden', marginBottom: '6px', boxShadow: allDone ? 'none' : '0 0 0 3px rgba(239,68,68,0.08)' }}>
-                  <style>{`
-                    @keyframes cr-pulse {
-                      0%, 100% { background-color: #fff1f2; }
-                      50%       { background-color: #fde8e8; }
-                    }
-                    .cr-header-alert { animation: cr-pulse 2s ease-in-out infinite; cursor: pointer; }
-                    .cr-header-ok    { background: #f0fdf4; cursor: pointer; }
-                  `}</style>
-
-                  {/* Collapsible header */}
-                  <div
-                    className={allDone ? 'cr-header-ok' : 'cr-header-alert'}
+                  <style>{`@keyframes cr-pulse{0%,100%{background-color:#fff1f2}50%{background-color:#fde8e8}}.cr-header-alert{animation:cr-pulse 2s ease-in-out infinite;cursor:pointer}.cr-header-ok{background:#f0fdf4;cursor:pointer}`}</style>
+                  <div className={allDone ? 'cr-header-ok' : 'cr-header-alert'}
                     onClick={() => setCrSummaryExpanded(e => !e)}
-                    style={{ padding: '10px 16px', borderBottom: crSummaryExpanded ? '1px solid #f1f5f9' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none' }}
-                  >
+                    style={{ padding: '10px 16px', borderBottom: crSummaryExpanded ? '1px solid #f1f5f9' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none' }}>
                     <span style={{ fontSize: '13px', fontWeight: '700', color: allDone ? '#15803d' : '#dc2626', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span style={{ fontSize: '16px' }}>{allDone ? '✅' : '●'}</span>
-                      {allDone
-                        ? `כל ${total} הצוותים הגישו את פיתוחיהם`
-                        : `הגישו הכל: ${completeCount} מתוך ${total} צוותים — לחץ לפירוט`}
+                      <span>
+                        {allDone ? `כל ${total} הצוותים הגישו את פיתוחיהם` : `הגישו הכל: ${completeCount} מתוך ${total} צוותים — לחץ לפירוט`}
+                        {!crAllApproved && (
+                          <span style={{ marginRight: '10px', fontSize: '12px', color: '#dc2626', fontWeight: '600' }}>
+                            · ⚠️ יש CR שטרם אושר ע"י המנהל — בדוק ברשימת הפיתוחים למטה
+                          </span>
+                        )}
+                        {crAllApproved && (
+                          <span style={{ marginRight: '10px', fontSize: '12px', color: '#15803d' }}>· ✅ כל CRים אושרו</span>
+                        )}
+                      </span>
                     </span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <button
-                        onClick={e => { e.stopPropagation(); refreshCrSummary(); }}
-                        disabled={crSummaryLoading}
-                        title="סנכרן מחדש מקובץ CR_LIST"
-                        style={{ fontSize: '11px', padding: '3px 10px', background: 'white', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: crSummaryLoading ? 'not-allowed' : 'pointer', color: '#475569', opacity: crSummaryLoading ? 0.5 : 1 }}
-                      >
+                      <button onClick={e => { e.stopPropagation(); refreshCrSummary(); }} disabled={crSummaryLoading}
+                        style={{ fontSize: '11px', padding: '3px 10px', background: 'white', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: crSummaryLoading ? 'not-allowed' : 'pointer', color: '#475569', opacity: crSummaryLoading ? 0.5 : 1 }}>
                         {crSummaryLoading ? '⏳' : '🔄'} סנכרן
                       </button>
                       <span style={{ fontSize: '13px', color: '#94a3b8', transform: crSummaryExpanded ? 'rotate(180deg)' : 'none', display: 'inline-block', transition: 'transform 0.2s' }}>▼</span>
                     </div>
                   </div>
-
-                  {/* Expandable cards grid */}
                   {crSummaryExpanded && (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '10px', padding: '12px' }}>
                       {sorted.map((t: any) => {
                         const { desc, accent, textColor } = statusMeta(t);
                         const canReview = t.teamId && t.status !== 'NOT_REQUIRED';
-
-                        const cardBg: Record<string, string> = {
-                          PARTIAL:        '#fafafa',
-                          NONE:           '#fafafa',
-                          SUBMITTED_EMPTY:'#fafafa',
-                          COMPLETE:       '#fafafa',
-                          NOT_REQUIRED:   '#f4f4f5',
-                        };
-
+                        const cardBg: Record<string, string> = { PARTIAL: '#fafafa', NONE: '#fafafa', SUBMITTED_EMPTY: '#fafafa', COMPLETE: '#fafafa', NOT_REQUIRED: '#f4f4f5' };
                         return (
-                          <div key={t.teamId || t.teamName} style={{
-                            borderRadius: '10px',
-                            border: `1px solid ${accent}33`,
-                            borderTop: `4px solid ${accent}`,
-                            background: cardBg[t.status] ?? 'white',
-                            padding: '12px 14px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '6px',
-                            boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
-                          }}>
-                            <span style={{ fontWeight: '800', fontSize: '14px', color: '#1a2332', lineHeight: 1.2 }}>
-                              {t.teamName}
-                            </span>
-                            <span style={{ fontSize: '12px', color: textColor, lineHeight: 1.5, flex: 1 }}>
-                              {desc}
-                            </span>
+                          <div key={t.teamId || t.teamName} style={{ borderRadius: '10px', border: `1px solid ${accent}33`, borderTop: `4px solid ${accent}`, background: cardBg[t.status] ?? 'white', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '6px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+                            <span style={{ fontWeight: '800', fontSize: '14px', color: '#1a2332', lineHeight: 1.2 }}>{t.teamName}</span>
+                            <span style={{ fontSize: '12px', color: textColor, lineHeight: 1.5, flex: 1 }}>{desc}</span>
                             {canReview && (
-                              <button
-                                onClick={() => setTeamPanelOpen({ teamId: t.teamId, teamName: t.teamName })}
-                                style={{ marginTop: '4px', padding: '5px 0', background: 'transparent', color: '#2d4a7a', border: '1px solid #2d4a7a', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', width: '100%' }}
-                              >
+                              <button onClick={() => setTeamPanelOpen({ teamId: t.teamId, teamName: t.teamName })}
+                                style={{ marginTop: '4px', padding: '5px 0', background: 'transparent', color: '#2d4a7a', border: '1px solid #2d4a7a', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', width: '100%' }}>
                                 סקירה ←
                               </button>
                             )}
@@ -1809,7 +1986,7 @@ const VersionDetail: React.FC<{
                 </div>
               );
             })()}
-            {/* Team filter pills — ניטרלי, ללא סטטוס הגשה (הסטטוס מוצג בטבלה למעלה) */}
+            {/* Team filter pills */}
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', marginTop: '4px' }}>
               <span style={{ fontSize: '11px', color: '#94a3b8' }}>סנן:</span>
               <span onClick={() => setFilterTeam(null)} style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', background: filterTeam === null ? '#1a2332' : '#f0f0f0', color: filterTeam === null ? 'white' : '#666' }}>כולם</span>
@@ -1832,6 +2009,31 @@ const VersionDetail: React.FC<{
         )}
       </div>
 
+      {/* ── אזהרה: סינון צוות מסתיר משימות לא גמורות ── */}
+      {filterTeam && ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(version.status) && (() => {
+        const hiddenNotDone = (version.phases ?? []).flatMap((p: any) =>
+          (p.subPhases ?? []).flatMap((s: any) =>
+            (s.tasks ?? []).filter((t: any) =>
+              t.status !== 'DONE' &&
+              t.assignedTeamId !== filterTeam &&
+              (t.assignedTeam?.id) !== filterTeam
+            )
+          )
+        ).length;
+        if (!hiddenNotDone) return null;
+        return (
+          <div style={{ marginBottom: '12px', background: C.warningBg, border: `1px solid ${C.warning}`, borderRadius: '10px', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}>
+            <span style={{ fontSize: '18px' }}>⚠️</span>
+            <span style={{ color: C.warning, fontWeight: 'bold' }}>
+              סינון צוות פעיל — {hiddenNotDone} משימות לא גמורות מוסתרות.
+            </span>
+            <button onClick={() => setFilterTeam(null)} style={{ marginRight: 'auto', padding: '3px 10px', background: C.warning, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+              הצג הכל
+            </button>
+          </div>
+        );
+      })()}
+
       {/* ── CR_REVIEW: רשימת פיתוחים — מחוץ לחלונית ── */}
       {version.status === 'CR_REVIEW' && isManager && (
         <div style={{ marginTop: '12px' }}>
@@ -1848,35 +2050,63 @@ const VersionDetail: React.FC<{
         </div>
       )}
 
-      {/* ── CR Review panel during COLLECTING (sidebar mode) ── */}
+      {/* ── COLLECTING: סטטוס הגשות צוותים + כפתור תזכורת ── */}
       {version.status === 'COLLECTING' && isManager && (
         <div style={{ marginBottom: '16px', background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '12px', overflow: 'hidden' }}>
           <div
-            style={{ padding: '12px 20px', background: crAllApproved ? 'rgba(63,185,80,0.12)' : 'rgba(248,81,73,0.08)', borderBottom: crSummaryExpanded ? `1px solid ${C.border}` : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', userSelect: 'none' }}
-            onClick={() => setCrSummaryExpanded(p => !p)}
+            onClick={() => setCollectingTeamsExpanded(p => !p)}
+            style={{ padding: '12px 20px', borderBottom: collectingTeamsExpanded ? `1px solid ${C.border}` : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', userSelect: 'none', background: C.bgNested }}
           >
-            <span style={{ fontSize: '13px', fontWeight: '700', color: crAllApproved ? C.statusDone : C.statusBlocked, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>{crAllApproved ? '✅' : '●'}</span>
-              📋 סקירת תוכניות CR
-              {!crAllApproved && <span style={{ fontSize: '11px', color: C.statusBlocked, background: 'rgba(248,81,73,0.15)', padding: '2px 8px', borderRadius: '10px', marginRight: '4px' }}>יש CR-ים ממתינים</span>}
-              {crAllApproved  && <span style={{ fontSize: '11px', color: C.statusDone,  background: 'rgba(63,185,80,0.15)',  padding: '2px 8px', borderRadius: '10px', marginRight: '4px' }}>✓ הכל אושר</span>}
+            <span style={{ fontSize: '14px', fontWeight: '700', color: C.textPrimary, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              👥 סטטוס הגשות צוותים
             </span>
-            <span style={{ color: C.textMuted, fontSize: '13px' }}>{crSummaryExpanded ? '▲ סגור' : '▼ פתח לסקירה'}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {isManager && (
+                <button
+                  onClick={async e => {
+                    e.stopPropagation();
+                    setReminderSending(true);
+                    setReminderResult(null);
+                    try {
+                      const res = await axios.post(`${API}/versions/${version.id}/send-collecting-reminder`, {}, { headers });
+                      setReminderResult({ sent: res.data.sent, teams: res.data.teams });
+                    } catch (err: any) {
+                      showAlert('שגיאה בשליחת תזכורת', err?.response?.data?.message || 'שגיאה לא ידועה', 'danger');
+                    } finally {
+                      setReminderSending(false);
+                    }
+                  }}
+                  disabled={reminderSending}
+                  style={{ padding: '5px 14px', background: reminderSending ? C.textDisabled : C.statusInProgress, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: reminderSending ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap' }}
+                >
+                  {reminderSending ? 'שולח...' : '📧 שלח תזכורת למי שלא סיים'}
+                </button>
+              )}
+              <span style={{ color: C.textMuted, fontSize: '13px' }}>{collectingTeamsExpanded ? '▲ סגור' : '▼ פתח'}</span>
+            </div>
           </div>
-          {crSummaryExpanded && (
+          {reminderResult && (
+            <div style={{ padding: '8px 20px', background: reminderResult.sent > 0 ? C.successBg : C.warningBg, borderBottom: `1px solid ${C.border}`, fontSize: '12px', color: reminderResult.sent > 0 ? C.success : C.warning }}>
+              {reminderResult.sent > 0
+                ? `✅ נשלחו ${reminderResult.sent} תזכורות: ${reminderResult.teams.join(', ')}`
+                : 'כל הצוותים כבר הגישו, לא נשלחו תזכורות'}
+            </div>
+          )}
+          {collectingTeamsExpanded && (
             <div style={{ padding: '16px 20px' }}>
               <CrPlanReviewPanel
                 token={token}
                 versionId={version.id}
                 versionStatus={version.status}
                 isManager={isManager}
-                onAllApproved={setCrAllApproved}
+                section="teams"
                 onTeamReview={(teamId, teamName) => setTeamPanelOpen({ teamId, teamName })}
               />
             </div>
           )}
         </div>
       )}
+
 
       {/* ── View mode tabs ── */}
       {version.status !== 'CR_REVIEW' && (
@@ -1914,7 +2144,7 @@ const VersionDetail: React.FC<{
                   COLLECTING: 'איסוף משימות — הצוותים מוסיפים משימות',
                   REFINING: 'עיבוד — עדכון ובדיקת התוכנית',
                   REVIEW: 'סקירה — ממתין לאישור',
-                  APPROVED: 'מאושר — התוכנית נעולה',
+                  APPROVED: 'תוכנית מאושרת — נעולה',
                   REHEARSAL: 'חזרה גנרלית',
                   ACTIVE: 'פעיל — ביצוע הטמעה',
                   MORNING_AFTER: 'פעילות בוקר לאחר גרסה',
@@ -1979,17 +2209,16 @@ const VersionDetail: React.FC<{
                   <span>{phase.name}</span>
                 )}
                 {FEATURES.TEAM_LEAD_PROPOSAL && (() => {
-                  const pending = proposals.filter((p: any) => p.phase === phase.orderIndex && !p.usedInTaskId).length;
+                  const pending = proposals.filter((p: any) => !p.usedInTaskId && Number(p.phase) === Number(phase.orderIndex)).length;
                   if (!pending) return null;
                   return (
-                    <span title={`${pending} הצעות ראשי צוותים ממתינות לשיבוץ`} style={{
+                    <span title={`${pending} הצעות ראשי צוותים לשלב זה`} style={{
                       background: '#e67e22', color: 'white',
                       padding: '2px 9px', borderRadius: '10px',
                       fontSize: '11px', fontWeight: 'bold',
-                      animation: 'pulse 2s infinite',
                       cursor: 'default', whiteSpace: 'nowrap',
                     }}>
-                      💡 {pending} הצעות ממתינות
+                      💡 {pending}
                     </span>
                   );
                 })()}
@@ -2078,6 +2307,20 @@ const VersionDetail: React.FC<{
                       <span style={{ fontSize: '11px', color: C.textMuted }}>{collapsedSubPhases.has(sub.id) ? '►' : '▼'}</span>
                       {sub.name}
                       <span style={{ fontSize: '11px', color: C.textMuted, fontWeight: 'normal' }}>({sub.tasks?.length || 0})</span>
+                      {FEATURES.TEAM_LEAD_PROPOSAL && (() => {
+                        const subPending = proposals.filter((p: any) => !p.usedInTaskId && p.subPhaseId === sub.id).length;
+                        if (!subPending) return null;
+                        return (
+                          <span title={`${subPending} הצעות ממתינות לתת-שלב זה`} style={{
+                            background: '#e67e22', color: 'white',
+                            padding: '1px 7px', borderRadius: '10px',
+                            fontSize: '10px', fontWeight: 'bold',
+                            cursor: 'default', whiteSpace: 'nowrap',
+                          }}>
+                            💡 {subPending}
+                          </span>
+                        );
+                      })()}
                       {subTimes && (
                         <span style={{ fontSize: '11px', background: subTimes.overrun ? C.bgBlocked : C.bgInProgress, color: subTimes.overrun ? C.statusFailed : C.statusInProgress, padding: '1px 8px', borderRadius: '10px', fontWeight: subTimes.overrun ? 'bold' : 'normal', border: subTimes.overrun ? `1px solid ${C.statusFailed}44` : 'none' }}>
                           {subTimes.overrun ? '⚠️ ' : '⏰ '}
@@ -2089,15 +2332,13 @@ const VersionDetail: React.FC<{
                       )}
                     </h4>
                     {!isLocked && <button onClick={() => {
-                      const defaultStart = subTimes?.startIso || phaseTimes?.startIso || '';
-                      setAddingTask(sub.id);
-                      setNewTask({ ...EMPTY_TASK, plannedStart: defaultStart ? utcToLocalInputStr(defaultStart) : '' });
-                      setEditFilters({ user: '', team: '', app: '' });
-                      setSelectedProposalId(null);
-                      if (FEATURES.TEAM_LEAD_PROPOSAL) {
-                        axios.get(`${API}/task-proposals/version/${version.id}`, { headers }).then(r => setProposals(r.data.filter((p: any) => !p.usedInTaskId))).catch(() => {});
-                      }
-                    }} style={{ padding: '4px 12px', background: C.brandDim, color: 'white', border: `1px solid ${C.brand}`, borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>+ משימה</button>}
+                      refreshProposals();
+                      setSelectedTask(null);
+                      setSelectedTaskSubId(sub.id);
+                      setSelectedTaskPhaseOrder(phase.orderIndex);
+                      setSelectedTaskPhaseStart(phase.plannedStart ?? undefined);
+                      setSelectedTaskPhaseEnd(phase.plannedEnd ?? undefined);
+                    }} style={{ padding: '5px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>+ משימה</button>}
                   </div>
 
                   {!collapsedSubPhases.has(sub.id) && (() => {
@@ -2105,9 +2346,10 @@ const VersionDetail: React.FC<{
                       (a: any, b: any) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0),
                     );
                     const orderMap = new Map(sortedTasks.map((t: any, i: number) => [t.id, i + 1]));
-                    return sortedTasks
-                      .filter((task: any) => !filterTeam || task.assignedTeam?.id === filterTeam || task.assignedTeamId === filterTeam)
-                      .map((task: any) => {
+                    const filteredTasks = sortedTasks.filter((task: any) => !filterTeam || task.assignedTeam?.id === filterTeam || task.assignedTeamId === filterTeam);
+                    return (<>
+                      {filteredTasks.length > 0 && <VersionTaskHeader isLocked={isLocked} />}
+                      {filteredTasks.map((task: any) => {
                         const displayOrder = orderMap.get(task.id) ?? task.orderIndex;
                         return (
                       editingTask?.id === task.id ? (
@@ -2358,16 +2600,20 @@ const VersionDetail: React.FC<{
                             ? computeEndFromDuration(task.plannedStart, task.duration)
                             : null;
                           const displayEnd = task.plannedEnd || computedEnd;
+                          const sc = statusColor(task.status);
+                          const envColor = task.environment === 'HOT' ? C.statusBlocked : task.environment === 'HOTNET' ? C.statusOpen : C.textMuted;
+                          const envBg    = task.environment === 'HOT' ? C.bgBlocked    : task.environment === 'HOTNET' ? C.bgOpen    : C.bgNested;
+                          const borderRight = task.environment === 'HOT' ? C.statusBlocked : task.environment === 'HOTNET' ? C.statusOpen : C.border;
                           return (
                             <div key={task.id}
                               draggable={!isLocked}
+                              onClick={() => { setSelectedTask(task); setSelectedTaskPhaseStart(phase.plannedStart ?? undefined); setSelectedTaskPhaseEnd(phase.plannedEnd ?? undefined); }}
                               onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDragging({ taskId: task.id, fromSubId: sub.id }); }}
                               onDragEnd={() => { setDragging(null); setDragOverSubId(null); setDragOverTaskId(null); }}
                               onDragOver={e => { e.preventDefault(); e.stopPropagation(); if (dragging && dragging.fromSubId === sub.id && dragging.taskId !== task.id) setDragOverTaskId(task.id); }}
                               onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverTaskId(t => t === task.id ? null : t); }}
                               onDrop={e => {
-                                e.preventDefault();
-                                e.stopPropagation();
+                                e.preventDefault(); e.stopPropagation();
                                 if (!dragging || dragging.fromSubId !== sub.id || dragging.taskId === task.id) return;
                                 setDragOverTaskId(null);
                                 const currentTasks = [...(sub.tasks || [])].sort((a: any, b: any) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
@@ -2379,121 +2625,183 @@ const VersionDetail: React.FC<{
                                 setDragging(null);
                               }}
                               style={{
-                                background: dragOverTaskId === task.id ? '#ddeeff' : dragging?.taskId === task.id ? '#e8edf5' : '#fff',
-                                borderRadius: '8px', marginBottom: '4px',
-                                border: '1px solid #e0e6ec',
-                                borderRight: `3px solid ${task.environment === 'HOT' ? '#e74c3c' : task.environment === 'HOTNET' ? '#2980b9' : '#bdc3c7'}`,
-                                borderTop: dragOverTaskId === task.id ? '2px solid #2d6abe' : undefined,
+                                display: 'flex', alignItems: 'center', minHeight: '40px',
+                                background: selectedTask?.id === task.id ? C.bgActive : dragOverTaskId === task.id ? C.bgActive : dragging?.taskId === task.id ? C.bgHover : C.bgCard,
+                                borderBottom: `1px solid ${C.border}`,
+                                borderRight: `3px solid ${selectedTask?.id === task.id ? C.brand : borderRight}`,
+                                borderTop: dragOverTaskId === task.id ? `2px solid ${C.brand}` : undefined,
                                 opacity: dragging?.taskId === task.id ? 0.5 : 1,
-                                cursor: isLocked ? 'default' : 'grab',
-                                overflow: 'hidden',
-                                display: 'grid',
-                                gridTemplateColumns: '3fr 1.5fr 1.4fr auto',
-                                alignItems: 'stretch',
-                                minHeight: '52px',
+                                cursor: 'pointer',
+                                transition: EASE.fast,
                               }}>
 
-                              {/* ── Zone 1: # · כותרת · CR · תלויות ── */}
-                              <div style={{ padding: '9px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '4px', minWidth: 0 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
-                                  <span style={{ fontSize: '11px', background: '#ecf0f1', color: '#7f8c8d', padding: '1px 6px', borderRadius: '4px', fontFamily: 'monospace', minWidth: '26px', textAlign: 'center', flexShrink: 0 }}>#{displayOrder}</span>
-                                  <span style={{ fontWeight: 'bold', color: '#1a2332', fontSize: '14px', lineHeight: '1.3' }}>{task.title}</span>
-                                  {task.isCritical && <span style={{ fontSize: '10px', background: '#fee', color: '#e74c3c', padding: '1px 5px', borderRadius: '4px', fontWeight: 'bold' }}>קריטי</span>}
-                                  {task.isCriticalForGo && <span style={{ fontSize: '10px', background: '#fff3e0', color: '#d35400', padding: '1px 5px', borderRadius: '4px', fontWeight: 'bold' }}>GO/NO GO</span>}
-                                </div>
-                                <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center' }}>
+                              {/* # */}
+                              {/* # */}
+                              <div style={{ width: `${TV.num}px`, flexShrink: 0, textAlign: 'center', fontSize: '12px', color: C.textDisabled, fontFamily: FONT }}>
+                                #{displayOrder}
+                              </div>
+
+                              {/* Name */}
+                              <div style={{ flex: `${TV_NAME_FLEX} 1 0`, minWidth: '80px', padding: `0 ${SP[2]}`, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '3px', overflow: 'hidden' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: '13px', fontWeight: WEIGHT.semibold, color: task.status === 'DONE' ? C.textDisabled : C.textPrimary, fontFamily: FONT, lineHeight: '1.3' }}>
+                                    {task.isCritical && <span style={{ color: C.statusBlocked, fontSize: '10px', marginLeft: '4px' }}>●</span>}
+                                    {task.isCriticalForGo && <span style={{ fontSize: '10px', background: '#fff3e0', color: '#d35400', padding: '1px 4px', borderRadius: '3px', marginLeft: '3px' }}>GO</span>}
+                                    {task.title}
+                                  </span>
                                   {task.crNumber && task.crNumber.split(',').map((cr: string) => cr.trim()).filter(Boolean).map((cr: string) => (
-                                    <span key={cr} style={{ fontSize: '11px', background: '#e8f4fd', color: '#2980b9', padding: '1px 6px', borderRadius: '4px', fontWeight: '600' }}>CR# {cr}</span>
+                                    <span key={cr} style={{ fontSize: '11px', color: C.info, background: C.infoBg, padding: '0 5px', borderRadius: RADIUS.sm, fontFamily: FONT, flexShrink: 0 }}>CR# {cr}</span>
                                   ))}
-                                  {task.dependencies?.length > 0 && (() => {
-                                    const names = task.dependencies.map((d: any) => d.dependsOn?.title).filter(Boolean);
-                                    if (!names.length) return null;
+                                  {task.notes && <span style={{ fontSize: '11px', color: C.textMuted, flexShrink: 0 }} title={task.notes}>📝</span>}
+                                  {task.dependencyNote && <span style={{ fontSize: '11px', color: C.statusWaiting, flexShrink: 0 }} title={task.dependencyNote}>🔗</span>}
+                                </div>
+                              </div>
+
+                              {/* Dependencies — right after name */}
+                              <div style={{ flex: `${TV_DEPS_FLEX} 1 0`, minWidth: '80px', padding: `0 ${SP[1]}`, display: 'flex', flexWrap: 'wrap', gap: '3px', alignItems: 'center' }}>
+                                {task.dependencies?.length > 0 ? (
+                                  task.dependencies.slice(0, 3).map((d: any) => {
+                                    const dep = d.dependsOn;
+                                    const depDone = dep?.status === 'DONE';
                                     return (
-                                      <span style={{ fontSize: '11px', color: '#6c3483', background: '#f5eef8', padding: '1px 7px', borderRadius: '8px', border: '1px solid #d2b4de' }}>
-                                        🔗 {names.join(' · ')}
+                                      <span key={d.dependsOnTaskId} title={dep?.title || ''}
+                                        style={{
+                                          fontSize: '11px', fontFamily: FONT,
+                                          color: depDone ? C.statusDone : C.statusBlocked,
+                                          background: depDone ? C.bgDone : C.bgBlocked,
+                                          border: `1px solid ${depDone ? C.statusDone + '44' : C.statusBlocked + '44'}`,
+                                          padding: '2px 7px', borderRadius: RADIUS.sm,
+                                          maxWidth: '130px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block',
+                                        }}>
+                                        {depDone ? '✓' : '⏳'} {dep?.title?.slice(0, 20) || '?'}
                                       </span>
                                     );
-                                  })()}
-                                  {task.dependencyNote && <span style={{ fontSize: '11px', background: '#f9ebff', color: '#7d3c98', padding: '1px 6px', borderRadius: '4px' }}>🔗 {task.dependencyNote}</span>}
-                                  {task.notes && <span style={{ fontSize: '11px', background: '#f5f5f5', color: '#666', padding: '1px 6px', borderRadius: '4px' }}>📝 {task.notes}</span>}
-                                </div>
-                              </div>
-
-                              {/* ── Zone 2: צוות · עובד · app · env ── */}
-                              <div style={{ padding: '9px 12px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '4px', borderRight: '1px solid #e8ecf0', background: '#fafbfc' }}>
-                                {task.assignedTeam?.name && (
-                                  <span style={{ fontSize: '12px', background: '#e3f2fd', color: '#1565c0', padding: '2px 8px', borderRadius: '4px', fontWeight: '600', display: 'inline-block' }}>
-                                    👥 {task.assignedTeam.name}
-                                  </span>
-                                )}
-                                <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center' }}>
-                                  {task.assignedUserName && <span style={{ fontSize: '12px', color: '#444' }}>👤 {task.assignedUserName}</span>}
-                                  {task.application && <span style={{ fontSize: '11px', background: '#f0f0f0', color: '#555', padding: '1px 5px', borderRadius: '4px' }}>{task.application}</span>}
-                                  <span style={{ fontSize: '11px', fontWeight: '600', background: task.environment === 'HOT' ? '#fdedec' : task.environment === 'HOTNET' ? '#eaf4fd' : '#f0f3f4', color: task.environment === 'HOT' ? '#c0392b' : task.environment === 'HOTNET' ? '#2471a3' : '#7f8c8d', padding: '1px 6px', borderRadius: '4px' }}>
-                                    {task.environment === 'BOTH' ? 'HOT+HOTNET' : task.environment}
-                                  </span>
-                                </div>
-                              </div>
-
-                              {/* ── Zone 3: משך + זמן ── */}
-                              <div style={{ padding: '9px 12px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '4px', borderRight: '1px solid #e8ecf0', background: '#fafbfc' }}>
-                                {task.duration && (
-                                  <span style={{ fontSize: '12px', background: '#fef9e7', color: '#9a7d0a', padding: '2px 8px', borderRadius: '4px', fontWeight: '600', textAlign: 'center' }}>⏱ {task.duration}</span>
-                                )}
-                                {(task.plannedStart || displayEnd) && (
-                                  <span style={{ fontSize: '12px', color: '#e65100', textAlign: 'center', background: '#fff8f0', padding: '2px 8px', borderRadius: '4px' }}>
-                                    {task.plannedStart && <span style={{ fontSize: '11px', color: '#aaa', marginLeft: '4px' }}>{formatDate(task.plannedStart)}</span>}
-                                    {formatTime(task.plannedStart)}{displayEnd ? ` — ${formatTime(displayEnd)}` : ''}
-                                    {computedEnd && !task.plannedEnd && <span style={{ fontSize: '10px', color: '#aaa' }}> *</span>}
-                                  </span>
-                                )}
-                                {task.startedAt && task.completedAt && (
-                                  <span style={{ fontSize: '11px', background: '#e8f5e9', color: '#1e8449', padding: '2px 8px', borderRadius: '4px', textAlign: 'center' }}>
-                                    ✅ {formatTime(task.startedAt)} — {formatTime(task.completedAt)}
-                                  </span>
+                                  })
+                                ) : <span style={{ fontSize: '11px', color: C.textDisabled }}>—</span>}
+                                {task.dependencies?.length > 3 && (
+                                  <span style={{ fontSize: '11px', color: C.textMuted, fontFamily: FONT }}>+{task.dependencies.length - 3}</span>
                                 )}
                               </div>
 
-                              {/* ── Zone 4: סטטוס + כפתורים ── */}
-                              <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '5px', minWidth: '100px' }}>
-                                <span style={{ fontSize: '11px', background: task.status === 'DONE' ? '#e8f5e9' : task.status === 'IN_PROGRESS' ? '#fff3cd' : '#e8f4fd', color: task.status === 'DONE' ? '#1e8449' : task.status === 'IN_PROGRESS' ? '#856404' : '#2471a3', padding: '3px 10px', borderRadius: '10px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
-                                  {task.status}
+                              {/* Duration */}
+                              <div style={{ width: `${TV.dur}px`, flexShrink: 0, textAlign: 'center' }}>
+                                <span style={{ fontSize: '12px', color: task.duration ? C.warning : C.textDisabled, fontFamily: FONT }}>
+                                  {task.duration || '—'}
                                 </span>
-                                {!isLocked && (
-                                  <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                                    <button onClick={() => duplicateTask(task.id)} style={{ padding: '3px 8px', background: '#95a5a6', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '11px' }} title="שכפל">⧉</button>
-                                    {isManager && (
-                                      <button
-                                        onClick={() => setDialog({
-                                          title: 'המרה לתת-שלב',
-                                          message: `להפוך את "${task.title}" לתת-שלב?\nהמשימה תימחק וייווצר תת-שלב חדש במקומה.\nהפעולה בלתי הפיכה.`,
-                                          variant: 'warning',
-                                          confirmLabel: 'המר לתת-שלב',
-                                          cancelLabel: 'ביטול',
-                                          onConfirm: async () => {
-                                            await axios.post(`${API}/versions/tasks/${task.id}/promote`, {}, { headers });
-                                            onRefresh();
-                                          },
-                                          onCancel: () => {},
-                                        })}
-                                        style={{ padding: '3px 8px', background: '#8e44ad', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '11px' }} title="המר לתת-שלב">▲</button>
-                                    )}
-                                    <button onClick={() => {
-                                      const base = { ...task, assignedTeamId: task.assignedTeam?.id || task.assignedTeamId };
-                                      base._durationMins = task.duration ? (parseDurationToMinutes(task.duration) ?? '') : '';
-                                      base._originalDeps = [...(task.dependencies || [])];
-                                      setEditingTask(base);
-                                      setEditFilters({ user: '', team: '', app: '' });
-                                      setEditSaveOk(false);
-                                    }} style={{ padding: '3px 8px', background: '#e67e22', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '11px' }}>✏️</button>
-                                    <button onClick={() => deleteTask(task.id, task.title)} style={{ padding: '3px 8px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '11px' }}>🗑</button>
-                                  </div>
+                              </div>
+
+                              {/* Start */}
+                              <div style={{ width: `${TV.start}px`, flexShrink: 0, textAlign: 'center' }}>
+                                {task.plannedStart ? (
+                                  <span style={{ fontSize: '11px', color: C.textSecondary, fontFamily: FONT, lineHeight: '1.4', display: 'block' }}>
+                                    {formatDateTimeShort(task.plannedStart)}
+                                  </span>
+                                ) : <span style={{ fontSize: '11px', color: C.textDisabled }}>—</span>}
+                                {task.startedAt && (
+                                  <span style={{ fontSize: '10px', color: C.statusDone, fontFamily: FONT, display: 'block' }}>▶ {formatDateTimeShort(task.startedAt)}</span>
                                 )}
                               </div>
+
+                              {/* End */}
+                              <div style={{ width: `${TV.end}px`, flexShrink: 0, textAlign: 'center' }}>
+                                {displayEnd ? (
+                                  <span style={{ fontSize: '11px', color: C.statusInProgress, fontFamily: FONT, lineHeight: '1.4', display: 'block' }}>
+                                    {formatDateTimeShort(displayEnd)}
+                                    {isNextDay(task.plannedStart, displayEnd) && (
+                                      <span style={{ fontSize: '10px', color: C.warning, marginRight: '3px' }}> (+1)</span>
+                                    )}
+                                    {computedEnd && !task.plannedEnd && <span style={{ color: C.textDisabled }}>*</span>}
+                                  </span>
+                                ) : <span style={{ fontSize: '11px', color: C.textDisabled }}>—</span>}
+                                {task.completedAt && (
+                                  <span style={{ fontSize: '10px', color: C.statusDone, fontFamily: FONT, display: 'block' }}>■ {formatDateTimeShort(task.completedAt)}</span>
+                                )}
+                              </div>
+
+                              {/* Team */}
+                              {(() => {
+                                const teamName = task.assignedTeam?.name;
+                                const tc = teamName ? teamColorFor(teamName) : null;
+                                return (
+                                  <div style={{ width: `${TV.team}px`, flexShrink: 0, padding: `0 ${SP[1]}`, textAlign: 'center', overflow: 'hidden' }}>
+                                    {teamName ? (
+                                      <span style={{ fontSize: '11px', fontFamily: FONT, fontWeight: WEIGHT.semibold, padding: '2px 7px', borderRadius: RADIUS.sm, display: 'inline-block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', color: tc!.color, background: tc!.bg }}>
+                                        {teamName}
+                                      </span>
+                                    ) : <span style={{ fontSize: '11px', color: C.textDisabled }}>—</span>}
+                                  </div>
+                                );
+                              })()}
+
+                              {/* Assignee */}
+                              <div style={{ width: `${TV.assignee}px`, flexShrink: 0, padding: `0 ${SP[2]}`, display: 'flex', alignItems: 'center', gap: '5px', overflow: 'hidden', direction: 'ltr' }}>
+                                {task.assignedUserName ? (
+                                  <>
+                                    <Avatar name={task.assignedUserName} size={20} />
+                                    <span style={{ fontSize: '12px', color: C.textSecondary, fontFamily: FONT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                                      {task.assignedUserName.split(' ')[0]}
+                                    </span>
+                                  </>
+                                ) : <span style={{ fontSize: '11px', color: C.textDisabled }}>—</span>}
+                              </div>
+
+                              {/* Application */}
+                              <div style={{ width: `${TV.app}px`, flexShrink: 0, padding: `0 ${SP[1]}`, textAlign: 'center', overflow: 'hidden' }}>
+                                {task.application ? (
+                                  <span style={{ fontSize: '11px', color: C.textSecondary, fontFamily: FONT, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {task.application}
+                                  </span>
+                                ) : <span style={{ fontSize: '11px', color: C.textDisabled }}>—</span>}
+                              </div>
+
+                              {/* Environment */}
+                              <div style={{ width: `${TV.env}px`, flexShrink: 0, textAlign: 'center' }}>
+                                <span style={{ fontSize: '11px', fontWeight: WEIGHT.semibold, color: envColor, background: envBg, fontFamily: FONT, padding: '2px 6px', borderRadius: RADIUS.sm }}>
+                                  {task.environment === 'BOTH' ? 'HOT+HOTNET' : (task.environment || 'BOTH')}
+                                </span>
+                              </div>
+
+                              {/* Status */}
+                              <div style={{ width: `${TV.status}px`, flexShrink: 0, textAlign: 'center', display: 'flex', justifyContent: 'center' }}>
+                                <StatusChip status={task.status} size="xs" dot />
+                              </div>
+
+                              {/* Actions */}
+                              {!isLocked && (
+                                <div onClick={e => e.stopPropagation()} style={{ width: `${TV.actions}px`, flexShrink: 0, padding: `0 ${SP[1]}`, display: 'flex', gap: '3px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-start' }}>
+                                  <button onClick={() => duplicateTask(task.id)}
+                                    style={{ padding: '3px 7px', background: C.bgNested, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer', fontSize: '11px' }} title="שכפל">⧉</button>
+                                  {isManager && (
+                                    <button
+                                      onClick={() => setDialog({
+                                        title: 'המרה לתת-שלב',
+                                        message: `להפוך את "${task.title}" לתת-שלב?\nהמשימה תימחק וייווצר תת-שלב חדש במקומה.\nהפעולה בלתי הפיכה.`,
+                                        variant: 'warning',
+                                        confirmLabel: 'המר לתת-שלב',
+                                        cancelLabel: 'ביטול',
+                                        onConfirm: async () => {
+                                          await axios.post(`${API}/versions/tasks/${task.id}/promote`, {}, { headers });
+                                          onRefresh();
+                                        },
+                                        onCancel: () => {},
+                                      })}
+                                      style={{ padding: '3px 7px', background: C.bgWaiting, color: C.statusWaiting, border: `1px solid ${C.statusWaiting}44`, borderRadius: RADIUS.sm, cursor: 'pointer', fontSize: '11px' }} title="המר לתת-שלב">▲</button>
+                                  )}
+                                  <button onClick={() => {
+                                    setSelectedTask(task);
+                                    setSelectedTaskSubId(undefined);
+                                    setSelectedTaskPhaseStart(phase.plannedStart ?? undefined);
+                                    setSelectedTaskPhaseEnd(phase.plannedEnd ?? undefined);
+                                  }} style={{ padding: '3px 7px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}44`, borderRadius: RADIUS.sm, cursor: 'pointer', fontSize: '11px' }}>✏️</button>
+                                  <button onClick={() => deleteTask(task.id, task.title)}
+                                    style={{ padding: '3px 7px', background: C.dangerBg, color: C.danger, border: `1px solid ${C.danger}44`, borderRadius: RADIUS.sm, cursor: 'pointer', fontSize: '11px' }}>🗑</button>
+                                </div>
+                              )}
                             </div>
                           );
                         })()
-                    ); }); })()}
+                    ); })}
+                    </>); })()}
 
                   {addingTask === sub.id && !isLocked && (
                     <div style={{ background: '#f0f7ff', borderRadius: '8px', padding: '16px', marginTop: '8px', border: '1px solid #bee3f8' }}>
@@ -2790,6 +3098,18 @@ const VersionDetail: React.FC<{
                 </div>
               );
             })}
+
+            {!collapsedPhases.has(phase.id) && !(phase.subPhases?.length > 0) && !isLocked && (
+              <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '10px', color: C.textMuted, fontSize: '13px' }}>
+                <span>אין תת-שלבים בשלב זה.</span>
+                {isManager && (
+                  <button onClick={() => addSubPhase(phase.id)} disabled={phaseManageLoading}
+                    style={{ padding: '5px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
+                    + הוסף תת-שלב
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         );
       })}
@@ -3447,10 +3767,61 @@ const VersionDetail: React.FC<{
           version={version}
           token={token}
           users={users}
+          teams={teams}
           onClose={() => setWizardOpen(false)}
           onRefresh={() => { onRefresh(); }}
         />
       )}
+
+      {/* ── Task detail / edit / add modal ── */}
+      {(selectedTask !== null || selectedTaskSubId) && (() => {
+        const isExec = ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(version.status);
+        const phaseForTask = selectedTask
+          ? version.phases?.find((p: any) => p.subPhases?.some((s: any) => s.tasks?.some((t: any) => t.id === selectedTask.id)))
+          : undefined;
+        return (
+          <>
+            <div
+              onClick={() => { setSelectedTask(null); setSelectedTaskSubId(undefined); }}
+              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 499 }}
+            />
+            <div style={{
+              position: 'fixed',
+              top: '50%', left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: '760px', maxWidth: '94vw',
+              maxHeight: '84vh', height: 'auto',
+              zIndex: 500, borderRadius: '16px',
+              overflow: 'visible',
+              display: 'flex', flexDirection: 'column',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.45)',
+            }}>
+              <TaskDetailPanel
+                key={selectedTask?.id ?? `add-${selectedTaskSubId}`}
+                task={selectedTask}
+                subPhaseId={selectedTaskSubId}
+                versionId={version.id}
+                token={token}
+                isLocked={isLocked}
+                readonlyStatus={!isExec}
+                teams={teams}
+                users={users}
+                crItems={crItems}
+                proposals={proposals.filter((p: any) => Number(p.phase) === Number(selectedTask
+                  ? (version.phases?.find((ph: any) => ph.subPhases?.some((s: any) => s.tasks?.some((t: any) => t.id === selectedTask.id)))?.orderIndex ?? 0)
+                  : selectedTaskPhaseOrder
+                ))}
+                versionPhases={version.phases ?? []}
+                currentPhaseOrder={phaseForTask?.orderIndex ?? 999}
+                phaseStart={selectedTaskPhaseStart}
+                phaseEnd={selectedTaskPhaseEnd}
+                onClose={() => { setSelectedTask(null); setSelectedTaskSubId(undefined); }}
+                onSave={() => { onRefresh(); refreshProposals(); setSelectedTask(null); setSelectedTaskSubId(undefined); }}
+              />
+            </div>
+          </>
+        );
+      })()}
   </div>
   );
 };

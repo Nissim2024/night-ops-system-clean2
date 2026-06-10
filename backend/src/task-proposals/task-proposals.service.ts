@@ -1,5 +1,6 @@
 import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { EventsGateway } from '../events/events.gateway';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
@@ -9,6 +10,7 @@ const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
 
 @Injectable()
 export class TaskProposalsService {
+  constructor(private readonly events: EventsGateway) {}
 
   async findForVersion(versionId: string, user: { sub: string; role: string; teamId?: string }, filterTeamId?: string) {
     if (MANAGERS.includes(user.role)) {
@@ -44,8 +46,13 @@ export class TaskProposalsService {
     user: { sub: string; role: string },
     dto: { title: string; phase: number; app?: string; estimatedMins?: number; crNumber?: string; crLabel?: string; notes?: string; assignedUserName?: string; teamIdOverride?: string; system?: string; actionType?: string; subPhaseId?: string },
   ) {
-    if (!dto.title?.trim()) throw new BadRequestException('שדה "שם המשימה" הוא חובה');
-    if (!dto.phase || dto.phase < 1 || dto.phase > 4) throw new BadRequestException('שלב חייב להיות בין 1 ל-4');
+    const sanitize = (s?: string) => s?.replace(/<[^>]*>/g, '').trim() ?? '';
+    dto.title = sanitize(dto.title);
+    dto.notes = sanitize(dto.notes);
+    dto.crLabel = sanitize(dto.crLabel);
+    if (!dto.title) throw new BadRequestException('שדה "שם המשימה" הוא חובה');
+    if (dto.phase === undefined || dto.phase === null) throw new BadRequestException('שדה "phase" הוא חובה (ערכים חוקיים: 1–4)');
+    if (dto.phase < 1 || dto.phase > 4) throw new BadRequestException('שדה "phase" אינו תקין — ערכים חוקיים: 1 עד 4');
 
     let resolvedTeamId: string;
     if (MANAGERS.includes(user.role) && dto.teamIdOverride) {
@@ -59,7 +66,7 @@ export class TaskProposalsService {
       resolvedTeamId = membership.teamId;
     }
 
-    return prisma.taskProposal.create({
+    const proposal = await prisma.taskProposal.create({
       data: {
         versionId,
         teamId: resolvedTeamId,
@@ -78,6 +85,8 @@ export class TaskProposalsService {
         status: 'DRAFT',
       },
     });
+    this.events.emitProposalCreated(versionId);
+    return proposal;
   }
 
   async update(
@@ -229,6 +238,7 @@ export class TaskProposalsService {
           duration: proposal.estimatedMins ? `${proposal.estimatedMins} דק'` : undefined,
           application: proposal.app ?? undefined,
           crNumber: proposal.crNumber ?? undefined,
+          assignedTeamId: proposal.teamId,
           assignedUserName: proposal.assignedUserName ?? undefined,
           orderIndex,
           status: 'WAITING',

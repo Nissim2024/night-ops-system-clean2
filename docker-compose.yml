@@ -45,6 +45,40 @@ services:
     volumes:
       - postgres_prod_data:/var/lib/postgresql/data
 
+  backend-prod:
+    profiles: [prod]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nightops-backend-prod
+    restart: unless-stopped
+    env_file: ./backend/.env.prod
+    environment:
+      DATABASE_URL: "postgresql://nightops_user:${POSTGRES_PASSWORD:-nightops_pass}@postgres-prod:5432/nightops_prod"
+      PORT: "3010"
+      NODE_ENV: "prod"
+    ports:
+      - "3010:3010"
+    depends_on:
+      - postgres-prod
+    volumes:
+      - ${CR_FILES_PATH:-./cr_files}:/cr_files:ro   # נתיב לקובץ Excel
+
+  frontend-prod:
+    profiles: [prod]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: "http://localhost:3010"
+        REACT_APP_ENV: "prod"
+    container_name: nightops-frontend-prod
+    restart: unless-stopped
+    ports:
+      - "3011:80"
+    depends_on:
+      - backend-prod
+
   # ─── SHARED ─────────────────────────────────────────────────────────────────
   redis:
     profiles: [dev, test, prod]

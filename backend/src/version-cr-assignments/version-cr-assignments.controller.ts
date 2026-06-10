@@ -2,7 +2,7 @@ import { Controller, Get, Post, Delete, Param, Request, UseGuards, ForbiddenExce
 import { VersionCrAssignmentsService } from './version-cr-assignments.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 
-const LEADS_UP = ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN'];
+const LEADS_UP = ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'];
 const MANAGERS  = ['RELEASE_MANAGER', 'ADMIN'];
 
 @UseGuards(JwtGuard)

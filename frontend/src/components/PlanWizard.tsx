@@ -16,6 +16,7 @@ interface PlanWizardProps {
   version: any;
   token: string;
   users: { id: string; fullName: string }[];
+  teams: any[];
   onClose: () => void;
   onRefresh: () => void;
 }
@@ -78,16 +79,44 @@ function initPhaseTimes(version: any): { starts: Record<string, string>; ends: R
   return { starts, ends };
 }
 
-function getUniqueWorkers(version: any): string[] {
-  const names = new Set<string>();
+interface WorkerEntry {
+  key: string;
+  displayName: string;
+  teamId: string | null;
+  isEmpty: boolean;
+  isUnknown: boolean;
+}
+
+function getWorkerEntries(version: any, users: { id: string; fullName: string }[]): WorkerEntry[] {
+  const namedMap = new Map<string, string | null>(); // name → teamId
+  const emptyTeams = new Set<string>();              // teamIds with unassigned tasks
+
   for (const phase of version.phases ?? []) {
     for (const sub of phase.subPhases ?? []) {
       for (const task of sub.tasks ?? []) {
-        if (task.assignedUserName) names.add(task.assignedUserName.trim());
+        if (task.assignedUserName) {
+          const name = task.assignedUserName.trim();
+          if (!namedMap.has(name)) namedMap.set(name, task.assignedTeam?.id ?? null);
+        } else if (task.assignedTeam?.id) {
+          emptyTeams.add(task.assignedTeam.id);
+        }
       }
     }
   }
-  return Array.from(names).sort((a, b) => a.localeCompare(b, 'he'));
+
+  const knownNames = new Set(users.map(u => u.fullName));
+  const entries: WorkerEntry[] = [];
+
+  Array.from(namedMap.entries()).forEach(([name, teamId]) => {
+    entries.push({ key: name, displayName: name, teamId, isEmpty: false, isUnknown: !knownNames.has(name) });
+  });
+  entries.sort((a, b) => a.displayName.localeCompare(b.displayName, 'he'));
+
+  Array.from(emptyTeams).forEach(teamId => {
+    entries.push({ key: `__empty__:${teamId}`, displayName: 'לא משובץ', teamId, isEmpty: true, isUnknown: false });
+  });
+
+  return entries;
 }
 
 // ── Step content components ────────────────────────────────────────────────
@@ -142,19 +171,20 @@ function Step1Content({ version, phaseStarts, phaseEnds, setPhaseStarts, setPhas
   );
 }
 
-function Step2Content({ version, users, workerReplacements, setWorkerReplacements }: {
+function Step2Content({ version, users, teams, workerReplacements, setWorkerReplacements }: {
   version: any;
   users: { id: string; fullName: string }[];
+  teams: any[];
   workerReplacements: Record<string, string>;
   setWorkerReplacements: (v: Record<string, string>) => void;
 }) {
-  const workers = getUniqueWorkers(version);
+  const entries = getWorkerEntries(version, users);
 
-  if (workers.length === 0) {
+  if (entries.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
         <div style={{ fontSize: '32px', marginBottom: '12px' }}>👤</div>
-        אין משימות עם עובדים מוקצים בתוכנית זו
+        אין משימות עם צוות מוקצה בתוכנית זו
       </div>
     );
   }
@@ -173,23 +203,46 @@ function Step2Content({ version, users, workerReplacements, setWorkerReplacement
           </tr>
         </thead>
         <tbody>
-          {workers.map(name => (
-            <tr key={name} style={{ borderBottom: '1px solid #f1f5f9' }}>
-              <td style={{ padding: '10px 12px', color: '#1a2332' }}>{name}</td>
-              <td style={{ padding: '8px 12px' }}>
-                <select
-                  value={workerReplacements[name] ?? ''}
-                  onChange={e => setWorkerReplacements({ ...workerReplacements, [name]: e.target.value })}
-                  style={{ padding: '7px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', width: '100%', background: 'white' }}
-                >
-                  <option value="">— ללא שינוי —</option>
-                  {users.map(u => (
-                    <option key={u.id} value={u.id}>{u.fullName}</option>
-                  ))}
-                </select>
-              </td>
-            </tr>
-          ))}
+          {entries.map(entry => {
+            const team = teams.find((t: any) => t.id === entry.teamId);
+            const pool: { id: string; fullName: string }[] = team
+              ? (team.members || []).map((m: any) => m.user).filter(Boolean)
+              : users;
+            return (
+              <tr key={entry.key} style={{ borderBottom: '1px solid #f1f5f9', background: entry.isEmpty ? '#fffbeb' : 'transparent' }}>
+                <td style={{ padding: '10px 12px', color: entry.isEmpty ? '#92400e' : '#1a2332' }}>
+                  {entry.isEmpty ? (
+                    <span>
+                      <span style={{ color: '#f59e0b', marginLeft: '4px' }}>⚠</span>
+                      לא משובץ
+                    </span>
+                  ) : (
+                    <span>
+                      {entry.displayName}
+                      {entry.isUnknown && (
+                        <span style={{ fontSize: '11px', color: '#ef4444', marginRight: '6px' }} title="עובד לא פעיל / לא קיים במערכת">⚠ לא פעיל</span>
+                      )}
+                    </span>
+                  )}
+                  {team && (
+                    <span style={{ fontSize: '11px', color: '#94a3b8', marginRight: '6px' }}>({team.name})</span>
+                  )}
+                </td>
+                <td style={{ padding: '8px 12px' }}>
+                  <select
+                    value={workerReplacements[entry.key] ?? ''}
+                    onChange={e => setWorkerReplacements({ ...workerReplacements, [entry.key]: e.target.value })}
+                    style={{ padding: '7px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', width: '100%', background: 'white' }}
+                  >
+                    <option value="">{entry.isEmpty ? '— בחר עובד לשיבוץ —' : '— ללא שינוי —'}</option>
+                    {pool.map((u: any) => (
+                      <option key={u.id} value={u.id}>{u.fullName}</option>
+                    ))}
+                  </select>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -477,7 +530,7 @@ function Step5Content({ sortResult, version }: { sortResult: { reordered: number
 
 // ── Main Wizard component ──────────────────────────────────────────────────
 
-export function PlanWizard({ version, token, users, onClose, onRefresh }: PlanWizardProps) {
+export function PlanWizard({ version, token, users, teams, onClose, onRefresh }: PlanWizardProps) {
   const headers = { Authorization: `Bearer ${token}` };
 
   const initWizState = (): WizardState => {
@@ -569,8 +622,13 @@ export function PlanWizard({ version, token, users, onClose, onRefresh }: PlanWi
     setLoading(true);
     setError(null);
     try {
-      for (const [fromName, toId] of entries) {
-        await axios.patch(`${API}/versions/${version.id}/reassign-tasks`, { fromUserName: fromName, toUserId: toId }, { headers });
+      for (const [fromKey, toId] of entries) {
+        if (fromKey.startsWith('__empty__:')) {
+          const fromTeamId = fromKey.slice(10);
+          await axios.patch(`${API}/versions/${version.id}/reassign-tasks`, { fromUserName: null, toUserId: toId, fromTeamId }, { headers });
+        } else {
+          await axios.patch(`${API}/versions/${version.id}/reassign-tasks`, { fromUserName: fromKey, toUserId: toId }, { headers });
+        }
       }
       setStepMessage(`✅ ${entries.length} עובדים הוחלפו`);
       onRefresh();
@@ -737,6 +795,7 @@ export function PlanWizard({ version, token, users, onClose, onRefresh }: PlanWi
             <Step2Content
               version={version}
               users={users}
+              teams={teams}
               workerReplacements={workerReplacements}
               setWorkerReplacements={setWorkerReplacements}
             />

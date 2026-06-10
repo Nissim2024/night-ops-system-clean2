@@ -27,6 +27,7 @@
   "scripts": {
     "start": "react-scripts start",
     "start:test": "cross-env REACT_APP_API_URL=http://localhost:3001 REACT_APP_ENV=test PORT=3002 react-scripts start",
+    "start:prod": "cross-env REACT_APP_API_URL=http://localhost:3010 REACT_APP_ENV=prod PORT=3011 react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"

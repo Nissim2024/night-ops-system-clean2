@@ -2,7 +2,8 @@
 import axios from 'axios';
 import { usePermissions } from '../context/PermissionsContext';
 import { FEATURES } from '../featureFlags';
-import { C, FONT } from '../theme';
+import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, statusColor, statusBg, statusLabel } from '../theme';
+import { StatusChip, Badge, Avatar, Button, Spinner } from './ui';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -25,6 +26,57 @@ const TEAM_APPS: Record<string, string[]> = {
   'IVR Team':                ['IVR'],
   'OSS Team':                ['REMEDY', 'ZOO'],
 };
+
+// ── Table column widths (shared between header and rows) ──────────────────────
+const COL_W = {
+  check:    40,
+  duration: 82,
+  start:    96,
+  end:      96,
+  team:     116,
+  assignee: 126,
+  app:      100,
+  status:   108,
+  actions:  152,
+};
+
+interface ColDef { label: string; width?: number; flex?: boolean; center?: boolean }
+const ColHead: React.FC<ColDef> = ({ label, width, flex, center }) => (
+  <div style={{
+    width: width ? `${width}px` : undefined,
+    flex: flex ? 1 : undefined,
+    flexShrink: flex ? undefined : 0,
+    padding: `0 ${SP[2]}`,
+    ...TEXT.xs, fontWeight: WEIGHT.semibold,
+    color: C.textMuted, fontFamily: FONT,
+    textAlign: (center ? 'center' : 'right') as any,
+    textTransform: 'uppercase' as any,
+    letterSpacing: '0.04em',
+    whiteSpace: 'nowrap' as any,
+  }}>{label}</div>
+);
+
+const TaskTableHeader: React.FC<{ showActions: boolean }> = ({ showActions }) => (
+  <div style={{
+    display: 'flex', alignItems: 'center',
+    background: C.bgCard,
+    borderBottom: `2px solid ${C.border}`,
+    padding: `${SP[1]} 0`,
+    position: 'sticky', top: 0, zIndex: 5,
+    userSelect: 'none' as any,
+  }}>
+    <div style={{ width: `${COL_W.check}px`, flexShrink: 0 }} />
+    <ColHead label="שם משימה" flex />
+    <ColHead label="משך"       width={COL_W.duration} center />
+    <ColHead label="התחלה"    width={COL_W.start} />
+    <ColHead label="סיום"     width={COL_W.end} />
+    <ColHead label="צוות"     width={COL_W.team} />
+    <ColHead label="אחראי"    width={COL_W.assignee} />
+    <ColHead label="אפליקציה" width={COL_W.app} />
+    <ColHead label="סטטוס"    width={COL_W.status} />
+    {showActions && <ColHead label="פעולות" width={COL_W.actions} />}
+  </div>
+);
 
 // Module-level component — avoids re-mount on parent re-render, fixing focus loss
 const BlockedReasonForm: React.FC<{
@@ -55,6 +107,7 @@ const BlockedReasonForm: React.FC<{
   );
 };
 
+// Keep for backwards compat with any remaining inline usage
 const STATUS_COLORS: Record<string, string> = {
   WAITING: C.statusWaiting, OPEN: C.statusOpen, IN_PROGRESS: C.statusInProgress,
   BLOCKED: C.statusBlocked, DONE: C.statusDone, FAILED: C.statusFailed, ROLLED_BACK: C.statusRollback,
@@ -250,8 +303,6 @@ const TaskRow: React.FC<{ task: any } & TaskRowSharedProps> = ({
   const delayed = isDelayed(task);
   const overdue = isOverdue(task);
   const overtime = isOvertime(task);
-  const lateStart = isLateStart(task);
-  const sc = STATUS_COLORS[task.status] || C.textMuted;
   const isActive = task.status === 'OPEN' || task.status === 'IN_PROGRESS';
   const isDone = TERMINAL.has(task.status);
 
@@ -263,204 +314,200 @@ const TaskRow: React.FC<{ task: any } & TaskRowSharedProps> = ({
     setSelectedFailedReason('');
   };
 
+  const sColor = statusColor(task.status);
+  const [hov, setHov] = useState(false);
+
   return (
-    <div
-      id={`task-row-${task.id}`}
-      style={{
-        borderRadius: '8px', marginBottom: '5px',
-        borderRight: `4px solid ${sc}`,
-        border: `1px solid ${overtime ? C.statusBlocked : overdue ? C.statusInProgress : delayed && !task.delayReason ? C.statusInProgress + '88' : sc + '33'}`,
-        borderRightColor: sc,
-        background: isSelected ? C.brandDim : overtime ? C.bgBlocked : overdue ? C.bgInProgress : delayed && !task.delayReason ? 'rgba(210,153,34,0.08)' : C.bgNested,
-        overflow: 'hidden',
+    <div id={`task-row-${task.id}`} style={{ borderRight: `3px solid ${sColor}` }}
+      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}>
+
+      {/* ── Table row ── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', minHeight: '40px',
+        background: isSelected ? C.bgActive : overtime ? C.bgBlocked : overdue ? 'rgba(232,175,0,0.06)' : hov ? C.bgHover : C.bgCard,
+        borderBottom: `1px solid ${C.border}`,
+        transition: EASE.fast,
+        boxShadow: isSelected ? SHADOW.brand : undefined,
+        cursor: 'default',
       }}>
 
-      {isExecutionMode ? (
-        /* ── Execution mode: full-width 3-zone layout ── */
-        <div style={{ display: 'flex', alignItems: 'stretch', minHeight: '72px' }}>
-
-          {/* Zone 1 — RIGHT (flex 3): שם משימה + CR + התראות */}
-          <div style={{ flex: 3, padding: '10px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '6px', minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(task.id)}
-                style={{ cursor: 'pointer', flexShrink: 0, width: '16px', height: '16px' }} />
-              <span style={{ fontWeight: 'bold', fontSize: '16px', color: C.textPrimary, lineHeight: '1.3' }}>{task.title}</span>
+        {/* Col: Checkbox */}
+        <div style={{ width: `${COL_W.check}px`, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {isExecutionMode ? (
+            <input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(task.id)}
+              style={{ cursor: 'pointer', width: '15px', height: '15px', accentColor: C.brand }} />
+          ) : (
+            <div style={{
+              width: '18px', height: '18px', borderRadius: '50%', flexShrink: 0,
+              border: `2px solid ${sColor}55`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              {isDone && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke={sColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
             </div>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', paddingRight: '24px' }}>
-              <span style={{ fontSize: '13px', padding: '3px 10px', borderRadius: '10px', fontWeight: 'bold', background: sc + '25', color: sc, border: `2px solid ${sc}` }}>
-                {STATUS_LABELS[task.status] || task.status}
-              </span>
-              {task.crNumber && (
-                <span style={{ background: C.bgOpen, color: C.statusOpen, padding: '2px 9px', borderRadius: '4px', fontSize: '13px', fontWeight: '600' }}>
-                  {task.crNumber}
-                </span>
-              )}
-              {task.application && (
-                <span style={{ background: C.bgNested, color: C.textSecondary, padding: '2px 9px', borderRadius: '4px', fontSize: '13px', border: `1px solid ${C.border}` }}>
-                  {task.application}
-                </span>
-              )}
-              {overtime && <span style={{ fontSize: '12px', background: C.bgBlocked, color: C.statusBlocked, padding: '3px 9px', borderRadius: '10px', fontWeight: 'bold' }}>🔴 חריגת זמן</span>}
-              {overdue && !overtime && <span style={{ fontSize: '12px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 9px', borderRadius: '10px', fontWeight: 'bold' }}>🕐 טרם התחיל</span>}
-              {delayed && !task.delayReason && !overtime && <span style={{ fontSize: '12px', background: C.bgBlocked, color: C.statusBlocked, padding: '3px 9px', borderRadius: '10px', fontWeight: 'bold' }}>⚠️ עיכוב</span>}
-              {lateStart && task.delayReason === null && <span style={{ fontSize: '12px', background: C.bgWaiting, color: C.statusWaiting, padding: '3px 9px', borderRadius: '10px' }}>⏱ התחיל באיחור</span>}
-            </div>
-          </div>
+          )}
+        </div>
 
-          {/* Zone 2 — CENTER (flex 2): צוות + מבצע + זמנים + תלויות */}
-          <div style={{ flex: 2, flexShrink: 0, borderRight: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}`, padding: '10px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '5px' }}>
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-              {task.assignedTeam?.name && (
-                <span style={{ fontSize: '13px', color: C.brand, fontWeight: 'bold', background: C.brandDim, padding: '3px 10px', borderRadius: '6px', border: `1px solid ${C.brand}44` }}>
-                  {task.assignedTeam.name}
-                </span>
-              )}
-              {task.assignedUserName && (
-                <span style={{ fontSize: '13px', color: C.textSecondary }}>👤 {task.assignedUserName}</span>
-              )}
-            </div>
-            {task.plannedStart && (
-              <span style={{ fontSize: '13px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 9px', borderRadius: '4px', fontWeight: '600' }}>
-                ⏰ {fmtTime(task.plannedStart)}{task.plannedEnd ? ` — ${fmtTime(task.plannedEnd)}` : ''}{task.duration ? ` · ${task.duration}` : ''}
-              </span>
-            )}
-            {task.actualStart && (
-              <span style={{ fontSize: '13px', background: C.bgDone, color: C.statusDone, padding: '3px 9px', borderRadius: '4px', fontWeight: '600' }}>
-                ▶ {fmtTime(task.actualStart)}{task.actualFinish ? ` ■ ${fmtTime(task.actualFinish)}` : ' …'}
-                {delayed && actualMins(task) ? ` (${actualMins(task)}דק')` : ''}
-              </span>
-            )}
-            {task.dependencies?.length > 0 && (
-              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', fontSize: '12px', alignItems: 'center' }}>
-                {task.dependencies.map((d: any) => {
-                  const done = d.dependsOn?.status === 'DONE';
-                  return (
-                    <span key={d.dependsOnTaskId} style={{ padding: '2px 8px', borderRadius: '10px', background: done ? C.bgDone : C.bgBlocked, color: done ? C.statusDone : C.statusBlocked, border: `1px solid ${done ? C.statusDone + '44' : C.statusBlocked + '44'}` }}>
-                      {done ? '✓' : '⏳'} {d.dependsOn?.title || d.dependsOnTaskId}
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+        {/* Col: Name */}
+        <div style={{ flex: 1, minWidth: 0, padding: `0 ${SP[2]}`, display: 'flex', alignItems: 'center', gap: SP[2] }}>
+          <span style={{
+            ...TEXT.sm, fontWeight: WEIGHT.medium, fontFamily: FONT,
+            color: isDone ? C.textDisabled : C.textPrimary,
+            textDecoration: isDone ? 'line-through' : 'none',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
+          }}>
+            {task.isCritical && <span style={{ color: C.statusBlocked, marginLeft: '4px', fontSize: '9px' }}>●</span>}
+            {task.title}
+          </span>
+          {task.crNumber && <span style={{ ...TEXT.xs, color: C.info, background: C.infoBg, padding: '1px 6px', borderRadius: RADIUS.sm, whiteSpace: 'nowrap', flexShrink: 0 }}>{task.crNumber}</span>}
+          {overtime && <span style={{ ...TEXT.xs, background: C.bgBlocked, color: C.statusBlocked, padding: '1px 5px', borderRadius: RADIUS.sm, whiteSpace: 'nowrap', flexShrink: 0 }}>⏱ חריגה</span>}
+          {overdue && !overtime && <span style={{ ...TEXT.xs, background: C.bgInProgress, color: C.warning, padding: '1px 5px', borderRadius: RADIUS.sm, whiteSpace: 'nowrap', flexShrink: 0 }}>🕐 מאחר</span>}
+          {delayed && !task.delayReason && !overtime && <span style={{ ...TEXT.xs, background: C.bgBlocked, color: C.statusBlocked, padding: '1px 5px', borderRadius: RADIUS.sm, whiteSpace: 'nowrap', flexShrink: 0 }}>⚠️ עיכוב</span>}
+        </div>
 
-          {/* Zone 3 — LEFT (fixed 162px): כפתורי פעולה */}
-          <div style={{ width: '162px', flexShrink: 0, padding: '10px 12px', display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'center', gap: '6px' }}>
+        {/* Col: Duration */}
+        <div style={{ width: `${COL_W.duration}px`, flexShrink: 0, padding: `0 ${SP[2]}`, textAlign: 'center' }}>
+          <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>{task.duration || '—'}</span>
+        </div>
+
+        {/* Col: Start */}
+        <div style={{ width: `${COL_W.start}px`, flexShrink: 0, padding: `0 ${SP[2]}` }}>
+          {task.plannedStart && (
+            <span style={{ ...TEXT.xs, color: overdue ? C.warning : C.textMuted, fontFamily: FONT, display: 'block' }}>
+              {fmtTime(task.plannedStart)}
+            </span>
+          )}
+          {task.actualStart && isExecutionMode && (
+            <span style={{ ...TEXT.xs, color: C.statusDone, fontFamily: FONT, display: 'block' }}>▶ {fmtTime(task.actualStart)}</span>
+          )}
+        </div>
+
+        {/* Col: End */}
+        <div style={{ width: `${COL_W.end}px`, flexShrink: 0, padding: `0 ${SP[2]}` }}>
+          {task.plannedEnd && (
+            <span style={{ ...TEXT.xs, color: overtime ? C.statusBlocked : C.textMuted, fontFamily: FONT, display: 'block' }}>
+              {fmtTime(task.plannedEnd)}
+            </span>
+          )}
+          {task.actualFinish && isExecutionMode && (
+            <span style={{ ...TEXT.xs, color: C.statusDone, fontFamily: FONT, display: 'block' }}>■ {fmtTime(task.actualFinish)}</span>
+          )}
+        </div>
+
+        {/* Col: Team */}
+        <div style={{ width: `${COL_W.team}px`, flexShrink: 0, padding: `0 ${SP[2]}`, overflow: 'hidden' }}>
+          {task.assignedTeam?.name && (
+            <span style={{
+              ...TEXT.xs, color: C.brand, background: C.brandDim, fontFamily: FONT,
+              padding: '2px 7px', borderRadius: RADIUS.sm,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block',
+            }}>
+              {task.assignedTeam.name}
+            </span>
+          )}
+        </div>
+
+        {/* Col: Assignee */}
+        <div style={{ width: `${COL_W.assignee}px`, flexShrink: 0, padding: `0 ${SP[2]}`, display: 'flex', alignItems: 'center', gap: '5px', overflow: 'hidden', direction: 'ltr' }}>
+          {task.assignedUserName && (
+            <>
+              <Avatar name={task.assignedUserName} size={20} />
+              <span style={{ ...TEXT.xs, color: C.textSecondary, fontFamily: FONT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                {task.assignedUserName.split(' ')[0]}
+              </span>
+            </>
+          )}
+        </div>
+
+        {/* Col: Application */}
+        <div style={{ width: `${COL_W.app}px`, flexShrink: 0, padding: `0 ${SP[2]}`, overflow: 'hidden' }}>
+          {task.application && (
+            <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+              {task.application}
+            </span>
+          )}
+        </div>
+
+        {/* Col: Status */}
+        <div style={{ width: `${COL_W.status}px`, flexShrink: 0, padding: `0 ${SP[2]}` }}>
+          <StatusChip status={task.status} size="xs" dot />
+        </div>
+
+        {/* Col: Actions (execution only) */}
+        {isExecutionMode && (
+          <div style={{ width: `${COL_W.actions}px`, flexShrink: 0, padding: `${SP[1]} ${SP[2]}`, display: 'flex', flexDirection: 'column', gap: '3px' }}>
             {!isDone ? (
               <>
                 {task.status === 'WAITING' && isManager && (() => {
                   const phaseBlocked = blockedPhaseTaskIds.has(task.id);
                   return (
-                    <button
-                      onClick={() => !phaseBlocked && onUpdateStatus(task.id, 'OPEN')}
+                    <button onClick={() => !phaseBlocked && onUpdateStatus(task.id, 'OPEN')}
                       disabled={updatingId === task.id || phaseBlocked}
                       title={phaseBlocked ? 'השלב הקודם טרם הסתיים' : undefined}
-                      style={{ padding: '11px 8px', background: phaseBlocked ? C.textDisabled : C.brand, color: 'white', border: 'none', borderRadius: '7px', cursor: phaseBlocked ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold', textAlign: 'center' as const }}>
-                      {phaseBlocked ? '⏳ ממתין לשלב קודם' : 'פתח לביצוע'}
+                      style={{
+                        fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold,
+                        padding: '6px 8px',
+                        background: phaseBlocked ? C.bgActive : `linear-gradient(135deg,${C.brand},#2563eb)`,
+                        color: phaseBlocked ? C.textDisabled : 'white',
+                        border: 'none', borderRadius: RADIUS.md,
+                        cursor: phaseBlocked ? 'not-allowed' : 'pointer',
+                        boxShadow: phaseBlocked ? 'none' : `0 2px 6px rgba(56,139,253,0.30)`,
+                      }}>
+                      {phaseBlocked ? '⏳ ממתין' : '▷ פתח לביצוע'}
                     </button>
                   );
                 })()}
                 {task.status === 'OPEN' && (
                   <button onClick={() => onUpdateStatus(task.id, 'IN_PROGRESS')} disabled={updatingId === task.id}
-                    style={{ padding: '11px 8px', background: C.statusInProgress, color: 'white', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', textAlign: 'center' as const }}>
+                    style={{ fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold, padding: '6px 8px', background: `linear-gradient(135deg,${C.statusInProgress},#b07d1e)`, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', boxShadow: `0 2px 6px rgba(227,179,65,0.25)` }}>
                     ▶ התחל
                   </button>
                 )}
                 {task.status === 'IN_PROGRESS' && (
                   <button onClick={() => onUpdateStatus(task.id, 'DONE')} disabled={updatingId === task.id}
-                    style={{ padding: '11px 8px', background: C.statusDone, color: 'white', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', textAlign: 'center' as const }}>
+                    style={{ fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold, padding: '6px 8px', background: `linear-gradient(135deg,${C.statusDone},#2ea043)`, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', boxShadow: `0 2px 6px rgba(86,211,100,0.22)` }}>
                     ✓ סיים
                   </button>
                 )}
                 {task.status === 'BLOCKED' && (
                   <button onClick={() => onUpdateStatus(task.id, 'IN_PROGRESS')} disabled={updatingId === task.id}
-                    style={{ padding: '9px 8px', background: C.statusDone, color: 'white', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', textAlign: 'center' as const }}>
+                    style={{ fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold, padding: '6px 8px', background: C.bgActive, color: C.success, border: `1px solid ${C.success}44`, borderRadius: RADIUS.md, cursor: 'pointer' }}>
                     ♻️ חזור לביצוע
                   </button>
                 )}
-                {isActive && (
+                {(task.status === 'OPEN' || task.status === 'IN_PROGRESS') && (
                   <button onClick={() => onSetShowBlockedInput(task.id)}
-                    style={{ padding: '7px 8px', background: 'transparent', color: C.statusBlocked, border: `1px solid ${C.statusBlocked}`, borderRadius: '6px', cursor: 'pointer', fontSize: '13px', textAlign: 'center' as const }}>
+                    style={{ fontFamily: FONT, ...TEXT.xs, padding: '5px 8px', background: 'transparent', color: C.statusBlocked, border: `1px solid ${C.statusBlocked}`, borderRadius: RADIUS.md, cursor: 'pointer' }}>
                     🚫 חסום
                   </button>
                 )}
                 {task.status === 'BLOCKED' && (
                   <button onClick={() => failureReasons.length > 0 ? setShowFailedDialog(true) : onUpdateStatus(task.id, 'FAILED')} disabled={updatingId === task.id}
-                    style={{ padding: '7px 8px', background: 'transparent', color: C.statusRollback, border: `1px solid ${C.statusRollback}`, borderRadius: '6px', cursor: 'pointer', fontSize: '13px', textAlign: 'center' as const }}>
+                    style={{ fontFamily: FONT, ...TEXT.xs, padding: '5px 8px', background: 'transparent', color: C.statusRollback, border: `1px solid ${C.statusRollback}`, borderRadius: RADIUS.md, cursor: 'pointer' }}>
                     ✗ נכשל
                   </button>
                 )}
               </>
             ) : (
-              <div style={{ textAlign: 'center', fontSize: '30px', color: sc, lineHeight: 1 }}>
+              <div style={{ textAlign: 'center', fontSize: '22px', color: sColor, lineHeight: 1 }}>
                 {task.status === 'DONE' ? '✓' : task.status === 'FAILED' ? '✗' : '↩'}
               </div>
             )}
           </div>
-        </div>
-      ) : (
-        /* ── Regular mode: original layout ── */
-        <div style={{ padding: '9px 12px' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              {/* Title + status + alert badges */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 'bold', fontSize: '14px', color: C.textPrimary }}>{task.title}</span>
-                <span style={{ fontSize: '11px', padding: '1px 7px', borderRadius: '10px', fontWeight: 'bold', background: sc + '22', color: sc, border: `1px solid ${sc}` }}>
-                  {STATUS_LABELS[task.status] || task.status}
-                </span>
-                {overtime && <span style={{ fontSize: '11px', background: C.bgBlocked, color: C.statusBlocked, padding: '1px 7px', borderRadius: '10px', fontWeight: 'bold' }}>🔴 חריגת זמן</span>}
-                {overdue && !overtime && <span style={{ fontSize: '11px', background: C.bgInProgress, color: C.statusInProgress, padding: '1px 7px', borderRadius: '10px', fontWeight: 'bold' }}>🕐 טרם התחיל</span>}
-                {delayed && !task.delayReason && !overtime && <span style={{ fontSize: '11px', background: C.bgBlocked, color: C.statusBlocked, padding: '1px 7px', borderRadius: '10px', fontWeight: 'bold' }}>⚠️ עיכוב</span>}
-                {lateStart && task.delayReason === null && <span style={{ fontSize: '11px', background: C.bgWaiting, color: C.statusWaiting, padding: '1px 7px', borderRadius: '10px' }}>⏱ התחיל באיחור</span>}
-              </div>
-              {/* Metadata */}
-              <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginTop: '4px', fontSize: '12px' }}>
-                {task.crNumber && <span style={{ background: C.bgOpen, color: C.statusOpen, padding: '1px 7px', borderRadius: '4px' }}>{task.crNumber}</span>}
-                {task.application && <span style={{ background: C.bgNested, color: C.textSecondary, padding: '1px 7px', borderRadius: '4px', border: `1px solid ${C.border}` }}>{task.application}</span>}
-                {task.assignedTeam?.name && <span style={{ color: C.textMuted }}>👥 {task.assignedTeam.name}</span>}
-                {task.assignedUserName && <span style={{ color: C.textMuted }}>👤 {task.assignedUserName}</span>}
-                {task.plannedStart && (
-                  <span style={{ background: C.bgInProgress, color: C.statusInProgress, padding: '1px 7px', borderRadius: '4px' }}>
-                    ⏰ {fmtTime(task.plannedStart)}{task.plannedEnd ? ` — ${fmtTime(task.plannedEnd)}` : ''}{task.duration ? ` · ${task.duration}` : ''}
-                  </span>
-                )}
-                {task.actualStart && (
-                  <span style={{ background: C.bgDone, color: C.statusDone, padding: '1px 7px', borderRadius: '4px' }}>
-                    ▶ {fmtTime(task.actualStart)}{task.actualFinish ? ` ■ ${fmtTime(task.actualFinish)}` : ' …'}
-                    {delayed && actualMins(task) ? ` (${actualMins(task)}דק')` : ''}
-                  </span>
-                )}
-              </div>
-              {/* Dependencies */}
-              {task.dependencies?.length > 0 && (
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px', fontSize: '11px', alignItems: 'center' }}>
-                  <span style={{ color: C.textMuted }}>ממתין ל:</span>
-                  {task.dependencies.map((d: any) => {
-                    const done = d.dependsOn?.status === 'DONE';
-                    return (
-                      <span key={d.dependsOnTaskId} style={{ padding: '1px 7px', borderRadius: '10px', background: done ? C.bgDone : C.bgBlocked, color: done ? C.statusDone : C.statusBlocked, border: `1px solid ${done ? C.statusDone + '44' : C.statusBlocked + '44'}` }}>
-                        {done ? '✓' : '⏳'} {d.dependsOn?.title || d.dependsOnTaskId}
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </div>{/* end table row */}
 
-      {/* Blocked reason input */}
+      {/* ── Sub-row: blocked reason input ── */}
       {showBlockedInput === task.id && (
         <BlockedReasonForm
-          onSubmit={reason => onUpdateStatus(task.id, 'BLOCKED', reason)}
+          onSubmit={reason => { onUpdateStatus(task.id, 'BLOCKED', reason); }}
           onCancel={() => onSetShowBlockedInput(null)}
         />
       )}
       {task.blockedReason && task.status === 'BLOCKED' && (
-        <div style={{ marginTop: '5px', fontSize: '12px', color: C.statusBlocked }}>🚫 {task.blockedReason}</div>
+        <div style={{ ...TEXT.xs, color: C.statusBlocked, background: C.bgBlocked, padding: `${SP[1]} ${SP[4]}`, fontFamily: FONT }}>
+          🚫 {task.blockedReason}
+        </div>
       )}
+
 
       {/* Failure reason dialog */}
       {showFailedDialog && (
@@ -540,6 +587,7 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set());
   const [collapsedSubs, setCollapsedSubs] = useState<Set<string>>(new Set());
+  const initialCollapseSet = React.useRef(false);
   const [expandedCompleted, setExpandedCompleted] = useState<Set<string>>(new Set()); // per subPhaseId or 'flat'
   const [users, setUsers] = useState<{ id: string; fullName: string }[]>([]);
   const [teamData, setTeamData] = useState<any>(null);
@@ -571,8 +619,19 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
     fetchTasks();
   };
 
+  const [depToast, setDepToast] = useState<{ subPhaseName: string; phaseName: string; deltaMinutes: number }[] | null>(null);
+  const depToastTimer = React.useRef<any>(null);
+  const showDepToast = (affected: any[]) => {
+    if (!affected?.length) return;
+    if (depToastTimer.current) clearTimeout(depToastTimer.current);
+    setDepToast(affected);
+    depToastTimer.current = setTimeout(() => setDepToast(null), 6000);
+  };
+
   const removeDependency = async (taskId: string, dependsOnTaskId: string) => {
-    await axios.post(`${API}/versions/tasks/${taskId}/dependencies/remove`, { dependsOnTaskId }, { headers });
+    const res = await axios.post(`${API}/versions/tasks/${taskId}/dependencies/remove`, { dependsOnTaskId }, { headers });
+    const affected = res.data?.affected ?? [];
+    showDepToast(affected.length > 0 ? affected : [{ subPhaseName: '', phaseName: '', deltaMinutes: 0, action: 'הסרה' }]);
     fetchTasks();
   };
 
@@ -693,6 +752,11 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
         ]);
         setTasks(tasksRes.data);
         setVersionData(verRes.data);
+        // Collapse all phases by default on first load
+        if (!initialCollapseSet.current && verRes.data?.phases?.length) {
+          initialCollapseSet.current = true;
+          setCollapsedPhases(new Set(verRes.data.phases.map((p: any) => p.id)));
+        }
       } else {
         const params = new URLSearchParams();
         if (teamId) params.set('teamId', teamId);
@@ -1370,7 +1434,7 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
                     {a.type === 'חריגת שלב' && onOpenReschedule ? (
                       <button
                         onClick={onOpenReschedule}
-                        style={{ flexShrink: 0, padding: '4px 12px', background: C.brandDim, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', whiteSpace: 'nowrap' }}
+                        style={{ flexShrink: 0, padding: '4px 12px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', whiteSpace: 'nowrap' }}
                       >
                         📅 תזמון מחדש
                       </button>
@@ -1418,7 +1482,7 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
                               plannedEnd:   anomalyEditForm.plannedEnd   || null,
                               duration:     anomalyEditForm.duration     || null,
                             })}
-                            style={{ padding: '5px 16px', background: C.brandDim, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                            style={{ padding: '5px 16px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
                             שמור זמנים
                           </button>
                         </div>
@@ -1553,7 +1617,7 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
               </button>
             )}
             {!isLocked && !hideAddTask && <button onClick={() => { setShowAddForm(v => !v); setAddError(null); }}
-              style={{ padding: '6px 14px', background: showAddForm ? C.bgHover : C.brandDim, color: showAddForm ? C.textPrimary : 'white', border: `1px solid ${showAddForm ? C.border : 'transparent'}`, borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
+              style={{ padding: '6px 14px', background: showAddForm ? C.bgHover : C.brand, color: showAddForm ? C.textPrimary : 'white', border: `1px solid ${showAddForm ? C.border : C.brand}`, borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
               {showAddForm ? '✕ ביטול' : '+ משימה'}
             </button>}
             {!isExecutionMode && versionData && (
@@ -1599,7 +1663,7 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
           {Object.entries(STATUS_LABELS).map(([status, label]) =>
             statusCounts[status] > 0 ? (
               <div key={status} style={{ background: STATUS_COLORS[status] + '22', border: `2px solid ${STATUS_COLORS[status]}`, borderRadius: '8px', padding: '3px 10px', textAlign: 'center' }}>
-                <div style={{ fontSize: '17px', fontWeight: 'bold', color: STATUS_COLORS[status] }}>{statusCounts[status]}</div>
+                <div style={{ fontSize: '17px', fontWeight: 'bold', color: status === 'IN_PROGRESS' ? '#7a5c00' : STATUS_COLORS[status] }}>{statusCounts[status]}</div>
                 <div style={{ fontSize: '10px', color: C.textMuted }}>{label}</div>
               </div>
             ) : null
@@ -1658,7 +1722,7 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
           {[{ id: null, name: 'כולם', count: tasks.length }, ...teamsInTasks.map(t => ({ ...t, count: tasks.filter(x => x.assignedTeamId === t.id).length }))].map(t => (
             <button key={t.id ?? '__all__'}
               onClick={() => setLocalTeamFilter(t.id)}
-              style={{ padding: '3px 11px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', border: `1px solid ${localTeamFilter === t.id ? C.brand : C.border}`, background: localTeamFilter === t.id ? C.brandDim : C.bgNested, color: localTeamFilter === t.id ? 'white' : C.textSecondary }}>
+              style={{ padding: '3px 11px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', border: `1px solid ${localTeamFilter === t.id ? C.brand : C.border}`, background: localTeamFilter === t.id ? C.brand : C.bgNested, color: localTeamFilter === t.id ? 'white' : C.textSecondary }}>
               {t.name} ({t.count})
             </button>
           ))}
@@ -1671,7 +1735,7 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
           <span style={{ fontSize: '12px', color: C.textMuted, marginLeft: '4px' }}>סטטוס:</span>
           <button
             onClick={() => setLocalStatusFilter(null)}
-            style={{ padding: '3px 11px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', border: `1px solid ${localStatusFilter === null ? C.brand : C.border}`, background: localStatusFilter === null ? C.brandDim : C.bgNested, color: localStatusFilter === null ? 'white' : C.textSecondary }}>
+            style={{ padding: '3px 11px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', border: `1px solid ${localStatusFilter === null ? C.brand : C.border}`, background: localStatusFilter === null ? C.brand : C.bgNested, color: localStatusFilter === null ? 'white' : C.textSecondary }}>
             הכל ({teamFilteredTasks.length})
           </button>
           {Object.entries(STATUS_LABELS).map(([status, label]) => {
@@ -1679,10 +1743,17 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
             if (!count) return null;
             const color = STATUS_COLORS[status];
             const isActive = localStatusFilter === status;
+            // For light colors (amber/yellow) white-on-color has low contrast — use dark text instead
+            const isLightColor = status === 'IN_PROGRESS';
             return (
               <button key={status}
                 onClick={() => setLocalStatusFilter(isActive ? null : status)}
-                style={{ padding: '3px 11px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', border: `1px solid ${color}`, background: isActive ? color : color + '18', color: isActive ? 'white' : color }}>
+                style={{
+                  padding: '3px 11px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
+                  border: `1px solid ${color}`,
+                  background: isActive ? color : color + '22',
+                  color: isActive ? (isLightColor ? '#1a1a1a' : 'white') : (isLightColor ? '#7a5c00' : color),
+                }}>
                 {label} ({count})
               </button>
             );
@@ -1785,6 +1856,11 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
         </form>
       )}
 
+      {/* ── Table header ── */}
+      {displayTasks.length > 0 && (
+        <TaskTableHeader showActions={isExecutionMode} />
+      )}
+
       {/* ── Phase-based view ── */}
       {usePhaseView ? (
         versionData.phases.map((phase: any) => {
@@ -1811,27 +1887,57 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
           const progress = Math.round((doneCount / phaseTasks.length) * 100);
 
           return (
-            <div key={phase.id} style={{ background: C.bgCard, borderRadius: '12px', marginBottom: '10px', border: `1px solid ${C.border}`, overflow: 'hidden' }}>
+            <div key={phase.id} style={{
+              background: C.bgCard, borderRadius: RADIUS.xl,
+              marginBottom: SP[3], border: `1px solid ${C.border}`, overflow: 'hidden',
+              boxShadow: SHADOW.sm,
+            }}>
               {/* Phase header */}
-              <div onClick={() => togglePhase(phase.id)}
-                style={{ padding: '11px 16px', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', background: C.bgNested, borderBottom: isCollapsed ? 'none' : `2px solid ${C.border}`, userSelect: 'none' as any }}>
-                <span style={{ color: C.textMuted, fontSize: '12px' }}>{isCollapsed ? '►' : '▼'}</span>
-                <span style={{ background: envBg, color: envColor, padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>{phase.environment}</span>
-                <span style={{ fontWeight: 'bold', fontSize: '15px', color: C.textPrimary, flex: 1 }}>{phase.name}</span>
+              <div onClick={() => togglePhase(phase.id)} style={{
+                padding: `${SP[3]} ${SP[4]}`, display: 'flex', alignItems: 'center', gap: SP[2],
+                cursor: 'pointer',
+                background: `linear-gradient(135deg, ${C.bgElevated} 0%, ${C.bgCard} 100%)`,
+                borderBottom: isCollapsed ? 'none' : `1px solid ${C.border}`,
+                userSelect: 'none' as any,
+                transition: EASE.fast,
+              }}>
+                {/* Collapse chevron */}
+                <span style={{ color: C.textDisabled, fontSize: '10px', flexShrink: 0, transition: EASE.fast, transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0)' }}>▼</span>
+
+                {/* Env badge */}
+                <Badge color={envColor} bg={envBg}
+                  style={{ flexShrink: 0, letterSpacing: '0.04em', textTransform: 'uppercase' as any }}>
+                  {phase.environment}
+                </Badge>
+
+                {/* Phase name */}
+                <span style={{ ...TEXT.md, fontWeight: WEIGHT.semibold, color: C.textPrimary, flex: 1 }}>
+                  {phase.name}
+                </span>
+
+                {/* Time span */}
                 {(() => { const span = fmtSpan(phaseTasks.filter((t: any) => parseDurationMins(t.duration || '') !== null)); return span ? (
-                  <span style={{ fontSize: '12px', color: C.textSecondary, background: C.bgCard, border: `1px solid ${C.border}`, padding: '2px 10px', borderRadius: '8px', fontWeight: 'bold', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    ⏰ {span.time}
-                    {span.dur && <span style={{ color: C.statusWaiting, background: C.bgWaiting, padding: '1px 7px', borderRadius: '6px', fontSize: '11px' }}>{span.dur}</span>}
+                  <span style={{ display: 'flex', alignItems: 'center', gap: SP[1], ...TEXT.xs, color: C.textSecondary, background: C.bgActive, border: `1px solid ${C.border}`, padding: '3px 10px', borderRadius: RADIUS.full, flexShrink: 0 }}>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    {span.time}
+                    {span.dur && <span style={{ color: C.statusWaiting, fontWeight: WEIGHT.semibold }}>{span.dur}</span>}
                   </span>
                 ) : null; })()}
-                <div style={{ display: 'flex', gap: '8px', fontSize: '12px', alignItems: 'center' }}>
+
+                {/* Stats */}
+                <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', flexShrink: 0 }}>
                   {/* Progress bar */}
-                  <div style={{ width: '60px', height: '6px', background: C.bgHover, borderRadius: '3px', overflow: 'hidden' }}>
-                    <div style={{ width: `${progress}%`, height: '100%', background: progress === 100 ? C.statusDone : C.statusOpen, borderRadius: '3px' }} />
+                  <div style={{ width: '56px', height: '5px', background: C.bgActive, borderRadius: RADIUS.full, overflow: 'hidden' }}>
+                    <div style={{
+                      width: `${progress}%`, height: '100%',
+                      background: progress === 100 ? C.success : C.brand,
+                      borderRadius: RADIUS.full, transition: 'width 0.4s ease',
+                      boxShadow: progress === 100 ? `0 0 4px ${C.success}` : `0 0 4px ${C.brand}`,
+                    }} />
                   </div>
-                  <span style={{ color: C.textMuted, whiteSpace: 'nowrap' }}>{doneCount}/{phaseTasks.length}</span>
-                  {inProgCount > 0 && <span style={{ background: C.bgInProgress, color: C.statusInProgress, padding: '1px 7px', borderRadius: '10px', fontWeight: 'bold' }}>{inProgCount} בביצוע</span>}
-                  {blockedCount > 0 && <span style={{ background: C.bgBlocked, color: C.statusBlocked, padding: '1px 7px', borderRadius: '10px', fontWeight: 'bold' }}>{blockedCount} חסום</span>}
+                  <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap' }}>{doneCount}/{phaseTasks.length}</span>
+                  {inProgCount > 0 && <Badge color={C.warning} bg={C.bgInProgress}>{inProgCount} בביצוע</Badge>}
+                  {blockedCount > 0 && <Badge color={C.statusBlocked} bg={C.bgBlocked}>{blockedCount} חסום</Badge>}
                   {isExecutionMode && canSelectAll && selectableForBulkIds.length > 0 && (() => {
                     const selectedInPhase = selectableIds.filter((id: string) => selectedTaskIds.has(id)).length;
                     return (
@@ -1839,16 +1945,16 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
                         {selectedInPhase > 0 && (
                           <>
                             <button onClick={e => { e.stopPropagation(); deselectGroup(selectableIds); }}
-                              style={{ padding: '2px 8px', background: C.bgBlocked, color: C.statusBlocked, border: `1px solid ${C.statusBlocked}44`, borderRadius: '6px', cursor: 'pointer', fontSize: '11px' }}>
+                              style={{ fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold, padding: '3px 8px', background: C.bgBlocked, color: C.statusBlocked, border: `1px solid ${C.statusBlocked}40`, borderRadius: RADIUS.md, cursor: 'pointer' }}>
                               ✕ בטל ({selectedInPhase})
                             </button>
                             <button onClick={e => { e.stopPropagation(); bulkUpdateGroup(selectableIds.filter((id: string) => selectedTaskIds.has(id)), 'IN_PROGRESS'); }}
-                              style={{ padding: '2px 8px', background: C.statusInProgress, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
-                              ▶ התחל הכל
+                              style={{ fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold, padding: '3px 8px', background: C.statusInProgress, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer' }}>
+                              ▶ התחל
                             </button>
                             <button onClick={e => { e.stopPropagation(); bulkUpdateGroup(selectableIds.filter((id: string) => selectedTaskIds.has(id)), 'DONE'); }}
-                              style={{ padding: '2px 8px', background: C.statusDone, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
-                              ✓ סיים הכל
+                              style={{ fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold, padding: '3px 8px', background: C.statusDone, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer' }}>
+                              ✓ סיים
                             </button>
                           </>
                         )}
@@ -1988,7 +2094,7 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
               <p>אין משימות לצוות זה</p>
               {!isLocked && (
                 <button onClick={() => setShowAddForm(true)}
-                  style={{ marginTop: '12px', padding: '10px 24px', background: C.brandDim, color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>
+                  style={{ marginTop: '12px', padding: '10px 24px', background: C.brand, color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>
                   + הוסף משימה ראשונה
                 </button>
               )}
@@ -2023,6 +2129,35 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
         })()
       )}
     {confirmDialog && <ConfirmDialog config={confirmDialog} onClose={() => setConfirmDialog(null)} />}
+    {depToast && depToast.length > 0 && (
+      <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 9998, display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '340px' }}>
+        {depToast.map((item: any, i) => {
+          const noTiming = item.deltaMinutes === 0;
+          const shortened = item.deltaMinutes < 0;
+          const absMins = Math.abs(item.deltaMinutes);
+          const label = item.subPhaseName ? `"${item.subPhaseName}"` : item.phaseName ? `"${item.phaseName}"` : '';
+          const verb = shortened ? 'קוצר' : 'הוארך';
+          const bg = noTiming ? '#e8f4fd' : shortened ? '#d4edda' : '#fff3cd';
+          const border = noTiming ? '#17a2b8' : shortened ? '#28a745' : '#ffc107';
+          const textColor = noTiming ? '#0c5460' : shortened ? '#155724' : '#856404';
+          const icon = noTiming ? '🔗' : shortened ? '⏫' : '⏬';
+          return (
+            <div key={i} style={{ background: bg, border: `1px solid ${border}`, borderRadius: '10px', padding: '10px 14px', fontSize: '13px', color: textColor, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', display: 'flex', alignItems: 'flex-start', gap: '8px', direction: 'rtl' }}>
+              <span style={{ fontSize: '16px', lineHeight: 1 }}>{icon}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '2px' }}>
+                  {noTiming ? 'תלות הוסרה' : 'עדכון לוחות זמנים'}
+                </div>
+                {!noTiming && label && <div>תת-שלב {label} <strong>{verb} ב-{absMins} דק'</strong></div>}
+                {!noTiming && item.phaseName && item.subPhaseName && <div style={{ fontSize: '11px', opacity: 0.8, marginTop: '2px' }}>שלב: {item.phaseName}</div>}
+                {noTiming && <div style={{ fontSize: '12px', opacity: 0.8 }}>אין משימות עם לוח זמנים מוגדר</div>}
+              </div>
+              <button onClick={() => setDepToast(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: textColor, fontSize: '16px', padding: 0, lineHeight: 1, opacity: 0.6 }}>✕</button>
+            </div>
+          );
+        })}
+      </div>
+    )}
     </div>
   );
 };

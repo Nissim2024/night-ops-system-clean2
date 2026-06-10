@@ -8,7 +8,7 @@ const prisma = new PrismaClient({
 @Injectable()
 export class TeamsService {
   async findAll() {
-    return prisma.team.findMany({
+    const teams = await prisma.team.findMany({
       include: {
         members: {
           include: {
@@ -19,6 +19,10 @@ export class TeamsService {
       },
       orderBy: { name: 'asc' },
     });
+    // Enrich with requiresPlan via raw SQL (Prisma client may be stale after schema change)
+    const rpRows: any[] = await prisma.$queryRawUnsafe(`SELECT id, "requiresPlan" FROM "Team"`);
+    const rpMap = new Map(rpRows.map((r: any) => [r.id, r.requiresPlan]));
+    return teams.map(t => ({ ...t, requiresPlan: rpMap.get(t.id) ?? true }));
   }
 
   async findOne(id: string) {
@@ -61,10 +65,34 @@ export class TeamsService {
     });
   }
 
-  async update(id: string, data: { name?: string; description?: string; active?: boolean; apps?: string[] }) {
+  async update(id: string, data: { name?: string; description?: string; active?: boolean; apps?: string[]; requiresPlan?: boolean }) {
     const team = await prisma.team.findUnique({ where: { id } });
     if (!team) throw new NotFoundException('Team not found');
+    // Use raw SQL when requiresPlan is included — Prisma client may not have this field if not regenerated
+    if (data.requiresPlan !== undefined) {
+      await prisma.$queryRawUnsafe(
+        `UPDATE "Team" SET "requiresPlan" = $1 WHERE id = $2`,
+        data.requiresPlan,
+        id,
+      );
+      const { requiresPlan: _rp, ...rest } = data;
+      if (Object.keys(rest).length > 0) {
+        await prisma.team.update({ where: { id }, data: rest });
+      }
+      const updated = await prisma.team.findUnique({ where: { id } });
+      return { ...updated, requiresPlan: data.requiresPlan };
+    }
     return prisma.team.update({ where: { id }, data });
+  }
+
+  async findMine(userId: string) {
+    const rows: any[] = await prisma.$queryRawUnsafe(
+      `SELECT t.id, t.name, t."requiresPlan" FROM "Team" t
+       JOIN "TeamMember" tm ON tm."teamId" = t.id
+       WHERE tm."userId" = $1 LIMIT 1`,
+      userId,
+    );
+    return rows.length > 0 ? rows[0] : null;
   }
 
   async delete(id: string) {

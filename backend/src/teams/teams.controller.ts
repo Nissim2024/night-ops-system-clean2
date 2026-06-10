@@ -30,6 +30,11 @@ export class TeamsController {
     return this.teamsService.findAll();
   }
 
+  @Get('mine')
+  findMine(@Request() req: any) {
+    return this.teamsService.findMine(req.user.sub);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.teamsService.findOne(id);
@@ -70,7 +75,7 @@ export class TeamsController {
   @Patch(':id')
   update(
     @Param('id') id: string,
-    @Body() body: { name?: string; description?: string; active?: boolean },
+    @Body() body: { name?: string; description?: string; active?: boolean; requiresPlan?: boolean },
     @Request() req: any,
   ) {
     requireRole(req, MANAGERS, 'רק מנהל לילה יכול לעדכן פרטי צוות');

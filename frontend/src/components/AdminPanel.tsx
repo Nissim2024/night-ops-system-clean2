@@ -2,7 +2,8 @@
 import axios from 'axios';
 import { usePermissions } from '../context/PermissionsContext';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
-import { C, FONT, FONT_MONO } from '../theme';
+import { C, FONT, FONT_MONO, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
+import { Card, Badge, Button, TextField, Select, Toggle, SectionHeader, Avatar, TabBar, EmptyState, Divider, Alert } from './ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -14,14 +15,26 @@ const APPS = [
   'PROVISIONING OTT', 'PROVISIONING TEL', 'REMEDY', 'ZOO', 'אחר',
 ];
 
-const ROLES = ['EMPLOYEE', 'TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN', 'VIEWER'];
+const ROLES = ['EMPLOYEE', 'TEAM_LEAD', 'RELEASE_MANAGER', 'CR_MANAGER', 'ADMIN', 'VIEWER'];
 const ROLE_LABELS: Record<string, string> = {
   EMPLOYEE: 'עובד', TEAM_LEAD: 'ראש צוות',
-  RELEASE_MANAGER: 'מנהל לילה', ADMIN: 'מנהל מערכת', VIEWER: 'צופה',
+  RELEASE_MANAGER: 'מנהל לילה', CR_MANAGER: 'מנהל CR', ADMIN: 'מנהל מערכת', VIEWER: 'צופה',
 };
 const ROLE_COLORS: Record<string, string> = {
-  EMPLOYEE: '#3498db', TEAM_LEAD: '#e67e22', RELEASE_MANAGER: '#9b59b6',
-  ADMIN: '#e74c3c', VIEWER: '#95a5a6',
+  EMPLOYEE:        C.statusOpen,
+  TEAM_LEAD:       C.warning,
+  RELEASE_MANAGER: C.statusWaiting,
+  CR_MANAGER:      C.success,
+  ADMIN:           C.statusBlocked,
+  VIEWER:          C.textMuted,
+};
+const ROLE_BG: Record<string, string> = {
+  EMPLOYEE:        C.bgOpen,
+  TEAM_LEAD:       C.bgInProgress,
+  RELEASE_MANAGER: C.bgWaiting,
+  CR_MANAGER:      C.successBg,
+  ADMIN:           C.bgBlocked,
+  VIEWER:          C.bgRollback,
 };
 
 interface Props { token: string; }
@@ -406,6 +419,15 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
     }
   };
 
+  const toggleTeamRequiresPlan = async (t: any) => {
+    try {
+      await axios.patch(`${API}/teams/${t.id}`, { requiresPlan: !t.requiresPlan }, { headers });
+      fetchAll();
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'שגיאה');
+    }
+  };
+
   const openEditTeam = (t: any) => {
     setEditingTeamId(t.id);
     setEditTeamName(t.name);
@@ -458,47 +480,82 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
     display: 'block', fontSize: '12px', color: C.textSecondary, marginBottom: '4px', fontWeight: 'bold',
   };
 
+  const ADMIN_TABS = [
+    { key: 'users',       label: 'משתמשים',     icon: '👤' },
+    { key: 'teams',       label: 'צוותים',       icon: '👥' },
+    { key: 'permissions', label: 'הרשאות',       icon: '🔐' },
+    { key: 'qc-releases', label: 'גרסאות QC',    icon: '📋' },
+    { key: 'qc-users',    label: 'סנכרון',       icon: '🔄' },
+    { key: 'params',      label: 'פרמטרים',      icon: '⚙️' },
+    { key: 'templates',   label: 'תבניות',        icon: '📁' },
+    { key: 'ldap',        label: 'AD / LDAP',     icon: '🔒' },
+    { key: 'email',       label: 'מייל',          icon: '📧' },
+  ] as const;
+
   return (
     <div style={{ direction: 'rtl', fontFamily: FONT }}>
       <ConfirmDialog config={dialog} onClose={() => setDialog(null)} />
 
       {/* Header */}
-      <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', marginBottom: '20px', border: `1px solid ${C.border}` }}>
-        <h2 style={{ margin: '0 0 16px', color: C.textPrimary }}>⚙️ ניהול מערכת</h2>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          {([
-            { key: 'users',       label: '👤 משתמשים' },
-            { key: 'teams',       label: '👥 צוותים' },
-            { key: 'permissions', label: '🔐 הרשאות' },
-            { key: 'qc-releases', label: '📋 גרסאות QC' },
-            { key: 'qc-users',    label: '🔄 סנכרון משתמשים' },
-            { key: 'params',      label: '⚙️ פרמטרי מערכת' },
-            { key: 'templates',   label: '📁 תבניות גרסה' },
-            { key: 'ldap',        label: '🔒 AD / LDAP' },
-            { key: 'email',       label: '📧 הגדרות מייל' },
-          ] as const).map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)} style={{
-              padding: '8px 20px', borderRadius: '8px', cursor: 'pointer', fontFamily: FONT,
-              border: tab === t.key ? `1px solid ${C.brand}` : `1px solid ${C.border}`,
-              background: tab === t.key ? C.brandDim : C.bgNested,
-              color: tab === t.key ? C.textPrimary : C.textSecondary,
-              fontWeight: tab === t.key ? 'bold' : 'normal', fontSize: '14px',
-            }}>
-              {t.label}
-            </button>
-          ))}
+      <Card style={{ marginBottom: SP[5] }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], marginBottom: SP[4] }}>
+          <div style={{
+            width: '40px', height: '40px', borderRadius: RADIUS.lg,
+            background: C.brandDim, border: `1px solid rgba(56,139,253,0.30)`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '18px',
+          }}>⚙️</div>
+          <div>
+            <h2 style={{ margin: 0, ...TEXT['2xl'], fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+              ניהול מערכת
+            </h2>
+            <p style={{ margin: 0, ...TEXT.sm, color: C.textMuted, marginTop: '2px' }}>
+              ניהול משתמשים, צוותים, הרשאות והגדרות מערכת
+            </p>
+          </div>
         </div>
-      </div>
+        <div style={{ display: 'flex', gap: SP[1], flexWrap: 'wrap' }}>
+          {ADMIN_TABS.map(t => {
+            const isActive = tab === t.key;
+            return (
+              <button key={t.key} onClick={() => setTab(t.key as any)} style={{
+                display: 'flex', alignItems: 'center', gap: SP[1],
+                padding: '6px 14px',
+                borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT,
+                border: `1px solid ${isActive ? 'rgba(56,139,253,0.40)' : C.border}`,
+                background: isActive
+                  ? `linear-gradient(135deg, rgba(56,139,253,0.15), rgba(56,139,253,0.08))`
+                  : C.bgNested,
+                color: isActive ? C.brand : C.textSecondary,
+                ...TEXT.sm, fontWeight: isActive ? WEIGHT.semibold : WEIGHT.normal,
+                transition: EASE.fast,
+                boxShadow: isActive ? `0 0 0 1px rgba(56,139,253,0.20)` : 'none',
+              }}>
+                <span style={{ fontSize: '12px' }}>{t.icon}</span>
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+      </Card>
 
       {error && (
-        <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', color: C.statusFailed, fontSize: '13px' }}>
-          ⚠️ {error}
-          <button onClick={() => setError(null)} style={{ float: 'left', background: 'none', border: 'none', cursor: 'pointer', color: C.statusFailed, fontWeight: 'bold' }}>✕</button>
-        </div>
+        <Alert variant="danger" onClose={() => setError(null)} style={{ marginBottom: SP[4] }}>
+          {error}
+        </Alert>
       )}
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '60px', color: C.textMuted }}>טוען...</div>
+        <Card style={{ textAlign: 'center', padding: SP[12] }}>
+          <div style={{ ...TEXT.sm, color: C.textMuted, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: SP[2] }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ animation: 'spin 0.7s linear infinite' }}>
+              <circle cx="12" cy="12" r="10" stroke={C.brand} strokeOpacity="0.20" strokeWidth="2.5" />
+              <path d="M12 2a10 10 0 0 1 10 10" stroke={C.brand} strokeWidth="2.5" strokeLinecap="round" />
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </svg>
+            טוען...
+          </div>
+        </Card>
       ) : (
         <>
           {/* ── USERS TAB ── */}
@@ -655,11 +712,16 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                     return matchRole && matchSearch;
                   });
                   return (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: FONT }}>
                   <thead>
                     <tr style={{ background: C.bgNested }}>
                       {['שם', 'אימייל', 'תפקיד', 'צוות', 'סטטוס', 'פעולות'].map(h => (
-                        <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontSize: '13px', color: C.textSecondary, borderBottom: `2px solid ${C.border}`, fontWeight: 'bold' }}>
+                        <th key={h} style={{
+                          padding: `${SP[2]} ${SP[3]}`, textAlign: 'right',
+                          ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textMuted,
+                          borderBottom: `1px solid ${C.borderEm}`, textTransform: 'uppercase', letterSpacing: '0.06em',
+                          whiteSpace: 'nowrap',
+                        }}>
                           {h}
                         </th>
                       ))}
@@ -667,34 +729,35 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                   </thead>
                   <tbody>
                     {filtered.length === 0 ? (
-                      <tr><td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: C.textMuted, fontSize: '14px' }}>לא נמצאו משתמשים התואמים את החיפוש</td></tr>
+                      <tr><td colSpan={6}><EmptyState icon="👤" title="לא נמצאו משתמשים" style={{ padding: SP[8] }} /></td></tr>
                     ) : filtered.map(u => (
-                      <tr key={u.id} style={{ borderBottom: `1px solid ${C.border}`, opacity: u.active ? 1 : 0.5 }}>
-                        <td style={{ padding: '10px 12px', fontSize: '14px', fontWeight: 'bold', color: C.textPrimary }}>
-                          {u.fullName}
+                      <tr key={u.id} style={{ borderBottom: `1px solid ${C.border}`, opacity: u.active ? 1 : 0.45, transition: EASE.fast }}>
+                        <td style={{ padding: `${SP[3]} ${SP[3]}` }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+                            <Avatar name={u.fullName} size={28} />
+                            <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>{u.fullName}</span>
+                          </div>
                         </td>
-                        <td style={{ padding: '10px 12px', fontSize: '13px', color: C.textSecondary }}>{u.email}</td>
-                        <td style={{ padding: '10px 12px' }}>
-                          <span style={{
-                            background: (ROLE_COLORS[u.role] || '#95a5a6') + '22',
-                            color: ROLE_COLORS[u.role] || '#95a5a6',
-                            border: `1px solid ${ROLE_COLORS[u.role] || '#95a5a6'}`,
-                            padding: '3px 10px', borderRadius: '10px', fontSize: '12px', fontWeight: 'bold',
-                          }}>
+                        <td style={{ padding: `${SP[3]} ${SP[3]}`, ...TEXT.xs, color: C.textMuted, fontFamily: FONT_MONO }}>
+                          {u.email}
+                        </td>
+                        <td style={{ padding: `${SP[3]} ${SP[3]}` }}>
+                          <Badge color={ROLE_COLORS[u.role] ?? C.textMuted} bg={ROLE_BG[u.role] ?? C.bgActive}>
                             {ROLE_LABELS[u.role] || u.role}
-                          </span>
+                          </Badge>
                         </td>
-                        <td style={{ padding: '10px 12px', fontSize: '13px', color: C.textSecondary }}>
-                          {u.teamMemberships?.map((m: any) => m.team?.name).filter(Boolean).join(', ') || '—'}
+                        <td style={{ padding: `${SP[3]} ${SP[3]}`, ...TEXT.xs, color: C.textSecondary }}>
+                          {u.teamMemberships?.map((m: any) => m.team?.name).filter(Boolean).join(', ') || (
+                            <span style={{ color: C.textDisabled }}>—</span>
+                          )}
                         </td>
-                        <td style={{ padding: '10px 12px' }}>
-                          <span style={{
-                            background: u.active ? C.bgDone : C.bgBlocked,
-                            color: u.active ? C.statusDone : C.statusFailed,
-                            padding: '3px 10px', borderRadius: '10px', fontSize: '12px', fontWeight: 'bold',
-                          }}>
-                            {u.active ? 'פעיל' : 'מושבת'}
-                          </span>
+                        <td style={{ padding: `${SP[3]} ${SP[3]}` }}>
+                          <Badge
+                            color={u.active ? C.success : C.statusFailed}
+                            bg={u.active ? C.successBg : C.dangerBg}
+                          >
+                            {u.active ? '● פעיל' : '○ מושבת'}
+                          </Badge>
                         </td>
                         <td style={{ padding: '10px 12px' }}>
                           <div style={{ display: 'flex', gap: '6px' }}>
@@ -853,6 +916,12 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                                 <button onClick={() => toggleTeamActive(t)} title={t.active ? 'השבת' : 'הפעל'}
                                   style={{ padding: '4px 8px', fontSize: '12px', border: 'none', borderRadius: '6px', background: t.active ? C.bgBlocked : C.bgDone, color: t.active ? C.statusFailed : C.statusDone, cursor: 'pointer' }}>
                                   {t.active ? 'השבת' : 'הפעל'}
+                                </button>
+                                <button
+                                  onClick={() => toggleTeamRequiresPlan(t)}
+                                  title={t.requiresPlan !== false ? 'סמן כפטור מהגשת תוכנית' : 'חייב הגשת תוכנית'}
+                                  style={{ padding: '4px 8px', fontSize: '12px', border: `1px solid ${t.requiresPlan !== false ? '#2980b9' : '#94a3b8'}`, borderRadius: '6px', background: t.requiresPlan !== false ? 'rgba(41,128,185,0.12)' : 'rgba(148,163,184,0.12)', color: t.requiresPlan !== false ? '#2980b9' : '#64748b', cursor: 'pointer' }}>
+                                  {t.requiresPlan !== false ? '📋 מגיש תוכנית' : '🚫 פטור מתוכנית'}
                                 </button>
                                 <button onClick={() => deleteTeam(t)} title="מחק צוות"
                                   style={{ padding: '4px 8px', fontSize: '12px', border: 'none', borderRadius: '6px', background: C.statusFailed, color: 'white', cursor: 'pointer' }}>

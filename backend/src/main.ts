@@ -1,3 +1,9 @@
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+// Load the environment-specific .env file first, overriding any defaults already in process.env.
+// process.cwd() is always the backend/ root regardless of ts-node vs compiled dist.
+dotenv.config({ path: path.resolve(process.cwd(), `.env.${process.env.NODE_ENV || 'dev'}`), override: true });
+
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
@@ -11,6 +17,15 @@ async function bootstrap() {
     process.exit(1);
   }
 
+  const env  = process.env.NODE_ENV ?? 'dev';
+  const port = process.env.PORT ?? '3000';
+  const db   = (process.env.DATABASE_URL ?? '').replace(/:\/\/.*@/, '://***@');
+  console.log(`\n🚀 NightOps Backend`);
+  console.log(`   ENV  : ${env}`);
+  console.log(`   PORT : ${port}`);
+  console.log(`   DB   : ${db}`);
+  console.log(`   PID  : ${process.pid}\n`);
+
   const app = await NestFactory.create(AppModule);
 
   // Security headers
@@ -23,7 +38,11 @@ async function bootstrap() {
   }));
 
   app.enableCors({
-    origin: ['http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003'],
+    origin: [
+      'http://localhost:3002', // TEST frontend
+      'http://localhost:3003', // DEV frontend
+      'http://localhost:3011', // PROD frontend
+    ],
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,

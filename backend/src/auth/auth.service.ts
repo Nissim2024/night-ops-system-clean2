@@ -5,7 +5,12 @@ import { LdapService } from './ldap.service';
 import * as bcrypt from 'bcrypt';
 
 // These accounts always authenticate locally regardless of LDAP setting
-const LOCAL_AUTH_EMAILS = ['nissim@test.com', 'nisim@dev.com', 'hay@dev.com'];
+const LOCAL_AUTH_EMAILS = [
+  'nissim@test.com', 'nisim@dev.com', 'hay@dev.com', 'Hay@dev.com',
+  'Kobi@test.com',
+  'qa-admin@test.com', 'qa-manager@test.com',
+  'reg-admin@test.com', 'reg-manager@test.com',
+];
 
 @Injectable()
 export class AuthService {

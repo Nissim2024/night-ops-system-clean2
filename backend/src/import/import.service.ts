@@ -521,7 +521,7 @@ export class ImportService {
       if (String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
       const involved = teamColIdxs.some(ci => {
         const val = parseFloat(String(row[ci] ?? '0').replace(/[^\d.]/g, ''));
-        return !isNaN(val) && val > 1;
+        return !isNaN(val) && val > 0.3;
       });
       if (!involved || seen.has(crNumber)) continue;
       seen.add(crNumber);
@@ -545,10 +545,18 @@ export class ImportService {
     status: 'NONE' | 'PARTIAL' | 'COMPLETE' | 'NOT_REQUIRED' | 'NO_FILE' | 'SUBMITTED_EMPTY' | 'ALL_NOT_NEEDED';
   }[]> {
     // Primary: read from VersionCrAssignment table (populated by sync)
-    const dbAssignments = await prisma.versionCrAssignment.findMany({
+    const exemptRows: any[] = await prisma.$queryRawUnsafe(
+      `SELECT id FROM "Team" WHERE "requiresPlan" = false`,
+    );
+    const exemptTeamIds = new Set(exemptRows.map((r: any) => String(r.id)));
+
+    const dbAssignmentsRaw = await prisma.versionCrAssignment.findMany({
       where: { versionId },
       include: { team: { select: { id: true, name: true } } },
     });
+    const dbAssignments = exemptTeamIds.size > 0
+      ? dbAssignmentsRaw.filter((a: any) => !exemptTeamIds.has(String(a.teamId)))
+      : dbAssignmentsRaw;
 
     // Build crsByTeam from DB
     const crsByTeamId: Record<string, Set<string>> = {};

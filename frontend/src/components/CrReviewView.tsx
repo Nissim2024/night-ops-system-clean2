@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
+import { C, FONT } from '../theme';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -14,15 +15,15 @@ const PHASE_BADGE: Record<number, { bg: string; color: string }> = {
   4: { bg: '#f5e8fd', color: '#8e44ad' },
 };
 const REVIEW_META: Record<string, { label: string; bg: string; color: string; border: string }> = {
-  PENDING:        { label: 'ממתין',    bg: '#f0f2f5', color: '#555',    border: '#ddd' },
-  APPROVED:       { label: 'אושר ✓',  bg: '#e8fdf0', color: '#1a7a3a', border: '#27ae60' },
-  REJECTED:       { label: 'נדחה ✗',  bg: '#fde8e8', color: '#c0392b', border: '#e74c3c' },
-  NEEDS_REVISION: { label: 'לתיקון', bg: '#fff3e0', color: '#c05800', border: '#e67e22' },
+  PENDING:        { label: 'ממתין',    bg: C.bgNested,  color: C.textMuted,     border: C.border },
+  APPROVED:       { label: 'אושר ✓',  bg: C.bgDone,    color: C.statusDone,    border: C.statusDone },
+  REJECTED:       { label: 'נדחה ✗',  bg: C.dangerBg,  color: C.statusFailed,  border: C.danger },
+  NEEDS_REVISION: { label: 'לתיקון', bg: C.warningBg, color: C.warning,       border: C.warning },
 };
 const RISK_COLORS: Record<string, { bg: string; color: string }> = {
-  LOW:    { bg: '#e8fdf0', color: '#1a7a3a' },
-  MEDIUM: { bg: '#fff3e0', color: '#c05800' },
-  HIGH:   { bg: '#fde8e8', color: '#c0392b' },
+  LOW:    { bg: C.bgDone,    color: C.statusDone },
+  MEDIUM: { bg: C.warningBg, color: C.warning },
+  HIGH:   { bg: C.dangerBg,  color: C.statusFailed },
 };
 const RISK_LABELS: Record<string, string> = { LOW: 'נמוך', MEDIUM: 'בינוני', HIGH: 'גבוה' };
 const ACTION_TYPES = [
@@ -489,7 +490,9 @@ const CrCard: React.FC<{
   const allProposals  = Object.values(entry.proposalsByPhase).flat();
   const pendingCount  = allProposals.filter(p => p.reviewStatus === 'PENDING').length;
   const approvedCount = allProposals.filter(p => p.reviewStatus === 'APPROVED').length;
-  const allReviewed   = allProposals.length > 0 && pendingCount === 0;
+  const teamsWithoutSubmission = entry.teams.filter(t => !allProposals.some(p => p.teamId === t.teamId));
+  const allTeamsSubmitted = teamsWithoutSubmission.length === 0;
+  const allReviewed   = allProposals.length > 0 && pendingCount === 0 && allTeamsSubmitted;
   const crApproved    = entry.crApproved;
   const [approving, setApproving] = useState(false);
 
@@ -538,7 +541,7 @@ const CrCard: React.FC<{
           </div>
           <div style={{ fontSize: '14px', color: '#555', marginTop: '4px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
             {entry.managers.length > 0 && <span>מנהל: <strong>{entry.managers.join(', ')}</strong></span>}
-            <span>{entry.teams.length} צוותות · {allProposals.length} משימות</span>
+            <span>{entry.teams.length} צוותים · {allProposals.length} משימות</span>
           </div>
         </div>
 
@@ -734,6 +737,11 @@ const CrCard: React.FC<{
         {addOpen && <div style={{ flex: 1 }} />}
 
         {/* Left: approve CR */}
+        {!crApproved && !allTeamsSubmitted && (
+          <div style={{ background: '#fff3cd', border: '1px solid #ffc107', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', color: '#856404' }}>
+            ⚠️ ממתין להגשה מ: {teamsWithoutSubmission.map(t => t.teamName).join(', ')}
+          </div>
+        )}
         {allReviewed && !crApproved && (
           <button
             onClick={async () => {
@@ -864,8 +872,9 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
   const [teams, setTeams]             = useState<{ id: string; name: string }[]>([]);
   const [users, setUsers]             = useState<{ id: string; fullName: string }[]>([]);
   const [subPhaseOpts, setSubPhaseOpts] = useState<SubPhaseOpt[]>([]);
-  const [loading, setLoading]         = useState(false);
+  const [loading, setLoading]         = useState(!!propVersionId);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved' | 'not_required'>('all');
   const headers = { Authorization: `Bearer ${token}` };
 
   const load = useCallback(() => {
@@ -893,7 +902,7 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
   useEffect(() => { load(); }, [load]);
 
   if (loading) return (
-    <div style={{ textAlign: 'center', padding: '80px', color: '#888', direction: 'rtl', fontFamily: 'Arial' }}>
+    <div style={{ textAlign: 'center', padding: '80px', color: C.textMuted, direction: 'rtl', fontFamily: FONT }}>
       <div style={{ fontSize: '36px', marginBottom: '14px' }}>⏳</div>טוען נתוני CR-ים...
     </div>
   );
@@ -905,10 +914,10 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
   const allCrsApproved    = data.length > 0 && approvedCrCount === data.length;
 
   return (
-    <div style={{ direction: 'rtl', fontFamily: 'Arial, sans-serif' }}>
+    <div style={{ direction: 'rtl', fontFamily: FONT }}>
       {/* Header */}
       <div style={{
-        background: 'linear-gradient(135deg, #1a2332 0%, #2d4a7a 100%)',
+        background: `linear-gradient(135deg, ${C.textPrimary} 0%, ${C.statusOpen} 100%)`,
         borderRadius: '12px', padding: '16px 24px', marginBottom: '18px', color: 'white',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px',
       }}>
@@ -936,9 +945,32 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
       </div>
 
       {data.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '60px', background: 'white', borderRadius: '12px', color: '#888' }}>
+        <div style={{ textAlign: 'center', padding: '60px', background: C.bgCard, borderRadius: '12px', color: C.textMuted }}>
           <div style={{ fontSize: '32px', marginBottom: '12px' }}>📋</div>
           אין CR-ים מוגדרים לגרסה זו
+        </div>
+      )}
+
+      {/* Filter bar */}
+      {data.length > 0 && selectedIndex === null && (
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
+          {([
+            ['all',          'הצג הכל',      data.length],
+            ['pending',      'ממתין לאישור', data.filter(e => !e.crApproved).length],
+            ['approved',     '✅ אושר',       data.filter(e => e.crApproved).length],
+            ['not_required', 'לא נדרש',      data.filter(e => Object.values(e.proposalsByPhase).flat().length === 0).length],
+          ] as [typeof reviewFilter, string, number][]).map(([key, label, count]) => (
+            <button key={key} onClick={() => setReviewFilter(key)}
+              style={{
+                padding: '6px 14px', border: 'none', borderRadius: '20px', cursor: 'pointer',
+                fontSize: '13px', fontWeight: '600',
+                background: reviewFilter === key ? C.textPrimary : C.bgNested,
+                color: reviewFilter === key ? C.textInverse : C.textSecondary,
+                transition: 'all 0.15s',
+              }}>
+              {label} <span style={{ opacity: 0.7 }}>({count})</span>
+            </button>
+          ))}
         </div>
       )}
 
@@ -961,14 +993,22 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
       ) : (
         /* CR list index */
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {data.map((entry, i) => {
+          {data.filter(entry => {
+            if (reviewFilter === 'all') return true;
+            const all = Object.values(entry.proposalsByPhase).flat();
+            if (reviewFilter === 'approved')     return entry.crApproved;
+            if (reviewFilter === 'pending')      return !entry.crApproved;
+            if (reviewFilter === 'not_required') return all.length === 0;
+            return true;
+          }).map((entry) => {
+            const origIndex = data.indexOf(entry);
             const all = Object.values(entry.proposalsByPhase).flat();
             const approved = all.filter(p => p.reviewStatus === 'APPROVED').length;
             const pending  = all.filter(p => p.reviewStatus === 'PENDING').length;
             const pct = all.length ? Math.round(approved / all.length * 100) : 0;
             const riskLevel = entry.teams.find(t => t.crPlan.riskLevel)?.crPlan.riskLevel ?? '';
             return (
-              <div key={entry.crNumber} onClick={() => setSelectedIndex(i)}
+              <div key={entry.crNumber} onClick={() => setSelectedIndex(origIndex)}
                 style={{ background: 'white', borderRadius: '12px', padding: '14px 18px', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.07)', border: pct === 100 ? '1px solid #27ae60' : '1px solid #e8ecf0', display: 'flex', alignItems: 'center', gap: '12px' }}
                 onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.12)')}
                 onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)')}
@@ -978,7 +1018,7 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
                   <div style={{ fontWeight: '600', fontSize: '14px', color: '#1a2332' }}>{entry.crLabel !== entry.crNumber ? entry.crLabel : ''}</div>
                   <div style={{ fontSize: '12px', color: '#888', marginTop: '2px' }}>
                     {entry.managers.length > 0 && `מנהל: ${entry.managers.join(', ')} · `}
-                    {entry.teams.length} צוותות · {all.length} משימות
+                    {entry.teams.length} צוותים · {all.length} משימות
                   </div>
                 </div>
                 {riskLevel && <span style={{ fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '6px', ...RISK_COLORS[riskLevel] }}>{RISK_LABELS[riskLevel]}</span>}

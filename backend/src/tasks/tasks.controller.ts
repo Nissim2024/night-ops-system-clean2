@@ -15,8 +15,9 @@ import { TasksService } from './tasks.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 import { TaskStatus, Priority } from '@prisma/client';
 
-const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
-const LEADS_UP = ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN'];
+const MANAGERS       = ['RELEASE_MANAGER', 'ADMIN'];
+const LEADS_UP       = ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN'];
+const TASK_EXECUTORS = ['EMPLOYEE', 'TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN'];
 
 function requireRole(req: any, roles: string[], msg = 'אין הרשאה לבצע פעולה זו') {
   if (!roles.includes(req.user.role)) throw new ForbiddenException(msg);
@@ -66,6 +67,7 @@ export class TasksController {
     @Body() body: { status: TaskStatus; blockedReason?: string; failedReason?: string },
     @Request() req: any,
   ) {
+    requireRole(req, TASK_EXECUTORS, 'אין הרשאה לעדכון סטטוס משימה');
     return this.tasksService.updateStatus(
       id,
       body.status,
@@ -82,6 +84,7 @@ export class TasksController {
     @Body() body: any,
     @Request() req: any,
   ) {
+    requireRole(req, LEADS_UP, 'נדרשת הרשאת ראש צוות ומעלה לעדכון משימה');
     return this.tasksService.update(id, body, req.user.sub);
   }
 

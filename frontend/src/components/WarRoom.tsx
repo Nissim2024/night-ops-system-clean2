@@ -1,8 +1,8 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { usePermissions } from '../context/PermissionsContext';
-import { C, FONT, statusColor, statusBg } from '../theme';
+import { C, FONT, SHADOW, statusColor, statusBg } from '../theme';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -16,6 +16,7 @@ interface Props {
   onlineUsers?: { userId: string; fullName: string; teamId?: string }[];
   onVersionEnded?: () => void;
   refreshSignal?: number;
+  onGoToHub?: () => void;
 }
 
 type GoStatus = 'checking' | 'go' | 'nogo' | null;
@@ -24,7 +25,7 @@ interface GoNoPanelProps {
   env: string;
   label: string;
   status: GoStatus;
-  details: { incomplete: number; blocked: number; blockedNoReason: string[] } | undefined;
+  details: { incomplete: number; blocked: number; blockedNoReason: string[]; incompleteTasks?: { title: string; team: string; phase: string; status: string }[] } | undefined;
   envTasks: any[];
   onCheck: (env: string) => void;
   failedTasks?: any[];
@@ -77,6 +78,18 @@ const GoNoGoPanel: React.FC<GoNoPanelProps> = ({ env, label, status, details, en
               ))}
             </div>
           )}
+          {(details as any).incompleteTasks?.length > 0 && (
+            <div style={{ marginTop: '6px', borderTop: `1px solid ${C.statusFailed}44`, paddingTop: '6px' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '4px', fontSize: '12px' }}>⏳ משימות שטרם הושלמו:</div>
+              {(details as any).incompleteTasks.map((t: any, i: number) => (
+                <div key={i} style={{ fontSize: '11px', marginBottom: '3px', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <span style={{ background: C.statusFailed + '22', color: C.statusFailed, padding: '1px 5px', borderRadius: '4px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>{t.status}</span>
+                  <span style={{ flex: 1 }}>{t.title}</span>
+                  <span style={{ color: C.textMuted, whiteSpace: 'nowrap' }}>{t.team}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {isManager && failedTasks.length > 0 && (
@@ -113,10 +126,9 @@ const GoNoGoPanel: React.FC<GoNoPanelProps> = ({ env, label, status, details, en
   );
 };
 
-export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehearsal = false, hideGoNogo = false, onTeamClick, onlineUsers = [], onVersionEnded, refreshSignal }) => {
+export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehearsal = false, hideGoNogo = false, onTeamClick, onlineUsers = [], onVersionEnded, refreshSignal, onGoToHub }) => {
   const { can } = usePermissions();
   const [version, setVersion] = useState<any>(null);
-  const [allTasks, setAllTasks] = useState<any[]>([]);
   const [teams, setTeams] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
@@ -128,6 +140,11 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
   const [pushToggling, setPushToggling] = useState(false);
   const [blockingTask, setBlockingTask] = useState<{ id: string; title: string } | null>(null);
   const [blockingReason, setBlockingReason] = useState('');
+  const [focusMode, setFocusMode] = useState(false);
+  const [focusBlockTaskId, setFocusBlockTaskId] = useState<string | null>(null);
+  const [focusBlockReason, setFocusBlockReason] = useState('');
+  const [focusNearOnly, setFocusNearOnly] = useState(true);
+  const NEAR_MINUTES = 15;
 
   const payload = JSON.parse(atob(token.split('.')[1]));
   const isManager = ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role);
@@ -136,6 +153,62 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
   const [goDetails, setGoDetails] = useState<Record<string, { incomplete: number; blocked: number; blockedNoReason: string[] }>>({});
 
   const headers = { Authorization: `Bearer ${token}` };
+
+  const allTasks: any[] = useMemo(() =>
+    (version?.phases ?? []).flatMap((p: any) =>
+      (p.subPhases ?? []).flatMap((sp: any) =>
+        (sp.tasks ?? []).map((t: any) => ({
+          ...t,
+          _phaseEnv: p.environment,
+          _phaseOrderIndex: p.orderIndex,
+          _phaseName: p.name,
+          _phaseId: p.id,
+          _subPhaseName: sp.name,
+          _subPhaseId: sp.id,
+        }))
+      )
+    ),
+  [version]);
+
+  // Active phase: first phase that still has non-terminal tasks
+  const TERMINAL = ['DONE', 'FAILED', 'ROLLED_BACK'];
+
+  const { focusTasks, focusAllPhaseTasks, focusActivePhaseName } = useMemo(() => {
+    if (!allTasks.length) return { focusTasks: [], focusAllPhaseTasks: [], focusActivePhaseName: '' };
+
+    const phaseMap: Record<number, any[]> = {};
+    for (const t of allTasks) {
+      const key: number = t._phaseOrderIndex ?? 0;
+      if (!phaseMap[key]) phaseMap[key] = [];
+      phaseMap[key].push(t);
+    }
+
+    const sortedKeys = Object.keys(phaseMap).map(Number).sort((a, b) => a - b);
+    const activeKey = sortedKeys.find(k => phaseMap[k].some((t: any) => !TERMINAL.includes(t.status)));
+
+    if (activeKey === undefined) return { focusTasks: [], focusAllPhaseTasks: [], focusActivePhaseName: '' };
+
+    const sorted = [...(phaseMap[activeKey] as any[])].sort((a: any, b: any) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+    // Non-terminal tasks for the button badge count
+    const active = sorted.filter((t: any) => !TERMINAL.includes(t.status));
+    const phaseName = sorted[0]?._phaseName ?? '';
+    return { focusTasks: active, focusAllPhaseTasks: sorted, focusActivePhaseName: phaseName };
+  }, [allTasks]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const focusAction = async (taskId: string, status: string, reason?: string) => {
+    setUpdatingTaskId(taskId);
+    try {
+      await axios.patch(`${API}/tasks/${taskId}/status`,
+        { status, ...(reason !== undefined && { blockedReason: reason }) },
+        { headers });
+      await fetchData(true);
+      if (focusBlockTaskId === taskId) {
+        setFocusBlockTaskId(null);
+        setFocusBlockReason('');
+      }
+    } catch (err) { console.error(err); }
+    finally { setUpdatingTaskId(null); }
+  };
 
   const fetchDataRef = React.useRef<(silent?: boolean) => Promise<void>>(undefined);
 
@@ -148,17 +221,6 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
       ]);
       const v = versionRes.data;
       setVersion(v);
-      const tasks = (v.phases ?? []).flatMap((p: any) =>
-        (p.subPhases ?? []).flatMap((sp: any) =>
-          (sp.tasks ?? []).map((t: any) => ({
-            ...t,
-            _phaseEnv: p.environment,
-            _phaseOrderIndex: p.orderIndex,
-            _phaseName: p.name,
-          }))
-        )
-      );
-      setAllTasks(tasks);
       setTeams(teamsRes.data);
       setGoStatus({});
       setGoDetails({});
@@ -190,35 +252,64 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
     axios.get(`${API}/push/status`, { headers: h }).then(r => setPushEnabled(r.data.enabled)).catch(() => {});
   }, [token]);
 
+  // Use the same traversal as the plan view to guarantee count consistency
   const getEnvTasks = (env: string) =>
-    allTasks.filter(t => t._phaseEnv === env);
+    (version?.phases ?? [])
+      .filter((p: any) => p.environment === env)
+      .flatMap((p: any) => (p.subPhases ?? []).flatMap((sp: any) => sp.tasks ?? []));
 
   const checkGoForEnv = (env: string) => {
     setGoStatus(prev => ({ ...prev, [env]: 'checking' }));
 
-    const targetOrderIndex = allTasks.find(t => t._phaseEnv === env)?._phaseOrderIndex ?? 999;
-    const allRequired = allTasks.filter(t => t._phaseOrderIndex <= targetOrderIndex);
+    // Derive directly from version.phases (same source as plan view) to guarantee consistency
+    const phases = [...(version?.phases ?? [])].sort((a: any, b: any) => a.orderIndex - b.orderIndex);
+    const targetPhase = phases.find((p: any) => p.environment === env);
+    const targetOrderIndex = targetPhase?.orderIndex ?? 999;
 
-    const incomplete = allRequired.filter(t => t.status !== 'DONE' && !t.goNoGoWaived).length;
-    const blocked = allRequired.filter(t => (t.status === 'BLOCKED' || t.status === 'FAILED') && !t.goNoGoWaived).length;
-    const blockedNoReason = allRequired
-      .filter(t => t.status === 'BLOCKED' && !t.blockedReason)
+    const requiredPhases = phases.filter((p: any) => p.orderIndex <= targetOrderIndex);
+
+    // Group by phase ID (not orderIndex) — prevents merging phases that share the same orderIndex
+    const phasesSeen = new Map<string, { name: string; orderIndex: number; done: number; total: number }>();
+    for (const p of requiredPhases) {
+      phasesSeen.set(p.id, { name: p.name, orderIndex: p.orderIndex, done: 0, total: 0 });
+    }
+
+    const allRequired: any[] = [];
+    for (const p of requiredPhases) {
+      const entry = phasesSeen.get(p.id)!;
+      for (const sp of (p.subPhases ?? [])) {
+        for (const t of (sp.tasks ?? [])) {
+          allRequired.push({ ...t, _phaseId: p.id });
+          entry.total++;
+          if (t.status === 'DONE') entry.done++;
+        }
+      }
+    }
+
+    const incompleteList = allRequired.filter((t: any) => t.status !== 'DONE' && !t.goNoGoWaived);
+    const incomplete = incompleteList.length;
+    const blocked = incompleteList.filter((t: any) => t.status === 'BLOCKED' || t.status === 'FAILED').length;
+    const blockedNoReason = incompleteList
+      .filter((t: any) => t.status === 'BLOCKED' && !t.blockedReason)
       .map((t: any) => t.title);
 
-    const phasesSeen = new Map<number, { name: string; done: number; total: number }>();
-    for (const t of allRequired) {
-      const key = t._phaseOrderIndex;
-      if (!phasesSeen.has(key)) phasesSeen.set(key, { name: t._phaseName, done: 0, total: 0 });
-      const p = phasesSeen.get(key)!;
-      p.total++;
-      if (t.status === 'DONE') p.done++;
-    }
-    const missingByEnv: string[] = Array.from(phasesSeen.entries())
-      .sort((a, b) => a[0] - b[0])
-      .filter(([, p]) => p.done < p.total)
-      .map(([, p]) => `${p.name}: ${p.done}/${p.total} הושלמו`);
+    const statusLabel: Record<string, string> = {
+      WAITING: 'ממתין', OPEN: 'פתוח', IN_PROGRESS: 'בביצוע',
+      BLOCKED: 'חסום', FAILED: 'נכשל',
+    };
+    const incompleteTasks = incompleteList.slice(0, 10).map((t: any) => ({
+      title: t.title,
+      team: t.assignedTeam?.name ?? t.assignedTeamId ?? '',
+      phase: phasesSeen.get(t._phaseId ?? '')?.name ?? '',
+      status: statusLabel[t.status] ?? t.status,
+    }));
 
-    setGoDetails(prev => ({ ...prev, [env]: { blocked, incomplete, blockedNoReason, missingByEnv } as any }));
+    const missingByEnv: string[] = Array.from(phasesSeen.values())
+      .sort((a, b) => a.orderIndex - b.orderIndex)
+      .filter(p => p.done < p.total)
+      .map(p => `${p.name}: ${p.done}/${p.total} הושלמו`);
+
+    setGoDetails(prev => ({ ...prev, [env]: { blocked, incomplete, blockedNoReason, missingByEnv, incompleteTasks } as any }));
     setTimeout(() => {
       setGoStatus(prev => ({
         ...prev,
@@ -278,8 +369,11 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
   };
 
   const getGoRequiredTasks = (env: string) => {
-    const targetOrderIndex = allTasks.find(t => t._phaseEnv === env)?._phaseOrderIndex ?? 999;
-    return allTasks.filter(t => t._phaseOrderIndex <= targetOrderIndex);
+    const phases = [...(version?.phases ?? [])].sort((a: any, b: any) => a.orderIndex - b.orderIndex);
+    const targetOrderIndex = phases.find((p: any) => p.environment === env)?.orderIndex ?? 999;
+    return phases
+      .filter((p: any) => p.orderIndex <= targetOrderIndex)
+      .flatMap((p: any) => (p.subPhases ?? []).flatMap((sp: any) => sp.tasks ?? []));
   };
 
   const updateTaskStatus = async (taskId: string, status: string, blockedReason?: string) => {
@@ -325,16 +419,28 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
 
       {/* כותרת */}
       <div style={{
-        background: isRehearsal ? 'linear-gradient(135deg, #3d1c00 0%, #7a3500 100%)' : C.headerBg,
-        borderRadius: '12px', padding: '24px', marginBottom: '20px', color: 'white',
-        border: `1px solid ${C.border}`,
+        background: isRehearsal
+          ? 'linear-gradient(135deg, #7d3c00 0%, #c06a00 100%)'
+          : C.bgCard,
+        borderRadius: '12px', padding: '24px', marginBottom: '20px',
+        border: isRehearsal ? `1px solid rgba(240,136,62,0.40)` : `1px solid ${C.border}`,
+        boxShadow: SHADOW.sm,
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <h2 style={{ margin: '0 0 4px', fontSize: '24px', color: C.textPrimary }}>{isRehearsal ? '🎭 ' : ''}War Room — {versionName}</h2>
-            <p style={{ margin: 0, color: C.textMuted, fontSize: '14px' }}>{isRehearsal ? 'חזרה גנרלית — בזמן אמת' : 'מבט-על בזמן אמת'}</p>
+            <h2 style={{ margin: '0 0 4px', fontSize: '22px', color: isRehearsal ? 'white' : C.textPrimary }}>
+              {isRehearsal ? '🎭 ' : ''}War Room —{' '}
+              <span
+                onClick={onGoToHub}
+                title={onGoToHub ? 'עבור לדף הנחיתה' : undefined}
+                style={{ cursor: onGoToHub ? 'pointer' : 'default', textDecoration: onGoToHub ? 'underline dotted' : 'none' }}
+              >{versionName}</span>
+            </h2>
+            <p style={{ margin: 0, fontSize: '13px', color: isRehearsal ? 'rgba(255,255,255,0.75)' : C.textMuted }}>
+              {isRehearsal ? 'חזרה גנרלית — בזמן אמת' : 'מבט-על בזמן אמת'}
+            </p>
             {version?.reviewMeetingTime && (
-              <p style={{ margin: '4px 0 0', color: '#58a6ff', fontSize: '13px', fontWeight: '600' }}>
+              <p style={{ margin: '4px 0 0', color: isRehearsal ? 'rgba(255,255,255,0.90)' : C.info, fontSize: '13px', fontWeight: '600' }}>
                 🗓 ישיבת מעבר: {new Date(version.reviewMeetingTime).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
               </p>
             )}
@@ -352,46 +458,112 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                 }}
                 title={pushEnabled ? 'כבה התראות Push לכולם' : 'הפעל התראות Push לכולם'}
                 style={{
-                  padding: '8px 14px', borderRadius: '8px', cursor: pushToggling ? 'not-allowed' : 'pointer',
+                  padding: '7px 14px', borderRadius: '8px', cursor: pushToggling ? 'not-allowed' : 'pointer',
                   fontSize: '13px', fontWeight: 'bold', border: 'none', fontFamily: FONT,
-                  background: pushEnabled ? 'rgba(63,185,80,0.25)' : 'rgba(248,81,73,0.25)',
+                  background: pushEnabled ? C.successBg : C.dangerBg,
                   color: pushEnabled ? C.statusDone : C.statusFailed,
                 }}>
                 {pushEnabled ? '🔔 Push פעיל' : '🔕 Push כבוי'}
               </button>
             )}
+            {version?.phases?.length > 0 && (
+              <button onClick={() => { setFocusMode(true); setFocusBlockTaskId(null); setFocusBlockReason(''); }} style={{
+                padding: '7px 16px', background: C.brand, color: 'white',
+                border: 'none', borderRadius: '8px', cursor: 'pointer',
+                fontSize: '13px', fontFamily: FONT, fontWeight: 'bold',
+              }}>
+                ⚡ מצב הרצה{focusTasks.length > 0 ? ` (${focusTasks.length})` : ''}
+              </button>
+            )}
             <button onClick={() => fetchData()} style={{
-              padding: '8px 16px', background: 'rgba(255,255,255,0.1)', color: C.textSecondary,
+              padding: '7px 16px', background: C.bgNested, color: C.textSecondary,
               border: `1px solid ${C.borderEm}`, borderRadius: '8px', cursor: 'pointer',
-              fontSize: '14px', fontFamily: FONT,
+              fontSize: '13px', fontFamily: FONT,
             }}>
               רענן
             </button>
           </div>
         </div>
 
-        <div style={{ marginTop: '20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '13px', color: C.textSecondary }}>
-            <span>התקדמות כללית</span>
-            <span>{doneTasks}/{totalTasks} משימות ({progressPercent}%)</span>
-          </div>
-          <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '8px', height: '12px', overflow: 'hidden' }}>
-            <div style={{ background: progressPercent === 100 ? C.statusDone : C.brand, width: `${progressPercent}%`, height: '100%', borderRadius: '8px', transition: 'width 0.5s ease' }} />
-          </div>
-        </div>
+        {/* בר התקדמות מפולח לפי שלבים */}
+        {(() => {
+          const phases = [...(version?.phases ?? [])].sort((a: any, b: any) => a.orderIndex - b.orderIndex);
+          if (phases.length === 0 || totalTasks === 0) return (
+            <div style={{ marginTop: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '13px', color: isRehearsal ? 'rgba(255,255,255,0.80)' : C.textSecondary }}>
+                <span>התקדמות כללית</span>
+                <span>{doneTasks}/{totalTasks} משימות ({progressPercent}%)</span>
+              </div>
+              <div style={{ background: isRehearsal ? 'rgba(0,0,0,0.20)' : C.bgHover, borderRadius: '8px', height: '10px', overflow: 'hidden' }}>
+                <div style={{ background: progressPercent === 100 ? C.statusDone : C.brand, width: `${progressPercent}%`, height: '100%', borderRadius: '8px', transition: 'width 0.5s ease' }} />
+              </div>
+            </div>
+          );
+          const phaseStats = phases.map((p: any) => {
+            const pTasks = (p.subPhases ?? []).flatMap((sp: any) => sp.tasks ?? []);
+            const done = pTasks.filter((t: any) => TERMINAL.includes(t.status)).length;
+            const inProg = pTasks.filter((t: any) => t.status === 'IN_PROGRESS').length;
+            const blocked = pTasks.filter((t: any) => t.status === 'BLOCKED').length;
+            const total = pTasks.length;
+            const pct = total > 0 ? done / total : 0;
+            const isActive = total > 0 && done < total && (inProg > 0 || blocked > 0 || pTasks.some((t: any) => t.status === 'OPEN'));
+            const isDone = total > 0 && done === total;
+            return { id: p.id, name: p.name, done, inProg, blocked, total, pct, isActive, isDone };
+          }).filter((p: any) => p.total > 0);
+          const totalAll = phaseStats.reduce((s: number, p: any) => s + p.total, 0);
+          return (
+            <div style={{ marginTop: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '13px', color: isRehearsal ? 'rgba(255,255,255,0.80)' : C.textSecondary }}>
+                <span>התקדמות כללית</span>
+                <span>{doneTasks}/{totalTasks} משימות ({progressPercent}%)</span>
+              </div>
+              {/* Segmented bar */}
+              <div style={{ display: 'flex', gap: '2px', height: '12px', borderRadius: '8px', overflow: 'hidden', background: isRehearsal ? 'rgba(0,0,0,0.20)' : C.bgHover }}>
+                {phaseStats.map((p: any, i: number) => {
+                  const segWidth = totalAll > 0 ? (p.total / totalAll) * 100 : 0;
+                  const fillColor = p.isDone ? C.statusDone : p.isActive ? C.statusInProgress : C.brand;
+                  const fillPct = p.pct * 100;
+                  return (
+                    <div key={p.id} title={`${p.name}: ${p.done}/${p.total}`} style={{ flex: `${segWidth} 0 0%`, position: 'relative', background: isRehearsal ? 'rgba(255,255,255,0.08)' : C.bgHover, borderLeft: i > 0 ? `2px solid ${isRehearsal ? 'rgba(0,0,0,0.3)' : C.bgApp}` : 'none', overflow: 'hidden' }}>
+                      <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${fillPct}%`, background: fillColor, transition: 'width 0.5s ease' }} />
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Phase labels */}
+              <div style={{ display: 'flex', gap: '2px', marginTop: '5px' }}>
+                {phaseStats.map((p: any) => {
+                  const segWidth = totalAll > 0 ? (p.total / totalAll) * 100 : 0;
+                  const labelColor = p.isDone ? C.statusDone : p.isActive ? C.statusInProgress : isRehearsal ? 'rgba(255,255,255,0.45)' : C.textDisabled;
+                  return (
+                    <div key={p.id} title={`${p.name}: ${p.done}/${p.total}`} style={{ flex: `${segWidth} 0 0%`, overflow: 'hidden', textAlign: 'center' }}>
+                      <span style={{ fontSize: '10px', color: labelColor, whiteSpace: 'nowrap', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {p.isActive ? '▶ ' : p.isDone ? '✓ ' : ''}{p.name} {p.done}/{p.total}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
-        <div style={{ display: 'flex', gap: '12px', marginTop: '16px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '10px', marginTop: '16px', flexWrap: 'wrap' }}>
           {[
             { label: 'הושלמו', value: doneTasks,                                              color: C.statusDone },
             { label: 'בביצוע', value: inProgressTasks,                                        color: C.statusInProgress },
             { label: 'פתוחות', value: allTasks.filter(t => t.status === 'OPEN').length,       color: C.statusOpen },
             { label: 'ממתינות', value: allTasks.filter(t => t.status === 'WAITING').length,   color: C.statusWaiting },
             { label: 'חסומות', value: blockedTasks,                                            color: C.statusBlocked },
-            { label: 'סה"כ',  value: totalTasks,                                              color: C.textPrimary },
+            { label: 'סה"כ',  value: totalTasks,                                              color: isRehearsal ? 'white' : C.textPrimary },
           ].map(stat => (
-            <div key={stat.label} style={{ background: 'rgba(255,255,255,0.07)', borderRadius: '8px', padding: '10px 16px', textAlign: 'center', minWidth: '70px', border: `1px solid ${C.border}` }}>
-              <div style={{ fontSize: '24px', fontWeight: 'bold', color: stat.color }}>{stat.value}</div>
-              <div style={{ fontSize: '11px', color: C.textMuted }}>{stat.label}</div>
+            <div key={stat.label} style={{
+              background: isRehearsal ? 'rgba(0,0,0,0.20)' : C.bgNested,
+              borderRadius: '8px', padding: '10px 14px', textAlign: 'center', minWidth: '70px',
+              border: `1px solid ${isRehearsal ? 'rgba(255,255,255,0.12)' : C.border}`,
+            }}>
+              <div style={{ fontSize: '22px', fontWeight: 'bold', color: stat.color }}>{stat.value}</div>
+              <div style={{ fontSize: '11px', color: isRehearsal ? 'rgba(255,255,255,0.65)' : C.textMuted }}>{stat.label}</div>
             </div>
           ))}
         </div>
@@ -541,11 +713,27 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
         const onlineIds = new Set(onlineUsers.map(u => u.userId));
         const onlineNames = new Set(onlineUsers.map(u => u.fullName));
 
+        // Build deduplicated user map: prefer userId as key; fall back to name.
+        // Prevents duplicate cards when the same person has tasks with and without a userId.
         const planUserMap = new Map<string, { key: string; name: string }>();
+        const nameToKey = new Map<string, string>(); // normalised name → map key
+
         allTasks.forEach(t => {
-          const key = t.assignedUserId || t.assignedUserName;
-          if (key && !planUserMap.has(key)) {
-            planUserMap.set(key, { key, name: t.assignedUserName || key });
+          const userId   = t.assignedUserId;
+          const userName = (t.assignedUserName || '').trim();
+          const normName = userName.toLowerCase();
+
+          if (userId) {
+            if (!planUserMap.has(userId)) {
+              planUserMap.set(userId, { key: userId, name: userName || userId });
+              if (normName) nameToKey.set(normName, userId);
+            }
+          } else if (userName) {
+            // Only add a name-only entry if no userId entry already covers this person
+            if (!nameToKey.has(normName)) {
+              planUserMap.set(userName, { key: userName, name: userName });
+              nameToKey.set(normName, userName);
+            }
           }
         });
         const planUsers = Array.from(planUserMap.values());
@@ -560,9 +748,11 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
           dot: React.ReactNode,
           cardStyle: React.CSSProperties,
         ) => {
+          const normName = name.trim().toLowerCase();
+          // Match tasks by userId OR by name (case-insensitive), to unify both data shapes
           const userTasks = allTasks.filter(t =>
-            t.assignedUserId === key ||
-            (!t.assignedUserId && t.assignedUserName === name)
+            (t.assignedUserId && t.assignedUserId === key) ||
+            (!t.assignedUserId && (t.assignedUserName || '').trim().toLowerCase() === normName)
           );
           const uDone       = userTasks.filter(t => t.status === 'DONE').length;
           const uInProgress = userTasks.filter(t => t.status === 'IN_PROGRESS').length;
@@ -854,6 +1044,358 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
         </div>
       )}
       </>}
+
+      {/* ── מצד הרצה — רשימת משימות ── */}
+      {focusMode && (() => {
+        const myUserId = payload.sub;
+        const myName = (payload.fullName || '').trim().toLowerCase();
+
+        const isMyTask = (t: any) =>
+          (t.assignedUserId && t.assignedUserId === myUserId) ||
+          (t.assignedUserName && t.assignedUserName.trim().toLowerCase() === myName);
+
+        const phaseDone = focusAllPhaseTasks.filter((t: any) => TERMINAL.includes(t.status)).length;
+        const phaseTotal = focusAllPhaseTasks.length;
+        const phasePct = phaseTotal > 0 ? Math.round((phaseDone / phaseTotal) * 100) : 0;
+
+        const myActiveTasks = focusAllPhaseTasks.filter((t: any) =>
+          isMyTask(t) && !TERMINAL.includes(t.status)
+        );
+
+        // Tasks eligible for batch open: WAITING + all deps terminal (or no deps)
+        const openableWaiting = focusAllPhaseTasks.filter((t: any) =>
+          t.status === 'WAITING' &&
+          !(t.dependencies ?? []).some((d: any) => !TERMINAL.includes(d.dependsOn?.status ?? ''))
+        );
+
+        const openAllNoDeps = async () => {
+          await Promise.all(
+            openableWaiting.map((t: any) =>
+              axios.patch(`${API}/tasks/${t.id}/status`, { status: 'OPEN' }, { headers }).catch(() => {})
+            )
+          );
+          await fetchData(true);
+        };
+
+        // Group tasks by sub-phase for list display
+        const subPhaseGroups: { subName: string; tasks: any[] }[] = [];
+        for (const t of focusAllPhaseTasks) {
+          const name = t._subPhaseName || t._phaseName || '';
+          let grp = subPhaseGroups.find(g => g.subName === name);
+          if (!grp) { grp = { subName: name, tasks: [] }; subPhaseGroups.push(grp); }
+          grp.tasks.push(t);
+        }
+
+        const TaskRow = ({ task }: { task: any }) => {
+          const isUpdating = updatingTaskId === task.id;
+          const isMine = isMyTask(task);
+          const isBlocking = focusBlockTaskId === task.id;
+          const isDone = TERMINAL.includes(task.status);
+          const isIP = task.status === 'IN_PROGRESS';
+          const isOpen = task.status === 'OPEN';
+          const isWait = task.status === 'WAITING';
+          const isBlocked = task.status === 'BLOCKED';
+          const hasBlockingDeps = (task.dependencies ?? []).some(
+            (d: any) => !TERMINAL.includes(d.dependsOn?.status ?? '')
+          );
+          const sColor = statusColor(task.status);
+          const btnBase: React.CSSProperties = {
+            fontFamily: FONT, fontSize: '12px', fontWeight: 'bold',
+            padding: '5px 10px', border: 'none', borderRadius: '6px',
+            cursor: isUpdating ? 'not-allowed' : 'pointer',
+            whiteSpace: 'nowrap', opacity: isUpdating ? 0.6 : 1,
+            width: '100%', textAlign: 'center',
+          };
+
+          return (
+            <div key={task.id} style={{
+              borderRight: `3px solid ${sColor}`,
+              borderBottom: `1px solid rgba(255,255,255,0.06)`,
+              background: isDone ? 'rgba(255,255,255,0.02)' :
+                isMine ? (isIP ? 'rgba(56,139,253,0.12)' : isOpen ? 'rgba(227,179,65,0.10)' : 'rgba(240,106,106,0.07)') :
+                (isIP ? 'rgba(56,139,253,0.06)' : isBlocked ? 'rgba(240,106,106,0.08)' : '#172030'),
+              opacity: isDone ? 0.45 : 1,
+            }}>
+              {/* Main row */}
+              <div style={{ display: 'flex', alignItems: 'center', minHeight: '44px', gap: '0' }}>
+
+                {/* Col: Title (flex, right in RTL) */}
+                <div style={{ flex: 1, minWidth: 0, padding: '6px 10px 6px 4px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    {isMine && !isDone && <span style={{ color: C.brand, fontSize: '11px' }}>★</span>}
+                    <span style={{ fontSize: '13px', fontWeight: isMine && !isDone ? 'bold' : 'normal', color: isDone ? C.textDisabled : 'white' }}>
+                      {task.title}
+                    </span>
+                    {task.crNumber && <span style={{ fontSize: '10px', color: C.info, background: C.infoBg ?? 'rgba(56,139,253,0.15)', padding: '1px 5px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>{task.crNumber}</span>}
+                  </div>
+                  {/* Sub-info row */}
+                  <div style={{ display: 'flex', gap: '8px', fontSize: '11px', color: 'rgba(255,255,255,0.45)', flexWrap: 'wrap', alignItems: 'center' }}>
+                    {task.assignedTeam?.name && <span style={{ color: C.brand, background: 'rgba(56,139,253,0.15)', padding: '0 5px', borderRadius: '4px' }}>{task.assignedTeam.name}</span>}
+                    {task.assignedUserName && <span>{task.assignedUserName.split(' ')[0]}</span>}
+                    {task.application && <span>{task.application}</span>}
+                    {task.duration && <span>⏱ {task.duration}</span>}
+                    {(task.plannedStart || task.plannedEnd) && (
+                      <span style={{ color: 'rgba(255,255,255,0.55)', background: 'rgba(255,255,255,0.07)', padding: '1px 6px', borderRadius: '4px', whiteSpace: 'nowrap' }}>
+                        🕐 {task.plannedStart ? new Date(task.plannedStart).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '?'}
+                        {task.plannedEnd && ` — ${new Date(task.plannedEnd).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`}
+                      </span>
+                    )}
+                    {isBlocked && task.blockedReason && <span style={{ color: C.statusFailed }}>⛔ {task.blockedReason}</span>}
+                  </div>
+                  {/* Dependencies row — shown for any task that has deps */}
+                  {(task.dependencies ?? []).length > 0 && (
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center', marginTop: '3px' }}>
+                      <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.30)', flexShrink: 0 }}>תלוי ב:</span>
+                      {(task.dependencies ?? []).map((d: any) => {
+                        const depStatus = d.dependsOn?.status ?? '';
+                        const done = TERMINAL.includes(depStatus);
+                        const dc = done ? C.statusDone : statusColor(depStatus);
+                        return (
+                          <span key={d.id} style={{
+                            fontSize: '10px', color: dc, background: dc + '22',
+                            padding: '1px 6px', borderRadius: '4px',
+                            maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            display: 'inline-block', flexShrink: 0,
+                          }}>
+                            {done ? '✓' : '○'} {d.dependsOn?.title ?? '?'}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Col: Status chip */}
+                <div style={{ width: '64px', flexShrink: 0, padding: '0 4px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '10px', color: sColor, background: sColor + '22', padding: '2px 6px', borderRadius: '8px', whiteSpace: 'nowrap', display: 'inline-block' }}>
+                    {task.status === 'DONE' ? 'הושלם' : task.status === 'IN_PROGRESS' ? 'בביצוע' : task.status === 'OPEN' ? 'פתוח' : task.status === 'WAITING' ? 'ממתין' : task.status === 'BLOCKED' ? 'חסום' : task.status === 'FAILED' ? 'נכשל' : 'Rollback'}
+                  </span>
+                </div>
+
+                {/* Col: Action buttons (stacked, left in RTL) */}
+                <div style={{ width: '90px', flexShrink: 0, padding: '4px 6px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  {!isDone && !isBlocking ? (
+                    <>
+                      {isOpen && (
+                        <button disabled={isUpdating} onClick={() => focusAction(task.id, 'IN_PROGRESS')}
+                          style={{ ...btnBase, background: `linear-gradient(135deg,${C.statusInProgress},#b07d1e)`, color: 'white', boxShadow: '0 2px 6px rgba(227,179,65,0.25)' }}>
+                          ▶ התחל
+                        </button>
+                      )}
+                      {isIP && (
+                        <button disabled={isUpdating} onClick={() => focusAction(task.id, 'DONE')}
+                          style={{ ...btnBase, background: `linear-gradient(135deg,${C.statusDone},#2ea043)`, color: 'white', boxShadow: '0 2px 6px rgba(86,211,100,0.22)' }}>
+                          ✓ סיים
+                        </button>
+                      )}
+                      {isBlocked && (
+                        <button disabled={isUpdating} onClick={() => focusAction(task.id, 'IN_PROGRESS')}
+                          style={{ ...btnBase, background: 'transparent', color: C.statusDone, border: `1px solid ${C.statusDone}44` }}>
+                          ♻️ חזור
+                        </button>
+                      )}
+                      {(isOpen || isIP) && (
+                        <button disabled={isUpdating} onClick={() => { setFocusBlockTaskId(task.id); setFocusBlockReason(''); }}
+                          style={{ ...btnBase, background: 'transparent', color: C.statusFailed, border: `1px solid ${C.statusFailed}55` }}>
+                          🚫 חסום
+                        </button>
+                      )}
+                      {isWait && !hasBlockingDeps && isManager && (
+                        <button disabled={isUpdating} onClick={() => focusAction(task.id, 'OPEN')}
+                          style={{ ...btnBase, background: `linear-gradient(135deg,${C.brand},#2563eb)`, color: 'white', boxShadow: '0 2px 6px rgba(56,139,253,0.30)' }}>
+                          ▷ פתח
+                        </button>
+                      )}
+                    </>
+                  ) : isDone ? (
+                    <span style={{ fontSize: '18px', textAlign: 'center', display: 'block', opacity: 0.5 }}>
+                      {task.status === 'DONE' ? '✓' : task.status === 'FAILED' ? '✗' : '⏪'}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              {/* Block reason input (inline) */}
+              {isBlocking && (
+                <div style={{ padding: '8px 10px 10px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                  <textarea autoFocus value={focusBlockReason} onChange={e => setFocusBlockReason(e.target.value)}
+                    placeholder="סיבת חסימה (חובה)..." rows={2}
+                    style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: `1px solid ${C.statusFailed}66`, fontSize: '13px', resize: 'none', boxSizing: 'border-box', direction: 'rtl', fontFamily: FONT, background: C.bgCard, color: 'white', outline: 'none', marginBottom: '7px' }}
+                  />
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button onClick={() => { setFocusBlockTaskId(null); setFocusBlockReason(''); }}
+                      style={{ flex: 1, padding: '6px', background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', cursor: 'pointer', fontFamily: FONT, fontSize: '12px' }}>
+                      ביטול
+                    </button>
+                    <button disabled={!focusBlockReason.trim() || isUpdating}
+                      onClick={() => focusAction(task.id, 'BLOCKED', focusBlockReason.trim())}
+                      style={{ flex: 2, padding: '6px', background: focusBlockReason.trim() ? C.statusFailed : 'rgba(255,255,255,0.05)', color: focusBlockReason.trim() ? 'white' : 'rgba(255,255,255,0.25)', border: 'none', borderRadius: '6px', cursor: focusBlockReason.trim() ? 'pointer' : 'not-allowed', fontWeight: 'bold', fontFamily: FONT, fontSize: '12px' }}>
+                      אשר חסימה 🚫
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        };
+
+        // ── Near-tasks filter ──
+        const now = Date.now();
+        const isNearTask = (t: any) => {
+          if (t.status === 'OPEN' || t.status === 'IN_PROGRESS' || t.status === 'BLOCKED') return true;
+          if (!TERMINAL.includes(t.status) && t.plannedStart) {
+            const ms = new Date(t.plannedStart).getTime() - now;
+            return ms >= 0 && ms <= NEAR_MINUTES * 60_000;
+          }
+          return false;
+        };
+
+        const filterTasks = (tasks: any[]) =>
+          focusNearOnly ? tasks.filter(isNearTask) : tasks;
+
+        const filteredMyActive = filterTasks(myActiveTasks);
+        const filteredGroups = subPhaseGroups.map(grp => ({
+          ...grp,
+          tasks: filterTasks(grp.tasks),
+        })).filter(grp => grp.tasks.length > 0);
+
+        const nearCount = focusAllPhaseTasks.filter(isNearTask).length;
+
+        // ── Dark panel colors (matching board dark theme) ──
+        const PNL = {
+          bg:       '#0f1923',   // deep navy
+          header:   '#0b1420',   // darker header strip
+          card:     '#172030',   // task card bg
+          section:  '#13243a',   // sub-phase header
+          border:   'rgba(255,255,255,0.08)',
+          text:     '#e8edf2',
+          muted:    'rgba(255,255,255,0.45)',
+        };
+
+        return (
+          <div
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 20000, display: 'flex', alignItems: 'center', justifyContent: 'center', direction: 'rtl', fontFamily: FONT }}
+            onClick={() => setFocusMode(false)}
+          >
+            <div
+              style={{ width: '100%', maxWidth: '820px', height: '90vh', margin: '0 16px', display: 'flex', flexDirection: 'column', background: PNL.bg, borderRadius: '16px', boxShadow: '0 24px 64px rgba(0,0,0,0.7)', overflow: 'hidden', border: `1px solid ${PNL.border}` }}
+              onClick={e => e.stopPropagation()}
+            >
+
+              {/* ── Header bar ── */}
+              <div style={{ background: PNL.header, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: `1px solid ${PNL.border}`, flexShrink: 0 }}>
+                <span style={{ fontSize: '18px' }}>⚡</span>
+                <span style={{ fontSize: '16px', fontWeight: 'bold', color: PNL.text }}>מצב הרצה</span>
+                {focusActivePhaseName && (
+                  <span style={{ fontSize: '13px', color: PNL.muted, background: 'rgba(255,255,255,0.07)', padding: '3px 12px', borderRadius: '20px', border: `1px solid ${PNL.border}` }}>
+                    {focusActivePhaseName}
+                  </span>
+                )}
+                <div style={{ flex: 1 }} />
+                {/* Near-only toggle */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: '7px', cursor: 'pointer', fontSize: '13px', color: PNL.muted, userSelect: 'none' as const }}>
+                  <input
+                    type="checkbox"
+                    checked={focusNearOnly}
+                    onChange={e => setFocusNearOnly(e.target.checked)}
+                    style={{ width: '15px', height: '15px', accentColor: C.brand, cursor: 'pointer' }}
+                  />
+                  <span style={{ color: focusNearOnly ? C.brand : PNL.muted, fontWeight: focusNearOnly ? 'bold' : 'normal' }}>
+                    {NEAR_MINUTES} דקות קרובות בלבד
+                    {focusNearOnly && <span style={{ marginRight: '6px', color: C.statusWaiting }}>({nearCount})</span>}
+                  </span>
+                </label>
+                <span style={{ color: PNL.muted, fontSize: '12px', background: 'rgba(255,255,255,0.06)', padding: '3px 10px', borderRadius: '10px' }}>
+                  {phaseDone}/{phaseTotal} ✓
+                </span>
+                <button onClick={() => setFocusMode(false)}
+                  style={{ background: 'rgba(255,255,255,0.07)', border: `1px solid ${PNL.border}`, color: PNL.muted, cursor: 'pointer', fontSize: '18px', width: '30px', height: '30px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  ×
+                </button>
+              </div>
+
+              {/* ── Progress bar ── */}
+              <div style={{ padding: '10px 20px', background: PNL.header, borderBottom: `1px solid ${PNL.border}`, flexShrink: 0, display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ flex: 1, height: '7px', background: 'rgba(255,255,255,0.10)', borderRadius: '4px', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${phasePct}%`, background: phasePct === 100 ? C.statusDone : `linear-gradient(90deg, ${C.brand}, ${C.statusInProgress})`, borderRadius: '4px', transition: 'width 0.5s ease' }} />
+                </div>
+                <span style={{ fontSize: '12px', color: PNL.muted, whiteSpace: 'nowrap' }}>{phasePct}%</span>
+                {isManager && openableWaiting.length > 0 && (
+                  <button disabled={!!updatingTaskId} onClick={openAllNoDeps}
+                    style={{ padding: '5px 14px', background: '#4a3a00', color: '#f0c040', border: '1px solid #7a6010', borderRadius: '7px', cursor: updatingTaskId ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '12px', fontFamily: FONT, whiteSpace: 'nowrap', opacity: updatingTaskId ? 0.6 : 1 }}>
+                    🔓 פתח ללא תלות ({openableWaiting.length})
+                  </button>
+                )}
+              </div>
+
+              {/* ── Task list (scrollable) ── */}
+              <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+                {phaseTotal === 0 ? (
+                  <div style={{ padding: '60px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '48px', marginBottom: '12px' }}>✅</div>
+                    <div style={{ fontSize: '18px', fontWeight: 'bold', color: C.statusDone }}>כל השלבים הושלמו!</div>
+                  </div>
+                ) : (
+                  <>
+                    {/* My tasks */}
+                    {filteredMyActive.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: '12px', fontWeight: 'bold', color: C.brand, padding: '8px 16px', background: 'rgba(240,106,106,0.10)', borderBottom: `1px solid rgba(240,106,106,0.15)`, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          ★ המשימות שלי ({filteredMyActive.length})
+                        </div>
+                        {filteredMyActive.map((t: any) => <TaskRow key={t.id} task={t} />)}
+                      </div>
+                    )}
+
+                    {/* By sub-phase */}
+                    {filteredGroups.map(grp => {
+                      const grpDone = grp.tasks.filter((t: any) => TERMINAL.includes(t.status)).length;
+                      return (
+                        <div key={grp.subName}>
+                          <div style={{ fontSize: '12px', fontWeight: 'bold', color: 'rgba(255,255,255,0.55)', padding: '7px 16px', background: PNL.section, borderBottom: `1px solid ${PNL.border}`, borderTop: `1px solid ${PNL.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>{grp.subName}</span>
+                            <span style={{ color: grpDone === grp.tasks.length ? C.statusDone : PNL.muted }}>{grpDone}/{grp.tasks.length}</span>
+                          </div>
+                          {grp.tasks.map((t: any) => <TaskRow key={t.id} task={t} />)}
+                        </div>
+                      );
+                    })}
+
+                    {focusNearOnly && nearCount === 0 && (
+                      <div style={{ padding: '48px', textAlign: 'center', color: PNL.muted }}>
+                        <div style={{ fontSize: '32px', marginBottom: '10px' }}>⏳</div>
+                        <div style={{ fontSize: '14px' }}>אין משימות פעילות בטווח {NEAR_MINUTES} הדקות הקרובות</div>
+                        <button onClick={() => setFocusNearOnly(false)}
+                          style={{ marginTop: '14px', padding: '7px 18px', background: 'rgba(255,255,255,0.08)', color: PNL.text, border: `1px solid ${PNL.border}`, borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontFamily: FONT }}>
+                          הצג כל המשימות
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* ── Footer status strip ── */}
+              <div style={{ background: PNL.header, borderTop: `1px solid ${PNL.border}`, padding: '8px 20px', display: 'flex', gap: '16px', fontSize: '12px', color: PNL.muted, flexShrink: 0, flexWrap: 'wrap' }}>
+                {[
+                  { label: 'הושלם', count: focusAllPhaseTasks.filter((t: any) => t.status === 'DONE').length, color: C.statusDone },
+                  { label: 'בביצוע', count: focusAllPhaseTasks.filter((t: any) => t.status === 'IN_PROGRESS').length, color: C.statusInProgress },
+                  { label: 'פתוח',  count: focusAllPhaseTasks.filter((t: any) => t.status === 'OPEN').length, color: C.statusOpen },
+                  { label: 'ממתין', count: focusAllPhaseTasks.filter((t: any) => t.status === 'WAITING').length, color: C.statusWaiting },
+                  { label: 'חסום',  count: focusAllPhaseTasks.filter((t: any) => t.status === 'BLOCKED').length, color: C.statusFailed },
+                ].filter(s => s.count > 0).map(s => (
+                  <span key={s.label} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: s.color, display: 'inline-block' }} />
+                    <span style={{ color: s.color, fontWeight: 'bold' }}>{s.count}</span>
+                    <span>{s.label}</span>
+                  </span>
+                ))}
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── דיאלוג סיבת חסימה ── */}
       {blockingTask && (

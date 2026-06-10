@@ -21,6 +21,8 @@ import { PushModule } from './push/push.module';
 import { VersionCrAssignmentsModule } from './version-cr-assignments/version-cr-assignments.module';
 import { SystemParamsModule } from './system-params/system-params.module';
 import { FailureReasonsModule } from './failure-reasons/failure-reasons.module';
+import { QaModule } from './qa/qa.module';
+import { LeavesModule } from './leaves/leaves.module';
 
 @Module({
   imports: [
@@ -34,7 +36,7 @@ import { FailureReasonsModule } from './failure-reasons/failure-reasons.module';
     AuthModule, UsersModule, TasksModule, TeamsModule, VersionsModule,
     EventsModule, ImportModule, SummaryModule, PermissionsModule, QcModule, QcReleasesModule,
     VersionTemplatesModule, TaskProposalsModule, CrPlansModule, VersionCrAssignmentsModule,
-    SystemParamsModule, FailureReasonsModule,
+    SystemParamsModule, FailureReasonsModule, QaModule, LeavesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

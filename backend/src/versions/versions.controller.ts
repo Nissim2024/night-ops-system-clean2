@@ -52,6 +52,16 @@ export class VersionsController {
     return this.versionsService.setNotRequiredForApproval(versionId, teamId, body.notRequiredForApproval);
   }
 
+  @Patch(':id')
+  updateFields(
+    @Param('id') id: string,
+    @Body() body: { plannedStart?: string | null; plannedEnd?: string | null; reviewMeetingTime?: string | null; name?: string; description?: string },
+    @Request() req: any,
+  ) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לעדכן פרטי גרסה');
+    return this.versionsService.updateFields(id, body);
+  }
+
   @Patch(':id/planned-end')
   updatePlannedEnd(
     @Param('id') id: string,
@@ -235,11 +245,11 @@ export class VersionsController {
   @Patch(':id/reassign-tasks')
   reassignTasks(
     @Param('id') id: string,
-    @Body() body: { fromUserName: string; toUserId: string; phaseId?: string },
+    @Body() body: { fromUserName: string | null; toUserId: string; phaseId?: string; fromTeamId?: string },
     @Request() req: any,
   ) {
     requireRole(req, MANAGERS, 'רק מנהל לילה יכול להחליף עובד במשימות');
-    return this.versionsService.reassignTasks(id, body.fromUserName, body.toUserId, body.phaseId);
+    return this.versionsService.reassignTasks(id, body.fromUserName ?? null, body.toUserId, body.phaseId, body.fromTeamId);
   }
 
   @Post(':id/rollback-user-deps')
@@ -302,5 +312,11 @@ export class VersionsController {
   ) {
     requireRole(req, MANAGERS, 'רק מנהל לילה יכול לתזמן מחדש');
     return this.versionsService.reschedule(id, body.phases ?? [], preview === 'true', body.respectDeps ?? false, body.taskOverrides ?? []);
+  }
+
+  @Post(':id/send-collecting-reminder')
+  sendCollectingReminder(@Param('id') id: string, @Request() req: any) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לשלוח תזכורות');
+    return this.versionsService.sendCollectingReminder(id);
   }
 }

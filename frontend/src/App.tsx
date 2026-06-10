@@ -25,7 +25,8 @@ function App() {
   }
 
   const payload = JSON.parse(atob(token.split('.')[1]));
-  const isManager = ['ADMIN', 'RELEASE_MANAGER', 'TEAM_LEAD'].includes(payload.role);
+  // VIEWER → ManagerDashboard (read-only via permissions), EMPLOYEE → EmployeeDashboard
+  const isManager = ['ADMIN', 'RELEASE_MANAGER', 'CR_MANAGER', 'TEAM_LEAD', 'VIEWER'].includes(payload.role);
 
   return (
     <PermissionsProvider token={token} role={payload.role}>

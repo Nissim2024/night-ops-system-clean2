@@ -73,6 +73,7 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
   const [loading, setLoading]     = useState(true);
   const [expandedCrs, setExpandedCrs]   = useState<Set<string>>(new Set());
   const [teamFilter, setTeamFilter]     = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'draft'>('all');
   const [editingId, setEditingId]       = useState<string | null>(null);
   const [editForm, setEditForm]         = useState({ ...emptyEdit });
   const [savingId, setSavingId]         = useState<string | null>(null);
@@ -156,7 +157,15 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
         return { teamId: tid, teamName: teamName(tid), crGroups, freeProposals: free };
       })
       .sort((a, b) => a.teamName.localeCompare(b.teamName, 'he'));
-  }, [proposals, crPlans, teams, teamFilter]); // eslint-disable-line
+  }, [proposals, crPlans, teams, teamFilter, statusFilter]); // eslint-disable-line
+
+  const matchesStatusFilter = (p: Proposal) => {
+    if (statusFilter === 'all')      return true;
+    if (statusFilter === 'approved') return !!p.usedInTaskId;
+    if (statusFilter === 'pending')  return p.status === 'READY' && !p.usedInTaskId;
+    if (statusFilter === 'draft')    return p.status === 'DRAFT' && !p.usedInTaskId;
+    return true;
+  };
 
   const totalProposals = proposals.length;
   const totalReady     = proposals.filter(p => p.status === 'READY' || p.usedInTaskId).length;
@@ -452,6 +461,25 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
 
       {/* Controls */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* Status filter */}
+        {([
+          ['all',      'הצג הכל',      proposals.length],
+          ['pending',  'ממתין לאישור', proposals.filter(p => p.status === 'READY' && !p.usedInTaskId).length],
+          ['approved', '✅ אושר',       proposals.filter(p => !!p.usedInTaskId).length],
+          ['draft',    'לא נדרש',      proposals.filter(p => p.status === 'DRAFT' && !p.usedInTaskId).length],
+        ] as [typeof statusFilter, string, number][]).map(([key, label, count]) => (
+          <button key={key} onClick={() => setStatusFilter(key)}
+            style={{
+              padding: '5px 12px', border: 'none', borderRadius: '20px', cursor: 'pointer',
+              fontSize: '12px', fontWeight: '600',
+              background: statusFilter === key ? '#1a2332' : '#f0f0f0',
+              color: statusFilter === key ? 'white' : '#555',
+              transition: 'all 0.15s',
+            }}>
+            {label} <span style={{ opacity: 0.7 }}>({count})</span>
+          </button>
+        ))}
+        <div style={{ width: '1px', height: '24px', background: '#ddd', margin: '0 4px' }} />
         {/* Team filter */}
         <select value={teamFilter} onChange={e => setTeamFilter(e.target.value)}
           style={{ padding: '6px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '13px', minWidth: '160px' }}>
@@ -548,7 +576,10 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
                         {!cg.crPlan && (
                           <div style={{ fontSize: '11px', color: '#bbb', marginBottom: '8px', fontStyle: 'italic' }}>לא הוזנה תכנית CR</div>
                         )}
-                        {cg.proposals.sort((a, b) => a.phase - b.phase).map(renderProposalRow)}
+                        {cg.proposals.filter(matchesStatusFilter).sort((a, b) => a.phase - b.phase).map(renderProposalRow)}
+                        {cg.proposals.filter(matchesStatusFilter).length === 0 && (
+                          <div style={{ fontSize: '12px', color: '#aaa', padding: '8px', fontStyle: 'italic' }}>אין הגשות התואמות את הפילטר</div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -570,7 +601,7 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
                     </div>
                     {isExpanded && (
                       <div style={{ borderTop: '1px dashed #ccc', padding: '12px 14px', background: '#fafafa' }}>
-                        {tg.freeProposals.sort((a, b) => a.phase - b.phase).map(renderProposalRow)}
+                        {tg.freeProposals.filter(matchesStatusFilter).sort((a, b) => a.phase - b.phase).map(renderProposalRow)}
                       </div>
                     )}
                   </div>

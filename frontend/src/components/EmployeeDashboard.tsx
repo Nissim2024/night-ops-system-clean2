@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { TeamView } from './TeamView';
 import { VersionProgressChain } from './VersionProgressChain';
@@ -6,8 +6,12 @@ import { useSocket } from '../hooks/useSocket';
 import { playTaskReady } from '../utils/sound';
 import { DeployCenterLogo } from './DeployCenterLogo';
 import { usePushNotifications } from '../hooks/usePushNotifications';
+import { EmployeeLeavesView } from './EmployeeLeavesView';
+import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
+
+const IS_TEST = process.env.REACT_APP_ENV === 'test';
 
 interface ToastItem {
   id: number;
@@ -21,14 +25,24 @@ interface Props {
   onLogout: () => void;
 }
 
+type NavView = 'tasks' | 'leaves';
+
+const NAV_ITEMS: { key: NavView; label: string; icon: string }[] = [
+  { key: 'tasks',  label: 'משימות הרצה', icon: '🌙' },
+  { key: 'leaves', label: 'חופשות',       icon: '📅' },
+];
+
 export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
-  const [myTeam, setMyTeam]         = useState<any>(null);
+  const [myTeam, setMyTeam]               = useState<any>(null);
   const [activeVersion, setActiveVersion] = useState<any>(null);
-  const [loading, setLoading]       = useState(true);
-  const [toasts, setToasts]         = useState<ToastItem[]>([]);
-  const [onlineUsers, setOnlineUsers] = useState<any[]>([]);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [taskStats, setTaskStats]   = useState({ done: 0, inProgress: 0, open: 0, waiting: 0, blocked: 0, total: 0 });
+  const [loading, setLoading]             = useState(true);
+  const [toasts, setToasts]               = useState<ToastItem[]>([]);
+  const [onlineUsers, setOnlineUsers]     = useState<any[]>([]);
+  const [refreshKey, setRefreshKey]       = useState(0);
+  const [taskStats, setTaskStats]         = useState({ done: 0, inProgress: 0, open: 0, waiting: 0, blocked: 0, total: 0 });
+  const [planningVersion, setPlanningVersion] = useState<any>(null);
+  const [activeView, setActiveView]       = useState<NavView>('tasks');
+  const [hoveredNav, setHoveredNav]       = useState<NavView | null>(null);
 
   const payload  = JSON.parse(atob(token.split('.')[1]));
   const fullName = localStorage.getItem('deploycenter_fullName') || payload.fullName || 'עובד';
@@ -69,7 +83,6 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
 
   const fetchTaskStats = async (versionId: string) => {
     try {
-      // Use version endpoint (returns all phases/tasks, not filtered by team)
       const res = await axios.get(`${API}/versions/${versionId}`, { headers });
       const ver = res.data;
       const allTasks: any[] = [];
@@ -88,8 +101,6 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
       });
     } catch { /* silent */ }
   };
-
-  const [planningVersion, setPlanningVersion] = useState<any>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -119,149 +130,270 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
       .finally(() => setLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const initials = fullName.split(' ').map((w: string) => w[0]).slice(0, 2).join('');
+
   return (
-    <div style={{ minHeight: '100vh', background: '#f0f2f5', fontFamily: 'Arial, sans-serif', direction: 'rtl' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', fontFamily: FONT, direction: 'rtl', background: C.bgApp, color: C.textPrimary, overflow: 'hidden' }}>
 
       {/* ─── Header ─── */}
       <div style={{
-        background: 'linear-gradient(135deg, #1a2332 0%, #2d4a7a 100%)',
-        padding: '0 24px',
+        background: C.headerBg,
+        padding: `0 ${SP[6]}`,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        height: '64px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+        height: '58px', flexShrink: 0,
+        borderBottom: `1px solid ${C.border}`,
+        boxShadow: SHADOW.xs, zIndex: 100,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <DeployCenterLogo variant="nav" />
-          {myTeam && (
-            <span style={{ background: 'rgba(255,255,255,0.15)', color: 'white', padding: '5px 14px', borderRadius: '12px', fontSize: '14px' }}>
-              👥 {myTeam.name}
-            </span>
-          )}
-        </div>
+        <DeployCenterLogo variant="nav" />
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
+          {/* Online */}
           <div style={{
-            display: 'flex', alignItems: 'center', gap: '4px',
-            background: 'rgba(255,255,255,0.1)', padding: '6px 12px', borderRadius: '8px',
+            display: 'flex', alignItems: 'center', gap: SP[1],
+            background: C.successBg, border: `1px solid ${C.success}33`,
+            padding: '4px 10px', borderRadius: RADIUS.full,
           }}>
-            <span style={{ fontSize: '10px', color: '#2ecc71' }}>●</span>
-            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.9)' }}>{onlineUsers.length} מחוברים</span>
+            <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: C.success, boxShadow: `0 0 5px ${C.success}80` }} />
+            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.success }}>{onlineUsers.length}</span>
+            <span style={{ ...TEXT.xs, color: C.textMuted }}>מחוברים</span>
           </div>
+
+          {/* Push */}
           <button
             onClick={push.subscribed ? push.unsubscribe : push.subscribe}
             disabled={push.loading || !push.supported}
-            title={!push.supported ? 'דפדפן זה אינו תומך ב-Push (נסה Chrome)' : push.subscribed ? 'בטל התראות Push' : 'הפעל התראות Push'}
+            title={!push.supported ? 'דפדפן זה אינו תומך ב-Push' : push.subscribed ? 'בטל התראות' : 'הפעל התראות'}
             style={{
-              padding: '7px 12px', fontSize: '18px', border: 'none', borderRadius: '8px',
-              cursor: push.supported ? 'pointer' : 'not-allowed',
-              background: push.subscribed ? 'rgba(46,204,113,0.3)' : 'rgba(255,255,255,0.12)',
-              color: push.supported ? 'white' : 'rgba(255,255,255,0.4)',
-              transition: 'background 0.2s',
+              width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: `1px solid ${push.subscribed ? C.success + '44' : C.border}`,
+              borderRadius: RADIUS.md, cursor: push.supported ? 'pointer' : 'not-allowed',
+              background: push.subscribed ? C.successBg : C.bgNested, fontSize: '16px',
+              transition: EASE.fast, opacity: push.supported ? 1 : 0.4,
             }}
           >
             {push.loading ? '⏳' : push.subscribed ? '🔔' : '🔕'}
           </button>
-          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '14px' }}>👤 {fullName}</span>
+
+          <div style={{ width: '1px', height: '20px', background: C.border }} />
+
+          {/* User */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+            <div style={{
+              width: '28px', height: '28px', borderRadius: '50%',
+              background: C.brandDim, border: `1px solid ${C.brand}44`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '12px', fontWeight: WEIGHT.bold, color: C.brand,
+            }}>
+              {initials}
+            </div>
+            <span style={{ ...TEXT.sm, color: C.textSecondary }}>{fullName}</span>
+          </div>
+
+          {/* Logout */}
           <button
             onClick={onLogout}
-            style={{ padding: '8px 16px', background: 'rgba(231,76,60,0.7)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+            title="יציאה"
+            style={{
+              width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'transparent', color: C.textMuted,
+              border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer',
+              transition: EASE.fast,
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = C.danger + '44'; e.currentTarget.style.color = C.danger; e.currentTarget.style.background = C.dangerBg; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = 'transparent'; }}
           >
-            יציאה
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
           </button>
         </div>
       </div>
 
-      {/* ─── Progress chain (shown when an active version exists) ─── */}
-      {activeVersion && (
+      {/* ─── Progress chain ─── */}
+      {activeVersion && activeView === 'tasks' && (
         <VersionProgressChain versionStatus={activeVersion.status} />
       )}
 
-      {/* ─── Content ─── */}
-      <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '80px', color: '#666' }}>
-            <div style={{ fontSize: '48px' }}>🌙</div>
-            <p style={{ fontSize: '16px', marginTop: '12px' }}>טוען...</p>
-          </div>
-        ) : myTeam ? (
-          <>
-            {activeVersion ? (
-              <>
-                {/* ─── Overall progress graph ─── */}
-                <div style={{
-                  background: 'linear-gradient(135deg, #1a2332 0%, #2d4a7a 100%)',
-                  borderRadius: '12px', padding: '20px 24px', marginBottom: '20px', color: 'white',
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '13px' }}>
-                    <span>התקדמות כללית — {activeVersion.name}</span>
-                    <span>{taskStats.done}/{taskStats.total} משימות ({taskStats.total > 0 ? Math.round((taskStats.done / taskStats.total) * 100) : 0}%)</span>
-                  </div>
-                  <div style={{ background: 'rgba(255,255,255,0.2)', borderRadius: '8px', height: '12px', overflow: 'hidden' }}>
-                    <div style={{
-                      background: taskStats.total > 0 && taskStats.done === taskStats.total ? '#27ae60' : '#3498db',
-                      width: `${taskStats.total > 0 ? Math.round((taskStats.done / taskStats.total) * 100) : 0}%`,
-                      height: '100%', borderRadius: '8px', transition: 'width 0.5s ease',
-                    }} />
-                  </div>
-                  <div style={{ display: 'flex', gap: '12px', marginTop: '14px', flexWrap: 'wrap' }}>
-                    {[
-                      { label: 'הושלמו',  value: taskStats.done,       color: '#27ae60' },
-                      { label: 'בביצוע',  value: taskStats.inProgress,  color: '#f39c12' },
-                      { label: 'פתוחות',  value: taskStats.open,        color: '#3498db' },
-                      { label: 'ממתינות', value: taskStats.waiting,     color: '#9b59b6' },
-                      { label: 'חסומות',  value: taskStats.blocked,     color: '#e74c3c' },
-                      { label: 'סה"כ',    value: taskStats.total,       color: 'white'   },
-                    ].map(stat => (
-                      <div key={stat.label} style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '8px', padding: '8px 14px', textAlign: 'center', minWidth: '64px' }}>
-                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: stat.color }}>{stat.value}</div>
-                        <div style={{ fontSize: '11px', opacity: 0.8 }}>{stat.label}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <TeamView token={token} teamId={myTeam.id} teamName={myTeam.name} versionId={activeVersion.id} userId={payload.sub} userName={fullName} refreshKey={refreshKey} hideAddTask />
-              </>
-            ) : (() => {
-              const PLANNING_MSG: Record<string, { icon: string; title: string; sub: string }> = {
-                DRAFT:     { icon: '📝', title: 'הגרסה בשלב טיוטה',         sub: 'מנהל הלילה מכין את תוכנית העבודה. המתן לפתיחת שלב האיסוף.' },
-                COLLECTING:{ icon: '📋', title: 'שלב איסוף המשימות פתוח',   sub: 'ראשי הצוותים מגישים הצעות למשימות. ההרצה תתחיל לאחר אישור התוכנית.' },
-                REFINING:  { icon: '🔧', title: 'התוכנית בעריכה פנימית',    sub: 'מנהל הלילה עורך ומסדר את המשימות. בקרוב תשלח לאישור.' },
-                REVIEW:    { icon: '🔍', title: 'התוכנית ממתינה לאישור',    sub: 'הגרסה נמצאת בסקירה. ההרצה תחל לאחר קבלת אישורים.' },
-                APPROVED:  { icon: '✅', title: 'הגרסה אושרה — מוכנים!',   sub: 'התוכנית סגורה ומאושרת. ההרצה עתידה להתחיל בקרוב.' },
-              };
-              const info = planningVersion
-                ? (PLANNING_MSG[planningVersion.status] ?? { icon: '🌙', title: 'אין פעילות פעילה', sub: 'המתן להנחיות מנהל הלילה.' })
-                : { icon: '🌙', title: 'אין פעילות פעילה הלילה', sub: 'אין גרסה פעילה כעת. המתן להנחיות מנהל הלילה.' };
-              return (
-                <div style={{
-                  textAlign: 'center', padding: '80px', color: '#666',
-                  background: 'white', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                }}>
-                  <div style={{ fontSize: '64px' }}>{info.icon}</div>
-                  <h2 style={{ color: '#1a2332', marginTop: '16px' }}>{info.title}</h2>
-                  <p style={{ color: '#888' }}>{info.sub}</p>
-                  {planningVersion && (
-                    <div style={{ marginTop: '16px', background: '#f8f9fa', borderRadius: '10px', padding: '10px 20px', display: 'inline-block', fontSize: '13px', color: '#555' }}>
-                      גרסה: <strong>{planningVersion.name}</strong>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-          </>
-        ) : (
+      {/* ─── Body ─── */}
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+
+        {/* ── Sidebar ── */}
+        <div style={{
+          width: '240px', minWidth: '240px',
+          background: C.sidebarBg,
+          borderLeft: `1px solid ${C.sidebarBorder}`,
+          display: 'flex', flexDirection: 'column',
+          overflowY: 'auto',
+        }}>
+          {IS_TEST && (
+            <div style={{
+              margin: `${SP[3]} ${SP[3]} 0`,
+              background: 'rgba(232,175,0,0.15)', border: `1px solid rgba(232,175,0,0.30)`,
+              color: '#d4a017', fontSize: '12px', fontWeight: WEIGHT.bold,
+              textAlign: 'center', padding: '5px 8px', borderRadius: RADIUS.md,
+              letterSpacing: '0.08em', textTransform: 'uppercase' as const,
+            }}>⚡ TEST</div>
+          )}
+
+          {/* Nav section label */}
           <div style={{
-            textAlign: 'center', padding: '80px', color: '#666',
-            background: 'white', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            padding: `16px ${SP[3]} 8px`,
+            fontSize: '11px', fontWeight: WEIGHT.bold,
+            color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em',
+            textTransform: 'uppercase' as const,
           }}>
-            <div style={{ fontSize: '64px' }}>👤</div>
-            <h2 style={{ color: '#1a2332', marginTop: '16px' }}>לא שויכת לצוות</h2>
-            <p style={{ color: '#888' }}>פנה למנהל הלילה כדי להשתייך לצוות</p>
+            ניווט
           </div>
-        )}
+
+          {/* Nav items */}
+          <div style={{ padding: `0 ${SP[3]}`, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            {NAV_ITEMS.map(item => {
+              const isActive = activeView === item.key;
+              const isHov    = hoveredNav === item.key && !isActive;
+              return (
+                <button key={item.key}
+                  onClick={() => setActiveView(item.key)}
+                  onMouseEnter={() => setHoveredNav(item.key)}
+                  onMouseLeave={() => setHoveredNav(null)}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: '11px',
+                    padding: `11px ${SP[2]}`, borderRadius: RADIUS.lg, cursor: 'pointer',
+                    background: isActive ? C.sidebarBgActive : isHov ? C.sidebarBgHover : 'transparent',
+                    border: isActive ? `1px solid rgba(255,255,255,0.12)` : '1px solid transparent',
+                    textAlign: 'right' as const, direction: 'rtl', transition: EASE.fast,
+                    position: 'relative', overflow: 'hidden',
+                  }}>
+                  {isActive && (
+                    <div style={{ position: 'absolute', right: 0, top: '15%', bottom: '15%', width: '3px', borderRadius: '0 3px 3px 0', background: C.brand, boxShadow: `0 0 8px ${C.brand}80` }} />
+                  )}
+                  <span style={{ fontSize: '18px', flexShrink: 0, lineHeight: 1 }}>{item.icon}</span>
+                  <span style={{
+                    fontSize: '16px',
+                    fontWeight: isActive ? WEIGHT.semibold : WEIGHT.medium,
+                    color: isActive ? C.sidebarText : 'rgba(255,255,255,0.78)',
+                    flex: 1,
+                  }}>
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ flex: 1 }} />
+
+          {/* Team info */}
+          {myTeam && (
+            <>
+              <div style={{ height: '1px', background: C.sidebarBorder, margin: `${SP[2]} ${SP[3]}` }} />
+              <div style={{ padding: `${SP[2]} ${SP[3]} ${SP[3]}`, display: 'flex', alignItems: 'center', gap: SP[2] }}>
+                <span style={{ fontSize: '16px' }}>👥</span>
+                <div>
+                  <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>הצוות שלי</div>
+                  <div style={{ fontSize: '14px', fontWeight: WEIGHT.semibold, color: 'rgba(255,255,255,0.85)' }}>{myTeam.name}</div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Footer */}
+          <div style={{
+            padding: `${SP[2]} ${SP[3]}`,
+            borderTop: `1px solid ${C.sidebarBorder}`,
+            display: 'flex', alignItems: 'center', gap: '8px',
+            fontSize: '12px', color: 'rgba(255,255,255,0.35)',
+          }}>
+            <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: C.success, flexShrink: 0, boxShadow: `0 0 4px ${C.success}80` }} />
+            <span>DeployCenter v2</span>
+          </div>
+        </div>
+
+        {/* ── Main content ── */}
+        <div style={{ flex: 1, padding: SP[6], overflowY: 'auto', minWidth: 0, minHeight: 0, background: C.bgApp }}>
+
+          {/* ─── Leaves view ─── */}
+          {activeView === 'leaves' && <EmployeeLeavesView token={token} />}
+
+          {/* ─── Tasks view ─── */}
+          {activeView === 'tasks' && (loading ? (
+            <div style={{ textAlign: 'center', padding: '80px', color: C.textMuted }}>
+              <div style={{ fontSize: '48px' }}>🌙</div>
+              <p style={{ fontSize: '16px', marginTop: '12px' }}>טוען...</p>
+            </div>
+          ) : myTeam ? (
+            <>
+              {activeVersion ? (
+                <>
+                  {/* Progress graph */}
+                  <div style={{
+                    background: 'linear-gradient(135deg, #1a2332 0%, #2d4a7a 100%)',
+                    borderRadius: '12px', padding: '20px 24px', marginBottom: '20px', color: 'white',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '13px' }}>
+                      <span>התקדמות כללית — {activeVersion.name}</span>
+                      <span>{taskStats.done}/{taskStats.total} משימות ({taskStats.total > 0 ? Math.round((taskStats.done / taskStats.total) * 100) : 0}%)</span>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.2)', borderRadius: '8px', height: '12px', overflow: 'hidden' }}>
+                      <div style={{
+                        background: taskStats.total > 0 && taskStats.done === taskStats.total ? '#27ae60' : '#3498db',
+                        width: `${taskStats.total > 0 ? Math.round((taskStats.done / taskStats.total) * 100) : 0}%`,
+                        height: '100%', borderRadius: '8px', transition: 'width 0.5s ease',
+                      }} />
+                    </div>
+                    <div style={{ display: 'flex', gap: '12px', marginTop: '14px', flexWrap: 'wrap' }}>
+                      {[
+                        { label: 'הושלמו',  value: taskStats.done,        color: '#27ae60' },
+                        { label: 'בביצוע',  value: taskStats.inProgress,  color: '#f39c12' },
+                        { label: 'פתוחות',  value: taskStats.open,        color: '#3498db' },
+                        { label: 'ממתינות', value: taskStats.waiting,     color: '#9b59b6' },
+                        { label: 'חסומות',  value: taskStats.blocked,     color: '#e74c3c' },
+                        { label: 'סה"כ',    value: taskStats.total,       color: 'white'   },
+                      ].map(stat => (
+                        <div key={stat.label} style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '8px', padding: '8px 14px', textAlign: 'center', minWidth: '64px' }}>
+                          <div style={{ fontSize: '20px', fontWeight: 'bold', color: stat.color }}>{stat.value}</div>
+                          <div style={{ fontSize: '11px', opacity: 0.8 }}>{stat.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <TeamView token={token} teamId={myTeam.id} teamName={myTeam.name} versionId={activeVersion.id} userId={payload.sub} userName={fullName} refreshKey={refreshKey} hideAddTask />
+                </>
+              ) : (() => {
+                const PLANNING_MSG: Record<string, { icon: string; title: string; sub: string }> = {
+                  DRAFT:      { icon: '📝', title: 'הגרסה בשלב טיוטה',         sub: 'מנהל הלילה מכין את תוכנית העבודה.' },
+                  COLLECTING: { icon: '📋', title: 'שלב איסוף המשימות פתוח',   sub: 'ההרצה תתחיל לאחר אישור התוכנית.' },
+                  REFINING:   { icon: '🔧', title: 'התוכנית בעריכה פנימית',    sub: 'מנהל הלילה עורך ומסדר את המשימות.' },
+                  REVIEW:     { icon: '🔍', title: 'התוכנית ממתינה לאישור',    sub: 'הגרסה בסקירה. ההרצה תחל לאחר אישורים.' },
+                  APPROVED:   { icon: '✅', title: 'הגרסה אושרה — מוכנים!',   sub: 'התוכנית סגורה. ההרצה עתידה להתחיל בקרוב.' },
+                };
+                const info = planningVersion
+                  ? (PLANNING_MSG[planningVersion.status] ?? { icon: '🌙', title: 'אין פעילות פעילה', sub: 'המתן להנחיות מנהל הלילה.' })
+                  : { icon: '🌙', title: 'אין פעילות פעילה הלילה', sub: 'אין גרסה פעילה כעת. המתן להנחיות מנהל הלילה.' };
+                return (
+                  <div style={{ textAlign: 'center', padding: '80px', color: C.textMuted, background: C.bgCard, borderRadius: '16px', border: `1px solid ${C.border}` }}>
+                    <div style={{ fontSize: '64px' }}>{info.icon}</div>
+                    <h2 style={{ color: C.textPrimary, marginTop: '16px' }}>{info.title}</h2>
+                    <p style={{ color: C.textMuted }}>{info.sub}</p>
+                    {planningVersion && (
+                      <div style={{ marginTop: '16px', background: C.bgNested, borderRadius: '10px', padding: '10px 20px', display: 'inline-block', fontSize: '13px', color: C.textSecondary }}>
+                        גרסה: <strong>{planningVersion.name}</strong>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '80px', color: C.textMuted, background: C.bgCard, borderRadius: '16px', border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: '64px' }}>👤</div>
+              <h2 style={{ color: C.textPrimary, marginTop: '16px' }}>לא שויכת לצוות</h2>
+              <p>פנה למנהל הלילה כדי להשתייך לצוות</p>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* ─── Toast container (bottom) ─── */}
+      {/* ─── Toast container ─── */}
       <div style={{
         position: 'fixed', bottom: '24px', left: '24px',
         display: 'flex', flexDirection: 'column', gap: '10px',

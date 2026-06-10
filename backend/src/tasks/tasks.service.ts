@@ -92,7 +92,8 @@ export class TasksService {
     dueDate?: string;
     createdBy: string;
   }) {
-    if (!data.title?.trim()) throw new BadRequestException('שדה "כותרת" הוא חובה');
+    data.title = (data.title ?? '').replace(/<[^>]*>/g, '').trim();
+    if (!data.title) throw new BadRequestException('שדה "כותרת" הוא חובה');
     const task = await prisma.task.create({
       data: {
         ...data,
@@ -172,6 +173,9 @@ export class TasksService {
     }
     if (status === 'DONE' || status === 'FAILED') {
       statusData.actualFinish = new Date();
+      if (!before.actualStart) {
+        statusData.actualStart = statusData.actualFinish;
+      }
     }
     if (status === 'BLOCKED' && blockedReason !== undefined) {
       statusData.blockedReason = blockedReason;
@@ -331,8 +335,10 @@ export class TasksService {
         include: { dependencies: { include: { dependsOn: { select: { status: true } } } } },
       });
       if (!depTask || depTask.status !== 'WAITING') continue;
-      const allDone = depTask.dependencies.every(d => d.dependsOn.status === 'DONE');
-      if (allDone) {
+      // All deps must be terminal (DONE, FAILED, or ROLLED_BACK) before auto-opening
+      const TERMINAL_SET = new Set(['DONE', 'FAILED', 'ROLLED_BACK']);
+      const allTerminal = depTask.dependencies.every(d => TERMINAL_SET.has(d.dependsOn.status));
+      if (allTerminal) {
         const opened = await prisma.task.update({
           where: { id: depId },
           data: { status: 'OPEN' },
@@ -341,7 +347,10 @@ export class TasksService {
             assignedUser: { select: { id: true, fullName: true, email: true } },
           },
         });
+        // Broadcast status change to all connected clients (WarRoom update)
         this.eventsGateway.emitTaskUpdated(opened as any);
+        // Push notification to the assigned user — their task is now ready
+        await this.eventsGateway.emitTaskOpen(opened as any);
       }
     }
   }

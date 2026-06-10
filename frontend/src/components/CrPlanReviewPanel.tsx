@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C } from '../theme';
+import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -55,6 +56,8 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
   const [proposals,   setProposals]   = useState<Proposal[]>([]);
   const [submissions, setSubmissions] = useState<TeamSub[]>([]);
   const [expanded,     setExpanded]    = useState<Set<string>>(new Set());
+  const [crFilter,     setCrFilter]    = useState<'all' | 'pending' | 'approved' | 'not_required'>('all');
+  const [dialog,       setDialog]      = useState<DialogConfig | null>(null);
   const [approving,    setApproving]   = useState<Set<string>>(new Set());
   const [loading,      setLoading]     = useState(true);
   const [teamPanelOpen, setTeamPanelOpen] = useState(defaultTeamPanelOpen ?? false);
@@ -104,7 +107,11 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
   const toggle = (cr: string) => setExpanded(prev => { const n = new Set(prev); n.has(cr) ? n.delete(cr) : n.add(cr); return n; });
 
   /* derived */
-  const allCrNumbers  = Array.from(new Set(assignments.map(a => a.crNumber))).sort();
+  // Include CRs from crPlans even if their assignment was removed by sync
+  const allCrNumbers  = Array.from(new Set([
+    ...assignments.map(a => a.crNumber),
+    ...crPlans.map(p => p.crNumber),
+  ])).sort();
   const involvedTeams = Array.from(new Map(assignments.map(a => [a.team.id, a.team])).values()).sort((a, b) => a.name.localeCompare(b.name, 'he'));
   const subByTeam     = Object.fromEntries(submissions.map(s => [s.teamId, s.status]));
 
@@ -194,8 +201,35 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
         )}
       </div>
 
+      {/* Filter bar */}
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap' }}>
+        {([
+          ['all',          'הצג הכל',      allCrNumbers.length],
+          ['pending',      'ממתין לאישור', allCrNumbers.filter(cr => { const p = crPlans.filter(x => x.crNumber === cr); return !(p.length > 0 && p.every(x => x.planApproved || x.notNeededForPlan)); }).length],
+          ['approved',     '✅ אושר',       approvedCount],
+          ['not_required', 'לא נדרש',      allCrNumbers.filter(cr => { const p = crPlans.filter(x => x.crNumber === cr); return p.length > 0 && p.every(x => x.notNeededForPlan); }).length],
+        ] as [typeof crFilter, string, number][]).map(([key, label, count]) => (
+          <button key={key} onClick={() => setCrFilter(key)}
+            style={{
+              padding: '5px 12px', border: 'none', borderRadius: '20px', cursor: 'pointer',
+              fontSize: '12px', fontWeight: '600',
+              background: crFilter === key ? '#1a2332' : '#f0f0f0',
+              color: crFilter === key ? 'white' : '#555',
+            }}>
+            {label} <span style={{ opacity: 0.7 }}>({count})</span>
+          </button>
+        ))}
+      </div>
+
       {/* CR rows */}
-      {allCrNumbers.map((crNumber, idx) => {
+      {allCrNumbers.filter(crNumber => {
+        if (crFilter === 'all') return true;
+        const p = crPlans.filter(x => x.crNumber === crNumber);
+        if (crFilter === 'approved')     return p.length > 0 && p.every(x => x.planApproved || x.notNeededForPlan);
+        if (crFilter === 'pending')      return !(p.length > 0 && p.every(x => x.planApproved || x.notNeededForPlan));
+        if (crFilter === 'not_required') return p.length > 0 && p.every(x => x.notNeededForPlan);
+        return true;
+      }).map((crNumber, idx) => {
         const assigns    = assignments.filter(a => a.crNumber === crNumber);
         const rawLabel   = assigns[0]?.crLabel ?? crNumber;
         const crTitle    = rawLabel.replace(`${crNumber} - `, '').replace(`${crNumber} `, '');
@@ -206,6 +240,10 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
         const propsForCr = proposals.filter(p => p.crNumber === crNumber);
         const isNotNeeded= plans.length > 0 && plans.every(p => p.notNeededForPlan);
         const isApproved = plans.length > 0 && plans.every(p => p.planApproved || p.notNeededForPlan);
+        const teamsWithProps    = new Set(propsForCr.map(p => p.teamId));
+        const teamsNotRequired  = new Set(plans.filter(p => p.notNeededForPlan).map(p => p.team.id));
+        const missingTeams      = teamsForCr.filter(t => !teamsWithProps.has(t.id) && !teamsNotRequired.has(t.id));
+        const canApprove        = missingTeams.length === 0;
         const isOpen     = expanded.has(crNumber);
         const isApp      = approving.has(crNumber);
         const highRisk   = plans.find(p => p.riskLevel === 'HIGH')?.riskLevel ?? plans.find(p => p.riskLevel === 'MEDIUM')?.riskLevel ?? plans[0]?.riskLevel;
@@ -248,7 +286,20 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                 {/* Approve button — שמאל */}
                 {isManager && !isNotNeeded && (
                   <button
-                    onClick={e => { e.stopPropagation(); approveCr(crNumber, !isApproved); }}
+                    onClick={e => {
+                      e.stopPropagation();
+                      if (!isApproved && !canApprove) {
+                        setDialog({
+                          title: 'לא ניתן לאשר תוכנית CR',
+                          message: `הצוותים הבאים טרם הגישו תוכנית:\n${missingTeams.map(t => `• ${t.name}`).join('\n')}`,
+                          variant: 'warning',
+                          confirmLabel: 'הבנתי',
+                          onConfirm: () => {},
+                        });
+                        return;
+                      }
+                      approveCr(crNumber, !isApproved);
+                    }}
                     disabled={isApp}
                     style={{
                       padding: '6px 16px', border: 'none', borderRadius: '6px', cursor: isApp ? 'not-allowed' : 'pointer',
@@ -429,7 +480,9 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                       {allCrProposals.map((prop, i) => {
                         const ph = PHASE_COLOR[prop.phase] ?? { bg: C.bgNested, color: C.textMuted };
                         const phaseName = PHASE_LABEL[prop.phase] ?? `שלב ${prop.phase}`;
-                        const teamName = teamsForCr.find(t => t.id === prop.teamId)?.name ?? prop.teamId;
+                        const teamName = teamsForCr.find(t => t.id === prop.teamId)?.name
+                          ?? plans.find(p => p.team?.id === prop.teamId)?.team?.name
+                          ?? prop.teamId;
                         return (
                           <div key={prop.id} style={{
                             padding: '11px 20px',
@@ -548,6 +601,7 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
   // section="crs" — רק רשימת הפיתוחים (מחוץ לחלונית)
   if (section === 'crs') return (
     <div style={{ direction: 'rtl', fontFamily: "'IBM Plex Sans Hebrew', Arial, sans-serif" }}>
+      <ConfirmDialog config={dialog} onClose={() => setDialog(null)} />
       {crList}
     </div>
   );
@@ -555,6 +609,7 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
   // section="all" (ברירת מחדל) — שניהם
   return (
     <div style={{ direction: 'rtl', fontFamily: "'IBM Plex Sans Hebrew', Arial, sans-serif" }}>
+      <ConfirmDialog config={dialog} onClose={() => setDialog(null)} />
       <div style={{ background: C.bgCard, border: `1px solid ${allTeamsSubmitted ? '#3fb95044' : C.border}`, borderRadius: '12px', overflow: 'hidden', marginBottom: '16px', boxShadow: allTeamsSubmitted ? '0 0 0 3px rgba(63,185,80,0.08)' : 'none' }}>
         <div
           onClick={() => setTeamPanelOpen(p => !p)}
