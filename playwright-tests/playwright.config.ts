@@ -5,7 +5,7 @@ export default defineConfig({
   timeout: 90_000,
   retries: 0,
   use: {
-    baseURL: 'http://localhost:3002',
+    baseURL: 'http://localhost:3003',
     headless: true,
     viewport: { width: 1440, height: 900 },
     locale: 'he-IL',

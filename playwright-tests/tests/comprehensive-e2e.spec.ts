@@ -4,8 +4,8 @@
  */
 import { test, expect, Page, APIRequestContext } from '@playwright/test';
 
-const API   = 'http://localhost:3001';
-const APP   = 'http://localhost:3002';
+const API   = 'http://localhost:3000';
+const APP   = 'http://localhost:3003';
 const ADMIN = { email: 'nissim@test.com', password: '123456' };
 const MGR   = { email: 'Hay.Cohen@hot.net.il', password: '123456' };
 

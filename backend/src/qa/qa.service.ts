@@ -153,22 +153,28 @@ export class QaService {
       this.getTesters(),
     ]);
 
-    // Deduplicate CRs — keep first occurrence for label/application
-    const crMap = new Map<string, { crNumber: string; crLabel: string | null; application: string | null }>();
+    // Deduplicate CRs — keep first occurrence for label/application/project
+    const crMap = new Map<string, any>();
     vcaRows.forEach(c => { if (!crMap.has(c.crNumber)) crMap.set(c.crNumber, c); });
     const planMap = new Map(plans.map(p => [p.crNumber, p]));
 
     // qaEffortDays: prefer the QA Team row (the only one that has qaEffort set)
     const qaTeam = await prisma.team.findFirst({ where: { name: 'QA Team' } });
-    const qaEffortMap = new Map<string, number>(); // crNumber → days
+    const qaEffortMap  = new Map<string, number>(); // crNumber → days (when set)
+    const qaTeamCrSet  = new Set<string>();          // crNumbers that have ANY QA Team row
     if (qaTeam) {
       vcaRows
-        .filter(v => v.teamId === qaTeam.id && (v as any).qaEffort != null)
-        .forEach(v => qaEffortMap.set(v.crNumber, (v as any).qaEffortOverride ?? (v as any).qaEffort));
+        .filter(v => v.teamId === qaTeam.id)
+        .forEach(v => {
+          qaTeamCrSet.add(v.crNumber);
+          const effort = (v as any).qaEffortOverride ?? (v as any).qaEffort;
+          if (effort != null) qaEffortMap.set(v.crNumber, effort);
+        });
     }
 
+    // Show CRs that have a QA Team VCA row — even if qaEffort is null (data gap from old import)
     return [...crMap.values()]
-      .filter(cr => qaEffortMap.has(cr.crNumber)) // only CRs with QA effort ≥ 1
+      .filter(cr => qaTeamCrSet.has(cr.crNumber))
       .map(cr => {
         const plan = planMap.get(cr.crNumber);
         const hints = this.extractSystemHints(cr.application, plan?.systems ?? [], cr.crLabel ?? '');
@@ -180,6 +186,7 @@ export class QaService {
           crNumber:     cr.crNumber,
           crLabel:      cr.crLabel,
           application:  cr.application,
+          project:      cr.project ?? null,
           isStandAlone: (cr as any).isStandAlone ?? false,
           qaEffortDays: qaEffortMap.get(cr.crNumber) ?? null,
           systems:      hints,

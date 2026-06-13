@@ -1,6 +1,8 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   buildWorkPlan,
   CrInput,
@@ -255,7 +257,7 @@ export class QaWorkPlanService {
 
   // ── Export to Excel ─────────────────────────────────────────────────────────
 
-  async exportToExcel(versionId: string): Promise<Buffer> {
+  async exportToExcel(versionId: string): Promise<{ buffer: Buffer; filename: string }> {
     const plan = await this.getWorkPlan(versionId);
     if (!plan) throw new NotFoundException('תוכנית עבודה לא נמצאה');
 
@@ -264,76 +266,313 @@ export class QaWorkPlanService {
       select: { name: true },
     });
 
-    const wb = XLSX.utils.book_new();
-
-    for (const cycle of plan.cycles) {
-      const label = CYCLE_LABEL[cycle.cycleType as CycleType] ?? cycle.cycleType;
-      const sheetName = label.replace(/[\/\[\]\*\?:\\]/g, '').slice(0, 31);
-
-      const header = ['מספר CR', 'תיאור', 'סוג', 'בודק', 'תאריך התחלה', 'תאריך סיום', 'ימים', 'פעיל'];
-
-      const rows: any[][] = [header];
-
-      const activeTasks = cycle.tasks
-        .filter(t => t.taskType !== 'REGRESSION')
-        .sort((a, b) => a.sortOrder - b.sortOrder);
-
-      for (const task of activeTasks) {
-        rows.push([
-          task.crNumber,
-          task.crLabel ?? '',
-          task.taskType === 'STAND_ALONE' ? 'Stand Alone' : 'CR',
-          task.user.fullName,
-          formatDate(task.plannedStart),
-          formatDate(task.plannedEnd),
-          task.effortDays,
-          task.isActive ? 'כן' : 'לא',
-        ]);
-      }
-
-      if (cycle.notes) {
-        rows.push([]);
-        rows.push(['הערות:', cycle.notes]);
-      }
-
-      const ws = XLSX.utils.aoa_to_sheet(rows);
-
-      // Column widths
-      ws['!cols'] = [
-        { wch: 12 }, { wch: 40 }, { wch: 12 }, { wch: 20 },
-        { wch: 14 }, { wch: 14 }, { wch: 8  }, { wch: 6  },
-      ];
-
-      // RTL
-      if (!ws['!opts']) ws['!opts'] = {};
-
-      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    // ── Load VCA data: crManager, crDescription, team assignments per CR ─────
+    const vcas = await prisma.versionCrAssignment.findMany({
+      where:   { versionId },
+      include: { team: { select: { name: true } } },
+    });
+    const vcaFirstMap = new Map<string, typeof vcas[0]>();  // crNumber → first VCA
+    const crTeamsMap  = new Map<string, Set<string>>();     // crNumber → team names
+    for (const vca of vcas) {
+      if (!vcaFirstMap.has(vca.crNumber)) vcaFirstMap.set(vca.crNumber, vca);
+      if (!crTeamsMap.has(vca.crNumber)) crTeamsMap.set(vca.crNumber, new Set());
+      crTeamsMap.get(vca.crNumber)!.add(vca.team.name);
     }
 
-    // Summary sheet
+    // System column (AP→BR) — which DB team names activate a 'Y' flag
+    const SYSTEM_TEAMS: string[][] = [
+      [],                          // AP  A&A
+      ['CRM Dev Team'],            // AQ  CRM
+      ['NETC Team'],               // AR  WIZ
+      ['NC Team'],                 // AS  NC
+      ['EAI Team'],                // AT  EAI
+      ['Web Dev Team'],            // AU  WEB
+      ['OSS Team'],                // AV  OSS
+      ['Provisioning Team'],       // AW  PROV
+      ['IVR Team'],                // AX  IVR
+      ['ETL Team'],                // AY  ETL
+      ['Setup Team'],              // AZ  SETUP
+      ['TV Team'],                 // BA  TV
+      ['BI Team'],                 // BB  BI
+      ['ERP Team'],                // BC  ERP
+      ['Cyber Security Team'],     // BD  אבט"מ
+      ['DBA Team'],                // BE  DBA
+      ['NETCOL Team'],             // BF  NETCOL
+      [],                          // BG  TOP
+      [],                          // BH  JACADA
+      ['CAWA Team'],               // BI  CAWA
+      ['PrintBoss Team'],          // BJ  PRINTBOS
+      [],                          // BK  MAILIT
+      [],                          // BL  REMEDY
+      ['Cyber Security Team'],     // BM  CYBER
+      [],                          // BN  SYSTEM UNIX
+      [],                          // BO  SYSTEM
+      [],                          // BP  CM
+      [],                          // BQ  תקשורת
+      [],                          // BR  Release Stability
+    ];
+
+    const sysFlag = (crNumber: string, teams: string[]): string => {
+      if (!teams.length) return '';
+      const crTeams = crTeamsMap.get(crNumber);
+      return crTeams && teams.some(t => crTeams.has(t)) ? 'Y' : '';
+    };
+
+    // ── Build per-CR flat map ─────────────────────────────────────────────────
+    type TaskRef = { start: string; end: string; tester: string; effort: number };
+    type CrRow = {
+      crNumber:            string;
+      crLabel:             string;
+      application:         string;
+      sortOrder:           number;
+      primaryTester:       string;
+      primaryEffortDays:   number;
+      secondaryTester:     string;
+      secondaryEffortDays: number;
+      cycles:              Partial<Record<CycleType, TaskRef>>;
+    };
+
+    const crMap = new Map<string, CrRow>();
+
+    for (const cycle of plan.cycles) {
+      const ct = cycle.cycleType as CycleType;
+      for (const task of cycle.tasks) {
+        if (task.taskType === 'REGRESSION') continue;
+        if (!task.isActive) continue;
+
+        if (!crMap.has(task.crNumber)) {
+          crMap.set(task.crNumber, {
+            crNumber:            task.crNumber,
+            crLabel:             (task as any).crLabel ?? task.crNumber,
+            application:         (task as any).application ?? '',
+            sortOrder:           task.sortOrder,
+            primaryTester:       '',
+            primaryEffortDays:   0,
+            secondaryTester:     '',
+            secondaryEffortDays: 0,
+            cycles:              {},
+          });
+        }
+
+        const row = crMap.get(task.crNumber)!;
+        if (!row.cycles[ct]) {
+          row.cycles[ct] = {
+            start:  formatDate(task.plannedStart),
+            end:    formatDate(task.plannedEnd),
+            tester: task.user.fullName,
+            effort: task.effortDays,
+          };
+        }
+
+        if (task.isPrimary) {
+          row.primaryTester     = task.user.fullName;
+          row.primaryEffortDays = task.effortDays;
+          row.sortOrder         = task.sortOrder;
+        } else if (!row.secondaryTester) {
+          row.secondaryTester     = task.user.fullName;
+          row.secondaryEffortDays = task.effortDays;
+        }
+      }
+    }
+
+    const sortedCrs = Array.from(crMap.values())
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+
+    // ── Headers — exact ALM column names, A through BR (70 columns) ──────────
+    const headers = [
+      'CR - RQ_USER_02',                          // A
+      'Project (Folder - 3)',                      // B
+      'CR Name - RQ_REQ_NAME',                     // C
+      'Description - RE_REQ_COMMENT',              // D
+      'CR Type - RQ_USER_04',                      // E
+      'Task Order',                                // F
+      'Asign To - RQ_USER_05',                     // G
+      'QA effort',                                 // H
+      'rq_user_27 Secondary Tester',               // I
+      'QA effort 2',                               // J
+      'QA BI',                                     // K
+      'QA BI_Efforts',                             // L
+      'Cycle 0',                                   // M
+      'UAT',                                       // N
+      'Cycle 1',                                   // O
+      'Start Date rq_user_21',                     // P
+      'Target Date rq_user_08',                    // Q
+      'Cycle 2',                                   // R
+      'Start Date rq_user_21 Cycle 2',             // S
+      'Target Date rq_user_08 Cycle 2',            // T
+      'Cycle 3',                                   // U
+      'Start Date rq_user_21 Cycle 3',             // V
+      'Target Date rq_user_08 Cycle 3',            // W
+      'Stand Alone Items',                         // X
+      'Start Date rq_user_21 Stand Alone Items',   // Y
+      'Target Date rq_user_08 Stand Alone Items',  // Z
+      'Dress Rehearsal',                           // AA
+      'Go Live',                                   // AB
+      'Go Live Date rq_user_12',                   // AC
+      'Release (Folder - 2)',                      // AD
+      'QA_Manager rq_user_28',                     // AE
+      'Setup',                                     // AF
+      'אפיון הסתיים',                              // AG
+      'Complexity rq_user_25',                     // AH
+      'מנהל CR',                                   // AI
+      'שם מאפיין',                                 // AJ
+      'מנהל פרויקט',                               // AK
+      'Scoping_Date rq_user_03',                   // AL
+      'Comments - RQ_DEV_COMMENTS',                // AM
+      'Priority',                                  // AN
+      'Responsibility',                            // AO
+      'A&A',                                       // AP
+      'CRM',                                       // AQ
+      'WIZ',                                       // AR
+      'NC',                                        // AS
+      'EAI',                                       // AT
+      'WEB',                                       // AU
+      'OSS',                                       // AV
+      'PROV',                                      // AW
+      'IVR',                                       // AX
+      'ETL',                                       // AY
+      'SETUP',                                     // AZ
+      'TV',                                        // BA
+      'BI',                                        // BB
+      'ERP',                                       // BC
+      'אבט"מ',                                     // BD
+      'DBA',                                       // BE
+      'NETCOL',                                    // BF
+      'TOP',                                       // BG
+      'JACADA',                                    // BH
+      'CAWA',                                      // BI
+      'PRINTBOS',                                  // BJ
+      'MAILIT',                                    // BK
+      'REMEDY',                                    // BL
+      'CYBER',                                     // BM
+      'SYSTEM UNIX',                               // BN
+      'SYSTEM',                                    // BO
+      'CM',                                        // BP
+      'תקשורת',                                    // BQ
+      'Release Stability',                         // BR
+    ];
+
+    // ── Data rows (row 2 onwards) ─────────────────────────────────────────────
+    const dataRows: any[][] = sortedCrs.map((cr, idx) => {
+      const c1  = cr.cycles['CYCLE_1'];
+      const c2  = cr.cycles['CYCLE_2'];
+      const c3  = cr.cycles['CYCLE_3'];
+      const sa  = cr.cycles['STAND_ALONE'];
+      const uat = cr.cycles['UAT'];
+      const reh = cr.cycles['REHEARSAL'];
+      const gl  = cr.cycles['GO_LIVE'];
+
+      const vca        = vcaFirstMap.get(cr.crNumber);
+      const crManager  = vca?.crManager  ?? '';
+      const crDesc     = vca?.crDescription ?? '';
+      const hasSetup   = crTeamsMap.get(cr.crNumber)?.has('Setup Team') ?? false;
+
+      return [
+        cr.crNumber,                                // A  CR - RQ_USER_02
+        cr.application,                             // B  Project (Folder - 3)
+        cr.crLabel,                                 // C  CR Name
+        crDesc,                                     // D  Description - RE_REQ_COMMENT
+        'Release Item',                             // E  CR Type
+        idx + 1,                                    // F  Task Order
+        cr.primaryTester,                           // G  Asign To
+        cr.primaryEffortDays || '',                 // H  QA effort
+        cr.secondaryTester,                         // I  rq_user_27 Secondary Tester
+        cr.secondaryEffortDays || '',               // J  QA effort 2
+        cr.primaryTester ? 'Y' : '',                // K  QA BI
+        '',                                         // L  QA BI_Efforts
+        '',                                         // M  Cycle 0
+        uat ? 'Y' : '',                             // N  UAT
+        c1  ? 'Y' : '',                             // O  Cycle 1
+        c1  ? c1.start : '',                        // P  Start Date Cycle 1
+        c1  ? c1.end   : '',                        // Q  Target Date Cycle 1
+        c2  ? 'Y' : '',                             // R  Cycle 2
+        c2  ? c2.start : '',                        // S  Start Date Cycle 2
+        c2  ? c2.end   : '',                        // T  Target Date Cycle 2
+        c3  ? 'Y' : '',                             // U  Cycle 3
+        c3  ? c3.start : '',                        // V  Start Date Cycle 3
+        c3  ? c3.end   : '',                        // W  Target Date Cycle 3
+        sa  ? 'Y' : '',                             // X  Stand Alone Items
+        sa  ? sa.start : '',                        // Y  Start Date Stand Alone
+        sa  ? sa.end   : '',                        // Z  Target Date Stand Alone
+        reh ? 'Y' : '',                             // AA Dress Rehearsal
+        gl  ? 'Y' : '',                             // AB Go Live
+        gl  ? gl.start : '',                        // AC Go Live Date
+        '',                                         // AD Release (Folder - 2)
+        '',                                         // AE QA_Manager
+        hasSetup ? 'Y' : '',                        // AF Setup
+        '',                                         // AG אפיון הסתיים
+        '',                                         // AH Complexity
+        crManager,                                  // AI מנהל CR
+        cr.application,                             // AJ שם מאפיין
+        '',                                         // AK מנהל פרויקט
+        '',                                         // AL Scoping_Date
+        crDesc,                                     // AM Comments - RQ_DEV_COMMENTS
+        '',                                         // AN Priority
+        '',                                         // AO Responsibility
+        ...SYSTEM_TEAMS.map(teams => sysFlag(cr.crNumber, teams)), // AP-BR (29 system flags)
+      ];
+    });
+
+    const wb = XLSX.utils.book_new();
+
+    // ── Main flat sheet ───────────────────────────────────────────────────────
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+    ws['!cols'] = [
+      { wch: 10 }, { wch: 18 }, { wch: 35 }, { wch: 40 }, { wch: 14 }, { wch: 8  }, // A-F
+      { wch: 20 }, { wch: 10 }, { wch: 20 }, { wch: 10 }, { wch: 6  }, { wch: 10 }, // G-L
+      { wch: 7  }, { wch: 6  }, { wch: 7  }, { wch: 14 }, { wch: 14 }, { wch: 7  }, // M-R
+      { wch: 14 }, { wch: 14 }, { wch: 7  }, { wch: 14 }, { wch: 14 }, { wch: 12 }, // S-X
+      { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 8  }, { wch: 14 }, { wch: 16 }, // Y-AD
+      { wch: 16 }, { wch: 8  }, { wch: 12 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, // AE-AJ
+      { wch: 12 }, { wch: 16 }, { wch: 40 }, { wch: 10 }, { wch: 14 }, { wch: 6  }, // AK-AP
+      { wch: 6  }, { wch: 6  }, { wch: 6  }, { wch: 6  }, { wch: 6  }, { wch: 6  }, // AQ-AV
+      { wch: 6  }, { wch: 6  }, { wch: 6  }, { wch: 6  }, { wch: 6  }, { wch: 6  }, // AW-BB
+      { wch: 6  }, { wch: 8  }, { wch: 6  }, { wch: 8  }, { wch: 6  }, { wch: 8  }, // BC-BH
+      { wch: 6  }, { wch: 9  }, { wch: 8  }, { wch: 8  }, { wch: 12 }, { wch: 8  }, // BI-BN
+      { wch: 8  }, { wch: 6  }, { wch: 8  }, { wch: 14 },                            // BO-BR
+    ];
+
+    // Freeze header row
+    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+
+    XLSX.utils.book_append_sheet(wb, ws, 'תוכנית עבודה');
+
+    // ── Summary sheet ─────────────────────────────────────────────────────────
     const summaryRows: any[][] = [
       [`תוכנית בדיקות — ${version?.name ?? versionId}`],
       [],
-      ['סבב', 'התחלה', 'סיום', 'ימים', 'משימות'],
+      ['סבב', 'התחלה', 'סיום', 'ימי עבודה', 'CRים פעילים'],
     ];
     for (const cycle of plan.cycles) {
       const label    = CYCLE_LABEL[cycle.cycleType as CycleType] ?? cycle.cycleType;
       const workDays = countWorkDays(new Date(cycle.plannedStart), new Date(cycle.plannedEnd));
       const tasks    = cycle.tasks.filter(t => t.isActive && t.taskType !== 'REGRESSION').length;
-      summaryRows.push([
-        label,
-        formatDate(cycle.plannedStart),
-        formatDate(cycle.plannedEnd),
-        workDays,
-        tasks,
-      ]);
+      summaryRows.push([label, formatDate(cycle.plannedStart), formatDate(cycle.plannedEnd), workDays, tasks]);
     }
     const ws0 = XLSX.utils.aoa_to_sheet(summaryRows);
-    ws0['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 8 }, { wch: 10 }];
+    ws0['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 }];
     XLSX.utils.book_append_sheet(wb, ws0, 'סיכום');
 
-    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    return Buffer.from(buf);
+    const buf = Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+
+    // ── Generate filename with timestamp ──────────────────────────────────────
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const ts  = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
+    const safeName = (version?.name ?? versionId).replace(/[/\\?%*:|"<>]/g, '-');
+    const filename = `qa-workplan_${safeName}_${ts}.xlsx`;
+
+    // ── Save to configured path if QA_EXPORT_PATH param is set ───────────────
+    const pathParam = await prisma.systemParam.findUnique({ where: { key: 'QA_EXPORT_PATH' } });
+    if (pathParam?.value?.trim()) {
+      try {
+        const dir = pathParam.value.trim();
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, filename), buf);
+      } catch { /* save failure should not block the download */ }
+    }
+
+    return { buffer: buf, filename };
   }
 }
 

@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import axios from 'axios';
-const QaWorkPlanView = lazy(() => import('./QaWorkPlanView'));
+const QaWorkPlanView    = lazy(() => import('./QaWorkPlanView'));
+const QaActivityPlanView = lazy(() => import('./QaActivityPlanView'));
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../../theme';
+import { ConfirmDialog, DialogConfig } from '../ConfirmDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -35,6 +37,7 @@ interface CrRec {
   crNumber:     string;
   crLabel:      string | null;
   application:  string | null;
+  project:      string | null;
   isStandAlone: boolean;
   qaEffortDays: number | null;
   systems:      string[];
@@ -172,18 +175,19 @@ interface Props { token: string }
 
 const LS_VERSION_KEY = 'qa-selected-version';
 
-interface PickerPos { crNumber: string; top: number; right: number; }
+interface PickerPos { crNumber: string; top?: number; bottom?: number; right: number; maxH?: number; }
 
 export default function QaAssignmentView({ token }: Props) {
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
   const [versions, setVersions]         = useState<Version[]>([]);
   const [selectedVId, setSelectedVId]   = useState(() => localStorage.getItem(LS_VERSION_KEY) ?? '');
-  const [activeTab, setActiveTab]       = useState<'assignments' | 'workplan'>('assignments');
+  const [activeTab, setActiveTab]       = useState<'assignments' | 'workplan' | 'activity'>('assignments');
   const [crs, setCrs]                   = useState<CrRec[]>([]);
   const [assignments, setAssignments]   = useState<Assignment[]>([]);
   const [loading, setLoading]           = useState(false);
   const [generating, setGenerating]     = useState(false);
+  const [syncing, setSyncing]           = useState(false);
 
   const [cycle1Start, setCycle1Start]   = useState('');
   const [testingEnd, setTestingEnd]     = useState('');
@@ -195,6 +199,7 @@ export default function QaAssignmentView({ token }: Props) {
   const [saving, setSaving]                   = useState<string | null>(null);
   const [editingEffort, setEditingEffort]     = useState<string | null>(null);  // crNumber being edited
   const [search, setSearch]                   = useState('');
+  const [confirmDialog, setConfirmDialog]     = useState<DialogConfig | null>(null);
   const [sortCol, setSortCol]                 = useState<'cr' | 'label' | 'effort' | 'tester' | 'score' | 'order'>('cr');
   const [sortDir, setSortDir]                 = useState<'asc' | 'desc'>('asc');
   const pickerRef      = useRef<HTMLDivElement>(null);
@@ -203,23 +208,18 @@ export default function QaAssignmentView({ token }: Props) {
   // ── Fetch versions ──────────────────────────────────────────────────────────
 
   useEffect(() => {
-    axios.get(`${API}/versions`, { headers }).then(r => {
-      setVersions(
-        (r.data as Version[])
-          .filter(v => !v.isArchived)
-          .sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status)),
-      );
-    });
+    if (!token) return;
+    axios.get(`${API}/versions`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => {
+        setVersions(
+          (r.data as Version[])
+            .filter(v => !v.isArchived)
+            .sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status)),
+        );
+      })
+      .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    const v = versions.find(x => x.id === selectedVId);
-    if (v) {
-      if (v.plannedStart) setCycle1Start(toInputDate(v.plannedStart));
-      if (v.plannedEnd)   setTestingEnd(toInputDate(v.plannedEnd));
-    }
-  }, [selectedVId, versions]);
+  }, [token]);
 
   // ── Load version data ───────────────────────────────────────────────────────
 
@@ -227,13 +227,21 @@ export default function QaAssignmentView({ token }: Props) {
     if (!vId) { setCrs([]); setAssignments([]); setScoring({}); return; }
     setLoading(true);
     try {
-      const [recRes, asgRes] = await Promise.all([
+      const [recRes, asgRes, planRes] = await Promise.all([
         axios.get(`${API}/qa/assignments/recommend?versionId=${vId}`, { headers }),
         axios.get(`${API}/qa/assignments?versionId=${vId}`, { headers }),
+        axios.get(`${API}/qa/workplan?versionId=${vId}`, { headers }).catch(() => null),
       ]);
       setCrs(recRes.data);
       setAssignments(asgRes.data);
       setScoring({});
+
+      // Restore dates only if there is an existing (even DRAFT) work plan
+      const plan = planRes?.data;
+      if (plan?.cycle1Start) {
+        setCycle1Start(toInputDate(plan.cycle1Start));
+        setTestingEnd(toInputDate(plan.testingEnd));
+      }
     } finally {
       setLoading(false);
     }
@@ -246,17 +254,30 @@ export default function QaAssignmentView({ token }: Props) {
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setOpenPicker(null);
+      if (pickerRef.current) {
+        const inDom  = pickerRef.current.contains(e.target as Node);
+        const r      = pickerRef.current.getBoundingClientRect();
+        const inRect = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+        if (!inDom && !inRect) setOpenPicker(null);
+      }
       if (cyclesPickerRef.current && !cyclesPickerRef.current.contains(e.target as Node)) setOpenCyclesPicker(null);
     };
-    const closePicker = () => setOpenPicker(null);
+    const closePicker = (e: Event) => {
+      if (pickerRef.current && pickerRef.current.contains(e.target as Node)) return;
+      setOpenPicker(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenPicker(null);
+    };
     document.addEventListener('mousedown', handler);
     window.addEventListener('scroll', closePicker, true);
     window.addEventListener('resize', closePicker);
+    document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('mousedown', handler);
       window.removeEventListener('scroll', closePicker, true);
       window.removeEventListener('resize', closePicker);
+      document.removeEventListener('keydown', onKey);
     };
   }, []);
 
@@ -266,7 +287,13 @@ export default function QaAssignmentView({ token }: Props) {
     if (openPicker?.crNumber === crNumber) { setOpenPicker(null); return; }
     const rect = buttonEl.getBoundingClientRect();
     setOpenCyclesPicker(null);
-    setOpenPicker({ crNumber, top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    const spaceBelow = window.innerHeight - rect.bottom - 8;
+    const spaceAbove = rect.top - 8;
+    const openBelow  = spaceBelow >= spaceAbove;
+    const pos: PickerPos = openBelow
+      ? { crNumber, top:    rect.bottom + 4,                   right: window.innerWidth - rect.right, maxH: Math.max(spaceBelow, 180) }
+      : { crNumber, bottom: window.innerHeight - rect.top + 4, right: window.innerWidth - rect.right, maxH: Math.max(spaceAbove, 180) };
+    setOpenPicker(pos);
     if (!scoring[crNumber]) {
       setScoringLoading(crNumber);
       try {
@@ -335,16 +362,21 @@ export default function QaAssignmentView({ token }: Props) {
 
   // ── Save QA effort override ────────────────────────────────────────────────
 
-  const saveEffort = useCallback(async (asgId: string, crNumber: string, value: string) => {
+  const saveEffort = useCallback(async (crNumber: string, value: string, asgId?: string) => {
     const parsed = parseFloat(value);
     setEditingEffort(null);
     if (isNaN(parsed) || parsed < 0.5) return;
     try {
-      const res = await axios.patch(`${API}/qa/assignments/${asgId}`, { qaEffort: parsed }, { headers });
-      setAssignments(prev => [...prev.filter(a => a.crNumber !== crNumber), res.data]);
+      if (asgId) {
+        const res = await axios.patch(`${API}/qa/assignments/${asgId}`, { qaEffort: parsed }, { headers });
+        setAssignments(prev => [...prev.filter(a => a.crNumber !== crNumber), res.data]);
+      } else {
+        await axios.patch(`${API}/version-cr-assignments/cr/${selectedVId}/${crNumber}`, { qaEffortOverride: parsed }, { headers });
+        setCrs(prev => prev.map(c => c.crNumber === crNumber ? { ...c, qaEffortDays: parsed } : c));
+      }
     } catch (e) { console.error('effort save failed', e); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [headers]);
+  }, [headers, selectedVId]);
 
   // ── Patch assignment (isStandAlone / cycles / sortOrder) ───────────────────
 
@@ -362,10 +394,49 @@ export default function QaAssignmentView({ token }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [headers]);
 
+  // ── Toggle isStandAlone — with or without assignment ──────────────────────
+
+  const toggleStandAlone = useCallback(async (
+    cr: CrRec,
+    asg: Assignment | undefined,
+    currentSA: boolean,
+  ) => {
+    const newSA = !currentSA;
+    if (asg) {
+      const newCycles = newSA ? ['STAND_ALONE'] : ['CYCLE_1', 'CYCLE_2', 'CYCLE_3'];
+      patchAssignment(asg.id, cr.crNumber, { isStandAlone: newSA, cycles: newCycles });
+    } else {
+      try {
+        await axios.patch(`${API}/version-cr-assignments/cr/${selectedVId}/${cr.crNumber}`, { isStandAlone: newSA }, { headers });
+        setCrs(prev => prev.map(c => c.crNumber === cr.crNumber ? { ...c, isStandAlone: newSA } : c));
+      } catch (e) { console.error('isStandAlone patch failed', e); }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patchAssignment, headers, selectedVId]);
+
+  // ── Sync CR_LIST from Excel ────────────────────────────────────────────────
+
+  const syncCrList = async () => {
+    if (!selectedVId) return;
+    setSyncing(true);
+    try {
+      const r = await axios.post(
+        `${API}/version-cr-assignments/version/${selectedVId}/sync`,
+        {},
+        { headers },
+      );
+      await loadVersion(selectedVId);
+      alert(`✅ סנכרון הושלם — ${r.data?.synced ?? 0} שורות עודכנו`);
+    } catch (e: any) {
+      alert(e?.response?.data?.message ?? 'שגיאה בסנכרון');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   // ── Generate work plan ─────────────────────────────────────────────────────
 
-  const generateWorkPlan = async () => {
-    if (!cycle1Start || !testingEnd) { alert('יש להזין תאריך התחלה ותאריך סיום בדיקות'); return; }
+  const doGenerateWorkPlan = async () => {
     setGenerating(true);
     try {
       const r = await axios.post(
@@ -375,14 +446,42 @@ export default function QaAssignmentView({ token }: Props) {
       );
       const unassignedCrs: string[] = r.data.unassignedCrs ?? [];
       alert(
-        `✅ תוכנית עבודה נוצרה!\n` +
-        (unassignedCrs.length > 0 ? `\n⚠ ${unassignedCrs.length} CRים ללא שיבוץ לא נכללו:\n${unassignedCrs.slice(0,5).join(', ')}${unassignedCrs.length > 5 ? '...' : ''}` : ''),
+        `✅ תוכנית עבודה נוצרה!
+` +
+        (unassignedCrs.length > 0 ? `
+⚠ ${unassignedCrs.length} CRים ללא שיבוץ לא נכללו:
+${unassignedCrs.slice(0,5).join(', ')}${unassignedCrs.length > 5 ? '...' : ''}` : ''),
       );
     } catch (e: any) {
       alert(e?.response?.data?.message ?? 'שגיאה ביצירת תוכנית העבודה');
     } finally {
       setGenerating(false);
     }
+  };
+
+  const generateWorkPlan = () => {
+    if (!cycle1Start || !testingEnd) { alert('יש להזין תאריך התחלה ותאריך סיום בדיקות'); return; }
+
+    const assignedCrNums = new Set(assignments.map(a => a.crNumber));
+    const unassignedCount = crs.filter(cr => !assignedCrNums.has(cr.crNumber)).length;
+
+    if (unassignedCount > 0) {
+      setConfirmDialog({
+        title: 'CRים ללא שיבוץ',
+        message: `נמצאו ${unassignedCount} CRים שאינם משובצים לבודק.
+CRים אלה לא ייכללו בתוכנית העבודה.
+
+האם להמשיך ביצירת התוכנית?`,
+        variant: 'warning',
+        confirmLabel: 'צור תוכנית',
+        cancelLabel: 'חזור לשיבוץ',
+        onConfirm: () => doGenerateWorkPlan(),
+        onCancel: () => {},
+      });
+      return;
+    }
+
+    doGenerateWorkPlan();
   };
 
   // ── Derived data ───────────────────────────────────────────────────────────
@@ -481,8 +580,8 @@ export default function QaAssignmentView({ token }: Props) {
 
       {/* Tab toggle */}
       <div style={{ display: 'flex', gap: 0, marginBottom: SP[4], borderBottom: `2px solid ${C.border}` }}>
-        {(['assignments', 'workplan'] as const).map(tab => {
-          const label = tab === 'assignments' ? '📋 שיבוץ בודקים' : '🗓 תוכנית עבודה';
+        {(['assignments', 'workplan', 'activity'] as const).map(tab => {
+          const label = tab === 'assignments' ? '📋 שיבוץ בודקים' : tab === 'workplan' ? '🗓 תוכנית עבודה' : '📅 לוח פעילויות';
           const active = activeTab === tab;
           return (
             <button key={tab} onClick={() => setActiveTab(tab)} style={{
@@ -505,6 +604,13 @@ export default function QaAssignmentView({ token }: Props) {
         </Suspense>
       )}
 
+      {/* Activity board tab */}
+      {activeTab === 'activity' && (
+        <Suspense fallback={<div style={{ padding: SP[6], textAlign: 'center', color: C.textMuted }}>טוען...</div>}>
+          <QaActivityPlanView token={token} versionId={selectedVId} />
+        </Suspense>
+      )}
+
       {activeTab === 'assignments' && <>
 
       {/* Version + dates + generate */}
@@ -522,6 +628,9 @@ export default function QaAssignmentView({ token }: Props) {
               setSelectedVId(v);
               localStorage.setItem(LS_VERSION_KEY, v);
               setSearch('');
+              // Reset dates — loadVersion restores them if a work plan exists
+              setCycle1Start('');
+              setTestingEnd('');
             }}
             style={{ padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, background: C.bgNested, color: C.textPrimary, outline: 'none', cursor: 'pointer', fontFamily: FONT }}
           >
@@ -560,19 +669,35 @@ export default function QaAssignmentView({ token }: Props) {
         <div style={{ flex: 1 }} />
 
         {selectedVId && (
-          <button
-            disabled={generating || !cycle1Start || !testingEnd}
-            onClick={generateWorkPlan}
-            style={{
-              padding: `${SP[2]} ${SP[4]}`, background: BLUE, color: '#fff',
-              border: 'none', borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold,
-              cursor: (generating || !cycle1Start || !testingEnd) ? 'not-allowed' : 'pointer',
-              opacity: (generating || !cycle1Start || !testingEnd) ? 0.5 : 1,
-              fontFamily: FONT, transition: EASE.fast, whiteSpace: 'nowrap', alignSelf: 'flex-end',
-            }}
-          >
-            {generating ? '⏳ מחשב...' : '📋 צור תוכנית עבודה'}
-          </button>
+          <div style={{ display: 'flex', gap: SP[2], alignSelf: 'flex-end' }}>
+            <button
+              disabled={syncing}
+              onClick={syncCrList}
+              title="סנכרן רשימת CRים מקובץ EXCEL_FILE_PATH"
+              style={{
+                padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, color: C.textSecondary,
+                border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold,
+                cursor: syncing ? 'not-allowed' : 'pointer',
+                opacity: syncing ? 0.5 : 1,
+                fontFamily: FONT, transition: EASE.fast, whiteSpace: 'nowrap',
+              }}
+            >
+              {syncing ? '⏳' : '🔄'} סנכרן משימות גרסה
+            </button>
+            <button
+              disabled={generating || !cycle1Start || !testingEnd}
+              onClick={generateWorkPlan}
+              style={{
+                padding: `${SP[2]} ${SP[4]}`, background: BLUE, color: '#fff',
+                border: 'none', borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold,
+                cursor: (generating || !cycle1Start || !testingEnd) ? 'not-allowed' : 'pointer',
+                opacity: (generating || !cycle1Start || !testingEnd) ? 0.5 : 1,
+                fontFamily: FONT, transition: EASE.fast, whiteSpace: 'nowrap',
+              }}
+            >
+              {generating ? '⏳ מחשב...' : '📋 צור תוכנית עבודה'}
+            </button>
+          </div>
         )}
       </div>
 
@@ -603,9 +728,10 @@ export default function QaAssignmentView({ token }: Props) {
                 <thead>
                   <tr style={{ background: C.bgNested }}>
                     {([
+                      { key: null,     label: 'פרוייקט' },
                       { key: 'cr',     label: 'CR'    },
                       { key: 'label',  label: 'תיאור' },
-                      { key: 'effort', label: 'מאמץ'  },
+                      { key: 'effort', label: 'ימי עבודה' },
                       { key: null,     label: 'סוג'   },
                       { key: null,     label: 'סבבים' },
                       { key: 'order',  label: 'סדר'   },
@@ -661,6 +787,13 @@ export default function QaAssignmentView({ token }: Props) {
                     return (
                       <tr key={cr.crNumber} style={{ background: i % 2 === 0 ? 'transparent' : C.bgNested, borderBottom: `1px solid ${C.border}` }}>
 
+                        {/* Project */}
+                        <td style={{ padding: `${SP[2]} ${SP[3]}`, whiteSpace: 'nowrap', maxWidth: 120 }}>
+                          {cr.project
+                            ? <span style={{ ...TEXT.xs, color: C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }} title={cr.project}>{cr.project}</span>
+                            : <span style={{ ...TEXT.xs, color: C.textDisabled }}>—</span>}
+                        </td>
+
                         {/* CR number */}
                         <td style={{ padding: `${SP[2]} ${SP[3]}`, whiteSpace: 'nowrap' }}>
                           <span style={{ background: BLUE_BG, color: BLUE, padding: `2px ${SP[2]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold }}>
@@ -682,63 +815,47 @@ export default function QaAssignmentView({ token }: Props) {
                           </div>
                         </td>
 
-                        {/* QA Effort — editable for assigned CRs */}
+                        {/* QA Effort — always editable */}
                         <td style={{ padding: `${SP[2]} ${SP[3]}`, whiteSpace: 'nowrap', textAlign: 'center' }}>
-                          {asg ? (
-                            isEditingEff ? (
-                              <input
-                                autoFocus
-                                type="number" min="0.5" step="0.5"
-                                defaultValue={effortDays ?? 1}
-                                style={{ width: 54, padding: '2px 4px', border: `1px solid ${BLUE}`, borderRadius: RADIUS.sm, ...TEXT.xs, textAlign: 'center', fontFamily: FONT, outline: 'none' }}
-                                onBlur={e => saveEffort(asg.id, cr.crNumber, e.target.value)}
-                                onKeyDown={e => {
-                                  if (e.key === 'Enter') saveEffort(asg.id, cr.crNumber, (e.target as HTMLInputElement).value);
-                                  if (e.key === 'Escape') setEditingEffort(null);
-                                }}
-                              />
-                            ) : (
-                              <span
-                                title="לחץ לעריכה"
-                                onClick={() => setEditingEffort(cr.crNumber)}
-                                style={{ background: BLUE_BG, color: BLUE, padding: `2px 8px`, borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.bold, cursor: 'pointer', userSelect: 'none' }}
-                              >
-                                {effortDays != null ? `${effortDays}י'` : '—'}
-                              </span>
-                            )
+                          {isEditingEff ? (
+                            <input
+                              autoFocus
+                              type="number" min="0.5" step="0.5"
+                              defaultValue={effortDays ?? 1}
+                              style={{ width: 54, padding: '2px 4px', border: `1px solid ${BLUE}`, borderRadius: RADIUS.sm, ...TEXT.xs, textAlign: 'center', fontFamily: FONT, outline: 'none' }}
+                              onBlur={e => saveEffort(cr.crNumber, e.target.value, asg?.id)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') saveEffort(cr.crNumber, (e.target as HTMLInputElement).value, asg?.id);
+                                if (e.key === 'Escape') setEditingEffort(null);
+                              }}
+                            />
                           ) : (
-                            effortDays != null
-                              ? <span style={{ background: BLUE_BG, color: BLUE, padding: `2px 8px`, borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.bold }}>{effortDays}י'</span>
-                              : <span style={{ ...TEXT.xs, color: C.textDisabled }}>—</span>
+                            <span
+                              title="לחץ לעריכה"
+                              onClick={() => setEditingEffort(cr.crNumber)}
+                              style={{ background: BLUE_BG, color: BLUE, padding: `2px 8px`, borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.bold, cursor: 'pointer', userSelect: 'none' }}
+                            >
+                              {effortDays != null ? `${effortDays}י'` : '—'}
+                            </span>
                           )}
                         </td>
 
-                        {/* סוג: integrative / SA toggle */}
+                        {/* סוג: integrative / SA toggle — always interactive */}
                         <td style={{ padding: `${SP[2]} ${SP[3]}`, whiteSpace: 'nowrap' }}>
-                          {asg ? (
-                            <button
-                              title={effectiveSA ? 'לחץ להפוך לאינטגרטיבי' : 'לחץ להפוך ל-Stand Alone'}
-                              onClick={() => {
-                                const newSA     = !effectiveSA;
-                                const newCycles = newSA ? ['STAND_ALONE'] : ['CYCLE_1', 'CYCLE_2', 'CYCLE_3'];
-                                patchAssignment(asg.id, cr.crNumber, { isStandAlone: newSA, cycles: newCycles });
-                              }}
-                              style={{
-                                padding: '2px 8px',
-                                background: effectiveSA ? 'rgba(183,107,0,0.13)' : BLUE_BG,
-                                color:      effectiveSA ? '#b76b00'              : BLUE,
-                                border:     `1px solid ${effectiveSA ? '#b76b0044' : BLUE + '44'}`,
-                                borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold,
-                                cursor: 'pointer', fontFamily: FONT, transition: EASE.fast,
-                              }}
-                            >
-                              {effectiveSA ? 'SA' : 'אינטג\''}
-                            </button>
-                          ) : (
-                            <span style={{ ...TEXT.xs, color: C.textDisabled, padding: '2px 8px' }}>
-                              {cr.isStandAlone ? 'SA' : 'אינטג\''}
-                            </span>
-                          )}
+                          <button
+                            title={effectiveSA ? 'לחץ להפוך לאינטגרטיבי' : 'לחץ להפוך ל-Stand Alone'}
+                            onClick={() => toggleStandAlone(cr, asg, effectiveSA)}
+                            style={{
+                              padding: '2px 8px',
+                              background: effectiveSA ? 'rgba(183,107,0,0.13)' : BLUE_BG,
+                              color:      effectiveSA ? '#b76b00'              : BLUE,
+                              border:     `1px solid ${effectiveSA ? '#b76b0044' : BLUE + '44'}`,
+                              borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold,
+                              cursor: 'pointer', fontFamily: FONT, transition: EASE.fast,
+                            }}
+                          >
+                            {effectiveSA ? 'SA' : 'אינטג\''}
+                          </button>
                         </td>
 
                         {/* סבבים: cycles multiselect */}
@@ -878,11 +995,12 @@ export default function QaAssignmentView({ token }: Props) {
                 ref={pickerRef}
                 style={{
                   position: 'fixed',
-                  top:   openPicker.top,
+                  ...(openPicker.top    !== undefined ? { top:    openPicker.top    } : {}),
+                  ...(openPicker.bottom !== undefined ? { bottom: openPicker.bottom } : {}),
                   right: openPicker.right,
                   background: C.bgCard, border: `1px solid ${C.border}`,
                   borderRadius: RADIUS.lg, boxShadow: SHADOW.lg,
-                  width: 380, maxHeight: 520, overflowY: 'auto',
+                  width: 380, maxHeight: openPicker.maxH ?? 520, overflowY: 'auto',
                   zIndex: 1000, padding: SP[2], direction: 'rtl',
                 }}
               >
@@ -950,6 +1068,8 @@ export default function QaAssignmentView({ token }: Props) {
       )}
 
       </>}
+
+      <ConfirmDialog config={confirmDialog} onClose={() => setConfirmDialog(null)} />
     </div>
   );
 }
@@ -965,9 +1085,47 @@ function ScoringPickerContent({
   onAssign:      (userId: string, score: number) => void;
 }) {
   const [showManual, setShowManual] = useState(false);
+  const [navIdx, setNavIdx]         = useState(-1);
+  const manualListRef = useRef<HTMLDivElement>(null);
   const isManual = result.status === 'MANUAL_INTERVENTION';
   const sortedAll = [...allTesters].sort((a, b) => a.fullName.localeCompare(b.fullName, 'he'));
   const recommendedIds = new Set(result.recommendations.map(r => r.userId));
+
+  // Combined flat list for keyboard nav: recommendations then manual (deduped)
+  const navItems = React.useMemo(() => {
+    const recs = result.recommendations.map(t => ({ userId: t.userId, fullName: t.fullName, score: t.totalScore }));
+    const manualOnly = sortedAll.filter(t => !recommendedIds.has(t.userId)).map(t => ({ userId: t.userId, fullName: t.fullName, score: 0 }));
+    return [...recs, ...manualOnly];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result.recommendations, sortedAll]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
+      e.preventDefault();
+      if (e.key === 'ArrowDown') {
+        setNavIdx(i => {
+          const next = Math.min(i + 1, navItems.length - 1);
+          if (next >= result.recommendations.length) setShowManual(true);
+          return next;
+        });
+      } else if (e.key === 'ArrowUp') {
+        setNavIdx(i => Math.max(i - 1, 0));
+      } else if (e.key === 'Enter' && navIdx >= 0 && navIdx < navItems.length) {
+        onAssign(navItems[navIdx].userId, navItems[navIdx].score);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [navIdx, navItems, onAssign, result.recommendations.length]);
+
+  // Scroll highlighted item into view
+  useEffect(() => {
+    if (navIdx < result.recommendations.length) return;
+    const manualIdx = navIdx - result.recommendations.length;
+    const el = manualListRef.current?.children[manualIdx] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [navIdx, result.recommendations.length]);
 
   return (
     <div>
@@ -1007,10 +1165,12 @@ function ScoringPickerContent({
           <span>בחירה ידנית — כל הבודקים ({sortedAll.length})</span>
         </button>
         {showManual && (
-          <div style={{ maxHeight: 200, overflowY: 'auto', padding: `0 ${SP[1]} ${SP[1]}` }}>
-            {sortedAll.map(t => {
-              const isCurrent  = t.userId === currentUserId;
+          <div ref={manualListRef} style={{ maxHeight: 200, overflowY: 'auto', padding: `0 ${SP[1]} ${SP[1]}` }}>
+            {sortedAll.map((t, mi) => {
+              const isCurrent     = t.userId === currentUserId;
               const isRecommended = recommendedIds.has(t.userId);
+              const globalIdx     = result.recommendations.length + mi;
+              const isNavSelected = navIdx === globalIdx;
               return (
                 <div
                   key={t.userId}
@@ -1018,12 +1178,12 @@ function ScoringPickerContent({
                   style={{
                     display: 'flex', alignItems: 'center', gap: SP[2],
                     padding: `${SP[1]} ${SP[2]}`, borderRadius: RADIUS.sm,
-                    background: isCurrent ? BLUE_BG : 'transparent',
-                    border: isCurrent ? `1px solid ${BLUE}33` : '1px solid transparent',
+                    background: isCurrent ? BLUE_BG : isNavSelected ? C.bgHover : 'transparent',
+                    border: isCurrent ? `1px solid ${BLUE}33` : isNavSelected ? `1px solid ${C.border}` : '1px solid transparent',
                     cursor: 'pointer', transition: EASE.fast,
                   }}
-                  onMouseEnter={e => { if (!isCurrent) (e.currentTarget as HTMLDivElement).style.background = C.bgHover; }}
-                  onMouseLeave={e => { if (!isCurrent) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+                  onMouseEnter={e => { if (!isCurrent && !isNavSelected) (e.currentTarget as HTMLDivElement).style.background = C.bgHover; }}
+                  onMouseLeave={e => { if (!isCurrent && !isNavSelected) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
                 >
                   <div style={{ width: 22, height: 22, borderRadius: '50%', background: isCurrent ? BLUE_BG : C.bgNested, color: isCurrent ? BLUE : C.textSecondary, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: WEIGHT.bold, fontSize: '10px', flexShrink: 0, border: `1px solid ${isCurrent ? BLUE + '44' : C.border}` }}>
                     {t.fullName.charAt(0).toUpperCase()}

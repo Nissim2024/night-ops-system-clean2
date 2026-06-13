@@ -8,19 +8,13 @@ export class QcController {
   constructor(private readonly qcService: QcService) {}
 
   @Get('test-coverage')
-  getTestCoverage(
-    @Query('versionId') versionId: string,
-    @Query('cycleId') cycleId?: string,
-  ) {
-    return this.qcService.getTestCoverage(versionId, cycleId);
+  getTestCoverage(@Query('versionId') versionId: string) {
+    return this.qcService.getTestCoverage(versionId);
   }
 
   @Get('defects')
-  getDefects(
-    @Query('versionId') versionId: string,
-    @Query('cycleId') cycleId?: string,
-  ) {
-    return this.qcService.getDefects(versionId, cycleId);
+  getDefects(@Query('versionId') versionId: string) {
+    return this.qcService.getDefects(versionId);
   }
 
   @Get('cr-items')

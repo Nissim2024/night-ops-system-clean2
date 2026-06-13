@@ -74,6 +74,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [openNewVersionForm, setOpenNewVersionForm] = useState(false);
   const [activeModule, setActiveModule] = useState<'deployments' | 'qa'>('deployments');
   const [activeQaView, setActiveQaView]  = useState('testers');
+  const [isQaTeamMember, setIsQaTeamMember] = useState(false);
 
   const payload  = JSON.parse(atob(token.split('.')[1]));
   const fullName = localStorage.getItem('deploycenter_fullName') || payload.fullName || 'מנהל';
@@ -176,12 +177,19 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
 
   // Fetch own team for TEAM_LEAD role (used to filter tasks by team when lacking view_all_teams permission)
   useEffect(() => {
-    if (payload.role !== 'TEAM_LEAD') return;
     axios.get(`${API}/teams`, { headers }).then(res => {
-      const team = res.data.find((t: any) =>
-        t.members?.some((m: any) => m.userId === payload.sub || m.user?.id === payload.sub)
+      const teams: any[] = res.data ?? [];
+      const qaTeam = teams.find((t: any) =>
+        t.name?.toLowerCase().includes('qa') &&
+        t.members?.some((m: any) => (m.userId || m.user?.id) === payload.sub)
       );
-      if (team) setMyTeamId(team.id);
+      setIsQaTeamMember(!!qaTeam);
+      if (payload.role === 'TEAM_LEAD') {
+        const myTeam = teams.find((t: any) =>
+          t.members?.some((m: any) => m.userId === payload.sub || m.user?.id === payload.sub)
+        );
+        if (myTeam) setMyTeamId(myTeam.id);
+      }
     }).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -570,11 +578,11 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           activeTab={activeTab}
           onNewVersionClick={['ADMIN', 'RELEASE_MANAGER'].includes(payload.role) ? () => { setSelectedVersionId(''); setVersionFilter('inactive'); setActiveTab('list'); setOpenNewVersionForm(true); } : undefined}
           activeModule={activeModule}
-          onModuleChange={m => { if (m === 'qa' && payload.role !== 'ADMIN') return; setActiveModule(m); if (m === 'qa') setActiveQaView('testers'); }}
+          onModuleChange={m => { if (m === 'qa' && !isQaTeamMember && payload.role !== 'ADMIN') return; setActiveModule(m); if (m === 'qa') setActiveQaView('testers'); }}
           activeQaView={activeQaView}
           onQaViewChange={setActiveQaView}
-          canAccessQa={payload.role === 'ADMIN'}
-          showLeaves={payload.role !== 'ADMIN'}
+          canAccessQa={isQaTeamMember || payload.role === 'ADMIN'}
+          showLeaves={isQaTeamMember}
           leavesActive={activeModule === 'qa' && activeQaView === 'leaves'}
           onLeavesClick={() => { setActiveModule('qa'); setActiveQaView('leaves'); }}
         />
@@ -583,7 +591,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
         <div style={{ flex: 1, padding: '24px', overflowY: 'auto', minWidth: 0, minHeight: 0, background: C.bgApp }}>
 
           {/* ── Module: ניהול QA ── */}
-          {activeModule === 'qa' && <QaModulePlaceholder view={activeQaView} token={token} role={payload.role} />}
+          {activeModule === 'qa' && <QaModulePlaceholder view={activeQaView} token={token} role={payload.role} isQaMember={isQaTeamMember} />}
 
           {activeModule === 'deployments' && (<>
 
@@ -611,6 +619,27 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                   token={token}
                   onVersionUpdated={fetchVersions}
                 />
+              );
+            }
+
+            // TEAM_LEAD בגרסה בשלב טיוטה → הודעה מיידית
+            if (payload.role === 'TEAM_LEAD' && selectedVersion?.status === 'DRAFT') {
+              return (
+                <div style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  padding: '60px 24px', textAlign: 'center', gap: '16px',
+                }}>
+                  <div style={{ fontSize: '48px' }}>📋</div>
+                  <div style={{ fontSize: '20px', fontWeight: '700', color: C.textPrimary }}>
+                    התוכנית כרגע בשלב טיוטא
+                  </div>
+                  <div style={{ fontSize: '15px', color: C.textSecondary, maxWidth: '420px', lineHeight: '1.6' }}>
+                    שלב הגשת המשימות ייפתח עם פתיחת שלב איסוף המשימות על ידי מנהל הלילה.
+                  </div>
+                  <div style={{ marginTop: '8px', padding: '10px 20px', background: C.bgCard, borderRadius: '10px', border: `1px solid ${C.border}`, fontSize: '14px', color: C.textMuted }}>
+                    גרסה: <strong style={{ color: C.textPrimary }}>{selectedVersion.name}</strong>
+                  </div>
+                </div>
               );
             }
 
@@ -1164,31 +1193,27 @@ const NoActiveVersionMessage: React.FC = () => (
 // ── QA Module placeholder ────────────────────────────────────────────────────
 
 const QA_VIEW_META: Record<string, { icon: string; title: string; sub: string }> = {
-  testers:    { icon: '👥', title: 'בודקים',        sub: 'ניהול פרופילי בודקים, הוספה ועריכה' },
-  skills:     { icon: '🧠', title: 'מטריצת סקילים', sub: 'הגדרת סקילים ורמות מיומנות לכל בודק' },
-  leaves:     { icon: '📅', title: 'חופשות',         sub: '' },
-  assignment: { icon: '🎯', title: 'שיבוץ משימות',  sub: 'יצירת משימת דפלוימנט והרצת מנוע ההמלצות' },
-  workplan:   { icon: '📋', title: 'תוכנית עבודה',  sub: 'תכנון סבבי בדיקות וייצוא לאקסל' },
-  seasons:    { icon: '🏖', title: 'עונות שיא',      sub: '' },
+  testers:    { icon: '👥', title: 'בודקים',          sub: 'ניהול פרופילי בודקים, הוספה ועריכה' },
+  skills:     { icon: '🧠', title: 'מטריצת סקילים',   sub: 'הגדרת סקילים ורמות מיומנות לכל בודק' },
+  leaves:     { icon: '📅', title: 'חופשות',           sub: '' },
+  assignment: { icon: '🎯', title: 'תכנון ושיבוץ',    sub: 'שיבוץ בודקים ותכנון סבבי בדיקות' },
 };
 
-const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string }> = ({ view, token, role }) => {
-  // Leaves board is accessible to all authenticated users; everything else is ADMIN-only
-  if (role !== 'ADMIN' && view !== 'leaves') {
+const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string; isQaMember?: boolean }> = ({ view, token, role, isQaMember }) => {
+  // Leaves board is accessible to all authenticated users; QA module views are for QA team members and ADMIN
+  if (view !== 'leaves' && role !== 'ADMIN' && !isQaMember) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '12px', color: C.textMuted }}>
         <div style={{ fontSize: '48px' }}>🔒</div>
         <div style={{ fontSize: '18px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>אין הרשאת גישה</div>
-        <div style={{ fontSize: '14px', color: C.textMuted }}>אזור זה מיועד למנהלי מערכת בלבד</div>
+        <div style={{ fontSize: '14px', color: C.textMuted }}>אזור זה מיועד לצוות QA בלבד</div>
       </div>
     );
   }
   if (view === 'leaves')     return <QaLeavesView role={role} token={token} />;
   if (view === 'testers')    return <QaTestersView token={token} />;
-  if (view === 'seasons')    return <QaSeasonsView token={token} />;
   if (view === 'skills')     return <QaSkillsView token={token} />;
   if (view === 'assignment') return <QaAssignmentView token={token} />;
-  if (view === 'workplan')   return <QaWorkPlanView token={token} />;
 
   const meta = QA_VIEW_META[view] ?? { icon: '👥', title: 'ניהול QA', sub: '' };
   return (

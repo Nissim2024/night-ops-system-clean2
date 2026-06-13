@@ -90,11 +90,12 @@ export class VersionCrAssignmentsService {
     const headers: string[] = (rows[headerRowIdx] as any[]).map(h => String(h ?? '').trim());
     const colIdx = (name: string) => headers.findIndex(h => h === name);
 
-    const crCol     = colIdx('# CR');
-    const titleCol  = colIdx('כותרת');
-    const verCol    = colIdx('גרסה');
-    const statusCol = colIdx('סטטוס');
-    const appCol    = colIdx('מאפיין');
+    const crCol      = colIdx('# CR');
+    const titleCol   = colIdx('כותרת');
+    const verCol     = colIdx('גרסה');
+    const statusCol  = colIdx('סטטוס');
+    const appCol     = colIdx('מאפיין');
+    const projectCol = colIdx('פרויקט');
     const COL_DESCRIPTION = 5;
     const COL_MANAGER     = 9;
 
@@ -140,7 +141,7 @@ export class VersionCrAssignmentsService {
     // ── Pass 2: collect assignments for eligible CRs only ──
     type Assignment = {
       crNumber: string; crLabel: string; teamId: string;
-      crManager: string; crDescription: string; application: string;
+      crManager: string; crDescription: string; application: string; project: string;
       qaEffort?: number; // DAYS — only for QA Team rows
     };
     const assignments: Assignment[] = [];
@@ -185,7 +186,8 @@ export class VersionCrAssignmentsService {
           teamId,
           crManager:     String(row[COL_MANAGER]     ?? '').trim(),
           crDescription: String(row[COL_DESCRIPTION] ?? '').trim(),
-          application:   appCol !== -1 ? String(row[appCol] ?? '').trim() : '',
+          application:   appCol     !== -1 ? String(row[appCol]     ?? '').trim() : '',
+          project:       projectCol !== -1 ? String(row[projectCol] ?? '').trim() : '',
           ...(qaEffortDays !== undefined ? { qaEffort: qaEffortDays } : {}),
         });
       }
@@ -207,18 +209,19 @@ export class VersionCrAssignmentsService {
           crManager:     a.crManager || null,
           crDescription: a.crDescription || null,
           application:   a.application || null,
+          ...(a.project ? { project: a.project } : {}),
           syncedAt:      now,
           ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
-        },
+        } as any,
         update: {
           crLabel:       a.crLabel,
           crManager:     a.crManager || null,
           crDescription: a.crDescription || null,
           application:   a.application || null,
+          ...(a.project ? { project: a.project } : {}),
           syncedAt:      now,
-          // always refresh qaEffort from file; manual overrides go in qaEffortOverride
           ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
-        },
+        } as any,
       });
       synced++;
       teamsTouched.add(a.teamId);
@@ -249,6 +252,18 @@ export class VersionCrAssignmentsService {
         ? `הוסרו ${staleIds.length} CR שבוטלו / נמחקו מהקובץ${autoMarked > 0 ? ` (${autoMarked} תוכניות סומנו כ"לא נדרש")` : ''}`
         : '',
     };
+  }
+
+  async patchCr(versionId: string, crNumber: string, patch: { qaEffortOverride?: number | null; isStandAlone?: boolean }) {
+    const data: any = {};
+    if (patch.qaEffortOverride !== undefined) data.qaEffortOverride = patch.qaEffortOverride;
+    if (patch.isStandAlone     !== undefined) data.isStandAlone     = patch.isStandAlone;
+    if (Object.keys(data).length === 0) return { ok: true };
+    await prisma.versionCrAssignment.updateMany({
+      where: { versionId, crNumber },
+      data,
+    });
+    return { ok: true };
   }
 
   async clearForVersion(versionId: string, user: { sub: string; role: string }) {

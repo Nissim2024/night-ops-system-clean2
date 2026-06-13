@@ -16,6 +16,7 @@ interface Props {
 
 interface Defect {
   id: string;
+  assignedTo: string;
   system: string;
   title: string;
   description: string;
@@ -282,8 +283,14 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
     { label: 'Closed',   count: defects.filter(d => d.status === 'Closed').length,   color: C.statusDone },
     { label: 'Canceled', count: defects.filter(d => d.status === 'Canceled').length, color: C.statusRollback },
   ];
-  const systemCounts = defects.reduce((acc: Record<string, number>, d) => { acc[d.system] = (acc[d.system] || 0) + 1; return acc; }, {});
-  const systemData   = Object.entries(systemCounts).map(([label, count]) => ({ label, count, color: C.brand }));
+  const responsibilityCounts = defects.reduce((acc: Record<string, number>, d) => {
+    const key = d.assignedTo || '—';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const responsibilityData = Object.entries(responsibilityCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, count]) => ({ label, count, color: C.brand }));
 
   const approveSummary = async () => {
     setApproveLoading(true); setApproveError(null);
@@ -543,15 +550,15 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
        <td style="padding:5px 10px;text-align:center;"><span style="background:${r.color};color:white;padding:2px 12px;border-radius:10px;font-size:13px;font-weight:bold;">${r.count}</span></td></tr>`
     ).join('');
 
-    // system breakdown
-    const sysCounts = defects.reduce((acc: Record<string, number>, d) => { acc[d.system] = (acc[d.system] || 0) + 1; return acc; }, {});
-    const maxSys = Math.max(...Object.values(sysCounts), 1);
-    const sysRows = Object.entries(sysCounts)
+    // responsibility breakdown
+    const respCounts = defects.reduce((acc: Record<string, number>, d) => { const k = d.assignedTo || '—'; acc[k] = (acc[k] || 0) + 1; return acc; }, {});
+    const maxResp = Math.max(...Object.values(respCounts), 1);
+    const sysRows = Object.entries(respCounts)
       .sort(([, a], [, b]) => b - a)
-      .map(([sys, cnt]) => {
-        const pct = Math.round((cnt / maxSys) * 100);
+      .map(([resp, cnt]) => {
+        const pct = Math.round((cnt / maxResp) * 100);
         return `<tr>
-          <td style="text-align:right;padding:3px 10px;font-size:12px;color:#2c3e50;white-space:nowrap;width:110px;">${sys}</td>
+          <td style="text-align:right;padding:3px 10px;font-size:12px;color:#2c3e50;white-space:nowrap;width:110px;">${resp}</td>
           <td style="padding:3px 6px;">
             <div style="background:linear-gradient(to left,#3498db ${pct}%,#e9ecef ${pct}%);height:16px;border-radius:3px;min-width:60px;"></div>
           </td>
@@ -565,7 +572,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
       const stColor  = d.status === 'Open' ? '#e74c3c' : d.status === 'Closed' ? '#27ae60' : '#95a5a6';
       return `<tr style="border-bottom:1px solid #e9ecef;">
         <td style="padding:7px 8px;font-size:12px;color:#2c3e50;text-align:right;max-width:200px;">${d.title}</td>
-        <td style="padding:7px 8px;font-size:12px;color:#6c757d;text-align:right;white-space:nowrap;">${d.system}</td>
+        <td style="padding:7px 8px;font-size:12px;color:#6c757d;text-align:right;white-space:nowrap;">${d.assignedTo}</td>
         <td style="padding:7px 8px;text-align:center;white-space:nowrap;">
           <span style="background:${sevColor};color:white;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:bold;">${d.severity}</span>
         </td>
@@ -1032,9 +1039,9 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
             ) : (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '16px' }}>
-                  <BarChart title="התפלגות לפי חומרה" data={severityData.filter(d => d.count > 0)} />
-                  <BarChart title="סטטוס תקלות"       data={statusData.filter(d => d.count > 0)} />
-                  <BarChart title="לפי מערכת"         data={systemData} />
+                  <BarChart title="התפלגות לפי חומרה"       data={severityData.filter(d => d.count > 0)} />
+                  <BarChart title="התפלגות לפי סטטוס"       data={statusData.filter(d => d.count > 0)} />
+                  <BarChart title="התפלגות לפי Responsibility" data={responsibilityData} />
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
@@ -1055,7 +1062,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                             <span style={{ background: (SEVERITY_COLORS[d.severity] || '#95a5a6') + '22', color: SEVERITY_COLORS[d.severity] || '#95a5a6', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', fontSize: '11px', whiteSpace: 'nowrap' }}>{d.severity}</span>
                           </td>
                           <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.priority}</td>
-                          <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.system}</td>
+                          <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.assignedTo}</td>
                           <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.reporter}</td>
                           <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.discoveryDate}</td>
                           <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.environment}</td>
@@ -1443,9 +1450,9 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                 ) : (
                   <>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '14px' }}>
-                      <BarChart title="חומרה" data={severityData.filter(d => d.count > 0)} />
-                      <BarChart title="סטטוס" data={statusData.filter(d => d.count > 0)} />
-                      <BarChart title="מערכת" data={systemData} />
+                      <BarChart title="חומרה"          data={severityData.filter(d => d.count > 0)} />
+                      <BarChart title="סטטוס"          data={statusData.filter(d => d.count > 0)} />
+                      <BarChart title="Responsibility"  data={responsibilityData} />
                     </div>
                     <div style={{ overflowX: 'auto' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
@@ -1466,7 +1473,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                                 <span style={{ background: (SEVERITY_COLORS[d.severity] || '#95a5a6') + '22', color: SEVERITY_COLORS[d.severity] || '#95a5a6', padding: '1px 5px', borderRadius: '6px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>{d.severity}</span>
                               </td>
                               <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', whiteSpace: 'nowrap', color: '#333' }}>{d.priority}</td>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', whiteSpace: 'nowrap', color: '#333' }}>{d.system}</td>
+                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', whiteSpace: 'nowrap', color: '#333' }}>{d.assignedTo}</td>
                               <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', whiteSpace: 'nowrap', color: '#333' }}>{d.reporter}</td>
                               <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', whiteSpace: 'nowrap', color: '#333' }}>{d.discoveryDate}</td>
                               <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', whiteSpace: 'nowrap', color: '#333' }}>{d.environment}</td>

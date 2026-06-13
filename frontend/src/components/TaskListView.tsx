@@ -427,8 +427,30 @@ export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, v
   const [filterStatus,   setFilterStatus]   = useState<string | null>(null);
   const [statusLoading,  setStatusLoading]  = useState(false);
   const [statusError,    setStatusError]    = useState<string | null>(null);
+  const [proposalCount,  setProposalCount]  = useState(0);
+  const [converting,     setConverting]     = useState(false);
+  const [convertResult,  setConvertResult]  = useState<{ created: number; skipped: { title: string; reason: string }[]; tasks: { title: string; phaseName: string; subPhaseName: string }[] } | null>(null);
 
   const headers = { Authorization: `Bearer ${token}` };
+
+  const fetchProposalCount = async () => {
+    try {
+      const res = await axios.get(`${API}/task-proposals/version/${versionId}/count-pending`, { headers });
+      setProposalCount(res.data.count ?? 0);
+    } catch { setProposalCount(0); }
+  };
+
+  const handleConvertProposals = async () => {
+    setConverting(true);
+    try {
+      const res = await axios.post(`${API}/task-proposals/version/${versionId}/convert-approved`, {}, { headers });
+      setConvertResult({ created: res.data.created ?? 0, skipped: res.data.skipped ?? [], tasks: res.data.tasks ?? [] });
+      await fetchVersion();
+      await fetchProposalCount();
+    } catch (err: any) {
+      setConvertResult({ created: 0, skipped: [{ title: '—', reason: err?.response?.data?.message || 'שגיאה בשיבוץ' }], tasks: [] });
+    } finally { setConverting(false); }
+  };
 
   const changeVersionStatus = async (newStatus: string) => {
     setStatusLoading(true);
@@ -451,7 +473,7 @@ export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, v
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchVersion(); setSelectedId(null); }, [versionId]); // eslint-disable-line
+  useEffect(() => { fetchVersion(); fetchProposalCount(); setSelectedId(null); }, [versionId]); // eslint-disable-line
 
   const toggleCollapse = (id: string) =>
     setCollapsed(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -682,6 +704,33 @@ export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, v
               );
             })}
           </div>
+
+          {/* Auto-assign proposals button — managers in edit mode only */}
+          {editable && proposalCount > 0 && (
+            <button
+              onClick={handleConvertProposals}
+              disabled={converting}
+              style={{
+                marginRight: 'auto',
+                fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold,
+                padding: '5px 12px', borderRadius: RADIUS.md,
+                background: converting ? C.textDisabled : '#4573D2',
+                color: 'white', border: 'none',
+                cursor: converting ? 'not-allowed' : 'pointer',
+                display: 'flex', alignItems: 'center', gap: '6px',
+                flexShrink: 0, whiteSpace: 'nowrap' as any,
+              }}
+            >
+              {converting ? '⏳ משבץ...' : `📥 שבץ הצעות מאושרות`}
+              <span style={{
+                background: 'rgba(255,255,255,0.25)',
+                borderRadius: RADIUS.full,
+                padding: '0px 7px',
+                fontSize: '11px',
+                fontWeight: WEIGHT.bold,
+              }}>{proposalCount}</span>
+            </button>
+          )}
         </div>
 
         {/* Table header */}
@@ -756,6 +805,103 @@ export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, v
           onClose={() => setSelectedId(null)}
           onSave={fetchVersion}
         />
+      )}
+
+      {/* ── Convert proposals result dialog ── */}
+      {convertResult && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200,
+        }} onClick={() => setConvertResult(null)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: C.bgCard, borderRadius: RADIUS.lg, padding: SP[6],
+            minWidth: '340px', maxWidth: '480px', width: '90%',
+            boxShadow: SHADOW.lg, direction: 'rtl', fontFamily: FONT,
+          }}>
+            <h3 style={{ margin: `0 0 ${SP[4]} 0`, ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+              תוצאות שיבוץ הצעות
+            </h3>
+
+            {/* Created */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: SP[2],
+              padding: `${SP[2]} ${SP[3]}`, borderRadius: convertResult.tasks.length > 0 ? `${RADIUS.md} ${RADIUS.md} 0 0` : RADIUS.md,
+              background: 'rgba(40,167,69,0.1)', marginBottom: convertResult.tasks.length > 0 ? 0 : SP[3],
+            }}>
+              <span style={{ fontSize: '18px' }}>✅</span>
+              <span style={{ ...TEXT.sm, color: '#28a745', fontWeight: WEIGHT.semibold }}>
+                {convertResult.created > 0 ? `שובצו ${convertResult.created} משימות` : 'לא שובצו משימות חדשות'}
+              </span>
+            </div>
+            {convertResult.tasks.length > 0 && (
+              <div style={{
+                border: '1px solid rgba(40,167,69,0.25)', borderTop: 'none',
+                borderRadius: `0 0 ${RADIUS.md} ${RADIUS.md}`,
+                background: 'rgba(40,167,69,0.04)',
+                maxHeight: '200px', overflowY: 'auto',
+                marginBottom: SP[3],
+              }}>
+                {convertResult.tasks.map((t, i) => (
+                  <div key={i} style={{
+                    padding: `${SP[2]} ${SP[3]}`,
+                    borderBottom: i < convertResult.tasks.length - 1 ? '1px solid rgba(40,167,69,0.12)' : 'none',
+                    display: 'flex', flexDirection: 'column', gap: '2px',
+                  }}>
+                    <span style={{ ...TEXT.sm, color: C.textPrimary, fontWeight: WEIGHT.medium }}>{t.title}</span>
+                    <span style={{ ...TEXT.xs, color: C.textMuted }}>
+                      {t.phaseName}{t.subPhaseName ? ` › ${t.subPhaseName}` : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Skipped */}
+            {convertResult.skipped.length > 0 && (
+              <div style={{ marginBottom: SP[4] }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: SP[2],
+                  padding: `${SP[2]} ${SP[3]}`, borderRadius: `${RADIUS.md} ${RADIUS.md} 0 0`,
+                  background: 'rgba(255,193,7,0.12)',
+                }}>
+                  <span style={{ fontSize: '16px' }}>⚠️</span>
+                  <span style={{ ...TEXT.sm, color: '#856404', fontWeight: WEIGHT.semibold }}>
+                    דולגו {convertResult.skipped.length} הצעות:
+                  </span>
+                </div>
+                <div style={{
+                  border: `1px solid rgba(255,193,7,0.3)`, borderTop: 'none',
+                  borderRadius: `0 0 ${RADIUS.md} ${RADIUS.md}`,
+                  background: 'rgba(255,193,7,0.05)',
+                  maxHeight: '180px', overflowY: 'auto',
+                }}>
+                  {convertResult.skipped.map((s, i) => (
+                    <div key={i} style={{
+                      padding: `${SP[2]} ${SP[3]}`,
+                      borderBottom: i < convertResult.skipped.length - 1 ? `1px solid rgba(255,193,7,0.2)` : 'none',
+                      display: 'flex', gap: SP[2], alignItems: 'flex-start',
+                    }}>
+                      <span style={{ ...TEXT.xs, color: C.textPrimary, fontWeight: WEIGHT.medium, flex: 1 }}>{s.title}</span>
+                      <span style={{ ...TEXT.xs, color: C.textMuted, flexShrink: 0 }}>{s.reason}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={() => setConvertResult(null)}
+              style={{
+                width: '100%', padding: `${SP[2]} 0`,
+                background: C.bgNested, border: `1px solid ${C.border}`,
+                borderRadius: RADIUS.md, color: C.textPrimary,
+                fontFamily: FONT, ...TEXT.sm, cursor: 'pointer',
+              }}
+            >
+              סגור
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

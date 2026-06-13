@@ -157,6 +157,7 @@ const emptyForm = {
   assignedUserName: '',
   phase: 1 as number,
   subPhaseId: '',
+  responsibleTeamId: '',
 };
 
 const labelStyle: React.CSSProperties = {
@@ -440,7 +441,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
   const openAdd = (crNumber?: string, crLabel?: string, isFree?: boolean) => {
     setEditId(null);
-    setForm({ ...emptyForm, crNumber: crNumber || '', crLabel: crLabel || '', isFree: isFree ?? false });
+    setForm({ ...emptyForm, crNumber: crNumber || '', crLabel: crLabel || '', isFree: isFree ?? false, responsibleTeamId: myTeamId });
     setCrSearch(crNumber || '');
     setError(null);
     setOpenFormForCr(isFree ? FREE_KEY : (crNumber || FREE_KEY));
@@ -454,6 +455,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
       crNumber: p.crNumber ?? '', crLabel: p.crLabel ?? '', isFree: !p.crNumber,
       notes: p.notes ?? '', assignedUserName: p.assignedUserName ?? '', phase: p.phase,
       subPhaseId: '',
+      responsibleTeamId: (p as any).responsibleTeamId ?? '',
     });
     setCrSearch(p.crNumber || '');
     setError(null);
@@ -483,6 +485,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         crLabel: crItem?.label || form.crLabel || undefined,
         notes: form.notes || undefined,
         assignedUserName: form.assignedUserName || undefined,
+        responsibleTeamId: form.responsibleTeamId || myTeamId || undefined,
         ...(teamIdOverride ? { teamIdOverride } : {}),
       };
       if (editId) {
@@ -697,6 +700,36 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     return filtered.length > 0 ? filtered : users;
   }, [myTeamId, teams, users]);
 
+  // Allowed responsible teams based on phase:
+  // Phase 1: only own team
+  // Phase 2/3 (HOTNET/HOT, night testing): own team + QA/testing teams
+  // Phase 4 (morning after): own team + QA + operations teams
+  const allowedTeams = useMemo(() => {
+    const myTeam = teams.find((t: any) => t.id === myTeamId);
+    if (!myTeam) return teams.filter((t: any) => t.active);
+    const base: any[] = [myTeam];
+    const addUnique = (t: any) => { if (!base.find(b => b.id === t.id)) base.push(t); };
+    if (form.phase === 2 || form.phase === 3 || form.phase === 4) {
+      teams.filter((t: any) => t.active && (
+        t.name.toLowerCase().includes('qa') || t.name.includes('בדיקות')
+      )).forEach(addUnique);
+    }
+    if (form.phase === 4) {
+      teams.filter((t: any) => t.active && t.name.includes('תפעול')).forEach(addUnique);
+    }
+    return base;
+  }, [form.phase, myTeamId, teams]);
+
+  // Users of the selected responsible team
+  const responsibleTeamUsers = useMemo(() => {
+    const respId = form.responsibleTeamId || myTeamId;
+    if (!respId) return teamUsers;
+    const respTeam = teams.find((t: any) => t.id === respId);
+    if (!respTeam?.members?.length) return teamUsers;
+    const members = (respTeam.members as any[]).map((m: any) => m.user).filter(Boolean);
+    return members.length > 0 ? members : teamUsers;
+  }, [form.responsibleTeamId, myTeamId, teams, teamUsers]);
+
   // Apps for this team — DB first, then static map, then all. Always ends with "אחר".
   const teamAppList = useMemo(() => {
     const withOther = (list: string[]) =>
@@ -784,7 +817,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div>
               <label style={labelStyle}>שלב <span style={{ color: C.danger }}>*</span></label>
-              <select value={form.phase} onChange={e => setForm(f => ({ ...f, phase: parseInt(e.target.value), subPhaseId: '' }))} style={{ ...inputStyle, padding: '10px 12px' }}>
+              <select value={form.phase} onChange={e => setForm(f => ({ ...f, phase: parseInt(e.target.value), subPhaseId: '', responsibleTeamId: myTeamId, assignedUserName: '' }))} style={{ ...inputStyle, padding: '10px 12px' }}>
                 {[1, 2, 3, 4].map(ph => <option key={ph} value={ph}>{phaseLabels[ph] || PHASE_LABELS[ph]}</option>)}
               </select>
             </div>
@@ -839,16 +872,40 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             </div>
           </div>
 
-          {/* עובד אחראי | משך */}
+          {/* צוות אחראי | אחראי */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div>
+              <label style={labelStyle}>צוות אחראי</label>
+              <select
+                value={form.responsibleTeamId || myTeamId}
+                onChange={e => setForm(f => ({ ...f, responsibleTeamId: e.target.value, assignedUserName: '' }))}
+                style={{ ...inputStyle, padding: '10px 12px' }}
+              >
+                {allowedTeams.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              {(form.phase === 2 || form.phase === 3) && (
+                <div style={{ fontSize: '11px', color: C.textMuted, marginTop: '3px' }}>
+                  ניתן לשייך לצוות QA לביצוע בדיקות
+                </div>
+              )}
+              {form.phase === 4 && (
+                <div style={{ fontSize: '11px', color: C.textMuted, marginTop: '3px' }}>
+                  ניתן לשייך לצוות QA / תפעול לבקרות בוקר
+                </div>
+              )}
+            </div>
             <div>
               <label style={labelStyle}>אחראי <span style={{ color: C.danger }}>*</span></label>
               <select value={form.assignedUserName} onChange={e => setForm(f => ({ ...f, assignedUserName: e.target.value }))}
                 style={{ ...inputStyle, padding: '10px 12px', borderColor: !form.assignedUserName ? C.danger : C.border }}>
                 <option value="">-- בחר --</option>
-                {teamUsers.map(u => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
+                {responsibleTeamUsers.map((u: any) => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
               </select>
             </div>
+          </div>
+
+          {/* משך */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
             <div>
               <label style={labelStyle}>משך (דק') <span style={{ color: C.danger }}>*</span></label>
               <input type="number" min={1} value={form.estimatedMins}
@@ -999,17 +1056,13 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '10px' }}>
 
-          {/* שורה 1: פרטי CR | מנהל CR | סוג CR | רמת סיכון */}
-          <div>
+          {/* שורה 1: פרטי CR | סוג CR | רמת סיכון */}
+          <div style={{ gridColumn: 'span 2' }}>
             <label style={roLabel}>פרטים</label>
             <div style={{ ...roFieldStyle, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
               title={crDescription || crTitle}>
               {crDescription || crTitle || '—'}
             </div>
-          </div>
-          <div>
-            <label style={roLabel}>מנהל CR</label>
-            <div style={roFieldStyle}>{crManager || '—'}</div>
           </div>
           <div>
             <label style={{ ...labelStyle, color: C.statusWaiting }}>סוג CR *</label>
@@ -1030,22 +1083,26 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             </select>
           </div>
 
-          {/* מערכות מעורבות — full width, תגיות עם direction:ltr לקריאות */}
-          <div style={{ gridColumn: '1 / -1' }}>
+          {/* שורה 2: מנהל CR | מערכות מעורבות */}
+          <div>
+            <label style={roLabel}>מנהל CR</label>
+            <div style={roFieldStyle}>{crManager || '—'}</div>
+          </div>
+          <div style={{ gridColumn: 'span 3' }}>
             <label style={{ ...labelStyle, color: C.statusWaiting }}>מערכות מעורבות</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px', padding: '5px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, background: C.bgCard, minHeight: '32px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px', padding: '5px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, background: C.bgCard, minHeight: '32px', direction: 'ltr' }}>
               {f.systems.map(s => (
-                <span key={s} style={{ direction: 'ltr', background: C.infoBg, color: C.info, padding: '3px 6px 3px 4px', borderRadius: RADIUS.sm, fontSize: '12px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
-                  <button onClick={() => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, systems: f.systems.filter(x => x !== s) } }))}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.info, padding: '0 2px', fontSize: '14px', lineHeight: 1, opacity: 0.7 }}>×</button>
+                <span key={s} style={{ background: C.infoBg, color: C.info, padding: '3px 8px', borderRadius: RADIUS.sm, fontSize: '12px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', border: `1px solid ${C.info}30` }}>
                   {s}
+                  <button onClick={() => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, systems: f.systems.filter(x => x !== s) } }))}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.info, padding: '0 1px', fontSize: '13px', lineHeight: 1, opacity: 0.7, flexShrink: 0 }}>×</button>
                 </span>
               ))}
               <select onChange={e => {
                 if (e.target.value && !f.systems.includes(e.target.value))
                   setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, systems: [...f.systems, e.target.value] } }));
                 e.target.value = '';
-              }} style={{ border: 'none', outline: 'none', fontSize: '12px', color: C.textMuted, background: 'transparent', cursor: 'pointer' }} defaultValue="">
+              }} style={{ border: 'none', outline: 'none', fontSize: '12px', color: C.textMuted, background: 'transparent', cursor: 'pointer', direction: 'rtl' }} defaultValue="">
                 <option value="" disabled>+ הוסף מערכת</option>
                 {teamAppList.filter(a => !f.systems.includes(a)).map(a => <option key={a} value={a}>{a}</option>)}
               </select>
@@ -1072,7 +1129,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           {/* בדיקות לילה | בקרות בוקר — סימטריים, גריד 2+2 */}
           {(() => {
             const testingLabelRow: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '22px', marginBottom: '4px' };
-            const ta: React.CSSProperties = { ...inputStyle, height: '44px', resize: 'vertical' };
+            const ta: React.CSSProperties = { ...inputStyle, height: '80px', resize: 'none' };
             return (
               <>
                 <div style={{ gridColumn: 'span 2' }}>
@@ -1107,24 +1164,9 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             );
           })()}
 
-          {/* Rollback | עלייה מדורגת — 2 עמודות */}
-          <div style={{ gridColumn: 'span 2' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <label style={{ ...labelStyle, color: C.statusWaiting, marginBottom: 0 }}>תכנית Rollback</label>
-              {f.rollbackPlan.trim() && (
-                <button onClick={() => openExtract(crNumber, f.rollbackPlan, 'פעולות Rollback', 3)}
-                  style={{ fontSize: '11px', padding: '2px 8px', background: C.dangerBg, color: C.danger, border: `1px solid ${C.danger}40`, borderRadius: RADIUS.sm, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  ⚡ הפק משימות
-                </button>
-              )}
-            </div>
-            <textarea value={f.rollbackPlan}
-              onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, rollbackPlan: e.target.value } }))}
-              style={{ ...inputStyle, height: '44px', resize: 'vertical' }}
-              placeholder="תהליך ה-Rollback במקרה של כשל..." />
-          </div>
+          {/* עלייה מדורגת | Rollback — 2 עמודות (הוחלפו) */}
           <div style={{ gridColumn: 'span 2', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', color: C.statusWaiting, fontWeight: '600', marginTop: '18px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', color: C.statusWaiting, fontWeight: '600', marginTop: '2px' }}>
               <input type="checkbox" checked={f.gradualRollout}
                 onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, gradualRollout: e.target.checked } }))} />
               עלייה מדורגת
@@ -1146,6 +1188,21 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                   placeholder="תאר שלבי העלייה..." />
               </div>
             )}
+          </div>
+          <div style={{ gridColumn: 'span 2' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <label style={{ ...labelStyle, color: C.statusWaiting, marginBottom: 0 }}>תכנית Rollback</label>
+              {f.rollbackPlan.trim() && (
+                <button onClick={() => openExtract(crNumber, f.rollbackPlan, 'פעולות Rollback', 3)}
+                  style={{ fontSize: '11px', padding: '2px 8px', background: C.dangerBg, color: C.danger, border: `1px solid ${C.danger}40`, borderRadius: RADIUS.sm, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  ⚡ הפק משימות
+                </button>
+              )}
+            </div>
+            <textarea value={f.rollbackPlan}
+              onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, rollbackPlan: e.target.value } }))}
+              style={{ ...inputStyle, height: '44px', resize: 'vertical' }}
+              placeholder="תהליך ה-Rollback במקרה של כשל..." />
           </div>
 
           {/* תלויות CR — full width */}

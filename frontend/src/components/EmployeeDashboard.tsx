@@ -7,6 +7,7 @@ import { playTaskReady } from '../utils/sound';
 import { DeployCenterLogo } from './DeployCenterLogo';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { EmployeeLeavesView } from './EmployeeLeavesView';
+import { QaTestersView } from './qa/QaTestersView';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -25,11 +26,12 @@ interface Props {
   onLogout: () => void;
 }
 
-type NavView = 'tasks' | 'leaves';
+type NavView = 'tasks' | 'leaves' | 'skills';
 
 const NAV_ITEMS: { key: NavView; label: string; icon: string }[] = [
-  { key: 'tasks',  label: 'משימות הרצה', icon: '🌙' },
-  { key: 'leaves', label: 'חופשות',       icon: '📅' },
+  { key: 'tasks',  label: 'משימות הרצה',   icon: '🌙' },
+  { key: 'leaves', label: 'חופשות',         icon: '📅' },
+  { key: 'skills', label: 'מטריצת מיומנויות', icon: '🎯' },
 ];
 
 export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
@@ -313,6 +315,9 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
 
           {/* ─── Leaves view ─── */}
           {activeView === 'leaves' && <EmployeeLeavesView token={token} />}
+
+          {/* ─── Skills matrix view ─── */}
+          {activeView === 'skills' && <QaTestersView token={token} />}
 
           {/* ─── Tasks view ─── */}
           {activeView === 'tasks' && (loading ? (

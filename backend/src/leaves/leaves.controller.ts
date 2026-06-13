@@ -37,6 +37,13 @@ export class LeavesController {
     return this.svc.addSeasonDate(seasonId, body);
   }
 
+  @Post('seasons/import-holidays')
+  importHolidays(@Request() req: any, @Query('year') year?: string) {
+    this.requireAdmin(req);
+    const y = year ? parseInt(year, 10) : new Date().getFullYear();
+    return this.svc.importHolidays(y);
+  }
+
   // ── My requests (employee) ───────────────────────────────────────────────────
 
   @Get('my-requests')

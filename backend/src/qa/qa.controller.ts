@@ -197,11 +197,13 @@ export class QaController {
     @Query('versionId') versionId: string,
     @Res() res: Response,
   ) {
-    const buf = await this.workPlan.exportToExcel(versionId);
+    const { buffer, filename } = await this.workPlan.exportToExcel(versionId);
+    const ascii    = filename.replace(/[^\x20-\x7E]/g, '_');
+    const encoded  = encodeURIComponent(filename);
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="qa-workplan.xlsx"`,
+      'Content-Disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`,
     });
-    res.send(buf);
+    res.send(buffer);
   }
 }

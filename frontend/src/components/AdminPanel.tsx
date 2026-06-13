@@ -42,20 +42,27 @@ interface Props { token: string; }
 const emptyUser = { fullName: '', email: '', password: '', phone: '', role: 'EMPLOYEE', teamId: '' };
 
 const PERMISSION_DEFS = [
+  // Screens
   { key: 'screen:prep',        label: 'מסך הכנה',           group: 'מסכים' },
   { key: 'screen:handoff',     label: 'מסך ביצוע',          group: 'מסכים' },
   { key: 'screen:timeline',    label: 'מסך ציר זמן',        group: 'מסכים' },
   { key: 'screen:night',       label: 'מסך לילה (חמ"ל)',    group: 'מסכים' },
   { key: 'screen:summary',     label: 'מסך סיכום',          group: 'מסכים' },
   { key: 'screen:admin',       label: 'מסך ניהול',          group: 'מסכים' },
-  { key: 'action:import',                label: 'ייבוא Excel',                        group: 'פעולות' },
-  { key: 'action:gonogo',               label: 'GO / NO GO',                         group: 'פעולות' },
-  { key: 'action:task_status',             label: 'שינוי סטטוס משימה',                 group: 'פעולות' },
-  { key: 'action:open_task_for_execution', label: 'פתיחת משימה לביצוע (מנהל לילה)',   group: 'פעולות' },
-  { key: 'action:user_manage',             label: 'ניהול משתמשים',                      group: 'פעולות' },
-  { key: 'action:override_version_edit',   label: 'עריכת גרסה לאחר אישור (override)',  group: 'פעולות' },
-  { key: 'action:select_all_tasks',        label: 'בחר הכל משימות',                    group: 'פעולות' },
-  { key: 'action:template_delete',         label: 'מחיקת תבנית גרסה',                  group: 'פעולות' },
+  { key: 'screen:qa',          label: 'מסך בקרת איכות',     group: 'מסכים' },
+  // Deployment actions
+  { key: 'action:import',                  label: 'ייבוא Excel',                       group: 'פעולות — הטמעות' },
+  { key: 'action:gonogo',                  label: 'GO / NO GO',                        group: 'פעולות — הטמעות' },
+  { key: 'action:task_status',             label: 'שינוי סטטוס משימה',                group: 'פעולות — הטמעות' },
+  { key: 'action:open_task_for_execution', label: 'פתיחת משימה לביצוע (מנהל לילה)',  group: 'פעולות — הטמעות' },
+  { key: 'action:override_version_edit',   label: 'עריכת גרסה לאחר אישור (override)', group: 'פעולות — הטמעות' },
+  { key: 'action:select_all_tasks',        label: 'בחר הכל משימות',                   group: 'פעולות — הטמעות' },
+  // System management
+  { key: 'action:user_manage',    label: 'ניהול משתמשים',        group: 'פעולות — ניהול' },
+  { key: 'action:template_delete', label: 'מחיקת תבנית גרסה',   group: 'פעולות — ניהול' },
+  // QA module
+  { key: 'action:qa_leave_request', label: 'בקשת חופשה / צפייה בסטטוס',          group: 'בקרת איכות' },
+  { key: 'action:qa_manage',        label: 'ניהול QA (שיבוץ / מועדים / דוחות)',   group: 'בקרת איכות' },
 ];
 
 interface QcRelease {
@@ -73,7 +80,7 @@ interface QcRelease {
 }
 
 export const AdminPanel: React.FC<Props> = ({ token }) => {
-  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'ldap' | 'email'>('users');
+  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'ldap' | 'oracle' | 'email' | 'notifications'>('users');
   const { allPermissions, updateRole, saving: permSaving } = usePermissions();
   const [users, setUsers]     = useState<any[]>([]);
   const [teams, setTeams]     = useState<any[]>([]);
@@ -107,6 +114,8 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
 
   const [emailTesting, setEmailTesting]       = useState(false);
   const [emailTestResult, setEmailTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [notifTesting, setNotifTesting]       = useState<'teams' | 'telegram' | null>(null);
+  const [notifTestResult, setNotifTestResult] = useState<Record<string, { ok: boolean; message: string }>>({});
 
   const [showUserForm, setShowUserForm]   = useState(false);
   const [userForm, setUserForm]           = useState(emptyUser);
@@ -128,8 +137,10 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
   const [newPassword, setNewPassword]   = useState('');
   const [savingPwd, setSavingPwd]       = useState(false);
 
-  const [userSearch, setUserSearch]     = useState('');
-  const [userRoleFilter, setUserRoleFilter] = useState<string>('');
+  const [userSearch, setUserSearch]             = useState('');
+  const [userRoleFilter, setUserRoleFilter]     = useState<string>('');
+  const [userLetterFilter, setUserLetterFilter] = useState('');
+  const [teamSearch, setTeamSearch]             = useState('');
   const [dialog, setDialog] = useState<DialogConfig | null>(null);
 
   const headers = { Authorization: `Bearer ${token}` };
@@ -278,6 +289,19 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
       setEmailTestResult({ success: false, message: e?.response?.data?.message || e.message });
     } finally {
       setEmailTesting(false);
+    }
+  };
+
+  const testNotifChannel = async (channel: 'teams' | 'telegram') => {
+    setNotifTesting(channel);
+    setNotifTestResult(prev => ({ ...prev, [channel]: undefined as any }));
+    try {
+      const res = await axios.post(`${API}/notifications/test/${channel}`, {}, { headers });
+      setNotifTestResult(prev => ({ ...prev, [channel]: res.data }));
+    } catch (e: any) {
+      setNotifTestResult(prev => ({ ...prev, [channel]: { ok: false, message: e?.response?.data?.message || e.message } }));
+    } finally {
+      setNotifTesting(null);
     }
   };
 
@@ -488,8 +512,10 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
     { key: 'qc-users',    label: 'סנכרון',       icon: '🔄' },
     { key: 'params',      label: 'פרמטרים',      icon: '⚙️' },
     { key: 'templates',   label: 'תבניות',        icon: '📁' },
-    { key: 'ldap',        label: 'AD / LDAP',     icon: '🔒' },
-    { key: 'email',       label: 'מייל',          icon: '📧' },
+    { key: 'ldap',          label: 'AD / LDAP',     icon: '🔒' },
+    { key: 'oracle',        label: 'QC Oracle',     icon: '🗄️' },
+    { key: 'email',         label: 'מייל',          icon: '📧' },
+    { key: 'notifications', label: 'התראות',        icon: '🔔' },
   ] as const;
 
   return (
@@ -561,70 +587,94 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
           {/* ── USERS TAB ── */}
           {tab === 'users' && (
             <div>
+              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '14px 20px', marginBottom: '16px', border: `1px solid ${C.border}`, fontSize: '13px', color: C.textSecondary, lineHeight: '1.6' }}>
+                <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '6px' }}>ניהול משתמשים</strong>
+                <ul style={{ margin: 0, paddingRight: '18px' }}>
+                  <li>האימייל הוא המזהה הייחודי של המשתמש — לא ניתן לשינוי לאחר יצירה.</li>
+                  <li>אם LDAP מופעל — הסיסמה המקומית אינה בשימוש; ההתחברות תעבור דרך AD. משתמשי ADMIN תמיד מתחברים עם סיסמה מקומית.</li>
+                  <li>שיוך לצוות קובע אילו משימות יוצגו לעובד בתצוגת <strong>לוח</strong>.</li>
+                  <li>ניתן לאפס סיסמה בלחיצה על "ערוך" ← שדה "סיסמה חדשה".</li>
+                </ul>
+              </div>
               {showUserForm && (
-                <form onSubmit={saveUser} style={{
-                  background: C.bgCard, borderRadius: '12px', padding: '24px', marginBottom: '20px',
-                  border: `2px solid ${C.brand}`,
-                }}>
-                  <h3 style={{ margin: '0 0 20px', color: C.textPrimary }}>
-                    {editingUser ? `✏️ עריכת ${editingUser.fullName}` : '➕ משתמש חדש'}
-                  </h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '16px' }}>
-                    <div>
-                      <label style={labelStyle}>שם מלא *</label>
-                      <input required style={inputStyle} value={userForm.fullName}
-                        onChange={e => setUserForm(f => ({ ...f, fullName: e.target.value }))} />
+                <div style={{
+                  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100,
+                }} onClick={e => { if (e.target === e.currentTarget) { setShowUserForm(false); setEditingUser(null); setError(null); } }}>
+                  <form onSubmit={saveUser} style={{
+                    background: C.bgCard, borderRadius: '14px', padding: '28px 32px',
+                    border: `2px solid ${C.brand}`, width: '100%', maxWidth: '560px',
+                    boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                      <h3 style={{ margin: 0, color: C.textPrimary }}>
+                        {editingUser ? `✏️ עריכת ${editingUser.fullName}` : '➕ משתמש חדש'}
+                      </h3>
+                      <button type="button" onClick={() => { setShowUserForm(false); setEditingUser(null); setError(null); }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '22px', color: C.textMuted, lineHeight: 1 }}>×</button>
                     </div>
-                    <div>
-                      <label style={labelStyle}>אימייל *</label>
-                      <input required type="email" value={userForm.email} disabled={!!editingUser}
-                        onChange={e => setUserForm(f => ({ ...f, email: e.target.value }))}
-                        style={{ ...inputStyle, background: editingUser ? C.bgHover : C.bgNested, color: editingUser ? C.textMuted : C.textPrimary }} />
-                    </div>
-                    {!editingUser && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '20px' }}>
                       <div>
-                        <label style={labelStyle}>סיסמה *</label>
-                        <input required type="password" style={inputStyle} value={userForm.password}
-                          onChange={e => setUserForm(f => ({ ...f, password: e.target.value }))} />
+                        <label style={labelStyle}>שם מלא *</label>
+                        <input required style={inputStyle} value={userForm.fullName} autoFocus
+                          onChange={e => setUserForm(f => ({ ...f, fullName: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label style={labelStyle}>אימייל *</label>
+                        <input required type="email" value={userForm.email} disabled={!!editingUser}
+                          onChange={e => setUserForm(f => ({ ...f, email: e.target.value }))}
+                          style={{ ...inputStyle, background: editingUser ? C.bgHover : C.bgNested, color: editingUser ? C.textMuted : C.textPrimary }} />
+                      </div>
+                      {!editingUser && (
+                        <div>
+                          <label style={labelStyle}>סיסמה *</label>
+                          <input required type="password" style={inputStyle} value={userForm.password}
+                            onChange={e => setUserForm(f => ({ ...f, password: e.target.value }))} />
+                        </div>
+                      )}
+                      <div>
+                        <label style={labelStyle}>טלפון</label>
+                        <input style={inputStyle} value={userForm.phone}
+                          onChange={e => setUserForm(f => ({ ...f, phone: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label style={labelStyle}>תפקיד</label>
+                        <select style={inputStyle} value={userForm.role}
+                          onChange={e => setUserForm(f => ({ ...f, role: e.target.value }))}>
+                          {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={labelStyle}>צוות</label>
+                        <select style={inputStyle} value={userForm.teamId}
+                          onChange={e => setUserForm(f => ({ ...f, teamId: e.target.value }))}>
+                          <option value="">-- ללא צוות --</option>
+                          {teams.filter(t => t.active).map(t => (
+                            <option key={t.id} value={t.id}>{t.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    {error && (
+                      <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', marginBottom: '14px', fontSize: '13px', color: C.statusFailed }}>
+                        ⚠️ {error}
                       </div>
                     )}
-                    <div>
-                      <label style={labelStyle}>טלפון</label>
-                      <input style={inputStyle} value={userForm.phone}
-                        onChange={e => setUserForm(f => ({ ...f, phone: e.target.value }))} />
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <button type="submit" disabled={savingUser} style={{
+                        padding: '10px 24px', background: savingUser ? C.bgHover : C.statusDone,
+                        color: 'white', border: 'none', borderRadius: '8px',
+                        cursor: savingUser ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontFamily: FONT,
+                      }}>
+                        {savingUser ? 'שומר...' : (editingUser ? '✓ שמור שינויים' : '✓ צור משתמש')}
+                      </button>
+                      <button type="button" onClick={() => { setShowUserForm(false); setEditingUser(null); setError(null); }}
+                        style={{ padding: '10px 20px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '8px', cursor: 'pointer', fontFamily: FONT }}>
+                        ביטול
+                      </button>
                     </div>
-                    <div>
-                      <label style={labelStyle}>תפקיד</label>
-                      <select style={inputStyle} value={userForm.role}
-                        onChange={e => setUserForm(f => ({ ...f, role: e.target.value }))}>
-                        {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={labelStyle}>צוות</label>
-                      <select style={inputStyle} value={userForm.teamId}
-                        onChange={e => setUserForm(f => ({ ...f, teamId: e.target.value }))}>
-                        <option value="">-- ללא צוות --</option>
-                        {teams.filter(t => t.active).map(t => (
-                          <option key={t.id} value={t.id}>{t.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '10px' }}>
-                    <button type="submit" disabled={savingUser} style={{
-                      padding: '10px 24px', background: savingUser ? C.bgHover : C.statusDone,
-                      color: 'white', border: 'none', borderRadius: '8px',
-                      cursor: savingUser ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontFamily: FONT,
-                    }}>
-                      {savingUser ? 'שומר...' : (editingUser ? '✓ שמור שינויים' : '✓ צור משתמש')}
-                    </button>
-                    <button type="button" onClick={() => { setShowUserForm(false); setEditingUser(null); setError(null); }}
-                      style={{ padding: '10px 20px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '8px', cursor: 'pointer', fontFamily: FONT }}>
-                      ביטול
-                    </button>
-                  </div>
-                </form>
+                  </form>
+                </div>
               )}
 
               {resetUserId && (
@@ -704,12 +754,31 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                   </div>
                 </div>
 
+                {/* Letter filter A–Z */}
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '14px' }}>
+                  {['הכל', 'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z'].map(l => {
+                    const val = l === 'הכל' ? '' : l;
+                    const active = userLetterFilter === val;
+                    return (
+                      <button key={l} onClick={() => setUserLetterFilter(val)} style={{
+                        padding: '3px 8px', borderRadius: '6px',
+                        border: `1px solid ${active ? C.brand : C.border}`,
+                        background: active ? C.brand + '22' : C.bgNested,
+                        color: active ? C.brand : C.textMuted,
+                        fontWeight: active ? 'bold' : 'normal',
+                        cursor: 'pointer', fontSize: '12px', fontFamily: FONT, minWidth: '28px',
+                      }}>{l}</button>
+                    );
+                  })}
+                </div>
+
                 {(() => {
                   const q = userSearch.trim().toLowerCase();
                   const filtered = users.filter(u => {
-                    const matchRole = !userRoleFilter || u.role === userRoleFilter;
-                    const matchSearch = !q || u.fullName.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
-                    return matchRole && matchSearch;
+                    const matchRole   = !userRoleFilter   || u.role === userRoleFilter;
+                    const matchSearch = !q               || u.fullName.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
+                    const matchLetter = !userLetterFilter || u.fullName.trimStart().toUpperCase().startsWith(userLetterFilter);
+                    return matchRole && matchSearch && matchLetter;
                   });
                   return (
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: FONT }}>
@@ -792,6 +861,14 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
           {/* ── TEAMS TAB ── */}
           {tab === 'teams' && (
             <div>
+              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '14px 20px', marginBottom: '16px', border: `1px solid ${C.border}`, fontSize: '13px', color: C.textSecondary, lineHeight: '1.6' }}>
+                <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '6px' }}>ניהול צוותים</strong>
+                <ul style={{ margin: 0, paddingRight: '18px' }}>
+                  <li><strong>מערכות אחראיות</strong> — הגדר אילו מערכות הצוות מטפל בהן; משמש לסינון תצוגות ודוחות.</li>
+                  <li><strong>דורש תוכנית CR</strong> (<code style={{ fontFamily: FONT_MONO }}>requiresPlan</code>) — כשמושבת, הצוות מוחרג מתצוגת כרטיסיות CR ולא חייב להגיש תוכנית. מתאים לצוותים שאינם משתתפים בתהליך CR.</li>
+                  <li>ניתן להשבית צוות (כחול ← אפור) בלי למחוק — השבתה מסתירה אותו מרשימות.</li>
+                </ul>
+              </div>
               {showTeamForm && (
                 <form onSubmit={createTeam} style={{
                   background: C.bgCard, borderRadius: '12px', padding: '24px', marginBottom: '20px',
@@ -827,7 +904,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
               )}
 
               <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}` }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                   <h3 style={{ margin: 0, color: C.textPrimary }}>צוותים ({teams.length})</h3>
                   <button onClick={() => setShowTeamForm(true)} style={{
                     padding: '8px 18px', background: C.brand, color: 'white',
@@ -837,8 +914,22 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                   </button>
                 </div>
 
+                {/* Team search */}
+                <div style={{ position: 'relative', marginBottom: '16px' }}>
+                  <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: C.textMuted, fontSize: '15px', pointerEvents: 'none' }}>🔍</span>
+                  <input
+                    value={teamSearch}
+                    onChange={e => setTeamSearch(e.target.value)}
+                    placeholder="חיפוש צוות לפי שם..."
+                    style={{ width: '100%', padding: '8px 34px 8px 12px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary, fontFamily: FONT }}
+                  />
+                  {teamSearch && (
+                    <button onClick={() => setTeamSearch('')} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '16px', lineHeight: 1 }}>✕</button>
+                  )}
+                </div>
+
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '14px' }}>
-                  {teams.map(t => {
+                  {teams.filter(t => !teamSearch || t.name.toLowerCase().includes(teamSearch.trim().toLowerCase())).map(t => {
                     const members = users.filter(u =>
                       u.teamMemberships?.some((m: any) => m.team?.id === t.id)
                     );
@@ -903,31 +994,33 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                           </form>
                         ) : (
                           <>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 'bold', fontSize: '15px', color: C.textPrimary }}>{t.name}</div>
-                                {t.description && <div style={{ fontSize: '12px', color: C.textMuted, marginTop: '2px' }}>{t.description}</div>}
+                            <div style={{ marginBottom: '10px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontWeight: 'bold', fontSize: '15px', color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
+                                  {t.description && <div style={{ fontSize: '12px', color: C.textMuted, marginTop: '2px' }}>{t.description}</div>}
+                                </div>
+                                <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+                                  <button onClick={() => openEditTeam(t)} title="ערוך צוות"
+                                    style={{ padding: '4px 8px', fontSize: '12px', border: 'none', borderRadius: '6px', background: '#3498db', color: 'white', cursor: 'pointer' }}>
+                                    ✏️ ערוך
+                                  </button>
+                                  <button onClick={() => toggleTeamActive(t)} title={t.active ? 'השבת' : 'הפעל'}
+                                    style={{ padding: '4px 8px', fontSize: '12px', border: 'none', borderRadius: '6px', background: t.active ? C.bgBlocked : C.bgDone, color: t.active ? C.statusFailed : C.statusDone, cursor: 'pointer' }}>
+                                    {t.active ? 'השבת' : 'הפעל'}
+                                  </button>
+                                  <button onClick={() => deleteTeam(t)} title="מחק צוות"
+                                    style={{ padding: '4px 8px', fontSize: '12px', border: 'none', borderRadius: '6px', background: C.statusFailed, color: 'white', cursor: 'pointer' }}>
+                                    🗑️
+                                  </button>
+                                </div>
                               </div>
-                              <div style={{ display: 'flex', gap: '5px', flexShrink: 0, marginRight: '8px' }}>
-                                <button onClick={() => openEditTeam(t)} title="ערוך צוות"
-                                  style={{ padding: '4px 8px', fontSize: '12px', border: 'none', borderRadius: '6px', background: '#3498db', color: 'white', cursor: 'pointer' }}>
-                                  ✏️
-                                </button>
-                                <button onClick={() => toggleTeamActive(t)} title={t.active ? 'השבת' : 'הפעל'}
-                                  style={{ padding: '4px 8px', fontSize: '12px', border: 'none', borderRadius: '6px', background: t.active ? C.bgBlocked : C.bgDone, color: t.active ? C.statusFailed : C.statusDone, cursor: 'pointer' }}>
-                                  {t.active ? 'השבת' : 'הפעל'}
-                                </button>
-                                <button
-                                  onClick={() => toggleTeamRequiresPlan(t)}
-                                  title={t.requiresPlan !== false ? 'סמן כפטור מהגשת תוכנית' : 'חייב הגשת תוכנית'}
-                                  style={{ padding: '4px 8px', fontSize: '12px', border: `1px solid ${t.requiresPlan !== false ? '#2980b9' : '#94a3b8'}`, borderRadius: '6px', background: t.requiresPlan !== false ? 'rgba(41,128,185,0.12)' : 'rgba(148,163,184,0.12)', color: t.requiresPlan !== false ? '#2980b9' : '#64748b', cursor: 'pointer' }}>
-                                  {t.requiresPlan !== false ? '📋 מגיש תוכנית' : '🚫 פטור מתוכנית'}
-                                </button>
-                                <button onClick={() => deleteTeam(t)} title="מחק צוות"
-                                  style={{ padding: '4px 8px', fontSize: '12px', border: 'none', borderRadius: '6px', background: C.statusFailed, color: 'white', cursor: 'pointer' }}>
-                                  🗑️
-                                </button>
-                              </div>
+                              <button
+                                onClick={() => toggleTeamRequiresPlan(t)}
+                                title={t.requiresPlan !== false ? 'סמן כפטור מהגשת תוכנית' : 'חייב הגשת תוכנית'}
+                                style={{ padding: '3px 10px', fontSize: '11px', border: `1px solid ${t.requiresPlan !== false ? '#2980b9' : '#94a3b8'}`, borderRadius: '6px', background: t.requiresPlan !== false ? 'rgba(41,128,185,0.12)' : 'rgba(148,163,184,0.12)', color: t.requiresPlan !== false ? '#2980b9' : '#64748b', cursor: 'pointer', fontFamily: FONT }}>
+                                {t.requiresPlan !== false ? '📋 מגיש תוכנית' : '🚫 פטור מתוכנית'}
+                              </button>
                             </div>
                             <div style={{ fontSize: '12px', color: C.textMuted, marginBottom: '8px' }}>
                               {members.length} חברים
@@ -1091,12 +1184,47 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                   </div>
                 )}
               </div>
+
+              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '16px 20px', marginTop: '16px', border: `1px solid ${C.border}`, fontSize: '13px', color: C.textSecondary, lineHeight: '1.7' }}>
+                <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '8px' }}>🔌 שיטות סנכרון גרסאות QC</strong>
+                <ul style={{ margin: 0, paddingRight: '20px' }}>
+                  <li><strong>מ-Oracle QC (מומלץ לסביבת ייצור)</strong> — דורש הגדרת משתני סביבה בקובץ <code style={{ fontFamily: FONT_MONO }}>.env</code> של הבאק-אנד:
+                    <ul style={{ marginTop: '4px' }}>
+                      <li><code style={{ fontFamily: FONT_MONO }}>ORACLE_ENABLED=true</code></li>
+                      <li><code style={{ fontFamily: FONT_MONO }}>ORACLE_USER=username</code></li>
+                      <li><code style={{ fontFamily: FONT_MONO }}>ORACLE_PASSWORD=password</code></li>
+                      <li><code style={{ fontFamily: FONT_MONO }}>ORACLE_CONNECT_STRING=host:port/service</code> (למשל: <code style={{ fontFamily: FONT_MONO }}>qcdb01:1521/QCPROD</code>)</li>
+                    </ul>
+                  </li>
+                  <li><strong>מקובץ Excel</strong> — חלופה ללא Oracle. הגדר <code style={{ fontFamily: FONT_MONO }}>EXCEL_FILE_PATH</code> בלשונית פרמטרים, ובחר שנה לסנכרון. הקובץ חייב להכיל עמודה <strong>"גרסה"</strong>.</li>
+                  <li>גרסאות שתאריך הסינון שלהן (filterDate) עבר — לא יוצגו אוטומטית ברשימת הגרסאות. ניתן לשנות זאת ידנית בכל גרסה.</li>
+                </ul>
+                <div style={{ marginTop: '10px', padding: '8px 12px', borderRadius: '6px', background: '#2a1e0a', border: '1px solid #e67e2244', fontSize: '12px', color: '#e67e22', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                  <span>🔒</span>
+                  <span><strong>Firewall נדרש:</strong> Outbound TCP <strong>1521</strong> משרת האפליקציה → שרת Oracle QC (כתובת ה-ORACLE_CONNECT_STRING). נדרש רק כשמשתמשים בסנכרון מ-Oracle (לא Excel).</span>
+                </div>
+              </div>
             </div>
           )}
 
           {/* ── QC USERS SYNC TAB ── */}
           {tab === 'qc-users' && (
-            <div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '16px 20px', border: `1px solid ${C.border}`, fontSize: '13px', color: C.textSecondary, lineHeight: '1.7' }}>
+                <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '6px' }}>מה עושה הסנכרון?</strong>
+                <ul style={{ margin: 0, paddingRight: '20px' }}>
+                  <li>שולף את רשימת המשתמשים הפעילים ממערכת QC דרך Oracle.</li>
+                  <li>יוצר חשבונות חדשים למשתמשים שאינם קיימים עם סיסמת ברירת מחדל <code style={{ fontFamily: FONT_MONO }}>123456</code>.</li>
+                  <li>משתמשים שלא מופיעים ב-QC — יושבתו (לא יימחקו).</li>
+                  <li>חשבונות <strong>ADMIN</strong> לא נפגעים בשום תרחיש.</li>
+                  <li><strong>נדרש:</strong> Oracle מוגדר ב-.env (<code style={{ fontFamily: FONT_MONO }}>ORACLE_ENABLED=true</code>).</li>
+                </ul>
+                <div style={{ marginTop: '10px', padding: '8px 12px', borderRadius: '6px', background: '#2a1e0a', border: '1px solid #e67e2244', fontSize: '12px', color: '#e67e22', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                  <span>🔒</span>
+                  <span><strong>Firewall נדרש:</strong> Outbound TCP <strong>1521</strong> משרת האפליקציה → שרת Oracle QC.</span>
+                </div>
+              </div>
+              <div>
               <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', border: `1px solid ${C.border}` }}>
                 <h3 style={{ margin: '0 0 8px', color: C.textPrimary }}>🔄 סנכרון משתמשים מ-QC</h3>
                 <p style={{ margin: '0 0 20px', fontSize: '13px', color: C.textSecondary }}>
@@ -1117,18 +1245,52 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                   </div>
                 )}
               </div>
+              </div>
             </div>
           )}
 
           {/* ── PERMISSIONS TAB ── */}
           {tab === 'permissions' && (
-            <PermissionsTab allPermissions={allPermissions} updateRole={updateRole} saving={permSaving} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '16px 20px', border: `1px solid ${C.border}`, fontSize: '13px', color: C.textSecondary, lineHeight: '1.7' }}>
+                <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '8px' }}>תפקידים במערכת</strong>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '10px' }}>
+                  {[
+                    { role: 'ADMIN', label: 'מנהל מערכת', desc: 'גישה מלאה לכל הפונקציות. יכול לנהל משתמשים, תפקידים ופרמטרים.' },
+                    { role: 'RELEASE_MANAGER', label: 'מנהל הטמעות', desc: 'ניהול גרסאות ותוכניות לילה — יצירה, עדכון, קבלת החלטת GO/NO-GO.' },
+                    { role: 'CR_MANAGER', label: 'מנהל CR', desc: 'ניהול תוכניות CR — אישור ועדכון תוכניות צוותים.' },
+                    { role: 'TEAM_LEAD', label: 'ראש צוות', desc: 'הגשת תוכנית צוות, עדכון סטטוס משימות, אישור CR.' },
+                    { role: 'DEVELOPER', label: 'מפתח', desc: 'גישה לתצוגת משימות ועדכון סטטוס אישי.' },
+                    { role: 'VIEWER', label: 'צופה', desc: 'קריאה בלבד — אין יכולת עדכון.' },
+                  ].map(r => (
+                    <div key={r.role} style={{ background: C.bgCard, borderRadius: '8px', padding: '10px 14px', border: `1px solid ${C.border}` }}>
+                      <div style={{ fontWeight: 'bold', fontSize: '13px', color: C.textPrimary }}>{r.label}</div>
+                      <div style={{ fontSize: '11px', color: C.brand, fontFamily: FONT_MONO, marginBottom: '4px' }}>{r.role}</div>
+                      <div style={{ fontSize: '12px', color: C.textMuted }}>{r.desc}</div>
+                    </div>
+                  ))}
+                </div>
+                <p style={{ margin: '10px 0 0', fontSize: '12px', color: C.textMuted }}>
+                  מטריצת ההרשאות מאפשרת לשנות אילו פעולות כל תפקיד יכול לבצע. לחץ על תא כדי להפעיל/לכבות הרשאה, ואז "שמור" לשורת התפקיד.
+                </p>
+              </div>
+              <PermissionsTab allPermissions={allPermissions} updateRole={updateRole} saving={permSaving} />
+            </div>
           )}
 
           {/* ── TEMPLATES TAB ── */}
           {tab === 'templates' && (() => {
             if (!templates.length && !templatesLoading) fetchTemplates();
             return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '16px 20px', border: `1px solid ${C.border}`, fontSize: '13px', color: C.textSecondary, lineHeight: '1.7' }}>
+                <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '6px' }}>מהן תבניות גרסה?</strong>
+                <p style={{ margin: 0 }}>
+                  תבנית היא "צילום" של תוכנית לילה קיימת — שלבים, משימות, שיוכי צוות — שניתן להשתמש בה ליצירת גרסאות עתידיות.
+                  ליצירת תבנית: פתח גרסה קיימת ← לחץ <strong>שמור כתבנית</strong>. בעת יצירת גרסה חדשה בחר "מתבנית" ותקבל את כל המשימות מוכנות לעריכה.
+                  ניתן לנהל כאן ולמחוק תבניות ישנות.
+                </p>
+              </div>
               <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', border: `1px solid ${C.border}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                   <div>
@@ -1175,6 +1337,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                     ))}
                   </div>
                 )}
+              </div>
               </div>
             );
           })()}
@@ -1312,7 +1475,171 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                     <li>המשתמש חייב להיות <strong>מוגדר מראש</strong> במערכת (לשוניות "משתמשים") עם אותה כתובת אימייל.</li>
                     <li>חשבונות <code style={{ background: C.bgCard, padding: '1px 5px', borderRadius: '3px', fontFamily: FONT_MONO }}>nissim@test.com</code> ודומיהם תמיד משתמשים בהתחברות מקומית.</li>
                   </ul>
+                  <div style={{ marginTop: '12px', background: '#fff8e1', borderRadius: '8px', padding: '12px 16px', border: '1px solid #ffe082' }}>
+                    <strong style={{ color: '#795548', display: 'block', marginBottom: '8px', fontSize: '13px' }}>🔥 דרישות Firewall</strong>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                      <thead>
+                        <tr style={{ background: '#fff3e0' }}>
+                          {['כיוון', 'מקור', 'יעד', 'פורט / פרוטוקול', 'מטרה'].map(h => (
+                            <th key={h} style={{ padding: '6px 10px', textAlign: 'right', color: '#5d4037', fontWeight: 'bold', border: '1px solid #ffcc80' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          { dir: 'יוצא ←', src: 'שרת DeployCenter (Backend)', dst: 'שרת Active Directory', port: 'TCP 636 (LDAPS) / 389 (LDAP)', purpose: 'אימות משתמשים מול AD' },
+                        ].map((r, i) => (
+                          <tr key={i}>
+                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontWeight: 'bold', color: '#e65100', whiteSpace: 'nowrap' }}>{r.dir}</td>
+                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '11px' }}>{r.src}</td>
+                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '11px' }}>{r.dst}</td>
+                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontWeight: 'bold', whiteSpace: 'nowrap', fontFamily: FONT_MONO }}>{r.port}</td>
+                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', color: '#555' }}>{r.purpose}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
+              </div>
+            );
+          })()}
+
+          {/* ── ORACLE QC TAB ── */}
+          {tab === 'oracle' && (() => {
+            const oracleParams = systemParams.filter(p => p.key.startsWith('ORACLE_'));
+            const isEnabled = oracleParams.find(p => p.key === 'ORACLE_ENABLED')?.value === 'true';
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+                {/* Status */}
+                <div style={{
+                  background: C.bgCard, borderRadius: '12px', padding: '24px',
+                  border: `1px solid ${C.border}`,
+                  borderRight: `4px solid ${isEnabled ? C.statusDone : C.border}`,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                    <div>
+                      <h3 style={{ margin: '0 0 4px', color: C.textPrimary }}>🗄️ חיבור Oracle — HP ALM QC</h3>
+                      <p style={{ margin: 0, fontSize: '13px', color: C.textMuted }}>
+                        כשמופעל — נתוני כיסוי הבדיקות והתקלות נשלפים ישירות מבסיס הנתונים של QC (Oracle).
+                        כשמושבת — מוצגים נתוני Mock לצורך פיתוח ובדיקות.
+                      </p>
+                    </div>
+                    <span style={{
+                      padding: '6px 18px', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold',
+                      background: isEnabled ? C.bgDone : C.bgHover,
+                      color: isEnabled ? C.statusDone : C.textMuted,
+                    }}>
+                      {isEnabled ? '✓ מחובר' : 'Mock'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Settings */}
+                <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', border: `1px solid ${C.border}` }}>
+                  <h3 style={{ margin: '0 0 6px', color: C.textPrimary }}>הגדרות חיבור</h3>
+                  <p style={{ margin: '0 0 20px', fontSize: '13px', color: C.textMuted }}>
+                    שנה ערך → לחץ Enter לשמירה מיידית. שינויים נכנסים לתוקף בקריאה הבאה (ללא restart).
+                  </p>
+                  {paramError && (
+                    <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', fontSize: '13px', color: C.statusFailed }}>
+                      ⚠️ {paramError}
+                    </div>
+                  )}
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: C.bgNested }}>
+                        {['תיאור', 'מפתח', 'ערך', 'פעולות'].map(h => (
+                          <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: '12px', color: C.textSecondary, fontWeight: 'bold', border: `1px solid ${C.border}` }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {oracleParams.length === 0 ? (
+                        <tr><td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: C.textMuted, fontSize: '13px' }}>טוען הגדרות Oracle...</td></tr>
+                      ) : oracleParams.map(p => (
+                        <tr key={p.key} style={{ borderBottom: `1px solid ${C.border}` }}>
+                          <td style={{ padding: '12px 14px', fontSize: '13px', fontWeight: 'bold', color: C.textPrimary, border: `1px solid ${C.border}` }}>
+                            {p.label.replace(/^QC Oracle: /, '')}
+                          </td>
+                          <td style={{ padding: '12px 14px', fontFamily: FONT_MONO, fontSize: '11px', color: C.textMuted, border: `1px solid ${C.border}` }}>{p.key}</td>
+                          <td style={{ padding: '12px 14px', border: `1px solid ${C.border}`, minWidth: '240px' }}>
+                            {editingParam === p.key ? (
+                              <input
+                                autoFocus
+                                type={p.type === 'password' ? 'password' : 'text'}
+                                value={paramValue}
+                                onChange={e => setParamValue(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') saveParam(p.key); if (e.key === 'Escape') setEditingParam(null); }}
+                                style={{ width: '100%', padding: '6px 10px', border: `2px solid ${C.brand}`, borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', direction: 'ltr', background: C.bgNested, color: C.textPrimary, fontFamily: FONT_MONO }}
+                              />
+                            ) : (
+                              <span style={{ fontSize: '13px', color: p.value ? C.textPrimary : C.textMuted, fontStyle: p.value ? 'normal' : 'italic', direction: 'ltr', display: 'inline-block', fontFamily: p.value ? FONT_MONO : FONT }}>
+                                {p.type === 'password' && p.value ? '••••••••' : (p.value || 'לא הוגדר')}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '10px 14px', border: `1px solid ${C.border}`, whiteSpace: 'nowrap' }}>
+                            {editingParam === p.key ? (
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                <button onClick={() => saveParam(p.key)} disabled={savingParam}
+                                  style={{ padding: '5px 14px', background: savingParam ? C.bgHover : C.statusDone, color: savingParam ? C.textDisabled : 'white', border: 'none', borderRadius: '6px', cursor: savingParam ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 'bold', fontFamily: FONT }}>
+                                  {savingParam ? '...' : 'שמור'}
+                                </button>
+                                <button onClick={() => { setEditingParam(null); setParamError(null); }}
+                                  style={{ padding: '5px 12px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>
+                                  ביטול
+                                </button>
+                              </div>
+                            ) : (
+                              <button onClick={() => { setEditingParam(p.key); setParamValue(p.value); setParamError(null); }}
+                                style={{ padding: '5px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>
+                                ✏️ ערוך
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Firewall requirements */}
+                <div style={{ background: '#fff8e1', borderRadius: '12px', padding: '20px 24px', border: '1px solid #ffe082' }}>
+                  <strong style={{ color: '#795548', display: 'block', marginBottom: '10px', fontSize: '14px' }}>
+                    🔥 דרישות Firewall — מה נדרש לפתוח
+                  </strong>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ background: '#fff3e0' }}>
+                        {['כיוון', 'מקור', 'יעד', 'פורט / פרוטוקול', 'מטרה'].map(h => (
+                          <th key={h} style={{ padding: '8px 12px', textAlign: 'right', color: '#5d4037', fontWeight: 'bold', border: '1px solid #ffcc80' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { dir: 'יוצא ←', src: 'שרת DeployCenter (Backend)', dst: 'שרת Oracle / QC DB', port: 'TCP 1521', purpose: 'חיבור JDBC/Oracle Net לבסיס הנתונים של QC' },
+                      ].map((r, i) => (
+                        <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#fff8e1' }}>
+                          <td style={{ padding: '8px 12px', border: '1px solid #ffcc80', fontWeight: 'bold', color: '#e65100', whiteSpace: 'nowrap' }}>{r.dir}</td>
+                          <td style={{ padding: '8px 12px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '12px' }}>{r.src}</td>
+                          <td style={{ padding: '8px 12px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '12px' }}>{r.dst}</td>
+                          <td style={{ padding: '8px 12px', border: '1px solid #ffcc80', fontWeight: 'bold', whiteSpace: 'nowrap', fontFamily: FONT_MONO }}>{r.port}</td>
+                          <td style={{ padding: '8px 12px', border: '1px solid #ffcc80', color: '#555' }}>{r.purpose}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <ul style={{ margin: '14px 0 0', paddingRight: '20px', color: '#6d4c41', lineHeight: '1.8', fontSize: '13px' }}>
+                    <li><strong>Connect String:</strong> הפורמט הוא <code style={{ background: '#fff3e0', padding: '1px 6px', borderRadius: '4px', fontFamily: FONT_MONO }}>host:1521/service_name</code> — לדוגמה: <code style={{ background: '#fff3e0', padding: '1px 6px', borderRadius: '4px', fontFamily: FONT_MONO }}>qc-oracle.company.local:1521/ALMDB</code></li>
+                    <li><strong>Oracle Instant Client:</strong> חייב להיות מותקן על שרת ה-Backend. גרסה מומלצת: 21c Basic Light.</li>
+                    <li><strong>משתמש DB:</strong> נדרשת הרשאת <code style={{ background: '#fff3e0', padding: '1px 6px', borderRadius: '4px', fontFamily: FONT_MONO }}>SELECT</code> על הטבלאות <code style={{ background: '#fff3e0', padding: '1px 6px', borderRadius: '4px', fontFamily: FONT_MONO }}>TEST, REQ, REQ_COVER, REQ_RELEASES, REQ_CYCLES, RELEASES, ALL_LISTS, REQ_TYPE, BUG</code></li>
+                    <li><strong>Schema:</strong> אם הטבלאות נמצאות תחת schema ספציפי — יש להוסיף prefix לשאילתות (לדוגמה: <code style={{ background: '#fff3e0', padding: '1px 6px', borderRadius: '4px', fontFamily: FONT_MONO }}>TD.TEST</code>)</li>
+                  </ul>
+                </div>
+
               </div>
             );
           })()}
@@ -1429,13 +1756,289 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                     <li>שרת פנימי: <code style={{ fontFamily: FONT_MONO }}>HOST=mail.corp.local, PORT=25, SECURE=false</code> (ללא משתמש/סיסמה)</li>
                     <li><code style={{ fontFamily: FONT_MONO }}>EMAIL_DISTRIBUTION_LIST</code> — רשימת נמענים מופרדת בפסיקים</li>
                   </ul>
+                  <div style={{ marginTop: '12px', background: '#fff8e1', borderRadius: '8px', padding: '12px 16px', border: '1px solid #ffe082' }}>
+                    <strong style={{ color: '#795548', display: 'block', marginBottom: '8px', fontSize: '13px' }}>🔥 דרישות Firewall</strong>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                      <thead>
+                        <tr style={{ background: '#fff3e0' }}>
+                          {['כיוון', 'מקור', 'יעד', 'פורט / פרוטוקול', 'מטרה'].map(h => (
+                            <th key={h} style={{ padding: '6px 10px', textAlign: 'right', color: '#5d4037', fontWeight: 'bold', border: '1px solid #ffcc80' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          { dir: 'יוצא ←', src: 'שרת DeployCenter (Backend)', dst: 'שרת SMTP (EMAIL_HOST)', port: 'TCP 587 / 465 / 25', purpose: 'שליחת הודעות אימייל' },
+                        ].map((r, i) => (
+                          <tr key={i}>
+                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontWeight: 'bold', color: '#e65100', whiteSpace: 'nowrap' }}>{r.dir}</td>
+                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '11px' }}>{r.src}</td>
+                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '11px' }}>{r.dst}</td>
+                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontWeight: 'bold', whiteSpace: 'nowrap', fontFamily: FONT_MONO }}>{r.port}</td>
+                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', color: '#555' }}>{r.purpose}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
+              </div>
+            );
+          })()}
+
+          {tab === 'notifications' && (() => {
+            const notifParams = systemParams.filter(p => p.key.startsWith('TEAMS_') || p.key.startsWith('TELEGRAM_'));
+            const getP = (key: string) => notifParams.find(p => p.key === key)?.value ?? '';
+            const teamsEnabled   = getP('TEAMS_ENABLED')   === 'true';
+            const telegramEnabled = getP('TELEGRAM_ENABLED') === 'true';
+
+            const channelCard = (
+              opts: {
+                icon: string; title: string; subtitle: string;
+                enabledKey: string; enabled: boolean;
+                fields: { key: string; label: string; placeholder: string; isPassword?: boolean }[];
+                channel?: 'teams' | 'telegram';
+                helpNode?: React.ReactNode;
+              }
+            ) => {
+              const res = opts.channel ? notifTestResult[opts.channel] : undefined;
+              const isTesting = notifTesting === opts.channel;
+              return (
+                <div style={{ background: opts.enabled ? C.bgDone : C.bgCard, borderRadius: '12px', padding: '20px 24px', border: `2px solid ${opts.enabled ? C.statusDone : C.border}` }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px' }}>
+                    <span style={{ fontSize: '32px' }}>{opts.icon}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 'bold', fontSize: '16px', color: opts.enabled ? C.statusDone : C.textSecondary }}>{opts.title}</div>
+                      <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '2px' }}>{opts.subtitle}</div>
+                    </div>
+                    <div style={{ fontSize: '12px', color: C.textMuted, textAlign: 'left' }}>
+                      ערך: <code style={{ fontFamily: FONT_MONO }}>{opts.enabledKey}</code>
+                    </div>
+                  </div>
+
+                  <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '14px' }}>
+                    <thead>
+                      <tr style={{ background: C.bgNested }}>
+                        {['תיאור', 'מפתח', 'ערך', 'פעולות'].map(h => (
+                          <th key={h} style={{ padding: '8px 12px', textAlign: 'right', fontSize: '12px', color: C.textSecondary, fontWeight: 'bold', border: `1px solid ${C.border}` }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {notifParams.filter(p => p.key === opts.enabledKey || opts.fields.some(f => f.key === p.key)).map(p => (
+                        <tr key={p.key} style={{ borderBottom: `1px solid ${C.border}` }}>
+                          <td style={{ padding: '9px 12px', fontSize: '13px', fontWeight: 'bold', color: C.textPrimary, border: `1px solid ${C.border}` }}>{p.label}</td>
+                          <td style={{ padding: '9px 12px', fontFamily: FONT_MONO, fontSize: '11px', color: C.textMuted, border: `1px solid ${C.border}` }}>{p.key}</td>
+                          <td style={{ padding: '9px 12px', border: `1px solid ${C.border}`, minWidth: '220px' }}>
+                            {editingParam === p.key ? (
+                              <input autoFocus
+                                type={opts.fields.find(f => f.key === p.key)?.isPassword ? 'password' : 'text'}
+                                value={paramValue}
+                                onChange={e => setParamValue(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') saveParam(p.key); if (e.key === 'Escape') setEditingParam(null); }}
+                                placeholder={opts.fields.find(f => f.key === p.key)?.placeholder || ''}
+                                style={{ width: '100%', padding: '5px 9px', border: `2px solid ${C.brand}`, borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box', direction: 'ltr', background: C.bgNested, color: C.textPrimary, fontFamily: FONT_MONO }}
+                              />
+                            ) : (
+                              <span style={{ fontSize: '13px', color: p.value ? C.textPrimary : C.textMuted, fontStyle: p.value ? 'normal' : 'italic', direction: 'ltr', display: 'inline-block', fontFamily: p.value ? FONT_MONO : FONT }}>
+                                {opts.fields.find(f => f.key === p.key)?.isPassword && p.value ? '••••••••' : (p.value || 'לא הוגדר')}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '7px 12px', border: `1px solid ${C.border}`, whiteSpace: 'nowrap' }}>
+                            {editingParam === p.key ? (
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                <button onClick={() => saveParam(p.key)} disabled={savingParam}
+                                  style={{ padding: '4px 12px', background: savingParam ? C.bgHover : C.statusDone, color: savingParam ? C.textDisabled : 'white', border: 'none', borderRadius: '6px', cursor: savingParam ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 'bold', fontFamily: FONT }}>
+                                  {savingParam ? '...' : 'שמור'}
+                                </button>
+                                <button onClick={() => { setEditingParam(null); setParamError(null); }}
+                                  style={{ padding: '4px 10px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>
+                                  ביטול
+                                </button>
+                              </div>
+                            ) : (
+                              <button onClick={() => { setEditingParam(p.key); setParamValue(p.value); setParamError(null); }}
+                                style={{ padding: '4px 12px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>
+                                ✏️ ערוך
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  {opts.channel && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => testNotifChannel(opts.channel!)}
+                        disabled={isTesting || !opts.enabled}
+                        style={{
+                          padding: '8px 20px', background: isTesting ? C.bgHover : !opts.enabled ? C.bgHover : '#2980b9',
+                          color: (isTesting || !opts.enabled) ? C.textDisabled : 'white', border: 'none', borderRadius: '8px',
+                          cursor: (isTesting || !opts.enabled) ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px', fontFamily: FONT,
+                        }}
+                      >
+                        {isTesting ? 'שולח...' : '🔌 שלח הודעת בדיקה'}
+                      </button>
+                      {!opts.enabled && <span style={{ fontSize: '12px', color: C.textMuted }}>יש להפעיל {opts.enabledKey} תחילה</span>}
+                      {res && (
+                        <div style={{
+                          padding: '7px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold',
+                          background: res.ok ? C.bgDone : C.bgBlocked,
+                          color: res.ok ? C.statusDone : C.statusFailed,
+                        }}>
+                          {res.ok ? '✓' : '✕'} {res.message}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {opts.helpNode && <div style={{ marginTop: '14px' }}>{opts.helpNode}</div>}
+                </div>
+              );
+            };
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {/* ─ Web Push ─ */}
+                <div style={{ background: C.bgDone, borderRadius: '12px', padding: '20px 24px', border: `2px solid ${C.statusDone}`, display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <span style={{ fontSize: '32px' }}>🔔</span>
+                  <div>
+                    <div style={{ fontWeight: 'bold', fontSize: '16px', color: C.statusDone }}>Web Push — פעיל תמיד</div>
+                    <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '2px' }}>
+                      הודעות דחיפה לדפדפן. עובד ללא הגדרה נוספת — כל המשתמשים שאישרו הרשאות יקבלו התראות.
+                    </div>
+                    <div style={{ marginTop: '10px', background: '#fff8e1', borderRadius: '8px', padding: '10px 14px', border: '1px solid #ffe082' }}>
+                      <strong style={{ color: '#795548', display: 'block', marginBottom: '6px', fontSize: '12px' }}>🔥 דרישות Firewall</strong>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                        <thead>
+                          <tr style={{ background: '#fff3e0' }}>
+                            {['כיוון', 'מקור', 'יעד', 'פורט', 'מטרה'].map(h => (
+                              <th key={h} style={{ padding: '5px 8px', textAlign: 'right', color: '#5d4037', fontWeight: 'bold', border: '1px solid #ffcc80' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[
+                            { dir: 'יוצא ←', src: 'DeployCenter Backend', dst: 'fcm.googleapis.com', port: 'TCP 443', purpose: 'Web Push — Chrome' },
+                            { dir: 'יוצא ←', src: 'DeployCenter Backend', dst: 'updates.push.services.mozilla.com', port: 'TCP 443', purpose: 'Web Push — Firefox' },
+                          ].map((r, i) => (
+                            <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#fff8e1' }}>
+                              <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontWeight: 'bold', color: '#e65100', whiteSpace: 'nowrap' }}>{r.dir}</td>
+                              <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '10px' }}>{r.src}</td>
+                              <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '10px' }}>{r.dst}</td>
+                              <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontWeight: 'bold', whiteSpace: 'nowrap', fontFamily: FONT_MONO }}>{r.port}</td>
+                              <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', color: '#555' }}>{r.purpose}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ─ Microsoft Teams ─ */}
+                {channelCard({
+                  icon: '💬', title: 'Microsoft Teams', subtitle: teamsEnabled ? 'ערוץ פעיל — הודעות נשלחות לצ\'אט' : 'ערוץ מושבת',
+                  enabledKey: 'TEAMS_ENABLED', enabled: teamsEnabled, channel: 'teams',
+                  fields: [
+                    { key: 'TEAMS_WEBHOOK_URL', label: 'Webhook URL', placeholder: 'https://outlook.office.com/webhook/...' },
+                  ],
+                  helpNode: (
+                    <div style={{ background: C.bgNested, borderRadius: '8px', padding: '14px 18px', fontSize: '13px', color: C.textSecondary, lineHeight: '1.7' }}>
+                      <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '6px' }}>כיצד לקבל Webhook URL:</strong>
+                      <ol style={{ margin: 0, paddingRight: '20px' }}>
+                        <li>בנד ב-Teams, פתח את הערוץ הרצוי ← <strong>⋯ (More options)</strong> ← <strong>Connectors</strong></li>
+                        <li>חפש <strong>Incoming Webhook</strong> ← לחץ <strong>Configure</strong></li>
+                        <li>תן שם (למשל: "DeployCenter") ← לחץ <strong>Create</strong></li>
+                        <li>העתק את ה-URL שנוצר ← לחץ <strong>Done</strong></li>
+                        <li>הדבק את ה-URL בשדה TEAMS_WEBHOOK_URL למעלה</li>
+                      </ol>
+                      <div style={{ marginTop: '10px', background: '#fff8e1', borderRadius: '8px', padding: '10px 14px', border: '1px solid #ffe082' }}>
+                        <strong style={{ color: '#795548', display: 'block', marginBottom: '6px', fontSize: '12px' }}>🔥 דרישות Firewall</strong>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                          <thead>
+                            <tr style={{ background: '#fff3e0' }}>
+                              {['כיוון', 'מקור', 'יעד', 'פורט', 'מטרה'].map(h => (
+                                <th key={h} style={{ padding: '5px 8px', textAlign: 'right', color: '#5d4037', fontWeight: 'bold', border: '1px solid #ffcc80' }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[
+                              { dir: 'יוצא ←', src: 'DeployCenter Backend', dst: '*.office.com / *.office365.com', port: 'TCP 443', purpose: 'שליחה דרך Teams Webhook' },
+                            ].map((r, i) => (
+                              <tr key={i}>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontWeight: 'bold', color: '#e65100', whiteSpace: 'nowrap' }}>{r.dir}</td>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '10px' }}>{r.src}</td>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '10px' }}>{r.dst}</td>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontWeight: 'bold', whiteSpace: 'nowrap', fontFamily: FONT_MONO }}>{r.port}</td>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', color: '#555' }}>{r.purpose}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ),
+                })}
+
+                {/* ─ Telegram ─ */}
+                {channelCard({
+                  icon: '✈️', title: 'Telegram Bot', subtitle: telegramEnabled ? 'ערוץ פעיל — הודעות נשלחות לצ\'אט' : 'ערוץ מושבת',
+                  enabledKey: 'TELEGRAM_ENABLED', enabled: telegramEnabled, channel: 'telegram',
+                  fields: [
+                    { key: 'TELEGRAM_BOT_TOKEN', label: 'Bot Token', placeholder: '123456789:AAF...', isPassword: true },
+                    { key: 'TELEGRAM_CHAT_ID',   label: 'Chat ID',   placeholder: '-1001234567890 (קבוצה) או 123456 (פרטי)' },
+                  ],
+                  helpNode: (
+                    <div style={{ background: C.bgNested, borderRadius: '8px', padding: '14px 18px', fontSize: '13px', color: C.textSecondary, lineHeight: '1.7' }}>
+                      <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '6px' }}>כיצד ליצור Telegram Bot:</strong>
+                      <ol style={{ margin: 0, paddingRight: '20px' }}>
+                        <li>שלח הודעה ל-<strong>@BotFather</strong> בטלגרם ← <code style={{ fontFamily: FONT_MONO }}>/newbot</code></li>
+                        <li>בחר שם לבוט (למשל: <em>DeployCenter Bot</em>) ← username (חייב להסתיים ב-bot)</li>
+                        <li>קבל את ה-<strong>Bot Token</strong> (פורמט: <code style={{ fontFamily: FONT_MONO }}>123456:AAF...</code>)</li>
+                        <li>הוסף את הבוט לקבוצה שרוצים לקבל הודעות ← הקנה לו הרשאות שליחה</li>
+                        <li>לקבלת Chat ID: שלח הודעה לקבוצה, אחר כך קרא <code style={{ fontFamily: FONT_MONO }}>api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code></li>
+                        <li>מצא <code style={{ fontFamily: FONT_MONO }}>"chat":&#123;"id": -1001234567890&#125;</code> — זה ה-Chat ID</li>
+                      </ol>
+                      <div style={{ marginTop: '10px', background: '#fff8e1', borderRadius: '8px', padding: '10px 14px', border: '1px solid #ffe082' }}>
+                        <strong style={{ color: '#795548', display: 'block', marginBottom: '6px', fontSize: '12px' }}>🔥 דרישות Firewall</strong>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                          <thead>
+                            <tr style={{ background: '#fff3e0' }}>
+                              {['כיוון', 'מקור', 'יעד', 'פורט', 'מטרה'].map(h => (
+                                <th key={h} style={{ padding: '5px 8px', textAlign: 'right', color: '#5d4037', fontWeight: 'bold', border: '1px solid #ffcc80' }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[
+                              { dir: 'יוצא ←', src: 'DeployCenter Backend', dst: 'api.telegram.org', port: 'TCP 443', purpose: 'שליחה דרך Telegram Bot API' },
+                            ].map((r, i) => (
+                              <tr key={i}>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontWeight: 'bold', color: '#e65100', whiteSpace: 'nowrap' }}>{r.dir}</td>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '10px' }}>{r.src}</td>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '10px' }}>{r.dst}</td>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontWeight: 'bold', whiteSpace: 'nowrap', fontFamily: FONT_MONO }}>{r.port}</td>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', color: '#555' }}>{r.purpose}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ),
+                })}
               </div>
             );
           })()}
 
           {/* ── SYSTEM PARAMS TAB ── */}
           {tab === 'params' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', border: `1px solid ${C.border}` }}>
               <h3 style={{ margin: '0 0 4px', color: C.textPrimary }}>⚙️ פרמטרי מערכת</h3>
               <p style={{ margin: '0 0 20px', fontSize: '13px', color: C.textMuted }}>הגדרות גלובליות השולטות בתהליכים במערכת</p>
@@ -1453,7 +2056,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {systemParams.map(p => (
+                  {systemParams.filter(p => !p.key.startsWith('EMAIL_') && !p.key.startsWith('LDAP_') && !p.key.startsWith('TEAMS_') && !p.key.startsWith('TELEGRAM_')).map(p => (
                     <tr key={p.key} style={{ borderBottom: `1px solid ${C.border}` }}>
                       <td style={{ padding: '12px 14px', fontSize: '14px', fontWeight: 'bold', color: C.textPrimary, border: `1px solid ${C.border}` }}>{p.label}</td>
                       <td style={{ padding: '12px 14px', fontFamily: FONT_MONO, fontSize: '12px', color: C.textMuted, border: `1px solid ${C.border}` }}>{p.key}</td>
@@ -1502,6 +2105,45 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                 </tbody>
               </table>
             </div>
+
+            {/* ─ Params help section ─ */}
+            <div style={{ background: C.bgNested, borderRadius: '12px', padding: '20px 24px', border: `1px solid ${C.border}`, fontSize: '13px', color: C.textSecondary, lineHeight: '1.8' }}>
+              <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '12px', fontSize: '14px' }}>📖 מדריך פרמטרים</strong>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div>
+                  <code style={{ fontFamily: FONT_MONO, color: C.brand }}>EXCEL_FILE_PATH</code>
+                  <span style={{ marginRight: '8px' }}>— נתיב מלא לקובץ ה-Excel של הגשת פיתוחים (CR_LIST).</span>
+                  <div style={{ color: C.textMuted, marginTop: '2px', paddingRight: '0' }}>
+                    הנתיב חייב להיות נגיש משרת הבאק-אנד. דוגמאות: <code style={{ fontFamily: FONT_MONO, fontSize: '11px' }}>C:\Files\cr_list.xlsx</code> (Windows) · <code style={{ fontFamily: FONT_MONO, fontSize: '11px' }}>\\server\share\cr_list.xlsx</code> (UNC) · <code style={{ fontFamily: FONT_MONO, fontSize: '11px' }}>/data/cr_list.xlsx</code> (Linux/Docker).
+                    הקובץ משמש לסנכרון מטלות CR וגרסאות QC (לשונית "גרסאות QC").
+                  </div>
+                </div>
+                <div>
+                  <code style={{ fontFamily: FONT_MONO, color: C.brand }}>SUMMARY_OVERRUN_THRESHOLD_MINS</code>
+                  <span style={{ marginRight: '8px' }}>— ספר הדקות שמעליו דוח הסיכום מדגיש חריגת זמן.</span>
+                  <div style={{ color: C.textMuted, marginTop: '2px' }}>
+                    ברירת מחדל: <strong>30 דקות</strong>. אם משימה ארכה יותר מהסף הזה מהזמן המתוכנן, השורה תסומן כחריגה ומחייבת הסבר בדוח.
+                  </div>
+                </div>
+                <div>
+                  <code style={{ fontFamily: FONT_MONO, color: C.brand }}>WIZARD_AUTO_OPEN</code>
+                  <span style={{ marginRight: '8px' }}>— האם לפתוח אוטומטית את אשף הכנת התוכנית בעת יצירת גרסה מתבנית.</span>
+                  <div style={{ color: C.textMuted, marginTop: '2px' }}>
+                    ערכים: <code style={{ fontFamily: FONT_MONO }}>true</code> / <code style={{ fontFamily: FONT_MONO }}>false</code>. ברירת מחדל: <strong>true</strong>.
+                    אם <code style={{ fontFamily: FONT_MONO }}>false</code> — האשף לא יפתח אוטומטית; ניתן להפעיל אותו ידנית מתוך הגרסה.
+                  </div>
+                </div>
+                <div>
+                  <code style={{ fontFamily: FONT_MONO, color: C.brand }}>USER_DEPS_CROSS_PHASE</code>
+                  <span style={{ marginRight: '8px' }}>— האם לאפשר יצירת תלויות בין-שלביות לאותו משתמש.</span>
+                  <div style={{ color: C.textMuted, marginTop: '2px' }}>
+                    ערכים: <code style={{ fontFamily: FONT_MONO }}>true</code> / <code style={{ fontFamily: FONT_MONO }}>false</code>. ברירת מחדל: <strong>false</strong> (תלויות בתוך שלב בלבד).
+                    אפשרות זו מתאימה כשאותו אדם מבצע משימות בשלבים שונים ויש סדר ביניהם.
+                  </div>
+                </div>
+              </div>
+            </div>
+            </div>
           )}
         </>
       )}
@@ -1534,7 +2176,7 @@ const PermissionsTab: React.FC<{
     await updateRole(role, local[role] ?? []);
   };
 
-  const groups = ['מסכים', 'פעולות'];
+  const groups = ['מסכים', 'פעולות — הטמעות', 'פעולות — ניהול', 'בקרת איכות'];
 
   const thStyle: React.CSSProperties = {
     padding: '10px 14px', fontSize: '12px', fontWeight: 'bold',

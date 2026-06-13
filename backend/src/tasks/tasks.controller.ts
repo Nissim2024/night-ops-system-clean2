@@ -54,9 +54,10 @@ export class TasksController {
     assignedUserId?: string;
     dueDate?: string;
   }, @Request() req: any) {
-    requireRole(req, LEADS_UP, 'נדרשת הרשאת ראש צוות ומעלה ליצירת משימה');
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול ליצור משימה בתוכנית');
+    const { title, description, crNumber, application, priority, assignedTeamId, assignedUserId, dueDate } = body;
     return this.tasksService.create({
-      ...body,
+      title, description, crNumber, application, priority, assignedTeamId, assignedUserId, dueDate,
       createdBy: req.user.sub,
     });
   }
@@ -84,7 +85,7 @@ export class TasksController {
     @Body() body: any,
     @Request() req: any,
   ) {
-    requireRole(req, LEADS_UP, 'נדרשת הרשאת ראש צוות ומעלה לעדכון משימה');
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לעדכן פרטי משימה בתוכנית');
     return this.tasksService.update(id, body, req.user.sub);
   }
 
@@ -102,7 +103,7 @@ export class TasksController {
 
   @Post(':id/duplicate')
   duplicate(@Param('id') id: string, @Request() req: any) {
-    requireRole(req, LEADS_UP, 'נדרשת הרשאת ראש צוות ומעלה לשכפול משימה');
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לשכפל משימה');
     return this.tasksService.duplicate(id, req.user.sub);
   }
 

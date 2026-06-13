@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../../theme';
+import { QaSeasonsView } from './QaSeasonsView';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -58,6 +59,7 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
   const [filterSeason, setFilterSeason] = useState<string>('all');
   const [filterUser, setFilterUser]   = useState<string>('all');
   const [saving, setSaving]           = useState<string | null>(null);
+  const [mainTab, setMainTab]         = useState<'requests' | 'holidays'>('requests');
 
   // Report form (for all roles)
   const [showForm, setShowForm]         = useState(false);
@@ -132,7 +134,7 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
     <div style={{ fontFamily: FONT, direction: 'rtl', color: C.textPrimary }}>
 
       {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[5] }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[4] }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
           <span style={{ fontSize: '22px' }}>📅</span>
           <div>
@@ -170,6 +172,29 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
           </button>
         </div>
       </div>
+
+      {/* ── Tab bar ── */}
+      <div style={{ display: 'flex', gap: '4px', borderBottom: `2px solid ${C.border}`, marginBottom: SP[5] }}>
+        {[
+          { key: 'requests', label: '📋 בקשות חופשה' },
+          ...(isAdmin ? [{ key: 'holidays', label: '🗓 מועדי חופשות' }] : []),
+        ].map(t => (
+          <button key={t.key} onClick={() => setMainTab(t.key as any)}
+            style={{
+              padding: '8px 18px', border: 'none', cursor: 'pointer', fontFamily: FONT,
+              background: 'transparent', fontWeight: mainTab === t.key ? WEIGHT.bold : WEIGHT.normal,
+              color: mainTab === t.key ? C.brand : C.textMuted,
+              borderBottom: mainTab === t.key ? `2px solid ${C.brand}` : '2px solid transparent',
+              marginBottom: '-2px', ...TEXT.sm, transition: EASE.fast,
+            }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {mainTab === 'holidays' && <QaSeasonsView token={token ?? ''} />}
+
+      {mainTab === 'requests' && <>
 
       {/* ── Report form ── */}
       {showForm && (
@@ -218,9 +243,9 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
         {seasons.length > 0 && (
           <select value={filterSeason} onChange={e => setFilterSeason(e.target.value)}
             style={{ padding: '6px 12px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgCard, color: C.textPrimary, ...TEXT.sm, cursor: 'pointer', outline: 'none', fontFamily: FONT }}>
-            <option value="all">כל העונות</option>
+            <option value="all">כל החופשות</option>
             {seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            <option value="">ללא עונה</option>
+            <option value="">ללא חופשה</option>
           </select>
         )}
 
@@ -243,7 +268,7 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
           gridTemplateColumns: isAdmin ? '1.4fr 1.2fr 1fr 1.2fr 1.5fr 1fr' : '1.4fr 1fr 1.5fr 1.2fr 1fr',
           padding: `${SP[2]} ${SP[5]}`, borderBottom: `1px solid ${C.border}`, background: C.bgNested,
         }}>
-          {[...(isAdmin ? ['עובד'] : []), 'תאריך', 'סוג', 'עונה', 'סטטוס', 'פעולות'].map(h => (
+          {[...(isAdmin ? ['עובד'] : []), 'תאריך', 'סוג', 'חופשה', 'סטטוס', 'פעולות'].map(h => (
             <span key={h} style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>{h}</span>
           ))}
         </div>
@@ -339,6 +364,9 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
           );
         })}
       </div>
+
+      </>}
+
     </div>
   );
 };

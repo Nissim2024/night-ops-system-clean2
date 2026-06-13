@@ -10,6 +10,12 @@ const MANAGERS  = ['RELEASE_MANAGER', 'ADMIN'];
 export class TaskProposalsController {
   constructor(private service: TaskProposalsService) {}
 
+  @Get('version/:versionId/count-pending')
+  countPending(@Param('versionId') versionId: string, @Request() req: any) {
+    if (!MANAGERS.includes(req.user.role)) return { count: 0 };
+    return this.service.countPendingApproved(versionId);
+  }
+
   @Get('version/:versionId')
   getForVersion(
     @Param('versionId') versionId: string,

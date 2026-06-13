@@ -2,7 +2,7 @@ import { Page } from '@playwright/test';
 
 export const ADMIN = { email: 'nissim@test.com', password: '123456' };
 export const API = 'http://localhost:3000';
-export const APP = 'http://localhost:3001';
+export const APP = 'http://localhost:3003';
 
 export async function login(page: Page, email = ADMIN.email, password = ADMIN.password) {
   await page.goto(APP);

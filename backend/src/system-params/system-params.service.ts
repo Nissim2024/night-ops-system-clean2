@@ -30,6 +30,36 @@ const DEFAULT_PARAMS = [
     label: 'אפשר יצירת תלויות per-user בין שלבים שונים (ברירת מחדל: בתוך שלב בלבד)',
     type: 'boolean',
   },
+  {
+    key: 'QA_EXPORT_PATH',
+    value: '',
+    label: 'נתיב תיקייה לשמירת קבצי ייצוא תוכנית עבודה QA (ריק = הורדה בלבד)',
+    type: 'text',
+  },
+  {
+    key: 'ORACLE_ENABLED',
+    value: 'false',
+    label: 'QC Oracle: מופעל (true/false)',
+    type: 'boolean',
+  },
+  {
+    key: 'ORACLE_USER',
+    value: '',
+    label: 'QC Oracle: שם משתמש',
+    type: 'text',
+  },
+  {
+    key: 'ORACLE_PASSWORD',
+    value: '',
+    label: 'QC Oracle: סיסמה',
+    type: 'password',
+  },
+  {
+    key: 'ORACLE_CONNECT_STRING',
+    value: '',
+    label: 'QC Oracle: Connect String (host:port/service)',
+    type: 'text',
+  },
 ];
 
 @Injectable()

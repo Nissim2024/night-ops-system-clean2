@@ -379,7 +379,8 @@ model TaskProposal {
   phase         Int            // 1=בוקר גרסה, 2=HOTNET, 3=HOT, 4=בוקר לאחר
   system        String?        // CRM / WIZ / ETL / EAI / MEDIATION …
   actionType    String?        // הטמעת קוד / פרמטרים / הרשאות / תהליך / הסבה / פעולה ידנית
-  subPhaseId    String?        // exact sub-phase chosen (optional, used at conversion)
+  subPhaseId         String?        // exact sub-phase chosen (optional, used at conversion)
+  responsibleTeamId  String?        // צוות אחראי לביצוע (may differ from submitting teamId)
   status        ProposalStatus @default(DRAFT)
   usedInTaskId  String?        // set when manager picks this proposal
   reviewStatus  ReviewStatus   @default(PENDING)
@@ -494,6 +495,7 @@ model VersionCrAssignment {
   crManager             String?
   crDescription         String?
   application           String?
+  project               String?
   qaEffort              Float?   // QA effort in DAYS (from CR_LIST QA+QA_BI cols ÷ 8)
   qaEffortOverride      Float?   // manual override — not overwritten on re-sync
   requiredSkillMinLevel Int?     // minimum skill level to test this CR (default 1)
@@ -669,4 +671,41 @@ model QaCycleTask {
 
   cycle QaCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   user  User    @relation(fields: [userId], references: [id])
+}
+
+model ActivityBoardEntry {
+  id          String    @id @default(cuid())
+  versionId   String
+  activityKey String
+  label       String
+  owner          String    @default("")
+  ownerEmployee  String    @default("")
+  notes       String    @default("")
+  attendees   String[]  @default([])
+  category    String    @default("other")
+  dateStart   DateTime?
+  dateEnd     DateTime?
+  sortOrder   Int       @default(0)
+  isRelevant  Boolean   @default(true)
+  isCustom    Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([versionId, activityKey])
+}
+
+model RunbookEntry {
+  id        String   @id @default(cuid())
+  versionId String
+  runbookId String
+  stepIndex Int
+  employee  String   @default("")
+  startTime String   @default("")
+  endTime   String   @default("")
+  team      String   @default("")
+  status    String   @default("pending")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([versionId, runbookId, stepIndex])
 }

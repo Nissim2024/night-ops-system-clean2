@@ -7,7 +7,17 @@ const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
 });
 
-const ORACLE_ENABLED = process.env.ORACLE_ENABLED === 'true';
+async function getOracleConfig() {
+  const keys = ['ORACLE_ENABLED', 'ORACLE_USER', 'ORACLE_PASSWORD', 'ORACLE_CONNECT_STRING'];
+  const rows = await prisma.systemParam.findMany({ where: { key: { in: keys } } });
+  const map = Object.fromEntries(rows.map(r => [r.key, r.value]));
+  return {
+    enabled:       map['ORACLE_ENABLED'] === 'true',
+    user:          map['ORACLE_USER']          || process.env.ORACLE_USER          || '',
+    password:      map['ORACLE_PASSWORD']      || process.env.ORACLE_PASSWORD      || '',
+    connectString: map['ORACLE_CONNECT_STRING'] || process.env.ORACLE_CONNECT_STRING || '',
+  };
+}
 
 const QC_RELEASES_SQL = `
   select rr.rel_id, rr.rel_parent_id, rr.rel_name, rr.rel_start_date, rr.rel_end_date, rr.rel_user_01,
@@ -57,8 +67,9 @@ export class QcReleasesService implements OnModuleInit {
   }
 
   async sync(): Promise<{ synced: number; error?: string }> {
-    if (!ORACLE_ENABLED) {
-      this.logger.log('Oracle disabled (ORACLE_ENABLED!=true) — skipping QC releases sync');
+    const cfg = await getOracleConfig();
+    if (!cfg.enabled) {
+      this.logger.log('Oracle disabled — skipping QC releases sync');
       return { synced: 0, error: 'Oracle not enabled' };
     }
 
@@ -68,9 +79,9 @@ export class QcReleasesService implements OnModuleInit {
       oracledb.default.outFormat = oracledb.default.OUT_FORMAT_OBJECT;
 
       connection = await oracledb.default.getConnection({
-        user: process.env.ORACLE_USER,
-        password: process.env.ORACLE_PASSWORD,
-        connectString: process.env.ORACLE_CONNECT_STRING,
+        user:          cfg.user,
+        password:      cfg.password,
+        connectString: cfg.connectString,
       });
 
       const result = await connection.execute(QC_RELEASES_SQL);
@@ -148,18 +159,32 @@ export class QcReleasesService implements OnModuleInit {
     }
   }
 
-  // Returns current + future releases (filterDate >= 30 days ago) for the dropdown
+  // Returns only future/active releases for the new-version dropdown.
+  // Hides a release when ANY of these is true:
+  //   1. goLiveDate exists and is in the past (already went live)
+  //   2. Every linked Version is COMPLETED or ROLLED_BACK (fully done)
   async findActive() {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 30);
-    cutoff.setHours(0, 0, 0, 0);
-    return prisma.qcRelease.findMany({
-      where: {
-        active: true,
-        filterDate: { not: null, gte: cutoff },
-      },
-      orderBy: { filterDate: 'asc' },
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const releases = await prisma.qcRelease.findMany({
+      where: { active: true, filterDate: { not: null } },
+      include: { versions: { select: { status: true } } },
+      orderBy: [
+        { goLiveDate: { sort: 'asc', nulls: 'last' } },
+        { relName: 'asc' },
+      ],
     });
+
+    return releases
+      .filter(r => {
+        // Rule 1: goLiveDate already passed → hide
+        if (r.goLiveDate && new Date(r.goLiveDate) < today) return false;
+        // Rule 2: all linked versions are done → hide
+        if (r.versions.length > 0 && r.versions.every(v => ['COMPLETED', 'ROLLED_BACK'].includes(v.status))) return false;
+        return true;
+      })
+      .map(({ versions: _v, ...r }) => r);
   }
 
   // Returns all releases (for admin view)

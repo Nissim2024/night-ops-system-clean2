@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Param, Request, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Request, UseGuards, ForbiddenException } from '@nestjs/common';
 import { VersionCrAssignmentsService } from './version-cr-assignments.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 
@@ -21,6 +21,17 @@ export class VersionCrAssignmentsController {
   syncFromExcel(@Param('versionId') versionId: string, @Request() req: any) {
     if (!MANAGERS.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת מנהל');
     return this.service.syncFromExcel(versionId);
+  }
+
+  @Patch('cr/:versionId/:crNumber')
+  patchCr(
+    @Param('versionId') versionId: string,
+    @Param('crNumber')  crNumber: string,
+    @Body() body: { qaEffortOverride?: number | null; isStandAlone?: boolean },
+    @Request() req: any,
+  ) {
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.patchCr(versionId, crNumber, body);
   }
 
   @Delete('version/:versionId')

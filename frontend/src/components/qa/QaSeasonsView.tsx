@@ -77,28 +77,29 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
   const [reqLoading, setReqLoading] = useState(false);
 
   const loadSeasons = useCallback(async () => {
+    if (!token) return;
     setLoading(true);
     try {
-      const res = await axios.get(`${API}/leaves/seasons`, { headers });
+      const res = await axios.get(`${API}/leaves/seasons`, { headers: { Authorization: `Bearer ${token}` } });
       const data: Season[] = res.data;
       setSeasons(data);
       if (data.length > 0) {
         const active = data.find(s => s.isActive) ?? data[0];
         setSelectedId(active.id);
       }
-    } finally { setLoading(false); }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    } catch { /* ignore fetch errors */ } finally { setLoading(false); }
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { loadSeasons(); }, [loadSeasons]);
+  useEffect(() => { loadSeasons().catch(() => {}); }, [loadSeasons]);
 
   useEffect(() => {
-    if (!selectedId) return;
+    if (!selectedId || !token) return;
     setReqLoading(true);
-    axios.get(`${API}/leaves/requests`, { headers, params: { seasonId: selectedId } })
+    axios.get(`${API}/leaves/requests`, { headers: { Authorization: `Bearer ${token}` }, params: { seasonId: selectedId } })
       .then(r => setRequests(r.data))
       .catch(() => setRequests([]))
       .finally(() => setReqLoading(false));
-  }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedId, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const season = seasons.find(s => s.id === selectedId) ?? null;
 
@@ -133,17 +134,66 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
 
   const pendingCount = userList.filter(u => u.hasPending).length;
 
+  const [importing, setImporting] = useState(false);
+  const [importYear, setImportYear] = useState(new Date().getFullYear());
+  const [importResult, setImportResult] = useState<{ created: number; skipped: number } | null>(null);
+
+  const handleImport = async () => {
+    if (!token) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const authHeader = { Authorization: `Bearer ${token}` };
+      const res = await axios.post(
+        `${API}/leaves/seasons/import-holidays?year=${importYear}`,
+        {},
+        { headers: authHeader },
+      );
+      setImportResult(res.data);
+      await loadSeasons();
+    } catch {
+      alert('שגיאה בייבוא חגים');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div style={{ fontFamily: FONT, direction: 'rtl', color: C.textPrimary, display: 'flex', gap: SP[5], alignItems: 'flex-start' }}>
 
       {/* ── Season list ── */}
       <div style={{ width: '280px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: SP[3] }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[1] }}>
-          <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold }}>תקופת חופשים</div>
+          <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold }}>מועדי חופשות</div>
           <button style={{ background: C.brand, color: C.textInverse, border: 'none', borderRadius: RADIUS.md, padding: '6px 14px', cursor: 'pointer', ...TEXT.sm, fontWeight: WEIGHT.semibold }}>
             + חדשה
           </button>
         </div>
+
+        {/* ── Auto-import row ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.xl, padding: `${SP[2]} ${SP[3]}` }}>
+          <select
+            value={importYear}
+            onChange={e => { setImportYear(Number(e.target.value)); setImportResult(null); }}
+            style={{ border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '3px 6px', ...TEXT.sm, background: C.bgNested, color: C.textPrimary, cursor: 'pointer' }}
+          >
+            {[new Date().getFullYear() - 1, new Date().getFullYear(), new Date().getFullYear() + 1].map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+          <button
+            onClick={handleImport}
+            disabled={importing}
+            style={{ flex: 1, background: importing ? C.textMuted : C.info, color: C.textInverse, border: 'none', borderRadius: RADIUS.md, padding: '4px 10px', cursor: importing ? 'not-allowed' : 'pointer', ...TEXT.sm, fontWeight: WEIGHT.semibold }}
+          >
+            {importing ? 'מייבא...' : '📅 ייבוא חגים אוטומטי'}
+          </button>
+        </div>
+        {importResult && (
+          <div style={{ ...TEXT.xs, color: C.success, background: C.successBg, padding: '4px 10px', borderRadius: RADIUS.md, textAlign: 'center' }}>
+            נוספו {importResult.created} | דולגו {importResult.skipped}
+          </div>
+        )}
 
         {loading ? (
           <div style={{ color: C.textMuted, ...TEXT.sm, textAlign: 'center', padding: SP[5] }}>טוען...</div>

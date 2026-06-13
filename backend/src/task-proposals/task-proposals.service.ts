@@ -12,20 +12,33 @@ const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
 export class TaskProposalsService {
   constructor(private readonly events: EventsGateway) {}
 
+  // Fetch responsibleTeamId for proposals (new column, not in generated Prisma client)
+  private async enrichResponsibleTeam(versionId: string, proposals: any[]): Promise<any[]> {
+    if (!proposals.length) return proposals;
+    const rows = await prisma.$queryRawUnsafe<{ id: string; responsibleTeamId: string | null }[]>(
+      `SELECT id, "responsibleTeamId" FROM "TaskProposal" WHERE "versionId" = $1`,
+      versionId,
+    );
+    const map = new Map(rows.map(r => [r.id, r.responsibleTeamId]));
+    return proposals.map(p => ({ ...p, responsibleTeamId: map.get(p.id) ?? null }));
+  }
+
   async findForVersion(versionId: string, user: { sub: string; role: string; teamId?: string }, filterTeamId?: string) {
     if (MANAGERS.includes(user.role)) {
       // Manager with explicit teamId filter — used when viewing a specific team's proposals
       if (filterTeamId) {
-        return prisma.taskProposal.findMany({
+        const proposals = await prisma.taskProposal.findMany({
           where: { versionId, teamId: filterTeamId },
           orderBy: [{ phase: 'asc' }, { createdAt: 'asc' }],
         });
+        return this.enrichResponsibleTeam(versionId, proposals);
       }
       // Unfiltered — all proposals for the version
-      return prisma.taskProposal.findMany({
+      const proposals = await prisma.taskProposal.findMany({
         where: { versionId },
         orderBy: [{ phase: 'asc' }, { createdAt: 'asc' }],
       });
+      return this.enrichResponsibleTeam(versionId, proposals);
     }
 
     // TEAM_LEAD sees only their team's proposals
@@ -35,16 +48,17 @@ export class TaskProposalsService {
     });
     if (!membership) return [];
 
-    return prisma.taskProposal.findMany({
+    const proposals = await prisma.taskProposal.findMany({
       where: { versionId, teamId: membership.teamId },
       orderBy: [{ phase: 'asc' }, { createdAt: 'asc' }],
     });
+    return this.enrichResponsibleTeam(versionId, proposals);
   }
 
   async create(
     versionId: string,
     user: { sub: string; role: string },
-    dto: { title: string; phase: number; app?: string; estimatedMins?: number; crNumber?: string; crLabel?: string; notes?: string; assignedUserName?: string; teamIdOverride?: string; system?: string; actionType?: string; subPhaseId?: string },
+    dto: { title: string; phase: number; app?: string; estimatedMins?: number; crNumber?: string; crLabel?: string; notes?: string; assignedUserName?: string; teamIdOverride?: string; system?: string; actionType?: string; subPhaseId?: string; responsibleTeamId?: string },
   ) {
     const sanitize = (s?: string) => s?.replace(/<[^>]*>/g, '').trim() ?? '';
     dto.title = sanitize(dto.title);
@@ -85,6 +99,10 @@ export class TaskProposalsService {
         status: 'DRAFT',
       },
     });
+    // responsibleTeamId — new field, set via raw SQL to avoid Prisma client mismatch
+    if (dto.responsibleTeamId) {
+      await prisma.$executeRaw`UPDATE "TaskProposal" SET "responsibleTeamId" = ${dto.responsibleTeamId} WHERE id = ${proposal.id}`;
+    }
     this.events.emitProposalCreated(versionId);
     return proposal;
   }
@@ -92,7 +110,7 @@ export class TaskProposalsService {
   async update(
     id: string,
     user: { sub: string; role: string },
-    dto: Partial<{ title: string; phase: number; app: string; estimatedMins: number; crNumber: string; crLabel: string; notes: string; assignedUserName: string; status: string; system: string; actionType: string; subPhaseId: string }>,
+    dto: Partial<{ title: string; phase: number; app: string; estimatedMins: number; crNumber: string; crLabel: string; notes: string; assignedUserName: string; status: string; system: string; actionType: string; subPhaseId: string; responsibleTeamId: string | null }>,
   ) {
     const proposal = await prisma.taskProposal.findUnique({ where: { id } });
     if (!proposal) throw new NotFoundException('הצעה לא נמצאה');
@@ -101,7 +119,7 @@ export class TaskProposalsService {
       throw new ForbiddenException('אין הרשאה לעדכן הצעה זו');
     }
 
-    return prisma.taskProposal.update({
+    const updated = await prisma.taskProposal.update({
       where: { id },
       data: {
         ...(dto.title !== undefined && { title: dto.title }),
@@ -118,6 +136,11 @@ export class TaskProposalsService {
         ...(dto.subPhaseId !== undefined && { subPhaseId: dto.subPhaseId }),
       },
     });
+    // responsibleTeamId — new field, set via raw SQL to avoid Prisma client mismatch
+    if (dto.responsibleTeamId !== undefined) {
+      await prisma.$executeRaw`UPDATE "TaskProposal" SET "responsibleTeamId" = ${dto.responsibleTeamId} WHERE id = ${id}`;
+    }
+    return updated;
   }
 
   async remove(id: string, user: { sub: string; role: string }) {
@@ -166,14 +189,36 @@ export class TaskProposalsService {
     });
   }
 
+  async countPendingApproved(versionId: string) {
+    const count = await prisma.taskProposal.count({
+      where: { versionId, reviewStatus: { not: 'REJECTED' as any }, usedInTaskId: null },
+    });
+    return { count };
+  }
+
   async convertApprovedToTasks(versionId: string, createdBy: string) {
-    // Find all APPROVED proposals that haven't been converted yet
-    const proposals = await prisma.taskProposal.findMany({
-      where: { versionId, reviewStatus: 'APPROVED' as any, usedInTaskId: null },
+    // Fetch ALL pending proposals (any review status, not yet converted)
+    const allPending = await prisma.taskProposal.findMany({
+      where: { versionId, usedInTaskId: null },
       orderBy: [{ phase: 'asc' }, { createdAt: 'asc' }],
     });
 
-    if (!proposals.length) return { created: 0, message: 'אין הצעות מאושרות להמרה' };
+    if (!allPending.length) return { created: 0, skipped: [], message: 'אין הצעות ממתינות לשיבוץ' };
+
+    // Enrich with responsibleTeamId (column added after Prisma client was generated)
+    const enriched = await this.enrichResponsibleTeam(versionId, allPending);
+
+    // Only APPROVED proposals may be converted
+    const proposals = enriched.filter((p: any) => p.reviewStatus === 'APPROVED');
+    const skipped: Array<{ title: string; reason: string }> = enriched
+      .filter((p: any) => p.reviewStatus !== 'APPROVED')
+      .map((p: any) => ({
+        title: p.title,
+        reason:
+          p.reviewStatus === 'REJECTED'      ? 'נדחתה על ידי המנהל' :
+          p.reviewStatus === 'NEEDS_REVISION' ? 'ממתינה לתיקון ראש הצוות' :
+                                               'ממתינה לאישור מנהל',
+      }));
 
     // Map phase number → phase name match in version
     const PHASE_PATTERN: Record<number, string[]> = {
@@ -209,9 +254,19 @@ export class TaskProposalsService {
     const fallbackSubPhase = phases[0]?.subPhases?.[0];
 
     let created = 0;
-    const results: any[] = [];
+    const createdTasks: any[] = [];
 
     for (const proposal of proposals) {
+      // Validate required fields before conversion
+      if (!proposal.assignedUserName?.trim()) {
+        skipped.push({ title: proposal.title, reason: 'חסר אחראי לביצוע' });
+        continue;
+      }
+      if (!proposal.estimatedMins) {
+        skipped.push({ title: proposal.title, reason: 'חסר משך ביצוע' });
+        continue;
+      }
+
       // Use explicitly chosen subPhase if set, otherwise use phase-matching heuristic
       let target: { phaseId: string; subPhaseId: string } | null = null;
       if (proposal.subPhaseId) {
@@ -219,15 +274,42 @@ export class TaskProposalsService {
         if (parentPhase) target = { phaseId: parentPhase.id, subPhaseId: proposal.subPhaseId };
       }
       if (!target) target = phaseMap.get(proposal.phase ?? 1) ?? (fallbackSubPhase ? { phaseId: phases[0].id, subPhaseId: fallbackSubPhase.id } : null);
-      if (!target) continue;
 
-      // Get next orderIndex in the subPhase
-      const lastTask = await prisma.task.findFirst({
+      if (!target) {
+        skipped.push({ title: proposal.title, reason: `שלב ${proposal.phase} לא נמצא בתוכנית` });
+        continue;
+      }
+
+      // Duplicate check — same title in same sub-phase
+      const existing = await prisma.task.findFirst({
+        where: { subPhaseId: target.subPhaseId, title: proposal.title },
+        select: { id: true },
+      });
+      if (existing) {
+        skipped.push({ title: proposal.title, reason: 'משימה עם שם זהה כבר קיימת בתת-שלב' });
+        continue;
+      }
+
+      // Get next orderIndex + timing anchor
+      const subPhaseTasks = await prisma.task.findMany({
         where: { subPhaseId: target.subPhaseId },
         orderBy: { orderIndex: 'desc' },
-        select: { orderIndex: true },
+        select: { orderIndex: true, plannedStart: true },
       });
-      const orderIndex = (lastTask?.orderIndex ?? 0) + 1;
+      const orderIndex = (subPhaseTasks[0]?.orderIndex ?? 0) + 1;
+
+      // Use earliest plannedStart in the sub-phase (parallel model) or fall back to phase start
+      const parentPhase = phases.find(p => p.id === target!.phaseId);
+      const earliestStart = subPhaseTasks
+        .map(t => t.plannedStart)
+        .filter((d): d is Date => d !== null)
+        .sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+      const startAnchor: Date | null = earliestStart ?? parentPhase?.plannedStart ?? null;
+      const plannedStart = startAnchor ?? undefined;
+      const plannedEnd =
+        startAnchor && proposal.estimatedMins
+          ? new Date(startAnchor.getTime() + proposal.estimatedMins * 60 * 1000)
+          : undefined;
 
       const task = await prisma.task.create({
         data: {
@@ -238,12 +320,14 @@ export class TaskProposalsService {
           duration: proposal.estimatedMins ? `${proposal.estimatedMins} דק'` : undefined,
           application: proposal.app ?? undefined,
           crNumber: proposal.crNumber ?? undefined,
-          assignedTeamId: proposal.teamId,
+          assignedTeamId: (proposal as any).responsibleTeamId || proposal.teamId,
           assignedUserName: proposal.assignedUserName ?? undefined,
           orderIndex,
           status: 'WAITING',
           createdBy,
           createdByTeamLead: createdBy,
+          ...(plannedStart && { plannedStart }),
+          ...(plannedEnd   && { plannedEnd }),
         },
       });
 
@@ -253,10 +337,18 @@ export class TaskProposalsService {
         data: { usedInTaskId: task.id },
       });
 
-      results.push({ proposalId: proposal.id, taskId: task.id, title: proposal.title });
+      const assignedPhase = phases.find(p => p.id === target!.phaseId);
+      const assignedSubPhase = assignedPhase?.subPhases.find((s: any) => s.id === target!.subPhaseId);
+      createdTasks.push({
+        proposalId: proposal.id,
+        taskId: task.id,
+        title: proposal.title,
+        phaseName: assignedPhase?.name ?? '',
+        subPhaseName: assignedSubPhase?.name ?? '',
+      });
       created++;
     }
 
-    return { created, tasks: results };
+    return { created, skipped, tasks: createdTasks };
   }
 }

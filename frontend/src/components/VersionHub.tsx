@@ -321,6 +321,21 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
     },
   ];
 
+  // Restrict visible cards based on role
+  const TEAM_LEAD_CARDS = new Set(['proposals', 'implementation-plans', 'rehearsal-board', 'night-board']);
+  const TEAM_LEAD_TABS  = new Set(['proposals', 'implementation-plans', 'board']);
+  const CR_MANAGER_CARDS = new Set(['implementation-plans']);
+  const visibleRows = ROWS.map(row => ({
+    ...row,
+    cards: userRole === 'TEAM_LEAD' ? row.cards.filter(c => TEAM_LEAD_CARDS.has(c.id))
+         : userRole === 'CR_MANAGER' ? row.cards.filter(c => CR_MANAGER_CARDS.has(c.id))
+         : row.cards,
+  })).filter(row => row.cards.length > 0);
+  // CTA tab guard: suppress navigation when role restricts target tab
+  const ctaTab = userRole === 'TEAM_LEAD' && cta?.tab && !TEAM_LEAD_TABS.has(cta.tab) ? undefined
+               : userRole === 'CR_MANAGER' && cta?.tab && cta.tab !== 'implementation-plans' ? undefined
+               : cta?.tab;
+
   return (
     <div style={{ direction: 'rtl', fontFamily: FONT }}>
 
@@ -376,20 +391,20 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
       {/* ── CTA — הצעד הבא ── */}
       {cta && (
         <div
-          onClick={() => cta.tab && onNavigate(cta.tab)}
+          onClick={() => ctaTab && onNavigate(ctaTab)}
           style={{
             background: cta.bg, border: `1px solid ${cta.color}44`,
             borderRadius: '10px', padding: '12px 18px', marginBottom: '14px',
             display: 'flex', alignItems: 'center', gap: '10px',
-            cursor: cta.tab ? 'pointer' : 'default',
+            cursor: ctaTab ? 'pointer' : 'default',
             transition: EASE.fast,
           }}
-          onMouseEnter={e => { if (cta.tab) (e.currentTarget as HTMLElement).style.borderColor = cta.color + '88'; }}
-          onMouseLeave={e => { if (cta.tab) (e.currentTarget as HTMLElement).style.borderColor = cta.color + '44'; }}
+          onMouseEnter={e => { if (ctaTab) (e.currentTarget as HTMLElement).style.borderColor = cta.color + '88'; }}
+          onMouseLeave={e => { if (ctaTab) (e.currentTarget as HTMLElement).style.borderColor = cta.color + '44'; }}
         >
           <span style={{ fontSize: '20px' }}>{cta.icon}</span>
           <span style={{ fontSize: '13px', fontWeight: 700, color: cta.color, flex: 1 }}>{cta.text}</span>
-          {cta.tab && <span style={{ fontSize: '12px', color: cta.color, opacity: 0.7 }}>← לחץ למעבר</span>}
+          {ctaTab && <span style={{ fontSize: '12px', color: cta.color, opacity: 0.7 }}>← לחץ למעבר</span>}
         </div>
       )}
 
@@ -559,7 +574,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
       </div>
 
       {/* שלוש שורות */}
-      {ROWS.map(row => (
+      {visibleRows.map(row => (
         <div key={row.title} style={{ marginBottom: '16px' }}>
           {/* כותרת שורה */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>

@@ -8,7 +8,7 @@ import {
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { PushService } from '../push/push.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
@@ -25,7 +25,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private connectedUsers = new Map<string, { userId: string; fullName: string; teamId?: string }>();
 
-  constructor(private pushService: PushService) {}
+  constructor(private notificationsService: NotificationsService) {}
 
   handleConnection(client: Socket) {
     console.log(`Client connected: ${client.id}`);
@@ -65,7 +65,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
     if (!assignedUserId) return;
     const userName = task.assignedUser?.fullName || task.assignedUserName || 'המשתמש';
-    const result = await this.pushService.sendToUser(assignedUserId, {
+    const result = await this.notificationsService.sendToUser(assignedUserId, {
       title: '🟠 משימה ממתינה לביצוע',
       body: `${userName}, נא התחל לבצע: ${task.title}`,
       tag: `open-${task.id}`,
@@ -73,7 +73,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
     // אם המשתמש לא מנוי — שלח התראה למנהלים
     if (result === 'not-subscribed') {
-      await this.pushService.sendToManagers({
+      await this.notificationsService.sendToManagers({
         title: '📵 משתמש לא מנוי להתראות',
         body: `${userName} לא קיבל התראה על: "${task.title}" — שקול להתקשר`,
         tag: `unreachable-${assignedUserId}-${task.id}`,
@@ -85,7 +85,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // עובד לחץ "התחל" (IN_PROGRESS) → Push למנהלים
   async emitTaskStarted(task: any) {
     const userName = task.assignedUser?.fullName || task.assignedUserName || 'עובד';
-    await this.pushService.sendToManagers({
+    await this.notificationsService.sendToManagers({
       title: '▶️ משימה החלה',
       body: `${userName} התחיל: ${task.title}`,
       tag: `started-${task.id}`,
@@ -96,7 +96,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // עובד לחץ "סיים" (DONE) → Push למנהלים
   async emitTaskCompleted(task: any) {
     const userName = task.assignedUser?.fullName || task.assignedUserName || 'עובד';
-    await this.pushService.sendToManagers({
+    await this.notificationsService.sendToManagers({
       title: '✅ משימה הושלמה',
       body: `${userName} סיים: ${task.title}`,
       tag: `done-${task.id}`,
@@ -111,7 +111,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       urgent: true,
       message: `משימה חסומה: ${task.title}`,
     });
-    this.pushService.sendToAll({
+    this.notificationsService.sendToAll({
       title: '🚨 משימה חסומה',
       body: `${task.title}${task.blockedReason ? ` — ${task.blockedReason}` : ''}`,
       tag: `blocked-${task.id}`,
@@ -122,7 +122,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   // שחרור חסימה → Push לכולם
   async emitTaskUnblocked(task: any) {
-    await this.pushService.sendToAll({
+    await this.notificationsService.sendToAll({
       title: '🔓 חסימה שוחררה',
       body: `המשימה "${task.title}" שוחררה — ניתן להמשיך`,
       tag: `unblocked-${task.id}`,
@@ -132,7 +132,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   emitGoDecision(decision: { go: boolean; versionId: string; message: string; decidedBy: string }) {
     this.server.emit('GO_DECISION', decision);
-    this.pushService.sendToAll({
+    this.notificationsService.sendToAll({
       title: decision.go ? '✅ GO — הגרסה עברה!' : '🛑 NO GO — עצור!',
       body: decision.message || (decision.go ? 'המשך לשלב הבא' : 'לא ניתן להמשיך'),
       tag: `go-${decision.versionId}`,
@@ -151,7 +151,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     };
     const pushData = STATUS_PUSH[version.status];
     if (pushData) {
-      this.pushService.sendToAll({
+      this.notificationsService.sendToAll({
         ...pushData,
         tag: `version-${version.id}-${version.status}`,
         data: { versionId: version.id, status: version.status, type: 'VERSION_UPDATED' },

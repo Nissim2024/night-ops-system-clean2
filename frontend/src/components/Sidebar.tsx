@@ -37,12 +37,10 @@ const GROUPS: Group[] = [
 ];
 
 const QA_VIEWS = [
-  { key: 'testers',    label: 'בודקים',        icon: '👥' },
-  { key: 'skills',     label: 'מטריצת סקילים',  icon: '🧠' },
-  { key: 'leaves',     label: 'חופשות',         icon: '📅' },
-  { key: 'assignment', label: 'שיבוץ משימות',   icon: '🎯' },
-  { key: 'workplan',   label: 'תוכנית עבודה',   icon: '📋' },
-  { key: 'seasons',    label: 'עונות שיא',      icon: '🏖' },
+  { key: 'testers',    label: 'בודקים',              icon: '👥' },
+  { key: 'skills',     label: 'מטריצת סקילים',        icon: '🧠' },
+  { key: 'leaves',     label: 'חופשות',               icon: '📅' },
+  { key: 'assignment', label: 'תכנון ושיבוץ',         icon: '🎯' },
 ];
 
 function versionGroup(v: any): string {
@@ -320,7 +318,7 @@ export const Sidebar: React.FC<Props> = ({
       </>)}
 
       {/* ─── QA Module nav ─── */}
-      {isQa && (
+      {isQa && canAccessQa && (
         <div style={{ padding: `${SP[3]} ${SP[3]} 0`, display: 'flex', flexDirection: 'column', gap: '2px' }}>
           <div style={{ fontSize: '11px', fontWeight: WEIGHT.bold, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em', textTransform: 'uppercase' as const, padding: `6px ${SP[2]} 4px` }}>
             ניהול QA

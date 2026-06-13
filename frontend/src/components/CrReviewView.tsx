@@ -101,11 +101,11 @@ interface SubPhaseOpt { id: string; name: string; phaseName: string; phaseOrderI
 
 // ── Inline edit/add form ──────────────────────────────────────────────────────
 const ProposalForm: React.FC<{
-  initial?: Partial<Proposal & { subPhaseId?: string }>;
+  initial?: Partial<Proposal & { subPhaseId?: string; responsibleTeamId?: string }>;
   crNumber: string;
   versionId: string;
   token: string;
-  teams: { id: string; name: string }[];
+  teams: any[];
   users: { id: string; fullName: string }[];
   subPhaseOpts: SubPhaseOpt[];
   onSaved: () => void;
@@ -119,10 +119,18 @@ const ProposalForm: React.FC<{
   const [estimatedMins, setEstimatedMins] = useState(initial?.estimatedMins?.toString() ?? '');
   const [assignedUserName, setAssignedUserName] = useState(initial?.assignedUserName ?? '');
   const [notes, setNotes]           = useState(initial?.notes ?? '');
-  const [teamId, setTeamId]         = useState(initial?.teamId ?? teams[0]?.id ?? '');
+  // responsibleTeamId: use explicit responsibleTeamId if set, otherwise submitting teamId
+  const [teamId, setTeamId]         = useState(initial?.responsibleTeamId ?? initial?.teamId ?? teams[0]?.id ?? '');
   const [saving, setSaving]         = useState(false);
   const [error, setError]           = useState('');
   const headers = { Authorization: `Bearer ${token}` };
+
+  // Members of currently selected team — falls back to full user list
+  const teamMembers: { id: string; fullName: string }[] = useMemo(() => {
+    const t = teams.find((t: any) => t.id === teamId);
+    if (!t?.members?.length) return users;
+    return (t.members as any[]).map((m: any) => m.user).filter(Boolean);
+  }, [teamId, teams, users]);
 
   // Phases 1-4 map roughly to phase orderIndex 1-4
   const filteredSubPhases = subPhaseOpts.filter(sp => sp.phaseOrderIndex === phase);
@@ -153,6 +161,7 @@ const ProposalForm: React.FC<{
         assignedUserName: assignedUserName || undefined,
         notes: notes || undefined,
         crNumber, crLabel: crNumber,
+        responsibleTeamId: teamId || undefined,
       };
       if (initial?.id) {
         await axios.patch(`${API}/task-proposals/${initial.id}`, payload, { headers });
@@ -231,26 +240,25 @@ const ProposalForm: React.FC<{
           </select>
         </div>
 
-        {/* 4. צוות | עובד אחראי */}
-        {!initial?.id && (
-          <div>
-            <label style={labelStyle}>צוות</label>
-            <select value={teamId} onChange={e => setTeamId(e.target.value)} style={inputStyle}>
-              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          </div>
-        )}
+        {/* 4. צוות אחראי | עובד אחראי */}
+        <div>
+          <label style={labelStyle}>צוות אחראי</label>
+          <select value={teamId} onChange={e => { setTeamId(e.target.value); setAssignedUserName(''); }} style={inputStyle}>
+            <option value="">-- בחר צוות --</option>
+            {teams.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
         <div>
           <label style={labelStyle}>עובד אחראי <span style={{ color: '#e74c3c' }}>*</span></label>
           <select value={assignedUserName} onChange={e => setAssignedUserName(e.target.value)}
             style={{ ...inputStyle, borderColor: !assignedUserName ? '#e74c3c' : undefined }}>
             <option value="">-- בחר עובד --</option>
-            {users.map(u => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
+            {teamMembers.map(u => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
           </select>
         </div>
 
         {/* 5. משך */}
-        <div style={{ gridColumn: initial?.id ? 'auto' : '1 / -1' }}>
+        <div style={{ gridColumn: 'auto' }}>
           <label style={labelStyle}>משך משוער (דקות) <span style={{ color: '#e74c3c' }}>*</span></label>
           <input type="number" min={1} value={estimatedMins} onChange={e => setEstimatedMins(e.target.value)}
             style={{ ...inputStyle, borderColor: !estimatedMins ? '#e74c3c' : undefined }}
@@ -869,7 +877,7 @@ const ConvertButton: React.FC<{ token: string; versionId: string; onReload: () =
 // ── Main ──────────────────────────────────────────────────────────────────────
 export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId, versionName: propVersionName }) => {
   const [data, setData]               = useState<CrEntry[]>([]);
-  const [teams, setTeams]             = useState<{ id: string; name: string }[]>([]);
+  const [teams, setTeams]             = useState<any[]>([]);
   const [users, setUsers]             = useState<{ id: string; fullName: string }[]>([]);
   const [subPhaseOpts, setSubPhaseOpts] = useState<SubPhaseOpt[]>([]);
   const [loading, setLoading]         = useState(!!propVersionId);
@@ -887,7 +895,7 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
       axios.get(`${API}/users`, { headers }),
     ]).then(([crRes, teamRes, spRes, usersRes]) => {
       setData(crRes.data);
-      setTeams((teamRes.data as any[]).filter(t => t.active).map((t: any) => ({ id: t.id, name: t.name })));
+      setTeams((teamRes.data as any[]).filter(t => t.active));
       setUsers((usersRes.data as any[]).filter((u: any) => u.active).sort((a: any, b: any) => a.fullName.localeCompare(b.fullName, 'he')));
       const opts: SubPhaseOpt[] = [];
       for (const phase of spRes.data) {

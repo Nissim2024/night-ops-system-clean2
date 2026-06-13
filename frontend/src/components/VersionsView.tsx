@@ -64,6 +64,7 @@ interface QcRelease {
   goLiveDate?: string;
   rehearsalDate?: string;
   filterDate?: string;
+  relEndDate?: string;
 }
 
 interface Props {
@@ -373,6 +374,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
           </button>
         </div>
         <div style={{ display: 'flex', gap: SP[2] }}>
+          {isManager && (
           <Button
             variant="primary"
             size="md"
@@ -385,6 +387,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
           >
             גרסה חדשה
           </Button>
+          )}
         </div>
       </div>
 
@@ -418,10 +421,17 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
               >
                 <option value="__manual__">✏️ הקלד ידנית</option>
                 {qcReleases.length > 0 && <option disabled>── גרסאות QC ──</option>}
-                {qcReleases.map(r => (
+                {[...qcReleases]
+                  .sort((a, b) => {
+                    if (a.goLiveDate && b.goLiveDate) return new Date(a.goLiveDate).getTime() - new Date(b.goLiveDate).getTime();
+                    if (a.goLiveDate) return -1;
+                    if (b.goLiveDate) return 1;
+                    return a.relName.localeCompare(b.relName, 'he');
+                  })
+                  .map(r => (
                   <option key={r.id} value={r.id}>
                     {r.relName}
-                    {r.filterDate ? ` — ${new Date(r.filterDate).toLocaleDateString('he-IL')}` : ''}
+                    {r.goLiveDate ? ` — ${new Date(r.goLiveDate).toLocaleDateString('he-IL')}` : r.relEndDate ? ` — ${new Date(r.relEndDate).toLocaleDateString('he-IL')}` : ''}
                   </option>
                 ))}
               </select>
@@ -779,7 +789,7 @@ const VColH: React.FC<{ label: string; width?: number; flexGrow?: number; center
   }}>{label}</div>
 );
 
-const VersionTaskHeader: React.FC<{ isLocked: boolean }> = ({ isLocked }) => (
+const VersionTaskHeader: React.FC<{ isLocked: boolean; isManager?: boolean }> = ({ isLocked, isManager }) => (
   <div style={{
     display: 'flex', alignItems: 'center',
     background: C.bgNested, borderBottom: `2px solid ${C.border}`,
@@ -796,7 +806,7 @@ const VersionTaskHeader: React.FC<{ isLocked: boolean }> = ({ isLocked }) => (
     <VColH label="אפליקציה" width={TV.app}      center />
     <VColH label="סביבה"    width={TV.env}      center />
     <VColH label="סטטוס"    width={TV.status}   center />
-    {!isLocked && <div style={{ width: `${TV.actions}px`, flexShrink: 0 }} />}
+    {isManager && !isLocked && <div style={{ width: `${TV.actions}px`, flexShrink: 0 }} />}
   </div>
 );
 
@@ -891,6 +901,9 @@ const VersionDetail: React.FC<{
   const [reschEditEnd, setReschEditEnd] = useState('');
   const [teamRefreshKey, setTeamRefreshKey] = useState(0);
   const [dialog, setDialog] = useState<DialogConfig | null>(null);
+  const [converting, setConverting] = useState(false);
+  const [convertResult, setConvertResult] = useState<{ created: number; skipped: { title: string; reason: string }[]; tasks: { title: string; phaseName: string; subPhaseName: string }[] } | null>(null);
+  const [lastConvertedAt, setLastConvertedAt] = useState<Date | null>(null);
   const [prepOpen, setPrepOpen] = useState(false);
   const [prepMessage, setPrepMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
@@ -1012,6 +1025,22 @@ const VersionDetail: React.FC<{
     window.addEventListener('deploycenter:proposalCreated', handler);
     return () => window.removeEventListener('deploycenter:proposalCreated', handler);
   }, [version.id, isManager]); // eslint-disable-line
+
+  const handleConvertProposals = async () => {
+    setConverting(true);
+    try {
+      const res = await axios.post(`${API}/task-proposals/version/${version.id}/convert-approved`, {}, { headers });
+      setConvertResult({ created: res.data.created ?? 0, skipped: res.data.skipped ?? [], tasks: res.data.tasks ?? [] });
+      if ((res.data.created ?? 0) > 0) setLastConvertedAt(new Date());
+      // Refresh proposals list and version data
+      axios.get(`${API}/task-proposals/version/${version.id}`, { headers })
+        .then(r => setProposals(r.data.filter((p: any) => !p.usedInTaskId)))
+        .catch(() => {});
+      onRefresh?.();
+    } catch (err: any) {
+      setConvertResult({ created: 0, skipped: [{ title: '—', reason: err?.response?.data?.message || 'שגיאה בשיבוץ' }], tasks: [] });
+    } finally { setConverting(false); }
+  };
 
   const showAlert = (title: string, message: string, variant: DialogConfig['variant'] = 'info') =>
     setDialog({ title, message, variant, onConfirm: () => setDialog(null) });
@@ -1694,17 +1723,26 @@ const VersionDetail: React.FC<{
                 </span>
               );
             })()}
-            {/* Total pending proposals badge */}
+            {/* Total pending proposals — clickable assign button */}
             {FEATURES.TEAM_LEAD_PROPOSAL && isManager && proposals.filter(p => !p.usedInTaskId).length > 0 && (
-              <span style={{
-                background: '#e67e22', color: 'white',
-                padding: '3px 12px', borderRadius: '12px',
-                fontSize: '13px', fontWeight: 'bold',
-                animation: 'pulse 2s infinite',
-                whiteSpace: 'nowrap',
-              }}>
-                💡 {proposals.filter(p => !p.usedInTaskId).length} הצעות ממתינות לשיבוץ
-              </span>
+              <button
+                onClick={handleConvertProposals}
+                disabled={converting}
+                title="שבץ הצעות מאושרות לתוכנית (הצעות שטרם אושרו יוצגו בדוח)"
+                style={{
+                  background: converting ? '#b7763a' : '#e67e22', color: 'white',
+                  padding: '4px 14px', borderRadius: '12px',
+                  fontSize: '13px', fontWeight: 'bold', border: 'none',
+                  cursor: converting ? 'not-allowed' : 'pointer',
+                  animation: converting ? 'none' : 'pulse 2s infinite',
+                  whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px',
+                }}
+              >
+                {converting ? '⏳ משבץ...' : `📥 שבץ הצעות`}
+                <span style={{ background: 'rgba(255,255,255,0.25)', borderRadius: '10px', padding: '0 7px', fontSize: '12px' }}>
+                  {proposals.filter(p => !p.usedInTaskId).length}
+                </span>
+              </button>
             )}
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1990,10 +2028,19 @@ const VersionDetail: React.FC<{
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', marginTop: '4px' }}>
               <span style={{ fontSize: '11px', color: '#94a3b8' }}>סנן:</span>
               <span onClick={() => setFilterTeam(null)} style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', background: filterTeam === null ? '#1a2332' : '#f0f0f0', color: filterTeam === null ? 'white' : '#666' }}>כולם</span>
-              {(version.status === 'CR_REVIEW'
-                ? version.submissions.filter((sub: any) => (version.involvedTeamIds ?? []).includes(sub.teamId))
-                : version.submissions
-              ).map((sub: any) => (
+              {(() => {
+                const assignedTeamIds = new Set<string>(
+                  (version.phases ?? [])
+                    .flatMap((p: any) => p.subPhases ?? [])
+                    .flatMap((sp: any) => sp.tasks ?? [])
+                    .map((t: any) => t.assignedTeamId)
+                    .filter(Boolean)
+                );
+                const base = version.status === 'CR_REVIEW'
+                  ? version.submissions.filter((sub: any) => (version.involvedTeamIds ?? []).includes(sub.teamId))
+                  : version.submissions.filter((sub: any) => assignedTeamIds.has(sub.teamId));
+                return base;
+              })().map((sub: any) => (
                 <span key={sub.id} onClick={() => setFilterTeam(filterTeam === sub.team.id ? null : sub.team.id)}
                   style={{
                     padding: '3px 10px', borderRadius: '20px', fontSize: '11px', cursor: 'pointer',
@@ -2331,7 +2378,7 @@ const VersionDetail: React.FC<{
                         </span>
                       )}
                     </h4>
-                    {!isLocked && <button onClick={() => {
+                    {isManager && !isLocked && <button onClick={() => {
                       refreshProposals();
                       setSelectedTask(null);
                       setSelectedTaskSubId(sub.id);
@@ -2348,7 +2395,7 @@ const VersionDetail: React.FC<{
                     const orderMap = new Map(sortedTasks.map((t: any, i: number) => [t.id, i + 1]));
                     const filteredTasks = sortedTasks.filter((task: any) => !filterTeam || task.assignedTeam?.id === filterTeam || task.assignedTeamId === filterTeam);
                     return (<>
-                      {filteredTasks.length > 0 && <VersionTaskHeader isLocked={isLocked} />}
+                      {filteredTasks.length > 0 && <VersionTaskHeader isLocked={isLocked} isManager={isManager} />}
                       {filteredTasks.map((task: any) => {
                         const displayOrder = orderMap.get(task.id) ?? task.orderIndex;
                         return (
@@ -2649,6 +2696,12 @@ const VersionDetail: React.FC<{
                                     {task.isCriticalForGo && <span style={{ fontSize: '10px', background: '#fff3e0', color: '#d35400', padding: '1px 4px', borderRadius: '3px', marginLeft: '3px' }}>GO</span>}
                                     {task.title}
                                   </span>
+                                  {lastConvertedAt && task.createdByTeamLead && task.createdAt &&
+                                    new Date(task.createdAt) >= lastConvertedAt && (
+                                    <span style={{ fontSize: '10px', fontWeight: WEIGHT.bold, color: '#28a745', background: 'rgba(40,167,69,0.12)', border: '1px solid rgba(40,167,69,0.3)', padding: '1px 6px', borderRadius: RADIUS.sm, flexShrink: 0, whiteSpace: 'nowrap' as any }}>
+                                      ✦ חדש
+                                    </span>
+                                  )}
                                   {task.crNumber && task.crNumber.split(',').map((cr: string) => cr.trim()).filter(Boolean).map((cr: string) => (
                                     <span key={cr} style={{ fontSize: '11px', color: C.info, background: C.infoBg, padding: '0 5px', borderRadius: RADIUS.sm, fontFamily: FONT, flexShrink: 0 }}>CR# {cr}</span>
                                   ))}
@@ -2767,26 +2820,24 @@ const VersionDetail: React.FC<{
                               </div>
 
                               {/* Actions */}
-                              {!isLocked && (
+                              {isManager && !isLocked && (
                                 <div onClick={e => e.stopPropagation()} style={{ width: `${TV.actions}px`, flexShrink: 0, padding: `0 ${SP[1]}`, display: 'flex', gap: '3px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-start' }}>
                                   <button onClick={() => duplicateTask(task.id)}
                                     style={{ padding: '3px 7px', background: C.bgNested, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer', fontSize: '11px' }} title="שכפל">⧉</button>
-                                  {isManager && (
-                                    <button
-                                      onClick={() => setDialog({
-                                        title: 'המרה לתת-שלב',
-                                        message: `להפוך את "${task.title}" לתת-שלב?\nהמשימה תימחק וייווצר תת-שלב חדש במקומה.\nהפעולה בלתי הפיכה.`,
-                                        variant: 'warning',
-                                        confirmLabel: 'המר לתת-שלב',
-                                        cancelLabel: 'ביטול',
-                                        onConfirm: async () => {
-                                          await axios.post(`${API}/versions/tasks/${task.id}/promote`, {}, { headers });
-                                          onRefresh();
-                                        },
-                                        onCancel: () => {},
-                                      })}
-                                      style={{ padding: '3px 7px', background: C.bgWaiting, color: C.statusWaiting, border: `1px solid ${C.statusWaiting}44`, borderRadius: RADIUS.sm, cursor: 'pointer', fontSize: '11px' }} title="המר לתת-שלב">▲</button>
-                                  )}
+                                  <button
+                                    onClick={() => setDialog({
+                                      title: 'המרה לתת-שלב',
+                                      message: `להפוך את "${task.title}" לתת-שלב?\nהמשימה תימחק וייווצר תת-שלב חדש במקומה.\nהפעולה בלתי הפיכה.`,
+                                      variant: 'warning',
+                                      confirmLabel: 'המר לתת-שלב',
+                                      cancelLabel: 'ביטול',
+                                      onConfirm: async () => {
+                                        await axios.post(`${API}/versions/tasks/${task.id}/promote`, {}, { headers });
+                                        onRefresh();
+                                      },
+                                      onCancel: () => {},
+                                    })}
+                                    style={{ padding: '3px 7px', background: C.bgWaiting, color: C.statusWaiting, border: `1px solid ${C.statusWaiting}44`, borderRadius: RADIUS.sm, cursor: 'pointer', fontSize: '11px' }} title="המר לתת-שלב">▲</button>
                                   <button onClick={() => {
                                     setSelectedTask(task);
                                     setSelectedTaskSubId(undefined);
@@ -3822,6 +3873,98 @@ const VersionDetail: React.FC<{
           </>
         );
       })()}
+
+      {/* ── Convert proposals result dialog ── */}
+      {convertResult && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300,
+        }} onClick={() => setConvertResult(null)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: C.bgCard, borderRadius: RADIUS.lg, padding: SP[6],
+            minWidth: '340px', maxWidth: '480px', width: '90%',
+            boxShadow: SHADOW.lg, direction: 'rtl', fontFamily: FONT,
+          }}>
+            <h3 style={{ margin: `0 0 ${SP[4]} 0`, ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+              תוצאות שיבוץ הצעות
+            </h3>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: SP[2],
+              padding: `${SP[2]} ${SP[3]}`, borderRadius: convertResult.tasks.length > 0 ? `${RADIUS.md} ${RADIUS.md} 0 0` : RADIUS.md,
+              background: 'rgba(40,167,69,0.1)', marginBottom: convertResult.tasks.length > 0 ? 0 : SP[3],
+            }}>
+              <span style={{ fontSize: '18px' }}>✅</span>
+              <span style={{ ...TEXT.sm, color: '#28a745', fontWeight: WEIGHT.semibold }}>
+                {convertResult.created > 0 ? `שובצו ${convertResult.created} משימות לתוכנית` : 'לא שובצו משימות חדשות'}
+              </span>
+            </div>
+            {convertResult.tasks.length > 0 && (
+              <div style={{
+                border: '1px solid rgba(40,167,69,0.25)', borderTop: 'none',
+                borderRadius: `0 0 ${RADIUS.md} ${RADIUS.md}`,
+                background: 'rgba(40,167,69,0.04)',
+                maxHeight: '200px', overflowY: 'auto',
+                marginBottom: SP[3],
+              }}>
+                {convertResult.tasks.map((t, i) => (
+                  <div key={i} style={{
+                    padding: `${SP[2]} ${SP[3]}`,
+                    borderBottom: i < convertResult.tasks.length - 1 ? '1px solid rgba(40,167,69,0.12)' : 'none',
+                    display: 'flex', flexDirection: 'column', gap: '2px',
+                  }}>
+                    <span style={{ ...TEXT.sm, color: C.textPrimary, fontWeight: WEIGHT.medium }}>{t.title}</span>
+                    <span style={{ ...TEXT.xs, color: C.textMuted }}>
+                      {t.phaseName}{t.subPhaseName ? ` › ${t.subPhaseName}` : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {convertResult.skipped.length > 0 && (
+              <div style={{ marginBottom: SP[4] }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: SP[2],
+                  padding: `${SP[2]} ${SP[3]}`, borderRadius: `${RADIUS.md} ${RADIUS.md} 0 0`,
+                  background: 'rgba(255,193,7,0.12)',
+                }}>
+                  <span style={{ fontSize: '16px' }}>⚠️</span>
+                  <span style={{ ...TEXT.sm, color: '#856404', fontWeight: WEIGHT.semibold }}>
+                    דולגו {convertResult.skipped.length} הצעות:
+                  </span>
+                </div>
+                <div style={{
+                  border: `1px solid rgba(255,193,7,0.3)`, borderTop: 'none',
+                  borderRadius: `0 0 ${RADIUS.md} ${RADIUS.md}`,
+                  background: 'rgba(255,193,7,0.05)',
+                  maxHeight: '180px', overflowY: 'auto',
+                }}>
+                  {convertResult.skipped.map((s, i) => (
+                    <div key={i} style={{
+                      padding: `${SP[2]} ${SP[3]}`,
+                      borderBottom: i < convertResult.skipped.length - 1 ? `1px solid rgba(255,193,7,0.2)` : 'none',
+                      display: 'flex', gap: SP[2], alignItems: 'flex-start',
+                    }}>
+                      <span style={{ ...TEXT.xs, color: C.textPrimary, fontWeight: WEIGHT.medium, flex: 1 }}>{s.title}</span>
+                      <span style={{ ...TEXT.xs, color: C.textMuted, flexShrink: 0 }}>{s.reason}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <button
+              onClick={() => setConvertResult(null)}
+              style={{
+                width: '100%', padding: `${SP[2]} 0`,
+                background: C.bgNested, border: `1px solid ${C.border}`,
+                borderRadius: RADIUS.md, color: C.textPrimary,
+                fontFamily: FONT, ...TEXT.sm, cursor: 'pointer',
+              }}
+            >
+              סגור
+            </button>
+          </div>
+        </div>
+      )}
   </div>
   );
 };

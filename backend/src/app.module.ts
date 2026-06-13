@@ -23,6 +23,9 @@ import { SystemParamsModule } from './system-params/system-params.module';
 import { FailureReasonsModule } from './failure-reasons/failure-reasons.module';
 import { QaModule } from './qa/qa.module';
 import { LeavesModule } from './leaves/leaves.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { ActivityBoardModule } from './activity-board/activity-board.module';
+import { RunbookModule } from './runbook/runbook.module';
 
 @Module({
   imports: [
@@ -36,7 +39,9 @@ import { LeavesModule } from './leaves/leaves.module';
     AuthModule, UsersModule, TasksModule, TeamsModule, VersionsModule,
     EventsModule, ImportModule, SummaryModule, PermissionsModule, QcModule, QcReleasesModule,
     VersionTemplatesModule, TaskProposalsModule, CrPlansModule, VersionCrAssignmentsModule,
-    SystemParamsModule, FailureReasonsModule, QaModule, LeavesModule,
+    SystemParamsModule, FailureReasonsModule, QaModule, LeavesModule, NotificationsModule,
+    ActivityBoardModule,
+    RunbookModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -348,7 +348,11 @@ export const TaskDetailPanel: React.FC<Props> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1], maxHeight: '180px', overflowY: 'auto' }}>
               {proposals.map((p: any) => {
                 const isSel = selectedProposal === p.id;
-                const teamName = teams.find((t: any) => t.id === p.teamId)?.name ?? '';
+                const submittingTeamName = teams.find((t: any) => t.id === p.teamId)?.name ?? '';
+                const responsibleTeamName = (p as any).responsibleTeamId
+                  ? (teams.find((t: any) => t.id === (p as any).responsibleTeamId)?.name ?? '')
+                  : '';
+                const teamName = responsibleTeamName || submittingTeamName;
                 return (
                   <div key={p.id} onClick={() => isSel ? setProposal(null) : (() => {
                     setProposal(p.id);
@@ -358,14 +362,18 @@ export const TaskDetailPanel: React.FC<Props> = ({
                     setDur(p.estimatedMins ? String(p.estimatedMins) : '');
                     setNotes(p.notes ?? '');
                     if (p.assignedUserName) setAssignee(p.assignedUserName);
-                    if (p.teamId) setTeamId(p.teamId);
+                    // use responsibleTeamId if set (team lead designated a different team), else submitting teamId
+                    setTeamId((p as any).responsibleTeamId || p.teamId || '');
                   })()} style={{ padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, cursor: 'pointer', background: isSel ? C.success : C.bgElevated, border: `1px solid ${isSel ? C.success : C.border}`, transition: EASE.fast }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: '3px' }}>
                       {p.crNumber && <span style={{ fontSize: '11px', background: C.infoBg, color: C.info, padding: '1px 7px', borderRadius: RADIUS.sm, fontWeight: WEIGHT.semibold }}>{p.crNumber}</span>}
                       <span style={{ fontSize: '13px', fontWeight: WEIGHT.semibold, color: isSel ? 'white' : C.textPrimary, flex: 1 }}>{p.title}</span>
                     </div>
                     <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
-                      {teamName && <span style={{ fontSize: '11px', color: isSel ? 'rgba(255,255,255,0.8)' : C.brand }}>{teamName}</span>}
+                      {submittingTeamName && <span style={{ fontSize: '11px', color: isSel ? 'rgba(255,255,255,0.8)' : C.textMuted }}>מגיש: {submittingTeamName}</span>}
+                      {responsibleTeamName && responsibleTeamName !== submittingTeamName && (
+                        <span style={{ fontSize: '11px', color: isSel ? 'rgba(255,255,255,0.9)' : C.brand, fontWeight: WEIGHT.semibold }}>אחראי: {responsibleTeamName}</span>
+                      )}
                       {p.app && <span style={{ fontSize: '11px', color: isSel ? 'rgba(255,255,255,0.7)' : C.textMuted }}>{p.app}</span>}
                       {p.estimatedMins && <span style={{ fontSize: '11px', color: isSel ? 'rgba(255,255,255,0.7)' : C.warning }}>⏱ {p.estimatedMins} דק'</span>}
                     </div>
