@@ -27,6 +27,19 @@ const HOLIDAY_NAME_MAP: Record<string, string> = {
   'Yom Yerushalayim':   'יום ירושלים',
 };
 
+// Umbrella seasons: multiple holidays grouped under one season name
+const HOLIDAY_GROUP_MAP: Record<string, string> = {
+  'ראש השנה':   'חגי תשרי',
+  'יום כיפור':  'חגי תשרי',
+  'סוכות':      'חגי תשרי',
+  'שמיני עצרת': 'חגי תשרי',
+  'שמחת תורה':  'חגי תשרי',
+  'פורים':      'פורים',
+  'שושן פורים': 'פורים',
+  'פסח':        'פסח',
+};
+// Holidays not in HOLIDAY_GROUP_MAP each become their own season.
+
 function normalizeHolidayTitle(title: string): string | null {
   let t = title.replace(/\s+[IVX]+\s*$/, '').trim();
   if (t.startsWith('Erev ')) t = t.slice(5);
@@ -58,7 +71,7 @@ export class LeavesService {
 
   async getSeasons() {
     return prisma.season.findMany({
-      orderBy: { sortOrder: 'asc' },
+      orderBy: { sortOrder: 'desc' },
       include: {
         dates: { orderBy: { orderIndex: 'asc' } },
       },
@@ -98,15 +111,17 @@ export class LeavesService {
       // non-fatal — continue with fixed holidays only
     }
 
-    // ── 2. Group Hebcal items by normalized name ───────────────────────────────
+    // ── 2. Group Hebcal items by umbrella season name ─────────────────────────
     const groups = new Map<string, { date: Date; label: string }[]>();
 
     for (const item of hebcalItems) {
       if (!['holiday', 'minor'].includes(item.category)) continue;
       const name = normalizeHolidayTitle(item.title);
       if (!name) continue;
-      if (!groups.has(name)) groups.set(name, []);
-      groups.get(name)!.push({ date: new Date(item.date), label: item.hebrew || item.title });
+      const groupName = HOLIDAY_GROUP_MAP[name] ?? name;
+      if (!groups.has(groupName)) groups.set(groupName, []);
+      // Use the specific holiday name as the date label
+      groups.get(groupName)!.push({ date: new Date(item.date), label: name });
     }
 
     // ── 3. Fixed non-Jewish holidays ───────────────────────────────────────────
@@ -118,6 +133,12 @@ export class LeavesService {
       if (!groups.has(h.name)) groups.set(h.name, []);
       groups.get(h.name)!.push({ date: new Date(h.date), label: h.label });
     }
+
+    // ── 3b. חופשת קייץ (יולי–אוגוסט) ─────────────────────────────────────────
+    groups.set('חופשת קייץ', [
+      { date: new Date(`${year}-07-01`), label: 'יולי' },
+      { date: new Date(`${year}-08-31`), label: 'אוגוסט' },
+    ]);
 
     // ── 4. Upsert seasons ─────────────────────────────────────────────────────
     let created = 0, skipped = 0;
@@ -136,7 +157,7 @@ export class LeavesService {
       if (existing) { skipped++; continue; }
 
       const season = await prisma.season.create({
-        data: { name: seasonName, dateRange, isActive: false, sortOrder: first.getTime() },
+        data: { name: seasonName, dateRange, isActive: false, sortOrder: Math.floor(first.getTime() / 86400000) },
       });
 
       for (const [i, d] of dates.entries()) {

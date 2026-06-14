@@ -197,41 +197,94 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
 
         {loading ? (
           <div style={{ color: C.textMuted, ...TEXT.sm, textAlign: 'center', padding: SP[5] }}>טוען...</div>
-        ) : seasons.map(s => {
-          const isSel = selectedId === s.id;
-          const firstD = s.dates?.[0]?.date;
-          const isPast = firstD && new Date(firstD) < new Date();
-          const statusLabel = s.isActive ? 'חופשה פעילה' : isPast ? 'הסתיימה' : 'עתידית';
-          const statusColor = s.isActive ? C.info : C.textMuted;
-          const statusBg    = s.isActive ? C.infoBg : 'rgba(158,158,158,0.10)';
+        ) : (() => {
+          const now = new Date();
+
+          const getSeasonStatus = (s: Season): 'ongoing' | 'open' | 'future' | 'past' => {
+            const first = s.dates?.[0]?.date ? new Date(s.dates[0].date) : null;
+            const last  = s.dates?.length    ? new Date(s.dates[s.dates.length - 1].date) : null;
+            if (last && last < now)                   return 'past';
+            if (first && first <= now && last && last >= now) return 'ongoing';
+            if (s.isActive)                           return 'open';   // registration open, holiday future
+            return 'future';
+          };
+
+          const isPastSeason = (s: Season) => getSeasonStatus(s) === 'past';
+
+          // Sort closest first by first date (ascending), past sorted newest-first
+          const byClosest = (a: Season, b: Season) => {
+            const da = a.dates?.[0]?.date ? new Date(a.dates[0].date).getTime() : 0;
+            const db = b.dates?.[0]?.date ? new Date(b.dates[0].date).getTime() : 0;
+            return da - db;
+          };
+          const byNewest = (a: Season, b: Season) => {
+            const da = a.dates?.[0]?.date ? new Date(a.dates[0].date).getTime() : 0;
+            const db = b.dates?.[0]?.date ? new Date(b.dates[0].date).getTime() : 0;
+            return db - da;
+          };
+
+          const upcoming = seasons.filter(s => !isPastSeason(s)).sort(byClosest);
+          const past     = seasons.filter(s => isPastSeason(s)).sort(byNewest);
+
+          const renderCard = (s: Season) => {
+            const isSel   = selectedId === s.id;
+            const status  = getSeasonStatus(s);
+            const isP     = status === 'past';
+
+            const STATUS_META = {
+              ongoing: { label: 'בתקופת החג',     color: C.success,     bg: C.successBg                  },
+              open:    { label: 'פתוחה לרישום',   color: C.info,        bg: C.infoBg                     },
+              future:  { label: 'עתידית',          color: C.warning,     bg: C.warningBg                  },
+              past:    { label: 'הסתיימה',         color: C.textDisabled, bg: 'rgba(158,158,158,0.08)'    },
+            };
+            const { label: statusLabel, color: statusColor, bg: statusBg } = STATUS_META[status];
+
+            return (
+              <div
+                key={s.id}
+                onClick={() => setSelectedId(s.id)}
+                style={{
+                  background: isSel ? C.bgActive : C.bgCard,
+                  border: `1px solid ${isSel ? C.borderFocus : C.border}`,
+                  borderRadius: RADIUS['2xl'], padding: SP[4],
+                  cursor: 'pointer', transition: EASE.fast,
+                  boxShadow: isSel ? SHADOW.sm : 'none',
+                  opacity: isP ? 0.7 : 1,
+                }}
+                onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = C.bgHover; }}
+                onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = isP ? C.bgCard : C.bgCard; }}
+              >
+                <div style={{ ...TEXT.base, fontWeight: WEIGHT.semibold, marginBottom: '4px' }}>{s.name}</div>
+                <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: SP[2] }}>{s.dateRange}</div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: statusColor, background: statusBg, padding: '2px 8px', borderRadius: RADIUS.full }}>
+                    {statusLabel}
+                  </span>
+                  {isSel && requests.length > 0 && (
+                    <span style={{ ...TEXT.xs, color: C.textMuted }}>{requests.length} בקשות</span>
+                  )}
+                </div>
+              </div>
+            );
+          };
 
           return (
-            <div
-              key={s.id}
-              onClick={() => setSelectedId(s.id)}
-              style={{
-                background: isSel ? C.bgActive : C.bgCard,
-                border: `1px solid ${isSel ? C.borderFocus : C.border}`,
-                borderRadius: RADIUS['2xl'], padding: SP[4],
-                cursor: 'pointer', transition: EASE.fast,
-                boxShadow: isSel ? SHADOW.sm : 'none',
-              }}
-              onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = C.bgHover; }}
-              onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = C.bgCard; }}
-            >
-              <div style={{ ...TEXT.base, fontWeight: WEIGHT.semibold, marginBottom: '4px' }}>{s.name}</div>
-              <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: SP[2] }}>{s.dateRange}</div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: statusColor, background: statusBg, padding: '2px 8px', borderRadius: RADIUS.full }}>
-                  {statusLabel}
-                </span>
-                {isSel && requests.length > 0 && (
-                  <span style={{ ...TEXT.xs, color: C.textMuted }}>{requests.length} בקשות</span>
-                )}
-              </div>
-            </div>
+            <>
+              {upcoming.map(renderCard)}
+
+              {past.length > 0 && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], margin: `${SP[2]} 0 ${SP[1]}` }}>
+                    <div style={{ flex: 1, height: '1px', background: C.border }} />
+                    <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap' }}>חגים שהסתיימו</span>
+                    <div style={{ flex: 1, height: '1px', background: C.border }} />
+                  </div>
+                  {past.map(renderCard)}
+                </>
+              )}
+            </>
           );
-        })}
+        })()}
       </div>
 
       {/* ── Detail panel ── */}

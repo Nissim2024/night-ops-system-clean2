@@ -582,7 +582,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           activeQaView={activeQaView}
           onQaViewChange={setActiveQaView}
           canAccessQa={isQaTeamMember || payload.role === 'ADMIN'}
-          showLeaves={isQaTeamMember}
+          showLeaves={false}
           leavesActive={activeModule === 'qa' && activeQaView === 'leaves'}
           onLeavesClick={() => { setActiveModule('qa'); setActiveQaView('leaves'); }}
         />

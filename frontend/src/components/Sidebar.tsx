@@ -357,8 +357,8 @@ export const Sidebar: React.FC<Props> = ({
         </div>
       )}
 
-      {/* ─── חופשות (all employees, non-admin) ─── */}
-      {showLeaves && (
+      {/* ─── חופשות (standalone — only when not in QA module which already has it) ─── */}
+      {showLeaves && !isQa && (
         <div style={{ padding: `${SP[2]} ${SP[3]} 0` }}>
           <button
             onClick={onLeavesClick}
