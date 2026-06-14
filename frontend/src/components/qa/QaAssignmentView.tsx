@@ -202,6 +202,8 @@ export default function QaAssignmentView({ token }: Props) {
   const [confirmDialog, setConfirmDialog]     = useState<DialogConfig | null>(null);
   const [sortCol, setSortCol]                 = useState<'cr' | 'label' | 'effort' | 'tester' | 'score' | 'order'>('cr');
   const [sortDir, setSortDir]                 = useState<'asc' | 'desc'>('asc');
+  const [hiddenCrs, setHiddenCrs]             = useState<Set<string>>(new Set());
+  const [showHidden, setShowHidden]           = useState(false);
   const pickerRef      = useRef<HTMLDivElement>(null);
   const cyclesPickerRef = useRef<HTMLDivElement>(null);
 
@@ -249,6 +251,31 @@ export default function QaAssignmentView({ token }: Props) {
   }, [token]);
 
   useEffect(() => { loadVersion(selectedVId); }, [selectedVId, loadVersion]);
+
+  // ── Hidden CRs — localStorage per version ─────────────────────────────────
+  useEffect(() => {
+    if (!selectedVId) { setHiddenCrs(new Set()); return; }
+    const stored = localStorage.getItem(`qa-hidden-crs-${selectedVId}`);
+    setHiddenCrs(stored ? new Set(JSON.parse(stored)) : new Set());
+    setShowHidden(false);
+  }, [selectedVId]);
+
+  const hideCr = (crNumber: string) => {
+    setHiddenCrs(prev => {
+      const next = new Set(prev).add(crNumber);
+      localStorage.setItem(`qa-hidden-crs-${selectedVId}`, JSON.stringify(Array.from(next)));
+      return next;
+    });
+  };
+
+  const restoreCr = (crNumber: string) => {
+    setHiddenCrs(prev => {
+      const next = new Set(prev);
+      next.delete(crNumber);
+      localStorage.setItem(`qa-hidden-crs-${selectedVId}`, JSON.stringify(Array.from(next)));
+      return next;
+    });
+  };
 
   // ── Close pickers on outside click / scroll ────────────────────────────────
 
@@ -527,8 +554,9 @@ CRים אלה לא ייכללו בתוכנית העבודה.
   const cycleDays     = countWorkDays(cycle1Start, testingEnd);
   const overloadCount = Array.from(testerLoad.values()).filter(l => cycleDays > 0 && l.totalDays > cycleDays).length;
 
-  const assigned   = crs.filter(cr => assignmentMap.has(cr.crNumber)).length;
-  const unassigned = crs.length - assigned;
+  const visibleCrs = crs.filter(cr => !hiddenCrs.has(cr.crNumber));
+  const assigned   = visibleCrs.filter(cr => assignmentMap.has(cr.crNumber)).length;
+  const unassigned = visibleCrs.length - assigned;
   const handleSort = (col: typeof sortCol) => {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortCol(col); setSortDir('asc'); }
@@ -536,9 +564,10 @@ CRים אלה לא ייכללו בתוכנית העבודה.
 
   const filtered = crs
     .filter(cr =>
-      !search ||
-      cr.crNumber.includes(search) ||
-      (cr.crLabel || '').toLowerCase().includes(search.toLowerCase()),
+      !hiddenCrs.has(cr.crNumber) &&
+      (!search ||
+        cr.crNumber.includes(search) ||
+        (cr.crLabel || '').toLowerCase().includes(search.toLowerCase())),
     )
     .sort((a, b) => {
       const asg_a = assignmentMap.get(a.crNumber);
@@ -710,9 +739,17 @@ CRים אלה לא ייכללו בתוכנית העבודה.
           {/* Stat bar + search */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[3], gap: SP[3] }}>
             <div style={{ display: 'flex', gap: SP[2] }}>
-              <StatPill value={crs.length}   label="CRים"       color={BLUE}      bg={BLUE_BG}     />
+              <StatPill value={visibleCrs.length} label="CRים"    color={BLUE}      bg={BLUE_BG}     />
               <StatPill value={assigned}     label="משובצים"    color={C.success} bg={C.successBg}  />
               {unassigned > 0 && <StatPill value={unassigned} label="ממתינים" color={C.warning} bg={C.warningBg} />}
+              {hiddenCrs.size > 0 && (
+                <button
+                  onClick={() => setShowHidden(v => !v)}
+                  style={{ padding: `2px ${SP[3]}`, background: showHidden ? '#f3e8ff' : C.bgNested, color: showHidden ? '#7c3aed' : C.textMuted, border: `1px solid ${showHidden ? '#c4b5fd' : C.border}`, borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT }}
+                >
+                  🙈 מוסתרות ({hiddenCrs.size})
+                </button>
+              )}
             </div>
             <input
               type="text" placeholder="חיפוש CR / תיאור..."
@@ -975,6 +1012,13 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                               onClick={e => { setOpenCyclesPicker(null); openPickerFor(cr.crNumber, e.currentTarget); }}
                               style={{ padding: `5px ${SP[3]}`, background: asg ? C.bgNested : BLUE, color: asg ? C.textSecondary : '#fff', border: `1px solid ${asg ? C.border : BLUE}`, borderRadius: RADIUS.md, ...TEXT.xs, fontWeight: WEIGHT.semibold, cursor: isSaving ? 'not-allowed' : 'pointer', fontFamily: FONT, transition: EASE.fast, opacity: isSaving ? 0.5 : 1 }}
                             >{isSaving ? '...' : asg ? 'החלף' : 'שבץ'}</button>
+                            <button
+                              title="הסתר CR מהרשימה (ניתן לשחזור)"
+                              onClick={() => hideCr(cr.crNumber)}
+                              style={{ padding: '5px 7px', background: 'transparent', color: C.textDisabled, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.xs, cursor: 'pointer', fontFamily: FONT, lineHeight: 1 }}
+                              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#dc2626'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#dc2626'; }}
+                              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.textDisabled; (e.currentTarget as HTMLButtonElement).style.borderColor = C.border; }}
+                            >🙈</button>
                           </div>
                         </td>
                       </tr>
@@ -984,6 +1028,28 @@ CRים אלה לא ייכללו בתוכנית העבודה.
               </table>
             </div>
           </div>
+
+          {/* Hidden CRs section */}
+          {showHidden && hiddenCrs.size > 0 && (
+            <div style={{ marginTop: SP[3], background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: RADIUS.lg, padding: SP[3] }}>
+              <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: '#7c3aed', marginBottom: SP[2] }}>
+                🙈 CRים מוסתרים — {hiddenCrs.size} משימות
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[2] }}>
+                {crs.filter(cr => hiddenCrs.has(cr.crNumber)).map(cr => (
+                  <div key={cr.crNumber} style={{ display: 'flex', alignItems: 'center', gap: SP[1], background: '#fff', border: '1px solid #e9d5ff', borderRadius: RADIUS.md, padding: `4px ${SP[2]}` }}>
+                    <span style={{ background: BLUE_BG, color: BLUE, padding: `1px ${SP[1]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold }}>{cr.crNumber}</span>
+                    {cr.crLabel && <span style={{ ...TEXT.xs, color: C.textSecondary, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cr.crLabel.replace(/^\d+\s*-\s*/, '')}</span>}
+                    <button
+                      onClick={() => restoreCr(cr.crNumber)}
+                      title="שחזר לרשימה"
+                      style={{ padding: '2px 6px', background: 'transparent', color: '#7c3aed', border: '1px solid #c4b5fd', borderRadius: RADIUS.sm, ...TEXT.xs, cursor: 'pointer', fontFamily: FONT, fontWeight: WEIGHT.semibold }}
+                    >↩ שחזר</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Score picker — fixed-position so it's never clipped by overflow containers */}
           {openPicker && (() => {
@@ -1018,12 +1084,12 @@ CRים אלה לא ייכללו בתוכנית העבודה.
           {/* Progress bar */}
           <div style={{ marginTop: SP[3], padding: SP[3], background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, display: 'flex', alignItems: 'center', gap: SP[3] }}>
             <div style={{ flex: 1, height: 6, background: C.bgHover, borderRadius: RADIUS.full, overflow: 'hidden' }}>
-              <div style={{ height: '100%', background: crs.length === assigned ? C.success : BLUE, width: `${crs.length > 0 ? Math.round((assigned / crs.length) * 100) : 0}%`, transition: 'width 0.4s ease', borderRadius: RADIUS.full }} />
+              <div style={{ height: '100%', background: visibleCrs.length === assigned ? C.success : BLUE, width: `${visibleCrs.length > 0 ? Math.round((assigned / visibleCrs.length) * 100) : 0}%`, transition: 'width 0.4s ease', borderRadius: RADIUS.full }} />
             </div>
             <div style={{ ...TEXT.sm, color: C.textMuted, whiteSpace: 'nowrap' }}>
-              {assigned} / {crs.length} משובצים{crs.length > 0 && ` (${Math.round((assigned / crs.length) * 100)}%)`}
+              {assigned} / {visibleCrs.length} משובצים{visibleCrs.length > 0 && ` (${Math.round((assigned / visibleCrs.length) * 100)}%)`}
             </div>
-            {crs.length > 0 && assigned === crs.length && (
+            {visibleCrs.length > 0 && assigned === visibleCrs.length && (
               <span style={{ background: C.successBg, color: C.success, padding: `2px ${SP[2]}`, borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.semibold }}>✓ כל ה-CRים משובצים!</span>
             )}
           </div>
