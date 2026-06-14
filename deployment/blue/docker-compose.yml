@@ -1,0 +1,40 @@
+services:
+
+  backend-blue:
+    image: nightops-backend:${APP_VERSION:-latest}-blue
+    container_name: nightops-backend-blue
+    restart: unless-stopped
+    env_file: .env.blue
+    environment:
+      PORT: "3010"
+      NODE_ENV: production
+      SLOT: blue
+    ports:
+      - "127.0.0.1:3010:3010"
+    networks:
+      - nightops-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3010/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  frontend-blue:
+    image: nightops-frontend:${APP_VERSION:-latest}
+    container_name: nightops-frontend-blue
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3011:80"
+    networks:
+      - nightops-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  nightops-net:
+    external: true
+    name: nightops-net

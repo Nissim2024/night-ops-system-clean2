@@ -26,6 +26,7 @@ import { LeavesModule } from './leaves/leaves.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ActivityBoardModule } from './activity-board/activity-board.module';
 import { RunbookModule } from './runbook/runbook.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { RunbookModule } from './runbook/runbook.module';
     SystemParamsModule, FailureReasonsModule, QaModule, LeavesModule, NotificationsModule,
     ActivityBoardModule,
     RunbookModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

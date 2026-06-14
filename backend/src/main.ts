@@ -37,11 +37,16 @@ async function bootstrap() {
     transform: true,
   }));
 
+  const extraOrigins = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
+    : [];
   app.enableCors({
     origin: [
       'http://localhost:3002', // TEST frontend
       'http://localhost:3003', // DEV frontend
-      'http://localhost:3011', // PROD frontend
+      'http://localhost:3011', // PROD Blue frontend
+      'http://localhost:3013', // PROD Green frontend
+      ...extraOrigins,
     ],
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
