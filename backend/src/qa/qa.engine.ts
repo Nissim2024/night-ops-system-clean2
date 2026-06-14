@@ -1,10 +1,19 @@
 /**
- * QA Scoring & Assignment Engine
+ * QA Scoring & Assignment Engine — v2
  *
- * Weights:
- *   50% — Load Balancing   (fewer assigned hours = higher score)
- *   35% — Skill Match      (exact / +1 level = 100, over-qualified ≥+2 = 70)
- *   15% — Continuity       (tested same app in last 3 months = 100, else 0)
+ * Weights (dynamic by risk level):
+ *
+ *   Risk LOW      → 60% Load  | 25% Skill | 15% Continuity
+ *   Risk MEDIUM   → 50% Load  | 35% Skill | 15% Continuity  (default)
+ *   Risk HIGH     → 30% Load  | 55% Skill | 15% Continuity
+ *   Risk CRITICAL → 30% Load  | 55% Skill | 15% Continuity
+ *
+ * Improvements over v1:
+ *   ✔ Risk-aware dynamic weights
+ *   ✔ Gradual continuity decay (not binary 100/0)
+ *   ✔ Capacity-aware load (vs. actual testing window, not just relative)
+ *   ✔ Parallel-version load (sum across all overlapping versions)
+ *   ✔ Over-qualified penalty waived for HIGH/CRITICAL CRs
  */
 
 import { PrismaClient } from '@prisma/client';
@@ -15,20 +24,22 @@ const prisma = new PrismaClient();
 
 export interface ScoreBreakdown {
   load: {
-    weightedScore: number;   // 0–50
-    rawScore:      number;   // 0–100
-    currentHours:  number;   // minutes already assigned this version
+    weightedScore: number;
+    rawScore:      number;
+    currentHours:  number;   // total days across all overlapping versions
+    windowDays:    number;   // testing window length in days
   };
   skill: {
-    weightedScore: number;   // 0–35
-    rawScore:      number;   // 0–100
+    weightedScore: number;
+    rawScore:      number;
     level:         number | null;
     requiredLevel: number;
   };
   continuity: {
-    weightedScore: number;   // 0–15
-    rawScore:      number;   // 0–100
+    weightedScore: number;
+    rawScore:      number;
     hasHistory:    boolean;
+    lastAssignedDaysAgo: number | null;
   };
 }
 
@@ -36,64 +47,74 @@ export interface ScoredTester {
   userId:     string;
   fullName:   string;
   email:      string;
-  totalScore: number;   // 0–100, rounded integer
+  totalScore: number;
   breakdown:  ScoreBreakdown;
 }
 
 export interface ScoringResult {
-  status:           'OK' | 'MANUAL_INTERVENTION';
-  crNumber:         string;
-  crLabel:          string | null;
-  application:      string | null;
+  status:            'OK' | 'MANUAL_INTERVENTION';
+  crNumber:          string;
+  crLabel:           string | null;
+  application:       string | null;
   requiredSkillName: string | null;
   requiredMinLevel:  number;
   qaEffortDays:      number;
-  recommendations:  ScoredTester[];   // top-3, empty on MANUAL_INTERVENTION
-  filteredByLeave:  string[];         // tester full names
-  filteredBySkill:  string[];         // tester full names
-  blockReasons:     string[];         // human-readable, shown to manager
+  recommendations:   ScoredTester[];
+  filteredByLeave:   string[];
+  filteredBySkill:   string[];
+  blockReasons:      string[];
+}
+
+// ── Risk-aware weights ────────────────────────────────────────────────────────
+
+function getWeights(riskLevel: string | null): { load: number; skill: number; continuity: number } {
+  switch ((riskLevel ?? '').toUpperCase()) {
+    case 'CRITICAL':
+    case 'HIGH':   return { load: 0.30, skill: 0.55, continuity: 0.15 };
+    case 'LOW':    return { load: 0.60, skill: 0.25, continuity: 0.15 };
+    default:       return { load: 0.50, skill: 0.35, continuity: 0.15 }; // MEDIUM / unknown
+  }
+}
+
+// ── Gradual continuity score (time-decay) ─────────────────────────────────────
+// Returns 0–100 based on how recently the tester worked on this application.
+
+function continuitScore(lastAssignedDate: Date | null): number {
+  if (!lastAssignedDate) return 0;
+  const daysAgo = (Date.now() - lastAssignedDate.getTime()) / (1000 * 60 * 60 * 24);
+  if (daysAgo <=  30) return 100;
+  if (daysAgo <=  60) return  75;
+  if (daysAgo <=  90) return  50;
+  if (daysAgo <= 180) return  25;
+  return 0;
 }
 
 // ── Skill name → application alias map ───────────────────────────────────────
-// Maps values that appear in VersionCrAssignment.application to the
-// canonical Skill.name stored in the DB (Applications category).
 
 const APP_ALIASES: Record<string, string> = {
-  WIZ:          'Wizard',
-  WIZARD:       'Wizard',
-  wizard:       'Wizard',
-  wiz:          'Wizard',
-  crm:          'CRM',
-  CRM:          'CRM',
-  zoo:          'ZOO',
-  ZOO:          'ZOO',
-  prov:         'Provisioning',
-  PROV:         'Provisioning',
-  provisioning: 'Provisioning',
-  top:          'TOP',
-  TOP:          'TOP',
-  osb:          'OSB',
-  OSB:          'OSB',
-  web:          'WEB',
-  WEB:          'WEB',
-  dwh:          'DWH',
-  DWH:          'DWH',
-  remedy:       'Remedy',
-  REMEDY:       'Remedy',
-  ivr:          'IVR',
-  IVR:          'IVR',
-  erp:          'ERP',
-  ERP:          'ERP',
+  WIZ: 'Wizard', WIZARD: 'Wizard', wizard: 'Wizard', wiz: 'Wizard',
+  crm: 'CRM',    CRM:    'CRM',
+  zoo: 'ZOO',    ZOO:    'ZOO',
+  prov: 'Provisioning', PROV: 'Provisioning', provisioning: 'Provisioning',
+  top: 'TOP',    TOP: 'TOP',
+  osb: 'OSB',    OSB: 'OSB',
+  web: 'WEB',    WEB: 'WEB',
+  dwh: 'DWH',    DWH: 'DWH',
+  remedy: 'Remedy', REMEDY: 'Remedy',
+  ivr: 'IVR',    IVR: 'IVR',
+  erp: 'ERP',    ERP: 'ERP',
 };
 
 function resolveSkillName(application: string | null): string | null {
   if (!application || application === 'null') return null;
-  // direct alias lookup
   if (APP_ALIASES[application]) return APP_ALIASES[application];
-  // case-insensitive partial match against known skill names
   const lower = application.toLowerCase();
   const known = ['Wizard','CRM','ZOO','Provisioning','TOP','OSB','WEB','DWH','Remedy','IVR','ERP'];
-  return known.find(s => s.toLowerCase() === lower || s.toLowerCase().includes(lower) || lower.includes(s.toLowerCase())) ?? null;
+  return known.find(s =>
+    s.toLowerCase() === lower ||
+    s.toLowerCase().includes(lower) ||
+    lower.includes(s.toLowerCase()),
+  ) ?? null;
 }
 
 // ── Load tester roster ────────────────────────────────────────────────────────
@@ -141,9 +162,14 @@ export async function scoreForCr(crNumber: string, versionId: string): Promise<S
 
   const requiredSkillName = resolveSkillName(vcaRow.application);
   const requiredMinLevel  = vcaRow.requiredSkillMinLevel ?? 1;
-  const qaEffortDays   = vcaRow.qaEffort ?? 0;
+  const qaEffortDays      = vcaRow.qaEffort ?? 0;
 
-  // ── 2. Load version dates ─────────────────────────────────────────────────
+  // riskLevel lives in CrPlan, not VersionCrAssignment
+  const crPlan   = await prisma.crPlan.findFirst({ where: { versionId, crNumber }, select: { riskLevel: true } });
+  const riskLevel = crPlan?.riskLevel ?? null;
+  const weights   = getWeights(riskLevel);
+
+  // ── 2. Load version dates + testing window ────────────────────────────────
 
   const version = await prisma.version.findUnique({
     where: { id: versionId },
@@ -152,35 +178,70 @@ export async function scoreForCr(crNumber: string, versionId: string): Promise<S
   const versionStart = version?.plannedStart ?? null;
   const versionEnd   = version?.plannedEnd   ?? null;
 
+  // Testing window in days (used for capacity-aware load)
+  let windowDays = 0;
+  if (versionStart && versionEnd) {
+    windowDays = Math.max(
+      1,
+      Math.round((versionEnd.getTime() - versionStart.getTime()) / (1000 * 60 * 60 * 24)),
+    );
+  }
+
   // ── 3. Load all active testers ────────────────────────────────────────────
 
   const allTesters = await getActiveTesters();
 
-  // ── 4. Load existing assignments for this version (for load balancing) ────
+  // ── 4. Load across ALL overlapping versions (parallel-version awareness) ──
+  // Sum qaEffort for each tester across any version that overlaps with this one.
 
-  const existingAssignments = await prisma.qaAssignment.findMany({
-    where: { versionId },
+  let parallelVersionIds: string[] = [versionId];
+
+  if (versionStart && versionEnd) {
+    const overlapping = await prisma.version.findMany({
+      where: {
+        id:           { not: versionId },
+        plannedStart: { lte: versionEnd   },
+        plannedEnd:   { gte: versionStart },
+      },
+      select: { id: true },
+    });
+    parallelVersionIds = [versionId, ...overlapping.map(v => v.id)];
+  }
+
+  const allAssignments = await prisma.qaAssignment.findMany({
+    where: { versionId: { in: parallelVersionIds } },
     select: { userId: true, qaEffort: true },
   });
-  const loadMap = new Map<string, number>(); // userId → total days (qaEffort in DAYS)
-  existingAssignments.forEach(a => {
+
+  const loadMap = new Map<string, number>(); // userId → total days across overlapping versions
+  allAssignments.forEach(a => {
     loadMap.set(a.userId, (loadMap.get(a.userId) ?? 0) + (a.qaEffort ?? 0));
   });
 
-  // ── 5. Load historical assignments for continuity (last 3 months) ─────────
+  // ── 5. Gradual continuity — most recent assignment date per tester ─────────
 
   const threeMonthsAgo = new Date();
-  threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+  threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 6); // look back 6 months for decay
 
   const history = await prisma.qaAssignment.findMany({
     where: {
-      versionId: { not: versionId },
-      createdAt: { gte: threeMonthsAgo },
-      ...(requiredSkillName ? { application: { contains: requiredSkillName, mode: 'insensitive' } } : {}),
+      versionId:  { not: versionId },
+      createdAt:  { gte: threeMonthsAgo },
+      ...(requiredSkillName
+        ? { application: { contains: requiredSkillName, mode: 'insensitive' } }
+        : {}),
     },
-    select: { userId: true, application: true },
+    select: { userId: true, createdAt: true },
+    orderBy: { createdAt: 'desc' },
   });
-  const historySet = new Set<string>(history.map(h => h.userId)); // testers with recent history on this app
+
+  // Keep most recent assignment per tester
+  const lastAssignedMap = new Map<string, Date>();
+  history.forEach(h => {
+    if (!lastAssignedMap.has(h.userId)) {
+      lastAssignedMap.set(h.userId, h.createdAt);
+    }
+  });
 
   // ── 6. Hard constraint: leaves ────────────────────────────────────────────
 
@@ -198,8 +259,7 @@ export async function scoreForCr(crNumber: string, versionId: string): Promise<S
       select: { userId: true },
     });
     const onLeaveIds = new Set(leaves.map(l => l.userId));
-    const blocked = testers.filter(t => onLeaveIds.has(t.userId));
-    filteredByLeave.push(...blocked.map(t => t.fullName));
+    filteredByLeave.push(...testers.filter(t => onLeaveIds.has(t.userId)).map(t => t.fullName));
     testers = testers.filter(t => !onLeaveIds.has(t.userId));
   }
 
@@ -229,17 +289,15 @@ export async function scoreForCr(crNumber: string, versionId: string): Promise<S
     const blockReasons: string[] = [];
     if (filteredByLeave.length > 0) {
       blockReasons.push(
-        `${filteredByLeave.length} בודק${filteredByLeave.length > 1 ? 'ים' : ''} מסוננ${filteredByLeave.length > 1 ? 'ים' : ''} בשל חופשה מאושרת בתאריכי הגרסה: ${filteredByLeave.join(', ')}`,
+        `${filteredByLeave.length} בודק${filteredByLeave.length > 1 ? 'ים' : ''} מסוננ${filteredByLeave.length > 1 ? 'ים' : ''} בשל חופשה מאושרת: ${filteredByLeave.join(', ')}`,
       );
     }
     if (filteredBySkill.length > 0) {
       blockReasons.push(
-        `${filteredBySkill.length} בודק${filteredBySkill.length > 1 ? 'ים' : ''} מסוננ${filteredBySkill.length > 1 ? 'ים' : ''} כי אין להם סקיל ${requiredSkillName} ברמה ${requiredMinLevel} ומעלה: ${filteredBySkill.join(', ')}`,
+        `${filteredBySkill.length} בודק${filteredBySkill.length > 1 ? 'ים' : ''} מסוננ${filteredBySkill.length > 1 ? 'ים' : ''} כי אין להם סקיל ${requiredSkillName} ברמה ${requiredMinLevel}+: ${filteredBySkill.join(', ')}`,
       );
     }
-    if (blockReasons.length === 0) {
-      blockReasons.push('אין בודקים פעילים במערכת');
-    }
+    if (blockReasons.length === 0) blockReasons.push('אין בודקים פעילים במערכת');
 
     return {
       status: 'MANUAL_INTERVENTION',
@@ -253,15 +311,22 @@ export async function scoreForCr(crNumber: string, versionId: string): Promise<S
 
   // ── 9. Compute scores ─────────────────────────────────────────────────────
 
-  const maxLoad = Math.max(...[...loadMap.values(), 0]);
-
   const scored: ScoredTester[] = testers.map(t => {
-    // ── Load (50%) ────────────────────────────────────────────────────
-    const currentHours = loadMap.get(t.userId) ?? 0;
-    const loadRaw      = maxLoad > 0 ? (1 - currentHours / maxLoad) * 100 : 100;
 
-    // ── Skill (35%) ───────────────────────────────────────────────────
-    let skillRaw = 50; // neutral when no skill can be matched
+    // ── Load (capacity-aware) ─────────────────────────────────────────
+    const currentDays = loadMap.get(t.userId) ?? 0;
+    let loadRaw: number;
+    if (windowDays > 0) {
+      // Capacity-aware: how full is the tester relative to the testing window?
+      loadRaw = Math.max(0, (1 - currentDays / windowDays) * 100);
+    } else {
+      // Fallback: relative comparison between testers
+      const maxLoad = Math.max(...Array.from(loadMap.values()), 0);
+      loadRaw = maxLoad > 0 ? (1 - currentDays / maxLoad) * 100 : 100;
+    }
+
+    // ── Skill ─────────────────────────────────────────────────────────
+    let skillRaw  = 50;
     let skillLevel: number | null = null;
     if (requiredSkillName) {
       const skillEntry = t.skills.find(
@@ -270,16 +335,21 @@ export async function scoreForCr(crNumber: string, versionId: string): Promise<S
       skillLevel = skillEntry?.level ?? null;
       if (skillLevel !== null) {
         const diff = skillLevel - requiredMinLevel;
-        skillRaw = diff >= 2 ? 70 : 100; // over-qualified → 70, exact/+1 → 100
+        const isHighRisk = ['HIGH', 'CRITICAL'].includes((riskLevel ?? '').toUpperCase());
+        // Over-qualified penalty waived for HIGH/CRITICAL CRs
+        skillRaw = (diff >= 2 && !isHighRisk) ? 70 : 100;
       }
     }
 
-    // ── Continuity (15%) ──────────────────────────────────────────────
-    const hasHistory  = historySet.has(t.userId);
-    const continuityRaw = hasHistory ? 100 : 0;
+    // ── Continuity (gradual decay) ────────────────────────────────────
+    const lastDate         = lastAssignedMap.get(t.userId) ?? null;
+    const continuityRaw    = continuitScore(lastDate);
+    const lastDaysAgo      = lastDate
+      ? Math.round((Date.now() - lastDate.getTime()) / (1000 * 60 * 60 * 24))
+      : null;
 
     // ── Weighted total ────────────────────────────────────────────────
-    const total = 0.50 * loadRaw + 0.35 * skillRaw + 0.15 * continuityRaw;
+    const total = weights.load * loadRaw + weights.skill * skillRaw + weights.continuity * continuityRaw;
 
     return {
       userId:     t.userId,
@@ -287,9 +357,24 @@ export async function scoreForCr(crNumber: string, versionId: string): Promise<S
       email:      t.email,
       totalScore: Math.round(total),
       breakdown: {
-        load:       { weightedScore: Math.round(0.50 * loadRaw),       rawScore: Math.round(loadRaw),       currentHours },
-        skill:      { weightedScore: Math.round(0.35 * skillRaw),      rawScore: Math.round(skillRaw),      level: skillLevel, requiredLevel: requiredMinLevel },
-        continuity: { weightedScore: Math.round(0.15 * continuityRaw), rawScore: continuityRaw,             hasHistory },
+        load: {
+          weightedScore: Math.round(weights.load * loadRaw),
+          rawScore:      Math.round(loadRaw),
+          currentHours:  currentDays,
+          windowDays,
+        },
+        skill: {
+          weightedScore: Math.round(weights.skill * skillRaw),
+          rawScore:      Math.round(skillRaw),
+          level:         skillLevel,
+          requiredLevel: requiredMinLevel,
+        },
+        continuity: {
+          weightedScore:       Math.round(weights.continuity * continuityRaw),
+          rawScore:            continuityRaw,
+          hasHistory:          continuityRaw > 0,
+          lastAssignedDaysAgo: lastDaysAgo,
+        },
       },
     };
   });
