@@ -140,7 +140,8 @@ export class QaService {
     return prisma.qaAssignment.findMany({
       where: { versionId },
       include: {
-        user: { select: { id: true, fullName: true, email: true } },
+        user:          { select: { id: true, fullName: true, email: true } },
+        secondaryUser: { select: { id: true, fullName: true, email: true } },
       },
       orderBy: { crNumber: 'asc' },
     });
@@ -254,10 +255,12 @@ export class QaService {
   }
 
   async patchAssignment(id: string, patch: {
-    isStandAlone?: boolean | null;
-    cycles?:       string[];
-    sortOrder?:    number;
-    qaEffort?:     number | null;
+    isStandAlone?:        boolean | null;
+    cycles?:              string[];
+    sortOrder?:           number;
+    qaEffort?:            number | null;
+    secondaryTesterId?:   string | null;
+    secondarySkillLevel?: number | null;
   }) {
     const result = await prisma.qaAssignment.update({
       where:   { id },
@@ -274,6 +277,57 @@ export class QaService {
     }
 
     return result;
+  }
+
+  // ── Secondary tester suggestion ──────────────────────────────────────────────
+
+  async suggestSecondaryTesters(versionId: string, crNumber: string) {
+    // Load all candidates (up to 20), then filter/enrich
+    const fullResult = await scoreForCr(crNumber, versionId, 20);
+
+    const primaryAsg = await prisma.qaAssignment.findUnique({
+      where: { versionId_crNumber: { versionId, crNumber } },
+    });
+    const primaryId          = primaryAsg?.userId ?? null;
+    const qaEffortDays       = primaryAsg?.qaEffort ?? fullResult.qaEffortDays ?? 0;
+    const currentSecondaryId = (primaryAsg as any)?.secondaryTesterId ?? null;
+
+    // Resolve primary skill level for effort-split calculation
+    let resolvedPrimaryLevel = 3;
+    if (primaryId && fullResult.requiredSkillName) {
+      const ts = await prisma.testerSkill.findFirst({
+        where: { userId: primaryId, skill: { name: fullResult.requiredSkillName } },
+      });
+      if (ts) resolvedPrimaryLevel = ts.level > 0 ? ts.level : 3;
+    }
+
+    const candidates = fullResult.recommendations
+      .filter((r: any) => r.userId !== primaryId)
+      .map((r: any) => {
+        const secLevel = r.breakdown.skill.level ?? 3;
+        const adjSec   = secLevel < 0 ? 1 : secLevel;
+        const adjPri   = resolvedPrimaryLevel < 0 ? 1 : resolvedPrimaryLevel;
+        const total    = adjPri + adjSec;
+        const secRatio = total > 0 ? adjSec / total : 0.5;
+
+        return {
+          ...r,
+          isCurrentSecondary:       r.userId === currentSecondaryId,
+          estimatedSecondaryEffort: Math.max(1, Math.round(qaEffortDays * secRatio)),
+          estimatedPrimaryEffort:   Math.max(1, Math.round(qaEffortDays * (1 - secRatio))),
+          timeSavingDays:           Math.max(0, qaEffortDays - Math.max(1, Math.round(qaEffortDays * (1 - secRatio)))),
+          secondarySkillLevel:      adjSec,
+        };
+      });
+
+    return {
+      crNumber,
+      crLabel:         fullResult.crLabel,
+      qaEffortDays,
+      primaryTesterId: primaryId,
+      currentSecondaryId,
+      candidates,
+    };
   }
 
   private async cascadeEffortToWorkPlan(

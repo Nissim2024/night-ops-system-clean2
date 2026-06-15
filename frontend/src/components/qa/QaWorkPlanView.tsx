@@ -30,6 +30,37 @@ interface CycleTask {
   sortOrder: number;
 }
 
+interface QaAssignment {
+  id: string;
+  crNumber: string;
+  userId: string;
+  sortOrder: number | null;
+  secondaryTesterId: string | null;
+  secondarySkillLevel: number | null;
+  secondaryUser?: { id: string; fullName: string; email: string } | null;
+}
+
+interface SecondaryCandidate {
+  userId: string;
+  fullName: string;
+  totalScore: number;
+  isCurrentSecondary: boolean;
+  estimatedSecondaryEffort: number;
+  estimatedPrimaryEffort: number;
+  timeSavingDays: number;
+  secondarySkillLevel: number;
+  breakdown: { skill: { level: number | null; requiredLevel: number }; load: { rawScore: number } };
+}
+
+interface SecondaryData {
+  crNumber: string;
+  crLabel: string | null;
+  qaEffortDays: number;
+  primaryTesterId: string | null;
+  currentSecondaryId: string | null;
+  candidates: SecondaryCandidate[];
+}
+
 interface Cycle {
   id: string;
   cycleType: string;
@@ -120,6 +151,7 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
   const [versions, setVersions]           = useState<Version[]>([]);
   const [versionId, setVersionId]         = useState(initialVersionId ?? '');
   const [assignedUserIds, setAssignedUserIds] = useState<Set<string>>(new Set());
+  const [assignments, setAssignments]     = useState<QaAssignment[]>([]);
   const [workPlan, setWorkPlan]           = useState<WorkPlan | null>(null);
   const [unassigned, setUnassigned]       = useState<string[]>([]);
   const [loading, setLoading]             = useState(false);
@@ -132,8 +164,13 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
   const [savingNotes, setSavingNotes]     = useState<Record<string, boolean>>({});
   const [togglingTasks, setTogglingTasks] = useState<Set<string>>(new Set());
   const [filterUserId, setFilterUserId]   = useState('');
-  const [editingEffort, setEditingEffort] = useState<string | null>(null); // taskId being edited
+  const [editingEffort, setEditingEffort] = useState<string | null>(null);
   const [reverting, setReverting]         = useState(false);
+  const [secondaryPanel, setSecondaryPanel] = useState<{ crNumber: string; assignmentId: string } | null>(null);
+  const [secondaryData, setSecondaryData]   = useState<SecondaryData | null>(null);
+  const [loadingSecondary, setLoadingSecondary] = useState(false);
+  const [assigningSecondary, setAssigningSecondary] = useState(false);
+  const [reorderingTask, setReorderingTask] = useState<string | null>(null);
 
   // Sync versionId when parent changes initialVersionId
   useEffect(() => {
@@ -159,7 +196,9 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
       ax.get(`${API}/qa/assignments?versionId=${versionId}`).catch(() => ({ data: [] })),
     ]).then(([wpRes, asgRes]) => {
       setWorkPlan(wpRes.data ?? null);
-      setAssignedUserIds(new Set((asgRes.data as { userId: string }[]).map(a => a.userId)));
+      const asgList = asgRes.data as QaAssignment[];
+      setAssignments(asgList);
+      setAssignedUserIds(new Set(asgList.map(a => a.userId)));
       if (wpRes.data?.cycles) {
         const allIds = new Set<string>(wpRes.data.cycles.map((c: Cycle) => c.id as string));
         setExpandedCycles(allIds);
@@ -177,6 +216,70 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
     }
   }, [versionId, versions]);
 
+  // ── Assignment map (crNumber → assignment) ────────────────────────────────
+  const assignmentMap = useMemo(() => {
+    const m = new Map<string, QaAssignment>();
+    assignments.forEach(a => m.set(a.crNumber, a));
+    return m;
+  }, [assignments]);
+
+  // ── Secondary tester panel ────────────────────────────────────────────────
+  const openSecondaryPanel = async (crNumber: string) => {
+    const asg = assignmentMap.get(crNumber);
+    if (!asg) return;
+    setSecondaryPanel({ crNumber, assignmentId: asg.id });
+    setSecondaryData(null);
+    setLoadingSecondary(true);
+    try {
+      const r = await ax.get(`${API}/qa/assignments/secondary-suggest?versionId=${versionId}&crNumber=${encodeURIComponent(crNumber)}`);
+      setSecondaryData(r.data);
+    } catch {
+      alert('שגיאה בטעינת הצעות בודק שני');
+      setSecondaryPanel(null);
+    } finally {
+      setLoadingSecondary(false);
+    }
+  };
+
+  const assignSecondary = async (assignmentId: string, candidate: SecondaryCandidate | null) => {
+    setAssigningSecondary(true);
+    try {
+      const r = await ax.patch(`${API}/qa/assignments/${assignmentId}/secondary`, {
+        secondaryTesterId:   candidate?.userId ?? null,
+        secondarySkillLevel: candidate?.secondarySkillLevel ?? null,
+      });
+      if (r.data.workPlan) {
+        setWorkPlan(r.data.workPlan);
+        if (r.data.workPlan?.cycles) {
+          const allIds = new Set<string>(r.data.workPlan.cycles.map((c: Cycle) => c.id as string));
+          setExpandedCycles(allIds);
+        }
+      }
+      // Refresh assignments
+      const asgRes = await ax.get(`${API}/qa/assignments?versionId=${versionId}`).catch(() => ({ data: [] }));
+      setAssignments(asgRes.data as QaAssignment[]);
+      setSecondaryPanel(null);
+      setSecondaryData(null);
+    } catch (e: any) {
+      alert(e?.response?.data?.message ?? 'שגיאה בשיבוץ בודק שני');
+    } finally {
+      setAssigningSecondary(false);
+    }
+  };
+
+  // ── Reorder task ──────────────────────────────────────────────────────────
+  const reorderTask = async (taskId: string, newSortOrder: number) => {
+    setReorderingTask(taskId);
+    try {
+      const r = await ax.patch(`${API}/qa/workplan/task/${taskId}/sort`, { newSortOrder });
+      if (r.data) setWorkPlan(r.data);
+    } catch {
+      alert('שגיאה בעדכון סדר המשימות');
+    } finally {
+      setReorderingTask(null);
+    }
+  };
+
   const generate = async () => {
     if (!cycle1Start || !testingEnd) return;
     setGenerating(true);
@@ -187,7 +290,9 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
       ]);
       setWorkPlan(genRes.data.workPlan);
       setUnassigned(genRes.data.unassignedCrs ?? []);
-      setAssignedUserIds(new Set((asgRes.data as { userId: string }[]).map(a => a.userId)));
+      const asgList = asgRes.data as QaAssignment[];
+      setAssignments(asgList);
+      setAssignedUserIds(new Set(asgList.map(a => a.userId)));
       setShowGenForm(false);
       if (genRes.data.workPlan?.cycles) {
         const allIds = new Set<string>(genRes.data.workPlan.cycles.map((c: Cycle) => c.id as string));
@@ -532,8 +637,28 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
           editingEffort={editingEffort}
           onEditEffort={setEditingEffort}
           onSaveEffort={saveTaskEffort}
+          assignmentMap={assignmentMap}
+          onOpenSecondary={openSecondaryPanel}
+          onReorderTask={reorderTask}
+          reorderingTask={reorderingTask}
         />
       ))}
+
+      {/* ── Secondary reviewer panel ── */}
+      {secondaryPanel && (
+        <SecondaryPanel
+          crNumber={secondaryPanel.crNumber}
+          assignmentId={secondaryPanel.assignmentId}
+          data={secondaryData}
+          loading={loadingSecondary}
+          assigning={assigningSecondary}
+          hasExistingSecondary={!!assignmentMap.get(secondaryPanel.crNumber)?.secondaryTesterId}
+          existingSecondaryName={assignmentMap.get(secondaryPanel.crNumber)?.secondaryUser?.fullName ?? null}
+          onAssign={candidate => assignSecondary(secondaryPanel.assignmentId, candidate)}
+          onRemove={() => assignSecondary(secondaryPanel.assignmentId, null)}
+          onClose={() => { setSecondaryPanel(null); setSecondaryData(null); }}
+        />
+      )}
     </div>
   );
 }
@@ -555,12 +680,17 @@ interface CycleCardProps {
   editingEffort:   string | null;
   onEditEffort:    (taskId: string | null) => void;
   onSaveEffort:    (taskId: string, value: string) => void;
+  assignmentMap:   Map<string, QaAssignment>;
+  onOpenSecondary: (crNumber: string) => void;
+  onReorderTask:   (taskId: string, newSortOrder: number) => void;
+  reorderingTask:  string | null;
 }
 
 function CycleCard({
   cycle, expanded, onToggleExpand, onToggleTask,
   togglingTasks, editNotes, onNotesChange, onSaveNotes, savingNotes, planApproved,
   filterUserId, editingEffort, onEditEffort, onSaveEffort,
+  assignmentMap, onOpenSecondary, onReorderTask, reorderingTask,
 }: CycleCardProps) {
   const accent = CYCLE_ACCENT[cycle.cycleType] ?? C.textMuted;
   const bg     = CYCLE_BG[cycle.cycleType]     ?? C.bgNested;
@@ -675,6 +805,11 @@ function CycleCard({
                   editingEffort={editingEffort}
                   onEditEffort={onEditEffort}
                   onSaveEffort={onSaveEffort}
+                  assignmentMap={assignmentMap}
+                  onOpenSecondary={onOpenSecondary}
+                  onReorderTask={onReorderTask}
+                  reorderingTask={reorderingTask}
+                  isCycle1={cycle.cycleType === 'CYCLE_1'}
                 />
               ))}
             </div>
@@ -688,20 +823,29 @@ function CycleCard({
 // ── TesterSection ─────────────────────────────────────────────────────────────
 
 interface TesterSectionProps {
-  testerName:    string;
-  tasks:         CycleTask[];
-  editable:      boolean;
-  onToggleTask:  (t: CycleTask) => void;
-  togglingTasks: Set<string>;
-  editingEffort: string | null;
-  onEditEffort:  (taskId: string | null) => void;
-  onSaveEffort:  (taskId: string, value: string) => void;
+  testerName:      string;
+  tasks:           CycleTask[];
+  editable:        boolean;
+  onToggleTask:    (t: CycleTask) => void;
+  togglingTasks:   Set<string>;
+  editingEffort:   string | null;
+  onEditEffort:    (taskId: string | null) => void;
+  onSaveEffort:    (taskId: string, value: string) => void;
+  assignmentMap:   Map<string, QaAssignment>;
+  onOpenSecondary: (crNumber: string) => void;
+  onReorderTask:   (taskId: string, newSortOrder: number) => void;
+  reorderingTask:  string | null;
+  isCycle1:        boolean;
 }
 
-function TesterSection({ testerName, tasks, editable, onToggleTask, togglingTasks, editingEffort, onEditEffort, onSaveEffort }: TesterSectionProps) {
+function TesterSection({
+  testerName, tasks, editable, onToggleTask, togglingTasks,
+  editingEffort, onEditEffort, onSaveEffort,
+  assignmentMap, onOpenSecondary, onReorderTask, reorderingTask, isCycle1,
+}: TesterSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
   const sorted = [...tasks].sort((a, b) => a.sortOrder - b.sortOrder);
-  const crTasks = sorted.filter(t => t.taskType !== 'REGRESSION');
+  const crTasks = sorted.filter(t => t.taskType !== 'REGRESSION' && t.isPrimary);
   const totalDays = crTasks.filter(t => t.isActive).reduce((s, t) => s + t.effortDays, 0);
 
   return (
@@ -737,10 +881,11 @@ function TesterSection({ testerName, tasks, editable, onToggleTask, togglingTask
       {!collapsed && (
         <table style={{ width: '100%', borderCollapse: 'collapse', ...TEXT.sm, tableLayout: 'fixed' }}>
           <colgroup>
-            <col style={{ width: 36 }} />
+            <col style={{ width: 56 }} />
             <col style={{ width: 80 }} />
             <col />
             <col style={{ width: 100 }} />
+            <col style={{ width: 140 }} />
             <col style={{ width: 95 }} />
             <col style={{ width: 95 }} />
             <col style={{ width: 68 }} />
@@ -752,6 +897,7 @@ function TesterSection({ testerName, tasks, editable, onToggleTask, togglingTask
               <th style={thStyle}>מס' CR</th>
               <th style={thStyle}>תיאור</th>
               <th style={thStyle}>סוג</th>
+              <th style={thStyle}>בודק שני</th>
               <th style={thStyle}>התחלה</th>
               <th style={thStyle}>סיום</th>
               <th style={{ ...thStyle, textAlign: 'center' }}>ימים</th>
@@ -759,12 +905,20 @@ function TesterSection({ testerName, tasks, editable, onToggleTask, togglingTask
             </tr>
           </thead>
           <tbody>
-            {sorted.map((task, idx) => {
+            {sorted.map((task) => {
               const isReg      = task.taskType === 'REGRESSION';
+              const isSecondary = !task.isPrimary;
               const isInactive = !task.isActive;
-              const rowBg      = isInactive ? C.bgNested : isReg ? 'rgba(156,106,222,0.05)' : C.bgCard;
+              const rowBg      = isInactive ? C.bgNested : isSecondary ? 'rgba(99,179,237,0.06)' : isReg ? 'rgba(156,106,222,0.05)' : C.bgCard;
               const isEditingThisEffort = editingEffort === task.id;
-              const orderNum   = isReg ? null : crTasks.findIndex(t => t.id === task.id) + 1;
+              const orderNum   = (isReg || isSecondary) ? null : crTasks.findIndex(t => t.id === task.id) + 1;
+              const isReordering = reorderingTask === task.id;
+
+              // Secondary tester info (only for primary non-reg tasks in CYCLE_1)
+              const asg = (!isReg && !isSecondary) ? assignmentMap.get(task.crNumber) : null;
+              const secondaryName = asg?.secondaryTesterId
+                ? (asg as any)?.secondaryUser?.fullName ?? `בודק שני (${asg.secondaryTesterId.slice(0,6)})`
+                : null;
 
               return (
                 <tr
@@ -775,21 +929,72 @@ function TesterSection({ testerName, tasks, editable, onToggleTask, togglingTask
                     textDecoration: isInactive ? 'line-through' : 'none',
                   }}
                 >
-                  <td style={{ ...tdStyle, textAlign: 'center' }}>
+                  {/* # + reorder arrows */}
+                  <td style={{ ...tdStyle, textAlign: 'center', padding: `${SP[1]} 4px` }}>
                     {orderNum != null ? (
-                      <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.medium }}>{orderNum}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'center' }}>
+                        <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.medium, minWidth: 16 }}>{orderNum}</span>
+                        {isCycle1 && !isReordering && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                            <button
+                              title="הזז למעלה"
+                              disabled={orderNum === 1}
+                              onClick={() => onReorderTask(task.id, orderNum - 1)}
+                              style={{ ...arrowBtnStyle, opacity: orderNum === 1 ? 0.2 : 0.6 }}
+                            >▲</button>
+                            <button
+                              title="הזז למטה"
+                              disabled={orderNum === crTasks.length}
+                              onClick={() => onReorderTask(task.id, orderNum + 1)}
+                              style={{ ...arrowBtnStyle, opacity: orderNum === crTasks.length ? 0.2 : 0.6 }}
+                            >▼</button>
+                          </div>
+                        )}
+                        {isReordering && <span style={{ ...TEXT.xs, color: C.textMuted }}>⟳</span>}
+                      </div>
+                    ) : isSecondary ? (
+                      <span style={{ ...TEXT.xs, color: C.info, opacity: 0.6 }}>↳</span>
                     ) : null}
                   </td>
                   <td style={tdStyle}>
-                    <span style={{ ...TEXT.xs, fontWeight: WEIGHT.medium, color: isReg ? C.statusWaiting : C.textLink }}>
+                    <span style={{ ...TEXT.xs, fontWeight: WEIGHT.medium, color: isReg ? C.statusWaiting : isSecondary ? C.info : C.textLink }}>
                       {isReg ? '—' : task.crNumber}
                     </span>
                   </td>
                   <td style={{ ...tdStyle, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {task.crLabel ?? task.crNumber}
+                    {isSecondary
+                      ? <span style={{ ...TEXT.xs, color: C.textMuted, fontStyle: 'italic' }}>↳ {task.crLabel ?? task.crNumber}</span>
+                      : (task.crLabel ?? task.crNumber)
+                    }
                   </td>
                   <td style={tdStyle}>
-                    <TaskTypeBadge type={task.taskType} />
+                    {isSecondary
+                      ? <span style={{ ...TEXT.xs, color: C.info, backgroundColor: C.infoBg, padding: `1px ${SP[1]}`, borderRadius: RADIUS.sm }}>בודק שני</span>
+                      : <TaskTypeBadge type={task.taskType} />
+                    }
+                  </td>
+                  {/* Secondary tester cell */}
+                  <td style={{ ...tdStyle, padding: `${SP[1]} ${SP[2]}` }}>
+                    {!isReg && !isSecondary ? (
+                      secondaryName ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: SP[1] }}>
+                          <span style={{ ...TEXT.xs, color: C.info, fontWeight: WEIGHT.medium, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
+                            {secondaryName}
+                          </span>
+                          <button
+                            title="שנה / הסר בודק שני"
+                            onClick={() => onOpenSecondary(task.crNumber)}
+                            style={{ ...smallBtnStyle, backgroundColor: C.infoBg, color: C.info, border: `1px solid ${C.info}` }}
+                          >✎</button>
+                        </div>
+                      ) : (
+                        <button
+                          title="הוסף בודק שני"
+                          onClick={() => onOpenSecondary(task.crNumber)}
+                          style={{ ...smallBtnStyle, backgroundColor: C.bgNested, color: C.textMuted, border: `1px dashed ${C.border}` }}
+                        >+ בודק שני</button>
+                      )
+                    ) : null}
                   </td>
                   <td style={tdStyle}>{fmtDate(task.plannedStart)}</td>
                   <td style={tdStyle}>{fmtDate(task.plannedEnd)}</td>
@@ -811,9 +1016,9 @@ function TesterSection({ testerName, tasks, editable, onToggleTask, togglingTask
                     ) : (
                       <span
                         title="לחץ לעריכה"
-                        onClick={() => onEditEffort(task.id)}
-                        style={{ cursor: 'pointer', ...TEXT.xs, color: C.textPrimary, fontWeight: WEIGHT.medium, padding: '1px 6px', borderRadius: RADIUS.sm, border: `1px solid transparent` }}
-                        onMouseEnter={e => (e.currentTarget as HTMLSpanElement).style.border = `1px solid ${C.border}`}
+                        onClick={() => !isSecondary && onEditEffort(task.id)}
+                        style={{ cursor: isSecondary ? 'default' : 'pointer', ...TEXT.xs, color: C.textPrimary, fontWeight: WEIGHT.medium, padding: '1px 6px', borderRadius: RADIUS.sm, border: `1px solid transparent` }}
+                        onMouseEnter={e => { if (!isSecondary) (e.currentTarget as HTMLSpanElement).style.border = `1px solid ${C.border}`; }}
                         onMouseLeave={e => (e.currentTarget as HTMLSpanElement).style.border = '1px solid transparent'}
                       >
                         {task.effortDays}
@@ -822,7 +1027,7 @@ function TesterSection({ testerName, tasks, editable, onToggleTask, togglingTask
                   </td>
                   {editable && (
                     <td style={{ ...tdStyle, textAlign: 'center' }}>
-                      {!isReg && (
+                      {!isReg && !isSecondary && (
                         <button
                           onClick={() => onToggleTask(task)}
                           disabled={togglingTasks.has(task.id)}
@@ -869,6 +1074,177 @@ function TaskTypeBadge({ type }: { type: string }) {
     }}>
       {s.label}
     </span>
+  );
+}
+
+// ── SecondaryPanel ────────────────────────────────────────────────────────────
+
+interface SecondaryPanelProps {
+  crNumber:              string;
+  assignmentId:          string;
+  data:                  SecondaryData | null;
+  loading:               boolean;
+  assigning:             boolean;
+  hasExistingSecondary:  boolean;
+  existingSecondaryName: string | null;
+  onAssign:              (candidate: SecondaryCandidate) => void;
+  onRemove:              () => void;
+  onClose:               () => void;
+}
+
+function SecondaryPanel({ crNumber, data, loading, assigning, hasExistingSecondary, existingSecondaryName, onAssign, onRemove, onClose }: SecondaryPanelProps) {
+  const showRemove = hasExistingSecondary || !!data?.currentSecondaryId;
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 1000,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }} onClick={onClose}>
+      <div
+        style={{
+          backgroundColor: C.bgCard,
+          borderRadius: RADIUS.lg,
+          padding: SP[6],
+          width: 580, maxWidth: '95vw',
+          maxHeight: '80vh', overflowY: 'auto',
+          boxShadow: SHADOW.lg,
+          direction: 'rtl',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[4] }}>
+          <div>
+            <h3 style={{ margin: 0, ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+              שיבוץ בודק שני
+            </h3>
+            <p style={{ margin: `${SP[1]} 0 0`, ...TEXT.sm, color: C.textMuted }}>
+              CR: {crNumber}
+              {data?.crLabel && ` — ${data.crLabel}`}
+            </p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', ...TEXT.lg, color: C.textMuted, padding: SP[1] }}>✕</button>
+        </div>
+
+        {loading && (
+          <div style={{ textAlign: 'center', padding: SP[8], color: C.textMuted }}>טוען הצעות...</div>
+        )}
+
+        {!loading && data && (
+          <>
+            {/* Stats */}
+            <div style={{ display: 'flex', gap: SP[4], marginBottom: SP[4], padding: SP[3], backgroundColor: C.bgNested, borderRadius: RADIUS.md }}>
+              <span style={{ ...TEXT.sm, color: C.textSecondary }}>
+                <strong>מאמץ בדיקה:</strong> {data.qaEffortDays} ימים
+              </span>
+              {data.currentSecondaryId && (
+                <span style={{ ...TEXT.sm, color: C.info }}>
+                  ✓ בודק שני משובץ כרגע
+                </span>
+              )}
+            </div>
+
+            {/* Remove button if secondary exists */}
+            {showRemove && (
+              <div style={{ marginBottom: SP[4], display: 'flex', alignItems: 'center', gap: SP[3], padding: SP[3], backgroundColor: C.infoBg, borderRadius: RADIUS.md, border: `1px solid ${C.info}` }}>
+                <span style={{ ...TEXT.sm, color: C.textPrimary, flex: 1 }}>
+                  <strong>בודק שני נוכחי:</strong> {existingSecondaryName ?? data?.candidates.find(c => c.userId === data?.currentSecondaryId)?.fullName ?? '—'}
+                </span>
+                <button
+                  onClick={onRemove}
+                  disabled={assigning}
+                  style={{ ...btnStyle(C.danger, assigning), padding: `${SP[1]} ${SP[3]}` }}
+                >
+                  {assigning ? 'מסיר...' : '✕ הסר'}
+                </button>
+              </div>
+            )}
+
+            {/* Candidates */}
+            {data.candidates.length === 0 ? (
+              <p style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[4] }}>
+                אין בודקים זמינים לתפקיד בודק שני
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+                <p style={{ ...TEXT.xs, color: C.textMuted, margin: `0 0 ${SP[2]}` }}>
+                  בודקים מוצעים לפי ציון (מיון יורד):
+                </p>
+                {data.candidates.map((c, idx) => {
+                  const isCurrent = c.userId === data.currentSecondaryId;
+                  return (
+                    <div
+                      key={c.userId}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: SP[3],
+                        padding: SP[3],
+                        borderRadius: RADIUS.md,
+                        border: `1px solid ${isCurrent ? C.info : C.border}`,
+                        backgroundColor: isCurrent ? C.infoBg : (idx === 0 ? C.successBg : C.bgCard),
+                      }}
+                    >
+                      {/* Rank */}
+                      <div style={{
+                        width: 28, height: 28, borderRadius: '50%',
+                        backgroundColor: idx === 0 ? C.success : C.bgNested,
+                        color: idx === 0 ? '#fff' : C.textMuted,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        ...TEXT.sm, fontWeight: WEIGHT.bold, flexShrink: 0,
+                      }}>
+                        {idx + 1}
+                      </div>
+
+                      {/* Info */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap' }}>
+                          <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>
+                            {c.fullName}
+                          </span>
+                          {isCurrent && (
+                            <span style={{ ...TEXT.xs, color: C.info, backgroundColor: C.infoBg, padding: `1px ${SP[1]}`, borderRadius: RADIUS.sm }}>
+                              ✓ נוכחי
+                            </span>
+                          )}
+                          <span style={{ ...TEXT.xs, color: C.textMuted }}>
+                            ציון: <strong style={{ color: C.textPrimary }}>{c.totalScore}</strong>
+                          </span>
+                          <span style={{ ...TEXT.xs, color: C.textMuted }}>
+                            רמה: {c.breakdown.skill.level ?? '—'}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: SP[3], marginTop: SP[1], flexWrap: 'wrap' }}>
+                          <span style={{ ...TEXT.xs, color: C.textSecondary }}>
+                            ⏱ בודק ראשי: <strong>{c.estimatedPrimaryEffort} יום</strong> (חוסך <strong style={{ color: C.success }}>{c.timeSavingDays} יום</strong>)
+                          </span>
+                          <span style={{ ...TEXT.xs, color: C.textSecondary }}>
+                            בודק שני: <strong>{c.estimatedSecondaryEffort} יום</strong>
+                          </span>
+                          <span style={{ ...TEXT.xs, color: C.textMuted }}>
+                            עומס: {c.breakdown.load.rawScore}%
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Assign button */}
+                      <button
+                        onClick={() => onAssign(c)}
+                        disabled={assigning || isCurrent}
+                        style={{
+                          ...btnStyle(isCurrent ? C.textMuted : C.brand, assigning || isCurrent),
+                          flexShrink: 0, minWidth: 64, padding: `${SP[1]} ${SP[3]}`,
+                        }}
+                      >
+                        {assigning ? '...' : isCurrent ? 'פעיל' : 'שבץ'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -935,4 +1311,23 @@ const tdStyle: React.CSSProperties = {
   padding: `${SP[2]} ${SP[3]}`,
   color: C.textPrimary,
   borderBottom: `1px solid ${C.border}`,
+};
+
+const arrowBtnStyle: React.CSSProperties = {
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  padding: '0 1px',
+  lineHeight: 1,
+  fontSize: 9,
+  color: C.textMuted,
+};
+
+const smallBtnStyle: React.CSSProperties = {
+  padding: `2px ${SP[2]}`,
+  borderRadius: RADIUS.sm,
+  cursor: 'pointer',
+  fontFamily: FONT,
+  fontSize: 11,
+  whiteSpace: 'nowrap',
 };

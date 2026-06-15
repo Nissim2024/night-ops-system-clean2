@@ -91,8 +91,9 @@ model User {
   versionTemplates  VersionTemplate[]
   testerProfile     TesterProfile?
   leaveRequests     LeaveRequest[]
-  qaAssignments     QaAssignment[]
-  qaCycleTasks      QaCycleTask[]
+  qaAssignments         QaAssignment[]
+  qaSecondaryAssignments QaAssignment[] @relation("qaSecondaryAssignments")
+  qaCycleTasks          QaCycleTask[]
 }
 
 model Team {
@@ -597,24 +598,27 @@ model TesterSkill {
 }
 
 model QaAssignment {
-  id           String   @id @default(uuid())
-  versionId    String
-  crNumber     String
-  crLabel      String?
-  application  String?  // denormalized from VersionCrAssignment (for continuity queries)
-  userId       String
-  qaEffort     Float?   // denormalized days (for load-balancing queries)
-  autoScore    Int?     // computed score at assignment time (0-100)
-  notes        String?
-  assignedBy   String?
-  isStandAlone Boolean? // null=inherit VCA; true=SA; false=force integrative
-  cycles       String[] @default([]) // e.g. ["CYCLE_1","CYCLE_2","CYCLE_3","STAND_ALONE","UAT"]
-  sortOrder    Int?     // tester queue position (1, 2, 3…)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                  String   @id @default(uuid())
+  versionId           String
+  crNumber            String
+  crLabel             String?
+  application         String?  // denormalized from VersionCrAssignment (for continuity queries)
+  userId              String
+  qaEffort            Float?   // denormalized days (for load-balancing queries)
+  autoScore           Int?     // computed score at assignment time (0-100)
+  notes               String?
+  assignedBy          String?
+  isStandAlone        Boolean? // null=inherit VCA; true=SA; false=force integrative
+  cycles              String[] @default([]) // e.g. ["CYCLE_1","CYCLE_2","CYCLE_3","STAND_ALONE","UAT"]
+  sortOrder           Int?     // tester queue position (1, 2, 3…)
+  secondaryTesterId   String?  // optional secondary reviewer userId
+  secondarySkillLevel Int?     @default(3)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  version       Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  secondaryUser User?   @relation("qaSecondaryAssignments", fields: [secondaryTesterId], references: [id])
 
   @@unique([versionId, crNumber])
 }

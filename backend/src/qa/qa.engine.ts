@@ -142,7 +142,7 @@ async function getActiveTesters() {
 
 // ── Main scoring function ─────────────────────────────────────────────────────
 
-export async function scoreForCr(crNumber: string, versionId: string): Promise<ScoringResult> {
+export async function scoreForCr(crNumber: string, versionId: string, maxResults = 3): Promise<ScoringResult> {
 
   // ── 1. Load CR info ───────────────────────────────────────────────────────
 
@@ -389,7 +389,7 @@ export async function scoreForCr(crNumber: string, versionId: string): Promise<S
     requiredSkillName,
     requiredMinLevel,
     qaEffortDays,
-    recommendations:  scored.slice(0, 3),
+    recommendations:  scored.slice(0, maxResults),
     filteredByLeave,
     filteredBySkill,
     blockReasons:     [],

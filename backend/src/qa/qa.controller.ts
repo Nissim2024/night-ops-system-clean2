@@ -86,6 +86,14 @@ export class QaController {
     return this.qa.scoreForCr(crNumber, versionId);
   }
 
+  @Get('assignments/secondary-suggest')
+  suggestSecondaryTesters(
+    @Query('versionId') versionId: string,
+    @Query('crNumber')  crNumber:  string,
+  ) {
+    return this.qa.suggestSecondaryTesters(versionId, crNumber);
+  }
+
   @Post('assignments')
   upsertAssignment(
     @Body() body: {
@@ -111,9 +119,42 @@ export class QaController {
   @Patch('assignments/:id')
   patchAssignment(
     @Param('id') id: string,
-    @Body() body: { isStandAlone?: boolean | null; cycles?: string[]; sortOrder?: number; qaEffort?: number | null },
+    @Body() body: {
+      isStandAlone?:        boolean | null;
+      cycles?:              string[];
+      sortOrder?:           number;
+      qaEffort?:            number | null;
+      secondaryTesterId?:   string | null;
+      secondarySkillLevel?: number | null;
+    },
   ) {
     return this.qa.patchAssignment(id, body);
+  }
+
+  @Patch('assignments/:id/secondary')
+  async patchSecondary(
+    @Param('id') id: string,
+    @Body() body: { secondaryTesterId: string | null; secondarySkillLevel?: number },
+    @Request() req: any,
+  ) {
+    const asg = await this.qa.patchAssignment(id, {
+      secondaryTesterId:   body.secondaryTesterId,
+      secondarySkillLevel: body.secondaryTesterId ? (body.secondarySkillLevel ?? 3) : null,
+    });
+
+    // Regenerate work plan to incorporate secondary tester
+    const versionId = (asg as any).versionId;
+    const existingPlan = await this.workPlan.getWorkPlan(versionId);
+    if (existingPlan) {
+      const regen = await this.workPlan.generateWorkPlan(
+        versionId,
+        new Date(existingPlan.cycle1Start),
+        new Date(existingPlan.testingEnd),
+        req.user?.email,
+      );
+      return { assignment: asg, workPlan: regen.workPlan };
+    }
+    return { assignment: asg };
   }
 
   @Post('assignments/auto-assign')
@@ -170,6 +211,14 @@ export class QaController {
     @Body('effortDays') effortDays: number,
   ) {
     return this.workPlan.updateTaskEffort(taskId, effortDays);
+  }
+
+  @Patch('workplan/task/:id/sort')
+  reorderTask(
+    @Param('id') taskId: string,
+    @Body('newSortOrder') newSortOrder: number,
+  ) {
+    return this.workPlan.reorderTask(taskId, newSortOrder);
   }
 
   @Patch('workplan/cycle/:id/notes')

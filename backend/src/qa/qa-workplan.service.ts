@@ -10,6 +10,8 @@ import {
   CYCLE_LABEL,
   CycleType,
   countWorkDays,
+  addWorkDays,
+  nextWorkDay,
 } from './qa.scheduler';
 
 const prisma = new PrismaClient();
@@ -89,6 +91,11 @@ export class QaWorkPlanService {
       const rawPrimary   = appName ? (skillMap.get(primaryId)?.get(appName) ?? 3) : 3;
       const primaryLevel = rawPrimary < 0 ? 1 : rawPrimary; // -1 (N/R) treated as 1 for effort-split ratio
 
+      // Secondary tester from assignment
+      const secondaryId    = (asg as any).secondaryTesterId as string | null ?? null;
+      const rawSecondary   = secondaryId && appName ? (skillMap.get(secondaryId)?.get(appName) ?? (asg as any).secondarySkillLevel ?? 3) : ((asg as any).secondarySkillLevel ?? 3);
+      const secondaryLevel = rawSecondary < 0 ? 1 : rawSecondary;
+
       // Determine which cycles this CR belongs to:
       // 1. Use assignment.cycles if set
       // 2. Fall back to VCA.isStandAlone (or assignment.isStandAlone override)
@@ -106,9 +113,9 @@ export class QaWorkPlanService {
         qaEffortDays,
         cycles:              effectiveCycles,
         primaryTesterId:     primaryId,
-        secondaryTesterId:   null,
+        secondaryTesterId:   secondaryId,
         primarySkillLevel:   primaryLevel,
-        secondarySkillLevel: 0,
+        secondarySkillLevel: secondaryId ? secondaryLevel : 0,
       });
     }
 
@@ -253,6 +260,147 @@ export class QaWorkPlanService {
 
   async updateCycleNotes(cycleId: string, notes: string) {
     return prisma.qaCycle.update({ where: { id: cycleId }, data: { notes } });
+  }
+
+  // ── Reorder task within tester queue + cascade ───────────────────────────────
+
+  async reorderTask(taskId: string, newSortOrder: number) {
+    const task = await (prisma as any).qaCycleTask.findUnique({
+      where: { id: taskId },
+      include: { cycle: true },
+    });
+    if (!task) throw new NotFoundException('משימה לא נמצאה');
+
+    const { cycleId, userId } = task;
+
+    // All non-regression tasks for this user in this cycle
+    const userTasks: any[] = await (prisma as any).qaCycleTask.findMany({
+      where: { cycleId, userId, taskType: { not: 'REGRESSION' } },
+      orderBy: { sortOrder: 'asc' },
+    });
+
+    // Re-insert the moved task at the new position
+    const others = userTasks.filter((t: any) => t.id !== taskId);
+    const clamp  = Math.max(1, Math.min(newSortOrder, userTasks.length));
+    others.splice(clamp - 1, 0, task);
+
+    // Persist new sortOrders
+    await prisma.$transaction(
+      others.map((t: any, i: number) =>
+        (prisma as any).qaCycleTask.update({ where: { id: t.id }, data: { sortOrder: i + 1 } }),
+      ),
+    );
+
+    // Recalculate dates for the full cycle (all testers, preserving their orders)
+    const cycleStart = new Date(task.cycle.plannedStart);
+    const newCycleEnd = await this.rescheduleFullCycle(cycleId, cycleStart);
+
+    // Cascade to subsequent core cycles
+    await this.cascadeFromCycle(task.cycle.workPlanId, task.cycle.cycleType, newCycleEnd);
+
+    // Resolve versionId from workPlanId
+    const workPlan = await (prisma as any).qaWorkPlan.findUnique({
+      where:  { id: task.cycle.workPlanId },
+      select: { versionId: true },
+    });
+    return this.getWorkPlan(workPlan?.versionId ?? '');
+  }
+
+  private async rescheduleFullCycle(cycleId: string, cycleStart: Date): Promise<Date> {
+    const allTasks: any[] = await (prisma as any).qaCycleTask.findMany({
+      where:   { cycleId, taskType: { not: 'REGRESSION' } },
+      orderBy: [{ userId: 'asc' }, { sortOrder: 'asc' }],
+    });
+
+    const testerMap = new Map<string, any[]>();
+    allTasks.forEach((t: any) => {
+      if (!testerMap.has(t.userId)) testerMap.set(t.userId, []);
+      testerMap.get(t.userId)!.push(t);
+    });
+
+    let maxEnd = new Date(cycleStart);
+
+    for (const [, tasks] of testerMap) {
+      let pointer = new Date(cycleStart);
+      for (const task of tasks) {
+        const start = new Date(pointer);
+        const end   = addWorkDays(start, Math.max(1, task.effortDays) - 1);
+        await (prisma as any).qaCycleTask.update({
+          where: { id: task.id },
+          data:  { plannedStart: start, plannedEnd: end },
+        });
+        pointer = nextWorkDay(end);
+        if (end > maxEnd) maxEnd = end;
+      }
+    }
+
+    // Rebuild regression fills
+    await (prisma as any).qaCycleTask.deleteMany({ where: { cycleId, taskType: 'REGRESSION' } });
+    for (const [userId, tasks] of testerMap) {
+      const lastTask = tasks[tasks.length - 1];
+      if (!lastTask) continue;
+      const updated: any = await (prisma as any).qaCycleTask.findUnique({ where: { id: lastTask.id } });
+      const testerEnd = new Date(updated.plannedEnd);
+      if (testerEnd < maxEnd) {
+        const fillStart = nextWorkDay(testerEnd);
+        const fillDays  = countWorkDays(fillStart, maxEnd);
+        if (fillDays > 0) {
+          await (prisma as any).qaCycleTask.create({
+            data: {
+              cycleId, crNumber: 'REGRESSION_FILL', crLabel: 'בדיקות רגרסיה',
+              taskType: 'REGRESSION', userId,
+              effortDays: fillDays, plannedStart: fillStart, plannedEnd: maxEnd,
+              isActive: true, isPrimary: true, sortOrder: 9999,
+            },
+          });
+        }
+      }
+    }
+
+    await (prisma as any).qaCycle.update({
+      where: { id: cycleId },
+      data:  { plannedStart: cycleStart, plannedEnd: maxEnd },
+    });
+
+    return maxEnd;
+  }
+
+  private async cascadeFromCycle(workPlanId: string, fromCycleType: string, fromCycleEnd: Date) {
+    const CORE_ORDER = ['CYCLE_1', 'CYCLE_2', 'CYCLE_3'];
+    const fromIdx = CORE_ORDER.indexOf(fromCycleType);
+    if (fromIdx === -1) return;
+
+    const allCycles: any[] = await (prisma as any).qaCycle.findMany({ where: { workPlanId } });
+    const cycleMap = new Map<string, any>(allCycles.map((c: any) => [c.cycleType, c]));
+
+    let pointer = fromCycleEnd;
+
+    for (let i = fromIdx + 1; i < CORE_ORDER.length; i++) {
+      const ct    = CORE_ORDER[i];
+      const cycle = cycleMap.get(ct);
+      if (!cycle) continue;
+      const cycleStart = nextWorkDay(pointer);
+      pointer = await this.rescheduleFullCycle(cycle.id, cycleStart);
+    }
+
+    // Chain UAT → Rehearsal → GoLive
+    const uatCycle = cycleMap.get('UAT');
+    if (uatCycle) {
+      const uatStart = nextWorkDay(pointer);
+      await (prisma as any).qaCycle.update({ where: { id: uatCycle.id }, data: { plannedStart: uatStart, plannedEnd: uatStart } });
+      pointer = uatStart;
+      const rehCycle = cycleMap.get('REHEARSAL');
+      if (rehCycle) {
+        const rStart = nextWorkDay(pointer);
+        await (prisma as any).qaCycle.update({ where: { id: rehCycle.id }, data: { plannedStart: rStart, plannedEnd: rStart } });
+        pointer = rStart;
+        const glCycle = cycleMap.get('GO_LIVE');
+        if (glCycle) {
+          const glStart = nextWorkDay(pointer);
+          await (prisma as any).qaCycle.update({ where: { id: glCycle.id }, data: { plannedStart: glStart, plannedEnd: glStart } });
+        }
+      }
+    }
   }
 
   // ── Export to Excel ─────────────────────────────────────────────────────────
