@@ -42,6 +42,12 @@ backup:
 health:
 	bash $(SCRIPTS)/healthcheck.sh $(SLOT)
 
+prepare:
+	bash $(SCRIPTS)/prepare_airgapped.sh $(VERSION)
+
+install-airgapped:
+	bash $(SCRIPTS)/initial_deploy_airgapped.sh $(VERSION) $(PACKAGE_DIR)
+
 status:
 	@echo ""
 	@echo "=== Active Slot ==="
