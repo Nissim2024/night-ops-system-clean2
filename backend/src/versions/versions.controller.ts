@@ -150,7 +150,7 @@ export class VersionsController {
   @Patch(':id/status')
   updateStatus(@Param('id') id: string, @Body() body: { status: VersionStatus; force?: boolean }, @Request() req: any) {
     requireRole(req, MANAGERS, 'רק מנהל לילה יכול לשנות סטטוס גרסה');
-    return this.versionsService.updateStatus(id, body.status, req.user.sub, body.force ?? false);
+    return this.versionsService.updateStatus(id, body.status, req.user.sub, req.user.role, body.force ?? false);
   }
 
   @Patch(':id/archive')

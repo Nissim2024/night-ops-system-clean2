@@ -422,7 +422,11 @@ async addTask(subPhaseId: string, data: {
     });
   }
 
-  async updateStatus(id: string, status: VersionStatus, userId: string, force = false) {
+  async updateStatus(id: string, status: VersionStatus, userId: string, userRole: string, force = false) {
+    const MANAGER_ROLES = ['RELEASE_MANAGER', 'ADMIN'];
+    if (force && !MANAGER_ROLES.includes(userRole)) {
+      throw new ForbiddenException('רק מנהל לילה רשאי לדחוף שינוי סטטוס בכוח');
+    }
     const version = await prisma.version.findUnique({ where: { id } });
     if (!version) throw new NotFoundException('Version not found');
 
