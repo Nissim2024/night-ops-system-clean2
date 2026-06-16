@@ -1533,11 +1533,20 @@ async addTask(subPhaseId: string, data: {
   }
 
   async summarizeCrPlan(versionId: string, crNumber: string): Promise<{ summary: string }> {
-    const plans = await prisma.crPlan.findMany({
-      where: { versionId, crNumber },
-      include: { team: { select: { name: true } } },
-    });
+    const [plans, crAssign] = await Promise.all([
+      prisma.crPlan.findMany({
+        where: { versionId, crNumber },
+        include: { team: { select: { name: true } } },
+      }),
+      prisma.versionCrAssignment.findFirst({
+        where: { versionId, crNumber },
+        select: { crLabel: true, crDescription: true },
+      }),
+    ]);
     if (!plans.length) return { summary: '' };
+
+    const crTitle = crAssign?.crLabel && crAssign.crLabel !== crNumber ? crAssign.crLabel : crNumber;
+    const crDesc  = crAssign?.crDescription ?? plans.find((p: any) => p.crDescription)?.crDescription ?? '';
 
     const FIELD_LABELS: Record<string, string> = {
       workPlan: 'תוכנית עבודה',
@@ -1571,12 +1580,30 @@ async addTask(subPhaseId: string, data: {
     const { default: Anthropic } = await import('@anthropic-ai/sdk');
     const client = new Anthropic({ apiKey });
 
-    const prompt = `להלן תוכניות עבודה שהוגשו על ידי מספר צוותים לאותו CR (${crNumber}).
-אנא אחד את כל המידע לתוכנית עבודה אחת, כתובה בעברית, כאילו הוגשה על ידי גורם אחד.
-שמור על כל המידע המהותי, הסר כפילויות, וכתוב בשפה מקצועית וברורה.
-חלק לסעיפים לפי נושאים: תוכנית עבודה, סקריפטים, זמני הרצה, בדיקות, בוקר גרסה, Rollback (רק אם הוזן).
+    const prompt = `אתה מנהל פרויקטים טכני בכיר בחברת תוכנה. אתה מכין תוכנית עבודה מאוחדת לישיבת מעבר (CR Review) לפני לילה גרסה.
 
-הקלט:
+CR מספר: ${crNumber}
+כותרת: ${crTitle}${crDesc ? `\nרקע ותיאור: ${crDesc}` : ''}
+
+קיבלת תוכניות שהוגשו על ידי מספר צוותי פיתוח. המשימה שלך: אחד אותן לתוכנית מקצועית אחת.
+
+הנחיות:
+- כתוב בעברית תקנית ומקצועית
+- אחד מידע כפול — אל תחזור על אותו מידע פעמיים
+- שמור על כל הפרטים הטכניים (שמות סקריפטים, זמנים, מערכות, שמות שדות)
+- כתוב כאילו כל הצוותים פועלים בתיאום מלא כגוף אחד
+- אם צוות אחד כתב "אין מה לבדוק/לבקר" — ציין זאת בתמציתיות
+- אם שדה מכיל תוכן שנראה כנתון בדיקה (אותיות אקראיות, חסר משמעות) — הוסף הערה ⚠️ לצד הסעיף
+- חלק לסעיפים (רק אם יש תוכן רלוונטי):
+  📋 תוכנית עבודה — סדר הפעולות לביצוע
+  ⚙️ סקריפטים / קבצים — מה להריץ ומתי
+  ⏱️ זמני הרצה — משך כל פעולה
+  💡 בדיקות ליל גרסה — מה לבדוק אחרי ההטמעה
+  🌅 ניטור בוקר שלאחר גרסה — מה לבדוק למחרת
+  📈 עלייה מדורגת — אם רלוונטי
+  🛡️ תוכנית Rollback — צעדי החזרה לאחור אם נדרש
+
+תוכניות הצוותים:
 ${sections.join('\n\n')}`;
 
     const message = await client.messages.create({
