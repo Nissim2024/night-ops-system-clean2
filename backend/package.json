@@ -9,7 +9,6 @@
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
-
     "start": "cross-env NODE_ENV=dev nest start --watch",
     "start:dev": "cross-env NODE_ENV=dev nest start --watch",
     "start:test": "cross-env NODE_ENV=test nest start --watch",
@@ -18,23 +17,18 @@
     "build:start:test": "npm run build && cross-env NODE_ENV=test node dist/src/main",
     "build:start:prod": "npm run build:prod && cross-env NODE_ENV=prod node dist/src/main",
     "start:debug": "cross-env NODE_ENV=dev nest start --debug --watch",
-
     "db:dev": "docker compose -f ../docker-compose.yml --profile dev up -d",
     "db:test": "docker compose -f ../docker-compose.yml --profile test up -d",
     "db:prod": "docker compose -f ../docker-compose.yml --profile prod up -d",
     "db:stop": "docker compose -f ../docker-compose.yml down",
-
     "migrate:dev": "cross-env NODE_ENV=dev npx prisma migrate dev",
     "migrate:test": "cross-env NODE_ENV=test npx prisma migrate deploy",
     "migrate:prod": "cross-env NODE_ENV=prod npx prisma migrate deploy",
-
     "push:dev": "cross-env DATABASE_URL=postgresql://nightops_user:nightops_pass@localhost:5432/nightops_dev npx prisma db push",
     "push:test": "cross-env DATABASE_URL=postgresql://nightops_user:nightops_pass@localhost:5433/nightops_test npx prisma db push",
     "push:prod": "cross-env DATABASE_URL=postgresql://nightops_user:nightops_pass@localhost:5434/nightops_prod npx prisma db push",
-
     "studio:dev": "cross-env DATABASE_URL=postgresql://nightops_user:nightops_pass@localhost:5432/nightops_dev npx prisma studio",
     "studio:test": "cross-env DATABASE_URL=postgresql://nightops_user:nightops_pass@localhost:5433/nightops_test npx prisma studio",
-
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
@@ -42,6 +36,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.104.2",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",

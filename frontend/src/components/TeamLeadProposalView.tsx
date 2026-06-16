@@ -964,9 +964,15 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         {p.usedInTaskId ? (
           <span style={{ fontSize: '11px', color: C.success, fontWeight: '700', whiteSpace: 'nowrap', flexShrink: 0 }}>✅ בתוכנית</span>
         ) : locked ? (
-          <span style={{ fontSize: '11px', color: p.status === 'READY' ? C.success : C.warning, fontWeight: '700', whiteSpace: 'nowrap', flexShrink: 0 }}>
-            {p.status === 'READY' ? '✓ מוכן' : 'טיוטא'}
-          </span>
+          <div style={{ display: 'flex', gap: '4px', flexShrink: 0, alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', color: p.status === 'READY' ? C.success : C.warning, fontWeight: '700', whiteSpace: 'nowrap' }}>
+              {p.status === 'READY' ? '✓ מוכן' : 'טיוטא'}
+            </span>
+            <button onClick={() => openEdit(p)}
+              style={{ padding: '2px 8px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}50`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}>
+              ערוך
+            </button>
+          </div>
         ) : (
           <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
             <button onClick={() => toggleStatus(p)} style={{
@@ -1328,8 +1334,8 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
         {!isNotNeeded && crProposals.sort((a, b) => a.phase - b.phase).map(renderRow)}
 
-        {/* Inline form for this CR */}
-        {!locked && !isNotNeeded && openFormForCr === crNumber && renderForm()}
+        {/* Inline form for this CR — always show when editing existing, block only new-add when locked */}
+        {!isNotNeeded && openFormForCr === crNumber && (!locked || editId) && renderForm()}
 
         {!locked && !isNotNeeded && openFormForCr !== crNumber && (
           <button
@@ -1625,7 +1631,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                 <span style={{ fontSize: '13px', color: C.textSecondary, flex: 1 }}>משימות תשתיתיות / כלליות</span>
               </div>
               {freeGroup.sort((a, b) => a.phase - b.phase).map(renderRow)}
-              {!submissionDone && openFormForCr === FREE_KEY && renderForm()}
+              {openFormForCr === FREE_KEY && (!submissionDone || editId) && renderForm()}
               {!submissionDone && openFormForCr !== FREE_KEY && (
                 <button onClick={() => openAdd(undefined, undefined, true)} style={{
                   marginTop: '8px', width: '100%', padding: '9px',

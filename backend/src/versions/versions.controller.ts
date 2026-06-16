@@ -298,6 +298,16 @@ export class VersionsController {
     return this.versionsService.getCrReview(id);
   }
 
+  @Post(':id/cr-review/:crNumber/summarize')
+  summarizeCrPlan(
+    @Param('id') id: string,
+    @Param('crNumber') crNumber: string,
+    @Request() req: any,
+  ) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לסכם תוכנית CR');
+    return this.versionsService.summarizeCrPlan(id, crNumber);
+  }
+
   @Get(':id/sub-phases')
   getSubPhases(@Param('id') id: string) {
     return this.versionsService.getSubPhases(id);

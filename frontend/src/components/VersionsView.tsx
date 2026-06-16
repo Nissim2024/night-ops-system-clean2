@@ -1080,12 +1080,26 @@ const VersionDetail: React.FC<{
   };
 
   const openAssignPreview = () => {
-    const pending = proposals.filter((p: any) => !p.usedInTaskId);
-    setPreviewItems(pending.map((p: any) => ({
-      proposal: p,
-      checked: p.reviewStatus === 'APPROVED',
-    })));
-    setShowAssignPreview(true);
+    // Fetch fresh data so edits made after submission are reflected
+    axios.get(`${API}/task-proposals/version/${version.id}`, { headers })
+      .then(r => {
+        const fresh = (r.data as any[]).filter((p: any) => !p.usedInTaskId);
+        setProposals(fresh);
+        setPreviewItems(fresh.map((p: any) => ({
+          proposal: p,
+          checked: p.reviewStatus === 'APPROVED',
+        })));
+        setShowAssignPreview(true);
+      })
+      .catch(() => {
+        // Fallback to cached data
+        const pending = proposals.filter((p: any) => !p.usedInTaskId);
+        setPreviewItems(pending.map((p: any) => ({
+          proposal: p,
+          checked: p.reviewStatus === 'APPROVED',
+        })));
+        setShowAssignPreview(true);
+      });
   };
 
   const handleDeleteFromPreview = async (id: string) => {
@@ -4060,12 +4074,31 @@ const VersionDetail: React.FC<{
                               <span style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {p.title}
                               </span>
-                              <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
+                              <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap', alignItems: 'center' }}>
                                 <span style={{ ...TEXT.xs, color: C.textMuted }}>
                                   {teamMap.get(p.teamId) ?? p.teamId}
                                 </span>
                                 {p.assignedUserName && (
                                   <span style={{ ...TEXT.xs, color: C.textMuted }}>• {p.assignedUserName}</span>
+                                )}
+                                {p.crNumber && (
+                                  <span style={{
+                                    ...TEXT.xs, fontWeight: WEIGHT.semibold,
+                                    background: 'rgba(0,112,204,0.1)', color: '#0070cc',
+                                    padding: '1px 6px', borderRadius: '4px', whiteSpace: 'nowrap',
+                                  }}>
+                                    CR {p.crNumber}
+                                  </span>
+                                )}
+                                {p.estimatedMins && (
+                                  <span style={{
+                                    ...TEXT.xs, color: C.textMuted,
+                                    background: C.bgNested, padding: '1px 6px',
+                                    borderRadius: '4px', whiteSpace: 'nowrap',
+                                    border: `1px solid ${C.border}`,
+                                  }}>
+                                    ⏱ {p.estimatedMins} דק׳
+                                  </span>
                                 )}
                                 {warn && (
                                   <span style={{ ...TEXT.xs, color: C.warning, fontWeight: WEIGHT.semibold }}>⚠ חסרים פרטי ביצוע</span>

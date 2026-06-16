@@ -393,7 +393,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
         case 'proposals': return payload.role === 'TEAM_LEAD'
           ? ['COLLECTING', 'CR_REVIEW'].includes(vStatus ?? '')
           : ['COLLECTING', 'CR_REVIEW', 'REFINING'].includes(vStatus ?? '') && can('screen:prep');
-        case 'cr-review': return ['COLLECTING', 'CR_REVIEW', 'REFINING'].includes(vStatus ?? '') &&
+        case 'cr-review': return ['CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED', 'REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(vStatus ?? '') &&
                                  ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role);
         case 'board':     return isExecution || ['COMPLETED', 'ROLLED_BACK'].includes(vStatus ?? '');
         case 'overview':  return isExecution;

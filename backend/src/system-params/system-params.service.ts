@@ -60,6 +60,12 @@ const DEFAULT_PARAMS = [
     label: 'QC Oracle: Connect String (host:port/service)',
     type: 'text',
   },
+  {
+    key: 'ANTHROPIC_API_KEY',
+    value: '',
+    label: 'Anthropic API Key (לניסוח AI מאוחד של תוכניות CR)',
+    type: 'password',
+  },
 ];
 
 @Injectable()

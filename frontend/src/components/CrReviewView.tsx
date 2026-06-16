@@ -442,6 +442,8 @@ const CrCard: React.FC<{
   const [showPlan, setShowPlan]     = useState(true);   // open by default
   const [addOpen, setAddOpen]       = useState(false);
   const [approvingAll, setApprovingAll] = useState(false);
+  const [summary, setSummary]       = useState('');
+  const [summarizing, setSummarizing] = useState(false);
 
   // Extract modal state
   interface ExtractItemCr { text: string; checked: boolean; phase: number; estimatedMins: string; teamId: string; duplicateId?: string; }
@@ -589,10 +591,13 @@ const CrCard: React.FC<{
       {/* CrPlan panel (collapsible) */}
       {showPlan && (() => {
         // Aggregate per field across all teams
-        const nightItems  = entry.teams.filter(t => t.crPlan.nightTestingNotes).map(t => ({ teamId: t.teamId, teamName: t.teamName, text: t.crPlan.nightTestingNotes! }));
-        const morningItems= entry.teams.filter(t => t.crPlan.morningMonitoring).map(t => ({ teamId: t.teamId, teamName: t.teamName, text: t.crPlan.morningMonitoring! }));
-        const rollbackItems= entry.teams.filter(t => t.crPlan.rollbackPlan).map(t => ({ teamId: t.teamId, teamName: t.teamName, text: t.crPlan.rollbackPlan! }));
-        const gradualItems= entry.teams.filter(t => t.crPlan.gradualRollout && t.crPlan.gradualDetails).map(t => ({ teamId: t.teamId, teamName: t.teamName, text: t.crPlan.gradualDetails! }));
+        const workPlanItems  = entry.teams.filter(t => (t.crPlan as any).workPlan).map(t => ({ teamId: t.teamId, teamName: t.teamName, text: (t.crPlan as any).workPlan! }));
+        const scriptsItems   = entry.teams.filter(t => (t.crPlan as any).scripts).map(t => ({ teamId: t.teamId, teamName: t.teamName, text: (t.crPlan as any).scripts! }));
+        const runTimesItems  = entry.teams.filter(t => (t.crPlan as any).runTimes).map(t => ({ teamId: t.teamId, teamName: t.teamName, text: (t.crPlan as any).runTimes! }));
+        const nightItems     = entry.teams.filter(t => t.crPlan.nightTestingNotes).map(t => ({ teamId: t.teamId, teamName: t.teamName, text: t.crPlan.nightTestingNotes! }));
+        const morningItems   = entry.teams.filter(t => t.crPlan.morningMonitoring).map(t => ({ teamId: t.teamId, teamName: t.teamName, text: t.crPlan.morningMonitoring! }));
+        const rollbackItems  = entry.teams.filter(t => t.crPlan.rollbackPlan).map(t => ({ teamId: t.teamId, teamName: t.teamName, text: t.crPlan.rollbackPlan! }));
+        const gradualItems   = entry.teams.filter(t => t.crPlan.gradualRollout && t.crPlan.gradualDetails).map(t => ({ teamId: t.teamId, teamName: t.teamName, text: t.crPlan.gradualDetails! }));
 
         interface PlanItem { teamId: string; teamName: string; text: string; }
         const PlanSection = ({ title, icon, items, accent, defaultPhase }: { title: string; icon: string; items: PlanItem[]; accent: string; defaultPhase: number }) => {
@@ -630,12 +635,40 @@ const CrCard: React.FC<{
             {/* Header */}
             <div style={{ fontWeight: '800', fontSize: '18px', color: '#6c3483', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
               📋 פרטי תכנית CR
-              {/* Metadata row */}
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginRight: 'auto' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginRight: 'auto', alignItems: 'center' }}>
                 {riskLevel && <span style={{ fontSize: '12px', fontWeight: '700', padding: '2px 10px', borderRadius: '7px', ...RISK_COLORS[riskLevel] }}>פיתוח בסיכון {RISK_LABELS[riskLevel]}</span>}
                 {crType && <span style={{ fontSize: '12px', background: '#e8f0fe', color: '#2d4a7a', padding: '2px 10px', borderRadius: '7px', fontWeight: '600' }}>{crType}</span>}
+                <button
+                  disabled={summarizing}
+                  onClick={async () => {
+                    setSummarizing(true);
+                    try {
+                      const r = await axios.post(`${API}/versions/${versionId}/cr-review/${entry.crNumber}/summarize`, {}, { headers });
+                      setSummary(r.data.summary);
+                    } catch (e: any) {
+                      setSummary(`שגיאה: ${e?.response?.data?.message || e.message}`);
+                    } finally {
+                      setSummarizing(false);
+                    }
+                  }}
+                  style={{ fontSize: '12px', padding: '4px 12px', background: summarizing ? '#ccc' : '#6c3483', color: 'white', border: 'none', borderRadius: '7px', cursor: summarizing ? 'not-allowed' : 'pointer', fontWeight: '600', whiteSpace: 'nowrap' }}
+                >
+                  {summarizing ? '⏳ מסכם...' : '✨ סכם תוכנית'}
+                </button>
               </div>
             </div>
+
+            {/* AI Summary */}
+            {summary && (
+              <div style={{ background: '#f0edf8', border: '2px solid #9b59b6', borderRadius: '10px', padding: '16px 20px', marginBottom: '18px' }}>
+                <div style={{ fontWeight: '700', fontSize: '13px', color: '#6c3483', marginBottom: '8px' }}>✨ תוכנית מאוחדת (AI)</div>
+                <div style={{ fontSize: '14px', color: '#1a2332', lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>{summary}</div>
+                <button onClick={() => setSummary('')}
+                  style={{ marginTop: '10px', fontSize: '11px', padding: '2px 10px', background: 'none', border: '1px solid #9b59b660', borderRadius: '5px', color: '#9b59b6', cursor: 'pointer' }}>
+                  ✕ סגור
+                </button>
+              </div>
+            )}
 
             {/* CR file data — name, manager, description */}
           {(() => {
@@ -678,13 +711,16 @@ const CrCard: React.FC<{
               ))}
             </div>
 
-            {nightItems.length === 0 && morningItems.length === 0 && rollbackItems.length === 0 && gradualItems.length === 0 && (
+            {workPlanItems.length === 0 && scriptsItems.length === 0 && runTimesItems.length === 0 && nightItems.length === 0 && morningItems.length === 0 && rollbackItems.length === 0 && gradualItems.length === 0 && (
               <div style={{ color: '#aaa', fontSize: '13px', fontStyle: 'italic', textAlign: 'center', padding: '20px' }}>לא הוזנו פרטי תכנית</div>
             )}
 
-            <PlanSection title="המלצות בדיקות ליל גרסה" icon="💡" items={nightItems}   accent="#2980b9" defaultPhase={2} />
-            <PlanSection title="המלצות בקרות בוקר"       icon="🌅" items={morningItems} accent="#8e44ad" defaultPhase={4} />
-            <PlanSection title="תכנית Rollback"            icon="🔄" items={rollbackItems} accent="#e74c3c" defaultPhase={3} />
+            <PlanSection title="תוכנית עבודה"              icon="📝" items={workPlanItems}  accent="#27ae60" defaultPhase={2} />
+            <PlanSection title="סקריפטים"                  icon="💻" items={scriptsItems}    accent="#2980b9" defaultPhase={2} />
+            <PlanSection title="זמני הרצה"                 icon="⏱" items={runTimesItems}   accent="#16a085" defaultPhase={2} />
+            <PlanSection title="המלצות בדיקות ליל גרסה"   icon="💡" items={nightItems}      accent="#2980b9" defaultPhase={2} />
+            <PlanSection title="המלצות בקרות בוקר"         icon="🌅" items={morningItems}    accent="#8e44ad" defaultPhase={4} />
+            <PlanSection title="תכנית Rollback"             icon="🔄" items={rollbackItems}   accent="#e74c3c" defaultPhase={3} />
             {entry.hasGradualRollout && <PlanSection title="עלייה מדורגת" icon="📈" items={gradualItems} accent="#e67e22" defaultPhase={3} />}
           </div>
         );

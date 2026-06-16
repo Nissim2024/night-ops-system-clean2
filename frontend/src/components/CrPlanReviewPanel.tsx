@@ -61,6 +61,8 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
   const [approving,    setApproving]   = useState<Set<string>>(new Set());
   const [loading,      setLoading]     = useState(true);
   const [teamPanelOpen, setTeamPanelOpen] = useState(defaultTeamPanelOpen ?? false);
+  const [summaries,     setSummaries]   = useState<Record<string, string>>({});
+  const [summarizingCr, setSummarizingCr] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -93,6 +95,18 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
     });
     onAllApproved?.(allOk);
   }, [crPlans, assignments, submissions]); // eslint-disable-line
+
+  const summarizeCr = async (crNumber: string) => {
+    setSummarizingCr(crNumber);
+    try {
+      const r = await axios.post(`${API}/versions/${versionId}/cr-review/${crNumber}/summarize`, {}, { headers });
+      setSummaries(prev => ({ ...prev, [crNumber]: r.data.summary }));
+    } catch (e: any) {
+      setSummaries(prev => ({ ...prev, [crNumber]: `שגיאה: ${e?.response?.data?.message || e.message}` }));
+    } finally {
+      setSummarizingCr(null);
+    }
+  };
 
   const approveCr = async (crNumber: string, approve: boolean) => {
     setApproving(p => new Set(p).add(crNumber));
@@ -443,6 +457,30 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                       borderBottom: `1px solid ${C.border}`,
                       borderRight: `3px solid ${C.border}44`,
                     }}>
+                      {/* Header + summarize button */}
+                      <div style={{ padding: '10px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${C.border}` }}>
+                        <span style={{ fontSize: '13px', fontWeight: '700', color: '#a371f7' }}>📋 פרטי תכנית CR</span>
+                        {isManager && (
+                          <button
+                            disabled={summarizingCr === crNumber}
+                            onClick={() => summarizeCr(crNumber)}
+                            style={{ fontSize: '12px', padding: '4px 12px', background: summarizingCr === crNumber ? '#555' : '#6c3483', color: 'white', border: 'none', borderRadius: '7px', cursor: summarizingCr === crNumber ? 'not-allowed' : 'pointer', fontWeight: '600', whiteSpace: 'nowrap' }}
+                          >
+                            {summarizingCr === crNumber ? '⏳ מסכם...' : '✨ סכם תוכנית'}
+                          </button>
+                        )}
+                      </div>
+                      {/* AI summary */}
+                      {summaries[crNumber] && (
+                        <div style={{ margin: '12px 24px', padding: '14px 18px', background: 'rgba(163,113,247,0.1)', border: '1px solid rgba(163,113,247,0.4)', borderRadius: '8px' }}>
+                          <div style={{ fontWeight: '700', fontSize: '12px', color: '#a371f7', marginBottom: '8px' }}>✨ תוכנית מאוחדת (AI)</div>
+                          <div style={{ fontSize: '14px', color: C.textSecondary, lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>{summaries[crNumber]}</div>
+                          <button onClick={() => setSummaries(prev => { const n = { ...prev }; delete n[crNumber]; return n; })}
+                            style={{ marginTop: '8px', fontSize: '11px', padding: '2px 10px', background: 'none', border: '1px solid rgba(163,113,247,0.4)', borderRadius: '5px', color: '#a371f7', cursor: 'pointer' }}>
+                            ✕ סגור
+                          </button>
+                        </div>
+                      )}
                       <div style={{ padding: '20px 24px', display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '28px' }}>
                         <div>
                           {aggField('📋', 'תוכנית עבודה',            workItems,    '#d4a843')}

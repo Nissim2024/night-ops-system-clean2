@@ -1497,6 +1497,9 @@ async addTask(subPhaseId: string, data: {
           crType: plan.crType ?? null,
           riskLevel: plan.riskLevel ?? null,
           systems: plan.systems ?? [],
+          workPlan: plan.workPlan ?? null,
+          scripts: plan.scripts ?? null,
+          runTimes: plan.runTimes ?? null,
           nightTestingNotes: plan.nightTestingNotes ?? null,
           gradualRollout: plan.gradualRollout,
           gradualDetails: plan.gradualDetails ?? null,
@@ -1527,6 +1530,63 @@ async addTask(subPhaseId: string, data: {
     }
 
     return result;
+  }
+
+  async summarizeCrPlan(versionId: string, crNumber: string): Promise<{ summary: string }> {
+    const plans = await prisma.crPlan.findMany({
+      where: { versionId, crNumber },
+      include: { team: { select: { name: true } } },
+    });
+    if (!plans.length) return { summary: '' };
+
+    const FIELD_LABELS: Record<string, string> = {
+      workPlan: 'תוכנית עבודה',
+      scripts: 'סקריפטים',
+      runTimes: 'זמני הרצה',
+      nightTestingNotes: 'המלצות בדיקות ליל גרסה',
+      morningMonitoring: 'המלצות בקרות בוקר',
+      rollbackPlan: 'תוכנית Rollback',
+      gradualDetails: 'עלייה מדורגת',
+    };
+
+    const sections: string[] = [];
+    for (const plan of plans) {
+      const teamName = (plan as any).team?.name ?? 'צוות לא ידוע';
+      const parts: string[] = [];
+      for (const [field, label] of Object.entries(FIELD_LABELS)) {
+        const val = (plan as any)[field];
+        if (val && String(val).trim()) {
+          parts.push(`${label}:\n${String(val).trim()}`);
+        }
+      }
+      if (parts.length) sections.push(`--- ${teamName} ---\n${parts.join('\n\n')}`);
+    }
+
+    if (!sections.length) return { summary: '' };
+
+    const apiKeyParam = await prisma.systemParam.findUnique({ where: { key: 'ANTHROPIC_API_KEY' } });
+    const apiKey = apiKeyParam?.value?.trim() || process.env.ANTHROPIC_API_KEY || '';
+    if (!apiKey) throw new Error('מפתח ANTHROPIC_API_KEY לא מוגדר בפרמטרי המערכת');
+
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    const client = new Anthropic({ apiKey });
+
+    const prompt = `להלן תוכניות עבודה שהוגשו על ידי מספר צוותים לאותו CR (${crNumber}).
+אנא אחד את כל המידע לתוכנית עבודה אחת, כתובה בעברית, כאילו הוגשה על ידי גורם אחד.
+שמור על כל המידע המהותי, הסר כפילויות, וכתוב בשפה מקצועית וברורה.
+חלק לסעיפים לפי נושאים: תוכנית עבודה, סקריפטים, זמני הרצה, בדיקות, בוקר גרסה, Rollback (רק אם הוזן).
+
+הקלט:
+${sections.join('\n\n')}`;
+
+    const message = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const summary = (message.content[0] as any).text ?? '';
+    return { summary };
   }
 
   async fixTaskOrder(versionId: string) {
