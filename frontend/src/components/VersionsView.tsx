@@ -95,7 +95,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
   const [selected, setSelected] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(autoNew ?? false);
-  const [newVersion, setNewVersion] = useState({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', qcReleaseId: '' });
+  const [newVersion, setNewVersion] = useState({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', integrationStart: '', integrationEnd: '', qaStart: '', qaEnd: '', qcReleaseId: '' });
   const [qcReleases, setQcReleases] = useState<QcRelease[]>([]);
   const [creatingTemplate, setCreatingTemplate] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -168,7 +168,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
       }, { headers });
       const versionId = res.data.id;
       setShowNew(false);
-      setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', qcReleaseId: '' });
+      setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', integrationStart: '', integrationEnd: '', qaStart: '', qaEnd: '', qcReleaseId: '' });
       await fetchVersions();
       await fetchVersion(versionId);
       onVersionsChanged?.();
@@ -188,7 +188,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
       const res = await axios.post(`${API}/import/excel`, formData, { headers });
       if (res.data.success) {
         setShowNew(false);
-        setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', qcReleaseId: '' });
+        setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', integrationStart: '', integrationEnd: '', qaStart: '', qaEnd: '', qcReleaseId: '' });
         setImportFile(null);
         await fetchVersions();
         onVersionsChanged?.();
@@ -211,7 +211,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
       const versionId = res.data.id;
       await axios.post(`${API}/version-templates/${selectedTemplateId}/apply-to-version/${versionId}`, {}, { headers });
       setShowNew(false);
-      setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', qcReleaseId: '' });
+      setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', integrationStart: '', integrationEnd: '', qaStart: '', qaEnd: '', qcReleaseId: '' });
       setSelectedTemplateId('');
       await fetchVersions();
       await fetchVersion(versionId);
@@ -479,6 +479,42 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
                 value={newVersion.reviewMeetingTime}
                 onChange={e => setNewVersion({ ...newVersion, reviewMeetingTime: e.target.value })}
                 style={{ width: '100%', padding: '10px', border: `2px solid ${C.brand}66`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>🔧 תחילת אינטגרציה</label>
+              <input
+                type="date"
+                value={newVersion.integrationStart}
+                onChange={e => setNewVersion({ ...newVersion, integrationStart: e.target.value })}
+                style={{ width: '100%', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>🔧 סיום אינטגרציה</label>
+              <input
+                type="date"
+                value={newVersion.integrationEnd}
+                onChange={e => setNewVersion({ ...newVersion, integrationEnd: e.target.value })}
+                style={{ width: '100%', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>🧪 תחילת בדיקות QA</label>
+              <input
+                type="date"
+                value={newVersion.qaStart}
+                onChange={e => setNewVersion({ ...newVersion, qaStart: e.target.value })}
+                style={{ width: '100%', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>🧪 סיום בדיקות QA</label>
+              <input
+                type="date"
+                value={newVersion.qaEnd}
+                onChange={e => setNewVersion({ ...newVersion, qaEnd: e.target.value })}
+                style={{ width: '100%', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
               />
             </div>
             <div>
@@ -904,6 +940,8 @@ const VersionDetail: React.FC<{
   const [converting, setConverting] = useState(false);
   const [convertResult, setConvertResult] = useState<{ created: number; skipped: { title: string; reason: string }[]; tasks: { title: string; phaseName: string; subPhaseName: string }[] } | null>(null);
   const [lastConvertedAt, setLastConvertedAt] = useState<Date | null>(null);
+  const [showAssignPreview, setShowAssignPreview] = useState(false);
+  const [previewItems, setPreviewItems] = useState<{ proposal: any; checked: boolean }[]>([]);
   const [prepOpen, setPrepOpen] = useState(false);
   const [prepMessage, setPrepMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
@@ -1032,7 +1070,45 @@ const VersionDetail: React.FC<{
       const res = await axios.post(`${API}/task-proposals/version/${version.id}/convert-approved`, {}, { headers });
       setConvertResult({ created: res.data.created ?? 0, skipped: res.data.skipped ?? [], tasks: res.data.tasks ?? [] });
       if ((res.data.created ?? 0) > 0) setLastConvertedAt(new Date());
-      // Refresh proposals list and version data
+      axios.get(`${API}/task-proposals/version/${version.id}`, { headers })
+        .then(r => setProposals(r.data.filter((p: any) => !p.usedInTaskId)))
+        .catch(() => {});
+      onRefresh?.();
+    } catch (err: any) {
+      setConvertResult({ created: 0, skipped: [{ title: '—', reason: err?.response?.data?.message || 'שגיאה בשיבוץ' }], tasks: [] });
+    } finally { setConverting(false); }
+  };
+
+  const openAssignPreview = () => {
+    const pending = proposals.filter((p: any) => !p.usedInTaskId);
+    setPreviewItems(pending.map((p: any) => ({
+      proposal: p,
+      checked: p.reviewStatus === 'APPROVED',
+    })));
+    setShowAssignPreview(true);
+  };
+
+  const handleDeleteFromPreview = async (id: string) => {
+    try {
+      await axios.delete(`${API}/task-proposals/${id}`, { headers });
+      setPreviewItems(prev => prev.filter(item => item.proposal.id !== id));
+      setProposals(prev => prev.filter((p: any) => p.id !== id));
+    } catch { /* ignore */ }
+  };
+
+  const handleConfirmAssign = async () => {
+    const selectedIds = previewItems.filter(i => i.checked).map(i => i.proposal.id);
+    setShowAssignPreview(false);
+    if (selectedIds.length === 0) return;
+    setConverting(true);
+    try {
+      const res = await axios.post(
+        `${API}/task-proposals/version/${version.id}/convert-approved`,
+        { proposalIds: selectedIds },
+        { headers },
+      );
+      setConvertResult({ created: res.data.created ?? 0, skipped: res.data.skipped ?? [], tasks: res.data.tasks ?? [] });
+      if ((res.data.created ?? 0) > 0) setLastConvertedAt(new Date());
       axios.get(`${API}/task-proposals/version/${version.id}`, { headers })
         .then(r => setProposals(r.data.filter((p: any) => !p.usedInTaskId)))
         .catch(() => {});
@@ -1726,9 +1802,9 @@ const VersionDetail: React.FC<{
             {/* Total pending proposals — clickable assign button */}
             {FEATURES.TEAM_LEAD_PROPOSAL && isManager && proposals.filter(p => !p.usedInTaskId).length > 0 && (
               <button
-                onClick={handleConvertProposals}
+                onClick={openAssignPreview}
                 disabled={converting}
-                title="שבץ הצעות מאושרות לתוכנית (הצעות שטרם אושרו יוצגו בדוח)"
+                title="פתח תצוגה מקדימה לשיבוץ הצעות"
                 style={{
                   background: converting ? '#b7763a' : '#e67e22', color: 'white',
                   padding: '4px 14px', borderRadius: '12px',
@@ -3871,6 +3947,193 @@ const VersionDetail: React.FC<{
               />
             </div>
           </>
+        );
+      })()}
+
+      {/* ── Assign preview modal ── */}
+      {showAssignPreview && (() => {
+        const PHASE_LABELS: Record<number, string> = {
+          1: 'שלב 1 — בוקר גרסה',
+          2: 'שלב 2 — HotNet',
+          3: 'שלב 3 — Hot',
+          4: 'שלב 4 — בוקר שלאחר',
+        };
+        const STATUS_LABEL: Record<string, string> = {
+          APPROVED:       '✅ מאושר',
+          PENDING:        '⏳ ממתין',
+          REJECTED:       '❌ נדחה',
+          NEEDS_REVISION: '↩ לתיקון',
+        };
+        const STATUS_COLOR: Record<string, string> = {
+          APPROVED: C.success, PENDING: C.warning,
+          REJECTED: C.danger,  NEEDS_REVISION: C.warning,
+        };
+        const teamMap = new Map<string, string>(teams.map((t: any) => [t.id, t.name]));
+        const phases = Array.from(new Set(previewItems.map(i => i.proposal.phase))).sort((a, b) => a - b);
+        const checkedCount = previewItems.filter(i => i.checked).length;
+        const missingFields = (p: any) => !p.assignedUserName?.trim() || !p.estimatedMins;
+
+        return (
+          <div
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}
+            onClick={() => setShowAssignPreview(false)}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                background: C.bgCard, borderRadius: RADIUS.lg, padding: SP[6],
+                minWidth: '560px', maxWidth: '720px', width: '92%', maxHeight: '85vh',
+                display: 'flex', flexDirection: 'column', gap: SP[4],
+                boxShadow: SHADOW.lg, direction: 'rtl', fontFamily: FONT,
+              }}
+            >
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ margin: 0, ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+                  שיבוץ הצעות — תצוגה מקדימה
+                </h3>
+                <span style={{ ...TEXT.sm, color: C.textMuted }}>
+                  {previewItems.length} הצעות • {checkedCount} מסומנות לשיבוץ
+                </span>
+              </div>
+
+              {/* Select all / Deselect all */}
+              <div style={{ display: 'flex', gap: SP[3], alignItems: 'center' }}>
+                <button
+                  onClick={() => setPreviewItems(prev => prev.map(i => ({ ...i, checked: true })))}
+                  style={{ padding: '4px 12px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, fontFamily: FONT, ...TEXT.xs, cursor: 'pointer' }}
+                >
+                  ✔ בחר הכל
+                </button>
+                <button
+                  onClick={() => setPreviewItems(prev => prev.map(i => ({ ...i, checked: false })))}
+                  style={{ padding: '4px 12px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, fontFamily: FONT, ...TEXT.xs, cursor: 'pointer' }}
+                >
+                  ☐ בטל הכל
+                </button>
+              </div>
+
+              {/* Proposal list grouped by phase */}
+              <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+                {phases.map(phaseNum => (
+                  <div key={phaseNum}>
+                    <div style={{
+                      padding: `${SP[1]} ${SP[3]}`, borderRadius: RADIUS.md,
+                      background: C.bgNested, border: `1px solid ${C.border}`,
+                      ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted,
+                      marginBottom: SP[2], textTransform: 'uppercase', letterSpacing: '0.04em',
+                    }}>
+                      {PHASE_LABELS[phaseNum] ?? `שלב ${phaseNum}`}
+                    </div>
+                    {previewItems
+                      .filter(i => i.proposal.phase === phaseNum)
+                      .map((item, idx) => {
+                        const p = item.proposal;
+                        const warn = missingFields(p);
+                        return (
+                          <div
+                            key={p.id}
+                            style={{
+                              display: 'grid', gridTemplateColumns: '28px 1fr auto auto',
+                              alignItems: 'center', gap: SP[2],
+                              padding: `${SP[2]} ${SP[3]}`,
+                              borderRadius: RADIUS.md,
+                              background: item.checked ? 'rgba(40,167,69,0.05)' : C.bgNested,
+                              border: `1px solid ${item.checked ? 'rgba(40,167,69,0.2)' : C.border}`,
+                              marginBottom: idx < previewItems.filter(i => i.proposal.phase === phaseNum).length - 1 ? SP[1] : 0,
+                              opacity: item.checked ? 1 : 0.6,
+                              transition: EASE.fast,
+                            }}
+                          >
+                            {/* Checkbox */}
+                            <input
+                              type="checkbox"
+                              checked={item.checked}
+                              onChange={e => setPreviewItems(prev =>
+                                prev.map(i => i.proposal.id === p.id ? { ...i, checked: e.target.checked } : i)
+                              )}
+                              style={{ width: 16, height: 16, cursor: 'pointer', accentColor: C.success }}
+                            />
+
+                            {/* Title + meta */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+                              <span style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {p.title}
+                              </span>
+                              <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
+                                <span style={{ ...TEXT.xs, color: C.textMuted }}>
+                                  {teamMap.get(p.teamId) ?? p.teamId}
+                                </span>
+                                {p.assignedUserName && (
+                                  <span style={{ ...TEXT.xs, color: C.textMuted }}>• {p.assignedUserName}</span>
+                                )}
+                                {warn && (
+                                  <span style={{ ...TEXT.xs, color: C.warning, fontWeight: WEIGHT.semibold }}>⚠ חסרים פרטי ביצוע</span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Status badge */}
+                            <span style={{
+                              ...TEXT.xs, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap',
+                              color: STATUS_COLOR[p.reviewStatus] ?? C.textMuted,
+                            }}>
+                              {STATUS_LABEL[p.reviewStatus] ?? p.reviewStatus}
+                            </span>
+
+                            {/* Delete button */}
+                            <button
+                              onClick={() => handleDeleteFromPreview(p.id)}
+                              title="מחק הצעה לצמיתות"
+                              style={{
+                                padding: '3px 8px', borderRadius: RADIUS.md,
+                                border: `1px solid ${C.border}`, background: C.bgNested,
+                                color: C.danger, fontFamily: FONT, ...TEXT.xs, cursor: 'pointer',
+                              }}
+                            >
+                              🗑
+                            </button>
+                          </div>
+                        );
+                      })}
+                  </div>
+                ))}
+
+                {previewItems.length === 0 && (
+                  <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[4] }}>
+                    אין הצעות ממתינות לשיבוץ
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end', borderTop: `1px solid ${C.border}`, paddingTop: SP[3] }}>
+                <button
+                  onClick={() => setShowAssignPreview(false)}
+                  style={{
+                    padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,
+                    border: `1px solid ${C.border}`, background: C.bgNested,
+                    color: C.textPrimary, fontFamily: FONT, ...TEXT.sm, cursor: 'pointer',
+                  }}
+                >
+                  ביטול
+                </button>
+                <button
+                  onClick={handleConfirmAssign}
+                  disabled={checkedCount === 0}
+                  style={{
+                    padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none',
+                    background: checkedCount > 0 ? '#28a745' : C.bgHover,
+                    color: checkedCount > 0 ? '#fff' : C.textDisabled,
+                    fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.bold,
+                    cursor: checkedCount > 0 ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  ✔ אשר שיבוץ ({checkedCount})
+                </button>
+              </div>
+            </div>
+          </div>
         );
       })()}
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, versionStatusColor, versionStatusBg, versionStatusLabel } from '../theme';
+import { useDialog } from '../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -92,6 +93,7 @@ const subStatusBg = (s: string, notNeeded: boolean): string => {
 };
 
 export const CrManagerView: React.FC<Props> = ({ token }) => {
+  const dialog = useDialog();
   const [data, setData] = useState<VersionEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -140,7 +142,7 @@ export const CrManagerView: React.FC<Props> = ({ token }) => {
       flashSuccess(`CR ${crNumber} אושר בהצלחה`);
       load();
     } catch (e: any) {
-      alert(e.response?.data?.message ?? 'שגיאה באישור');
+      dialog.alert(e.response?.data?.message ?? 'שגיאה באישור', 'שגיאה', 'danger');
     } finally {
       setApprovingCr(null);
     }
@@ -156,7 +158,7 @@ export const CrManagerView: React.FC<Props> = ({ token }) => {
       setReturnNote('');
       load();
     } catch (e: any) {
-      alert(e.response?.data?.message ?? 'שגיאה בהחזרה');
+      dialog.alert(e.response?.data?.message ?? 'שגיאה בהחזרה', 'שגיאה', 'danger');
     } finally {
       setReturnLoading(false);
     }

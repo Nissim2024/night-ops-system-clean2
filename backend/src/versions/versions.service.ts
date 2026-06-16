@@ -85,6 +85,10 @@ export class VersionsService {
     description?: string;
     plannedStart?: string;
     plannedEnd?: string;
+    integrationStart?: string;
+    integrationEnd?: string;
+    qaStart?: string;
+    qaEnd?: string;
     importedFileName?: string;
     collectionDeadline?: string;
     reviewMeetingTime?: string;
@@ -100,6 +104,10 @@ export class VersionsService {
         description: data.description,
         plannedStart: data.plannedStart ? new Date(data.plannedStart) : undefined,
         plannedEnd: data.plannedEnd ? new Date(data.plannedEnd) : undefined,
+        integrationStart: data.integrationStart ? new Date(data.integrationStart) : undefined,
+        integrationEnd: data.integrationEnd ? new Date(data.integrationEnd) : undefined,
+        qaStart: data.qaStart ? new Date(data.qaStart) : undefined,
+        qaEnd: data.qaEnd ? new Date(data.qaEnd) : undefined,
         importedFileName: data.importedFileName || undefined,
         collectionDeadline: data.collectionDeadline ? new Date(data.collectionDeadline) : undefined,
         reviewMeetingTime: data.reviewMeetingTime ? new Date(data.reviewMeetingTime) : undefined,
@@ -605,13 +613,21 @@ async addTask(subPhaseId: string, data: {
     return prisma.version.update({ where: { id }, data });
   }
 
-  async updateFields(id: string, data: { plannedStart?: string | null; plannedEnd?: string | null; reviewMeetingTime?: string | null; name?: string; description?: string }) {
+  async updateFields(id: string, data: {
+    plannedStart?: string | null; plannedEnd?: string | null; reviewMeetingTime?: string | null;
+    integrationStart?: string | null; integrationEnd?: string | null; qaStart?: string | null; qaEnd?: string | null;
+    name?: string; description?: string;
+  }) {
     const version = await prisma.version.findUnique({ where: { id } });
     if (!version) throw new NotFoundException('Version not found');
     const update: any = {};
-    if ('plannedStart'     in data) update.plannedStart     = data.plannedStart     ? new Date(data.plannedStart)     : null;
-    if ('plannedEnd'       in data) update.plannedEnd       = data.plannedEnd       ? new Date(data.plannedEnd)       : null;
+    if ('plannedStart'      in data) update.plannedStart      = data.plannedStart      ? new Date(data.plannedStart)      : null;
+    if ('plannedEnd'        in data) update.plannedEnd        = data.plannedEnd        ? new Date(data.plannedEnd)        : null;
     if ('reviewMeetingTime' in data) update.reviewMeetingTime = data.reviewMeetingTime ? new Date(data.reviewMeetingTime) : null;
+    if ('integrationStart'  in data) update.integrationStart  = data.integrationStart  ? new Date(data.integrationStart)  : null;
+    if ('integrationEnd'    in data) update.integrationEnd    = data.integrationEnd    ? new Date(data.integrationEnd)    : null;
+    if ('qaStart'           in data) update.qaStart           = data.qaStart           ? new Date(data.qaStart)           : null;
+    if ('qaEnd'             in data) update.qaEnd             = data.qaEnd             ? new Date(data.qaEnd)             : null;
     if ('name'        in data && data.name)        update.name        = data.name;
     if ('description' in data)                     update.description = data.description ?? null;
     return prisma.version.update({ where: { id }, data: update });

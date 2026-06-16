@@ -4,6 +4,7 @@ const QaWorkPlanView    = lazy(() => import('./QaWorkPlanView'));
 const QaActivityPlanView = lazy(() => import('./QaActivityPlanView'));
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../../theme';
 import { ConfirmDialog, DialogConfig } from '../ConfirmDialog';
+import { useDialog } from '../../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -29,8 +30,12 @@ interface Version {
   name: string;
   status: string;
   isArchived: boolean;
-  plannedStart: string | null;
-  plannedEnd:   string | null;
+  plannedStart:     string | null;
+  plannedEnd:       string | null;
+  integrationStart: string | null;
+  integrationEnd:   string | null;
+  qaStart:          string | null;
+  qaEnd:            string | null;
 }
 
 interface CrRec {
@@ -178,6 +183,7 @@ const LS_VERSION_KEY = 'qa-selected-version';
 interface PickerPos { crNumber: string; top?: number; bottom?: number; right: number; maxH?: number; }
 
 export default function QaAssignmentView({ token }: Props) {
+  const dialog  = useDialog();
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
   const [versions, setVersions]         = useState<Version[]>([]);
@@ -188,6 +194,11 @@ export default function QaAssignmentView({ token }: Props) {
   const [loading, setLoading]           = useState(false);
   const [generating, setGenerating]     = useState(false);
   const [syncing, setSyncing]           = useState(false);
+
+  const selectedVersion = useMemo(
+    () => versions.find(v => v.id === selectedVId) ?? null,
+    [versions, selectedVId],
+  );
 
   const [cycle1Start, setCycle1Start]   = useState('');
   const [testingEnd, setTestingEnd]     = useState('');
@@ -251,6 +262,14 @@ export default function QaAssignmentView({ token }: Props) {
   }, [token]);
 
   useEffect(() => { loadVersion(selectedVId); }, [selectedVId, loadVersion]);
+
+  // ── Pre-fill dates from version when no plan exists ────────────────────────
+  useEffect(() => {
+    if (!selectedVersion) return;
+    if (!cycle1Start && selectedVersion.qaStart) setCycle1Start(toInputDate(selectedVersion.qaStart));
+    if (!testingEnd  && selectedVersion.qaEnd)   setTestingEnd(toInputDate(selectedVersion.qaEnd));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVersion?.id]);
 
   // ── Hidden CRs — localStorage per version ─────────────────────────────────
   useEffect(() => {
@@ -453,9 +472,9 @@ export default function QaAssignmentView({ token }: Props) {
         { headers },
       );
       await loadVersion(selectedVId);
-      alert(`✅ סנכרון הושלם — ${r.data?.synced ?? 0} שורות עודכנו`);
+      dialog.alert(`סנכרון הושלם — ${r.data?.synced ?? 0} שורות עודכנו`, 'סנכרון הצליח', 'success');
     } catch (e: any) {
-      alert(e?.response?.data?.message ?? 'שגיאה בסנכרון');
+      dialog.alert(e?.response?.data?.message ?? 'שגיאה בסנכרון', 'שגיאה', 'danger');
     } finally {
       setSyncing(false);
     }
@@ -472,22 +491,19 @@ export default function QaAssignmentView({ token }: Props) {
         { headers },
       );
       const unassignedCrs: string[] = r.data.unassignedCrs ?? [];
-      alert(
-        `✅ תוכנית עבודה נוצרה!
-` +
-        (unassignedCrs.length > 0 ? `
-⚠ ${unassignedCrs.length} CRים ללא שיבוץ לא נכללו:
-${unassignedCrs.slice(0,5).join(', ')}${unassignedCrs.length > 5 ? '...' : ''}` : ''),
-      );
+      const msg = unassignedCrs.length > 0
+        ? `⚠ ${unassignedCrs.length} CRים ללא שיבוץ לא נכללו:\n${unassignedCrs.slice(0,5).join(', ')}${unassignedCrs.length > 5 ? '...' : ''}`
+        : 'כל ה-CRים המשובצים נכללו בתוכנית.';
+      dialog.alert(msg, 'תוכנית עבודה נוצרה', unassignedCrs.length > 0 ? 'warning' : 'success');
     } catch (e: any) {
-      alert(e?.response?.data?.message ?? 'שגיאה ביצירת תוכנית העבודה');
+      dialog.alert(e?.response?.data?.message ?? 'שגיאה ביצירת תוכנית העבודה', 'שגיאה', 'danger');
     } finally {
       setGenerating(false);
     }
   };
 
   const generateWorkPlan = () => {
-    if (!cycle1Start || !testingEnd) { alert('יש להזין תאריך התחלה ותאריך סיום בדיקות'); return; }
+    if (!cycle1Start || !testingEnd) { dialog.alert('יש להזין תאריך התחלה ותאריך סיום בדיקות', 'שדות חסרים', 'warning'); return; }
 
     const assignedCrNums = new Set(assignments.map(a => a.crNumber));
     const unassignedCount = crs.filter(cr => !assignedCrNums.has(cr.crNumber)).length;
@@ -629,14 +645,24 @@ CRים אלה לא ייכללו בתוכנית העבודה.
       {/* Work plan tab */}
       {activeTab === 'workplan' && (
         <Suspense fallback={<div style={{ padding: SP[6], textAlign: 'center', color: C.textMuted }}>טוען...</div>}>
-          <QaWorkPlanView token={token} initialVersionId={selectedVId} />
+          <QaWorkPlanView
+            token={token}
+            initialVersionId={selectedVId}
+            versionQaStart={selectedVersion?.qaStart}
+            versionQaEnd={selectedVersion?.qaEnd}
+          />
         </Suspense>
       )}
 
       {/* Activity board tab */}
       {activeTab === 'activity' && (
         <Suspense fallback={<div style={{ padding: SP[6], textAlign: 'center', color: C.textMuted }}>טוען...</div>}>
-          <QaActivityPlanView token={token} versionId={selectedVId} />
+          <QaActivityPlanView
+            token={token}
+            versionId={selectedVId}
+            versionIntegrationStart={selectedVersion?.integrationStart}
+            versionIntegrationEnd={selectedVersion?.integrationEnd}
+          />
         </Suspense>
       )}
 
@@ -1001,7 +1027,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                           <div style={{ display: 'flex', gap: SP[1], alignItems: 'center' }}>
                             <button
                               disabled={isSaving}
-                              onClick={async () => { const r = await autoAssign(cr.crNumber); if (r?.status === 'MANUAL_INTERVENTION') { alert('⚠️ שיבוץ ידני נדרש:\n\n' + r.blockReasons.join('\n')); } }}
+                              onClick={async () => { const r = await autoAssign(cr.crNumber); if (r?.status === 'MANUAL_INTERVENTION') { dialog.alert('שיבוץ ידני נדרש:\n\n' + r.blockReasons.join('\n'), 'שיבוץ ידני נדרש', 'warning'); } }}
                               title="שיבוץ אוטומטי"
                               style={{ padding: `5px 8px`, background: C.successBg, color: C.success, border: `1px solid ${C.success}44`, borderRadius: RADIUS.md, ...TEXT.xs, fontWeight: WEIGHT.semibold, cursor: isSaving ? 'not-allowed' : 'pointer', fontFamily: FONT, transition: EASE.fast, opacity: isSaving ? 0.5 : 1 }}
                               onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = C.success + '22'}

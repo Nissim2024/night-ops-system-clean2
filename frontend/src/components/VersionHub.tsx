@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, versionStatusLabel, versionStatusColor } from '../theme';
+import { useDialog } from '../context/DialogContext';
 import { VersionStatusChip } from './ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -28,6 +29,7 @@ const fmt = (d: string | null | undefined) =>
   d ? new Date(d).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : null;
 
 export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, token, onVersionUpdated }) => {
+  const dialog = useDialog();
   if (!version) return null;
 
   const s = version.status;
@@ -487,12 +489,12 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
             {isAdmin && (
               <button
                 onClick={async () => {
-                  if (!window.confirm(`למחוק את הגרסה "${version.name}" לצמיתות?\nפעולה זו אינה הפיכה.`)) return;
+                  if (!await dialog.confirm(`למחוק את הגרסה "${version.name}" לצמיתות?\nפעולה זו אינה הפיכה.`, 'מחיקת גרסה', 'danger')) return;
                   try {
                     await axios.delete(`${API}/versions/${version.id}`, { headers });
                     onVersionUpdated?.();
                   } catch (err: any) {
-                    alert(err?.response?.data?.message || 'שגיאה במחיקת הגרסה');
+                    dialog.alert(err?.response?.data?.message || 'שגיאה במחיקת הגרסה', 'שגיאה', 'danger');
                   }
                 }}
                 style={{
@@ -524,37 +526,45 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
         </div>
 
         {/* שדות תאריכים — עריכה אינליין */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
           {[
-            { icon: '📅', label: 'התחלה מתוכננת', field: 'plannedStart',        value: version.plannedStart },
-            { icon: '🏁', label: 'סיום מתוכנן',   field: 'plannedEnd',          value: version.plannedEnd },
-            { icon: '🗓', label: 'ישיבת מעבר',     field: 'reviewMeetingTime',  value: version.reviewMeetingTime },
-          ].map(({ icon, label, field, value }) => (
-            <div key={field} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <span style={{ fontSize: '11px', color: C.textMuted, fontWeight: 600 }}>
-                {icon} {label}
-              </span>
-              {canEdit ? (
-                <input
-                  type="datetime-local"
-                  defaultValue={value ? value.slice(0, 16) : ''}
-                  onBlur={e => { if (e.target.value !== (value ? value.slice(0, 16) : '')) saveField(field, e.target.value); }}
-                  style={{
-                    background: C.bgNested, color: C.textPrimary,
-                    border: `1px solid ${C.border}`, borderRadius: RADIUS.sm,
-                    padding: '6px 8px', fontSize: '13px', fontFamily: FONT,
-                    outline: 'none', cursor: 'pointer', width: '100%', boxSizing: 'border-box' as const,
-                  }}
-                  onFocus={e => (e.target as HTMLElement).style.borderColor = C.brand}
-                  onBlurCapture={e => (e.target as HTMLElement).style.borderColor = C.border}
-                />
-              ) : (
-                <span style={{ fontSize: '13px', color: value ? C.textPrimary : C.textDisabled, padding: '6px 0' }}>
-                  {value ? fmt(value) : '—'}
+            { icon: '📅', label: 'התחלה מתוכננת',   field: 'plannedStart',      value: version.plannedStart,      dateOnly: false },
+            { icon: '🏁', label: 'סיום מתוכנן',      field: 'plannedEnd',        value: version.plannedEnd,        dateOnly: false },
+            { icon: '🗓', label: 'ישיבת מעבר',        field: 'reviewMeetingTime', value: version.reviewMeetingTime, dateOnly: false },
+            { icon: '🔧', label: 'תחילת אינטגרציה',   field: 'integrationStart',  value: version.integrationStart,  dateOnly: true  },
+            { icon: '🔧', label: 'סיום אינטגרציה',    field: 'integrationEnd',    value: version.integrationEnd,    dateOnly: true  },
+            { icon: '🧪', label: 'תחילת בדיקות QA',   field: 'qaStart',           value: version.qaStart,           dateOnly: true  },
+            { icon: '🧪', label: 'סיום בדיקות QA',    field: 'qaEnd',             value: version.qaEnd,             dateOnly: true  },
+          ].map(({ icon, label, field, value, dateOnly }) => {
+            const inputType = dateOnly ? 'date' : 'datetime-local';
+            const currentVal = value ? (dateOnly ? value.slice(0, 10) : value.slice(0, 16)) : '';
+            return (
+              <div key={field} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '11px', color: C.textMuted, fontWeight: 600 }}>
+                  {icon} {label}
                 </span>
-              )}
-            </div>
-          ))}
+                {canEdit ? (
+                  <input
+                    type={inputType}
+                    defaultValue={currentVal}
+                    onBlur={e => { if (e.target.value !== currentVal) saveField(field, e.target.value); }}
+                    style={{
+                      background: C.bgNested, color: C.textPrimary,
+                      border: `1px solid ${C.border}`, borderRadius: RADIUS.sm,
+                      padding: '6px 8px', fontSize: '13px', fontFamily: FONT,
+                      outline: 'none', cursor: 'pointer', width: '100%', boxSizing: 'border-box' as const,
+                    }}
+                    onFocus={e => (e.target as HTMLElement).style.borderColor = C.brand}
+                    onBlurCapture={e => (e.target as HTMLElement).style.borderColor = C.border}
+                  />
+                ) : (
+                  <span style={{ fontSize: '13px', color: value ? C.textPrimary : C.textDisabled, padding: '6px 0' }}>
+                    {value ? (dateOnly ? new Date(value).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : fmt(value)) : '—'}
+                  </span>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* נתוני הרצה בפועל (קריאה בלבד) */}

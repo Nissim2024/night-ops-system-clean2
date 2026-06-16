@@ -33,6 +33,10 @@ export class VersionsController {
     description?: string;
     plannedStart?: string;
     plannedEnd?: string;
+    integrationStart?: string;
+    integrationEnd?: string;
+    qaStart?: string;
+    qaEnd?: string;
     collectionDeadline?: string;
     reviewMeetingTime?: string;
     qcReleaseId?: string;
@@ -55,7 +59,11 @@ export class VersionsController {
   @Patch(':id')
   updateFields(
     @Param('id') id: string,
-    @Body() body: { plannedStart?: string | null; plannedEnd?: string | null; reviewMeetingTime?: string | null; name?: string; description?: string },
+    @Body() body: {
+      plannedStart?: string | null; plannedEnd?: string | null; reviewMeetingTime?: string | null;
+      integrationStart?: string | null; integrationEnd?: string | null; qaStart?: string | null; qaEnd?: string | null;
+      name?: string; description?: string;
+    },
     @Request() req: any,
   ) {
     requireRole(req, MANAGERS, 'רק מנהל לילה יכול לעדכן פרטי גרסה');

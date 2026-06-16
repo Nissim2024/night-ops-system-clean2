@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../../theme';
+import { useDialog } from '../../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -94,6 +95,7 @@ function computeStats(tester: Tester, allSkills: Skill[]): Stats {
 interface Props { token: string; }
 
 export const QaTestersView: React.FC<Props> = ({ token }) => {
+  const dialog = useDialog();
   const hdrs = { headers: { Authorization: `Bearer ${token}` } };
 
   const [testers, setTesters] = useState<Tester[]>([]);
@@ -131,12 +133,12 @@ export const QaTestersView: React.FC<Props> = ({ token }) => {
   const flash = (msg: string) => { setSuccessMsg(msg); setTimeout(() => setSuccessMsg(null), 2500); };
 
   const removeTester = async (tester: Tester) => {
-    if (!window.confirm(`להסיר את ${tester.fullName} מרשימת הבודקים?`)) return;
+    if (!await dialog.confirm(`להסיר את ${tester.fullName} מרשימת הבודקים?`, 'הסרת בודק', 'danger')) return;
     try {
       await axios.delete(`${API}/qa/testers/${tester.userId}`, hdrs);
       flash(`${tester.fullName} הוסר`);
       load();
-    } catch (e: any) { alert(e.response?.data?.message ?? 'שגיאה'); }
+    } catch (e: any) { dialog.alert(e.response?.data?.message ?? 'שגיאה', 'שגיאה', 'danger'); }
   };
 
   const loadAvailable = async (teamId: string) => {
@@ -167,7 +169,7 @@ export const QaTestersView: React.FC<Props> = ({ token }) => {
       setShowAdd(false);
       load();
     } catch (e: any) {
-      alert(e.response?.data?.message ?? 'שגיאה בהוספה');
+      dialog.alert(e.response?.data?.message ?? 'שגיאה בהוספה', 'שגיאה', 'danger');
     } finally {
       setSavingAdd(false);
     }

@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
+import { useDialog } from '../context/DialogContext';
 import { Card, Badge, StatCard, ProgressBar, SectionHeader, Alert, TextArea, Button } from './ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -89,6 +90,7 @@ function badgeStyle(bg: string, color: string): React.CSSProperties {
 }
 
 export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, isRehearsal = false, onApproved, onGoToHub }) => {
+  const dialog = useDialog();
   const [tasks,               setTasks]               = useState<any[]>([]);
   const [version,             setVersion]             = useState<any>(null);
   const [loading,             setLoading]             = useState(true);
@@ -1176,7 +1178,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                   {copied ? '✓ הועתק!' : '📋 העתק לאימייל'}
                 </button>
                 <button
-                  onClick={emailEnabled ? sendEmail : () => alert('שירות המייל אינו מופעל — הגדר SMTP בפאנל הניהול')}
+                  onClick={emailEnabled ? sendEmail : () => dialog.alert('שירות המייל אינו מופעל — הגדר SMTP בפאנל הניהול', 'שירות מייל מושבת', 'warning')}
                   disabled={emailSending}
                   style={{
                     padding: '10px 24px', fontFamily: FONT,
@@ -1238,7 +1240,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                         setSummaryRecord(res.data);
                         setEditingApproved(false);
                       } catch (err: any) {
-                        alert(err?.response?.data?.message || 'שגיאה בשמירה');
+                        dialog.alert(err?.response?.data?.message || 'שגיאה בשמירה', 'שגיאה', 'danger');
                       } finally { setSavingEdit(false); }
                     }}
                     style={{ padding: '8px 20px', background: savingEdit ? C.textDisabled : C.statusDone, color: 'white', border: 'none', borderRadius: '8px', cursor: savingEdit ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}>

@@ -145,6 +145,10 @@ model Version {
   lastNightAt             DateTime?
   isArchived              Boolean       @default(false)
   archivedAt              DateTime?
+  integrationStart        DateTime?
+  integrationEnd          DateTime?
+  qaStart                 DateTime?
+  qaEnd                   DateTime?
   wizardState             Json?
   createdAt               DateTime      @default(now())
   updatedAt               DateTime      @updatedAt

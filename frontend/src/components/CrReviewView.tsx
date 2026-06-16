@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
+import { useDialog } from '../context/DialogContext';
 import { C, FONT } from '../theme';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -300,6 +301,7 @@ const ProposalRow: React.FC<{
   onUpdated: () => void;
   crNumber: string;
 }> = ({ proposal, token, versionId, teams, users, subPhaseOpts, onUpdated, crNumber }) => {
+  const dialog = useDialog();
   const [editing, setEditing]   = useState(false);
   const [saving, setSaving]     = useState(false);
   const [showNote, setShowNote] = useState(false);
@@ -318,7 +320,7 @@ const ProposalRow: React.FC<{
   };
 
   const remove = async () => {
-    if (!window.confirm(`מחק את המשימה "${proposal.title}"?`)) return;
+    if (!await dialog.confirm(`למחוק את "${proposal.title}"?`, 'מחיקת משימה', 'danger')) return;
     await axios.delete(`${API}/task-proposals/${proposal.id}`, { headers });
     onUpdated();
   };
@@ -876,6 +878,7 @@ const ConvertButton: React.FC<{ token: string; versionId: string; onReload: () =
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId, versionName: propVersionName }) => {
+  const dialog = useDialog();
   const [data, setData]               = useState<CrEntry[]>([]);
   const [teams, setTeams]             = useState<any[]>([]);
   const [users, setUsers]             = useState<{ id: string; fullName: string }[]>([]);

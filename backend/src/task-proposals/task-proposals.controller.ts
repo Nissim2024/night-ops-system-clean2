@@ -75,8 +75,12 @@ export class TaskProposalsController {
   }
 
   @Post('version/:versionId/convert-approved')
-  convertApproved(@Param('versionId') versionId: string, @Request() req: any) {
+  convertApproved(
+    @Param('versionId') versionId: string,
+    @Request() req: any,
+    @Body() body: { proposalIds?: string[] },
+  ) {
     if (!MANAGERS.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת מנהל');
-    return this.service.convertApprovedToTasks(versionId, req.user.sub);
+    return this.service.convertApprovedToTasks(versionId, req.user.sub, body?.proposalIds);
   }
 }

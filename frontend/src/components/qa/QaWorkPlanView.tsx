@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW } from '../../theme';
+import { useDialog } from '../../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -13,6 +14,8 @@ interface Version {
   isArchived: boolean;
   plannedStart: string | null;
   plannedEnd: string | null;
+  qaStart: string | null;
+  qaEnd: string | null;
 }
 
 interface CycleTask {
@@ -33,7 +36,9 @@ interface CycleTask {
 interface QaAssignment {
   id: string;
   crNumber: string;
+  crLabel: string | null;
   userId: string;
+  qaEffort: number | null;
   sortOrder: number | null;
   secondaryTesterId: string | null;
   secondarySkillLevel: number | null;
@@ -140,9 +145,15 @@ function countTasks(cycle: Cycle) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-interface Props { token: string; initialVersionId?: string }
+interface Props {
+  token:              string;
+  initialVersionId?:  string;
+  versionQaStart?:    string | null;
+  versionQaEnd?:      string | null;
+}
 
-export default function QaWorkPlanView({ token, initialVersionId }: Props) {
+export default function QaWorkPlanView({ token, initialVersionId, versionQaStart, versionQaEnd }: Props) {
+  const dialog = useDialog();
   const ax = useMemo(
     () => axios.create({ headers: { Authorization: `Bearer ${token}` } }),
     [token],
@@ -177,6 +188,12 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
     if (initialVersionId) setVersionId(initialVersionId);
   }, [initialVersionId]);
 
+  // Pre-fill dates immediately from parent props (no timing dependency on versions fetch)
+  useEffect(() => {
+    if (versionQaStart) setCycle1Start(toInputDate(versionQaStart));
+    if (versionQaEnd)   setTestingEnd(toInputDate(versionQaEnd));
+  }, [versionQaStart, versionQaEnd]);
+
   // Load versions (always needed for date pre-fill; only auto-select if no initialVersionId)
   useEffect(() => {
     ax.get(`${API}/versions`).then(r => {
@@ -207,12 +224,14 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
       .finally(() => setLoading(false));
   }, [versionId]);
 
-  // Pre-fill dates from version
+  // Pre-fill dates from version — prefer qaStart/qaEnd, fall back to plannedStart/plannedEnd
   useEffect(() => {
     const v = versions.find(x => x.id === versionId);
     if (v) {
-      if (v.plannedStart) setCycle1Start(toInputDate(v.plannedStart));
-      if (v.plannedEnd)   setTestingEnd(toInputDate(v.plannedEnd));
+      const start = v.qaStart ?? v.plannedStart;
+      const end   = v.qaEnd   ?? v.plannedEnd;
+      if (start) setCycle1Start(toInputDate(start));
+      if (end)   setTestingEnd(toInputDate(end));
     }
   }, [versionId, versions]);
 
@@ -234,7 +253,7 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
       const r = await ax.get(`${API}/qa/assignments/secondary-suggest?versionId=${versionId}&crNumber=${encodeURIComponent(crNumber)}`);
       setSecondaryData(r.data);
     } catch {
-      alert('שגיאה בטעינת הצעות בודק שני');
+      dialog.alert('שגיאה בטעינת הצעות בודק שני', 'שגיאה', 'danger');
       setSecondaryPanel(null);
     } finally {
       setLoadingSecondary(false);
@@ -261,7 +280,7 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
       setSecondaryPanel(null);
       setSecondaryData(null);
     } catch (e: any) {
-      alert(e?.response?.data?.message ?? 'שגיאה בשיבוץ בודק שני');
+      dialog.alert(e?.response?.data?.message ?? 'שגיאה בשיבוץ בודק שני', 'שגיאה', 'danger');
     } finally {
       setAssigningSecondary(false);
     }
@@ -274,7 +293,7 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
       const r = await ax.patch(`${API}/qa/workplan/task/${taskId}/sort`, { newSortOrder });
       if (r.data) setWorkPlan(r.data);
     } catch {
-      alert('שגיאה בעדכון סדר המשימות');
+      dialog.alert('שגיאה בעדכון סדר המשימות', 'שגיאה', 'danger');
     } finally {
       setReorderingTask(null);
     }
@@ -299,19 +318,19 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
         setExpandedCycles(allIds);
       }
     } catch (e: any) {
-      alert(e?.response?.data?.message ?? 'שגיאה ביצירת תוכנית העבודה');
+      dialog.alert(e?.response?.data?.message ?? 'שגיאה ביצירת תוכנית העבודה', 'שגיאה', 'danger');
     } finally {
       setGenerating(false);
     }
   };
 
   const approve = async () => {
-    if (!confirm('לאשר את תוכנית העבודה?')) return;
+    if (!await dialog.confirm('האם לאשר את תוכנית העבודה?', 'אישור תוכנית', 'success')) return;
     try {
       await ax.post(`${API}/qa/workplan/approve`, { versionId });
       setWorkPlan(prev => prev ? { ...prev, status: 'APPROVED' } : null);
     } catch (e: any) {
-      alert(e?.response?.data?.message ?? 'שגיאה');
+      dialog.alert(e?.response?.data?.message ?? 'שגיאה', 'שגיאה', 'danger');
     }
   };
 
@@ -330,7 +349,7 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
         };
       });
     } catch {
-      alert('שגיאה בעדכון המשימה');
+      dialog.alert('שגיאה בעדכון המשימה', 'שגיאה', 'danger');
     } finally {
       setTogglingTasks(prev => new Set(Array.from(prev).filter(id => id !== task.id)));
     }
@@ -345,7 +364,7 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
         cycles: prev.cycles.map(c => c.id === cycleId ? { ...c, notes: editNotes[cycleId] ?? '' } : c),
       } : null);
     } catch {
-      alert('שגיאה בשמירת הערות');
+      dialog.alert('שגיאה בשמירת הערות', 'שגיאה', 'danger');
     } finally {
       setSavingNotes(prev => ({ ...prev, [cycleId]: false }));
     }
@@ -367,12 +386,12 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
           })),
         };
       });
-    } catch { alert('שגיאה בעדכון מאמץ המשימה'); }
+    } catch { dialog.alert('שגיאה בעדכון מאמץ המשימה', 'שגיאה', 'danger'); }
   };
 
   const revertToOriginal = async () => {
     if (!workPlan || !versionId) return;
-    if (!window.confirm('לחזור לתוכנית המקורית? כל השינויים הידניים יאבדו.')) return;
+    if (!await dialog.confirm('לחזור לתוכנית המקורית? כל השינויים הידניים יאבדו.', 'חזרה לתוכנית המקורית', 'danger')) return;
     setReverting(true);
     try {
       const r = await ax.post(`${API}/qa/workplan/generate`, {
@@ -385,7 +404,7 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
         setExpandedCycles(new Set<string>(r.data.workPlan.cycles.map((c: Cycle) => c.id as string)));
       }
     } catch (e: any) {
-      alert(e?.response?.data?.message ?? 'שגיאה ביצירת תוכנית');
+      dialog.alert(e?.response?.data?.message ?? 'שגיאה ביצירת תוכנית', 'שגיאה', 'danger');
     } finally { setReverting(false); }
   };
 
@@ -418,7 +437,7 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
         a.click();
         URL.revokeObjectURL(url);
       })
-      .catch(() => alert('שגיאה בייצוא'));
+      .catch(() => dialog.alert('שגיאה בייצוא', 'שגיאה', 'danger'));
   };
 
   const toggleCycle = (id: string) => {
@@ -442,6 +461,17 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
     }));
     return Array.from(seen.values());
   }, [workPlan, assignedUserIds]);
+
+  // CRs assigned (with tester) but absent from current work plan
+  const missingFromPlan = useMemo(() => {
+    if (!workPlan) return [] as QaAssignment[];
+    const planCrNumbers = new Set(
+      workPlan.cycles.flatMap(c => c.tasks.map(t => t.crNumber)),
+    );
+    return assignments.filter(
+      a => a.userId && !planCrNumbers.has(a.crNumber),
+    );
+  }, [assignments, workPlan]);
 
   return (
     <div style={{ padding: initialVersionId ? 0 : SP[6], fontFamily: FONT, direction: 'rtl', minHeight: initialVersionId ? undefined : '100vh', backgroundColor: initialVersionId ? undefined : C.bgApp }}>
@@ -518,9 +548,22 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
       {/* ── Embedded: no work plan yet ── */}
       {initialVersionId && !workPlan && !loading && !showGenForm && (
         <div style={{ marginBottom: SP[4] }}>
-          <button onClick={() => setShowGenForm(true)} style={btnStyle(C.brand)}>
-            + צור תוכנית עבודה
-          </button>
+          {assignments.length === 0 ? (
+            <div style={{
+              padding: `${SP[3]} ${SP[4]}`,
+              borderRadius: RADIUS.md,
+              border: `1px solid ${C.warning}`,
+              backgroundColor: C.warningBg,
+              color: C.warning,
+              ...TEXT.sm, fontWeight: WEIGHT.medium,
+            }}>
+              ⚠ יש לשבץ בודקים לפני יצירת תוכנית עבודה — עבור לטאב &quot;שיבוץ בודקים&quot;
+            </div>
+          ) : (
+            <button onClick={() => setShowGenForm(true)} style={btnStyle(C.brand)}>
+              + צור תוכנית עבודה
+            </button>
+          )}
         </div>
       )}
 
@@ -616,6 +659,31 @@ export default function QaWorkPlanView({ token, initialVersionId }: Props) {
           <span style={{ ...TEXT.sm, color: C.textSecondary }}>
             {staleUserInfo.join(', ')} מופיעים בתוכנית אך אינם משובצים כרגע. מומלץ לייצר מחדש.
           </span>
+        </div>
+      )}
+
+      {/* ── New CRs assigned but not in plan ── */}
+      {missingFromPlan.length > 0 && (
+        <div style={{ ...cardStyle, borderRight: `4px solid ${C.warning}`, backgroundColor: C.warningBg, marginBottom: SP[4] }}>
+          <div style={{ display: 'flex', gap: SP[2], alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: SP[2] }}>
+            <strong style={{ color: C.warning, ...TEXT.sm, whiteSpace: 'nowrap' }}>
+              ⚠ {missingFromPlan.length} {missingFromPlan.length === 1 ? 'CR משובץ' : 'CRים משובצים'} שאינ{missingFromPlan.length === 1 ? 'ו' : 'ם'} בתוכנית:
+            </strong>
+            <span style={{ ...TEXT.sm, color: C.textSecondary }}>
+              {missingFromPlan.map(a => a.crLabel ? `${a.crNumber} (${a.crLabel})` : a.crNumber).join(', ')}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ ...TEXT.xs, color: C.textMuted }}>
+              לשלב אותם בתוכנית — לחץ "↺ יצור מחדש"
+            </span>
+            <button
+              onClick={() => setShowGenForm(true)}
+              style={{ ...btnStyle(C.warning), fontSize: 12, padding: '4px 10px' }}
+            >
+              ↺ יצור מחדש
+            </button>
+          </div>
         </div>
       )}
 

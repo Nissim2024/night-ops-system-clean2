@@ -818,7 +818,10 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             <div>
               <label style={labelStyle}>שלב <span style={{ color: C.danger }}>*</span></label>
               <select value={form.phase} onChange={e => setForm(f => ({ ...f, phase: parseInt(e.target.value), subPhaseId: '', responsibleTeamId: myTeamId, assignedUserName: '' }))} style={{ ...inputStyle, padding: '10px 12px' }}>
-                {[1, 2, 3, 4].map(ph => <option key={ph} value={ph}>{phaseLabels[ph] || PHASE_LABELS[ph]}</option>)}
+                {(Object.keys(phaseLabels).length > 0
+                  ? Object.keys(phaseLabels).map(Number).sort((a, b) => a - b)
+                  : [1, 2, 3, 4]
+                ).map(ph => <option key={ph} value={ph}>{phaseLabels[ph] || PHASE_LABELS[ph] || `שלב ${ph}`}</option>)}
               </select>
             </div>
             <div>
@@ -1413,7 +1416,10 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                     disabled={!item.checked}
                     style={{ fontSize: '11px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '2px 4px', background: C.bgCard, color: C.textSecondary, flexShrink: 0 }}
                   >
-                    {[1,2,3,4].map(ph => (
+                    {(Object.keys(phaseLabels).length > 0
+                      ? Object.keys(phaseLabels).map(Number).sort((a, b) => a - b)
+                      : [1, 2, 3, 4]
+                    ).map(ph => (
                       <option key={ph} value={ph}>{(phaseLabels[ph] || PHASE_LABELS[ph])?.split(' — ')[1] || `שלב ${ph}`}</option>
                     ))}
                   </select>

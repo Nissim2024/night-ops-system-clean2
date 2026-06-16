@@ -29,6 +29,7 @@ import QaWorkPlanView from './qa/QaWorkPlanView';
 import { FEATURES } from '../featureFlags';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, versionStatusColor, versionStatusLabel } from '../theme';
+import { useDialog } from '../context/DialogContext';
 import { Avatar, Badge, VersionStatusChip } from './ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -46,6 +47,7 @@ interface ToastItem {
 }
 
 export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
+  const appDialog = useDialog();
   type Tab = 'list' | 'version-detail' | 'proposals' | 'cr-review' | 'board' | 'overview' | 'timeline' | 'dashboard' | 'summary-rehearsal' | 'summary-night' | 'admin' | 'implementation-plans' | 'cr-manager';
   const [activeTab, setActiveTab]               = useState<Tab>(() => {
     try { return JSON.parse(atob(token.split('.')[1])).role === 'CR_MANAGER' ? 'cr-manager' : 'list'; }
@@ -737,7 +739,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                             setActiveTab('list');
                             fetchVersions();
                           } catch (err: any) {
-                            alert(err?.response?.data?.message || 'לא ניתן לבטל את החזרה הגנרלית');
+                            appDialog.alert(err?.response?.data?.message || 'לא ניתן לבטל את החזרה הגנרלית', 'שגיאה', 'danger');
                           }
                         }}
                         style={{ padding: '8px 16px', background: 'rgba(0,0,0,0.25)', color: 'white', border: '1px solid rgba(255,255,255,0.4)', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', whiteSpace: 'nowrap' }}

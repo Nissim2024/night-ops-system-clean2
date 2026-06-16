@@ -184,7 +184,7 @@ function buildSchedule(
 
   const act = (
     id: string, dateStart: Date, dateEnd: Date,
-    label: string, owner: string, attendees: string[], notes: string,
+    label: string, owner: string, ownerEmployee: string, attendees: string[], notes: string,
     category: string,
     highlight?: ActivityItem['highlight'],
   ): ActivityItem => ({
@@ -193,7 +193,7 @@ function buildSchedule(
     dateEndLabel:   fmtDate(dateEnd),
     dateStartISO:   dateStart.toISOString(),
     dateEndISO:     dateEnd.toISOString(),
-    label, owner, ownerEmployee: '', attendees, notes, category,
+    label, owner, ownerEmployee, attendees, notes, category,
     isRelevant: true, isCustom: false, highlight,
   });
 
@@ -203,33 +203,33 @@ function buildSchedule(
   if (integrationStart) {
     activities.push(
       act('prod_to_int_copy',   integrationStart, integrationStart,
-        `העתקת קודים מסביבת הייצור ל${eInt}`, 'DBA',
-        ['DBA_Group@company.com', 'DevOps_Team@company.com'],
+        `העתקת קודים מסביבת הייצור ל${eInt}`, 'DBA Team', 'Ayelet Amar',
+        [],
         `יישור קו בסטאפ האחרון — העתקת נתוני הייצור ל${eInt} לקראת סבב הבדיקות.`,
         'refresh'),
       act('container_run',      integrationStart, integrationStart,
-        `הרצת קונטיינר על ${eInt}`, 'DevOps',
-        ['DevOps_Team@company.com'],
+        `הרצת קונטיינר על ${eInt}`, 'DBA Team', 'Ayelet Amar',
+        [],
         `הרצת קונטיינר ובדיקת תקינות הסביבה לאחר העתקת הנתונים ל${eInt}.`,
         'deployment'),
       act('version_delivery',   integrationStart, integrationStart,
-        `העברת הגרסה ל${eInt}`, 'DevOps / DBA',
-        ['Dev_Leads@company.com', 'DBA_Group@company.com', 'Release_Manager@company.com'],
+        `העברת הגרסה ל${eInt}`, 'Dev Teams', '',
+        [],
         `פריסת גרסת הפיתוח ל${eInt} לטובת בדיקות האינטגרציה.`,
         'deployment'),
       act('integration_testing', integrationStart, integrationEnd,
-        `בדיקות אינטגרציה ב${eInt}`, 'QA Team',
-        ['QA_All@company.com', 'Dev_Leads@company.com'],
+        `בדיקות אינטגרציה ב${eInt}`, 'QA Team', 'Nissim Peretz',
+        [],
         `שלב בדיקות האינטגרציה על ${eInt}. הבדיקות כוללות תרחישי end-to-end בין מערכות.`,
         'testing'),
       act('team_readiness',     addWD(integrationEnd, -1), addWD(integrationEnd, -1),
-        'מוכנות צוותי הבדיקות', 'QA Leads',
-        ['QA_Leads@company.com', 'QA_All@company.com'],
+        'מוכנות צוותי הבדיקות', 'QA Team', 'Nissim Peretz',
+        [],
         'וידוא שתוכנית הבדיקות מוכנה עבור כלל הפיתוחים בגרסה. כל צוות מאשר מוכנות יום לפני סיום האינטגרציה.',
         'meeting'),
       act('bug_fix_deadline',   integrationEnd, integrationEnd,
-        'מועד אחרון להכנסת תיקוני באגים מהייצור', 'Dev Leads',
-        ['Dev_Leads@company.com', 'Release_Manager@company.com'],
+        'מועד אחרון להכנסת תיקוני באגים מהייצור', 'Management', 'Talk Elshayov',
+        [],
         'לאחר מועד זה לא תתאפשר הכנסה של תיקוני ייצור לסבב, אלא אם מדובר בתקלת שבר.',
         'deployment'),
     );
@@ -238,28 +238,28 @@ function buildSchedule(
   // ── פעילויות עיקריות ──────────────────────────────────────────────────────────
   activities.push(
     act('env_refresh',    addWD(integrationEnd, -1), addWD(integrationEnd, -1),
-      `רענון מלא ${eQA}`, 'DBA',
-      ['Infra_Leads@company.com', 'QA_Managers@company.com'],
+      `רענון מלא ${eQA}`, 'DBA Team', 'Ayelet Amar',
+      [],
       `חלון השבתת ${eQA} לצורך רענון נתונים קומפלט (לקוחות + דאטה) מסביבת הייצור. אין לבצע בדיקות ביום זה.`,
       'refresh'),
     act('code_delivery',  integrationEnd, integrationEnd,
-      `תאריך אחרון להעברת קוד ל${eQA}`, 'Dev Leads',
-      ['Dev_Leads@company.com', 'Release_Manager@company.com'],
+      `תאריך אחרון להעברת קוד ל${eQA}`, 'Management', 'Talk Elshayov',
+      [],
       `המועד האחרון להעברת קוד מסביבת הפיתוח ל${eQA}. לאחר תאריך זה לא יתקבל קוד נוסף לסבב הנוכחי.`,
       'deployment'),
     act('code_freeze',    integrationEnd, integrationEnd,
-      'Code Freeze + Setup', 'DevOps / DBA',
-      ['Dev_Leads@company.com', 'DBA_Group@company.com'],
+      'Code Freeze + Setup', 'Dev Teams', '',
+      [],
       `סגירת Code Freeze, פריסת קוד פיתוח, הרצת קונטיינר וביצוע תהליך Setup ב${eQA}.`,
       'deployment'),
     act('billing_16',     billing16s, billing16e,
-      'בילינג — סייקל 16 (חלון 7–9 לחודש)', 'Billing',
-      ['Billing_Team@company.com'],
+      'בילינג — סייקל 16 (חלון 7–9 לחודש)', 'QA Team', 'Hna Klsbansky',
+      [],
       `חלון הרצת סייקל 16 מ-${fmtDate(billing16s)} עד ${fmtDate(billing16e)}.`,
       'billing', 'billing'),
     act('billing_1',      billing1, billing1,
-      'בילינג — סייקל 1 (23 לחודש)', 'Billing / QA',
-      ['QA_All@company.com', 'Billing_Team@company.com'],
+      'בילינג — סייקל 1 (23 לחודש)', 'QA Team', 'Hna Klsbansky',
+      [],
       'הרצת סייקל 1 של בילינג (חוק ה-23 לחודש).',
       'billing', 'billing'),
   );
@@ -267,8 +267,8 @@ function buildSchedule(
   if (cycle2Start)
     activities.push(
       act('cycle2_prep',  addWD(cycle2Start, -1), addWD(cycle2Start, -1),
-        'הערכות צוותי הבדיקות לסבב שני', 'QA Leads',
-        ['QA_Leads@company.com', 'QA_All@company.com'],
+        'הערכות צוותי הבדיקות לסבב שני', 'QA Team', 'Nissim Peretz',
+        [],
         'פגישת צוותי הבדיקות לתאום וגיבוש היערכות לקראת פתיחת סבב הבדיקות השני.',
         'meeting'),
     );
@@ -279,75 +279,75 @@ function buildSchedule(
 
   activities.push(
     act('user_testing',   userTestStart, userTestEnd,
-      'תחילת בדיקות משתמשים', 'Operations / QA',
-      ['End_Users@company.com', 'QA_Leads@company.com', 'Ops_Team@company.com'],
+      'תחילת בדיקות משתמשים', 'QA Team', 'Hay Cohen',
+      [],
       'בדיקות קבלה על ידי משתמשים עסקיים — 2 ימים אחרונים של סבב 1.',
       'testing'),
     act('dry_run',        addWD(T, -2), addWD(T, -2),
-      `חזרה גנרלית — סימולציית משימות לילה על ${eDry}`, 'DevOps',
-      ['DevOps_Team@company.com', 'QA_Automation@company.com'],
+      `חזרה גנרלית — סימולציית משימות לילה על ${eDry}`, 'QA Team', 'Hay Cohen',
+      [],
       `הרצת סימולציה מלאה של ה-Runbook על ${eDry}, כולל משימות לילה. מתקיים יומיים לפני עלייה לאוויר.`,
       'testing'),
     act('cr_review',      addWD(T, -10), addWD(T, -10),
-      'סקירת תוכניות CR-ים (אחודה)', 'Release Manager',
-      ['Dev_Leads@company.com', 'Product_Owners@company.com', 'QA_Leads@company.com'],
+      'סקירת תוכניות CR-ים (אחודה)', 'Management', 'CR Manager',
+      [],
       'סקירה ארכיטקטונית ופונקציונלית של כלל הפיצ\'רים שעולים בגרסה. שבועיים לפני עלייה לאוויר.',
       'meeting'),
     act('runbook',        addWD(T, -9), addWD(T, -9),
-      'מעבר על תוכנית עבודה (ליל הטמעה)', 'Release Manager',
-      ['DevOps_Team@company.com', 'Ops_Shift_Managers@company.com'],
+      'מעבר על תוכנית עבודה (ליל הטמעה)', 'QA Team', 'Hay Cohen',
+      [],
       'מעבר שורה-שורה על ה-Runbook הטכנולוגי של ליל ההטמעה. וידאו זמנים וקשרים.',
       'meeting'),
     act('runbook_backup', addWD(T, -8), addWD(T, -8),
-      'פגישת המשך — מעבר על תוכנית עליה לאוויר', 'Release Manager',
-      ['DevOps_Team@company.com', 'Ops_Shift_Managers@company.com'],
+      'פגישת המשך — מעבר על תוכנית עליה לאוויר', 'QA Team', 'Odedya Etna',
+      [],
       'פגישת המשך למעבר על תוכנית עליה לאוויר, במידה והמעבר לא הושלם בפגישה הקודמת.',
       'meeting'),
     act('handoff',        lastTestEnd, lastTestEnd,
-      'העברת מקל לתפעול והדרכות', 'Operations',
-      ['Support_Leads@company.com', 'Ops_Team@company.com'],
+      'העברת מקל לתפעול והדרכות', 'QA Team', 'Odedya Etna',
+      [],
       'העברת תיעוד, מדריכים למשתמש, הגדרת מערכות ניטור ורשימת באגים פתוחים.',
       'meeting'),
     act('mgmt_prep',      addWD(T, -3), addWD(T, -3),
-      'היערכות מנהלים — סיכום בדיקות + UAT', 'Release Manager',
-      ['Management_Internal@company.com', 'Business_VP@company.com'],
+      'היערכות מנהלים — סיכום בדיקות + UAT', 'Management', 'Talk Elshayov',
+      [],
       'סטטוס חזרה גנרלית, מדדי באגים, ואישור סופי סטטוס בדיקות UAT. יומיים לפני פגישת הנהלה בכירה.',
       'meeting'),
     act('go_nogo',        addWD(T, -1), addWD(T, -1),
-      'אישור הנהלה בכירה — Go / No-Go', 'PMO / Release Manager',
-      ['C_Level_Execs@company.com', 'Directors_All@company.com'],
+      'אישור הנהלה בכירה — Go / No-Go', 'Management', 'Talk Elshayov',
+      [],
       'הצגת סטטוס מוכנות סופי להנהלה בכירה וקבלת אישור חתום לעלייה לאוויר.',
       'meeting'),
     act('golive_a',       T, T,
-      '🟢 עלייה לאוויר — שלב א׳ (היערכות ביום)', 'PM / חמ"ל עלייה',
-      ['Lotus_WarRoom@company.com'],
+      '🟢 עלייה לאוויר — שלב א׳ (היערכות ביום)', 'QA Team', 'Hay Cohen',
+      [],
       'פתיחת חמ"ל פיזי/וירטואלי, וידאו זמינות ספקים ובדיקות מוכנות אחרונות.',
       'golive', 'golive'),
     act('golive_b',       T, phaseC,
-      '🟢 עלייה לאוויר — שלב ב׳ (הטמעה לילה)', 'DevOps / DBA',
-      ['Lotus_Night_Shift@company.com', 'External_Vendors@company.com'],
+      '🟢 עלייה לאוויר — שלב ב׳ (הטמעה לילה)', 'QA Team', 'Hay Cohen',
+      [],
       'ביצוע ההטמעה בפועל בייצור. הרצת Runbook ובדיקות Sanity/Post-Ops לפנות בוקר.',
       'golive', 'golive'),
     act('golive_c',       phaseC, phaseC,
-      '🟢 עלייה לאוויר — שלב ג׳ (בקרות ייצוב)', 'Operations',
-      ['Lotus_WarRoom@company.com', 'HyperCare_Team@company.com'],
+      '🟢 עלייה לאוויר — שלב ג׳ (בקרות ייצוב)', 'QA Team', 'Odedya Etna',
+      [],
       'בקרות שרשרת אספקה, אישור תקינות בוקר, השלמת משימות ופתיחת שירות ללקוחות.',
       'golive', 'golive'),
     act('plike',          plikeDate, plikeDate,
-      'סביבת PLIKE — רענון ויישור גרסה', 'DevOps / DBA',
-      ['DevOps_Team@company.com', 'DBA_Group@company.com'],
+      'סביבת PLIKE — רענון ויישור גרסה', 'QA Team', 'Stanislav Abramyan',
+      [],
       'רענון מלא של סביבת Pre-Prod מהייצור החדש (חוק: יום חמישי הקרוב ביותר).',
       'refresh'),
     act('training',       trainingDate, trainingDate,
-      'סביבת הדרכה — רענון ויישור גרסה', 'DevOps / DBA',
-      ['Training_Department@company.com', 'DevOps_Team@company.com'],
+      'סביבת הדרכה — רענון ויישור גרסה', 'QA Team', 'Stanislav Abramyan',
+      [],
       trainingNote
         ? 'רענון סביבת הדרכה (הוזז לשני הקרוב — לא חלפו 2 ימים מלאים מסיום שלב ג׳).'
         : 'רענון מלא והעתקת גרסת הייצור לסביבת ההדרכה (יום רביעי הקרוב).',
       'refresh'),
     act('lessons_learned', addWD(phaseC, 5), addWD(phaseC, 5),
-      'הפקת לקחים', 'Release Manager',
-      ['Dev_Leads@company.com', 'QA_Leads@company.com', 'DevOps_Team@company.com', 'Ops_Team@company.com'],
+      'הפקת לקחים', 'QA Team', 'Nissim Peretz',
+      [],
       'ישיבת הפקת לקחים מסיכום הגרסה — סקירת תקלות, עיכובים ותהליכים לשיפור בגרסה הבאה.',
       'meeting'),
   );
@@ -355,8 +355,8 @@ function buildSchedule(
   // ── אבני דרך — סבבי בדיקות ────────────────────────────────────────────────
   activities.push(
     act('cycle1_start', test1Start, test1Start,
-      `🔵 פתיחת סבב בדיקות 1`, 'QA Leads',
-      ['QA_All@company.com'],
+      `🔵 פתיחת סבב בדיקות 1`, 'QA Team', 'Nissim Peretz',
+      [],
       `תחילת סבב הבדיקות הראשון ב${eQA}.`,
       'testing'),
   );
@@ -364,8 +364,8 @@ function buildSchedule(
   if (cycle1End) {
     activities.push(
       act('cycle1_end', cycle1End, cycle1End,
-        `🔵 סיום סבב בדיקות 1`, 'QA Leads',
-        ['QA_All@company.com', 'QA_Leads@company.com'],
+        `🔵 סיום סבב בדיקות 1`, 'QA Team', 'Nissim Peretz',
+        [],
         `סיום סבב הבדיקות הראשון ב${eQA}. מעבר לסבב השני.`,
         'testing'),
     );
@@ -374,8 +374,8 @@ function buildSchedule(
   if (cycle2Start) {
     activities.push(
       act('cycle2_start', cycle2Start, cycle2Start,
-        `🔵 פתיחת סבב בדיקות 2`, 'QA Leads',
-        ['QA_All@company.com'],
+        `🔵 פתיחת סבב בדיקות 2`, 'QA Team', 'Nissim Peretz',
+        [],
         `תחילת סבב הבדיקות השני ב${eQA}.`,
         'testing'),
     );
@@ -383,8 +383,8 @@ function buildSchedule(
 
   activities.push(
     act('cycle2_end', test2End, test2End,
-      `🔵 סיום סבב בדיקות 2 — סגירת בדיקות`, 'QA Leads',
-      ['QA_All@company.com', 'QA_Leads@company.com', 'Release_Manager@company.com'],
+      `🔵 סיום סבב בדיקות 2 — סגירת בדיקות`, 'QA Team', 'Nissim Peretz',
+      [],
       `סיום סבב הבדיקות השני ב${eQA}. לאחר מועד זה לא מתאפשרת כניסת קוד חדש לגרסה.`,
       'testing'),
   );
@@ -478,9 +478,14 @@ function OwnerPicker({ teams, teamValue, employeeValue, onChange }: OwnerPickerP
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
-interface Props { token: string; versionId: string }
+interface Props {
+  token:                    string;
+  versionId:                string;
+  versionIntegrationStart?: string | null;
+  versionIntegrationEnd?:   string | null;
+}
 
-export default function QaActivityPlanView({ token, versionId }: Props) {
+export default function QaActivityPlanView({ token, versionId, versionIntegrationStart, versionIntegrationEnd }: Props) {
   const headers = { Authorization: `Bearer ${token}` };
 
   const [workPlan,         setWorkPlan]         = useState<WorkPlan | null>(null);
@@ -520,6 +525,18 @@ export default function QaActivityPlanView({ token, versionId }: Props) {
     axios.get(`${API}/teams`, { headers }).then(r => setTeams(r.data)).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Pre-fill integration dates from version ───────────────────────────────
+  useEffect(() => {
+    if (versionIntegrationStart) {
+      const d = new Date(versionIntegrationStart);
+      setIntegrationStart(d.toISOString().split('T')[0]);
+    }
+    if (versionIntegrationEnd) {
+      const d = new Date(versionIntegrationEnd);
+      setIntegrationEnd(d.toISOString().split('T')[0]);
+    }
+  }, [versionIntegrationStart, versionIntegrationEnd]);
 
   // ── Fetch work plan ──────────────────────────────────────────────────────────
 
@@ -1152,6 +1169,10 @@ export default function QaActivityPlanView({ token, versionId }: Props) {
                             </button>
                           ) : null;
                         })()}
+                        <button
+                          onClick={() => { setInlineId(a.id); setInlineDraft({ owner: a.owner, ownerEmployee: a.ownerEmployee }); }}
+                          title="החלף עובד"
+                          style={{ padding: '3px 8px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgNested, color: C.textMuted, fontFamily: FONT, ...TEXT.xs, cursor: 'pointer' }}>👤</button>
                         <button onClick={() => { setEditingId(a.id); setEditDraft({}); }}
                           title="ערוך" style={{ padding: '3px 8px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgNested, color: C.textMuted, fontFamily: FONT, ...TEXT.xs, cursor: 'pointer' }}>✏️</button>
                         <button onClick={() => handleToggleRelevant(a)}

@@ -5,6 +5,7 @@ import { FEATURES } from '../featureFlags';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, statusColor, statusBg, statusLabel } from '../theme';
 import { StatusChip, Badge, Avatar, Button, Spinner } from './ui';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
+import { useDialog } from '../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -568,6 +569,7 @@ const TaskRow: React.FC<{ task: any } & TaskRowSharedProps> = ({
 };
 
 export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, userId, userName, refreshKey, hideAddTask, onTaskUpdated, onSummaryReady, onCurrentPhaseChange, onOpenReschedule }) => {
+  const dialog  = useDialog();
   const { can } = usePermissions();
   const canSelectAll = can('action:select_all_tasks');
   const [tasks, setTasks]           = useState<any[]>([]);
@@ -859,7 +861,7 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
       fetchTasks();
       onTaskUpdated?.();
     } catch (err: any) {
-      alert(err?.response?.data?.message || 'שגיאה בעדכון סטטוס');
+      dialog.alert(err?.response?.data?.message || 'שגיאה בעדכון סטטוס', 'שגיאה', 'danger');
     }
     finally { setUpdatingId(null); }
   };

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../../theme';
+import { useDialog } from '../../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -57,6 +58,7 @@ interface Props { token: string; }
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export const QaSkillsView: React.FC<Props> = ({ token }) => {
+  const dialog = useDialog();
   const hdrs = { headers: { Authorization: `Bearer ${token}` } };
 
   const [testers, setTesters]   = useState<Tester[]>([]);
@@ -124,7 +126,7 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
         return { ...t, skills: [...withoutSkill, { skillId, skillName: skill?.name ?? '', skillType: skill?.type ?? '', level }] };
       }));
     } catch (e: any) {
-      alert(e.response?.data?.message ?? 'שגיאה בשמירה');
+      dialog.alert(e.response?.data?.message ?? 'שגיאה בשמירה', 'שגיאה', 'danger');
     } finally {
       setSavingCell(null);
       setEditCell(null);
@@ -140,20 +142,20 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
       setNewSkillName(''); setNewSkillWeight(3); setShowAddSkill(false);
       load();
     } catch (e: any) {
-      alert(e.response?.data?.message ?? 'שגיאה בהוספה');
+      dialog.alert(e.response?.data?.message ?? 'שגיאה בהוספה', 'שגיאה', 'danger');
     } finally {
       setSavingSkill(false);
     }
   };
 
   const deleteSkill = async (skill: Skill) => {
-    if (!window.confirm(`למחוק את הסקיל "${skill.name}"? הנתונים של כל הבודקים יאבדו.`)) return;
+    if (!await dialog.confirm(`למחוק את הסקיל "${skill.name}"? הנתונים של כל הבודקים יאבדו.`, 'מחיקת סקיל', 'danger')) return;
     try {
       await axios.delete(`${API}/qa/skills/${skill.id}`, hdrs);
       flash(`סקיל "${skill.name}" נמחק`);
       load();
     } catch (e: any) {
-      alert(e.response?.data?.message ?? 'שגיאה במחיקה');
+      dialog.alert(e.response?.data?.message ?? 'שגיאה במחיקה', 'שגיאה', 'danger');
     }
   };
 
@@ -195,20 +197,20 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
       setShowAddTester(false);
       load();
     } catch (e: any) {
-      alert(e.response?.data?.message ?? 'שגיאה בהוספה');
+      dialog.alert(e.response?.data?.message ?? 'שגיאה בהוספה', 'שגיאה', 'danger');
     } finally {
       setSavingTester(false);
     }
   };
 
   const removeTester = async (tester: Tester) => {
-    if (!window.confirm(`להסיר את ${tester.fullName} מרשימת הבודקים?`)) return;
+    if (!await dialog.confirm(`להסיר את ${tester.fullName} מרשימת הבודקים?`, 'הסרת בודק', 'danger')) return;
     try {
       await axios.delete(`${API}/qa/testers/${tester.userId}`, hdrs);
       flash(`${tester.fullName} הוסר`);
       load();
     } catch (e: any) {
-      alert(e.response?.data?.message ?? 'שגיאה בהסרה');
+      dialog.alert(e.response?.data?.message ?? 'שגיאה בהסרה', 'שגיאה', 'danger');
     }
   };
 

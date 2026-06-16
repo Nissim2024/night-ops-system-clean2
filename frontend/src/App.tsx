@@ -3,6 +3,7 @@ import { Login } from './components/Login';
 import { ManagerDashboard } from './components/ManagerDashboard';
 import { EmployeeDashboard } from './components/EmployeeDashboard';
 import { PermissionsProvider } from './context/PermissionsContext';
+import { DialogProvider } from './context/DialogContext';
 
 function App() {
   const [token, setToken] = useState<string | null>(
@@ -29,12 +30,14 @@ function App() {
   const isManager = ['ADMIN', 'RELEASE_MANAGER', 'CR_MANAGER', 'TEAM_LEAD', 'VIEWER'].includes(payload.role);
 
   return (
-    <PermissionsProvider token={token} role={payload.role}>
-      {isManager
-        ? <ManagerDashboard token={token} onLogout={handleLogout} />
-        : <EmployeeDashboard token={token} onLogout={handleLogout} />
-      }
-    </PermissionsProvider>
+    <DialogProvider>
+      <PermissionsProvider token={token} role={payload.role}>
+        {isManager
+          ? <ManagerDashboard token={token} onLogout={handleLogout} />
+          : <EmployeeDashboard token={token} onLogout={handleLogout} />
+        }
+      </PermissionsProvider>
+    </DialogProvider>
   );
 }
 

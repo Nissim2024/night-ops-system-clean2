@@ -66,7 +66,7 @@ export class TaskProposalsService {
     dto.crLabel = sanitize(dto.crLabel);
     if (!dto.title) throw new BadRequestException('שדה "שם המשימה" הוא חובה');
     if (dto.phase === undefined || dto.phase === null) throw new BadRequestException('שדה "phase" הוא חובה (ערכים חוקיים: 1–4)');
-    if (dto.phase < 1 || dto.phase > 4) throw new BadRequestException('שדה "phase" אינו תקין — ערכים חוקיים: 1 עד 4');
+    if (dto.phase < 1) throw new BadRequestException('שדה "phase" אינו תקין — ערך מינימלי: 1');
 
     let resolvedTeamId: string;
     if (MANAGERS.includes(user.role) && dto.teamIdOverride) {
@@ -196,10 +196,15 @@ export class TaskProposalsService {
     return { count };
   }
 
-  async convertApprovedToTasks(versionId: string, createdBy: string) {
-    // Fetch ALL pending proposals (any review status, not yet converted)
+  async convertApprovedToTasks(versionId: string, createdBy: string, proposalIds?: string[]) {
+    // When proposalIds is provided: convert only those specific proposals (manager explicitly selected them).
+    // Otherwise: fall back to old behaviour — only APPROVED proposals.
+    const baseWhere = proposalIds?.length
+      ? { versionId, usedInTaskId: null, id: { in: proposalIds } }
+      : { versionId, usedInTaskId: null };
+
     const allPending = await prisma.taskProposal.findMany({
-      where: { versionId, usedInTaskId: null },
+      where: baseWhere,
       orderBy: [{ phase: 'asc' }, { createdAt: 'asc' }],
     });
 
@@ -208,7 +213,7 @@ export class TaskProposalsService {
     // Enrich with responsibleTeamId (column added after Prisma client was generated)
     const enriched = await this.enrichResponsibleTeam(versionId, allPending);
 
-    // Only APPROVED proposals may be converted
+    // Always enforce APPROVED status — proposalIds only narrows the set, never bypasses approval.
     const proposals = enriched.filter((p: any) => p.reviewStatus === 'APPROVED');
     const skipped: Array<{ title: string; reason: string }> = enriched
       .filter((p: any) => p.reviewStatus !== 'APPROVED')
@@ -220,12 +225,14 @@ export class TaskProposalsService {
                                                'ממתינה לאישור מנהל',
       }));
 
-    // Map phase number → phase name match in version
+    // Map phase number → phase name match in version.
+    // Phase orderIndex is the authoritative key — patterns are fallback when subPhaseId is not set.
     const PHASE_PATTERN: Record<number, string[]> = {
       1: ['בוקר', 'בוקר לפני', 'בוקר גרסה', 'morning'],
       2: ['hotnet', 'הוטנט', 'לילה — hotnet'],
       3: ['hot', 'הוט', 'לילה — hot'],
       4: ['בוקר לאחר', 'morning after', 'בוקר שלאחר'],
+      5: ['פיתוחים', 'הפעלות', 'production', 'ייצור'],
     };
 
     const phases = await prisma.phase.findMany({

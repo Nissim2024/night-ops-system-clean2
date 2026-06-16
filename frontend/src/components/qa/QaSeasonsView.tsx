@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../../theme';
+import { useDialog } from '../../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -68,6 +69,7 @@ const getLockDays = (dates: SeasonDate[]): number | null => {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export const QaSeasonsView: React.FC<Props> = ({ token }) => {
+  const dialog  = useDialog();
   const headers = { Authorization: `Bearer ${token}` };
 
   const [seasons, setSeasons]       = useState<Season[]>([]);
@@ -152,7 +154,7 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
       setImportResult(res.data);
       await loadSeasons();
     } catch {
-      alert('שגיאה בייבוא חגים');
+      dialog.alert('שגיאה בייבוא חגים', 'שגיאה', 'danger');
     } finally {
       setImporting(false);
     }

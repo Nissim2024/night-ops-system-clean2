@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, statusColor } from '../theme';
+import { useDialog } from '../context/DialogContext';
 import { Avatar, StatusChip, Spinner, VersionStatusChip } from './ui';
 import { TaskDetailPanel } from './TaskDetailPanel';
 
@@ -419,6 +420,7 @@ const AddTaskRow: React.FC<{
 
 // ── Main component ────────────────────────────────────────────────────────────
 export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, versionStatus, editable = false, onVersionStatusChange }) => {
+  const dialog = useDialog();
   const [version,        setVersion]        = useState<any>(null);
   const [loading,        setLoading]        = useState(true);
   const [collapsed,      setCollapsed]      = useState<Set<string>>(new Set());
@@ -486,7 +488,7 @@ export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, v
 
   // Delete task
   const deleteTask = async (taskId: string) => {
-    if (!window.confirm('למחוק את המשימה?')) return;
+    if (!await dialog.confirm('למחוק את המשימה?', 'מחיקת משימה', 'danger')) return;
     await axios.delete(`${API}/tasks/${taskId}`, { headers });
     if (selectedId === taskId) setSelectedId(null);
     fetchVersion();
