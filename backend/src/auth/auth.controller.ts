@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards, BadRequestException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LdapService } from './ldap.service';
@@ -15,7 +15,13 @@ export class AuthController {
   @Throttle({ default: { ttl: 15 * 60 * 1000, limit: 10 } })
   @Post('login')
   login(@Body() body: { email: string; password: string }) {
-    return this.authService.login(body.email, body.password);
+    if (!body?.email || typeof body.email !== 'string' || !body.email.trim()) {
+      throw new BadRequestException('email is required');
+    }
+    if (!body?.password || typeof body.password !== 'string') {
+      throw new BadRequestException('password is required');
+    }
+    return this.authService.login(body.email.trim(), body.password);
   }
 
   // Public — tells the frontend whether LDAP mode is active (changes login label)

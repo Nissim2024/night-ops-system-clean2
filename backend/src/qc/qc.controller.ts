@@ -18,7 +18,10 @@ export class QcController {
   }
 
   @Get('cr-items')
-  getCrItems(@Query('releaseId') releaseId?: string) {
-    return this.qcService.getCrItems(releaseId);
+  getCrItems(
+    @Query('releaseId') releaseId?: string,
+    @Query('versionId') versionId?: string,
+  ) {
+    return this.qcService.getCrItems(releaseId, versionId);
   }
 }

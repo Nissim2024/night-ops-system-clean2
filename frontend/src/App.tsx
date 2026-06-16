@@ -4,6 +4,7 @@ import { ManagerDashboard } from './components/ManagerDashboard';
 import { EmployeeDashboard } from './components/EmployeeDashboard';
 import { PermissionsProvider } from './context/PermissionsContext';
 import { DialogProvider } from './context/DialogContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 function App() {
   const [token, setToken] = useState<string | null>(
@@ -30,14 +31,16 @@ function App() {
   const isManager = ['ADMIN', 'RELEASE_MANAGER', 'CR_MANAGER', 'TEAM_LEAD', 'VIEWER'].includes(payload.role);
 
   return (
-    <DialogProvider>
-      <PermissionsProvider token={token} role={payload.role}>
-        {isManager
-          ? <ManagerDashboard token={token} onLogout={handleLogout} />
-          : <EmployeeDashboard token={token} onLogout={handleLogout} />
-        }
-      </PermissionsProvider>
-    </DialogProvider>
+    <ErrorBoundary>
+      <DialogProvider>
+        <PermissionsProvider token={token} role={payload.role}>
+          {isManager
+            ? <ManagerDashboard token={token} onLogout={handleLogout} />
+            : <EmployeeDashboard token={token} onLogout={handleLogout} />
+          }
+        </PermissionsProvider>
+      </DialogProvider>
+    </ErrorBoundary>
   );
 }
 

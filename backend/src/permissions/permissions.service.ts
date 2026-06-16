@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaClient, Role } from '@prisma/client';
 
 const prisma = new PrismaClient({
@@ -33,6 +33,10 @@ export class PermissionsService {
   }
 
   async updateRole(role: Role, permissions: string[]) {
+    const VALID_ROLES = ['ADMIN', 'RELEASE_MANAGER', 'CR_MANAGER', 'TEAM_LEAD', 'EMPLOYEE', 'VIEWER'];
+    if (!VALID_ROLES.includes(role as string)) {
+      throw new BadRequestException(`תפקיד לא חוקי: "${role}". תפקידים מותרים: ${VALID_ROLES.join(', ')}`);
+    }
     const valid = permissions.filter(p => ALL_PERMISSIONS.includes(p));
     return prisma.rolePermissions.upsert({
       where: { role },

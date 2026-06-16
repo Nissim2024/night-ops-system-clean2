@@ -317,7 +317,24 @@ export class QcService {
     }
   }
 
-  async getCrItems(_releaseId?: string): Promise<CrItemDto[]> {
+  async getCrItems(_releaseId?: string, versionId?: string): Promise<CrItemDto[]> {
+    if (versionId) {
+      const rows = await prisma.versionCrAssignment.findMany({
+        where: { versionId },
+        select: { crNumber: true, crLabel: true },
+        orderBy: { crNumber: 'asc' },
+      });
+      // Deduplicate by crNumber (same CR can belong to multiple teams)
+      const seen = new Set<string>();
+      const items: CrItemDto[] = [];
+      for (const row of rows) {
+        if (seen.has(row.crNumber)) continue;
+        seen.add(row.crNumber);
+        const label = row.crLabel ?? row.crNumber;
+        items.push({ id: row.crNumber, description: label, label });
+      }
+      return items;
+    }
     return MOCK_CR_ITEMS;
   }
 }

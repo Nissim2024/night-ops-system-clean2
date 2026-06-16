@@ -7,6 +7,7 @@ import { ImportView } from './ImportView';
 import { NightSummary } from './NightSummary';
 import { DeployCenterLogo } from './DeployCenterLogo';
 import { CrReviewView } from './CrReviewView';
+import { C, statusColor, statusLabel } from '../theme';
 
 const SummaryVersionPicker: React.FC<{ token: string }> = ({ token }) => {
   const [versions, setVersions] = React.useState<any[]>([]);
@@ -53,21 +54,15 @@ import { usePushNotifications } from '../hooks/usePushNotifications';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
-const STATUS_COLORS: Record<string, string> = {
-  OPEN: '#3498db', IN_PROGRESS: '#f39c12', BLOCKED: '#e74c3c',
-  WAITING: '#9b59b6', DONE: '#27ae60', FAILED: '#c0392b', ROLLED_BACK: '#7f8c8d',
-};
-const STATUS_LABELS: Record<string, string> = {
-  OPEN: 'פתוח', IN_PROGRESS: 'בביצוע', BLOCKED: 'חסום',
-  WAITING: 'ממתין', DONE: 'הושלם', FAILED: 'נכשל', ROLLED_BACK: 'Rollback',
-};
+const TASK_STATUSES = ['OPEN', 'IN_PROGRESS', 'BLOCKED', 'WAITING', 'DONE', 'FAILED', 'ROLLED_BACK'];
+
 const PRIORITY_LABELS: Record<string, string> = {
   LOW: 'נמוך', MEDIUM: 'בינוני', HIGH: 'גבוה',
   CRITICAL: 'קריטי', PRODUCTION_BLOCKER: 'חוסם Production',
 };
 const PRIORITY_COLORS: Record<string, string> = {
-  LOW: '#95a5a6', MEDIUM: '#3498db', HIGH: '#e67e22',
-  CRITICAL: '#e74c3c', PRODUCTION_BLOCKER: '#8e44ad',
+  LOW: C.priorityLow, MEDIUM: C.priorityMedium, HIGH: C.priorityHigh,
+  CRITICAL: C.danger, PRODUCTION_BLOCKER: C.statusWaiting,
 };
 
 interface Props {
@@ -240,10 +235,10 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
         {view === 'tasks' && (
           <div>
             <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
-              {Object.entries(STATUS_LABELS).map(([status, label]) => (
-                <div key={status} style={{ background: 'white', borderRadius: '12px', padding: '16px 20px', flex: '1', minWidth: '100px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderTop: `4px solid ${STATUS_COLORS[status]}`, textAlign: 'center' }}>
-                  <div style={{ fontSize: '28px', fontWeight: 'bold', color: STATUS_COLORS[status] }}>{statusCounts[status] || 0}</div>
-                  <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>{label}</div>
+              {TASK_STATUSES.map((status) => (
+                <div key={status} style={{ background: 'white', borderRadius: '12px', padding: '16px 20px', flex: '1', minWidth: '100px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderTop: `4px solid ${statusColor(status)}`, textAlign: 'center' }}>
+                  <div style={{ fontSize: '28px', fontWeight: 'bold', color: statusColor(status) }}>{statusCounts[status] || 0}</div>
+                  <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>{statusLabel(status)}</div>
                 </div>
               ))}
             </div>
@@ -251,7 +246,7 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
             {loading ? <div style={{ textAlign: 'center', padding: '60px' }}>טוען...</div> :
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {tasks.map(task => (
-                  <div key={task.id} style={{ background: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderRight: `5px solid ${STATUS_COLORS[task.status]}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+                  <div key={task.id} style={{ background: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderRight: `5px solid ${statusColor(task.status)}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#1a2332', marginBottom: '6px' }}>{task.title}</div>
                       <div style={{ display: 'flex', gap: '12px', fontSize: '13px', color: '#666' }}>
@@ -260,7 +255,7 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
                       </div>
                     </div>
                     <select value={task.status} onChange={e => updateStatus(task.id, e.target.value)} style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '13px' }}>
-                      {Object.entries(STATUS_LABELS).map(([s, l]) => <option key={s} value={s}>{l}</option>)}
+                      {TASK_STATUSES.map(s => <option key={s} value={s}>{statusLabel(s)}</option>)}
                     </select>
                   </div>
                 ))}

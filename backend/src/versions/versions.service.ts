@@ -212,6 +212,9 @@ async addTask(subPhaseId: string, data: {
       }
     }
 
+    data.title = (data.title ?? '').replace(/<[^>]*>/g, '').trim();
+    if (!data.title) throw new BadRequestException('שדה "כותרת" הוא חובה');
+
     const lastTask = await prisma.task.findFirst({
       where: { subPhaseId },
       orderBy: { orderIndex: 'desc' },

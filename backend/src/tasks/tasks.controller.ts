@@ -10,10 +10,13 @@ import {
   Request,
   UseGuards,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { TasksService } from './tasks.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
-import { TaskStatus, Priority } from '@prisma/client';
+import { TaskStatus, Priority, PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
 const MANAGERS       = ['RELEASE_MANAGER', 'ADMIN'];
 const LEADS_UP       = ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN'];
@@ -55,6 +58,9 @@ export class TasksController {
     dueDate?: string;
   }, @Request() req: any) {
     requireRole(req, MANAGERS, 'רק מנהל לילה יכול ליצור משימה בתוכנית');
+    if (body?.title && body.title.length > 500) {
+      throw new BadRequestException('title cannot exceed 500 characters');
+    }
     const { title, description, crNumber, application, priority, assignedTeamId, assignedUserId, dueDate } = body;
     return this.tasksService.create({
       title, description, crNumber, application, priority, assignedTeamId, assignedUserId, dueDate,
@@ -63,12 +69,26 @@ export class TasksController {
   }
 
   @Patch(':id/status')
-  updateStatus(
+  async updateStatus(
     @Param('id') id: string,
     @Body() body: { status: TaskStatus; blockedReason?: string; failedReason?: string },
     @Request() req: any,
   ) {
     requireRole(req, TASK_EXECUTORS, 'אין הרשאה לעדכון סטטוס משימה');
+
+    // TEAM_LEAD and EMPLOYEE may only update tasks belonging to their own team(s)
+    if (['TEAM_LEAD', 'EMPLOYEE'].includes(req.user.role)) {
+      const task = await prisma.task.findUnique({ where: { id }, select: { assignedTeamId: true } });
+      if (task?.assignedTeamId) {
+        const membership = await prisma.teamMember.findFirst({
+          where: { userId: req.user.sub, teamId: task.assignedTeamId },
+        });
+        if (!membership) {
+          throw new ForbiddenException('אין הרשאה לעדכן משימה של צוות אחר');
+        }
+      }
+    }
+
     return this.tasksService.updateStatus(
       id,
       body.status,

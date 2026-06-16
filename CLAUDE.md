@@ -53,7 +53,7 @@ npx playwright show-report             # Open HTML report in /report
 Each feature is a self-contained NestJS module: `module.ts` → `controller.ts` → `service.ts`. Every service instantiates its own `new PrismaClient()` directly — there is no shared Prisma provider/module.
 
 Key modules and their responsibilities:
-- **versions** — the core domain; manages the full `VersionStatus` state machine (DRAFT → CR_REVIEW → COLLECTING → REFINING → REVIEW → APPROVED → REHEARSAL → ACTIVE → MORNING_AFTER → COMPLETED). Also owns Phase/SubPhase/Task CRUD, the reschedule wizard, and employee reassignment.
+- **versions** — the core domain; manages the full `VersionStatus` state machine (DRAFT → COLLECTING → CR_REVIEW → REFINING → REVIEW → APPROVED → REHEARSAL → ACTIVE → MORNING_AFTER → COMPLETED). Also owns Phase/SubPhase/Task CRUD, the reschedule wizard, and employee reassignment.
 - **tasks** — task status transitions (WAITING/OPEN/IN_PROGRESS/BLOCKED/DONE/FAILED/ROLLED_BACK), audit logging, phase-gate enforcement
 - **import** — parses color-coded Excel files (xlsx) to create versions with phases/tasks; also fetches CR lists from QC release assignments
 - **auth** — JWT login (bcrypt local + optional LDAP/AD via ldapts). Three hardcoded local accounts bypass LDAP: `nissim@test.com`, `nisim@dev.com`, `hay@dev.com`
@@ -104,11 +104,15 @@ Auth roles (enforced in controllers via inline `requireRole()`):
 The `VersionStatus` state machine is enforced server-side in `versions.service.ts`:
 
 ```
-DRAFT → CR_REVIEW → COLLECTING → REFINING → REVIEW → APPROVED → REHEARSAL → ACTIVE → MORNING_AFTER → COMPLETED
+DRAFT → COLLECTING → CR_REVIEW → REFINING → REVIEW → APPROVED → REHEARSAL → ACTIVE → MORNING_AFTER → COMPLETED
+                                                                           ↘ ACTIVE (shortcut from APPROVED)
+Any status (except COMPLETED/ROLLED_BACK) → ROLLED_BACK (terminal)
 ```
 
 - REHEARSAL can only exit via `POST /versions/:id/end-rehearsal` (not via status PATCH)
-- COLLECTING→REFINING checks that all teams with CrPlans have submitted (bypassable with `force: true`)
+- CR_REVIEW→REFINING checks that all teams with CrPlans have submitted and all CrPlans are approved (bypassable with `force: true`)
+- DRAFT can jump directly to CR_REVIEW or APPROVED (admin override)
+- COMPLETED and ROLLED_BACK are terminal — no further transitions allowed
 - COMPLETED versions with `isArchived=false` appear in the "inactive" tab of ManagerDashboard and are not auto-selected
 
 ### Database env files

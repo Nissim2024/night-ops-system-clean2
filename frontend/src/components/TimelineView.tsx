@@ -1,12 +1,8 @@
 ﻿import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
+import { statusColor } from '../theme';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
-
-const STATUS_COLOR: Record<string, string> = {
-  OPEN: '#3498db', IN_PROGRESS: '#f39c12', BLOCKED: '#e74c3c',
-  WAITING: '#9b59b6', DONE: '#27ae60', FAILED: '#c0392b', ROLLED_BACK: '#7f8c8d',
-};
 
 // ── Delay Calculator types ───────────────────────────────────────────
 interface CalcTask {
@@ -525,7 +521,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                       const aw  = as_ !== null && ae_ !== null ? Math.max(0, ae_ - as_) : null;
 
                       const d  = delay(task);
-                      const sc = STATUS_COLOR[task.status] || '#3498db';
+                      const sc = statusColor(task.status);
 
                       return (
                         <div key={task.id} style={{ display: 'flex', height: H_TASK }}>
@@ -581,9 +577,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                                 style={{
                                   position: 'absolute', left: `${as_}%`, width: `${aw}%`,
                                   top: 19, height: 8,
-                                  background: task.status === 'DONE'    ? '#27ae60'
-                                            : task.status === 'BLOCKED' ? '#e74c3c'
-                                            : '#f39c12',
+                                  background: statusColor(task.status),
                                   borderRadius: 3, zIndex: 3, opacity: 0.88,
                                 }}
                               />

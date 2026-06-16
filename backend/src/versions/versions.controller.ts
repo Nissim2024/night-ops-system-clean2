@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Delete, Body, Param, Query, Request, UseGuards, ForbiddenException,
+  Controller, Get, Post, Patch, Delete, Body, Param, Query, Request, UseGuards, ForbiddenException, BadRequestException,
 } from '@nestjs/common';
 import { VersionsService } from './versions.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
@@ -141,6 +141,9 @@ export class VersionsController {
   @Post('sub-phases/:subPhaseId/tasks')
   addTask(@Param('subPhaseId') subPhaseId: string, @Body() body: any, @Request() req: any) {
     requireRole(req, LEADS_UP, 'נדרשת הרשאת ראש צוות ומעלה להוספת משימות');
+    if (body?.title && body.title.length > 500) {
+      throw new BadRequestException('title cannot exceed 500 characters');
+    }
     return this.versionsService.addTask(subPhaseId, { ...body, createdBy: req.user.sub });
   }
 

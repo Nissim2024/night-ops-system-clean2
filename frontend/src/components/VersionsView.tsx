@@ -1025,7 +1025,7 @@ const VersionDetail: React.FC<{
       .then(r => setUsers(r.data.filter((u: any) => u.active).sort((a: any, b: any) => a.fullName.localeCompare(b.fullName, 'he'))))
       .catch(() => {});
     axios.get(`${API}/version-templates`, { headers }).then(r => setLocalTemplates(r.data)).catch(() => {});
-    axios.get(`${API}/qc/cr-items`, { headers }).then(r => setCrItems(r.data)).catch(() => {});
+    axios.get(`${API}/qc/cr-items?versionId=${version.id}`, { headers }).then(r => setCrItems(r.data)).catch(() => {});
     if (version.status === 'CR_REVIEW' && isManager) {
       // Auto-sync CR assignments from Excel in background, then fetch summary
       setCrSummaryLoading(true);
