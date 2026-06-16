@@ -36,6 +36,7 @@ export class VersionCrAssignmentsController {
 
   @Delete('version/:versionId')
   clearForVersion(@Param('versionId') versionId: string, @Request() req: any) {
+    if (!MANAGERS.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת מנהל');
     return this.service.clearForVersion(versionId, req.user);
   }
 }
