@@ -12,13 +12,12 @@ const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
 export class TaskProposalsService {
   constructor(private readonly events: EventsGateway) {}
 
-  // Fetch responsibleTeamId for proposals (new column, not in generated Prisma client)
   private async enrichResponsibleTeam(versionId: string, proposals: any[]): Promise<any[]> {
     if (!proposals.length) return proposals;
-    const rows = await prisma.$queryRawUnsafe<{ id: string; responsibleTeamId: string | null }[]>(
-      `SELECT id, "responsibleTeamId" FROM "TaskProposal" WHERE "versionId" = $1`,
-      versionId,
-    );
+    const rows = await prisma.taskProposal.findMany({
+      where: { versionId },
+      select: { id: true, responsibleTeamId: true },
+    });
     const map = new Map(rows.map(r => [r.id, r.responsibleTeamId]));
     return proposals.map(p => ({ ...p, responsibleTeamId: map.get(p.id) ?? null }));
   }
@@ -99,9 +98,11 @@ export class TaskProposalsService {
         status: 'DRAFT',
       },
     });
-    // responsibleTeamId — new field, set via raw SQL to avoid Prisma client mismatch
     if (dto.responsibleTeamId) {
-      await prisma.$executeRaw`UPDATE "TaskProposal" SET "responsibleTeamId" = ${dto.responsibleTeamId} WHERE id = ${proposal.id}`;
+      await prisma.taskProposal.update({
+        where: { id: proposal.id },
+        data: { responsibleTeamId: dto.responsibleTeamId },
+      });
     }
     this.events.emitProposalCreated(versionId);
     return proposal;
@@ -136,9 +137,11 @@ export class TaskProposalsService {
         ...(dto.subPhaseId !== undefined && { subPhaseId: dto.subPhaseId }),
       },
     });
-    // responsibleTeamId — new field, set via raw SQL to avoid Prisma client mismatch
     if (dto.responsibleTeamId !== undefined) {
-      await prisma.$executeRaw`UPDATE "TaskProposal" SET "responsibleTeamId" = ${dto.responsibleTeamId} WHERE id = ${id}`;
+      await prisma.taskProposal.update({
+        where: { id },
+        data: { responsibleTeamId: dto.responsibleTeamId },
+      });
     }
     return updated;
   }

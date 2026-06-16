@@ -8,11 +8,11 @@ const CR_APPROVERS = ['RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'];
 @Injectable()
 export class CrPlansService {
   async findForVersion(versionId: string, user: { sub: string; role: string }, filterTeamId?: string) {
-    // Use raw SQL to get exempt team IDs — bypasses Prisma client schema cache
-    const exemptRows: any[] = await prisma.$queryRawUnsafe(
-      `SELECT id FROM "Team" WHERE "requiresPlan" = false`,
-    );
-    const exemptTeamIds = new Set(exemptRows.map((r: any) => r.id));
+    const exemptTeams = await prisma.team.findMany({
+      where: { requiresPlan: false },
+      select: { id: true },
+    });
+    const exemptTeamIds = new Set(exemptTeams.map(t => t.id));
 
     if (CR_APPROVERS.includes(user.role)) {
       const plans = await prisma.crPlan.findMany({

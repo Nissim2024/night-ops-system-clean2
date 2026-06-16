@@ -458,14 +458,13 @@ async addTask(subPhaseId: string, data: {
         select: { teamId: true },
       });
       const allInvolvedTeamIds = involvedPlans.map((p: any) => p.teamId);
-      // Exclude teams that don't require plan submission from enforcement (raw SQL bypasses Prisma cache)
       let involvedTeamIds: string[] = allInvolvedTeamIds;
       if (allInvolvedTeamIds.length > 0) {
-        const requiredRows: any[] = await prisma.$queryRawUnsafe(
-          `SELECT id FROM "Team" WHERE id = ANY($1::uuid[]) AND "requiresPlan" = true`,
-          allInvolvedTeamIds,
-        );
-        involvedTeamIds = requiredRows.map((t: any) => t.id);
+        const requiredTeams = await prisma.team.findMany({
+          where: { id: { in: allInvolvedTeamIds }, requiresPlan: true },
+          select: { id: true },
+        });
+        involvedTeamIds = requiredTeams.map(t => t.id);
       }
       if (involvedTeamIds.length > 0) {
         const notSubmitted = await prisma.teamSubmission.findMany({
@@ -770,11 +769,10 @@ async addTask(subPhaseId: string, data: {
     await prisma.teamSubmission.deleteMany({ where: { versionId: id } });
     await prisma.nightSummary.deleteMany({ where: { versionId: id } });
     await (prisma as any).rehearsalSummary.deleteMany({ where: { versionId: id } });
-    // Use raw SQL for newer tables in case Prisma client hasn't been regenerated
-    await prisma.$executeRawUnsafe(`DELETE FROM "TaskProposal" WHERE "versionId" = $1`, id);
+    await prisma.taskProposal.deleteMany({ where: { versionId: id } });
     // CrDependency cascades automatically (onDelete: Cascade on crPlanId FK)
-    await prisma.$executeRawUnsafe(`DELETE FROM "CrPlan" WHERE "versionId" = $1`, id);
-    await prisma.$executeRawUnsafe(`DELETE FROM "VersionCrAssignment" WHERE "versionId" = $1`, id);
+    await prisma.crPlan.deleteMany({ where: { versionId: id } });
+    await prisma.versionCrAssignment.deleteMany({ where: { versionId: id } });
     await prisma.version.delete({ where: { id } });
 
     return { message: 'הגרסה נמחקה בהצלחה' };
