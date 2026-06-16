@@ -8,14 +8,24 @@ import {
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { JwtService } from '@nestjs/jwt';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+const wsOrigins = [
+  'http://localhost:3001',
+  'http://localhost:3002',
+  'http://localhost:3003',
+  'http://localhost:3011',
+  'http://localhost:3013',
+  ...(process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(o => o.trim()) : []),
+];
+
 @WebSocketGateway({
   cors: {
-    origin: ['http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003'],
+    origin: wsOrigins,
     credentials: true,
   },
 })
@@ -25,14 +35,26 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private connectedUsers = new Map<string, { userId: string; fullName: string; teamId?: string }>();
 
-  constructor(private notificationsService: NotificationsService) {}
+  constructor(
+    private notificationsService: NotificationsService,
+    private jwtService: JwtService,
+  ) {}
 
   handleConnection(client: Socket) {
-    console.log(`Client connected: ${client.id}`);
+    const token: string | undefined = client.handshake.auth?.token;
+    if (!token) {
+      client.disconnect(true);
+      return;
+    }
+    try {
+      const payload = this.jwtService.verify(token, { secret: process.env.JWT_SECRET });
+      client.data.user = payload;
+    } catch {
+      client.disconnect(true);
+    }
   }
 
   handleDisconnect(client: Socket) {
-    console.log(`Client disconnected: ${client.id}`);
     const user = this.connectedUsers.get(client.id);
     if (user) {
       this.connectedUsers.delete(client.id);
@@ -41,10 +63,24 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('JOIN')
-  handleJoin(@MessageBody() data: { userId: string; fullName: string; teamId?: string }, @ConnectedSocket() client: Socket) {
-    this.connectedUsers.set(client.id, data);
-    client.join(`team_${data.teamId}`);
-    this.server.emit('USER_ONLINE', { userId: data.userId, fullName: data.fullName, teamId: data.teamId });
+  async handleJoin(@MessageBody() data: { teamId?: string }, @ConnectedSocket() client: Socket) {
+    const jwtUser = client.data?.user;
+    if (!jwtUser) {
+      client.disconnect(true);
+      return;
+    }
+    const dbUser = await prisma.user.findUnique({
+      where: { id: jwtUser.sub },
+      select: { fullName: true, active: true },
+    });
+    if (!dbUser?.active) {
+      client.disconnect(true);
+      return;
+    }
+    const entry = { userId: jwtUser.sub as string, fullName: dbUser.fullName, teamId: data?.teamId };
+    this.connectedUsers.set(client.id, entry);
+    client.join(`team_${data?.teamId}`);
+    this.server.emit('USER_ONLINE', entry);
     return { event: 'JOINED', data: { connectedUsers: Array.from(this.connectedUsers.values()) } };
   }
 

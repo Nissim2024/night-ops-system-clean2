@@ -27,16 +27,13 @@ export const useSocket = (options: UseSocketOptions) => {
   });
 
   useEffect(() => {
-    const socket = io(SOCKET_URL, { transports: ['websocket'] });
+    const token = localStorage.getItem('deploycenter_token');
+    const socket = io(SOCKET_URL, { transports: ['websocket'], auth: { token } });
     socketRef.current = socket;
 
     socket.on('connect', () => {
       console.log('WebSocket connected:', socket.id);
-      socket.emit('JOIN', {
-        userId: optionsRef.current.userId,
-        fullName: optionsRef.current.fullName,
-        teamId: optionsRef.current.teamId,
-      });
+      socket.emit('JOIN', { teamId: optionsRef.current.teamId });
     });
 
     socket.on('JOINED', (payload) => {
