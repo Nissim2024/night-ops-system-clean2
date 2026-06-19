@@ -125,7 +125,7 @@ export class SummaryService {
           ] : []),
 
           // חתימה
-          new Paragraph({ spacing: { before: 400 }, alignment: AlignmentType.CENTER, children: [new TextRun({ text: `הופק אוטומטית ע"י NightOps Platform`, size: 18, color: '999999', font: 'Arial' })] }),
+          new Paragraph({ spacing: { before: 400 }, alignment: AlignmentType.CENTER, children: [new TextRun({ text: `הופק אוטומטית ע"י DeployCenter`, size: 18, color: '999999', font: 'Arial' })] }),
         ],
       }],
     });

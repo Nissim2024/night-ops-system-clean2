@@ -407,7 +407,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
     }
 
     lines.push('━'.repeat(40));
-    lines.push('הופק אוטומטית ע"י NightOps Platform');
+    lines.push('הופק אוטומטית ע"י DeployCenter');
     return lines.join('\n');
   };
 
@@ -678,7 +678,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 
   <!-- HEADER -->
   <tr><td bgcolor="#1e3a5f" align="center" style="padding:28px 32px;">
-    <p style="margin:0 0 6px;font-size:12px;color:#8ab4d4;font-family:Arial;">NightOps Platform</p>
+    <p style="margin:0 0 6px;font-size:12px;color:#8ab4d4;font-family:Arial;">DeployCenter</p>
     <h1 style="margin:0 0 16px;color:#ffffff;font-size:20px;font-weight:bold;font-family:Arial;">${title}</h1>
     <table cellpadding="0" cellspacing="0" border="0" align="center"><tr>
       <td bgcolor="${effectiveGo ? '#27ae60' : '#c0392b'}" style="padding:8px 28px;font-size:16px;font-weight:bold;color:white;font-family:Arial;">
@@ -724,7 +724,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 
   <!-- FOOTER -->
   <tr><td bgcolor="#f8f9fa" align="center" style="padding:14px 32px;border-top:1px solid #e9ecef;">
-    <p style="margin:0;font-size:12px;color:#adb5bd;font-family:Arial;">הופק אוטומטית ע"י NightOps Platform</p>
+    <p style="margin:0;font-size:12px;color:#adb5bd;font-family:Arial;">הופק אוטומטית ע"י DeployCenter</p>
   </td></tr>
 
 </table>
@@ -1505,7 +1505,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
             )}
 
             <div style={{ textAlign: 'center', color: '#bbb', fontSize: '12px', marginTop: '24px', borderTop: '1px solid #eee', paddingTop: '12px' }}>
-              הופק אוטומטית ע"י NightOps Platform
+              הופק אוטומטית ע"י DeployCenter
             </div>
           </div>
         )}

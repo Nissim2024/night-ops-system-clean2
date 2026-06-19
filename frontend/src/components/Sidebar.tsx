@@ -425,7 +425,7 @@ export const Sidebar: React.FC<Props> = ({
         fontSize: '12px', color: 'rgba(255,255,255,0.35)',
       }}>
         <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: C.success, flexShrink: 0, boxShadow: `0 0 4px ${C.success}80` }} />
-        <span>NightOps v2</span>
+        <span>DeployCenter v2</span>
       </div>
     </div>
   );

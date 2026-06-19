@@ -207,7 +207,7 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
           ...TEXT.xs, color: C.textDisabled,
         }}>
           <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: C.success, display: 'inline-block' }} />
-          NightOps v2 · מאובטח
+          DeployCenter v2 · מאובטח
         </div>
       </div>
     </div>
