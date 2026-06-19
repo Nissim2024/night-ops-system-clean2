@@ -1,10 +1,16 @@
 #!/bin/bash
 # ============================================================
 # DeployCenter — סקריפט התקנה אוטומטי
-# הרץ כ: sudo bash install.sh
+#
+# אופן שימוש:
+#   1. חלץ את ה-ZIP לתיקייה (למשל: /tmp/dc/)
+#   2. הרץ מתוך אותה תיקייה:
+#      sudo bash deploy/install.sh
 # ============================================================
 set -e
 
+# תיקיית השורש של ה-ZIP (שם נמצאים backend/ ו-frontend/)
+SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="/var/www/deploycenter"
 ENV_FILE="$APP_DIR/backend/.env.prod"
 
@@ -30,19 +36,20 @@ fi
 echo "✅ PM2: $(pm2 --version)"
 
 # ======================================
-# 1. חלץ קוד מקור
+# 1. העתק קוד מקור
 # ======================================
 echo ""
-echo "📂 יוצר תיקיית התקנה..."
+echo "📂 מעתיק קוד מקור ל-$APP_DIR ..."
 mkdir -p "$APP_DIR"
-unzip -q deploycenter-src.zip -d "$APP_DIR"
-echo "✅ קוד מקור חולץ ל-$APP_DIR"
+cp -r "$SRC_DIR/backend"  "$APP_DIR/"
+cp -r "$SRC_DIR/frontend" "$APP_DIR/"
+echo "✅ קוד מקור הועתק"
 
 # ======================================
 # 2. קובץ Environment
 # ======================================
 if [ ! -f "$ENV_FILE" ]; then
-  cp "$(dirname "$0")/.env.prod.template" "$ENV_FILE"
+  cp "$SRC_DIR/deploy/.env.prod.template" "$ENV_FILE"
   echo ""
   echo "⚠️  יש למלא את קובץ ה-Environment לפני המשך:"
   echo "    nano $ENV_FILE"
@@ -77,7 +84,8 @@ echo "✅ PostgreSQL מוגדר"
 echo ""
 echo "🔧 בונה Backend..."
 cd "$APP_DIR/backend"
-npm ci --omit=dev 2>/dev/null || npm ci
+cp "$ENV_FILE" .env.prod
+npm ci
 npm run build
 echo "✅ Backend נבנה"
 
@@ -118,7 +126,7 @@ echo "✅ Backend פועל עם PM2"
 # ======================================
 echo ""
 echo "🌐 מגדיר Nginx..."
-cp "$(dirname "$0")/nginx.conf" /etc/nginx/sites-available/deploycenter
+cp "$SRC_DIR/deploy/nginx.conf" /etc/nginx/sites-available/deploycenter
 ln -sf /etc/nginx/sites-available/deploycenter /etc/nginx/sites-enabled/deploycenter
 
 nginx -t && systemctl reload nginx
