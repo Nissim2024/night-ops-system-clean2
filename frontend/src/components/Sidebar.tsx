@@ -23,6 +23,7 @@ interface Props {
   showLeaves?: boolean;
   leavesActive?: boolean;
   onLeavesClick?: () => void;
+  onHomeClick?: () => void;
 }
 
 const IS_TEST = process.env.REACT_APP_ENV === 'test';
@@ -64,6 +65,7 @@ export const Sidebar: React.FC<Props> = ({
   showLeaves = false,
   leavesActive = false,
   onLeavesClick,
+  onHomeClick,
 }) => {
   const defaultOpen: Record<string, boolean> = { active: true, planning: true, closed: false, archived: false };
   const [open, setOpen] = useState<Record<string, boolean>>(defaultOpen);
@@ -138,6 +140,29 @@ export const Sidebar: React.FC<Props> = ({
 
       {/* ─── Deployments: גרסאות ─── */}
       {isDeployments && (<>
+
+        {/* ── Home button ── */}
+        {onHomeClick && (
+          <div
+            onClick={onHomeClick}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '10px',
+              padding: `10px ${SP[3]}`,
+              cursor: 'pointer',
+              background: activeTab === 'home' ? C.sidebarBgActive : 'transparent',
+              borderRight: activeTab === 'home' ? `3px solid ${C.sidebarAccent}` : '3px solid transparent',
+              transition: EASE.fast,
+              marginTop: SP[2],
+            }}
+            onMouseEnter={e => { if (activeTab !== 'home') (e.currentTarget as HTMLElement).style.background = C.sidebarBgHover; }}
+            onMouseLeave={e => { if (activeTab !== 'home') (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+          >
+            <span style={{ fontSize: '17px', lineHeight: 1 }}>🏠</span>
+            <span style={{ fontSize: '14px', fontWeight: activeTab === 'home' ? WEIGHT.semibold : WEIGHT.medium, color: activeTab === 'home' ? C.sidebarText : 'rgba(255,255,255,0.78)' }}>
+              דף הבית
+            </span>
+          </div>
+        )}
 
         {/* כותרת גרסאות — רמה ראשונה */}
         <div

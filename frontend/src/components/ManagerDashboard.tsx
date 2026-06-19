@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { HomeDashboard } from './HomeDashboard';
 import { VersionsView } from './VersionsView';
 import { ImportView } from './ImportView';
 import { WarRoom } from './WarRoom';
@@ -48,10 +49,10 @@ interface ToastItem {
 
 export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const appDialog = useDialog();
-  type Tab = 'list' | 'version-detail' | 'proposals' | 'cr-review' | 'board' | 'overview' | 'timeline' | 'dashboard' | 'summary-rehearsal' | 'summary-night' | 'admin' | 'implementation-plans' | 'cr-manager';
+  type Tab = 'home' | 'list' | 'version-detail' | 'proposals' | 'cr-review' | 'board' | 'overview' | 'timeline' | 'dashboard' | 'summary-rehearsal' | 'summary-night' | 'admin' | 'implementation-plans' | 'cr-manager';
   const [activeTab, setActiveTab]               = useState<Tab>(() => {
-    try { return JSON.parse(atob(token.split('.')[1])).role === 'CR_MANAGER' ? 'cr-manager' : 'list'; }
-    catch { return 'list'; }
+    try { return JSON.parse(atob(token.split('.')[1])).role === 'CR_MANAGER' ? 'cr-manager' : 'home'; }
+    catch { return 'home'; }
   });
   const [myTasksMode, setMyTasksMode]           = useState(false);
   const [versions, setVersions]                 = useState<any[]>([]);
@@ -605,6 +606,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           showLeaves={false}
           leavesActive={activeModule === 'qa' && activeQaView === 'leaves'}
           onLeavesClick={() => { setActiveModule('qa'); setActiveQaView('leaves'); }}
+          onHomeClick={() => { setActiveModule('deployments'); setActiveTab('home'); }}
         />
 
         {/* Main content (second = left in RTL) */}
@@ -614,6 +616,25 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           {activeModule === 'qa' && <QaModulePlaceholder view={activeQaView} token={token} role={payload.role} isQaMember={isQaTeamMember} />}
 
           {activeModule === 'deployments' && (<>
+
+          {/* ── Tab: Home Dashboard ── */}
+          {activeTab === 'home' && (
+            <HomeDashboard
+              versions={versions.filter(v => !v.isArchived)}
+              role={payload.role}
+              fullName={fullName}
+              onSelectVersion={(id, tab) => {
+                setSelectedVersionId(id);
+                setVersionFilter(
+                  ['ACTIVE','REHEARSAL','MORNING_AFTER'].some(s => versions.find(v=>v.id===id)?.status === s) ? 'active' : 'inactive'
+                );
+                setActiveTab((tab as Tab) || 'list');
+              }}
+              onNewVersion={['ADMIN','RELEASE_MANAGER'].includes(payload.role) ? () => {
+                setSelectedVersionId(''); setVersionFilter('inactive'); setActiveTab('list'); setOpenNewVersionForm(true);
+              } : undefined}
+            />
+          )}
 
           {/* ── Tab: רשימה / Hub ── */}
           {activeTab === 'list' && (() => {
