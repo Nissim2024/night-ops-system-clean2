@@ -37,7 +37,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
   const isClosed  = ['COMPLETED', 'ROLLED_BACK'].includes(s);
   const isAdmin   = userRole === 'ADMIN';
   const isLocked  = isClosed && !isAdmin;
-  const canEdit   = !isLocked;
+  const canEdit   = !isLocked && ['RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'].includes(userRole);
   const now       = new Date();
   const plannedStartPassed = version.plannedStart ? new Date(version.plannedStart) <= now : false;
   const rehearsalTimePassed = version.lastRehearsalAt ? true : s === 'REHEARSAL';   // ADMIN תמיד יכול לערוך, שאר — רק גרסה לא סגורה
