@@ -225,20 +225,16 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
           badge: undefined as string | undefined,
           badgeColor: C.textMuted,
         }] : []),
-        {
+        ...(['RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'].includes(userRole) ? [{
           id: 'implementation-plans',
           icon: '📁',
           title: 'תוכניות הטמעה',
-          subtitle: ['TEAM_LEAD'].includes(userRole)
-            ? 'מלא והגש את תוכניות ה-CR שלך'
-            : 'הגשה, סקירה ואישור תוכניות הטמעה',
+          subtitle: 'הגשה, סקירה ואישור תוכניות הטמעה',
           tab: 'implementation-plans',
-          enabled: ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'].includes(userRole) &&
-                   (userRole !== 'TEAM_LEAD' || myTeamRequiresPlan) &&
-                   ['COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED', 'REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(s),
-          badge: !['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'].includes(userRole) ? 'ראש צוות ומנהל בלבד' : undefined,
+          enabled: ['COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED', 'REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(s),
+          badge: undefined as string | undefined,
           badgeColor: C.textMuted,
-        },
+        }] : []),
       ],
     },
     {

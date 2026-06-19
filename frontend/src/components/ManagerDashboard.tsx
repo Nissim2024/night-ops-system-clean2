@@ -421,7 +421,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
         case 'summary-rehearsal': return can('screen:summary') && !!selectedVersion?.lastRehearsalAt;
         case 'summary-night':    return can('screen:summary') && !!(selectedVersion?.actualStart || ['ACTIVE','MORNING_AFTER','COMPLETED','ROLLED_BACK'].includes(vStatus ?? ''));
         case 'implementation-plans': return ['COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED', 'REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(vStatus ?? '') &&
-                                            ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'].includes(payload.role);
+                                            ['RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'].includes(payload.role);
         default:          return false;
       }
     }) : []),
