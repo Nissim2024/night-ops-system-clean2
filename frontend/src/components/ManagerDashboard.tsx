@@ -149,6 +149,24 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
     onProposalCreated: (data) => {
       window.dispatchEvent(new CustomEvent('deploycenter:proposalCreated', { detail: data }));
     },
+    onTeamSubmitted: (data) => {
+      if (!['RELEASE_MANAGER', 'ADMIN'].includes(payload.role)) return;
+      showToast({
+        type: 'info',
+        title: `📥 ${data.teamName} הגישו`,
+        body: `${data.submittedCount} מתוך ${data.totalTeams} צוותים הגישו`,
+      }, 8000);
+      window.dispatchEvent(new CustomEvent('deploycenter:teamSubmitted', { detail: data }));
+    },
+    onAllTeamsSubmitted: (data) => {
+      if (!['RELEASE_MANAGER', 'ADMIN'].includes(payload.role)) return;
+      showToast({
+        type: 'go',
+        title: '✅ כל הצוותים הגישו!',
+        body: `${data.totalTeams} צוותים — ניתן לאשר ולשבץ משימות`,
+      }, 12000);
+      window.dispatchEvent(new CustomEvent('deploycenter:allTeamsSubmitted', { detail: data }));
+    },
   });
 
   const fetchVersions = () => {

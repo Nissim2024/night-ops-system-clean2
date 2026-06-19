@@ -43,6 +43,14 @@ const TEAM_APPS: Record<string, string[]> = {
   // Teams not listed → show all APPS (fallback handled below)
 };
 
+const APP_TO_TEAMS: Record<string, string[]> = (() => {
+  const m: Record<string, string[]> = {};
+  Object.entries(TEAM_APPS).forEach(([team, apps]) => {
+    apps.forEach(app => { m[app] = [...(m[app] || []), team]; });
+  });
+  return m;
+})();
+
 const ACTION_TYPES = [
   'הרצת סקריפט',
   'הגדרת פרמטרים',
@@ -200,6 +208,8 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   const [expandedPlans, setExpandedPlans] = useState<Set<string>>(new Set());
   const [crPlanForms, setCrPlanForms]   = useState<Record<string, CrPlanForm>>({});
   const [savingPlan, setSavingPlan]     = useState<string | null>(null);
+  const [selectedCr, setSelectedCr]   = useState<string | null>(null);
+  const [selectedTab, setSelectedTab] = useState<'plan' | 'tasks'>('plan');
 
   // Extract-tasks modal
   interface ExtractItem { text: string; checked: boolean; phase: number; estimatedMins: string; duplicateId?: string; }
@@ -410,6 +420,17 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
       return next;
     });
   }, [proposals]);
+
+  // Auto-select first actionable CR on load (uses proposals+crPlans, not crGroups which is declared later)
+  useEffect(() => {
+    if (selectedCr) return;
+    const allNums = Array.from(new Set([
+      ...proposals.filter(p => p.crNumber).map(p => p.crNumber!),
+      ...Object.keys(crPlans),
+    ])).sort();
+    const first = allNums.find(cr => !crPlans[cr]?.notNeededForPlan);
+    if (first) setSelectedCr(first);
+  }, [proposals, crPlans]); // eslint-disable-line
 
   // Group proposals: by crNumber or FREE_KEY
   const grouped = proposals.reduce((acc, p) => {
@@ -1007,217 +1028,172 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     </div>
   );
 
-  // ── CrPlan metadata panel ────────────────────────────────────────────────────
+  // ── CrPlan form content ──────────────────────────────────────────────────────
   const renderCrPlanPanel = (crNumber: string) => {
-    const f = crPlanForms[crNumber] || emptyCrPlanForm();
-    const isSaving = savingPlan === crNumber;
-    const hasSaved = !!crPlans[crNumber];
+    const f        = crPlanForms[crNumber] || emptyCrPlanForm();
     const otherCrs = allCrNumbers.filter(c => c !== crNumber);
-
-    const crItem = crItems.find(c => c.id === crNumber);
-    const crManager = crItem?.crManager || '';
-    const crDescription = crItem?.crDescription || '';
+    const crItem   = crItems.find(c => c.id === crNumber);
+    const crManager     = crItem?.crManager     || crPlans[crNumber]?.crManager     || '';
+    const crDescription = crItem?.crDescription || crPlans[crNumber]?.crDescription || '';
     const crTitle = crItem?.label
       ? crItem.label.replace(/^\S+\s*-\s*/, '')
       : crPlans[crNumber]?.crLabel?.replace(/^\S+\s*-\s*/, '') || crNumber;
 
-    const roFieldStyle: React.CSSProperties = {
-      padding: '7px 10px', background: C.bgWaiting, border: `1px solid ${C.statusWaiting}40`,
-      borderRadius: RADIUS.md, fontSize: '13px', color: C.textPrimary, width: '100%',
-      boxSizing: 'border-box', fontFamily: 'inherit',
-    };
-    const roLabel: React.CSSProperties = { ...labelStyle, color: C.statusWaiting, fontSize: '11px', fontWeight: '600' };
+    const sect: React.CSSProperties = { height: '1px', background: C.border, margin: '4px 0' };
+    const fLbl: React.CSSProperties = { fontSize: '10px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: '3px' };
+    const ta:   React.CSSProperties = { ...inputStyle, minHeight: '48px', resize: 'vertical', padding: '7px 10px', fontSize: '12px' };
+    const sel:  React.CSSProperties = { ...inputStyle, padding: '7px 10px', fontSize: '12px' };
+
+    const rowHdr = (lbl: string, req: boolean, onExtract: () => void) => (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '3px' }}>
+        <label style={{ ...fLbl, marginBottom: 0 }}>{lbl}{req && <span style={{ color: C.danger }}> *</span>}</label>
+        <button onClick={onExtract} style={{ fontSize: '10px', fontWeight: 600, padding: '2px 8px', background: C.infoBg, color: C.info, border: `1px solid ${C.info}30`, borderRadius: '4px', cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+          ⚡ הפק משימות
+        </button>
+      </div>
+    );
 
     return (
-      <div style={{ margin: '8px 0 4px', background: C.bgWaiting, border: `1px solid ${C.statusWaiting}40`, borderRadius: RADIUS.lg, padding: '14px 16px' }}>
-        {/* Readiness indicator */}
-        {(() => {
-          const issues: string[] = [];
-          if (!f.crType)              issues.push('סוג CR');
-          if (!f.riskLevel)           issues.push('רמת סיכון');
-          if (!f.nightTestingNotes)   issues.push('בדיקות לילה');
-          if (!f.morningMonitoring)   issues.push('בדיקות בוקר אחרי');
-          if (f.riskLevel === 'HIGH' && !f.rollbackPlan) issues.push('Rollback (חובה בסיכון גבוה)');
-          const pct = Math.round((1 - issues.length / 5) * 100);
-          const color = pct === 100 ? C.success : pct >= 60 ? C.warning : C.danger;
-          return (
-            <div style={{ marginBottom: '12px', padding: '10px 12px', background: pct === 100 ? C.successBg : C.warningBg, borderRadius: RADIUS.md, border: `1px solid ${color}30` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: issues.length ? '6px' : 0 }}>
-                <div style={{ flex: 1, height: '6px', background: C.bgNested, borderRadius: '3px', overflow: 'hidden' }}>
-                  <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: '3px', transition: 'width 0.3s' }} />
-                </div>
-                <span style={{ fontSize: '12px', fontWeight: '700', color }}>{pct}% מוכנות</span>
-              </div>
-              {issues.length > 0 && (
-                <div style={{ fontSize: '11px', color: C.warning }}>
-                  ⚠ חסר: {issues.join(' · ')}
-                </div>
-              )}
-            </div>
-          );
-        })()}
-
-        {/* hidden fields — data preserved */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {/* hidden preserved fields */}
         <div style={{ display: 'none' }}>
-          <textarea value={f.scripts} onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, scripts: e.target.value } }))} />
+          <textarea value={f.scripts}  onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, scripts:  e.target.value } }))} />
           <textarea value={f.runTimes} onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, runTimes: e.target.value } }))} />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '10px' }}>
-
-          {/* שורה 1: פרטי CR | סוג CR | רמת סיכון */}
-          <div style={{ gridColumn: 'span 2' }}>
-            <label style={roLabel}>פרטים</label>
-            <div style={{ ...roFieldStyle, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-              title={crDescription || crTitle}>
-              {crDescription || crTitle || '—'}
-            </div>
+        {/* META STRIP — read-only */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '7px 12px', fontSize: '11px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flex: 1, minWidth: 0 }}>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>פרטי CR:</span>
+            <span style={{ color: C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={crDescription || crTitle}>{crDescription || crTitle || '—'}</span>
           </div>
+          {crManager && <>
+            <div style={{ width: '1px', height: '16px', background: C.border, flexShrink: 0 }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
+              <span style={{ fontSize: '10px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.04em' }}>מנהל:</span>
+              <span style={{ color: C.textSecondary, fontWeight: 600 }}>{crManager}</span>
+            </div>
+          </>}
+          {(() => {
+            const teams = Array.from(new Set(
+              f.systems.flatMap(s => APP_TO_TEAMS[s] || [])
+            ));
+            if (!teams.length) return null;
+            return <>
+              <div style={{ width: '1px', height: '16px', background: C.border, flexShrink: 0 }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0, maxWidth: '240px', minWidth: 0 }}>
+                <span style={{ fontSize: '10px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>צוותים:</span>
+                <span style={{ color: C.textSecondary, fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={teams.join(', ')}>
+                  {teams.join(', ')}
+                </span>
+              </div>
+            </>;
+          })()}
+        </div>
+
+        {/* ROW 1: סוג CR | רמת סיכון | מערכות מעורבות — 3 columns */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.4fr', gap: '10px' }}>
           <div>
-            <label style={{ ...labelStyle, color: C.statusWaiting }}>סוג CR *</label>
+            <label style={fLbl}>סוג CR <span style={{ color: C.danger }}>*</span></label>
             <select value={f.crType}
               onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, crType: e.target.value } }))}
-              style={inputStyle}>
+              style={sel}>
               <option value="">-- בחר --</option>
               {CR_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
           <div>
-            <label style={{ ...labelStyle, color: C.statusWaiting }}>רמת סיכון *</label>
+            <label style={fLbl}>רמת סיכון <span style={{ color: C.danger }}>*</span></label>
             <select value={f.riskLevel}
               onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, riskLevel: e.target.value } }))}
-              style={{ ...inputStyle, background: f.riskLevel ? RISK_COLORS[f.riskLevel]?.bg : undefined, color: f.riskLevel ? RISK_COLORS[f.riskLevel]?.color : undefined, fontWeight: f.riskLevel ? '600' : 'normal' }}>
+              style={{ ...sel, background: f.riskLevel ? RISK_COLORS[f.riskLevel]?.bg : undefined, color: f.riskLevel ? RISK_COLORS[f.riskLevel]?.color : undefined, fontWeight: f.riskLevel ? '600' : 'normal' }}>
               <option value="">-- בחר --</option>
               {RISK_LEVELS.map(r => <option key={r} value={r}>{RISK_LABELS[r]}</option>)}
             </select>
           </div>
-
-          {/* שורה 2: מנהל CR | מערכות מעורבות */}
           <div>
-            <label style={roLabel}>מנהל CR</label>
-            <div style={roFieldStyle}>{crManager || '—'}</div>
-          </div>
-          <div style={{ gridColumn: 'span 3' }}>
-            <label style={{ ...labelStyle, color: C.statusWaiting }}>מערכות מעורבות</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px', padding: '5px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, background: C.bgCard, minHeight: '32px', direction: 'ltr' }}>
+            <label style={fLbl}>מערכות מעורבות</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px', padding: '4px 7px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, background: C.bgCard, minHeight: '32px' }}>
               {f.systems.map(s => (
-                <span key={s} style={{ background: C.infoBg, color: C.info, padding: '3px 8px', borderRadius: RADIUS.sm, fontSize: '12px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', border: `1px solid ${C.info}30` }}>
+                <span key={s} style={{ background: C.infoBg, color: C.info, padding: '2px 7px', borderRadius: RADIUS.sm, fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px', border: `1px solid ${C.info}25` }}>
                   {s}
                   <button onClick={() => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, systems: f.systems.filter(x => x !== s) } }))}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.info, padding: '0 1px', fontSize: '13px', lineHeight: 1, opacity: 0.7, flexShrink: 0 }}>×</button>
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.info, padding: 0, fontSize: '13px', lineHeight: 1, opacity: 0.6, flexShrink: 0 }}>×</button>
                 </span>
               ))}
               <select onChange={e => {
                 if (e.target.value && !f.systems.includes(e.target.value))
                   setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, systems: [...f.systems, e.target.value] } }));
                 e.target.value = '';
-              }} style={{ border: 'none', outline: 'none', fontSize: '12px', color: C.textMuted, background: 'transparent', cursor: 'pointer', direction: 'rtl' }} defaultValue="">
+              }} style={{ border: 'none', outline: 'none', fontSize: '11px', color: C.textMuted, background: 'transparent', cursor: 'pointer', direction: 'rtl' }} defaultValue="">
                 <option value="" disabled>+ הוסף מערכת</option>
                 {teamAppList.filter(a => !f.systems.includes(a)).map(a => <option key={a} value={a}>{a}</option>)}
               </select>
             </div>
           </div>
+        </div>
 
-          {/* תוכנית עבודה — full width */}
-          <div style={{ gridColumn: '1 / -1' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <label style={{ ...labelStyle, color: C.textPrimary, marginBottom: 0 }}>הערות על תוכנית העבודה</label>
-              {f.workPlan.trim() && (
-                <button onClick={() => openExtract(crNumber, f.workPlan, 'תוכנית עבודה', 3)}
-                  style={{ fontSize: '11px', padding: '2px 8px', background: C.infoBg, color: C.info, border: `1px solid ${C.info}40`, borderRadius: RADIUS.sm, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  ⚡ הפק משימות
-                </button>
-              )}
-            </div>
-            <textarea value={f.workPlan}
-              onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, workPlan: e.target.value } }))}
-              style={{ ...inputStyle, height: '44px', resize: 'vertical' }}
-              placeholder="תאר את שלבי הביצוע של ה-CR — מה עושים, באיזה סדר..." />
+        <div style={sect} />
+
+        {/* תוכנית עבודה */}
+        <div>
+          {rowHdr('תוכנית עבודה', false, () => openExtract(crNumber, f.workPlan, 'תוכנית עבודה', 3))}
+          <textarea value={f.workPlan}
+            onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, workPlan: e.target.value } }))}
+            style={ta} placeholder="תאר את שלבי הביצוע של ה-CR..." />
+        </div>
+
+        {/* Rollback */}
+        <div>
+          {rowHdr('תוכנית Rollback', false, () => openExtract(crNumber, f.rollbackPlan, 'פעולות Rollback', 3))}
+          <textarea value={f.rollbackPlan}
+            onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, rollbackPlan: e.target.value } }))}
+            style={ta} placeholder="תהליך ה-Rollback במקרה של כשל..." />
+        </div>
+
+        {/* Gradual rollout */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '8px 11px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: '6px' }}>
+          <input type="checkbox" checked={f.gradualRollout} id={`grad-${crNumber}`}
+            onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, gradualRollout: e.target.checked } }))}
+            style={{ width: '15px', height: '15px', cursor: 'pointer' }} />
+          <label htmlFor={`grad-${crNumber}`} style={{ fontSize: '12px', color: C.textSecondary, cursor: 'pointer' }}>פריסה הדרגתית (Gradual Rollout)</label>
+        </div>
+        {f.gradualRollout && (
+          <div>
+            {rowHdr('פרטי עלייה מדורגת', false, () => openExtract(crNumber, f.gradualDetails, 'עלייה מדורגת', 3))}
+            <input value={f.gradualDetails}
+              onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, gradualDetails: e.target.value } }))}
+              style={{ ...inputStyle, padding: '7px 10px', fontSize: '12px' }}
+              placeholder="תאר שלבי העלייה..." />
           </div>
+        )}
 
-          {/* בדיקות לילה | בקרות בוקר — סימטריים, גריד 2+2 */}
-          {(() => {
-            const testingLabelRow: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '22px', marginBottom: '4px' };
-            const ta: React.CSSProperties = { ...inputStyle, height: '80px', resize: 'none' };
-            return (
-              <>
-                <div style={{ gridColumn: 'span 2' }}>
-                  <div style={testingLabelRow}>
-                    <label style={{ ...labelStyle, color: C.statusWaiting, marginBottom: 0 }}>בדיקות לילה (שלב 2/3)</label>
-                    {f.nightTestingNotes.trim() && (
-                      <button onClick={() => openExtract(crNumber, f.nightTestingNotes, 'בדיקות לילה', 2)}
-                        style={{ fontSize: '11px', padding: '2px 8px', background: C.infoBg, color: C.info, border: `1px solid ${C.info}40`, borderRadius: RADIUS.sm, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                        ⚡ הפק משימות
-                      </button>
-                    )}
-                  </div>
-                  <textarea value={f.nightTestingNotes}
-                    onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, nightTestingNotes: e.target.value } }))}
-                    style={ta} placeholder="מה כדאי לבדוק בלילה..." />
-                </div>
-                <div style={{ gridColumn: 'span 2' }}>
-                  <div style={testingLabelRow}>
-                    <label style={{ ...labelStyle, color: C.statusWaiting, marginBottom: 0 }}>בקרות בוקר (שלב 4)</label>
-                    {f.morningMonitoring.trim() && (
-                      <button onClick={() => openExtract(crNumber, f.morningMonitoring, 'בדיקות בוקר אחרי', 4)}
-                        style={{ fontSize: '11px', padding: '2px 8px', background: C.bgWaiting, color: C.statusWaiting, border: `1px solid ${C.statusWaiting}40`, borderRadius: RADIUS.sm, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                        ⚡ הפק משימות
-                      </button>
-                    )}
-                  </div>
-                  <textarea value={f.morningMonitoring}
-                    onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, morningMonitoring: e.target.value } }))}
-                    style={ta} placeholder="מה לבדוק בבוקר שלמחרת..." />
-                </div>
-              </>
-            );
-          })()}
+        <div style={sect} />
 
-          {/* עלייה מדורגת | Rollback — 2 עמודות (הוחלפו) */}
-          <div style={{ gridColumn: 'span 2', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', color: C.statusWaiting, fontWeight: '600', marginTop: '2px' }}>
-              <input type="checkbox" checked={f.gradualRollout}
-                onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, gradualRollout: e.target.checked } }))} />
-              עלייה מדורגת
-            </label>
-            {f.gradualRollout && (
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                  <span style={{ fontSize: '11px', color: C.statusWaiting }}>פרטי עלייה מדורגת</span>
-                  {f.gradualDetails.trim() && (
-                    <button onClick={() => openExtract(crNumber, f.gradualDetails, 'עלייה מדורגת', 3)}
-                      style={{ fontSize: '11px', padding: '2px 8px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}40`, borderRadius: RADIUS.sm, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                      ⚡ הפק משימות
-                    </button>
-                  )}
-                </div>
-                <input value={f.gradualDetails}
-                  onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, gradualDetails: e.target.value } }))}
-                  style={inputStyle}
-                  placeholder="תאר שלבי העלייה..." />
-              </div>
-            )}
-          </div>
-          <div style={{ gridColumn: 'span 2' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <label style={{ ...labelStyle, color: C.statusWaiting, marginBottom: 0 }}>תכנית Rollback</label>
-              {f.rollbackPlan.trim() && (
-                <button onClick={() => openExtract(crNumber, f.rollbackPlan, 'פעולות Rollback', 3)}
-                  style={{ fontSize: '11px', padding: '2px 8px', background: C.dangerBg, color: C.danger, border: `1px solid ${C.danger}40`, borderRadius: RADIUS.sm, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  ⚡ הפק משימות
-                </button>
-              )}
-            </div>
-            <textarea value={f.rollbackPlan}
-              onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, rollbackPlan: e.target.value } }))}
-              style={{ ...inputStyle, height: '44px', resize: 'vertical' }}
-              placeholder="תהליך ה-Rollback במקרה של כשל..." />
-          </div>
+        {/* בדיקות לילה */}
+        <div>
+          {rowHdr('בדיקות לילה (שלב 2/3)', true, () => openExtract(crNumber, f.nightTestingNotes, 'בדיקות לילה', 2))}
+          <textarea value={f.nightTestingNotes}
+            onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, nightTestingNotes: e.target.value } }))}
+            style={{ ...ta, borderColor: !f.nightTestingNotes ? `${C.danger}50` : C.border }}
+            placeholder="מה כדאי לבדוק בלילה..." />
+        </div>
 
-          {/* תלויות CR — full width */}
-          {otherCrs.length > 0 && (
-            <div style={{ gridColumn: '1 / -1' }}>
-              <label style={{ ...labelStyle, color: C.statusWaiting }}>תלויות על CR-ים אחרים בגרסה</label>
+        {/* ניטור בוקר */}
+        <div>
+          {rowHdr('ניטור בוקר אחרי (שלב 4)', true, () => openExtract(crNumber, f.morningMonitoring, 'בדיקות בוקר אחרי', 4))}
+          <textarea value={f.morningMonitoring}
+            onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, morningMonitoring: e.target.value } }))}
+            style={{ ...ta, borderColor: !f.morningMonitoring ? `${C.danger}50` : C.border }}
+            placeholder="מה לבדוק בבוקר שלמחרת..." />
+        </div>
+
+        {/* תלויות CR */}
+        {otherCrs.length > 0 && (
+          <>
+            <div style={sect} />
+            <div>
+              <label style={fLbl}>תלויות ב-CR-ים אחרים</label>
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                 {otherCrs.map(cr => (
                   <label key={cr} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', cursor: 'pointer', background: C.bgCard, padding: '3px 10px', borderRadius: RADIUS.md, border: `1px solid ${f.dependsOnCrs.includes(cr) ? C.statusWaiting : C.border}`, color: f.dependsOnCrs.includes(cr) ? C.statusWaiting : C.textSecondary, fontWeight: f.dependsOnCrs.includes(cr) ? '600' : 'normal' }}>
@@ -1231,58 +1207,117 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                 ))}
               </div>
             </div>
-          )}
-        </div>
+          </>
+        )}
+      </div>
+    );
+  };
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '12px', justifyContent: 'flex-start' }}>
-          <button onClick={() => saveCrPlan(crNumber)} disabled={isSaving}
-            style={{ padding: '6px 18px', background: isSaving ? C.textDisabled : C.statusWaiting, color: C.textInverse, border: 'none', borderRadius: RADIUS.md, cursor: isSaving ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
-            {isSaving ? 'שומר...' : 'שמור פרטי תכנית'}
-          </button>
-          {hasSaved && <span style={{ fontSize: '11px', color: C.success }}>✓ נשמר</span>}
+  // ── Left panel: single CR list item ─────────────────────────────────────────
+  const renderListItem = (crNumber: string, crProposals: Proposal[]) => {
+    const isNotNeeded = crPlans[crNumber]?.notNeededForPlan;
+    const readyCount  = crProposals.filter(p => p.status === 'READY' || p.usedInTaskId).length;
+    const isSelected  = selectedCr === crNumber;
+    const label       = getCrLabel(crNumber);
+    const hasDraft    = crProposals.some(p => p.status === 'DRAFT' && !p.usedInTaskId);
+
+    const dotBg = isNotNeeded ? C.textDisabled
+      : crProposals.length > 0 && readyCount === crProposals.length ? C.success
+      : hasDraft || crProposals.length > 0 ? C.warning
+      : C.danger;
+
+    const subText = isNotNeeded ? '— לא נדרש'
+      : crProposals.length === 0 ? '◯ לא טופל'
+      : readyCount === crProposals.length ? `✓ ${readyCount} מוכן`
+      : `⚠ ${readyCount}/${crProposals.length} מוכן`;
+
+    const subColor = isNotNeeded ? C.textDisabled
+      : crProposals.length === 0 ? C.danger
+      : readyCount === crProposals.length ? C.success
+      : C.warning;
+
+    return (
+      <div key={crNumber}
+        onClick={() => { setSelectedCr(crNumber); setSelectedTab('plan'); }}
+        style={{
+          display: 'flex', alignItems: 'flex-start', gap: '9px', padding: '9px 14px',
+          cursor: 'pointer', borderBottom: `1px solid ${C.bgNested}`,
+          borderRight: `3px solid ${isSelected ? C.brand : 'transparent'}`,
+          background: isSelected ? C.infoBg : 'transparent',
+          opacity: isNotNeeded ? 0.5 : 1,
+        }}>
+        <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: dotBg, flexShrink: 0, marginTop: '5px' }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, color: C.info, fontFamily: 'monospace' }}>{crNumber}</div>
+          <div style={{ fontSize: '11px', color: isSelected ? C.textPrimary : C.textSecondary, lineHeight: 1.35, marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {label || crNumber}
+          </div>
+          <div style={{ fontSize: '10px', marginTop: '2px', color: subColor }}>{subText}</div>
         </div>
       </div>
     );
   };
 
-  // ── CR section card ─────────────────────────────────────────────────────────
-  const renderCrSection = (crNumber: string, crProposals: Proposal[]) => {
-    const label = getCrLabel(crNumber);
-    const readyCount = crProposals.filter(p => p.status === 'READY' || p.usedInTaskId).length;
-    const allReady = crProposals.length > 0 && readyCount === crProposals.length;
-    const isPlanExpanded = expandedPlans.has(crNumber);
-    const hasPlanData = !!crPlans[crNumber];
-    const isNotNeeded = crPlans[crNumber]?.notNeededForPlan === true;
+  // ── Right panel: full CR detail (plan + tasks) ───────────────────────────────
+  const renderDetailPanel = (crNumber: string) => {
+    const label        = getCrLabel(crNumber);
+    const crProposals  = (grouped[crNumber] || []).slice().sort((a, b) => a.phase - b.phase);
+    const isNotNeeded  = crPlans[crNumber]?.notNeededForPlan;
+    const isSavingPln  = savingPlan === crNumber;
     const isTogglingNN = togglingNotNeeded.has(crNumber);
+    const hasSaved     = !!crPlans[crNumber];
+    const f            = crPlanForms[crNumber] || emptyCrPlanForm();
+
+    const draftCount = crProposals.filter(p => p.status === 'DRAFT' && !p.usedInTaskId).length;
+
+    // Readiness calculation — plan form fields only
+    const issues: string[] = [];
+    if (!f.crType)            issues.push('סוג CR');
+    if (!f.riskLevel)         issues.push('רמת סיכון');
+    if (!f.nightTestingNotes) issues.push('בדיקות לילה');
+    if (!f.morningMonitoring) issues.push('ניטור בוקר');
+    if (f.riskLevel === 'HIGH' && !f.rollbackPlan) issues.push('Rollback');
+    const planPct   = Math.round((1 - issues.length / 5) * 100);
+    // Overall readiness = plan form complete AND all tasks are READY
+    const planDone  = issues.length === 0;
+    const tasksDone = draftCount === 0;
+    const pctReady  = planDone && tasksDone ? 100 : planPct;
+    const readColor = planDone && tasksDone ? C.success : planPct >= 60 ? C.warning : C.danger;
+
+    // Next CR navigation
+    const activeCrs = crGroups.filter(([cr]) => !crPlans[cr]?.notNeededForPlan).map(([cr]) => cr);
+    const curIdx    = activeCrs.indexOf(crNumber);
+    const nextCrNum = curIdx >= 0 && curIdx < activeCrs.length - 1 ? activeCrs[curIdx + 1] : null;
+
+    const tabBtn = (tab: 'plan' | 'tasks', tabLabel: string, badge?: React.ReactNode) => (
+      <button onClick={() => setSelectedTab(tab)} style={{
+        fontSize: '12px', fontWeight: 600, padding: '8px 12px', cursor: 'pointer',
+        color: selectedTab === tab ? C.brand : C.textMuted,
+        borderBottom: `2px solid ${selectedTab === tab ? C.brand : 'transparent'}`,
+        background: 'none', borderTop: 'none', borderRight: 'none', borderLeft: 'none',
+        fontFamily: FONT, marginBottom: '-1px', display: 'flex', alignItems: 'center', gap: '5px',
+      }}>
+        {tabLabel}{badge}
+      </button>
+    );
 
     return (
-      <div key={crNumber} style={{
-        background: isNotNeeded ? C.bgNested : allReady ? C.successBg : C.bgCard,
-        borderRadius: RADIUS.xl, padding: '14px 16px', marginBottom: '10px',
-        boxShadow: allReady ? `0 2px 8px ${C.successBg}` : SHADOW.sm,
-        border: isNotNeeded ? `1px solid ${C.borderEm}` : allReady ? `2px solid ${C.success}` : `1px solid ${C.border}`,
-        opacity: isNotNeeded ? 0.75 : 1,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: crProposals.length && !isNotNeeded ? '10px' : '0' }}>
-          <span style={{ background: isNotNeeded ? C.textMuted : C.textPrimary, color: C.textInverse, padding: '3px 10px', borderRadius: RADIUS.md, fontSize: '13px', fontWeight: '700', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
-            {crNumber}
-          </span>
-          <span style={{ fontSize: '13px', color: isNotNeeded ? C.textMuted : C.textSecondary, flex: 1, textDecoration: isNotNeeded ? 'line-through' : 'none' }}>
-            {label || ''}
-          </span>
-          {!isNotNeeded && crPlans[crNumber]?.riskLevel && (() => {
-            const rl = crPlans[crNumber].riskLevel!;
-            const rc = RISK_COLORS[rl] ?? { bg: C.bgNested, color: C.textSecondary };
-            return <span style={{ fontSize: '11px', background: rc.bg, color: rc.color, padding: '1px 7px', borderRadius: RADIUS.sm, fontWeight: '600', whiteSpace: 'nowrap' }}>{RISK_LABELS[rl]}</span>;
-          })()}
-          {!isNotNeeded && crProposals.length > 0 && (
-            allReady ? (
-              <span style={{ fontSize: '12px', color: C.success, fontWeight: '700', whiteSpace: 'nowrap', background: C.successBg, padding: '2px 10px', borderRadius: RADIUS.full, border: `1px solid ${C.success}40` }}>
-                ✅ כל המשימות מוכנות
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#F5F5F5' }}>
+
+        {/* Topbar */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 18px', background: C.bgCard, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <span style={{ fontFamily: 'monospace', fontWeight: 700, color: C.info, background: C.infoBg, padding: '3px 9px', borderRadius: RADIUS.sm, fontSize: '12px', flexShrink: 0 }}>{crNumber}</span>
+          <span style={{ flex: 1, fontWeight: 600, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.textPrimary }}>{label || crNumber}</span>
+          {!isNotNeeded && (
+            planDone && !tasksDone ? (
+              /* Plan form complete but tasks still in draft */
+              <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', fontWeight: 700, padding: '2px 9px', borderRadius: '9999px', flexShrink: 0, color: C.warning, background: `${C.warning}18`, border: `1px solid ${C.warning}35` }}
+                title={`תוכנית CR מלאה, אך ${draftCount} משימ${draftCount === 1 ? 'ה' : 'ות'} עדיין בטיוטא`}>
+                ✓ תוכנית · {draftCount} משימה בטיוטא
               </span>
             ) : (
-              <span style={{ fontSize: '11px', color: C.textMuted, whiteSpace: 'nowrap' }}>
-                {readyCount}/{crProposals.length} מוכן
+              <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 9px', borderRadius: '9999px', flexShrink: 0, color: readColor, background: `${readColor}18`, border: `1px solid ${readColor}35` }}>
+                {pctReady}% מוכן
               </span>
             )
           )}
@@ -1290,65 +1325,99 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             <button
               onClick={() => toggleNotNeeded(crNumber)}
               disabled={isTogglingNN}
-              title={isNotNeeded ? 'לחץ לביטול הסימון' : 'סמן CR זה כלא נדרש לתוכנית העלייה'}
+              title={isNotNeeded ? 'לחץ להחזיר CR זה לתהליך הרגיל' : 'לחץ לסמן CR זה כלא נדרש לתוכנית הלילה'}
               style={{
-                padding: '4px 10px',
-                background: isNotNeeded ? C.textMuted : C.bgCard,
-                color: isNotNeeded ? C.textInverse : C.textMuted,
-                border: `1px solid ${C.borderEm}`,
-                borderRadius: RADIUS.md, cursor: isTogglingNN ? 'not-allowed' : 'pointer',
-                fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap',
-              }}
-            >
-              {isTogglingNN ? '...' : isNotNeeded ? '✗ לא נדרש לתוכנית' : 'לא נדרש לתוכנית'}
-            </button>
-          )}
-          {isNotNeeded && locked && (
-            <span style={{ fontSize: '11px', color: C.textMuted, whiteSpace: 'nowrap' }}>✗ לא נדרש לתוכנית</span>
-          )}
-          {!isNotNeeded && (
-            <button
-              onClick={() => togglePlanExpanded(crNumber)}
-              style={{
-                padding: '4px 10px',
-                background: isPlanExpanded ? C.statusWaiting : hasPlanData ? C.bgWaiting : C.bgNested,
-                color: isPlanExpanded ? C.textInverse : hasPlanData ? C.statusWaiting : C.textSecondary,
-                border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '11px',
-                fontWeight: '600', whiteSpace: 'nowrap',
-              }}
-            >
-              {isPlanExpanded ? '▲ תכנית CR' : `${hasPlanData ? '✓ ' : ''}📋 תכנית CR`}
+                fontSize: '11px', fontWeight: 600, flexShrink: 0, fontFamily: FONT,
+                padding: '3px 9px', borderRadius: '6px',
+                cursor: isTogglingNN ? 'not-allowed' : 'pointer',
+                color:      isNotNeeded ? C.warning      : C.textSecondary,
+                background: isNotNeeded ? C.warningBg    : C.bgNested,
+                border:     isNotNeeded ? `1px solid ${C.warning}50` : `1px solid ${C.border}`,
+              }}>
+              {isTogglingNN ? '...' : isNotNeeded ? '↩ החזר לתהליך' : 'סמן כ"לא נדרש"'}
             </button>
           )}
           {!locked && (
-            <button onClick={() => deleteCrGroup(crNumber)} style={{
-              padding: '4px 10px', background: C.dangerBg, color: C.danger,
-              border: `1px solid ${C.danger}40`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '12px', whiteSpace: 'nowrap',
-            }}>
-              🗑 מחק CR
+            <button onClick={() => deleteCrGroup(crNumber)}
+              style={{ fontSize: '11px', color: C.danger, background: C.dangerBg, border: `1px solid ${C.danger}40`, borderRadius: '6px', padding: '3px 9px', cursor: 'pointer', flexShrink: 0, fontFamily: FONT }}>
+              🗑
             </button>
           )}
         </div>
 
-        {!isNotNeeded && isPlanExpanded && renderCrPlanPanel(crNumber)}
+        {/* Tabs */}
+        <div style={{ display: 'flex', background: C.bgCard, borderBottom: `1px solid ${C.border}`, padding: '0 18px', flexShrink: 0 }}>
+          {tabBtn('plan', 'תוכנית CR')}
+          {tabBtn('tasks', 'משימות נגזרות',
+            draftCount > 0
+              ? <span style={{ background: `${C.warning}20`, color: C.warning, border: `1px solid ${C.warning}40`, fontSize: '9px', fontWeight: 700, padding: '1px 5px', borderRadius: '9999px' }}>{draftCount} טיוטא</span>
+              : crProposals.length > 0
+              ? <span style={{ background: `${C.success}15`, color: C.success, border: `1px solid ${C.success}30`, fontSize: '9px', fontWeight: 700, padding: '1px 5px', borderRadius: '9999px' }}>{crProposals.length}</span>
+              : undefined
+          )}
+        </div>
 
-        {!isNotNeeded && crProposals.sort((a, b) => a.phase - b.phase).map(renderRow)}
+        {/* Tab content */}
+        {selectedTab === 'plan' ? (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px' }}>
+            {isNotNeeded ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '48px 0', textAlign: 'center' }}>
+                <div style={{ fontSize: '36px' }}>⏭</div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: C.textSecondary }}>CR זה מסומן כ"לא נדרש לתוכנית"</div>
+                <div style={{ fontSize: '12px', color: C.textMuted, maxWidth: '280px' }}>הוא לא ישפיע על השלמת ההגשה. אם גילית שהוא כן נדרש — לחץ:</div>
+                {!locked && (
+                  <button onClick={() => toggleNotNeeded(crNumber)} disabled={isTogglingNN}
+                    style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, padding: '9px 22px', borderRadius: '8px', background: C.warning, color: C.textInverse, border: 'none', cursor: isTogglingNN ? 'not-allowed' : 'pointer' }}>
+                    {isTogglingNN ? '...' : '↩ החזר CR לתהליך הרגיל'}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <>
+                {issues.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: `${C.warning}18`, border: `1px solid ${C.warning}35`, borderRadius: '7px', padding: '7px 11px', fontSize: '11px', color: C.warning, marginBottom: '12px' }}>
+                    ⚠ חסר: <strong>{issues.join(' · ')}</strong>
+                  </div>
+                )}
+                {renderCrPlanPanel(crNumber)}
+              </>
+            )}
+          </div>
+        ) : (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px' }}>
+            {crProposals.length === 0 && (
+              <div style={{ padding: '40px 0', textAlign: 'center', color: C.textMuted, fontSize: '13px' }}>
+                <div style={{ fontSize: '32px', marginBottom: '8px' }}>📋</div>
+                <div>אין משימות — הפק מהתוכנית או הוסף ידנית</div>
+              </div>
+            )}
+            {crProposals.map(renderRow)}
+            {!locked && !isNotNeeded && openFormForCr !== crNumber && (
+              <button onClick={() => openAdd(crNumber, label)}
+                style={{ marginTop: '10px', width: '100%', padding: '9px', background: C.statusOpen, color: C.textInverse, border: 'none', borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
+                + הוסף משימה לביצוע
+              </button>
+            )}
+          </div>
+        )}
 
-        {/* Inline form for this CR — always show when editing existing, block only new-add when locked */}
-        {!isNotNeeded && openFormForCr === crNumber && (!locked || editId) && renderForm()}
-
-        {!locked && !isNotNeeded && openFormForCr !== crNumber && (
-          <button
-            onClick={() => openAdd(crNumber, label)}
-            style={{
-              marginTop: '8px', width: '100%', padding: '9px',
-              background: C.statusOpen, color: C.textInverse,
-              border: 'none', borderRadius: RADIUS.lg,
-              cursor: 'pointer', fontSize: '13px', fontWeight: '600',
-            }}
-          >
-            + הוסף משימה לביצוע
-          </button>
+        {/* Footer — save + next navigation */}
+        {selectedTab === 'plan' && !isNotNeeded && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '10px 18px', background: C.bgCard, borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
+            <button onClick={() => saveCrPlan(crNumber)} disabled={isSavingPln}
+              style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, padding: '7px 18px', borderRadius: '7px', background: isSavingPln ? C.textDisabled : C.info, color: C.textInverse, border: 'none', cursor: isSavingPln ? 'not-allowed' : 'pointer' }}>
+              {isSavingPln ? 'שומר...' : 'שמור'}
+            </button>
+            {nextCrNum && (
+              <button onClick={() => { setSelectedCr(nextCrNum); setSelectedTab('plan'); }}
+                style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, padding: '7px 14px', borderRadius: '7px', background: C.bgCard, color: C.info, border: `1px solid ${C.info}40`, cursor: 'pointer' }}>
+                הבא: {nextCrNum} ←
+              </button>
+            )}
+            {hasSaved && <span style={{ fontSize: '11px', color: C.success }}>✓ נשמר</span>}
+            <div style={{ flex: 1 }} />
+            <span style={{ fontSize: '11px', color: C.textDisabled }}>שמירה אוטומטית פעילה</span>
+          </div>
         )}
       </div>
     );
@@ -1604,46 +1673,91 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         </div>
       )}
 
-      {/* Content — read-only after submission */}
+      {/* Proposal form modal (position:fixed — safe to render at top level) */}
+      {openFormForCr !== null && (!locked || editId) && renderForm()}
+
+      {/* Main split panel */}
       {loading ? (
         <div style={{ padding: '40px', textAlign: 'center', color: C.textMuted }}>טוען...</div>
-      ) : crGroups.length === 0 && freeGroup.length === 0 && openFormForCr === null ? (
+      ) : crGroups.length === 0 && freeGroup.length === 0 ? (
         <div style={{ padding: '60px 40px', textAlign: 'center', background: C.bgCard, borderRadius: RADIUS['2xl'], color: C.textMuted, boxShadow: SHADOW.sm }}>
           <div style={{ fontSize: '48px', marginBottom: '12px' }}>📋</div>
           <div style={{ fontSize: '16px', marginBottom: '6px', color: C.textSecondary }}>אין CR-ים עדיין</div>
           <div style={{ fontSize: '13px' }}>לחץ "🔄 סנכרן רשימת פיתוחים" לטעינה אוטומטית</div>
         </div>
       ) : (
-        <>
-          {/* CR groups */}
-          {crGroups.map(([crNumber, crProposals]) => renderCrSection(crNumber, crProposals))}
+        <div style={{ display: 'flex', border: `1px solid ${C.border}`, borderRadius: RADIUS.xl, overflow: 'hidden', minHeight: '68vh', background: C.bgNested }}>
 
-          {/* Free / infrastructure group */}
-          {(freeGroup.length > 0 || crGroups.length > 0) && (
-            <div style={{
-              background: C.bgCard, borderRadius: RADIUS.xl, padding: '14px 16px', marginBottom: '10px',
-              boxShadow: SHADOW.sm, border: `1px dashed ${C.borderEm}`,
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: freeGroup.length ? '10px' : '0' }}>
-                <span style={{ background: C.textMuted, color: C.textInverse, padding: '3px 10px', borderRadius: RADIUS.md, fontSize: '13px', fontWeight: '700' }}>
-                  ללא CR
+          {/* LEFT: CR list */}
+          <div style={{ width: '252px', flexShrink: 0, overflowY: 'auto', background: C.bgCard, borderLeft: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column' }}>
+
+            {/* List header with progress */}
+            <div style={{ padding: '10px 14px 8px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '6px' }}>CR-ים לטיפול</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ flex: 1, height: '3px', background: C.bgNested, borderRadius: '9999px', overflow: 'hidden' }}>
+                  <div style={{ width: `${Math.round(crGroups.filter(([cr, ps]) => crPlans[cr]?.notNeededForPlan || (ps.length > 0 && ps.filter(p => p.status === 'READY' || p.usedInTaskId).length === ps.length)).length / Math.max(crGroups.length, 1) * 100)}%`, height: '100%', background: C.success, borderRadius: '9999px' }} />
+                </div>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: C.success, whiteSpace: 'nowrap' }}>
+                  {crGroups.filter(([cr, ps]) => crPlans[cr]?.notNeededForPlan || (ps.length > 0 && ps.filter(p => p.status === 'READY' || p.usedInTaskId).length === ps.length)).length}/{crGroups.length}
                 </span>
-                <span style={{ fontSize: '13px', color: C.textSecondary, flex: 1 }}>משימות תשתיתיות / כלליות</span>
               </div>
-              {freeGroup.sort((a, b) => a.phase - b.phase).map(renderRow)}
-              {openFormForCr === FREE_KEY && (!submissionDone || editId) && renderForm()}
-              {!submissionDone && openFormForCr !== FREE_KEY && (
-                <button onClick={() => openAdd(undefined, undefined, true)} style={{
-                  marginTop: '8px', width: '100%', padding: '9px',
-                  background: C.textMuted, color: C.textInverse,
-                  border: 'none', borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '13px', fontWeight: '600',
-                }}>
-                  + הוסף משימה
-                </button>
-              )}
+            </div>
+
+            {/* Active CRs */}
+            {crGroups.filter(([cr]) => !crPlans[cr]?.notNeededForPlan).map(([crNumber, crProposals]) => renderListItem(crNumber, crProposals))}
+
+            {/* Free / infrastructure tasks — always visible so users can always add a task without CR */}
+            <div onClick={() => setSelectedCr(FREE_KEY)}
+              style={{ display: 'flex', alignItems: 'flex-start', gap: '9px', padding: '9px 14px', cursor: 'pointer', borderBottom: `1px solid ${C.bgNested}`, borderRight: `3px solid ${selectedCr === FREE_KEY ? C.brand : 'transparent'}`, background: selectedCr === FREE_KEY ? C.infoBg : 'transparent' }}>
+              <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: freeGroup.length === 0 ? C.borderEm : freeGroup.every(p => p.status === 'READY' || p.usedInTaskId) ? C.success : C.warning, flexShrink: 0, marginTop: '5px', border: freeGroup.length === 0 ? `1.5px solid ${C.textDisabled}` : 'none' }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: freeGroup.length === 0 ? C.textDisabled : C.textMuted, fontFamily: 'monospace' }}>ללא CR</div>
+                <div style={{ fontSize: '11px', color: C.textSecondary, lineHeight: 1.35, marginTop: '1px' }}>משימות תשתיתיות</div>
+                <div style={{ fontSize: '10px', marginTop: '2px', color: C.textMuted }}>
+                  {freeGroup.length === 0 ? 'לחץ להוספת משימה' : `${freeGroup.filter(p => p.status === 'READY' || p.usedInTaskId).length}/${freeGroup.length} מוכן`}
+                </div>
+              </div>
+            </div>
+
+            {/* Not-needed section */}
+            {crGroups.filter(([cr]) => crPlans[cr]?.notNeededForPlan).length > 0 && (
+              <>
+                <div style={{ padding: '7px 14px 4px', borderTop: `1px solid ${C.bgNested}`, marginTop: '4px' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                    לא נדרשים לתוכנית ({crGroups.filter(([cr]) => crPlans[cr]?.notNeededForPlan).length})
+                  </div>
+                  <div style={{ fontSize: '10px', color: C.textDisabled, marginTop: '2px' }}>לחץ על CR לביטול הסימון ↩</div>
+                </div>
+                {crGroups.filter(([cr]) => crPlans[cr]?.notNeededForPlan).map(([crNumber, crProposals]) => renderListItem(crNumber, crProposals))}
+              </>
+            )}
+          </div>
+
+          {/* RIGHT: detail panel */}
+          {selectedCr === FREE_KEY ? (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#F5F5F5' }}>
+              <div style={{ padding: '10px 18px', background: C.bgCard, borderBottom: `1px solid ${C.border}`, flexShrink: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: C.textMuted, background: C.bgNested, padding: '3px 9px', borderRadius: RADIUS.sm, fontSize: '12px' }}>ללא CR</span>
+                <span style={{ flex: 1, fontWeight: 600, fontSize: '13px', color: C.textPrimary }}>משימות תשתיתיות / כלליות</span>
+              </div>
+              <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px' }}>
+                {freeGroup.sort((a, b) => a.phase - b.phase).map(renderRow)}
+                {!submissionDone && openFormForCr !== FREE_KEY && (
+                  <button onClick={() => openAdd(undefined, undefined, true)}
+                    style={{ marginTop: '10px', width: '100%', padding: '9px', background: C.textMuted, color: C.textInverse, border: 'none', borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
+                    + הוסף משימה
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : selectedCr ? renderDetailPanel(selectedCr) : (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '12px', color: C.textMuted, fontSize: '13px' }}>
+              <div style={{ fontSize: '40px' }}>←</div>
+              <div>בחר CR מהרשימה משמאל</div>
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );

@@ -922,6 +922,14 @@ const VersionDetail: React.FC<{
   const [reviewMeetingValue, setReviewMeetingValue] = useState(
     version.reviewMeetingTime ? new Date(version.reviewMeetingTime).toISOString().slice(0, 16) : ''
   );
+  const [editingSubmissionDeadline, setEditingSubmissionDeadline] = useState(false);
+  const [submissionDeadlineValue, setSubmissionDeadlineValue] = useState(
+    (version as any).submissionDeadline ? new Date((version as any).submissionDeadline).toISOString().slice(0, 16) : ''
+  );
+  const [editingApprovalDeadline, setEditingApprovalDeadline] = useState(false);
+  const [approvalDeadlineValue, setApprovalDeadlineValue] = useState(
+    (version as any).approvalDeadline ? new Date((version as any).approvalDeadline).toISOString().slice(0, 16) : ''
+  );
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [reschPhaseStarts, setReschPhaseStarts] = useState<Record<string, string>>({});
   const [reschPhaseEnds, setReschPhaseEnds] = useState<Record<string, string>>({});
@@ -1020,7 +1028,7 @@ const VersionDetail: React.FC<{
   const [phaseManageError, setPhaseManageError] = useState<string | null>(null);
 
   useEffect(() => {
-    axios.get(`${API}/teams`, { headers }).then(r => setTeams(r.data));
+    axios.get(`${API}/teams`, { headers }).then(r => setTeams(r.data)).catch(() => {});
     axios.get(`${API}/users`, { headers })
       .then(r => setUsers(r.data.filter((u: any) => u.active).sort((a: any, b: any) => a.fullName.localeCompare(b.fullName, 'he'))))
       .catch(() => {});
@@ -1335,6 +1343,26 @@ const VersionDetail: React.FC<{
       onRefresh();
     } catch (err: any) {
       showAlert('שגיאה', err?.response?.data?.message || 'שגיאה בשמירת מועד הישיבה', 'danger');
+    }
+  };
+
+  const saveSubmissionDeadline = async () => {
+    try {
+      await axios.patch(`${API}/versions/${version.id}`, { submissionDeadline: submissionDeadlineValue || null }, { headers });
+      setEditingSubmissionDeadline(false);
+      onRefresh();
+    } catch (err: any) {
+      showAlert('שגיאה', err?.response?.data?.message || 'שגיאה בשמירת מועד הגשה', 'danger');
+    }
+  };
+
+  const saveApprovalDeadline = async () => {
+    try {
+      await axios.patch(`${API}/versions/${version.id}`, { approvalDeadline: approvalDeadlineValue || null }, { headers });
+      setEditingApprovalDeadline(false);
+      onRefresh();
+    } catch (err: any) {
+      showAlert('שגיאה', err?.response?.data?.message || 'שגיאה בשמירת מועד אישור', 'danger');
     }
   };
 
@@ -2000,6 +2028,58 @@ const VersionDetail: React.FC<{
               </>
             )}
           </span>
+          {/* Submission deadline */}
+          {(version.status === 'CR_REVIEW' || (version as any).submissionDeadline) && isManager && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              ⏰ <strong>מועד הגשה:</strong>
+              {editingSubmissionDeadline ? (
+                <>
+                  <input type="datetime-local" value={submissionDeadlineValue} onChange={e => setSubmissionDeadlineValue(e.target.value)}
+                    style={{ padding: '4px 8px', border: `1px solid ${C.borderFocus}`, borderRadius: RADIUS.md, fontSize: '13px' }} />
+                  <button onClick={saveSubmissionDeadline} style={{ padding: '4px 10px', background: C.statusBlocked, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '12px' }}>שמור</button>
+                  <button onClick={() => setEditingSubmissionDeadline(false)} style={{ padding: '4px 10px', background: C.bgNested, color: C.textSecondary, border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '12px' }}>ביטול</button>
+                </>
+              ) : (() => {
+                const dl = (version as any).submissionDeadline;
+                const isPast = dl && new Date(dl) < new Date();
+                return (
+                  <>
+                    <span style={{ color: !dl ? C.textDisabled : isPast ? C.statusBlocked : C.statusWaiting, fontWeight: dl ? '600' : 'normal' }}>
+                      {dl ? fmtDateTime(dl) : 'לא נקבע'}
+                      {isPast && dl && <span style={{ marginRight: '4px', fontSize: '11px', color: C.statusBlocked }}>⚠ עבר</span>}
+                    </span>
+                    <button onClick={() => setEditingSubmissionDeadline(true)} style={{ padding: '2px 8px', background: C.bgBlocked, color: C.statusBlocked, border: `1px solid ${C.statusBlocked}44`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '11px' }}>עריכה</button>
+                  </>
+                );
+              })()}
+            </span>
+          )}
+          {/* Approval deadline */}
+          {(version.status === 'CR_REVIEW' || (version as any).approvalDeadline) && isManager && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              ✅ <strong>מועד אישור:</strong>
+              {editingApprovalDeadline ? (
+                <>
+                  <input type="datetime-local" value={approvalDeadlineValue} onChange={e => setApprovalDeadlineValue(e.target.value)}
+                    style={{ padding: '4px 8px', border: `1px solid ${C.borderFocus}`, borderRadius: RADIUS.md, fontSize: '13px' }} />
+                  <button onClick={saveApprovalDeadline} style={{ padding: '4px 10px', background: '#2e7d32', color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '12px' }}>שמור</button>
+                  <button onClick={() => setEditingApprovalDeadline(false)} style={{ padding: '4px 10px', background: C.bgNested, color: C.textSecondary, border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '12px' }}>ביטול</button>
+                </>
+              ) : (() => {
+                const dl = (version as any).approvalDeadline;
+                const isPast = dl && new Date(dl) < new Date();
+                return (
+                  <>
+                    <span style={{ color: !dl ? C.textDisabled : isPast ? C.statusBlocked : '#2e7d32', fontWeight: dl ? '600' : 'normal' }}>
+                      {dl ? fmtDateTime(dl) : 'לא נקבע'}
+                      {isPast && dl && <span style={{ marginRight: '4px', fontSize: '11px', color: C.statusBlocked }}>⚠ עבר</span>}
+                    </span>
+                    <button onClick={() => setEditingApprovalDeadline(true)} style={{ padding: '2px 8px', background: 'rgba(46,125,50,0.10)', color: '#2e7d32', border: '1px solid rgba(46,125,50,0.30)', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '11px' }}>עריכה</button>
+                  </>
+                );
+              })()}
+            </span>
+          )}
           {version.creator && <span>👤 {version.creator.fullName}</span>}
           {version.approvedAt && version.approver && (
             <span style={{ color: C.success }}>✅ אושר: {new Date(version.approvedAt).toLocaleDateString('he-IL')} ע"י {version.approver.fullName}</span>
@@ -3966,22 +4046,22 @@ const VersionDetail: React.FC<{
 
       {/* ── Assign preview modal ── */}
       {showAssignPreview && (() => {
-        const PHASE_LABELS: Record<number, string> = {
-          1: 'שלב 1 — בוקר גרסה',
-          2: 'שלב 2 — HotNet',
-          3: 'שלב 3 — Hot',
-          4: 'שלב 4 — בוקר שלאחר',
+        // Phase colors matching TeamView environment palette (light theme)
+        const PHASE_META: Record<number, { label: string; color: string; bg: string; border: string }> = {
+          1: { label: 'שלב 1 — בוקר לפני גרסה', color: '#17a2b8', bg: 'rgba(23,162,184,0.08)',   border: '#17a2b8' },
+          2: { label: 'שלב 2 — HOTNET',          color: C.statusOpen,    bg: C.bgOpen,             border: C.statusOpen },
+          3: { label: 'שלב 3 — HOT',             color: C.statusBlocked, bg: C.bgBlocked,           border: C.statusBlocked },
+          4: { label: 'שלב 4 — בוקר שלאחר גרסה', color: '#6366f1', bg: 'rgba(99,102,241,0.08)',   border: '#6366f1' },
         };
-        const STATUS_LABEL: Record<string, string> = {
-          APPROVED:       '✅ מאושר',
-          PENDING:        '⏳ ממתין',
-          REJECTED:       '❌ נדחה',
-          NEEDS_REVISION: '↩ לתיקון',
+        const phaseOf = (n: number) => PHASE_META[n] ?? { label: `שלב ${n}`, color: C.textSecondary, bg: C.bgNested, border: C.border };
+
+        const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }> = {
+          APPROVED:       { label: '✓ מאושר',  color: '#2e7d32', bg: 'rgba(46,125,50,0.10)'   },
+          PENDING:        { label: '⏳ ממתין',  color: '#d4840a', bg: 'rgba(212,132,10,0.10)'  },
+          REJECTED:       { label: '✗ נדחה',   color: C.statusBlocked, bg: C.bgBlocked          },
+          NEEDS_REVISION: { label: '↩ לתיקון', color: '#d4840a', bg: 'rgba(212,132,10,0.10)'  },
         };
-        const STATUS_COLOR: Record<string, string> = {
-          APPROVED: C.success, PENDING: C.warning,
-          REJECTED: C.danger,  NEEDS_REVISION: C.warning,
-        };
+
         const teamMap = new Map<string, string>(teams.map((t: any) => [t.id, t.name]));
         const phases = Array.from(new Set(previewItems.map(i => i.proposal.phase))).sort((a, b) => a - b);
         const checkedCount = previewItems.filter(i => i.checked).length;
@@ -3989,73 +4069,92 @@ const VersionDetail: React.FC<{
 
         return (
           <div
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}
             onClick={() => setShowAssignPreview(false)}
           >
             <div
               onClick={e => e.stopPropagation()}
               style={{
-                background: C.bgCard, borderRadius: RADIUS.lg, padding: SP[6],
-                minWidth: '560px', maxWidth: '720px', width: '92%', maxHeight: '85vh',
+                background: C.bgCard, borderRadius: RADIUS.xl, padding: `${SP[5]} ${SP[6]}`,
+                minWidth: '580px', maxWidth: '740px', width: '92%', maxHeight: '87vh',
                 display: 'flex', flexDirection: 'column', gap: SP[4],
                 boxShadow: SHADOW.lg, direction: 'rtl', fontFamily: FONT,
+                border: `1px solid ${C.border}`,
               }}
             >
               {/* Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 style={{ margin: 0, ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
-                  שיבוץ הצעות — תצוגה מקדימה
-                </h3>
-                <span style={{ ...TEXT.sm, color: C.textMuted }}>
-                  {previewItems.length} הצעות • {checkedCount} מסומנות לשיבוץ
-                </span>
-              </div>
-
-              {/* Select all / Deselect all */}
-              <div style={{ display: 'flex', gap: SP[3], alignItems: 'center' }}>
-                <button
-                  onClick={() => setPreviewItems(prev => prev.map(i => ({ ...i, checked: true })))}
-                  style={{ padding: '4px 12px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, fontFamily: FONT, ...TEXT.xs, cursor: 'pointer' }}
-                >
-                  ✔ בחר הכל
-                </button>
-                <button
-                  onClick={() => setPreviewItems(prev => prev.map(i => ({ ...i, checked: false })))}
-                  style={{ padding: '4px 12px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, fontFamily: FONT, ...TEXT.xs, cursor: 'pointer' }}
-                >
-                  ☐ בטל הכל
-                </button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: SP[4] }}>
+                <div>
+                  <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary, letterSpacing: '-0.3px' }}>
+                    📋 שיבוץ הצעות — תצוגה מקדימה
+                  </div>
+                  <div style={{ ...TEXT.sm, color: C.textMuted, marginTop: SP[1] }}>
+                    {previewItems.length} הצעות •{' '}
+                    <span style={{ color: checkedCount > 0 ? '#2e7d32' : C.textMuted, fontWeight: WEIGHT.semibold }}>{checkedCount} מסומנות לשיבוץ</span>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: SP[2] }}>
+                  <button
+                    onClick={() => setPreviewItems(prev => prev.map(i => ({ ...i, checked: true })))}
+                    style={{ padding: '5px 12px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, fontFamily: FONT, fontSize: '12px', cursor: 'pointer', fontWeight: WEIGHT.semibold }}
+                  >
+                    ✔ בחר הכל
+                  </button>
+                  <button
+                    onClick={() => setPreviewItems(prev => prev.map(i => ({ ...i, checked: false })))}
+                    style={{ padding: '5px 12px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgNested, color: C.textMuted, fontFamily: FONT, fontSize: '12px', cursor: 'pointer' }}
+                  >
+                    ☐ בטל הכל
+                  </button>
+                </div>
               </div>
 
               {/* Proposal list grouped by phase */}
-              <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-                {phases.map(phaseNum => (
-                  <div key={phaseNum}>
-                    <div style={{
-                      padding: `${SP[1]} ${SP[3]}`, borderRadius: RADIUS.md,
-                      background: C.bgNested, border: `1px solid ${C.border}`,
-                      ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted,
-                      marginBottom: SP[2], textTransform: 'uppercase', letterSpacing: '0.04em',
-                    }}>
-                      {PHASE_LABELS[phaseNum] ?? `שלב ${phaseNum}`}
-                    </div>
-                    {previewItems
-                      .filter(i => i.proposal.phase === phaseNum)
-                      .map((item, idx) => {
+              <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+                {phases.map(phaseNum => {
+                  const ph = phaseOf(phaseNum);
+                  const phaseItems = previewItems.filter(i => i.proposal.phase === phaseNum);
+                  return (
+                    <div key={phaseNum} style={{ marginBottom: SP[2] }}>
+                      {/* Phase header — matches TeamView env badge style */}
+                      <div style={{
+                        padding: `${SP[2]} ${SP[3]}`,
+                        borderRadius: RADIUS.md,
+                        background: `linear-gradient(135deg, ${C.bgElevated} 0%, ${C.bgCard} 100%)`,
+                        borderBottom: `2px solid ${ph.border}`,
+                        borderRight: `4px solid ${ph.border}`,
+                        border: `1px solid ${C.border}`,
+                        borderRightWidth: '4px',
+                        fontSize: '12px', fontWeight: WEIGHT.bold, color: ph.color,
+                        letterSpacing: '0.3px',
+                        marginBottom: SP[2],
+                        display: 'flex', alignItems: 'center', gap: SP[2],
+                      }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: ph.color, flexShrink: 0, display: 'inline-block' }} />
+                        {ph.label}
+                        <span style={{ marginRight: 'auto', color: C.textMuted, fontWeight: WEIGHT.medium, fontSize: '11px' }}>{phaseItems.length} הצעות</span>
+                      </div>
+
+                      {/* Items */}
+                      {phaseItems.map((item) => {
                         const p = item.proposal;
                         const warn = missingFields(p);
+                        const sb = STATUS_BADGE[p.reviewStatus] ?? { label: p.reviewStatus, color: C.textMuted, bg: C.bgNested };
                         return (
                           <div
                             key={p.id}
+                            onClick={() => setPreviewItems(prev => prev.map(i => i.proposal.id === p.id ? { ...i, checked: !i.checked } : i))}
                             style={{
-                              display: 'grid', gridTemplateColumns: '28px 1fr auto auto',
-                              alignItems: 'center', gap: SP[2],
+                              display: 'grid', gridTemplateColumns: '22px 1fr auto auto',
+                              alignItems: 'center', gap: SP[3],
                               padding: `${SP[2]} ${SP[3]}`,
                               borderRadius: RADIUS.md,
-                              background: item.checked ? 'rgba(40,167,69,0.05)' : C.bgNested,
-                              border: `1px solid ${item.checked ? 'rgba(40,167,69,0.2)' : C.border}`,
-                              marginBottom: idx < previewItems.filter(i => i.proposal.phase === phaseNum).length - 1 ? SP[1] : 0,
-                              opacity: item.checked ? 1 : 0.6,
+                              background: item.checked ? ph.bg : C.bgNested,
+                              border: `1px solid ${item.checked ? ph.border + '55' : C.border}`,
+                              borderRight: `3px solid ${item.checked ? ph.border : 'transparent'}`,
+                              marginBottom: SP[1],
+                              opacity: item.checked ? 1 : 0.7,
+                              cursor: 'pointer',
                               transition: EASE.fast,
                             }}
                           >
@@ -4063,91 +4162,79 @@ const VersionDetail: React.FC<{
                             <input
                               type="checkbox"
                               checked={item.checked}
-                              onChange={e => setPreviewItems(prev =>
-                                prev.map(i => i.proposal.id === p.id ? { ...i, checked: e.target.checked } : i)
-                              )}
-                              style={{ width: 16, height: 16, cursor: 'pointer', accentColor: C.success }}
+                              onChange={e => { e.stopPropagation(); setPreviewItems(prev => prev.map(i => i.proposal.id === p.id ? { ...i, checked: e.target.checked } : i)); }}
+                              style={{ width: 15, height: 15, cursor: 'pointer', accentColor: ph.color }}
                             />
 
                             {/* Title + meta */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
-                              <span style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1], minWidth: 0 }}>
+                              <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {p.title}
                               </span>
-                              <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap', alignItems: 'center' }}>
-                                <span style={{ ...TEXT.xs, color: C.textMuted }}>
+                              <div style={{ display: 'flex', gap: SP[1], flexWrap: 'wrap', alignItems: 'center' }}>
+                                {/* Team */}
+                                <span style={{ fontSize: '11px', background: C.bgOpen, color: C.statusOpen, padding: '2px 8px', borderRadius: RADIUS.sm, fontWeight: WEIGHT.semibold, border: `1px solid ${C.statusOpen}33`, whiteSpace: 'nowrap' }}>
                                   {teamMap.get(p.teamId) ?? p.teamId}
                                 </span>
+                                {/* Assignee */}
                                 {p.assignedUserName && (
-                                  <span style={{ ...TEXT.xs, color: C.textMuted }}>• {p.assignedUserName}</span>
+                                  <span style={{ fontSize: '11px', color: C.textMuted }}>• {p.assignedUserName}</span>
                                 )}
+                                {/* CR badge */}
                                 {p.crNumber && (
                                   <span style={{
-                                    ...TEXT.xs, fontWeight: WEIGHT.semibold,
-                                    background: 'rgba(0,112,204,0.1)', color: '#0070cc',
-                                    padding: '1px 6px', borderRadius: '4px', whiteSpace: 'nowrap',
+                                    fontSize: '11px', fontWeight: WEIGHT.bold, fontFamily: 'monospace',
+                                    background: 'rgba(23,162,184,0.10)', color: '#17a2b8',
+                                    padding: '2px 8px', borderRadius: RADIUS.sm,
+                                    border: '1px solid rgba(23,162,184,0.30)', whiteSpace: 'nowrap',
                                   }}>
-                                    CR {p.crNumber}
+                                    {p.crNumber}
                                   </span>
                                 )}
+                                {/* Duration */}
                                 {p.estimatedMins && (
-                                  <span style={{
-                                    ...TEXT.xs, color: C.textMuted,
-                                    background: C.bgNested, padding: '1px 6px',
-                                    borderRadius: '4px', whiteSpace: 'nowrap',
-                                    border: `1px solid ${C.border}`,
-                                  }}>
+                                  <span style={{ fontSize: '11px', color: C.textMuted, background: C.bgCard, padding: '2px 7px', borderRadius: RADIUS.sm, border: `1px solid ${C.border}`, whiteSpace: 'nowrap' }}>
                                     ⏱ {p.estimatedMins} דק׳
                                   </span>
                                 )}
                                 {warn && (
-                                  <span style={{ ...TEXT.xs, color: C.warning, fontWeight: WEIGHT.semibold }}>⚠ חסרים פרטי ביצוע</span>
+                                  <span style={{ fontSize: '11px', color: C.statusBlocked, fontWeight: WEIGHT.semibold }}>⚠ חסרים פרטי ביצוע</span>
                                 )}
                               </div>
                             </div>
 
                             {/* Status badge */}
-                            <span style={{
-                              ...TEXT.xs, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap',
-                              color: STATUS_COLOR[p.reviewStatus] ?? C.textMuted,
-                            }}>
-                              {STATUS_LABEL[p.reviewStatus] ?? p.reviewStatus}
+                            <span style={{ fontSize: '11px', fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap', color: sb.color, background: sb.bg, padding: '3px 9px', borderRadius: RADIUS.sm, border: `1px solid ${sb.color}33` }}>
+                              {sb.label}
                             </span>
 
-                            {/* Delete button */}
+                            {/* Delete */}
                             <button
-                              onClick={() => handleDeleteFromPreview(p.id)}
+                              onClick={e => { e.stopPropagation(); handleDeleteFromPreview(p.id); }}
                               title="מחק הצעה לצמיתות"
-                              style={{
-                                padding: '3px 8px', borderRadius: RADIUS.md,
-                                border: `1px solid ${C.border}`, background: C.bgNested,
-                                color: C.danger, fontFamily: FONT, ...TEXT.xs, cursor: 'pointer',
-                              }}
+                              style={{ padding: '4px 8px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: 'transparent', color: C.statusBlocked, fontFamily: FONT, fontSize: '12px', cursor: 'pointer', opacity: 0.7 }}
                             >
                               🗑
                             </button>
                           </div>
                         );
                       })}
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
 
                 {previewItems.length === 0 && (
-                  <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[4] }}>
+                  <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[8] }}>
                     אין הצעות ממתינות לשיבוץ
                   </div>
                 )}
               </div>
 
               {/* Footer */}
-              <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end', borderTop: `1px solid ${C.border}`, paddingTop: SP[3] }}>
+              <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end', borderTop: `1px solid ${C.border}`, paddingTop: SP[4] }}>
                 <button
                   onClick={() => setShowAssignPreview(false)}
-                  style={{
-                    padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,
-                    border: `1px solid ${C.border}`, background: C.bgNested,
-                    color: C.textPrimary, fontFamily: FONT, ...TEXT.sm, cursor: 'pointer',
-                  }}
+                  style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgNested, color: C.textMuted, fontFamily: FONT, fontSize: '13px', cursor: 'pointer', fontWeight: WEIGHT.semibold }}
                 >
                   ביטול
                 </button>
@@ -4156,10 +4243,12 @@ const VersionDetail: React.FC<{
                   disabled={checkedCount === 0}
                   style={{
                     padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none',
-                    background: checkedCount > 0 ? '#28a745' : C.bgHover,
+                    background: checkedCount > 0 ? '#17a2b8' : C.bgNested,
                     color: checkedCount > 0 ? '#fff' : C.textDisabled,
-                    fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.bold,
+                    fontFamily: FONT, fontSize: '13px', fontWeight: WEIGHT.bold,
                     cursor: checkedCount > 0 ? 'pointer' : 'not-allowed',
+                    boxShadow: checkedCount > 0 ? '0 2px 8px rgba(23,162,184,0.35)' : 'none',
+                    transition: EASE.fast,
                   }}
                 >
                   ✔ אשר שיבוץ ({checkedCount})

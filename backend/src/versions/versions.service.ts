@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaClient, VersionStatus } from '@prisma/client';
 import { EmailService } from '../email/email.service';
+import { EventsGateway } from '../events/events.gateway';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
@@ -8,7 +9,10 @@ const prisma = new PrismaClient({
 
 @Injectable()
 export class VersionsService {
-  constructor(private readonly emailService: EmailService) {}
+  constructor(
+    private readonly emailService: EmailService,
+    private readonly events: EventsGateway,
+  ) {}
 
   async findAll() {
     const [versions, taskCounts] = await Promise.all([
@@ -622,18 +626,21 @@ async addTask(subPhaseId: string, data: {
   async updateFields(id: string, data: {
     plannedStart?: string | null; plannedEnd?: string | null; reviewMeetingTime?: string | null;
     integrationStart?: string | null; integrationEnd?: string | null; qaStart?: string | null; qaEnd?: string | null;
+    submissionDeadline?: string | null; approvalDeadline?: string | null;
     name?: string; description?: string;
   }) {
     const version = await prisma.version.findUnique({ where: { id } });
     if (!version) throw new NotFoundException('Version not found');
     const update: any = {};
-    if ('plannedStart'      in data) update.plannedStart      = data.plannedStart      ? new Date(data.plannedStart)      : null;
-    if ('plannedEnd'        in data) update.plannedEnd        = data.plannedEnd        ? new Date(data.plannedEnd)        : null;
-    if ('reviewMeetingTime' in data) update.reviewMeetingTime = data.reviewMeetingTime ? new Date(data.reviewMeetingTime) : null;
-    if ('integrationStart'  in data) update.integrationStart  = data.integrationStart  ? new Date(data.integrationStart)  : null;
-    if ('integrationEnd'    in data) update.integrationEnd    = data.integrationEnd    ? new Date(data.integrationEnd)    : null;
-    if ('qaStart'           in data) update.qaStart           = data.qaStart           ? new Date(data.qaStart)           : null;
-    if ('qaEnd'             in data) update.qaEnd             = data.qaEnd             ? new Date(data.qaEnd)             : null;
+    if ('plannedStart'        in data) update.plannedStart        = data.plannedStart        ? new Date(data.plannedStart)        : null;
+    if ('plannedEnd'          in data) update.plannedEnd          = data.plannedEnd          ? new Date(data.plannedEnd)          : null;
+    if ('reviewMeetingTime'   in data) update.reviewMeetingTime   = data.reviewMeetingTime   ? new Date(data.reviewMeetingTime)   : null;
+    if ('integrationStart'    in data) update.integrationStart    = data.integrationStart    ? new Date(data.integrationStart)    : null;
+    if ('integrationEnd'      in data) update.integrationEnd      = data.integrationEnd      ? new Date(data.integrationEnd)      : null;
+    if ('qaStart'             in data) update.qaStart             = data.qaStart             ? new Date(data.qaStart)             : null;
+    if ('qaEnd'               in data) update.qaEnd               = data.qaEnd               ? new Date(data.qaEnd)               : null;
+    if ('submissionDeadline'  in data) update.submissionDeadline  = data.submissionDeadline  ? new Date(data.submissionDeadline)  : null;
+    if ('approvalDeadline'    in data) update.approvalDeadline    = data.approvalDeadline    ? new Date(data.approvalDeadline)    : null;
     if ('name'        in data && data.name)        update.name        = data.name;
     if ('description' in data)                     update.description = data.description ?? null;
     return prisma.version.update({ where: { id }, data: update });
@@ -730,7 +737,7 @@ async addTask(subPhaseId: string, data: {
     });
     if (existing?.status === 'SUBMITTED') return existing;
 
-    return prisma.teamSubmission.update({
+    const result = await prisma.teamSubmission.update({
       where: { versionId_teamId: { versionId, teamId } },
       data: {
         status: 'SUBMITTED',
@@ -738,7 +745,20 @@ async addTask(subPhaseId: string, data: {
         submittedAt: new Date(),
         taskCount,
       },
+      include: { team: { select: { name: true } } },
     });
+
+    // Notify managers via WebSocket
+    const [submittedCount, totalTeams] = await Promise.all([
+      prisma.teamSubmission.count({ where: { versionId, status: 'SUBMITTED' } }),
+      prisma.teamSubmission.count({ where: { versionId } }),
+    ]);
+    this.events.emitTeamSubmitted({ versionId, teamName: (result as any).team?.name ?? teamId, submittedCount, totalTeams });
+    if (submittedCount === totalTeams && totalTeams > 0) {
+      this.events.emitAllTeamsSubmitted({ versionId, totalTeams });
+    }
+
+    return result;
   }
 
   async getSubmissionStatus(versionId: string) {

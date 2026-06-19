@@ -199,6 +199,14 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.emit('PROPOSAL_CREATED', { versionId });
   }
 
+  emitTeamSubmitted(data: { versionId: string; teamName: string; submittedCount: number; totalTeams: number }) {
+    this.server.emit('TEAM_SUBMITTED', data);
+  }
+
+  emitAllTeamsSubmitted(data: { versionId: string; totalTeams: number }) {
+    this.server.emit('ALL_TEAMS_SUBMITTED', data);
+  }
+
   @SubscribeMessage('GET_ONLINE_USERS')
   handleGetOnlineUsers() {
     return { event: 'ONLINE_USERS', data: Array.from(this.connectedUsers.values()) };

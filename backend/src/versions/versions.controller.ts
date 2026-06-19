@@ -62,6 +62,7 @@ export class VersionsController {
     @Body() body: {
       plannedStart?: string | null; plannedEnd?: string | null; reviewMeetingTime?: string | null;
       integrationStart?: string | null; integrationEnd?: string | null; qaStart?: string | null; qaEnd?: string | null;
+      submissionDeadline?: string | null; approvalDeadline?: string | null;
       name?: string; description?: string;
     },
     @Request() req: any,

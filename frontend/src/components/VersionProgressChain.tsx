@@ -1,5 +1,5 @@
 import React from 'react';
-import { C, FONT, TEXT, WEIGHT, EASE } from '../theme';
+import { C, FONT, TEXT, WEIGHT, EASE, RADIUS, SHADOW } from '../theme';
 
 interface Props {
   versionStatus: string;
@@ -16,10 +16,18 @@ const STATUS_ORDER = [
   'COMPLETED',
 ];
 
+// Colors aligned with theme.ts tokens
+const STAGE_COLOR = {
+  prep:      { main: C.info,    glow: 'rgba(69,115,210,0.20)'  },
+  rehearsal: { main: '#F0883E', glow: 'rgba(240,136,62,0.20)'  },
+  run:       { main: C.brand,   glow: 'rgba(240,106,106,0.20)' },
+  done:      { main: C.success, glow: 'rgba(55,196,122,0.20)'  },
+};
+
 const STAGES = [
   {
     id: 'prep', label: 'תכנון', icon: '📋',
-    color: '#388bfd', glowColor: 'rgba(56,139,253,0.30)',
+    ...STAGE_COLOR.prep,
     subs: [
       { label: 'טיוטה',       status: 'DRAFT',      key: 'draft'      },
       { label: 'איסוף',       status: 'COLLECTING', key: 'collecting' },
@@ -31,18 +39,18 @@ const STAGES = [
   },
   {
     id: 'rehearsal', label: 'חזרה', icon: '🎭',
-    color: '#f0883e', glowColor: 'rgba(240,136,62,0.30)',
+    ...STAGE_COLOR.rehearsal,
     subs: [
       { label: 'שלב 1', status: 'REHEARSAL', key: 'r1' },
       { label: 'שלב 2', status: 'REHEARSAL', key: 'r2' },
       { label: 'שלב 3', status: 'REHEARSAL', key: 'r3' },
       { label: 'שלב 4', status: 'REHEARSAL', key: 'r4' },
-      { label: 'סיכום', status: 'REHEARSAL', key: 'r5' },
+      { label: 'סיכום',  status: 'REHEARSAL', key: 'r5' },
     ],
   },
   {
     id: 'run', label: 'הטמעה', icon: '🚀',
-    color: '#ff7b72', glowColor: 'rgba(255,123,114,0.30)',
+    ...STAGE_COLOR.run,
     subs: [
       { label: 'שלב 1', status: 'ACTIVE',        key: 'phase1' },
       { label: 'שלב 2', status: 'ACTIVE',        key: 'phase2' },
@@ -53,7 +61,7 @@ const STAGES = [
   },
   {
     id: 'done', label: 'הושלם', icon: '✅',
-    color: '#56d364', glowColor: 'rgba(86,211,100,0.30)',
+    ...STAGE_COLOR.done,
     subs: [{ label: 'בייצור', status: 'COMPLETED', key: 'completed' }],
   },
 ];
@@ -61,7 +69,6 @@ const STAGES = [
 type NodeState = 'done' | 'active' | 'pending';
 
 function subState(subStatus: string, current: string, rehearsalDone = false): NodeState {
-  // החזרה הגנרלית הושלמה — הגרסה חזרה ל-APPROVED, אבל REHEARSAL צריך להיות done
   if (subStatus === 'REHEARSAL' && rehearsalDone && current === 'APPROVED') return 'done';
   const ci = STATUS_ORDER.indexOf(current);
   const si = STATUS_ORDER.indexOf(subStatus);
@@ -98,11 +105,14 @@ const STAGE_LABEL: Record<string, string> = {
   COMPLETED: 'הושלם', ROLLED_BACK: 'Rollback',
 };
 
-export const VersionProgressChain: React.FC<Props> = ({ versionStatus, activeRunPhase = 1, rehearsalDone = false, summaryBeforeMorning = false, onStageClick }) => {
+export const VersionProgressChain: React.FC<Props> = ({
+  versionStatus, activeRunPhase = 1, rehearsalDone = false,
+  summaryBeforeMorning = false, onStageClick,
+}) => {
   const effective    = versionStatus === 'ROLLED_BACK' ? 'MORNING_AFTER' : versionStatus;
   const isRolledBack = versionStatus === 'ROLLED_BACK';
+  const currentLabel = STAGE_LABEL[versionStatus] ?? versionStatus;
 
-  // סדר דינמי: סיכום לפני בוקר כשאושר לפני שמשימות הבוקר הסתיימו
   const STAGES_DISPLAY = STAGES.map(stage => {
     if (stage.id !== 'run' || !summaryBeforeMorning) return stage;
     const subs = [...stage.subs];
@@ -114,168 +124,220 @@ export const VersionProgressChain: React.FC<Props> = ({ versionStatus, activeRun
     return { ...stage, subs };
   });
 
-  const currentLabel = STAGE_LABEL[versionStatus] ?? versionStatus;
-
   return (
     <div style={{
-      background: `linear-gradient(180deg, ${C.bgElevated} 0%, ${C.bgCard} 100%)`,
+      background: C.bgCard,
       borderBottom: `1px solid ${C.border}`,
-      padding: '8px 32px 10px',
+      padding: '10px 28px 12px',
       direction: 'rtl',
-      boxShadow: '0 2px 8px rgba(0,0,0,0.20)',
-      position: 'relative',
+      boxShadow: SHADOW.xs,
     }}>
-      {/* Subtle top highlight */}
-      <div style={{
-        position: 'absolute', top: 0, right: 0, left: 0, height: '1px',
-        background: 'linear-gradient(90deg, transparent, rgba(56,139,253,0.20), transparent)',
-      }} />
+      <div style={{ display: 'flex', alignItems: 'center' }}>
 
-      {/* "נמצאים ב" indicator */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
-        <span style={{ fontSize: '11px', color: C.textMuted, fontFamily: FONT }}>
-          📍 שלב נוכחי: <strong style={{ color: C.textSecondary }}>{currentLabel}</strong>
+        {/* Right side: current stage label (anchored to RTL start = visual right) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, marginLeft: '16px' }}>
+          <span style={{
+            ...TEXT.xs, fontWeight: WEIGHT.medium, fontFamily: FONT,
+            color: C.textMuted, whiteSpace: 'nowrap',
+          }}>
+            שלב נוכחי:
+          </span>
+          <span style={{
+            ...TEXT.xs, fontWeight: WEIGHT.semibold, fontFamily: FONT,
+            color: isRolledBack ? C.danger : C.textSecondary,
+            background: isRolledBack ? C.dangerBg : C.bgHover,
+            padding: '2px 8px', borderRadius: RADIUS.full,
+            border: `1px solid ${isRolledBack ? `${C.danger}30` : C.border}`,
+            whiteSpace: 'nowrap',
+          }}>
+            {isRolledBack ? '🔄 ' : ''}{currentLabel}
+          </span>
+
           {rehearsalDone && versionStatus === 'APPROVED' && (
-            <span style={{ marginRight: '8px', color: '#f0883e', fontSize: '10px' }}>✓ חזרה גנרלית הושלמה</span>
+            <span style={{
+              ...TEXT.xs, fontFamily: FONT, color: '#F0883E',
+              background: 'rgba(240,136,62,0.10)', padding: '2px 8px',
+              borderRadius: RADIUS.full, border: '1px solid rgba(240,136,62,0.25)',
+              whiteSpace: 'nowrap',
+            }}>
+              ✓ חזרה הושלמה
+            </span>
           )}
-        </span>
-      </div>
+        </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', position: 'relative', overflow: 'hidden' }}>
-        {STAGES_DISPLAY.map((stage, si) => {
-          const mState = mainState(stage.subs, effective, stage.id, activeRunPhase, rehearsalDone);
-          const isClickable = onStageClick && (mState === 'done' || mState === 'active');
+        {/* Chain centered in remaining space */}
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+        {/* Chain itself */}
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          {STAGES_DISPLAY.map((stage, si) => {
+            const mState = mainState(stage.subs, effective, stage.id, activeRunPhase, rehearsalDone);
+            const isClickable = onStageClick && (mState === 'done' || mState === 'active');
 
-          const nodeBg =
-            mState === 'done'   ? C.success :
-            mState === 'active' ? stage.color :
-            C.bgActive;
+            const bubbleBg =
+              mState === 'done'   ? C.success :
+              mState === 'active' ? stage.main :
+              C.bgNested;
 
-          const nodeColor = mState === 'pending' ? C.textDisabled : 'white';
+            const bubbleBorder =
+              mState === 'done'   ? C.success :
+              mState === 'active' ? stage.main :
+              C.borderEm;
 
-          return (
-            <React.Fragment key={stage.id}>
-              {/* ── Main stage bubble ── */}
-              <div
-                onClick={() => isClickable && onStageClick?.(stage.id)}
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', flexShrink: 0, cursor: isClickable ? 'pointer' : 'default' }}
-              >
-                <div style={{
-                  width: '36px', height: '36px', borderRadius: '50%',
-                  background: nodeBg,
-                  border: mState === 'active'
-                    ? `2px solid ${stage.color}`
-                    : mState === 'done'
-                    ? `2px solid ${C.success}`
-                    : `2px solid ${C.borderEm}`,
-                  boxShadow: mState === 'active'
-                    ? `0 0 0 4px ${stage.glowColor}, 0 0 12px ${stage.glowColor}`
-                    : mState === 'done'
-                    ? `0 0 0 3px rgba(86,211,100,0.15)`
-                    : 'none',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '15px', flexShrink: 0, position: 'relative',
-                  transition: EASE.slow,
-                  color: nodeColor,
-                }}>
-                  {mState === 'done' && !isRolledBack
-                    ? <svg width="14" height="12" viewBox="0 0 14 12" fill="none"><path d="M1 6L5 10L13 2" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                    : <span>{stage.icon}</span>
-                  }
+            const labelColor =
+              mState === 'active' ? stage.main :
+              mState === 'done'   ? C.success :
+              C.textDisabled;
 
-                  {/* Pulse ring for active */}
-                  {mState === 'active' && (
-                    <span style={{
-                      position: 'absolute', inset: '-6px', borderRadius: '50%',
-                      border: `2px solid ${stage.color}`,
-                      opacity: 0.5,
-                      animation: 'chain-pulse 2s ease-in-out infinite',
-                      pointerEvents: 'none',
-                    }} />
-                  )}
+            return (
+              <React.Fragment key={stage.id}>
+                {/* ── Main stage bubble ── */}
+                <div
+                  onClick={() => isClickable && onStageClick?.(stage.id)}
+                  title={stage.label}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center',
+                    gap: '4px', flexShrink: 0, cursor: isClickable ? 'pointer' : 'default',
+                  }}
+                >
+                  <div style={{
+                    width: '32px', height: '32px', borderRadius: '50%',
+                    background: bubbleBg,
+                    border: `2px solid ${bubbleBorder}`,
+                    boxShadow: mState === 'active'
+                      ? `0 0 0 3px ${stage.glow}, ${SHADOW.xs}`
+                      : mState === 'done'
+                      ? `0 0 0 2px rgba(55,196,122,0.15)`
+                      : 'none',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '13px', flexShrink: 0, position: 'relative',
+                    transition: EASE.slow,
+                  }}>
+                    {mState === 'done' && !isRolledBack
+                      ? (
+                        <svg width="12" height="10" viewBox="0 0 12 10" fill="none">
+                          <path d="M1 5L4.5 8.5L11 1.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )
+                      : <span style={{ lineHeight: 1 }}>{stage.icon}</span>
+                    }
+
+                    {mState === 'active' && (
+                      <span style={{
+                        position: 'absolute', inset: '-5px', borderRadius: '50%',
+                        border: `1.5px solid ${stage.main}`,
+                        opacity: 0.45,
+                        animation: 'chain-pulse 2.2s ease-in-out infinite',
+                        pointerEvents: 'none',
+                      }} />
+                    )}
+                  </div>
+
+                  <span style={{
+                    ...TEXT.xs, fontWeight: mState === 'active' ? WEIGHT.semibold : WEIGHT.normal,
+                    fontFamily: FONT, whiteSpace: 'nowrap',
+                    color: labelColor,
+                    transition: EASE.fast,
+                  }}>
+                    {isRolledBack && si === 2 ? 'Rollback' : stage.label}
+                  </span>
                 </div>
 
-                <span style={{
-                  ...TEXT.xs, fontWeight: WEIGHT.semibold,
-                  fontFamily: FONT, whiteSpace: 'nowrap',
-                  color: mState === 'active' ? stage.color
-                       : mState === 'done'   ? C.success
-                       : C.textDisabled,
-                  transition: EASE.fast,
-                }}>
-                  {isRolledBack && si === 2 ? '🔄 Rollback' : stage.label}
-                </span>
-              </div>
+                {/* ── Sub-stages + connector row ── */}
+                {si < STAGES.length - 1 && (() => {
+                  const elements: React.ReactNode[] = [];
 
-              {/* ── Sub-stages connector row ── */}
-              {si < STAGES.length - 1 && (() => {
-                const elements: React.ReactNode[] = [];
-                stage.subs.forEach((sub, subIdx) => {
-                  const sState = stage.id === 'run'
-                    ? runSubStateByPhase(subIdx, effective, activeRunPhase)
-                    : subState(sub.status, effective, rehearsalDone);
+                  stage.subs.forEach((sub, subIdx) => {
+                    const sState = stage.id === 'run'
+                      ? runSubStateByPhase(subIdx, effective, activeRunPhase)
+                      : subState(sub.status, effective, rehearsalDone);
 
-                  const lineColor =
-                    sState === 'done'   ? C.success :
-                    sState === 'active' ? `${stage.color}70` :
-                    C.bgActive;
+                    const lineColor =
+                      sState === 'done'   ? `${C.success}80` :
+                      sState === 'active' ? `${stage.main}50` :
+                      C.border;
+
+                    const dotColor =
+                      sState === 'done'   ? C.success :
+                      sState === 'active' ? stage.main :
+                      C.borderEm;
+
+                    const dotBg =
+                      sState === 'done'   ? C.success :
+                      sState === 'active' ? stage.main :
+                      C.bgNested;
+
+                    elements.push(
+                      <div key={`pre-${subIdx}`} style={{
+                        flex: 1, height: '1.5px', background: lineColor,
+                        minWidth: '6px', transition: EASE.slow,
+                      }} />
+                    );
+
+                    elements.push(
+                      <div key={`sub-${subIdx}`}
+                        title={sub.label}
+                        style={{
+                          display: 'flex', flexDirection: 'column',
+                          alignItems: 'center', gap: '3px', flexShrink: 0,
+                        }}
+                      >
+                        <div style={{
+                          width: '16px', height: '16px', borderRadius: '50%',
+                          background: dotBg,
+                          border: `1.5px solid ${dotColor}`,
+                          boxShadow: sState === 'active' ? `0 0 5px ${stage.glow}` : 'none',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          transition: EASE.slow,
+                        }}>
+                          {sState === 'done' && (
+                            <svg width="7" height="6" viewBox="0 0 7 6" fill="none">
+                              <path d="M1 3L2.8 4.8L6 1.2" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          )}
+                          {sState === 'active' && (
+                            <div style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'white', opacity: 0.95 }} />
+                          )}
+                        </div>
+                        <span style={{
+                          fontSize: '10px', fontFamily: FONT, whiteSpace: 'nowrap',
+                          color: sState === 'active' ? stage.main
+                               : sState === 'done'   ? `${C.success}CC`
+                               : C.textDisabled,
+                          fontWeight: sState === 'active' ? WEIGHT.semibold : WEIGHT.normal,
+                          transition: EASE.fast,
+                        }}>
+                          {sub.label}
+                        </span>
+                      </div>
+                    );
+                  });
+
+                  const nextStage  = STAGES_DISPLAY[si + 1];
+                  const nextMState = mainState(nextStage.subs, effective, nextStage.id, activeRunPhase, rehearsalDone);
+                  const postLineColor =
+                    nextMState === 'done'   ? `${C.success}80` :
+                    nextMState === 'active' ? `${nextStage.main}50` :
+                    C.border;
 
                   elements.push(
-                    <div key={`pre-${subIdx}`} style={{
-                      flex: 1, height: '2px', background: lineColor,
-                      minWidth: '8px', transition: EASE.slow,
+                    <div key="post" style={{
+                      flex: 1, height: '1.5px', background: postLineColor,
+                      minWidth: '6px', transition: EASE.slow,
                     }} />
                   );
-
-                  elements.push(
-                    <div key={`sub-${subIdx}`} title={sub.label}
-                      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', flexShrink: 0 }}
-                    >
-                      <div style={{
-                        width: '18px', height: '18px', borderRadius: '50%',
-                        background: sState === 'done' ? C.success : sState === 'active' ? stage.color : C.bgNested,
-                        border: `1.5px solid ${sState === 'done' ? C.success : sState === 'active' ? stage.color : C.borderEm}`,
-                        boxShadow: sState === 'active' ? `0 0 6px ${stage.glowColor}` : 'none',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        transition: EASE.slow,
-                      }}>
-                        {sState === 'done' && (
-                          <svg width="8" height="7" viewBox="0 0 8 7" fill="none">
-                            <path d="M1 3.5L3 5.5L7 1.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                        )}
-                        {sState === 'active' && (
-                          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'white', opacity: 0.9 }} />
-                        )}
-                      </div>
-                      <span style={{
-                        fontSize: '8px', fontFamily: FONT, whiteSpace: 'nowrap',
-                        color: sState === 'active' ? stage.color : sState === 'done' ? C.success : C.textDisabled,
-                        transition: EASE.fast,
-                      }}>
-                        {sub.label}
-                      </span>
-                    </div>
-                  );
-                });
-
-                const nextStage  = STAGES_DISPLAY[si + 1];
-                const nextMState = mainState(nextStage.subs, effective, nextStage.id, activeRunPhase, rehearsalDone);
-                const postLineColor = nextMState === 'done' ? C.success : nextMState === 'active' ? `${nextStage.color}70` : C.bgActive;
-                elements.push(
-                  <div key="post" style={{ flex: 1, height: '2px', background: postLineColor, minWidth: '8px', transition: EASE.slow }} />
-                );
-                return elements;
-              })()}
-            </React.Fragment>
-          );
-        })}
+                  return elements;
+                })()}
+              </React.Fragment>
+            );
+          })}
+        </div>
+        </div>{/* end centered chain wrapper */}
       </div>
 
       <style>{`
         @keyframes chain-pulse {
-          0%, 100% { opacity: 0.3; transform: scale(1); }
-          50% { opacity: 0.7; transform: scale(1.15); }
+          0%, 100% { opacity: 0.25; transform: scale(1); }
+          50%       { opacity: 0.55; transform: scale(1.18); }
         }
       `}</style>
     </div>

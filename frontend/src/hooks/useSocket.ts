@@ -15,6 +15,8 @@ interface UseSocketOptions {
   onUserOffline?: (user: any) => void;
   onJoined?: (users: any[]) => void;
   onProposalCreated?: (data: { versionId: string }) => void;
+  onTeamSubmitted?: (data: { versionId: string; teamName: string; submittedCount: number; totalTeams: number }) => void;
+  onAllTeamsSubmitted?: (data: { versionId: string; totalTeams: number }) => void;
 }
 
 export const useSocket = (options: UseSocketOptions) => {
@@ -66,6 +68,14 @@ export const useSocket = (options: UseSocketOptions) => {
 
     socket.on('PROPOSAL_CREATED', (data) => {
       optionsRef.current.onProposalCreated?.(data);
+    });
+
+    socket.on('TEAM_SUBMITTED', (data) => {
+      optionsRef.current.onTeamSubmitted?.(data);
+    });
+
+    socket.on('ALL_TEAMS_SUBMITTED', (data) => {
+      optionsRef.current.onAllTeamsSubmitted?.(data);
     });
 
     socket.on('disconnect', () => {

@@ -3,6 +3,7 @@ import { VersionsService } from './versions.service';
 import { VersionsController } from './versions.controller';
 import { JwtModule } from '@nestjs/jwt';
 import { EmailModule } from '../email/email.module';
+import { EventsModule } from '../events/events.module';
 
 @Module({
   imports: [
@@ -11,6 +12,7 @@ import { EmailModule } from '../email/email.module';
       signOptions: { expiresIn: '8h' },
     }),
     EmailModule,
+    EventsModule,
   ],
   controllers: [VersionsController],
   providers: [VersionsService],
