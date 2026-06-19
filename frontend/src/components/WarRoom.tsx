@@ -31,14 +31,21 @@ interface GoNoPanelProps {
   failedTasks?: any[];
   onWaive?: (taskId: string) => void;
   isManager?: boolean;
+  isRehearsal?: boolean;
 }
 
-const GoNoGoPanel: React.FC<GoNoPanelProps> = ({ env, label, status, details, envTasks, onCheck, failedTasks = [], onWaive, isManager }) => {
+const GoNoGoPanel: React.FC<GoNoPanelProps> = ({ env, label, status, details, envTasks, onCheck, failedTasks = [], onWaive, isManager, isRehearsal }) => {
   const canCheck = envTasks.length > 0;
   const unwaived = failedTasks.filter((t: any) => !t.goNoGoWaived);
   const waived = failedTasks.filter((t: any) => t.goNoGoWaived);
+  const rehearsalBorder = isRehearsal ? '1px solid rgba(240,136,62,0.45)' : `1px solid ${C.border}`;
   return (
-    <div style={{ background: C.bgNested, borderRadius: '10px', padding: '16px', border: `1px solid ${C.border}`, minWidth: '280px', flex: 1 }}>
+    <div style={{ background: isRehearsal ? 'rgba(120,60,0,0.18)' : C.bgNested, borderRadius: '10px', padding: '16px', border: rehearsalBorder, minWidth: '280px', flex: 1 }}>
+      {isRehearsal && (
+        <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#f39c12', background: 'rgba(243,156,18,0.15)', padding: '3px 10px', borderRadius: '20px', display: 'inline-block', marginBottom: '8px', border: '1px solid rgba(243,156,18,0.35)' }}>
+          🎭 חזרה גנרלית
+        </div>
+      )}
       <div style={{ fontWeight: 'bold', color: C.textPrimary, marginBottom: '10px', fontSize: '14px' }}>{label}</div>
       <div style={{ fontSize: '12px', color: C.textMuted, marginBottom: '10px' }}>
         {envTasks.length} משימות · {envTasks.filter((t: any) => t.status === 'DONE').length} הושלמו
@@ -49,15 +56,15 @@ const GoNoGoPanel: React.FC<GoNoPanelProps> = ({ env, label, status, details, en
         style={{
           padding: '10px 20px', fontWeight: 'bold', fontSize: '14px', border: 'none', borderRadius: '8px',
           cursor: canCheck ? 'pointer' : 'not-allowed', fontFamily: FONT,
-          background: !canCheck ? C.bgHover : status === 'go' ? C.statusDone : status === 'nogo' ? C.statusFailed : C.brand,
+          background: !canCheck ? C.bgHover : status === 'go' ? C.statusDone : status === 'nogo' ? C.statusFailed : isRehearsal ? '#c06a00' : C.brand,
           color: !canCheck ? C.textDisabled : 'white', width: '100%',
         }}
       >
-        {status === 'checking' ? 'בודק...' : status === 'go' ? '✅ GO!' : status === 'nogo' ? '❌ NO GO' : 'בדוק GO/NO GO'}
+        {status === 'checking' ? 'בודק...' : status === 'go' ? (isRehearsal ? '✅ GO — חזרה!' : '✅ GO!') : status === 'nogo' ? '❌ NO GO' : isRehearsal ? 'בדוק GO/NO GO (חזרה)' : 'בדוק GO/NO GO'}
       </button>
       {status === 'go' && (
         <div style={{ marginTop: '10px', background: C.bgDone, borderRadius: '6px', padding: '8px 12px', color: C.statusDone, fontWeight: 'bold', fontSize: '13px', border: `1px solid ${C.statusDone}44` }}>
-          כל משימות {label} הושלמו — ניתן להמשיך!
+          {isRehearsal ? `✅ חזרה הצליחה ב-${label}!` : `כל משימות ${label} הושלמו — ניתן להמשיך!`}
         </div>
       )}
       {status === 'nogo' && details && (
@@ -148,6 +155,10 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
 
   const payload = JSON.parse(atob(token.split('.')[1]));
   const isManager = ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role);
+  // For non-managers (TEAM_LEAD), derive their team so focus mode can be scoped to it
+  const myFocusTeam = !isManager
+    ? teams.find((t: any) => t.members?.some((m: any) => m.userId === payload.sub || m.user?.id === payload.sub)) ?? null
+    : null;
 
   const [goStatus, setGoStatus] = useState<Record<string, GoStatus>>({});
   const [goDetails, setGoDetails] = useState<Record<string, { incomplete: number; blocked: number; blockedNoReason: string[] }>>({});
@@ -571,13 +582,16 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
 
       {/* GO/NO GO — מפוצל לפי סביבה */}
       {(can('action:gonogo') || isManager) && !hideGoNogo && (
-        <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', marginBottom: '20px', border: `1px solid ${C.border}` }}>
-          <h3 style={{ margin: '0 0 16px', color: C.textPrimary, fontSize: '15px' }}>GO / NO GO — לפי סביבה</h3>
+        <div style={{ background: isRehearsal ? 'rgba(120,60,0,0.12)' : C.bgCard, borderRadius: '12px', padding: '20px', marginBottom: '20px', border: isRehearsal ? '1px solid rgba(240,136,62,0.35)' : `1px solid ${C.border}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, color: isRehearsal ? '#f39c12' : C.textPrimary, fontSize: '15px' }}>GO / NO GO — {isRehearsal ? 'חזרה גנרלית' : 'לפי סביבה'}</h3>
+            {isRehearsal && <span style={{ fontSize: '12px', color: '#f39c12', background: 'rgba(243,156,18,0.15)', padding: '2px 10px', borderRadius: '20px', border: '1px solid rgba(243,156,18,0.30)' }}>אינו מחליף GO/NO GO אמיתי</span>}
+          </div>
           <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
             <GoNoGoPanel env="HOTNET" label="פעילות לילה — HOTNET" status={goStatus['HOTNET']} details={goDetails['HOTNET']} envTasks={getEnvTasks('HOTNET')} onCheck={checkGoForEnv}
-              failedTasks={getGoRequiredTasks('HOTNET').filter(t => t.status === 'FAILED')} onWaive={waiveTask} isManager={isManager} />
+              failedTasks={getGoRequiredTasks('HOTNET').filter(t => t.status === 'FAILED')} onWaive={waiveTask} isManager={isManager} isRehearsal={isRehearsal} />
             <GoNoGoPanel env="HOT" label="פעילות לילה — HOT" status={goStatus['HOT']} details={goDetails['HOT']} envTasks={getEnvTasks('HOT')} onCheck={checkGoForEnv}
-              failedTasks={getGoRequiredTasks('HOT').filter(t => t.status === 'FAILED')} onWaive={waiveTask} isManager={isManager} />
+              failedTasks={getGoRequiredTasks('HOT').filter(t => t.status === 'FAILED')} onWaive={waiveTask} isManager={isManager} isRehearsal={isRehearsal} />
           </div>
         </div>
       )}
@@ -1054,16 +1068,21 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
           (t.assignedUserId && t.assignedUserId === myUserId) ||
           (t.assignedUserName && t.assignedUserName.trim().toLowerCase() === myName);
 
-        const phaseDone = focusAllPhaseTasks.filter((t: any) => TERMINAL.includes(t.status)).length;
-        const phaseTotal = focusAllPhaseTasks.length;
+        // For non-managers: scope to own team only; managers see all
+        const scopedPhaseTasks = (!isManager && myFocusTeam)
+          ? focusAllPhaseTasks.filter((t: any) => t.assignedTeamId === myFocusTeam.id)
+          : focusAllPhaseTasks;
+
+        const phaseDone = scopedPhaseTasks.filter((t: any) => TERMINAL.includes(t.status)).length;
+        const phaseTotal = scopedPhaseTasks.length;
         const phasePct = phaseTotal > 0 ? Math.round((phaseDone / phaseTotal) * 100) : 0;
 
-        const myActiveTasks = focusAllPhaseTasks.filter((t: any) =>
+        const myActiveTasks = scopedPhaseTasks.filter((t: any) =>
           isMyTask(t) && !TERMINAL.includes(t.status)
         );
 
         // Tasks eligible for batch open: WAITING + all deps terminal (or no deps)
-        const openableWaiting = focusAllPhaseTasks.filter((t: any) =>
+        const openableWaiting = scopedPhaseTasks.filter((t: any) =>
           t.status === 'WAITING' &&
           !(t.dependencies ?? []).some((d: any) => !TERMINAL.includes(d.dependsOn?.status ?? ''))
         );
@@ -1079,7 +1098,7 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
 
         // Group tasks by sub-phase for list display
         const subPhaseGroups: { subName: string; tasks: any[] }[] = [];
-        for (const t of focusAllPhaseTasks) {
+        for (const t of scopedPhaseTasks) {
           const name = t._subPhaseName || t._phaseName || '';
           let grp = subPhaseGroups.find(g => g.subName === name);
           if (!grp) { grp = { subName: name, tasks: [] }; subPhaseGroups.push(grp); }
@@ -1259,7 +1278,7 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
           tasks: filterTasks(grp.tasks),
         })).filter(grp => grp.tasks.length > 0);
 
-        const nearCount = focusAllPhaseTasks.filter(isNearTask).length;
+        const nearCount = scopedPhaseTasks.filter(isNearTask).length;
 
         // ── Dark panel colors (matching board dark theme) ──
         const PNL = {
@@ -1378,11 +1397,11 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
               {/* ── Footer status strip ── */}
               <div style={{ background: PNL.header, borderTop: `1px solid ${PNL.border}`, padding: '8px 20px', display: 'flex', gap: '16px', fontSize: '12px', color: PNL.muted, flexShrink: 0, flexWrap: 'wrap' }}>
                 {[
-                  { label: 'הושלם', count: focusAllPhaseTasks.filter((t: any) => t.status === 'DONE').length, color: C.statusDone },
-                  { label: 'בביצוע', count: focusAllPhaseTasks.filter((t: any) => t.status === 'IN_PROGRESS').length, color: C.statusInProgress },
-                  { label: 'פתוח',  count: focusAllPhaseTasks.filter((t: any) => t.status === 'OPEN').length, color: C.statusOpen },
-                  { label: 'ממתין', count: focusAllPhaseTasks.filter((t: any) => t.status === 'WAITING').length, color: C.statusWaiting },
-                  { label: 'חסום',  count: focusAllPhaseTasks.filter((t: any) => t.status === 'BLOCKED').length, color: C.statusFailed },
+                  { label: 'הושלם', count: scopedPhaseTasks.filter((t: any) => t.status === 'DONE').length, color: C.statusDone },
+                  { label: 'בביצוע', count: scopedPhaseTasks.filter((t: any) => t.status === 'IN_PROGRESS').length, color: C.statusInProgress },
+                  { label: 'פתוח',  count: scopedPhaseTasks.filter((t: any) => t.status === 'OPEN').length, color: C.statusOpen },
+                  { label: 'ממתין', count: scopedPhaseTasks.filter((t: any) => t.status === 'WAITING').length, color: C.statusWaiting },
+                  { label: 'חסום',  count: scopedPhaseTasks.filter((t: any) => t.status === 'BLOCKED').length, color: C.statusFailed },
                 ].filter(s => s.count > 0).map(s => (
                   <span key={s.label} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                     <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: s.color, display: 'inline-block' }} />

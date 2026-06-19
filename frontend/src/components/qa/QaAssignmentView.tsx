@@ -255,6 +255,8 @@ export default function QaAssignmentView({ token }: Props) {
         setCycle1Start(toInputDate(plan.cycle1Start));
         setTestingEnd(toInputDate(plan.testingEnd));
       }
+    } catch {
+      // 403 from QA-admin-only endpoints — silently leave state empty
     } finally {
       setLoading(false);
     }

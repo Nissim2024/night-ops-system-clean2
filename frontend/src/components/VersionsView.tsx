@@ -868,7 +868,7 @@ const VersionDetail: React.FC<{
 
   const [statusError, setStatusError] = useState<string | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
-  const [forceDialog, setForceDialog] = useState<{ teams: string; targetStatus: string } | null>(null);
+  const [forceDialog, setForceDialog] = useState<{ details: string; targetStatus: string } | null>(null);
 
   const handleStatusChange = async (s: string, force?: boolean) => {
     setStatusError(null);
@@ -881,8 +881,10 @@ const VersionDetail: React.FC<{
     } catch (err: any) {
       const msg: string = err?.response?.data?.message || err?.message || 'שגיאה';
       if (!force && msg.startsWith('הצוותים הבאים טרם הגישו:')) {
-        const teams = msg.replace('הצוותים הבאים טרם הגישו: ', '');
-        setForceDialog({ teams, targetStatus: s });
+        const details = msg.replace('הצוותים הבאים טרם הגישו: ', '');
+        setForceDialog({ details, targetStatus: s });
+      } else if (!force && msg.includes('שטרם אושרו ע"י מנהל CR')) {
+        setForceDialog({ details: msg, targetStatus: s });
       } else {
         setStatusError(msg);
       }
@@ -1797,12 +1799,9 @@ const VersionDetail: React.FC<{
         <div style={{ position: 'fixed', inset: 0, background: C.bgOverlay, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: C.bgCard, borderRadius: RADIUS['2xl'], padding: '28px 32px', maxWidth: '480px', width: '90%', boxShadow: SHADOW.floating, border: `1px solid ${C.border}` }}>
             <div style={{ fontSize: '22px', marginBottom: '10px' }}>⚠️</div>
-            <div style={{ fontWeight: 'bold', fontSize: '16px', color: C.textPrimary, marginBottom: '10px' }}>לא כל הצוותים המעורבים הגישו</div>
-            <div style={{ fontSize: '14px', color: C.textSecondary, marginBottom: '8px' }}>
-              הצוותים הבאים רשומים כמעורבים ב-CR אך טרם הגישו את המשימות שלהם:
-            </div>
+            <div style={{ fontWeight: 'bold', fontSize: '16px', color: C.textPrimary, marginBottom: '10px' }}>קיימות חסימות לפני המעבר</div>
             <div style={{ background: C.warningBg, border: `1px solid ${C.warning}44`, borderRadius: RADIUS.lg, padding: '10px 14px', fontSize: '14px', fontWeight: 'bold', color: C.warning, marginBottom: '18px' }}>
-              {forceDialog.teams}
+              {forceDialog.details}
             </div>
             <div style={{ fontSize: '13px', color: C.textMuted, marginBottom: '20px' }}>
               כמנהל לילה, ביכולתך לאשר ולהמשיך בכל זאת.
@@ -1926,7 +1925,7 @@ const VersionDetail: React.FC<{
                       const missing: { name: string; crCount: number; notRequired: boolean }[] = res.data || [];
                       const pending = missing.filter((t: any) => !t.notRequired);
                       if (pending.length > 0) {
-                        setForceDialog({ teams: pending.map((t: any) => t.name).join(', '), targetStatus: 'REFINING' });
+                        setForceDialog({ details: pending.map((t: any) => t.name).join(', '), targetStatus: 'REFINING' });
                         return;
                       }
                     } catch (err: any) {

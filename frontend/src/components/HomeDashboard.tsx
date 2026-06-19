@@ -44,19 +44,21 @@ const PHASE_ORDER = ['DRAFT','COLLECTING','CR_REVIEW','REFINING','REVIEW','APPRO
 // Mini progress chain
 // ────────────────────────────────────────────────────────────────
 const CHAIN_NODES = [
-  { key: 'DRAFT',      label: 'טיוטה',   icon: '📋' },
-  { key: 'COLLECTING', label: 'איסוף',   icon: '📝' },
-  { key: 'CR_REVIEW',  label: 'סקירה',   icon: '🔍' },
-  { key: 'APPROVED',   label: 'אישור',   icon: '✅' },
-  { key: 'REHEARSAL',  label: 'חזרה',    icon: '🎭' },
-  { key: 'ACTIVE',     label: 'לייב',    icon: '🚀' },
-  { key: 'COMPLETED',  label: 'הושלם',   icon: '🏁' },
+  { key: 'DRAFT',         label: 'טיוטה',  icon: '📋' },
+  { key: 'COLLECTING',    label: 'איסוף',  icon: '📝' },
+  { key: 'CR_REVIEW',     label: 'סקירה',  icon: '🔍' },
+  { key: 'REFINING',      label: 'טיוב',   icon: '✏️' },
+  { key: 'REVIEW',        label: 'מעבר',   icon: '👥' },
+  { key: 'APPROVED',      label: 'אישור',  icon: '✅' },
+  { key: 'REHEARSAL',     label: 'חזרה',   icon: '🎭' },
+  { key: 'ACTIVE',        label: 'לייב',   icon: '🚀' },
+  { key: 'MORNING_AFTER', label: 'בוקר',   icon: '🌅' },
+  { key: 'COMPLETED',     label: 'הושלם',  icon: '🏁' },
 ];
 
 function MiniProgressChain({ status }: { status: string }) {
   const ci = CHAIN_NODES.findIndex(n => {
-    if (status === 'MORNING_AFTER') return n.key === 'ACTIVE';
-    if (status === 'REFINING' || status === 'REVIEW') return n.key === 'CR_REVIEW';
+    if (status === 'ROLLED_BACK') return n.key === 'MORNING_AFTER';
     return n.key === status;
   });
   const ph = PHASE_META[status] ?? PHASE_META['DRAFT'];

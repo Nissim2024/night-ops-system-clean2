@@ -390,10 +390,10 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
     { key: 'version-detail', label: 'פרטים',    icon: '📋' },
     { key: 'proposals',      label: 'הגשות',    icon: '📝' },
     { key: 'cr-review', label: 'סקירת CR', icon: '🔍' },
-    { key: 'board',     label: 'לוח',      icon: '⬛' },
-    { key: 'overview',  label: 'סקירה',    icon: '👥' },
+    { key: 'board',     label: isRehearsal ? 'ביצוע חזרה' : 'לוח',      icon: isRehearsal ? '🎭' : '⬛' },
+    { key: 'overview',  label: isRehearsal ? 'סקירת חזרה' : 'סקירה',    icon: '👥' },
     { key: 'timeline',  label: 'ציר זמן',  icon: '⏱' },
-    { key: 'dashboard', label: 'לוח בקרה', icon: '🎛' },
+    { key: 'dashboard', label: isRehearsal ? 'לוח חזרה' : 'לוח בקרה', icon: '🎛' },
     { key: 'summary-rehearsal',    label: 'סיכום חזרה',   icon: '🎭' },
     { key: 'summary-night',       label: 'סיכום לילה',   icon: '🌙' },
     { key: 'implementation-plans', label: 'תוכניות הטמעה', icon: '📁' },
@@ -1248,6 +1248,16 @@ const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string;
         <div style={{ fontSize: '48px' }}>🔒</div>
         <div style={{ fontSize: '18px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>אין הרשאת גישה</div>
         <div style={{ fontSize: '14px', color: C.textMuted }}>אזור זה מיועד לצוות QA בלבד</div>
+      </div>
+    );
+  }
+  // Assignment view uses QaAdminGuard on the backend — ADMIN only
+  if (view === 'assignment' && role !== 'ADMIN') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '12px', color: C.textMuted }}>
+        <div style={{ fontSize: '48px' }}>🔒</div>
+        <div style={{ fontSize: '18px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>אין הרשאת גישה</div>
+        <div style={{ fontSize: '14px', color: C.textMuted }}>תכנון ושיבוץ מיועד למנהלי מערכת בלבד</div>
       </div>
     );
   }

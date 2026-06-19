@@ -128,14 +128,14 @@ export const VersionProgressChain: React.FC<Props> = ({
     <div style={{
       background: C.bgCard,
       borderBottom: `1px solid ${C.border}`,
-      padding: '10px 28px 12px',
+      padding: '14px 28px 16px',
       direction: 'rtl',
       boxShadow: SHADOW.xs,
     }}>
       <div style={{ display: 'flex', alignItems: 'center' }}>
 
         {/* Right side: current stage label (anchored to RTL start = visual right) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, marginLeft: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, marginLeft: '20px' }}>
           <span style={{
             ...TEXT.xs, fontWeight: WEIGHT.medium, fontFamily: FONT,
             color: C.textMuted, whiteSpace: 'nowrap',
@@ -165,10 +165,8 @@ export const VersionProgressChain: React.FC<Props> = ({
           )}
         </div>
 
-        {/* Chain centered in remaining space */}
-        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-        {/* Chain itself */}
-        <div style={{ display: 'flex', alignItems: 'center' }}>
+        {/* Chain stretches across remaining space */}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
           {STAGES_DISPLAY.map((stage, si) => {
             const mState = mainState(stage.subs, effective, stage.id, activeRunPhase, rehearsalDone);
             const isClickable = onStageClick && (mState === 'done' || mState === 'active');
@@ -200,21 +198,21 @@ export const VersionProgressChain: React.FC<Props> = ({
                   }}
                 >
                   <div style={{
-                    width: '32px', height: '32px', borderRadius: '50%',
+                    width: '42px', height: '42px', borderRadius: '50%',
                     background: bubbleBg,
                     border: `2px solid ${bubbleBorder}`,
                     boxShadow: mState === 'active'
-                      ? `0 0 0 3px ${stage.glow}, ${SHADOW.xs}`
+                      ? `0 0 0 4px ${stage.glow}, ${SHADOW.xs}`
                       : mState === 'done'
                       ? `0 0 0 2px rgba(55,196,122,0.15)`
                       : 'none',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '13px', flexShrink: 0, position: 'relative',
+                    fontSize: '16px', flexShrink: 0, position: 'relative',
                     transition: EASE.slow,
                   }}>
                     {mState === 'done' && !isRolledBack
                       ? (
-                        <svg width="12" height="10" viewBox="0 0 12 10" fill="none">
+                        <svg width="14" height="12" viewBox="0 0 12 10" fill="none">
                           <path d="M1 5L4.5 8.5L11 1.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                         </svg>
                       )
@@ -223,7 +221,7 @@ export const VersionProgressChain: React.FC<Props> = ({
 
                     {mState === 'active' && (
                       <span style={{
-                        position: 'absolute', inset: '-5px', borderRadius: '50%',
+                        position: 'absolute', inset: '-6px', borderRadius: '50%',
                         border: `1.5px solid ${stage.main}`,
                         opacity: 0.45,
                         animation: 'chain-pulse 2.2s ease-in-out infinite',
@@ -233,7 +231,7 @@ export const VersionProgressChain: React.FC<Props> = ({
                   </div>
 
                   <span style={{
-                    ...TEXT.xs, fontWeight: mState === 'active' ? WEIGHT.semibold : WEIGHT.normal,
+                    fontSize: '12px', fontWeight: mState === 'active' ? WEIGHT.semibold : WEIGHT.normal,
                     fontFamily: FONT, whiteSpace: 'nowrap',
                     color: labelColor,
                     transition: EASE.fast,
@@ -282,24 +280,24 @@ export const VersionProgressChain: React.FC<Props> = ({
                         }}
                       >
                         <div style={{
-                          width: '16px', height: '16px', borderRadius: '50%',
+                          width: '20px', height: '20px', borderRadius: '50%',
                           background: dotBg,
                           border: `1.5px solid ${dotColor}`,
-                          boxShadow: sState === 'active' ? `0 0 5px ${stage.glow}` : 'none',
+                          boxShadow: sState === 'active' ? `0 0 6px ${stage.glow}` : 'none',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           transition: EASE.slow,
                         }}>
                           {sState === 'done' && (
-                            <svg width="7" height="6" viewBox="0 0 7 6" fill="none">
+                            <svg width="8" height="7" viewBox="0 0 7 6" fill="none">
                               <path d="M1 3L2.8 4.8L6 1.2" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                             </svg>
                           )}
                           {sState === 'active' && (
-                            <div style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'white', opacity: 0.95 }} />
+                            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'white', opacity: 0.95 }} />
                           )}
                         </div>
                         <span style={{
-                          fontSize: '10px', fontFamily: FONT, whiteSpace: 'nowrap',
+                          fontSize: '11px', fontFamily: FONT, whiteSpace: 'nowrap',
                           color: sState === 'active' ? stage.main
                                : sState === 'done'   ? `${C.success}CC`
                                : C.textDisabled,
@@ -331,7 +329,6 @@ export const VersionProgressChain: React.FC<Props> = ({
             );
           })}
         </div>
-        </div>{/* end centered chain wrapper */}
       </div>
 
       <style>{`

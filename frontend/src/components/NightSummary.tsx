@@ -249,11 +249,30 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
   const canDownload = isGoNogo || canForceApprove;
 
   // ── Phase timeline ──
+  // For rehearsal summaries after the rehearsal ended, tasks are reset to WAITING in the DB.
+  // We must use the snapshot tasks (from `tasks` state) to get actual times,
+  // cross-referenced to phases via subPhaseId.
+  const snapshotBySubPhase = React.useMemo<Map<string, any[]>>(() => {
+    const useSnapshot = isRehearsal && version?.status !== 'REHEARSAL';
+    if (!useSnapshot) return new Map();
+    const m = new Map<string, any[]>();
+    for (const t of tasks) {
+      if (!t.subPhaseId) continue;
+      if (!m.has(t.subPhaseId)) m.set(t.subPhaseId, []);
+      m.get(t.subPhaseId)!.push(t);
+    }
+    return m;
+  }, [tasks, isRehearsal, version?.status]);
+
   const phaseTimelines = React.useMemo(() => {
     if (!version?.phases) return [];
+    const useSnapshot = isRehearsal && version?.status !== 'REHEARSAL';
     const sorted = [...version.phases].sort((a: any, b: any) => a.orderIndex - b.orderIndex);
     return sorted.map((phase: any) => {
-      const phTasks: any[] = (phase.subPhases || []).flatMap((s: any) => s.tasks || []);
+      // When showing a completed rehearsal, substitute live tasks with snapshot tasks per subPhase
+      const phTasks: any[] = (phase.subPhases || []).flatMap((s: any) =>
+        useSnapshot ? (snapshotBySubPhase.get(s.id) ?? s.tasks ?? []) : (s.tasks || [])
+      );
       const ps  = phTasks.filter(t => t.plannedStart).map(t => new Date(t.plannedStart).getTime());
       const pe  = phTasks.filter(t => t.plannedEnd).map(t => new Date(t.plannedEnd).getTime());
       const as_ = phTasks.filter(t => t.actualStart || t.startedAt).map(t => new Date(t.actualStart || t.startedAt).getTime());
@@ -274,7 +293,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         totalTasks: phTasks.length,
       };
     });
-  }, [version]);
+  }, [version, snapshotBySubPhase, isRehearsal]);
 
   // ── Defect chart data ──
   const severityData = ['Show Stopper', 'Severe', 'High', 'Medium', 'Low'].map(s => ({

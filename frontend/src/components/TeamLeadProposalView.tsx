@@ -709,7 +709,11 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
   const totalReady = proposals.filter(p => p.status === 'READY').length;
   const draftCount = proposals.filter(p => p.status !== 'READY' && !p.usedInTaskId).length;
-  const canSubmit  = proposals.length > 0 && draftCount === 0;
+  const allCrsHandled = crGroups.length > 0 && crGroups.every(([cr, ps]) =>
+    crPlans[cr]?.notNeededForPlan ||
+    ps.some(p => p.status === 'READY' || p.usedInTaskId)
+  );
+  const canSubmit = allCrsHandled && draftCount === 0;
 
   // Filter users to team members only
   const teamUsers = useMemo(() => {

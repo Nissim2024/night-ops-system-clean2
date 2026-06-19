@@ -46,12 +46,16 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
 
   // ── נתוני-מאקרו ──
   const [stats, setStats] = useState<{
-    totalTasks: number; doneTasks: number; blockedTasks: number; inProgressTasks: number;
+    totalTasks: number; doneTasks: number; blockedTasks: number; inProgressTasks: number; waitingTasks: number;
     submittedTeams: number; totalTeams: number;
     approvedCRs: number; totalCRs: number;
     alerts: { type: 'error' | 'warn'; text: string }[];
   } | null>(null);
-  const [approvedPlans, setApprovedPlans] = useState<any[]>([]);
+  const [rehearsalStats, setRehearsalStats] = useState<{
+    totalTasks: number; doneTasks: number; blockedTasks: number; inProgressTasks: number; waitingTasks: number;
+    submittedTeams: number; totalTeams: number; approvedCRs: number; totalCRs: number;
+    alerts: { type: 'error' | 'warn'; text: string }[];
+  } | null>(null);
   const [myTeamRequiresPlan, setMyTeamRequiresPlan] = useState<boolean>(true);
 
   useEffect(() => {
@@ -94,8 +98,6 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
             totalCRs    = crNums.filter((v: string, i: number, a: string[]) => a.indexOf(v) === i).length;
             approvedCRs = approvedNums.filter((v: string, i: number, a: string[]) => a.indexOf(v) === i).length;
             // Save approved plans for display in hub
-            const approved = crs.filter((c: any) => c.planApproved || c.notNeededForPlan);
-            setApprovedPlans(approved);
           }
         } catch {}
         if (cancelled) return;
@@ -117,8 +119,22 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
           doneTasks:  allTasks.filter(t => t.status === 'DONE').length,
           blockedTasks: blocked.length + failed.length,
           inProgressTasks: allTasks.filter(t => t.status === 'IN_PROGRESS').length,
+          waitingTasks: allTasks.filter(t => t.status === 'WAITING').length,
           submittedTeams, totalTeams, approvedCRs, totalCRs, alerts,
         });
+
+        // Rehearsal stats from snapshot (after rehearsal ends tasks are reset)
+        const snapshot: any[] = v.lastRehearsalSnapshot ?? [];
+        if (snapshot.length > 0) {
+          setRehearsalStats({
+            totalTasks: snapshot.length,
+            doneTasks: snapshot.filter((t: any) => t.status === 'DONE').length,
+            blockedTasks: snapshot.filter((t: any) => ['BLOCKED', 'FAILED'].includes(t.status)).length,
+            inProgressTasks: snapshot.filter((t: any) => t.status === 'IN_PROGRESS').length,
+            waitingTasks: snapshot.filter((t: any) => t.status === 'WAITING').length,
+            submittedTeams: 0, totalTeams: 0, approvedCRs: 0, totalCRs: 0, alerts: [],
+          });
+        }
       } catch {}
     };
     load();
@@ -256,14 +272,18 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
           icon: '🎛',
           title: 'לוח בקרה — חזרה',
           subtitle: s === 'REHEARSAL'
-            ? 'מעקב חזרה בזמן-אמת'
+            ? 'מעקב חזרה בזמן-אמת עם GO/NO-GO'
             : hasRehearsal
-            ? `הורצה: ${fmt(version.lastRehearsalAt)}`
+            ? 'הסתיים — ראה דוח סיכום'
             : 'יפתח בעת החזרה הגנרלית',
-          tab: 'overview',
-          enabled: rehearsalTimePassed,
-          badge: !rehearsalTimePassed ? '⏳ טרם הגיע הזמן' : undefined,
-          badgeColor: C.textMuted,
+          tab: 'dashboard',
+          enabled: s === 'REHEARSAL',
+          badge: hasRehearsal && s !== 'REHEARSAL'
+            ? '✓ הסתיים'
+            : !rehearsalTimePassed
+            ? '⏳ טרם הגיע הזמן'
+            : undefined,
+          badgeColor: hasRehearsal && s !== 'REHEARSAL' ? C.statusDone : C.textMuted,
         },
         {
           id: 'rehearsal-summary',
@@ -386,85 +406,6 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
         </div>
       )}
 
-      {/* ── CTA — הצעד הבא ── */}
-      {cta && (
-        <div
-          onClick={() => ctaTab && onNavigate(ctaTab)}
-          style={{
-            background: cta.bg, border: `1px solid ${cta.color}44`,
-            borderRadius: '10px', padding: '12px 18px', marginBottom: '14px',
-            display: 'flex', alignItems: 'center', gap: '10px',
-            cursor: ctaTab ? 'pointer' : 'default',
-            transition: EASE.fast,
-          }}
-          onMouseEnter={e => { if (ctaTab) (e.currentTarget as HTMLElement).style.borderColor = cta.color + '88'; }}
-          onMouseLeave={e => { if (ctaTab) (e.currentTarget as HTMLElement).style.borderColor = cta.color + '44'; }}
-        >
-          <span style={{ fontSize: '20px' }}>{cta.icon}</span>
-          <span style={{ fontSize: '13px', fontWeight: 700, color: cta.color, flex: 1 }}>{cta.text}</span>
-          {ctaTab && <span style={{ fontSize: '12px', color: cta.color, opacity: 0.7 }}>← לחץ למעבר</span>}
-        </div>
-      )}
-
-      {/* ── התראות ── */}
-      {stats && stats.alerts.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' }}>
-          {stats.alerts.map((a, i) => (
-            <div key={i} style={{
-              background: a.type === 'error' ? C.dangerBg : C.warningBg,
-              border: `1px solid ${a.type === 'error' ? C.statusFailed : C.warning}44`,
-              borderRadius: '8px', padding: '8px 14px',
-              display: 'flex', alignItems: 'center', gap: '8px',
-              fontSize: '13px', color: a.type === 'error' ? C.statusFailed : C.warning,
-              fontWeight: 600,
-            }}>
-              {a.type === 'error' ? '🚨' : '⚠️'} {a.text}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── Stats bar ── */}
-      {stats && stats.totalTasks > 0 && (
-        <div style={{
-          background: C.bgCard, border: `1px solid ${C.border}`,
-          borderRadius: '10px', padding: '12px 18px', marginBottom: '14px',
-          display: 'flex', gap: '0', flexWrap: 'wrap',
-        }}>
-          {[
-            { label: 'משימות',   value: stats.totalTasks,       color: C.textPrimary },
-            { label: 'הושלמו',  value: stats.doneTasks,        color: C.statusDone },
-            { label: 'בביצוע',  value: stats.inProgressTasks,  color: C.statusInProgress },
-            { label: 'חסומות',  value: stats.blockedTasks,     color: stats.blockedTasks > 0 ? C.statusFailed : C.textDisabled },
-            ...(stats.totalTeams > 0 ? [{ label: 'צוותים', value: stats.totalTeams, color: C.textSecondary }] : []),
-            ...(stats.totalCRs  > 0 ? [{ label: 'CR-ים',  value: stats.totalCRs,   color: C.textSecondary }] : []),
-          ].map((stat, i, arr) => (
-            <div key={stat.label} style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center',
-              padding: '0 20px', borderLeft: i < arr.length - 1 ? `1px solid ${C.border}` : 'none',
-              minWidth: '70px',
-            }}>
-              <span style={{ fontSize: '22px', fontWeight: 700, color: stat.color, lineHeight: 1.2 }}>{stat.value}</span>
-              <span style={{ fontSize: '11px', color: C.textMuted, marginTop: '2px' }}>{stat.label}</span>
-            </div>
-          ))}
-          {stats.totalTasks > 0 && (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', paddingRight: '20px' }}>
-              <div style={{ flex: 1, height: '6px', background: C.bgHover, borderRadius: '3px', overflow: 'hidden' }}>
-                <div style={{
-                  height: '100%', borderRadius: '3px',
-                  background: stats.doneTasks === stats.totalTasks ? C.statusDone : C.brand,
-                  width: `${Math.round(stats.doneTasks / stats.totalTasks * 100)}%`,
-                  transition: 'width 0.5s ease',
-                }} />
-              </div>
-              <span style={{ fontSize: '11px', color: C.textMuted, marginRight: '8px', whiteSpace: 'nowrap' }}>
-                {Math.round(stats.doneTasks / stats.totalTasks * 100)}%
-              </span>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* כרטיס פרטי גרסה — עם עריכה אינליין */}
       <div style={{
@@ -521,9 +462,9 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
           </div>
         </div>
 
-        {/* שדות תאריכים — עריכה אינליין */}
+        {/* שדות תאריכים — עריכה אינליין, ממוינים לפי מועד */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
-          {[
+          {([
             { icon: '📅', label: 'התחלה מתוכננת',   field: 'plannedStart',      value: version.plannedStart,      dateOnly: false },
             { icon: '🏁', label: 'סיום מתוכנן',      field: 'plannedEnd',        value: version.plannedEnd,        dateOnly: false },
             { icon: '🗓', label: 'ישיבת מעבר',        field: 'reviewMeetingTime', value: version.reviewMeetingTime, dateOnly: false },
@@ -531,7 +472,14 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
             { icon: '🔧', label: 'סיום אינטגרציה',    field: 'integrationEnd',    value: version.integrationEnd,    dateOnly: true  },
             { icon: '🧪', label: 'תחילת בדיקות QA',   field: 'qaStart',           value: version.qaStart,           dateOnly: true  },
             { icon: '🧪', label: 'סיום בדיקות QA',    field: 'qaEnd',             value: version.qaEnd,             dateOnly: true  },
-          ].map(({ icon, label, field, value, dateOnly }) => {
+          ] as { icon: string; label: string; field: string; value: any; dateOnly: boolean }[])
+            .sort((a, b) => {
+              if (!a.value && !b.value) return 0;
+              if (!a.value) return 1;
+              if (!b.value) return -1;
+              return new Date(a.value).getTime() - new Date(b.value).getTime();
+            })
+            .map(({ icon, label, field, value, dateOnly }) => {
             const inputType = dateOnly ? 'date' : 'datetime-local';
             const currentVal = value ? (dateOnly ? value.slice(0, 10) : value.slice(0, 16)) : '';
             return (
@@ -580,15 +528,117 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
       </div>
 
       {/* שלוש שורות */}
-      {visibleRows.map(row => (
+      {visibleRows.map(row => {
+        const isPlanningRow  = row.title === 'תכנון';
+        const isRehearsalRow = row.title === 'חזרה גנרלית';
+        const isExecRow      = row.title === 'הרצה אמיתית';
+        const showDates      = isRehearsalRow || isExecRow;
+        const effectiveStats = isRehearsalRow && rehearsalStats && s !== 'REHEARSAL'
+          ? rehearsalStats
+          : stats;
+        const showStats      = !!effectiveStats && effectiveStats.totalTasks > 0 && (isRehearsalRow || isExecRow);
+        const showProgress   = showStats && (
+          (isRehearsalRow && (s === 'REHEARSAL' || (!!rehearsalStats && s !== 'REHEARSAL'))) ||
+          (isExecRow && ['ACTIVE', 'MORNING_AFTER'].includes(s))
+        );
+        const planningCta    = ['DRAFT','COLLECTING','CR_REVIEW','REFINING','REVIEW','APPROVED'].includes(s);
+        const showAlerts     = isPlanningRow && !!stats && ((!!cta && planningCta) || stats.alerts.length > 0);
+        return (
         <div key={row.title} style={{ marginBottom: '16px' }}>
           {/* כותרת שורה */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-            <div style={{ height: '3px', width: '24px', background: row.accent, borderRadius: '2px' }} />
-            <span style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, letterSpacing: '0.08em', textTransform: 'uppercase' as const }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
+            <div style={{ height: '3px', width: '24px', background: row.accent, borderRadius: '2px', flexShrink: 0 }} />
+            <span style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, letterSpacing: '0.08em', textTransform: 'uppercase' as const, flexShrink: 0 }}>
               {row.title}
             </span>
+            {/* תאריכי הטמעה בכותרת שורת חזרה/הרצה */}
+            {showDates && (version.plannedStart || version.plannedEnd) && (
+              <div style={{ display: 'flex', gap: '14px', marginRight: 'auto', fontSize: '12px', color: C.textSecondary }}>
+                {version.plannedStart && <span>📅 <strong>התחלה מתוכננת</strong> {fmt(version.plannedStart)}</span>}
+                {version.plannedEnd   && <span>🏁 <strong>סיום מתוכנן</strong> {fmt(version.plannedEnd)}</span>}
+              </div>
+            )}
           </div>
+
+          {/* פנל CTA + התראות — בשורת תכנון בלבד */}
+          {showAlerts && (
+            <div style={{
+              background: C.bgCard, border: `1px solid ${C.border}`,
+              borderRadius: '10px', padding: '12px 16px', marginBottom: '10px',
+            }}>
+              {cta && (
+                <div
+                  onClick={() => ctaTab && onNavigate(ctaTab)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0',
+                    cursor: ctaTab ? 'pointer' : 'default',
+                    borderBottom: stats!.alerts.length > 0 ? `1px solid ${C.border}44` : 'none',
+                    marginBottom: stats!.alerts.length > 0 ? '8px' : '0',
+                  }}
+                >
+                  <span style={{ fontSize: '16px' }}>{cta.icon}</span>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: cta.color, flex: 1 }}>{cta.text}</span>
+                  {ctaTab && <span style={{ fontSize: '11px', color: cta.color, opacity: 0.7 }}>← לחץ למעבר</span>}
+                </div>
+              )}
+              {stats!.alerts.map((a, i) => (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0',
+                  borderTop: i > 0 ? `1px solid ${C.border}33` : 'none',
+                  fontSize: '13px', color: a.type === 'error' ? C.statusFailed : C.warning,
+                  fontWeight: 600,
+                }}>
+                  <span style={{ fontSize: '15px' }}>{a.type === 'error' ? '🚨' : '⚠️'}</span>
+                  <span>{a.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* פנל stats + גרף התקדמות — בשורות חזרה והרצה */}
+          {showStats && (
+            <div style={{
+              background: C.bgCard, border: `1px solid ${C.border}`,
+              borderRadius: '10px', padding: '10px 16px', marginBottom: '10px',
+              display: 'flex', gap: '0', flexWrap: 'wrap', alignItems: 'center',
+            }}>
+              {[
+                { label: 'משימות',   value: effectiveStats!.totalTasks,      color: C.textPrimary },
+                { label: 'הושלמו',  value: effectiveStats!.doneTasks,       color: C.statusDone },
+                { label: 'בביצוע',  value: effectiveStats!.inProgressTasks, color: C.statusInProgress },
+                { label: 'ממתינות', value: effectiveStats!.waitingTasks,    color: effectiveStats!.waitingTasks > 0 ? C.warning : C.textDisabled },
+                { label: 'חסומות',  value: effectiveStats!.blockedTasks,    color: effectiveStats!.blockedTasks > 0 ? C.statusFailed : C.textDisabled },
+                ...(effectiveStats!.totalTeams > 0 ? [{ label: 'צוותים', value: effectiveStats!.totalTeams, color: C.textSecondary }] : []),
+                ...(effectiveStats!.totalCRs  > 0 ? [{ label: 'CR-ים',  value: effectiveStats!.totalCRs,   color: C.textSecondary }] : []),
+              ].map((stat, i, arr) => (
+                <div key={stat.label} style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  padding: '0 16px', borderLeft: i < arr.length - 1 ? `1px solid ${C.border}` : 'none',
+                  minWidth: '65px',
+                }}>
+                  <span style={{ fontSize: '20px', fontWeight: 700, color: stat.color, lineHeight: 1.2 }}>{stat.value}</span>
+                  <span style={{ fontSize: '11px', color: C.textMuted, marginTop: '2px' }}>{stat.label}</span>
+                </div>
+              ))}
+              {/* גרף התקדמות — בזמן ביצוע בלבד */}
+              {showProgress && (
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', paddingRight: '16px' }}>
+                  <div style={{ flex: 1, height: '5px', background: C.bgHover, borderRadius: '3px', overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%', borderRadius: '3px',
+                      background: effectiveStats!.doneTasks === effectiveStats!.totalTasks ? C.statusDone : row.accent,
+                      width: `${Math.round(effectiveStats!.doneTasks / effectiveStats!.totalTasks * 100)}%`,
+                      transition: 'width 0.5s ease',
+                    }} />
+                  </div>
+                  <span style={{ fontSize: '11px', color: C.textMuted, whiteSpace: 'nowrap' }}>
+                    {effectiveStats!.doneTasks}/{effectiveStats!.totalTasks} ({Math.round(effectiveStats!.doneTasks / effectiveStats!.totalTasks * 100)}%)
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
 
           {/* כרטיסים בשורה */}
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(${row.cards.length}, 1fr)`, gap: '12px' }}>
@@ -660,46 +710,8 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
             ))}
           </div>
         </div>
-      ))}
-
-      {/* ── תוכניות מאושרות ── */}
-      {approvedPlans.length > 0 && (
-        <div style={{ marginTop: '8px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-            <div style={{ height: '3px', width: '24px', background: C.statusDone, borderRadius: '2px' }} />
-            <span style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, letterSpacing: '0.08em', textTransform: 'uppercase' as const }}>
-              תוכניות שאושרו ({approvedPlans.length})
-            </span>
-          </div>
-          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '12px', overflow: 'hidden' }}>
-            {/* Header row */}
-            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 100px 80px', gap: '0', background: C.bgNested, borderBottom: `1px solid ${C.border}`, padding: '7px 14px', fontSize: '11px', fontWeight: 700, color: C.textMuted }}>
-              <span>CR</span>
-              <span>תיאור</span>
-              <span>צוות</span>
-              <span style={{ textAlign: 'center' as const }}>סטטוס</span>
-            </div>
-            {approvedPlans.map((plan: any, i: number) => (
-              <div key={plan.id ?? i} style={{ display: 'grid', gridTemplateColumns: '80px 1fr 100px 80px', gap: '0', padding: '8px 14px', borderBottom: i < approvedPlans.length - 1 ? `1px solid ${C.border}` : 'none', alignItems: 'center', fontSize: '13px' }}>
-                <span style={{ color: C.info, fontWeight: 600, fontFamily: 'monospace' }}>{plan.crNumber || '—'}</span>
-                <span style={{ color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {plan.description || plan.title || plan.crTitle || '—'}
-                </span>
-                <span style={{ color: C.textMuted, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {plan.team?.name || plan.teamName || '—'}
-                </span>
-                <span style={{ textAlign: 'center' as const }}>
-                  {plan.notNeededForPlan ? (
-                    <span style={{ fontSize: '11px', background: C.bgNested, color: C.textMuted, padding: '2px 8px', borderRadius: '10px', border: `1px solid ${C.border}` }}>לא נדרש</span>
-                  ) : (
-                    <span style={{ fontSize: '11px', background: C.successBg ?? '#f0faf4', color: C.statusDone, padding: '2px 8px', borderRadius: '10px', border: `1px solid ${C.statusDone}44` }}>✓ אושר</span>
-                  )}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+        );
+      })}
     </div>
   );
 };
