@@ -3,7 +3,8 @@ import axios from 'axios';
 import { DeployCenterLogo } from './DeployCenterLogo';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
 import { Button, TextField, Alert, Spinner } from './ui';
-import { version as APP_VERSION } from '../../package.json';
+import pkg from '../../package.json';
+const APP_VERSION: string = pkg.version;
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 const IS_TEST = process.env.REACT_APP_ENV === 'test';
