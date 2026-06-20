@@ -23,6 +23,30 @@ export class VersionCrAssignmentsController {
     return this.service.syncFromExcel(versionId);
   }
 
+  // Preview diff — reads Excel and returns added/removed/unchanged without touching DB
+  @Post('version/:versionId/sync/preview')
+  syncPreview(@Param('versionId') versionId: string, @Request() req: any) {
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.syncPreview(versionId);
+  }
+
+  // Apply sync diff — upserts new CRs (status=NEW), marks removed CRs (status=REMOVED)
+  @Post('version/:versionId/sync/apply')
+  syncApply(@Param('versionId') versionId: string, @Request() req: any) {
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.syncApply(versionId);
+  }
+
+  // Manual delete of a CR after user confirmation (MANAGERS only)
+  @Delete('cr/:versionId/:crNumber')
+  deleteCr(
+    @Param('versionId') versionId: string,
+    @Param('crNumber')  crNumber: string,
+    @Request() req: any,
+  ) {
+    return this.service.deleteCr(versionId, crNumber, req.user);
+  }
+
   @Patch('cr/:versionId/:crNumber')
   patchCr(
     @Param('versionId') versionId: string,

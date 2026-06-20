@@ -283,6 +283,235 @@ export class VersionCrAssignmentsService {
     };
   }
 
+  // ── Private: parse CR_LIST Excel and return eligible assignments ──────────────
+  private async parseExcelAssignments(versionId: string): Promise<{
+    assignments: {
+      crNumber: string; crLabel: string; teamId: string; teamName: string;
+      crManager: string; crDescription: string; application: string; project: string;
+      qaEffort?: number; estimateDays?: number | null; hasActual?: boolean;
+    }[];
+    allTeams: { id: string; name: string }[];
+  }> {
+    const param = await prisma.systemParam.findUnique({ where: { key: 'EXCEL_FILE_PATH' } });
+    const filePath = param?.value?.trim();
+    if (!filePath) throw new BadRequestException('נתיב קובץ CR_LIST לא הוגדר בפרמטרי המערכת (EXCEL_FILE_PATH)');
+    if (!fs.existsSync(filePath)) throw new BadRequestException(`הקובץ לא נמצא: ${filePath}`);
+
+    const version = await prisma.version.findUnique({ where: { id: versionId }, select: { name: true } });
+    if (!version) throw new BadRequestException('גרסה לא נמצאה');
+
+    const buffer = fs.readFileSync(filePath);
+    const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+    const REQUIRED_COLS = ['# CR', 'כותרת', 'גרסה'];
+    let headerRowIdx = -1;
+    for (let i = 0; i < Math.min(10, rows.length); i++) {
+      const row = (rows[i] as any[]).map(h => String(h ?? '').trim());
+      if (REQUIRED_COLS.every(col => row.includes(col))) { headerRowIdx = i; break; }
+    }
+    if (headerRowIdx === -1) {
+      const sample = (rows[0] as any[]).slice(0, 10).map(h => String(h ?? '').trim()).join(', ');
+      throw new BadRequestException(`מבנה קובץ לא תקין — עמודות חובה חסרות. נמצאו: ${sample}`);
+    }
+
+    const headers: string[] = (rows[headerRowIdx] as any[]).map(h => String(h ?? '').trim());
+    const colIdx = (name: string) => headers.findIndex(h => h === name);
+
+    const crCol       = colIdx('# CR');
+    const titleCol    = colIdx('כותרת');
+    const verCol      = colIdx('גרסה');
+    const statusCol   = colIdx('סטטוס');
+    const appCol      = colIdx('מאפיין');
+    const projectCol  = colIdx('פרויקט');
+    const estimateCol = colIdx('סך כל הערכות');
+    const actualsCol  = colIdx('Actuals');
+    const COL_DESCRIPTION = 5;
+    const COL_MANAGER     = 9;
+    const parseDay = (v: any) => { const n = parseFloat(String(v ?? '0').replace(/[^\d.]/g, '')); return isNaN(n) ? 0 : n; };
+
+    const allTeams = await prisma.team.findMany({ where: { active: true }, select: { id: true, name: true } });
+    const teamIdByName: Record<string, string> = {};
+    allTeams.forEach(t => { teamIdByName[t.name] = t.id; });
+
+    const QA_TEAM_NAME = 'QA Team';
+    const qaCRs    = new Set<string>();
+    const nonQaCRs = new Set<string>();
+
+    for (const [teamName, teamCols] of Object.entries(TEAM_COLUMNS)) {
+      const teamColIdxs = teamCols.map(colIdx).filter(i => i !== -1);
+      if (teamColIdxs.length === 0) continue;
+      for (let r = headerRowIdx + 1; r < rows.length; r++) {
+        const row = rows[r] as any[];
+        if (String(row[verCol] ?? '').trim() !== version.name) continue;
+        if (String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
+        const crNumber = crCol !== -1 ? String(row[crCol] ?? '').trim() : '';
+        const title    = titleCol !== -1 ? String(row[titleCol] ?? '').trim() : '';
+        if (!crNumber || !title) continue;
+        if (teamName === QA_TEAM_NAME) {
+          if (teamColIdxs.length > 0 && parseDay(row[teamColIdxs[0]]) >= 1) qaCRs.add(crNumber);
+        } else {
+          if (teamColIdxs.some(ci => parseDay(row[ci]) > 0.3)) nonQaCRs.add(crNumber);
+        }
+      }
+    }
+
+    const eligibleCRs = new Set([...qaCRs].filter(cr => nonQaCRs.has(cr)));
+    const crEstimateDays: Record<string, number | null> = {};
+    const crHasActual:    Record<string, boolean>       = {};
+    for (let r = headerRowIdx + 1; r < rows.length; r++) {
+      const row = rows[r] as any[];
+      const crNumber = crCol !== -1 ? String(row[crCol] ?? '').trim() : '';
+      if (!crNumber) continue;
+      if (estimateCol !== -1 && !(crNumber in crEstimateDays)) {
+        const raw = parseFloat(String(row[estimateCol] ?? '').replace(/[^\d.]/g, ''));
+        crEstimateDays[crNumber] = isNaN(raw) ? null : raw;
+      }
+      if (actualsCol !== -1 && !crHasActual[crNumber]) {
+        const cell = String(row[actualsCol] ?? '').trim().toLowerCase();
+        if (['v', '✓', 'x', 'yes', 'כן'].includes(cell)) crHasActual[crNumber] = true;
+      }
+    }
+
+    const assignments: any[] = [];
+    const seen = new Set<string>();
+    for (const [teamName, teamCols] of Object.entries(TEAM_COLUMNS)) {
+      const teamId = teamIdByName[teamName];
+      if (!teamId) continue;
+      const teamColIdxs = teamCols.map(colIdx).filter(i => i !== -1);
+      if (teamColIdxs.length === 0) continue;
+      for (let r = headerRowIdx + 1; r < rows.length; r++) {
+        const row = rows[r] as any[];
+        if (String(row[verCol] ?? '').trim() !== version.name) continue;
+        if (String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
+        const crNumber = crCol !== -1 ? String(row[crCol] ?? '').trim() : '';
+        const title    = titleCol !== -1 ? String(row[titleCol] ?? '').trim() : '';
+        if (!crNumber || !title || !eligibleCRs.has(crNumber)) continue;
+        let qaEffortDays: number | undefined;
+        if (teamName === QA_TEAM_NAME) {
+          const qaDay = teamColIdxs.length > 0 ? parseDay(row[teamColIdxs[0]]) : 0;
+          if (qaDay < 1) continue;
+          qaEffortDays = qaDay;
+        } else {
+          if (!teamColIdxs.some(ci => parseDay(row[ci]) > 0.3)) continue;
+        }
+        const key = `${crNumber}|${teamId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        assignments.push({
+          crNumber, crLabel: `${crNumber} - ${title}`, teamId, teamName,
+          crManager:     String(row[COL_MANAGER]     ?? '').trim(),
+          crDescription: String(row[COL_DESCRIPTION] ?? '').trim(),
+          application:   appCol    !== -1 ? String(row[appCol]    ?? '').trim() : '',
+          project:       projectCol !== -1 ? String(row[projectCol] ?? '').trim() : '',
+          ...(qaEffortDays !== undefined ? { qaEffort: qaEffortDays } : {}),
+          estimateDays: crEstimateDays[crNumber] ?? null,
+          hasActual:    crHasActual[crNumber] ?? false,
+        });
+      }
+    }
+    return { assignments, allTeams };
+  }
+
+  // ── Preview sync diff — no DB changes ──────────────────────────────────────
+  async syncPreview(versionId: string): Promise<{
+    added:     { crNumber: string; crLabel: string; teamName: string }[];
+    removed:   { crNumber: string; crLabel: string; teamName: string }[];
+    unchanged: number;
+  }> {
+    const { assignments, allTeams } = await this.parseExcelAssignments(versionId);
+    const teamNameById: Record<string, string> = {};
+    allTeams.forEach(t => { teamNameById[t.id] = t.name; });
+
+    const excelKeys = new Set(assignments.map(a => `${a.crNumber}|${a.teamId}`));
+    const existing = await prisma.versionCrAssignment.findMany({
+      where: { versionId, syncStatus: { not: 'REMOVED' } },
+      select: { crNumber: true, teamId: true, crLabel: true },
+    });
+    const dbKeys = new Set(existing.map(e => `${e.crNumber}|${e.teamId}`));
+
+    const added = assignments
+      .filter(a => !dbKeys.has(`${a.crNumber}|${a.teamId}`))
+      .map(a => ({ crNumber: a.crNumber, crLabel: a.crLabel, teamName: a.teamName }));
+
+    const removed = existing
+      .filter(e => !excelKeys.has(`${e.crNumber}|${e.teamId}`))
+      .map(e => ({ crNumber: e.crNumber, crLabel: e.crLabel ?? e.crNumber, teamName: teamNameById[e.teamId] ?? e.teamId }));
+
+    const unchanged = existing.filter(e => excelKeys.has(`${e.crNumber}|${e.teamId}`)).length;
+
+    return { added, removed, unchanged };
+  }
+
+  // ── Apply sync: mark NEW/REMOVED, upsert new CRs ──────────────────────────
+  async syncApply(versionId: string): Promise<{ added: number; removed: number; unchanged: number }> {
+    const { assignments } = await this.parseExcelAssignments(versionId);
+    const excelKeys = new Set(assignments.map(a => `${a.crNumber}|${a.teamId}`));
+
+    // Existing active + new records (exclude already-REMOVED ones from diff)
+    const existing = await prisma.versionCrAssignment.findMany({
+      where: { versionId, syncStatus: { not: 'REMOVED' } },
+      select: { id: true, crNumber: true, teamId: true },
+    });
+    const dbKeys = new Set(existing.map(e => `${e.crNumber}|${e.teamId}`));
+
+    const now = new Date();
+    let added = 0;
+    let unchanged = 0;
+
+    // Upsert: new CRs get syncStatus='NEW', existing ones get syncStatus='ACTIVE'
+    for (const a of assignments) {
+      const isNew = !dbKeys.has(`${a.crNumber}|${a.teamId}`);
+      await prisma.versionCrAssignment.upsert({
+        where: { versionId_crNumber_teamId: { versionId, crNumber: a.crNumber, teamId: a.teamId } },
+        create: {
+          versionId, crNumber: a.crNumber, crLabel: a.crLabel, teamId: a.teamId,
+          crManager: a.crManager || null, crDescription: a.crDescription || null,
+          application: a.application || null, project: a.project || null,
+          syncedAt: now, syncStatus: 'NEW',
+          ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
+          estimateDays: a.estimateDays ?? null, hasActual: a.hasActual ?? false,
+        } as any,
+        update: {
+          crLabel: a.crLabel, crManager: a.crManager || null,
+          crDescription: a.crDescription || null, application: a.application || null,
+          project: a.project || null, syncedAt: now,
+          syncStatus: 'ACTIVE', // existing ones remain ACTIVE
+          ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
+          estimateDays: a.estimateDays ?? null, hasActual: a.hasActual ?? false,
+        } as any,
+      });
+      if (isNew) added++; else unchanged++;
+    }
+
+    // Mark removed CRs — do NOT delete
+    const stale = existing.filter(e => !excelKeys.has(`${e.crNumber}|${e.teamId}`));
+    if (stale.length > 0) {
+      const staleCrNumbers = [...new Set(stale.map(e => e.crNumber))];
+      // Mark CrPlans as not needed so they don't block status transitions
+      await prisma.crPlan.updateMany({
+        where: { versionId, crNumber: { in: staleCrNumbers }, notNeededForPlan: false },
+        data: { notNeededForPlan: true },
+      });
+      await prisma.versionCrAssignment.updateMany({
+        where: { id: { in: stale.map(e => e.id) } },
+        data: { syncStatus: 'REMOVED' },
+      });
+    }
+
+    return { added, removed: stale.length, unchanged };
+  }
+
+  // ── Delete a CR manually (MANAGERS only) ──────────────────────────────────
+  async deleteCr(versionId: string, crNumber: string, user: { sub: string; role: string }): Promise<{ deleted: number }> {
+    if (!MANAGERS.includes(user.role)) throw new ForbiddenException('רק מנהל גרסה יכול למחוק CR');
+    const { count } = await prisma.versionCrAssignment.deleteMany({
+      where: { versionId, crNumber },
+    });
+    return { deleted: count };
+  }
+
   async patchCr(versionId: string, crNumber: string, patch: { qaEffortOverride?: number | null; isStandAlone?: boolean }) {
     const data: any = {};
     if (patch.qaEffortOverride !== undefined) data.qaEffortOverride = patch.qaEffortOverride;

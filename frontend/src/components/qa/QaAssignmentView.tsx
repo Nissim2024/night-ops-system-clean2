@@ -13,14 +13,16 @@ const BLUE_BG = 'rgba(69,115,210,0.10)';
 
 // ── Cycle display config ───────────────────────────────────────────────────────
 
-const ALL_CYCLES = ['CYCLE_1', 'CYCLE_2', 'CYCLE_3', 'STAND_ALONE', 'UAT'] as const;
+const ALL_CYCLES = ['CYCLE_1', 'CYCLE_2', 'CYCLE_3', 'STAND_ALONE', 'UAT', 'REHEARSAL', 'GO_LIVE'] as const;
 
 const CYCLE_INFO: Record<string, { label: string; fullLabel: string; color: string; bg: string }> = {
-  CYCLE_1:     { label: 'ס1',  fullLabel: 'סבב 1',        color: '#1565c0', bg: 'rgba(21,101,192,0.13)' },
-  CYCLE_2:     { label: 'ס2',  fullLabel: 'סבב 2',        color: '#6a1b9a', bg: 'rgba(106,27,154,0.13)' },
-  CYCLE_3:     { label: 'ס3',  fullLabel: 'סבב 3',        color: '#e65100', bg: 'rgba(230,81,0,0.13)'   },
-  STAND_ALONE: { label: 'SA',  fullLabel: 'Stand Alone',  color: '#b76b00', bg: 'rgba(183,107,0,0.13)'  },
-  UAT:         { label: 'UAT', fullLabel: 'UAT',          color: '#00695c', bg: 'rgba(0,105,92,0.13)'   },
+  CYCLE_1:     { label: 'ס1',  fullLabel: 'סבב 1',          color: '#1565c0', bg: 'rgba(21,101,192,0.13)'  },
+  CYCLE_2:     { label: 'ס2',  fullLabel: 'סבב 2',          color: '#6a1b9a', bg: 'rgba(106,27,154,0.13)' },
+  CYCLE_3:     { label: 'ס3',  fullLabel: 'סבב 3',          color: '#e65100', bg: 'rgba(230,81,0,0.13)'   },
+  STAND_ALONE: { label: 'SA',  fullLabel: 'Stand Alone',    color: '#b76b00', bg: 'rgba(183,107,0,0.13)'  },
+  UAT:         { label: 'UAT', fullLabel: 'UAT',            color: '#00695c', bg: 'rgba(0,105,92,0.13)'   },
+  REHEARSAL:   { label: 'חגנ', fullLabel: 'חזרה גנרלית',   color: '#9C6ADE', bg: 'rgba(156,106,222,0.13)' },
+  GO_LIVE:     { label: 'GL',  fullLabel: 'עליה לאוויר',   color: '#F06A6A', bg: 'rgba(240,106,106,0.10)' },
 };
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -49,6 +51,9 @@ interface CrRec {
   riskLevel:    string | null;
   testers:      { userId: string; fullName: string; email: string; score: number; matchedSkills: { skillName: string; level: number }[] }[];
 }
+
+interface SyncDiffItem { crNumber: string; crLabel: string | null; teamName?: string; }
+interface SyncDiff { added: SyncDiffItem[]; removed: SyncDiffItem[]; unchanged: number; }
 
 interface Assignment {
   id:          string;
@@ -184,7 +189,9 @@ interface PickerPos { crNumber: string; top?: number; bottom?: number; right: nu
 
 export default function QaAssignmentView({ token }: Props) {
   const dialog  = useDialog();
-  const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+  const headers   = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+  const userRole  = useMemo(() => { try { return JSON.parse(atob(token.split('.')[1])).role as string; } catch { return ''; } }, [token]);
+  const isManager = ['RELEASE_MANAGER', 'ADMIN'].includes(userRole);
 
   const [versions, setVersions]         = useState<Version[]>([]);
   const [selectedVId, setSelectedVId]   = useState(() => localStorage.getItem(LS_VERSION_KEY) ?? '');
@@ -194,6 +201,8 @@ export default function QaAssignmentView({ token }: Props) {
   const [loading, setLoading]           = useState(false);
   const [generating, setGenerating]     = useState(false);
   const [syncing, setSyncing]           = useState(false);
+  const [crSyncStatuses, setCrSyncStatuses] = useState<Record<string, 'ACTIVE' | 'NEW' | 'REMOVED'>>({});
+  const [syncDiff, setSyncDiff]             = useState<SyncDiff | null>(null);
 
   const selectedVersion = useMemo(
     () => versions.find(v => v.id === selectedVId) ?? null,
@@ -237,17 +246,29 @@ export default function QaAssignmentView({ token }: Props) {
   // ── Load version data ───────────────────────────────────────────────────────
 
   const loadVersion = useCallback(async (vId: string) => {
-    if (!vId) { setCrs([]); setAssignments([]); setScoring({}); return; }
+    if (!vId) { setCrs([]); setAssignments([]); setScoring({}); setCrSyncStatuses({}); return; }
     setLoading(true);
     try {
-      const [recRes, asgRes, planRes] = await Promise.all([
+      const [recRes, asgRes, planRes, vcaRes] = await Promise.all([
         axios.get(`${API}/qa/assignments/recommend?versionId=${vId}`, { headers }),
         axios.get(`${API}/qa/assignments?versionId=${vId}`, { headers }),
         axios.get(`${API}/qa/workplan?versionId=${vId}`, { headers }).catch(() => null),
+        axios.get(`${API}/version-cr-assignments/version/${vId}`, { headers }).catch(() => null),
       ]);
       setCrs(recRes.data);
       setAssignments(asgRes.data);
       setScoring({});
+
+      if (vcaRes) {
+        const rows = vcaRes.data as { crNumber: string; syncStatus: string }[];
+        const map: Record<string, 'ACTIVE' | 'NEW' | 'REMOVED'> = {};
+        for (const row of rows) {
+          const cur  = row.syncStatus as 'ACTIVE' | 'NEW' | 'REMOVED';
+          const prev = map[row.crNumber];
+          if (!prev || cur === 'REMOVED' || (cur === 'NEW' && prev === 'ACTIVE')) map[row.crNumber] = cur;
+        }
+        setCrSyncStatuses(map);
+      }
 
       // Restore dates only if there is an existing (even DRAFT) work plan
       const plan = planRes?.data;
@@ -463,24 +484,58 @@ export default function QaAssignmentView({ token }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patchAssignment, headers, selectedVId]);
 
-  // ── Sync CR_LIST from Excel ────────────────────────────────────────────────
+  // ── Sync CR_LIST from Excel (preview → modal → apply) ────────────────────
 
-  const syncCrList = async () => {
+  const openSyncPreview = async () => {
     if (!selectedVId) return;
     setSyncing(true);
     try {
-      const r = await axios.post(
-        `${API}/version-cr-assignments/version/${selectedVId}/sync`,
-        {},
-        { headers },
-      );
+      const r = await axios.post(`${API}/version-cr-assignments/version/${selectedVId}/sync/preview`, {}, { headers });
+      setSyncDiff(r.data as SyncDiff);
+    } catch (e: any) {
+      dialog.alert(e?.response?.data?.message ?? 'שגיאה בתצוגה מקדימה', 'שגיאה', 'danger');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const applySyncConfirmed = async () => {
+    if (!selectedVId) return;
+    setSyncDiff(null);
+    setSyncing(true);
+    try {
+      await axios.post(`${API}/version-cr-assignments/version/${selectedVId}/sync/apply`, {}, { headers });
       await loadVersion(selectedVId);
-      dialog.alert(`סנכרון הושלם — ${r.data?.synced ?? 0} שורות עודכנו`, 'סנכרון הצליח', 'success');
+      dialog.alert('הסנכרון הושלם — CRים חדשים סומנו בירוק, CRים שהוסרו סומנו באדום', 'סנכרון הצליח', 'success');
     } catch (e: any) {
       dialog.alert(e?.response?.data?.message ?? 'שגיאה בסנכרון', 'שגיאה', 'danger');
     } finally {
       setSyncing(false);
     }
+  };
+
+  const deleteCrRecord = async (crNumber: string) => {
+    if (!selectedVId) return;
+    try {
+      await axios.delete(`${API}/version-cr-assignments/cr/${selectedVId}/${crNumber}`, { headers });
+      setCrs(prev => prev.filter(c => c.crNumber !== crNumber));
+      setCrSyncStatuses(prev => { const n = { ...prev }; delete n[crNumber]; return n; });
+    } catch (e: any) {
+      dialog.alert(e?.response?.data?.message ?? 'שגיאה במחיקה', 'שגיאה', 'danger');
+    }
+  };
+
+  const handleDeleteCr = (crNumber: string) => {
+    const cr = crs.find(c => c.crNumber === crNumber);
+    setConfirmDialog({
+      title: 'מחיקת CR',
+      message: `האם למחוק את CR ${crNumber}${cr?.crLabel ? ` — ${cr.crLabel.replace(/^\d+\s*-\s*/, '')}` : ''}?\nפעולה זו אינה הפיכה.`,
+      variant: 'danger',
+      confirmLabel: 'מחק',
+      cancelLabel: 'ביטול',
+      onConfirm: () => deleteCrRecord(crNumber),
+      onCancel: () => {},
+    });
   };
 
   // ── Generate work plan ─────────────────────────────────────────────────────
@@ -573,7 +628,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
   const cycleDays     = countWorkDays(cycle1Start, testingEnd);
   const overloadCount = Array.from(testerLoad.values()).filter(l => cycleDays > 0 && l.totalDays > cycleDays).length;
 
-  const visibleCrs = crs.filter(cr => !hiddenCrs.has(cr.crNumber));
+  const visibleCrs = crs.filter(cr => !hiddenCrs.has(cr.crNumber) && (crSyncStatuses[cr.crNumber] ?? 'ACTIVE') !== 'REMOVED');
   const assigned   = visibleCrs.filter(cr => assignmentMap.has(cr.crNumber)).length;
   const unassigned = visibleCrs.length - assigned;
   const handleSort = (col: typeof sortCol) => {
@@ -730,8 +785,8 @@ CRים אלה לא ייכללו בתוכנית העבודה.
           <div style={{ display: 'flex', gap: SP[2], alignSelf: 'flex-end' }}>
             <button
               disabled={syncing}
-              onClick={syncCrList}
-              title="סנכרן רשימת CRים מקובץ EXCEL_FILE_PATH"
+              onClick={openSyncPreview}
+              title="בדוק שינויים ברשימת CRים מול קובץ ה-Excel"
               style={{
                 padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, color: C.textSecondary,
                 border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold,
@@ -759,6 +814,61 @@ CRים אלה לא ייכללו בתוכנית העבודה.
         )}
       </div>
 
+      {/* ── Sync diff modal ── */}
+      {syncDiff && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: SP[4] }}>
+          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.xl, boxShadow: SHADOW.xl, width: '100%', maxWidth: 560, maxHeight: '80vh', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
+            <div style={{ padding: `${SP[4]} ${SP[5]}`, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>🔄 תצוגה מקדימה של סנכרון</span>
+              <button onClick={() => setSyncDiff(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 18, fontFamily: FONT }}>✕</button>
+            </div>
+            <div style={{ padding: `${SP[3]} ${SP[5]}`, display: 'flex', gap: SP[3], borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+              <span style={{ background: C.successBg, color: C.success, padding: `3px ${SP[3]}`, borderRadius: RADIUS.full, ...TEXT.sm, fontWeight: WEIGHT.bold }}>+{syncDiff.added.length} חדשים</span>
+              <span style={{ background: C.dangerBg,  color: C.danger,  padding: `3px ${SP[3]}`, borderRadius: RADIUS.full, ...TEXT.sm, fontWeight: WEIGHT.bold }}>−{syncDiff.removed.length} הוסרו</span>
+              <span style={{ background: C.bgNested,  color: C.textMuted, padding: `3px ${SP[3]}`, borderRadius: RADIUS.full, ...TEXT.sm, fontWeight: WEIGHT.medium }}>{syncDiff.unchanged} ללא שינוי</span>
+            </div>
+            <div style={{ overflowY: 'auto', flex: 1, padding: SP[4] }}>
+              {syncDiff.added.length > 0 && (
+                <div style={{ marginBottom: SP[3] }}>
+                  <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.success, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: SP[2] }}>CRים חדשים שיתווספו</div>
+                  {syncDiff.added.map(item => (
+                    <div key={item.crNumber} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[1]} ${SP[2]}`, borderRadius: RADIUS.sm, background: C.successBg, marginBottom: 4 }}>
+                      <span style={{ background: C.success + '22', color: C.success, padding: `1px ${SP[2]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{item.crNumber}</span>
+                      <span style={{ ...TEXT.xs, color: C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {syncDiff.removed.length > 0 && (
+                <div>
+                  <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.danger, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: SP[2] }}>CRים שהוסרו מהתכולה</div>
+                  {syncDiff.removed.map(item => (
+                    <div key={item.crNumber} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[1]} ${SP[2]}`, borderRadius: RADIUS.sm, background: C.dangerBg, marginBottom: 4 }}>
+                      <span style={{ background: C.danger + '22', color: C.danger, padding: `1px ${SP[2]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{item.crNumber}</span>
+                      <span style={{ ...TEXT.xs, color: C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'line-through' }}>{item.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {syncDiff.added.length === 0 && syncDiff.removed.length === 0 && (
+                <div style={{ textAlign: 'center', padding: SP[4], ...TEXT.sm, color: C.textMuted }}>✅ אין שינויים — התכולה זהה לקובץ ה-Excel</div>
+              )}
+            </div>
+            <div style={{ padding: `${SP[3]} ${SP[5]}`, borderTop: `1px solid ${C.border}`, display: 'flex', gap: SP[2], justifyContent: 'flex-start', flexShrink: 0 }}>
+              <button
+                onClick={applySyncConfirmed}
+                disabled={syncDiff.added.length === 0 && syncDiff.removed.length === 0}
+                style={{ padding: `${SP[2]} ${SP[4]}`, background: BLUE, color: '#fff', border: 'none', borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: (syncDiff.added.length === 0 && syncDiff.removed.length === 0) ? 'not-allowed' : 'pointer', fontFamily: FONT, opacity: (syncDiff.added.length === 0 && syncDiff.removed.length === 0) ? 0.5 : 1 }}
+              >אשר ובצע סנכרון</button>
+              <button
+                onClick={() => setSyncDiff(null)}
+                style={{ padding: `${SP[2]} ${SP[4]}`, background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT }}
+              >ביטול</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {loading && <EmptyState icon="⏳" title="טוען CRים..." sub="" />}
       {!loading && !selectedVId && <EmptyState icon="🗂️" title="בחר גרסה להתחיל" sub="המנוע יסרוק את כל ה-CRים ויחשב ציוני התאמה לכל בודק" />}
       {!loading && selectedVId && crs.length === 0 && <EmptyState icon="📭" title="אין CRים בגרסה זו" sub="לא נמצאו CRים מיובאים. סנכרן CRים מה-Excel דרך דשבורד > גרסאות." />}
@@ -767,10 +877,16 @@ CRים אלה לא ייכללו בתוכנית העבודה.
         <div>
           {/* Stat bar + search */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[3], gap: SP[3] }}>
-            <div style={{ display: 'flex', gap: SP[2] }}>
+            <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
               <StatPill value={visibleCrs.length} label="CRים"    color={BLUE}      bg={BLUE_BG}     />
               <StatPill value={assigned}     label="משובצים"    color={C.success} bg={C.successBg}  />
               {unassigned > 0 && <StatPill value={unassigned} label="ממתינים" color={C.warning} bg={C.warningBg} />}
+              {Object.values(crSyncStatuses).filter(s => s === 'NEW').length > 0 && (
+                <StatPill value={Object.values(crSyncStatuses).filter(s => s === 'NEW').length} label="חדשים" color={C.success} bg={C.successBg} />
+              )}
+              {Object.values(crSyncStatuses).filter(s => s === 'REMOVED').length > 0 && (
+                <StatPill value={Object.values(crSyncStatuses).filter(s => s === 'REMOVED').length} label="הוסרו" color={C.danger} bg={C.dangerBg} />
+              )}
               {hiddenCrs.size > 0 && (
                 <button
                   onClick={() => setShowHidden(v => !v)}
@@ -850,8 +966,15 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                       ? asg.cycles
                       : (effectiveSA ? ['STAND_ALONE'] : ['CYCLE_1', 'CYCLE_2', 'CYCLE_3']);
 
+                    const syncStatus = crSyncStatuses[cr.crNumber] ?? 'ACTIVE';
+                    const rowBg = syncStatus === 'NEW'
+                      ? 'rgba(22,163,74,0.07)'
+                      : syncStatus === 'REMOVED'
+                        ? 'rgba(220,38,38,0.07)'
+                        : (i % 2 === 0 ? 'transparent' : C.bgNested);
+
                     return (
-                      <tr key={cr.crNumber} style={{ background: i % 2 === 0 ? 'transparent' : C.bgNested, borderBottom: `1px solid ${C.border}` }}>
+                      <tr key={cr.crNumber} style={{ background: rowBg, borderBottom: `1px solid ${C.border}`, opacity: syncStatus === 'REMOVED' ? 0.75 : 1 }}>
 
                         {/* Project */}
                         <td style={{ padding: `${SP[2]} ${SP[3]}`, whiteSpace: 'nowrap', maxWidth: 120 }}>
@@ -870,14 +993,18 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                         {/* Label */}
                         <td style={{ padding: `${SP[2]} ${SP[3]}`, maxWidth: 220 }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                            <div style={{ ...TEXT.sm, color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={cr.crLabel ?? ''}>
+                            <div style={{ ...TEXT.sm, color: syncStatus === 'REMOVED' ? C.textMuted : C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: syncStatus === 'REMOVED' ? 'line-through' : 'none' }} title={cr.crLabel ?? ''}>
                               {cr.crLabel ? cr.crLabel.replace(/^\d+\s*-\s*/, '') : <span style={{ color: C.textDisabled }}>—</span>}
                             </div>
-                            {cr.riskLevel && (
-                              <span style={{ background: risk.bg, color: risk.color, padding: '1px 5px', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.semibold, alignSelf: 'flex-start' }}>
-                                {riskLabel(cr.riskLevel)}
-                              </span>
-                            )}
+                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                              {syncStatus === 'NEW'     && <span style={{ background: C.successBg, color: C.success, padding: '1px 5px', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold }}>חדש 🟢</span>}
+                              {syncStatus === 'REMOVED' && <span style={{ background: C.dangerBg,  color: C.danger,  padding: '1px 5px', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold }}>⚠ הוסר מהתכולה</span>}
+                              {cr.riskLevel && (
+                                <span style={{ background: risk.bg, color: risk.color, padding: '1px 5px', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.semibold }}>
+                                  {riskLabel(cr.riskLevel)}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </td>
 
@@ -1048,6 +1175,13 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                               onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#dc2626'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#dc2626'; }}
                               onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.textDisabled; (e.currentTarget as HTMLButtonElement).style.borderColor = C.border; }}
                             >🙈</button>
+                            {syncStatus === 'REMOVED' && isManager && (
+                              <button
+                                title="מחק CR לצמיתות"
+                                onClick={() => handleDeleteCr(cr.crNumber)}
+                                style={{ padding: '5px 7px', background: C.dangerBg, color: C.danger, border: `1px solid ${C.danger}44`, borderRadius: RADIUS.md, ...TEXT.xs, cursor: 'pointer', fontFamily: FONT, lineHeight: 1, fontWeight: WEIGHT.semibold }}
+                              >🗑 מחק</button>
+                            )}
                           </div>
                         </td>
                       </tr>

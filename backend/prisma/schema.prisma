@@ -511,6 +511,7 @@ model VersionCrAssignment {
   estimateDays          Float?   // from "סך כל הערכות" column in CR_LIST
   hasActual             Boolean? // true when "Actuals" column has a V mark
   syncedAt              DateTime @default(now())
+  syncStatus            String   @default("ACTIVE") // "ACTIVE" | "NEW" | "REMOVED"
 
   version Version @relation(fields: [versionId], references: [id])
   team    Team    @relation(fields: [teamId], references: [id])

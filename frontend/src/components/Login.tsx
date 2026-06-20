@@ -3,6 +3,7 @@ import axios from 'axios';
 import { DeployCenterLogo } from './DeployCenterLogo';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
 import { Button, TextField, Alert, Spinner } from './ui';
+import { version as APP_VERSION } from '../../package.json';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 const IS_TEST = process.env.REACT_APP_ENV === 'test';
@@ -207,7 +208,7 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
           ...TEXT.xs, color: C.textDisabled,
         }}>
           <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: C.success, display: 'inline-block' }} />
-          DeployCenter v2 · מאובטח
+          DeployCenter v{APP_VERSION} · מאובטח
         </div>
       </div>
     </div>

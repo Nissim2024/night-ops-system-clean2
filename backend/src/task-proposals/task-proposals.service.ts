@@ -192,6 +192,48 @@ export class TaskProposalsService {
     });
   }
 
+  async getMyTeamSummary(versionId: string, user: { sub: string; role: string }) {
+    const membership = await prisma.teamMember.findFirst({
+      where: { userId: user.sub },
+      select: { teamId: true },
+    });
+    if (!membership) return { total: 0, ready: 0, draft: 0 };
+
+    const proposals = await prisma.taskProposal.findMany({
+      where: { versionId, teamId: membership.teamId },
+      select: { status: true },
+    });
+    const ready = proposals.filter(p => (p.status as string) === 'READY').length;
+    return { total: proposals.length, ready, draft: proposals.length - ready };
+  }
+
+  async getTeamStatus(versionId: string) {
+    const proposals = await prisma.taskProposal.findMany({
+      where: { versionId },
+      select: {
+        teamId: true,
+        status: true,
+        team: { select: { name: true } },
+      },
+    });
+
+    const map = new Map<string, { teamId: string; teamName: string; total: number; draft: number; submitted: number; returned: number; approved: number }>();
+    for (const p of proposals) {
+      if (!map.has(p.teamId)) {
+        map.set(p.teamId, { teamId: p.teamId, teamName: (p.team as any).name, total: 0, draft: 0, submitted: 0, returned: 0, approved: 0 });
+      }
+      const row = map.get(p.teamId)!;
+      row.total++;
+      if ((p.status as string) === 'READY') row.submitted++;
+      else row.draft++;
+    }
+
+    return Array.from(map.values()).map(r => ({
+      ...r,
+      allDone: r.total > 0 && r.draft === 0,
+    })).sort((a, b) => a.teamName.localeCompare(b.teamName, 'he'));
+  }
+
   async countPendingApproved(versionId: string) {
     const count = await prisma.taskProposal.count({
       where: { versionId, reviewStatus: { not: 'REJECTED' as any }, usedInTaskId: null },

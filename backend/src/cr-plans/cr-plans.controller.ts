@@ -65,6 +65,12 @@ export class CrPlansController {
     return this.service.getDashboardStats(versionId);
   }
 
+  @Get('version/:versionId/team-status')
+  getTeamStatus(@Param('versionId') versionId: string, @Request() req: any) {
+    if (!MANAGERS.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת מנהל');
+    return this.service.getTeamStatus(versionId);
+  }
+
   @Patch(':id/submit')
   submitPlan(@Param('id') id: string, @Request() req: any) {
     if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');

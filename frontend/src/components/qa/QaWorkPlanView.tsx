@@ -43,6 +43,8 @@ interface QaAssignment {
   secondaryTesterId: string | null;
   secondarySkillLevel: number | null;
   secondaryUser?: { id: string; fullName: string; email: string } | null;
+  cycles: string[];
+  user?: { id: string; fullName: string; email: string };
 }
 
 interface SecondaryCandidate {
@@ -706,6 +708,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           onEditEffort={setEditingEffort}
           onSaveEffort={saveTaskEffort}
           assignmentMap={assignmentMap}
+          allAssignments={assignments}
           onOpenSecondary={openSecondaryPanel}
           onReorderTask={reorderTask}
           reorderingTask={reorderingTask}
@@ -739,6 +742,7 @@ interface CycleCardProps {
   onToggleExpand:  () => void;
   onToggleTask:    (t: CycleTask) => void;
   togglingTasks:   Set<string>;
+  allAssignments:  QaAssignment[];
   editNotes:       Record<string, string>;
   onNotesChange:   (text: string) => void;
   onSaveNotes:     () => void;
@@ -759,6 +763,7 @@ function CycleCard({
   togglingTasks, editNotes, onNotesChange, onSaveNotes, savingNotes, planApproved,
   filterUserId, editingEffort, onEditEffort, onSaveEffort,
   assignmentMap, onOpenSecondary, onReorderTask, reorderingTask,
+  allAssignments,
 }: CycleCardProps) {
   const accent = CYCLE_ACCENT[cycle.cycleType] ?? C.textMuted;
   const bg     = CYCLE_BG[cycle.cycleType]     ?? C.bgNested;
@@ -766,6 +771,9 @@ function CycleCard({
   const counts = countTasks(cycle);
   const editable = EDITABLE_CYCLES.has(cycle.cycleType) && !planApproved;
   const isRehearsalOrGoLive = cycle.cycleType === 'REHEARSAL' || cycle.cycleType === 'GO_LIVE';
+  const markedCrs = isRehearsalOrGoLive
+    ? allAssignments.filter(a => (a.cycles ?? []).includes(cycle.cycleType))
+    : [];
 
   // Group tasks by tester (applying employee filter)
   const testerGroups = new Map<string, { name: string; tasks: CycleTask[] }>();
@@ -807,6 +815,11 @@ function CycleCard({
             {counts.active}/{counts.total} CRים פעילים
           </span>
         )}
+        {isRehearsalOrGoLive && markedCrs.length > 0 && (
+          <span style={{ ...TEXT.xs, fontWeight: WEIGHT.medium, backgroundColor: accent + '22', color: accent, padding: `2px ${SP[2]}`, borderRadius: RADIUS.sm }}>
+            {markedCrs.length} CRים · עד 3 שעות
+          </span>
+        )}
 
         {counts.regression > 0 && (
           <span style={{
@@ -828,15 +841,47 @@ function CycleCard({
       {expanded && (
         <div style={{ padding: SP[4] }}>
           {isRehearsalOrGoLive ? (
-            // Rehearsal / Go-Live: notes field only
             <div>
-              <p style={{ ...TEXT.sm, color: C.textSecondary, marginTop: 0 }}>
-                ראש הצוות מגדיר את תכולת הסבב — עד 3 שעות. רשום כאן את הCRים שייבדקו:
-              </p>
+              {/* Marked CRs list */}
+              <div style={{ marginBottom: SP[3] }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: SP[2] }}>
+                  <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: accent, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    CRים מסומנים לסבב זה
+                  </span>
+                  <span style={{ ...TEXT.xs, color: C.textMuted, background: C.bgNested, border: `1px solid ${C.border}`, padding: `1px ${SP[2]}`, borderRadius: RADIUS.full }}>
+                    {markedCrs.length} CRים · עד 3 שעות
+                  </span>
+                </div>
+                {markedCrs.length === 0 ? (
+                  <div style={{ ...TEXT.sm, color: C.textMuted, fontStyle: 'italic', padding: `${SP[2]} 0` }}>
+                    לא סומנו CRים לסבב זה — סמן CRים בלשונית השיבוץ
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {markedCrs.map((a, idx) => (
+                      <div key={a.crNumber} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[1]} ${SP[2]}`, background: C.bgNested, borderRadius: RADIUS.sm, border: `1px solid ${C.border}` }}>
+                        <span style={{ ...TEXT.xs, color: C.textMuted, minWidth: 20, textAlign: 'center' }}>{idx + 1}.</span>
+                        <span style={{ background: bg, color: accent, padding: `1px ${SP[2]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{a.crNumber}</span>
+                        <span style={{ ...TEXT.xs, color: C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                          {a.crLabel?.replace(/^\d+\s*-\s*/, '') ?? ''}
+                        </span>
+                        {a.user && (
+                          <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                            {a.user.fullName.split(' ')[0]}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Freeform notes */}
+              <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: SP[1] }}>הוראות ותכולה ידנית לסבב:</div>
               <textarea
                 value={noteVal}
                 onChange={e => onNotesChange(e.target.value)}
-                rows={5}
+                rows={4}
                 style={{
                   width: '100%', boxSizing: 'border-box',
                   padding: SP[3], borderRadius: RADIUS.md,
@@ -844,14 +889,10 @@ function CycleCard({
                   fontFamily: FONT, ...TEXT.sm, color: C.textPrimary,
                   resize: 'vertical',
                 }}
-                placeholder="רשום CRים, הוראות והגדרות לסבב זה..."
+                placeholder="הוסף הוראות ספציפיות, CRים נוספים או הגדרות לסבב זה..."
               />
               <div style={{ marginTop: SP[2], display: 'flex', gap: SP[2] }}>
-                <button
-                  onClick={onSaveNotes}
-                  disabled={savingNotes}
-                  style={btnStyle(C.info, savingNotes)}
-                >
+                <button onClick={onSaveNotes} disabled={savingNotes} style={btnStyle(C.info, savingNotes)}>
                   {savingNotes ? 'שומר...' : 'שמור הערות'}
                 </button>
               </div>

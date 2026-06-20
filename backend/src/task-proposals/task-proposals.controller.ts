@@ -16,6 +16,18 @@ export class TaskProposalsController {
     return this.service.countPendingApproved(versionId);
   }
 
+  @Get('version/:versionId/team-status')
+  getTeamStatus(@Param('versionId') versionId: string, @Request() req: any) {
+    if (!MANAGERS.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת מנהל');
+    return this.service.getTeamStatus(versionId);
+  }
+
+  @Get('version/:versionId/my-team-summary')
+  getMyTeamSummary(@Param('versionId') versionId: string, @Request() req: any) {
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.getMyTeamSummary(versionId, req.user);
+  }
+
   @Get('version/:versionId')
   getForVersion(
     @Param('versionId') versionId: string,

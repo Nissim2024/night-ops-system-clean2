@@ -302,6 +302,36 @@ export class CrPlansService {
     });
   }
 
+  async getTeamStatus(versionId: string) {
+    const plans = await prisma.crPlan.findMany({
+      where: { versionId },
+      select: {
+        teamId: true,
+        submissionStatus: true,
+        notNeededForPlan: true,
+        team: { select: { name: true } },
+      },
+    });
+
+    const map = new Map<string, { teamId: string; teamName: string; total: number; draft: number; submitted: number; returned: number; approved: number }>();
+    for (const p of plans) {
+      if (!map.has(p.teamId)) {
+        map.set(p.teamId, { teamId: p.teamId, teamName: (p.team as any).name, total: 0, draft: 0, submitted: 0, returned: 0, approved: 0 });
+      }
+      const row = map.get(p.teamId)!;
+      row.total++;
+      if (p.notNeededForPlan || (p.submissionStatus as string) === 'APPROVED') row.approved++;
+      else if ((p.submissionStatus as string) === 'SUBMITTED') row.submitted++;
+      else if ((p.submissionStatus as string) === 'RETURNED') row.returned++;
+      else row.draft++;
+    }
+
+    return Array.from(map.values()).map(r => ({
+      ...r,
+      allDone: r.draft === 0 && r.returned === 0,
+    })).sort((a, b) => a.teamName.localeCompare(b.teamName, 'he'));
+  }
+
   async remove(id: string, user: { sub: string; role: string }) {
     const plan = await prisma.crPlan.findUnique({ where: { id } });
     if (!plan) throw new NotFoundException('CrPlan לא נמצא');

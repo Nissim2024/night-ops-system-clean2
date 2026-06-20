@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { HomeDashboard } from './HomeDashboard';
 import { VersionsView } from './VersionsView';
@@ -78,7 +78,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [myTeamId, setMyTeamId]                 = useState('');
   const [openNewVersionForm, setOpenNewVersionForm] = useState(false);
   const [activeModule, setActiveModule] = useState<'deployments' | 'qa'>('deployments');
-  const [activeQaView, setActiveQaView]  = useState('testers');
+  const [activeQaView, setActiveQaView]  = useState('assignment');
   const [isQaTeamMember, setIsQaTeamMember] = useState(false);
 
   const payload  = JSON.parse(atob(token.split('.')[1]));
@@ -87,9 +87,13 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const { can } = usePermissions();
   const push = usePushNotifications(token);
 
+  // Prevent auto-navigation on the very first version fetch so home page stays visible on login
+  const initialLoadDone = useRef(false);
+
   // לחיצה על גרסה בתפריט → תמיד דף נחיתה (Hub)
   useEffect(() => {
     if (!selectedVersionId || !versions.length) return;
+    if (!initialLoadDone.current) { initialLoadDone.current = true; return; }
     const v = versions.find(x => x.id === selectedVersionId);
     setActiveTab(
       payload.role === 'CR_MANAGER' ? 'cr-manager' :
@@ -602,7 +606,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           activeTab={activeTab}
           onNewVersionClick={['ADMIN', 'RELEASE_MANAGER'].includes(payload.role) ? () => { setSelectedVersionId(''); setVersionFilter('inactive'); setActiveTab('list'); setOpenNewVersionForm(true); } : undefined}
           activeModule={activeModule}
-          onModuleChange={m => { if (m === 'qa' && !isQaTeamMember && payload.role !== 'ADMIN') return; setActiveModule(m); if (m === 'qa') setActiveQaView('testers'); }}
+          onModuleChange={m => { if (m === 'qa' && !isQaTeamMember && payload.role !== 'ADMIN') return; setActiveModule(m); if (m === 'qa') setActiveQaView('assignment'); }}
           activeQaView={activeQaView}
           onQaViewChange={setActiveQaView}
           canAccessQa={isQaTeamMember || payload.role === 'ADMIN'}
@@ -626,6 +630,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
               versions={versions.filter(v => !v.isArchived)}
               role={payload.role}
               fullName={fullName}
+              token={token}
               onSelectVersion={(id, tab) => {
                 setSelectedVersionId(id);
                 setVersionFilter(
