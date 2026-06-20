@@ -1,10 +1,10 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # backup.sh <version_tag>
 # מבצע pg_dump לפני כל deploy
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../config/nightops.conf"
+source "${SCRIPT_DIR}/../config/DeployCenter.conf"
 
 VERSION="${1:-unknown}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)

@@ -1282,6 +1282,7 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
   if (loading) return <div style={{ textAlign: 'center', padding: '60px', color: C.textMuted, fontFamily: FONT }}>טוען...</div>;
 
   const usePhaseView = !!(versionData?.phases?.length);
+  const allPhasesCollapsed = usePhaseView && (versionData?.phases?.length ?? 0) > 0 && collapsedPhases.size >= (versionData?.phases?.length ?? 0);
   const isLocked = versionData?.status === 'ACTIVE';
   const isExecutionMode = ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(versionData?.status);
   const isManager = can('action:open_task_for_execution');
@@ -1618,11 +1619,11 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
                 🔓 פתח ללא תלות
               </button>
             )}
-            {!isLocked && !hideAddTask && <button onClick={() => { setShowAddForm(v => !v); setAddError(null); }}
+            {!allPhasesCollapsed && !isLocked && !hideAddTask && <button onClick={() => { setShowAddForm(v => !v); setAddError(null); }}
               style={{ padding: '6px 14px', background: showAddForm ? C.bgHover : C.brand, color: showAddForm ? C.textPrimary : 'white', border: `1px solid ${showAddForm ? C.border : C.brand}`, borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
               {showAddForm ? '✕ ביטול' : '+ משימה'}
             </button>}
-            {!isExecutionMode && versionData && (
+            {!allPhasesCollapsed && !isExecutionMode && versionData && (
               <button
                 onClick={autoSchedule}
                 disabled={autoScheduling}
@@ -1632,7 +1633,7 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
                 {autoScheduling ? '...' : '📅 חשב לוחות זמנים'}
               </button>
             )}
-            {!isExecutionMode && (
+            {!allPhasesCollapsed && !isExecutionMode && (
               <button
                 onClick={() => setShowAnomalies(v => !v)}
                 style={{

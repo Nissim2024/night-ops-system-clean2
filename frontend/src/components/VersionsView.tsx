@@ -45,6 +45,7 @@ interface Version {
   plannedStart: string;
   plannedEnd?: string;
   reviewMeetingTime?: string;
+  workPlanMeetingTime?: string;
   importedFileName?: string;
   createdAt: string;
   approvedAt?: string;
@@ -90,12 +91,27 @@ const defaultPlannedEnd = (plannedStart: string): string => {
   return d.toISOString().slice(0, 16);
 };
 
+// Subtract N working days (skip Fri=5, Sat=6) from a Date, return "YYYY-MM-DDT10:00" string
+const subtractWorkingDays = (from: string, days: number): string => {
+  if (!from) return '';
+  const d = new Date(from);
+  if (isNaN(d.getTime())) return '';
+  let remaining = days;
+  while (remaining > 0) {
+    d.setDate(d.getDate() - 1);
+    const dow = d.getDay();
+    if (dow !== 5 && dow !== 6) remaining--;
+  }
+  d.setHours(10, 0, 0, 0);
+  return d.toISOString().slice(0, 16);
+};
+
 export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLive, onVersionFocus, onGoToAdmin, initialSelectedId, autoNew }) => {
   const [versions, setVersions] = useState<Version[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(autoNew ?? false);
-  const [newVersion, setNewVersion] = useState({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', integrationStart: '', integrationEnd: '', qaStart: '', qaEnd: '', qcReleaseId: '' });
+  const [newVersion, setNewVersion] = useState({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', workPlanMeetingTime: '', integrationStart: '', integrationEnd: '', qaStart: '', qaEnd: '', qcReleaseId: '' });
   const [qcReleases, setQcReleases] = useState<QcRelease[]>([]);
   const [creatingTemplate, setCreatingTemplate] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -155,7 +171,13 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
       ...prev,
       plannedStart: val,
       plannedEnd: prev.plannedEnd ? prev.plannedEnd : defaultPlannedEnd(val),
+      reviewMeetingTime: prev.reviewMeetingTime ? prev.reviewMeetingTime : subtractWorkingDays(val, 10),
+      workPlanMeetingTime: prev.workPlanMeetingTime ? prev.workPlanMeetingTime : subtractWorkingDays(val, 9),
     }));
+  };
+
+  const syncCrsInBackground = (versionId: string) => {
+    axios.post(`${API}/version-cr-assignments/version/${versionId}/sync`, {}, { headers }).catch(() => {});
   };
 
   const createEmpty = async () => {
@@ -167,8 +189,9 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
         qcReleaseId: newVersion.qcReleaseId || undefined,
       }, { headers });
       const versionId = res.data.id;
+      syncCrsInBackground(versionId);
       setShowNew(false);
-      setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', integrationStart: '', integrationEnd: '', qaStart: '', qaEnd: '', qcReleaseId: '' });
+      setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', workPlanMeetingTime: '', integrationStart: '', integrationEnd: '', qaStart: '', qaEnd: '', qcReleaseId: '' });
       await fetchVersions();
       await fetchVersion(versionId);
       onVersionsChanged?.();
@@ -187,8 +210,9 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
       if (newVersion.qcReleaseId) formData.append('qcReleaseId', newVersion.qcReleaseId);
       const res = await axios.post(`${API}/import/excel`, formData, { headers });
       if (res.data.success) {
+        if (res.data.versionId) syncCrsInBackground(res.data.versionId);
         setShowNew(false);
-        setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', integrationStart: '', integrationEnd: '', qaStart: '', qaEnd: '', qcReleaseId: '' });
+        setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', workPlanMeetingTime: '', integrationStart: '', integrationEnd: '', qaStart: '', qaEnd: '', qcReleaseId: '' });
         setImportFile(null);
         await fetchVersions();
         onVersionsChanged?.();
@@ -201,7 +225,10 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
   };
 
   const createFromTemplate = async () => {
-    if (!selectedTemplateId || !newVersion.name.trim()) return;
+    if (!selectedTemplateId) { setActionError('יש לבחור תבנית לפני יצירה'); return; }
+    if (!newVersion.name.trim()) { setActionError('נדרש שם גרסה לפני יצירה'); return; }
+    if (!newVersion.plannedStart) { setActionError('נדרש תאריך ושעת התחלה מתוכנן לפני יצירה'); return; }
+    if (!newVersion.plannedEnd) { setActionError('נדרש תאריך ושעת סיום מתוכנן לפני יצירה'); return; }
     setCreatingFromTemplate(true);
     try {
       const res = await axios.post(`${API}/versions`, {
@@ -210,8 +237,9 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
       }, { headers });
       const versionId = res.data.id;
       await axios.post(`${API}/version-templates/${selectedTemplateId}/apply-to-version/${versionId}`, {}, { headers });
+      syncCrsInBackground(versionId);
       setShowNew(false);
-      setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', integrationStart: '', integrationEnd: '', qaStart: '', qaEnd: '', qcReleaseId: '' });
+      setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', workPlanMeetingTime: '', integrationStart: '', integrationEnd: '', qaStart: '', qaEnd: '', qcReleaseId: '' });
       setSelectedTemplateId('');
       await fetchVersions();
       await fetchVersion(versionId);
@@ -394,133 +422,136 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
       {showNew && (
         <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', marginBottom: '24px', border: `2px solid ${C.brand}` }}>
           <h3 style={{ margin: '0 0 20px', color: C.textPrimary }}>יצירת גרסה חדשה</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '20px' }}>
 
-            {/* שם גרסה — dropdown מ-QC או הקלדה חופשית */}
-            <div>
+            {/* שם גרסה — spans 2 cols */}
+            <div style={{ gridColumn: 'span 2' }}>
               <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>
-                שם גרסה *
+                שם גרסה <span style={{ color: C.statusBlocked }}>*</span>
                 {qcReleases.length === 0 && (
                   <span style={{ fontSize: '11px', color: C.warning, marginRight: '6px', fontWeight: 'normal' }}>
                     (סנכרן גרסאות QC מ-AdminPanel)
                   </span>
                 )}
               </label>
-              <select
-                value={newVersion.qcReleaseId || '__manual__'}
-                onChange={e => {
-                  const val = e.target.value;
-                  if (val === '__manual__') {
-                    setNewVersion(v => ({ ...v, qcReleaseId: '', name: v.qcReleaseId ? '' : v.name }));
-                  } else {
-                    const rel = qcReleases.find(r => r.id === val);
-                    setNewVersion(v => ({ ...v, qcReleaseId: val, name: rel?.relName || v.name }));
-                  }
-                }}
-                style={{ width: '100%', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '13px', boxSizing: 'border-box', marginBottom: '6px', background: C.bgNested, color: C.textPrimary }}
-              >
-                <option value="__manual__">✏️ הקלד ידנית</option>
-                {qcReleases.length > 0 && <option disabled>── גרסאות QC ──</option>}
-                {[...qcReleases]
-                  .sort((a, b) => {
-                    if (a.goLiveDate && b.goLiveDate) return new Date(a.goLiveDate).getTime() - new Date(b.goLiveDate).getTime();
-                    if (a.goLiveDate) return -1;
-                    if (b.goLiveDate) return 1;
-                    return a.relName.localeCompare(b.relName, 'he');
-                  })
-                  .map(r => (
-                  <option key={r.id} value={r.id}>
-                    {r.relName}
-                    {r.goLiveDate ? ` — ${new Date(r.goLiveDate).toLocaleDateString('he-IL')}` : r.relEndDate ? ` — ${new Date(r.relEndDate).toLocaleDateString('he-IL')}` : ''}
-                  </option>
-                ))}
-              </select>
-              {/* שדה טקסט חופשי — מוצג תמיד, מתעדכן אוטומטית בבחירה מ-QC */}
-              <input
-                value={newVersion.name}
-                onChange={e => setNewVersion(v => ({ ...v, name: e.target.value, qcReleaseId: '' }))}
-                placeholder="לדוגמה: ITv04-2026"
-                style={{ width: '100%', padding: '10px', border: `2px solid ${newVersion.qcReleaseId ? C.statusDone : C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
-              />
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <select
+                  value={newVersion.qcReleaseId || '__manual__'}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val === '__manual__') {
+                      setNewVersion(v => ({ ...v, qcReleaseId: '', name: v.qcReleaseId ? '' : v.name }));
+                    } else {
+                      const rel = qcReleases.find(r => r.id === val);
+                      setNewVersion(v => ({ ...v, qcReleaseId: val, name: rel?.relName || v.name }));
+                    }
+                  }}
+                  style={{ flex: '0 0 auto', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '13px', background: C.bgNested, color: C.textPrimary }}
+                >
+                  <option value="__manual__">✏️ הקלד ידנית</option>
+                  {qcReleases.length > 0 && <option disabled>── גרסאות QC ──</option>}
+                  {[...qcReleases]
+                    .sort((a, b) => {
+                      if (a.goLiveDate && b.goLiveDate) return new Date(a.goLiveDate).getTime() - new Date(b.goLiveDate).getTime();
+                      if (a.goLiveDate) return -1;
+                      if (b.goLiveDate) return 1;
+                      return a.relName.localeCompare(b.relName, 'he');
+                    })
+                    .map(r => (
+                    <option key={r.id} value={r.id}>
+                      {r.relName}
+                      {r.goLiveDate ? ` — ${new Date(r.goLiveDate).toLocaleDateString('he-IL')}` : r.relEndDate ? ` — ${new Date(r.relEndDate).toLocaleDateString('he-IL')}` : ''}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={newVersion.name}
+                  onChange={e => setNewVersion(v => ({ ...v, name: e.target.value, qcReleaseId: '' }))}
+                  placeholder="לדוגמה: ITv04-2026"
+                  style={{ flex: 1, padding: '10px', border: `2px solid ${newVersion.qcReleaseId ? C.statusDone : C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
+                />
+              </div>
             </div>
 
+            {/* Row: Description — spans 2 cols */}
+            <div style={{ gridColumn: 'span 2' }}>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>תיאור</label>
+              <input value={newVersion.description} onChange={e => setNewVersion({ ...newVersion, description: e.target.value })} placeholder="תיאור קצר"
+                style={{ width: '100%', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
+            </div>
+
+            {/* Row: Integration dates */}
             <div>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>🔧 תאריך תחילת אינטגרציה</label>
+              <input type="date" value={newVersion.integrationStart}
+                onChange={e => setNewVersion({ ...newVersion, integrationStart: e.target.value })}
+                style={{ width: '100%', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>🔧 תאריך סיום אינטגרציה</label>
+              <input type="date" value={newVersion.integrationEnd}
+                onChange={e => setNewVersion({ ...newVersion, integrationEnd: e.target.value })}
+                style={{ width: '100%', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
+            </div>
+
+            {/* Row: QA dates */}
+            <div>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>🧪 תאריך תחילת בדיקות QA</label>
+              <input type="date" value={newVersion.qaStart}
+                onChange={e => setNewVersion({ ...newVersion, qaStart: e.target.value })}
+                style={{ width: '100%', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>🧪 תאריך סיום בדיקות QA</label>
+              <input type="date" value={newVersion.qaEnd}
+                onChange={e => setNewVersion({ ...newVersion, qaEnd: e.target.value })}
+                style={{ width: '100%', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
+            </div>
+
+            {/* Row: Meeting dates */}
+            <div>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>
+                📅 ישיבת סקירת CR-ים
+                <span style={{ fontSize: '10px', color: C.textMuted, marginRight: '5px', fontWeight: 'normal' }}>T−10 ימי עבודה</span>
+              </label>
+              <input type="datetime-local" value={newVersion.reviewMeetingTime}
+                onChange={e => setNewVersion({ ...newVersion, reviewMeetingTime: e.target.value })}
+                style={{ width: '100%', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>
+                📋 ישיבת מעבר תוכנית עבודה
+                <span style={{ fontSize: '10px', color: C.textMuted, marginRight: '5px', fontWeight: 'normal' }}>T−9 ימי עבודה</span>
+              </label>
+              <input type="datetime-local" value={newVersion.workPlanMeetingTime}
+                onChange={e => setNewVersion({ ...newVersion, workPlanMeetingTime: e.target.value })}
+                style={{ width: '100%', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
+            </div>
+
+            {/* Row: Go-live dates — required */}
+            <div>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>
                 תאריך ושעת התחלה מתוכנן <span style={{ color: C.statusBlocked }}>*</span>
               </label>
-              <input
-                type="datetime-local"
-                value={newVersion.plannedStart}
+              <input type="datetime-local" value={newVersion.plannedStart}
                 onChange={e => handlePlannedStartChange(e.target.value)}
-                style={{ width: '100%', padding: '10px', border: `2px solid ${!newVersion.plannedStart ? C.statusBlocked : C.statusDone}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
-              />
+                style={{ width: '100%', padding: '9px', border: `2px solid ${!newVersion.plannedStart ? C.statusBlocked : C.statusDone}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
               {!newVersion.plannedStart && (
-                <p style={{ margin: '4px 0 0', fontSize: '11px', color: C.danger }}>שדה חובה — נדרש לחישוב ברירות מחדל בתזמון</p>
+                <p style={{ margin: '4px 0 0', fontSize: '11px', color: C.danger }}>שדה חובה</p>
               )}
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>
-                שעת סיום מתוכנן
-                {!isManager && <span style={{ fontSize: '11px', color: C.statusBlocked, marginRight: '4px' }}>(מנהל לילה בלבד)</span>}
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>
+                תאריך ושעת סיום מתוכנן <span style={{ color: C.statusBlocked }}>*</span>
               </label>
-              <input
-                type="datetime-local"
-                value={newVersion.plannedEnd}
+              <input type="datetime-local" value={newVersion.plannedEnd}
                 onChange={e => setNewVersion({ ...newVersion, plannedEnd: e.target.value })}
-                disabled={!isManager}
-                placeholder="ברירת מחדל: 04:00 למחרת"
-                style={{ width: '100%', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: isManager ? C.bgNested : C.bgHover, color: isManager ? C.textPrimary : C.textDisabled }}
-              />
+                style={{ width: '100%', padding: '9px', border: `2px solid ${!newVersion.plannedEnd ? C.statusBlocked : C.statusDone}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
+              {!newVersion.plannedEnd && (
+                <p style={{ margin: '4px 0 0', fontSize: '11px', color: C.danger }}>שדה חובה</p>
+              )}
             </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>📅 מועד ישיבת מעבר / סקירת תוכנית</label>
-              <input
-                type="datetime-local"
-                value={newVersion.reviewMeetingTime}
-                onChange={e => setNewVersion({ ...newVersion, reviewMeetingTime: e.target.value })}
-                style={{ width: '100%', padding: '10px', border: `2px solid ${C.brand}66`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>🔧 תחילת אינטגרציה</label>
-              <input
-                type="date"
-                value={newVersion.integrationStart}
-                onChange={e => setNewVersion({ ...newVersion, integrationStart: e.target.value })}
-                style={{ width: '100%', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>🔧 סיום אינטגרציה</label>
-              <input
-                type="date"
-                value={newVersion.integrationEnd}
-                onChange={e => setNewVersion({ ...newVersion, integrationEnd: e.target.value })}
-                style={{ width: '100%', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>🧪 תחילת בדיקות QA</label>
-              <input
-                type="date"
-                value={newVersion.qaStart}
-                onChange={e => setNewVersion({ ...newVersion, qaStart: e.target.value })}
-                style={{ width: '100%', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>🧪 סיום בדיקות QA</label>
-              <input
-                type="date"
-                value={newVersion.qaEnd}
-                onChange={e => setNewVersion({ ...newVersion, qaEnd: e.target.value })}
-                style={{ width: '100%', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>תיאור</label>
-              <input value={newVersion.description} onChange={e => setNewVersion({ ...newVersion, description: e.target.value })} placeholder="תיאור קצר" style={{ width: '100%', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
-            </div>
+
           </div>
 
           {/* ── Create options ── */}
@@ -581,14 +612,20 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
               <button onClick={() => { setShowNew(false); setImportFile(null); setSelectedTemplateId(''); }} style={{ padding: '9px 18px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.lg, cursor: 'pointer' }}>ביטול</button>
             </div>
           </div>
-          {(!newVersion.name.trim() || !newVersion.plannedStart) && (
+          {(!newVersion.name.trim() || !newVersion.plannedStart || !newVersion.plannedEnd) && (
             <p style={{ margin: '10px 0 0', fontSize: '12px', color: C.danger }}>
-              {!newVersion.name.trim() && !newVersion.plannedStart
-                ? 'נדרשים שם גרסה ותאריך התחלה לפני יצירה'
-                : !newVersion.name.trim()
-                  ? 'נדרש שם גרסה לפני יצירה'
-                  : 'נדרש תאריך התחלה מתוכנן לפני יצירה'}
+              {[
+                !newVersion.name.trim()   && 'שם גרסה',
+                !newVersion.plannedStart  && 'תאריך ושעת התחלה מתוכנן',
+                !newVersion.plannedEnd    && 'תאריך ושעת סיום מתוכנן',
+              ].filter(Boolean).join(', ')} — שדה חובה
             </p>
+          )}
+          {actionError && (
+            <div style={{ margin: '10px 0 0', background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '8px', padding: '10px 16px', color: C.statusFailed, fontSize: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>{actionError}</span>
+              <button onClick={() => setActionError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.statusFailed, fontWeight: 'bold', fontSize: '16px' }}>×</button>
+            </div>
           )}
         </div>
       )}
@@ -747,7 +784,7 @@ const VersionCard: React.FC<{
           )}
           {v.reviewMeetingTime && (
             <span style={{ ...TEXT.xs, color: C.brand, display: 'flex', alignItems: 'center', gap: '4px' }}>
-              🗓 ישיבת מעבר: {fmtDateTime(v.reviewMeetingTime)}
+              🗓 סקירת CR-ים: {fmtDateTime(v.reviewMeetingTime)}
             </span>
           )}
           {v.taskCount !== undefined && (
@@ -923,6 +960,10 @@ const VersionDetail: React.FC<{
   const [editingReviewMeeting, setEditingReviewMeeting] = useState(false);
   const [reviewMeetingValue, setReviewMeetingValue] = useState(
     version.reviewMeetingTime ? new Date(version.reviewMeetingTime).toISOString().slice(0, 16) : ''
+  );
+  const [editingWorkPlanMeeting, setEditingWorkPlanMeeting] = useState(false);
+  const [workPlanMeetingValue, setWorkPlanMeetingValue] = useState(
+    version.workPlanMeetingTime ? new Date(version.workPlanMeetingTime).toISOString().slice(0, 16) : ''
   );
   const [editingSubmissionDeadline, setEditingSubmissionDeadline] = useState(false);
   const [submissionDeadlineValue, setSubmissionDeadlineValue] = useState(
@@ -1342,6 +1383,16 @@ const VersionDetail: React.FC<{
     try {
       await axios.patch(`${API}/versions/${version.id}/review-meeting-time`, { reviewMeetingTime: reviewMeetingValue || null }, { headers });
       setEditingReviewMeeting(false);
+      onRefresh();
+    } catch (err: any) {
+      showAlert('שגיאה', err?.response?.data?.message || 'שגיאה בשמירת מועד הישיבה', 'danger');
+    }
+  };
+
+  const saveWorkPlanMeetingTime = async () => {
+    try {
+      await axios.patch(`${API}/versions/${version.id}`, { workPlanMeetingTime: workPlanMeetingValue || null }, { headers });
+      setEditingWorkPlanMeeting(false);
       onRefresh();
     } catch (err: any) {
       showAlert('שגיאה', err?.response?.data?.message || 'שגיאה בשמירת מועד הישיבה', 'danger');
@@ -2004,7 +2055,7 @@ const VersionDetail: React.FC<{
             )}
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            📅 <strong>ישיבת מעבר:</strong>
+            🗓 <strong>ישיבת סקירת CR-ים:</strong>
             {editingReviewMeeting ? (
               <>
                 <input
@@ -2023,6 +2074,30 @@ const VersionDetail: React.FC<{
                 </span>
                 {isManager && (
                   <button onClick={() => setEditingReviewMeeting(true)} style={{ padding: '2px 8px', background: C.infoBg, color: C.info, border: `1px solid ${C.borderFocus}44`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '11px' }}>עריכה</button>
+                )}
+              </>
+            )}
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            📋 <strong>ישיבת מעבר תוכנית עבודה:</strong>
+            {editingWorkPlanMeeting ? (
+              <>
+                <input
+                  type="datetime-local"
+                  value={workPlanMeetingValue}
+                  onChange={e => setWorkPlanMeetingValue(e.target.value)}
+                  style={{ padding: '4px 8px', border: `1px solid ${C.borderFocus}`, borderRadius: RADIUS.md, fontSize: '13px' }}
+                />
+                <button onClick={saveWorkPlanMeetingTime} style={{ padding: '4px 10px', background: C.info, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '12px' }}>שמור</button>
+                <button onClick={() => setEditingWorkPlanMeeting(false)} style={{ padding: '4px 10px', background: C.bgNested, color: C.textSecondary, border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '12px' }}>ביטול</button>
+              </>
+            ) : (
+              <>
+                <span style={{ color: version.workPlanMeetingTime ? C.info : C.textDisabled, fontWeight: version.workPlanMeetingTime ? '600' : 'normal' }}>
+                  {version.workPlanMeetingTime ? fmtDateTime(version.workPlanMeetingTime) : 'לא נקבע'}
+                </span>
+                {isManager && (
+                  <button onClick={() => setEditingWorkPlanMeeting(true)} style={{ padding: '2px 8px', background: C.infoBg, color: C.info, border: `1px solid ${C.borderFocus}44`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '11px' }}>עריכה</button>
                 )}
               </>
             )}

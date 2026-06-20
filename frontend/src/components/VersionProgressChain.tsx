@@ -12,16 +12,18 @@ interface Props {
 const STATUS_ORDER = [
   'DRAFT', 'COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED',
   'REHEARSAL',
+  'READY_FOR_RUN', // sentinel: APPROVED after rehearsal
   'ACTIVE', 'MORNING_AFTER',
   'COMPLETED',
 ];
 
 // Colors aligned with theme.ts tokens
 const STAGE_COLOR = {
-  prep:      { main: C.info,    glow: 'rgba(69,115,210,0.20)'  },
-  rehearsal: { main: '#F0883E', glow: 'rgba(240,136,62,0.20)'  },
-  run:       { main: C.brand,   glow: 'rgba(240,106,106,0.20)' },
-  done:      { main: C.success, glow: 'rgba(55,196,122,0.20)'  },
+  prep:      { main: C.info,      glow: 'rgba(69,115,210,0.20)'  },
+  rehearsal: { main: '#F0883E',   glow: 'rgba(240,136,62,0.20)'  },
+  ready:     { main: '#D4A017',   glow: 'rgba(212,160,23,0.22)'  },
+  run:       { main: C.brand,     glow: 'rgba(240,106,106,0.20)' },
+  done:      { main: C.success,   glow: 'rgba(55,196,122,0.20)'  },
 };
 
 const STAGES = [
@@ -49,6 +51,15 @@ const STAGES = [
     ],
   },
   {
+    // Shown only after rehearsal completes (rehearsalDone=true, status=APPROVED)
+    id: 'ready', label: 'ממתין', icon: '⏳',
+    ...STAGE_COLOR.ready,
+    subs: [
+      { label: 'סיכום חזרה',  status: 'READY_FOR_RUN', key: 'ready_summary' },
+      { label: 'אישור להרצה', status: 'READY_FOR_RUN', key: 'ready_approve' },
+    ],
+  },
+  {
     id: 'run', label: 'הטמעה', icon: '🚀',
     ...STAGE_COLOR.run,
     subs: [
@@ -70,6 +81,12 @@ type NodeState = 'done' | 'active' | 'pending';
 
 function subState(subStatus: string, current: string, rehearsalDone = false): NodeState {
   if (subStatus === 'REHEARSAL' && rehearsalDone && current === 'APPROVED') return 'done';
+  if (subStatus === 'READY_FOR_RUN') {
+    if (!rehearsalDone) return 'pending';
+    if (['ACTIVE', 'MORNING_AFTER', 'COMPLETED'].includes(current)) return 'done';
+    if (current === 'APPROVED') return 'active';
+    return 'pending';
+  }
   const ci = STATUS_ORDER.indexOf(current);
   const si = STATUS_ORDER.indexOf(subStatus);
   if (ci === -1 || si === -1) return 'pending';
@@ -78,8 +95,12 @@ function subState(subStatus: string, current: string, rehearsalDone = false): No
   return 'pending';
 }
 
+// run stage is now at index 3 in STAGES
+const RUN_STAGE_IDX = 3;
+
 function runSubStateByPhase(subIdx: number, current: string, activeRunPhase: number): NodeState {
-  if (!['ACTIVE', 'REHEARSAL'].includes(current)) return subState(STAGES[2].subs[subIdx].status, current);
+  // Only track phase progress during ACTIVE (real run) — not during REHEARSAL
+  if (current !== 'ACTIVE') return subState(STAGES[RUN_STAGE_IDX].subs[subIdx].status, current);
   if (subIdx < 3) {
     const phaseNum = subIdx + 1;
     if (phaseNum < activeRunPhase) return 'done';
@@ -101,6 +122,7 @@ function mainState(subs: { status: string }[], current: string, stageId: string,
 const STAGE_LABEL: Record<string, string> = {
   DRAFT: 'טיוטה', COLLECTING: 'איסוף משימות', CR_REVIEW: 'סקירת CR',
   REFINING: 'טיוב תוכנית', REVIEW: 'ישיבת מעבר', APPROVED: 'תוכנית מאושרת',
+  APPROVED_AFTER_REHEARSAL: 'ממתין להרצה',
   REHEARSAL: 'חזרה גנרלית', ACTIVE: 'לילה פעיל', MORNING_AFTER: 'בוקר שלאחר',
   COMPLETED: 'הושלם', ROLLED_BACK: 'Rollback',
 };
@@ -109,9 +131,11 @@ export const VersionProgressChain: React.FC<Props> = ({
   versionStatus, activeRunPhase = 1, rehearsalDone = false,
   summaryBeforeMorning = false, onStageClick,
 }) => {
-  const effective    = versionStatus === 'ROLLED_BACK' ? 'MORNING_AFTER' : versionStatus;
-  const isRolledBack = versionStatus === 'ROLLED_BACK';
-  const currentLabel = STAGE_LABEL[versionStatus] ?? versionStatus;
+  const effective       = versionStatus === 'ROLLED_BACK' ? 'MORNING_AFTER' : versionStatus;
+  const isRolledBack    = versionStatus === 'ROLLED_BACK';
+  const isReadyForRun   = rehearsalDone && versionStatus === 'APPROVED';
+  const currentLabelKey = isReadyForRun ? 'APPROVED_AFTER_REHEARSAL' : versionStatus;
+  const currentLabel    = STAGE_LABEL[currentLabelKey] ?? versionStatus;
 
   const STAGES_DISPLAY = STAGES.map(stage => {
     if (stage.id !== 'run' || !summaryBeforeMorning) return stage;
@@ -153,14 +177,14 @@ export const VersionProgressChain: React.FC<Props> = ({
             {isRolledBack ? '🔄 ' : ''}{currentLabel}
           </span>
 
-          {rehearsalDone && versionStatus === 'APPROVED' && (
+          {isReadyForRun && (
             <span style={{
-              ...TEXT.xs, fontFamily: FONT, color: '#F0883E',
-              background: 'rgba(240,136,62,0.10)', padding: '2px 8px',
-              borderRadius: RADIUS.full, border: '1px solid rgba(240,136,62,0.25)',
+              ...TEXT.xs, fontFamily: FONT, color: '#D4A017',
+              background: 'rgba(212,160,23,0.12)', padding: '2px 8px',
+              borderRadius: RADIUS.full, border: '1px solid rgba(212,160,23,0.30)',
               whiteSpace: 'nowrap',
             }}>
-              ✓ חזרה הושלמה
+              ✓ חזרה הושלמה — ממתין לפתיחת לילה
             </span>
           )}
         </div>

@@ -338,9 +338,10 @@ export default function QaAssignmentView({ token }: Props) {
     const spaceBelow = window.innerHeight - rect.bottom - 8;
     const spaceAbove = rect.top - 8;
     const openBelow  = spaceBelow >= spaceAbove;
+    const safeRight = Math.min(window.innerWidth - rect.right, window.innerWidth - 380 - 8);
     const pos: PickerPos = openBelow
-      ? { crNumber, top:    rect.bottom + 4,                   right: window.innerWidth - rect.right, maxH: Math.max(spaceBelow, 180) }
-      : { crNumber, bottom: window.innerHeight - rect.top + 4, right: window.innerWidth - rect.right, maxH: Math.max(spaceAbove, 180) };
+      ? { crNumber, top:    rect.bottom + 4,                   right: safeRight, maxH: Math.max(spaceBelow, 180) }
+      : { crNumber, bottom: window.innerHeight - rect.top + 4, right: safeRight, maxH: Math.max(spaceAbove, 180) };
     setOpenPicker(pos);
     if (!scoring[crNumber]) {
       setScoringLoading(crNumber);
@@ -613,7 +614,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ padding: SP[6], maxWidth: 1500, margin: '0 auto', direction: 'rtl', fontFamily: FONT }}>
+    <div style={{ padding: `${SP[4]} ${SP[5]}`, direction: 'rtl', fontFamily: FONT }}>
 
       {/* Header */}
       <div style={{ marginBottom: SP[4] }}>

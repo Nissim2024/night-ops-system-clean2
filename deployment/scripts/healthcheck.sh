@@ -1,10 +1,10 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # healthcheck.sh <slot> [retries] [interval]
 # Returns 0 = healthy, 1 = unhealthy
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../config/nightops.conf"
+source "${SCRIPT_DIR}/../config/DeployCenter.conf"
 
 SLOT="${1:-green}"
 RETRIES="${2:-$HEALTH_RETRIES}"

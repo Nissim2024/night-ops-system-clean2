@@ -56,6 +56,9 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
     submittedTeams: number; totalTeams: number; approvedCRs: number; totalCRs: number;
     alerts: { type: 'error' | 'warn'; text: string }[];
   } | null>(null);
+  const [crStats, setCrStats] = useState<{
+    qaTaskCount: number; totalEstimateDays: number; actualsCount: number;
+  } | null>(null);
   const [myTeamRequiresPlan, setMyTeamRequiresPlan] = useState<boolean>(true);
 
   useEffect(() => {
@@ -123,6 +126,12 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
           submittedTeams, totalTeams, approvedCRs, totalCRs, alerts,
         });
 
+        // CR assignment stats (best-effort — requires Excel sync to have run)
+        try {
+          const crStatsRes = await axios.get(`${API}/version-cr-assignments/version/${version.id}/stats`, { headers });
+          if (!cancelled) setCrStats(crStatsRes.data);
+        } catch {}
+
         // Rehearsal stats from snapshot (after rehearsal ends tasks are reset)
         const snapshot: any[] = v.lastRehearsalSnapshot ?? [];
         if (snapshot.length > 0) {
@@ -165,10 +174,11 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
     } catch { /* שגיאות נשמטות בשקט */ }
   }, [version.id, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const isExecution   = ['REHEARSAL', 'ACTIVE', 'MORNING_AFTER'].includes(s);
-  const isPlanning    = ['DRAFT', 'COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED'].includes(s);
+  const isExecution      = ['REHEARSAL', 'ACTIVE', 'MORNING_AFTER'].includes(s);
+  const isNightExecution = ['ACTIVE', 'MORNING_AFTER'].includes(s); // excludes REHEARSAL
+  const isPlanning       = ['DRAFT', 'COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED'].includes(s);
   const hasRehearsal  = !!version.lastRehearsalAt;
-  const hasNight      = !!version.actualStart || ['ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(s);
+  const hasNight      = s !== 'REHEARSAL' && (!!version.actualStart || ['ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(s));
   const hasCrPlans    = version.crPlanCount > 0 || ['CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED', 'REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED'].includes(s);
   const hasNightSummary  = !!version.nightSummary?.sentAt;
   const hasRehearsalSummary = !!version.rehearsalSummary?.sentAt;
@@ -182,14 +192,6 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
       title: 'תכנון',
       accent: C.brand,
       cards: [
-        {
-          id: 'details',
-          icon: '📋',
-          title: 'פרטי גרסה',
-          subtitle: 'תאריכים, צוותים, סטטוס',
-          tab: 'version-detail',
-          enabled: true,
-        },
         {
           id: 'plan',
           icon: '📊',
@@ -261,11 +263,15 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
           id: 'rehearsal-board',
           icon: '🎭',
           title: 'War Room — חזרה',
-          subtitle: hasRehearsal
-            ? `הורצה: ${fmt(version.lastRehearsalAt)}`
-            : s === 'REHEARSAL' ? 'פעיל כעת' : 'טרם הורצה',
+          subtitle: s === 'REHEARSAL'
+            ? 'פעיל כעת'
+            : hasRehearsal
+            ? `הסתיים: ${fmt(version.lastRehearsalAt)} — ראה דוח סיכום`
+            : 'טרם הורצה',
           tab: 'board',
-          enabled: hasRehearsal || s === 'REHEARSAL',
+          enabled: s === 'REHEARSAL',
+          badge: hasRehearsal && s !== 'REHEARSAL' ? '✓ הסתיים' : undefined,
+          badgeColor: hasRehearsal && s !== 'REHEARSAL' ? C.statusDone : undefined,
         },
         {
           id: 'rehearsal-dashboard',
@@ -311,16 +317,16 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
             ? version.actualStart ? `התחיל: ${fmt(version.actualStart)}` : 'פעיל כעת'
             : 'טרם הורצה',
           tab: 'board',
-          enabled: hasNight || isExecution,
+          enabled: hasNight || isNightExecution,
         },
         {
           id: 'dashboard',
           icon: '🎛',
           title: 'לוח בקרה',
-          subtitle: isExecution ? 'מעקב זמן-אמת פעיל' : 'פעיל בזמן הרצה בלבד',
+          subtitle: isNightExecution ? 'מעקב זמן-אמת פעיל' : 'פעיל בזמן הרצה בלבד',
           tab: 'dashboard',
-          enabled: isExecution,
-          badge: !isExecution ? 'בזמן הרצה' : undefined,
+          enabled: isNightExecution,
+          badge: !isNightExecution ? 'בזמן הרצה' : undefined,
           badgeColor: C.textMuted,
         },
         {
@@ -331,7 +337,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
             ? `אושר: ${fmt(version.nightSummary?.sentAt)}`
             : hasNight ? 'טרם הופק' : 'טרם הורצה לילה',
           tab: 'summary-night',
-          enabled: hasNight || isExecution,
+          enabled: hasNight || isNightExecution,
           badge: hasNightSummary ? '✓ מאושר' : undefined,
           badgeColor: hasNightSummary ? C.statusDone : undefined,
         },
@@ -447,18 +453,6 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                 🗑 מחק
               </button>
             )}
-            <button
-              onClick={() => onNavigate('version-detail')}
-              style={{
-                padding: '6px 14px',
-                background: C.bgNested,
-                color: C.textSecondary,
-                border: `1px solid ${C.border}`,
-                borderRadius: RADIUS.md, cursor: 'pointer',
-                fontSize: '12px', fontWeight: 600, fontFamily: FONT,
-              }}>
-              🔍 כל הפרטים
-            </button>
           </div>
         </div>
 
@@ -467,7 +461,8 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
           {([
             { icon: '📅', label: 'התחלה מתוכננת',   field: 'plannedStart',      value: version.plannedStart,      dateOnly: false },
             { icon: '🏁', label: 'סיום מתוכנן',      field: 'plannedEnd',        value: version.plannedEnd,        dateOnly: false },
-            { icon: '🗓', label: 'ישיבת מעבר',        field: 'reviewMeetingTime', value: version.reviewMeetingTime, dateOnly: false },
+            { icon: '🗓', label: 'ישיבת סקירת CR-ים',   field: 'reviewMeetingTime',    value: version.reviewMeetingTime,    dateOnly: false },
+            { icon: '📋', label: 'ישיבת מעבר תוכנית',  field: 'workPlanMeetingTime',  value: version.workPlanMeetingTime,  dateOnly: false },
             { icon: '🔧', label: 'תחילת אינטגרציה',   field: 'integrationStart',  value: version.integrationStart,  dateOnly: true  },
             { icon: '🔧', label: 'סיום אינטגרציה',    field: 'integrationEnd',    value: version.integrationEnd,    dateOnly: true  },
             { icon: '🧪', label: 'תחילת בדיקות QA',   field: 'qaStart',           value: version.qaStart,           dateOnly: true  },
@@ -511,6 +506,75 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
           })}
         </div>
 
+        {/* סיכום נתוני גרסה — צוותים, משימות, CR-ים */}
+        {stats && (stats.totalTeams > 0 || stats.totalTasks > 0 || stats.totalCRs > 0) && (
+          <div style={{
+            display: 'flex', gap: '6px', flexWrap: 'wrap',
+            marginTop: '14px', paddingTop: '12px', borderTop: `1px solid ${C.border}`,
+          }}>
+            {stats.totalTeams > 0 && (
+              <span style={{
+                fontSize: '12px', padding: '3px 10px', borderRadius: RADIUS.full,
+                background: C.bgNested, border: `1px solid ${C.border}`, color: C.textSecondary,
+              }}>
+                👥 <strong>{stats.totalTeams}</strong> צוותים
+              </span>
+            )}
+            {stats.totalTasks > 0 && (
+              <span style={{
+                fontSize: '12px', padding: '3px 10px', borderRadius: RADIUS.full,
+                background: C.bgNested, border: `1px solid ${C.border}`, color: C.textSecondary,
+              }}>
+                📋 <strong>{stats.totalTasks}</strong> משימות
+              </span>
+            )}
+            {stats.totalCRs > 0 && (
+              <span style={{
+                fontSize: '12px', padding: '3px 10px', borderRadius: RADIUS.full,
+                background: stats.approvedCRs === stats.totalCRs ? C.bgDone : C.bgNested,
+                border: `1px solid ${stats.approvedCRs === stats.totalCRs ? C.statusDone + '55' : C.border}`,
+                color: stats.approvedCRs === stats.totalCRs ? C.statusDone : C.textSecondary,
+              }}>
+                🔧 <strong>{stats.approvedCRs}/{stats.totalCRs}</strong> CR-ים אושרו
+              </span>
+            )}
+            {stats.submittedTeams > 0 && stats.totalTeams > 0 && stats.submittedTeams < stats.totalTeams && (
+              <span style={{
+                fontSize: '12px', padding: '3px 10px', borderRadius: RADIUS.full,
+                background: C.warningBg, border: `1px solid ${C.warning}44`, color: C.warning,
+              }}>
+                📥 <strong>{stats.submittedTeams}/{stats.totalTeams}</strong> צוותים הגישו
+              </span>
+            )}
+            {crStats && (
+              <span style={{
+                fontSize: '12px', padding: '3px 10px', borderRadius: RADIUS.full,
+                background: C.bgNested, border: `1px solid ${C.border}`, color: C.textSecondary,
+              }}>
+                🧪 QA &gt; 0.5 יום: <strong>{crStats.qaTaskCount}</strong> CR-ים
+              </span>
+            )}
+            {crStats && (
+              <span style={{
+                fontSize: '12px', padding: '3px 10px', borderRadius: RADIUS.full,
+                background: C.bgNested, border: `1px solid ${C.border}`, color: C.textSecondary,
+              }}>
+                📊 סך כל הערכות: <strong>{crStats.totalEstimateDays}</strong> ימים
+              </span>
+            )}
+            {crStats && (
+              <span style={{
+                fontSize: '12px', padding: '3px 10px', borderRadius: RADIUS.full,
+                background: crStats.actualsCount > 0 ? C.bgDone : C.bgNested,
+                border: `1px solid ${crStats.actualsCount > 0 ? C.statusDone + '44' : C.border}`,
+                color: crStats.actualsCount > 0 ? C.statusDone : C.textSecondary,
+              }}>
+                ✅ דיווח בפועל: <strong>{crStats.actualsCount}</strong> CR-ים
+              </span>
+            )}
+          </div>
+        )}
+
         {/* נתוני הרצה בפועל (קריאה בלבד) */}
         {(version.actualStart || version.lastRehearsalAt || version.lastNightAt) && (
           <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '14px', paddingTop: '12px', borderTop: `1px solid ${C.border}`, fontSize: '12px' }}>
@@ -536,10 +600,10 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
         const effectiveStats = isRehearsalRow && rehearsalStats && s !== 'REHEARSAL'
           ? rehearsalStats
           : stats;
-        const showStats      = !!effectiveStats && effectiveStats.totalTasks > 0 && (isRehearsalRow || isExecRow);
+        const showStats      = !!effectiveStats && effectiveStats.totalTasks > 0 && (isRehearsalRow || (isExecRow && hasNight));
         const showProgress   = showStats && (
           (isRehearsalRow && (s === 'REHEARSAL' || (!!rehearsalStats && s !== 'REHEARSAL'))) ||
-          (isExecRow && ['ACTIVE', 'MORNING_AFTER'].includes(s))
+          (isExecRow && hasNight)
         );
         const planningCta    = ['DRAFT','COLLECTING','CR_REVIEW','REFINING','REVIEW','APPROVED'].includes(s);
         const showAlerts     = isPlanningRow && !!stats && ((!!cta && planningCta) || stats.alerts.length > 0);
@@ -600,29 +664,31 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
             <div style={{
               background: C.bgCard, border: `1px solid ${C.border}`,
               borderRadius: '10px', padding: '10px 16px', marginBottom: '10px',
-              display: 'flex', gap: '0', flexWrap: 'wrap', alignItems: 'center',
             }}>
-              {[
-                { label: 'משימות',   value: effectiveStats!.totalTasks,      color: C.textPrimary },
-                { label: 'הושלמו',  value: effectiveStats!.doneTasks,       color: C.statusDone },
-                { label: 'בביצוע',  value: effectiveStats!.inProgressTasks, color: C.statusInProgress },
-                { label: 'ממתינות', value: effectiveStats!.waitingTasks,    color: effectiveStats!.waitingTasks > 0 ? C.warning : C.textDisabled },
-                { label: 'חסומות',  value: effectiveStats!.blockedTasks,    color: effectiveStats!.blockedTasks > 0 ? C.statusFailed : C.textDisabled },
-                ...(effectiveStats!.totalTeams > 0 ? [{ label: 'צוותים', value: effectiveStats!.totalTeams, color: C.textSecondary }] : []),
-                ...(effectiveStats!.totalCRs  > 0 ? [{ label: 'CR-ים',  value: effectiveStats!.totalCRs,   color: C.textSecondary }] : []),
-              ].map((stat, i, arr) => (
-                <div key={stat.label} style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'center',
-                  padding: '0 16px', borderLeft: i < arr.length - 1 ? `1px solid ${C.border}` : 'none',
-                  minWidth: '65px',
-                }}>
-                  <span style={{ fontSize: '20px', fontWeight: 700, color: stat.color, lineHeight: 1.2 }}>{stat.value}</span>
-                  <span style={{ fontSize: '11px', color: C.textMuted, marginTop: '2px' }}>{stat.label}</span>
-                </div>
-              ))}
-              {/* גרף התקדמות — בזמן ביצוע בלבד */}
+              {/* שורת קוביות */}
+              <div style={{ display: 'flex', gap: '0', alignItems: 'center' }}>
+                {[
+                  { label: 'משימות',   value: effectiveStats!.totalTasks,      color: C.textPrimary },
+                  { label: 'הושלמו',  value: effectiveStats!.doneTasks,       color: C.statusDone },
+                  { label: 'בביצוע',  value: effectiveStats!.inProgressTasks, color: C.statusInProgress },
+                  { label: 'ממתינות', value: effectiveStats!.waitingTasks,    color: effectiveStats!.waitingTasks > 0 ? C.warning : C.textDisabled },
+                  { label: 'חסומות',  value: effectiveStats!.blockedTasks,    color: effectiveStats!.blockedTasks > 0 ? C.statusFailed : C.textDisabled },
+                  ...(effectiveStats!.totalTeams > 0 ? [{ label: 'צוותים', value: effectiveStats!.totalTeams, color: C.textSecondary }] : []),
+                  ...(effectiveStats!.totalCRs  > 0 ? [{ label: 'CR-ים',  value: effectiveStats!.totalCRs,   color: C.textSecondary }] : []),
+                ].map((stat, i, arr) => (
+                  <div key={stat.label} style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center',
+                    padding: '0 16px', borderLeft: i < arr.length - 1 ? `1px solid ${C.border}` : 'none',
+                    minWidth: '65px',
+                  }}>
+                    <span style={{ fontSize: '20px', fontWeight: 700, color: stat.color, lineHeight: 1.2 }}>{stat.value}</span>
+                    <span style={{ fontSize: '11px', color: C.textMuted, marginTop: '2px' }}>{stat.label}</span>
+                  </div>
+                ))}
+              </div>
+              {/* בר התקדמות — תמיד מתחת לקוביות */}
               {showProgress && (
-                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', paddingRight: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', paddingTop: '8px', borderTop: `1px solid ${C.border}33` }}>
                   <div style={{ flex: 1, height: '5px', background: C.bgHover, borderRadius: '3px', overflow: 'hidden' }}>
                     <div style={{
                       height: '100%', borderRadius: '3px',

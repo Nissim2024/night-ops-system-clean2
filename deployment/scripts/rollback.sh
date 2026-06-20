@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # rollback.sh [reason]
 #
 # Rollback מיידי — חזרה ל-Blue תוך שניות
@@ -9,7 +9,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../config/nightops.conf"
+source "${SCRIPT_DIR}/../config/DeployCenter.conf"
 
 REASON="${1:-ידני}"
 
@@ -43,8 +43,8 @@ fi
 
 # ── ודא ש-Blue containers פעילים ─────────────────────────────────────────────
 header "בדיקת Blue"
-BLUE_BACKEND_RUNNING=$(docker ps --format '{{.Names}}' | grep -c "^nightops-backend-blue$" || true)
-BLUE_FRONTEND_RUNNING=$(docker ps --format '{{.Names}}' | grep -c "^nightops-frontend-blue$" || true)
+BLUE_BACKEND_RUNNING=$(docker ps --format '{{.Names}}' | grep -c "^DeployCenter-backend-blue$" || true)
+BLUE_FRONTEND_RUNNING=$(docker ps --format '{{.Names}}' | grep -c "^DeployCenter-frontend-blue$" || true)
 
 if [ "$BLUE_BACKEND_RUNNING" -eq 0 ] || [ "$BLUE_FRONTEND_RUNNING" -eq 0 ]; then
   warn "Blue containers לא פעילים — מנסה להפעיל מחדש..."
@@ -82,10 +82,10 @@ ok "State → blue"
 
 # ── עצור Green ───────────────────────────────────────────────────────────────
 header "עצירת Green"
-docker stop nightops-backend-green  2>/dev/null && ok "Stopped backend-green"  || warn "backend-green לא רץ"
-docker stop nightops-frontend-green 2>/dev/null && ok "Stopped frontend-green" || warn "frontend-green לא רץ"
-docker rm   nightops-backend-green  2>/dev/null || true
-docker rm   nightops-frontend-green 2>/dev/null || true
+docker stop DeployCenter-backend-green  2>/dev/null && ok "Stopped backend-green"  || warn "backend-green לא רץ"
+docker stop DeployCenter-frontend-green 2>/dev/null && ok "Stopped frontend-green" || warn "frontend-green לא רץ"
+docker rm   DeployCenter-backend-green  2>/dev/null || true
+docker rm   DeployCenter-frontend-green 2>/dev/null || true
 
 # ── מדידת זמן rollback ───────────────────────────────────────────────────────
 END_TIME=$(date +%s)

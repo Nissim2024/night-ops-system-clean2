@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # initial_deploy_airgapped.sh <version_tag> <package_dir>
 #
 # התקנה ראשונית על שרת ללא אינטרנט
@@ -7,13 +7,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../config/nightops.conf"
+source "${SCRIPT_DIR}/../config/DeployCenter.conf"
 
 VERSION="${1:-}"
 PACKAGE_DIR="${2:-}"
 if [ -z "$VERSION" ] || [ -z "$PACKAGE_DIR" ]; then
   echo "Usage: $0 <version_tag> <package_dir>"
-  echo "       $0 v2.2.0 /opt/nightops/package"
+  echo "       $0 v2.2.0 /opt/DeployCenter/package"
   exit 1
 fi
 
@@ -24,7 +24,7 @@ err()    { echo -e "${RED}[✗]${NC} $*"; }
 info()   { echo -e "${BLUE_C}[•]${NC} $*"; }
 header() { echo -e "\n${BOLD}══ $* ══${NC}\n"; }
 
-header "NightOps Air-Gapped Initial Deploy — ${VERSION}"
+header "DeployCenter Air-Gapped Initial Deploy — ${VERSION}"
 
 # ── 1. יצירת תיקיות ──────────────────────────────────────────────────────────
 header "יצירת תשתית"
@@ -86,25 +86,25 @@ fi
 
 # ── 6. Docker network ────────────────────────────────────────────────────────
 header "Docker Network"
-docker network inspect nightops-net &>/dev/null \
-  || docker network create nightops-net
-ok "nightops-net"
+docker network inspect DeployCenter-net &>/dev/null \
+  || docker network create DeployCenter-net
+ok "DeployCenter-net"
 
 # ── 7. אימות images קיימים (במקום docker build) ──────────────────────────────
 header "אימות Docker Images"
-BACKEND_IMAGE="nightops-backend:${VERSION}-blue"
-FRONTEND_IMAGE="nightops-frontend:${VERSION}"
+BACKEND_IMAGE="DeployCenter-backend:${VERSION}-blue"
+FRONTEND_IMAGE="DeployCenter-frontend:${VERSION}"
 
 if ! docker image inspect "$BACKEND_IMAGE" &>/dev/null; then
   err "Image לא נמצא: ${BACKEND_IMAGE}"
-  err "הרץ: docker load -i ${PACKAGE_DIR}/nightops-images-${VERSION}.tar"
+  err "הרץ: docker load -i ${PACKAGE_DIR}/DeployCenter-images-${VERSION}.tar"
   exit 1
 fi
 ok "$BACKEND_IMAGE"
 
 if ! docker image inspect "$FRONTEND_IMAGE" &>/dev/null; then
   err "Image לא נמצא: ${FRONTEND_IMAGE}"
-  err "הרץ: docker load -i ${PACKAGE_DIR}/nightops-images-${VERSION}.tar"
+  err "הרץ: docker load -i ${PACKAGE_DIR}/DeployCenter-images-${VERSION}.tar"
   exit 1
 fi
 ok "$FRONTEND_IMAGE"
@@ -133,13 +133,13 @@ header "Health Check"
 info "ממתין לעלייה (20 שניות)..."
 sleep 20
 bash "${SCRIPT_DIR}/healthcheck.sh" blue || {
-  err "Blue לא בריא — בדוק: docker logs nightops-backend-blue"
+  err "Blue לא בריא — בדוק: docker logs DeployCenter-backend-blue"
   exit 1
 }
 
 # ── 11. Nginx ────────────────────────────────────────────────────────────────
 header "Nginx Configuration"
-cp "${APP_DIR}/deployment/nginx/nightops.conf" "$NGINX_SITE_CONF"
+cp "${APP_DIR}/deployment/nginx/DeployCenter.conf" "$NGINX_SITE_CONF"
 cp "${APP_DIR}/deployment/nginx/upstream-blue.conf" "$NGINX_UPSTREAM_CONF"
 
 if nginx -t; then
@@ -157,7 +157,7 @@ ok "State → blue"
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}${GREEN}║   NightOps ${VERSION} הותקן בהצלחה!              ${NC}"
+echo -e "${BOLD}${GREEN}║   DeployCenter ${VERSION} הותקן בהצלחה!              ${NC}"
 echo -e "${BOLD}${GREEN}║                                                      ${NC}"
 echo -e "${BOLD}${GREEN}║   Slot פעיל: BLUE                                   ${NC}"
 echo -e "${BOLD}${GREEN}║   Backend:  127.0.0.1:${BLUE_BACKEND_PORT}                        ${NC}"

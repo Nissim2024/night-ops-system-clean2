@@ -1,4 +1,4 @@
-# NightOps — מדריך התקנה מלא (שרת ללא אינטרנט)
+﻿# DeployCenter — מדריך התקנה מלא (שרת ללא אינטרנט)
 
 ---
 
@@ -64,7 +64,7 @@ SERVER_URL: http://192.168.1.50
 ```
 night-ops-system-clean2/
 └── dist/
-    └── nightops-airgapped-v2.2.0.tar.gz   ← החבילה להעברה לשרת
+    └── DeployCenter-airgapped-v2.2.0.tar.gz   ← החבילה להעברה לשרת
 ```
 
 > **זמן משוער:** 5–10 דקות (תלוי במהירות האינטרנט)
@@ -75,11 +75,11 @@ night-ops-system-clean2/
 
 **אפשרות א — דרך SCP (רשת פנימית):**
 ```bash
-scp dist/nightops-airgapped-v2.2.0.tar.gz USER@SERVER_IP:/tmp/
+scp dist/DeployCenter-airgapped-v2.2.0.tar.gz USER@SERVER_IP:/tmp/
 ```
 
 **אפשרות ב — דרך USB/תיקייה משותפת:**
-- העתק את הקובץ `nightops-airgapped-v2.2.0.tar.gz` לאמצעי האחסון
+- העתק את הקובץ `DeployCenter-airgapped-v2.2.0.tar.gz` לאמצעי האחסון
 - הכנס לשרת והעתק לתיקייה `/tmp/`
 
 ---
@@ -91,15 +91,15 @@ scp dist/nightops-airgapped-v2.2.0.tar.gz USER@SERVER_IP:/tmp/
 ssh USER@SERVER_IP
 ```
 
-**צור DB ו-user ל-NightOps:**
+**צור DB ו-user ל-DeployCenter:**
 ```bash
 sudo -u postgres psql
 ```
 
 ```sql
-CREATE USER nightops_user WITH PASSWORD 'בחר_סיסמה_חזקה';
-CREATE DATABASE nightops_prod OWNER nightops_user;
-GRANT ALL PRIVILEGES ON DATABASE nightops_prod TO nightops_user;
+CREATE USER DeployCenter_user WITH PASSWORD 'בחר_סיסמה_חזקה';
+CREATE DATABASE DeployCenter_prod OWNER DeployCenter_user;
+GRANT ALL PRIVILEGES ON DATABASE DeployCenter_prod TO DeployCenter_user;
 \q
 ```
 
@@ -114,23 +114,23 @@ GRANT ALL PRIVILEGES ON DATABASE nightops_prod TO nightops_user;
 ```bash
 # חלץ את החבילה
 cd /tmp
-tar -xzf nightops-airgapped-v2.2.0.tar.gz
+tar -xzf DeployCenter-airgapped-v2.2.0.tar.gz
 
 # טען את ה-Docker images (ייקח 2–3 דקות)
-docker load -i nightops-airgapped-v2.2.0/nightops-images-v2.2.0.tar
+docker load -i DeployCenter-airgapped-v2.2.0/DeployCenter-images-v2.2.0.tar
 ```
 
 **אמת שה-images נטענו:**
 ```bash
-docker images | grep nightops
+docker images | grep DeployCenter
 ```
 
 צפוי לראות:
 ```
-nightops-backend    v2.2.0-blue    ...
-nightops-backend    latest-blue    ...
-nightops-frontend   v2.2.0         ...
-nightops-frontend   latest         ...
+DeployCenter-backend    v2.2.0-blue    ...
+DeployCenter-backend    latest-blue    ...
+DeployCenter-frontend   v2.2.0         ...
+DeployCenter-frontend   latest         ...
 ```
 
 ---
@@ -139,17 +139,17 @@ nightops-frontend   latest         ...
 
 **הרץ את סקריפט ההתקנה:**
 ```bash
-cd /tmp/nightops-airgapped-v2.2.0/deployment
-bash scripts/initial_deploy_airgapped.sh v2.2.0 /tmp/nightops-airgapped-v2.2.0
+cd /tmp/DeployCenter-airgapped-v2.2.0/deployment
+bash scripts/initial_deploy_airgapped.sh v2.2.0 /tmp/DeployCenter-airgapped-v2.2.0
 ```
 
 הסקריפט ייצור שני קבצים ויבקש ממך לערוך אותם:
-- `/opt/nightops/blue/.env.blue`
-- `/opt/nightops/green/.env.green`
+- `/opt/DeployCenter/blue/.env.blue`
+- `/opt/DeployCenter/green/.env.green`
 
 **ערוך את הקובץ:**
 ```bash
-nano /opt/nightops/blue/.env.blue
+nano /opt/DeployCenter/blue/.env.blue
 ```
 
 **מלא את הערכים הבאים:**
@@ -159,7 +159,7 @@ SLOT=blue
 APP_VERSION=v2.2.0
 
 # ← הכנס את ה-IP הפנימי של השרת וסיסמת ה-DB שיצרת בשלב 4
-DATABASE_URL=postgresql://nightops_user:סיסמה_מ_שלב_4@localhost:5432/nightops_prod
+DATABASE_URL=postgresql://DeployCenter_user:סיסמה_מ_שלב_4@localhost:5432/DeployCenter_prod
 
 # ← צור מחרוזת רנדומלית: pwgen -s 48 1
 JWT_SECRET=מחרוזת_רנדומלית_ארוכה_לפחות_32_תווים
@@ -182,7 +182,7 @@ LDAP_BIND_PASSWORD=
 
 **חזור על אותו הדבר לקובץ green:**
 ```bash
-nano /opt/nightops/green/.env.green
+nano /opt/DeployCenter/green/.env.green
 ```
 > שנה רק שורה אחת: `SLOT=green`
 
@@ -213,18 +213,18 @@ openssl rand -base64 48
 
 **בדוק שה-containers פועלים:**
 ```bash
-docker ps --filter "name=nightops"
+docker ps --filter "name=DeployCenter"
 ```
 
 צפוי לראות:
 ```
-nightops-backend-blue    Up X minutes
-nightops-frontend-blue   Up X minutes
+DeployCenter-backend-blue    Up X minutes
+DeployCenter-frontend-blue   Up X minutes
 ```
 
 **בדוק בריאות המערכת:**
 ```bash
-cd /tmp/nightops-airgapped-v2.2.0/deployment
+cd /tmp/DeployCenter-airgapped-v2.2.0/deployment
 make health SLOT=blue
 ```
 
@@ -258,7 +258,7 @@ http://SERVER_IP
 ## מבנה הקבצים על השרת (לאחר התקנה)
 
 ```
-/opt/nightops/
+/opt/DeployCenter/
 ├── app/
 │   └── deployment/         ← סקריפטים + nginx config
 ├── blue/
@@ -277,16 +277,16 @@ http://SERVER_IP
 
 ```bash
 # מצב המערכת
-make -C /opt/nightops/app/deployment status
+make -C /opt/DeployCenter/app/deployment status
 
 # לוגים של ה-backend
-docker logs nightops-backend-blue -f
+docker logs DeployCenter-backend-blue -f
 
 # גיבוי DB
-make -C /opt/nightops/app/deployment backup VERSION=v2.2.0
+make -C /opt/DeployCenter/app/deployment backup VERSION=v2.2.0
 
 # הפסקה והפעלה מחדש
-docker restart nightops-backend-blue nightops-frontend-blue
+docker restart DeployCenter-backend-blue DeployCenter-frontend-blue
 ```
 
 ---
@@ -305,7 +305,7 @@ sudo lsof -i :3010
 # בדוק שה-DB פועל
 sudo systemctl status postgresql
 # בדוק חיבור
-psql postgresql://nightops_user:סיסמה@localhost:5432/nightops_prod -c "SELECT 1"
+psql postgresql://DeployCenter_user:סיסמה@localhost:5432/DeployCenter_prod -c "SELECT 1"
 ```
 
 ### "Redis connection refused"
@@ -316,7 +316,7 @@ redis-cli ping
 
 ### Container לא עולה
 ```bash
-docker logs nightops-backend-blue --tail 50
+docker logs DeployCenter-backend-blue --tail 50
 ```
 
 ---

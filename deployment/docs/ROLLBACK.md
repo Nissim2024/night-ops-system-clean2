@@ -1,4 +1,4 @@
-# NightOps — Rollback Runbook
+﻿# DeployCenter — Rollback Runbook
 
 ## מתי לבצע Rollback?
 
@@ -12,7 +12,7 @@
 ## Rollback מיידי (< 1 דקה)
 
 ```bash
-cd /opt/nightops/app/deployment
+cd /opt/DeployCenter/app/deployment
 make rollback
 ```
 
@@ -37,12 +37,12 @@ make health SLOT=blue
 
 ```bash
 # הפעל Blue מחדש מגרסה קודמת
-cd /opt/nightops/app
+cd /opt/DeployCenter/app
 git checkout <גרסה_קודמת>
 
 docker compose \
   -f deployment/blue/docker-compose.yml \
-  --env-file /opt/nightops/blue/.env.blue \
+  --env-file /opt/DeployCenter/blue/.env.blue \
   up -d --build
 
 make health SLOT=blue
@@ -58,11 +58,11 @@ make rollback
 
 ```bash
 # מצא את הגיבוי לפני הdeploy הכושל
-ls /opt/nightops/backups/
+ls /opt/DeployCenter/backups/
 
 # שחזר (requires psql)
-PGPASSWORD=... psql -h DB_HOST -U nightops_user nightops_prod \
-  < <(gunzip -c /opt/nightops/backups/<timestamp>_<version>.sql.gz)
+PGPASSWORD=... psql -h DB_HOST -U DeployCenter_user DeployCenter_prod \
+  < <(gunzip -c /opt/DeployCenter/backups/<timestamp>_<version>.sql.gz)
 ```
 
 ---
@@ -71,11 +71,11 @@ PGPASSWORD=... psql -h DB_HOST -U nightops_user nightops_prod \
 
 ```bash
 # לוג rollback
-tail -50 /opt/nightops/logs/rollback_*.log | sort | tail -50
+tail -50 /opt/DeployCenter/logs/rollback_*.log | sort | tail -50
 
 # לוגי containers
-docker logs nightops-backend-green --tail 100
-docker logs nightops-backend-blue  --tail 100
+docker logs DeployCenter-backend-green --tail 100
+docker logs DeployCenter-backend-blue  --tail 100
 
 # nginx
 tail -50 /var/log/nginx/error.log

@@ -1,8 +1,8 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # prepare_airgapped.sh <version_tag>
 #
 # מריץ על המחשב עם אינטרנט — מכין חבילת deploy לשרת ללא אינטרנט
-# פלט: nightops-airgapped-<version>.tar.gz
+# פלט: deploycenter-airgapped-<version>.tar.gz
 set -euo pipefail
 
 VERSION="${1:-}"
@@ -13,7 +13,7 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUTPUT_DIR="${REPO_ROOT}/dist"
-PACKAGE_NAME="nightops-airgapped-${VERSION}"
+PACKAGE_NAME="deploycenter-airgapped-${VERSION}"
 PACKAGE_DIR="${OUTPUT_DIR}/${PACKAGE_NAME}"
 
 GREEN='\033[0;32m'; BLUE_C='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
@@ -21,11 +21,11 @@ ok()   { echo -e "${GREEN}[✓]${NC} $*"; }
 info() { echo -e "${BLUE_C}[•]${NC} $*"; }
 header() { echo -e "\n${BOLD}══ $* ══${NC}\n"; }
 
-header "NightOps Air-Gapped Package — ${VERSION}"
+header "DeployCenter Air-Gapped Package — ${VERSION}"
 
 # ── 1. קבלת ה-REACT_APP_API_URL ────────────────────────────────────────────
 echo ""
-echo "מה כתובת השרת שהמשתמשים יגשו אליו? (לדוגמה: https://nightops.company.local)"
+echo "מה כתובת השרת שהמשתמשים יגשו אליו? (לדוגמה: https://DeployCenter.company.local)"
 read -rp "SERVER_URL: " SERVER_URL
 if [ -z "$SERVER_URL" ]; then
   echo "חובה להזין כתובת שרת"
@@ -38,31 +38,32 @@ header "בניית Docker Images"
 
 info "Backend..."
 docker build \
-  --tag "nightops-backend:${VERSION}-blue" \
-  --tag "nightops-backend:latest-blue" \
+  --tag "deploycenter-backend:${VERSION}-blue" \
+  --tag "deploycenter-backend:latest-blue" \
   "${REPO_ROOT}/backend"
-ok "nightops-backend:${VERSION}-blue"
+ok "deploycenter-backend:${VERSION}-blue"
 
 info "Frontend (API_URL=${REACT_APP_API_URL})..."
 docker build \
+  --no-cache \
   --build-arg "REACT_APP_API_URL=${REACT_APP_API_URL}" \
   --build-arg "REACT_APP_ENV=prod" \
-  --tag "nightops-frontend:${VERSION}" \
-  --tag "nightops-frontend:latest" \
+  --tag "deploycenter-frontend:${VERSION}" \
+  --tag "deploycenter-frontend:latest" \
   "${REPO_ROOT}/frontend"
-ok "nightops-frontend:${VERSION}"
+ok "deploycenter-frontend:${VERSION}"
 
 # ── 3. שמירת images לקובץ ─────────────────────────────────────────────────
 header "שמירת Images"
 mkdir -p "$OUTPUT_DIR"
-IMAGES_TAR="${OUTPUT_DIR}/nightops-images-${VERSION}.tar"
+IMAGES_TAR="${OUTPUT_DIR}/deploycenter-images-${VERSION}.tar"
 
 info "שומר images (עשוי לקחת כמה דקות)..."
 docker save \
-  "nightops-backend:${VERSION}-blue" \
-  "nightops-backend:latest-blue" \
-  "nightops-frontend:${VERSION}" \
-  "nightops-frontend:latest" \
+  "deploycenter-backend:${VERSION}-blue" \
+  "deploycenter-backend:latest-blue" \
+  "deploycenter-frontend:${VERSION}" \
+  "deploycenter-frontend:latest" \
   -o "$IMAGES_TAR"
 ok "Images נשמרו: ${IMAGES_TAR}"
 
@@ -87,15 +88,15 @@ ok "קבצי deploy הוכנו: ${PACKAGE_DIR}"
 # ── 5. יצירת .env.example ────────────────────────────────────────────────────
 cat > "${PACKAGE_DIR}/deployment/config/.env.example" << 'ENVEOF'
 # ============================================================
-# NightOps — Production Environment
-# העתק ל: /opt/nightops/blue/.env.blue  ו- /opt/nightops/green/.env.green
+# DeployCenter — Production Environment
+# העתק ל: /opt/DeployCenter/blue/.env.blue  ו- /opt/DeployCenter/green/.env.green
 # ============================================================
 
 SLOT=blue
 APP_VERSION=REPLACE_VERSION
 
 # Database (PostgreSQL נטיב על השרת)
-DATABASE_URL=postgresql://nightops_user:REPLACE_PASSWORD@localhost:5432/nightops_prod
+DATABASE_URL=postgresql://DeployCenter_user:REPLACE_PASSWORD@localhost:5432/DeployCenter_prod
 
 # JWT
 JWT_SECRET=REPLACE_WITH_LONG_RANDOM_STRING_MIN_32_CHARS
@@ -119,10 +120,10 @@ ok ".env.example נוצר"
 
 # ── 6. יצירת README להתקנה ────────────────────────────────────────────────────
 cat > "${PACKAGE_DIR}/INSTALL.md" << READMEEOF
-# NightOps ${VERSION} — Air-Gapped Installation
+# DeployCenter ${VERSION} — Air-Gapped Installation
 
 ## מה בחבילה
-- \`nightops-images-${VERSION}.tar\` — Docker images
+- \`deploycenter-images-${VERSION}.tar\` — Docker images
 - \`deployment/\` — סקריפטים + קונפיגורציות
 - \`backend/prisma/\` — DB migrations
 
@@ -137,18 +138,18 @@ cat > "${PACKAGE_DIR}/INSTALL.md" << READMEEOF
 
 ### שלב 1 — העלה חבילה לשרת
 \`\`\`bash
-scp -r nightops-airgapped-${VERSION}/ user@SERVER:/opt/nightops/package/
+scp -r deploycenter-airgapped-${VERSION}/ user@SERVER:/opt/DeployCenter/package/
 \`\`\`
 
 ### שלב 2 — טען Docker images
 \`\`\`bash
-docker load -i /opt/nightops/package/nightops-images-${VERSION}.tar
+docker load -i /opt/DeployCenter/package/deploycenter-images-${VERSION}.tar
 \`\`\`
 
 ### שלב 3 — הרץ initial deploy
 \`\`\`bash
-cd /opt/nightops/package/deployment
-bash scripts/initial_deploy_airgapped.sh ${VERSION} /opt/nightops/package
+cd /opt/DeployCenter/package/deployment
+bash scripts/initial_deploy_airgapped.sh ${VERSION} /opt/DeployCenter/package
 \`\`\`
 
 ### שלב 4 — מלא .env files כשהסקריפט מבקש

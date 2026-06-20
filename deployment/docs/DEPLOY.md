@@ -1,4 +1,4 @@
-# NightOps — Production Deployment Guide
+﻿# DeployCenter — Production Deployment Guide
 
 ## ארכיטקטורה
 
@@ -18,8 +18,8 @@ Redis      (חיצוני) ←──── שני הslots מתחברים לאות
 
 ```bash
 # 1. הורד את הריפו
-git clone https://github.com/Nissim2024/night-ops-system-clean2.git /opt/nightops/app
-cd /opt/nightops/app
+git clone https://github.com/Nissim2024/night-ops-system-clean2.git /opt/DeployCenter/app
+cd /opt/DeployCenter/app
 
 # 2. הרץ את האשף
 make install VERSION=v2.2.0
@@ -32,7 +32,7 @@ make install VERSION=v2.2.0
 ## שדרוג גרסה (Zero Downtime)
 
 ```bash
-cd /opt/nightops/app/deployment
+cd /opt/DeployCenter/app/deployment
 
 # שלב A — Deploy גרסה חדשה ל-Green (Blue ממשיך לשרת!)
 make deploy VERSION=v2.3.0
@@ -41,7 +41,7 @@ make deploy VERSION=v2.3.0
 make switch
 
 # שלב C — אחרי grace period (אופציונלי — סגור Blue)
-docker stop nightops-backend-blue nightops-frontend-blue
+docker stop DeployCenter-backend-blue DeployCenter-frontend-blue
 ```
 
 ---
@@ -49,7 +49,7 @@ docker stop nightops-backend-blue nightops-frontend-blue
 ## מבנה קבצים בשרת
 
 ```
-/opt/nightops/
+/opt/DeployCenter/
 ├── app/                    ← קוד המקור (git)
 │   └── deployment/
 │       ├── blue/

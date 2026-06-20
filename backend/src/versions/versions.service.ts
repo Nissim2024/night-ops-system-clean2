@@ -96,6 +96,7 @@ export class VersionsService {
     importedFileName?: string;
     collectionDeadline?: string;
     reviewMeetingTime?: string;
+    workPlanMeetingTime?: string;
     qcReleaseId?: string;
     createdBy: string;
   }) {
@@ -115,6 +116,7 @@ export class VersionsService {
         importedFileName: data.importedFileName || undefined,
         collectionDeadline: data.collectionDeadline ? new Date(data.collectionDeadline) : undefined,
         reviewMeetingTime: data.reviewMeetingTime ? new Date(data.reviewMeetingTime) : undefined,
+        workPlanMeetingTime: data.workPlanMeetingTime ? new Date(data.workPlanMeetingTime) : undefined,
         qcReleaseId: data.qcReleaseId || undefined,
         createdBy: data.createdBy,
         status: VersionStatus.DRAFT,
@@ -624,7 +626,7 @@ async addTask(subPhaseId: string, data: {
   }
 
   async updateFields(id: string, data: {
-    plannedStart?: string | null; plannedEnd?: string | null; reviewMeetingTime?: string | null;
+    plannedStart?: string | null; plannedEnd?: string | null; reviewMeetingTime?: string | null; workPlanMeetingTime?: string | null;
     integrationStart?: string | null; integrationEnd?: string | null; qaStart?: string | null; qaEnd?: string | null;
     submissionDeadline?: string | null; approvalDeadline?: string | null;
     name?: string; description?: string;
@@ -632,9 +634,10 @@ async addTask(subPhaseId: string, data: {
     const version = await prisma.version.findUnique({ where: { id } });
     if (!version) throw new NotFoundException('Version not found');
     const update: any = {};
-    if ('plannedStart'        in data) update.plannedStart        = data.plannedStart        ? new Date(data.plannedStart)        : null;
-    if ('plannedEnd'          in data) update.plannedEnd          = data.plannedEnd          ? new Date(data.plannedEnd)          : null;
-    if ('reviewMeetingTime'   in data) update.reviewMeetingTime   = data.reviewMeetingTime   ? new Date(data.reviewMeetingTime)   : null;
+    if ('plannedStart'          in data) update.plannedStart          = data.plannedStart          ? new Date(data.plannedStart)          : null;
+    if ('plannedEnd'            in data) update.plannedEnd            = data.plannedEnd            ? new Date(data.plannedEnd)            : null;
+    if ('reviewMeetingTime'     in data) update.reviewMeetingTime     = data.reviewMeetingTime     ? new Date(data.reviewMeetingTime)     : null;
+    if ('workPlanMeetingTime'   in data) update.workPlanMeetingTime   = data.workPlanMeetingTime   ? new Date(data.workPlanMeetingTime)   : null;
     if ('integrationStart'    in data) update.integrationStart    = data.integrationStart    ? new Date(data.integrationStart)    : null;
     if ('integrationEnd'      in data) update.integrationEnd      = data.integrationEnd      ? new Date(data.integrationEnd)      : null;
     if ('qaStart'             in data) update.qaStart             = data.qaStart             ? new Date(data.qaStart)             : null;

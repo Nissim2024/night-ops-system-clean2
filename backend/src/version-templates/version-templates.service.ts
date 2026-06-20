@@ -113,6 +113,7 @@ export class VersionTemplatesService {
     const allUserIds = new Set<string>();
     const allTeamIds = new Set<string>();
     for (const p of structure) {
+      if (p.teamId) allTeamIds.add(p.teamId);
       for (const s of p.subPhases ?? []) {
         for (const t of s.tasks ?? []) {
           if (t.assignedUserId) allUserIds.add(t.assignedUserId);
@@ -136,13 +137,14 @@ export class VersionTemplatesService {
 
     for (let pi = 0; pi < structure.length; pi++) {
       const phaseData = structure[pi];
+      const phaseTeamId = phaseData.teamId && validTeamSet.has(phaseData.teamId) ? phaseData.teamId : null;
       const phase = await prisma.phase.create({
         data: {
           versionId,
           name: phaseData.name,
           orderIndex: phaseData.orderIndex,
           environment: phaseData.environment,
-          ...(phaseData.teamId ? { teamId: phaseData.teamId } : {}),
+          ...(phaseTeamId ? { teamId: phaseTeamId } : {}),
         },
       });
 

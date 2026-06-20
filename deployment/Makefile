@@ -1,4 +1,4 @@
-# NightOps Deployment — Makefile
+﻿# DeployCenter Deployment — Makefile
 # Usage: make <target> [VERSION=v2.x.x]
 
 VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "v2.2.0")
@@ -8,7 +8,7 @@ SCRIPTS  = ./scripts
 
 help:
 	@echo ""
-	@echo "  NightOps Blue/Green Deployment"
+	@echo "  DeployCenter Blue/Green Deployment"
 	@echo "  VERSION=$(VERSION)"
 	@echo ""
 	@echo "  make install   VERSION=v2.2.0   התקנה ראשונית"
@@ -51,12 +51,12 @@ install-airgapped:
 status:
 	@echo ""
 	@echo "=== Active Slot ==="
-	@cat /opt/nightops/state/active_slot 2>/dev/null || echo "unknown"
+	@cat /opt/DeployCenter/state/active_slot 2>/dev/null || echo "unknown"
 	@echo ""
 	@echo "=== Running Containers ==="
 	@docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" \
-	  --filter "name=nightops" 2>/dev/null || echo "docker not available"
+	  --filter "name=DeployCenter" 2>/dev/null || echo "docker not available"
 	@echo ""
 	@echo "=== Nginx Upstream ==="
-	@cat /etc/nginx/conf.d/nightops-upstream.conf 2>/dev/null || echo "nginx not configured"
+	@cat /etc/nginx/conf.d/DeployCenter-upstream.conf 2>/dev/null || echo "nginx not configured"
 	@echo ""

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # deploy_green.sh <version_tag>
 #
 # שלב A — Deploy גרסה חדשה ל-Green slot
@@ -10,7 +10,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../config/nightops.conf"
+source "${SCRIPT_DIR}/../config/DeployCenter.conf"
 
 VERSION="${1:-}"
 if [ -z "$VERSION" ]; then
@@ -29,7 +29,7 @@ warn()   { echo -e "${YELLOW}[!]${NC} $*" | tee -a "$LOG_FILE"; }
 info()   { echo -e "${BLUE}[•]${NC} $*" | tee -a "$LOG_FILE"; }
 header() { echo -e "\n${BOLD}══ $* ══${NC}\n" | tee -a "$LOG_FILE"; }
 
-header "NightOps Deploy Green — ${VERSION}"
+header "DeployCenter Deploy Green — ${VERSION}"
 echo "Log: ${LOG_FILE}"
 echo "$(date '+%Y-%m-%d %H:%M:%S') Deploy started: ${VERSION}" >> "$LOG_FILE"
 
@@ -64,32 +64,32 @@ ENV_FILE="${DEPLOY_BASE}/green/.env.green"
 CORS_ORIGINS_VAL=$(grep "^CORS_ORIGINS=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "")
 PUBLIC_URL=$(echo "$CORS_ORIGINS_VAL" | cut -d, -f1)
 
-info "Building backend image: nightops-backend:${VERSION}-green"
+info "Building backend image: DeployCenter-backend:${VERSION}-green"
 docker build \
-  --tag "nightops-backend:${VERSION}-green" \
-  --tag "nightops-backend:latest-green" \
+  --tag "DeployCenter-backend:${VERSION}-green" \
+  --tag "DeployCenter-backend:latest-green" \
   "${APP_DIR}/backend" 2>&1 | tail -5 | tee -a "$LOG_FILE"
 ok "Backend image built"
 
-info "Building frontend image: nightops-frontend:${VERSION}"
+info "Building frontend image: DeployCenter-frontend:${VERSION}"
 docker build \
   --build-arg "REACT_APP_API_URL=${PUBLIC_URL:-http://localhost}/api" \
   --build-arg "REACT_APP_ENV=prod" \
-  --tag "nightops-frontend:${VERSION}" \
-  --tag "nightops-frontend:latest" \
+  --tag "DeployCenter-frontend:${VERSION}" \
+  --tag "DeployCenter-frontend:latest" \
   "${APP_DIR}/frontend" 2>&1 | tail -5 | tee -a "$LOG_FILE"
 ok "Frontend image built"
 
 # ── 4. Stop existing green (if any) ──────────────────────────────────────────
 header "שלב 4 — ניקוי Green קיים"
-docker stop nightops-backend-green  2>/dev/null && ok "Stopped old backend-green"  || true
-docker stop nightops-frontend-green 2>/dev/null && ok "Stopped old frontend-green" || true
-docker rm   nightops-backend-green  2>/dev/null || true
-docker rm   nightops-frontend-green 2>/dev/null || true
+docker stop DeployCenter-backend-green  2>/dev/null && ok "Stopped old backend-green"  || true
+docker stop DeployCenter-frontend-green 2>/dev/null && ok "Stopped old frontend-green" || true
+docker rm   DeployCenter-backend-green  2>/dev/null || true
+docker rm   DeployCenter-frontend-green 2>/dev/null || true
 
 # ── 5. הבטח שה-network קיים ──────────────────────────────────────────────────
-docker network inspect nightops-net &>/dev/null \
-  || docker network create nightops-net
+docker network inspect DeployCenter-net &>/dev/null \
+  || docker network create DeployCenter-net
 
 # ── 6. העלה Green ────────────────────────────────────────────────────────────
 header "שלב 5 — הפעלת Green Slot"

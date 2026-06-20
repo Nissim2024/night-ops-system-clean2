@@ -131,6 +131,7 @@ model Version {
   status                  VersionStatus @default(DRAFT)
   collectionDeadline      DateTime?
   reviewMeetingTime       DateTime?
+  workPlanMeetingTime     DateTime?
   plannedStart            DateTime?
   plannedEnd              DateTime?
   actualStart             DateTime?
@@ -507,6 +508,8 @@ model VersionCrAssignment {
   qaEffortOverride      Float?   // manual override — not overwritten on re-sync
   requiredSkillMinLevel Int?     // minimum skill level to test this CR (default 1)
   isStandAlone          Boolean  @default(false)
+  estimateDays          Float?   // from "סך כל הערכות" column in CR_LIST
+  hasActual             Boolean? // true when "Actuals" column has a V mark
   syncedAt              DateTime @default(now())
 
   version Version @relation(fields: [versionId], references: [id])

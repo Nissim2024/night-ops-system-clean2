@@ -38,60 +38,7 @@ const PHASE_META: Record<string, {
 
 function isRm(r: string) { return ['RELEASE_MANAGER', 'ADMIN'].includes(r); }
 
-const PHASE_ORDER = ['DRAFT','COLLECTING','CR_REVIEW','REFINING','REVIEW','APPROVED','REHEARSAL','ACTIVE','MORNING_AFTER','COMPLETED'];
 
-// ────────────────────────────────────────────────────────────────
-// Mini progress chain
-// ────────────────────────────────────────────────────────────────
-const CHAIN_NODES = [
-  { key: 'DRAFT',         label: 'טיוטה',  icon: '📋' },
-  { key: 'COLLECTING',    label: 'איסוף',  icon: '📝' },
-  { key: 'CR_REVIEW',     label: 'סקירה',  icon: '🔍' },
-  { key: 'REFINING',      label: 'טיוב',   icon: '✏️' },
-  { key: 'REVIEW',        label: 'מעבר',   icon: '👥' },
-  { key: 'APPROVED',      label: 'אישור',  icon: '✅' },
-  { key: 'REHEARSAL',     label: 'חזרה',   icon: '🎭' },
-  { key: 'ACTIVE',        label: 'לייב',   icon: '🚀' },
-  { key: 'MORNING_AFTER', label: 'בוקר',   icon: '🌅' },
-  { key: 'COMPLETED',     label: 'הושלם',  icon: '🏁' },
-];
-
-function MiniProgressChain({ status }: { status: string }) {
-  const ci = CHAIN_NODES.findIndex(n => {
-    if (status === 'ROLLED_BACK') return n.key === 'MORNING_AFTER';
-    return n.key === status;
-  });
-  const ph = PHASE_META[status] ?? PHASE_META['DRAFT'];
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', padding: '12px 20px', background: C.bgCard, borderRadius: RADIUS.lg, border: `1px solid ${C.border}`, overflowX: 'auto', gap: 0, flexShrink: 0 }}>
-      {CHAIN_NODES.map((n, i) => {
-        const state = i < ci ? 'done' : i === ci ? 'active' : 'pending';
-        return (
-          <React.Fragment key={n.key}>
-            {i > 0 && <div style={{ flex: 1, height: '2px', background: i <= ci ? `${C.success}60` : C.border, minWidth: '12px', transition: EASE.slow }} />}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-              <div style={{
-                width: '28px', height: '28px', borderRadius: '50%',
-                background: state === 'done' ? C.success : state === 'active' ? ph.color : C.bgNested,
-                border: `2px solid ${state === 'done' ? C.success : state === 'active' ? ph.color : C.borderEm}`,
-                boxShadow: state === 'active' ? `0 0 0 3px ${ph.color}25` : 'none',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: state === 'done' ? '10px' : '12px',
-                color: state !== 'pending' ? 'white' : C.textDisabled,
-                transition: EASE.slow,
-              }}>
-                {state === 'done' ? '✓' : n.icon}
-              </div>
-              <span style={{ fontSize: '10px', fontFamily: FONT, whiteSpace: 'nowrap', color: state === 'active' ? ph.color : state === 'done' ? `${C.success}CC` : C.textDisabled, fontWeight: state === 'active' ? WEIGHT.semibold : WEIGHT.normal }}>
-                {n.label}
-              </span>
-            </div>
-          </React.Fragment>
-        );
-      })}
-    </div>
-  );
-}
 
 // ────────────────────────────────────────────────────────────────
 // Stat card
@@ -275,9 +222,6 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, onSel
       {primary && (
         <div style={{ padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
-          {/* ── Progress chain ── */}
-          <MiniProgressChain status={primary.status} />
-
           {/* ── Hero banner ── */}
           {(() => {
             const ph = PHASE_META[primary.status] ?? PHASE_META['DRAFT'];
@@ -324,7 +268,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, onSel
           )}
 
           {/* ── Two-column body ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '16px', alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px', alignItems: 'start' }}>
 
             {/* Left: Actions */}
             <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '20px' }}>

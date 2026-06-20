@@ -1,10 +1,10 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # migrate.sh <version_tag>
 # מריץ prisma migrate deploy דרך ה-backend container הפעיל
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../config/nightops.conf"
+source "${SCRIPT_DIR}/../config/DeployCenter.conf"
 
 VERSION="${1:-unknown}"
 LOG_FILE="${LOG_DIR}/migrate_${VERSION}_$(date +%Y%m%d_%H%M%S).log"
@@ -20,15 +20,15 @@ mkdir -p "$LOG_DIR"
 # ── גלה איזה slot ירוץ עכשיו ─────────────────────────────────────────────────
 ACTIVE_SLOT=$(cat "$STATE_FILE" 2>/dev/null || echo "blue")
 if [ "$ACTIVE_SLOT" = "blue" ]; then
-  TARGET_CONTAINER="nightops-backend-blue"
+  TARGET_CONTAINER="DeployCenter-backend-blue"
 else
-  TARGET_CONTAINER="nightops-backend-green"
+  TARGET_CONTAINER="DeployCenter-backend-green"
 fi
 
 # ── בדוק שה-container קיים ───────────────────────────────────────────────────
 if ! docker ps --format '{{.Names}}' | grep -q "^${TARGET_CONTAINER}$"; then
   # Green container עדיין לא active — נסה green
-  TARGET_CONTAINER="nightops-backend-green"
+  TARGET_CONTAINER="DeployCenter-backend-green"
   if ! docker ps --format '{{.Names}}' | grep -q "^${TARGET_CONTAINER}$"; then
     err "לא נמצא backend container פעיל (blue/green)"
     exit 1

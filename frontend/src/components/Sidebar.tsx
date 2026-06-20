@@ -38,10 +38,10 @@ const GROUPS: Group[] = [
 ];
 
 const QA_VIEWS = [
+  { key: 'assignment', label: 'תכנון ושיבוץ',         icon: '🎯' },
   { key: 'testers',    label: 'בודקים',              icon: '👥' },
   { key: 'skills',     label: 'מטריצת סקילים',        icon: '🧠' },
   { key: 'leaves',     label: 'חופשות',               icon: '📅' },
-  { key: 'assignment', label: 'תכנון ושיבוץ',         icon: '🎯' },
 ];
 
 function versionGroup(v: any): string {

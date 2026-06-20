@@ -59,11 +59,13 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [selectedVersionId, setSelectedVersionId] = useState('');
   const [onlineUsers, setOnlineUsers]           = useState<any[]>([]);
 
-  const [endNightLoading, setEndNightLoading]   = useState(false);
-  const [endNightError, setEndNightError]       = useState<string | null>(null);
-  const [endNightBlockers, setEndNightBlockers] = useState<any[]>([]);
-  const [endNightPending, setEndNightPending]   = useState<number>(0); // pending tasks count when force is available
-  const [summaryReady, setSummaryReady]         = useState(false);
+  const [endNightLoading, setEndNightLoading]       = useState(false);
+  const [endNightError, setEndNightError]           = useState<string | null>(null);
+  const [endNightBlockers, setEndNightBlockers]     = useState<any[]>([]);
+  const [endNightPending, setEndNightPending]       = useState<number>(0);
+  const [rehearsalEndLoading, setRehearsalEndLoading] = useState(false);
+  const [startNightLoading, setStartNightLoading]     = useState(false);
+  const [summaryReady, setSummaryReady]             = useState(false);
   const [currentPhaseName, setCurrentPhaseName] = useState<string | null>(null);
   const [archiveLoading, setArchiveLoading]     = useState(false);
   const [versionFilter, setVersionFilter]       = useState<'active' | 'inactive' | 'archived'>('active');
@@ -253,7 +255,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
     setBlockerReasons({});
   }, [selectedVersionId]); // eslint-disable-line
 
-  // Compute which phase (1-4) is currently active within ACTIVE/REHEARSAL versions
+  // Compute which phase (1-4) is currently active within ACTIVE/REHEARSAL versions.
+  // warRoomRefresh in deps ensures this re-runs on every WebSocket task update.
   useEffect(() => {
     const v = versions.find((x: any) => x.id === selectedVersionId);
     if (!v || !['ACTIVE', 'REHEARSAL'].includes(v.status)) { setActiveRunPhase(1); return; }
@@ -271,7 +274,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
         setActiveRunPhase(Math.min(donePhasesCount + 1, 4));
       })
       .catch(() => {});
-  }, [selectedVersionId, versions]); // eslint-disable-line
+  }, [selectedVersionId, versions, warRoomRefresh]); // eslint-disable-line
 
   const parseMins = (dur: string | null): number | null => {
     if (!dur) return null;
@@ -418,8 +421,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
         case 'overview':  return isExecution;
         case 'timeline':  return can('screen:timeline') && !!(hasRun || selectedVersion?.plannedStart);
         case 'dashboard': return isExecution && can('screen:night');
-        case 'summary-rehearsal': return can('screen:summary') && !!selectedVersion?.lastRehearsalAt;
-        case 'summary-night':    return can('screen:summary') && !!(selectedVersion?.actualStart || ['ACTIVE','MORNING_AFTER','COMPLETED','ROLLED_BACK'].includes(vStatus ?? ''));
+        case 'summary-rehearsal': return can('screen:summary') && (!!selectedVersion?.lastRehearsalAt || (vStatus === 'REHEARSAL' && summaryReady));
+        case 'summary-night':    return can('screen:summary') && vStatus !== 'REHEARSAL' && !!(selectedVersion?.actualStart || ['ACTIVE','MORNING_AFTER','COMPLETED','ROLLED_BACK'].includes(vStatus ?? ''));
         case 'implementation-plans': return ['COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED', 'REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(vStatus ?? '') &&
                                             ['RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'].includes(payload.role);
         default:          return false;
@@ -550,8 +553,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
         </div>
       </div>
 
-      {/* ─── Progress Chain — only when selected version matches current filter ─── */}
-      {activeModule === 'deployments' && selectedVersion && versionFilter !== 'archived' && filteredVersions.some(v => v.id === selectedVersionId) && (
+      {/* ─── Progress Chain — only when a specific version is in focus (not on home tab) ─── */}
+      {activeModule === 'deployments' && activeTab !== 'home' && selectedVersion && versionFilter !== 'archived' && filteredVersions.some(v => v.id === selectedVersionId) && (
         <VersionProgressChain
           versionStatus={selectedVersion.status}
           activeRunPhase={activeRunPhase}
@@ -766,7 +769,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                       <span style={{ fontSize: '22px' }}>🎭</span>
                       <div>
                         <div style={{ fontWeight: 'bold', color: 'white', fontSize: '15px' }}>חזרה גנרלית — {selectedVersion?.name}</div>
-                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', marginTop: '2px' }}>מצב אימון — שינויים לא יכנסו לייצור | לסיום עבור לטאב "דוח סיכום פעילות"</div>
+                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', marginTop: '2px' }}>מצב אימון — שינויים לא יכנסו לייצור</div>
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -788,12 +791,34 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                       </button>
                       {summaryReady && (
                         <button
-                          onClick={() => setActiveTab('summary-night')}
-                          style={{ padding: '8px 20px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap' }}
+                          onClick={() => setActiveTab('summary-rehearsal')}
+                          style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.5)', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', whiteSpace: 'nowrap' }}
                         >
-                          עבור לדוח הסיכום ←
+                          📋 דוח סיכום חזרה
                         </button>
                       )}
+                      <button
+                        onClick={async () => {
+                          const ok = await appDialog.confirm(
+                            'לסיים את החזרה הגנרלית ולחזור למצב "מאושר — ממתין להרצה"?\nלאחר הסיום ניתן להפעיל את ההרצה האמיתית.',
+                            'סיום החזרה הגנרלית',
+                            'warning',
+                          );
+                          if (!ok) return;
+                          setRehearsalEndLoading(true);
+                          try {
+                            await axios.post(`${API}/versions/${selectedVersionId}/end-rehearsal`, {}, { headers });
+                            await fetchVersions();
+                            setActiveTab('summary-rehearsal');
+                          } catch (err: any) {
+                            appDialog.alert(err?.response?.data?.message || 'לא ניתן לסיים את החזרה הגנרלית', 'שגיאה', 'danger');
+                          } finally { setRehearsalEndLoading(false); }
+                        }}
+                        disabled={rehearsalEndLoading}
+                        style={{ padding: '8px 20px', background: rehearsalEndLoading ? 'rgba(0,0,0,0.3)' : '#e67e22', color: 'white', border: 'none', borderRadius: '8px', cursor: rehearsalEndLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap' }}
+                      >
+                        {rehearsalEndLoading ? '...' : '✅ סיים חזרה גנרלית'}
+                      </button>
                     </div>
                   </div>
                 ) : selectedVersion?.status === 'MORNING_AFTER' ? (
@@ -969,6 +994,58 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                   refreshKey={warRoomRefresh}
                 />
               </div>
+            ) : selectedVersion && selectedVersion.status === 'APPROVED' && selectedVersion.lastRehearsalAt ? (
+              /* Post-rehearsal waiting state — clear "start night" CTA */
+              <div style={{
+                background: 'linear-gradient(135deg, #1a2f4a 0%, #2d4a7a 100%)',
+                borderRadius: '14px', padding: '28px 32px', margin: '0 0 16px',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px',
+                direction: 'rtl',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <span style={{ fontSize: '36px' }}>🚀</span>
+                  <div>
+                    <div style={{ fontWeight: 'bold', color: 'white', fontSize: '18px', marginBottom: '4px' }}>
+                      החזרה הושלמה — מוכן לפתיחת לילה
+                    </div>
+                    <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.75)' }}>
+                      {selectedVersion.name} · חזרה בוצעה בהצלחה · ניתן להפעיל את ההרצה האמיתית
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '10px', flexShrink: 0 }}>
+                  <button
+                    onClick={() => setActiveTab('summary-rehearsal')}
+                    style={{ padding: '10px 20px', background: 'rgba(255,255,255,0.12)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '10px', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap' }}
+                  >
+                    📋 סיכום חזרה
+                  </button>
+                  <button
+                    disabled={startNightLoading}
+                    onClick={async () => {
+                      const ok = await appDialog.confirm(
+                        `להפעיל את ההרצה האמיתית של "${selectedVersion.name}"?\nהחל מרגע זה כל שינוי ייחשב כהרצה בפועל.`,
+                        '🌙 פתיחת ליל ההטמעה',
+                        'warning',
+                      );
+                      if (!ok) return;
+                      setStartNightLoading(true);
+                      try {
+                        await axios.patch(`${API}/versions/${selectedVersionId}/status`, { status: 'ACTIVE' }, { headers });
+                        setVersionFilter('active');
+                        await fetchVersions();
+                        setActiveTab('board');
+                      } catch (err: any) {
+                        appDialog.alert(err?.response?.data?.message || 'לא ניתן להפעיל הרצה', 'שגיאה', 'danger');
+                      } finally { setStartNightLoading(false); }
+                    }}
+                    style={{ padding: '10px 24px', background: startNightLoading ? '#999' : '#F06A6A', color: 'white', border: 'none', borderRadius: '10px', cursor: startNightLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '15px', whiteSpace: 'nowrap', boxShadow: '0 2px 8px rgba(240,106,106,0.4)' }}
+                  >
+                    {startNightLoading ? '...' : '🌙 פתח לילה ←'}
+                  </button>
+                </div>
+              </div>
             ) : (
               <NoActiveVersionMessage />
             )
@@ -1050,8 +1127,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
             ) : <EmptyVersionMessage />
           )}
 
-          {/* ── Tab: סיכום ליל ההטמעה ── */}
-          {activeTab === 'summary-night' && (
+          {/* ── Tab: סיכום ליל ההטמעה — never render during REHEARSAL (prevents accidental nightSummary approval) ── */}
+          {activeTab === 'summary-night' && selectedVersion?.status !== 'REHEARSAL' && (
             noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
             selectedVersionId && selectedVersion ? (
               <div>

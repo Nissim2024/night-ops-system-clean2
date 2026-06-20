@@ -90,12 +90,14 @@ export class VersionCrAssignmentsService {
     const headers: string[] = (rows[headerRowIdx] as any[]).map(h => String(h ?? '').trim());
     const colIdx = (name: string) => headers.findIndex(h => h === name);
 
-    const crCol      = colIdx('# CR');
-    const titleCol   = colIdx('כותרת');
-    const verCol     = colIdx('גרסה');
-    const statusCol  = colIdx('סטטוס');
-    const appCol     = colIdx('מאפיין');
-    const projectCol = colIdx('פרויקט');
+    const crCol          = colIdx('# CR');
+    const titleCol       = colIdx('כותרת');
+    const verCol         = colIdx('גרסה');
+    const statusCol      = colIdx('סטטוס');
+    const appCol         = colIdx('מאפיין');
+    const projectCol     = colIdx('פרויקט');
+    const estimateCol    = colIdx('סך כל הערכות');
+    const actualsCol     = colIdx('Actuals');
     const COL_DESCRIPTION = 5;
     const COL_MANAGER     = 9;
 
@@ -138,11 +140,32 @@ export class VersionCrAssignmentsService {
     // Only CRs appearing in BOTH sets enter the version scope
     const eligibleCRs = new Set([...qaCRs].filter(cr => nonQaCRs.has(cr)));
 
+    // Pre-compute per-CR values from non-team-specific columns (same for all teams)
+    const crEstimateDays: Record<string, number | null> = {};
+    const crHasActual:    Record<string, boolean>       = {};
+    for (let r = headerRowIdx + 1; r < rows.length; r++) {
+      const row = rows[r] as any[];
+      const crNumber = crCol !== -1 ? String(row[crCol] ?? '').trim() : '';
+      if (!crNumber) continue;
+      if (estimateCol !== -1 && !(crNumber in crEstimateDays)) {
+        const raw = parseFloat(String(row[estimateCol] ?? '').replace(/[^\d.]/g, ''));
+        crEstimateDays[crNumber] = isNaN(raw) ? null : raw;
+      }
+      if (actualsCol !== -1 && !crHasActual[crNumber]) {
+        const cell = String(row[actualsCol] ?? '').trim().toLowerCase();
+        if (cell === 'v' || cell === '✓' || cell === 'x' || cell === 'yes' || cell === 'כן') {
+          crHasActual[crNumber] = true;
+        }
+      }
+    }
+
     // ── Pass 2: collect assignments for eligible CRs only ──
     type Assignment = {
       crNumber: string; crLabel: string; teamId: string;
       crManager: string; crDescription: string; application: string; project: string;
-      qaEffort?: number; // DAYS — only for QA Team rows
+      qaEffort?: number;    // DAYS — only for QA Team rows
+      estimateDays?: number | null;
+      hasActual?: boolean;
     };
     const assignments: Assignment[] = [];
     const seen = new Set<string>(); // "crNumber|teamId"
@@ -189,6 +212,8 @@ export class VersionCrAssignmentsService {
           application:   appCol     !== -1 ? String(row[appCol]     ?? '').trim() : '',
           project:       projectCol !== -1 ? String(row[projectCol] ?? '').trim() : '',
           ...(qaEffortDays !== undefined ? { qaEffort: qaEffortDays } : {}),
+          estimateDays: crEstimateDays[crNumber] ?? null,
+          hasActual:    crHasActual[crNumber] ?? false,
         });
       }
     }
@@ -212,6 +237,8 @@ export class VersionCrAssignmentsService {
           ...(a.project ? { project: a.project } : {}),
           syncedAt:      now,
           ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
+          estimateDays:  a.estimateDays ?? null,
+          hasActual:     a.hasActual ?? false,
         } as any,
         update: {
           crLabel:       a.crLabel,
@@ -221,6 +248,8 @@ export class VersionCrAssignmentsService {
           ...(a.project ? { project: a.project } : {}),
           syncedAt:      now,
           ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
+          estimateDays:  a.estimateDays ?? null,
+          hasActual:     a.hasActual ?? false,
         } as any,
       });
       synced++;
@@ -270,5 +299,48 @@ export class VersionCrAssignmentsService {
     if (!MANAGERS.includes(user.role)) throw new ForbiddenException('נדרשת הרשאת מנהל');
     const { count } = await prisma.versionCrAssignment.deleteMany({ where: { versionId } });
     return { deleted: count };
+  }
+
+  async getVersionStats(versionId: string): Promise<{
+    qaTaskCount: number;
+    totalEstimateDays: number;
+    actualsCount: number;
+  }> {
+    const rows: any[] = await (prisma.versionCrAssignment as any).findMany({
+      where: { versionId },
+      select: { crNumber: true, teamId: true, qaEffort: true, estimateDays: true, hasActual: true },
+    });
+
+    const allTeams = await prisma.team.findMany({ where: { name: 'QA Team' }, select: { id: true } });
+    const qaTeamId = allTeams[0]?.id;
+
+    // Distinct CRs with QA effort > 0.5
+    const qaCrSet = new Set<string>();
+    for (const r of rows) {
+      if (qaTeamId && r.teamId === qaTeamId && (r.qaEffort ?? 0) > 0.5) {
+        qaCrSet.add(r.crNumber);
+      }
+    }
+
+    // Sum estimate days per distinct CR (avoid double-counting across teams)
+    const crEstimates: Record<string, number> = {};
+    for (const r of rows) {
+      if (!(r.crNumber in crEstimates) && r.estimateDays != null) {
+        crEstimates[r.crNumber] = r.estimateDays;
+      }
+    }
+    const totalEstimateDays = Object.values(crEstimates).reduce((s, v) => s + v, 0);
+
+    // Count distinct CRs with Actuals = true
+    const actualsCrSet = new Set<string>();
+    for (const r of rows) {
+      if (r.hasActual) actualsCrSet.add(r.crNumber);
+    }
+
+    return {
+      qaTaskCount: qaCrSet.size,
+      totalEstimateDays: Math.round(totalEstimateDays * 10) / 10,
+      actualsCount: actualsCrSet.size,
+    };
   }
 }

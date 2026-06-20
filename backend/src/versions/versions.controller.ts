@@ -39,6 +39,7 @@ export class VersionsController {
     qaEnd?: string;
     collectionDeadline?: string;
     reviewMeetingTime?: string;
+    workPlanMeetingTime?: string;
     qcReleaseId?: string;
   }, @Request() req: any) {
     requireRole(req, MANAGERS, 'רק מנהל לילה יכול ליצור גרסה');
@@ -60,7 +61,7 @@ export class VersionsController {
   updateFields(
     @Param('id') id: string,
     @Body() body: {
-      plannedStart?: string | null; plannedEnd?: string | null; reviewMeetingTime?: string | null;
+      plannedStart?: string | null; plannedEnd?: string | null; reviewMeetingTime?: string | null; workPlanMeetingTime?: string | null;
       integrationStart?: string | null; integrationEnd?: string | null; qaStart?: string | null; qaEnd?: string | null;
       submissionDeadline?: string | null; approvalDeadline?: string | null;
       name?: string; description?: string;

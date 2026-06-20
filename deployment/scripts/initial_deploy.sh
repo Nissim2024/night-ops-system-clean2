@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # initial_deploy.sh <version_tag>
 #
 # התקנה ראשונית — מריץ פעם אחת בלבד
@@ -6,7 +6,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../config/nightops.conf"
+source "${SCRIPT_DIR}/../config/DeployCenter.conf"
 
 VERSION="${1:-}"
 if [ -z "$VERSION" ]; then
@@ -21,7 +21,7 @@ err()    { echo -e "${RED}[✗]${NC} $*"; }
 info()   { echo -e "${BLUE_C}[•]${NC} $*"; }
 header() { echo -e "\n${BOLD}══ $* ══${NC}\n"; }
 
-header "NightOps Initial Deploy — ${VERSION}"
+header "DeployCenter Initial Deploy — ${VERSION}"
 
 # ── 1. יצירת תיקיות ──────────────────────────────────────────────────────────
 header "יצירת תשתית"
@@ -61,9 +61,9 @@ else
 fi
 
 # ── 4. Docker network ────────────────────────────────────────────────────────
-docker network inspect nightops-net &>/dev/null \
-  || docker network create nightops-net
-ok "Docker network: nightops-net"
+docker network inspect DeployCenter-net &>/dev/null \
+  || docker network create DeployCenter-net
+ok "Docker network: DeployCenter-net"
 
 # ── 5. Build images ──────────────────────────────────────────────────────────
 header "Docker Build"
@@ -73,19 +73,19 @@ PUBLIC_URL=$(echo "$CORS_ORIGINS_VAL" | cut -d, -f1)
 
 info "Building backend..."
 docker build \
-  --tag "nightops-backend:${VERSION}-blue" \
-  --tag "nightops-backend:latest-blue" \
+  --tag "DeployCenter-backend:${VERSION}-blue" \
+  --tag "DeployCenter-backend:latest-blue" \
   "${APP_DIR}/backend"
-ok "Backend image: nightops-backend:${VERSION}-blue"
+ok "Backend image: DeployCenter-backend:${VERSION}-blue"
 
 info "Building frontend..."
 docker build \
   --build-arg "REACT_APP_API_URL=${PUBLIC_URL:-http://localhost}/api" \
   --build-arg "REACT_APP_ENV=prod" \
-  --tag "nightops-frontend:${VERSION}" \
-  --tag "nightops-frontend:latest" \
+  --tag "DeployCenter-frontend:${VERSION}" \
+  --tag "DeployCenter-frontend:latest" \
   "${APP_DIR}/frontend"
-ok "Frontend image: nightops-frontend:${VERSION}"
+ok "Frontend image: DeployCenter-frontend:${VERSION}"
 
 # ── 6. Start Blue ─────────────────────────────────────────────────────────────
 header "הפעלת Blue Slot"
@@ -101,7 +101,7 @@ header "Health Check"
 info "ממתין לעלייה (20 שניות)..."
 sleep 20
 bash "${SCRIPT_DIR}/healthcheck.sh" blue || {
-  err "Blue לא בריא — בדוק logs: docker logs nightops-backend-blue"
+  err "Blue לא בריא — בדוק logs: docker logs DeployCenter-backend-blue"
   exit 1
 }
 
@@ -113,7 +113,7 @@ bash "${SCRIPT_DIR}/migrate.sh" "$VERSION"
 # ── 9. nginx config ──────────────────────────────────────────────────────────
 header "Nginx Configuration"
 info "מעתיק קבצי nginx..."
-cp "${SCRIPT_DIR}/../nginx/nightops.conf" "$NGINX_SITE_CONF"
+cp "${SCRIPT_DIR}/../nginx/DeployCenter.conf" "$NGINX_SITE_CONF"
 cp "${SCRIPT_DIR}/../nginx/upstream-blue.conf" "$NGINX_UPSTREAM_CONF"
 
 if nginx -t; then
@@ -131,7 +131,7 @@ ok "State → blue"
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}${GREEN}║   NightOps ${VERSION} הותקן בהצלחה!              ${NC}"
+echo -e "${BOLD}${GREEN}║   DeployCenter ${VERSION} הותקן בהצלחה!              ${NC}"
 echo -e "${BOLD}${GREEN}║                                                      ${NC}"
 echo -e "${BOLD}${GREEN}║   Slot פעיל: BLUE                                   ${NC}"
 echo -e "${BOLD}${GREEN}║   Backend:  127.0.0.1:${BLUE_BACKEND_PORT}                        ${NC}"
