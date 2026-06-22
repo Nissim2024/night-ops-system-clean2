@@ -1,7 +1,10 @@
 ﻿import { useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-const SOCKET_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
+// If API URL is relative (e.g. "/api"), socket.io connects to the origin root.
+// If API URL is absolute (e.g. "http://localhost:3000"), socket.io connects there directly (dev mode).
+const _apiUrl = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
+const SOCKET_URL = _apiUrl.startsWith('/') ? window.location.origin : _apiUrl;
 
 interface UseSocketOptions {
   userId: string;

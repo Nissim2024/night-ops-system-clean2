@@ -1,0 +1,21 @@
+[Unit]
+Description=DeployCenter API Server
+Documentation=https://github.com/Nissim2024/night-ops-system-clean2
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/deploycenter/backend
+ExecStart=/usr/bin/node dist/src/main.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=deploycenter-api
+Environment=NODE_ENV=prod
+EnvironmentFile=/var/www/deploycenter/backend/.env.prod
+
+[Install]
+WantedBy=multi-user.target
