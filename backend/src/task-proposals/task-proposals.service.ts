@@ -210,17 +210,20 @@ export class TaskProposalsService {
   async getTeamStatus(versionId: string) {
     const proposals = await prisma.taskProposal.findMany({
       where: { versionId },
-      select: {
-        teamId: true,
-        status: true,
-        team: { select: { name: true } },
-      },
+      select: { teamId: true, status: true },
     });
+
+    const teamIds = [...new Set(proposals.map(p => p.teamId))];
+    const teams = await prisma.team.findMany({
+      where: { id: { in: teamIds } },
+      select: { id: true, name: true },
+    });
+    const teamNameMap = new Map(teams.map(t => [t.id, t.name]));
 
     const map = new Map<string, { teamId: string; teamName: string; total: number; draft: number; submitted: number; returned: number; approved: number }>();
     for (const p of proposals) {
       if (!map.has(p.teamId)) {
-        map.set(p.teamId, { teamId: p.teamId, teamName: (p.team as any).name, total: 0, draft: 0, submitted: 0, returned: 0, approved: 0 });
+        map.set(p.teamId, { teamId: p.teamId, teamName: teamNameMap.get(p.teamId) ?? p.teamId, total: 0, draft: 0, submitted: 0, returned: 0, approved: 0 });
       }
       const row = map.get(p.teamId)!;
       row.total++;
