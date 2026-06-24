@@ -651,6 +651,9 @@ async addTask(subPhaseId: string, data: {
   }) {
     const version = await prisma.version.findUnique({ where: { id } });
     if (!version) throw new NotFoundException('Version not found');
+    if (['COMPLETED', 'ROLLED_BACK'].includes(version.status)) {
+      throw new BadRequestException('גרסה סגורה (COMPLETED / ROLLED_BACK) נעולה לעריכה');
+    }
     const update: any = {};
     if ('plannedStart'          in data) update.plannedStart          = data.plannedStart          ? new Date(data.plannedStart)          : null;
     if ('plannedEnd'            in data) update.plannedEnd            = data.plannedEnd            ? new Date(data.plannedEnd)            : null;

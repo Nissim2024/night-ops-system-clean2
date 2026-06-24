@@ -36,7 +36,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
   const isManager = ['RELEASE_MANAGER', 'ADMIN'].includes(userRole);
   const isClosed  = ['COMPLETED', 'ROLLED_BACK'].includes(s);
   const isAdmin   = userRole === 'ADMIN';
-  const isLocked  = isClosed && !isAdmin;
+  const isLocked  = isClosed;   // גרסות סגורות נעולות לכולם — כולל ADMIN
   const canEdit   = !isLocked && ['RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'].includes(userRole);
   const now       = new Date();
   const plannedStartPassed = version.plannedStart ? new Date(version.plannedStart) <= now : false;
