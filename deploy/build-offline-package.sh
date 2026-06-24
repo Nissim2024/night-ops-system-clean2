@@ -7,7 +7,7 @@
 #   wsl bash /mnt/c/Projects/night-ops-system-clean2/deploy/build-offline-package.sh https://deploycenter.YOURCOMPANY.com
 #
 # הקובץ המוכן ייוצר על שולחן העבודה שלך:
-#   C:\Users\<user>\Desktop\deploycenter-v2.6.0-offline.tar.gz
+#   C:\Users\<user>\Desktop\deploycenter-v2.6.1-offline.tar.gz
 # ============================================================
 
 set -e
@@ -23,7 +23,7 @@ fi
 WINDOWS_REPO="/mnt/c/Projects/night-ops-system-clean2"
 LINUX_BUILD="$HOME/deploycenter-build-tmp"
 WINDOWS_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r')
-OUTPUT_WIN="/mnt/c/Users/$WINDOWS_USER/Desktop/deploycenter-v2.6.0-offline.tar.gz"
+OUTPUT_WIN="/mnt/c/Users/$WINDOWS_USER/Desktop/deploycenter-v2.6.1-offline.tar.gz"
 
 echo ""
 echo "======================================================"
@@ -95,21 +95,21 @@ echo "✅ חבילה ארוזה"
 echo ""
 echo "🗜️  יוצר קובץ tar.gz..."
 cd "$HOME"
-tar -czf deploycenter-v2.6.0-offline.tar.gz deploycenter-package/
+tar -czf deploycenter-v2.6.1-offline.tar.gz deploycenter-package/
 
 # העבר לשולחן העבודה של Windows
-cp "$HOME/deploycenter-v2.6.0-offline.tar.gz" "$OUTPUT_WIN" 2>/dev/null || {
+cp "$HOME/deploycenter-v2.6.1-offline.tar.gz" "$OUTPUT_WIN" 2>/dev/null || {
   echo "⚠️  לא הצלחתי להעתיק לשולחן העבודה."
-  echo "   הקובץ נמצא ב: $HOME/deploycenter-v2.6.0-offline.tar.gz"
-  echo "   הרץ: cp ~/deploycenter-v2.6.0-offline.tar.gz /mnt/c/Users/\$USER/Desktop/"
+  echo "   הקובץ נמצא ב: $HOME/deploycenter-v2.6.1-offline.tar.gz"
+  echo "   הרץ: cp ~/deploycenter-v2.6.1-offline.tar.gz /mnt/c/Users/\$USER/Desktop/"
 }
 
 echo ""
 echo "======================================================"
 echo " ✅ חבילה מוכנה!"
 echo ""
-echo " קובץ: deploycenter-v2.6.0-offline.tar.gz"
-echo " גודל: $(du -sh $HOME/deploycenter-v2.6.0-offline.tar.gz | cut -f1)"
+echo " קובץ: deploycenter-v2.6.1-offline.tar.gz"
+echo " גודל: $(du -sh $HOME/deploycenter-v2.6.1-offline.tar.gz | cut -f1)"
 echo ""
 echo " העבר את הקובץ לשרת והרץ:"
 echo "   sudo bash /tmp/deploycenter-package/deploy/install-offline.sh"

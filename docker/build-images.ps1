@@ -6,7 +6,7 @@
 # ============================================================
 
 $ErrorActionPreference = "Stop"
-$VERSION = "2.6.0"
+$VERSION = "2.6.1"
 $OUTPUT = "deploycenter-docker-v$VERSION.tar"
 
 Write-Host ""

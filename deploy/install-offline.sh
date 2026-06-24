@@ -8,8 +8,8 @@
 #   ✅ Nginx (רץ)
 #
 # אופן שימוש:
-#   1. העבר את deploycenter-v2.6.0-offline.tar.gz לשרת
-#   2. tar -xzf deploycenter-v2.6.0-offline.tar.gz -C /tmp
+#   1. העבר את deploycenter-v2.6.1-offline.tar.gz לשרת
+#   2. tar -xzf deploycenter-v2.6.1-offline.tar.gz -C /tmp
 #   3. sudo bash /tmp/deploycenter-package/deploy/install-offline.sh
 # ============================================================
 

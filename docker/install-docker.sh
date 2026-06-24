@@ -4,7 +4,7 @@
 # RHEL 9 + Docker מותקן ורץ
 #
 # שלבים לפני הרצה:
-#   1. העבר לשרת: deploycenter-docker-v2.6.0.tar
+#   1. העבר לשרת: deploycenter-docker-v2.6.1.tar
 #   2. העבר לשרת: docker-compose.offline.yml
 #   3. צור .env (ממלא .env.template)
 #   4. הרץ: sudo bash install-docker.sh
@@ -12,7 +12,7 @@
 
 set -e
 
-VERSION="2.6.0"
+VERSION="2.6.1"
 IMAGES_TAR="deploycenter-docker-v${VERSION}.tar"
 COMPOSE_FILE="docker-compose.offline.yml"
 APP_DIR="/opt/deploycenter"
