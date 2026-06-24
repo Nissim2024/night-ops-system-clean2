@@ -1,0 +1,54 @@
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: dc-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     dcuser
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB:       deploycenter
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - dc-net
+    healthcheck:
+      test:         ["CMD-SHELL", "pg_isready -U dcuser -d deploycenter"]
+      interval:     5s
+      timeout:      3s
+      retries:      10
+      start_period: 15s
+
+  api:
+    image: deploycenter-api:2.6.0
+    container_name: dc-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV:     prod
+      PORT:         3000
+      DATABASE_URL: postgresql://dcuser:${DB_PASSWORD}@dc-postgres:5432/deploycenter
+      JWT_SECRET:   ${JWT_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - dc-net
+
+  frontend:
+    image: deploycenter-frontend:2.6.0
+    container_name: dc-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    networks:
+      - dc-net
+
+networks:
+  dc-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
