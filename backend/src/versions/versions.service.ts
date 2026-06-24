@@ -551,8 +551,26 @@ async addTask(subPhaseId: string, data: {
       const n = parseInt(dur); return isNaN(n) ? null : n;
     };
 
-    // ACTIVE → MORNING_AFTER: save night snapshot, no full-task validation required
+    // ACTIVE → MORNING_AFTER: save night snapshot
     if (status === VersionStatus.MORNING_AFTER) {
+      // Guard: at least one night task must have been started (actualStart or actualFinish set)
+      // to prevent transitioning immediately after starting the night without running anything.
+      const startedCount = await prisma.task.count({
+        where: {
+          versionId: id,
+          OR: [
+            { actualStart:  { not: null } },
+            { actualFinish: { not: null } },
+            { status: { in: ['IN_PROGRESS', 'DONE', 'FAILED', 'ROLLED_BACK', 'BLOCKED'] as any } },
+          ],
+        },
+      });
+      if (startedCount === 0) {
+        throw new BadRequestException(
+          'לא ניתן לסיים פעילות — אף משימת לילה לא התחילה. ודא שפעילות הלילה אכן הורצה.',
+        );
+      }
+
       const tasks = await prisma.task.findMany({
         where: { versionId: id },
         include: { assignedTeam: { select: { id: true, name: true } } },

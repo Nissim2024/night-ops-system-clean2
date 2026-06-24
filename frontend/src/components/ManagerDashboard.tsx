@@ -312,6 +312,12 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   });
 
   const endNight = async () => {
+    const confirmed = await appDialog.confirm(
+      'לסיים את פעילות הלילה ולעבור לשלב "בוקר שלאחר"?\n\nמשימות שלא הושלמו יישארו פתוחות. לא ניתן לחזור לסטטוס "פעיל" לאחר מכן.',
+      'סיום פעילות הלילה',
+      'warning',
+    );
+    if (!confirmed) return;
     setEndNightLoading(true);
     setEndNightError(null);
     setEndNightBlockers([]);

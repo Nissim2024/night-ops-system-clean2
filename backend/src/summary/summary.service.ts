@@ -464,7 +464,6 @@ export class SummaryService {
           orderBy: { orderIndex: 'asc' },
           select: {
             id: true, name: true, plannedStart: true, plannedEnd: true,
-            actualStart: true, actualEnd: true,
             subPhases: { select: { id: true, name: true } },
           },
         },
@@ -560,28 +559,33 @@ export class SummaryService {
     for (const ph of version.phases) {
       for (const sp of ph.subPhases) subPhaseToPhase.set(sp.id, ph.id);
     }
-    const phaseTaskMap = new Map<string, { total: number; done: number; }>();
+    const phaseTaskMap = new Map<string, { total: number; done: number; starts: Date[]; finishes: Date[] }>();
     for (const t of tasks) {
       const phId = t.subPhaseId ? subPhaseToPhase.get(t.subPhaseId) : null;
       if (!phId) continue;
-      if (!phaseTaskMap.has(phId)) phaseTaskMap.set(phId, { total: 0, done: 0 });
-      phaseTaskMap.get(phId)!.total++;
-      if (t.status === 'DONE') phaseTaskMap.get(phId)!.done++;
+      if (!phaseTaskMap.has(phId)) phaseTaskMap.set(phId, { total: 0, done: 0, starts: [], finishes: [] });
+      const row = phaseTaskMap.get(phId)!;
+      row.total++;
+      if (t.status === 'DONE') row.done++;
+      if (t.actualStart)  row.starts.push(t.actualStart);
+      if (t.actualFinish) row.finishes.push(t.actualFinish);
     }
     const byPhase = version.phases.map(ph => {
-      const counts = phaseTaskMap.get(ph.id) ?? { total: 0, done: 0 };
+      const counts = phaseTaskMap.get(ph.id) ?? { total: 0, done: 0, starts: [], finishes: [] };
+      const phActualStart  = counts.starts.length   ? new Date(Math.min(...counts.starts.map(d => d.getTime())))   : null;
+      const phActualEnd    = counts.finishes.length  ? new Date(Math.max(...counts.finishes.map(d => d.getTime()))) : null;
       const plannedDur = ph.plannedStart && ph.plannedEnd
         ? Math.round((ph.plannedEnd.getTime() - ph.plannedStart.getTime()) / 60000) : null;
-      const actualDur = ph.actualStart && ph.actualEnd
-        ? Math.round((ph.actualEnd.getTime() - ph.actualStart.getTime()) / 60000) : null;
+      const actualDur = phActualStart && phActualEnd
+        ? Math.round((phActualEnd.getTime() - phActualStart.getTime()) / 60000) : null;
       return {
         phaseName: ph.name,
         plannedStart: ph.plannedStart, plannedEnd: ph.plannedEnd,
-        actualStart: ph.actualStart,   actualEnd: ph.actualEnd,
+        actualStart: phActualStart,    actualEnd: phActualEnd,
         plannedDurMins: plannedDur,
         actualDurMins: actualDur,
         delayMins: (plannedDur !== null && actualDur !== null) ? actualDur - plannedDur : null,
-        ...counts,
+        total: counts.total, done: counts.done,
       };
     });
 
