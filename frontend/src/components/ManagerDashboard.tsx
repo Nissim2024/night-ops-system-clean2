@@ -765,10 +765,10 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 {selectedVersion?.status === 'REHEARSAL' ? (
                   /* Rehearsal header */
                   <div style={{
-                    background: 'linear-gradient(135deg, #7d3c00 0%, #f39c12 100%)',
+                    background: 'linear-gradient(135deg, #4c1d95 0%, #7c3aed 100%)',
                     borderRadius: '12px', padding: '12px 20px', marginBottom: '14px',
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                    boxShadow: '0 2px 8px rgba(109,40,217,0.25)',
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <span style={{ fontSize: '22px' }}>🎭</span>
@@ -820,7 +820,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                           } finally { setRehearsalEndLoading(false); }
                         }}
                         disabled={rehearsalEndLoading}
-                        style={{ padding: '8px 20px', background: rehearsalEndLoading ? 'rgba(0,0,0,0.3)' : '#e67e22', color: 'white', border: 'none', borderRadius: '8px', cursor: rehearsalEndLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap' }}
+                        style={{ padding: '8px 20px', background: rehearsalEndLoading ? 'rgba(0,0,0,0.3)' : '#7c3aed', color: 'white', border: 'none', borderRadius: '8px', cursor: rehearsalEndLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap' }}
                       >
                         {rehearsalEndLoading ? '...' : '✅ סיים חזרה גנרלית'}
                       </button>
@@ -1109,7 +1109,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
             noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
             selectedVersionId && selectedVersion ? (
               <div>
-                <div style={{ background: 'linear-gradient(135deg, #7d3c00 0%, #f39c12 100%)', borderRadius: '12px', padding: '14px 20px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ background: 'linear-gradient(135deg, #4c1d95 0%, #7c3aed 100%)', borderRadius: '12px', padding: '14px 20px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <span style={{ fontSize: '22px' }}>🎭</span>
                   <div>
                     <div style={{ fontWeight: 'bold', color: 'white', fontSize: '15px' }}>סיכום חזרה גנרלית — {selectedVersion.name}</div>

@@ -1344,9 +1344,9 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 
         {/* ── HTML Report (after approval) — intentionally white for print/email ── */}
         {summaryRecord?.sentAt && (
-          <div style={{ background: 'white', borderRadius: '12px', padding: '32px', border: `3px solid ${isRehearsal ? '#f39c12' : C.brand}` }}>
-            <div style={{ textAlign: 'center', borderBottom: `2px solid ${isRehearsal ? '#f39c12' : '#1a2332'}`, paddingBottom: '16px', marginBottom: '24px' }}>
-              <div style={{ fontSize: '28px', fontWeight: 'bold', color: isRehearsal ? '#7d3c00' : '#1a2332' }}>
+          <div style={{ background: 'white', borderRadius: '12px', padding: '32px', border: `3px solid ${isRehearsal ? '#7c3aed' : C.brand}` }}>
+            <div style={{ textAlign: 'center', borderBottom: `2px solid ${isRehearsal ? '#7c3aed' : '#1a2332'}`, paddingBottom: '16px', marginBottom: '24px' }}>
+              <div style={{ fontSize: '28px', fontWeight: 'bold', color: isRehearsal ? '#4c1d95' : '#1a2332' }}>
                 {isRehearsal ? '🎭 סיכום חזרה גנרלית' : '🌙 סיכום ליל ההטמעה'} (<bdi>{versionName}</bdi>)
               </div>
               {isRehearsal && <div style={{ color: '#c0392b', fontSize: '13px', marginTop: '6px', fontWeight: 'bold' }}>⚠ מסמך זה הופק מחזרה גנרלית ואינו משקף לילה אמיתי</div>}
