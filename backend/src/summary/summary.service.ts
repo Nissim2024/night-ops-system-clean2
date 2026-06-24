@@ -453,4 +453,160 @@ export class SummaryService {
     const tasks: any[] = version.lastNightSnapshot ?? [];
     return this.generateSummary(versionId, headline, morningNotes, false, tasks);
   }
+
+  async getNightStats(versionId: string) {
+    const version = await prisma.version.findUnique({
+      where: { id: versionId },
+      select: {
+        name: true, plannedStart: true, plannedEnd: true,
+        actualStart: true, status: true,
+        phases: {
+          orderBy: { orderIndex: 'asc' },
+          select: {
+            id: true, name: true, plannedStart: true, plannedEnd: true,
+            actualStart: true, actualEnd: true,
+            subPhases: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+    if (!version) throw new Error('Version not found');
+
+    const tasks = await prisma.task.findMany({
+      where: { versionId },
+      select: {
+        id: true, title: true, status: true, crNumber: true,
+        assignedTeamId: true,
+        assignedTeam: { select: { name: true } },
+        plannedStart: true, plannedEnd: true,
+        actualStart: true, actualFinish: true,
+        blockedReason: true, delayReason: true, failedReason: true,
+        subPhaseId: true,
+      },
+      orderBy: { orderIndex: 'asc' },
+    });
+
+    // ── Overview ──────────────────────────────────────────────────
+    const done       = tasks.filter(t => t.status === 'DONE').length;
+    const failed     = tasks.filter(t => t.status === 'FAILED').length;
+    const rolledBack = tasks.filter(t => t.status === 'ROLLED_BACK').length;
+    const blocked    = tasks.filter(t => t.status === 'BLOCKED').length;
+    const inProgress = tasks.filter(t => t.status === 'IN_PROGRESS').length;
+
+    const crNumbers = [...new Set(tasks.filter(t => t.crNumber).map(t => t.crNumber!))];
+    const doneCrs   = [...new Set(tasks.filter(t => t.crNumber && t.status === 'DONE').map(t => t.crNumber!))];
+
+    // Actual end = latest actualFinish across all tasks
+    const finishes = tasks.map(t => t.actualFinish).filter(Boolean) as Date[];
+    const actualEnd = finishes.length ? new Date(Math.max(...finishes.map(d => d.getTime()))) : null;
+
+    const overview = {
+      versionName:   version.name,
+      status:        version.status,
+      plannedStart:  version.plannedStart,
+      plannedEnd:    version.plannedEnd,
+      actualStart:   version.actualStart,
+      actualEnd,
+      totalTasks:    tasks.length,
+      done, failed, rolledBack, blocked, inProgress,
+      open: tasks.length - done - failed - rolledBack - blocked - inProgress,
+      totalCrs: crNumbers.length,
+      doneCrs:  doneCrs.length,
+    };
+
+    // ── Per Team ─────────────────────────────────────────────────
+    const teamMap = new Map<string, { teamId: string; teamName: string; total: number; done: number; failed: number; rolledBack: number; delayMins: number[]; }>();
+    for (const t of tasks) {
+      if (!t.assignedTeamId) continue;
+      if (!teamMap.has(t.assignedTeamId)) {
+        teamMap.set(t.assignedTeamId, { teamId: t.assignedTeamId, teamName: t.assignedTeam?.name ?? t.assignedTeamId, total: 0, done: 0, failed: 0, rolledBack: 0, delayMins: [] });
+      }
+      const row = teamMap.get(t.assignedTeamId)!;
+      row.total++;
+      if (t.status === 'DONE')        row.done++;
+      if (t.status === 'FAILED')      row.failed++;
+      if (t.status === 'ROLLED_BACK') row.rolledBack++;
+      if (t.plannedStart && t.actualStart) {
+        const delay = Math.round((t.actualStart.getTime() - t.plannedStart.getTime()) / 60000);
+        if (Math.abs(delay) < 600) row.delayMins.push(delay);
+      }
+    }
+    const byTeam = [...teamMap.values()].map(r => ({
+      ...r,
+      avgDelayMins: r.delayMins.length ? Math.round(r.delayMins.reduce((a, b) => a + b, 0) / r.delayMins.length) : 0,
+      delayMins: undefined,
+    })).sort((a, b) => b.total - a.total);
+
+    // ── Per CR ───────────────────────────────────────────────────
+    const crMap = new Map<string, { crNumber: string; total: number; done: number; failed: number; teamNames: Set<string>; }>();
+    for (const t of tasks.filter(t => t.crNumber)) {
+      const cr = t.crNumber!;
+      if (!crMap.has(cr)) crMap.set(cr, { crNumber: cr, total: 0, done: 0, failed: 0, teamNames: new Set() });
+      const row = crMap.get(cr)!;
+      row.total++;
+      if (t.status === 'DONE')   row.done++;
+      if (t.status === 'FAILED') row.failed++;
+      if (t.assignedTeam?.name) row.teamNames.add(t.assignedTeam.name);
+    }
+    const byCr = [...crMap.values()].map(r => ({
+      crNumber: r.crNumber,
+      total: r.total, done: r.done, failed: r.failed,
+      teams: [...r.teamNames].join(', '),
+      statusLabel: r.failed > 0 ? 'נכשל' : r.done === r.total ? 'הושלם' : 'חלקי',
+    })).sort((a, b) => a.crNumber.localeCompare(b.crNumber));
+
+    // ── By Phase ─────────────────────────────────────────────────
+    const subPhaseToPhase = new Map<string, string>();
+    for (const ph of version.phases) {
+      for (const sp of ph.subPhases) subPhaseToPhase.set(sp.id, ph.id);
+    }
+    const phaseTaskMap = new Map<string, { total: number; done: number; }>();
+    for (const t of tasks) {
+      const phId = t.subPhaseId ? subPhaseToPhase.get(t.subPhaseId) : null;
+      if (!phId) continue;
+      if (!phaseTaskMap.has(phId)) phaseTaskMap.set(phId, { total: 0, done: 0 });
+      phaseTaskMap.get(phId)!.total++;
+      if (t.status === 'DONE') phaseTaskMap.get(phId)!.done++;
+    }
+    const byPhase = version.phases.map(ph => {
+      const counts = phaseTaskMap.get(ph.id) ?? { total: 0, done: 0 };
+      const plannedDur = ph.plannedStart && ph.plannedEnd
+        ? Math.round((ph.plannedEnd.getTime() - ph.plannedStart.getTime()) / 60000) : null;
+      const actualDur = ph.actualStart && ph.actualEnd
+        ? Math.round((ph.actualEnd.getTime() - ph.actualStart.getTime()) / 60000) : null;
+      return {
+        phaseName: ph.name,
+        plannedStart: ph.plannedStart, plannedEnd: ph.plannedEnd,
+        actualStart: ph.actualStart,   actualEnd: ph.actualEnd,
+        plannedDurMins: plannedDur,
+        actualDurMins: actualDur,
+        delayMins: (plannedDur !== null && actualDur !== null) ? actualDur - plannedDur : null,
+        ...counts,
+      };
+    });
+
+    // ── Anomalies ─────────────────────────────────────────────────
+    const anomalies = tasks
+      .filter(t => {
+        if (['FAILED', 'ROLLED_BACK'].includes(t.status)) return true;
+        if (t.plannedStart && t.actualStart) {
+          const delay = Math.round((t.actualStart.getTime() - t.plannedStart.getTime()) / 60000);
+          if (delay > 30) return true;
+        }
+        return false;
+      })
+      .map(t => {
+        const delaySecs = t.plannedStart && t.actualStart
+          ? Math.round((t.actualStart.getTime() - t.plannedStart.getTime()) / 60000) : null;
+        return {
+          taskId: t.id, title: t.title, status: t.status,
+          teamName: t.assignedTeam?.name ?? '—',
+          plannedStart: t.plannedStart, actualStart: t.actualStart,
+          delayMins: delaySecs,
+          reason: t.blockedReason ?? t.delayReason ?? t.failedReason ?? null,
+        };
+      });
+
+    return { overview, byTeam, byCr, byPhase, anomalies };
+  }
 }

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
 import { useDialog } from '../context/DialogContext';
 import { Card, Badge, StatCard, ProgressBar, SectionHeader, Alert, TextArea, Button } from './ui';
+import { NightStatsDashboard } from './NightStatsDashboard';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -114,6 +115,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
   const [failureReasonsList,  setFailureReasonsList]  = useState<{ reason: string; requiresRollback: boolean }[]>([]);
   const [editingApproved,     setEditingApproved]     = useState(false);
   const [savingEdit,          setSavingEdit]          = useState(false);
+  const [activeTab,           setActiveTab]           = useState<'dashboard' | 'summary'>('dashboard');
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -772,6 +774,29 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
           style={{ cursor: onGoToHub ? 'pointer' : 'default', textDecoration: onGoToHub ? 'underline dotted' : 'none' }}
         >{versionName}</bdi>)
       </h2>
+
+      {/* ── Tab switcher ── */}
+      {!isRehearsal && (
+        <div style={{ display: 'flex', gap: SP[2], marginBottom: SP[4], borderBottom: `1px solid ${C.border}`, paddingBottom: SP[2] }}>
+          {(['dashboard', 'summary'] as const).map(tab => (
+            <button key={tab} onClick={() => setActiveTab(tab)} style={{
+              padding: `${SP[2]} ${SP[4]}`, border: 'none', borderRadius: `${RADIUS.md} ${RADIUS.md} 0 0`, cursor: 'pointer', fontFamily: FONT,
+              ...TEXT.sm, fontWeight: activeTab === tab ? WEIGHT.semibold : WEIGHT.normal,
+              background: activeTab === tab ? C.brand : 'transparent',
+              color: activeTab === tab ? 'white' : C.textMuted,
+              transition: 'all 0.15s',
+            }}>
+              {tab === 'dashboard' ? 'דשבורד' : 'סיכום מפורט'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {!isRehearsal && activeTab === 'dashboard' && (
+        <NightStatsDashboard token={token} versionId={versionId} versionName={versionName} />
+      )}
+
+      {(isRehearsal || activeTab === 'summary') && <>
 
       {/* ── Rollback required warning ── */}
       {(() => {
@@ -1530,6 +1555,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         )}
 
       </div>
+      </>}
     </div>
   );
 };

@@ -129,6 +129,12 @@ export class SummaryController {
     res.send(buffer);
   }
 
+  @Get(':versionId/night-stats')
+  async getNightStats(@Param('versionId') versionId: string, @Request() req: any) {
+    requireRole(req, MANAGERS);
+    return this.summaryService.getNightStats(versionId);
+  }
+
   @Get('email/config')
   async getEmailConfig() {
     return this.emailService.getConfig();
