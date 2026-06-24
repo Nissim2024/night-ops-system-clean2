@@ -73,7 +73,8 @@ function StatCard({ value, label, delta, deltaColor }: { value: string; label: s
 // ────────────────────────────────────────────────────────────────
 function VersionRow({ v, isPrimary, onSelect }: { v: any; isPrimary: boolean; onSelect: (id: string, tab?: string) => void }) {
   const ph = PHASE_META[v.status] ?? PHASE_META['DRAFT'];
-  const isLive = ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(v.status);
+  const isTrulyLive = ['ACTIVE', 'REHEARSAL'].includes(v.status);
+  const isMorningAfter = v.status === 'MORNING_AFTER';
   return (
     <div
       onClick={() => onSelect(v.id, ph.ctaTab)}
@@ -91,7 +92,8 @@ function VersionRow({ v, isPrimary, onSelect }: { v: any; isPrimary: boolean; on
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, display: 'flex', alignItems: 'center', gap: '6px' }}>
           {v.name}
-          {isLive && <span style={{ fontSize: '9px', background: ph.color, color: 'white', borderRadius: '10px', padding: '1px 6px', fontWeight: WEIGHT.bold, letterSpacing: '0.05em', animation: isLive ? 'home-pulse 2s ease-in-out infinite' : 'none' }}>LIVE</span>}
+          {isTrulyLive && <span style={{ fontSize: '9px', background: C.danger, color: 'white', borderRadius: '10px', padding: '1px 6px', fontWeight: WEIGHT.bold, letterSpacing: '0.05em', animation: 'home-pulse 2s ease-in-out infinite' }}>LIVE</span>}
+          {isMorningAfter && <span style={{ fontSize: '9px', background: '#F0883E', color: 'white', borderRadius: '10px', padding: '1px 6px', fontWeight: WEIGHT.bold, letterSpacing: '0.05em' }}>בוקר</span>}
         </div>
         <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '1px' }}>{ph.label}</div>
       </div>
@@ -171,7 +173,8 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'בוקר טוב' : hour < 17 ? 'שלום' : hour < 21 ? 'ערב טוב' : 'לילה טוב';
 
-  const isLiveNow = primary && ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(primary.status);
+  const isLiveNow = primary && ['ACTIVE', 'REHEARSAL'].includes(primary.status);
+  const isMorningAfterNow = primary?.status === 'MORNING_AFTER';
 
   const TEAM_STATUS_STAGES = ['COLLECTING', ...CR_REVIEW_STAGES];
   const showTeamStatus = isRm(role) && primary && TEAM_STATUS_STAGES.includes(primary.status);
@@ -236,16 +239,18 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
     if (st === 'REVIEW' && rm)          list.push({ icon: '👥', title: 'קיים ישיבת מעבר', desc: 'ישיבה עם כלל המשתתפים לאישור סופי', tab: 'list' });
     if (st === 'APPROVED' && rm)        list.push({ icon: '🎭', title: 'פתח חזרה גנרלית', desc: 'הרץ את התוכנית המאושרת כחזרה', tab: 'list' });
     if (['REHEARSAL', 'ACTIVE'].includes(st)) list.push({ icon: '⚡', title: 'War Room', desc: 'עקב אחר ביצוע המשימות בזמן אמת', urgent: true, tab: 'board' });
-    if (st === 'MORNING_AFTER' && rm)   list.push({ icon: '🌅', title: 'אשר בקרות בוקר', desc: 'ודא השלמת כל הבדיקות ואשר סיום', tab: 'dashboard' });
-    if (st === 'MORNING_AFTER' && rm)   list.push({ icon: '📄', title: 'הכן דוח סיכום', desc: 'צור וסכם את פעילות הלילה', tab: 'summary-night' });
+    if (st === 'MORNING_AFTER' && rm)   list.push({ icon: '🌅', title: 'אשר בקרות בוקר', desc: 'ודא השלמת כל הבדיקות ואשר סיום', urgent: true, tab: 'dashboard' });
+    if (st === 'MORNING_AFTER' && rm)   list.push({ icon: '📄', title: 'הכן דוח סיכום', desc: 'צור וסכם את פעילות הלילה', urgent: true, tab: 'summary-night' });
 
     return list;
   }, [primary, role]);
 
-  // Stats
-  const totalVersions  = activeVersions.length;
-  const liveCount      = activeVersions.filter(v => ['ACTIVE', 'REHEARSAL'].includes(v.status)).length;
-  const planningCount  = activeVersions.filter(v => !['ACTIVE', 'REHEARSAL', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(v.status)).length;
+  // Stats — only count non-terminal versions as "in progress"
+  const inProgressVersions = activeVersions.filter(v => !['COMPLETED', 'ROLLED_BACK'].includes(v.status));
+  const totalVersions  = inProgressVersions.length;
+  const liveCount      = inProgressVersions.filter(v => ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(v.status)).length;
+  const planningCount  = inProgressVersions.filter(v => !['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(v.status)).length;
+  const endedCount     = activeVersions.filter(v => ['COMPLETED', 'ROLLED_BACK'].includes(v.status)).length + versions.filter(v => v.isArchived).length;
 
   // ── Render ──
   return (
@@ -268,6 +273,12 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(240,106,106,0.08)', border: '1px solid rgba(240,106,106,0.25)', borderRadius: RADIUS.full, padding: '4px 12px' }}>
               <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: C.danger, animation: 'home-pulse 1.5s ease-in-out infinite' }} />
               <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.danger }}>LIVE</span>
+            </div>
+          )}
+          {isMorningAfterNow && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(240,136,62,0.08)', border: '1px solid rgba(240,136,62,0.30)', borderRadius: RADIUS.full, padding: '4px 12px' }}>
+              <span style={{ fontSize: '12px' }}>🌅</span>
+              <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: '#F0883E' }}>בוקר שלאחר</span>
             </div>
           )}
           {canCreate && onNewVersion && (
@@ -350,12 +361,12 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
           )}
 
           {/* ── Stats row ── */}
-          {totalVersions > 0 && (
+          {activeVersions.length > 0 && (
             <div style={{ display: 'flex', gap: '12px' }}>
-              <StatCard value={String(totalVersions)} label="גרסאות פעילות" delta={liveCount > 0 ? `🔴 ${liveCount} בביצוע` : undefined} deltaColor={C.danger} />
+              <StatCard value={String(totalVersions)} label="גרסאות בתהליך" delta={liveCount > 0 ? `🔴 ${liveCount} בביצוע` : totalVersions > 0 ? '📋 בתכנון' : undefined} deltaColor={liveCount > 0 ? C.danger : C.textMuted} />
               <StatCard value={String(planningCount)} label="בשלבי תכנון" />
               <StatCard value={String(actions.filter(a => a.urgent).length)} label="פעולות דחופות" deltaColor={C.danger} delta={actions.filter(a=>a.urgent).length > 0 ? '⚠ דרוש טיפול' : '✓ הכל תקין'} />
-              <StatCard value={String(activeVersions.filter(v=>['COMPLETED','ROLLED_BACK'].includes(v.status)).length + versions.filter(v=>v.isArchived).length)} label="גרסאות שהסתיימו" deltaColor={C.success} />
+              <StatCard value={String(endedCount)} label="גרסאות שהסתיימו" deltaColor={C.success} />
               {teamStatus.length > 0 && (() => {
                 const done = teamStatus.filter(t => t.allDone).length;
                 const total = teamStatus.length;
