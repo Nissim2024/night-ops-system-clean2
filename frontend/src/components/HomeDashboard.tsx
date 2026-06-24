@@ -311,11 +311,13 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
               }}>
                 <span style={{ fontSize: '36px', flexShrink: 0 }}>{ph.icon}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: ph.color, textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: '2px' }}>
+                  <div style={{ fontSize: '28px', fontWeight: WEIGHT.bold, color: ph.color, lineHeight: 1.1, marginBottom: '4px', letterSpacing: '-0.01em' }}>
                     {primary.name}
                   </div>
-                  <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: ph.color, marginBottom: '4px' }}>{ph.label}</div>
-                  <div style={{ ...TEXT.sm, color: C.textSecondary }}>{ph.desc(role)}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                    <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: ph.color, opacity: 0.85 }}>{ph.icon} {ph.label}</span>
+                  </div>
+                  <div style={{ ...TEXT.xs, color: C.textSecondary }}>{ph.desc(role)}</div>
                 </div>
                 <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
                   <button

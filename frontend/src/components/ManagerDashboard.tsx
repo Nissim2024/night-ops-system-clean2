@@ -463,7 +463,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
               <span
                 onClick={() => setActiveTab('list')}
                 title="עבור לדף הנחיתה"
-                style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: C.textPrimary, fontFamily: FONT, cursor: 'pointer', textDecoration: 'underline dotted' }}
+                style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary, fontFamily: FONT, cursor: 'pointer', letterSpacing: '-0.01em' }}
               >
                 {selectedVersion.name}
               </span>
