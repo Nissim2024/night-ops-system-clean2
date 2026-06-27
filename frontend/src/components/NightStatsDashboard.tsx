@@ -108,15 +108,15 @@ export const NightStatsDashboard: React.FC<Props> = ({ token, versionId, version
         </div>
       </div>
 
-      {/* ── לפי פאזה ── */}
+      {/* ── לפי שלב ── */}
       {byPhase.length > 0 && (
         <div>
-          {sectionTitle('ביצוע לפי פאזה')}
+          {sectionTitle('ביצוע לפי שלב')}
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  {['פאזה','תחילה מתוכנן','תחילה בפועל','משך מתוכנן','משך בפועל','חריגה','משימות'].map(h => (
+                  {['שלב','תחילה מתוכנן','תחילה בפועל','משך מתוכנן','משך בפועל','חריגה','משימות'].map(h => (
                     <th key={h} style={{ ...hCell, textAlign: 'right' }}>{h}</th>
                   ))}
                 </tr>

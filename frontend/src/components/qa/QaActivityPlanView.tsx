@@ -617,6 +617,19 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
       const res = await axios.post(`${API}/activity-board/${versionId}/save`, { entries }, { headers });
       setActivities(res.data.map(savedToItem));
       setBoardSaved(true);
+
+      // Sync dates back to the version automatically
+      const crReview = activities.find(a => a.id === 'cr_review');
+      const runbook  = activities.find(a => a.id === 'runbook');
+      const versionPatch: Record<string, string | null> = {};
+      if (crReview?.dateStartISO) versionPatch.reviewMeetingTime   = crReview.dateStartISO;
+      if (runbook?.dateStartISO)  versionPatch.workPlanMeetingTime = runbook.dateStartISO;
+      // Sync integration/QA dates if changed in the board UI
+      if (integrationStart) versionPatch.integrationStart = integrationStart;
+      if (integrationEnd)   versionPatch.integrationEnd   = integrationEnd;
+      if (Object.keys(versionPatch).length > 0) {
+        await axios.patch(`${API}/versions/${versionId}`, versionPatch, { headers }).catch(() => {});
+      }
     } finally {
       setSaving(false);
     }
@@ -653,9 +666,32 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
     if (!editingId) return;
     const item = activities.find(a => a.id === editingId);
     if (!item) return;
-    const updated = { ...item, ...editDraft };
+    // Recompute display labels if dates changed
+    const startISO = (editDraft as any).dateStartISO ?? item.dateStartISO;
+    const endISO   = (editDraft as any).dateEndISO   ?? item.dateEndISO;
+    const updated: ActivityItem = {
+      ...item,
+      ...editDraft,
+      dateStartISO:   startISO,
+      dateEndISO:     endISO,
+      dateStartLabel: startISO ? fmtDate(new Date(startISO)) : item.dateStartLabel,
+      dateEndLabel:   endISO   ? fmtDate(new Date(endISO))   : item.dateEndLabel,
+      sortKey:        startISO ? new Date(startISO).getTime() : item.sortKey,
+    };
     setActivities(prev => prev.map(a => a.id === editingId ? updated : a));
-    if (item.dbId) await handlePatchEntry(item.dbId, editDraft as any);
+    if (item.dbId) {
+      const { dateStartISO: ds, dateEndISO: de, ...rest } = editDraft as any;
+      await handlePatchEntry(item.dbId, {
+        ...rest,
+        ...(ds !== undefined && { dateStart: ds || null }),
+        ...(de !== undefined && { dateEnd:   de || null }),
+      });
+    }
+    // Sync meeting dates to version when editing cr_review / runbook
+    if (versionId && (editingId === 'cr_review' || editingId === 'runbook') && (editDraft as any).dateStartISO !== undefined) {
+      const field = editingId === 'cr_review' ? 'reviewMeetingTime' : 'workPlanMeetingTime';
+      await axios.patch(`${API}/versions/${versionId}`, { [field]: startISO || null }, { headers }).catch(() => {});
+    }
     setEditingId(null);
     setEditDraft({});
   };
@@ -1067,6 +1103,22 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
                               <option key={k} value={k}>{v}</option>
                             ))}
                           </select>
+                        </label>
+                      </div>
+                      <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.bold }}>תאריך התחלה</span>
+                          <input type="date"
+                            value={((editDraft as any).dateStartISO ?? a.dateStartISO ?? '').slice(0, 10)}
+                            onChange={e => setEditDraft(d => ({ ...d, dateStartISO: e.target.value } as any))}
+                            style={{ padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgCard, color: C.textPrimary, fontFamily: FONT, ...TEXT.sm, outline: 'none' }} />
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.bold }}>תאריך סיום</span>
+                          <input type="date"
+                            value={((editDraft as any).dateEndISO ?? a.dateEndISO ?? '').slice(0, 10)}
+                            onChange={e => setEditDraft(d => ({ ...d, dateEndISO: e.target.value } as any))}
+                            style={{ padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgCard, color: C.textPrimary, fontFamily: FONT, ...TEXT.sm, outline: 'none' }} />
                         </label>
                       </div>
                       <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>

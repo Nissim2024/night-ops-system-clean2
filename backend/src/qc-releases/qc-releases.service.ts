@@ -241,6 +241,7 @@ export class QcReleasesService implements OnModuleInit {
       if (!vName) continue;
       if (statusCol !== -1 && String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
       if (vName.slice(-3) !== expectedSuffix) continue;
+      if (vName.toUpperCase().includes('ERP')) continue;
       versionNames.add(vName);
     }
 

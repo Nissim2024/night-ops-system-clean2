@@ -26,6 +26,8 @@ export interface EntryPatch {
   attendees?:     string[];
   category?:      string;
   isRelevant?:    boolean;
+  dateStart?:     string | null;
+  dateEnd?:       string | null;
 }
 
 @Injectable()
@@ -67,9 +69,28 @@ export class ActivityBoardService {
   async patchEntry(entryId: string, patch: EntryPatch) {
     const entry = await prisma.activityBoardEntry.findUnique({ where: { id: entryId } });
     if (!entry) throw new NotFoundException('רשומה לא נמצאה');
+    const { dateStart, dateEnd, ...rest } = patch;
     return prisma.activityBoardEntry.update({
       where: { id: entryId },
-      data: patch,
+      data: {
+        ...rest,
+        ...(dateStart !== undefined && { dateStart: dateStart ? new Date(dateStart) : null }),
+        ...(dateEnd   !== undefined && { dateEnd:   dateEnd   ? new Date(dateEnd)   : null }),
+      },
+    });
+  }
+
+  async patchByKey(versionId: string, activityKey: string, patch: EntryPatch) {
+    const entry = await prisma.activityBoardEntry.findFirst({ where: { versionId, activityKey } });
+    if (!entry) return null;
+    const { dateStart, dateEnd, ...rest } = patch;
+    return prisma.activityBoardEntry.update({
+      where: { id: entry.id },
+      data: {
+        ...rest,
+        ...(dateStart !== undefined && { dateStart: dateStart ? new Date(dateStart) : null }),
+        ...(dateEnd   !== undefined && { dateEnd:   dateEnd   ? new Date(dateEnd)   : null }),
+      },
     });
   }
 

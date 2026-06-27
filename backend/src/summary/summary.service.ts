@@ -306,11 +306,11 @@ export class SummaryService {
       }),
     ];
 
-    // Advance to COMPLETED only when ALL tasks are terminal.
-    // If morning tasks remain (force-approve scenario), stay in MORNING_AFTER.
+    // Advance to COMPLETED when all activated tasks are terminal.
+    // WAITING tasks (never started) are excluded — they don't block completion.
     if (version?.status === 'MORNING_AFTER') {
       const anyOpenTask = await prisma.task.count({
-        where: { versionId, status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK'] as any } },
+        where: { versionId, status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK', 'WAITING'] as any } },
       });
       if (anyOpenTask === 0) {
         ops.push(prisma.version.update({ where: { id: versionId }, data: { status: 'COMPLETED' as any } }));

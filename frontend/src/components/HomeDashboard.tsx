@@ -23,6 +23,8 @@ interface Props {
   token: string;
   onSelectVersion: (id: string, tab?: string) => void;
   onNewVersion?: () => void;
+  onSwitchToQa?: () => void;
+  canAccessQa?: boolean;
 }
 
 const STATUS_PRIORITY: Record<string, number> = {
@@ -44,7 +46,7 @@ const PHASE_META: Record<string, {
   REFINING:     { label: 'טיוב תוכנית',         icon: '✏️', color: '#E8AF00', bg: 'rgba(232,175,0,0.07)',   desc: () => 'שלב טיוב ועדכון תוכניות לאחר הסקירה.',                                                     cta: () => 'פרטי גרסה',            ctaTab: 'list' },
   REVIEW:       { label: 'ישיבת מעבר',          icon: '👥', color: '#4573D2', bg: 'rgba(69,115,210,0.07)',   desc: () => 'ישיבת מעבר עם כלל המשתתפים לאישור סופי.',                                                 cta: () => 'פרטי גרסה',            ctaTab: 'list' },
   APPROVED:     { label: 'תוכנית מאושרת',       icon: '✅', color: '#37C47A', bg: 'rgba(55,196,122,0.07)',   desc: () => 'התוכנית אושרה. ממתינים לחזרה הגנרלית.',                                                    cta: () => 'פרטי גרסה',            ctaTab: 'list' },
-  REHEARSAL:    { label: 'חזרה גנרלית פעילה',   icon: '🎭', color: '#7c3aed', bg: 'rgba(124,58,237,0.07)',   desc: () => 'החזרה הגנרלית בביצוע. עקב אחרי התקדמות הצוותים.',                                         cta: () => 'כנס ל-War Room',       ctaTab: 'board', pulse: true },
+  REHEARSAL:    { label: 'חזרה גנרלית פעילה',   icon: '🎭', color: '#8b5cf6', bg: 'rgba(139,92,246,0.07)',   desc: () => 'החזרה הגנרלית בביצוע. עקב אחרי התקדמות הצוותים.',                                         cta: () => 'כנס ל-War Room',       ctaTab: 'board', pulse: true },
   ACTIVE:       { label: 'עלייה לאוויר — לייב', icon: '🚀', color: '#F06A6A', bg: 'rgba(240,106,106,0.07)', desc: () => 'עלייה לאוויר פעילה. מעקב בזמן אמת אחרי כלל הצוותים.',                                    cta: () => 'War Room',             ctaTab: 'board', pulse: true },
   MORNING_AFTER:{ label: 'בוקר שלאחר',          icon: '🌅', color: '#F0883E', bg: 'rgba(240,136,62,0.07)',   desc: () => 'שלב בקרות הבוקר. ודא שכל הבדיקות הושלמו.',                                                cta: () => 'לוח בקרה',             ctaTab: 'dashboard', pulse: true },
   COMPLETED:    { label: 'הושלם',               icon: '🏁', color: '#37C47A', bg: 'rgba(55,196,122,0.07)',   desc: () => 'הגרסה הושלמה בהצלחה.',                                                                    cta: () => 'ראה סיכום',            ctaTab: 'summary-night' },
@@ -68,10 +70,12 @@ function StatCard({ value, label, delta, deltaColor }: { value: string; label: s
   );
 }
 
+interface QaSummary { totalCrs: number; assignedCrs: number; hasWorkPlan: boolean; }
+
 // ────────────────────────────────────────────────────────────────
 // Version row (compact)
 // ────────────────────────────────────────────────────────────────
-function VersionRow({ v, isPrimary, onSelect }: { v: any; isPrimary: boolean; onSelect: (id: string, tab?: string) => void }) {
+function VersionRow({ v, isPrimary, onSelect, qaSummary }: { v: any; isPrimary: boolean; onSelect: (id: string, tab?: string) => void; qaSummary?: QaSummary | null }) {
   const ph = PHASE_META[v.status] ?? PHASE_META['DRAFT'];
   const isTrulyLive = ['ACTIVE', 'REHEARSAL'].includes(v.status);
   const isMorningAfter = v.status === 'MORNING_AFTER';
@@ -97,6 +101,11 @@ function VersionRow({ v, isPrimary, onSelect }: { v: any; isPrimary: boolean; on
         </div>
         <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '1px' }}>{ph.label}</div>
       </div>
+      {qaSummary && qaSummary.totalCrs > 0 && (
+        <span style={{ ...TEXT.xs, color: '#7c3aed', background: 'rgba(124,58,237,0.08)', borderRadius: '10px', padding: '2px 7px', flexShrink: 0, whiteSpace: 'nowrap' as const }}>
+          🧪 {qaSummary.assignedCrs}/{qaSummary.totalCrs}
+        </span>
+      )}
       <VersionStatusChip status={v.status} size="xs" />
       <span style={{ ...TEXT.xs, color: ph.color, fontWeight: WEIGHT.medium, flexShrink: 0 }}>פתח ←</span>
     </div>
@@ -154,20 +163,33 @@ function EmptyState({ canCreate, onNewVersion }: { canCreate: boolean; onNewVers
 // ────────────────────────────────────────────────────────────────
 const CR_REVIEW_STAGES = ['CR_REVIEW', 'REFINING', 'REVIEW'];
 
-export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token, onSelectVersion, onNewVersion }) => {
+export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token, onSelectVersion, onNewVersion, onSwitchToQa, canAccessQa }) => {
   const canCreate = isRm(role);
 
   const [teamStatus, setTeamStatus] = useState<TeamStatusRow[]>([]);
   const [teamStatusLoading, setTeamStatusLoading] = useState(false);
   const [myTeamSummary, setMyTeamSummary] = useState<{ total: number; ready: number; draft: number } | null>(null);
+  const [qaSummary, setQaSummary] = useState<QaSummary | null>(null);
+  const [livePhases, setLivePhases] = useState<{ name: string; done: number; total: number; state: 'done' | 'active' | 'upcoming' }[]>([]);
+  const [estimateStats, setEstimateStats] = useState<{
+    totalEstimateDays: number;
+    qaFilteredEstimateDays: number;
+    byTeam: { teamId: string; teamName: string; totalDays: number; qaFilteredDays: number; crs: { crNumber: string; crLabel: string; teamDays: number; hasQa: boolean }[] }[];
+  } | null>(null);
+  const [estimateDrillOpen, setEstimateDrillOpen] = useState(false);
+  const [estimateQaFilter, setEstimateQaFilter] = useState(false);
+  const [estimateExpandedTeam, setEstimateExpandedTeam] = useState<string | null>(null);
 
   // Pick the most urgent non-archived version
   const activeVersions = useMemo(
     () => versions.filter(v => !v.isArchived).sort((a, b) => (STATUS_PRIORITY[a.status] ?? 99) - (STATUS_PRIORITY[b.status] ?? 99)),
     [versions]
   );
-  const primary = activeVersions[0] ?? null;
-  const others  = activeVersions.slice(1);
+  const inProgressVersions = activeVersions.filter(v => !['COMPLETED', 'ROLLED_BACK'].includes(v.status));
+  // primary = first version still in progress; when all are done → allDone state
+  const primary = inProgressVersions[0] ?? null;
+  const others  = inProgressVersions.slice(1);
+  const allDone = activeVersions.length > 0 && inProgressVersions.length === 0;
 
   const firstName = fullName.split(' ')[0] || fullName;
   const hour = new Date().getHours();
@@ -213,6 +235,66 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
       .catch(() => setMyTeamSummary(null));
   }, [primary?.id, primary?.status, showMyTeamWarning, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fetch QA summary for primary version (accessible to all authenticated users via /qa-stats)
+  useEffect(() => {
+    if (!canAccessQa || !primary) { setQaSummary(null); return; }
+    axios.get(`${API}/qa-stats/summary?versionId=${primary.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setQaSummary(r.data))
+      .catch(() => setQaSummary(null));
+  }, [canAccessQa, primary?.id, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch CR investment estimate stats; if empty, auto-sync from Excel then re-fetch
+  useEffect(() => {
+    if (!primary) { setEstimateStats(null); return; }
+    const headers = { Authorization: `Bearer ${token}` };
+    const statsUrl = `${API}/version-cr-assignments/version/${primary.id}/stats`;
+    axios.get(statsUrl, { headers })
+      .then(r => {
+        const data = r.data ?? null;
+        if (data && (data.crCount === 0 || data.crCount == null)) {
+          // No assignments yet — trigger background sync then re-fetch
+          return axios.post(`${API}/version-cr-assignments/version/${primary.id}/sync`, {}, { headers })
+            .then(() => axios.get(statsUrl, { headers }))
+            .then(r2 => setEstimateStats(r2.data ?? null))
+            .catch(() => setEstimateStats(data));
+        }
+        setEstimateStats(data);
+      })
+      .catch(() => setEstimateStats(null));
+  }, [primary?.id, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch phase progress when version is ACTIVE or REHEARSAL
+  useEffect(() => {
+    if (!primary || !['ACTIVE', 'REHEARSAL'].includes(primary.status)) { setLivePhases([]); return; }
+    axios.get(`${API}/versions/${primary.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => {
+        const phases = [...(res.data.phases || [])].sort((a: any, b: any) => a.orderIndex - b.orderIndex);
+        let foundActive = false;
+        const result = phases
+          .map((ph: any) => {
+            const tasks = (ph.subPhases || []).flatMap((sp: any) => sp.tasks || []);
+            const nightTasks = tasks.filter((t: any) => t.status !== 'WAITING');
+            const done = nightTasks.filter((t: any) => ['DONE', 'FAILED', 'ROLLED_BACK'].includes(t.status)).length;
+            const total = nightTasks.length;
+            // Skip phases with no activated tasks (all WAITING — not part of this night)
+            if (total === 0) return null;
+            let state: 'done' | 'active' | 'upcoming';
+            if (done === total) {
+              state = 'done';
+            } else if (!foundActive) {
+              foundActive = true;
+              state = 'active';
+            } else {
+              state = 'upcoming';
+            }
+            return { name: ph.name, done, total, state };
+          })
+          .filter(Boolean) as { name: string; done: number; total: number; state: 'done' | 'active' | 'upcoming' }[];
+        setLivePhases(result);
+      })
+      .catch(() => setLivePhases([]));
+  }, [primary?.id, primary?.status, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Warning logic helpers
   const WARN_HOURS = 48;
   const reviewMeetingTime = primary?.reviewMeetingTime ? new Date(primary.reviewMeetingTime) : null;
@@ -230,14 +312,27 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
     const tl = role === 'TEAM_LEAD';
     const list: { icon: string; title: string; desc: string; urgent?: boolean; tab?: string }[] = [];
 
-    if (st === 'DRAFT' && rm)           list.push({ icon: '📅', title: 'הגדר לוח זמנים', desc: 'קבע תאריכי בדיקות אינטגרציה ועלייה לאוויר', tab: 'list' });
+    if (st === 'DRAFT' && rm) {
+      const hasDates = !!(primary.integrationStart && primary.integrationEnd && primary.qaStart && primary.qaEnd);
+      if (!hasDates) {
+        list.push({ icon: '📅', title: 'קבע תאריכי גרסה', desc: 'הגדר תאריכי אינטגרציה ו-QA לפני בניית תוכנית ההטמעה', tab: 'version-detail' });
+      } else {
+        list.push({ icon: '📋', title: 'בנה תוכנית הטמעה', desc: 'החל תבנית על הגרסה ובנה את לוח הזמנים', tab: 'version-detail' });
+      }
+    }
     if (st === 'COLLECTING' && tl)      list.push({ icon: '📝', title: 'הגש תוכניות', desc: 'הגש את הצעות המשימות לאישור', urgent: true, tab: 'proposals' });
     if (st === 'COLLECTING' && rm)      list.push({ icon: '👥', title: 'מעקב הגשת תוכניות', desc: 'בדוק שכל הצוותים הגישו את תוכניות ה-CR', tab: 'proposals' });
     if (st === 'CR_REVIEW' && tl)       list.push({ icon: '📋', title: 'הגש תוכנית CR', desc: 'הגדר תוכנית עלייה לאוויר לצוות שלך', urgent: true, tab: 'implementation-plans' });
     if (st === 'CR_REVIEW' && rm)       list.push({ icon: '🔍', title: 'סקור תוכניות CR', desc: 'אשר או החזר הערות על תוכניות הצוותים', tab: 'implementation-plans' });
     if (st === 'REFINING' && rm)        list.push({ icon: '✏️', title: 'ודא עדכוני תוכניות', desc: 'צוותים מעדכנים לפי הערות', tab: 'implementation-plans' });
     if (st === 'REVIEW' && rm)          list.push({ icon: '👥', title: 'קיים ישיבת מעבר', desc: 'ישיבה עם כלל המשתתפים לאישור סופי', tab: 'list' });
-    if (st === 'APPROVED' && rm)        list.push({ icon: '🎭', title: 'פתח חזרה גנרלית', desc: 'הרץ את התוכנית המאושרת כחזרה', tab: 'list' });
+    if (st === 'APPROVED' && rm) {
+      if (primary.rehearsalSummary) {
+        list.push({ icon: '🚀', title: 'פתח לילה פעיל', desc: 'החזרה הגנרלית הושלמה — מוכן להתחיל את הלילה הפעיל', tab: 'list' });
+      } else {
+        list.push({ icon: '🎭', title: 'פתח חזרה גנרלית', desc: 'הרץ את התוכנית המאושרת כחזרה', tab: 'list' });
+      }
+    }
     if (['REHEARSAL', 'ACTIVE'].includes(st)) list.push({ icon: '⚡', title: 'War Room', desc: 'עקב אחר ביצוע המשימות בזמן אמת', urgent: true, tab: 'board' });
     if (st === 'MORNING_AFTER' && rm)   list.push({ icon: '🌅', title: 'אשר בקרות בוקר', desc: 'ודא השלמת כל הבדיקות ואשר סיום', urgent: true, tab: 'dashboard' });
     if (st === 'MORNING_AFTER' && rm)   list.push({ icon: '📄', title: 'הכן דוח סיכום', desc: 'צור וסכם את פעילות הלילה', urgent: true, tab: 'summary-night' });
@@ -246,7 +341,6 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
   }, [primary, role]);
 
   // Stats — only count non-terminal versions as "in progress"
-  const inProgressVersions = activeVersions.filter(v => !['COMPLETED', 'ROLLED_BACK'].includes(v.status));
   const totalVersions  = inProgressVersions.length;
   const liveCount      = inProgressVersions.filter(v => ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(v.status)).length;
   const planningCount  = inProgressVersions.filter(v => !['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(v.status)).length;
@@ -294,8 +388,50 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
         </div>
       </div>
 
-      {/* ── No versions ── */}
-      {!primary && <EmptyState canCreate={canCreate} onNewVersion={onNewVersion} />}
+      {/* ── No versions at all ── */}
+      {!primary && !allDone && <EmptyState canCreate={canCreate} onNewVersion={onNewVersion} />}
+
+      {/* ── All versions completed — show compact notice + history ── */}
+      {allDone && (
+        <div style={{ padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Notice bar */}
+          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <span style={{ fontSize: '28px', flexShrink: 0 }}>🏁</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>אין גרסאות פעילות כרגע</div>
+              <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>כל הגרסאות הושלמו — ניתן לעיין בהן למטה</div>
+            </div>
+            {canCreate && onNewVersion && (
+              <button
+                onClick={onNewVersion}
+                style={{ flexShrink: 0, background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, padding: '8px 18px', ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT }}
+              >
+                + פתח גרסה חדשה
+              </button>
+            )}
+          </div>
+          {/* Stats */}
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <StatCard value="0" label="גרסאות בתהליך" />
+            <StatCard value={String(activeVersions.filter(v => ['COMPLETED', 'ROLLED_BACK'].includes(v.status)).length + versions.filter(v => v.isArchived).length)} label="גרסאות שהסתיימו" deltaColor={C.success} delta="✓ הושלמו" />
+          </div>
+          {/* Version list */}
+          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '20px' }}>
+            <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '14px' }}>📦 גרסאות אחרונות</div>
+            {activeVersions.map(v => <VersionRow key={v.id} v={v} isPrimary={false} onSelect={onSelectVersion} />)}
+            {canCreate && onNewVersion && (
+              <button
+                onClick={onNewVersion}
+                style={{ width: '100%', marginTop: '10px', background: 'transparent', border: `1px dashed ${C.border}`, borderRadius: RADIUS.md, padding: '9px', ...TEXT.xs, color: C.textMuted, cursor: 'pointer', fontFamily: FONT, transition: EASE.fast }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = C.brand; e.currentTarget.style.color = C.brand; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; }}
+              >
+                + פתח גרסה חדשה
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {primary && (
         <div style={{ padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -317,7 +453,60 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                     <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: ph.color, opacity: 0.85 }}>{ph.icon} {ph.label}</span>
                   </div>
-                  <div style={{ ...TEXT.xs, color: C.textSecondary }}>{ph.desc(role)}</div>
+                  <div style={{ ...TEXT.xs, color: C.textSecondary }}>
+                    {primary.status === 'APPROVED' && primary.rehearsalSummary
+                      ? 'החזרה הגנרלית הושלמה. ממתינים לפתיחת הלילה הפעיל.'
+                      : ph.desc(role)}
+                  </div>
+                  {/* Phase progress strip for ACTIVE/REHEARSAL */}
+                  {livePhases.some(p => p.state !== 'done') && (
+                    <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {livePhases.filter(p => p.state !== 'done').map((p, i) => {
+                        const isDone     = p.state === 'done';
+                        const isActive   = p.state === 'active';
+                        const isUpcoming = p.state === 'upcoming';
+                        const icon = isDone ? '✅' : isActive ? '▶' : '○';
+                        const color = isDone ? C.success : isActive ? ph.color : C.textMuted;
+                        const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+                        return (
+                          <div
+                            key={i}
+                            onClick={() => onSelectVersion(primary.id, 'board')}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer',
+                              padding: '5px 8px', borderRadius: RADIUS.sm,
+                              background: isActive ? `${ph.color}14` : 'transparent',
+                              border: isActive ? `1px solid ${ph.color}30` : '1px solid transparent',
+                              opacity: isUpcoming ? 0.5 : 1,
+                            }}
+                          >
+                            <span style={{ fontSize: '11px', width: '14px', flexShrink: 0, color }}>{icon}</span>
+                            <span style={{ ...TEXT.xs, fontWeight: isActive ? WEIGHT.semibold : WEIGHT.normal, color, flex: 1 }}>{p.name}</span>
+                            {p.total > 0 && (
+                              <>
+                                <span style={{ ...TEXT.xs, color: C.textMuted, flexShrink: 0 }}>{p.done}/{p.total}</span>
+                                <div style={{ width: 48, height: 4, background: C.bgHover, borderRadius: 2, flexShrink: 0, overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', width: `${pct}%`, background: isDone ? C.success : ph.color, borderRadius: 2 }} />
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {qaSummary && qaSummary.totalCrs > 0 && (
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' as const }}>
+                      <span style={{ ...TEXT.xs, color: '#7c3aed', background: 'rgba(124,58,237,0.10)', border: '1px solid rgba(124,58,237,0.2)', borderRadius: '10px', padding: '2px 8px' }}>
+                        🧪 QA: {qaSummary.assignedCrs}/{qaSummary.totalCrs} CRs שובצו
+                      </span>
+                      {qaSummary.hasWorkPlan && (
+                        <span style={{ ...TEXT.xs, color: C.success, background: 'rgba(55,196,122,0.08)', border: '1px solid rgba(55,196,122,0.2)', borderRadius: '10px', padding: '2px 8px' }}>
+                          ✓ לוח פעילויות מוכן
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
                   <button
@@ -336,6 +525,58 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
               </div>
             );
           })()}
+
+          {/* ── Track selector (only when user can access both) ── */}
+          {canAccessQa && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div
+                onClick={() => primary && onSelectVersion(primary.id, 'list')}
+                style={{ background: `${C.brand}08`, border: `1.5px solid ${C.brand}40`, borderRadius: RADIUS.lg, padding: '14px 18px', cursor: 'pointer', transition: EASE.fast }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = `${C.brand}12`; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = `${C.brand}08`; }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                  <span style={{ fontSize: '18px' }}>🚀</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>מסלול הטמעה</div>
+                  </div>
+                  <span style={{ ...TEXT.xs, background: C.brand, color: 'white', borderRadius: '10px', padding: '1px 7px', fontWeight: WEIGHT.semibold, flexShrink: 0 }}>פעיל</span>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
+                  {[
+                    { label: '📅 לוח זמנים', tab: 'version-detail' },
+                    { label: '⚡ War Room',   tab: 'board' },
+                    { label: '📄 סיכום לילה', tab: 'summary-night' },
+                  ].map(({ label, tab }) => (
+                    <span
+                      key={tab}
+                      onClick={e => { e.stopPropagation(); primary && onSelectVersion(primary.id, tab); }}
+                      style={{ ...TEXT.xs, color: C.brand, background: `${C.brand}12`, border: `1px solid ${C.brand}30`, borderRadius: '10px', padding: '2px 9px', cursor: 'pointer', fontWeight: WEIGHT.medium, whiteSpace: 'nowrap' as const, transition: EASE.fast }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = `${C.brand}22`; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = `${C.brand}12`; }}
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div
+                onClick={onSwitchToQa}
+                style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '14px 18px', cursor: 'pointer', transition: EASE.fast }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(124,58,237,0.4)'; (e.currentTarget as HTMLElement).style.background = 'rgba(124,58,237,0.04)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = C.border; (e.currentTarget as HTMLElement).style.background = C.bgCard; }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '18px' }}>🧪</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>ניהול QA</div>
+                    <div style={{ ...TEXT.xs, color: C.textMuted }}>שיבוץ בודקים · סבבי QA · לוח פעילויות</div>
+                  </div>
+                  <span style={{ ...TEXT.xs, color: '#7c3aed', fontWeight: WEIGHT.semibold, flexShrink: 0 }}>עבור ←</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ── Review-meeting approaching alert (manager) ── */}
           {isRm(role) && reviewIsApproaching && primary && (
@@ -367,8 +608,20 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
             <div style={{ display: 'flex', gap: '12px' }}>
               <StatCard value={String(totalVersions)} label="גרסאות בתהליך" delta={liveCount > 0 ? `🔴 ${liveCount} בביצוע` : totalVersions > 0 ? '📋 בתכנון' : undefined} deltaColor={liveCount > 0 ? C.danger : C.textMuted} />
               <StatCard value={String(planningCount)} label="בשלבי תכנון" />
-              <StatCard value={String(actions.filter(a => a.urgent).length)} label="פעולות דחופות" deltaColor={C.danger} delta={actions.filter(a=>a.urgent).length > 0 ? '⚠ דרוש טיפול' : '✓ הכל תקין'} />
+              <StatCard value={String(actions.filter(a => a.urgent).length)} label="פעולות דחופות" deltaColor={C.danger} delta={(() => { const u = actions.filter(a => a.urgent); return u.length > 0 ? `⚠ ${u[0].title}` : '✓ הכל תקין'; })()} />
               <StatCard value={String(endedCount)} label="גרסאות שהסתיימו" deltaColor={C.success} />
+              {estimateStats && ((estimateStats as any).crCount > 0 || (estimateStats as any).qaTaskCount > 0) && (
+                <div
+                  onClick={() => setEstimateDrillOpen(o => !o)}
+                  style={{ background: estimateDrillOpen ? 'rgba(69,115,210,0.06)' : C.bgCard, border: `1px solid ${estimateDrillOpen ? '#4573D2' : C.border}`, borderRadius: RADIUS.lg, padding: '16px 20px', flex: 1, cursor: 'pointer', transition: EASE.fast }}
+                >
+                  <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: C.textPrimary, lineHeight: 1.2 }}>
+                    {estimateQaFilter ? `${(estimateStats as any).qaFilteredEstimateDays ?? '?'} ימ"ע` : `${estimateStats.totalEstimateDays ?? '?'} ימ"ע`}
+                  </div>
+                  <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>סך הערכות השקעה</div>
+                  <div style={{ ...TEXT.xs, color: '#4573D2', marginTop: '6px' }}>{estimateDrillOpen ? '▲ סגור' : '▼ פירוט לפי צוות'}</div>
+                </div>
+              )}
               {teamStatus.length > 0 && (() => {
                 const done = teamStatus.filter(t => t.allDone).length;
                 const total = teamStatus.length;
@@ -382,6 +635,96 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
                   />
                 );
               })()}
+            </div>
+          )}
+
+          {/* ── Estimate drill-down panel ── */}
+          {estimateDrillOpen && estimateStats && (
+            <div style={{ background: C.bgCard, border: '1px solid #4573D2', borderRadius: RADIUS.lg, padding: '20px' }}>
+              {/* Header + toggle */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                <span style={{ fontSize: '16px' }}>📊</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>פירוט הערכות השקעה לפי צוות</div>
+                  <div style={{ ...TEXT.xs, color: C.textMuted }}>לחץ על צוות לפירוט CRs</div>
+                </div>
+                {/* Toggle filter */}
+                <div style={{ display: 'flex', gap: '4px', background: C.bgApp, borderRadius: RADIUS.md, padding: '3px' }}>
+                  {[
+                    { key: false, label: 'כל CRs' },
+                    { key: true,  label: 'CRs עם QA' },
+                  ].map(opt => (
+                    <button
+                      key={String(opt.key)}
+                      onClick={() => { setEstimateQaFilter(opt.key); setEstimateExpandedTeam(null); }}
+                      style={{
+                        border: 'none', borderRadius: RADIUS.sm, padding: '5px 14px',
+                        ...TEXT.xs, fontWeight: WEIGHT.semibold, fontFamily: FONT, cursor: 'pointer',
+                        background: estimateQaFilter === opt.key ? C.bgCard : 'transparent',
+                        color: estimateQaFilter === opt.key ? C.textPrimary : C.textMuted,
+                        boxShadow: estimateQaFilter === opt.key ? SHADOW.xs : 'none',
+                        transition: EASE.fast,
+                      }}
+                    >{opt.label}</button>
+                  ))}
+                </div>
+                {/* Grand total badge */}
+                <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: '#4573D2', background: 'rgba(69,115,210,0.08)', borderRadius: RADIUS.md, padding: '4px 12px' }}>
+                  סה"כ: {estimateQaFilter ? estimateStats.qaFilteredEstimateDays : estimateStats.totalEstimateDays} ימ"ע
+                </div>
+              </div>
+
+              {/* Team list */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {(estimateQaFilter
+                  ? estimateStats.byTeam.filter(t => t.qaFilteredDays > 0)
+                  : estimateStats.byTeam
+                ).map(team => {
+                  const days    = estimateQaFilter ? team.qaFilteredDays : team.totalDays;
+                  const crs     = estimateQaFilter ? team.crs.filter(c => c.hasQa) : team.crs;
+                  const isOpen  = estimateExpandedTeam === team.teamId;
+                  const maxDays = Math.max(...(estimateQaFilter
+                    ? estimateStats.byTeam.filter(t => t.qaFilteredDays > 0).map(t => t.qaFilteredDays)
+                    : estimateStats.byTeam.map(t => t.totalDays)), 1);
+                  const barPct  = Math.round((days / maxDays) * 100);
+                  return (
+                    <div key={team.teamId} style={{ borderRadius: RADIUS.md, overflow: 'hidden', border: `1px solid ${isOpen ? '#4573D2' : C.border}`, transition: EASE.fast }}>
+                      {/* Team row */}
+                      <div
+                        onClick={() => setEstimateExpandedTeam(isOpen ? null : team.teamId)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', cursor: 'pointer', background: isOpen ? 'rgba(69,115,210,0.04)' : C.bgCard }}
+                      >
+                        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, minWidth: '130px' }}>{team.teamName}</div>
+                        {/* Bar */}
+                        <div style={{ flex: 1, background: C.bgApp, borderRadius: '4px', height: '8px', overflow: 'hidden' }}>
+                          <div style={{ width: `${barPct}%`, height: '100%', background: '#4573D2', borderRadius: '4px', transition: 'width 0.4s ease' }} />
+                        </div>
+                        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: '#4573D2', minWidth: '60px', textAlign: 'left' as const }}>{days} ימ"ע</div>
+                        <div style={{ ...TEXT.xs, color: C.textMuted, minWidth: '50px', textAlign: 'left' as const }}>{crs.length} CRs</div>
+                        <div style={{ ...TEXT.xs, color: '#4573D2' }}>{isOpen ? '▲' : '▼'}</div>
+                      </div>
+                      {/* CR list for team */}
+                      {isOpen && (
+                        <div style={{ background: C.bgApp, padding: '8px 14px 10px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                          {crs.map(cr => (
+                            <div key={cr.crNumber} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '5px 6px', borderRadius: RADIUS.sm }}>
+                              <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textMuted, minWidth: '60px' }}>{cr.crNumber}</div>
+                              <div style={{ ...TEXT.xs, color: C.textSecondary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{cr.crLabel.replace(cr.crNumber + ' - ', '')}</div>
+                              {cr.hasQa && <span style={{ ...TEXT.xs, color: '#37C47A', fontWeight: WEIGHT.semibold }}>QA</span>}
+                              <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: '#4573D2', minWidth: '50px', textAlign: 'left' as const }}>{cr.teamDays} ימ"ע</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {(estimateQaFilter ? estimateStats.byTeam.filter(t => t.qaFilteredDays > 0) : estimateStats.byTeam).length === 0 && (
+                  <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center' as const, padding: '20px' }}>
+                    הפירוט לפי צוות זמין לאחר סינכרון CR_LIST עם הגרסה
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -483,7 +826,48 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
             {/* Left: Actions */}
             <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '20px' }}>
               <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '4px' }}>📌 הפעולות הבאות שלך</div>
-              <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '14px' }}>לפי תפקיד ושלב הגרסה הנוכחי</div>
+              <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '12px' }}>בהתאם לתפקידך ושלב הגרסה הפעילה</div>
+
+              {/* ── Sub-phase progress (ACTIVE / REHEARSAL only) ── */}
+              {livePhases.length > 0 && (() => {
+                const ph = PHASE_META[primary!.status] ?? PHASE_META['DRAFT'];
+                return (
+                  <div style={{ background: C.bgHover, borderRadius: RADIUS.md, padding: '10px 12px', marginBottom: '14px' }}>
+                    <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '8px', fontWeight: WEIGHT.semibold }}>התקדמות שלבי הלילה</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                      {livePhases.map((p, i) => {
+                        const isDone     = p.state === 'done';
+                        const isActive   = p.state === 'active';
+                        const isUpcoming = p.state === 'upcoming';
+                        const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+                        const color = isDone ? C.success : isActive ? ph.color : C.textMuted;
+                        return (
+                          <div
+                            key={i}
+                            onClick={() => primary && onSelectVersion(primary.id, 'board')}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer',
+                              padding: '5px 7px', borderRadius: RADIUS.sm,
+                              background: isActive ? `${ph.color}12` : 'transparent',
+                              border: isActive ? `1px solid ${ph.color}30` : '1px solid transparent',
+                              opacity: isUpcoming ? 0.5 : 1,
+                            }}
+                          >
+                            <span style={{ fontSize: '11px', width: '14px', flexShrink: 0, color, textAlign: 'center' as const }}>
+                              {isDone ? '✓' : isActive ? '▶' : '○'}
+                            </span>
+                            <span style={{ ...TEXT.xs, flex: 1, color: isDone ? C.textMuted : C.textPrimary, fontWeight: isActive ? WEIGHT.semibold : WEIGHT.normal }}>{p.name}</span>
+                            <span style={{ ...TEXT.xs, color: C.textMuted, flexShrink: 0 }}>{p.done}/{p.total}</span>
+                            <div style={{ width: 36, height: 3, background: C.border, borderRadius: 2, flexShrink: 0, overflow: 'hidden' }}>
+                              <div style={{ height: '100%', width: `${pct}%`, background: isDone ? C.success : ph.color, borderRadius: 2 }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Team lead warning: review approaching + no ready submissions (null = fetch failed/pending = treat as not submitted) */}
               {isTl && reviewIsApproaching && showMyTeamWarning && (myTeamSummary === null || myTeamSummary.ready === 0) && (
@@ -533,7 +917,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
                 📦 כל הגרסאות הפעילות
               </div>
 
-              <VersionRow v={primary} isPrimary onSelect={onSelectVersion} />
+              <VersionRow v={primary} isPrimary onSelect={onSelectVersion} qaSummary={qaSummary} />
               {others.map(v => <VersionRow key={v.id} v={v} isPrimary={false} onSelect={onSelectVersion} />)}
 
               {others.length === 0 && (

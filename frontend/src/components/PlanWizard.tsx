@@ -129,12 +129,63 @@ function Step1Content({ version, phaseStarts, phaseEnds, setPhaseStarts, setPhas
   setPhaseEnds: (v: Record<string, string>) => void;
 }) {
   const sortedPhases = [...(version.phases ?? [])].sort((a: any, b: any) => a.orderIndex - b.orderIndex);
+
+  // Derive initial base date from plannedStart or first phase with a plannedStart
+  const deriveInitialBase = () => {
+    if (version.plannedStart) return new Date(version.plannedStart).toISOString().slice(0, 10);
+    for (const ph of sortedPhases) {
+      if (ph.plannedStart) return new Date(ph.plannedStart).toISOString().slice(0, 10);
+    }
+    return '';
+  };
+  const [baseDate, setBaseDate] = useState(deriveInitialBase);
+
+  const applyDefaults = (dateStr: string) => {
+    if (!dateStr) return;
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const fmt = (d: Date) => {
+      const p = (n: number) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+    };
+    const newStarts: Record<string, string> = {};
+    const newEnds:   Record<string, string> = {};
+    for (let i = 0; i < sortedPhases.length; i++) {
+      const phase = sortedPhases[i];
+      const def   = PHASE_DEFAULTS[i];
+      if (!def) continue;
+      newStarts[phase.id] = fmt(new Date(year, month - 1, day + def.startOff, def.startH, def.startM, 0));
+      newEnds[phase.id]   = fmt(new Date(year, month - 1, day + def.endOff,   def.endH,   def.endM,   0));
+    }
+    setPhaseStarts(newStarts);
+    setPhaseEnds(newEnds);
+  };
+
   return (
     <div>
       <h3 style={{ margin: '0 0 8px', fontSize: '16px', color: '#1a2332' }}>📅 הגדרת מסגרת זמן</h3>
-      <p style={{ margin: '0 0 20px', color: '#666', fontSize: '13px' }}>
+      <p style={{ margin: '0 0 16px', color: '#666', fontSize: '13px' }}>
         קבע שעת התחלה וסיום לכל שלב. המערכת תחשב את זמן כל משימה לפי מבנה התלויות.
       </p>
+
+      {/* Base night date picker */}
+      <div style={{ marginBottom: '18px', padding: '12px 16px', background: '#f0f7ff', border: '1px solid #bfdbfe', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: '600', fontSize: '13px', color: '#1e40af', whiteSpace: 'nowrap' }}>🌙 תאריך לילה ההטמעה:</span>
+        <input
+          type="date"
+          value={baseDate}
+          onChange={e => setBaseDate(e.target.value)}
+          style={{ padding: '6px 10px', border: '1px solid #93c5fd', borderRadius: '6px', fontSize: '13px', background: 'white', color: '#1a2332' }}
+        />
+        <button
+          onClick={() => applyDefaults(baseDate)}
+          disabled={!baseDate}
+          style={{ padding: '6px 14px', background: baseDate ? '#1d4ed8' : '#94a3b8', color: 'white', border: 'none', borderRadius: '6px', cursor: baseDate ? 'pointer' : 'not-allowed', fontSize: '13px', fontWeight: '600', whiteSpace: 'nowrap' }}
+        >
+          חשב ברירות מחדל ⚡
+        </button>
+        <span style={{ fontSize: '11px', color: '#6b7280' }}>כל שעות השלבים יחושבו אוטומטית</span>
+      </div>
+
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
         <thead>
           <tr style={{ background: '#f1f5f9' }}>

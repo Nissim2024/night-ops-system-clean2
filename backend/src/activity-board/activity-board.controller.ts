@@ -29,6 +29,15 @@ export class ActivityBoardController {
     return this.svc.patchEntry(entryId, patch as EntryPatch);
   }
 
+  @Patch(':versionId/by-key/:key')
+  patchByKey(
+    @Param('versionId') versionId: string,
+    @Param('key') key: string,
+    @Body() patch: Record<string, any>,
+  ) {
+    return this.svc.patchByKey(versionId, key, patch as EntryPatch);
+  }
+
   @Post(':versionId/bulk-replace')
   bulkReplace(
     @Param('versionId') versionId: string,

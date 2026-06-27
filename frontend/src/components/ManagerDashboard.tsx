@@ -312,9 +312,39 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   });
 
   const endNight = async () => {
+    // Check if all activated tasks are done before allowing end-night
+    let pendingCount = 0;
+    try {
+      const res = await axios.get(`${API}/versions/${selectedVersionId}`, { headers });
+      const phases: any[] = res.data.phases || [];
+      for (const ph of phases) {
+        const tasks = (ph.subPhases || []).flatMap((sp: any) => sp.tasks || []);
+        const active = tasks.filter((t: any) => t.status !== 'WAITING');
+        pendingCount += active.filter((t: any) => !['DONE', 'FAILED', 'ROLLED_BACK'].includes(t.status)).length;
+      }
+    } catch {}
+
+    if (pendingCount > 0) {
+      if (payload.role === 'ADMIN') {
+        const force = await appDialog.confirm(
+          `קיימות ${pendingCount} משימות שטרם הושלמו.\n\nסגירת הלילה לפני השלמת כל המשימות עלולה לגרום לאיבוד מעקב — משימות פתוחות יישארו ללא סטטוס סופי ולא יכנסו לדוח הסיכום.\n\nכמנהל מערכת, ביכולתך להמשיך בכל זאת. האם אתה בטוח?`,
+          `אזהרה — ${pendingCount} משימות לא הושלמו`,
+          'danger',
+        );
+        if (!force) return;
+      } else {
+        appDialog.alert(
+          `לא ניתן לסגור את הלילה — קיימות ${pendingCount} משימות שטרם הושלמו.\n\nיש להשלים את כל המשימות הפעילות (כולל משימות בוקר והטמעות מדורגות) לפני סגירת פעילות הלילה.`,
+          'משימות לא הושלמו',
+          'warning',
+        );
+        return;
+      }
+    }
+
     const confirmed = await appDialog.confirm(
-      'לסיים את פעילות הלילה ולעבור לשלב "בוקר שלאחר"?\n\nמשימות שלא הושלמו יישארו פתוחות. לא ניתן לחזור לסטטוס "פעיל" לאחר מכן.',
-      'סיום פעילות הלילה',
+      'לאשר סגירת הגרסה?\n\nהאם אתה בטוח? לא ניתן לחזור לסטטוס פעיל לאחר מכן.',
+      'סגירת הגרסה',
       'warning',
     );
     if (!confirmed) return;
@@ -606,7 +636,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           selectedVersionId={selectedVersionId}
           onVersionChange={handleVersionFocus}
           myTasksActive={myTasksMode}
-          onMyTasksClick={() => { setMyTasksMode(m => !m); setActiveTab('board'); }}
+          onMyTasksClick={versions.some(v => ['REHEARSAL', 'ACTIVE'].includes(v.status)) ? () => { setMyTasksMode(m => !m); setActiveTab('board'); } : undefined}
           showAdmin={payload.role === 'ADMIN'}
           onAdminClick={() => { setActiveModule('deployments'); setActiveTab('admin'); }}
           activeTab={activeTab}
@@ -626,7 +656,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
         <div style={{ flex: 1, padding: '24px', overflowY: 'auto', minWidth: 0, minHeight: 0, background: C.bgApp }}>
 
           {/* ── Module: ניהול QA ── */}
-          {activeModule === 'qa' && <QaModulePlaceholder view={activeQaView} token={token} role={payload.role} isQaMember={isQaTeamMember} />}
+          {activeModule === 'qa' && <QaModulePlaceholder view={activeQaView} token={token} role={payload.role} isQaMember={isQaTeamMember} initialVersionId={selectedVersionId || undefined} />}
 
           {activeModule === 'deployments' && (<>
 
@@ -647,6 +677,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
               onNewVersion={['ADMIN','RELEASE_MANAGER'].includes(payload.role) ? () => {
                 setSelectedVersionId(''); setVersionFilter('inactive'); setActiveTab('list'); setOpenNewVersionForm(true);
               } : undefined}
+              canAccessQa={isQaTeamMember || payload.role === 'ADMIN'}
+              onSwitchToQa={() => { setActiveModule('qa'); setActiveQaView('assignment'); }}
             />
           )}
 
@@ -1328,7 +1360,7 @@ const QA_VIEW_META: Record<string, { icon: string; title: string; sub: string }>
   assignment: { icon: '🎯', title: 'תכנון ושיבוץ',    sub: 'שיבוץ בודקים ותכנון סבבי בדיקות' },
 };
 
-const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string; isQaMember?: boolean }> = ({ view, token, role, isQaMember }) => {
+const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string; isQaMember?: boolean; initialVersionId?: string }> = ({ view, token, role, isQaMember, initialVersionId }) => {
   // Leaves board is accessible to all authenticated users; QA module views are for QA team members and ADMIN
   if (view !== 'leaves' && role !== 'ADMIN' && !isQaMember) {
     return (
@@ -1352,7 +1384,7 @@ const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string;
   if (view === 'leaves')     return <QaLeavesView role={role} token={token} />;
   if (view === 'testers')    return <QaTestersView token={token} />;
   if (view === 'skills')     return <QaSkillsView token={token} />;
-  if (view === 'assignment') return <QaAssignmentView token={token} />;
+  if (view === 'assignment') return <QaAssignmentView token={token} initialVersionId={initialVersionId} />;
 
   const meta = QA_VIEW_META[view] ?? { icon: '👥', title: 'ניהול QA', sub: '' };
   return (

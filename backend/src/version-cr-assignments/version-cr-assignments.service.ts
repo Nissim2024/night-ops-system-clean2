@@ -129,7 +129,7 @@ export class VersionCrAssignmentsService {
 
         if (teamName === QA_TEAM_NAME) {
           const qaDay = teamColIdxs.length > 0 ? parseDay(row[teamColIdxs[0]]) : 0;
-          if (qaDay >= 1) qaCRs.add(crNumber);
+          if (qaDay > 0) qaCRs.add(crNumber); // any QA involvement
         } else {
           const involved = teamColIdxs.some(ci => parseDay(row[ci]) > 0.3);
           if (involved) nonQaCRs.add(crNumber);
@@ -137,7 +137,7 @@ export class VersionCrAssignmentsService {
       }
     }
 
-    // Only CRs appearing in BOTH sets enter the version scope
+    // CRs with any QA involvement AND at least one non-QA team effort
     const eligibleCRs = new Set([...qaCRs].filter(cr => nonQaCRs.has(cr)));
 
     // Pre-compute per-CR values from non-team-specific columns (same for all teams)
@@ -163,8 +163,9 @@ export class VersionCrAssignmentsService {
     type Assignment = {
       crNumber: string; crLabel: string; teamId: string;
       crManager: string; crDescription: string; application: string; project: string;
-      qaEffort?: number;    // DAYS — only for QA Team rows
-      estimateDays?: number | null;
+      qaEffort?: number;         // DAYS — only for QA Team rows
+      teamEstimateDays?: number | null; // this team's estimate days
+      estimateDays?: number | null;     // CR total from "סך כל הערכות"
       hasActual?: boolean;
     };
     const assignments: Assignment[] = [];
@@ -189,14 +190,17 @@ export class VersionCrAssignmentsService {
         if (!eligibleCRs.has(crNumber)) continue;
 
         let qaEffortDays: number | undefined;
+        let teamEstimate: number | undefined;
 
         if (teamName === QA_TEAM_NAME) {
           const qaDay = teamColIdxs.length > 0 ? parseDay(row[teamColIdxs[0]]) : 0;
-          if (qaDay < 1) continue;
+          if (qaDay <= 0) continue;
           qaEffortDays = qaDay;
+          teamEstimate = qaDay;
         } else {
-          const involved = teamColIdxs.some(ci => parseDay(row[ci]) > 0.3);
-          if (!involved) continue;
+          const colSum = teamColIdxs.reduce((s, ci) => s + parseDay(row[ci]), 0);
+          if (colSum <= 0.3) continue;
+          teamEstimate = Math.round(colSum * 100) / 100;
         }
 
         const key = `${crNumber}|${teamId}`;
@@ -212,6 +216,7 @@ export class VersionCrAssignmentsService {
           application:   appCol     !== -1 ? String(row[appCol]     ?? '').trim() : '',
           project:       projectCol !== -1 ? String(row[projectCol] ?? '').trim() : '',
           ...(qaEffortDays !== undefined ? { qaEffort: qaEffortDays } : {}),
+          teamEstimateDays: teamEstimate ?? null,
           estimateDays: crEstimateDays[crNumber] ?? null,
           hasActual:    crHasActual[crNumber] ?? false,
         });
@@ -228,28 +233,30 @@ export class VersionCrAssignmentsService {
         where: { versionId_crNumber_teamId: { versionId, crNumber: a.crNumber, teamId: a.teamId } },
         create: {
           versionId,
-          crNumber:      a.crNumber,
-          crLabel:       a.crLabel,
-          teamId:        a.teamId,
-          crManager:     a.crManager || null,
-          crDescription: a.crDescription || null,
-          application:   a.application || null,
+          crNumber:        a.crNumber,
+          crLabel:         a.crLabel,
+          teamId:          a.teamId,
+          crManager:       a.crManager || null,
+          crDescription:   a.crDescription || null,
+          application:     a.application || null,
           ...(a.project ? { project: a.project } : {}),
-          syncedAt:      now,
+          syncedAt:        now,
           ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
-          estimateDays:  a.estimateDays ?? null,
-          hasActual:     a.hasActual ?? false,
+          teamEstimateDays: a.teamEstimateDays ?? null,
+          estimateDays:    a.estimateDays ?? null,
+          hasActual:       a.hasActual ?? false,
         } as any,
         update: {
-          crLabel:       a.crLabel,
-          crManager:     a.crManager || null,
-          crDescription: a.crDescription || null,
-          application:   a.application || null,
+          crLabel:         a.crLabel,
+          crManager:       a.crManager || null,
+          crDescription:   a.crDescription || null,
+          application:     a.application || null,
           ...(a.project ? { project: a.project } : {}),
-          syncedAt:      now,
+          syncedAt:        now,
           ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
-          estimateDays:  a.estimateDays ?? null,
-          hasActual:     a.hasActual ?? false,
+          teamEstimateDays: a.teamEstimateDays ?? null,
+          estimateDays:    a.estimateDays ?? null,
+          hasActual:       a.hasActual ?? false,
         } as any,
       });
       synced++;
@@ -350,7 +357,7 @@ export class VersionCrAssignmentsService {
         const title    = titleCol !== -1 ? String(row[titleCol] ?? '').trim() : '';
         if (!crNumber || !title) continue;
         if (teamName === QA_TEAM_NAME) {
-          if (teamColIdxs.length > 0 && parseDay(row[teamColIdxs[0]]) >= 1) qaCRs.add(crNumber);
+          if (teamColIdxs.length > 0 && parseDay(row[teamColIdxs[0]]) > 0) qaCRs.add(crNumber);
         } else {
           if (teamColIdxs.some(ci => parseDay(row[ci]) > 0.3)) nonQaCRs.add(crNumber);
         }
@@ -389,12 +396,16 @@ export class VersionCrAssignmentsService {
         const title    = titleCol !== -1 ? String(row[titleCol] ?? '').trim() : '';
         if (!crNumber || !title || !eligibleCRs.has(crNumber)) continue;
         let qaEffortDays: number | undefined;
+        let teamEstimate: number | undefined;
         if (teamName === QA_TEAM_NAME) {
           const qaDay = teamColIdxs.length > 0 ? parseDay(row[teamColIdxs[0]]) : 0;
-          if (qaDay < 1) continue;
+          if (qaDay <= 0) continue;
           qaEffortDays = qaDay;
+          teamEstimate = qaDay;
         } else {
-          if (!teamColIdxs.some(ci => parseDay(row[ci]) > 0.3)) continue;
+          const colSum = teamColIdxs.reduce((s, ci) => s + parseDay(row[ci]), 0);
+          if (colSum <= 0.3) continue;
+          teamEstimate = Math.round(colSum * 100) / 100;
         }
         const key = `${crNumber}|${teamId}`;
         if (seen.has(key)) continue;
@@ -406,6 +417,7 @@ export class VersionCrAssignmentsService {
           application:   appCol    !== -1 ? String(row[appCol]    ?? '').trim() : '',
           project:       projectCol !== -1 ? String(row[projectCol] ?? '').trim() : '',
           ...(qaEffortDays !== undefined ? { qaEffort: qaEffortDays } : {}),
+          teamEstimateDays: teamEstimate ?? null,
           estimateDays: crEstimateDays[crNumber] ?? null,
           hasActual:    crHasActual[crNumber] ?? false,
         });
@@ -471,14 +483,16 @@ export class VersionCrAssignmentsService {
           application: a.application || null, project: a.project || null,
           syncedAt: now, syncStatus: 'NEW',
           ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
+          teamEstimateDays: (a as any).teamEstimateDays ?? null,
           estimateDays: a.estimateDays ?? null, hasActual: a.hasActual ?? false,
         } as any,
         update: {
           crLabel: a.crLabel, crManager: a.crManager || null,
           crDescription: a.crDescription || null, application: a.application || null,
           project: a.project || null, syncedAt: now,
-          syncStatus: 'ACTIVE', // existing ones remain ACTIVE
+          syncStatus: 'ACTIVE',
           ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
+          teamEstimateDays: (a as any).teamEstimateDays ?? null,
           estimateDays: a.estimateDays ?? null, hasActual: a.hasActual ?? false,
         } as any,
       });
@@ -532,33 +546,89 @@ export class VersionCrAssignmentsService {
 
   async getVersionStats(versionId: string): Promise<{
     qaTaskCount: number;
+    crCount: number;
     totalEstimateDays: number;
+    qaFilteredEstimateDays: number;
     actualsCount: number;
+    byTeam: {
+      teamId: string;
+      teamName: string;
+      totalDays: number;
+      qaFilteredDays: number;
+      crs: { crNumber: string; crLabel: string; teamDays: number; hasQa: boolean }[];
+    }[];
   }> {
-    const rows: any[] = await (prisma.versionCrAssignment as any).findMany({
-      where: { versionId },
-      select: { crNumber: true, teamId: true, qaEffort: true, estimateDays: true, hasActual: true },
-    });
+    let rows: any[];
+    try {
+      rows = await (prisma.versionCrAssignment as any).findMany({
+        where: { versionId },
+        select: {
+          crNumber: true, crLabel: true, teamId: true,
+          qaEffort: true, teamEstimateDays: true, estimateDays: true, hasActual: true,
+        },
+        orderBy: [{ teamId: 'asc' }, { crNumber: 'asc' }],
+      });
+    } catch {
+      // Fallback: teamEstimateDays column not yet migrated on this DB
+      rows = await (prisma.versionCrAssignment as any).findMany({
+        where: { versionId },
+        select: {
+          crNumber: true, crLabel: true, teamId: true,
+          qaEffort: true, estimateDays: true, hasActual: true,
+        },
+        orderBy: [{ teamId: 'asc' }, { crNumber: 'asc' }],
+      });
+    }
 
-    const allTeams = await prisma.team.findMany({ where: { name: 'QA Team' }, select: { id: true } });
-    const qaTeamId = allTeams[0]?.id;
+    const allTeams = await prisma.team.findMany({ where: { active: true }, select: { id: true, name: true } });
+    const teamNameById: Record<string, string> = {};
+    allTeams.forEach(t => { teamNameById[t.id] = t.name; });
 
-    // Distinct CRs with QA effort > 0.5
+    const qaTeam = allTeams.find(t => t.name === 'QA Team');
+    const qaTeamId = qaTeam?.id;
+
+    // CRs where QA > 0.3
     const qaCrSet = new Set<string>();
     for (const r of rows) {
-      if (qaTeamId && r.teamId === qaTeamId && (r.qaEffort ?? 0) > 0.5) {
+      if (qaTeamId && r.teamId === qaTeamId && (r.qaEffort ?? 0) > 0.3) {
         qaCrSet.add(r.crNumber);
       }
     }
 
-    // Sum estimate days per distinct CR (avoid double-counting across teams)
-    const crEstimates: Record<string, number> = {};
+    // Distinct CRs with QA effort > 0.5 (for qaTaskCount — unchanged)
+    const qaTaskCrSet = new Set<string>();
     for (const r of rows) {
-      if (!(r.crNumber in crEstimates) && r.estimateDays != null) {
-        crEstimates[r.crNumber] = r.estimateDays;
+      if (qaTeamId && r.teamId === qaTeamId && (r.qaEffort ?? 0) > 0.5) {
+        qaTaskCrSet.add(r.crNumber);
       }
     }
-    const totalEstimateDays = Object.values(crEstimates).reduce((s, v) => s + v, 0);
+
+    // Sum teamEstimateDays across all non-QA teams (represents true total team investment).
+    // Falls back to summing estimateDays per distinct CR when teamEstimateDays is not yet synced.
+    let totalEstimateDays = 0;
+    let qaFilteredEstimateDays = 0;
+    const hasTeamEstimates = rows.some(r => r.teamId !== qaTeamId && (r.teamEstimateDays ?? 0) > 0);
+
+    if (hasTeamEstimates) {
+      for (const r of rows) {
+        if (r.teamId === qaTeamId) continue;
+        const days = r.teamEstimateDays ?? 0;
+        totalEstimateDays += days;
+        if (qaCrSet.has(r.crNumber)) qaFilteredEstimateDays += days;
+      }
+    } else {
+      // Fallback: use "סך כל הערכות" per distinct CR
+      const crEstimates: Record<string, number> = {};
+      for (const r of rows) {
+        if (!(r.crNumber in crEstimates) && r.estimateDays != null) {
+          crEstimates[r.crNumber] = r.estimateDays;
+        }
+      }
+      totalEstimateDays        = Object.values(crEstimates).reduce((s, v) => s + v, 0);
+      qaFilteredEstimateDays   = Object.entries(crEstimates)
+        .filter(([cr]) => qaCrSet.has(cr))
+        .reduce((s, [, v]) => s + v, 0);
+    }
 
     // Count distinct CRs with Actuals = true
     const actualsCrSet = new Set<string>();
@@ -566,10 +636,61 @@ export class VersionCrAssignmentsService {
       if (r.hasActual) actualsCrSet.add(r.crNumber);
     }
 
+    // Pre-build CR estimate lookup (for fallback mode)
+    const crEstimateMap: Record<string, number> = {};
+    for (const r of rows) {
+      if (!(r.crNumber in crEstimateMap) && r.estimateDays != null) {
+        crEstimateMap[r.crNumber] = r.estimateDays;
+      }
+    }
+
+    // Per-team breakdown (exclude QA Team — it's shown via qaEffort)
+    // When teamEstimateDays is available: use per-team values.
+    // Fallback: show CRs per team using the CR's total estimateDays as the display value.
+    const teamMap: Record<string, {
+      teamId: string; teamName: string; totalDays: number; qaFilteredDays: number;
+      crs: { crNumber: string; crLabel: string; teamDays: number; hasQa: boolean }[];
+    }> = {};
+
+    for (const r of rows) {
+      if (r.teamId === qaTeamId) continue;
+      const teamDays = r.teamEstimateDays ?? 0;
+      const displayDays = teamDays > 0 ? teamDays : (crEstimateMap[r.crNumber] ?? 0);
+      if (displayDays <= 0) continue;
+      const hasQa = qaCrSet.has(r.crNumber);
+      if (!teamMap[r.teamId]) {
+        teamMap[r.teamId] = {
+          teamId: r.teamId, teamName: teamNameById[r.teamId] ?? r.teamId,
+          totalDays: 0, qaFilteredDays: 0, crs: [],
+        };
+      }
+      teamMap[r.teamId].totalDays += displayDays;
+      if (hasQa) teamMap[r.teamId].qaFilteredDays += displayDays;
+      teamMap[r.teamId].crs.push({
+        crNumber: r.crNumber,
+        crLabel:  r.crLabel ?? r.crNumber,
+        teamDays: Math.round(displayDays * 100) / 100,
+        hasQa,
+      });
+    }
+
+    const byTeam = Object.values(teamMap)
+      .map(t => ({
+        ...t,
+        totalDays:       Math.round(t.totalDays * 10) / 10,
+        qaFilteredDays:  Math.round(t.qaFilteredDays * 10) / 10,
+      }))
+      .sort((a, b) => b.totalDays - a.totalDays);
+
+    const distinctCrCount = new Set(rows.map(r => r.crNumber)).size;
+
     return {
-      qaTaskCount: qaCrSet.size,
-      totalEstimateDays: Math.round(totalEstimateDays * 10) / 10,
-      actualsCount: actualsCrSet.size,
+      qaTaskCount:            qaTaskCrSet.size,
+      crCount:                distinctCrCount,
+      totalEstimateDays:      Math.round(totalEstimateDays * 10) / 10,
+      qaFilteredEstimateDays: Math.round(qaFilteredEstimateDays * 10) / 10,
+      actualsCount:           actualsCrSet.size,
+      byTeam,
     };
   }
 }

@@ -38,11 +38,11 @@ const GoNoGoPanel: React.FC<GoNoPanelProps> = ({ env, label, status, details, en
   const canCheck = envTasks.length > 0;
   const unwaived = failedTasks.filter((t: any) => !t.goNoGoWaived);
   const waived = failedTasks.filter((t: any) => t.goNoGoWaived);
-  const rehearsalBorder = isRehearsal ? '1px solid rgba(124,58,237,0.40)' : `1px solid ${C.border}`;
+  const rehearsalBorder = isRehearsal ? '1px solid rgba(139,92,246,0.40)' : `1px solid ${C.border}`;
   return (
-    <div style={{ background: isRehearsal ? 'rgba(109,40,217,0.07)' : C.bgNested, borderRadius: '10px', padding: '16px', border: rehearsalBorder, minWidth: '280px', flex: 1 }}>
+    <div style={{ background: isRehearsal ? 'rgba(124,58,237,0.07)' : C.bgNested, borderRadius: '10px', padding: '16px', border: rehearsalBorder, minWidth: '280px', flex: 1 }}>
       {isRehearsal && (
-        <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#6d28d9', background: 'rgba(109,40,217,0.12)', padding: '3px 10px', borderRadius: '20px', display: 'inline-block', marginBottom: '8px', border: '1px solid rgba(109,40,217,0.30)' }}>
+        <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#7c3aed', background: 'rgba(124,58,237,0.12)', padding: '3px 10px', borderRadius: '20px', display: 'inline-block', marginBottom: '8px', border: '1px solid rgba(124,58,237,0.30)' }}>
           🎭 חזרה גנרלית
         </div>
       )}
@@ -56,7 +56,7 @@ const GoNoGoPanel: React.FC<GoNoPanelProps> = ({ env, label, status, details, en
         style={{
           padding: '10px 20px', fontWeight: 'bold', fontSize: '14px', border: 'none', borderRadius: '8px',
           cursor: canCheck ? 'pointer' : 'not-allowed', fontFamily: FONT,
-          background: !canCheck ? C.bgHover : status === 'go' ? C.statusDone : status === 'nogo' ? C.statusFailed : isRehearsal ? '#7c3aed' : C.brand,
+          background: !canCheck ? C.bgHover : status === 'go' ? C.statusDone : status === 'nogo' ? C.statusFailed : isRehearsal ? '#8b5cf6' : C.brand,
           color: !canCheck ? C.textDisabled : 'white', width: '100%',
         }}
       >
@@ -108,7 +108,7 @@ const GoNoGoPanel: React.FC<GoNoPanelProps> = ({ env, label, status, details, en
             <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', background: C.bgBlocked, borderRadius: '6px', padding: '4px 8px' }}>
               <span style={{ flex: 1, fontSize: '12px', color: C.statusFailed }}>{t.title}</span>
               <button onClick={() => onWaive?.(t.id)}
-                style={{ padding: '2px 8px', fontSize: '11px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                style={{ padding: '2px 8px', fontSize: '11px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 ✓ אשר דילוג
               </button>
             </div>
@@ -419,7 +419,7 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
 
       {/* באנר חזרה גנרלית */}
       {isRehearsal && (
-        <div style={{ background: 'linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%)', borderRadius: '10px', padding: '12px 20px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px', color: 'white' }}>
+        <div style={{ background: 'linear-gradient(135deg, #6d28d9 0%, #8b5cf6 100%)', borderRadius: '10px', padding: '12px 20px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px', color: 'white' }}>
           <span style={{ fontSize: '28px' }}>🎭</span>
           <div>
             <div style={{ fontWeight: 'bold', fontSize: '16px' }}>מצב חזרה גנרלית</div>
@@ -431,10 +431,10 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
       {/* כותרת */}
       <div style={{
         background: isRehearsal
-          ? 'linear-gradient(135deg, #3b0764 0%, #6d28d9 100%)'
+          ? 'linear-gradient(135deg, #4c1d95 0%, #7c3aed 100%)'
           : C.bgCard,
         borderRadius: '12px', padding: '24px', marginBottom: '20px',
-        border: isRehearsal ? `1px solid rgba(124,58,237,0.50)` : `1px solid ${C.border}`,
+        border: isRehearsal ? `1px solid rgba(139,92,246,0.50)` : `1px solid ${C.border}`,
         boxShadow: SHADOW.sm,
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -582,10 +582,10 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
 
       {/* GO/NO GO — מפוצל לפי סביבה */}
       {(can('action:gonogo') || isManager) && !hideGoNogo && (
-        <div style={{ background: isRehearsal ? 'rgba(109,40,217,0.06)' : C.bgCard, borderRadius: '12px', padding: '20px', marginBottom: '20px', border: isRehearsal ? '1px solid rgba(124,58,237,0.28)' : `1px solid ${C.border}` }}>
+        <div style={{ background: isRehearsal ? 'rgba(124,58,237,0.06)' : C.bgCard, borderRadius: '12px', padding: '20px', marginBottom: '20px', border: isRehearsal ? '1px solid rgba(139,92,246,0.28)' : `1px solid ${C.border}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-            <h3 style={{ margin: 0, color: isRehearsal ? '#6d28d9' : C.textPrimary, fontSize: '15px' }}>GO / NO GO — {isRehearsal ? 'חזרה גנרלית' : 'לפי סביבה'}</h3>
-            {isRehearsal && <span style={{ fontSize: '12px', color: '#6d28d9', background: 'rgba(109,40,217,0.10)', padding: '2px 10px', borderRadius: '20px', border: '1px solid rgba(109,40,217,0.25)' }}>אינו מחליף GO/NO GO אמיתי</span>}
+            <h3 style={{ margin: 0, color: isRehearsal ? '#7c3aed' : C.textPrimary, fontSize: '15px' }}>GO / NO GO — {isRehearsal ? 'חזרה גנרלית' : 'לפי סביבה'}</h3>
+            {isRehearsal && <span style={{ fontSize: '12px', color: '#7c3aed', background: 'rgba(124,58,237,0.10)', padding: '2px 10px', borderRadius: '20px', border: '1px solid rgba(124,58,237,0.25)' }}>אינו מחליף GO/NO GO אמיתי</span>}
           </div>
           <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
             <GoNoGoPanel env="HOTNET" label="פעילות לילה — HOTNET" status={goStatus['HOTNET']} details={goDetails['HOTNET']} envTasks={getEnvTasks('HOTNET')} onCheck={checkGoForEnv}

@@ -581,6 +581,19 @@ async addTask(subPhaseId: string, data: {
         lastNightSnapshot: tasks,
         lastNightAt: new Date(),
       };
+
+      // If summary was already approved and all activated tasks are terminal,
+      // skip MORNING_AFTER and go straight to COMPLETED.
+      const existingSummary = await prisma.nightSummary.findUnique({ where: { versionId: id } });
+      if (existingSummary?.sentAt) {
+        const openCount = await prisma.task.count({
+          where: { versionId: id, status: { notIn: ['DONE', 'FAILED', 'ROLLED_BACK', 'WAITING'] as any } },
+        });
+        if (openCount === 0) {
+          data.status = VersionStatus.COMPLETED;
+        }
+      }
+
       return prisma.version.update({ where: { id }, data });
     }
 

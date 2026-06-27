@@ -181,20 +181,29 @@ function CycleChip({ cycleType }: { cycleType: string }) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-interface Props { token: string }
+interface Props { token: string; initialVersionId?: string; }
 
 const LS_VERSION_KEY = 'qa-selected-version';
 
 interface PickerPos { crNumber: string; top?: number; bottom?: number; right: number; maxH?: number; }
 
-export default function QaAssignmentView({ token }: Props) {
+export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const dialog  = useDialog();
   const headers   = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const userRole  = useMemo(() => { try { return JSON.parse(atob(token.split('.')[1])).role as string; } catch { return ''; } }, [token]);
   const isManager = ['RELEASE_MANAGER', 'ADMIN'].includes(userRole);
 
   const [versions, setVersions]         = useState<Version[]>([]);
-  const [selectedVId, setSelectedVId]   = useState(() => localStorage.getItem(LS_VERSION_KEY) ?? '');
+  const [selectedVId, setSelectedVId]   = useState(() => initialVersionId ?? localStorage.getItem(LS_VERSION_KEY) ?? '');
+
+  // When parent changes the target version (e.g. navigating from a specific deployment version), follow it
+  useEffect(() => {
+    if (initialVersionId) {
+      setSelectedVId(initialVersionId);
+      localStorage.setItem(LS_VERSION_KEY, initialVersionId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialVersionId]);
   const [activeTab, setActiveTab]       = useState<'assignments' | 'workplan' | 'activity'>('assignments');
   const [crs, setCrs]                   = useState<CrRec[]>([]);
   const [assignments, setAssignments]   = useState<Assignment[]>([]);

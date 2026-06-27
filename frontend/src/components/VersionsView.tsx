@@ -46,6 +46,10 @@ interface Version {
   plannedEnd?: string;
   reviewMeetingTime?: string;
   workPlanMeetingTime?: string;
+  integrationStart?: string;
+  integrationEnd?: string;
+  qaStart?: string;
+  qaEnd?: string;
   importedFileName?: string;
   createdAt: string;
   approvedAt?: string;
@@ -180,8 +184,17 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
     axios.post(`${API}/version-cr-assignments/version/${versionId}/sync`, {}, { headers }).catch(() => {});
   };
 
+  const formComplete = !!(
+    newVersion.name.trim() &&
+    newVersion.description.trim() &&
+    newVersion.integrationStart &&
+    newVersion.integrationEnd &&
+    newVersion.qaStart &&
+    newVersion.qaEnd
+  );
+
   const createEmpty = async () => {
-    if (!newVersion.name.trim()) return;
+    if (!formComplete) return;
     setCreatingTemplate(true);
     try {
       const res = await axios.post(`${API}/versions`, {
@@ -195,6 +208,8 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
       await fetchVersions();
       await fetchVersion(versionId);
       onVersionsChanged?.();
+      // Navigate to the new version so the user can build a plan
+      onVersionFocus?.(versionId);
     } catch (err: any) { setActionError(err?.response?.data?.message || 'שגיאה ביצירת גרסה'); }
     finally { setCreatingTemplate(false); }
   };
@@ -424,8 +439,8 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
           <h3 style={{ margin: '0 0 20px', color: C.textPrimary }}>יצירת גרסה חדשה</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '20px' }}>
 
-            {/* שם גרסה — spans 2 cols */}
-            <div style={{ gridColumn: 'span 2' }}>
+            {/* שם גרסה — col 1 */}
+            <div>
               <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>
                 שם גרסה <span style={{ color: C.statusBlocked }}>*</span>
                 {qcReleases.length === 0 && (
@@ -434,7 +449,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
                   </span>
                 )}
               </label>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '6px' }}>
                 <select
                   value={newVersion.qcReleaseId || '__manual__'}
                   onChange={e => {
@@ -446,10 +461,10 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
                       setNewVersion(v => ({ ...v, qcReleaseId: val, name: rel?.relName || v.name }));
                     }
                   }}
-                  style={{ flex: '0 0 auto', padding: '10px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '13px', background: C.bgNested, color: C.textPrimary }}
+                  style={{ flexShrink: 0, maxWidth: '150px', padding: '9px 8px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '12px', background: C.bgNested, color: C.textPrimary }}
                 >
-                  <option value="__manual__">✏️ הקלד ידנית</option>
-                  {qcReleases.length > 0 && <option disabled>── גרסאות QC ──</option>}
+                  <option value="__manual__">✏️ ידנית</option>
+                  {qcReleases.length > 0 && <option disabled>── QC ──</option>}
                   {[...qcReleases]
                     .sort((a, b) => {
                       if (a.goLiveDate && b.goLiveDate) return new Date(a.goLiveDate).getTime() - new Date(b.goLiveDate).getTime();
@@ -468,44 +483,59 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
                   value={newVersion.name}
                   onChange={e => setNewVersion(v => ({ ...v, name: e.target.value, qcReleaseId: '' }))}
                   placeholder="לדוגמה: ITv04-2026"
-                  style={{ flex: 1, padding: '10px', border: `2px solid ${newVersion.qcReleaseId ? C.statusDone : C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
+                  style={{ flex: 1, minWidth: 0, padding: '9px', border: `2px solid ${newVersion.qcReleaseId ? C.statusDone : C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }}
                 />
               </div>
             </div>
 
-            {/* Row: Description — spans 2 cols */}
-            <div style={{ gridColumn: 'span 2' }}>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>תיאור</label>
-              <input value={newVersion.description} onChange={e => setNewVersion({ ...newVersion, description: e.target.value })} placeholder="תיאור קצר"
-                style={{ width: '100%', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
+            {/* תיאור — col 2 */}
+            <div>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>
+                תיאור <span style={{ color: C.statusBlocked }}>*</span>
+              </label>
+              <textarea
+                value={newVersion.description}
+                onChange={e => setNewVersion({ ...newVersion, description: e.target.value })}
+                placeholder="תיאור קצר של הגרסה"
+                rows={3}
+                style={{ width: '100%', padding: '9px', border: `2px solid ${!newVersion.description.trim() ? C.statusBlocked : C.statusDone}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary, resize: 'vertical', fontFamily: 'inherit' }}
+              />
             </div>
 
             {/* Row: Integration dates */}
             <div>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>🔧 תאריך תחילת אינטגרציה</label>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>
+                🔧 תאריך תחילת אינטגרציה <span style={{ color: C.statusBlocked }}>*</span>
+              </label>
               <input type="date" value={newVersion.integrationStart}
                 onChange={e => setNewVersion({ ...newVersion, integrationStart: e.target.value })}
-                style={{ width: '100%', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
+                style={{ width: 'auto', minWidth: '155px', padding: '9px', border: `2px solid ${!newVersion.integrationStart ? C.statusBlocked : C.statusDone}`, borderRadius: '8px', fontSize: '14px', background: C.bgNested, color: C.textPrimary }} />
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>🔧 תאריך סיום אינטגרציה</label>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>
+                🔧 תאריך סיום אינטגרציה <span style={{ color: C.statusBlocked }}>*</span>
+              </label>
               <input type="date" value={newVersion.integrationEnd}
                 onChange={e => setNewVersion({ ...newVersion, integrationEnd: e.target.value })}
-                style={{ width: '100%', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
+                style={{ width: 'auto', minWidth: '155px', padding: '9px', border: `2px solid ${!newVersion.integrationEnd ? C.statusBlocked : C.statusDone}`, borderRadius: '8px', fontSize: '14px', background: C.bgNested, color: C.textPrimary }} />
             </div>
 
             {/* Row: QA dates */}
             <div>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>🧪 תאריך תחילת בדיקות QA</label>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>
+                🧪 תאריך תחילת בדיקות QA <span style={{ color: C.statusBlocked }}>*</span>
+              </label>
               <input type="date" value={newVersion.qaStart}
                 onChange={e => setNewVersion({ ...newVersion, qaStart: e.target.value })}
-                style={{ width: '100%', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
+                style={{ width: 'auto', minWidth: '155px', padding: '9px', border: `2px solid ${!newVersion.qaStart ? C.statusBlocked : C.statusDone}`, borderRadius: '8px', fontSize: '14px', background: C.bgNested, color: C.textPrimary }} />
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>🧪 תאריך סיום בדיקות QA</label>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>
+                🧪 תאריך סיום בדיקות QA <span style={{ color: C.statusBlocked }}>*</span>
+              </label>
               <input type="date" value={newVersion.qaEnd}
                 onChange={e => setNewVersion({ ...newVersion, qaEnd: e.target.value })}
-                style={{ width: '100%', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
+                style={{ width: 'auto', minWidth: '155px', padding: '9px', border: `2px solid ${!newVersion.qaEnd ? C.statusBlocked : C.statusDone}`, borderRadius: '8px', fontSize: '14px', background: C.bgNested, color: C.textPrimary }} />
             </div>
 
             {/* Row: Meeting dates */}
@@ -516,7 +546,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
               </label>
               <input type="datetime-local" value={newVersion.reviewMeetingTime}
                 onChange={e => setNewVersion({ ...newVersion, reviewMeetingTime: e.target.value })}
-                style={{ width: '100%', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
+                style={{ width: 'auto', minWidth: '155px', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', background: C.bgNested, color: C.textPrimary }} />
             </div>
             <div>
               <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>
@@ -525,73 +555,78 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
               </label>
               <input type="datetime-local" value={newVersion.workPlanMeetingTime}
                 onChange={e => setNewVersion({ ...newVersion, workPlanMeetingTime: e.target.value })}
-                style={{ width: '100%', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
+                style={{ width: 'auto', minWidth: '155px', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', background: C.bgNested, color: C.textPrimary }} />
             </div>
 
-            {/* Row: Go-live dates — required */}
+            {/* Row: Go-live dates — optional, set later from activity schedule */}
             <div>
               <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>
-                תאריך ושעת התחלה מתוכנן <span style={{ color: C.statusBlocked }}>*</span>
+                תאריך ושעת התחלה מתוכנן
+                <span style={{ fontSize: '10px', color: C.textMuted, marginRight: '5px', fontWeight: 'normal' }}>אופציונלי</span>
               </label>
               <input type="datetime-local" value={newVersion.plannedStart}
                 onChange={e => handlePlannedStartChange(e.target.value)}
-                style={{ width: '100%', padding: '9px', border: `2px solid ${!newVersion.plannedStart ? C.statusBlocked : C.statusDone}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
-              {!newVersion.plannedStart && (
-                <p style={{ margin: '4px 0 0', fontSize: '11px', color: C.danger }}>שדה חובה</p>
-              )}
+                style={{ width: 'auto', minWidth: '200px', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', background: C.bgNested, color: C.textPrimary }} />
             </div>
             <div>
               <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '13px' }}>
-                תאריך ושעת סיום מתוכנן <span style={{ color: C.statusBlocked }}>*</span>
+                תאריך ושעת סיום מתוכנן
+                <span style={{ fontSize: '10px', color: C.textMuted, marginRight: '5px', fontWeight: 'normal' }}>אופציונלי</span>
               </label>
               <input type="datetime-local" value={newVersion.plannedEnd}
                 onChange={e => setNewVersion({ ...newVersion, plannedEnd: e.target.value })}
-                style={{ width: '100%', padding: '9px', border: `2px solid ${!newVersion.plannedEnd ? C.statusBlocked : C.statusDone}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary }} />
-              {!newVersion.plannedEnd && (
-                <p style={{ margin: '4px 0 0', fontSize: '11px', color: C.danger }}>שדה חובה</p>
-              )}
+                style={{ width: 'auto', minWidth: '200px', padding: '9px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', background: C.bgNested, color: C.textPrimary }} />
             </div>
 
           </div>
 
           {/* ── Create options ── */}
-          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {/* Row 1: compact template selector */}
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <label style={{ fontSize: '13px', color: C.textSecondary, fontWeight: 'bold', whiteSpace: 'nowrap' }}>📋 תבנית שמורה:</label>
+          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+
+            {/* ── Option A: Save now, build plan later ── */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button
+                onClick={createEmpty}
+                disabled={creatingTemplate || !formComplete}
+                style={{ padding: '9px 20px', background: creatingTemplate || !formComplete ? C.textDisabled : C.statusWaiting, color: 'white', border: 'none', borderRadius: '8px', cursor: creatingTemplate || !formComplete ? 'not-allowed' : 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap', fontSize: '13px', flexShrink: 0 }}>
+                {creatingTemplate ? 'שומר...' : '💾 שמור גרסה'}
+              </button>
+              <span style={{ fontSize: '12px', color: C.textMuted }}>שמור כעת ובנה תוכנית הטמעה מאוחר יותר דרך הגרסה</span>
+            </div>
+
+            {/* Divider */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ flex: 1, height: '1px', background: C.border }} />
+              <span style={{ fontSize: '11px', color: C.textMuted, whiteSpace: 'nowrap' }}>או בנה תוכנית מיד</span>
+              <div style={{ flex: 1, height: '1px', background: C.border }} />
+            </div>
+
+            {/* ── Option B: Template ── */}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
               {templates.length > 0 ? (
                 <select
                   value={selectedTemplateId}
                   onChange={e => setSelectedTemplateId(e.target.value)}
-                  style={{ padding: '7px 10px', border: `2px solid ${C.statusDone}`, borderRadius: '8px', fontSize: '13px', maxWidth: '280px', background: C.bgNested, color: C.textPrimary }}
+                  style={{ padding: '7px 10px', border: `2px solid ${C.statusDone}`, borderRadius: '8px', fontSize: '13px', maxWidth: '260px', background: C.bgNested, color: C.textPrimary }}
                 >
-                  <option value="">-- בחר תבנית --</option>
+                  <option value="">📋 בחר תבנית שמורה</option>
                   {templates.map((t: any) => (
                     <option key={t.id} value={t.id}>{t.name}{t.description ? ` — ${t.description}` : ''}</option>
                   ))}
                 </select>
               ) : (
-                <span style={{ fontSize: '12px', color: C.textMuted, fontStyle: 'italic' }}>אין תבניות שמורות — שמור תבנית מגרסה קיימת</span>
+                <span style={{ fontSize: '12px', color: C.textMuted, fontStyle: 'italic' }}>📋 אין תבניות שמורות</span>
               )}
-            </div>
-
-            {/* Row 2: action buttons */}
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
               <button
                 onClick={createFromTemplate}
                 disabled={creatingFromTemplate || !selectedTemplateId || !newVersion.name.trim() || !newVersion.plannedStart}
-                style={{ padding: '9px 18px', background: !selectedTemplateId || !newVersion.name.trim() || !newVersion.plannedStart ? C.textDisabled : C.statusDone, color: 'white', border: 'none', borderRadius: '8px', cursor: !selectedTemplateId || !newVersion.name.trim() || !newVersion.plannedStart ? 'not-allowed' : 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap', fontSize: '13px' }}>
-                {creatingFromTemplate ? 'יוצר...' : '📋 צור תוכנית גרסה מתבנית שמורה'}
-              </button>
-              <button
-                onClick={createEmpty}
-                disabled={creatingTemplate || !newVersion.name.trim() || !newVersion.plannedStart}
-                style={{ padding: '9px 18px', background: creatingTemplate || !newVersion.name.trim() || !newVersion.plannedStart ? C.textDisabled : C.statusWaiting, color: 'white', border: 'none', borderRadius: '8px', cursor: creatingTemplate || !newVersion.name.trim() || !newVersion.plannedStart ? 'not-allowed' : 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap', fontSize: '13px' }}>
-                {creatingTemplate ? 'יוצר...' : '📄 גרסה ריקה'}
+                style={{ padding: '9px 16px', background: !selectedTemplateId || !newVersion.name.trim() || !newVersion.plannedStart ? C.textDisabled : C.statusDone, color: 'white', border: 'none', borderRadius: '8px', cursor: !selectedTemplateId || !newVersion.name.trim() || !newVersion.plannedStart ? 'not-allowed' : 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap', fontSize: '13px' }}>
+                {creatingFromTemplate ? 'יוצר...' : 'צור מתבנית'}
               </button>
 
+              {/* ── Option C: Excel import ── */}
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <label style={{ padding: '9px 18px', background: C.brand, color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap', fontSize: '13px' }}>
+                <label style={{ padding: '9px 16px', background: C.brand, color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap', fontSize: '13px' }}>
                   📤 {importFile ? importFile.name : 'ייבוא מ-Excel'}
                   <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
                     onChange={e => setImportFile(e.target.files?.[0] || null)} />
@@ -609,16 +644,20 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
                 )}
               </div>
 
-              <button onClick={() => { setShowNew(false); setImportFile(null); setSelectedTemplateId(''); }} style={{ padding: '9px 18px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.lg, cursor: 'pointer' }}>ביטול</button>
+              <button onClick={() => { setShowNew(false); setImportFile(null); setSelectedTemplateId(''); }} style={{ padding: '9px 16px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.lg, cursor: 'pointer' }}>ביטול</button>
             </div>
+
           </div>
-          {(!newVersion.name.trim() || !newVersion.plannedStart || !newVersion.plannedEnd) && (
+          {!formComplete && (
             <p style={{ margin: '10px 0 0', fontSize: '12px', color: C.danger }}>
-              {[
-                !newVersion.name.trim()   && 'שם גרסה',
-                !newVersion.plannedStart  && 'תאריך ושעת התחלה מתוכנן',
-                !newVersion.plannedEnd    && 'תאריך ושעת סיום מתוכנן',
-              ].filter(Boolean).join(', ')} — שדה חובה
+              שדות חובה חסרים: {[
+                !newVersion.name.trim()            && 'שם גרסה',
+                !newVersion.description.trim()     && 'תיאור',
+                !newVersion.integrationStart       && 'תאריך תחילת אינטגרציה',
+                !newVersion.integrationEnd         && 'תאריך סיום אינטגרציה',
+                !newVersion.qaStart                && 'תאריך תחילת QA',
+                !newVersion.qaEnd                  && 'תאריך סיום QA',
+              ].filter(Boolean).join(', ')}
             </p>
           )}
           {actionError && (
@@ -930,8 +969,6 @@ const VersionDetail: React.FC<{
     }
   };
 
-  const [viewMode, setViewMode] = useState<'detail' | 'plan'>('detail');
-
   const [addingTask, setAddingTask] = useState<string | null>(null);
   const [editingTask, setEditingTask] = useState<any | null>(null);
   const [editFilters, setEditFilters] = useState({ user: '', team: '', app: '' });
@@ -973,6 +1010,13 @@ const VersionDetail: React.FC<{
   const [approvalDeadlineValue, setApprovalDeadlineValue] = useState(
     (version as any).approvalDeadline ? new Date((version as any).approvalDeadline).toISOString().slice(0, 16) : ''
   );
+  const [editingQaDates, setEditingQaDates] = useState(false);
+  const [qaDatesValue, setQaDatesValue] = useState({
+    integrationStart: version.integrationStart ? new Date(version.integrationStart).toISOString().slice(0, 10) : '',
+    integrationEnd:   version.integrationEnd   ? new Date(version.integrationEnd).toISOString().slice(0, 10)   : '',
+    qaStart:          version.qaStart          ? new Date(version.qaStart).toISOString().slice(0, 10)          : '',
+    qaEnd:            version.qaEnd            ? new Date(version.qaEnd).toISOString().slice(0, 10)            : '',
+  });
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [reschPhaseStarts, setReschPhaseStarts] = useState<Record<string, string>>({});
   const [reschPhaseEnds, setReschPhaseEnds] = useState<Record<string, string>>({});
@@ -1001,6 +1045,9 @@ const VersionDetail: React.FC<{
   const [saveTemplateName, setSaveTemplateName] = useState('');
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [localTemplates, setLocalTemplates] = useState<any[]>([]);
+  const [applyTemplateId, setApplyTemplateId] = useState('');
+  const [applyTemplateLoading, setApplyTemplateLoading] = useState(false);
+  const [applyTemplateError, setApplyTemplateError] = useState<string | null>(null);
   const [crItems, setCrItems] = useState<{ id: string; label: string }[]>([]);
   const [newCrInput, setNewCrInput] = useState('');
   const [editCrInput, setEditCrInput] = useState('');
@@ -1265,6 +1312,20 @@ const VersionDetail: React.FC<{
     } finally { setPhaseManageLoading(false); }
   };
 
+  const applyTemplateToVersion = async () => {
+    if (!applyTemplateId) return;
+    setApplyTemplateLoading(true);
+    setApplyTemplateError(null);
+    try {
+      await axios.post(`${API}/version-templates/${applyTemplateId}/apply-to-version/${version.id}`, {}, { headers });
+      onRefresh();
+    } catch (err: any) {
+      setApplyTemplateError(err?.response?.data?.message || 'שגיאה בהחלת התבנית');
+    } finally {
+      setApplyTemplateLoading(false);
+    }
+  };
+
   const formatTime = (iso: string) => iso ? new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '';
   const formatDate = (iso: string) => iso ? new Date(iso).toLocaleDateString('he-IL') : '';
   const formatDateTimeShort = (iso: string) => {
@@ -1382,6 +1443,11 @@ const VersionDetail: React.FC<{
   const saveReviewMeetingTime = async () => {
     try {
       await axios.patch(`${API}/versions/${version.id}/review-meeting-time`, { reviewMeetingTime: reviewMeetingValue || null }, { headers });
+      // Sync to activity board
+      if (reviewMeetingValue) {
+        await axios.patch(`${API}/activity-board/${version.id}/by-key/cr_review`,
+          { dateStart: reviewMeetingValue, dateEnd: reviewMeetingValue }, { headers }).catch(() => {});
+      }
       setEditingReviewMeeting(false);
       onRefresh();
     } catch (err: any) {
@@ -1392,6 +1458,11 @@ const VersionDetail: React.FC<{
   const saveWorkPlanMeetingTime = async () => {
     try {
       await axios.patch(`${API}/versions/${version.id}`, { workPlanMeetingTime: workPlanMeetingValue || null }, { headers });
+      // Sync to activity board
+      if (workPlanMeetingValue) {
+        await axios.patch(`${API}/activity-board/${version.id}/by-key/runbook`,
+          { dateStart: workPlanMeetingValue, dateEnd: workPlanMeetingValue }, { headers }).catch(() => {});
+      }
       setEditingWorkPlanMeeting(false);
       onRefresh();
     } catch (err: any) {
@@ -1416,6 +1487,21 @@ const VersionDetail: React.FC<{
       onRefresh();
     } catch (err: any) {
       showAlert('שגיאה', err?.response?.data?.message || 'שגיאה בשמירת מועד אישור', 'danger');
+    }
+  };
+
+  const saveQaDates = async () => {
+    try {
+      await axios.patch(`${API}/versions/${version.id}`, {
+        integrationStart: qaDatesValue.integrationStart || null,
+        integrationEnd:   qaDatesValue.integrationEnd   || null,
+        qaStart:          qaDatesValue.qaStart           || null,
+        qaEnd:            qaDatesValue.qaEnd             || null,
+      }, { headers });
+      setEditingQaDates(false);
+      onRefresh();
+    } catch (err: any) {
+      showAlert('שגיאה', err?.response?.data?.message || 'שגיאה בשמירת תאריכי QA', 'danger');
     }
   };
 
@@ -2172,6 +2258,61 @@ const VersionDetail: React.FC<{
 
         );})()}
 
+        {/* ── Integration / QA dates row ── */}
+        {isManager && (
+          <div style={{ marginTop: '10px', padding: '10px 14px', background: C.bgNested, borderRadius: RADIUS.md, border: `1px solid ${C.border}`, fontSize: '13px', display: 'flex', gap: '18px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontWeight: WEIGHT.bold, color: C.textSecondary, whiteSpace: 'nowrap' }}>🔧 תאריכי אינטגרציה / QA:</span>
+            {editingQaDates ? (
+              <>
+                {([
+                  { key: 'integrationStart', label: 'תחילת אינטגרציה' },
+                  { key: 'integrationEnd',   label: 'סיום אינטגרציה' },
+                  { key: 'qaStart',          label: 'תחילת QA' },
+                  { key: 'qaEnd',            label: 'סיום QA' },
+                ] as { key: keyof typeof qaDatesValue; label: string }[]).map(({ key, label }) => (
+                  <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '11px', color: C.textMuted }}>
+                    {label}
+                    <input
+                      type="date"
+                      value={qaDatesValue[key]}
+                      onChange={e => setQaDatesValue(prev => ({ ...prev, [key]: e.target.value }))}
+                      style={{ padding: '4px 7px', border: `1px solid ${C.borderFocus}`, borderRadius: RADIUS.md, fontSize: '13px', background: C.bgCard, color: C.textPrimary }}
+                    />
+                  </label>
+                ))}
+                <button onClick={saveQaDates} style={{ padding: '5px 13px', background: C.success, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '12px', fontWeight: WEIGHT.bold, alignSelf: 'flex-end' }}>שמור</button>
+                <button onClick={() => setEditingQaDates(false)} style={{ padding: '5px 10px', background: C.bgNested, color: C.textSecondary, border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '12px', alignSelf: 'flex-end' }}>ביטול</button>
+              </>
+            ) : (
+              <>
+                {version.integrationStart && (
+                  <span style={{ color: C.textSecondary }}>🔧 {new Date(version.integrationStart).toLocaleDateString('he-IL')} → {version.integrationEnd ? new Date(version.integrationEnd).toLocaleDateString('he-IL') : '—'}</span>
+                )}
+                {version.qaStart && (
+                  <span style={{ color: C.textSecondary }}>🧪 {new Date(version.qaStart).toLocaleDateString('he-IL')} → {version.qaEnd ? new Date(version.qaEnd).toLocaleDateString('he-IL') : '—'}</span>
+                )}
+                {!version.integrationStart && !version.qaStart && (
+                  <span style={{ color: C.textDisabled, fontStyle: 'italic' }}>לא הוגדרו תאריכים</span>
+                )}
+                <button
+                  onClick={() => {
+                    setQaDatesValue({
+                      integrationStart: version.integrationStart ? new Date(version.integrationStart).toISOString().slice(0, 10) : '',
+                      integrationEnd:   version.integrationEnd   ? new Date(version.integrationEnd).toISOString().slice(0, 10)   : '',
+                      qaStart:          version.qaStart          ? new Date(version.qaStart).toISOString().slice(0, 10)          : '',
+                      qaEnd:            version.qaEnd            ? new Date(version.qaEnd).toISOString().slice(0, 10)            : '',
+                    });
+                    setEditingQaDates(true);
+                  }}
+                  style={{ padding: '3px 10px', background: C.infoBg, color: C.info, border: `1px solid ${C.borderFocus}44`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '11px' }}
+                >
+                  עריכה
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
         {version.submissions?.length > 0 && (
           <div style={{ marginTop: '12px' }}>
             {/* CR_REVIEW: detailed CR-based submission status panel */}
@@ -2399,58 +2540,7 @@ const VersionDetail: React.FC<{
       )}
 
 
-      {/* ── View mode tabs ── */}
-      {version.status !== 'CR_REVIEW' && (
-      <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', background: C.bgNested, borderRadius: '10px', padding: '6px', border: `1px solid ${C.border}` }}>
-        <button
-          onClick={() => setViewMode('detail')}
-          style={{ flex: 1, padding: '8px 0', background: viewMode === 'detail' ? C.brandDim : 'transparent', color: viewMode === 'detail' ? C.textPrimary : C.textMuted, border: viewMode === 'detail' ? `1px solid ${C.brand}` : '1px solid transparent', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', fontFamily: FONT }}
-        >
-          ⚙️ עריכת גרסה
-        </button>
-        <button
-          onClick={() => setViewMode('plan')}
-          style={{ flex: 1, padding: '8px 0', background: viewMode === 'plan' ? C.brandDim : 'transparent', color: viewMode === 'plan' ? C.textPrimary : C.textMuted, border: viewMode === 'plan' ? `1px solid ${C.brand}` : '1px solid transparent', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', fontFamily: FONT }}
-        >
-          🔍 תוכנית ביצוע + חריגות
-        </button>
-      </div>
-      )}
-
-      {/* ── Plan view (TeamView with anomaly detection) ── */}
-      {viewMode === 'plan' && version.status !== 'CR_REVIEW' && (
-        <div>
-          <div style={{
-            background: 'linear-gradient(135deg, #2c3e50 0%, #4a6741 100%)',
-            borderRadius: '12px', padding: '10px 18px', marginBottom: '14px',
-            display: 'flex', alignItems: 'center', gap: '10px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          }}>
-            <span style={{ fontSize: '20px' }}>📋</span>
-            <div>
-              <div style={{ fontWeight: 'bold', color: 'white', fontSize: '14px' }}>מצב תכנון — {version.name}</div>
-              <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.75)', marginTop: '2px' }}>
-                {({
-                  DRAFT: 'טיוטה — בניית תוכנית ראשונית',
-                  COLLECTING: 'איסוף משימות — הצוותים מוסיפים משימות',
-                  REFINING: 'עיבוד — עדכון ובדיקת התוכנית',
-                  REVIEW: 'סקירה — ממתין לאישור',
-                  APPROVED: 'תוכנית מאושרת — נעולה',
-                  REHEARSAL: 'חזרה גנרלית',
-                  ACTIVE: 'פעיל — ביצוע הטמעה',
-                  MORNING_AFTER: 'פעילות בוקר לאחר גרסה',
-                  COMPLETED: 'הושלם — ארכיון',
-                  ROLLED_BACK: 'בוצע Rollback',
-                } as Record<string, string>)[version.status] ?? version.status}
-                {' · '}כלי בדיקת החריגות פעיל לבניית התוכנית
-              </div>
-            </div>
-          </div>
-          <TeamView token={token} versionId={version.id} refreshKey={teamRefreshKey} onTaskUpdated={onRefresh} onOpenReschedule={isManager ? openReschedule : undefined} />
-        </div>
-      )}
-
-      {viewMode === 'detail' && version.status !== 'CR_REVIEW' && <>
+      {version.status !== 'CR_REVIEW' && <>
 
       {/* ── Lock banner ── */}
       {isLocked && (
@@ -2466,6 +2556,47 @@ const VersionDetail: React.FC<{
                 : 'לא ניתן להוסיף, לערוך או למחוק משימות בזמן ביצוע'}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Empty DRAFT: build deployment plan ── */}
+      {version.status === 'DRAFT' && !(version.phases?.length) && isManager && (
+        <div style={{ background: '#f0f7ff', border: '2px dashed #2d4a7a', borderRadius: '14px', padding: '28px 24px', marginBottom: '20px', textAlign: 'center' }}>
+          <div style={{ fontSize: '32px', marginBottom: '10px' }}>📋</div>
+          <div style={{ fontWeight: 'bold', fontSize: '17px', color: '#1a2332', marginBottom: '6px' }}>
+            בנה תוכנית הטמעה לגרסה
+          </div>
+          <div style={{ fontSize: '13px', color: '#475569', marginBottom: '20px', lineHeight: 1.6 }}>
+            הגרסה נוצרה. החל תבנית קיימת כדי לאכלס שלבים ומשימות אוטומטית.
+          </div>
+          {localTemplates.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', maxWidth: '400px', margin: '0 auto' }}>
+              <select
+                value={applyTemplateId}
+                onChange={e => setApplyTemplateId(e.target.value)}
+                style={{ width: '100%', padding: '10px 14px', border: '2px solid #2d4a7a', borderRadius: '8px', fontSize: '14px', background: 'white', color: '#1a2332', direction: 'rtl' }}
+              >
+                <option value="">בחר תבנית...</option>
+                {localTemplates.map((t: any) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+              {applyTemplateError && (
+                <div style={{ color: '#dc2626', fontSize: '13px' }}>⚠️ {applyTemplateError}</div>
+              )}
+              <button
+                onClick={applyTemplateToVersion}
+                disabled={!applyTemplateId || applyTemplateLoading}
+                style={{ padding: '10px 28px', background: applyTemplateId && !applyTemplateLoading ? '#2d4a7a' : '#94a3b8', color: 'white', border: 'none', borderRadius: '8px', cursor: applyTemplateId ? 'pointer' : 'not-allowed', fontSize: '14px', fontWeight: 'bold', width: '100%' }}
+              >
+                {applyTemplateLoading ? '⏳ מחיל תבנית...' : '📋 החל תבנית על הגרסה'}
+              </button>
+            </div>
+          ) : (
+            <div style={{ fontSize: '13px', color: '#94a3b8' }}>
+              אין תבניות שמורות. תוכל להוסיף שלבים ידנית או לשמור תבנית מגרסה קיימת.
+            </div>
+          )}
         </div>
       )}
 

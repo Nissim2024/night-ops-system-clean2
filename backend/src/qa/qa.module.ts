@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { QaController } from './qa.controller';
+import { QaStatsController } from './qa-stats.controller';
 import { QaService } from './qa.service';
 import { QaAdminGuard } from './qa-admin.guard';
 import { QaWorkPlanService } from './qa-workplan.service';
@@ -12,7 +13,7 @@ import { QaWorkPlanService } from './qa-workplan.service';
       signOptions: { expiresIn: '8h' },
     }),
   ],
-  controllers: [QaController],
+  controllers: [QaController, QaStatsController],
   providers:   [QaService, QaAdminGuard, QaWorkPlanService],
 })
 export class QaModule {}

@@ -509,7 +509,8 @@ model VersionCrAssignment {
   qaEffortOverride      Float?   // manual override — not overwritten on re-sync
   requiredSkillMinLevel Int?     // minimum skill level to test this CR (default 1)
   isStandAlone          Boolean  @default(false)
-  estimateDays          Float?   // from "סך כל הערכות" column in CR_LIST
+  estimateDays          Float?   // from "סך כל הערכות" column in CR_LIST (CR total, all teams)
+  teamEstimateDays      Float?   // this team's individual estimate days from their column in CR_LIST
   hasActual             Boolean? // true when "Actuals" column has a V mark
   syncedAt              DateTime @default(now())
   syncStatus            String   @default("ACTIVE") // "ACTIVE" | "NEW" | "REMOVED"

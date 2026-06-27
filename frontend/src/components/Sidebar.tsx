@@ -140,31 +140,31 @@ export const Sidebar: React.FC<Props> = ({
         </div>
       )}
 
+      {/* ── Home button — always visible ── */}
+      {onHomeClick && (
+        <div
+          onClick={onHomeClick}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '10px',
+            padding: `10px ${SP[3]}`,
+            cursor: 'pointer',
+            background: activeTab === 'home' && activeModule === 'deployments' ? C.sidebarBgActive : 'transparent',
+            borderRight: activeTab === 'home' && activeModule === 'deployments' ? `3px solid ${C.sidebarAccent}` : '3px solid transparent',
+            transition: EASE.fast,
+            marginTop: SP[2],
+          }}
+          onMouseEnter={e => { if (!(activeTab === 'home' && activeModule === 'deployments')) (e.currentTarget as HTMLElement).style.background = C.sidebarBgHover; }}
+          onMouseLeave={e => { if (!(activeTab === 'home' && activeModule === 'deployments')) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+        >
+          <span style={{ fontSize: '17px', lineHeight: 1 }}>🏠</span>
+          <span style={{ fontSize: '14px', fontWeight: activeTab === 'home' && activeModule === 'deployments' ? WEIGHT.semibold : WEIGHT.medium, color: activeTab === 'home' && activeModule === 'deployments' ? C.sidebarText : 'rgba(255,255,255,0.78)' }}>
+            דף הבית
+          </span>
+        </div>
+      )}
+
       {/* ─── Deployments: גרסאות ─── */}
       {isDeployments && (<>
-
-        {/* ── Home button ── */}
-        {onHomeClick && (
-          <div
-            onClick={onHomeClick}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '10px',
-              padding: `10px ${SP[3]}`,
-              cursor: 'pointer',
-              background: activeTab === 'home' ? C.sidebarBgActive : 'transparent',
-              borderRight: activeTab === 'home' ? `3px solid ${C.sidebarAccent}` : '3px solid transparent',
-              transition: EASE.fast,
-              marginTop: SP[2],
-            }}
-            onMouseEnter={e => { if (activeTab !== 'home') (e.currentTarget as HTMLElement).style.background = C.sidebarBgHover; }}
-            onMouseLeave={e => { if (activeTab !== 'home') (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-          >
-            <span style={{ fontSize: '17px', lineHeight: 1 }}>🏠</span>
-            <span style={{ fontSize: '14px', fontWeight: activeTab === 'home' ? WEIGHT.semibold : WEIGHT.medium, color: activeTab === 'home' ? C.sidebarText : 'rgba(255,255,255,0.78)' }}>
-              דף הבית
-            </span>
-          </div>
-        )}
 
         {/* כותרת גרסאות — רמה ראשונה */}
         <div
