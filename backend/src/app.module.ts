@@ -24,6 +24,7 @@ import { FailureReasonsModule } from './failure-reasons/failure-reasons.module';
 import { QaModule } from './qa/qa.module';
 import { LeavesModule } from './leaves/leaves.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { TeamsBotModule } from './notifications/teams-bot/teams-bot.module';
 import { ActivityBoardModule } from './activity-board/activity-board.module';
 import { RunbookModule } from './runbook/runbook.module';
 import { HealthModule } from './health/health.module';
@@ -41,6 +42,7 @@ import { HealthModule } from './health/health.module';
     EventsModule, ImportModule, SummaryModule, PermissionsModule, QcModule, QcReleasesModule,
     VersionTemplatesModule, TaskProposalsModule, CrPlansModule, VersionCrAssignmentsModule,
     SystemParamsModule, FailureReasonsModule, QaModule, LeavesModule, NotificationsModule,
+    TeamsBotModule,
     ActivityBoardModule,
     RunbookModule,
     HealthModule,

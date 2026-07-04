@@ -32,10 +32,10 @@ const SummaryVersionPicker: React.FC<{ token: string }> = ({ token }) => {
                 onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.15)')}
                 onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)')}>
                 <div>
-                  <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#1a2332' }}>{v.name}</div>
-                  <div style={{ fontSize: '13px', color: '#666', marginTop: '4px' }}>{new Date(v.createdAt).toLocaleDateString('he-IL')}</div>
+                  <div style={{ fontWeight: 'bold', fontSize: '17px', color: '#1a2332' }}>{v.name}</div>
+                  <div style={{ fontSize: '15px', color: '#666', marginTop: '4px' }}>{new Date(v.createdAt).toLocaleDateString('he-IL')}</div>
                 </div>
-                <span style={{ background: '#1a2332', color: 'white', padding: '4px 12px', borderRadius: '12px', fontSize: '12px' }}>{v.status}</span>
+                <span style={{ background: '#1a2332', color: 'white', padding: '4px 12px', borderRadius: '12px', fontSize: '14px' }}>{v.status}</span>
               </div>
             ))}
           </div>
@@ -186,20 +186,20 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
             {push.loading ? '⏳' : push.subscribed ? '🔔' : '🔕'}
           </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', background: 'rgba(255,255,255,0.1)', borderRadius: '8px' }}>
-            <span style={{ fontSize: '10px', color: '#2ecc71' }}>●</span>
-            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.9)' }}>{onlineUsers.length} מחוברים</span>
+            <span style={{ fontSize: '12px', color: '#2ecc71' }}>●</span>
+            <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.9)' }}>{onlineUsers.length} מחוברים</span>
           </div>
           <button onClick={onLogout} style={{ padding: '8px 16px', background: 'rgba(231,76,60,0.7)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>יציאה</button>
         </div>
         {/* Left side: nav items + alerts */}
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', flex: 1, justifyContent: 'flex-end', paddingRight: '12px' }}>
           {lastAlert && (
-            <div style={{ padding: '8px 16px', background: 'rgba(231,76,60,0.9)', color: 'white', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold', flexShrink: 0 }}>
+            <div style={{ padding: '8px 16px', background: 'rgba(231,76,60,0.9)', color: 'white', borderRadius: '8px', fontSize: '15px', fontWeight: 'bold', flexShrink: 0 }}>
               {lastAlert}
             </div>
           )}
           {navItems.map(item => (
-            <button key={item.key} onClick={() => setView(item.key)} style={{ padding: '8px 16px', background: view === item.key ? 'rgba(255,255,255,0.25)' : 'transparent', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontWeight: view === item.key ? 'bold' : 'normal', fontSize: '14px', whiteSpace: 'nowrap' }}>
+            <button key={item.key} onClick={() => setView(item.key)} style={{ padding: '8px 16px', background: view === item.key ? 'rgba(255,255,255,0.25)' : 'transparent', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontWeight: view === item.key ? 'bold' : 'normal', fontSize: '15px', whiteSpace: 'nowrap' }}>
               {item.label}
             </button>
           ))}
@@ -222,7 +222,7 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
             : <div style={{ textAlign: 'center', padding: '80px', color: '#666' }}>
                 <div style={{ fontSize: '48px', marginBottom: '16px' }}>🌙</div>
                 <div style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '8px' }}>אין לילה פעיל כרגע</div>
-                <div style={{ fontSize: '14px' }}>הפעל גרסה (או חזרה גנרלית) ממסך "גרסאות"</div>
+                <div style={{ fontSize: '15px' }}>הפעל גרסה (או חזרה גנרלית) ממסך "גרסאות"</div>
               </div>
         )}
         {view === 'cr-review' && <CrReviewView token={token} />}
@@ -238,7 +238,7 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
               {TASK_STATUSES.map((status) => (
                 <div key={status} style={{ background: 'white', borderRadius: '12px', padding: '16px 20px', flex: '1', minWidth: '100px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderTop: `4px solid ${statusColor(status)}`, textAlign: 'center' }}>
                   <div style={{ fontSize: '28px', fontWeight: 'bold', color: statusColor(status) }}>{statusCounts[status] || 0}</div>
-                  <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>{statusLabel(status)}</div>
+                  <div style={{ fontSize: '14px', color: '#666', marginTop: '4px' }}>{statusLabel(status)}</div>
                 </div>
               ))}
             </div>
@@ -248,13 +248,13 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
                 {tasks.map(task => (
                   <div key={task.id} style={{ background: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderRight: `5px solid ${statusColor(task.status)}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#1a2332', marginBottom: '6px' }}>{task.title}</div>
-                      <div style={{ display: 'flex', gap: '12px', fontSize: '13px', color: '#666' }}>
+                      <div style={{ fontWeight: 'bold', fontSize: '17px', color: '#1a2332', marginBottom: '6px' }}>{task.title}</div>
+                      <div style={{ display: 'flex', gap: '12px', fontSize: '15px', color: '#666' }}>
                         {task.assignedTeam && <span>צוות: {task.assignedTeam.name}</span>}
                         <span style={{ color: PRIORITY_COLORS[task.priority] }}>{PRIORITY_LABELS[task.priority]}</span>
                       </div>
                     </div>
-                    <select value={task.status} onChange={e => updateStatus(task.id, e.target.value)} style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '13px' }}>
+                    <select value={task.status} onChange={e => updateStatus(task.id, e.target.value)} style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '15px' }}>
                       {TASK_STATUSES.map(s => <option key={s} value={s}>{statusLabel(s)}</option>)}
                     </select>
                   </div>
@@ -271,7 +271,7 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
               {teams.map(team => (
                 <div key={team.id} style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderTop: '4px solid #2d4a7a' }}>
                   <h3 style={{ margin: '0 0 12px', color: '#1a2332' }}>{team.name}</h3>
-                  <div style={{ color: '#666', fontSize: '14px' }}>{team.members.length} חברים | {team._count.tasks} משימות</div>
+                  <div style={{ color: '#666', fontSize: '15px' }}>{team.members.length} חברים | {team._count.tasks} משימות</div>
                 </div>
               ))}
             </div>
@@ -285,15 +285,15 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
               <form onSubmit={createTask}>
                 <div style={{ marginBottom: '16px' }}>
                   <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>כותרת *</label>
-                  <input type="text" required value={newTask.title} onChange={e => setNewTask({ ...newTask, title: e.target.value })} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }} />
+                  <input type="text" required value={newTask.title} onChange={e => setNewTask({ ...newTask, title: e.target.value })} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px', boxSizing: 'border-box' }} />
                 </div>
                 <div style={{ marginBottom: '16px' }}>
                   <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>CR Number</label>
-                  <input type="text" value={newTask.crNumber} onChange={e => setNewTask({ ...newTask, crNumber: e.target.value })} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }} />
+                  <input type="text" value={newTask.crNumber} onChange={e => setNewTask({ ...newTask, crNumber: e.target.value })} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px', boxSizing: 'border-box' }} />
                 </div>
                 <div style={{ marginBottom: '16px' }}>
                   <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>Application</label>
-                  <select value={newTask.application} onChange={e => setNewTask({ ...newTask, application: e.target.value })} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px' }}>
+                  <select value={newTask.application} onChange={e => setNewTask({ ...newTask, application: e.target.value })} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px' }}>
                     <option value="">בחר Application</option>
                     <option value="WIZ">WIZ</option>
                     <option value="CRM">CRM</option>
@@ -308,7 +308,7 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
                 </div>
                 <div style={{ marginBottom: '16px' }}>
                   <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>עדיפות</label>
-                  <select value={newTask.priority} onChange={e => setNewTask({ ...newTask, priority: e.target.value })} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px' }}>
+                  <select value={newTask.priority} onChange={e => setNewTask({ ...newTask, priority: e.target.value })} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px' }}>
                     <option value="LOW">נמוך</option>
                     <option value="MEDIUM">בינוני</option>
                     <option value="HIGH">גבוה</option>
@@ -318,12 +318,12 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
                 </div>
                 <div style={{ marginBottom: '24px' }}>
                   <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>צוות</label>
-                  <select value={newTask.assignedTeamId} onChange={e => setNewTask({ ...newTask, assignedTeamId: e.target.value })} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px' }}>
+                  <select value={newTask.assignedTeamId} onChange={e => setNewTask({ ...newTask, assignedTeamId: e.target.value })} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px' }}>
                     <option value="">בחר צוות</option>
                     {teams.filter((team: any) => team.active).map((team: any) => <option key={team.id} value={team.id}>{team.name}</option>)}
                   </select>
                 </div>
-                <button type="submit" style={{ width: '100%', padding: '14px', background: '#1a2332', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' }}>צור משימה</button>
+                <button type="submit" style={{ width: '100%', padding: '14px', background: '#1a2332', color: 'white', border: 'none', borderRadius: '8px', fontSize: '17px', fontWeight: 'bold', cursor: 'pointer' }}>צור משימה</button>
               </form>
             </div>
           </div>

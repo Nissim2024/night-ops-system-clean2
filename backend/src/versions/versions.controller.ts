@@ -37,6 +37,8 @@ export class VersionsController {
     integrationEnd?: string;
     qaStart?: string;
     qaEnd?: string;
+    plannedRehearsalStart?: string;
+    plannedRehearsalEnd?: string;
     collectionDeadline?: string;
     reviewMeetingTime?: string;
     workPlanMeetingTime?: string;
@@ -63,6 +65,7 @@ export class VersionsController {
     @Body() body: {
       plannedStart?: string | null; plannedEnd?: string | null; reviewMeetingTime?: string | null; workPlanMeetingTime?: string | null;
       integrationStart?: string | null; integrationEnd?: string | null; qaStart?: string | null; qaEnd?: string | null;
+      plannedRehearsalStart?: string | null; plannedRehearsalEnd?: string | null;
       submissionDeadline?: string | null; approvalDeadline?: string | null;
       name?: string; description?: string;
     },
@@ -329,12 +332,12 @@ export class VersionsController {
   @Post(':id/reschedule')
   reschedule(
     @Param('id') id: string,
-    @Body() body: { phases: { phaseId: string; startTime: string; endTime?: string }[]; respectDeps?: boolean; taskOverrides?: { taskId: string; plannedStart: string }[] },
+    @Body() body: { phases: { phaseId: string; startTime: string; endTime?: string }[]; respectDeps?: boolean; taskOverrides?: { taskId: string; plannedStart: string }[]; target?: 'production' | 'rehearsal' },
     @Query('preview') preview: string,
     @Request() req: any,
   ) {
     requireRole(req, MANAGERS, 'רק מנהל לילה יכול לתזמן מחדש');
-    return this.versionsService.reschedule(id, body.phases ?? [], preview === 'true', body.respectDeps ?? false, body.taskOverrides ?? []);
+    return this.versionsService.reschedule(id, body.phases ?? [], preview === 'true', body.respectDeps ?? false, body.taskOverrides ?? [], body.target ?? 'production');
   }
 
   @Post(':id/send-collecting-reminder')

@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import * as XLSX from 'xlsx';
 import { scoreForCr, ScoringResult } from './qa.engine';
 import { addWorkDays, nextWorkDay, getFirstWorkDay } from './qa.scheduler';
 
@@ -106,6 +107,91 @@ export class QaService {
     await prisma.testerSkill.delete({
       where: { userId_skillId: { userId, skillId } },
     }).catch(() => { throw new NotFoundException('רשומה לא נמצאה'); });
+  }
+
+  // ── Matrix Excel import ───────────────────────────────────────────────────────
+  // Expected layout: row 1 = header (col A "אימייל" / "Email", remaining columns = skill
+  // names matching existing Skill.name). Data rows: col A = tester email, each skill column
+  // = level 1-5, "N/R" (not relevant), or blank (leave untouched).
+
+  async importMatrixFromBuffer(buffer: Buffer): Promise<{
+    success: boolean;
+    stats: { testersCreated: number; cellsUpdated: number; rowsSkipped: number };
+    warnings: string[];
+  }> {
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    if (rows.length < 2) throw new BadRequestException('הקובץ ריק או חסר שורת כותרות');
+
+    const header = rows[0].map(h => String(h ?? '').trim());
+    if (!header[0] || !/email|אימייל/i.test(header[0])) {
+      throw new BadRequestException('העמודה הראשונה חייבת להיות "אימייל"');
+    }
+    const skillColumns = header.slice(1).map((name, i) => ({ name: name.trim(), col: i + 1 }))
+      .filter(c => c.name);
+
+    const [allSkills, allUsers] = await Promise.all([
+      prisma.skill.findMany(),
+      prisma.user.findMany({ where: { active: true }, select: { id: true, email: true } }),
+    ]);
+    const skillByName = new Map(allSkills.map(s => [s.name.trim().toLowerCase(), s]));
+    const userByEmail = new Map(allUsers.map(u => [u.email.trim().toLowerCase(), u]));
+
+    const warnings: string[] = [];
+    const unknownSkills = skillColumns.filter(c => !skillByName.has(c.name.toLowerCase()));
+    unknownSkills.forEach(c => warnings.push(`עמודה "${c.name}" — סקיל לא קיים במערכת, דולגה`));
+    const knownColumns = skillColumns.filter(c => skillByName.has(c.name.toLowerCase()));
+
+    let testersCreated = 0;
+    let cellsUpdated = 0;
+    let rowsSkipped = 0;
+
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      const email = String(row[0] ?? '').trim().toLowerCase();
+      if (!email) continue;
+      const excelRowNum = r + 1;
+      const user = userByEmail.get(email);
+      if (!user) {
+        warnings.push(`שורה ${excelRowNum}: משתמש עם אימייל "${email}" לא נמצא — דולגה`);
+        rowsSkipped++;
+        continue;
+      }
+
+      let tester = await prisma.testerProfile.findUnique({ where: { userId: user.id } });
+      if (!tester) {
+        tester = await prisma.testerProfile.create({ data: { userId: user.id } });
+        testersCreated++;
+      } else if (!tester.isActive) {
+        tester = await prisma.testerProfile.update({ where: { userId: user.id }, data: { isActive: true } });
+      }
+
+      for (const col of knownColumns) {
+        const raw = row[col.col];
+        if (raw === '' || raw === undefined || raw === null) continue; // blank = leave untouched
+        const skill = skillByName.get(col.name.toLowerCase())!;
+        let level: number;
+        if (typeof raw === 'string' && /^n\/?r$/i.test(raw.trim())) {
+          level = -1;
+        } else {
+          const n = Number(raw);
+          if (!Number.isInteger(n) || n < 1 || n > 5) {
+            warnings.push(`שורה ${excelRowNum}, עמודה "${col.name}": ערך "${raw}" לא חוקי (1-5 או N/R) — דולג`);
+            continue;
+          }
+          level = n;
+        }
+        await prisma.testerSkill.upsert({
+          where:  { userId_skillId: { userId: user.id, skillId: skill.id } },
+          create: { userId: user.id, skillId: skill.id, level },
+          update: { level },
+        });
+        cellsUpdated++;
+      }
+    }
+
+    return { success: true, stats: { testersCreated, cellsUpdated, rowsSkipped }, warnings };
   }
 
   // ── Assignments ──────────────────────────────────────────────────────────────

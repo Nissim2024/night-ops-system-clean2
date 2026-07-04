@@ -96,7 +96,7 @@ export const Sidebar: React.FC<Props> = ({
         <div style={{
           margin: `${SP[3]} ${SP[3]} 0`,
           background: 'rgba(232,175,0,0.15)', border: `1px solid rgba(232,175,0,0.30)`,
-          color: '#d4a017', fontSize: '12px', fontWeight: WEIGHT.bold,
+          color: '#d4a017', fontSize: '14px', fontWeight: WEIGHT.bold,
           textAlign: 'center', padding: '5px 8px', borderRadius: RADIUS.md,
           letterSpacing: '0.08em', textTransform: 'uppercase' as const,
         }}>⚡ TEST</div>
@@ -118,8 +118,8 @@ export const Sidebar: React.FC<Props> = ({
             onMouseEnter={e => { if (!isDeployments) e.currentTarget.style.background = C.sidebarBgHover; }}
             onMouseLeave={e => { if (!isDeployments) e.currentTarget.style.background = 'transparent'; }}
           >
-            <span style={{ fontSize: '16px', lineHeight: 1 }}>🌙</span>
-            <span style={{ fontSize: '11px', fontWeight: isDeployments ? WEIGHT.semibold : WEIGHT.medium, color: isDeployments ? C.sidebarText : 'rgba(255,255,255,0.55)', lineHeight: 1 }}>הטמעות</span>
+            <span style={{ fontSize: '17px', lineHeight: 1 }}>🌙</span>
+            <span style={{ fontSize: '13px', fontWeight: isDeployments ? WEIGHT.semibold : WEIGHT.medium, color: isDeployments ? C.sidebarText : 'rgba(255,255,255,0.55)', lineHeight: 1 }}>הטמעות</span>
           </button>
           <button
             onClick={() => onModuleChange?.('qa')}
@@ -134,8 +134,8 @@ export const Sidebar: React.FC<Props> = ({
             onMouseEnter={e => { if (!isQa) e.currentTarget.style.background = C.sidebarBgHover; }}
             onMouseLeave={e => { if (!isQa) e.currentTarget.style.background = 'transparent'; }}
           >
-            <span style={{ fontSize: '16px', lineHeight: 1 }}>👥</span>
-            <span style={{ fontSize: '11px', fontWeight: isQa ? WEIGHT.semibold : WEIGHT.medium, color: isQa ? C.sidebarText : 'rgba(255,255,255,0.55)', lineHeight: 1 }}>ניהול QA</span>
+            <span style={{ fontSize: '17px', lineHeight: 1 }}>👥</span>
+            <span style={{ fontSize: '13px', fontWeight: isQa ? WEIGHT.semibold : WEIGHT.medium, color: isQa ? C.sidebarText : 'rgba(255,255,255,0.55)', lineHeight: 1 }}>ניהול QA</span>
           </button>
         </div>
       )}
@@ -157,7 +157,7 @@ export const Sidebar: React.FC<Props> = ({
           onMouseLeave={e => { if (!(activeTab === 'home' && activeModule === 'deployments')) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
         >
           <span style={{ fontSize: '17px', lineHeight: 1 }}>🏠</span>
-          <span style={{ fontSize: '14px', fontWeight: activeTab === 'home' && activeModule === 'deployments' ? WEIGHT.semibold : WEIGHT.medium, color: activeTab === 'home' && activeModule === 'deployments' ? C.sidebarText : 'rgba(255,255,255,0.78)' }}>
+          <span style={{ fontSize: '15px', fontWeight: activeTab === 'home' && activeModule === 'deployments' ? WEIGHT.semibold : WEIGHT.medium, color: activeTab === 'home' && activeModule === 'deployments' ? C.sidebarText : 'rgba(255,255,255,0.78)' }}>
             דף הבית
           </span>
         </div>
@@ -178,11 +178,11 @@ export const Sidebar: React.FC<Props> = ({
           onMouseLeave={e => (e.currentTarget as HTMLElement).style.opacity = '1'}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.50)', lineHeight: 1 }}>
+            <span style={{ fontSize: '15px', color: 'rgba(255,255,255,0.50)', lineHeight: 1 }}>
               {versionsOpen ? '▾' : '▸'}
             </span>
             <span style={{
-              fontSize: '15px', fontWeight: WEIGHT.bold,
+              fontSize: '16px', fontWeight: WEIGHT.bold,
               color: 'rgba(255,255,255,0.90)',
               letterSpacing: '0.01em',
             }}>
@@ -200,13 +200,13 @@ export const Sidebar: React.FC<Props> = ({
                 border: `1px solid rgba(240,106,106,0.35)`,
                 borderRadius: RADIUS.md, cursor: 'pointer',
                 color: C.sidebarAccent ?? C.brand,
-                fontSize: '13px', fontWeight: WEIGHT.semibold,
+                fontSize: '15px', fontWeight: WEIGHT.semibold,
                 lineHeight: 1, transition: EASE.fast,
               }}
               onMouseEnter={e => { e.stopPropagation(); (e.currentTarget as HTMLElement).style.background = 'rgba(240,106,106,0.25)'; }}
               onMouseLeave={e => { e.stopPropagation(); (e.currentTarget as HTMLElement).style.background = 'rgba(240,106,106,0.14)'; }}
             >
-              <span style={{ fontSize: '16px', lineHeight: 1 }}>+</span>
+              <span style={{ fontSize: '17px', lineHeight: 1 }}>+</span>
               <span>חדשה</span>
             </button>
           )}
@@ -234,7 +234,7 @@ export const Sidebar: React.FC<Props> = ({
               >
                 <span style={{ fontSize: '17px', lineHeight: 1, flexShrink: 0 }}>{group.icon}</span>
                 <span style={{
-                  fontSize: '16px', fontWeight: WEIGHT.semibold,
+                  fontSize: '17px', fontWeight: WEIGHT.semibold,
                   color: hasSelected ? C.sidebarText : 'rgba(255,255,255,0.78)',
                   flex: 1,
                 }}>
@@ -242,7 +242,7 @@ export const Sidebar: React.FC<Props> = ({
                 </span>
                 {items.length > 0 && (
                   <span style={{
-                    fontSize: '13px', color: 'rgba(255,255,255,0.55)',
+                    fontSize: '15px', color: 'rgba(255,255,255,0.55)',
                     background: 'rgba(255,255,255,0.10)',
                     padding: '2px 8px', borderRadius: RADIUS.full,
                     fontWeight: WEIGHT.semibold,
@@ -250,7 +250,7 @@ export const Sidebar: React.FC<Props> = ({
                     {items.length}
                   </span>
                 )}
-                <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.40)' }}>
+                <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.40)' }}>
                   {isOpen ? '▾' : '▸'}
                 </span>
               </button>
@@ -258,7 +258,7 @@ export const Sidebar: React.FC<Props> = ({
               {isOpen && (
                 <div style={{ paddingBottom: '4px' }}>
                   {items.length === 0 ? (
-                    <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.35)', padding: `4px ${SP[3]} 4px 30px` }}>
+                    <div style={{ fontSize: '15px', color: 'rgba(255,255,255,0.35)', padding: `4px ${SP[3]} 4px 30px` }}>
                       אין גרסאות
                     </div>
                   ) : items.map((v: any) => {
@@ -292,7 +292,7 @@ export const Sidebar: React.FC<Props> = ({
                         }} />
                         <div style={{ flex: 1, minWidth: 0, textAlign: 'right' }}>
                           <div style={{
-                            fontSize: '16px',
+                            fontSize: '17px',
                             fontWeight: isSel ? WEIGHT.semibold : WEIGHT.medium,
                             color: isSel ? C.sidebarText : 'rgba(255,255,255,0.85)',
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -300,7 +300,7 @@ export const Sidebar: React.FC<Props> = ({
                           }}>
                             {v.name}
                           </div>
-                          <div style={{ fontSize: '13px', color: sColor, opacity: 0.9, lineHeight: '17px' }}>
+                          <div style={{ fontSize: '15px', color: sColor, opacity: 0.9, lineHeight: '17px' }}>
                             {sLabel}
                           </div>
                         </div>
@@ -329,7 +329,7 @@ export const Sidebar: React.FC<Props> = ({
             }}>
             <span style={{ fontSize: '18px', flexShrink: 0 }}>👤</span>
             <span style={{
-              fontSize: '16px',
+              fontSize: '17px',
               fontWeight: myTasksActive ? WEIGHT.semibold : WEIGHT.medium,
               color: myTasksActive ? (C.sidebarAccent ?? C.brand) : 'rgba(255,255,255,0.78)',
               flex: 1,
@@ -347,7 +347,7 @@ export const Sidebar: React.FC<Props> = ({
       {/* ─── QA Module nav ─── */}
       {isQa && canAccessQa && (
         <div style={{ padding: `${SP[3]} ${SP[3]} 0`, display: 'flex', flexDirection: 'column', gap: '2px' }}>
-          <div style={{ fontSize: '11px', fontWeight: WEIGHT.bold, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em', textTransform: 'uppercase' as const, padding: `6px ${SP[2]} 4px` }}>
+          <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em', textTransform: 'uppercase' as const, padding: `6px ${SP[2]} 4px` }}>
             ניהול QA
           </div>
           {QA_VIEWS.map(view => {
@@ -371,7 +371,7 @@ export const Sidebar: React.FC<Props> = ({
                 )}
                 <span style={{ fontSize: '18px', flexShrink: 0, lineHeight: 1 }}>{view.icon}</span>
                 <span style={{
-                  fontSize: '16px',
+                  fontSize: '17px',
                   fontWeight: isActive ? WEIGHT.semibold : WEIGHT.medium,
                   color: isActive ? C.sidebarText : 'rgba(255,255,255,0.78)',
                   flex: 1,
@@ -400,7 +400,7 @@ export const Sidebar: React.FC<Props> = ({
             }}>
             <span style={{ fontSize: '18px', flexShrink: 0 }}>📅</span>
             <span style={{
-              fontSize: '16px',
+              fontSize: '17px',
               fontWeight: leavesActive ? WEIGHT.semibold : WEIGHT.medium,
               color: leavesActive ? '#7ee8a2' : 'rgba(255,255,255,0.78)',
               flex: 1,
@@ -433,7 +433,7 @@ export const Sidebar: React.FC<Props> = ({
               }}>
               <span style={{ fontSize: '18px', flexShrink: 0 }}>⚙️</span>
               <span style={{
-                fontSize: '16px', fontWeight: WEIGHT.medium,
+                fontSize: '17px', fontWeight: WEIGHT.medium,
                 color: activeTab === 'admin' ? C.sidebarText : 'rgba(255,255,255,0.78)',
                 flex: 1,
               }}>
@@ -449,7 +449,7 @@ export const Sidebar: React.FC<Props> = ({
         padding: `${SP[2]} ${SP[3]}`,
         borderTop: `1px solid ${C.sidebarBorder}`,
         display: 'flex', alignItems: 'center', gap: '8px',
-        fontSize: '12px', color: 'rgba(255,255,255,0.35)',
+        fontSize: '14px', color: 'rgba(255,255,255,0.35)',
       }}>
         <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: C.success, flexShrink: 0, boxShadow: `0 0 4px ${C.success}80` }} />
         <span>DeployCenter v{APP_VERSION}</span>

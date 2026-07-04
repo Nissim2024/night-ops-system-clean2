@@ -47,7 +47,7 @@ export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
   return (
     <div style={{ direction: 'rtl', fontFamily: 'Arial', maxWidth: '700px' }}>
       <h2 style={{ color: '#1a2332', marginBottom: '8px' }}>ייבוא תוכנית עבודה מ-Excel</h2>
-      <p style={{ color: '#666', marginBottom: '24px', fontSize: '14px' }}>
+      <p style={{ color: '#666', marginBottom: '24px', fontSize: '15px' }}>
         טען קובץ Excel בפורמט GoLive — המערכת תייצר גרסה חדשה עם כל השלבים והמשימות אוטומטית.
       </p>
 
@@ -63,7 +63,7 @@ export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
             value={versionName}
             onChange={e => setVersionName(e.target.value)}
             placeholder="לדוגמה: ITv04-2026"
-            style={{ width: '100%', padding: '12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px', boxSizing: 'border-box' }}
+            style={{ width: '100%', padding: '12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '16px', boxSizing: 'border-box' }}
           />
         </div>
 
@@ -71,7 +71,7 @@ export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
         <div style={{ marginBottom: '20px' }}>
           <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold', color: '#333' }}>
             תאריך התחלה של הפעילות
-            <span style={{ fontWeight: 'normal', color: '#888', fontSize: '13px', marginRight: '8px' }}>
+            <span style={{ fontWeight: 'normal', color: '#888', fontSize: '15px', marginRight: '8px' }}>
               (אופציונלי — אם לא ממולא, ייקחו התאריכים מהקובץ)
             </span>
           </label>
@@ -79,10 +79,10 @@ export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
             type="date"
             value={plannedStart}
             onChange={e => setPlannedStart(e.target.value)}
-            style={{ width: '100%', padding: '12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px', boxSizing: 'border-box' }}
+            style={{ width: '100%', padding: '12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '16px', boxSizing: 'border-box' }}
           />
           {plannedStart && (
-            <div style={{ marginTop: '6px', fontSize: '13px', color: '#2980b9', background: '#e8f4fd', padding: '8px 12px', borderRadius: '6px' }}>
+            <div style={{ marginTop: '6px', fontSize: '15px', color: '#2980b9', background: '#e8f4fd', padding: '8px 12px', borderRadius: '6px' }}>
               📅 תאריך הגרסה <strong>{new Date(plannedStart + 'T12:00:00').toLocaleDateString('he-IL')}</strong> יוחל על כל שעות הקובץ — שעת הסיום תחושב מהמשך
             </div>
           )}
@@ -98,13 +98,13 @@ export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
             <div style={{ fontSize: '40px', marginBottom: '8px' }}>📂</div>
             {file ? (
               <div>
-                <div style={{ fontWeight: 'bold', color: '#1a2332', fontSize: '15px' }}>{file.name}</div>
-                <div style={{ color: '#666', fontSize: '13px', marginTop: '4px' }}>{(file.size / 1024).toFixed(1)} KB</div>
+                <div style={{ fontWeight: 'bold', color: '#1a2332', fontSize: '16px' }}>{file.name}</div>
+                <div style={{ color: '#666', fontSize: '15px', marginTop: '4px' }}>{(file.size / 1024).toFixed(1)} KB</div>
               </div>
             ) : (
               <div>
-                <div style={{ color: '#666', fontSize: '14px' }}>לחץ לבחירת קובץ</div>
-                <div style={{ color: '#999', fontSize: '12px', marginTop: '4px' }}>xlsx, xls — עד 10MB</div>
+                <div style={{ color: '#666', fontSize: '15px' }}>לחץ לבחירת קובץ</div>
+                <div style={{ color: '#999', fontSize: '14px', marginTop: '4px' }}>xlsx, xls — עד 10MB</div>
               </div>
             )}
           </div>
@@ -125,11 +125,21 @@ export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
             width: '100%', padding: '14px',
             background: !file || !versionName || loading ? '#ccc' : '#1a2332',
             color: 'white', border: 'none', borderRadius: '8px',
-            fontSize: '16px', fontWeight: 'bold',
+            fontSize: '17px', fontWeight: 'bold',
             cursor: !file || !versionName || loading ? 'not-allowed' : 'pointer',
           }}>
           {loading ? 'מייבא... אנא המתן' : 'ייבא תוכנית עבודה'}
         </button>
+
+        {!loading && (!file || !versionName) && (
+          <div style={{ marginTop: '10px', fontSize: '15px', color: '#8b4000', background: '#fff3e0', border: '1px solid #e67e22', borderRadius: '6px', padding: '10px 14px' }}>
+            יש למלא לפני הייבוא:
+            <ul style={{ margin: '4px 0 0', paddingRight: '18px' }}>
+              {!versionName && <li>שם הגרסה</li>}
+              {!file && <li>בחירת קובץ Excel</li>}
+            </ul>
+          </div>
+        )}
 
         {/* תוצאה */}
         {result && result.success && (
@@ -146,17 +156,17 @@ export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
               ].map(s => (
                 <div key={s.label} style={{ background: 'white', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
                   <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#27ae60' }}>{s.value}</div>
-                  <div style={{ fontSize: '12px', color: '#666' }}>{s.label}</div>
+                  <div style={{ fontSize: '14px', color: '#666' }}>{s.label}</div>
                 </div>
               ))}
             </div>
-            <div style={{ marginTop: '12px', fontSize: '13px', color: '#1a5c2a' }}>
+            <div style={{ marginTop: '12px', fontSize: '15px', color: '#1a5c2a' }}>
               גרסה <strong>{result.stats.versionName}</strong> נוצרה — עבור לטאב גרסאות לצפייה.
             </div>
             {result.stats.missingDepRows?.length > 0 && (
               <div style={{ marginTop: '12px', background: '#fff3e0', border: '1px solid #e67e22', borderRadius: '6px', padding: '10px 14px' }}>
-                <strong style={{ color: '#8b4000', fontSize: '13px' }}>⚠️ תלויות שלא נמצאו ({result.stats.missingDepRows.length} שורות):</strong>
-                <div style={{ color: '#8b4000', fontSize: '12px', marginTop: '4px' }}>
+                <strong style={{ color: '#8b4000', fontSize: '15px' }}>⚠️ תלויות שלא נמצאו ({result.stats.missingDepRows.length} שורות):</strong>
+                <div style={{ color: '#8b4000', fontSize: '14px', marginTop: '4px' }}>
                   שורות {result.stats.missingDepRows.sort((a: number, b: number) => a - b).join(', ')} — ייתכן שמספרי השורות לא תואמים לשורות קיימות בקובץ.
                 </div>
               </div>
@@ -173,12 +183,12 @@ export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
 
       {/* הסבר מבנה הקובץ */}
       <div style={{ background: 'white', borderRadius: '12px', padding: '24px', marginTop: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-        <h3 style={{ margin: '0 0 4px', color: '#1a2332', fontSize: '15px' }}>מבנה הקובץ הנתמך</h3>
-        <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#888' }}>קובץ Excel עם העמודות הבאות (לפי סדר)</p>
+        <h3 style={{ margin: '0 0 4px', color: '#1a2332', fontSize: '16px' }}>מבנה הקובץ הנתמך</h3>
+        <p style={{ margin: '0 0 16px', fontSize: '15px', color: '#888' }}>קובץ Excel עם העמודות הבאות (לפי סדר)</p>
 
         {/* Column map table */}
         <div style={{ overflowX: 'auto', marginBottom: '20px' }}>
-          <table style={{ borderCollapse: 'collapse', fontSize: '13px', width: '100%' }}>
+          <table style={{ borderCollapse: 'collapse', fontSize: '15px', width: '100%' }}>
             <thead>
               <tr style={{ background: '#f4f6f8' }}>
                 {['עמודה', 'שם', 'תיאור', 'דוגמה'].map(h => (
@@ -210,7 +220,7 @@ export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
         </div>
 
         {/* Row type color legend */}
-        <h4 style={{ margin: '0 0 10px', color: '#1a2332', fontSize: '13px' }}>סוג שורה לפי צבע רקע (עמודה B)</h4>
+        <h4 style={{ margin: '0 0 10px', color: '#1a2332', fontSize: '15px' }}>סוג שורה לפי צבע רקע (עמודה B)</h4>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {[
             { hex: '#00B0F0', label: 'שלב ראשי (Phase)',    example: 'פעילות לילה — HOTNET' },
@@ -222,8 +232,8 @@ export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
             <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ width: '24px', height: '24px', background: item.hex, borderRadius: '4px', border: (item as any).border ? '1px solid #ddd' : 'none', flexShrink: 0 }} />
               <div>
-                <span style={{ fontWeight: 'bold', fontSize: '13px' }}>{item.label}</span>
-                <span style={{ color: '#999', fontSize: '12px', marginRight: '8px' }}>— {item.example}</span>
+                <span style={{ fontWeight: 'bold', fontSize: '15px' }}>{item.label}</span>
+                <span style={{ color: '#999', fontSize: '14px', marginRight: '8px' }}>— {item.example}</span>
               </div>
             </div>
           ))}

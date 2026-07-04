@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS, EASE, statusColor, statusLabel } from '../theme';
+import { C, FONT, TEXT, WEIGHT, SP, RADIUS, EASE, statusColor, statusLabel, severityColor, severityBg, severityLabel } from '../theme';
 import { Avatar, StatusChip, Divider } from './ui';
 import { FEATURES } from '../featureFlags';
 
@@ -67,7 +67,7 @@ const DateInput: React.FC<{
           title="פתח לוח שנה"
           style={{
             padding: '7px 9px', background: C.bgNested, border: `1px solid ${C.borderEm}`,
-            borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '15px',
+            borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '16px',
             color: C.textSecondary, flexShrink: 0, lineHeight: 1,
             transition: EASE.fast,
           }}
@@ -105,7 +105,7 @@ const Label: React.FC<{ children: React.ReactNode; required?: boolean }> = ({ ch
 );
 
 const inp: React.CSSProperties = {
-  fontFamily: FONT, fontSize: '14px', color: C.textPrimary,
+  fontFamily: FONT, fontSize: '15px', color: C.textPrimary,
   background: C.bgNested, border: `1px solid ${C.borderEm}`,
   borderRadius: RADIUS.md, padding: '7px 12px',
   outline: 'none', width: '100%', boxSizing: 'border-box', transition: EASE.fast,
@@ -366,16 +366,16 @@ export const TaskDetailPanel: React.FC<Props> = ({
                     setTeamId((p as any).responsibleTeamId || p.teamId || '');
                   })()} style={{ padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, cursor: 'pointer', background: isSel ? C.success : C.bgElevated, border: `1px solid ${isSel ? C.success : C.border}`, transition: EASE.fast }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: '3px' }}>
-                      {p.crNumber && <span style={{ fontSize: '11px', background: C.infoBg, color: C.info, padding: '1px 7px', borderRadius: RADIUS.sm, fontWeight: WEIGHT.semibold }}>{p.crNumber}</span>}
-                      <span style={{ fontSize: '13px', fontWeight: WEIGHT.semibold, color: isSel ? 'white' : C.textPrimary, flex: 1 }}>{p.title}</span>
+                      {p.crNumber && <span style={{ fontSize: '13px', background: C.infoBg, color: C.info, padding: '1px 7px', borderRadius: RADIUS.sm, fontWeight: WEIGHT.semibold }}>{p.crNumber}</span>}
+                      <span style={{ fontSize: '15px', fontWeight: WEIGHT.semibold, color: isSel ? 'white' : C.textPrimary, flex: 1 }}>{p.title}</span>
                     </div>
                     <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
-                      {submittingTeamName && <span style={{ fontSize: '11px', color: isSel ? 'rgba(255,255,255,0.8)' : C.textMuted }}>מגיש: {submittingTeamName}</span>}
+                      {submittingTeamName && <span style={{ fontSize: '13px', color: isSel ? 'rgba(255,255,255,0.8)' : C.textMuted }}>מגיש: {submittingTeamName}</span>}
                       {responsibleTeamName && responsibleTeamName !== submittingTeamName && (
-                        <span style={{ fontSize: '11px', color: isSel ? 'rgba(255,255,255,0.9)' : C.brand, fontWeight: WEIGHT.semibold }}>אחראי: {responsibleTeamName}</span>
+                        <span style={{ fontSize: '13px', color: isSel ? 'rgba(255,255,255,0.9)' : C.brand, fontWeight: WEIGHT.semibold }}>אחראי: {responsibleTeamName}</span>
                       )}
-                      {p.app && <span style={{ fontSize: '11px', color: isSel ? 'rgba(255,255,255,0.7)' : C.textMuted }}>{p.app}</span>}
-                      {p.estimatedMins && <span style={{ fontSize: '11px', color: isSel ? 'rgba(255,255,255,0.7)' : C.warning }}>⏱ {p.estimatedMins} דק'</span>}
+                      {p.app && <span style={{ fontSize: '13px', color: isSel ? 'rgba(255,255,255,0.7)' : C.textMuted }}>{p.app}</span>}
+                      {p.estimatedMins && <span style={{ fontSize: '13px', color: isSel ? 'rgba(255,255,255,0.7)' : C.warning }}>⏱ {p.estimatedMins} דק'</span>}
                     </div>
                   </div>
                 );
@@ -388,7 +388,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
         <div>
           <Label required>שם משימה</Label>
           <textarea value={title} onChange={e => setTitle(e.target.value)} rows={2} disabled={!editable}
-            style={{ ...inp, ...fieldErr('title'), resize: 'none', lineHeight: '1.5', fontWeight: WEIGHT.semibold, fontSize: '15px' }} />
+            style={{ ...inp, ...fieldErr('title'), resize: 'none', lineHeight: '1.5', fontWeight: WEIGHT.semibold, fontSize: '16px' }} />
         </div>
 
         <Divider />
@@ -413,7 +413,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
           <div>
             <Label required>צוות</Label>
             <input value={teamFilter} onChange={e => setTeamFilter(e.target.value)} placeholder="סנן..."
-              style={{ ...inp, fontSize: '11px', padding: '4px 8px', borderRadius: `${RADIUS.sm} ${RADIUS.sm} 0 0`, borderBottom: 'none' }} />
+              style={{ ...inp, fontSize: '13px', padding: '4px 8px', borderRadius: `${RADIUS.sm} ${RADIUS.sm} 0 0`, borderBottom: 'none' }} />
             <select value={teamId} onChange={e => { setTeamId(e.target.value); setAssignee(''); setApp(''); setTeamCrItems([]); }}
               disabled={!editable}
               style={{ ...inp, ...fieldErr('teamId'), cursor: 'pointer', borderRadius: `0 0 ${RADIUS.sm} ${RADIUS.sm}`, borderTop: 'none' }}>
@@ -424,7 +424,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
           <div>
             <Label required>אחראי</Label>
             <input value={userFilter} onChange={e => setUserFilter(e.target.value)} placeholder="סנן..."
-              style={{ ...inp, fontSize: '11px', padding: '4px 8px', borderRadius: `${RADIUS.sm} ${RADIUS.sm} 0 0`, borderBottom: 'none' }} />
+              style={{ ...inp, fontSize: '13px', padding: '4px 8px', borderRadius: `${RADIUS.sm} ${RADIUS.sm} 0 0`, borderBottom: 'none' }} />
             <select value={assignee} onChange={e => setAssignee(e.target.value)}
               disabled={!editable}
               style={{ ...inp, ...fieldErr('assignee'), cursor: 'pointer', borderRadius: `0 0 ${RADIUS.sm} ${RADIUS.sm}`, borderTop: 'none' }}>
@@ -439,7 +439,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
           <div>
             <Label required>אפליקציה</Label>
             <input value={appFilter} onChange={e => setAppFilter(e.target.value)} placeholder="סנן..."
-              style={{ ...inp, fontSize: '11px', padding: '4px 8px', borderRadius: `${RADIUS.sm} ${RADIUS.sm} 0 0`, borderBottom: 'none' }} />
+              style={{ ...inp, fontSize: '13px', padding: '4px 8px', borderRadius: `${RADIUS.sm} ${RADIUS.sm} 0 0`, borderBottom: 'none' }} />
             <select value={application} onChange={e => setApp(e.target.value)}
               disabled={!editable}
               style={{ ...inp, ...fieldErr('application'), cursor: 'pointer', borderRadius: `0 0 ${RADIUS.sm} ${RADIUS.sm}`, borderTop: 'none' }}>
@@ -463,9 +463,9 @@ export const TaskDetailPanel: React.FC<Props> = ({
           <Label>פיתוחים בגרסה</Label>
           <div style={{ ...errInp(errors.has('crList')), display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center', padding: '6px 10px', minHeight: '40px' }}>
             {crList.map((cr: string) => (
-              <span key={cr} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: C.infoBg, color: C.info, borderRadius: RADIUS.sm, padding: '2px 8px', fontSize: '13px' }}>
+              <span key={cr} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: C.infoBg, color: C.info, borderRadius: RADIUS.sm, padding: '2px 8px', fontSize: '15px' }}>
                 {cr}
-                {editable && <button onClick={() => setCrList(l => l.filter(c => c !== cr))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.info, padding: 0, lineHeight: 1, fontSize: '15px' }}>×</button>}
+                {editable && <button onClick={() => setCrList(l => l.filter(c => c !== cr))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.info, padding: 0, lineHeight: 1, fontSize: '16px' }}>×</button>}
               </span>
             ))}
             {editable && (
@@ -477,7 +477,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
                 }}
                 onKeyDown={e => { if (e.key === 'Enter' && crInput.trim()) { e.preventDefault(); if (!crList.includes(crInput.trim())) setCrList(l => [...l, crInput.trim()]); setCrInput(''); } }}
                 placeholder={crList.length ? '+ הוסף' : 'הקלד CR# והקש Enter'}
-                style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: '13px', flex: 1, minWidth: '120px', color: C.textPrimary, fontFamily: FONT }}
+                style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: '15px', flex: 1, minWidth: '120px', color: C.textPrimary, fontFamily: FONT }}
               />
             )}
             <datalist id="cr-datalist-panel">
@@ -525,7 +525,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
         {/* Phase time warning */}
         {timeWarning && (
           <div style={{ background: '#fff3cd', border: '1px solid #f59e0b', borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, display: 'flex', alignItems: 'flex-start', gap: SP[2] }}>
-            <span style={{ fontSize: '16px', flexShrink: 0 }}>⚠️</span>
+            <span style={{ fontSize: '17px', flexShrink: 0 }}>⚠️</span>
             <div>
               <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: '#92400e', fontFamily: FONT, marginBottom: '2px' }}>
                 התאריך חורג מלוח הזמנים של השלב
@@ -555,7 +555,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
                     <span style={{ color: isDone ? C.statusDone : C.statusBlocked, flexShrink: 0 }}>{isDone ? '✓' : '⏳'}</span>
                     <span style={{ ...TEXT.xs, color: C.textPrimary, fontFamily: FONT, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dep?.title}</span>
                     {dep && <StatusChip status={dep.status} size="xs" />}
-                    {editable && <button onClick={() => removeDep(d.dependsOnTaskId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.danger, fontSize: '14px', padding: 0, lineHeight: 1 }}>✕</button>}
+                    {editable && <button onClick={() => removeDep(d.dependsOnTaskId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.danger, fontSize: '15px', padding: 0, lineHeight: 1 }}>✕</button>}
                   </div>
                 );
               })}
@@ -563,7 +563,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
           )}
           {editable && eligibleTasks.filter((t: any) => !linkedIds.has(t.id)).length > 0 && (
             <div style={{ display: 'flex', gap: SP[2] }}>
-              <select value={depAddId} onChange={e => setDepAddId(e.target.value)} style={{ ...inp, flex: 1, fontSize: '13px', cursor: 'pointer' }}>
+              <select value={depAddId} onChange={e => setDepAddId(e.target.value)} style={{ ...inp, flex: 1, fontSize: '15px', cursor: 'pointer' }}>
                 <option value="">— בחר משימה תלויה —</option>
                 {versionPhases.filter((p: any) => p.orderIndex <= currentPhaseOrder).map((p: any) => (
                   <optgroup key={p.id} label={p.name}>
@@ -575,7 +575,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
                 ))}
               </select>
               <button disabled={!depAddId} onClick={() => addDep(eligibleTasks.find((t: any) => t.id === depAddId))}
-                style={{ padding: '7px 16px', background: depAddId ? C.brand : C.bgNested, color: depAddId ? 'white' : C.textDisabled, border: 'none', borderRadius: RADIUS.md, cursor: depAddId ? 'pointer' : 'not-allowed', fontSize: '13px', fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap' }}>
+                style={{ padding: '7px 16px', background: depAddId ? C.brand : C.bgNested, color: depAddId ? 'white' : C.textDisabled, border: 'none', borderRadius: RADIUS.md, cursor: depAddId ? 'pointer' : 'not-allowed', fontSize: '15px', fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap' }}>
                 + הוסף
               </button>
             </div>
@@ -595,7 +595,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
         </div>
 
         {/* Alert boxes */}
-        {!isAdd && task?.blockedReason && <div style={{ background: C.bgBlocked, borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.statusBlocked}44` }}><div style={{ ...TEXT.xs, color: C.statusBlocked, fontWeight: WEIGHT.semibold, marginBottom: '4px', fontFamily: FONT }}>🚫 סיבת חסימה</div><div style={{ ...TEXT.sm, color: C.statusBlocked, fontFamily: FONT }}>{task.blockedReason}</div></div>}
+        {!isAdd && task?.blockedReason && <div style={{ background: C.bgBlocked, borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.statusBlocked}44` }}><div style={{ ...TEXT.xs, color: C.textOnBlockedBg, fontWeight: WEIGHT.semibold, marginBottom: '4px', fontFamily: FONT, display: 'flex', alignItems: 'center', gap: SP[2] }}>🚫 סיבת חסימה{task?.blockedSeverity && <span style={{ background: severityBg(task.blockedSeverity), color: severityColor(task.blockedSeverity), padding: '1px 8px', borderRadius: RADIUS.full, fontWeight: WEIGHT.semibold }}>{severityLabel(task.blockedSeverity)}</span>}</div><div style={{ ...TEXT.sm, color: C.textOnBlockedBg, fontFamily: FONT }}>{task.blockedReason}</div></div>}
         {!isAdd && task?.failedReason && <div style={{ background: C.bgFailed, borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.statusFailed}44` }}><div style={{ ...TEXT.xs, color: C.statusFailed, fontWeight: WEIGHT.semibold, marginBottom: '4px', fontFamily: FONT }}>✗ סיבת כישלון</div><div style={{ ...TEXT.sm, color: C.statusFailed, fontFamily: FONT }}>{task.failedReason}</div></div>}
       </div>
 
@@ -603,9 +603,9 @@ export const TaskDetailPanel: React.FC<Props> = ({
       {editable && (
         <div style={{ flexShrink: 0, padding: `${SP[3]} ${SP[4]}`, borderTop: `1px solid ${C.border}`, background: C.bgElevated, display: 'flex', direction: 'ltr', gap: SP[2], justifyContent: 'flex-end', alignItems: 'center' }}>
           {errors.size > 0 && <span style={{ ...TEXT.xs, color: C.danger, fontFamily: FONT, flex: 1, direction: 'rtl', textAlign: 'right' }}>* יש למלא את כל שדות החובה</span>}
-          <button onClick={onClose} style={{ padding: '8px 20px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '14px', fontFamily: FONT }}>ביטול</button>
+          <button onClick={onClose} style={{ padding: '8px 20px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '15px', fontFamily: FONT }}>ביטול</button>
           <button onClick={handleSave} disabled={saving}
-            style={{ padding: '8px 24px', background: saveOk ? C.success : C.brand, color: 'white', border: 'none', borderRadius: RADIUS.lg, cursor: saving ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: WEIGHT.semibold, minWidth: '90px', transition: EASE.fast, fontFamily: FONT }}>
+            style={{ padding: '8px 24px', background: saveOk ? C.success : C.brand, color: 'white', border: 'none', borderRadius: RADIUS.lg, cursor: saving ? 'not-allowed' : 'pointer', fontSize: '15px', fontWeight: WEIGHT.semibold, minWidth: '90px', transition: EASE.fast, fontFamily: FONT }}>
             {saving ? '...' : saveOk ? '✓ נשמר' : isAdd ? 'הוסף משימה' : 'שמור שינויים'}
           </button>
         </div>

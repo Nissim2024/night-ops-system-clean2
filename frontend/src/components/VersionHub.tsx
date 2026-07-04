@@ -365,7 +365,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
 
       {/* בנר נעילה לגרסאות סגורות */}
       {isLocked && (
-        <div style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: C.textMuted }}>
+        <div style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', color: C.textMuted }}>
           🔒 <strong style={{ color: C.textSecondary }}>גרסה סגורה — תצוגה בלבד.</strong> רק מנהל מערכת (ADMIN) יכול לערוך.
         </div>
       )}
@@ -375,7 +375,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
         <div style={{ background: C.bgCard, border: `2px solid ${C.brand}44`, borderRadius: '12px', padding: '18px 20px', marginBottom: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
             <span style={{ fontSize: '18px' }}>🏗️</span>
-            <span style={{ fontSize: '15px', fontWeight: 700, color: C.textPrimary }}>איך לבנות את התוכנית?</span>
+            <span style={{ fontSize: '16px', fontWeight: 700, color: C.textPrimary }}>איך לבנות את התוכנית?</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '10px' }}>
             {[
@@ -400,12 +400,12 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = ''; (e.currentTarget as HTMLElement).style.boxShadow = SHADOW.sm; }}
               >
                 <span style={{ fontSize: '22px' }}>{step.icon}</span>
-                <span style={{ fontSize: '13px', fontWeight: 700, color: C.textPrimary }}>{step.title}</span>
-                <span style={{ fontSize: '11px', color: C.textMuted, lineHeight: 1.4 }}>{step.sub}</span>
+                <span style={{ fontSize: '15px', fontWeight: 700, color: C.textPrimary }}>{step.title}</span>
+                <span style={{ fontSize: '13px', color: C.textMuted, lineHeight: 1.4 }}>{step.sub}</span>
               </button>
             ))}
           </div>
-          <div style={{ marginTop: '12px', fontSize: '12px', color: C.textMuted, display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ marginTop: '12px', fontSize: '14px', color: C.textMuted, display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span>💡</span>
             <span>לחץ על אחד הכפתורים — תגיע ל"פרטי גרסה" שם נמצאים כל הכלים לבנייה.</span>
           </div>
@@ -425,7 +425,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
             <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: C.textPrimary }}>{version.name}</h2>
             <VersionStatusChip status={version.status} size="sm" />
             {version.creator?.fullName && (
-              <span style={{ fontSize: '12px', color: C.textMuted }}>👤 {version.creator.fullName}</span>
+              <span style={{ fontSize: '14px', color: C.textMuted }}>👤 {version.creator.fullName}</span>
             )}
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -446,7 +446,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                   color: C.statusFailed,
                   border: `1px solid ${C.statusFailed}44`,
                   borderRadius: RADIUS.md, cursor: 'pointer',
-                  fontSize: '12px', fontWeight: 600, fontFamily: FONT,
+                  fontSize: '14px', fontWeight: 600, fontFamily: FONT,
                 }}
                 title="מחק גרסה (Admin בלבד)"
               >
@@ -479,7 +479,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
             const currentVal = value ? (dateOnly ? value.slice(0, 10) : value.slice(0, 16)) : '';
             return (
               <div key={field} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span style={{ fontSize: '11px', color: C.textMuted, fontWeight: 600 }}>
+                <span style={{ fontSize: '13px', color: C.textMuted, fontWeight: 600 }}>
                   {icon} {label}
                 </span>
                 {canEdit ? (
@@ -490,14 +490,14 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                     style={{
                       background: C.bgNested, color: C.textPrimary,
                       border: `1px solid ${C.border}`, borderRadius: RADIUS.sm,
-                      padding: '6px 8px', fontSize: '13px', fontFamily: FONT,
+                      padding: '6px 8px', fontSize: '15px', fontFamily: FONT,
                       outline: 'none', cursor: 'pointer', width: '100%', boxSizing: 'border-box' as const,
                     }}
                     onFocus={e => (e.target as HTMLElement).style.borderColor = C.brand}
                     onBlurCapture={e => (e.target as HTMLElement).style.borderColor = C.border}
                   />
                 ) : (
-                  <span style={{ fontSize: '13px', color: value ? C.textPrimary : C.textDisabled, padding: '6px 0' }}>
+                  <span style={{ fontSize: '15px', color: value ? C.textPrimary : C.textDisabled, padding: '6px 0' }}>
                     {value ? (dateOnly ? new Date(value).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : fmt(value)) : '—'}
                   </span>
                 )}
@@ -514,7 +514,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
           }}>
             {stats.totalTeams > 0 && (
               <span style={{
-                fontSize: '12px', padding: '3px 10px', borderRadius: RADIUS.full,
+                fontSize: '14px', padding: '3px 10px', borderRadius: RADIUS.full,
                 background: C.bgNested, border: `1px solid ${C.border}`, color: C.textSecondary,
               }}>
                 👥 <strong>{stats.totalTeams}</strong> צוותים
@@ -522,7 +522,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
             )}
             {stats.totalTasks > 0 && (
               <span style={{
-                fontSize: '12px', padding: '3px 10px', borderRadius: RADIUS.full,
+                fontSize: '14px', padding: '3px 10px', borderRadius: RADIUS.full,
                 background: C.bgNested, border: `1px solid ${C.border}`, color: C.textSecondary,
               }}>
                 📋 <strong>{stats.totalTasks}</strong> משימות
@@ -530,7 +530,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
             )}
             {stats.totalCRs > 0 && (
               <span style={{
-                fontSize: '12px', padding: '3px 10px', borderRadius: RADIUS.full,
+                fontSize: '14px', padding: '3px 10px', borderRadius: RADIUS.full,
                 background: stats.approvedCRs === stats.totalCRs ? C.bgDone : C.bgNested,
                 border: `1px solid ${stats.approvedCRs === stats.totalCRs ? C.statusDone + '55' : C.border}`,
                 color: stats.approvedCRs === stats.totalCRs ? C.statusDone : C.textSecondary,
@@ -540,7 +540,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
             )}
             {stats.submittedTeams > 0 && stats.totalTeams > 0 && stats.submittedTeams < stats.totalTeams && (
               <span style={{
-                fontSize: '12px', padding: '3px 10px', borderRadius: RADIUS.full,
+                fontSize: '14px', padding: '3px 10px', borderRadius: RADIUS.full,
                 background: C.warningBg, border: `1px solid ${C.warning}44`, color: C.warning,
               }}>
                 📥 <strong>{stats.submittedTeams}/{stats.totalTeams}</strong> צוותים הגישו
@@ -548,7 +548,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
             )}
             {crStats && (
               <span style={{
-                fontSize: '12px', padding: '3px 10px', borderRadius: RADIUS.full,
+                fontSize: '14px', padding: '3px 10px', borderRadius: RADIUS.full,
                 background: C.bgNested, border: `1px solid ${C.border}`, color: C.textSecondary,
               }}>
                 🧪 QA &gt; 0.5 יום: <strong>{crStats.qaTaskCount}</strong> CR-ים
@@ -556,7 +556,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
             )}
             {crStats && (
               <span style={{
-                fontSize: '12px', padding: '3px 10px', borderRadius: RADIUS.full,
+                fontSize: '14px', padding: '3px 10px', borderRadius: RADIUS.full,
                 background: C.bgNested, border: `1px solid ${C.border}`, color: C.textSecondary,
               }}>
                 📊 סך כל הערכות: <strong>{crStats.totalEstimateDays}</strong> ימים
@@ -564,7 +564,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
             )}
             {crStats && (
               <span style={{
-                fontSize: '12px', padding: '3px 10px', borderRadius: RADIUS.full,
+                fontSize: '14px', padding: '3px 10px', borderRadius: RADIUS.full,
                 background: crStats.actualsCount > 0 ? C.bgDone : C.bgNested,
                 border: `1px solid ${crStats.actualsCount > 0 ? C.statusDone + '44' : C.border}`,
                 color: crStats.actualsCount > 0 ? C.statusDone : C.textSecondary,
@@ -577,7 +577,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
 
         {/* נתוני הרצה בפועל (קריאה בלבד) */}
         {(version.actualStart || version.lastRehearsalAt || version.lastNightAt) && (
-          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '14px', paddingTop: '12px', borderTop: `1px solid ${C.border}`, fontSize: '12px' }}>
+          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '14px', paddingTop: '12px', borderTop: `1px solid ${C.border}`, fontSize: '14px' }}>
             {version.actualStart && (
               <span style={{ color: C.statusInProgress }}>🚀 הרצה התחילה: {fmt(version.actualStart)}</span>
             )}
@@ -612,12 +612,12 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
           {/* כותרת שורה */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
             <div style={{ height: '3px', width: '24px', background: row.accent, borderRadius: '2px', flexShrink: 0 }} />
-            <span style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, letterSpacing: '0.08em', textTransform: 'uppercase' as const, flexShrink: 0 }}>
+            <span style={{ fontSize: '13px', fontWeight: 700, color: C.textMuted, letterSpacing: '0.08em', textTransform: 'uppercase' as const, flexShrink: 0 }}>
               {row.title}
             </span>
             {/* תאריכי הטמעה בכותרת שורת חזרה/הרצה */}
             {showDates && (version.plannedStart || version.plannedEnd) && (
-              <div style={{ display: 'flex', gap: '14px', marginRight: 'auto', fontSize: '12px', color: C.textSecondary }}>
+              <div style={{ display: 'flex', gap: '14px', marginRight: 'auto', fontSize: '14px', color: C.textSecondary }}>
                 {version.plannedStart && <span>📅 <strong>התחלה מתוכננת</strong> {fmt(version.plannedStart)}</span>}
                 {version.plannedEnd   && <span>🏁 <strong>סיום מתוכנן</strong> {fmt(version.plannedEnd)}</span>}
               </div>
@@ -640,19 +640,19 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                     marginBottom: stats!.alerts.length > 0 ? '8px' : '0',
                   }}
                 >
-                  <span style={{ fontSize: '16px' }}>{cta.icon}</span>
-                  <span style={{ fontSize: '13px', fontWeight: 700, color: cta.color, flex: 1 }}>{cta.text}</span>
-                  {ctaTab && <span style={{ fontSize: '11px', color: cta.color, opacity: 0.7 }}>← לחץ למעבר</span>}
+                  <span style={{ fontSize: '17px' }}>{cta.icon}</span>
+                  <span style={{ fontSize: '15px', fontWeight: 700, color: cta.color, flex: 1 }}>{cta.text}</span>
+                  {ctaTab && <span style={{ fontSize: '13px', color: cta.color, opacity: 0.7 }}>← לחץ למעבר</span>}
                 </div>
               )}
               {stats!.alerts.map((a, i) => (
                 <div key={i} style={{
                   display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0',
                   borderTop: i > 0 ? `1px solid ${C.border}33` : 'none',
-                  fontSize: '13px', color: a.type === 'error' ? C.statusFailed : C.warning,
+                  fontSize: '15px', color: a.type === 'error' ? C.statusFailed : C.warning,
                   fontWeight: 600,
                 }}>
-                  <span style={{ fontSize: '15px' }}>{a.type === 'error' ? '🚨' : '⚠️'}</span>
+                  <span style={{ fontSize: '16px' }}>{a.type === 'error' ? '🚨' : '⚠️'}</span>
                   <span>{a.text}</span>
                 </div>
               ))}
@@ -682,7 +682,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                     minWidth: '65px',
                   }}>
                     <span style={{ fontSize: '20px', fontWeight: 700, color: stat.color, lineHeight: 1.2 }}>{stat.value}</span>
-                    <span style={{ fontSize: '11px', color: C.textMuted, marginTop: '2px' }}>{stat.label}</span>
+                    <span style={{ fontSize: '13px', color: C.textMuted, marginTop: '2px' }}>{stat.label}</span>
                   </div>
                 ))}
               </div>
@@ -697,7 +697,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                       transition: 'width 0.5s ease',
                     }} />
                   </div>
-                  <span style={{ fontSize: '11px', color: C.textMuted, whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: '13px', color: C.textMuted, whiteSpace: 'nowrap' }}>
                     {effectiveStats!.doneTasks}/{effectiveStats!.totalTasks} ({Math.round(effectiveStats!.doneTasks / effectiveStats!.totalTasks * 100)}%)
                   </span>
                 </div>
@@ -749,7 +749,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                 {card.badge && (
                   <div style={{ position: 'absolute' as const, top: '14px', left: '14px' }}>
                     <span style={{
-                      fontSize: '10px', padding: '3px 8px', borderRadius: RADIUS.full,
+                      fontSize: '12px', padding: '3px 8px', borderRadius: RADIUS.full,
                       background: (card.badgeColor ?? C.textMuted) + '25',
                       color: card.badgeColor ?? C.textMuted,
                       fontWeight: 700,
@@ -764,12 +764,12 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                 <span style={{ fontSize: '38px', lineHeight: 1, display: 'block' }}>{card.icon}</span>
 
                 {/* כותרת */}
-                <div style={{ fontSize: '16px', fontWeight: 700, color: card.enabled ? C.textPrimary : C.textMuted, lineHeight: 1.2 }}>
+                <div style={{ fontSize: '17px', fontWeight: 700, color: card.enabled ? C.textPrimary : C.textMuted, lineHeight: 1.2 }}>
                   {card.title}
                 </div>
 
                 {/* תיאור */}
-                <div style={{ fontSize: '12px', color: C.textMuted, lineHeight: 1.5, marginTop: 'auto' }}>
+                <div style={{ fontSize: '14px', color: C.textMuted, lineHeight: 1.5, marginTop: 'auto' }}>
                   {card.subtitle}
                 </div>
               </button>

@@ -124,6 +124,7 @@ export class TasksService {
     ipAddress?: string,
     blockedReason?: string,
     failedReason?: string,
+    blockedSeverity?: string,
   ) {
     const VALID_STATUSES: TaskStatus[] = ['OPEN', 'WAITING', 'IN_PROGRESS', 'DONE', 'FAILED', 'ROLLED_BACK', 'BLOCKED'];
     if (!VALID_STATUSES.includes(status)) {
@@ -179,6 +180,10 @@ export class TasksService {
     }
     if (status === 'BLOCKED' && blockedReason !== undefined) {
       statusData.blockedReason = blockedReason;
+      statusData.blockedSeverity = blockedSeverity ?? null;
+    }
+    if (status !== 'BLOCKED' && before.status === 'BLOCKED') {
+      statusData.blockedSeverity = null;
     }
 
     // ── Failure reason validation ──
@@ -281,7 +286,7 @@ export class TasksService {
       title, description, notes, dependencyNote, duration,
       priority, assignedTeamId, assignedUserId, assignedUserName,
       crNumber, application, environment, dueDate, plannedStart, plannedEnd,
-      actualStart, actualFinish, delayReason, blockedReason, subPhaseId,
+      actualStart, actualFinish, delayReason, blockedReason, blockedSeverity, subPhaseId,
     } = data;
 
     const task = await prisma.task.update({
@@ -306,6 +311,7 @@ export class TasksService {
         ...(actualFinish !== undefined && { actualFinish: actualFinish ? new Date(actualFinish) : null }),
         ...(delayReason !== undefined && { delayReason: delayReason || null }),
         ...(blockedReason !== undefined && { blockedReason: blockedReason || null }),
+        ...(blockedSeverity !== undefined && { blockedSeverity: (blockedSeverity || null) as any }),
         ...(subPhaseId !== undefined && { subPhaseId }),
       },
     });
@@ -396,11 +402,14 @@ export class TasksService {
     return updated;
   }
 
-  async waiveGoNoGo(id: string, userId: string) {
+  async waiveGoNoGo(id: string, userId: string, reason?: string) {
     const task = await prisma.task.findUnique({ where: { id } });
     if (!task) throw new NotFoundException('Task not found');
 
     const waived = !(task as any).goNoGoWaived;
+    if (waived && !reason?.trim()) {
+      throw new BadRequestException('נדרשת סיבה לאישור דילוג GO/NO-GO');
+    }
     const updated = await prisma.task.update({
       where: { id },
       data: {
@@ -409,8 +418,23 @@ export class TasksService {
         waivedAt: waived ? new Date() : null,
       } as any,
     });
+    await prisma.auditLog.create({
+      data: {
+        userId, taskId: id,
+        action: waived ? 'GO_NOGO_WAIVED' : 'GO_NOGO_UNWAIVED',
+        afterData: { taskTitle: task.title, reason: waived ? reason?.trim() : undefined } as any,
+      },
+    });
     this.eventsGateway.emitTaskUpdated(updated as any);
     return updated;
+  }
+
+  async getWaiverHistory(id: string) {
+    return prisma.auditLog.findMany({
+      where: { taskId: id, action: { in: ['GO_NOGO_WAIVED', 'GO_NOGO_UNWAIVED'] } },
+      include: { user: { select: { fullName: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   async duplicate(id: string, userId: string) {

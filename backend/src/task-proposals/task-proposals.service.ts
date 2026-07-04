@@ -245,6 +245,11 @@ export class TaskProposalsService {
   }
 
   async convertApprovedToTasks(versionId: string, createdBy: string, proposalIds?: string[]) {
+    const version = await prisma.version.findUnique({ where: { id: versionId }, select: { status: true } });
+    if (version && ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(version.status)) {
+      throw new ForbiddenException('גרסה פעילה — לא ניתן לשבץ הצעות למשימות בזמן ריצה');
+    }
+
     // When proposalIds is provided: convert only those specific proposals (manager explicitly selected them).
     // Otherwise: fall back to old behaviour — only APPROVED proposals.
     const baseWhere = proposalIds?.length

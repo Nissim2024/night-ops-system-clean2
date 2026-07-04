@@ -223,7 +223,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
       }}>
         <div>
           <div style={{ fontSize: '18px', fontWeight: 'bold' }}>⏱ ציר זמן — {version?.name || versionName}</div>
-          <div style={{ fontSize: '13px', opacity: 0.7, marginTop: '4px' }}>
+          <div style={{ fontSize: '15px', opacity: 0.7, marginTop: '4px' }}>
             {fmt(new Date(minTs))} — {fmt(new Date(maxTs))}
             <span style={{ margin: '0 10px', opacity: 0.4 }}>|</span>
             עכשיו: <strong style={{ color: '#e74c3c' }}>{fmt(now)}</strong>
@@ -238,7 +238,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
           ].map(s => (
             <div key={s.l} style={{ background: 'rgba(255,255,255,0.12)', borderRadius: '8px', padding: '8px 14px', textAlign: 'center' }}>
               <div style={{ fontSize: '20px', fontWeight: 'bold', color: s.c }}>{s.v}</div>
-              <div style={{ fontSize: '11px', opacity: 0.75 }}>{s.l}</div>
+              <div style={{ fontSize: '13px', opacity: 0.75 }}>{s.l}</div>
             </div>
           ))}
           <button onClick={load} style={{ padding: '8px 14px', background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)', color: 'white', borderRadius: '8px', cursor: 'pointer' }}>
@@ -263,14 +263,14 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
           background: 'white', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
           padding: '20px', marginBottom: '16px', border: '2px solid #f39c12',
         }}>
-          <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#7d5500', marginBottom: '14px' }}>
+          <div style={{ fontWeight: 'bold', fontSize: '17px', color: '#7d5500', marginBottom: '14px' }}>
             ⏳ מחשבון השפעת עיכוב — סימולציה
           </div>
 
           {/* Inputs */}
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '16px' }}>
             <div style={{ flex: '1 1 280px' }}>
-              <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>
+              <label style={{ fontSize: '14px', color: '#666', display: 'block', marginBottom: '4px' }}>
                 משימה מעוכבת
               </label>
               <select
@@ -278,7 +278,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                 onChange={e => { setCalcTaskId(e.target.value); setImpactRows([]); }}
                 style={{
                   width: '100%', padding: '8px 10px', borderRadius: '8px',
-                  border: '1px solid #ddd', fontSize: '13px', background: '#f8f9fa',
+                  border: '1px solid #ddd', fontSize: '15px', background: '#f8f9fa',
                 }}
               >
                 <option value=''>— בחר משימה —</option>
@@ -291,7 +291,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
             </div>
 
             <div style={{ flex: '0 0 160px' }}>
-              <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>
+              <label style={{ fontSize: '14px', color: '#666', display: 'block', marginBottom: '4px' }}>
                 עיכוב (דקות)
               </label>
               <input
@@ -302,7 +302,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                 onChange={e => { setCalcDelay(Number(e.target.value)); setImpactRows([]); }}
                 style={{
                   width: '100%', padding: '8px 10px', borderRadius: '8px',
-                  border: '1px solid #ddd', fontSize: '13px', boxSizing: 'border-box',
+                  border: '1px solid #ddd', fontSize: '15px', boxSizing: 'border-box',
                 }}
               />
             </div>
@@ -313,7 +313,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
               style={{
                 padding: '9px 20px', background: calcTaskId ? '#e67e22' : '#ccc',
                 color: 'white', border: 'none', borderRadius: '8px',
-                cursor: calcTaskId ? 'pointer' : 'default', fontWeight: 'bold', fontSize: '14px',
+                cursor: calcTaskId ? 'pointer' : 'default', fontWeight: 'bold', fontSize: '15px',
               }}
             >
               חשב השפעה
@@ -347,7 +347,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                       borderRadius: '8px', padding: '8px 14px', textAlign: 'center', minWidth: '110px',
                     }}>
                       <div style={{ fontSize: '18px', fontWeight: 'bold', color: s.color }}>{s.value}</div>
-                      <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>{s.label}</div>
+                      <div style={{ fontSize: '13px', color: '#888', marginTop: '2px' }}>{s.label}</div>
                     </div>
                   ))}
                 </div>
@@ -356,7 +356,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                 {srcTask && (
                   <div style={{
                     background: '#fff8e1', border: '1px solid #f39c12', borderRadius: '8px',
-                    padding: '8px 14px', marginBottom: '10px', fontSize: '13px', color: '#7d5500',
+                    padding: '8px 14px', marginBottom: '10px', fontSize: '15px', color: '#7d5500',
                   }}>
                     <strong>{srcTask.title}</strong> — מתוכנן לסיים ב-{fmt(new Date(srcTask.plannedEnd))},
                     יסיים ב-<strong>{fmt(new Date(new Date(srcTask.plannedEnd).getTime() + calcDelay * 60_000))}</strong> (עיכוב {calcDelay} ד')
@@ -365,11 +365,11 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
 
                 {/* Impact table */}
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
                     <thead>
                       <tr style={{ background: '#f4f6f8', textAlign: 'right' }}>
                         {['משימה', 'שלב', 'תחילה מתוכנן', 'סיום מתוכנן', 'תחילה חדשה', 'סיום חדש', 'הזזה'].map(h => (
-                          <th key={h} style={{ padding: '10px 12px', borderBottom: '2px solid #ccc', fontWeight: 'bold', color: '#1a2332', whiteSpace: 'nowrap', fontSize: '13px' }}>{h}</th>
+                          <th key={h} style={{ padding: '10px 12px', borderBottom: '2px solid #ccc', fontWeight: 'bold', color: '#1a2332', whiteSpace: 'nowrap', fontSize: '15px' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
@@ -380,10 +380,10 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                           borderRight: row.isCritical ? '3px solid #e74c3c' : '3px solid transparent',
                         }}>
                           <td style={{ padding: '9px 12px', borderBottom: '1px solid #eee', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {row.isCritical && <span style={{ color: '#e74c3c', marginLeft: '4px', fontSize: '12px' }}>●</span>}
+                            {row.isCritical && <span style={{ color: '#e74c3c', marginLeft: '4px', fontSize: '14px' }}>●</span>}
                             <span style={{ fontWeight: '500', color: '#1a2332' }}>{row.task.title}</span>
                             {row.task.assignedTeamName && (
-                              <span style={{ color: '#555', fontSize: '12px', marginRight: '6px' }}> ({row.task.assignedTeamName})</span>
+                              <span style={{ color: '#555', fontSize: '14px', marginRight: '6px' }}> ({row.task.assignedTeamName})</span>
                             )}
                           </td>
                           <td style={{ padding: '9px 12px', borderBottom: '1px solid #eee', color: '#333', whiteSpace: 'nowrap' }}>
@@ -409,7 +409,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                     </tbody>
                   </table>
                 </div>
-                <div style={{ fontSize: '12px', color: '#555', marginTop: '8px' }}>
+                <div style={{ fontSize: '14px', color: '#555', marginTop: '8px' }}>
                   ● = משימה קריטית (מתחילה עד 5 דקות אחרי סיום המשימה המעוכבת) | הסימולציה מניחה שמשך המשימות נשמר
                 </div>
               </div>
@@ -417,7 +417,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
           })()}
 
           {calcTaskId && impactRows.length === 0 && (
-            <div style={{ color: '#888', fontSize: '13px', fontStyle: 'italic' }}>
+            <div style={{ color: '#888', fontSize: '15px', fontStyle: 'italic' }}>
               לחץ "חשב השפעה" לראות אילו משימות יושפעו
             </div>
           )}
@@ -431,7 +431,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
           {/* ── Time axis (sticky top) ─── */}
           <div style={{ display: 'flex', height: 48, borderBottom: '2px solid #ddd', position: 'sticky', top: 0, zIndex: 20, background: 'white' }}>
             {labelCell(
-              <span style={{ fontSize: '13px', color: '#333', fontWeight: 'bold' }}>משימה / זמן</span>,
+              <span style={{ fontSize: '15px', color: '#333', fontWeight: 'bold' }}>משימה / זמן</span>,
               '#f8f9fa', 48
             )}
             <div style={{ flex: 1, position: 'relative' }}>
@@ -440,7 +440,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                 return (
                   <div key={i} style={{ position: 'absolute', left: `${x}%`, top: 0, height: '100%' }}>
                     <div style={{ width: 1, height: '100%', background: '#e0e0e0' }} />
-                    <span style={{ position: 'absolute', bottom: 5, left: 4, fontSize: '11px', color: '#555', whiteSpace: 'nowrap' }}>
+                    <span style={{ position: 'absolute', bottom: 5, left: 4, fontSize: '13px', color: '#555', whiteSpace: 'nowrap' }}>
                       {fmt(tick)}
                     </span>
                   </div>
@@ -448,7 +448,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
               })}
               {nowVisible && (
                 <div style={{ position: 'absolute', left: `${nowPct}%`, top: 0, height: '100%', width: 2, background: '#e74c3c', zIndex: 6 }}>
-                  <span style={{ position: 'absolute', top: 4, left: 4, fontSize: '10px', color: '#e74c3c', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                  <span style={{ position: 'absolute', top: 4, left: 4, fontSize: '12px', color: '#e74c3c', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
                     עכשיו
                   </span>
                 </div>
@@ -464,13 +464,13 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
               <div style={{ display: 'flex', height: H_PHASE, cursor: 'pointer' }} onClick={() => toggle(phase.id)}>
                 {labelCell(
                   <>
-                    <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', marginLeft: '4px' }}>
+                    <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginLeft: '4px' }}>
                       {collapsed.has(phase.id) ? '►' : '▼'}
                     </span>
-                    <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#7ecfff', marginLeft: '6px', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#7ecfff', marginLeft: '6px', whiteSpace: 'nowrap' }}>
                       {phase.environment}
                     </span>
-                    <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.9)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.9)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {phase.name}
                     </span>
                   </>,
@@ -491,13 +491,13 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                     <div style={{ display: 'flex', height: H_SUBPHASE, cursor: 'pointer' }} onClick={() => toggle(sp.id)}>
                       {labelCell(
                         <>
-                          <span style={{ fontSize: '10px', color: '#666', marginLeft: '4px' }}>
+                          <span style={{ fontSize: '12px', color: '#666', marginLeft: '4px' }}>
                             {collapsed.has(sp.id) ? '►' : '▼'}
                           </span>
-                          <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#1a2332', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#1a2332', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {sp.name}
                           </span>
-                          <span style={{ fontSize: '11px', color: '#666', marginRight: 'auto', marginLeft: '4px', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontSize: '13px', color: '#666', marginRight: 'auto', marginLeft: '4px', whiteSpace: 'nowrap' }}>
                             ({spTasks.length})
                           </span>
                         </>,
@@ -530,17 +530,17 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                           {labelCell(
                             <>
                               <div style={{ flex: 1, overflow: 'hidden' }}>
-                                <div style={{ fontSize: '13px', fontWeight: '500', color: '#1a2332', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={task.title}>
+                                <div style={{ fontSize: '15px', fontWeight: '500', color: '#1a2332', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={task.title}>
                                   {task.title}
                                 </div>
-                                <div style={{ fontSize: '11px', color: '#555', marginTop: '2px' }}>
+                                <div style={{ fontSize: '13px', color: '#555', marginTop: '2px' }}>
                                   {task.assignedTeam?.name && `👥 ${task.assignedTeam.name}`}
                                   {task.assignedUserName && ` · ${task.assignedUserName}`}
                                 </div>
                               </div>
                               {d !== null && (
                                 <span style={{
-                                  fontSize: '10px', fontWeight: 'bold', padding: '1px 5px', borderRadius: '4px',
+                                  fontSize: '12px', fontWeight: 'bold', padding: '1px 5px', borderRadius: '4px',
                                   whiteSpace: 'nowrap', marginRight: '4px',
                                   background: d > 0 ? '#fee' : '#f0fff4',
                                   color:      d > 0 ? '#e74c3c' : '#27ae60',
@@ -606,7 +606,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
 
           {/* ── Legend ─── */}
           <div style={{ display: 'flex', gap: '20px', padding: '12px 16px', borderTop: '2px solid #e0e0e0', background: '#fafafa', flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', color: '#666', fontWeight: 'bold' }}>מקרא:</span>
+            <span style={{ fontSize: '14px', color: '#666', fontWeight: 'bold' }}>מקרא:</span>
             {([
               { label: 'מתוכנן',  el: <div style={{ width: 36, height: 14, border: '2px solid #3498db', borderRadius: 3, background: '#3498db18' }} /> },
               { label: 'הושלם',   el: <div style={{ width: 36, height:  8, background: '#27ae60', borderRadius: 3 }} /> },
@@ -617,7 +617,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
             ] as const).map(({ label, el }) => (
               <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 {el}
-                <span style={{ fontSize: '12px', color: '#555' }}>{label}</span>
+                <span style={{ fontSize: '14px', color: '#555' }}>{label}</span>
               </div>
             ))}
           </div>

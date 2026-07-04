@@ -164,6 +164,12 @@ export class ImportService {
     fileName?: string,
     versionPlannedStart?: Date,
     qcReleaseId?: string,
+    integrationStart?: Date,
+    integrationEnd?: Date,
+    qaStart?: Date,
+    qaEnd?: Date,
+    plannedRehearsalStart?: Date,
+    plannedRehearsalEnd?: Date,
   ): Promise<{ success: boolean; message: string; stats: any }> {
 
     const workbook = XLSX.read(buffer, { type: 'buffer', cellStyles: true, cellDates: true });
@@ -257,6 +263,12 @@ export class ImportService {
         importedFileName: fileName || undefined,
         plannedStart: versionPlannedStart || undefined,
         qcReleaseId: qcReleaseId || undefined,
+        integrationStart: integrationStart || undefined,
+        integrationEnd: integrationEnd || undefined,
+        qaStart: qaStart || undefined,
+        qaEnd: qaEnd || undefined,
+        plannedRehearsalStart: plannedRehearsalStart || undefined,
+        plannedRehearsalEnd: plannedRehearsalEnd || undefined,
       },
     });
 

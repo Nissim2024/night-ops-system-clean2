@@ -161,6 +161,19 @@ export class SummaryService {
     });
   }
 
+  async updateApprovedRehearsal(versionId: string, headline?: string, morningNotes?: string, crData?: any) {
+    const existing = await (prisma as any).rehearsalSummary.findUnique({ where: { versionId } });
+    if (!existing) throw new BadRequestException('הסיכום טרם אושר — אין מה לעדכן');
+    return (prisma as any).rehearsalSummary.update({
+      where: { versionId },
+      data: {
+        ...(headline !== undefined && { headline }),
+        ...(morningNotes !== undefined && { morningNotes }),
+        ...(crData !== undefined && { crData }),
+      },
+    });
+  }
+
   async approve(versionId: string, userId: string, headline?: string, morningNotes?: string, crData?: any, force = false) {
     // Always find the GoNoGo phase — needed for both force and non-force paths.
     const goNogoPhase = await prisma.phase.findFirst({

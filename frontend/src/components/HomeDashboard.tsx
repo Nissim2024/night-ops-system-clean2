@@ -25,6 +25,7 @@ interface Props {
   onNewVersion?: () => void;
   onSwitchToQa?: () => void;
   canAccessQa?: boolean;
+  onGoToLeaves?: () => void;
 }
 
 const STATUS_PRIORITY: Record<string, number> = {
@@ -37,17 +38,19 @@ const PHASE_META: Record<string, {
   label: string; icon: string; color: string; bg: string;
   desc: (role: string) => string;
   cta: (role: string) => string;
-  ctaTab: string;
+  ctaTab: string | ((role: string) => string);
   pulse?: boolean;
 }> = {
   DRAFT:        { label: 'שלב טיוטה',          icon: '📋', color: '#4573D2', bg: 'rgba(69,115,210,0.07)',    desc: r => isRm(r) ? 'הגדר לוח זמנים, תכולה ומסגרת הגרסה.' : 'ממתין לפתיחת שלב האיסוף.',               cta: r => isRm(r) ? 'הגדר גרסה' : 'ראה פרטים',       ctaTab: 'list' },
   COLLECTING:   { label: 'איסוף משימות',        icon: '📝', color: '#9C6ADE', bg: 'rgba(156,106,222,0.07)', desc: r => r === 'TEAM_LEAD' ? 'הגש את הצעות המשימות לאישור.' : isRm(r) ? 'עקב אחר שיבוץ הצוותים.'  : 'בדוק אם שובצת למשימות.',                     cta: r => r === 'TEAM_LEAD' ? 'הגש תוכניות' : 'ראה סטטוס', ctaTab: 'proposals' },
-  CR_REVIEW:    { label: 'סקירת CR',             icon: '🔍', color: '#E8AF00', bg: 'rgba(232,175,0,0.07)',   desc: r => r === 'TEAM_LEAD' ? 'יש להגיש תוכנית CR לאישור.' : 'צוותים מגישים תוכניות עלייה לאוויר.', cta: r => r === 'TEAM_LEAD' ? 'הגש תוכנית CR' : 'סקור תוכניות', ctaTab: 'implementation-plans' },
+  // Managers review CR plans on the version detail page itself (team-status grid + CR list) — the
+  // separate implementation-plans screen is redundant for them. Team leads still use it to submit.
+  CR_REVIEW:    { label: 'סקירת CR',             icon: '🔍', color: '#E8AF00', bg: 'rgba(232,175,0,0.07)',   desc: r => r === 'TEAM_LEAD' ? 'יש להגיש תוכנית CR לאישור.' : 'צוותים מגישים תוכניות עלייה לאוויר.', cta: r => r === 'TEAM_LEAD' ? 'הגש תוכנית CR' : 'סקור תוכניות', ctaTab: r => r === 'TEAM_LEAD' ? 'implementation-plans' : 'list' },
   REFINING:     { label: 'טיוב תוכנית',         icon: '✏️', color: '#E8AF00', bg: 'rgba(232,175,0,0.07)',   desc: () => 'שלב טיוב ועדכון תוכניות לאחר הסקירה.',                                                     cta: () => 'פרטי גרסה',            ctaTab: 'list' },
   REVIEW:       { label: 'ישיבת מעבר',          icon: '👥', color: '#4573D2', bg: 'rgba(69,115,210,0.07)',   desc: () => 'ישיבת מעבר עם כלל המשתתפים לאישור סופי.',                                                 cta: () => 'פרטי גרסה',            ctaTab: 'list' },
   APPROVED:     { label: 'תוכנית מאושרת',       icon: '✅', color: '#37C47A', bg: 'rgba(55,196,122,0.07)',   desc: () => 'התוכנית אושרה. ממתינים לחזרה הגנרלית.',                                                    cta: () => 'פרטי גרסה',            ctaTab: 'list' },
-  REHEARSAL:    { label: 'חזרה גנרלית פעילה',   icon: '🎭', color: '#8b5cf6', bg: 'rgba(139,92,246,0.07)',   desc: () => 'החזרה הגנרלית בביצוע. עקב אחרי התקדמות הצוותים.',                                         cta: () => 'כנס ל-War Room',       ctaTab: 'board', pulse: true },
-  ACTIVE:       { label: 'עלייה לאוויר — לייב', icon: '🚀', color: '#F06A6A', bg: 'rgba(240,106,106,0.07)', desc: () => 'עלייה לאוויר פעילה. מעקב בזמן אמת אחרי כלל הצוותים.',                                    cta: () => 'War Room',             ctaTab: 'board', pulse: true },
+  REHEARSAL:    { label: 'חזרה גנרלית פעילה',   icon: '🎭', color: '#8b5cf6', bg: 'rgba(139,92,246,0.07)',   desc: () => 'החזרה הגנרלית בביצוע. עקב אחרי התקדמות הצוותים.',                                         cta: () => 'כנס ל-War Room',       ctaTab: 'dashboard', pulse: true },
+  ACTIVE:       { label: 'עלייה לאוויר — לייב', icon: '🚀', color: '#F06A6A', bg: 'rgba(240,106,106,0.07)', desc: () => 'עלייה לאוויר פעילה. מעקב בזמן אמת אחרי כלל הצוותים.',                                    cta: () => 'War Room',             ctaTab: 'dashboard', pulse: true },
   MORNING_AFTER:{ label: 'בוקר שלאחר',          icon: '🌅', color: '#F0883E', bg: 'rgba(240,136,62,0.07)',   desc: () => 'שלב בקרות הבוקר. ודא שכל הבדיקות הושלמו.',                                                cta: () => 'לוח בקרה',             ctaTab: 'dashboard', pulse: true },
   COMPLETED:    { label: 'הושלם',               icon: '🏁', color: '#37C47A', bg: 'rgba(55,196,122,0.07)',   desc: () => 'הגרסה הושלמה בהצלחה.',                                                                    cta: () => 'ראה סיכום',            ctaTab: 'summary-night' },
   ROLLED_BACK:  { label: 'Rollback בוצע',       icon: '⏪', color: '#F06A6A', bg: 'rgba(240,106,106,0.07)', desc: () => 'בוצעה חזרה אחורה.',                                                                        cta: () => 'ראה פרטים',            ctaTab: 'list' },
@@ -75,13 +78,14 @@ interface QaSummary { totalCrs: number; assignedCrs: number; hasWorkPlan: boolea
 // ────────────────────────────────────────────────────────────────
 // Version row (compact)
 // ────────────────────────────────────────────────────────────────
-function VersionRow({ v, isPrimary, onSelect, qaSummary }: { v: any; isPrimary: boolean; onSelect: (id: string, tab?: string) => void; qaSummary?: QaSummary | null }) {
+function VersionRow({ v, isPrimary, onSelect, qaSummary, role }: { v: any; isPrimary: boolean; onSelect: (id: string, tab?: string) => void; qaSummary?: QaSummary | null; role: string }) {
   const ph = PHASE_META[v.status] ?? PHASE_META['DRAFT'];
   const isTrulyLive = ['ACTIVE', 'REHEARSAL'].includes(v.status);
   const isMorningAfter = v.status === 'MORNING_AFTER';
+  const resolvedCtaTab = typeof ph.ctaTab === 'function' ? ph.ctaTab(role) : ph.ctaTab;
   return (
     <div
-      onClick={() => onSelect(v.id, ph.ctaTab)}
+      onClick={() => onSelect(v.id, resolvedCtaTab)}
       style={{
         display: 'flex', alignItems: 'center', gap: '12px',
         padding: '10px 14px', borderRadius: RADIUS.md, cursor: 'pointer',
@@ -92,12 +96,12 @@ function VersionRow({ v, isPrimary, onSelect, qaSummary }: { v: any; isPrimary: 
       onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = isPrimary ? `${ph.color}14` : C.bgHover}
       onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = isPrimary ? `${ph.color}09` : 'transparent'}
     >
-      <span style={{ fontSize: '16px', flexShrink: 0 }}>{ph.icon}</span>
+      <span style={{ fontSize: '17px', flexShrink: 0 }}>{ph.icon}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, display: 'flex', alignItems: 'center', gap: '6px' }}>
           {v.name}
-          {isTrulyLive && <span style={{ fontSize: '9px', background: C.danger, color: 'white', borderRadius: '10px', padding: '1px 6px', fontWeight: WEIGHT.bold, letterSpacing: '0.05em', animation: 'home-pulse 2s ease-in-out infinite' }}>LIVE</span>}
-          {isMorningAfter && <span style={{ fontSize: '9px', background: '#F0883E', color: 'white', borderRadius: '10px', padding: '1px 6px', fontWeight: WEIGHT.bold, letterSpacing: '0.05em' }}>בוקר</span>}
+          {isTrulyLive && <span style={{ fontSize: '11px', background: C.danger, color: 'white', borderRadius: '10px', padding: '1px 6px', fontWeight: WEIGHT.bold, letterSpacing: '0.05em', animation: 'home-pulse 2s ease-in-out infinite' }}>LIVE</span>}
+          {isMorningAfter && <span style={{ fontSize: '11px', background: '#F0883E', color: 'white', borderRadius: '10px', padding: '1px 6px', fontWeight: WEIGHT.bold, letterSpacing: '0.05em' }}>בוקר</span>}
         </div>
         <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '1px' }}>{ph.label}</div>
       </div>
@@ -125,7 +129,7 @@ function ActionItem({ icon, title, desc, urgent, onClick }: { icon: string; titl
         cursor: onClick ? 'pointer' : 'default',
       }}
     >
-      <span style={{ fontSize: '16px', flexShrink: 0, marginTop: '1px' }}>{icon}</span>
+      <span style={{ fontSize: '17px', flexShrink: 0, marginTop: '1px' }}>{icon}</span>
       <div style={{ flex: 1 }}>
         <div style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: urgent ? C.danger : C.textPrimary }}>{title}</div>
         <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>{desc}</div>
@@ -163,14 +167,18 @@ function EmptyState({ canCreate, onNewVersion }: { canCreate: boolean; onNewVers
 // ────────────────────────────────────────────────────────────────
 const CR_REVIEW_STAGES = ['CR_REVIEW', 'REFINING', 'REVIEW'];
 
-export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token, onSelectVersion, onNewVersion, onSwitchToQa, canAccessQa }) => {
+export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token, onSelectVersion, onNewVersion, onSwitchToQa, canAccessQa, onGoToLeaves }) => {
   const canCreate = isRm(role);
+  const canManageLeaves = ['ADMIN', 'TEAM_LEAD'].includes(role);
 
+  const [pendingLeaveCount, setPendingLeaveCount] = useState(0);
   const [teamStatus, setTeamStatus] = useState<TeamStatusRow[]>([]);
   const [teamStatusLoading, setTeamStatusLoading] = useState(false);
   const [myTeamSummary, setMyTeamSummary] = useState<{ total: number; ready: number; draft: number } | null>(null);
   const [qaSummary, setQaSummary] = useState<QaSummary | null>(null);
   const [livePhases, setLivePhases] = useState<{ name: string; done: number; total: number; state: 'done' | 'active' | 'upcoming' }[]>([]);
+  const [nextPhaseInfo, setNextPhaseInfo] = useState<{ name: string; startTime?: string | null } | null>(null);
+  const [firstPhaseInfo, setFirstPhaseInfo] = useState<{ name: string; startTime?: string | null } | null>(null);
   const [estimateStats, setEstimateStats] = useState<{
     totalEstimateDays: number;
     qaFilteredEstimateDays: number;
@@ -235,6 +243,14 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
       .catch(() => setMyTeamSummary(null));
   }, [primary?.id, primary?.status, showMyTeamWarning, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Pending leave requests needing this manager's attention (ADMIN: all; TEAM_LEAD: own team only)
+  useEffect(() => {
+    if (!canManageLeaves) { setPendingLeaveCount(0); return; }
+    axios.get(`${API}/leaves/requests/pending-count`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setPendingLeaveCount(r.data ?? 0))
+      .catch(() => setPendingLeaveCount(0));
+  }, [canManageLeaves, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Fetch QA summary for primary version (accessible to all authenticated users via /qa-stats)
   useEffect(() => {
     if (!canAccessQa || !primary) { setQaSummary(null); return; }
@@ -265,11 +281,12 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
 
   // Fetch phase progress when version is ACTIVE or REHEARSAL
   useEffect(() => {
-    if (!primary || !['ACTIVE', 'REHEARSAL'].includes(primary.status)) { setLivePhases([]); return; }
+    if (!primary || !['ACTIVE', 'REHEARSAL'].includes(primary.status)) { setLivePhases([]); setNextPhaseInfo(null); return; }
     axios.get(`${API}/versions/${primary.id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(res => {
         const phases = [...(res.data.phases || [])].sort((a: any, b: any) => a.orderIndex - b.orderIndex);
         let foundActive = false;
+        let lastTouchedOrderIndex: number | null = null; // last phase with at least one activated (non-WAITING) task, done or not
         const result = phases
           .map((ph: any) => {
             const tasks = (ph.subPhases || []).flatMap((sp: any) => sp.tasks || []);
@@ -278,6 +295,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
             const total = nightTasks.length;
             // Skip phases with no activated tasks (all WAITING — not part of this night)
             if (total === 0) return null;
+            lastTouchedOrderIndex = ph.orderIndex;
             let state: 'done' | 'active' | 'upcoming';
             if (done === total) {
               state = 'done';
@@ -291,8 +309,40 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
           })
           .filter(Boolean) as { name: string; done: number; total: number; state: 'done' | 'active' | 'upcoming' }[];
         setLivePhases(result);
+
+        // Next phase to come — the first one after the last touched phase, whether
+        // that's still in progress or (once it's fully done) not yet started at all.
+        // Start time comes from the earliest task in that phase (rehearsal-aware),
+        // not Phase.plannedStart, which only ever reflects the production schedule.
+        const nextPhase = lastTouchedOrderIndex !== null
+          ? phases.find((ph: any) => ph.orderIndex > (lastTouchedOrderIndex as number))
+          : undefined;
+        if (nextPhase) {
+          const nextTasks = (nextPhase.subPhases || []).flatMap((sp: any) => sp.tasks || []);
+          const times = nextTasks
+            .map((t: any) => t.rehearsalPlannedStart ?? t.plannedStart)
+            .filter(Boolean)
+            .map((d: any) => new Date(d).getTime());
+          setNextPhaseInfo({ name: nextPhase.name, startTime: times.length ? new Date(Math.min(...times)).toISOString() : null });
+        } else {
+          setNextPhaseInfo(null);
+        }
       })
-      .catch(() => setLivePhases([]));
+      .catch(() => { setLivePhases([]); setNextPhaseInfo(null); });
+  }, [primary?.id, primary?.status, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch the first phase's name + start time for the "פתח לילה פעיל" action —
+  // nothing has run yet at APPROVED, so this uses the phase's own plannedStart
+  // (the production schedule), not a task-derived time like the in-run views do.
+  useEffect(() => {
+    if (!primary || primary.status !== 'APPROVED') { setFirstPhaseInfo(null); return; }
+    axios.get(`${API}/versions/${primary.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => {
+        const phases = [...(res.data.phases || [])].sort((a: any, b: any) => a.orderIndex - b.orderIndex);
+        const first = phases[0];
+        setFirstPhaseInfo(first ? { name: first.name, startTime: first.plannedStart ?? null } : null);
+      })
+      .catch(() => setFirstPhaseInfo(null));
   }, [primary?.id, primary?.status, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Warning logic helpers
@@ -310,7 +360,15 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
     const st = primary.status;
     const rm = isRm(role);
     const tl = role === 'TEAM_LEAD';
-    const list: { icon: string; title: string; desc: string; urgent?: boolean; tab?: string }[] = [];
+    const list: { icon: string; title: string; desc: string; urgent?: boolean; tab?: string; onClick?: () => void }[] = [];
+
+    if (canManageLeaves && pendingLeaveCount > 0) {
+      list.push({
+        icon: '🏖', title: `${pendingLeaveCount} בקשות חופשה ממתינות לאישור`,
+        desc: 'עובדים הגישו בקשות חופשה שממתינות לטיפולך', urgent: true,
+        onClick: onGoToLeaves,
+      });
+    }
 
     if (st === 'DRAFT' && rm) {
       const hasDates = !!(primary.integrationStart && primary.integrationEnd && primary.qaStart && primary.qaEnd);
@@ -323,22 +381,47 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
     if (st === 'COLLECTING' && tl)      list.push({ icon: '📝', title: 'הגש תוכניות', desc: 'הגש את הצעות המשימות לאישור', urgent: true, tab: 'proposals' });
     if (st === 'COLLECTING' && rm)      list.push({ icon: '👥', title: 'מעקב הגשת תוכניות', desc: 'בדוק שכל הצוותים הגישו את תוכניות ה-CR', tab: 'proposals' });
     if (st === 'CR_REVIEW' && tl)       list.push({ icon: '📋', title: 'הגש תוכנית CR', desc: 'הגדר תוכנית עלייה לאוויר לצוות שלך', urgent: true, tab: 'implementation-plans' });
-    if (st === 'CR_REVIEW' && rm)       list.push({ icon: '🔍', title: 'סקור תוכניות CR', desc: 'אשר או החזר הערות על תוכניות הצוותים', tab: 'implementation-plans' });
-    if (st === 'REFINING' && rm)        list.push({ icon: '✏️', title: 'ודא עדכוני תוכניות', desc: 'צוותים מעדכנים לפי הערות', tab: 'implementation-plans' });
+    if (st === 'CR_REVIEW' && rm)       list.push({ icon: '🔍', title: 'סקור תוכניות CR', desc: 'אשר או החזר הערות על תוכניות הצוותים', tab: 'list' });
+    if (st === 'REFINING' && rm)        list.push({ icon: '✏️', title: 'ודא עדכוני תוכניות', desc: 'צוותים מעדכנים לפי הערות', tab: 'list' });
     if (st === 'REVIEW' && rm)          list.push({ icon: '👥', title: 'קיים ישיבת מעבר', desc: 'ישיבה עם כלל המשתתפים לאישור סופי', tab: 'list' });
     if (st === 'APPROVED' && rm) {
       if (primary.rehearsalSummary) {
-        list.push({ icon: '🚀', title: 'פתח לילה פעיל', desc: 'החזרה הגנרלית הושלמה — מוכן להתחיל את הלילה הפעיל', tab: 'list' });
+        const dateStr = primary.plannedStart
+          ? new Date(primary.plannedStart).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+          : null;
+        const timeStr = primary.plannedStart
+          ? new Date(primary.plannedStart).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
+          : null;
+        const dateTimeDesc = dateStr && timeStr ? ` — מתוכנן ל-${dateStr}, ${timeStr}` : '';
+        const firstPhaseDesc = firstPhaseInfo
+          ? ` · שלב ראשון: ${firstPhaseInfo.name}${firstPhaseInfo.startTime ? ` (${new Date(firstPhaseInfo.startTime).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })})` : ''}`
+          : '';
+        list.push({ icon: '🚀', title: 'פתח לילה פעיל', desc: `החזרה הגנרלית הושלמה — מוכן להתחיל את הלילה הפעיל${dateTimeDesc}${firstPhaseDesc}`, tab: 'list' });
       } else {
         list.push({ icon: '🎭', title: 'פתח חזרה גנרלית', desc: 'הרץ את התוכנית המאושרת כחזרה', tab: 'list' });
       }
     }
-    if (['REHEARSAL', 'ACTIVE'].includes(st)) list.push({ icon: '⚡', title: 'War Room', desc: 'עקב אחר ביצוע המשימות בזמן אמת', urgent: true, tab: 'board' });
+    // All activated phases done, nothing left queued up next — the run itself is
+    // finished even though the version hasn't been formally closed yet.
+    const allPhasesDone = livePhases.length > 0 && livePhases.every(p => p.state === 'done') && !nextPhaseInfo;
+
+    if (['REHEARSAL', 'ACTIVE'].includes(st) && !allPhasesDone) {
+      const nextDesc = nextPhaseInfo
+        ? `שלב הבא: ${nextPhaseInfo.name}${nextPhaseInfo.startTime ? ` יחל בשעה ${new Date(nextPhaseInfo.startTime).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}` : ''}`
+        : 'עקב אחר ביצוע המשימות בזמן אמת';
+      list.push({ icon: '⚡', title: 'War Room', desc: nextDesc, urgent: true, tab: 'dashboard' });
+    }
+    if (st === 'REHEARSAL' && allPhasesDone && rm) {
+      list.push({ icon: '🎭', title: 'החזרה הגנרלית הושלמה', desc: 'הפק דוח סיכום חזרה וסיים אותה כדי לפתוח את ההרצה האמיתית', urgent: true, tab: 'summary-rehearsal' });
+    }
+    if (st === 'ACTIVE' && allPhasesDone && rm) {
+      list.push({ icon: '✅', title: 'ליל ההטמעה הושלם', desc: 'כל המשימות בוצעו — עבור לבקרות הבוקר ולסגירת הגרסה', urgent: true, tab: 'summary-night' });
+    }
     if (st === 'MORNING_AFTER' && rm)   list.push({ icon: '🌅', title: 'אשר בקרות בוקר', desc: 'ודא השלמת כל הבדיקות ואשר סיום', urgent: true, tab: 'dashboard' });
     if (st === 'MORNING_AFTER' && rm)   list.push({ icon: '📄', title: 'הכן דוח סיכום', desc: 'צור וסכם את פעילות הלילה', urgent: true, tab: 'summary-night' });
 
     return list;
-  }, [primary, role]);
+  }, [primary, role, canManageLeaves, pendingLeaveCount, onGoToLeaves, nextPhaseInfo, firstPhaseInfo]);
 
   // Stats — only count non-terminal versions as "in progress"
   const totalVersions  = inProgressVersions.length;
@@ -371,7 +454,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
           )}
           {isMorningAfterNow && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(240,136,62,0.08)', border: '1px solid rgba(240,136,62,0.30)', borderRadius: RADIUS.full, padding: '4px 12px' }}>
-              <span style={{ fontSize: '12px' }}>🌅</span>
+              <span style={{ fontSize: '14px' }}>🌅</span>
               <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: '#F0883E' }}>בוקר שלאחר</span>
             </div>
           )}
@@ -418,7 +501,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
           {/* Version list */}
           <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '20px' }}>
             <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '14px' }}>📦 גרסאות אחרונות</div>
-            {activeVersions.map(v => <VersionRow key={v.id} v={v} isPrimary={false} onSelect={onSelectVersion} />)}
+            {activeVersions.map(v => <VersionRow key={v.id} v={v} isPrimary={false} onSelect={onSelectVersion} role={role} />)}
             {canCreate && onNewVersion && (
               <button
                 onClick={onNewVersion}
@@ -471,7 +554,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
                         return (
                           <div
                             key={i}
-                            onClick={() => onSelectVersion(primary.id, 'board')}
+                            onClick={() => onSelectVersion(primary.id, 'dashboard')}
                             style={{
                               display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer',
                               padding: '5px 8px', borderRadius: RADIUS.sm,
@@ -480,7 +563,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
                               opacity: isUpcoming ? 0.5 : 1,
                             }}
                           >
-                            <span style={{ fontSize: '11px', width: '14px', flexShrink: 0, color }}>{icon}</span>
+                            <span style={{ fontSize: '13px', width: '14px', flexShrink: 0, color }}>{icon}</span>
                             <span style={{ ...TEXT.xs, fontWeight: isActive ? WEIGHT.semibold : WEIGHT.normal, color, flex: 1 }}>{p.name}</span>
                             {p.total > 0 && (
                               <>
@@ -510,7 +593,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
                 </div>
                 <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
                   <button
-                    onClick={() => onSelectVersion(primary.id, ph.ctaTab)}
+                    onClick={() => onSelectVersion(primary.id, typeof ph.ctaTab === 'function' ? ph.ctaTab(role) : ph.ctaTab)}
                     style={{ background: ph.color, color: 'white', border: 'none', borderRadius: RADIUS.md, padding: '10px 20px', ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' as const }}
                   >
                     {ph.cta(role)} ←
@@ -526,40 +609,45 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
             );
           })()}
 
-          {/* ── Track selector (only when user can access both) ── */}
-          {canAccessQa && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div
-                onClick={() => primary && onSelectVersion(primary.id, 'list')}
-                style={{ background: `${C.brand}08`, border: `1.5px solid ${C.brand}40`, borderRadius: RADIUS.lg, padding: '14px 18px', cursor: 'pointer', transition: EASE.fast }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = `${C.brand}12`; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = `${C.brand}08`; }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-                  <span style={{ fontSize: '18px' }}>🚀</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>מסלול הטמעה</div>
-                  </div>
-                  <span style={{ ...TEXT.xs, background: C.brand, color: 'white', borderRadius: '10px', padding: '1px 7px', fontWeight: WEIGHT.semibold, flexShrink: 0 }}>פעיל</span>
+          {/* ── Track selector — deployment quick-links always shown; QA card only when accessible ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: canAccessQa ? '1fr 1fr' : '1fr', gap: '12px' }}>
+            <div
+              onClick={() => primary && onSelectVersion(primary.id, 'list')}
+              style={{ background: `${C.brand}08`, border: `1.5px solid ${C.brand}40`, borderRadius: RADIUS.lg, padding: '14px 18px', cursor: 'pointer', transition: EASE.fast }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = `${C.brand}12`; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = `${C.brand}08`; }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                <span style={{ fontSize: '18px' }}>🚀</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>מסלול הטמעה</div>
                 </div>
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
-                  {[
-                    { label: '📅 לוח זמנים', tab: 'version-detail' },
-                    { label: '⚡ War Room',   tab: 'board' },
-                    { label: '📄 סיכום לילה', tab: 'summary-night' },
-                  ].map(({ label, tab }) => (
-                    <span
-                      key={tab}
-                      onClick={e => { e.stopPropagation(); primary && onSelectVersion(primary.id, tab); }}
-                      style={{ ...TEXT.xs, color: C.brand, background: `${C.brand}12`, border: `1px solid ${C.brand}30`, borderRadius: '10px', padding: '2px 9px', cursor: 'pointer', fontWeight: WEIGHT.medium, whiteSpace: 'nowrap' as const, transition: EASE.fast }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = `${C.brand}22`; }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = `${C.brand}12`; }}
-                    >
-                      {label}
-                    </span>
-                  ))}
-                </div>
+                <span style={{ ...TEXT.xs, background: C.brand, color: 'white', borderRadius: '10px', padding: '1px 7px', fontWeight: WEIGHT.semibold, flexShrink: 0 }}>פעיל</span>
               </div>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
+                {[
+                  { label: '📅 לוח זמנים',  tab: 'version-detail' },
+                  { label: '⚡ לוח בקרה',   tab: 'dashboard' },
+                  { label: '🚀 דף ההרצה',   tab: 'board' },
+                  ...(primary?.lastRehearsalAt ? [
+                    { label: '🎭 סיכום חזרה', tab: 'summary-rehearsal' },
+                    { label: '🎭 לוח חזרה (היסטורי)', tab: 'rehearsal-board' },
+                  ] : []),
+                  { label: '📄 סיכום לילה', tab: 'summary-night' },
+                ].map(({ label, tab }) => (
+                  <span
+                    key={tab}
+                    onClick={e => { e.stopPropagation(); primary && onSelectVersion(primary.id, tab); }}
+                    style={{ ...TEXT.xs, color: C.brand, background: `${C.brand}12`, border: `1px solid ${C.brand}30`, borderRadius: '10px', padding: '2px 9px', cursor: 'pointer', fontWeight: WEIGHT.medium, whiteSpace: 'nowrap' as const, transition: EASE.fast }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = `${C.brand}22`; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = `${C.brand}12`; }}
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
+            </div>
+            {canAccessQa && (
               <div
                 onClick={onSwitchToQa}
                 style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '14px 18px', cursor: 'pointer', transition: EASE.fast }}
@@ -575,8 +663,8 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
                   <span style={{ ...TEXT.xs, color: '#7c3aed', fontWeight: WEIGHT.semibold, flexShrink: 0 }}>עבור ←</span>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* ── Review-meeting approaching alert (manager) ── */}
           {isRm(role) && reviewIsApproaching && primary && (
@@ -643,7 +731,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
             <div style={{ background: C.bgCard, border: '1px solid #4573D2', borderRadius: RADIUS.lg, padding: '20px' }}>
               {/* Header + toggle */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                <span style={{ fontSize: '16px' }}>📊</span>
+                <span style={{ fontSize: '17px' }}>📊</span>
                 <div style={{ flex: 1 }}>
                   <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>פירוט הערכות השקעה לפי צוות</div>
                   <div style={{ ...TEXT.xs, color: C.textMuted }}>לחץ על צוות לפירוט CRs</div>
@@ -732,7 +820,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
           {showTeamStatus && (
             <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-                <span style={{ fontSize: '16px' }}>📋</span>
+                <span style={{ fontSize: '17px' }}>📋</span>
                 <div>
                   <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{isCollecting ? 'סטטוס הגשות הצעות משימות לפי צוות' : 'סטטוס הגשות תוכניות CR לפי צוות'}</div>
                   <div style={{ ...TEXT.xs, color: C.textMuted }}>{isCollecting ? 'מעקב אחר הגשת הצעות המשימות של הצוותים' : 'מעקב אחר הגשת תוכניות עלייה לאוויר'}</div>
@@ -751,7 +839,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
               {/* Warning banner: review approaching + teams haven't submitted */}
               {reviewIsApproaching && !teamStatusLoading && teamStatus.some(t => !t.allDone) && (
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', background: 'rgba(232,175,0,0.08)', border: `1px solid rgba(232,175,0,0.35)`, borderRadius: RADIUS.md, padding: '10px 14px', marginBottom: '12px' }}>
-                  <span style={{ fontSize: '16px', flexShrink: 0 }}>⏰</span>
+                  <span style={{ fontSize: '17px', flexShrink: 0 }}>⏰</span>
                   <div style={{ flex: 1 }}>
                     <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.warning }}>
                       פגישת סקירת התוכניות בעוד {reviewHoursLabel}
@@ -783,12 +871,12 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
                     return (
                       <div
                         key={t.teamId}
-                        onClick={() => primary && onSelectVersion(primary.id, isCollecting ? 'proposals' : 'implementation-plans')}
+                        onClick={() => primary && onSelectVersion(primary.id, isCollecting ? 'proposals' : 'list')}
                         style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px', borderRadius: RADIUS.sm, cursor: 'pointer', border: `1px solid ${C.border}`, transition: EASE.fast }}
                         onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = C.bgHover}
                         onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
                       >
-                        <span style={{ fontSize: '14px', flexShrink: 0 }}>{icon}</span>
+                        <span style={{ fontSize: '15px', flexShrink: 0 }}>{icon}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
                             <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>{t.teamName}</span>
@@ -844,7 +932,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
                         return (
                           <div
                             key={i}
-                            onClick={() => primary && onSelectVersion(primary.id, 'board')}
+                            onClick={() => primary && onSelectVersion(primary.id, 'dashboard')}
                             style={{
                               display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer',
                               padding: '5px 7px', borderRadius: RADIUS.sm,
@@ -853,7 +941,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
                               opacity: isUpcoming ? 0.5 : 1,
                             }}
                           >
-                            <span style={{ fontSize: '11px', width: '14px', flexShrink: 0, color, textAlign: 'center' as const }}>
+                            <span style={{ fontSize: '13px', width: '14px', flexShrink: 0, color, textAlign: 'center' as const }}>
                               {isDone ? '✓' : isActive ? '▶' : '○'}
                             </span>
                             <span style={{ ...TEXT.xs, flex: 1, color: isDone ? C.textMuted : C.textPrimary, fontWeight: isActive ? WEIGHT.semibold : WEIGHT.normal }}>{p.name}</span>
@@ -904,7 +992,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
                       title={a.title}
                       desc={a.desc}
                       urgent={a.urgent}
-                      onClick={a.tab ? () => onSelectVersion(primary.id, a.tab) : undefined}
+                      onClick={a.onClick ?? (a.tab ? () => onSelectVersion(primary.id, a.tab) : undefined)}
                     />
                   ))}
                 </div>
@@ -917,8 +1005,8 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
                 📦 כל הגרסאות הפעילות
               </div>
 
-              <VersionRow v={primary} isPrimary onSelect={onSelectVersion} qaSummary={qaSummary} />
-              {others.map(v => <VersionRow key={v.id} v={v} isPrimary={false} onSelect={onSelectVersion} />)}
+              <VersionRow v={primary} isPrimary onSelect={onSelectVersion} qaSummary={qaSummary} role={role} />
+              {others.map(v => <VersionRow key={v.id} v={v} isPrimary={false} onSelect={onSelectVersion} role={role} />)}
 
               {others.length === 0 && (
                 <div style={{ ...TEXT.xs, color: C.textMuted, textAlign: 'center', padding: '8px 0' }}>

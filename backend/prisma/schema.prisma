@@ -36,6 +36,13 @@ enum Priority {
   CRITICAL
 }
 
+enum BlockSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
 enum VersionStatus {
   DRAFT
   CR_REVIEW
@@ -151,6 +158,8 @@ model Version {
   integrationEnd          DateTime?
   qaStart                 DateTime?
   qaEnd                   DateTime?
+  plannedRehearsalStart   DateTime?
+  plannedRehearsalEnd     DateTime?
   submissionDeadline      DateTime?
   approvalDeadline        DateTime?
   wizardState             Json?
@@ -213,6 +222,7 @@ model Task {
   assignedUserId    String?
   assignedUserName  String?
   blockedReason     String?
+  blockedSeverity   BlockSeverity?
   completedAt       DateTime?
   createdBy         String
   createdByTeamLead String?
@@ -238,6 +248,8 @@ model Task {
   versionId         String?
   plannedStart      DateTime?
   plannedEnd        DateTime?
+  rehearsalPlannedStart DateTime?
+  rehearsalPlannedEnd   DateTime?
   dueDate           DateTime?
   goNoGoWaived      Boolean         @default(false)
   waivedBy          String?

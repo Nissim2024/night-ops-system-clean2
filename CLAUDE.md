@@ -121,7 +121,7 @@ Backend loads `.env.{NODE_ENV}` (e.g. `.env.dev`, `.env.test`). The bare `.env` 
 
 ### Known security issues (do not regress)
 
-- `tasks.updateStatus()` and `tasks.update()` have no team-membership check — any authenticated user can update any task
+- ~~`tasks.updateStatus()` and `tasks.update()` have no team-membership check~~ — resolved: `updateStatus` (`PATCH /tasks/:id/status`) checks `TeamMember` for TEAM_LEAD/EMPLOYEE callers; `update` (`PATCH /tasks/:id`) is restricted to `RELEASE_MANAGER`/`ADMIN` only. Verified in `tasks.controller.ts` 2026-07-02.
 - `GET /auth/config` is public (no JWT required)
 - No rate limiting on `POST /auth/login` specifically (global throttler: 100 req/min per IP)
 - 95 real employee emails are hardcoded in `users.service.ts` as `HARDCODED_QC_USERS` fallback

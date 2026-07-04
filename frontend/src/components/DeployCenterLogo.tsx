@@ -84,7 +84,7 @@ export const DeployCenterLogo: React.FC<Props> = ({ variant = 'nav' }) => {
         }}>
           Deploy<span style={{ color: '#3498db' }}>Center</span>
         </h1>
-        <p style={{ color: '#777', margin: 0, fontSize: '12px', letterSpacing: '0.5px' }}>
+        <p style={{ color: '#777', margin: 0, fontSize: '14px', letterSpacing: '0.5px' }}>
           מרכז שליטה ופריסה בזמן אמת
         </p>
       </div>

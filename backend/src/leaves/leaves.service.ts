@@ -213,11 +213,29 @@ export class LeavesService {
     return { ok: true };
   }
 
-  // ── Requests — admin ─────────────────────────────────────────────────────────
+  // ── Requests — admin / team lead ─────────────────────────────────────────────
 
-  async getAllRequests(seasonId?: string) {
+  // TEAM_LEAD only sees/approves requests from members of team(s) they lead (TeamMember.isLead).
+  // ADMIN sees everything, unscoped.
+  private async scopedUserIds(actingUserId: string, actingRole: string): Promise<string[] | null> {
+    if (actingRole === 'ADMIN') return null; // null = no filter
+    const ledTeams = await prisma.teamMember.findMany({ where: { userId: actingUserId, isLead: true }, select: { teamId: true } });
+    if (ledTeams.length === 0) return [];
+    const members = await prisma.teamMember.findMany({
+      where: { teamId: { in: ledTeams.map(t => t.teamId) } },
+      select: { userId: true },
+    });
+    return members.map(m => m.userId);
+  }
+
+  async getAllRequests(seasonId: string | undefined, actingUserId: string, actingRole: string) {
+    const scoped = await this.scopedUserIds(actingUserId, actingRole);
+    if (scoped !== null && scoped.length === 0) return [];
     return prisma.leaveRequest.findMany({
-      where: seasonId ? { seasonId } : undefined,
+      where: {
+        ...(seasonId ? { seasonId } : {}),
+        ...(scoped !== null ? { userId: { in: scoped } } : {}),
+      },
       orderBy: { date: 'asc' },
       include: {
         user:   { select: { id: true, fullName: true, email: true } },
@@ -226,9 +244,26 @@ export class LeavesService {
     });
   }
 
-  async updateRequestStatus(requestId: string, status: 'APPROVED' | 'DECLINED') {
+  async getPendingCount(actingUserId: string, actingRole: string): Promise<number> {
+    const scoped = await this.scopedUserIds(actingUserId, actingRole);
+    if (scoped !== null && scoped.length === 0) return 0;
+    return prisma.leaveRequest.count({
+      where: {
+        status: 'PENDING',
+        ...(scoped !== null ? { userId: { in: scoped } } : {}),
+      },
+    });
+  }
+
+  async updateRequestStatus(requestId: string, status: 'APPROVED' | 'DECLINED', actingUserId: string, actingRole: string) {
     const req = await prisma.leaveRequest.findUnique({ where: { id: requestId } });
     if (!req) throw new NotFoundException('בקשה לא נמצאה');
+    if (actingRole !== 'ADMIN') {
+      const scoped = await this.scopedUserIds(actingUserId, actingRole);
+      if (scoped === null || !scoped.includes(req.userId)) {
+        throw new ForbiddenException('אין הרשאה לטפל בבקשה של עובד מחוץ לצוות שלך');
+      }
+    }
     return prisma.leaveRequest.update({
       where: { id: requestId },
       data: { status },

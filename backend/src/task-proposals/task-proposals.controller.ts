@@ -42,7 +42,7 @@ export class TaskProposalsController {
   create(
     @Param('versionId') versionId: string,
     @Request() req: any,
-    @Body() body: { title: string; phase: number; app?: string; estimatedMins?: number; crNumber?: string; notes?: string },
+    @Body() body: { title: string; phase: number; app?: string; estimatedMins?: number; crNumber?: string; crLabel?: string; notes?: string; assignedUserName?: string; teamIdOverride?: string },
   ) {
     if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
     return this.service.create(versionId, req.user, body);

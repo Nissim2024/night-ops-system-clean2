@@ -93,14 +93,14 @@ export const ConfirmDialog: React.FC<Props> = ({ config, onClose }) => {
         <h3 style={{ margin: '0 0 12px', color: '#1a2332', textAlign: 'center', fontSize: '18px' }}>{config.title}</h3>
 
         {config.message && (
-          <p style={{ margin: '0 0 18px', color: '#444', fontSize: '14px', lineHeight: 1.65, textAlign: 'center', whiteSpace: 'pre-wrap' }}>
+          <p style={{ margin: '0 0 18px', color: '#444', fontSize: '15px', lineHeight: 1.65, textAlign: 'center', whiteSpace: 'pre-wrap' }}>
             {config.message}
           </p>
         )}
 
         {isInput && (
           <div style={{ marginBottom: '18px' }}>
-            <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', fontSize: '13px', color: '#333' }}>
+            <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold', fontSize: '15px', color: '#333' }}>
               {config.inputLabel}
             </label>
             <input
@@ -109,7 +109,7 @@ export const ConfirmDialog: React.FC<Props> = ({ config, onClose }) => {
               value={inputValue}
               onChange={e => setInputValue(e.target.value)}
               placeholder={config.inputPlaceholder ?? ''}
-              style={{ width: '100%', padding: '10px 12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', outline: 'none' }}
+              style={{ width: '100%', padding: '10px 12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px', boxSizing: 'border-box', outline: 'none' }}
               onFocus={e => (e.target.style.borderColor = '#2d4a7a')}
               onBlur={e => (e.target.style.borderColor = '#e0e0e0')}
             />
@@ -120,7 +120,7 @@ export const ConfirmDialog: React.FC<Props> = ({ config, onClose }) => {
           {config.onCancel !== undefined && (
             <button
               onClick={handleCancel}
-              style={{ padding: '10px 22px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', minWidth: '90px' }}
+              style={{ padding: '10px 22px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '15px', minWidth: '90px' }}
             >
               {config.cancelLabel ?? 'ביטול'}
             </button>
@@ -128,7 +128,7 @@ export const ConfirmDialog: React.FC<Props> = ({ config, onClose }) => {
           <button
             onClick={handleConfirm}
             disabled={!canConfirm}
-            style={{ padding: '10px 22px', background: canConfirm ? colors.btn : '#ccc', color: 'white', border: 'none', borderRadius: '8px', cursor: canConfirm ? 'pointer' : 'not-allowed', fontSize: '14px', fontWeight: 'bold', minWidth: '90px' }}
+            style={{ padding: '10px 22px', background: canConfirm ? colors.btn : '#ccc', color: 'white', border: 'none', borderRadius: '8px', cursor: canConfirm ? 'pointer' : 'not-allowed', fontSize: '15px', fontWeight: 'bold', minWidth: '90px' }}
           >
             {confirmLabel}
           </button>

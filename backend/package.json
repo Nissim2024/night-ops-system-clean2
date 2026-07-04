@@ -1,6 +1,6 @@
 {
   "name": "backend",
-  "version": "2.7.0",
+  "version": "2.7.3",
   "description": "",
   "author": "",
   "private": true,
@@ -33,7 +33,11 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "export-data": "cross-env NODE_ENV=prod npx ts-node scripts/export-data.ts",
+    "import-data": "cross-env NODE_ENV=prod npx ts-node scripts/import-data.ts",
+    "seed-default": "cross-env NODE_ENV=prod npx ts-node scripts/seed-default.ts",
+    "validate-production": "cross-env NODE_ENV=prod npx ts-node scripts/validate-production.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.2",
@@ -54,6 +58,8 @@
     "class-validator": "^0.15.1",
     "docx": "^9.6.1",
     "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "jwks-rsa": "^4.1.0",
     "ldapts": "^8.1.8",
     "multer": "^2.1.1",
     "nodemailer": "^8.0.9",
@@ -77,6 +83,7 @@
     "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.1.0",
     "@types/node": "^24.0.0",
     "@types/supertest": "^7.0.0",

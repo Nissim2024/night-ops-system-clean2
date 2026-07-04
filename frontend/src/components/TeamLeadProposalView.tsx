@@ -169,12 +169,12 @@ const emptyForm = {
 };
 
 const labelStyle: React.CSSProperties = {
-  fontSize: '12px', color: C.textSecondary, display: 'block',
+  fontSize: '14px', color: C.textSecondary, display: 'block',
   marginBottom: '4px', fontWeight: '600',
 };
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '8px', border: `1px solid ${C.border}`,
-  borderRadius: RADIUS.md, fontSize: '13px', boxSizing: 'border-box',
+  borderRadius: RADIUS.md, fontSize: '15px', boxSizing: 'border-box',
   fontFamily: FONT,
 };
 
@@ -212,7 +212,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   const [selectedTab, setSelectedTab] = useState<'plan' | 'tasks'>('plan');
 
   // Extract-tasks modal
-  interface ExtractItem { text: string; checked: boolean; phase: number; estimatedMins: string; duplicateId?: string; }
+  interface ExtractItem { text: string; checked: boolean; phase: number; estimatedMins: string; assignedUserName: string; duplicateId?: string; }
   const [extractModal, setExtractModal] = useState<{
     crNumber: string;
     sourceLabel: string;
@@ -236,7 +236,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
       defaultPhase,
       items: lines.map(t => {
         const dup = proposals.find(p => p.crNumber === crNumber && p.title.trim().toLowerCase() === t.trim().toLowerCase());
-        return { text: t, checked: true, phase: defaultPhase, estimatedMins: '', duplicateId: dup?.id };
+        return { text: t, checked: true, phase: defaultPhase, estimatedMins: '', assignedUserName: dup?.assignedUserName || '', duplicateId: dup?.id };
       }),
     });
   };
@@ -252,11 +252,13 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           await axios.patch(`${API}/task-proposals/${item.duplicateId}`, {
             title: item.text.trim(), phase: item.phase,
             estimatedMins: item.estimatedMins ? parseInt(item.estimatedMins) : undefined,
+            assignedUserName: item.assignedUserName || undefined,
           }, { headers });
         } else {
           await axios.post(`${API}/task-proposals/version/${versionId}`, {
             title: item.text.trim(), phase: item.phase,
             estimatedMins: item.estimatedMins ? parseInt(item.estimatedMins) : undefined,
+            assignedUserName: item.assignedUserName || undefined,
             crNumber: extractModal.crNumber,
             crLabel: getCrLabel(extractModal.crNumber) || undefined,
             ...(teamIdOverride ? { teamIdOverride } : {}),
@@ -351,7 +353,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         forms[p.crNumber] = {
           crType: p.crType ?? 'פיתוח חדש',
           riskLevel: p.riskLevel ?? '',
-          systems: p.systems ?? [],
+          systems: Array.from(new Set((p.systems ?? []).filter(Boolean))),
           workPlan: p.workPlan ?? '',
           scripts: p.scripts ?? '',
           runTimes: p.runTimes ?? '',
@@ -755,6 +757,14 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     return members.length > 0 ? members : teamUsers;
   }, [form.responsibleTeamId, myTeamId, teams, teamUsers]);
 
+  // Members of the team submitting the proposal (used for the bulk "הפק משימות" extract modal —
+  // independent of the single-add form's responsibleTeamId, which shouldn't leak in here).
+  const myTeamMembers = useMemo(() => {
+    const myTeam = teams.find((t: any) => t.id === myTeamId);
+    const members = (myTeam?.members as any[] | undefined)?.map((m: any) => m.user).filter(Boolean);
+    return members && members.length > 0 ? members : teamUsers;
+  }, [myTeamId, teams, teamUsers]);
+
   // Apps for this team — DB first, then static map, then all. Always ends with "אחר".
   const teamAppList = useMemo(() => {
     const withOther = (list: string[]) =>
@@ -781,7 +791,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         {/* Panel header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
           <button onClick={cancelForm} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '20px', lineHeight: 1, padding: '2px 6px' }}>✕</button>
-          <span style={{ fontSize: '15px', fontWeight: '700', color: C.textPrimary }}>{editId ? 'עריכת משימה' : 'פרטי משימה'}</span>
+          <span style={{ fontSize: '16px', fontWeight: '700', color: C.textPrimary }}>{editId ? 'עריכת משימה' : 'פרטי משימה'}</span>
         </div>
 
         {/* Scrollable body */}
@@ -794,7 +804,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
               autoFocus
               value={form.title}
               onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-              style={{ ...inputStyle, borderColor: !form.title.trim() ? C.danger : C.border, fontSize: '14px', padding: '10px 12px' }}
+              style={{ ...inputStyle, borderColor: !form.title.trim() ? C.danger : C.border, fontSize: '15px', padding: '10px 12px' }}
               placeholder="תאר את הצעד שיש לבצע..."
             />
           </div>
@@ -803,15 +813,15 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           <div>
             <label style={labelStyle}>פיתוחים בגרסה (CR)</label>
             {form.isFree ? (
-              <div style={{ padding: '10px 12px', background: C.bgNested, borderRadius: RADIUS.md, fontSize: '13px', color: C.textSecondary, border: `1px solid ${C.border}` }}>
+              <div style={{ padding: '10px 12px', background: C.bgNested, borderRadius: RADIUS.md, fontSize: '15px', color: C.textSecondary, border: `1px solid ${C.border}` }}>
                 ללא CR — משימה תשתיתית / כללית
               </div>
             ) : form.crNumber && form.crLabel ? (
               <div style={{ padding: '10px 12px', background: C.infoBg, border: `1px solid ${C.info}40`, borderRadius: RADIUS.md, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ background: C.textPrimary, color: C.textInverse, padding: '2px 8px', borderRadius: RADIUS.sm, fontSize: '12px', fontWeight: '700', fontFamily: 'monospace', flexShrink: 0 }}>
+                <span style={{ background: C.textPrimary, color: C.textInverse, padding: '2px 8px', borderRadius: RADIUS.sm, fontSize: '14px', fontWeight: '700', fontFamily: 'monospace', flexShrink: 0 }}>
                   {form.crNumber}
                 </span>
-                <span style={{ fontSize: '13px', color: C.info, fontWeight: '600' }}>{form.crLabel.replace(`${form.crNumber} - `, '')}</span>
+                <span style={{ fontSize: '15px', color: C.info, fontWeight: '600' }}>{form.crLabel.replace(`${form.crNumber} - `, '')}</span>
               </div>
             ) : (
               <>
@@ -832,7 +842,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                   {crItems.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                 </datalist>
                 {form.crLabel && (
-                  <div style={{ fontSize: '12px', color: C.success, marginTop: '4px' }}>✓ {form.crLabel}</div>
+                  <div style={{ fontSize: '14px', color: C.success, marginTop: '4px' }}>✓ {form.crLabel}</div>
                 )}
               </>
             )}
@@ -860,7 +870,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                   ))}
                 </select>
               ) : (
-                <div style={{ padding: '10px 12px', background: C.bgNested, borderRadius: RADIUS.md, fontSize: '12px', color: C.textMuted, border: `1px solid ${C.border}` }}>אין תת-שלבים</div>
+                <div style={{ padding: '10px 12px', background: C.bgNested, borderRadius: RADIUS.md, fontSize: '14px', color: C.textMuted, border: `1px solid ${C.border}` }}>אין תת-שלבים</div>
               )}
             </div>
           </div>
@@ -912,12 +922,12 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                 {allowedTeams.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
               {(form.phase === 2 || form.phase === 3) && (
-                <div style={{ fontSize: '11px', color: C.textMuted, marginTop: '3px' }}>
+                <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '3px' }}>
                   ניתן לשייך לצוות QA לביצוע בדיקות
                 </div>
               )}
               {form.phase === 4 && (
-                <div style={{ fontSize: '11px', color: C.textMuted, marginTop: '3px' }}>
+                <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '3px' }}>
                   ניתן לשייך לצוות QA / תפעול לבקרות בוקר
                 </div>
               )}
@@ -952,17 +962,17 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
               placeholder="פרמטרים, הוראות מיוחדות, תלויות..." />
           </div>
 
-          {error && <div style={{ color: C.danger, fontSize: '13px', background: C.dangerBg, padding: '8px 12px', borderRadius: RADIUS.md }}>{error}</div>}
+          {error && <div style={{ color: C.danger, fontSize: '15px', background: C.dangerBg, padding: '8px 12px', borderRadius: RADIUS.md }}>{error}</div>}
         </div>
 
         {/* Footer */}
         <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.border}`, display: 'flex', gap: '10px', justifyContent: 'flex-start', flexShrink: 0, background: C.bgCard }}>
           <button onClick={save} disabled={saving}
-            style={{ padding: '9px 24px', background: saving ? C.textDisabled : C.brand, color: C.textInverse, border: 'none', borderRadius: RADIUS.lg, cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '13px' }}>
+            style={{ padding: '9px 24px', background: saving ? C.textDisabled : C.brand, color: C.textInverse, border: 'none', borderRadius: RADIUS.lg, cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '15px' }}>
             {saving ? 'שומר...' : editId ? 'שמור שינויים' : 'הוסף משימה'}
           </button>
           <button onClick={cancelForm}
-            style={{ padding: '9px 20px', background: C.bgCard, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
+            style={{ padding: '9px 20px', background: C.bgCard, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '15px', fontWeight: '600' }}>
             ביטול
           </button>
         </div>
@@ -981,20 +991,20 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px' }}>
         <span style={{
           background: PHASE_BADGE[p.phase]?.bg, color: PHASE_BADGE[p.phase]?.color,
-          padding: '2px 10px', borderRadius: RADIUS.full, fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap', flexShrink: 0,
+          padding: '2px 10px', borderRadius: RADIUS.full, fontSize: '13px', fontWeight: '600', whiteSpace: 'nowrap', flexShrink: 0,
         }}>
           {(phaseLabels[p.phase] || PHASE_LABELS[p.phase])?.split(' — ')[1] || `שלב ${p.phase}`}
         </span>
-        <span style={{ flex: 1, fontSize: '13px', fontWeight: '600', color: C.textPrimary }}>{p.title}</span>
+        <span style={{ flex: 1, fontSize: '15px', fontWeight: '600', color: C.textPrimary }}>{p.title}</span>
         {p.usedInTaskId ? (
-          <span style={{ fontSize: '11px', color: C.success, fontWeight: '700', whiteSpace: 'nowrap', flexShrink: 0 }}>✅ בתוכנית</span>
+          <span style={{ fontSize: '13px', color: C.success, fontWeight: '700', whiteSpace: 'nowrap', flexShrink: 0 }}>✅ בתוכנית</span>
         ) : locked ? (
           <div style={{ display: 'flex', gap: '4px', flexShrink: 0, alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', color: p.status === 'READY' ? C.success : C.warning, fontWeight: '700', whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: '13px', color: p.status === 'READY' ? C.success : C.warning, fontWeight: '700', whiteSpace: 'nowrap' }}>
               {p.status === 'READY' ? '✓ מוכן' : 'טיוטא'}
             </span>
             <button onClick={() => openEdit(p)}
-              style={{ padding: '2px 8px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}50`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}>
+              style={{ padding: '2px 8px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}50`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
               ערוך
             </button>
           </div>
@@ -1002,17 +1012,17 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
             <button onClick={() => toggleStatus(p)} style={{
               padding: '2px 10px', border: 'none', borderRadius: RADIUS.full, cursor: 'pointer',
-              fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap',
+              fontSize: '13px', fontWeight: '600', whiteSpace: 'nowrap',
               background: p.status === 'READY' ? C.success : C.warning, color: C.textInverse,
             }}>
               {p.status === 'READY' ? '✓ מוכן' : 'טיוטא'}
             </button>
             <button onClick={() => openEdit(p)}
-              style={{ padding: '2px 8px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}50`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}>
+              style={{ padding: '2px 8px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}50`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
               ערוך
             </button>
             <button onClick={() => remove(p)}
-              style={{ padding: '2px 8px', background: C.dangerBg, color: C.danger, border: `1px solid ${C.danger}50`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}>
+              style={{ padding: '2px 8px', background: C.dangerBg, color: C.danger, border: `1px solid ${C.danger}50`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
               מחק
             </button>
           </div>
@@ -1021,10 +1031,10 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
       <div style={{
         display: 'flex', gap: '16px', flexWrap: 'wrap',
         padding: '5px 12px 8px', borderTop: `1px solid ${C.border}`,
-        background: p.usedInTaskId ? C.successBg : C.bgCard, fontSize: '12px', color: C.textSecondary,
+        background: p.usedInTaskId ? C.successBg : C.bgCard, fontSize: '14px', color: C.textSecondary,
       }}>
         <span><span style={{ color: C.textMuted }}>מערכת: </span>{p.app || <span style={{ color: C.textDisabled }}>לא הוזן</span>}</span>
-        {p.actionType && <span style={{ background: C.infoBg, color: C.info, padding: '1px 7px', borderRadius: RADIUS.sm, fontSize: '11px', fontWeight: '600' }}>{p.actionType}</span>}
+        {p.actionType && <span style={{ background: C.infoBg, color: C.info, padding: '1px 7px', borderRadius: RADIUS.sm, fontSize: '13px', fontWeight: '600' }}>{p.actionType}</span>}
         <span><span style={{ color: C.textMuted }}>משך: </span>{p.estimatedMins ? `${p.estimatedMins} דק'` : <span style={{ color: C.textDisabled }}>לא הוזן</span>}</span>
         <span><span style={{ color: C.textMuted }}>עובד אחראי: </span>{p.assignedUserName || <span style={{ color: C.textDisabled }}>לא הוזן</span>}</span>
         {p.notes && <span style={{ color: C.textSecondary, fontStyle: 'italic' }}>📝 {p.notes}</span>}
@@ -1044,14 +1054,14 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
       : crPlans[crNumber]?.crLabel?.replace(/^\S+\s*-\s*/, '') || crNumber;
 
     const sect: React.CSSProperties = { height: '1px', background: C.border, margin: '4px 0' };
-    const fLbl: React.CSSProperties = { fontSize: '10px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: '3px' };
-    const ta:   React.CSSProperties = { ...inputStyle, minHeight: '48px', resize: 'vertical', padding: '7px 10px', fontSize: '12px' };
-    const sel:  React.CSSProperties = { ...inputStyle, padding: '7px 10px', fontSize: '12px' };
+    const fLbl: React.CSSProperties = { fontSize: '12px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: '3px' };
+    const ta:   React.CSSProperties = { ...inputStyle, minHeight: '48px', resize: 'vertical', padding: '7px 10px', fontSize: '14px' };
+    const sel:  React.CSSProperties = { ...inputStyle, padding: '7px 10px', fontSize: '14px' };
 
     const rowHdr = (lbl: string, req: boolean, onExtract: () => void) => (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '3px' }}>
         <label style={{ ...fLbl, marginBottom: 0 }}>{lbl}{req && <span style={{ color: C.danger }}> *</span>}</label>
-        <button onClick={onExtract} style={{ fontSize: '10px', fontWeight: 600, padding: '2px 8px', background: C.infoBg, color: C.info, border: `1px solid ${C.info}30`, borderRadius: '4px', cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+        <button onClick={onExtract} style={{ fontSize: '12px', fontWeight: 600, padding: '2px 8px', background: C.infoBg, color: C.info, border: `1px solid ${C.info}30`, borderRadius: '4px', cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
           ⚡ הפק משימות
         </button>
       </div>
@@ -1066,15 +1076,15 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         </div>
 
         {/* META STRIP — read-only */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '7px 12px', fontSize: '11px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '7px 12px', fontSize: '13px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flex: 1, minWidth: 0 }}>
-            <span style={{ fontSize: '10px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>פרטי CR:</span>
+            <span style={{ fontSize: '12px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>פרטי CR:</span>
             <span style={{ color: C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={crDescription || crTitle}>{crDescription || crTitle || '—'}</span>
           </div>
           {crManager && <>
             <div style={{ width: '1px', height: '16px', background: C.border, flexShrink: 0 }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
-              <span style={{ fontSize: '10px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.04em' }}>מנהל:</span>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.04em' }}>מנהל:</span>
               <span style={{ color: C.textSecondary, fontWeight: 600 }}>{crManager}</span>
             </div>
           </>}
@@ -1086,8 +1096,8 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             return <>
               <div style={{ width: '1px', height: '16px', background: C.border, flexShrink: 0 }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0, maxWidth: '240px', minWidth: 0 }}>
-                <span style={{ fontSize: '10px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>צוותים:</span>
-                <span style={{ color: C.textSecondary, fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={teams.join(', ')}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>צוותים:</span>
+                <span style={{ color: C.textSecondary, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={teams.join(', ')}>
                   {teams.join(', ')}
                 </span>
               </div>
@@ -1118,18 +1128,19 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           <div>
             <label style={fLbl}>מערכות מעורבות</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px', padding: '4px 7px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, background: C.bgCard, minHeight: '32px' }}>
-              {f.systems.map(s => (
-                <span key={s} style={{ background: C.infoBg, color: C.info, padding: '2px 7px', borderRadius: RADIUS.sm, fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px', border: `1px solid ${C.info}25` }}>
+              {f.systems.filter(Boolean).map((s, idx) => (
+                <span key={`${s}-${idx}`} style={{ background: C.infoBg, color: C.info, padding: '2px 7px', borderRadius: RADIUS.sm, fontSize: '13px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px', border: `1px solid ${C.info}25` }}>
                   {s}
                   <button onClick={() => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, systems: f.systems.filter(x => x !== s) } }))}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.info, padding: 0, fontSize: '13px', lineHeight: 1, opacity: 0.6, flexShrink: 0 }}>×</button>
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.info, padding: 0, fontSize: '15px', lineHeight: 1, opacity: 0.6, flexShrink: 0 }}>×</button>
                 </span>
               ))}
               <select onChange={e => {
-                if (e.target.value && !f.systems.includes(e.target.value))
-                  setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, systems: [...f.systems, e.target.value] } }));
+                const value = e.target.value;
+                if (value && !f.systems.includes(value))
+                  setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, systems: [...f.systems, value] } }));
                 e.target.value = '';
-              }} style={{ border: 'none', outline: 'none', fontSize: '11px', color: C.textMuted, background: 'transparent', cursor: 'pointer', direction: 'rtl' }} defaultValue="">
+              }} style={{ border: 'none', outline: 'none', fontSize: '13px', color: C.textMuted, background: 'transparent', cursor: 'pointer', direction: 'rtl' }} defaultValue="">
                 <option value="" disabled>+ הוסף מערכת</option>
                 {teamAppList.filter(a => !f.systems.includes(a)).map(a => <option key={a} value={a}>{a}</option>)}
               </select>
@@ -1160,14 +1171,14 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           <input type="checkbox" checked={f.gradualRollout} id={`grad-${crNumber}`}
             onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, gradualRollout: e.target.checked } }))}
             style={{ width: '15px', height: '15px', cursor: 'pointer' }} />
-          <label htmlFor={`grad-${crNumber}`} style={{ fontSize: '12px', color: C.textSecondary, cursor: 'pointer' }}>פריסה הדרגתית (Gradual Rollout)</label>
+          <label htmlFor={`grad-${crNumber}`} style={{ fontSize: '14px', color: C.textSecondary, cursor: 'pointer' }}>פריסה הדרגתית (Gradual Rollout)</label>
         </div>
         {f.gradualRollout && (
           <div>
             {rowHdr('פרטי עלייה מדורגת', false, () => openExtract(crNumber, f.gradualDetails, 'עלייה מדורגת', 3))}
             <input value={f.gradualDetails}
               onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, gradualDetails: e.target.value } }))}
-              style={{ ...inputStyle, padding: '7px 10px', fontSize: '12px' }}
+              style={{ ...inputStyle, padding: '7px 10px', fontSize: '14px' }}
               placeholder="תאר שלבי העלייה..." />
           </div>
         )}
@@ -1200,7 +1211,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
               <label style={fLbl}>תלויות ב-CR-ים אחרים</label>
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                 {otherCrs.map(cr => (
-                  <label key={cr} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', cursor: 'pointer', background: C.bgCard, padding: '3px 10px', borderRadius: RADIUS.md, border: `1px solid ${f.dependsOnCrs.includes(cr) ? C.statusWaiting : C.border}`, color: f.dependsOnCrs.includes(cr) ? C.statusWaiting : C.textSecondary, fontWeight: f.dependsOnCrs.includes(cr) ? '600' : 'normal' }}>
+                  <label key={cr} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '14px', cursor: 'pointer', background: C.bgCard, padding: '3px 10px', borderRadius: RADIUS.md, border: `1px solid ${f.dependsOnCrs.includes(cr) ? C.statusWaiting : C.border}`, color: f.dependsOnCrs.includes(cr) ? C.statusWaiting : C.textSecondary, fontWeight: f.dependsOnCrs.includes(cr) ? '600' : 'normal' }}>
                     <input type="checkbox" checked={f.dependsOnCrs.includes(cr)}
                       onChange={e => {
                         const next = e.target.checked ? [...f.dependsOnCrs, cr] : f.dependsOnCrs.filter(x => x !== cr);
@@ -1252,11 +1263,11 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         }}>
         <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: dotBg, flexShrink: 0, marginTop: '5px' }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: '10px', fontWeight: 700, color: C.info, fontFamily: 'monospace' }}>{crNumber}</div>
-          <div style={{ fontSize: '11px', color: isSelected ? C.textPrimary : C.textSecondary, lineHeight: 1.35, marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: '12px', fontWeight: 700, color: C.info, fontFamily: 'monospace' }}>{crNumber}</div>
+          <div style={{ fontSize: '13px', color: isSelected ? C.textPrimary : C.textSecondary, lineHeight: 1.35, marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {label || crNumber}
           </div>
-          <div style={{ fontSize: '10px', marginTop: '2px', color: subColor }}>{subText}</div>
+          <div style={{ fontSize: '12px', marginTop: '2px', color: subColor }}>{subText}</div>
         </div>
       </div>
     );
@@ -1269,8 +1280,23 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     const isNotNeeded  = crPlans[crNumber]?.notNeededForPlan;
     const isSavingPln  = savingPlan === crNumber;
     const isTogglingNN = togglingNotNeeded.has(crNumber);
-    const hasSaved     = !!crPlans[crNumber];
+    const saved        = crPlans[crNumber];
+    const hasSaved     = !!saved;
     const f            = crPlanForms[crNumber] || emptyCrPlanForm();
+    const isDirty      = !!saved && (
+      f.crType !== (saved.crType || '') ||
+      f.riskLevel !== (saved.riskLevel || '') ||
+      JSON.stringify(f.systems) !== JSON.stringify(saved.systems || []) ||
+      f.workPlan !== (saved.workPlan || '') ||
+      f.scripts !== (saved.scripts || '') ||
+      f.runTimes !== (saved.runTimes || '') ||
+      f.rollbackPlan !== (saved.rollbackPlan || '') ||
+      f.gradualRollout !== (saved.gradualRollout ?? false) ||
+      f.gradualDetails !== (saved.gradualDetails || '') ||
+      f.nightTestingNotes !== (saved.nightTestingNotes || '') ||
+      f.morningMonitoring !== (saved.morningMonitoring || '') ||
+      JSON.stringify(f.dependsOnCrs) !== JSON.stringify((saved as any).dependsOnCrs || [])
+    );
 
     const draftCount = crProposals.filter(p => p.status === 'DRAFT' && !p.usedInTaskId).length;
 
@@ -1295,7 +1321,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
     const tabBtn = (tab: 'plan' | 'tasks', tabLabel: string, badge?: React.ReactNode) => (
       <button onClick={() => setSelectedTab(tab)} style={{
-        fontSize: '12px', fontWeight: 600, padding: '8px 12px', cursor: 'pointer',
+        fontSize: '14px', fontWeight: 600, padding: '8px 12px', cursor: 'pointer',
         color: selectedTab === tab ? C.brand : C.textMuted,
         borderBottom: `2px solid ${selectedTab === tab ? C.brand : 'transparent'}`,
         background: 'none', borderTop: 'none', borderRight: 'none', borderLeft: 'none',
@@ -1310,17 +1336,17 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
         {/* Topbar */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 18px', background: C.bgCard, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-          <span style={{ fontFamily: 'monospace', fontWeight: 700, color: C.info, background: C.infoBg, padding: '3px 9px', borderRadius: RADIUS.sm, fontSize: '12px', flexShrink: 0 }}>{crNumber}</span>
-          <span style={{ flex: 1, fontWeight: 600, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.textPrimary }}>{label || crNumber}</span>
+          <span style={{ fontFamily: 'monospace', fontWeight: 700, color: C.info, background: C.infoBg, padding: '3px 9px', borderRadius: RADIUS.sm, fontSize: '14px', flexShrink: 0 }}>{crNumber}</span>
+          <span style={{ flex: 1, fontWeight: 600, fontSize: '15px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.textPrimary }}>{label || crNumber}</span>
           {!isNotNeeded && (
             planDone && !tasksDone ? (
               /* Plan form complete but tasks still in draft */
-              <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', fontWeight: 700, padding: '2px 9px', borderRadius: '9999px', flexShrink: 0, color: C.warning, background: `${C.warning}18`, border: `1px solid ${C.warning}35` }}
+              <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px', fontWeight: 700, padding: '2px 9px', borderRadius: '9999px', flexShrink: 0, color: C.warning, background: `${C.warning}18`, border: `1px solid ${C.warning}35` }}
                 title={`תוכנית CR מלאה, אך ${draftCount} משימ${draftCount === 1 ? 'ה' : 'ות'} עדיין בטיוטא`}>
                 ✓ תוכנית · {draftCount} משימה בטיוטא
               </span>
             ) : (
-              <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 9px', borderRadius: '9999px', flexShrink: 0, color: readColor, background: `${readColor}18`, border: `1px solid ${readColor}35` }}>
+              <span style={{ fontSize: '13px', fontWeight: 700, padding: '2px 9px', borderRadius: '9999px', flexShrink: 0, color: readColor, background: `${readColor}18`, border: `1px solid ${readColor}35` }}>
                 {pctReady}% מוכן
               </span>
             )
@@ -1331,7 +1357,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
               disabled={isTogglingNN}
               title={isNotNeeded ? 'לחץ להחזיר CR זה לתהליך הרגיל' : 'לחץ לסמן CR זה כלא נדרש לתוכנית הלילה'}
               style={{
-                fontSize: '11px', fontWeight: 600, flexShrink: 0, fontFamily: FONT,
+                fontSize: '13px', fontWeight: 600, flexShrink: 0, fontFamily: FONT,
                 padding: '3px 9px', borderRadius: '6px',
                 cursor: isTogglingNN ? 'not-allowed' : 'pointer',
                 color:      isNotNeeded ? C.warning      : C.textSecondary,
@@ -1343,7 +1369,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           )}
           {!locked && (
             <button onClick={() => deleteCrGroup(crNumber)}
-              style={{ fontSize: '11px', color: C.danger, background: C.dangerBg, border: `1px solid ${C.danger}40`, borderRadius: '6px', padding: '3px 9px', cursor: 'pointer', flexShrink: 0, fontFamily: FONT }}>
+              style={{ fontSize: '13px', color: C.danger, background: C.dangerBg, border: `1px solid ${C.danger}40`, borderRadius: '6px', padding: '3px 9px', cursor: 'pointer', flexShrink: 0, fontFamily: FONT }}>
               🗑
             </button>
           )}
@@ -1354,9 +1380,9 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           {tabBtn('plan', 'תוכנית CR')}
           {tabBtn('tasks', 'משימות נגזרות',
             draftCount > 0
-              ? <span style={{ background: `${C.warning}20`, color: C.warning, border: `1px solid ${C.warning}40`, fontSize: '9px', fontWeight: 700, padding: '1px 5px', borderRadius: '9999px' }}>{draftCount} טיוטא</span>
+              ? <span style={{ background: `${C.warning}20`, color: C.warning, border: `1px solid ${C.warning}40`, fontSize: '11px', fontWeight: 700, padding: '1px 5px', borderRadius: '9999px' }}>{draftCount} טיוטא</span>
               : crProposals.length > 0
-              ? <span style={{ background: `${C.success}15`, color: C.success, border: `1px solid ${C.success}30`, fontSize: '9px', fontWeight: 700, padding: '1px 5px', borderRadius: '9999px' }}>{crProposals.length}</span>
+              ? <span style={{ background: `${C.success}15`, color: C.success, border: `1px solid ${C.success}30`, fontSize: '11px', fontWeight: 700, padding: '1px 5px', borderRadius: '9999px' }}>{crProposals.length}</span>
               : undefined
           )}
         </div>
@@ -1367,11 +1393,11 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             {isNotNeeded ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '48px 0', textAlign: 'center' }}>
                 <div style={{ fontSize: '36px' }}>⏭</div>
-                <div style={{ fontSize: '14px', fontWeight: 700, color: C.textSecondary }}>CR זה מסומן כ"לא נדרש לתוכנית"</div>
-                <div style={{ fontSize: '12px', color: C.textMuted, maxWidth: '280px' }}>הוא לא ישפיע על השלמת ההגשה. אם גילית שהוא כן נדרש — לחץ:</div>
+                <div style={{ fontSize: '15px', fontWeight: 700, color: C.textSecondary }}>CR זה מסומן כ"לא נדרש לתוכנית"</div>
+                <div style={{ fontSize: '14px', color: C.textMuted, maxWidth: '280px' }}>הוא לא ישפיע על השלמת ההגשה. אם גילית שהוא כן נדרש — לחץ:</div>
                 {!locked && (
                   <button onClick={() => toggleNotNeeded(crNumber)} disabled={isTogglingNN}
-                    style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, padding: '9px 22px', borderRadius: '8px', background: C.warning, color: C.textInverse, border: 'none', cursor: isTogglingNN ? 'not-allowed' : 'pointer' }}>
+                    style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, padding: '9px 22px', borderRadius: '8px', background: C.warning, color: C.textInverse, border: 'none', cursor: isTogglingNN ? 'not-allowed' : 'pointer' }}>
                     {isTogglingNN ? '...' : '↩ החזר CR לתהליך הרגיל'}
                   </button>
                 )}
@@ -1379,7 +1405,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             ) : (
               <>
                 {issues.length > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: `${C.warning}18`, border: `1px solid ${C.warning}35`, borderRadius: '7px', padding: '7px 11px', fontSize: '11px', color: C.warning, marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: `${C.warning}18`, border: `1px solid ${C.warning}35`, borderRadius: '7px', padding: '7px 11px', fontSize: '13px', color: C.warning, marginBottom: '12px' }}>
                     ⚠ חסר: <strong>{issues.join(' · ')}</strong>
                   </div>
                 )}
@@ -1390,7 +1416,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         ) : (
           <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px' }}>
             {crProposals.length === 0 && (
-              <div style={{ padding: '40px 0', textAlign: 'center', color: C.textMuted, fontSize: '13px' }}>
+              <div style={{ padding: '40px 0', textAlign: 'center', color: C.textMuted, fontSize: '15px' }}>
                 <div style={{ fontSize: '32px', marginBottom: '8px' }}>📋</div>
                 <div>אין משימות — הפק מהתוכנית או הוסף ידנית</div>
               </div>
@@ -1398,7 +1424,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             {crProposals.map(renderRow)}
             {!locked && !isNotNeeded && openFormForCr !== crNumber && (
               <button onClick={() => openAdd(crNumber, label)}
-                style={{ marginTop: '10px', width: '100%', padding: '9px', background: C.statusOpen, color: C.textInverse, border: 'none', borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
+                style={{ marginTop: '10px', width: '100%', padding: '9px', background: C.statusOpen, color: C.textInverse, border: 'none', borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '15px', fontWeight: 600 }}>
                 + הוסף משימה לביצוע
               </button>
             )}
@@ -1409,18 +1435,19 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         {selectedTab === 'plan' && !isNotNeeded && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '10px 18px', background: C.bgCard, borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
             <button onClick={() => saveCrPlan(crNumber)} disabled={isSavingPln}
-              style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, padding: '7px 18px', borderRadius: '7px', background: isSavingPln ? C.textDisabled : C.info, color: C.textInverse, border: 'none', cursor: isSavingPln ? 'not-allowed' : 'pointer' }}>
+              style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, padding: '7px 18px', borderRadius: '7px', background: isSavingPln ? C.textDisabled : C.info, color: C.textInverse, border: 'none', cursor: isSavingPln ? 'not-allowed' : 'pointer' }}>
               {isSavingPln ? 'שומר...' : 'שמור'}
             </button>
             {nextCrNum && (
               <button onClick={() => { setSelectedCr(nextCrNum); setSelectedTab('plan'); }}
-                style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, padding: '7px 14px', borderRadius: '7px', background: C.bgCard, color: C.info, border: `1px solid ${C.info}40`, cursor: 'pointer' }}>
+                style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, padding: '7px 14px', borderRadius: '7px', background: C.bgCard, color: C.info, border: `1px solid ${C.info}40`, cursor: 'pointer' }}>
                 הבא: {nextCrNum} ←
               </button>
             )}
-            {hasSaved && <span style={{ fontSize: '11px', color: C.success }}>✓ נשמר</span>}
+            {hasSaved && !isDirty && <span style={{ fontSize: '13px', color: C.success }}>✓ נשמר</span>}
+            {hasSaved && isDirty && <span style={{ fontSize: '13px', color: C.warning, fontWeight: 600 }}>● שינויים לא נשמרו</span>}
             <div style={{ flex: 1 }} />
-            <span style={{ fontSize: '11px', color: C.textDisabled }}>שמירה אוטומטית פעילה</span>
+            <span style={{ fontSize: '13px', color: C.textDisabled }}>שמירה אוטומטית פעילה</span>
           </div>
         )}
       </div>
@@ -1436,10 +1463,10 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
       {extractModal && (
         <div style={{ position: 'fixed', inset: 0, background: C.bgOverlay, zIndex: 4000, display: 'flex', alignItems: 'center', justifyContent: 'center', direction: 'rtl' }}>
           <div style={{ background: C.bgCard, borderRadius: RADIUS['3xl'], padding: '24px 28px', maxWidth: '560px', width: '95vw', maxHeight: '85vh', overflowY: 'auto', boxShadow: SHADOW.xl }}>
-            <div style={{ fontWeight: '700', fontSize: '16px', color: C.textPrimary, marginBottom: '4px' }}>
+            <div style={{ fontWeight: '700', fontSize: '17px', color: C.textPrimary, marginBottom: '4px' }}>
               ⚡ הפק משימות מ{extractModal.sourceLabel}
             </div>
-            <div style={{ fontSize: '12px', color: C.textMuted, marginBottom: '16px' }}>
+            <div style={{ fontSize: '14px', color: C.textMuted, marginBottom: '16px' }}>
               CR {extractModal.crNumber} — בחר אילו שורות להפוך למשימות לביצוע
             </div>
 
@@ -1467,11 +1494,11 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                         ...m,
                         items: m.items.map((it, j) => j === i ? { ...it, text: e.target.value } : it),
                       } : null)}
-                      style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '13px', color: C.textPrimary, outline: 'none', fontFamily: FONT, boxSizing: 'border-box' }}
+                      style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '15px', color: C.textPrimary, outline: 'none', fontFamily: FONT, boxSizing: 'border-box' }}
                       disabled={!item.checked}
                     />
                     {item.duplicateId && (
-                      <span style={{ fontSize: '10px', color: C.warning, fontWeight: '600' }}>⚠ כבר קיימת — תישאל אם להחליף</span>
+                      <span style={{ fontSize: '12px', color: C.warning, fontWeight: '600' }}>⚠ כבר קיימת — תישאל אם להחליף</span>
                     )}
                   </div>
                   <input
@@ -1484,7 +1511,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                     } : null)}
                     disabled={!item.checked}
                     placeholder="דק'"
-                    style={{ width: '54px', fontSize: '11px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '2px 4px', textAlign: 'center', flexShrink: 0 }}
+                    style={{ width: '54px', fontSize: '13px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '2px 4px', textAlign: 'center', flexShrink: 0 }}
                   />
                   <select
                     value={item.phase}
@@ -1493,7 +1520,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                       items: m.items.map((it, j) => j === i ? { ...it, phase: parseInt(e.target.value) } : it),
                     } : null)}
                     disabled={!item.checked}
-                    style={{ fontSize: '11px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '2px 4px', background: C.bgCard, color: C.textSecondary, flexShrink: 0 }}
+                    style={{ fontSize: '13px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '2px 4px', background: C.bgCard, color: C.textSecondary, flexShrink: 0 }}
                   >
                     {(Object.keys(phaseLabels).length > 0
                       ? Object.keys(phaseLabels).map(Number).sort((a, b) => a - b)
@@ -1502,40 +1529,63 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                       <option key={ph} value={ph}>{(phaseLabels[ph] || PHASE_LABELS[ph])?.split(' — ')[1] || `שלב ${ph}`}</option>
                     ))}
                   </select>
+                  <select
+                    value={item.assignedUserName}
+                    onChange={e => setExtractModal(m => m ? {
+                      ...m,
+                      items: m.items.map((it, j) => j === i ? { ...it, assignedUserName: e.target.value } : it),
+                    } : null)}
+                    disabled={!item.checked}
+                    style={{ fontSize: '13px', border: `1px solid ${item.checked && !item.assignedUserName ? C.danger : C.border}`, borderRadius: RADIUS.sm, padding: '2px 4px', background: C.bgCard, color: C.textSecondary, flexShrink: 0, maxWidth: '110px' }}
+                  >
+                    <option value="">-- אחראי --</option>
+                    {myTeamMembers.map((u: any) => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
+                  </select>
                 </div>
               ))}
             </div>
+            {extractModal.items.some(it => it.checked && !it.assignedUserName) && (
+              <div style={{ fontSize: '14px', color: C.danger, marginTop: '-8px', marginBottom: '12px' }}>
+                ⚠ יש לבחור אחראי לכל משימה מסומנת — משימה בלי אחראי לא תעבור לתוכנית בפועל
+              </div>
+            )}
 
             {/* Select all / none */}
             <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
               <button onClick={() => setExtractModal(m => m ? { ...m, items: m.items.map(it => ({ ...it, checked: true })) } : null)}
-                style={{ fontSize: '12px', padding: '4px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, background: C.bgCard, cursor: 'pointer', color: C.textSecondary }}>
+                style={{ fontSize: '14px', padding: '4px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, background: C.bgCard, cursor: 'pointer', color: C.textSecondary }}>
                 בחר הכל
               </button>
               <button onClick={() => setExtractModal(m => m ? { ...m, items: m.items.map(it => ({ ...it, checked: false })) } : null)}
-                style={{ fontSize: '12px', padding: '4px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, background: C.bgCard, cursor: 'pointer', color: C.textSecondary }}>
+                style={{ fontSize: '14px', padding: '4px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, background: C.bgCard, cursor: 'pointer', color: C.textSecondary }}>
                 בטל הכל
               </button>
             </div>
 
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
               <button onClick={() => setExtractModal(null)}
-                style={{ padding: '8px 18px', border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, background: C.bgCard, cursor: 'pointer', fontSize: '13px', color: C.textSecondary }}>
+                style={{ padding: '8px 18px', border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, background: C.bgCard, cursor: 'pointer', fontSize: '15px', color: C.textSecondary }}>
                 ביטול
               </button>
-              <button
-                onClick={createExtracted}
-                disabled={extracting || extractModal.items.filter(i => i.checked).length === 0}
-                style={{
-                  padding: '8px 22px', border: 'none', borderRadius: RADIUS.lg,
-                  background: extractModal.items.filter(i => i.checked).length === 0 ? C.bgNested : C.brand,
-                  color: extractModal.items.filter(i => i.checked).length === 0 ? C.textDisabled : C.textInverse,
-                  cursor: extractModal.items.filter(i => i.checked).length === 0 ? 'default' : 'pointer',
-                  fontSize: '13px', fontWeight: '700',
-                }}
-              >
-                {extracting ? 'יוצר...' : `צור ${extractModal.items.filter(i => i.checked).length} משימות`}
-              </button>
+              {(() => {
+                const checkedCount = extractModal.items.filter(i => i.checked).length;
+                const blocked = checkedCount === 0 || extractModal.items.some(i => i.checked && !i.assignedUserName);
+                return (
+                  <button
+                    onClick={createExtracted}
+                    disabled={extracting || blocked}
+                    style={{
+                      padding: '8px 22px', border: 'none', borderRadius: RADIUS.lg,
+                      background: blocked ? C.bgNested : C.brand,
+                      color: blocked ? C.textDisabled : C.textInverse,
+                      cursor: blocked ? 'default' : 'pointer',
+                      fontSize: '15px', fontWeight: '700',
+                    }}
+                  >
+                    {extracting ? 'יוצר...' : `צור ${checkedCount} משימות`}
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1550,18 +1600,18 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
       }}>
         <div>
           <div style={{ fontSize: '18px', fontWeight: 'bold' }}>הגשת משימות</div>
-          <div style={{ fontSize: '13px', opacity: 0.8, marginTop: '2px' }}>
+          <div style={{ fontSize: '15px', opacity: 0.8, marginTop: '2px' }}>
             {versionName}{myTeamName ? ` · צוות ${myTeamName}` : ''}
           </div>
           {reviewMeetingTime && (
-            <div style={{ fontSize: '12px', marginTop: '4px', background: 'rgba(88,166,255,0.2)', padding: '3px 10px', borderRadius: '8px', display: 'inline-block' }}>
+            <div style={{ fontSize: '14px', marginTop: '4px', background: 'rgba(88,166,255,0.2)', padding: '3px 10px', borderRadius: '8px', display: 'inline-block' }}>
               🗓 ישיבת מעבר: {new Date(reviewMeetingTime).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
             </div>
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           {proposals.length > 0 && (
-            <span style={{ fontSize: '13px', opacity: 0.85 }}>
+            <span style={{ fontSize: '15px', opacity: 0.85 }}>
               {totalReady}/{proposals.length} מוכן
             </span>
           )}
@@ -1572,7 +1622,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
               style={{
                 padding: '8px 18px', background: syncLoading ? 'rgba(255,255,255,0.1)' : 'rgba(46,204,113,0.35)',
                 color: 'white', border: '1px solid rgba(46,204,113,0.6)', borderRadius: '8px',
-                cursor: syncLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap',
+                cursor: syncLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '15px', whiteSpace: 'nowrap',
               }}
             >
               {syncLoading ? '⏳ מסנכרן...' : '🔄 סנכרן רשימת פיתוחים'}
@@ -1582,20 +1632,20 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             <button onClick={() => openAdd()} style={{
               padding: '8px 18px', background: 'rgba(255,255,255,0.15)', color: C.textInverse,
               border: '1px solid rgba(255,255,255,0.35)', borderRadius: RADIUS.lg,
-              cursor: 'pointer', fontWeight: '600', fontSize: '13px',
+              cursor: 'pointer', fontWeight: '600', fontSize: '15px',
             }}>
               + הוסף משימה
             </button>
           )}
           {locked ? (
             <>
-              <span style={{ padding: '8px 18px', background: C.success, color: C.textInverse, borderRadius: RADIUS.lg, fontWeight: '700', fontSize: '13px' }}>
+              <span style={{ padding: '8px 18px', background: C.success, color: C.textInverse, borderRadius: RADIUS.lg, fontWeight: '700', fontSize: '15px' }}>
                 הוגש ✓
               </span>
               {isManager && (
                 <button
                   onClick={() => setManagerUnlocked(true)}
-                  style={{ padding: '8px 14px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}80`, borderRadius: RADIUS.lg, cursor: 'pointer', fontWeight: '700', fontSize: '12px', whiteSpace: 'nowrap' }}
+                  style={{ padding: '8px 14px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}80`, borderRadius: RADIUS.lg, cursor: 'pointer', fontWeight: '700', fontSize: '14px', whiteSpace: 'nowrap' }}
                 >
                   ✏️ עדכן כמנהל
                 </button>
@@ -1603,12 +1653,12 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             </>
           ) : managerUnlocked ? (
             <>
-              <span style={{ padding: '8px 14px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}80`, borderRadius: RADIUS.lg, fontWeight: '700', fontSize: '12px', whiteSpace: 'nowrap' }}>
+              <span style={{ padding: '8px 14px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}80`, borderRadius: RADIUS.lg, fontWeight: '700', fontSize: '14px', whiteSpace: 'nowrap' }}>
                 ✏️ עריכת מנהל
               </span>
               <button
                 onClick={() => setManagerUnlocked(false)}
-                style={{ padding: '8px 14px', background: 'rgba(255,255,255,0.15)', color: C.textInverse, border: '1px solid rgba(255,255,255,0.3)', borderRadius: RADIUS.lg, cursor: 'pointer', fontWeight: '700', fontSize: '12px', whiteSpace: 'nowrap' }}
+                style={{ padding: '8px 14px', background: 'rgba(255,255,255,0.15)', color: C.textInverse, border: '1px solid rgba(255,255,255,0.3)', borderRadius: RADIUS.lg, cursor: 'pointer', fontWeight: '700', fontSize: '14px', whiteSpace: 'nowrap' }}
               >
                 ✓ סיים עריכה
               </button>
@@ -1624,14 +1674,14 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                   background: submitting ? C.textDisabled : (!canSubmit ? C.textMuted : C.brand),
                   color: C.textInverse, border: 'none', borderRadius: RADIUS.lg,
                   cursor: (submitting || !canSubmit) ? 'not-allowed' : 'pointer',
-                  fontWeight: '700', fontSize: '13px',
+                  fontWeight: '700', fontSize: '15px',
                   opacity: !canSubmit ? 0.75 : 1,
                 }}
               >
                 {submitting ? '...' : 'סיימתי הגשה'}
               </button>
               {draftCount > 0 && proposals.length > 0 && (
-                <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap' }}>
                   ⚠ {draftCount} משימות עדיין בטיוטא
                 </span>
               )}
@@ -1642,7 +1692,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
       {/* Sync error */}
       {syncError && (
-        <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}`, borderRadius: RADIUS.lg, padding: '10px 16px', marginBottom: '12px', fontSize: '13px', color: C.danger, display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}`, borderRadius: RADIUS.lg, padding: '10px 16px', marginBottom: '12px', fontSize: '15px', color: C.danger, display: 'flex', alignItems: 'center', gap: '8px' }}>
           ⚠️ {syncError}
           <button onClick={() => setSyncError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.danger, fontWeight: '700', marginRight: 'auto' }}>×</button>
         </div>
@@ -1650,7 +1700,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
       {/* Submission error */}
       {submitError && (
-        <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}`, borderRadius: RADIUS.lg, padding: '10px 16px', marginBottom: '12px', fontSize: '13px', color: C.danger, display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}`, borderRadius: RADIUS.lg, padding: '10px 16px', marginBottom: '12px', fontSize: '15px', color: C.danger, display: 'flex', alignItems: 'center', gap: '8px' }}>
           ⚠️ {submitError}
           <button onClick={() => setSubmitError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.danger, fontWeight: '700', marginRight: 'auto' }}>×</button>
         </div>
@@ -1661,8 +1711,8 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         <div style={{ background: C.successBg, border: `2px solid ${C.success}`, borderRadius: RADIUS.xl, padding: '14px 20px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ fontSize: '24px' }}>✅</span>
           <div>
-            <div style={{ fontWeight: '700', color: C.success, fontSize: '15px' }}>ההגשה הושלמה</div>
-            <div style={{ fontSize: '13px', color: C.success, marginTop: '2px', opacity: 0.85 }}>מנהל הלילה יוכל לקדם את התוכנית לשלב הבא לאחר שכל הצוותים יגישו</div>
+            <div style={{ fontWeight: '700', color: C.success, fontSize: '16px' }}>ההגשה הושלמה</div>
+            <div style={{ fontSize: '15px', color: C.success, marginTop: '2px', opacity: 0.85 }}>מנהל הלילה יוכל לקדם את התוכנית לשלב הבא לאחר שכל הצוותים יגישו</div>
           </div>
         </div>
       )}
@@ -1671,8 +1721,8 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         <div style={{ background: C.warningBg, border: `2px solid ${C.warning}`, borderRadius: RADIUS.xl, padding: '12px 20px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ fontSize: '22px' }}>✏️</span>
           <div>
-            <div style={{ fontWeight: '700', color: C.warning, fontSize: '14px' }}>עריכת מנהל פעילה</div>
-            <div style={{ fontSize: '12px', color: C.warning, marginTop: '2px' }}>ניתן לערוך, להוסיף ולמחוק משימות. לחץ "סיים עריכה" בסיום.</div>
+            <div style={{ fontWeight: '700', color: C.warning, fontSize: '15px' }}>עריכת מנהל פעילה</div>
+            <div style={{ fontSize: '14px', color: C.warning, marginTop: '2px' }}>ניתן לערוך, להוסיף ולמחוק משימות. לחץ "סיים עריכה" בסיום.</div>
           </div>
         </div>
       )}
@@ -1686,8 +1736,8 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
       ) : crGroups.length === 0 && freeGroup.length === 0 ? (
         <div style={{ padding: '60px 40px', textAlign: 'center', background: C.bgCard, borderRadius: RADIUS['2xl'], color: C.textMuted, boxShadow: SHADOW.sm }}>
           <div style={{ fontSize: '48px', marginBottom: '12px' }}>📋</div>
-          <div style={{ fontSize: '16px', marginBottom: '6px', color: C.textSecondary }}>אין CR-ים עדיין</div>
-          <div style={{ fontSize: '13px' }}>לחץ "🔄 סנכרן רשימת פיתוחים" לטעינה אוטומטית</div>
+          <div style={{ fontSize: '17px', marginBottom: '6px', color: C.textSecondary }}>אין CR-ים עדיין</div>
+          <div style={{ fontSize: '15px' }}>לחץ "🔄 סנכרן רשימת פיתוחים" לטעינה אוטומטית</div>
         </div>
       ) : (
         <div style={{ display: 'flex', border: `1px solid ${C.border}`, borderRadius: RADIUS.xl, overflow: 'hidden', minHeight: '68vh', background: C.bgNested }}>
@@ -1697,12 +1747,12 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
             {/* List header with progress */}
             <div style={{ padding: '10px 14px 8px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-              <div style={{ fontSize: '10px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '6px' }}>CR-ים לטיפול</div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '6px' }}>CR-ים לטיפול</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <div style={{ flex: 1, height: '3px', background: C.bgNested, borderRadius: '9999px', overflow: 'hidden' }}>
                   <div style={{ width: `${Math.round(crGroups.filter(([cr, ps]) => crPlans[cr]?.notNeededForPlan || (ps.length > 0 && ps.filter(p => p.status === 'READY' || p.usedInTaskId).length === ps.length)).length / Math.max(crGroups.length, 1) * 100)}%`, height: '100%', background: C.success, borderRadius: '9999px' }} />
                 </div>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: C.success, whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: C.success, whiteSpace: 'nowrap' }}>
                   {crGroups.filter(([cr, ps]) => crPlans[cr]?.notNeededForPlan || (ps.length > 0 && ps.filter(p => p.status === 'READY' || p.usedInTaskId).length === ps.length)).length}/{crGroups.length}
                 </span>
               </div>
@@ -1716,9 +1766,9 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
               style={{ display: 'flex', alignItems: 'flex-start', gap: '9px', padding: '9px 14px', cursor: 'pointer', borderBottom: `1px solid ${C.bgNested}`, borderRight: `3px solid ${selectedCr === FREE_KEY ? C.brand : 'transparent'}`, background: selectedCr === FREE_KEY ? C.infoBg : 'transparent' }}>
               <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: freeGroup.length === 0 ? C.borderEm : freeGroup.every(p => p.status === 'READY' || p.usedInTaskId) ? C.success : C.warning, flexShrink: 0, marginTop: '5px', border: freeGroup.length === 0 ? `1.5px solid ${C.textDisabled}` : 'none' }} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: '10px', fontWeight: 700, color: freeGroup.length === 0 ? C.textDisabled : C.textMuted, fontFamily: 'monospace' }}>ללא CR</div>
-                <div style={{ fontSize: '11px', color: C.textSecondary, lineHeight: 1.35, marginTop: '1px' }}>משימות תשתיתיות</div>
-                <div style={{ fontSize: '10px', marginTop: '2px', color: C.textMuted }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: freeGroup.length === 0 ? C.textDisabled : C.textMuted, fontFamily: 'monospace' }}>ללא CR</div>
+                <div style={{ fontSize: '13px', color: C.textSecondary, lineHeight: 1.35, marginTop: '1px' }}>משימות תשתיתיות</div>
+                <div style={{ fontSize: '12px', marginTop: '2px', color: C.textMuted }}>
                   {freeGroup.length === 0 ? 'לחץ להוספת משימה' : `${freeGroup.filter(p => p.status === 'READY' || p.usedInTaskId).length}/${freeGroup.length} מוכן`}
                 </div>
               </div>
@@ -1728,10 +1778,10 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             {crGroups.filter(([cr]) => crPlans[cr]?.notNeededForPlan).length > 0 && (
               <>
                 <div style={{ padding: '7px 14px 4px', borderTop: `1px solid ${C.bgNested}`, marginTop: '4px' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.06em' }}>
                     לא נדרשים לתוכנית ({crGroups.filter(([cr]) => crPlans[cr]?.notNeededForPlan).length})
                   </div>
-                  <div style={{ fontSize: '10px', color: C.textDisabled, marginTop: '2px' }}>לחץ על CR לביטול הסימון ↩</div>
+                  <div style={{ fontSize: '12px', color: C.textDisabled, marginTop: '2px' }}>לחץ על CR לביטול הסימון ↩</div>
                 </div>
                 {crGroups.filter(([cr]) => crPlans[cr]?.notNeededForPlan).map(([crNumber, crProposals]) => renderListItem(crNumber, crProposals))}
               </>
@@ -1742,21 +1792,21 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           {selectedCr === FREE_KEY ? (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#F5F5F5' }}>
               <div style={{ padding: '10px 18px', background: C.bgCard, borderBottom: `1px solid ${C.border}`, flexShrink: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: C.textMuted, background: C.bgNested, padding: '3px 9px', borderRadius: RADIUS.sm, fontSize: '12px' }}>ללא CR</span>
-                <span style={{ flex: 1, fontWeight: 600, fontSize: '13px', color: C.textPrimary }}>משימות תשתיתיות / כלליות</span>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: C.textMuted, background: C.bgNested, padding: '3px 9px', borderRadius: RADIUS.sm, fontSize: '14px' }}>ללא CR</span>
+                <span style={{ flex: 1, fontWeight: 600, fontSize: '15px', color: C.textPrimary }}>משימות תשתיתיות / כלליות</span>
               </div>
               <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px' }}>
                 {freeGroup.sort((a, b) => a.phase - b.phase).map(renderRow)}
                 {!submissionDone && openFormForCr !== FREE_KEY && (
                   <button onClick={() => openAdd(undefined, undefined, true)}
-                    style={{ marginTop: '10px', width: '100%', padding: '9px', background: C.textMuted, color: C.textInverse, border: 'none', borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
+                    style={{ marginTop: '10px', width: '100%', padding: '9px', background: C.textMuted, color: C.textInverse, border: 'none', borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '15px', fontWeight: 600 }}>
                     + הוסף משימה
                   </button>
                 )}
               </div>
             </div>
           ) : selectedCr ? renderDetailPanel(selectedCr) : (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '12px', color: C.textMuted, fontSize: '13px' }}>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '12px', color: C.textMuted, fontSize: '15px' }}>
               <div style={{ fontSize: '40px' }}>←</div>
               <div>בחר CR מהרשימה משמאל</div>
             </div>

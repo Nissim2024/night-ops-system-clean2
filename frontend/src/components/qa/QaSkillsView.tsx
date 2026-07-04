@@ -84,6 +84,10 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
 
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ stats: { testersCreated: number; cellsUpdated: number; rowsSkipped: number }; warnings: string[] } | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
   type CategoryKey = 'Professional' | 'Applications' | 'Tools' | 'Personal' | 'Business';
   const CATEGORY_ORDER: CategoryKey[] = ['Professional', 'Applications', 'Tools', 'Personal', 'Business'];
   const [activeCategory, setActiveCategory] = useState<CategoryKey>('Professional');
@@ -214,6 +218,26 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
     }
   };
 
+  const handleImportFile = async (file: File) => {
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await axios.post(`${API}/qa/matrix/import`, formData, {
+        headers: { ...hdrs.headers, 'Content-Type': 'multipart/form-data' },
+      });
+      setImportResult(res.data);
+      flash('הייבוא הושלם');
+      load();
+    } catch (e: any) {
+      dialog.alert(e.response?.data?.message ?? 'שגיאה בייבוא הקובץ', 'שגיאה', 'danger');
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   // ── Derived ──────────────────────────────────────────────────────────────────
 
   const catSkillsMap = Object.fromEntries(
@@ -262,7 +286,7 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
           </div>
         </div>
         <button onClick={() => removeTester(tester)} title="הסר בודק"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textDisabled, fontSize: '12px', padding: '3px 5px', borderRadius: RADIUS.sm, transition: EASE.fast, flexShrink: 0 }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textDisabled, fontSize: '14px', padding: '3px 5px', borderRadius: RADIUS.sm, transition: EASE.fast, flexShrink: 0 }}
           onMouseEnter={e => { e.currentTarget.style.color = C.danger; e.currentTarget.style.background = C.dangerBg; }}
           onMouseLeave={e => { e.currentTarget.style.color = C.textDisabled; e.currentTarget.style.background = 'none'; }}
         >✕</button>
@@ -292,7 +316,7 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
             <button disabled={isSaving}
               onClick={() => saveLevel(tester.userId, skill.id, -1)}
               title="לא רלוונטי — לא נכנס לחישוב הציון"
-              style={{ width: '36px', height: '24px', borderRadius: RADIUS.sm, border: `1px solid ${NR_COLOR}55`, background: level === -1 ? NR_BG : 'transparent', color: NR_COLOR, cursor: 'pointer', fontSize: '9px', fontWeight: WEIGHT.bold, transition: EASE.fast, opacity: isSaving ? 0.5 : 1 }}>
+              style={{ width: '36px', height: '24px', borderRadius: RADIUS.sm, border: `1px solid ${NR_COLOR}55`, background: level === -1 ? NR_BG : 'transparent', color: NR_COLOR, cursor: 'pointer', fontSize: '11px', fontWeight: WEIGHT.bold, transition: EASE.fast, opacity: isSaving ? 0.5 : 1 }}>
               N/R
             </button>
           </div>
@@ -335,6 +359,17 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
           </div>
         </div>
         <div style={{ display: 'flex', gap: SP[2] }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            style={{ display: 'none' }}
+            onChange={e => { const f = e.target.files?.[0]; if (f) handleImportFile(f); }}
+          />
+          <button onClick={() => fileInputRef.current?.click()} disabled={importing}
+            style={{ background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '7px 14px', cursor: importing ? 'not-allowed' : 'pointer', ...TEXT.sm, fontWeight: WEIGHT.semibold, transition: EASE.fast, opacity: importing ? 0.6 : 1 }}>
+            {importing ? '⏳ מייבא...' : '📥 ייבוא Excel'}
+          </button>
           <button onClick={openAddTester}
             style={{ background: C.infoBg, color: C.info, border: `1px solid ${C.info}33`, borderRadius: RADIUS.md, padding: '7px 14px', cursor: 'pointer', ...TEXT.sm, fontWeight: WEIGHT.semibold, transition: EASE.fast }}
             onMouseEnter={e => e.currentTarget.style.background = C.info + '22'}
@@ -349,6 +384,26 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
           </button>
         </div>
       </div>
+
+      {/* ── Import result ── */}
+      {importResult && (
+        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '14px 18px', marginBottom: SP[4] }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], marginBottom: importResult.warnings.length > 0 ? SP[2] : 0 }}>
+            <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>📥 תוצאות ייבוא:</span>
+            <span style={{ ...TEXT.xs, color: C.success }}>{importResult.stats.cellsUpdated} רמות עודכנו</span>
+            {importResult.stats.testersCreated > 0 && <span style={{ ...TEXT.xs, color: C.info }}>{importResult.stats.testersCreated} בודקים חדשים</span>}
+            {importResult.stats.rowsSkipped > 0 && <span style={{ ...TEXT.xs, color: C.warning }}>{importResult.stats.rowsSkipped} שורות דולגו</span>}
+            <button onClick={() => setImportResult(null)} style={{ marginRight: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '15px' }}>✕</button>
+          </div>
+          {importResult.warnings.length > 0 && (
+            <div style={{ maxHeight: '140px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+              {importResult.warnings.map((w, i) => (
+                <div key={i} style={{ ...TEXT.xs, color: C.textMuted }}>⚠ {w}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── View toggle ── */}
       <div style={{ display: 'flex', gap: '4px', marginBottom: SP[4], background: C.bgNested, padding: '4px', borderRadius: RADIUS.lg, width: 'fit-content' }}>
@@ -412,7 +467,7 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
                         <td key={cat} style={{ padding: SP[3], textAlign: 'center', borderBottom: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}` }}>
                           {avg !== null ? (
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
-                              <span style={{ fontWeight: WEIGHT.bold, color: avgColor(avg), background: avgBg(avg), padding: '3px 10px', borderRadius: RADIUS.full, fontSize: '15px' }}>
+                              <span style={{ fontWeight: WEIGHT.bold, color: avgColor(avg), background: avgBg(avg), padding: '3px 10px', borderRadius: RADIUS.full, fontSize: '16px' }}>
                                 {avg.toFixed(1)}
                               </span>
                               {/* Mini bar */}
@@ -488,7 +543,7 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
             </div>
           ))}
           <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginRight: SP[2], paddingRight: SP[2], borderRight: `1px solid ${C.border}` }}>
-            <div style={{ width: '22px', height: '22px', borderRadius: RADIUS.sm, background: NR_BG, border: `1px solid ${NR_COLOR}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: WEIGHT.bold, color: NR_COLOR }}>N/R</div>
+            <div style={{ width: '22px', height: '22px', borderRadius: RADIUS.sm, background: NR_BG, border: `1px solid ${NR_COLOR}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: WEIGHT.bold, color: NR_COLOR }}>N/R</div>
             <span style={{ ...TEXT.xs, color: C.textMuted }}>לא רלוונטי — לא נכנס לחישוב</span>
           </div>
         </div>
@@ -511,11 +566,11 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
                         {skill.name}
                       </span>
                       <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                        <span title="משקל" style={{ fontSize: '10px', color: activeMeta.color, background: activeMeta.bg, padding: '1px 5px', borderRadius: '4px', fontWeight: WEIGHT.bold }}>
+                        <span title="משקל" style={{ fontSize: '12px', color: activeMeta.color, background: activeMeta.bg, padding: '1px 5px', borderRadius: '4px', fontWeight: WEIGHT.bold }}>
                           {skill.weight}
                         </span>
                         <button onClick={() => deleteSkill(skill)} title="מחק סקיל"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textDisabled, fontSize: '10px', padding: '1px', lineHeight: 1, transition: EASE.fast }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textDisabled, fontSize: '12px', padding: '1px', lineHeight: 1, transition: EASE.fast }}
                           onMouseEnter={e => e.currentTarget.style.color = C.danger}
                           onMouseLeave={e => e.currentTarget.style.color = C.textDisabled}>✕</button>
                       </div>

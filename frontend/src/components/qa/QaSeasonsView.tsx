@@ -139,6 +139,20 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
   const [importing, setImporting] = useState(false);
   const [importYear, setImportYear] = useState(new Date().getFullYear());
   const [importResult, setImportResult] = useState<{ created: number; skipped: number } | null>(null);
+  const [togglingActive, setTogglingActive] = useState(false);
+
+  const toggleSeasonActive = async () => {
+    if (!season) return;
+    setTogglingActive(true);
+    try {
+      await axios.patch(`${API}/leaves/seasons/${season.id}`, { isActive: !season.isActive }, { headers });
+      await loadSeasons();
+    } catch {
+      dialog.alert('שגיאה בעדכון סטטוס העונה', 'שגיאה', 'danger');
+    } finally {
+      setTogglingActive(false);
+    }
+  };
 
   const handleImport = async () => {
     if (!token) return;
@@ -301,18 +315,35 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
                 <div style={{ ...TEXT.sm, color: C.textMuted }}>{season.dateRange}</div>
               </div>
 
-              {/* Days counter or lock badge */}
-              {isLocked ? (
-                <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}33`, borderRadius: RADIUS.xl, padding: '10px 18px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '22px', marginBottom: '2px' }}>🔒</div>
-                  <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.danger }}>נעול לבקשות</div>
-                </div>
-              ) : daysToHoliday !== null && daysToHoliday > 0 ? (
-                <div style={{ background: C.infoBg, border: `1px solid ${C.info}33`, borderRadius: RADIUS.xl, padding: '8px 16px', textAlign: 'center' }}>
-                  <div style={{ ...TEXT['2xl'], fontWeight: WEIGHT.bold, color: C.info }}>{daysToHoliday}</div>
-                  <div style={{ ...TEXT.xs, color: C.textMuted }}>ימים לפתיחה</div>
-                </div>
-              ) : null}
+              <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
+                {/* Manual activate / reopen — lets a manager open registration regardless of the auto lock/date window */}
+                <button
+                  onClick={toggleSeasonActive}
+                  disabled={togglingActive}
+                  style={{
+                    background: season.isActive ? C.bgNested : C.brand,
+                    color: season.isActive ? C.textSecondary : C.textInverse,
+                    border: `1px solid ${season.isActive ? C.border : C.brand}`,
+                    borderRadius: RADIUS.lg, padding: '8px 16px', cursor: togglingActive ? 'not-allowed' : 'pointer',
+                    ...TEXT.sm, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap',
+                  }}
+                >
+                  {togglingActive ? '...' : season.isActive ? 'סגור לבקשות' : (isLocked ? '🔓 פתח מחדש לבקשות' : 'הפעל לבקשות')}
+                </button>
+
+                {/* Days counter or lock badge */}
+                {isLocked ? (
+                  <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}33`, borderRadius: RADIUS.xl, padding: '10px 18px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '22px', marginBottom: '2px' }}>🔒</div>
+                    <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.danger }}>נעול לבקשות</div>
+                  </div>
+                ) : daysToHoliday !== null && daysToHoliday > 0 ? (
+                  <div style={{ background: C.infoBg, border: `1px solid ${C.info}33`, borderRadius: RADIUS.xl, padding: '8px 16px', textAlign: 'center' }}>
+                    <div style={{ ...TEXT['2xl'], fontWeight: WEIGHT.bold, color: C.info }}>{daysToHoliday}</div>
+                    <div style={{ ...TEXT.xs, color: C.textMuted }}>ימים לפתיחה</div>
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             {/* Timeline */}

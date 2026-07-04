@@ -1,8 +1,9 @@
 import {
   Controller, Get, Post, Delete, Put, Patch,
-  Body, Param, Query, Res,
-  UseGuards, ParseIntPipe, Request,
+  Body, Param, Query, Res, UploadedFile, UseInterceptors,
+  UseGuards, ParseIntPipe, Request, BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 import { QaAdminGuard } from './qa-admin.guard';
@@ -64,6 +65,15 @@ export class QaController {
     @Param('skillId') skillId: string,
   ) {
     return this.qa.removeSkillLevel(userId, skillId);
+  }
+
+  @Post('matrix/import')
+  @UseInterceptors(FileInterceptor('file'))
+  async importMatrix(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('לא נבחר קובץ');
+    const extOk = /\.(xlsx|xls)$/i.test(file.originalname ?? '');
+    if (!extOk) throw new BadRequestException('סוג קובץ לא חוקי — יש להעלות קובץ Excel בלבד (.xlsx / .xls)');
+    return this.qa.importMatrixFromBuffer(file.buffer);
   }
 
   // ── Assignments ──────────────────────────────────────────────────────────────

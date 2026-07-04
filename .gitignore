@@ -10,3 +10,4 @@ backend-log.txt
 backend.log
 frontend/frontend-dev.log
 frontend/frontend-restart.log
+.gstack/

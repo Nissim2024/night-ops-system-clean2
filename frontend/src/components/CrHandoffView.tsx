@@ -236,7 +236,7 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
     finally { setSavingId(null); }
   };
 
-  const inputS: React.CSSProperties = { padding: '5px 8px', border: '1px solid #ddd', borderRadius: '5px', fontSize: '12px', width: '100%', boxSizing: 'border-box' };
+  const inputS: React.CSSProperties = { padding: '5px 8px', border: '1px solid #ddd', borderRadius: '5px', fontSize: '14px', width: '100%', boxSizing: 'border-box' };
 
   const renderProposalRow = (p: Proposal) => {
     const isEditing = editingId === p.id;
@@ -247,45 +247,45 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
         <div key={p.id} style={{ background: '#fffdf0', border: '2px solid #f39c12', borderRadius: '8px', padding: '12px', marginBottom: '6px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
             <div>
-              <div style={{ fontSize: '11px', color: '#888', marginBottom: '2px' }}>שם המשימה *</div>
+              <div style={{ fontSize: '13px', color: '#888', marginBottom: '2px' }}>שם המשימה *</div>
               <input value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))} style={inputS} />
             </div>
             <div>
-              <div style={{ fontSize: '11px', color: '#888', marginBottom: '2px' }}>שלב</div>
+              <div style={{ fontSize: '13px', color: '#888', marginBottom: '2px' }}>שלב</div>
               <select value={editForm.phase} onChange={e => setEditForm(f => ({ ...f, phase: parseInt(e.target.value) }))} style={inputS}>
                 {[1,2,3,4].map(n => <option key={n} value={n}>{PHASE_LABELS[n]}</option>)}
               </select>
             </div>
             <div>
-              <div style={{ fontSize: '11px', color: '#888', marginBottom: '2px' }}>מערכת</div>
+              <div style={{ fontSize: '13px', color: '#888', marginBottom: '2px' }}>מערכת</div>
               <select value={editForm.app} onChange={e => setEditForm(f => ({ ...f, app: e.target.value }))} style={inputS}>
                 <option value="">--</option>
                 {APPS.map(a => <option key={a} value={a}>{a}</option>)}
               </select>
             </div>
             <div>
-              <div style={{ fontSize: '11px', color: '#888', marginBottom: '2px' }}>משך (דק')</div>
+              <div style={{ fontSize: '13px', color: '#888', marginBottom: '2px' }}>משך (דק')</div>
               <input type="number" min={1} value={editForm.estimatedMins} onChange={e => setEditForm(f => ({ ...f, estimatedMins: e.target.value }))} style={inputS} />
             </div>
             <div>
-              <div style={{ fontSize: '11px', color: '#888', marginBottom: '2px' }}>עובד אחראי</div>
+              <div style={{ fontSize: '13px', color: '#888', marginBottom: '2px' }}>עובד אחראי</div>
               <select value={editForm.assignedUserName} onChange={e => setEditForm(f => ({ ...f, assignedUserName: e.target.value }))} style={inputS}>
                 <option value="">--</option>
                 {users.sort((a,b) => a.fullName.localeCompare(b.fullName,'he')).map((u: any) => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
               </select>
             </div>
             <div>
-              <div style={{ fontSize: '11px', color: '#888', marginBottom: '2px' }}>הערות</div>
+              <div style={{ fontSize: '13px', color: '#888', marginBottom: '2px' }}>הערות</div>
               <input value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} style={inputS} />
             </div>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button onClick={() => saveEdit(p.id)} disabled={isSaving || !editForm.title.trim()}
-              style={{ padding: '5px 14px', background: isSaving ? '#aaa' : '#27ae60', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+              style={{ padding: '5px 14px', background: isSaving ? '#aaa' : '#27ae60', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>
               {isSaving ? '...' : 'שמור'}
             </button>
             <button onClick={() => setEditingId(null)}
-              style={{ padding: '5px 12px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+              style={{ padding: '5px 12px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
               ביטול
             </button>
           </div>
@@ -302,37 +302,37 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 10px' }}>
           <span style={{
             background: PHASE_BADGE[p.phase]?.bg, color: PHASE_BADGE[p.phase]?.color,
-            padding: '2px 8px', borderRadius: '8px', fontSize: '10px', fontWeight: 'bold', whiteSpace: 'nowrap', flexShrink: 0,
+            padding: '2px 8px', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap', flexShrink: 0,
           }}>
             {PHASE_LABELS[p.phase]?.split(' — ')[0]}
           </span>
-          <span style={{ flex: 1, fontSize: '13px', color: '#1a2332', fontWeight: 'bold' }}>{p.title}</span>
+          <span style={{ flex: 1, fontSize: '15px', color: '#1a2332', fontWeight: 'bold' }}>{p.title}</span>
           {p.usedInTaskId ? (
-            <span style={{ fontSize: '10px', background: '#e8f8e8', color: '#27ae60', padding: '2px 8px', borderRadius: '8px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: '12px', background: '#e8f8e8', color: '#27ae60', padding: '2px 8px', borderRadius: '8px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
               ✅ בתוכנית
             </span>
           ) : (
             <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
               <button onClick={() => toggleStatus(p)} style={{
                 padding: '2px 8px', border: 'none', borderRadius: '8px', cursor: 'pointer',
-                fontSize: '10px', fontWeight: 'bold',
+                fontSize: '12px', fontWeight: 'bold',
                 background: p.status === 'READY' ? '#27ae60' : '#f39c12', color: 'white',
               }}>
                 {p.status === 'READY' ? '✓ מוכן' : 'טיוטא'}
               </button>
               <button onClick={() => startEdit(p)}
-                style={{ padding: '2px 8px', background: '#f39c12', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '10px' }}>
+                style={{ padding: '2px 8px', background: '#f39c12', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
                 ערוך
               </button>
               <button onClick={() => deleteProposal(p)}
-                style={{ padding: '2px 8px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '10px' }}>
+                style={{ padding: '2px 8px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
                 מחק
               </button>
             </div>
           )}
         </div>
         {(p.app || p.assignedUserName || p.estimatedMins || p.notes) && (
-          <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', padding: '4px 10px 7px', borderTop: '1px solid #f0f0f0', fontSize: '11px', color: '#666' }}>
+          <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', padding: '4px 10px 7px', borderTop: '1px solid #f0f0f0', fontSize: '13px', color: '#666' }}>
             {p.app && <span><span style={{ color: '#bbb' }}>מערכת: </span>{p.app}</span>}
             {p.estimatedMins && <span><span style={{ color: '#bbb' }}>משך: </span>{p.estimatedMins} דק'</span>}
             {p.assignedUserName && <span><span style={{ color: '#bbb' }}>עובד: </span>{p.assignedUserName}</span>}
@@ -359,16 +359,16 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontSize: '18px', fontWeight: 'bold' }}>סקירת CRים — {versionName}</div>
-            <div style={{ fontSize: '13px', opacity: 0.8, marginTop: '2px' }}>סיכום הגשות ראשי הצוות לפני שיוך לתוכנית</div>
+            <div style={{ fontSize: '15px', opacity: 0.8, marginTop: '2px' }}>סיכום הגשות ראשי הצוות לפני שיוך לתוכנית</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: '22px', fontWeight: 'bold' }}>{totalReady}/{totalProposals}</div>
-              <div style={{ fontSize: '11px', opacity: 0.7 }}>מוכנות</div>
+              <div style={{ fontSize: '13px', opacity: 0.7 }}>מוכנות</div>
             </div>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: '22px', fontWeight: 'bold' }}>{totalInPlan}</div>
-              <div style={{ fontSize: '11px', opacity: 0.7 }}>בתוכנית</div>
+              <div style={{ fontSize: '13px', opacity: 0.7 }}>בתוכנית</div>
             </div>
             {(() => {
               const pendingCount = missingTeams.filter(mt => !mt.notRequired).length;
@@ -382,7 +382,7 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
                     background: pendingCount > 0 ? '#aaa' : '#27ae60',
                     color: 'white', border: 'none', borderRadius: '8px',
                     cursor: pendingCount > 0 ? 'not-allowed' : 'pointer',
-                    fontWeight: 'bold', fontSize: '13px',
+                    fontWeight: 'bold', fontSize: '15px',
                   }}>עבור לתוכנית ←</button>
               );
             })()}
@@ -398,27 +398,27 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
           <div style={{ background: '#fef9e7', border: '1px solid #f39c12', borderRadius: '10px', padding: '12px 16px', marginBottom: '16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }} onClick={() => setBannerOpen(b => !b)}>
               <span style={{ fontSize: '18px' }}>{pendingTeams.length > 0 ? '⚠️' : '✅'}</span>
-              <span style={{ fontWeight: 'bold', color: pendingTeams.length > 0 ? '#d35400' : '#1e8449', fontSize: '14px' }}>
+              <span style={{ fontWeight: 'bold', color: pendingTeams.length > 0 ? '#d35400' : '#1e8449', fontSize: '15px' }}>
                 {pendingTeams.length > 0
                   ? `${pendingTeams.length} צוותים מעורבים טרם הגישו תוכניות`
                   : 'כל הצוותים הגישו או סומנו כ"לא נדרש"'}
               </span>
-              <span style={{ marginRight: 'auto', color: '#e67e22', fontSize: '12px' }}>{bannerOpen ? '▲ סגור' : '▼ פרוט'}</span>
+              <span style={{ marginRight: 'auto', color: '#e67e22', fontSize: '14px' }}>{bannerOpen ? '▲ סגור' : '▼ פרוט'}</span>
             </div>
             {bannerOpen && (
               <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {pendingTeams.length > 0 && (
-                  <div style={{ fontSize: '12px', color: '#7d4e00', marginBottom: '2px' }}>
+                  <div style={{ fontSize: '14px', color: '#7d4e00', marginBottom: '2px' }}>
                     לחץ "לא נדרש לאישור" כדי לאפשר מעבר לתוכנית ללא אישור הצוות:
                   </div>
                 )}
                 {pendingTeams.map(mt => (
                   <div key={mt.name} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ background: '#fadbd8', color: '#c0392b', padding: '3px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold', minWidth: '120px' }}>
+                    <span style={{ background: '#fadbd8', color: '#c0392b', padding: '3px 10px', borderRadius: '12px', fontSize: '14px', fontWeight: 'bold', minWidth: '120px' }}>
                       {mt.name}
                     </span>
                     {mt.crCount > 0 && (
-                      <span style={{ background: '#e8f4fd', color: '#2980b9', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 'bold' }}>
+                      <span style={{ background: '#e8f4fd', color: '#2980b9', padding: '2px 8px', borderRadius: '10px', fontSize: '13px', fontWeight: 'bold' }}>
                         {mt.crCount} CR
                       </span>
                     )}
@@ -429,7 +429,7 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
                         padding: '3px 12px', background: togglingTeam === mt.name ? '#ccc' : '#e67e22',
                         color: 'white', border: 'none', borderRadius: '12px',
                         cursor: togglingTeam === mt.name ? 'not-allowed' : 'pointer',
-                        fontSize: '11px', fontWeight: 'bold',
+                        fontSize: '13px', fontWeight: 'bold',
                       }}>
                       {togglingTeam === mt.name ? '...' : 'לא נדרש לאישור ✓'}
                     </button>
@@ -438,14 +438,14 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
                 {approvedTeams.length > 0 && (
                   <>
                     {pendingTeams.length > 0 && <div style={{ borderTop: '1px solid #f0d9a0', margin: '4px 0' }} />}
-                    <div style={{ fontSize: '11px', color: '#888', marginBottom: '2px' }}>צוותים שסומנו כ"לא נדרש לאישור":</div>
+                    <div style={{ fontSize: '13px', color: '#888', marginBottom: '2px' }}>צוותים שסומנו כ"לא נדרש לאישור":</div>
                     {approvedTeams.map(mt => (
                       <div key={mt.name} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ background: '#d5f5e3', color: '#1e8449', padding: '3px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold', minWidth: '120px' }}>
+                        <span style={{ background: '#d5f5e3', color: '#1e8449', padding: '3px 10px', borderRadius: '12px', fontSize: '14px', fontWeight: 'bold', minWidth: '120px' }}>
                           ✓ {mt.name}
                         </span>
                         {mt.crCount > 0 && (
-                          <span style={{ background: '#e8f4fd', color: '#2980b9', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 'bold' }}>
+                          <span style={{ background: '#e8f4fd', color: '#2980b9', padding: '2px 8px', borderRadius: '10px', fontSize: '13px', fontWeight: 'bold' }}>
                             {mt.crCount} CR
                           </span>
                         )}
@@ -471,7 +471,7 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
           <button key={key} onClick={() => setStatusFilter(key)}
             style={{
               padding: '5px 12px', border: 'none', borderRadius: '20px', cursor: 'pointer',
-              fontSize: '12px', fontWeight: '600',
+              fontSize: '14px', fontWeight: '600',
               background: statusFilter === key ? '#1a2332' : '#f0f0f0',
               color: statusFilter === key ? 'white' : '#555',
               transition: 'all 0.15s',
@@ -482,35 +482,35 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
         <div style={{ width: '1px', height: '24px', background: '#ddd', margin: '0 4px' }} />
         {/* Team filter */}
         <select value={teamFilter} onChange={e => setTeamFilter(e.target.value)}
-          style={{ padding: '6px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '13px', minWidth: '160px' }}>
+          style={{ padding: '6px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '15px', minWidth: '160px' }}>
           <option value="">כל הצוותים</option>
           {teams.filter(t => proposals.some(p => p.teamId === t.id)).map(t => (
             <option key={t.id} value={t.id}>{t.name}</option>
           ))}
         </select>
-        <span style={{ fontSize: '13px', color: '#888' }}>
+        <span style={{ fontSize: '15px', color: '#888' }}>
           {teamGroups.length} צוותים · {teamGroups.reduce((s, tg) => s + tg.crGroups.length, 0)} CRים
         </span>
-        <button onClick={expandAll} style={{ padding: '5px 12px', background: '#f0f0f0', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>פתח הכל</button>
-        <button onClick={collapseAll} style={{ padding: '5px 12px', background: '#f0f0f0', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>סגור הכל</button>
+        <button onClick={expandAll} style={{ padding: '5px 12px', background: '#f0f0f0', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>פתח הכל</button>
+        <button onClick={collapseAll} style={{ padding: '5px 12px', background: '#f0f0f0', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>סגור הכל</button>
       </div>
 
       {teamGroups.length === 0 ? (
         <div style={{ padding: '60px', textAlign: 'center', background: 'white', borderRadius: '12px', color: '#aaa' }}>
           <div style={{ fontSize: '48px', marginBottom: '12px' }}>📭</div>
-          <div style={{ fontSize: '16px', color: '#666' }}>{teamFilter ? 'אין הגשות לצוות זה' : 'אין הגשות עדיין'}</div>
+          <div style={{ fontSize: '17px', color: '#666' }}>{teamFilter ? 'אין הגשות לצוות זה' : 'אין הגשות עדיין'}</div>
         </div>
       ) : (
         teamGroups.map(tg => (
           <div key={tg.teamId} style={{ marginBottom: '16px' }}>
             {/* Team header */}
             <div style={{ background: '#1a2332', color: 'white', borderRadius: '10px 10px 0 0', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ fontSize: '16px' }}>👥</span>
-              <span style={{ fontWeight: 'bold', fontSize: '15px' }}>{tg.teamName}</span>
-              <span style={{ opacity: 0.6, fontSize: '12px' }}>
+              <span style={{ fontSize: '17px' }}>👥</span>
+              <span style={{ fontWeight: 'bold', fontSize: '16px' }}>{tg.teamName}</span>
+              <span style={{ opacity: 0.6, fontSize: '14px' }}>
                 {tg.crGroups.length} CR{tg.crGroups.length !== 1 ? 'ים' : ''} · {tg.crGroups.reduce((s, cg) => s + cg.proposals.length, 0) + tg.freeProposals.length} הגשות
               </span>
-              <span style={{ marginRight: 'auto', fontSize: '12px', opacity: 0.8 }}>
+              <span style={{ marginRight: 'auto', fontSize: '14px', opacity: 0.8 }}>
                 {[...tg.crGroups.flatMap(cg => cg.proposals), ...tg.freeProposals].filter(p => p.status === 'READY' || p.usedInTaskId).length} מוכן
               </span>
             </div>
@@ -527,18 +527,18 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
                     {/* CR header row */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', cursor: 'pointer', background: isExpanded ? '#f8f8f8' : 'white' }}
                       onClick={() => toggleCr(key)}>
-                      <span style={{ color: '#888', fontSize: '12px' }}>{isExpanded ? '▼' : '▶'}</span>
-                      <span style={{ background: '#1a2332', color: 'white', padding: '2px 10px', borderRadius: '5px', fontSize: '12px', fontWeight: 'bold', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                      <span style={{ color: '#888', fontSize: '14px' }}>{isExpanded ? '▼' : '▶'}</span>
+                      <span style={{ background: '#1a2332', color: 'white', padding: '2px 10px', borderRadius: '5px', fontSize: '14px', fontWeight: 'bold', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
                         {cg.crNumber}
                       </span>
                       {cg.crLabel && cg.crLabel !== cg.crNumber && (
-                        <span style={{ fontSize: '13px', color: '#333' }}>{cg.crLabel}</span>
+                        <span style={{ fontSize: '15px', color: '#333' }}>{cg.crLabel}</span>
                       )}
                       <span style={{ flex: 1 }} />
                       {hasPlan && (
-                        <span style={{ fontSize: '11px', background: '#e8d5f7', color: '#6c3483', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>📋 תכנית CR</span>
+                        <span style={{ fontSize: '13px', background: '#e8d5f7', color: '#6c3483', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>📋 תכנית CR</span>
                       )}
-                      <span style={{ fontSize: '12px', color: readyCount === cg.proposals.length ? '#27ae60' : '#e67e22', fontWeight: 'bold' }}>
+                      <span style={{ fontSize: '14px', color: readyCount === cg.proposals.length ? '#27ae60' : '#e67e22', fontWeight: 'bold' }}>
                         {readyCount}/{cg.proposals.length}
                       </span>
                     </div>
@@ -548,8 +548,8 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
                         {/* CrPlan metadata */}
                         {cg.crPlan && (
                           <div style={{ background: '#f8f0ff', border: '1px solid #d7bef7', borderRadius: '8px', padding: '10px 12px', marginBottom: '10px' }}>
-                            <div style={{ fontWeight: 'bold', fontSize: '12px', color: '#6c3483', marginBottom: '6px' }}>📋 תכנית CR</div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '12px' }}>
+                            <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#6c3483', marginBottom: '6px' }}>📋 תכנית CR</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '14px' }}>
                               {cg.crPlan.rollbackPlan && (
                                 <div style={{ gridColumn: '1 / -1' }}>
                                   <span style={{ color: '#999' }}>Rollback: </span><span>{cg.crPlan.rollbackPlan}</span>
@@ -574,11 +574,11 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
                           </div>
                         )}
                         {!cg.crPlan && (
-                          <div style={{ fontSize: '11px', color: '#bbb', marginBottom: '8px', fontStyle: 'italic' }}>לא הוזנה תכנית CR</div>
+                          <div style={{ fontSize: '13px', color: '#bbb', marginBottom: '8px', fontStyle: 'italic' }}>לא הוזנה תכנית CR</div>
                         )}
                         {cg.proposals.filter(matchesStatusFilter).sort((a, b) => a.phase - b.phase).map(renderProposalRow)}
                         {cg.proposals.filter(matchesStatusFilter).length === 0 && (
-                          <div style={{ fontSize: '12px', color: '#aaa', padding: '8px', fontStyle: 'italic' }}>אין הגשות התואמות את הפילטר</div>
+                          <div style={{ fontSize: '14px', color: '#aaa', padding: '8px', fontStyle: 'italic' }}>אין הגשות התואמות את הפילטר</div>
                         )}
                       </div>
                     )}
@@ -594,10 +594,10 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
                   <div style={{ border: '1px dashed #ccc', borderRadius: '8px', overflow: 'hidden' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', cursor: 'pointer', background: isExpanded ? '#f8f8f8' : 'white' }}
                       onClick={() => toggleCr(key)}>
-                      <span style={{ color: '#888', fontSize: '12px' }}>{isExpanded ? '▼' : '▶'}</span>
-                      <span style={{ background: '#7f8c8d', color: 'white', padding: '2px 10px', borderRadius: '5px', fontSize: '12px', fontWeight: 'bold' }}>ללא CR</span>
-                      <span style={{ fontSize: '13px', color: '#666', flex: 1 }}>משימות תשתיתיות / כלליות</span>
-                      <span style={{ fontSize: '12px', color: '#888' }}>{tg.freeProposals.length} הגשות</span>
+                      <span style={{ color: '#888', fontSize: '14px' }}>{isExpanded ? '▼' : '▶'}</span>
+                      <span style={{ background: '#7f8c8d', color: 'white', padding: '2px 10px', borderRadius: '5px', fontSize: '14px', fontWeight: 'bold' }}>ללא CR</span>
+                      <span style={{ fontSize: '15px', color: '#666', flex: 1 }}>משימות תשתיתיות / כלליות</span>
+                      <span style={{ fontSize: '14px', color: '#888' }}>{tg.freeProposals.length} הגשות</span>
                     </div>
                     {isExpanded && (
                       <div style={{ borderTop: '1px dashed #ccc', padding: '12px 14px', background: '#fafafa' }}>
@@ -623,11 +623,11 @@ export const CrHandoffView: React.FC<Props> = ({ token, versionId, versionName, 
               background: missingTeams.filter(mt => !mt.notRequired).length > 0 ? '#aaa' : '#27ae60',
               color: 'white', border: 'none', borderRadius: '10px',
               cursor: missingTeams.filter(mt => !mt.notRequired).length > 0 ? 'not-allowed' : 'pointer',
-              fontWeight: 'bold', fontSize: '15px',
+              fontWeight: 'bold', fontSize: '16px',
             }}>
             עבור לתוכנית ←
           </button>
-          <div style={{ fontSize: '12px', color: '#aaa', marginTop: '8px' }}>
+          <div style={{ fontSize: '14px', color: '#aaa', marginTop: '8px' }}>
             שיוך ההגשות לתוכנית הכללית מתבצע במסך "בנייה ואישור"
           </div>
         </div>

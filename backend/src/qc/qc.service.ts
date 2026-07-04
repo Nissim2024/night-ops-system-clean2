@@ -213,9 +213,18 @@ const MOCK_CR_ITEMS: CrItemDto[] = [
 
 async function oracleConnect(): Promise<any> {
   const cfg = await getOracleConfig();
-  const oracledb = await import('oracledb');
-  oracledb.default.outFormat = oracledb.default.OUT_FORMAT_OBJECT;
-  return oracledb.default.getConnection({
+
+  // Thick Mode must already be initialized by main.ts (ORACLE_LIB_DIR).
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const oracledb = require('oracledb');
+  if (oracledb.thin === true) {
+    throw new Error(
+      'Oracle is in Thin Mode — Oracle 11g is not supported in Thin Mode (NJS-138).\n' +
+      'Set ORACLE_LIB_DIR to the Oracle Client library directory and restart.'
+    );
+  }
+  oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
+  return oracledb.getConnection({
     user:          cfg.user,
     password:      cfg.password,
     connectString: cfg.connectString,

@@ -71,7 +71,7 @@ export class TasksController {
   @Patch(':id/status')
   async updateStatus(
     @Param('id') id: string,
-    @Body() body: { status: TaskStatus; blockedReason?: string; failedReason?: string },
+    @Body() body: { status: TaskStatus; blockedReason?: string; failedReason?: string; blockedSeverity?: string },
     @Request() req: any,
   ) {
     requireRole(req, TASK_EXECUTORS, 'אין הרשאה לעדכון סטטוס משימה');
@@ -96,6 +96,7 @@ export class TasksController {
       req.ip,
       body.blockedReason,
       body.failedReason,
+      body.blockedSeverity,
     );
   }
 
@@ -116,9 +117,14 @@ export class TasksController {
   }
 
   @Patch(':id/waive-gonogo')
-  waiveGoNoGo(@Param('id') id: string, @Request() req: any) {
+  waiveGoNoGo(@Param('id') id: string, @Body('reason') reason: string | undefined, @Request() req: any) {
     requireRole(req, MANAGERS, 'רק מנהל לילה יכול לבצע Waive');
-    return this.tasksService.waiveGoNoGo(id, req.user.sub);
+    return this.tasksService.waiveGoNoGo(id, req.user.sub, reason);
+  }
+
+  @Get(':id/waiver-history')
+  getWaiverHistory(@Param('id') id: string) {
+    return this.tasksService.getWaiverHistory(id);
   }
 
   @Post(':id/duplicate')

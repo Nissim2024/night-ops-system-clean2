@@ -7,9 +7,15 @@ const prisma = new PrismaClient({
 
 const DEFAULT_PARAMS = [
   {
+    key: 'QC_RELEASES_FILE',
+    value: '',
+    label: 'נתיב קובץ QC Releases (Linux: /mnt/qc-releases/cr_list.xls — mount SMB/CIFS לפני הפעלה)',
+    type: 'text',
+  },
+  {
     key: 'EXCEL_FILE_PATH',
     value: '',
-    label: 'נתיב קובץ הגשת פיתוחים',
+    label: 'נתיב קובץ הגשת פיתוחים (legacy — השתמש ב-QC_RELEASES_FILE)',
     type: 'text',
   },
   {

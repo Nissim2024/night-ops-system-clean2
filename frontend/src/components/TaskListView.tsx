@@ -105,7 +105,7 @@ const PhaseRow: React.FC<{ phase: any; isCollapsed: boolean; onToggle: () => voi
       cursor: 'pointer', userSelect: 'none' as any, marginTop: SP[1],
     }}>
       <div style={{ width: `${C_W.expand}px`, flexShrink: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-        <span style={{ fontSize: '10px', color: C.textDisabled, display: 'inline-block', transition: EASE.fast, transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
+        <span style={{ fontSize: '12px', color: C.textDisabled, display: 'inline-block', transition: EASE.fast, transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
       </div>
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: SP[2], minWidth: 0 }}>
         <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, fontFamily: FONT }}>{phase.name}</span>
@@ -142,7 +142,7 @@ const SubPhaseRow: React.FC<{ sub: any; isCollapsed: boolean; onToggle: () => vo
       cursor: 'pointer', userSelect: 'none' as any,
     }}>
       <div style={{ width: `${C_W.expand}px`, flexShrink: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-        <span style={{ fontSize: '9px', color: C.textDisabled, display: 'inline-block', transition: EASE.fast, transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
+        <span style={{ fontSize: '11px', color: C.textDisabled, display: 'inline-block', transition: EASE.fast, transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
       </div>
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: SP[2] }}>
         <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textSecondary, fontFamily: FONT }}>{sub.name}</span>
@@ -205,7 +205,7 @@ const TaskRow: React.FC<{
           textDecoration: isDone ? 'line-through' : 'none',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
         }}>
-          {task.isCritical && <span style={{ color: C.statusBlocked, marginLeft: '4px', fontSize: '9px' }}>●</span>}
+          {task.isCritical && <span style={{ color: C.statusBlocked, marginLeft: '4px', fontSize: '11px' }}>●</span>}
           {task.title}
         </span>
         {task.crNumber && (
@@ -324,7 +324,7 @@ const TaskRow: React.FC<{
               title="מחק משימה"
               style={{
                 background: 'none', border: 'none', cursor: 'pointer',
-                color: C.textDisabled, fontSize: '15px', lineHeight: 1, padding: '2px',
+                color: C.textDisabled, fontSize: '16px', lineHeight: 1, padding: '2px',
                 borderRadius: RADIUS.sm, transition: EASE.fast,
               }}
               onMouseEnter={e => (e.currentTarget.style.color = C.danger)}
@@ -372,7 +372,7 @@ const AddTaskRow: React.FC<{
       onMouseEnter={e => (e.currentTarget.style.color = C.brand)}
       onMouseLeave={e => (e.currentTarget.style.color = C.textMuted)}
     >
-      <span style={{ fontSize: '14px' }}>+</span>
+      <span style={{ fontSize: '15px' }}>+</span>
       <span style={{ ...TEXT.sm }}>הוסף משימה</span>
     </div>
   );
@@ -411,7 +411,7 @@ const AddTaskRow: React.FC<{
         {saving ? '...' : 'הוסף'}
       </button>
       <button onClick={() => { setOpen(false); setTitle(''); }}
-        style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '16px', padding: '2px 4px', flexShrink: 0 }}>
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '17px', padding: '2px 4px', flexShrink: 0 }}>
         ✕
       </button>
     </div>
@@ -666,7 +666,7 @@ export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, v
         }}>
           {/* Search */}
           <div style={{ position: 'relative', flexShrink: 0 }}>
-            <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: C.textMuted, pointerEvents: 'none', fontSize: '13px' }}>🔍</span>
+            <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: C.textMuted, pointerEvents: 'none', fontSize: '15px' }}>🔍</span>
             <input value={search} onChange={e => setSearch(e.target.value)}
               placeholder="חיפוש משימה..."
               style={{
@@ -728,7 +728,7 @@ export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, v
                 background: 'rgba(255,255,255,0.25)',
                 borderRadius: RADIUS.full,
                 padding: '0px 7px',
-                fontSize: '11px',
+                fontSize: '13px',
                 fontWeight: WEIGHT.bold,
               }}>{proposalCount}</span>
             </button>
@@ -866,7 +866,7 @@ export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, v
                   padding: `${SP[2]} ${SP[3]}`, borderRadius: `${RADIUS.md} ${RADIUS.md} 0 0`,
                   background: 'rgba(255,193,7,0.12)',
                 }}>
-                  <span style={{ fontSize: '16px' }}>⚠️</span>
+                  <span style={{ fontSize: '17px' }}>⚠️</span>
                   <span style={{ ...TEXT.sm, color: '#856404', fontWeight: WEIGHT.semibold }}>
                     דולגו {convertResult.skipped.length} הצעות:
                   </span>

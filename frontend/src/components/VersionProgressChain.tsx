@@ -5,6 +5,7 @@ interface Props {
   versionStatus: string;
   activeRunPhase?: number;
   rehearsalDone?: boolean;
+  rehearsalSummaryApproved?: boolean;
   summaryBeforeMorning?: boolean;
   onStageClick?: (stageId: string) => void;
 }
@@ -55,8 +56,8 @@ const STAGES = [
     id: 'ready', label: 'ממתין', icon: '⏳',
     ...STAGE_COLOR.ready,
     subs: [
-      { label: 'סיכום חזרה',  status: 'READY_FOR_RUN', key: 'ready_summary' },
-      { label: 'אישור להרצה', status: 'READY_FOR_RUN', key: 'ready_approve' },
+      { label: 'סיכום חזרה',  status: 'REHEARSAL_SUMMARY_APPROVED', key: 'ready_summary' },
+      { label: 'אישור להרצה', status: 'READY_FOR_RUN',               key: 'ready_approve' },
     ],
   },
   {
@@ -79,8 +80,13 @@ const STAGES = [
 
 type NodeState = 'done' | 'active' | 'pending';
 
-function subState(subStatus: string, current: string, rehearsalDone = false): NodeState {
+function subState(subStatus: string, current: string, rehearsalDone = false, summaryApproved = false): NodeState {
   if (subStatus === 'REHEARSAL' && rehearsalDone && current === 'APPROVED') return 'done';
+  if (subStatus === 'REHEARSAL_SUMMARY_APPROVED') {
+    if (!rehearsalDone) return 'pending';
+    if (summaryApproved || ['ACTIVE', 'MORNING_AFTER', 'COMPLETED'].includes(current)) return 'done';
+    return 'active';
+  }
   if (subStatus === 'READY_FOR_RUN') {
     if (!rehearsalDone) return 'pending';
     if (['ACTIVE', 'MORNING_AFTER', 'COMPLETED'].includes(current)) return 'done';
@@ -110,9 +116,9 @@ function runSubStateByPhase(subIdx: number, current: string, activeRunPhase: num
   return 'pending';
 }
 
-function mainState(subs: { status: string }[], current: string, stageId: string, activeRunPhase: number, rehearsalDone = false): NodeState {
+function mainState(subs: { status: string }[], current: string, stageId: string, activeRunPhase: number, rehearsalDone = false, summaryApproved = false): NodeState {
   const states = subs.map((s, i) =>
-    stageId === 'run' ? runSubStateByPhase(i, current, activeRunPhase) : subState(s.status, current, rehearsalDone)
+    stageId === 'run' ? runSubStateByPhase(i, current, activeRunPhase) : subState(s.status, current, rehearsalDone, summaryApproved)
   );
   if (states.every(s => s === 'done')) return 'done';
   if (states.some(s => s === 'done' || s === 'active')) return 'active';
@@ -127,15 +133,27 @@ const STAGE_LABEL: Record<string, string> = {
   COMPLETED: 'הושלם', ROLLED_BACK: 'Rollback',
 };
 
+// Linear order used for "next step" + completion % (READY_FOR_RUN inserted as a virtual waypoint)
+const POSITION_ORDER = [
+  'DRAFT', 'COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED',
+  'REHEARSAL', 'APPROVED_AFTER_REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED',
+];
+
 export const VersionProgressChain: React.FC<Props> = ({
   versionStatus, activeRunPhase = 1, rehearsalDone = false,
-  summaryBeforeMorning = false, onStageClick,
+  rehearsalSummaryApproved = false, summaryBeforeMorning = false, onStageClick,
 }) => {
   const effective       = versionStatus === 'ROLLED_BACK' ? 'MORNING_AFTER' : versionStatus;
   const isRolledBack    = versionStatus === 'ROLLED_BACK';
   const isReadyForRun   = rehearsalDone && versionStatus === 'APPROVED';
   const currentLabelKey = isReadyForRun ? 'APPROVED_AFTER_REHEARSAL' : versionStatus;
   const currentLabel    = STAGE_LABEL[currentLabelKey] ?? versionStatus;
+
+  const positionIdx  = POSITION_ORDER.indexOf(currentLabelKey);
+  const completionPct = positionIdx >= 0 ? Math.round((positionIdx / (POSITION_ORDER.length - 1)) * 100) : null;
+  const nextStepLabel = positionIdx >= 0 && positionIdx < POSITION_ORDER.length - 1
+    ? STAGE_LABEL[POSITION_ORDER[positionIdx + 1]]
+    : null;
 
   const STAGES_DISPLAY = STAGES.map(stage => {
     if (stage.id !== 'run' || !summaryBeforeMorning) return stage;
@@ -187,12 +205,30 @@ export const VersionProgressChain: React.FC<Props> = ({
               ✓ חזרה הושלמה — ממתין לפתיחת לילה
             </span>
           )}
+
+          {!isRolledBack && nextStepLabel && (
+            <span style={{
+              ...TEXT.xs, fontFamily: FONT, color: C.textMuted, whiteSpace: 'nowrap',
+            }}>
+              ← שלב הבא: <strong style={{ color: C.textSecondary }}>{nextStepLabel}</strong>
+            </span>
+          )}
+
+          {!isRolledBack && completionPct !== null && (
+            <span title="התקדמות במחזור חיי הגרסה" style={{
+              ...TEXT.xs, fontFamily: FONT, fontWeight: WEIGHT.semibold, color: C.info,
+              background: C.infoBg, padding: '2px 8px', borderRadius: RADIUS.full,
+              border: `1px solid ${C.info}30`, whiteSpace: 'nowrap',
+            }}>
+              {completionPct}%
+            </span>
+          )}
         </div>
 
         {/* Chain stretches across remaining space */}
         <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
           {STAGES_DISPLAY.map((stage, si) => {
-            const mState = mainState(stage.subs, effective, stage.id, activeRunPhase, rehearsalDone);
+            const mState = mainState(stage.subs, effective, stage.id, activeRunPhase, rehearsalDone, rehearsalSummaryApproved);
             const isClickable = onStageClick && (mState === 'done' || mState === 'active');
 
             const bubbleBg =
@@ -231,7 +267,7 @@ export const VersionProgressChain: React.FC<Props> = ({
                       ? `0 0 0 2px rgba(55,196,122,0.15)`
                       : 'none',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '16px', flexShrink: 0, position: 'relative',
+                    fontSize: '17px', flexShrink: 0, position: 'relative',
                     transition: EASE.slow,
                   }}>
                     {mState === 'done' && !isRolledBack
@@ -255,7 +291,7 @@ export const VersionProgressChain: React.FC<Props> = ({
                   </div>
 
                   <span style={{
-                    fontSize: '12px', fontWeight: mState === 'active' ? WEIGHT.semibold : WEIGHT.normal,
+                    fontSize: '14px', fontWeight: mState === 'active' ? WEIGHT.semibold : WEIGHT.normal,
                     fontFamily: FONT, whiteSpace: 'nowrap',
                     color: labelColor,
                     transition: EASE.fast,
@@ -271,7 +307,7 @@ export const VersionProgressChain: React.FC<Props> = ({
                   stage.subs.forEach((sub, subIdx) => {
                     const sState = stage.id === 'run'
                       ? runSubStateByPhase(subIdx, effective, activeRunPhase)
-                      : subState(sub.status, effective, rehearsalDone);
+                      : subState(sub.status, effective, rehearsalDone, rehearsalSummaryApproved);
 
                     const lineColor =
                       sState === 'done'   ? `${C.success}80` :
@@ -321,7 +357,7 @@ export const VersionProgressChain: React.FC<Props> = ({
                           )}
                         </div>
                         <span style={{
-                          fontSize: '11px', fontFamily: FONT, whiteSpace: 'nowrap',
+                          fontSize: '13px', fontFamily: FONT, whiteSpace: 'nowrap',
                           color: sState === 'active' ? stage.main
                                : sState === 'done'   ? `${C.success}CC`
                                : C.textDisabled,
@@ -335,7 +371,7 @@ export const VersionProgressChain: React.FC<Props> = ({
                   });
 
                   const nextStage  = STAGES_DISPLAY[si + 1];
-                  const nextMState = mainState(nextStage.subs, effective, nextStage.id, activeRunPhase, rehearsalDone);
+                  const nextMState = mainState(nextStage.subs, effective, nextStage.id, activeRunPhase, rehearsalDone, rehearsalSummaryApproved);
                   const postLineColor =
                     nextMState === 'done'   ? `${C.success}80` :
                     nextMState === 'active' ? `${nextStage.main}50` :

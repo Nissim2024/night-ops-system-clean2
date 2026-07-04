@@ -72,6 +72,8 @@ export class VersionsService {
             submitter: { select: { id: true, fullName: true } },
           },
         },
+        rehearsalSummary: { select: { sentAt: true } },
+        nightSummary:     { select: { sentAt: true, forceApprovedBy: true } },
       },
     });
     if (!version) throw new NotFoundException('Version not found');
@@ -93,6 +95,8 @@ export class VersionsService {
     integrationEnd?: string;
     qaStart?: string;
     qaEnd?: string;
+    plannedRehearsalStart?: string;
+    plannedRehearsalEnd?: string;
     importedFileName?: string;
     collectionDeadline?: string;
     reviewMeetingTime?: string;
@@ -113,6 +117,8 @@ export class VersionsService {
         integrationEnd: data.integrationEnd ? new Date(data.integrationEnd) : undefined,
         qaStart: data.qaStart ? new Date(data.qaStart) : undefined,
         qaEnd: data.qaEnd ? new Date(data.qaEnd) : undefined,
+        plannedRehearsalStart: data.plannedRehearsalStart ? new Date(data.plannedRehearsalStart) : undefined,
+        plannedRehearsalEnd: data.plannedRehearsalEnd ? new Date(data.plannedRehearsalEnd) : undefined,
         importedFileName: data.importedFileName || undefined,
         collectionDeadline: data.collectionDeadline ? new Date(data.collectionDeadline) : undefined,
         reviewMeetingTime: data.reviewMeetingTime ? new Date(data.reviewMeetingTime) : undefined,
@@ -377,6 +383,11 @@ async addTask(subPhaseId: string, data: {
         delayReason: null,
         followupNotes: null,
         morningFollowup: false,
+        // Rehearsal-specific schedule is only meaningful while a rehearsal is live —
+        // clearing it here means delay/overdue checks fall back to the production
+        // plannedStart/End for the real night, already preserved in lastRehearsalSnapshot.
+        rehearsalPlannedStart: null,
+        rehearsalPlannedEnd: null,
       },
     });
 
@@ -411,7 +422,7 @@ async addTask(subPhaseId: string, data: {
     // Reset all tasks to WAITING
     await prisma.task.updateMany({
       where: { versionId: id },
-      data: { status: 'WAITING', actualStart: null, actualFinish: null, blockedReason: null },
+      data: { status: 'WAITING', actualStart: null, actualFinish: null, blockedReason: null, rehearsalPlannedStart: null, rehearsalPlannedEnd: null },
     });
 
     return prisma.version.update({
@@ -659,6 +670,7 @@ async addTask(subPhaseId: string, data: {
   async updateFields(id: string, data: {
     plannedStart?: string | null; plannedEnd?: string | null; reviewMeetingTime?: string | null; workPlanMeetingTime?: string | null;
     integrationStart?: string | null; integrationEnd?: string | null; qaStart?: string | null; qaEnd?: string | null;
+    plannedRehearsalStart?: string | null; plannedRehearsalEnd?: string | null;
     submissionDeadline?: string | null; approvalDeadline?: string | null;
     name?: string; description?: string;
   }) {
@@ -676,6 +688,8 @@ async addTask(subPhaseId: string, data: {
     if ('integrationEnd'      in data) update.integrationEnd      = data.integrationEnd      ? new Date(data.integrationEnd)      : null;
     if ('qaStart'             in data) update.qaStart             = data.qaStart             ? new Date(data.qaStart)             : null;
     if ('qaEnd'               in data) update.qaEnd               = data.qaEnd               ? new Date(data.qaEnd)               : null;
+    if ('plannedRehearsalStart' in data) update.plannedRehearsalStart = data.plannedRehearsalStart ? new Date(data.plannedRehearsalStart) : null;
+    if ('plannedRehearsalEnd'   in data) update.plannedRehearsalEnd   = data.plannedRehearsalEnd   ? new Date(data.plannedRehearsalEnd)   : null;
     if ('submissionDeadline'  in data) update.submissionDeadline  = data.submissionDeadline  ? new Date(data.submissionDeadline)  : null;
     if ('approvalDeadline'    in data) update.approvalDeadline    = data.approvalDeadline    ? new Date(data.approvalDeadline)    : null;
     if ('name'        in data && data.name)        update.name        = data.name;
@@ -1266,7 +1280,13 @@ async addTask(subPhaseId: string, data: {
     preview: boolean,
     respectDeps = false,
     taskOverrides: { taskId: string; plannedStart: string }[] = [],
+    target: 'production' | 'rehearsal' = 'production',
   ) {
+    // Rehearsal scheduling writes to Task.rehearsalPlannedStart/End instead of the
+    // production plannedStart/End, so timing a rehearsal never overwrites the real
+    // night's schedule (and vice versa) — they're separate reference frames.
+    const startField = target === 'rehearsal' ? 'rehearsalPlannedStart' : 'plannedStart';
+    const endField   = target === 'rehearsal' ? 'rehearsalPlannedEnd'   : 'plannedEnd';
     const version = await prisma.version.findUnique({
       where: { id: versionId },
       include: {
@@ -1341,11 +1361,12 @@ async addTask(subPhaseId: string, data: {
         let subPhaseMaxEnd = new Date(subPhaseStart);
 
         for (const task of sortedTasks) {
-          // Done/in-progress tasks are not rescheduled, but their existing plannedEnd
+          // Done/in-progress tasks are not rescheduled, but their existing planned end
           // still occupies time and must push the sub-phase end forward.
           if (task.status === 'IN_PROGRESS' || task.status === 'DONE') {
-            if (task.plannedEnd) {
-              const taskEnd = new Date(task.plannedEnd);
+            const existingEnd = (task as any)[endField];
+            if (existingEnd) {
+              const taskEnd = new Date(existingEnd);
               if (taskEnd.getTime() > subPhaseMaxEnd.getTime()) subPhaseMaxEnd = new Date(taskEnd);
             }
             continue;
@@ -1414,7 +1435,7 @@ async addTask(subPhaseId: string, data: {
             subPhase: { phaseId: { in: scheduledPhaseIds } },
             id: { notIn: Array.from(updatedTaskIdSet) },
             status: { notIn: ['DONE', 'ROLLED_BACK', 'IN_PROGRESS', 'FAILED', 'BLOCKED'] as any },
-            OR: [{ plannedStart: { not: null } }, { plannedEnd: { not: null } }],
+            OR: [{ [startField]: { not: null } }, { [endField]: { not: null } }],
           },
           select: { id: true },
         })).map(t => t.id)
@@ -1425,13 +1446,15 @@ async addTask(subPhaseId: string, data: {
         prisma.task.update({
           where: { id: u.taskId },
           data: {
-            plannedStart: u.plannedStart,
-            plannedEnd: u.plannedEnd,
+            [startField]: u.plannedStart,
+            [endField]: u.plannedEnd,
             ...(u.duration !== undefined && { duration: u.duration }),
           },
         }),
       ),
-      ...phases.map(p => {
+      // Phase-level plannedStart/End always reflects the production schedule —
+      // rehearsal scheduling doesn't have its own phase timeline, only task-level.
+      ...(target === 'production' ? phases.map(p => {
         const plannedEnd = phaseEndMap.get(p.phaseId);
         return prisma.phase.update({
           where: { id: p.phaseId },
@@ -1441,11 +1464,11 @@ async addTask(subPhaseId: string, data: {
             ...(plannedEnd !== undefined && { plannedEnd }),
           },
         });
-      }),
+      }) : []),
       ...staleTaskIds.map(id =>
         prisma.task.update({
           where: { id },
-          data: { plannedStart: null, plannedEnd: null },
+          data: { [startField]: null, [endField]: null },
         }),
       ),
     ]);

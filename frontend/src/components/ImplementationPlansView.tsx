@@ -179,7 +179,7 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
   const StatusPill: React.FC<{ status: string }> = ({ status }) => {
     const m = STATUS_META[status] ?? STATUS_META.DRAFT;
     return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 10px', borderRadius: '12px', background: m.bg, color: m.color, fontWeight: '600', fontSize: '12px', border: `1px solid ${m.color}33` }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 10px', borderRadius: '12px', background: m.bg, color: m.color, fontWeight: '600', fontSize: '14px', border: `1px solid ${m.color}33` }}>
         {m.icon} {m.label}
       </span>
     );
@@ -187,12 +187,12 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
 
   const txtArea = (field: keyof CrPlan, label: string, rows = 3) => (
     <div style={{ marginBottom: '10px' }}>
-      <div style={{ fontSize: '12px', fontWeight: '600', color: C.textSecondary, marginBottom: '4px' }}>{label}</div>
+      <div style={{ fontSize: '14px', fontWeight: '600', color: C.textSecondary, marginBottom: '4px' }}>{label}</div>
       <textarea
         rows={rows}
         value={(formData[field] as string) ?? ''}
         onChange={e => setFormData(p => ({ ...p, [field]: e.target.value }))}
-        style={{ width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: '7px', background: C.bgNested, fontSize: '13px', color: C.textPrimary, resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }}
+        style={{ width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: '7px', background: C.bgNested, fontSize: '15px', color: C.textPrimary, resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }}
       />
     </div>
   );
@@ -203,24 +203,24 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
       {/* not-needed checkbox */}
       <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', cursor: 'pointer' }}>
         <input type="checkbox" checked={!!formData.notNeededForPlan} onChange={e => setFormData(p => ({ ...p, notNeededForPlan: e.target.checked }))} />
-        <span style={{ fontSize: '13px', fontWeight: '600', color: C.textSecondary }}>CR זה לא מצריך תוכנית הטמעה</span>
+        <span style={{ fontSize: '15px', fontWeight: '600', color: C.textSecondary }}>CR זה לא מצריך תוכנית הטמעה</span>
       </label>
 
       {!formData.notNeededForPlan && (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
             <div>
-              <div style={{ fontSize: '12px', fontWeight: '600', color: C.textSecondary, marginBottom: '4px' }}>סוג שינוי</div>
+              <div style={{ fontSize: '14px', fontWeight: '600', color: C.textSecondary, marginBottom: '4px' }}>סוג שינוי</div>
               <select value={formData.crType ?? ''} onChange={e => setFormData(p => ({ ...p, crType: e.target.value }))}
-                style={{ width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: '7px', background: C.bgNested, fontSize: '13px' }}>
+                style={{ width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: '7px', background: C.bgNested, fontSize: '15px' }}>
                 <option value="">-- בחר --</option>
                 <option>תיקון תקלה</option><option>פיתוח</option><option>תשתית</option><option>הסבה</option>
               </select>
             </div>
             <div>
-              <div style={{ fontSize: '12px', fontWeight: '600', color: C.textSecondary, marginBottom: '4px' }}>רמת סיכון</div>
+              <div style={{ fontSize: '14px', fontWeight: '600', color: C.textSecondary, marginBottom: '4px' }}>רמת סיכון</div>
               <select value={formData.riskLevel ?? ''} onChange={e => setFormData(p => ({ ...p, riskLevel: e.target.value }))}
-                style={{ width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: '7px', background: C.bgNested, fontSize: '13px' }}>
+                style={{ width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: '7px', background: C.bgNested, fontSize: '15px' }}>
                 <option value="">-- בחר --</option>
                 <option value="LOW">נמוך</option><option value="MEDIUM">בינוני</option><option value="HIGH">גבוה</option>
               </select>
@@ -234,13 +234,13 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
           {txtArea('morningMonitoring', 'מעקב בוקר',                 2)}
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', cursor: 'pointer' }}>
             <input type="checkbox" checked={!!formData.gradualRollout} onChange={e => setFormData(p => ({ ...p, gradualRollout: e.target.checked }))} />
-            <span style={{ fontSize: '13px', color: C.textSecondary }}>פריסה הדרגתית</span>
+            <span style={{ fontSize: '15px', color: C.textSecondary }}>פריסה הדרגתית</span>
           </label>
           {formData.gradualRollout && txtArea('gradualDetails', 'פרטי פריסה הדרגתית', 2)}
         </>
       )}
 
-      {saveError && <div style={{ color: '#f85149', fontSize: '12px', marginBottom: '8px' }}>{saveError}</div>}
+      {saveError && <div style={{ color: '#f85149', fontSize: '14px', marginBottom: '8px' }}>{saveError}</div>}
 
       <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
         <button onClick={() => setEditingId(null)} style={secondaryBtn}>ביטול</button>
@@ -263,26 +263,26 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
       <div key={plan.id} style={{ borderRadius: '10px', border: `1px solid ${C.border}`, background: C.bgCard, marginBottom: '10px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
         {/* Header */}
         <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px', background: C.bgNested, borderBottom: `1px solid ${C.border}` }}>
-          <span style={{ fontWeight: '800', fontSize: '15px', color: C.textPrimary }}>{plan.crNumber}</span>
-          {plan.crLabel && <span style={{ fontSize: '13px', color: C.textMuted, flex: 1 }}>{plan.crLabel}</span>}
-          {risk && <span style={{ padding: '2px 9px', borderRadius: '10px', background: risk.bg, color: risk.color, fontSize: '11px', fontWeight: '700', border: `1px solid ${risk.color}33` }}>{risk.label}</span>}
+          <span style={{ fontWeight: '800', fontSize: '16px', color: C.textPrimary }}>{plan.crNumber}</span>
+          {plan.crLabel && <span style={{ fontSize: '15px', color: C.textMuted, flex: 1 }}>{plan.crLabel}</span>}
+          {risk && <span style={{ padding: '2px 9px', borderRadius: '10px', background: risk.bg, color: risk.color, fontSize: '13px', fontWeight: '700', border: `1px solid ${risk.color}33` }}>{risk.label}</span>}
           <StatusPill status={plan.submissionStatus} />
         </div>
 
         {/* Return reason banner */}
         {plan.submissionStatus === 'RETURNED' && plan.returnReason && (
           <div style={{ padding: '8px 16px', background: 'rgba(210,153,34,0.08)', borderBottom: `1px solid rgba(210,153,34,0.25)`, display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: '14px', marginTop: '1px' }}>↩️</span>
+            <span style={{ fontSize: '15px', marginTop: '1px' }}>↩️</span>
             <div>
-              <div style={{ fontSize: '12px', fontWeight: '700', color: '#d29922', marginBottom: '2px' }}>הוחזר לתיקון</div>
-              <div style={{ fontSize: '13px', color: C.textSecondary }}>{plan.returnReason}</div>
+              <div style={{ fontSize: '14px', fontWeight: '700', color: '#d29922', marginBottom: '2px' }}>הוחזר לתיקון</div>
+              <div style={{ fontSize: '15px', color: C.textSecondary }}>{plan.returnReason}</div>
             </div>
           </div>
         )}
 
         {/* Review note from manager */}
         {plan.reviewNote && (
-          <div style={{ padding: '6px 16px', background: 'rgba(41,128,185,0.06)', borderBottom: `1px solid rgba(41,128,185,0.15)`, fontSize: '12px', color: '#2980b9' }}>
+          <div style={{ padding: '6px 16px', background: 'rgba(41,128,185,0.06)', borderBottom: `1px solid rgba(41,128,185,0.15)`, fontSize: '14px', color: '#2980b9' }}>
             💬 הערת מנהל: {plan.reviewNote}
           </div>
         )}
@@ -291,7 +291,7 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
         {isEditing ? renderForm(plan) : (
           <div style={{ padding: '12px 16px' }}>
             {plan.notNeededForPlan ? (
-              <div style={{ fontSize: '13px', color: C.textMuted, fontStyle: 'italic' }}>CR זה מסומן כ"לא מצריך תוכנית הטמעה"</div>
+              <div style={{ fontSize: '15px', color: C.textMuted, fontStyle: 'italic' }}>CR זה מסומן כ"לא מצריך תוכנית הטמעה"</div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 {plan.workPlan   && <Field label="תוכנית עבודה"  value={plan.workPlan} />}
@@ -299,7 +299,7 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
                 {plan.runTimes   && <Field label="זמני הרצה"       value={plan.runTimes} />}
                 {plan.rollbackPlan && <Field label="רולבק"         value={plan.rollbackPlan} />}
                 {!plan.workPlan && !plan.scripts && (
-                  <div style={{ gridColumn: '1/-1', fontSize: '13px', color: C.textMuted, fontStyle: 'italic' }}>
+                  <div style={{ gridColumn: '1/-1', fontSize: '15px', color: C.textMuted, fontStyle: 'italic' }}>
                     {isClosed ? 'לא הוגשה תוכנית הטמעה לפריט זה' : 'לא הוזן תוכן עדיין — לחץ "ערוך תוכנית" להתחלה'}
                   </div>
                 )}
@@ -307,7 +307,7 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
             )}
 
             {plan.submittedAt && (
-              <div style={{ marginTop: '8px', fontSize: '11px', color: C.textMuted }}>
+              <div style={{ marginTop: '8px', fontSize: '13px', color: C.textMuted }}>
                 {sm.icon} הוגש ב-{new Date(plan.submittedAt).toLocaleString('he-IL')}
                 {plan.submittedByName && ` ע"י ${plan.submittedByName}`}
               </div>
@@ -321,7 +321,7 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
                 </button>
               )}
               {plan.submissionStatus === 'APPROVED' && (
-                <span style={{ fontSize: '12px', color: '#3fb950', fontWeight: '700' }}>✅ אושר על ידי {plan.approvedByName ?? 'מנהל'}</span>
+                <span style={{ fontSize: '14px', color: '#3fb950', fontWeight: '700' }}>✅ אושר על ידי {plan.approvedByName ?? 'מנהל'}</span>
               )}
             </div>
           </div>
@@ -339,22 +339,22 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
       <div key={plan.id} style={{ padding: '10px 14px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-            <span style={{ fontWeight: '700', fontSize: '13px', color: C.textPrimary }}>{plan.team.name}</span>
+            <span style={{ fontWeight: '700', fontSize: '15px', color: C.textPrimary }}>{plan.team.name}</span>
             <StatusPill status={plan.submissionStatus} />
-            {plan.notNeededForPlan && <span style={{ fontSize: '11px', color: C.textMuted, background: C.bgNested, padding: '1px 8px', borderRadius: '8px', border: `1px solid ${C.border}` }}>לא מצריך תוכנית</span>}
+            {plan.notNeededForPlan && <span style={{ fontSize: '13px', color: C.textMuted, background: C.bgNested, padding: '1px 8px', borderRadius: '8px', border: `1px solid ${C.border}` }}>לא מצריך תוכנית</span>}
           </div>
           {plan.returnReason && plan.submissionStatus === 'RETURNED' && (
-            <div style={{ fontSize: '12px', color: '#d29922' }}>↩️ {plan.returnReason}</div>
+            <div style={{ fontSize: '14px', color: '#d29922' }}>↩️ {plan.returnReason}</div>
           )}
           {plan.submissionStatus === 'APPROVED' && (
-            <div style={{ fontSize: '11px', color: '#3fb950' }}>✅ אושר ע"י {plan.approvedByName ?? 'מנהל'}</div>
+            <div style={{ fontSize: '13px', color: '#3fb950' }}>✅ אושר ע"י {plan.approvedByName ?? 'מנהל'}</div>
           )}
           {plan.submissionStatus === 'SUBMITTED' && (
-            <div style={{ fontSize: '11px', color: C.textMuted }}>
+            <div style={{ fontSize: '13px', color: C.textMuted }}>
               📤 הוגש {plan.submittedAt ? new Date(plan.submittedAt).toLocaleString('he-IL') : ''}{plan.submittedByName ? ` ע"י ${plan.submittedByName}` : ''}
             </div>
           )}
-          {plan.reviewNote && <div style={{ fontSize: '11px', color: '#2980b9', marginTop: '2px' }}>💬 {plan.reviewNote}</div>}
+          {plan.reviewNote && <div style={{ fontSize: '13px', color: '#2980b9', marginTop: '2px' }}>💬 {plan.reviewNote}</div>}
         </div>
 
         {!isClosed && (
@@ -371,15 +371,15 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
   /* ── FIELD helper ────────────────────────────────────────────────────────── */
   const Field: React.FC<{ label: string; value: string }> = ({ label, value }) => (
     <div>
-      <div style={{ fontSize: '11px', fontWeight: '700', color: C.textMuted, marginBottom: '2px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
-      <div style={{ fontSize: '13px', color: C.textSecondary, whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>{value}</div>
+      <div style={{ fontSize: '13px', fontWeight: '700', color: C.textMuted, marginBottom: '2px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
+      <div style={{ fontSize: '15px', color: C.textSecondary, whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>{value}</div>
     </div>
   );
 
   /* ── RENDER ─────────────────────────────────────────────────────────────── */
 
   if (loading) return (
-    <div style={{ padding: '40px', textAlign: 'center', color: C.textMuted, fontSize: '14px' }}>⏳ טוען תוכניות הטמעה...</div>
+    <div style={{ padding: '40px', textAlign: 'center', color: C.textMuted, fontSize: '15px' }}>⏳ טוען תוכניות הטמעה...</div>
   );
 
   const noData = plans.length === 0 && assignments.length === 0;
@@ -392,8 +392,8 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
       return (
         <div style={{ direction: 'rtl', padding: '40px 0', textAlign: 'center' }}>
           <div style={{ fontSize: '32px', marginBottom: '12px' }}>🚫</div>
-          <div style={{ fontSize: '16px', fontWeight: '700', color: C.textSecondary, marginBottom: '6px' }}>הצוות שלך פטור מהגשת תוכניות הטמעה</div>
-          <div style={{ fontSize: '13px', color: C.textMuted }}>הוגדר על ידי מנהל המערכת כצוות שאינו נדרש להגיש תוכניות CR</div>
+          <div style={{ fontSize: '17px', fontWeight: '700', color: C.textSecondary, marginBottom: '6px' }}>הצוות שלך פטור מהגשת תוכניות הטמעה</div>
+          <div style={{ fontSize: '15px', color: C.textMuted }}>הוגדר על ידי מנהל המערכת כצוות שאינו נדרש להגיש תוכניות CR</div>
         </div>
       );
     }
@@ -411,7 +411,7 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
       <div style={{ direction: 'rtl', padding: '0' }}>
         {/* Closed banner */}
         {isClosed && (
-          <div style={{ padding: '8px 14px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: '8px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: C.textMuted }}>
+          <div style={{ padding: '8px 14px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: '8px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', color: C.textMuted }}>
             🔒 <strong style={{ color: C.textSecondary }}>גרסה סגורה — צפייה בלבד</strong>
           </div>
         )}
@@ -422,20 +422,20 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
             <div style={{ flex: 1, height: '6px', background: C.border, borderRadius: '3px', overflow: 'hidden' }}>
               <div style={{ height: '100%', borderRadius: '3px', background: allSubmitted ? '#3fb950' : '#4573D2', width: myPlans.length ? `${Math.round(submittedCount / myPlans.length * 100)}%` : '0%', transition: 'width 0.4s' }} />
             </div>
-            <span style={{ fontSize: '12px', fontWeight: '700', color: allSubmitted ? '#3fb950' : C.textMuted, whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: '14px', fontWeight: '700', color: allSubmitted ? '#3fb950' : C.textMuted, whiteSpace: 'nowrap' }}>
               {submittedCount}/{myPlans.length} הוגשו
             </span>
           </div>
         )}
 
         {actionErr && (
-          <div style={{ padding: '8px 14px', background: 'rgba(248,81,73,0.10)', border: `1px solid rgba(248,81,73,0.3)`, borderRadius: '8px', color: '#f85149', fontSize: '13px', marginBottom: '12px' }}>
+          <div style={{ padding: '8px 14px', background: 'rgba(248,81,73,0.10)', border: `1px solid rgba(248,81,73,0.3)`, borderRadius: '8px', color: '#f85149', fontSize: '15px', marginBottom: '12px' }}>
             {actionErr}
           </div>
         )}
 
         {noData && (
-          <div style={{ padding: '30px', textAlign: 'center', color: C.textMuted, fontSize: '14px' }}>
+          <div style={{ padding: '30px', textAlign: 'center', color: C.textMuted, fontSize: '15px' }}>
             {isClosed ? 'לא הוגשו תוכניות הטמעה לצוות זה בגרסה.' : 'אין CR-ים משויכים לצוות שלך בגרסה זו.'}
           </div>
         )}
@@ -448,10 +448,10 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
             return (
               <div key={crNumber} style={{ borderRadius: '10px', border: `1px solid ${C.border}`, background: C.bgCard, marginBottom: '10px', padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontWeight: '800', fontSize: '15px', color: C.textPrimary }}>{crNumber}</span>
-                  {assign?.crLabel && <span style={{ fontSize: '13px', color: C.textMuted }}>{assign.crLabel}</span>}
+                  <span style={{ fontWeight: '800', fontSize: '16px', color: C.textPrimary }}>{crNumber}</span>
+                  {assign?.crLabel && <span style={{ fontSize: '15px', color: C.textMuted }}>{assign.crLabel}</span>}
                   <StatusPill status="DRAFT" />
-                  <span style={{ marginRight: 'auto', fontSize: '12px', color: C.textMuted }}>תוכנית לא נוצרה עדיין</span>
+                  <span style={{ marginRight: 'auto', fontSize: '14px', color: C.textMuted }}>תוכנית לא נוצרה עדיין</span>
                 </div>
               </div>
             );
@@ -471,7 +471,7 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
   const statCard = (label: string, value: number, color: string, bg: string) => (
     <div style={{ padding: '14px 18px', borderRadius: '10px', background: bg, border: `1px solid ${color}33`, textAlign: 'center', flex: '1 1 100px' }}>
       <div style={{ fontSize: '28px', fontWeight: '900', color, lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: '12px', color, fontWeight: '600', marginTop: '4px' }}>{label}</div>
+      <div style={{ fontSize: '14px', color, fontWeight: '600', marginTop: '4px' }}>{label}</div>
     </div>
   );
 
@@ -497,7 +497,7 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
     <div style={{ direction: 'rtl' }}>
       {/* ── Closed banner ── */}
       {isClosed && (
-        <div style={{ padding: '8px 14px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: '8px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: C.textMuted }}>
+        <div style={{ padding: '8px 14px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: '8px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', color: C.textMuted }}>
           🔒 <strong style={{ color: C.textSecondary }}>גרסה סגורה — צפייה בלבד</strong>
         </div>
       )}
@@ -517,26 +517,26 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
             <div style={{ flex: 1, height: '7px', background: C.border, borderRadius: '4px', overflow: 'hidden' }}>
               <div style={{ height: '100%', borderRadius: '4px', background: pct === 100 ? '#3fb950' : '#4573D2', width: `${pct}%`, transition: 'width 0.4s' }} />
             </div>
-            <span style={{ fontSize: '13px', fontWeight: '700', color: pct === 100 ? '#3fb950' : C.textMuted, whiteSpace: 'nowrap' }}>{pct}% אושרו</span>
+            <span style={{ fontSize: '15px', fontWeight: '700', color: pct === 100 ? '#3fb950' : C.textMuted, whiteSpace: 'nowrap' }}>{pct}% אושרו</span>
           </div>
         </div>
       )}
 
       {/* ── CR Manager pending approval indicator ── */}
       {pendingCrManagerCrs.length > 0 && (
-        <div style={{ padding: '10px 14px', background: C.warningBg, border: `1px solid ${C.warning}44`, borderRadius: '8px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: C.warning, fontWeight: '600' }}>
+        <div style={{ padding: '10px 14px', background: C.warningBg, border: `1px solid ${C.warning}44`, borderRadius: '8px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', color: C.warning, fontWeight: '600' }}>
           ⏳ {pendingCrManagerCrs.length} CR ממתינים לאישור מנהל CR לפני מעבר לסקירה: {pendingCrManagerCrs.join(', ')}
         </div>
       )}
 
       {actionErr && (
-        <div style={{ padding: '8px 14px', background: 'rgba(248,81,73,0.10)', border: `1px solid rgba(248,81,73,0.3)`, borderRadius: '8px', color: '#f85149', fontSize: '13px', marginBottom: '12px' }}>
+        <div style={{ padding: '8px 14px', background: 'rgba(248,81,73,0.10)', border: `1px solid rgba(248,81,73,0.3)`, borderRadius: '8px', color: '#f85149', fontSize: '15px', marginBottom: '12px' }}>
           {actionErr}
         </div>
       )}
 
       {noData && (
-        <div style={{ padding: '30px', textAlign: 'center', color: C.textMuted, fontSize: '14px' }}>
+        <div style={{ padding: '30px', textAlign: 'center', color: C.textMuted, fontSize: '15px' }}>
           {isClosed ? 'לא הוגשו תוכניות הטמעה בגרסה זו.' : 'אין CR-ים בגרסה זו — יש לסנכרן מקובץ ה-CR.'}
         </div>
       )}
@@ -556,18 +556,18 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
               onClick={() => setExpanded(prev => { const n = new Set(prev); n.has(crNumber) ? n.delete(crNumber) : n.add(crNumber); return n; })}
               style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', background: C.bgNested, userSelect: 'none' }}
             >
-              <span style={{ fontWeight: '800', fontSize: '15px', color: C.textPrimary }}>{crNumber}</span>
-              {assign?.crLabel && <span style={{ fontSize: '13px', color: C.textMuted, flex: 1 }}>{assign.crLabel}</span>}
-              <span style={{ fontSize: '12px', color: headerColor, fontWeight: '700', marginRight: 'auto' }}>
+              <span style={{ fontWeight: '800', fontSize: '16px', color: C.textPrimary }}>{crNumber}</span>
+              {assign?.crLabel && <span style={{ fontSize: '15px', color: C.textMuted, flex: 1 }}>{assign.crLabel}</span>}
+              <span style={{ fontSize: '14px', color: headerColor, fontWeight: '700', marginRight: 'auto' }}>
                 {allApproved ? '✅ כל התוכניות אושרו' : anyPending ? `📤 ${crPlans.filter(p => p.submissionStatus === 'SUBMITTED').length} ממתין לסקירה` : `${crPlans.length} צוותים`}
               </span>
-              <span style={{ color: C.textMuted, fontSize: '13px' }}>{isOpen ? '▲' : '▼'}</span>
+              <span style={{ color: C.textMuted, fontSize: '15px' }}>{isOpen ? '▲' : '▼'}</span>
             </div>
 
             {isOpen && (
               <div>
                 {crPlans.length === 0 ? (
-                  <div style={{ padding: '14px 16px', color: C.textMuted, fontSize: '13px', fontStyle: 'italic' }}>
+                  <div style={{ padding: '14px 16px', color: C.textMuted, fontSize: '15px', fontStyle: 'italic' }}>
                     לא הוגשה תוכנית הטמעה לאף צוות עדיין.
                   </div>
                 ) : (
@@ -583,15 +583,15 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
       {returningId && (
         <div style={{ position: 'fixed', inset: 0, background: C.bgOverlay, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
           <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px 28px', width: '420px', maxWidth: '90vw', boxShadow: '0 8px 32px rgba(0,0,0,0.25)', direction: 'rtl' }}>
-            <div style={{ fontWeight: '800', fontSize: '16px', marginBottom: '12px', color: C.textPrimary }}>↩️ החזרת תוכנית לתיקון</div>
-            <div style={{ fontSize: '13px', color: C.textMuted, marginBottom: '10px' }}>נא לציין את הסיבה להחזרה (תוצג לראש הצוות):</div>
+            <div style={{ fontWeight: '800', fontSize: '17px', marginBottom: '12px', color: C.textPrimary }}>↩️ החזרת תוכנית לתיקון</div>
+            <div style={{ fontSize: '15px', color: C.textMuted, marginBottom: '10px' }}>נא לציין את הסיבה להחזרה (תוצג לראש הצוות):</div>
             <textarea
               value={returnReason}
               onChange={e => setReturnReason(e.target.value)}
               rows={3}
               placeholder="הסיבה להחזרה..."
               autoFocus
-              style={{ width: '100%', padding: '8px 12px', border: `1px solid ${C.border}`, borderRadius: '8px', background: C.bgNested, fontSize: '13px', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: '14px' }}
+              style={{ width: '100%', padding: '8px 12px', border: `1px solid ${C.border}`, borderRadius: '8px', background: C.bgNested, fontSize: '15px', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: '14px' }}
             />
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
               <button onClick={() => setReturningId(null)} style={secondaryBtn}>ביטול</button>
@@ -607,14 +607,14 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
       {noteId && (
         <div style={{ position: 'fixed', inset: 0, background: C.bgOverlay, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
           <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px 28px', width: '400px', maxWidth: '90vw', boxShadow: '0 8px 32px rgba(0,0,0,0.25)', direction: 'rtl' }}>
-            <div style={{ fontWeight: '800', fontSize: '16px', marginBottom: '12px', color: C.textPrimary }}>💬 הערת סקירה</div>
+            <div style={{ fontWeight: '800', fontSize: '17px', marginBottom: '12px', color: C.textPrimary }}>💬 הערת סקירה</div>
             <textarea
               value={noteText}
               onChange={e => setNoteText(e.target.value)}
               rows={3}
               placeholder="הערה לראש הצוות (אופציונלי)..."
               autoFocus
-              style={{ width: '100%', padding: '8px 12px', border: `1px solid ${C.border}`, borderRadius: '8px', background: C.bgNested, fontSize: '13px', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: '14px' }}
+              style={{ width: '100%', padding: '8px 12px', border: `1px solid ${C.border}`, borderRadius: '8px', background: C.bgNested, fontSize: '15px', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: '14px' }}
             />
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
               <button onClick={() => { setNoteId(null); setNoteText(''); }} style={secondaryBtn}>ביטול</button>
@@ -630,16 +630,16 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
 /* ── Shared button styles ─────────────────────────────────────────────────── */
 const primaryBtn: React.CSSProperties = {
   padding: '7px 16px', background: C.brand, color: '#fff', border: 'none',
-  borderRadius: '7px', cursor: 'pointer', fontSize: '13px', fontWeight: '700',
+  borderRadius: '7px', cursor: 'pointer', fontSize: '15px', fontWeight: '700',
 };
 const secondaryBtn: React.CSSProperties = {
   padding: '7px 16px', background: 'transparent', color: C.textSecondary,
-  border: `1px solid ${C.border}`, borderRadius: '7px', cursor: 'pointer', fontSize: '13px',
+  border: `1px solid ${C.border}`, borderRadius: '7px', cursor: 'pointer', fontSize: '15px',
 };
 const actionBtn: React.CSSProperties = {
-  padding: '5px 14px', borderRadius: '7px', cursor: 'pointer', fontSize: '12px', fontWeight: '700',
+  padding: '5px 14px', borderRadius: '7px', cursor: 'pointer', fontSize: '14px', fontWeight: '700',
 };
 const ghostBtn: React.CSSProperties = {
   padding: '5px 10px', background: 'transparent', border: `1px solid ${C.border}`,
-  borderRadius: '7px', cursor: 'pointer', fontSize: '13px',
+  borderRadius: '7px', cursor: 'pointer', fontSize: '15px',
 };

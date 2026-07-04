@@ -65,10 +65,10 @@ const BarChart: React.FC<{ title: string; data: { label: string; count: number; 
   const max = Math.max(...data.map(d => d.count), 1);
   return (
     <div style={{ background: C.bgNested, borderRadius: '8px', padding: '12px 16px', border: `1px solid ${C.border}` }}>
-      <div style={{ fontSize: '12px', fontWeight: 'bold', color: C.textMuted, marginBottom: '10px' }}>{title}</div>
+      <div style={{ fontSize: '14px', fontWeight: 'bold', color: C.textMuted, marginBottom: '10px' }}>{title}</div>
       {data.map(d => (
         <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-          <div style={{ width: '72px', fontSize: '11px', color: C.textMuted, textAlign: 'right', flexShrink: 0 }}>{d.label}</div>
+          <div style={{ width: '72px', fontSize: '13px', color: C.textMuted, textAlign: 'right', flexShrink: 0 }}>{d.label}</div>
           <div style={{ flex: 1, background: C.bgHover, borderRadius: '4px', height: '20px', overflow: 'hidden' }}>
             <div style={{
               width: `${Math.max((d.count / max) * 100, d.count > 0 ? 8 : 0)}%`,
@@ -76,10 +76,10 @@ const BarChart: React.FC<{ title: string; data: { label: string; count: number; 
               display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingLeft: '6px',
               transition: 'width 0.4s',
             }}>
-              {d.count > 0 && <span style={{ fontSize: '11px', color: 'white', fontWeight: 'bold', paddingLeft: '4px' }}>{d.count}</span>}
+              {d.count > 0 && <span style={{ fontSize: '13px', color: 'white', fontWeight: 'bold', paddingLeft: '4px' }}>{d.count}</span>}
             </div>
           </div>
-          {d.count === 0 && <span style={{ fontSize: '11px', color: C.textDisabled }}>0</span>}
+          {d.count === 0 && <span style={{ fontSize: '13px', color: C.textDisabled }}>0</span>}
         </div>
       ))}
     </div>
@@ -87,7 +87,7 @@ const BarChart: React.FC<{ title: string; data: { label: string; count: number; 
 };
 
 function badgeStyle(bg: string, color: string): React.CSSProperties {
-  return { background: bg, color, padding: '4px 14px', borderRadius: '20px', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap' };
+  return { background: bg, color, padding: '4px 14px', borderRadius: '20px', fontWeight: 'bold', fontSize: '15px', whiteSpace: 'nowrap' };
 }
 
 export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, isRehearsal = false, onApproved, onGoToHub }) => {
@@ -159,7 +159,8 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
       // שמור headline/morningNotes אם הסיכום כבר מאושר
       if (summaryRecord) {
         try {
-          const updated = await axios.patch(`${API}/summary/${versionId}`, { headline, morningNotes }, { headers });
+          const updateEndpoint = isRehearsal ? `${API}/summary/${versionId}/rehearsal` : `${API}/summary/${versionId}`;
+          const updated = await axios.patch(updateEndpoint, { headline, morningNotes }, { headers });
           setSummaryRecord(updated.data);
         } catch { /* שגיאת שמירה לא חוסמת שליחת מייל */ }
       }
@@ -435,6 +436,18 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
   const copyToEmail = async () => {
     const html = buildEmailHtml();
     const text = buildEmailText();
+    // navigator.clipboard only exists in a "secure context" (HTTPS, or localhost) —
+    // on a production server reached over plain HTTP by hostname/IP, the whole
+    // Clipboard API is undefined and every branch below throws, so the button
+    // must surface that clearly instead of failing silently.
+    if (!navigator.clipboard) {
+      dialog.alert(
+        'העתקה אוטומטית לא זמינה — הדפדפן חוסם גישה ללוח ההעתקה כי האתר לא נטען דרך HTTPS (או localhost). בחר את הטקסט למטה והעתק ידנית (Ctrl+C).',
+        'העתקה לא זמינה',
+        'warning',
+      );
+      return;
+    }
     try {
       await navigator.clipboard.write([
         new ClipboardItem({
@@ -443,7 +456,12 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         }),
       ]);
     } catch {
-      await navigator.clipboard.writeText(text);
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (err: any) {
+        dialog.alert(err?.message || 'שגיאה בהעתקה ללוח', 'שגיאה בהעתקה', 'danger');
+        return;
+      }
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
@@ -754,7 +772,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 </body></html>`;
   };
 
-  const tdBase: React.CSSProperties = { padding: '8px 10px', border: `1px solid ${C.border}`, fontSize: '13px', verticalAlign: 'middle', color: C.textSecondary };
+  const tdBase: React.CSSProperties = { padding: '8px 10px', border: `1px solid ${C.border}`, fontSize: '15px', verticalAlign: 'middle', color: C.textSecondary };
 
   const timelineDelayBadge = (delayMins: number | null) => {
     if (delayMins === null) return <span style={badgeStyle(C.bgHover, C.textMuted)}>— ממתין לנתונים</span>;
@@ -805,15 +823,15 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         if (rollbackTasks.length === 0) return null;
         return (
           <div style={{ background: C.nogoBg, border: `2px solid ${C.nogoBorder}`, borderRadius: '12px', padding: '14px 20px', marginBottom: '16px' }}>
-            <div style={{ fontWeight: 'bold', color: C.nogoText, fontSize: '15px', marginBottom: '8px' }}>🔴 נדרש Rollback לגרסה!</div>
+            <div style={{ fontWeight: 'bold', color: C.nogoText, fontSize: '16px', marginBottom: '8px' }}>🔴 נדרש Rollback לגרסה!</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {rollbackTasks.map(t => (
-                <div key={t.id} style={{ fontSize: '13px', color: C.textSecondary }}>
+                <div key={t.id} style={{ fontSize: '15px', color: C.textSecondary }}>
                   ✗ <strong style={{ color: C.textPrimary }}>{t.title}</strong> — {t.failedReason}
                 </div>
               ))}
             </div>
-            <div style={{ marginTop: '10px', fontSize: '12px', color: C.nogoText, fontWeight: 'bold' }}>
+            <div style={{ marginTop: '10px', fontSize: '14px', color: C.nogoText, fontWeight: 'bold' }}>
               לא ניתן לאשר סיכום עד לביצוע Rollback. פנה למנהל הלילה.
             </div>
           </div>
@@ -942,7 +960,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         {/* ── Timeline ── */}
         {phaseTimelines.length > 0 && (
           <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}` }}>
-            <h3 style={{ margin: '0 0 16px', color: C.textPrimary, fontSize: '16px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>⏱ לוחות זמנים</h3>
+            <h3 style={{ margin: '0 0 16px', color: C.textPrimary, fontSize: '17px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>⏱ לוחות זמנים</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {phaseTimelines.map((pt, idx) => {
                 const isLate  = pt.delayMins !== null && pt.delayMins >= SIGNIFICANT_MINS;
@@ -957,9 +975,9 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                     {/* Header row */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                        <span style={{ background: envBg, color: envColor, padding: '3px 12px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold', border: `1px solid ${envColor}33` }}>{pt.environment}</span>
-                        <span style={{ fontWeight: '700', color: C.textPrimary, fontSize: '15px' }}>{pt.name}</span>
-                        <span style={{ fontSize: '12px', color: C.textMuted, background: C.bgNested, padding: '2px 8px', borderRadius: '8px' }}>{pt.doneTasks}/{pt.totalTasks} משימות</span>
+                        <span style={{ background: envBg, color: envColor, padding: '3px 12px', borderRadius: '12px', fontSize: '14px', fontWeight: 'bold', border: `1px solid ${envColor}33` }}>{pt.environment}</span>
+                        <span style={{ fontWeight: '700', color: C.textPrimary, fontSize: '16px' }}>{pt.name}</span>
+                        <span style={{ fontSize: '14px', color: C.textMuted, background: C.bgNested, padding: '2px 8px', borderRadius: '8px' }}>{pt.doneTasks}/{pt.totalTasks} משימות</span>
                       </div>
                       {timelineDelayBadge(pt.delayMins)}
                     </div>
@@ -972,14 +990,14 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                         { label: 'סיום בפועל',    value: pt.actualEnd    ? fmtTime(pt.actualEnd.toISOString())    : '—', color: isLate ? C.statusFailed : C.statusDone },
                       ].map(f => (
                         <div key={f.label} style={{ background: '#FFFFFF', border: `1px solid ${C.border}`, borderRadius: '8px', padding: '8px 12px' }}>
-                          <div style={{ color: C.textMuted, fontSize: '11px', marginBottom: '4px', fontWeight: '500' }}>{f.label}</div>
-                          <div style={{ fontWeight: '700', color: f.color, fontSize: '15px', letterSpacing: '0.3px' }}>{f.value}</div>
+                          <div style={{ color: C.textMuted, fontSize: '13px', marginBottom: '4px', fontWeight: '500' }}>{f.label}</div>
+                          <div style={{ fontWeight: '700', color: f.color, fontSize: '16px', letterSpacing: '0.3px' }}>{f.value}</div>
                         </div>
                       ))}
                     </div>
                     {/* Delay reason */}
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                      <label style={{ fontSize: '12px', color: isLate ? C.statusFailed : C.textMuted, paddingTop: '8px', flexShrink: 0, fontWeight: isLate ? '600' : 'normal' }}>
+                      <label style={{ fontSize: '14px', color: isLate ? C.statusFailed : C.textMuted, paddingTop: '8px', flexShrink: 0, fontWeight: isLate ? '600' : 'normal' }}>
                         {isLate ? '⚠️ סיבת חריגה *' : 'סיבת חריגה / הערה'}
                       </label>
                       <textarea
@@ -990,7 +1008,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                         style={{
                           flex: 1, padding: '7px 10px',
                           border: `1px solid ${isLate && !(phaseDelayReasons[idx] || '').trim() ? C.statusFailed : C.border}`,
-                          borderRadius: '6px', fontSize: '13px', resize: 'vertical', fontFamily: FONT, direction: 'rtl',
+                          borderRadius: '6px', fontSize: '15px', resize: 'vertical', fontFamily: FONT, direction: 'rtl',
                           background: C.bgNested, color: C.textPrimary, outline: 'none',
                         }}
                       />
@@ -1005,11 +1023,11 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         {/* ── תקלות מהמערכת ── */}
         {blockedTasks.length > 0 && (
           <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', border: `2px solid ${C.statusFailed}` }}>
-            <h3 style={{ margin: '0 0 12px', color: C.statusFailed, fontSize: '15px' }}>תקלות ({blockedTasks.length})</h3>
+            <h3 style={{ margin: '0 0 12px', color: C.statusFailed, fontSize: '16px' }}>תקלות ({blockedTasks.length})</h3>
             {blockedTasks.map(task => (
               <div key={task.id} style={{ background: C.bgBlocked, borderRadius: '8px', padding: '12px', marginBottom: '8px', border: `1px solid ${C.statusFailed}33` }}>
-                <div style={{ fontWeight: 'bold', color: C.statusFailed, fontSize: '14px' }}>{task.title}</div>
-                <div style={{ fontSize: '12px', color: C.textMuted, marginTop: '4px' }}>
+                <div style={{ fontWeight: 'bold', color: C.statusFailed, fontSize: '15px' }}>{task.title}</div>
+                <div style={{ fontSize: '14px', color: C.textMuted, marginTop: '4px' }}>
                   {task.assignedTeam?.name && <span>צוות: {task.assignedTeam.name} | </span>}
                   {task.blockedReason && <span>סיבה: {task.blockedReason}</span>}
                 </div>
@@ -1022,8 +1040,8 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         {(
           <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ margin: 0, color: C.textPrimary, fontSize: '16px', fontWeight: '700' }}>🧪 תכולת בדיקות (QC Test Coverage)</h3>
-              <span style={{ fontSize: '11px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
+              <h3 style={{ margin: 0, color: C.textPrimary, fontSize: '17px', fontWeight: '700' }}>🧪 תכולת בדיקות (QC Test Coverage)</h3>
+              <span style={{ fontSize: '13px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
             </div>
             {qcLoading ? (
               <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted }}>טוען נתוני QC...</div>
@@ -1031,11 +1049,11 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
               <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted, background: C.bgNested, borderRadius: '8px' }}>אין נתוני בדיקות</div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                   <thead>
                     <tr style={{ background: C.bgActive }}>
                       {['#', 'פרויקט/רגרסיה/באג', 'כותרת / CR', 'אחראי', 'Passed', 'Failed', 'Not Completed', 'Blocked', 'Not Run', 'הערות'].map(h => (
-                        <th key={h} style={{ padding: '9px 10px', textAlign: 'right', color: C.textPrimary, fontWeight: '600', whiteSpace: 'nowrap', border: `1px solid ${C.border}`, fontSize: '12px' }}>{h}</th>
+                        <th key={h} style={{ padding: '9px 10px', textAlign: 'right', color: C.textPrimary, fontWeight: '600', whiteSpace: 'nowrap', border: `1px solid ${C.border}`, fontSize: '14px' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -1057,7 +1075,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                             onChange={e => setCoverageRemarks(prev => ({ ...prev, [i]: e.target.value }))}
                             placeholder="הערות..."
                             rows={2}
-                            style={{ width: '100%', padding: '4px', border: `1px solid ${C.border}`, borderRadius: '4px', fontSize: '11px', resize: 'vertical', fontFamily: FONT, direction: 'rtl', boxSizing: 'border-box', background: C.bgHover, color: C.textPrimary }}
+                            style={{ width: '100%', padding: '4px', border: `1px solid ${C.border}`, borderRadius: '4px', fontSize: '13px', resize: 'vertical', fontFamily: FONT, direction: 'rtl', boxSizing: 'border-box', background: C.bgHover, color: C.textPrimary }}
                           />
                         </td>
                       </tr>
@@ -1073,13 +1091,13 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         {(
           <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ margin: 0, color: C.textPrimary, fontSize: '15px' }}>🐛 תקלות שדווחו (QC)</h3>
-              <span style={{ fontSize: '11px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
+              <h3 style={{ margin: 0, color: C.textPrimary, fontSize: '16px' }}>🐛 תקלות שדווחו (QC)</h3>
+              <span style={{ fontSize: '13px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
             </div>
             {qcLoading ? (
               <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted }}>טוען נתוני QC...</div>
             ) : defects.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '20px', color: C.statusDone, background: C.bgDone, borderRadius: '8px', fontSize: '14px', fontWeight: 'bold', border: `1px solid ${C.statusDone}44` }}>
+              <div style={{ textAlign: 'center', padding: '20px', color: C.statusDone, background: C.bgDone, borderRadius: '8px', fontSize: '15px', fontWeight: 'bold', border: `1px solid ${C.statusDone}44` }}>
                 ✅ לא דווחו תקלות במהלך הפעילות
               </div>
             ) : (
@@ -1090,11 +1108,11 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                   <BarChart title="התפלגות לפי Responsibility" data={responsibilityData} />
                 </div>
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                     <thead>
                       <tr style={{ background: C.bgNested }}>
                         {['ID', 'כותרת התקלה', 'תיאור', 'חומרה', 'עדיפות', 'צוות אחראי', 'דווח ע"י', 'תאריך גילוי', 'סביבה', 'סטטוס', 'שלב בדיקה', 'סוג תקלה', 'הערות', 'מלל חופשי'].map(h => (
-                          <th key={h} style={{ padding: '7px 8px', textAlign: 'right', color: C.textSecondary, fontWeight: 'bold', whiteSpace: 'nowrap', border: `1px solid ${C.border}`, fontSize: '11px' }}>{h}</th>
+                          <th key={h} style={{ padding: '7px 8px', textAlign: 'right', color: C.textSecondary, fontWeight: 'bold', whiteSpace: 'nowrap', border: `1px solid ${C.border}`, fontSize: '13px' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
@@ -1105,7 +1123,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                           <td style={{ ...tdBase, maxWidth: '160px', fontWeight: 'bold', color: C.textPrimary }}>{d.title}</td>
                           <td style={{ ...tdBase, maxWidth: '220px' }}>{d.description}</td>
                           <td style={{ ...tdBase }}>
-                            <span style={{ background: (SEVERITY_COLORS[d.severity] || '#95a5a6') + '22', color: SEVERITY_COLORS[d.severity] || '#95a5a6', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', fontSize: '11px', whiteSpace: 'nowrap' }}>{d.severity}</span>
+                            <span style={{ background: (SEVERITY_COLORS[d.severity] || '#95a5a6') + '22', color: SEVERITY_COLORS[d.severity] || '#95a5a6', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap' }}>{d.severity}</span>
                           </td>
                           <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.priority}</td>
                           <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.assignedTo}</td>
@@ -1116,7 +1134,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                             <span style={{
                               background: d.status === 'Open' ? C.bgBlocked : d.status === 'Closed' ? C.bgDone : C.bgHover,
                               color: d.status === 'Open' ? C.statusFailed : d.status === 'Closed' ? C.statusDone : C.textMuted,
-                              padding: '1px 8px', borderRadius: '8px', fontWeight: 'bold', fontSize: '11px', whiteSpace: 'nowrap',
+                              padding: '1px 8px', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap',
                             }}>{d.status}</span>
                           </td>
                           <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.testPhase}</td>
@@ -1128,7 +1146,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                               onChange={e => setDefectRemarks(prev => ({ ...prev, [d.id]: e.target.value }))}
                               placeholder="מלל חופשי..."
                               rows={2}
-                              style={{ width: '100%', padding: '4px', border: `1px solid ${C.border}`, borderRadius: '4px', fontSize: '11px', resize: 'vertical', fontFamily: FONT, direction: 'rtl', boxSizing: 'border-box', background: C.bgHover, color: C.textPrimary }}
+                              style={{ width: '100%', padding: '4px', border: `1px solid ${C.border}`, borderRadius: '4px', fontSize: '13px', resize: 'vertical', fontFamily: FONT, direction: 'rtl', boxSizing: 'border-box', background: C.bgHover, color: C.textPrimary }}
                             />
                           </td>
                         </tr>
@@ -1143,12 +1161,12 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 
         {/* ── הערות לצוות הבוקר ── */}
         <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}` }}>
-          <h3 style={{ margin: '0 0 12px', color: C.textPrimary, fontSize: '15px' }}>הערות לצוות הבוקר</h3>
+          <h3 style={{ margin: '0 0 12px', color: C.textPrimary, fontSize: '16px' }}>הערות לצוות הבוקר</h3>
           <textarea value={morningNotes} onChange={e => setMorningNotes(e.target.value)}
             placeholder="פריטים שדורשים מעקב בוקר..."
             rows={3} style={{
               width: '100%', padding: '10px', border: `1px solid ${C.borderEm}`, borderRadius: '8px',
-              fontSize: '14px', boxSizing: 'border-box', resize: 'vertical', fontFamily: FONT, direction: 'rtl',
+              fontSize: '15px', boxSizing: 'border-box', resize: 'vertical', fontFamily: FONT, direction: 'rtl',
               background: C.bgNested, color: C.textPrimary, outline: 'none',
             }} />
         </div>
@@ -1156,8 +1174,8 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         {/* ── משימות נכשלות — אישור דילוג (מנהל בלבד) ── */}
         {canForceApprove && failedNightTasks.length > 0 && !summaryRecord?.sentAt && (
           <div style={{ background: C.bgCard, border: `2px solid ${C.statusFailed}`, borderRadius: '12px', padding: '20px' }}>
-            <h3 style={{ margin: '0 0 12px', color: C.statusFailed, fontSize: '15px' }}>⚠️ משימות נכשלות ({failedNightTasks.length})</h3>
-            <p style={{ margin: '0 0 12px', fontSize: '13px', color: C.textMuted }}>
+            <h3 style={{ margin: '0 0 12px', color: C.statusFailed, fontSize: '16px' }}>⚠️ משימות נכשלות ({failedNightTasks.length})</h3>
+            <p style={{ margin: '0 0 12px', fontSize: '15px', color: C.textMuted }}>
               סמן משימות שנכשלו כ"מאושר לדילוג" כדי לאפשר הפקת סיכום מבלי לעקוף GO/NO GO.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -1167,13 +1185,13 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                   background: t.goNoGoWaived ? C.bgDone : C.bgBlocked,
                   border: `1px solid ${t.goNoGoWaived ? C.statusDone + '44' : C.statusFailed + '44'}`,
                 }}>
-                  <span style={{ flex: 1, fontSize: '13px', color: t.goNoGoWaived ? C.statusDone : C.statusFailed, fontWeight: t.goNoGoWaived ? 'normal' : 'bold' }}>
+                  <span style={{ flex: 1, fontSize: '15px', color: t.goNoGoWaived ? C.statusDone : C.statusFailed, fontWeight: t.goNoGoWaived ? 'normal' : 'bold' }}>
                     {t.goNoGoWaived ? '✓ ' : '✗ '}{t.title}
                   </span>
-                  {t.assignedTeam?.name && <span style={{ fontSize: '11px', color: C.textMuted }}>{t.assignedTeam.name}</span>}
+                  {t.assignedTeam?.name && <span style={{ fontSize: '13px', color: C.textMuted }}>{t.assignedTeam.name}</span>}
                   <button
                     onClick={() => waiveTask(t.id)}
-                    style={{ padding: '4px 12px', fontSize: '12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap',
+                    style={{ padding: '4px 12px', fontSize: '14px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap',
                       background: t.goNoGoWaived ? C.bgHover : '#e67e22', color: t.goNoGoWaived ? C.textMuted : 'white' }}>
                     {t.goNoGoWaived ? 'בטל אישור' : '✓ אשר דילוג'}
                   </button>
@@ -1195,12 +1213,12 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <span style={{ fontSize: '24px' }}>✅</span>
                 <div>
-                  <div style={{ fontWeight: 'bold', color: C.statusDone, fontSize: '15px' }}>הסיכום אושר ונשמר במערכת</div>
-                  <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '2px' }}>
+                  <div style={{ fontWeight: 'bold', color: C.statusDone, fontSize: '16px' }}>הסיכום אושר ונשמר במערכת</div>
+                  <div style={{ fontSize: '15px', color: C.textMuted, marginTop: '2px' }}>
                     {new Date(summaryRecord.sentAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </div>
                   {summaryRecord.forceApprovedBy && (
-                    <div style={{ fontSize: '12px', color: C.statusInProgress, marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ fontSize: '14px', color: C.statusInProgress, marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span>⚠️</span>
                       <span>
                         אושר בעקיפת GO על-ידי {summaryRecord.forceApprovedBy}
@@ -1213,12 +1231,12 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
                 {canForceApprove && !editingApproved && (
                   <button onClick={() => { setHeadline(summaryRecord?.headline || ''); setMorningNotes(summaryRecord?.morningNotes || ''); setEditingApproved(true); }}
-                    style={{ padding: '10px 18px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', fontFamily: FONT }}>
+                    style={{ padding: '10px 18px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px', fontFamily: FONT }}>
                     ✏️ ערוך דוח
                   </button>
                 )}
                 <button onClick={copyToEmail}
-                  style={{ padding: '10px 24px', background: copied ? C.statusDone : C.statusWaiting, color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', fontFamily: FONT, transition: 'background 0.2s' }}>
+                  style={{ padding: '10px 24px', background: copied ? C.statusDone : C.statusWaiting, color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px', fontFamily: FONT, transition: 'background 0.2s' }}>
                   {copied ? '✓ הועתק!' : '📋 העתק לאימייל'}
                 </button>
                 <button
@@ -1229,13 +1247,13 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                     background: emailSending ? C.textDisabled : emailStatus === 'ok' ? C.statusDone : emailStatus === 'err' ? C.statusFailed : emailEnabled ? C.brand : C.bgHover,
                     color: 'white', border: 'none', borderRadius: '8px',
                     cursor: emailSending ? 'not-allowed' : 'pointer',
-                    fontWeight: 'bold', fontSize: '14px', transition: 'background 0.2s',
+                    fontWeight: 'bold', fontSize: '15px', transition: 'background 0.2s',
                   }}
                 >
                   {emailSending ? '⏳ שולח...' : emailStatus === 'ok' ? '✓ נשלח!' : emailStatus === 'err' ? '✗ שגיאה' : '📧 שלח במייל לרשימת תפוצה'}
                 </button>
                 {emailStatus === 'err' && emailError && (
-                  <div style={{ fontSize: '12px', color: C.statusFailed, marginTop: '4px' }}>{emailError}</div>
+                  <div style={{ fontSize: '14px', color: C.statusFailed, marginTop: '4px' }}>{emailError}</div>
                 )}
               </div>
             </div>
@@ -1243,23 +1261,23 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
             {/* ── עריכת דוח לאחר אישור (מנהל לילה בלבד) ── */}
             {editingApproved && canForceApprove && (
               <div style={{ marginTop: '16px', borderTop: `1px solid ${C.border}`, paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <div style={{ fontSize: '13px', fontWeight: 'bold', color: C.statusInProgress }}>✏️ עריכת תוכן הדוח</div>
+                <div style={{ fontSize: '15px', fontWeight: 'bold', color: C.statusInProgress }}>✏️ עריכת תוכן הדוח</div>
                 <div>
-                  <label style={{ fontSize: '12px', color: C.textMuted, display: 'block', marginBottom: '4px' }}>עיקרי הדברים</label>
+                  <label style={{ fontSize: '14px', color: C.textMuted, display: 'block', marginBottom: '4px' }}>עיקרי הדברים</label>
                   <textarea
                     value={headline}
                     onChange={e => setHeadline(e.target.value)}
                     rows={3}
-                    style={{ width: '100%', padding: '8px', borderRadius: '8px', border: `1px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, fontSize: '13px', fontFamily: FONT, resize: 'vertical', boxSizing: 'border-box' }}
+                    style={{ width: '100%', padding: '8px', borderRadius: '8px', border: `1px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, fontSize: '15px', fontFamily: FONT, resize: 'vertical', boxSizing: 'border-box' }}
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '12px', color: C.textMuted, display: 'block', marginBottom: '4px' }}>לתשומת לב צוות הבוקר</label>
+                  <label style={{ fontSize: '14px', color: C.textMuted, display: 'block', marginBottom: '4px' }}>לתשומת לב צוות הבוקר</label>
                   <textarea
                     value={morningNotes}
                     onChange={e => setMorningNotes(e.target.value)}
                     rows={3}
-                    style={{ width: '100%', padding: '8px', borderRadius: '8px', border: `1px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, fontSize: '13px', fontFamily: FONT, resize: 'vertical', boxSizing: 'border-box' }}
+                    style={{ width: '100%', padding: '8px', borderRadius: '8px', border: `1px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, fontSize: '15px', fontFamily: FONT, resize: 'vertical', boxSizing: 'border-box' }}
                   />
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
@@ -1276,7 +1294,8 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                             phaseDelayReasonsForApi[pt.name] = reason.trim();
                           }
                         });
-                        const res = await axios.patch(`${API}/summary/${versionId}`, {
+                        const updateEndpoint = isRehearsal ? `${API}/summary/${versionId}/rehearsal` : `${API}/summary/${versionId}`;
+                        const res = await axios.patch(updateEndpoint, {
                           headline,
                           morningNotes,
                           ...(Object.keys(phaseDelayReasonsForApi).length > 0 && { crData: { phaseDelayReasons: phaseDelayReasonsForApi } }),
@@ -1287,11 +1306,11 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                         dialog.alert(err?.response?.data?.message || 'שגיאה בשמירה', 'שגיאה', 'danger');
                       } finally { setSavingEdit(false); }
                     }}
-                    style={{ padding: '8px 20px', background: savingEdit ? C.textDisabled : C.statusDone, color: 'white', border: 'none', borderRadius: '8px', cursor: savingEdit ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
+                    style={{ padding: '8px 20px', background: savingEdit ? C.textDisabled : C.statusDone, color: 'white', border: 'none', borderRadius: '8px', cursor: savingEdit ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
                     {savingEdit ? 'שומר...' : '✓ שמור שינויים'}
                   </button>
                   <button onClick={() => setEditingApproved(false)}
-                    style={{ padding: '8px 16px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                    style={{ padding: '8px 16px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '8px', cursor: 'pointer', fontSize: '15px' }}>
                     ביטול
                   </button>
                 </div>
@@ -1300,29 +1319,29 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
             </>
           ) : (
             <div>
-              <h3 style={{ margin: '0 0 12px', color: '#e67e22', fontSize: '15px' }}>
+              <h3 style={{ margin: '0 0 12px', color: '#e67e22', fontSize: '16px' }}>
                 {isRehearsal ? '⚠️ אישור סיכום החזרה הגנרלית' : '⚠️ אישור סיכום — נדרש לסיום הלילה'}
               </h3>
-              <p style={{ margin: '0 0 16px', fontSize: '13px', color: C.textMuted }}>
+              <p style={{ margin: '0 0 16px', fontSize: '15px', color: C.textMuted }}>
                 {isRehearsal ? 'אישור הסיכום ישמור אותו במערכת ויאפס את תוכנית העבודה לקראת ליל ההטמעה.' : 'לפני אישור הסיכום — קרא את הדוח בעיון ווודא שכל הנתונים מדויקים.'}
               </p>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: C.textSecondary, marginBottom: '14px', fontSize: '14px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: C.textSecondary, marginBottom: '14px', fontSize: '15px' }}>
                 <input type="checkbox" checked={readConfirmed} onChange={e => setReadConfirmed(e.target.checked)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
                 קראתי את הדוח ואישרתי שכל הנתונים נכונים
               </label>
               {approveError && (
-                <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', fontSize: '13px', color: C.statusFailed, marginBottom: '10px' }}>{approveError}</div>
+                <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', fontSize: '15px', color: C.statusFailed, marginBottom: '10px' }}>{approveError}</div>
               )}
               {!isGoNogo && !canForceApprove && (
-                <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', fontSize: '13px', color: C.statusFailed, marginBottom: '10px', fontWeight: 'bold' }}>
+                <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', fontSize: '15px', color: C.statusFailed, marginBottom: '10px', fontWeight: 'bold' }}>
                   🚫 לא ניתן לאשר סיכום — יש {goNogoWaiting + goNogoInc + goNogoBlocked} משימות לילה שטרם הושלמו
                   {isActiveRun && morningSubPhaseIds.size > 0 && (
-                    <div style={{ fontWeight: 'normal', fontSize: '12px', marginTop: '4px', color: C.statusFailed }}>משימות שלב הבוקר אינן נכללות בחישוב</div>
+                    <div style={{ fontWeight: 'normal', fontSize: '14px', marginTop: '4px', color: C.statusFailed }}>משימות שלב הבוקר אינן נכללות בחישוב</div>
                   )}
                 </div>
               )}
               {!isGoNogo && canForceApprove && (
-                <div style={{ background: C.bgInProgress, border: `1px solid ${C.statusInProgress}44`, borderRadius: '6px', padding: '10px 14px', fontSize: '13px', color: C.statusInProgress, marginBottom: '12px' }}>
+                <div style={{ background: C.bgInProgress, border: `1px solid ${C.statusInProgress}44`, borderRadius: '6px', padding: '10px 14px', fontSize: '15px', color: C.statusInProgress, marginBottom: '12px' }}>
                   <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>⚠️ עקיפת בדיקת GO — {goNogoWaiting + goNogoInc + goNogoBlocked} משימות לילה טרם הושלמו</div>
                   <div>בתור {userRole === 'ADMIN' ? 'מנהל מערכת' : 'מנהל לילה'} באפשרותך לאשר את הסיכום למרות זאת.</div>
                 </div>
@@ -1334,7 +1353,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                   color: (readConfirmed && canDownload) ? 'white' : C.textDisabled,
                   border: 'none', borderRadius: '8px',
                   cursor: (readConfirmed && canDownload) ? 'pointer' : 'not-allowed',
-                  fontWeight: 'bold', fontSize: '14px',
+                  fontWeight: 'bold', fontSize: '15px',
                 }}>
                 {approveLoading ? '...' : !isGoNogo && canForceApprove ? '⚠️ אשר סיכום בעקיפת GO' : '✅ אשר סיכום'}
               </button>
@@ -1349,8 +1368,8 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
               <div style={{ fontSize: '28px', fontWeight: 'bold', color: isRehearsal ? '#4c1d95' : '#1a2332' }}>
                 {isRehearsal ? '🎭 סיכום חזרה גנרלית' : '🌙 סיכום ליל ההטמעה'} (<bdi>{versionName}</bdi>)
               </div>
-              {isRehearsal && <div style={{ color: '#c0392b', fontSize: '13px', marginTop: '6px', fontWeight: 'bold' }}>⚠ מסמך זה הופק מחזרה גנרלית ואינו משקף לילה אמיתי</div>}
-              <div style={{ color: '#888', fontSize: '13px', marginTop: '6px' }}>
+              {isRehearsal && <div style={{ color: '#c0392b', fontSize: '15px', marginTop: '6px', fontWeight: 'bold' }}>⚠ מסמך זה הופק מחזרה גנרלית ואינו משקף לילה אמיתי</div>}
+              <div style={{ color: '#888', fontSize: '15px', marginTop: '6px' }}>
                 הופק: {new Date(summaryRecord.sentAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
               </div>
             </div>
@@ -1361,10 +1380,10 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                 <span style={{ fontSize: '18px', fontWeight: 'bold', color: effectiveGo ? '#27ae60' : '#e74c3c' }}>
                   {effectiveGo ? '✅ GO — הגרסה עברה בהצלחה' : '❌ NO GO'}
                 </span>
-                <span style={{ fontSize: '16px', color: '#333' }}>הושלמו <strong>{doneTasks.length}</strong> מתוך <strong>{tasks.length}</strong> משימות ({progressPercent}%)</span>
+                <span style={{ fontSize: '17px', color: '#333' }}>הושלמו <strong>{doneTasks.length}</strong> מתוך <strong>{tasks.length}</strong> משימות ({progressPercent}%)</span>
               </div>
               {effectiveGo && !isGoNogo && waitingTasks.length > 0 && (
-                <div style={{ fontSize: '13px', color: '#1e8449', marginTop: '6px' }}>
+                <div style={{ fontSize: '15px', color: '#1e8449', marginTop: '6px' }}>
                   המשך בפעילויות הבוקר שלאחר הגרסה — נותרו {waitingTasks.length} משימות לביצוע
                 </div>
               )}
@@ -1373,17 +1392,17 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
             {/* Headline */}
             {(autoHeadline || summaryRecord.headline || headline) && (
               <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ color: '#1a2332', margin: '0 0 8px', fontSize: '16px', borderRight: '4px solid #1a2332', paddingRight: '10px' }}>עיקרי הדברים</h3>
-                {autoHeadline && <div style={{ background: '#d5f0dc', border: '1px solid #a9dfbf', borderRadius: '6px', padding: '8px 12px', marginBottom: '8px', fontSize: '14px', color: '#1e8449', fontWeight: 'bold' }}>✅ {autoHeadline}</div>}
-                {(summaryRecord.headline || headline) && <p style={{ margin: 0, color: '#333', lineHeight: 1.7, fontSize: '14px', whiteSpace: 'pre-wrap' }}>{summaryRecord.headline || headline}</p>}
+                <h3 style={{ color: '#1a2332', margin: '0 0 8px', fontSize: '17px', borderRight: '4px solid #1a2332', paddingRight: '10px' }}>עיקרי הדברים</h3>
+                {autoHeadline && <div style={{ background: '#d5f0dc', border: '1px solid #a9dfbf', borderRadius: '6px', padding: '8px 12px', marginBottom: '8px', fontSize: '15px', color: '#1e8449', fontWeight: 'bold' }}>✅ {autoHeadline}</div>}
+                {(summaryRecord.headline || headline) && <p style={{ margin: 0, color: '#333', lineHeight: 1.7, fontSize: '15px', whiteSpace: 'pre-wrap' }}>{summaryRecord.headline || headline}</p>}
               </div>
             )}
 
             {/* Timeline in report */}
             {phaseTimelines.length > 0 && (
               <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ color: '#1a2332', margin: '0 0 12px', fontSize: '16px', borderRight: '4px solid #2980b9', paddingRight: '10px' }}>⏱ לוחות זמנים</h3>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <h3 style={{ color: '#1a2332', margin: '0 0 12px', fontSize: '17px', borderRight: '4px solid #2980b9', paddingRight: '10px' }}>⏱ לוחות זמנים</h3>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
                   <thead>
                     <tr style={{ background: '#eaf0fb' }}>
                       {['שלב', 'סביבה', 'התחלה מתוכננת', 'סיום מתוכנן', 'התחלה בפועל', 'סיום בפועל', 'סטטוס', 'סיבת חריגה / הערה'].map(h => (
@@ -1400,18 +1419,18 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                         <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#f8f9fa' }}>
                           <td style={{ padding: '8px 12px', border: '1px solid #e0e8f0', fontWeight: 'bold', color: '#1a2332' }}>{pt.name}</td>
                           <td style={{ padding: '8px 12px', border: '1px solid #e0e8f0' }}>
-                            <span style={{ background: pt.environment === 'HOT' ? '#fee' : '#e8f4fd', color: pt.environment === 'HOT' ? '#c0392b' : '#2980b9', padding: '1px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>{pt.environment}</span>
+                            <span style={{ background: pt.environment === 'HOT' ? '#fee' : '#e8f4fd', color: pt.environment === 'HOT' ? '#c0392b' : '#2980b9', padding: '1px 6px', borderRadius: '4px', fontSize: '13px', fontWeight: 'bold' }}>{pt.environment}</span>
                           </td>
                           <td style={{ padding: '8px 12px', border: '1px solid #e0e8f0', color: '#333' }}>{pt.plannedStart ? fmtTime(pt.plannedStart.toISOString()) : '—'}</td>
                           <td style={{ padding: '8px 12px', border: '1px solid #e0e8f0', color: '#333' }}>{pt.plannedEnd   ? fmtTime(pt.plannedEnd.toISOString())   : '—'}</td>
                           <td style={{ padding: '8px 12px', border: '1px solid #e0e8f0', color: '#333' }}>{pt.actualStart  ? fmtTime(pt.actualStart.toISOString())  : '—'}</td>
                           <td style={{ padding: '8px 12px', border: '1px solid #e0e8f0', color: isOk && !isLate ? '#27ae60' : isLate ? '#c0392b' : '#333', fontWeight: 'bold' }}>{pt.actualEnd ? fmtTime(pt.actualEnd.toISOString()) : '—'}</td>
                           <td style={{ padding: '8px 12px', border: '1px solid #e0e8f0' }}>
-                            <span style={{ background: isEarly ? '#e8f8f0' : isOk ? '#d5f0dc' : isLate ? '#fde8d0' : '#f0f0f0', color: isEarly ? '#1e8449' : isOk ? '#1e8449' : isLate ? '#c0392b' : '#666', padding: '2px 8px', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                            <span style={{ background: isEarly ? '#e8f8f0' : isOk ? '#d5f0dc' : isLate ? '#fde8d0' : '#f0f0f0', color: isEarly ? '#1e8449' : isOk ? '#1e8449' : isLate ? '#c0392b' : '#666', padding: '2px 8px', borderRadius: '8px', fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
                               {pt.delayMins === null ? '—' : isEarly ? `⏩ לפני הזמן ${fmtMins(Math.abs(pt.delayMins))}` : !isLate ? '✅ כמתוכנן' : `🚨 חריגה +${fmtMins(pt.delayMins)}`}
                             </span>
                           </td>
-                          <td style={{ padding: '8px 12px', border: '1px solid #e0e8f0', color: phaseDelayReasons[i] ? '#333' : '#bbb', fontSize: '12px', fontStyle: phaseDelayReasons[i] ? 'normal' : 'italic' }}>
+                          <td style={{ padding: '8px 12px', border: '1px solid #e0e8f0', color: phaseDelayReasons[i] ? '#333' : '#bbb', fontSize: '14px', fontStyle: phaseDelayReasons[i] ? 'normal' : 'italic' }}>
                             {phaseDelayReasons[i] || '—'}
                           </td>
                         </tr>
@@ -1425,8 +1444,8 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
             {/* Blocked tasks */}
             {blockedTasks.length > 0 && (
               <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ color: '#e74c3c', margin: '0 0 10px', fontSize: '16px', borderRight: '4px solid #e74c3c', paddingRight: '10px' }}>תקלות ({blockedTasks.length})</h3>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <h3 style={{ color: '#e74c3c', margin: '0 0 10px', fontSize: '17px', borderRight: '4px solid #e74c3c', paddingRight: '10px' }}>תקלות ({blockedTasks.length})</h3>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
                   <thead>
                     <tr style={{ background: '#fee' }}>
                       {['משימה', 'צוות', 'סיבה'].map(h => (
@@ -1450,12 +1469,12 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
             {/* Test Coverage in report */}
             {coverage.length > 0 && (
               <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ color: '#1a2332', margin: '0 0 10px', fontSize: '16px', borderRight: '4px solid #2980b9', paddingRight: '10px' }}>
+                <h3 style={{ color: '#1a2332', margin: '0 0 10px', fontSize: '17px', borderRight: '4px solid #2980b9', paddingRight: '10px' }}>
                   🧪 תכולת בדיקות (QC)
-                  <span style={{ fontSize: '11px', color: '#e67e22', marginRight: '8px', fontWeight: 'normal' }}>נתוני Mock</span>
+                  <span style={{ fontSize: '13px', color: '#e67e22', marginRight: '8px', fontWeight: 'normal' }}>נתוני Mock</span>
                 </h3>
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                     <thead>
                       <tr style={{ background: '#f0f7ff' }}>
                         {['#', 'פרויקט/רגרסיה/באג', 'כותרת / CR', 'אחראי', 'Passed', 'Failed', 'Not Completed', 'Blocked', 'Not Run', 'הערות'].map(h => (
@@ -1487,9 +1506,9 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
             {/* Defects in report */}
             {(
               <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ color: '#1a2332', margin: '0 0 12px', fontSize: '16px', borderRight: '4px solid #9b59b6', paddingRight: '10px' }}>
+                <h3 style={{ color: '#1a2332', margin: '0 0 12px', fontSize: '17px', borderRight: '4px solid #9b59b6', paddingRight: '10px' }}>
                   🐛 תקלות שדווחו (QC)
-                  <span style={{ fontSize: '11px', color: '#e67e22', marginRight: '8px', fontWeight: 'normal' }}>נתוני Mock</span>
+                  <span style={{ fontSize: '13px', color: '#e67e22', marginRight: '8px', fontWeight: 'normal' }}>נתוני Mock</span>
                 </h3>
                 {defects.length === 0 ? (
                   <div style={{ background: '#f0fff4', borderRadius: '6px', padding: '12px', color: '#27ae60', fontWeight: 'bold' }}>✅ לא דווחו תקלות</div>
@@ -1501,7 +1520,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                       <BarChart title="Responsibility"  data={responsibilityData} />
                     </div>
                     <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                         <thead>
                           <tr style={{ background: '#f3e8ff' }}>
                             {['ID', 'כותרת התקלה', 'תיאור', 'חומרה', 'עדיפות', 'צוות אחראי', 'דווח ע"י', 'תאריך גילוי', 'סביבה', 'סטטוס', 'שלב בדיקה', 'סוג תקלה', 'הערות', 'מלל חופשי'].map(h => (
@@ -1543,12 +1562,12 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
             {/* Morning notes */}
             {(summaryRecord.morningNotes || morningNotes) && (
               <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ color: '#8B4000', margin: '0 0 8px', fontSize: '16px', borderRight: '4px solid #f39c12', paddingRight: '10px' }}>לתשומת לב צוות הבוקר</h3>
-                <p style={{ margin: 0, color: '#333', lineHeight: 1.7, fontSize: '14px', background: '#fff8f0', padding: '12px', borderRadius: '6px', whiteSpace: 'pre-wrap' }}>{summaryRecord.morningNotes || morningNotes}</p>
+                <h3 style={{ color: '#8B4000', margin: '0 0 8px', fontSize: '17px', borderRight: '4px solid #f39c12', paddingRight: '10px' }}>לתשומת לב צוות הבוקר</h3>
+                <p style={{ margin: 0, color: '#333', lineHeight: 1.7, fontSize: '15px', background: '#fff8f0', padding: '12px', borderRadius: '6px', whiteSpace: 'pre-wrap' }}>{summaryRecord.morningNotes || morningNotes}</p>
               </div>
             )}
 
-            <div style={{ textAlign: 'center', color: '#bbb', fontSize: '12px', marginTop: '24px', borderTop: '1px solid #eee', paddingTop: '12px' }}>
+            <div style={{ textAlign: 'center', color: '#bbb', fontSize: '14px', marginTop: '24px', borderTop: '1px solid #eee', paddingTop: '12px' }}>
               הופק אוטומטית ע"י DeployCenter
             </div>
           </div>

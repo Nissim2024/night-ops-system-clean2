@@ -292,7 +292,7 @@ export const QaTestersView: React.FC<Props> = ({ token }) => {
 
                   {/* Remove button */}
                   <button onClick={() => removeTester(tester)} title="הסר בודק"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textDisabled, fontSize: '14px', padding: '4px', borderRadius: RADIUS.sm, transition: EASE.fast, flexShrink: 0 }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textDisabled, fontSize: '15px', padding: '4px', borderRadius: RADIUS.sm, transition: EASE.fast, flexShrink: 0 }}
                     onMouseEnter={e => { e.currentTarget.style.color = C.danger; e.currentTarget.style.background = C.dangerBg; }}
                     onMouseLeave={e => { e.currentTarget.style.color = C.textDisabled; e.currentTarget.style.background = 'none'; }}>
                     ✕
@@ -310,7 +310,7 @@ export const QaTestersView: React.FC<Props> = ({ token }) => {
                     {s.overallAvg !== null && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                         <span style={{ ...TEXT.xs, color: C.textMuted }}>ממוצע</span>
-                        <span style={{ fontWeight: WEIGHT.bold, fontSize: '16px', color: avgColor(s.overallAvg), background: `${avgColor(s.overallAvg)}18`, padding: '2px 9px', borderRadius: RADIUS.full }}>
+                        <span style={{ fontWeight: WEIGHT.bold, fontSize: '17px', color: avgColor(s.overallAvg), background: `${avgColor(s.overallAvg)}18`, padding: '2px 9px', borderRadius: RADIUS.full }}>
                           {s.overallAvg.toFixed(1)}
                         </span>
                       </div>
@@ -336,7 +336,7 @@ export const QaTestersView: React.FC<Props> = ({ token }) => {
                             <div style={{ ...TEXT.xs, color: C.textDisabled }}>{catRated}/{catTotal}</div>
                           </div>
                           {avg !== null
-                            ? <span style={{ fontWeight: WEIGHT.bold, fontSize: '15px', color: avgColor(avg) }}>{avg.toFixed(1)}</span>
+                            ? <span style={{ fontWeight: WEIGHT.bold, fontSize: '16px', color: avgColor(avg) }}>{avg.toFixed(1)}</span>
                             : <span style={{ ...TEXT.xs, color: C.textDisabled }}>—</span>}
                         </div>
                       );

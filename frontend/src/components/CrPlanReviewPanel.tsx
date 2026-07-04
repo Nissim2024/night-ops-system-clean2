@@ -151,7 +151,7 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
   const submissionPct     = involvedTeams.length ? Math.round((teamsAllCovered / involvedTeams.length) * 100) : 0;
 
   if (loading) return (
-    <div style={{ padding: '20px', textAlign: 'center', color: C.textMuted, fontSize: '13px' }}>⏳ טוען...</div>
+    <div style={{ padding: '20px', textAlign: 'center', color: C.textMuted, fontSize: '15px' }}>⏳ טוען...</div>
   );
 
   /* ──────────────────────────────────────────────────────────────────────────
@@ -177,10 +177,10 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
           : `לא הגיש — ${teamCrs.length} פיתוח${teamCrs.length !== 1 ? 'ים' : ''} ממתינים`;
         return (
           <div key={team.id} style={{ borderRadius: '10px', border: `1px solid ${accent}33`, borderTop: `4px solid ${accent}`, background: '#fafafa', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '6px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-            <span style={{ fontWeight: '800', fontSize: '14px', color: '#1a2332', lineHeight: 1.2 }}>{team.name}</span>
-            <span style={{ fontSize: '12px', color: textColor, lineHeight: 1.5, flex: 1 }}>{desc}</span>
+            <span style={{ fontWeight: '800', fontSize: '15px', color: '#1a2332', lineHeight: 1.2 }}>{team.name}</span>
+            <span style={{ fontSize: '14px', color: textColor, lineHeight: 1.5, flex: 1 }}>{desc}</span>
             <button onClick={() => onTeamReview?.(team.id, team.name)}
-              style={{ marginTop: '4px', padding: '5px 0', background: 'transparent', color: '#2d4a7a', border: '1px solid #2d4a7a', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', width: '100%' }}>
+              style={{ marginTop: '4px', padding: '5px 0', background: 'transparent', color: '#2d4a7a', border: '1px solid #2d4a7a', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', width: '100%' }}>
               סקירה ←
             </button>
           </div>
@@ -242,14 +242,14 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
       const multi = items.length > 1;
       return (
         <div style={{ marginBottom: '16px' }}>
-          <div style={{ fontSize: '12px', color: accent, fontWeight: 800, marginBottom: '7px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <div style={{ fontSize: '14px', color: accent, fontWeight: 800, marginBottom: '7px', display: 'flex', alignItems: 'center', gap: '5px' }}>
             <span>{icon}</span><span>{label}</span>
           </div>
           {items.map((item, i) => (
             <div key={i} style={{ display: 'flex', gap: '7px', alignItems: 'flex-start', marginBottom: i < items.length - 1 ? '7px' : 0 }}>
-              <span style={{ color: accent, fontSize: '13px', flexShrink: 0, marginTop: '2px' }}>•</span>
-              {multi && <span style={{ fontSize: '11px', fontWeight: 700, background: 'rgba(163,113,247,0.2)', color: '#a371f7', padding: '1px 7px', borderRadius: '4px', border: '1px solid rgba(163,113,247,0.3)', flexShrink: 0, whiteSpace: 'nowrap' }}>{item.team}</span>}
-              <span style={{ fontSize: '13px', color: C.textSecondary, lineHeight: 1.6, whiteSpace: 'pre-wrap', flex: 1 }}>{item.text}</span>
+              <span style={{ color: accent, fontSize: '15px', flexShrink: 0, marginTop: '2px' }}>•</span>
+              {multi && <span style={{ fontSize: '13px', fontWeight: 700, background: 'rgba(163,113,247,0.2)', color: '#a371f7', padding: '1px 7px', borderRadius: '4px', border: '1px solid rgba(163,113,247,0.3)', flexShrink: 0, whiteSpace: 'nowrap' }}>{item.team}</span>}
+              <span style={{ fontSize: '15px', color: C.textSecondary, lineHeight: 1.6, whiteSpace: 'pre-wrap', flex: 1 }}>{item.text}</span>
             </div>
           ))}
         </div>
@@ -264,27 +264,27 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
 
           {/* Row 1: CR chip · title · risk · approve button */}
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: 800, background: 'rgba(212,168,67,0.15)', color: '#d4a843', padding: '3px 10px', borderRadius: '5px', border: '1px solid rgba(212,168,67,0.3)', flexShrink: 0 }}>
+            <span style={{ fontFamily: 'monospace', fontSize: '15px', fontWeight: 800, background: 'rgba(212,168,67,0.15)', color: '#d4a843', padding: '3px 10px', borderRadius: '5px', border: '1px solid rgba(212,168,67,0.3)', flexShrink: 0 }}>
               {selectedCr}
             </span>
-            <div style={{ fontWeight: 700, fontSize: '15px', color: C.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ fontWeight: 700, fontSize: '16px', color: C.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {crTitle || '—'}
             </div>
             {highRisk && RISK[highRisk] && (
-              <span style={{ fontSize: '11px', padding: '3px 9px', borderRadius: '6px', fontWeight: 700, flexShrink: 0, background: RISK[highRisk].bg, color: RISK[highRisk].color }}>
+              <span style={{ fontSize: '13px', padding: '3px 9px', borderRadius: '6px', fontWeight: 700, flexShrink: 0, background: RISK[highRisk].bg, color: RISK[highRisk].color }}>
                 {RISK[highRisk].label}
               </span>
             )}
             {isNotNeeded ? (
-              <span style={{ fontSize: '12px', color: '#8b949e', background: 'rgba(139,148,158,0.15)', padding: '3px 10px', borderRadius: '99px', border: '1px solid rgba(139,148,158,0.3)', flexShrink: 0 }}>
+              <span style={{ fontSize: '14px', color: '#8b949e', background: 'rgba(139,148,158,0.15)', padding: '3px 10px', borderRadius: '99px', border: '1px solid rgba(139,148,158,0.3)', flexShrink: 0 }}>
                 ✗ לא נדרש לתוכנית
               </span>
             ) : isApproved ? (
               <>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: '#3fb950', background: 'rgba(63,185,80,0.1)', padding: '3px 10px', borderRadius: '99px', border: '1px solid rgba(63,185,80,0.3)', flexShrink: 0 }}>✅ מאושר</span>
+                <span style={{ fontSize: '14px', fontWeight: 700, color: '#3fb950', background: 'rgba(63,185,80,0.1)', padding: '3px 10px', borderRadius: '99px', border: '1px solid rgba(63,185,80,0.3)', flexShrink: 0 }}>✅ מאושר</span>
                 {isManager && (
                   <button onClick={() => approveCr(selectedCr, false)} disabled={isApp}
-                    style={{ padding: '4px 10px', background: 'white', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: '7px', cursor: 'pointer', fontSize: '11px', flexShrink: 0 }}>
+                    style={{ padding: '4px 10px', background: 'white', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: '7px', cursor: 'pointer', fontSize: '13px', flexShrink: 0 }}>
                     בטל אישור
                   </button>
                 )}
@@ -297,11 +297,11 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                 }
                 approveCr(selectedCr, true);
               }} disabled={isApp}
-                style={{ padding: '6px 16px', border: 'none', borderRadius: '7px', cursor: isApp ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '13px', flexShrink: 0, background: '#f0883e', color: 'white', boxShadow: '0 0 8px rgba(240,136,62,0.4)' }}>
+                style={{ padding: '6px 16px', border: 'none', borderRadius: '7px', cursor: isApp ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '15px', flexShrink: 0, background: '#f0883e', color: 'white', boxShadow: '0 0 8px rgba(240,136,62,0.4)' }}>
                 {isApp ? '...' : '👍 אשר תוכנית'}
               </button>
             ) : (
-              <span style={{ fontSize: '11px', color: C.textMuted, background: C.bgNested, padding: '3px 9px', borderRadius: '6px', border: `1px solid ${C.border}`, flexShrink: 0 }}>
+              <span style={{ fontSize: '13px', color: C.textMuted, background: C.bgNested, padding: '3px 9px', borderRadius: '6px', border: `1px solid ${C.border}`, flexShrink: 0 }}>
                 {missingTeams.length > 0 ? `ממתין ל-${missingTeams.length} צוותים` : 'ממתין לאישור מנהל'}
               </span>
             )}
@@ -311,23 +311,23 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
           {(crManager || teamsForCr.length > 0 || allSystems.length > 0) && (
             <div style={{ display: 'flex', gap: '14px', alignItems: 'center', marginTop: '7px', flexWrap: 'wrap' }}>
               {crManager && (
-                <span style={{ fontSize: '12px', color: C.textMuted, direction: 'rtl', unicodeBidi: 'isolate' }}>
+                <span style={{ fontSize: '14px', color: C.textMuted, direction: 'rtl', unicodeBidi: 'isolate' }}>
                   מנהל CR:&nbsp;<bdi style={{ color: C.textSecondary, fontWeight: 600 }}>{crManager}</bdi>
                 </span>
               )}
               {teamsForCr.length > 0 && (
                 <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ fontSize: '11px', color: C.textMuted }}>צוותים:</span>
+                  <span style={{ fontSize: '13px', color: C.textMuted }}>צוותים:</span>
                   {teamsForCr.map(t => (
-                    <span key={t.id} style={{ fontSize: '11px', background: 'rgba(163,113,247,0.15)', color: '#b48ef5', padding: '1px 7px', borderRadius: '5px', fontWeight: 700, border: '1px solid rgba(163,113,247,0.25)' }}>{t.name}</span>
+                    <span key={t.id} style={{ fontSize: '13px', background: 'rgba(163,113,247,0.15)', color: '#b48ef5', padding: '1px 7px', borderRadius: '5px', fontWeight: 700, border: '1px solid rgba(163,113,247,0.25)' }}>{t.name}</span>
                   ))}
                 </div>
               )}
               {allSystems.length > 0 && (
                 <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ fontSize: '11px', color: C.textMuted }}>מערכות:</span>
+                  <span style={{ fontSize: '13px', color: C.textMuted }}>מערכות:</span>
                   {allSystems.map(sys => (
-                    <span key={sys} style={{ fontSize: '11px', background: 'rgba(88,166,255,0.15)', color: '#58a6ff', padding: '1px 7px', borderRadius: '5px', fontWeight: 600, border: '1px solid rgba(88,166,255,0.25)' }}>{sys}</span>
+                    <span key={sys} style={{ fontSize: '13px', background: 'rgba(88,166,255,0.15)', color: '#58a6ff', padding: '1px 7px', borderRadius: '5px', fontWeight: 600, border: '1px solid rgba(88,166,255,0.25)' }}>{sys}</span>
                   ))}
                 </div>
               )}
@@ -342,7 +342,7 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
             const active = selectedTab === tab;
             return (
               <button key={tab} onClick={() => setSelectedTab(tab)}
-                style={{ padding: '9px 18px', border: 'none', borderBottom: `2px solid ${active ? C.brand : 'transparent'}`, background: 'transparent', color: active ? C.brand : C.textMuted, cursor: 'pointer', fontWeight: active ? 700 : 400, fontSize: '13px', fontFamily: FONT, transition: 'color 0.15s', flexShrink: 0 }}>
+                style={{ padding: '9px 18px', border: 'none', borderBottom: `2px solid ${active ? C.brand : 'transparent'}`, background: 'transparent', color: active ? C.brand : C.textMuted, cursor: 'pointer', fontWeight: active ? 700 : 400, fontSize: '15px', fontFamily: FONT, transition: 'color 0.15s', flexShrink: 0 }}>
                 {label}
               </button>
             );
@@ -363,9 +363,9 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                   onClick={() => hasSummary && setSummaryOpen(prev => ({ ...prev, [selectedCr!]: !isSumOpen }))}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#a371f7' }}>✨ סיכום AI</span>
+                    <span style={{ fontSize: '15px', fontWeight: 700, color: '#a371f7' }}>✨ סיכום AI</span>
                     {hasSummary && (
-                      <span style={{ fontSize: '10px', color: '#a371f7', background: 'rgba(163,113,247,0.2)', padding: '1px 6px', borderRadius: '4px', border: '1px solid rgba(163,113,247,0.3)' }}>שמור</span>
+                      <span style={{ fontSize: '12px', color: '#a371f7', background: 'rgba(163,113,247,0.2)', padding: '1px 6px', borderRadius: '4px', border: '1px solid rgba(163,113,247,0.3)' }}>שמור</span>
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: '7px', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
@@ -375,7 +375,7 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                           setSummaryDraft(prev => ({ ...prev, [selectedCr!]: summaries[selectedCr!] }));
                           setSummaryEditing(prev => ({ ...prev, [selectedCr!]: true }));
                         }}
-                        style={{ fontSize: '11px', padding: '3px 10px', background: 'white', color: '#a371f7', border: '1px solid rgba(163,113,247,0.5)', borderRadius: '5px', cursor: 'pointer', fontWeight: 600 }}>
+                        style={{ fontSize: '13px', padding: '3px 10px', background: 'white', color: '#a371f7', border: '1px solid rgba(163,113,247,0.5)', borderRadius: '5px', cursor: 'pointer', fontWeight: 600 }}>
                         ✏️ ערוך
                       </button>
                     )}
@@ -393,12 +393,12 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                             onConfirm: () => summarizeCr(selectedCr!),
                           });
                         }}
-                        style={{ fontSize: '11px', padding: '3px 12px', background: summarizingCr === selectedCr ? '#555' : '#6c3483', color: 'white', border: 'none', borderRadius: '5px', cursor: summarizingCr === selectedCr ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
+                        style={{ fontSize: '13px', padding: '3px 12px', background: summarizingCr === selectedCr ? '#555' : '#6c3483', color: 'white', border: 'none', borderRadius: '5px', cursor: summarizingCr === selectedCr ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
                         {summarizingCr === selectedCr ? '⏳ מסכם...' : hasSummary ? '⟳ עדכן' : '✨ צור סיכום'}
                       </button>
                     )}
                     {hasSummary && (
-                      <span style={{ fontSize: '12px', color: '#a371f7', display: 'inline-block', transform: isSumOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', cursor: 'pointer' }}
+                      <span style={{ fontSize: '14px', color: '#a371f7', display: 'inline-block', transform: isSumOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', cursor: 'pointer' }}
                         onClick={() => setSummaryOpen(prev => ({ ...prev, [selectedCr!]: !isSumOpen }))}>
                         ▼
                       </span>
@@ -414,7 +414,7 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                         <textarea
                           value={summaryDraft[selectedCr] ?? summaries[selectedCr]}
                           onChange={e => setSummaryDraft(prev => ({ ...prev, [selectedCr!]: e.target.value }))}
-                          style={{ width: '100%', minHeight: '140px', fontSize: '13px', fontFamily: FONT, color: C.textSecondary, lineHeight: '1.7', background: 'white', border: `1px solid rgba(163,113,247,0.4)`, borderRadius: '6px', padding: '9px 11px', resize: 'vertical', direction: 'rtl', boxSizing: 'border-box' }}
+                          style={{ width: '100%', minHeight: '140px', fontSize: '15px', fontFamily: FONT, color: C.textSecondary, lineHeight: '1.7', background: 'white', border: `1px solid rgba(163,113,247,0.4)`, borderRadius: '6px', padding: '9px 11px', resize: 'vertical', direction: 'rtl', boxSizing: 'border-box' }}
                         />
                         <div style={{ display: 'flex', gap: '8px', marginTop: '8px', justifyContent: 'flex-start' }}>
                           <button
@@ -422,18 +422,18 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                               setSummaries(prev => ({ ...prev, [selectedCr!]: summaryDraft[selectedCr!] ?? prev[selectedCr!] }));
                               setSummaryEditing(prev => ({ ...prev, [selectedCr!]: false }));
                             }}
-                            style={{ fontSize: '12px', padding: '4px 14px', background: '#6c3483', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 700 }}>
+                            style={{ fontSize: '14px', padding: '4px 14px', background: '#6c3483', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 700 }}>
                             💾 שמור
                           </button>
                           <button
                             onClick={() => setSummaryEditing(prev => ({ ...prev, [selectedCr!]: false }))}
-                            style={{ fontSize: '12px', padding: '4px 12px', background: 'white', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: '5px', cursor: 'pointer' }}>
+                            style={{ fontSize: '14px', padding: '4px 12px', background: 'white', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: '5px', cursor: 'pointer' }}>
                             בטל
                           </button>
                         </div>
                       </>
                     ) : (
-                      <div style={{ fontSize: '14px', color: C.textSecondary, lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>
+                      <div style={{ fontSize: '15px', color: C.textSecondary, lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>
                         {summaries[selectedCr]}
                       </div>
                     )}
@@ -444,13 +444,13 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
               {/* CR description */}
               {crDesc && (
                 <div style={{ marginBottom: '14px', padding: '8px 12px', background: 'rgba(163,113,247,0.07)', border: '1px solid rgba(163,113,247,0.2)', borderRadius: '8px' }}>
-                  <div style={{ fontSize: '12px', color: '#a371f7', fontWeight: 700, marginBottom: '4px' }}>פרטי CR</div>
-                  <div style={{ fontSize: '13px', color: C.textSecondary, lineHeight: 1.5 }}>{crDesc}</div>
+                  <div style={{ fontSize: '14px', color: '#a371f7', fontWeight: 700, marginBottom: '4px' }}>פרטי CR</div>
+                  <div style={{ fontSize: '15px', color: C.textSecondary, lineHeight: 1.5 }}>{crDesc}</div>
                 </div>
               )}
 
               {isNotNeeded && (
-                <div style={{ padding: '14px', color: C.textMuted, fontSize: '13px', fontStyle: 'italic', textAlign: 'center' }}>
+                <div style={{ padding: '14px', color: C.textMuted, fontSize: '15px', fontStyle: 'italic', textAlign: 'center' }}>
                   ✗ פיתוח זה סומן כ"לא נדרש לתוכנית" — אינו חוסם מעבר לשלב הבא
                 </div>
               )}
@@ -470,10 +470,10 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                     </div>
                   </div>
                   {!workItems.length && !nightItems.length && !morningItems.length && !rollbackItems.length && !gradualItems.length && plans.length > 0 && (
-                    <div style={{ textAlign: 'center', padding: '30px', color: C.textDisabled, fontSize: '13px', fontStyle: 'italic' }}>ראשי הצוותים טרם מילאו תוכנית לפיתוח זה</div>
+                    <div style={{ textAlign: 'center', padding: '30px', color: C.textDisabled, fontSize: '15px', fontStyle: 'italic' }}>ראשי הצוותים טרם מילאו תוכנית לפיתוח זה</div>
                   )}
                   {plans.length === 0 && (
-                    <div style={{ textAlign: 'center', padding: '30px', color: C.textDisabled, fontSize: '13px', fontStyle: 'italic' }}>לא הוגשה תוכנית CR עדיין</div>
+                    <div style={{ textAlign: 'center', padding: '30px', color: C.textDisabled, fontSize: '15px', fontStyle: 'italic' }}>לא הוגשה תוכנית CR עדיין</div>
                   )}
                 </>
               )}
@@ -498,8 +498,8 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                     <div key={phase} style={{ marginBottom: '14px' }}>
                       {/* Phase header */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '7px', padding: '6px 12px', background: ph.bg, borderRadius: '7px', border: `1px solid ${ph.color}25` }}>
-                        <span style={{ fontSize: '12px', fontWeight: 800, color: ph.color }}>{phaseName}</span>
-                        <span style={{ fontSize: '11px', color: ph.color, background: 'white', padding: '1px 7px', borderRadius: '8px', border: `1px solid ${ph.color}30` }}>{phaseProps.length}</span>
+                        <span style={{ fontSize: '14px', fontWeight: 800, color: ph.color }}>{phaseName}</span>
+                        <span style={{ fontSize: '13px', color: ph.color, background: 'white', padding: '1px 7px', borderRadius: '8px', border: `1px solid ${ph.color}30` }}>{phaseProps.length}</span>
                       </div>
                       {phaseProps.map((prop, i) => {
                         const teamName = teamsForCr.find(t => t.id === prop.teamId)?.name
@@ -522,16 +522,16 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                             border: `1px solid ${C.border}`, borderRight: `3px solid ${ph.color}60`,
                             display: 'flex', alignItems: 'flex-start', gap: '8px',
                           }}>
-                            <span style={{ color: ph.color, fontSize: '14px', flexShrink: 0, lineHeight: '1.65' }}>•</span>
+                            <span style={{ color: ph.color, fontSize: '15px', flexShrink: 0, lineHeight: '1.65' }}>•</span>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: '14px', color: C.textSecondary, lineHeight: 1.65 }}>{sentence || prop.title}</div>
+                              <div style={{ fontSize: '15px', color: C.textSecondary, lineHeight: 1.65 }}>{sentence || prop.title}</div>
                               {prop.notes && (
-                                <div style={{ marginTop: '4px', fontSize: '12px', color: C.textMuted, paddingRight: '8px', borderRight: `2px solid ${ph.color}40` }}>
+                                <div style={{ marginTop: '4px', fontSize: '14px', color: C.textMuted, paddingRight: '8px', borderRight: `2px solid ${ph.color}40` }}>
                                   💬 {prop.notes}
                                 </div>
                               )}
                             </div>
-                            <span style={{ flexShrink: 0, fontSize: '11px', padding: '2px 8px', borderRadius: '5px', fontWeight: 700, background: prop.status === 'READY' ? 'rgba(63,185,80,0.18)' : 'rgba(210,153,34,0.18)', color: prop.status === 'READY' ? '#3fb950' : '#d29922', border: `1px solid ${prop.status === 'READY' ? 'rgba(63,185,80,0.4)' : 'rgba(210,153,34,0.4)'}` }}>
+                            <span style={{ flexShrink: 0, fontSize: '13px', padding: '2px 8px', borderRadius: '5px', fontWeight: 700, background: prop.status === 'READY' ? 'rgba(63,185,80,0.18)' : 'rgba(210,153,34,0.18)', color: prop.status === 'READY' ? '#3fb950' : '#d29922', border: `1px solid ${prop.status === 'READY' ? 'rgba(63,185,80,0.4)' : 'rgba(210,153,34,0.4)'}` }}>
                               {prop.status === 'READY' ? 'מוכן' : 'טיוטא'}
                             </span>
                           </div>
@@ -551,7 +551,7 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
   const splitPanel = (
     <>
       {allCrNumbers.length === 0 ? (
-        <div style={{ padding: '32px', textAlign: 'center', color: C.textMuted, fontSize: '13px', background: C.bgCard, borderRadius: '8px', border: `1px solid ${C.border}` }}>
+        <div style={{ padding: '32px', textAlign: 'center', color: C.textMuted, fontSize: '15px', background: C.bgCard, borderRadius: '8px', border: `1px solid ${C.border}` }}>
           לא נמצאו CR-ים — בצע סינכרון מקובץ CR_LIST
         </div>
       ) : (
@@ -564,12 +564,12 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                 <div style={{ flex: 1, height: '4px', background: C.border, borderRadius: '2px', overflow: 'hidden' }}>
                   <div style={{ height: '100%', background: allApproved ? '#3fb950' : '#f0883e', width: `${pct}%`, borderRadius: '2px', transition: 'width 0.4s' }} />
                 </div>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: allApproved ? '#3fb950' : '#f0883e', whiteSpace: 'nowrap' }}>{approvedCount}/{allCrNumbers.length} CR</span>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: allApproved ? '#3fb950' : '#f0883e', whiteSpace: 'nowrap' }}>{approvedCount}/{allCrNumbers.length} CR</span>
               </div>
               <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                 {(['all', 'pending', 'approved', 'not_required'] as const).map(f => (
                   <button key={f} onClick={() => setCrFilter(f)}
-                    style={{ padding: '2px 8px', border: 'none', borderRadius: '99px', cursor: 'pointer', fontSize: '10px', fontWeight: 600, background: crFilter === f ? '#1a2332' : C.bgNested, color: crFilter === f ? 'white' : C.textMuted, transition: 'all 0.1s' }}>
+                    style={{ padding: '2px 8px', border: 'none', borderRadius: '99px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, background: crFilter === f ? '#1a2332' : C.bgNested, color: crFilter === f ? 'white' : C.textMuted, transition: 'all 0.1s' }}>
                     {f === 'all' ? 'הכל' : f === 'pending' ? 'ממתין' : f === 'approved' ? 'אושר' : 'לא נדרש'}
                   </button>
                 ))}
@@ -601,9 +601,9 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                   >
                     <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: dotColor, flexShrink: 0, marginTop: '5px' }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '12px', fontWeight: 700, color: C.textPrimary, fontFamily: 'monospace' }}>{crNumber}</div>
-                      <div style={{ fontSize: '11px', color: C.textMuted, lineHeight: 1.35, marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={crTitle}>{crTitle || '—'}</div>
-                      <div style={{ fontSize: '10px', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: C.textPrimary, fontFamily: 'monospace' }}>{crNumber}</div>
+                      <div style={{ fontSize: '13px', color: C.textMuted, lineHeight: 1.35, marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={crTitle}>{crTitle || '—'}</div>
+                      <div style={{ fontSize: '12px', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
                         {highRisk && RISK[highRisk] && <span style={{ padding: '1px 5px', borderRadius: '4px', fontWeight: 600, background: RISK[highRisk].bg, color: RISK[highRisk].color }}>{RISK[highRisk].label}</span>}
                         <span style={{ color: isApproved ? '#3fb950' : C.textDisabled }}>
                           {isApproved ? '✓ אושר' : isNotNeeded ? '✗ לא נדרש' : `${propsForCr.length} משימות`}
@@ -614,7 +614,7 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                 );
               })}
               {filteredCrNums.length === 0 && (
-                <div style={{ padding: '20px 14px', textAlign: 'center', color: C.textDisabled, fontSize: '12px' }}>אין תוצאות</div>
+                <div style={{ padding: '20px 14px', textAlign: 'center', color: C.textDisabled, fontSize: '14px' }}>אין תוצאות</div>
               )}
             </div>
           </div>
@@ -631,7 +631,7 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
   const teamPanelHeader = (
     <div onClick={() => setTeamPanelOpen(p => !p)}
       style={{ padding: '10px 16px', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: allTeamsSubmitted ? 'rgba(63,185,80,0.10)' : 'rgba(248,81,73,0.08)' }}>
-      <span style={{ fontSize: '13px', fontWeight: 700, color: allTeamsSubmitted ? C.statusDone : C.statusBlocked, display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <span style={{ fontSize: '15px', fontWeight: 700, color: allTeamsSubmitted ? C.statusDone : C.statusBlocked, display: 'flex', alignItems: 'center', gap: '8px' }}>
         <span>{allTeamsSubmitted ? '✅' : '●'}</span>
         {allTeamsSubmitted
           ? `כל ${involvedTeams.length} הצוותים הגישו · אושרו: ${approvedCount}/${allCrNumbers.length} CR`
@@ -641,7 +641,7 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
         <div style={{ width: '80px', height: '5px', background: C.border, borderRadius: '3px', overflow: 'hidden' }}>
           <div style={{ height: '100%', borderRadius: '3px', background: allTeamsSubmitted ? '#3fb950' : '#f0883e', width: `${submissionPct}%`, transition: 'width 0.4s' }} />
         </div>
-        <span style={{ fontSize: '13px', color: C.textMuted, transform: teamPanelOpen ? 'rotate(180deg)' : 'none', display: 'inline-block', transition: 'transform 0.2s' }}>▼</span>
+        <span style={{ fontSize: '15px', color: C.textMuted, transform: teamPanelOpen ? 'rotate(180deg)' : 'none', display: 'inline-block', transition: 'transform 0.2s' }}>▼</span>
       </div>
     </div>
   );

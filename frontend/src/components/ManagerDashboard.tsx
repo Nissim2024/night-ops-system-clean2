@@ -5,6 +5,7 @@ import { VersionsView } from './VersionsView';
 import { ImportView } from './ImportView';
 import { WarRoom } from './WarRoom';
 import { NightSummary } from './NightSummary';
+import { RehearsalBoardView } from './RehearsalBoardView';
 import { TeamView } from './TeamView';
 import { Sidebar } from './Sidebar';
 import { useSocket } from '../hooks/useSocket';
@@ -49,7 +50,7 @@ interface ToastItem {
 
 export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const appDialog = useDialog();
-  type Tab = 'home' | 'list' | 'version-detail' | 'proposals' | 'cr-review' | 'board' | 'overview' | 'timeline' | 'dashboard' | 'summary-rehearsal' | 'summary-night' | 'admin' | 'implementation-plans' | 'cr-manager';
+  type Tab = 'home' | 'list' | 'version-detail' | 'proposals' | 'cr-review' | 'board' | 'overview' | 'timeline' | 'dashboard' | 'summary-rehearsal' | 'summary-night' | 'rehearsal-board' | 'admin' | 'implementation-plans' | 'cr-manager';
   const [activeTab, setActiveTab]               = useState<Tab>(() => {
     try { return JSON.parse(atob(token.split('.')[1])).role === 'CR_MANAGER' ? 'cr-manager' : 'home'; }
     catch { return 'home'; }
@@ -149,6 +150,25 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
       };
       const info = labels[v.status];
       if (info) showToast(info, v.status === 'ROLLED_BACK' ? 15000 : 8000);
+
+      // Stage-completion → auto-return to home (workflow navigation)
+      const prevStatus = versions.find(x => x.id === v.id)?.status;
+      const COMPLETED_STAGE_LABEL: Record<string, string> = {
+        CR_REVIEW: 'סקירת CR', REFINING: 'טיוב תוכנית', REVIEW: 'ישיבת מעבר',
+      };
+      if (prevStatus && prevStatus !== v.status && COMPLETED_STAGE_LABEL[prevStatus]) {
+        showToast({
+          type: 'go',
+          title: `✅ ${COMPLETED_STAGE_LABEL[prevStatus]} הושלם`,
+          body: `שלב הבא: ${versionStatusLabel[v.status] ?? v.status}`,
+        }, 10000);
+        if (selectedVersionId === v.id) {
+          setActiveModule('deployments');
+          setActiveTab('home');
+        }
+      }
+
+      fetchVersions();
     },
     onJoined:     (users) => setOnlineUsers(users.filter((u, i, arr) => arr.findIndex(x => x.userId === u.userId) === i)),
     onUserOnline: (u)     => setOnlineUsers(prev => [...prev.filter(x => x.userId !== u.userId), u]),
@@ -529,7 +549,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
               borderRadius: RADIUS.md,
               cursor: push.supported ? 'pointer' : 'not-allowed',
               background: push.subscribed ? C.successBg : C.bgNested,
-              fontSize: '16px',
+              fontSize: '17px',
               transition: EASE.fast,
               opacity: push.supported ? 1 : 0.4,
             }}
@@ -599,9 +619,10 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           versionStatus={selectedVersion.status}
           activeRunPhase={activeRunPhase}
           rehearsalDone={!!selectedVersion.lastRehearsalAt}
+          rehearsalSummaryApproved={!!selectedVersion.rehearsalSummary?.sentAt}
           summaryBeforeMorning={summaryBeforeMorning}
           onStageClick={(stageId) => {
-            if (stageId === 'rehearsal' && selectedVersion.lastRehearsalAt) setActiveTab('summary-rehearsal');
+            if ((stageId === 'rehearsal' || stageId === 'ready') && selectedVersion.lastRehearsalAt) setActiveTab('summary-rehearsal');
             else if (stageId === 'run' || stageId === 'done') setActiveTab(isExecution ? 'board' : 'summary-night');
             else if (stageId === 'prep') setActiveTab('list');
           }}
@@ -621,7 +642,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           </button>
           <button onClick={() => setActiveTab('admin')}
             style={{ padding: `12px ${SP[4]}`, background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, borderBottom: `2px solid ${C.brand}`, marginBottom: '-1px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <span style={{ fontSize: '13px' }}>⚙️</span>
+            <span style={{ fontSize: '15px' }}>⚙️</span>
             ניהול
           </button>
         </div>
@@ -679,6 +700,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
               } : undefined}
               canAccessQa={isQaTeamMember || payload.role === 'ADMIN'}
               onSwitchToQa={() => { setActiveModule('qa'); setActiveQaView('assignment'); }}
+              onGoToLeaves={() => { setActiveModule('qa'); setActiveQaView('leaves'); }}
             />
           )}
 
@@ -720,10 +742,10 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                   <div style={{ fontSize: '20px', fontWeight: '700', color: C.textPrimary }}>
                     התוכנית כרגע בשלב טיוטא
                   </div>
-                  <div style={{ fontSize: '15px', color: C.textSecondary, maxWidth: '420px', lineHeight: '1.6' }}>
+                  <div style={{ fontSize: '16px', color: C.textSecondary, maxWidth: '420px', lineHeight: '1.6' }}>
                     שלב הגשת המשימות ייפתח עם פתיחת שלב איסוף המשימות על ידי מנהל הלילה.
                   </div>
-                  <div style={{ marginTop: '8px', padding: '10px 20px', background: C.bgCard, borderRadius: '10px', border: `1px solid ${C.border}`, fontSize: '14px', color: C.textMuted }}>
+                  <div style={{ marginTop: '8px', padding: '10px 20px', background: C.bgCard, borderRadius: '10px', border: `1px solid ${C.border}`, fontSize: '15px', color: C.textMuted }}>
                     גרסה: <strong style={{ color: C.textPrimary }}>{selectedVersion.name}</strong>
                   </div>
                 </div>
@@ -792,7 +814,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
             noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
             ['COMPLETED', 'ROLLED_BACK'].includes(selectedVersion?.status) ? (
               <div>
-                <div style={{ background: C.bgCard, borderRadius: '10px', padding: '12px 18px', marginBottom: '14px', border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', color: C.textMuted }}>
+                <div style={{ background: C.bgCard, borderRadius: '10px', padding: '12px 18px', marginBottom: '14px', border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '10px', fontSize: '15px', color: C.textMuted }}>
                   🔒 <strong style={{ color: C.textSecondary }}>גרסה סגורה — תצוגה בלבד</strong>
                 </div>
                 <TeamView token={token} versionId={selectedVersionId} onTaskUpdated={fetchVersions} onSummaryReady={setSummaryReady} onCurrentPhaseChange={setCurrentPhaseName} refreshKey={warRoomRefresh} />
@@ -811,8 +833,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <span style={{ fontSize: '22px' }}>🎭</span>
                       <div>
-                        <div style={{ fontWeight: 'bold', color: 'white', fontSize: '15px' }}>חזרה גנרלית — {selectedVersion?.name}</div>
-                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', marginTop: '2px' }}>מצב אימון — שינויים לא יכנסו לייצור</div>
+                        <div style={{ fontWeight: 'bold', color: 'white', fontSize: '16px' }}>חזרה גנרלית — {selectedVersion?.name}</div>
+                        <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.8)', marginTop: '2px' }}>מצב אימון — שינויים לא יכנסו לייצור</div>
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -827,7 +849,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                             appDialog.alert(err?.response?.data?.message || 'לא ניתן לבטל את החזרה הגנרלית', 'שגיאה', 'danger');
                           }
                         }}
-                        style={{ padding: '8px 16px', background: 'rgba(0,0,0,0.25)', color: 'white', border: '1px solid rgba(255,255,255,0.4)', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', whiteSpace: 'nowrap' }}
+                        style={{ padding: '8px 16px', background: 'rgba(0,0,0,0.25)', color: 'white', border: '1px solid rgba(255,255,255,0.4)', borderRadius: '8px', cursor: 'pointer', fontSize: '15px', whiteSpace: 'nowrap' }}
                         title="חזור לתוכנית — רק אם טרם הורצה משימה"
                       >
                         ← חזור לתוכנית
@@ -835,7 +857,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                       {summaryReady && (
                         <button
                           onClick={() => setActiveTab('summary-rehearsal')}
-                          style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.5)', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', whiteSpace: 'nowrap' }}
+                          style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.5)', borderRadius: '8px', cursor: 'pointer', fontSize: '15px', whiteSpace: 'nowrap' }}
                         >
                           📋 דוח סיכום חזרה
                         </button>
@@ -858,7 +880,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                           } finally { setRehearsalEndLoading(false); }
                         }}
                         disabled={rehearsalEndLoading}
-                        style={{ padding: '8px 20px', background: rehearsalEndLoading ? 'rgba(0,0,0,0.3)' : '#7c3aed', color: 'white', border: 'none', borderRadius: '8px', cursor: rehearsalEndLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap' }}
+                        style={{ padding: '8px 20px', background: rehearsalEndLoading ? 'rgba(0,0,0,0.3)' : '#7c3aed', color: 'white', border: 'none', borderRadius: '8px', cursor: rehearsalEndLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '15px', whiteSpace: 'nowrap' }}
                       >
                         {rehearsalEndLoading ? '...' : '✅ סיים חזרה גנרלית'}
                       </button>
@@ -872,21 +894,21 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                         <span style={{ fontSize: '20px' }}>🌅</span>
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontWeight: 'bold', color: '#8e44ad', fontSize: '14px' }}>שלב 4 — בוקר לאחר גרסה — {selectedVersion?.name}</span>
+                            <span style={{ fontWeight: 'bold', color: '#8e44ad', fontSize: '15px' }}>שלב 4 — בוקר לאחר גרסה — {selectedVersion?.name}</span>
                             {currentPhaseName && (
-                              <span style={{ background: '#8e44ad', color: 'white', fontSize: '11px', padding: '2px 10px', borderRadius: '12px', fontWeight: 'bold' }}>
+                              <span style={{ background: '#8e44ad', color: 'white', fontSize: '13px', padding: '2px 10px', borderRadius: '12px', fontWeight: 'bold' }}>
                                 {currentPhaseName}
                               </span>
                             )}
                           </div>
-                          <div style={{ fontSize: '12px', color: '#888', marginTop: '2px' }}>השלם את משימות הבוקר ואשר סיכום לסגירת הגרסה</div>
+                          <div style={{ fontSize: '14px', color: '#888', marginTop: '2px' }}>השלם את משימות הבוקר ואשר סיכום לסגירת הגרסה</div>
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         {summaryReady && (
                           <button
                             onClick={() => setActiveTab('summary-night')}
-                            style={{ padding: '8px 20px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap' }}
+                            style={{ padding: '8px 20px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px', whiteSpace: 'nowrap' }}
                           >
                             עבור לדוח הסיכום ←
                           </button>
@@ -927,21 +949,21 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                             onCancel: () => {},
                           })}
                           disabled={endNightLoading}
-                          style={{ padding: '8px 20px', background: endNightLoading ? '#aaa' : '#1a5c2a', color: 'white', border: 'none', borderRadius: '8px', cursor: endNightLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                          style={{ padding: '8px 20px', background: endNightLoading ? '#aaa' : '#1a5c2a', color: 'white', border: 'none', borderRadius: '8px', cursor: endNightLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}
                         >
                           {endNightLoading ? '...' : '✅ סגור גרסה'}
                         </button>
                       </div>
                     </div>
                     {(endNightError || endNightBlockers.length > 0) && (
-                      <div style={{ background: '#fff8f0', border: '1px solid #e67e22', borderRadius: '8px', padding: '10px 14px', fontSize: '13px' }}>
+                      <div style={{ background: '#fff8f0', border: '1px solid #e67e22', borderRadius: '8px', padding: '10px 14px', fontSize: '15px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: (endNightBlockers.length || endNightPending > 0) ? '10px' : 0 }}>
                           <span style={{ color: '#c0392b', fontWeight: 'bold' }}>⚠️ {endNightBlockers.length > 0 ? `${endNightBlockers.length} משימות עם עיכוב ללא סיבה` : endNightError}</span>
-                          <button onClick={() => { setEndNightError(null); setEndNightBlockers([]); setBlockerReasons({}); setEndNightPending(0); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#999', fontWeight: 'bold', fontSize: '16px' }}>×</button>
+                          <button onClick={() => { setEndNightError(null); setEndNightBlockers([]); setBlockerReasons({}); setEndNightPending(0); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#999', fontWeight: 'bold', fontSize: '17px' }}>×</button>
                         </div>
                         {endNightPending > 0 && ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role) && (
                           <div style={{ background: '#fff3cd', border: '1px solid #ffc107', borderRadius: '6px', padding: '10px 14px', marginTop: '8px' }}>
-                            <div style={{ fontSize: '12px', color: '#856404', marginBottom: '8px' }}>
+                            <div style={{ fontSize: '14px', color: '#856404', marginBottom: '8px' }}>
                               {endNightPending} משימות לא הושלמו. מנהל לילה יכול לסגור בכל זאת.
                             </div>
                             <button
@@ -964,7 +986,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                                 },
                                 onCancel: () => {},
                               })}
-                              style={{ padding: '6px 16px', background: '#e67e22', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
+                              style={{ padding: '6px 16px', background: '#e67e22', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
                               ⚠️ סגור בכל זאת
                             </button>
                           </div>
@@ -972,13 +994,13 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                         {endNightBlockers.map((t: any) => (
                           <div key={t.id} style={{ background: 'white', border: '1px solid #f0c040', borderRadius: '8px', padding: '10px', marginBottom: '8px' }}>
                             <div style={{ fontWeight: 'bold', marginBottom: '4px', color: '#1a2332' }}>{t.title}</div>
-                            <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>מתוכנן: {fmtMins(t.plannedM)} · בפועל: {fmtMins(t.actualM)} · חריגה: +{fmtMins(t.actualM - t.plannedM)}</div>
+                            <div style={{ fontSize: '14px', color: '#888', marginBottom: '8px' }}>מתוכנן: {fmtMins(t.plannedM)} · בפועל: {fmtMins(t.actualM)} · חריגה: +{fmtMins(t.actualM - t.plannedM)}</div>
                             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-                              <select value={blockerReasons[t.id] || ''} onChange={e => setBlockerReasons(prev => ({ ...prev, [t.id]: e.target.value }))} style={{ padding: '5px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '12px', direction: 'rtl' }}>
+                              <select value={blockerReasons[t.id] || ''} onChange={e => setBlockerReasons(prev => ({ ...prev, [t.id]: e.target.value }))} style={{ padding: '5px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', direction: 'rtl' }}>
                                 <option value="">— בחר סיבת עיכוב —</option>
                                 {DELAY_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
                               </select>
-                              <button onClick={() => saveBlockerReason(t.id)} disabled={!blockerReasons[t.id] || savingReason === t.id} style={{ padding: '5px 14px', background: blockerReasons[t.id] ? '#e67e22' : '#ccc', color: 'white', border: 'none', borderRadius: '6px', cursor: blockerReasons[t.id] ? 'pointer' : 'not-allowed', fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                              <button onClick={() => saveBlockerReason(t.id)} disabled={!blockerReasons[t.id] || savingReason === t.id} style={{ padding: '5px 14px', background: blockerReasons[t.id] ? '#e67e22' : '#ccc', color: 'white', border: 'none', borderRadius: '6px', cursor: blockerReasons[t.id] ? 'pointer' : 'not-allowed', fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
                                 {savingReason === t.id ? '...' : 'שמור'}
                               </button>
                             </div>
@@ -992,9 +1014,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                   <div style={{ background: 'white', borderRadius: '12px', padding: '12px 20px', marginBottom: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontWeight: 'bold', color: '#1a2332', fontSize: '14px' }}>🌙 {selectedVersion?.name}</span>
+                        <span style={{ fontWeight: 'bold', color: '#1a2332', fontSize: '15px' }}>🌙 {selectedVersion?.name}</span>
                         {currentPhaseName && (
-                          <span style={{ background: '#2d4a7a', color: 'white', fontSize: '11px', padding: '2px 10px', borderRadius: '12px', fontWeight: 'bold' }}>
+                          <span style={{ background: '#2d4a7a', color: 'white', fontSize: '13px', padding: '2px 10px', borderRadius: '12px', fontWeight: 'bold' }}>
                             {currentPhaseName}
                           </span>
                         )}
@@ -1003,7 +1025,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                         {summaryReady && (
                           <button
                             onClick={() => setActiveTab('summary-night')}
-                            style={{ padding: '8px 20px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap' }}
+                            style={{ padding: '8px 20px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px', whiteSpace: 'nowrap' }}
                           >
                             עבור לדוח הסיכום ←
                           </button>
@@ -1011,16 +1033,16 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                         <button
                           onClick={endNight}
                           disabled={endNightLoading}
-                          style={{ padding: '8px 20px', background: endNightLoading ? '#aaa' : '#1a5c2a', color: 'white', border: 'none', borderRadius: '8px', cursor: endNightLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                          style={{ padding: '8px 20px', background: endNightLoading ? '#aaa' : '#1a5c2a', color: 'white', border: 'none', borderRadius: '8px', cursor: endNightLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}
                         >
                           {endNightLoading ? '...' : 'סיום פעילות גרסה →'}
                         </button>
                       </div>
                     </div>
                     {endNightError && (
-                      <div style={{ background: '#fff8f0', border: '1px solid #e67e22', borderRadius: '8px', padding: '10px 14px', fontSize: '13px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ background: '#fff8f0', border: '1px solid #e67e22', borderRadius: '8px', padding: '10px 14px', fontSize: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ color: '#c0392b', fontWeight: 'bold' }}>⚠️ {endNightError}</span>
-                        <button onClick={() => setEndNightError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#999', fontWeight: 'bold', fontSize: '16px' }}>×</button>
+                        <button onClick={() => setEndNightError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#999', fontWeight: 'bold', fontSize: '17px' }}>×</button>
                       </div>
                     )}
                   </div>
@@ -1035,6 +1057,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                   onSummaryReady={setSummaryReady}
                   onCurrentPhaseChange={setCurrentPhaseName}
                   refreshKey={warRoomRefresh}
+                  onGoHome={() => { setActiveModule('deployments'); setActiveTab('home'); }}
                 />
               </div>
             ) : selectedVersion && selectedVersion.status === 'APPROVED' && selectedVersion.lastRehearsalAt ? (
@@ -1052,7 +1075,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                     <div style={{ fontWeight: 'bold', color: 'white', fontSize: '18px', marginBottom: '4px' }}>
                       החזרה הושלמה — מוכן לפתיחת לילה
                     </div>
-                    <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.75)' }}>
+                    <div style={{ fontSize: '15px', color: 'rgba(255,255,255,0.75)' }}>
                       {selectedVersion.name} · חזרה בוצעה בהצלחה · ניתן להפעיל את ההרצה האמיתית
                     </div>
                   </div>
@@ -1060,7 +1083,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 <div style={{ display: 'flex', gap: '10px', flexShrink: 0 }}>
                   <button
                     onClick={() => setActiveTab('summary-rehearsal')}
-                    style={{ padding: '10px 20px', background: 'rgba(255,255,255,0.12)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '10px', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap' }}
+                    style={{ padding: '10px 20px', background: 'rgba(255,255,255,0.12)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '10px', cursor: 'pointer', fontSize: '15px', whiteSpace: 'nowrap' }}
                   >
                     📋 סיכום חזרה
                   </button>
@@ -1083,7 +1106,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                         appDialog.alert(err?.response?.data?.message || 'לא ניתן להפעיל הרצה', 'שגיאה', 'danger');
                       } finally { setStartNightLoading(false); }
                     }}
-                    style={{ padding: '10px 24px', background: startNightLoading ? '#999' : '#F06A6A', color: 'white', border: 'none', borderRadius: '10px', cursor: startNightLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '15px', whiteSpace: 'nowrap', boxShadow: '0 2px 8px rgba(240,106,106,0.4)' }}
+                    style={{ padding: '10px 24px', background: startNightLoading ? '#999' : '#F06A6A', color: 'white', border: 'none', borderRadius: '10px', cursor: startNightLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '16px', whiteSpace: 'nowrap', boxShadow: '0 2px 8px rgba(240,106,106,0.4)' }}
                   >
                     {startNightLoading ? '...' : '🌙 פתח לילה ←'}
                   </button>
@@ -1115,6 +1138,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 hideGoNogo={true}
                 refreshSignal={warRoomRefresh}
                 onGoToHub={() => setActiveTab('list')}
+                onGoHome={() => setActiveTab('home')}
               />
             ) : <NoActiveVersionMessage />
           )}
@@ -1133,6 +1157,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 hideGoNogo={false}
                 refreshSignal={warRoomRefresh}
                 onGoToHub={() => setActiveTab('list')}
+                onGoHome={() => setActiveTab('home')}
               />
             ) : <NoActiveVersionMessage />
           )}
@@ -1150,8 +1175,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 <div style={{ background: 'linear-gradient(135deg, #4c1d95 0%, #7c3aed 100%)', borderRadius: '12px', padding: '14px 20px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <span style={{ fontSize: '22px' }}>🎭</span>
                   <div>
-                    <div style={{ fontWeight: 'bold', color: 'white', fontSize: '15px' }}>סיכום חזרה גנרלית — {selectedVersion.name}</div>
-                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', marginTop: '2px' }}>
+                    <div style={{ fontWeight: 'bold', color: 'white', fontSize: '16px' }}>סיכום חזרה גנרלית — {selectedVersion.name}</div>
+                    <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.8)', marginTop: '2px' }}>
                       {selectedVersion.lastRehearsalAt
                         ? `הורצה ב-${new Date(selectedVersion.lastRehearsalAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
                         : 'חזרה גנרלית פעילה'}
@@ -1170,6 +1195,14 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
             ) : <EmptyVersionMessage />
           )}
 
+          {/* ── Tab: לוח + לוח בקרה של החזרה הגנרלית — read-only replay from lastRehearsalSnapshot ── */}
+          {activeTab === 'rehearsal-board' && (
+            noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
+            selectedVersionId ? (
+              <RehearsalBoardView token={token} versionId={selectedVersionId} />
+            ) : <EmptyVersionMessage />
+          )}
+
           {/* ── Tab: סיכום ליל ההטמעה — never render during REHEARSAL (prevents accidental nightSummary approval) ── */}
           {activeTab === 'summary-night' && selectedVersion?.status !== 'REHEARSAL' && (
             noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
@@ -1181,8 +1214,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       <span style={{ fontSize: '28px' }}>{selectedVersion.isArchived ? '📦' : '✅'}</span>
                       <div>
-                        <div style={{ fontWeight: 'bold', color: C.textPrimary, fontSize: '14px' }}>{selectedVersion.isArchived ? 'גרסה בארכיון' : 'גרסה סגורה'}</div>
-                        <div style={{ fontSize: '12px', color: C.textMuted }}>{selectedVersion.isArchived ? 'ניתן לשחזר מניהול גרסאות' : 'ADMIN — ניתן לארכב'}</div>
+                        <div style={{ fontWeight: 'bold', color: C.textPrimary, fontSize: '15px' }}>{selectedVersion.isArchived ? 'גרסה בארכיון' : 'גרסה סגורה'}</div>
+                        <div style={{ fontSize: '14px', color: C.textMuted }}>{selectedVersion.isArchived ? 'ניתן לשחזר מניהול גרסאות' : 'ADMIN — ניתן לארכב'}</div>
                       </div>
                     </div>
                     {!selectedVersion.isArchived && (
@@ -1192,7 +1225,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                           onCancel: () => {},
                         })}
                         disabled={archiveLoading}
-                        style={{ padding: '7px 16px', background: '#6c3483', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
+                        style={{ padding: '7px 16px', background: '#6c3483', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
                         📦 ארכיון
                       </button>
                     )}
@@ -1200,15 +1233,15 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 )}
                 {/* גרסה סגורה — תצוגה בלבד */}
                 {['COMPLETED', 'ROLLED_BACK'].includes(selectedVersion.status) && payload.role !== 'ADMIN' && (
-                  <div style={{ background: C.bgCard, borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: C.textMuted }}>
+                  <div style={{ background: C.bgCard, borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', color: C.textMuted }}>
                     🔒 גרסה סגורה — תצוגה בלבד
                   </div>
                 )}
                 <div style={{ background: 'linear-gradient(135deg, #1a2332 0%, #0d1b2a 100%)', borderRadius: '12px', padding: '14px 20px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <span style={{ fontSize: '22px' }}>🌙</span>
                   <div>
-                    <div style={{ fontWeight: 'bold', color: 'white', fontSize: '15px' }}>סיכום ליל ההטמעה — {selectedVersion.name}</div>
-                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.65)', marginTop: '2px' }}>
+                    <div style={{ fontWeight: 'bold', color: 'white', fontSize: '16px' }}>סיכום ליל ההטמעה — {selectedVersion.name}</div>
+                    <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.65)', marginTop: '2px' }}>
                       {selectedVersion.actualStart
                         ? `הרצה התחילה: ${new Date(selectedVersion.actualStart).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
                         : 'הפק ואשר את דוח הסיכום'}
@@ -1239,8 +1272,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 <div style={{ background: C.bgCard, borderRadius: '10px', padding: '12px 18px', marginBottom: '16px', border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <span style={{ fontSize: '22px' }}>📁</span>
                   <div>
-                    <div style={{ fontWeight: '700', color: C.textPrimary, fontSize: '15px' }}>תוכניות הטמעה — {selectedVersion.name}</div>
-                    <div style={{ fontSize: '12px', color: C.textMuted, marginTop: '2px' }}>הגשה, סקירה ואישור תוכניות מנהל CR</div>
+                    <div style={{ fontWeight: '700', color: C.textPrimary, fontSize: '16px' }}>תוכניות הטמעה — {selectedVersion.name}</div>
+                    <div style={{ fontSize: '14px', color: C.textMuted, marginTop: '2px' }}>הגשה, סקירה ואישור תוכניות מנהל CR</div>
                   </div>
                 </div>
                 <ImplementationPlansView
@@ -1290,17 +1323,17 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 direction: 'rtl',
               }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: toast.body ? '4px' : 0 }}>
+                  <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: toast.body ? '4px' : 0 }}>
                     {toast.title}
                   </div>
-                  {toast.body && <div style={{ fontSize: '13px', opacity: 0.92, lineHeight: '1.4' }}>{toast.body}</div>}
+                  {toast.body && <div style={{ fontSize: '15px', opacity: 0.92, lineHeight: '1.4' }}>{toast.body}</div>}
                 </div>
                 <button
                   onClick={() => dismissToast(toast.id)}
                   style={{
                     background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white',
                     borderRadius: '50%', width: '22px', height: '22px', cursor: 'pointer',
-                    fontSize: '11px', fontWeight: 'bold', flexShrink: 0, lineHeight: '22px',
+                    fontSize: '13px', fontWeight: 'bold', flexShrink: 0, lineHeight: '22px',
                     textAlign: 'center', padding: 0,
                   }}
                 >✕</button>
@@ -1316,7 +1349,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
 const EmptyVersionMessage: React.FC = () => (
   <div style={{ textAlign: 'center', padding: '80px', color: C.textMuted, background: C.bgCard, borderRadius: '12px', border: `1px solid ${C.border}` }}>
     <div style={{ fontSize: '48px' }}>📁</div>
-    <p style={{ fontSize: '15px', marginTop: '12px', color: C.textSecondary }}>בחר גרסה מהתפריט בכותרת</p>
+    <p style={{ fontSize: '16px', marginTop: '12px', color: C.textSecondary }}>בחר גרסה מהתפריט בכותרת</p>
   </div>
 );
 
@@ -1336,7 +1369,7 @@ const NoVersionsForFilter: React.FC<{ filter: 'active' | 'inactive' | 'archived'
       <div style={{ fontSize: '48px' }}>{config.icon}</div>
       <h3 style={{ color: C.textPrimary, marginTop: '16px', marginBottom: '8px' }}>{config.title}</h3>
       {config.sub.split('\n').map((line, i) => (
-        <p key={i} style={{ fontSize: '14px', color: C.textMuted, margin: '4px 0' }}>{line}</p>
+        <p key={i} style={{ fontSize: '15px', color: C.textMuted, margin: '4px 0' }}>{line}</p>
       ))}
     </div>
   );
@@ -1346,8 +1379,8 @@ const NoActiveVersionMessage: React.FC = () => (
   <div style={emptyCardStyle}>
     <div style={{ fontSize: '48px' }}>🔒</div>
     <h3 style={{ color: C.textPrimary, marginTop: '16px' }}>אין גרסה פעילה</h3>
-    <p style={{ fontSize: '14px', color: C.textMuted }}>מסך זה זמין רק כאשר גרסה הופעלה ללילה</p>
-    <p style={{ fontSize: '13px', color: C.textDisabled }}>עבור למסך הכנה ושנה את סטטוס הגרסה ל-ACTIVE</p>
+    <p style={{ fontSize: '15px', color: C.textMuted }}>מסך זה זמין רק כאשר גרסה הופעלה ללילה</p>
+    <p style={{ fontSize: '15px', color: C.textDisabled }}>עבור למסך הכנה ושנה את סטטוס הגרסה ל-ACTIVE</p>
   </div>
 );
 
@@ -1367,7 +1400,7 @@ const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string;
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '12px', color: C.textMuted }}>
         <div style={{ fontSize: '48px' }}>🔒</div>
         <div style={{ fontSize: '18px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>אין הרשאת גישה</div>
-        <div style={{ fontSize: '14px', color: C.textMuted }}>אזור זה מיועד לצוות QA בלבד</div>
+        <div style={{ fontSize: '15px', color: C.textMuted }}>אזור זה מיועד לצוות QA בלבד</div>
       </div>
     );
   }
@@ -1377,7 +1410,7 @@ const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string;
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '12px', color: C.textMuted }}>
         <div style={{ fontSize: '48px' }}>🔒</div>
         <div style={{ fontSize: '18px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>אין הרשאת גישה</div>
-        <div style={{ fontSize: '14px', color: C.textMuted }}>תכנון ושיבוץ מיועד למנהלי מערכת בלבד</div>
+        <div style={{ fontSize: '15px', color: C.textMuted }}>תכנון ושיבוץ מיועד למנהלי מערכת בלבד</div>
       </div>
     );
   }
@@ -1391,8 +1424,8 @@ const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string;
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '16px', color: C.textMuted }}>
       <div style={{ fontSize: '56px', lineHeight: 1 }}>{meta.icon}</div>
       <div style={{ fontSize: '20px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>{meta.title}</div>
-      <div style={{ fontSize: '14px', color: C.textMuted }}>{meta.sub}</div>
-      <div style={{ marginTop: '8px', background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '10px 20px', fontSize: '13px', color: C.textDisabled }}>
+      <div style={{ fontSize: '15px', color: C.textMuted }}>{meta.sub}</div>
+      <div style={{ marginTop: '8px', background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '10px 20px', fontSize: '15px', color: C.textDisabled }}>
         בפיתוח — יתווסף בקרוב
       </div>
     </div>

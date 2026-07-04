@@ -832,7 +832,7 @@ function CycleCard({
           </span>
         )}
 
-        <span style={{ marginRight: 'auto', color: C.textMuted, fontSize: '12px' }}>
+        <span style={{ marginRight: 'auto', color: C.textMuted, fontSize: '14px' }}>
           {expanded ? '▲' : '▼'}
         </span>
       </div>

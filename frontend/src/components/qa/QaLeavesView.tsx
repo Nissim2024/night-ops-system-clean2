@@ -49,7 +49,8 @@ type FilterStatus = 'all' | ApprovalStatus;
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
-  const isAdmin = role === 'ADMIN';
+  const isAdmin = role === 'ADMIN' || role === 'TEAM_LEAD'; // can view team/all requests + approve/decline
+  const isFullAdmin = role === 'ADMIN'; // season/holiday definitions stay admin-only
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
   const [requests, setRequests]       = useState<LeaveRequest[]>([]);
@@ -177,7 +178,7 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
       <div style={{ display: 'flex', gap: '4px', borderBottom: `2px solid ${C.border}`, marginBottom: SP[5] }}>
         {[
           { key: 'requests', label: '📋 בקשות חופשה' },
-          ...(isAdmin ? [{ key: 'holidays', label: '🗓 מועדי חופשות' }] : []),
+          ...(isFullAdmin ? [{ key: 'holidays', label: '🗓 מועדי חופשות' }] : []),
         ].map(t => (
           <button key={t.key} onClick={() => setMainTab(t.key as any)}
             style={{

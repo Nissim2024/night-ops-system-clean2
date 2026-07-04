@@ -1126,7 +1126,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                         <td style={{ padding: `${SP[2]} ${SP[3]}`, minWidth: 160 }}>
                           {asg ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: SP[1] }}>
-                              <div style={{ width: 24, height: 24, borderRadius: '50%', background: testerOverload ? C.dangerBg : BLUE_BG, color: testerOverload ? C.danger : BLUE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: WEIGHT.bold, fontSize: '10px', flexShrink: 0, border: testerOverload ? `1px solid ${C.danger}44` : 'none' }}>
+                              <div style={{ width: 24, height: 24, borderRadius: '50%', background: testerOverload ? C.dangerBg : BLUE_BG, color: testerOverload ? C.danger : BLUE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: WEIGHT.bold, fontSize: '12px', flexShrink: 0, border: testerOverload ? `1px solid ${C.danger}44` : 'none' }}>
                                 {asg.user.fullName.charAt(0).toUpperCase()}
                               </div>
                               <span style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: testerOverload ? C.danger : C.textPrimary }}>{asg.user.fullName}</span>
@@ -1135,7 +1135,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                                 disabled={isSaving}
                                 onClick={() => unassign(asg.id, cr.crNumber)}
                                 title="הסר שיבוץ"
-                                style={{ width: 16, height: 16, borderRadius: '50%', border: `1px solid ${C.border}`, background: 'transparent', color: C.textDisabled, fontSize: '9px', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT, transition: EASE.fast }}
+                                style={{ width: 16, height: 16, borderRadius: '50%', border: `1px solid ${C.border}`, background: 'transparent', color: C.textDisabled, fontSize: '11px', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT, transition: EASE.fast }}
                                 onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = C.dangerBg; (e.currentTarget as HTMLButtonElement).style.color = C.danger; }}
                                 onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = C.textDisabled; }}
                               >✕</button>
@@ -1423,7 +1423,7 @@ function ScoringPickerContent({
                   onMouseEnter={e => { if (!isCurrent && !isNavSelected) (e.currentTarget as HTMLDivElement).style.background = C.bgHover; }}
                   onMouseLeave={e => { if (!isCurrent && !isNavSelected) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
                 >
-                  <div style={{ width: 22, height: 22, borderRadius: '50%', background: isCurrent ? BLUE_BG : C.bgNested, color: isCurrent ? BLUE : C.textSecondary, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: WEIGHT.bold, fontSize: '10px', flexShrink: 0, border: `1px solid ${isCurrent ? BLUE + '44' : C.border}` }}>
+                  <div style={{ width: 22, height: 22, borderRadius: '50%', background: isCurrent ? BLUE_BG : C.bgNested, color: isCurrent ? BLUE : C.textSecondary, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: WEIGHT.bold, fontSize: '12px', flexShrink: 0, border: `1px solid ${isCurrent ? BLUE + '44' : C.border}` }}>
                     {t.fullName.charAt(0).toUpperCase()}
                   </div>
                   <span style={{ ...TEXT.xs, color: isCurrent ? BLUE : C.textPrimary, fontWeight: isCurrent ? WEIGHT.semibold : WEIGHT.normal, flex: 1 }}>
@@ -1454,7 +1454,7 @@ function ScoredTesterRow({ tester, rank, isCurrentlyAssigned, onAssign }: {
       onMouseLeave={e => { if (!isCurrentlyAssigned) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: SP[2] }}>
-        <div style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0, background: rank === 1 ? '#FFD700' : rank === 2 ? '#C0C0C0' : '#CD7F32', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: WEIGHT.bold, fontSize: '10px' }}>
+        <div style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0, background: rank === 1 ? '#FFD700' : rank === 2 ? '#C0C0C0' : '#CD7F32', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: WEIGHT.bold, fontSize: '12px' }}>
           #{rank}
         </div>
         <div style={{ flex: 1 }}>

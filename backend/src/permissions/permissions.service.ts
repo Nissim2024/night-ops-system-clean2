@@ -7,9 +7,10 @@ const prisma = new PrismaClient({
 
 export const ALL_PERMISSIONS = [
   'screen:prep', 'screen:handoff', 'screen:timeline',
-  'screen:night', 'screen:summary', 'screen:admin',
+  'screen:night', 'screen:summary', 'screen:admin', 'screen:qa',
   'action:import', 'action:gonogo', 'action:task_status', 'action:open_task_for_execution',
   'action:user_manage', 'action:override_version_edit', 'action:select_all_tasks', 'action:template_delete',
+  'action:qa_leave_request', 'action:qa_manage',
 ];
 
 const DEFAULTS: Record<string, string[]> = {

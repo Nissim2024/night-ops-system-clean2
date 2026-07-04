@@ -1,4 +1,4 @@
-/* Service Worker — NightOps Push Notifications */
+/* Service Worker — DeployCenter Push Notifications */
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
@@ -7,12 +7,12 @@ self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch {}
 
-  const title   = data.title   || 'NightOps';
+  const title   = data.title   || 'DeployCenter';
   const options = {
     body:               data.body    || '',
     icon:               data.icon    || '/logo192.png',
     badge:              '/logo192.png',
-    tag:                data.tag     || 'nightops',
+    tag:                data.tag     || 'deploycenter',
     data:               data.data    || {},
     requireInteraction: !!data.urgent,
     vibrate:            data.urgent ? [200, 100, 200, 100, 200] : [100],

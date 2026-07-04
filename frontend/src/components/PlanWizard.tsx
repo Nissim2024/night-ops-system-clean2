@@ -162,31 +162,31 @@ function Step1Content({ version, phaseStarts, phaseEnds, setPhaseStarts, setPhas
 
   return (
     <div>
-      <h3 style={{ margin: '0 0 8px', fontSize: '16px', color: '#1a2332' }}>📅 הגדרת מסגרת זמן</h3>
-      <p style={{ margin: '0 0 16px', color: '#666', fontSize: '13px' }}>
+      <h3 style={{ margin: '0 0 8px', fontSize: '17px', color: '#1a2332' }}>📅 הגדרת מסגרת זמן</h3>
+      <p style={{ margin: '0 0 16px', color: '#666', fontSize: '15px' }}>
         קבע שעת התחלה וסיום לכל שלב. המערכת תחשב את זמן כל משימה לפי מבנה התלויות.
       </p>
 
       {/* Base night date picker */}
       <div style={{ marginBottom: '18px', padding: '12px 16px', background: '#f0f7ff', border: '1px solid #bfdbfe', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
-        <span style={{ fontWeight: '600', fontSize: '13px', color: '#1e40af', whiteSpace: 'nowrap' }}>🌙 תאריך לילה ההטמעה:</span>
+        <span style={{ fontWeight: '600', fontSize: '15px', color: '#1e40af', whiteSpace: 'nowrap' }}>🌙 תאריך לילה ההטמעה:</span>
         <input
           type="date"
           value={baseDate}
           onChange={e => setBaseDate(e.target.value)}
-          style={{ padding: '6px 10px', border: '1px solid #93c5fd', borderRadius: '6px', fontSize: '13px', background: 'white', color: '#1a2332' }}
+          style={{ padding: '6px 10px', border: '1px solid #93c5fd', borderRadius: '6px', fontSize: '15px', background: 'white', color: '#1a2332' }}
         />
         <button
           onClick={() => applyDefaults(baseDate)}
           disabled={!baseDate}
-          style={{ padding: '6px 14px', background: baseDate ? '#1d4ed8' : '#94a3b8', color: 'white', border: 'none', borderRadius: '6px', cursor: baseDate ? 'pointer' : 'not-allowed', fontSize: '13px', fontWeight: '600', whiteSpace: 'nowrap' }}
+          style={{ padding: '6px 14px', background: baseDate ? '#1d4ed8' : '#94a3b8', color: 'white', border: 'none', borderRadius: '6px', cursor: baseDate ? 'pointer' : 'not-allowed', fontSize: '15px', fontWeight: '600', whiteSpace: 'nowrap' }}
         >
           חשב ברירות מחדל ⚡
         </button>
-        <span style={{ fontSize: '11px', color: '#6b7280' }}>כל שעות השלבים יחושבו אוטומטית</span>
+        <span style={{ fontSize: '13px', color: '#6b7280' }}>כל שעות השלבים יחושבו אוטומטית</span>
       </div>
 
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
         <thead>
           <tr style={{ background: '#f1f5f9' }}>
             <th style={{ padding: '10px 12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontWeight: '600', color: '#1a2332' }}>שלב</th>
@@ -203,7 +203,7 @@ function Step1Content({ version, phaseStarts, phaseEnds, setPhaseStarts, setPhas
                   type="datetime-local"
                   value={phaseStarts[phase.id] ?? ''}
                   onChange={e => setPhaseStarts({ ...phaseStarts, [phase.id]: e.target.value })}
-                  style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', direction: 'ltr' }}
+                  style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '15px', direction: 'ltr' }}
                 />
               </td>
               <td style={{ padding: '8px 12px', textAlign: 'center' }}>
@@ -211,7 +211,7 @@ function Step1Content({ version, phaseStarts, phaseEnds, setPhaseStarts, setPhas
                   type="datetime-local"
                   value={phaseEnds[phase.id] ?? ''}
                   onChange={e => setPhaseEnds({ ...phaseEnds, [phase.id]: e.target.value })}
-                  style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', direction: 'ltr' }}
+                  style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '15px', direction: 'ltr' }}
                 />
               </td>
             </tr>
@@ -226,10 +226,11 @@ function Step2Content({ version, users, teams, workerReplacements, setWorkerRepl
   version: any;
   users: { id: string; fullName: string }[];
   teams: any[];
-  workerReplacements: Record<string, string>;
-  setWorkerReplacements: (v: Record<string, string>) => void;
+  workerReplacements: Record<string, { toUserId: string; phaseId: string }>;
+  setWorkerReplacements: (v: Record<string, { toUserId: string; phaseId: string }>) => void;
 }) {
   const entries = getWorkerEntries(version, users);
+  const sortedPhases = [...(version.phases ?? [])].sort((a: any, b: any) => a.orderIndex - b.orderIndex);
 
   if (entries.length === 0) {
     return (
@@ -242,15 +243,16 @@ function Step2Content({ version, users, teams, workerReplacements, setWorkerRepl
 
   return (
     <div>
-      <h3 style={{ margin: '0 0 8px', fontSize: '16px', color: '#1a2332' }}>👥 החלפת עובדים</h3>
-      <p style={{ margin: '0 0 20px', color: '#666', fontSize: '13px' }}>
-        בחר מחליף לכל עובד מהתבנית. עזוב ריק כדי לשמור על העובד המקורי.
+      <h3 style={{ margin: '0 0 8px', fontSize: '17px', color: '#1a2332' }}>👥 החלפת עובדים</h3>
+      <p style={{ margin: '0 0 20px', color: '#666', fontSize: '15px' }}>
+        בחר מחליף לכל עובד מהתבנית. עזוב ריק כדי לשמור על העובד המקורי. ניתן להגביל את ההחלפה לשלב מסוים בלבד, במקום כל הגרסה.
       </p>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
         <thead>
           <tr style={{ background: '#f1f5f9' }}>
             <th style={{ padding: '10px 12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontWeight: '600', color: '#1a2332' }}>עובד בתבנית</th>
             <th style={{ padding: '10px 12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontWeight: '600', color: '#1a2332' }}>מחליף →</th>
+            <th style={{ padding: '10px 12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontWeight: '600', color: '#1a2332' }}>תחולה</th>
           </tr>
         </thead>
         <tbody>
@@ -259,6 +261,7 @@ function Step2Content({ version, users, teams, workerReplacements, setWorkerRepl
             const pool: { id: string; fullName: string }[] = team
               ? (team.members || []).map((m: any) => m.user).filter(Boolean)
               : users;
+            const current = workerReplacements[entry.key] ?? { toUserId: '', phaseId: '' };
             return (
               <tr key={entry.key} style={{ borderBottom: '1px solid #f1f5f9', background: entry.isEmpty ? '#fffbeb' : 'transparent' }}>
                 <td style={{ padding: '10px 12px', color: entry.isEmpty ? '#92400e' : '#1a2332' }}>
@@ -271,23 +274,37 @@ function Step2Content({ version, users, teams, workerReplacements, setWorkerRepl
                     <span>
                       {entry.displayName}
                       {entry.isUnknown && (
-                        <span style={{ fontSize: '11px', color: '#ef4444', marginRight: '6px' }} title="עובד לא פעיל / לא קיים במערכת">⚠ לא פעיל</span>
+                        <span style={{ fontSize: '13px', color: '#ef4444', marginRight: '6px' }} title="עובד לא פעיל / לא קיים במערכת">⚠ לא פעיל</span>
                       )}
                     </span>
                   )}
                   {team && (
-                    <span style={{ fontSize: '11px', color: '#94a3b8', marginRight: '6px' }}>({team.name})</span>
+                    <span style={{ fontSize: '13px', color: '#94a3b8', marginRight: '6px' }}>({team.name})</span>
                   )}
                 </td>
                 <td style={{ padding: '8px 12px' }}>
                   <select
-                    value={workerReplacements[entry.key] ?? ''}
-                    onChange={e => setWorkerReplacements({ ...workerReplacements, [entry.key]: e.target.value })}
-                    style={{ padding: '7px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', width: '100%', background: 'white' }}
+                    value={current.toUserId}
+                    onChange={e => setWorkerReplacements({ ...workerReplacements, [entry.key]: { ...current, toUserId: e.target.value } })}
+                    style={{ padding: '7px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '15px', width: '100%', background: 'white' }}
                   >
                     <option value="">{entry.isEmpty ? '— בחר עובד לשיבוץ —' : '— ללא שינוי —'}</option>
                     {pool.map((u: any) => (
                       <option key={u.id} value={u.id}>{u.fullName}</option>
+                    ))}
+                  </select>
+                </td>
+                <td style={{ padding: '8px 12px' }}>
+                  <select
+                    value={current.phaseId}
+                    disabled={!current.toUserId}
+                    onChange={e => setWorkerReplacements({ ...workerReplacements, [entry.key]: { ...current, phaseId: e.target.value } })}
+                    style={{ padding: '7px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '15px', width: '100%', background: current.toUserId ? 'white' : '#f1f5f9', color: current.toUserId ? '#1a2332' : '#94a3b8' }}
+                    title="ברירת מחדל: כל הגרסה"
+                  >
+                    <option value="">כל הגרסה</option>
+                    {sortedPhases.map((p: any) => (
+                      <option key={p.id} value={p.id}>רק שלב: {p.name}</option>
                     ))}
                   </select>
                 </td>
@@ -303,26 +320,26 @@ function Step2Content({ version, users, teams, workerReplacements, setWorkerRepl
 function Step3Content({ depsResult }: { depsResult: { created: number; skipped: number } | null }) {
   return (
     <div>
-      <h3 style={{ margin: '0 0 8px', fontSize: '16px', color: '#1a2332' }}>🔗 תלויות ועדכון זמנים</h3>
-      <p style={{ margin: '0 0 16px', color: '#666', fontSize: '13px' }}>
+      <h3 style={{ margin: '0 0 8px', fontSize: '17px', color: '#1a2332' }}>🔗 תלויות ועדכון זמנים</h3>
+      <p style={{ margin: '0 0 16px', color: '#666', fontSize: '15px' }}>
         יצירת תלויות אוטומטיות בין משימות של אותו עובד (לפי סדר), ואחריה חישוב זמני ביצוע לפי שרשראות התלות.
       </p>
 
       <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '16px 20px', marginBottom: '16px' }}>
-        <div style={{ fontWeight: 'bold', color: '#1a2332', marginBottom: '8px', fontSize: '14px' }}>מה יקרה:</div>
-        <ul style={{ margin: 0, paddingRight: '20px', color: '#64748b', fontSize: '13px', lineHeight: '1.8' }}>
+        <div style={{ fontWeight: 'bold', color: '#1a2332', marginBottom: '8px', fontSize: '15px' }}>מה יקרה:</div>
+        <ul style={{ margin: 0, paddingRight: '20px', color: '#64748b', fontSize: '15px', lineHeight: '1.8' }}>
           <li>לכל עובד, כל משימה שלו תהיה תלויה במשימה הקודמת שלו (בתוך אותו שלב)</li>
           <li>תלויות קיימות לא יידרסו</li>
           <li>לאחר יצירת התלויות — המערכת תחשב מחדש את זמני כל המשימות</li>
         </ul>
       </div>
 
-      <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '10px', padding: '12px 16px', fontSize: '13px', color: '#92400e' }}>
+      <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '10px', padding: '12px 16px', fontSize: '15px', color: '#92400e' }}>
         💡 <strong>לחץ "רק חשב זמנים"</strong> אם כבר יצרת תלויות ורוצה רק לעדכן את הזמנים לפיהן.
       </div>
 
       {depsResult && (
-        <div style={{ marginTop: '16px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '8px', padding: '12px 16px', fontSize: '14px', color: '#166534' }}>
+        <div style={{ marginTop: '16px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '8px', padding: '12px 16px', fontSize: '15px', color: '#166534' }}>
           ✅ נוצרו <strong>{depsResult.created}</strong> תלויות חדשות | דולגו (קיימות/מעגליות): <strong>{depsResult.skipped}</strong>
         </div>
       )}
@@ -373,15 +390,15 @@ function Step4Content({ anomalies, versionId, token, onRedetect }: {
 
   const thStyle: React.CSSProperties = {
     padding: '9px 10px', textAlign: 'right', borderBottom: '2px solid #cbd5e1',
-    color: '#1e293b', fontWeight: '700', fontSize: '12px', background: '#e2e8f0',
+    color: '#1e293b', fontWeight: '700', fontSize: '14px', background: '#e2e8f0',
   };
   const thC: React.CSSProperties = { ...thStyle, textAlign: 'center' };
 
   if (anomalies === null) {
     return (
       <div>
-        <h3 style={{ margin: '0 0 8px', fontSize: '16px', color: '#1a2332' }}>🔍 בדיקת חריגות</h3>
-        <p style={{ margin: '0 0 20px', color: '#666', fontSize: '13px' }}>
+        <h3 style={{ margin: '0 0 8px', fontSize: '17px', color: '#1a2332' }}>🔍 בדיקת חריגות</h3>
+        <p style={{ margin: '0 0 20px', color: '#666', fontSize: '15px' }}>
           בדיקה אם משימות כלשהן חורגות מסיום השלב המתוכנן.
         </p>
         <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
@@ -394,11 +411,11 @@ function Step4Content({ anomalies, versionId, token, onRedetect }: {
   if (anomalies.length === 0) {
     return (
       <div>
-        <h3 style={{ margin: '0 0 8px', fontSize: '16px', color: '#1a2332' }}>🔍 בדיקת חריגות</h3>
+        <h3 style={{ margin: '0 0 8px', fontSize: '17px', color: '#1a2332' }}>🔍 בדיקת חריגות</h3>
         <div style={{ textAlign: 'center', padding: '40px' }}>
           <div style={{ fontSize: '48px', marginBottom: '12px' }}>✅</div>
-          <div style={{ color: '#166534', fontWeight: 'bold', fontSize: '16px' }}>לא נמצאו חריגות</div>
-          <div style={{ color: '#999', fontSize: '13px', marginTop: '8px' }}>כל המשימות בתוך מסגרת הזמן של השלב</div>
+          <div style={{ color: '#166534', fontWeight: 'bold', fontSize: '17px' }}>לא נמצאו חריגות</div>
+          <div style={{ color: '#999', fontSize: '15px', marginTop: '8px' }}>כל המשימות בתוך מסגרת הזמן של השלב</div>
         </div>
       </div>
     );
@@ -412,17 +429,17 @@ function Step4Content({ anomalies, versionId, token, onRedetect }: {
 
   return (
     <div>
-      <h3 style={{ margin: '0 0 8px', fontSize: '16px', color: '#1a2332' }}>🔍 בדיקת חריגות</h3>
-      <div style={{ background: '#fff5f5', border: '1px solid #fca5a5', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', color: '#b91c1c', fontSize: '14px', fontWeight: 'bold' }}>
+      <h3 style={{ margin: '0 0 8px', fontSize: '17px', color: '#1a2332' }}>🔍 בדיקת חריגות</h3>
+      <div style={{ background: '#fff5f5', border: '1px solid #fca5a5', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', color: '#b91c1c', fontSize: '15px', fontWeight: 'bold' }}>
         ⚠️ נמצאו {anomalies.length} חריגות — משימות שיסתיימו אחרי סיום השלב
       </div>
 
       {Object.entries(byPhase).map(([phaseName, items]) => (
         <div key={phaseName} style={{ marginBottom: '20px' }}>
-          <div style={{ fontWeight: 'bold', color: '#1a2332', marginBottom: '8px', fontSize: '14px', padding: '6px 12px', background: '#fef2f2', borderRadius: '6px', borderRight: '3px solid #f87171' }}>
+          <div style={{ fontWeight: 'bold', color: '#1a2332', marginBottom: '8px', fontSize: '15px', padding: '6px 12px', background: '#fef2f2', borderRadius: '6px', borderRight: '3px solid #f87171' }}>
             שלב: {phaseName}
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
             <thead>
               <tr>
                 <th style={thStyle}>משימה</th>
@@ -439,7 +456,7 @@ function Step4Content({ anomalies, versionId, token, onRedetect }: {
                   <tr style={{ borderBottom: rowErrors[a.taskId] ? 'none' : '1px solid #f1f5f9', background: 'white' }}>
                     <td style={{ padding: '8px 10px', color: '#1a2332', fontWeight: '500' }}>
                       {a.taskTitle}
-                      {a.assignedUserName && <span style={{ display: 'block', fontSize: '11px', color: '#94a3b8' }}>👤 {a.assignedUserName}</span>}
+                      {a.assignedUserName && <span style={{ display: 'block', fontSize: '13px', color: '#94a3b8' }}>👤 {a.assignedUserName}</span>}
                     </td>
                     <td style={{ padding: '6px 8px', textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: '4px', alignItems: 'center', justifyContent: 'center' }}>
@@ -448,12 +465,12 @@ function Step4Content({ anomalies, versionId, token, onRedetect }: {
                           value={editDur[a.taskId] !== undefined ? editDur[a.taskId] : (a.duration ?? '')}
                           onChange={e => setEditDur(p => ({ ...p, [a.taskId]: e.target.value }))}
                           placeholder="30ד / 1ש30ד"
-                          style={{ width: '72px', padding: '4px 6px', border: '1px solid #cbd5e1', borderRadius: '5px', fontSize: '12px', direction: 'ltr', textAlign: 'center' }}
+                          style={{ width: '72px', padding: '4px 6px', border: '1px solid #cbd5e1', borderRadius: '5px', fontSize: '14px', direction: 'ltr', textAlign: 'center' }}
                         />
                         <button
                           onClick={() => saveDuration(a.taskId, a.duration)}
                           disabled={saving === a.taskId}
-                          style={{ padding: '4px 8px', background: saving === a.taskId ? '#94a3b8' : '#2d4a7a', color: 'white', border: 'none', borderRadius: '5px', cursor: saving === a.taskId ? 'not-allowed' : 'pointer', fontSize: '11px', whiteSpace: 'nowrap' }}
+                          style={{ padding: '4px 8px', background: saving === a.taskId ? '#94a3b8' : '#2d4a7a', color: 'white', border: 'none', borderRadius: '5px', cursor: saving === a.taskId ? 'not-allowed' : 'pointer', fontSize: '13px', whiteSpace: 'nowrap' }}
                         >
                           {saving === a.taskId ? '...' : 'עדכן'}
                         </button>
@@ -470,7 +487,7 @@ function Step4Content({ anomalies, versionId, token, onRedetect }: {
                     </td>
                     <td style={{ padding: '6px 8px', textAlign: 'center' }}>
                       {(a.dependencies ?? []).length === 0 ? (
-                        <span style={{ color: '#94a3b8', fontSize: '11px' }}>—</span>
+                        <span style={{ color: '#94a3b8', fontSize: '13px' }}>—</span>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                           {(a.dependencies ?? []).map((dep: any) => {
@@ -481,7 +498,7 @@ function Step4Content({ anomalies, versionId, token, onRedetect }: {
                                 onClick={() => removeDep(a.taskId, dep.taskId, dep.taskTitle)}
                                 disabled={removing === key}
                                 title={`הסר תלות על: ${dep.taskTitle}`}
-                                style={{ padding: '3px 7px', background: removing === key ? '#94a3b8' : '#fef2f2', color: '#b91c1c', border: '1px solid #fca5a5', borderRadius: '4px', cursor: removing === key ? 'not-allowed' : 'pointer', fontSize: '11px', whiteSpace: 'nowrap', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                style={{ padding: '3px 7px', background: removing === key ? '#94a3b8' : '#fef2f2', color: '#b91c1c', border: '1px solid #fca5a5', borderRadius: '4px', cursor: removing === key ? 'not-allowed' : 'pointer', fontSize: '13px', whiteSpace: 'nowrap', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis' }}
                               >
                                 {removing === key ? '...' : `🔗 ${dep.taskTitle.length > 18 ? dep.taskTitle.slice(0, 18) + '…' : dep.taskTitle}`}
                               </button>
@@ -494,7 +511,7 @@ function Step4Content({ anomalies, versionId, token, onRedetect }: {
                   {rowErrors[a.taskId] && (
                     <tr>
                       <td colSpan={6} style={{ padding: '2px 10px 8px', borderBottom: '1px solid #f1f5f9' }}>
-                        <span style={{ color: '#dc2626', fontSize: '11px' }}>⚠️ {rowErrors[a.taskId]}</span>
+                        <span style={{ color: '#dc2626', fontSize: '13px' }}>⚠️ {rowErrors[a.taskId]}</span>
                       </td>
                     </tr>
                   )}
@@ -504,7 +521,7 @@ function Step4Content({ anomalies, versionId, token, onRedetect }: {
           </table>
         </div>
       ))}
-      <p style={{ color: '#666', fontSize: '12px', marginTop: '8px' }}>
+      <p style={{ color: '#666', fontSize: '14px', marginTop: '8px' }}>
         לאחר עדכון משך או הסרת תלות — הפעל מחדש את "בדוק חריגות" כדי לאמת.
       </p>
     </div>
@@ -535,15 +552,15 @@ function Step5Content({ sortResult, version }: { sortResult: { reordered: number
 
   return (
     <div>
-      <h3 style={{ margin: '0 0 8px', fontSize: '16px', color: '#1a2332' }}>🔀 מיון כרונולוגי</h3>
-      <p style={{ margin: '0 0 16px', color: '#666', fontSize: '13px' }}>
+      <h3 style={{ margin: '0 0 8px', fontSize: '17px', color: '#1a2332' }}>🔀 מיון כרונולוגי</h3>
+      <p style={{ margin: '0 0 16px', color: '#666', fontSize: '15px' }}>
         מסדר את orderIndex של משימות לפי plannedStart בתוך כל תת-שלב.
       </p>
 
       {sortResult ? (
         <div style={{ textAlign: 'center', padding: '30px' }}>
           <div style={{ fontSize: '40px', marginBottom: '12px' }}>✅</div>
-          <div style={{ color: '#166534', fontWeight: 'bold', fontSize: '16px' }}>
+          <div style={{ color: '#166534', fontWeight: 'bold', fontSize: '17px' }}>
             {sortResult.reordered > 0 ? `${sortResult.reordered} משימות מוינו מחדש` : 'הסדר כבר תקין — אין שינויים נדרשים'}
           </div>
         </div>
@@ -554,15 +571,15 @@ function Step5Content({ sortResult, version }: { sortResult: { reordered: number
         </div>
       ) : (
         <div>
-          <div style={{ fontWeight: '600', color: '#1a2332', marginBottom: '12px', fontSize: '13px' }}>תצוגה מקדימה — תת-שלבים שישתנו:</div>
+          <div style={{ fontWeight: '600', color: '#1a2332', marginBottom: '12px', fontSize: '15px' }}>תצוגה מקדימה — תת-שלבים שישתנו:</div>
           {sample.map((s, i) => (
             <div key={i} style={{ marginBottom: '16px', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
-              <div style={{ padding: '8px 14px', background: '#f1f5f9', fontWeight: '600', fontSize: '13px', color: '#1a2332' }}>
+              <div style={{ padding: '8px 14px', background: '#f1f5f9', fontWeight: '600', fontSize: '15px', color: '#1a2332' }}>
                 {s.phaseName} › {s.subName}
               </div>
               <div style={{ padding: '10px 14px' }}>
                 {s.tasks.map((t: any, ti: number) => (
-                  <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '4px 0', fontSize: '13px', color: '#374151' }}>
+                  <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '4px 0', fontSize: '15px', color: '#374151' }}>
                     <span style={{ color: '#94a3b8', minWidth: '20px' }}>{ti + 1}.</span>
                     <span style={{ color: '#2563eb', minWidth: '50px', direction: 'ltr', fontFamily: 'monospace' }}>
                       {new Date(t.plannedStart).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
@@ -583,6 +600,9 @@ function Step5Content({ sortResult, version }: { sortResult: { reordered: number
 
 export function PlanWizard({ version, token, users, teams, onClose, onRefresh }: PlanWizardProps) {
   const headers = { Authorization: `Bearer ${token}` };
+  // Scheduling during REHEARSAL writes to the task's rehearsal-specific planned times,
+  // never the production plannedStart/End — keeps the two schedules independent.
+  const rescheduleTarget = version.status === 'REHEARSAL' ? 'rehearsal' : 'production';
 
   const initWizState = (): WizardState => {
     const saved = version.wizardState as WizardState | null;
@@ -607,7 +627,7 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
   const [phaseStarts, setPhaseStarts] = useState<Record<string, string>>(initStarts);
   const [phaseEnds, setPhaseEnds] = useState<Record<string, string>>(initEnds);
 
-  const [workerReplacements, setWorkerReplacements] = useState<Record<string, string>>({});
+  const [workerReplacements, setWorkerReplacements] = useState<Record<string, { toUserId: string; phaseId: string }>>({});
   const [depsResult, setDepsResult] = useState<{ created: number; skipped: number } | null>(null);
   const [anomalies, setAnomalies] = useState<any[] | null>(null);
   const [sortResult, setSortResult] = useState<{ reordered: number } | null>(null);
@@ -656,7 +676,7 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
     try {
       const phases = buildPhasesFromInputs();
       if (phases.length === 0) { setError('יש להגדיר שעת התחלה לפחות לשלב אחד'); return; }
-      const res = await axios.post(`${API}/versions/${version.id}/reschedule?preview=false`, { phases }, { headers });
+      const res = await axios.post(`${API}/versions/${version.id}/reschedule?preview=false`, { phases, target: rescheduleTarget }, { headers });
       setStepMessage(`✅ תזמון עודכן — ${res.data.updated ?? 0} משימות`);
       onRefresh();
       await markStep('done');
@@ -668,17 +688,18 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
   };
 
   const executeStep2 = async () => {
-    const entries = Object.entries(workerReplacements).filter(([, toId]) => toId);
+    const entries = Object.entries(workerReplacements).filter(([, v]) => v.toUserId);
     if (entries.length === 0) { await markStep('done'); return; }
     setLoading(true);
     setError(null);
     try {
-      for (const [fromKey, toId] of entries) {
+      for (const [fromKey, { toUserId, phaseId }] of entries) {
+        const phaseBody = phaseId ? { phaseId } : {};
         if (fromKey.startsWith('__empty__:')) {
           const fromTeamId = fromKey.slice(10);
-          await axios.patch(`${API}/versions/${version.id}/reassign-tasks`, { fromUserName: null, toUserId: toId, fromTeamId }, { headers });
+          await axios.patch(`${API}/versions/${version.id}/reassign-tasks`, { fromUserName: null, toUserId, fromTeamId, ...phaseBody }, { headers });
         } else {
-          await axios.patch(`${API}/versions/${version.id}/reassign-tasks`, { fromUserName: fromKey, toUserId: toId }, { headers });
+          await axios.patch(`${API}/versions/${version.id}/reassign-tasks`, { fromUserName: fromKey, toUserId, ...phaseBody }, { headers });
         }
       }
       setStepMessage(`✅ ${entries.length} עובדים הוחלפו`);
@@ -699,7 +720,7 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
       setDepsResult({ created: dRes.data.created, skipped: dRes.data.skipped });
       const phases = buildPhasesFromVersion();
       if (phases.length > 0) {
-        await axios.post(`${API}/versions/${version.id}/reschedule?preview=false`, { phases, respectDeps: true }, { headers });
+        await axios.post(`${API}/versions/${version.id}/reschedule?preview=false`, { phases, respectDeps: true, target: rescheduleTarget }, { headers });
       }
       setStepMessage(`✅ ${dRes.data.created} תלויות נוצרו, זמנים עודכנו`);
       onRefresh();
@@ -717,7 +738,7 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
     try {
       const phases = buildPhasesFromVersion();
       if (phases.length === 0) { setError('אין שלבים מתוזמנים — בצע שלב 1 קודם'); return; }
-      await axios.post(`${API}/versions/${version.id}/reschedule?preview=false`, { phases, respectDeps: true }, { headers });
+      await axios.post(`${API}/versions/${version.id}/reschedule?preview=false`, { phases, respectDeps: true, target: rescheduleTarget }, { headers });
       setStepMessage('✅ זמנים חושבו מחדש לפי תלויות קיימות');
       onRefresh();
       await markStep('done');
@@ -769,7 +790,7 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 3000, direction: 'rtl' }}>
-      <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,20,40,0.72)', backdropFilter: 'blur(2px)' }} onClick={onClose} />
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,20,40,0.72)', backdropFilter: 'blur(2px)' }} />
 
       <div style={{
         position: 'relative', zIndex: 1, maxWidth: 860,
@@ -782,9 +803,9 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
         <div style={{ padding: '18px 28px 16px', background: 'linear-gradient(135deg, #1a2332 0%, #2d4a7a 100%)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <div>
             <div style={{ fontSize: '17px', fontWeight: 'bold', letterSpacing: '0.3px' }}>🔧 הכן תוכנית</div>
-            <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '3px' }}>{version.name}</div>
+            <div style={{ fontSize: '14px', color: '#94a3b8', marginTop: '3px' }}>{version.name}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', fontSize: '13px', cursor: 'pointer', padding: '7px 14px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', fontSize: '15px', cursor: 'pointer', padding: '7px 14px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             ✕ שמור וצא
           </button>
         </div>
@@ -804,9 +825,9 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
                 <React.Fragment key={i}>
                   <button
                     onClick={() => { setStep(i); setError(null); setStepMessage(null); }}
-                    style={{ flex: 1, padding: '8px 6px', border: 'none', borderRadius: '8px', cursor: 'pointer', background: bg, color: fg, fontSize: '12px', fontWeight: isActive ? '700' : '500', transition: 'background 0.2s', lineHeight: 1.4 }}
+                    style={{ flex: 1, padding: '8px 6px', border: 'none', borderRadius: '8px', cursor: 'pointer', background: bg, color: fg, fontSize: '14px', fontWeight: isActive ? '700' : '500', transition: 'background 0.2s', lineHeight: 1.4 }}
                   >
-                    <div style={{ fontSize: '14px', marginBottom: '3px' }}>
+                    <div style={{ fontSize: '15px', marginBottom: '3px' }}>
                       {isDone ? '✅' : isSkipped ? '⊘' : isActive ? '●' : `${i + 1}`}
                     </div>
                     {label}
@@ -823,12 +844,12 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
         {/* ── Step content ── */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
           {error && (
-            <div style={{ background: '#fff5f5', border: '1px solid #fca5a5', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', color: '#b91c1c', fontSize: '14px' }}>
+            <div style={{ background: '#fff5f5', border: '1px solid #fca5a5', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', color: '#b91c1c', fontSize: '15px' }}>
               ⚠️ {error}
             </div>
           )}
           {stepMessage && (
-            <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', color: '#166534', fontSize: '14px' }}>
+            <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', color: '#166534', fontSize: '15px' }}>
               {stepMessage}
             </div>
           )}
@@ -862,13 +883,13 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
             <button
               onClick={() => { setStep(s => Math.max(0, s - 1)); setError(null); setStepMessage(null); }}
               disabled={step === 0}
-              style={{ padding: '9px 18px', background: step === 0 ? '#f1f5f9' : '#e2e8f0', border: 'none', borderRadius: '8px', cursor: step === 0 ? 'not-allowed' : 'pointer', color: step === 0 ? '#94a3b8' : '#374151', fontSize: '14px' }}
+              style={{ padding: '9px 18px', background: step === 0 ? '#f1f5f9' : '#e2e8f0', border: 'none', borderRadius: '8px', cursor: step === 0 ? 'not-allowed' : 'pointer', color: step === 0 ? '#94a3b8' : '#374151', fontSize: '15px' }}
             >
               → חזור
             </button>
             <button
               onClick={onClose}
-              style={{ padding: '9px 18px', background: 'white', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}
+              style={{ padding: '9px 18px', background: 'white', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: '8px', cursor: 'pointer', fontSize: '15px' }}
             >
               ✕ סגור ללא שמירה
             </button>
@@ -878,7 +899,7 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
             <button
               onClick={() => markStep('skipped')}
               disabled={loading}
-              style={{ padding: '9px 18px', background: '#f1f5f9', color: '#64748b', border: 'none', borderRadius: '8px', cursor: loading ? 'not-allowed' : 'pointer', fontSize: '14px' }}
+              style={{ padding: '9px 18px', background: '#f1f5f9', color: '#64748b', border: 'none', borderRadius: '8px', cursor: loading ? 'not-allowed' : 'pointer', fontSize: '15px' }}
             >
               דלג ←
             </button>
@@ -929,6 +950,6 @@ function btnStyle(bg: string): React.CSSProperties {
   return {
     padding: '9px 20px', background: bg, color: 'white',
     border: 'none', borderRadius: '8px', cursor: 'pointer',
-    fontSize: '14px', fontWeight: 'bold',
+    fontSize: '15px', fontWeight: 'bold',
   };
 }

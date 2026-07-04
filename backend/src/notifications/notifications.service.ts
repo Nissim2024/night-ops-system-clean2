@@ -11,6 +11,9 @@ const DEFAULTS = [
   { key: 'TELEGRAM_ENABLED',   label: 'Telegram — הפעל',                value: 'false', type: 'boolean' },
   { key: 'TELEGRAM_BOT_TOKEN', label: 'Telegram — Bot Token',           value: '',      type: 'string'  },
   { key: 'TELEGRAM_CHAT_ID',   label: 'Telegram — Chat ID',             value: '',      type: 'string'  },
+  { key: 'TEAMS_BOT_ENABLED',      label: 'Teams Bot (פעולות אינטראקטיביות) — הפעל', value: 'false', type: 'boolean' },
+  { key: 'TEAMS_BOT_APP_ID',       label: 'Teams Bot — Application (client) ID',     value: '',      type: 'string'  },
+  { key: 'TEAMS_BOT_APP_PASSWORD', label: 'Teams Bot — Client Secret',               value: '',      type: 'password' },
 ];
 
 @Injectable()

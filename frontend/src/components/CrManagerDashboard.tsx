@@ -403,14 +403,14 @@ const CrRow: React.FC<CrRowProps> = ({ cr, approving, onApproveCr, onReturnPlan 
     const multi = items.length > 1;
     return (
       <div style={{ marginBottom: '16px' }}>
-        <div style={{ fontSize: '12px', color: accent, fontWeight: 800, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+        <div style={{ fontSize: '14px', color: accent, fontWeight: 800, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '5px' }}>
           <span>{icon}</span><span>{label}</span>
         </div>
         {items.map((item, i) => (
           <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', marginBottom: i < items.length - 1 ? '8px' : 0 }}>
             <span style={{ color: accent, flexShrink: 0, marginTop: '2px' }}>•</span>
             {multi && (
-              <span style={{ fontSize: '11px', fontWeight: 700, background: 'rgba(163,113,247,0.18)', color: '#a371f7', padding: '2px 8px', borderRadius: RADIUS.sm, border: '1px solid rgba(163,113,247,0.3)', flexShrink: 0, whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: '13px', fontWeight: 700, background: 'rgba(163,113,247,0.18)', color: '#a371f7', padding: '2px 8px', borderRadius: RADIUS.sm, border: '1px solid rgba(163,113,247,0.3)', flexShrink: 0, whiteSpace: 'nowrap' }}>
                 {item.team}
               </span>
             )}
@@ -456,7 +456,7 @@ const CrRow: React.FC<CrRowProps> = ({ cr, approving, onApproveCr, onReturnPlan 
           <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexShrink: 0 }}>
             {cr.crManagerApproved ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: SP[1], background: C.successBg, border: `1px solid ${C.success}33`, borderRadius: RADIUS.md, padding: '5px 12px' }}>
-                <span style={{ color: C.success, fontSize: '13px' }}>✓</span>
+                <span style={{ color: C.success, fontSize: '15px' }}>✓</span>
                 <span style={{ ...TEXT.xs, color: C.success, fontWeight: WEIGHT.semibold }}>אושר ע"י {cr.crManagerApprovedBy ?? 'מנהל CR'}</span>
               </div>
             ) : !cr.allTeamsSubmitted ? (

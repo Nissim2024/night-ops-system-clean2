@@ -1,4 +1,4 @@
-// NightOps Design System v3 — Asana-Inspired Light Theme
+// DeployCenter Design System v3 — Asana-Inspired Light Theme
 // Single source of truth. All components import from here; never hardcode values.
 
 // ── Color Palette ─────────────────────────────────────────────────────────────
@@ -90,6 +90,19 @@ export const C = {
   nogoBorder:'#F06A6A',
   nogoText:  '#C0392B',
 
+  // ── Readable text-on-tint (for reason/alert boxes — statusBlocked/brand are too light for text) ──
+  textOnBlockedBg: '#C0392B',
+
+  // ── Block severity ────────────────────────────────────────────────────────
+  severityLow:      '#4573D2',
+  severityMedium:   '#E8AF00',
+  severityHigh:     '#F0883E',
+  severityCritical: '#C0392B',
+  severityLowBg:      'rgba(69,115,210,0.10)',
+  severityMediumBg:   'rgba(232,175,0,0.10)',
+  severityHighBg:     'rgba(240,136,62,0.10)',
+  severityCriticalBg: 'rgba(192,57,43,0.10)',
+
   // ── Team palette ─────────────────────────────────────────────────────────
   teams: ['#4573D2','#37C47A','#9C6ADE','#E8AF00','#F06A6A','#42B0C5','#F0883E','#6366F1'],
 } as const;
@@ -99,16 +112,18 @@ export const C = {
 export const FONT      = "'Segoe UI', -apple-system, 'IBM Plex Sans Hebrew', Arial, sans-serif";
 export const FONT_MONO = "'SF Mono', 'Fira Code', 'Consolas', monospace";
 
+// Bumped up significantly (2026-07-04) for readability — legibility for users with
+// weaker eyesight takes priority over information density.
 export const TEXT = {
-  xs:   { fontSize: '11px', lineHeight: '16px' },
-  sm:   { fontSize: '12px', lineHeight: '18px' },
-  base: { fontSize: '13px', lineHeight: '20px' },
-  md:   { fontSize: '14px', lineHeight: '22px' },
-  lg:   { fontSize: '15px', lineHeight: '24px' },
-  xl:   { fontSize: '17px', lineHeight: '26px' },
-  '2xl':{ fontSize: '20px', lineHeight: '28px' },
-  '3xl':{ fontSize: '24px', lineHeight: '32px' },
-  '4xl':{ fontSize: '30px', lineHeight: '38px' },
+  xs:   { fontSize: '13px', lineHeight: '19px' },
+  sm:   { fontSize: '14px', lineHeight: '20px' },
+  base: { fontSize: '15px', lineHeight: '22px' },
+  md:   { fontSize: '16px', lineHeight: '24px' },
+  lg:   { fontSize: '18px', lineHeight: '26px' },
+  xl:   { fontSize: '20px', lineHeight: '29px' },
+  '2xl':{ fontSize: '23px', lineHeight: '31px' },
+  '3xl':{ fontSize: '28px', lineHeight: '36px' },
+  '4xl':{ fontSize: '35px', lineHeight: '43px' },
 } as const;
 
 export const WEIGHT = {
@@ -167,6 +182,16 @@ export const statusBg = (s: string): string =>
 export const statusLabel = (s: string): string =>
   ({ OPEN: 'פתוח', IN_PROGRESS: 'בביצוע', BLOCKED: 'חסום',
      FAILED: 'נכשל', DONE: 'הושלם', WAITING: 'ממתין', ROLLED_BACK: 'Rollback' }[s] ?? s);
+
+// ── Block severity helpers ────────────────────────────────────────────────────
+export const severityColor = (s?: string | null): string =>
+  ({ LOW: C.severityLow, MEDIUM: C.severityMedium, HIGH: C.severityHigh, CRITICAL: C.severityCritical }[s ?? ''] ?? C.textMuted);
+
+export const severityBg = (s?: string | null): string =>
+  ({ LOW: C.severityLowBg, MEDIUM: C.severityMediumBg, HIGH: C.severityHighBg, CRITICAL: C.severityCriticalBg }[s ?? ''] ?? 'transparent');
+
+export const severityLabel = (s?: string | null): string =>
+  ({ LOW: 'נמוכה', MEDIUM: 'בינונית', HIGH: 'גבוהה', CRITICAL: 'קריטית' }[s ?? ''] ?? '—');
 
 // ── Version status ────────────────────────────────────────────────────────────
 export const versionStatusColor: Record<string, string> = {

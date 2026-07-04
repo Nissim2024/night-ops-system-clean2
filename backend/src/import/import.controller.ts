@@ -59,6 +59,12 @@ export class ImportController {
     @Body('versionName') versionName: string,
     @Body('plannedStart') plannedStartStr: string,
     @Body('qcReleaseId') qcReleaseId: string,
+    @Body('integrationStart') integrationStartStr: string,
+    @Body('integrationEnd') integrationEndStr: string,
+    @Body('qaStart') qaStartStr: string,
+    @Body('qaEnd') qaEndStr: string,
+    @Body('plannedRehearsalStart') plannedRehearsalStartStr: string,
+    @Body('plannedRehearsalEnd') plannedRehearsalEndStr: string,
     @Request() req: any,
   ) {
     requireRole(req, MANAGERS, 'רק מנהל לילה יכול לייבא קובץ');
@@ -79,6 +85,12 @@ export class ImportController {
     }
 
     const versionPlannedStart = plannedStartStr ? new Date(plannedStartStr) : undefined;
+    const integrationStart = integrationStartStr ? new Date(integrationStartStr) : undefined;
+    const integrationEnd   = integrationEndStr   ? new Date(integrationEndStr)   : undefined;
+    const qaStart          = qaStartStr          ? new Date(qaStartStr)          : undefined;
+    const qaEnd            = qaEndStr            ? new Date(qaEndStr)            : undefined;
+    const plannedRehearsalStart = plannedRehearsalStartStr ? new Date(plannedRehearsalStartStr) : undefined;
+    const plannedRehearsalEnd   = plannedRehearsalEndStr   ? new Date(plannedRehearsalEndStr)   : undefined;
 
     try {
       return await this.importService.importFromBuffer(
@@ -88,6 +100,12 @@ export class ImportController {
         file.originalname,
         versionPlannedStart,
         qcReleaseId || undefined,
+        integrationStart,
+        integrationEnd,
+        qaStart,
+        qaEnd,
+        plannedRehearsalStart,
+        plannedRehearsalEnd,
       );
     } catch (err: any) {
       console.error('Import error:', err);

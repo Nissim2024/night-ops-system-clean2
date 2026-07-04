@@ -497,11 +497,11 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
 
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '9px 12px', border: `1px solid ${C.border}`,
-    borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box',
+    borderRadius: '6px', fontSize: '15px', boxSizing: 'border-box',
     background: C.bgNested, color: C.textPrimary, fontFamily: FONT,
   };
   const labelStyle: React.CSSProperties = {
-    display: 'block', fontSize: '12px', color: C.textSecondary, marginBottom: '4px', fontWeight: 'bold',
+    display: 'block', fontSize: '14px', color: C.textSecondary, marginBottom: '4px', fontWeight: 'bold',
   };
 
   const ADMIN_TABS = [
@@ -557,7 +557,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                 transition: EASE.fast,
                 boxShadow: isActive ? `0 0 0 1px rgba(56,139,253,0.20)` : 'none',
               }}>
-                <span style={{ fontSize: '12px' }}>{t.icon}</span>
+                <span style={{ fontSize: '14px' }}>{t.icon}</span>
                 {t.label}
               </button>
             );
@@ -587,7 +587,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
           {/* ── USERS TAB ── */}
           {tab === 'users' && (
             <div>
-              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '14px 20px', marginBottom: '16px', border: `1px solid ${C.border}`, fontSize: '13px', color: C.textSecondary, lineHeight: '1.6' }}>
+              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '14px 20px', marginBottom: '16px', border: `1px solid ${C.border}`, fontSize: '15px', color: C.textSecondary, lineHeight: '1.6' }}>
                 <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '6px' }}>ניהול משתמשים</strong>
                 <ul style={{ margin: 0, paddingRight: '18px' }}>
                   <li>האימייל הוא המזהה הייחודי של המשתמש — לא ניתן לשינוי לאחר יצירה.</li>
@@ -656,7 +656,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                       </div>
                     </div>
                     {error && (
-                      <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', marginBottom: '14px', fontSize: '13px', color: C.statusFailed }}>
+                      <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', marginBottom: '14px', fontSize: '15px', color: C.statusFailed }}>
                         ⚠️ {error}
                       </div>
                     )}
@@ -718,15 +718,15 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
 
                 <div style={{ display: 'flex', gap: '10px', marginBottom: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <div style={{ position: 'relative', flex: '1', minWidth: '200px' }}>
-                    <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: C.textMuted, fontSize: '15px', pointerEvents: 'none' }}>🔍</span>
+                    <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: C.textMuted, fontSize: '16px', pointerEvents: 'none' }}>🔍</span>
                     <input
                       value={userSearch}
                       onChange={e => setUserSearch(e.target.value)}
                       placeholder="חיפוש לפי שם או אימייל..."
-                      style={{ width: '100%', padding: '9px 34px 9px 12px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary, fontFamily: FONT }}
+                      style={{ width: '100%', padding: '9px 34px 9px 12px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '15px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary, fontFamily: FONT }}
                     />
                     {userSearch && (
-                      <button onClick={() => setUserSearch('')} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '16px', lineHeight: 1 }}>✕</button>
+                      <button onClick={() => setUserSearch('')} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '17px', lineHeight: 1 }}>✕</button>
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -743,10 +743,10 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                         background: userRoleFilter === f.key ? (ROLE_COLORS[f.key] || C.brand) + '22' : C.bgNested,
                         color: userRoleFilter === f.key ? (ROLE_COLORS[f.key] || C.brand) : C.textSecondary,
                         fontWeight: userRoleFilter === f.key ? 'bold' : 'normal',
-                        cursor: 'pointer', fontSize: '13px', whiteSpace: 'nowrap', fontFamily: FONT,
+                        cursor: 'pointer', fontSize: '15px', whiteSpace: 'nowrap', fontFamily: FONT,
                       }}>
                         {f.label}
-                        <span style={{ marginRight: '5px', background: userRoleFilter === f.key ? (ROLE_COLORS[f.key] || C.brand) : C.bgHover, color: userRoleFilter === f.key ? 'white' : C.textMuted, borderRadius: '10px', padding: '1px 7px', fontSize: '11px' }}>
+                        <span style={{ marginRight: '5px', background: userRoleFilter === f.key ? (ROLE_COLORS[f.key] || C.brand) : C.bgHover, color: userRoleFilter === f.key ? 'white' : C.textMuted, borderRadius: '10px', padding: '1px 7px', fontSize: '13px' }}>
                           {f.count}
                         </span>
                       </button>
@@ -766,7 +766,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                         background: active ? C.brand + '22' : C.bgNested,
                         color: active ? C.brand : C.textMuted,
                         fontWeight: active ? 'bold' : 'normal',
-                        cursor: 'pointer', fontSize: '12px', fontFamily: FONT, minWidth: '28px',
+                        cursor: 'pointer', fontSize: '14px', fontFamily: FONT, minWidth: '28px',
                       }}>{l}</button>
                     );
                   })}
@@ -831,19 +831,19 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                         <td style={{ padding: '10px 12px' }}>
                           <div style={{ display: 'flex', gap: '6px' }}>
                             <button onClick={() => openEditUser(u)} title="עריכה"
-                              style={{ padding: '5px 10px', background: '#3498db', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                              style={{ padding: '5px 10px', background: '#3498db', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
                               ✏️ ערוך
                             </button>
                             <button onClick={() => { setResetUserId(u.id); setNewPassword(''); }} title="איפוס סיסמה"
-                              style={{ padding: '5px 10px', background: '#e67e22', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                              style={{ padding: '5px 10px', background: '#e67e22', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
                               🔑
                             </button>
                             <button onClick={() => toggleActive(u)} title={u.active ? 'השבת' : 'הפעל'}
-                              style={{ padding: '5px 10px', background: u.active ? C.statusFailed : C.statusDone, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                              style={{ padding: '5px 10px', background: u.active ? C.statusFailed : C.statusDone, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
                               {u.active ? '🚫' : '✅'}
                             </button>
                             <button onClick={() => deleteUser(u)} title="מחק משתמש"
-                              style={{ padding: '5px 10px', background: '#7f1d1d', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                              style={{ padding: '5px 10px', background: '#7f1d1d', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
                               🗑️
                             </button>
                           </div>
@@ -861,7 +861,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
           {/* ── TEAMS TAB ── */}
           {tab === 'teams' && (
             <div>
-              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '14px 20px', marginBottom: '16px', border: `1px solid ${C.border}`, fontSize: '13px', color: C.textSecondary, lineHeight: '1.6' }}>
+              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '14px 20px', marginBottom: '16px', border: `1px solid ${C.border}`, fontSize: '15px', color: C.textSecondary, lineHeight: '1.6' }}>
                 <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '6px' }}>ניהול צוותים</strong>
                 <ul style={{ margin: 0, paddingRight: '18px' }}>
                   <li><strong>מערכות אחראיות</strong> — הגדר אילו מערכות הצוות מטפל בהן; משמש לסינון תצוגות ודוחות.</li>
@@ -916,15 +916,15 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
 
                 {/* Team search */}
                 <div style={{ position: 'relative', marginBottom: '16px' }}>
-                  <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: C.textMuted, fontSize: '15px', pointerEvents: 'none' }}>🔍</span>
+                  <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: C.textMuted, fontSize: '16px', pointerEvents: 'none' }}>🔍</span>
                   <input
                     value={teamSearch}
                     onChange={e => setTeamSearch(e.target.value)}
                     placeholder="חיפוש צוות לפי שם..."
-                    style={{ width: '100%', padding: '8px 34px 8px 12px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary, fontFamily: FONT }}
+                    style={{ width: '100%', padding: '8px 34px 8px 12px', border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '15px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary, fontFamily: FONT }}
                   />
                   {teamSearch && (
-                    <button onClick={() => setTeamSearch('')} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '16px', lineHeight: 1 }}>✕</button>
+                    <button onClick={() => setTeamSearch('')} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '17px', lineHeight: 1 }}>✕</button>
                   )}
                 </div>
 
@@ -960,7 +960,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                                   return (
                                     <label key={a} style={{
                                       display: 'flex', alignItems: 'center', gap: '4px',
-                                      fontSize: '12px', cursor: 'pointer',
+                                      fontSize: '14px', cursor: 'pointer',
                                       background: checked ? C.brandDim : C.bgHover,
                                       border: `1px solid ${checked ? C.brand : C.border}`,
                                       borderRadius: '6px', padding: '4px 10px',
@@ -980,13 +980,13 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                               <button type="submit" disabled={savingEditTeam} style={{
                                 padding: '6px 14px', background: savingEditTeam ? C.bgHover : C.statusDone,
                                 color: 'white', border: 'none', borderRadius: '6px',
-                                cursor: savingEditTeam ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 'bold', fontFamily: FONT,
+                                cursor: savingEditTeam ? 'not-allowed' : 'pointer', fontSize: '15px', fontWeight: 'bold', fontFamily: FONT,
                               }}>
                                 {savingEditTeam ? 'שומר...' : '✓ שמור'}
                               </button>
                               <button type="button" onClick={() => setEditingTeamId(null)} style={{
                                 padding: '6px 14px', background: C.bgHover, color: C.textSecondary,
-                                border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontFamily: FONT,
+                                border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '15px', fontFamily: FONT,
                               }}>
                                 ביטול
                               </button>
@@ -997,20 +997,20 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                             <div style={{ marginBottom: '10px' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
                                 <div style={{ minWidth: 0 }}>
-                                  <div style={{ fontWeight: 'bold', fontSize: '15px', color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
-                                  {t.description && <div style={{ fontSize: '12px', color: C.textMuted, marginTop: '2px' }}>{t.description}</div>}
+                                  <div style={{ fontWeight: 'bold', fontSize: '16px', color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
+                                  {t.description && <div style={{ fontSize: '14px', color: C.textMuted, marginTop: '2px' }}>{t.description}</div>}
                                 </div>
                                 <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
                                   <button onClick={() => openEditTeam(t)} title="ערוך צוות"
-                                    style={{ padding: '4px 8px', fontSize: '12px', border: 'none', borderRadius: '6px', background: '#3498db', color: 'white', cursor: 'pointer' }}>
+                                    style={{ padding: '4px 8px', fontSize: '14px', border: 'none', borderRadius: '6px', background: '#3498db', color: 'white', cursor: 'pointer' }}>
                                     ✏️ ערוך
                                   </button>
                                   <button onClick={() => toggleTeamActive(t)} title={t.active ? 'השבת' : 'הפעל'}
-                                    style={{ padding: '4px 8px', fontSize: '12px', border: 'none', borderRadius: '6px', background: t.active ? C.bgBlocked : C.bgDone, color: t.active ? C.statusFailed : C.statusDone, cursor: 'pointer' }}>
+                                    style={{ padding: '4px 8px', fontSize: '14px', border: 'none', borderRadius: '6px', background: t.active ? C.bgBlocked : C.bgDone, color: t.active ? C.statusFailed : C.statusDone, cursor: 'pointer' }}>
                                     {t.active ? 'השבת' : 'הפעל'}
                                   </button>
                                   <button onClick={() => deleteTeam(t)} title="מחק צוות"
-                                    style={{ padding: '4px 8px', fontSize: '12px', border: 'none', borderRadius: '6px', background: C.statusFailed, color: 'white', cursor: 'pointer' }}>
+                                    style={{ padding: '4px 8px', fontSize: '14px', border: 'none', borderRadius: '6px', background: C.statusFailed, color: 'white', cursor: 'pointer' }}>
                                     🗑️
                                   </button>
                                 </div>
@@ -1018,11 +1018,11 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                               <button
                                 onClick={() => toggleTeamRequiresPlan(t)}
                                 title={t.requiresPlan !== false ? 'סמן כפטור מהגשת תוכנית' : 'חייב הגשת תוכנית'}
-                                style={{ padding: '3px 10px', fontSize: '11px', border: `1px solid ${t.requiresPlan !== false ? '#2980b9' : '#94a3b8'}`, borderRadius: '6px', background: t.requiresPlan !== false ? 'rgba(41,128,185,0.12)' : 'rgba(148,163,184,0.12)', color: t.requiresPlan !== false ? '#2980b9' : '#64748b', cursor: 'pointer', fontFamily: FONT }}>
+                                style={{ padding: '3px 10px', fontSize: '13px', border: `1px solid ${t.requiresPlan !== false ? '#2980b9' : '#94a3b8'}`, borderRadius: '6px', background: t.requiresPlan !== false ? 'rgba(41,128,185,0.12)' : 'rgba(148,163,184,0.12)', color: t.requiresPlan !== false ? '#2980b9' : '#64748b', cursor: 'pointer', fontFamily: FONT }}>
                                 {t.requiresPlan !== false ? '📋 מגיש תוכנית' : '🚫 פטור מתוכנית'}
                               </button>
                             </div>
-                            <div style={{ fontSize: '12px', color: C.textMuted, marginBottom: '8px' }}>
+                            <div style={{ fontSize: '14px', color: C.textMuted, marginBottom: '8px' }}>
                               {members.length} חברים
                             </div>
                             {members.length > 0 && (
@@ -1030,7 +1030,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                                 {members.map(m => (
                                   <span key={m.id} style={{
                                     background: C.brandDim, color: C.textPrimary,
-                                    padding: '2px 8px', borderRadius: '10px', fontSize: '12px',
+                                    padding: '2px 8px', borderRadius: '10px', fontSize: '14px',
                                   }}>
                                     {m.fullName}
                                   </span>
@@ -1039,12 +1039,12 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                             )}
                             {t.apps?.length > 0 && (
                               <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: '8px', marginTop: members.length ? '0' : '4px' }}>
-                                <div style={{ fontSize: '11px', color: C.textMuted, marginBottom: '4px' }}>מערכות אחראיות</div>
+                                <div style={{ fontSize: '13px', color: C.textMuted, marginBottom: '4px' }}>מערכות אחראיות</div>
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                                   {(t.apps as string[]).map(a => (
                                     <span key={a} style={{
                                       background: C.bgDone, color: C.statusDone,
-                                      padding: '2px 7px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold',
+                                      padding: '2px 7px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold',
                                     }}>
                                       {a}
                                     </span>
@@ -1069,7 +1069,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                   <div>
                     <h3 style={{ margin: '0 0 4px', color: C.textPrimary }}>📋 גרסאות QC ({qcReleases.length})</h3>
-                    <p style={{ margin: 0, fontSize: '12px', color: C.textMuted }}>גרסאות מסונכרנות ממערכת QC. מוצגות ברשימת הגרסאות רק אם filterDate &gt; היום.</p>
+                    <p style={{ margin: 0, fontSize: '14px', color: C.textMuted }}>גרסאות מסונכרנות ממערכת QC. מוצגות ברשימת הגרסאות רק אם filterDate &gt; היום.</p>
                   </div>
                   <button onClick={syncQcReleases} disabled={qcSyncing} style={{
                     padding: '8px 18px', background: qcSyncing ? C.bgHover : C.brand, color: qcSyncing ? C.textDisabled : 'white',
@@ -1080,23 +1080,23 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                 </div>
 
                 {qcSyncResult && (
-                  <div style={{ background: qcSyncResult.startsWith('✓') ? C.bgDone : C.bgBlocked, border: `1px solid ${qcSyncResult.startsWith('✓') ? C.statusDone : C.statusFailed}44`, borderRadius: '8px', padding: '10px 16px', marginBottom: '8px', fontSize: '13px', color: qcSyncResult.startsWith('✓') ? C.statusDone : C.statusFailed }}>
+                  <div style={{ background: qcSyncResult.startsWith('✓') ? C.bgDone : C.bgBlocked, border: `1px solid ${qcSyncResult.startsWith('✓') ? C.statusDone : C.statusFailed}44`, borderRadius: '8px', padding: '10px 16px', marginBottom: '8px', fontSize: '15px', color: qcSyncResult.startsWith('✓') ? C.statusDone : C.statusFailed }}>
                     {qcSyncResult}
                   </div>
                 )}
 
                 <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: '14px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
                   <div>
-                    <div style={{ fontSize: '13px', fontWeight: 'bold', color: C.textSecondary, marginBottom: '3px' }}>📥 סנכרן מקובץ Excel (CR_LIST)</div>
-                    <div style={{ fontSize: '12px', color: C.textMuted }}>קורא מהנתיב המוגדר בפרמטר EXCEL_FILE_PATH — ללא חיבור Oracle</div>
+                    <div style={{ fontSize: '15px', fontWeight: 'bold', color: C.textSecondary, marginBottom: '3px' }}>📥 סנכרן מקובץ Excel (CR_LIST)</div>
+                    <div style={{ fontSize: '14px', color: C.textMuted }}>קורא מהנתיב המוגדר בפרמטר EXCEL_FILE_PATH — ללא חיבור Oracle</div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <label style={{ fontSize: '12px', color: C.textSecondary, whiteSpace: 'nowrap' }}>שנה:</label>
+                    <label style={{ fontSize: '14px', color: C.textSecondary, whiteSpace: 'nowrap' }}>שנה:</label>
                     <input
                       type="number"
                       value={excelYear}
                       onChange={e => setExcelYear(Number(e.target.value))}
-                      style={{ width: '80px', padding: '6px 8px', border: `1px solid ${C.border}`, borderRadius: '6px', fontSize: '13px', background: C.bgNested, color: C.textPrimary, fontFamily: FONT }}
+                      style={{ width: '80px', padding: '6px 8px', border: `1px solid ${C.border}`, borderRadius: '6px', fontSize: '15px', background: C.bgNested, color: C.textPrimary, fontFamily: FONT }}
                       min={2020} max={2099}
                     />
                   </div>
@@ -1107,13 +1107,13 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                       padding: '8px 18px', background: excelSyncing ? C.bgHover : C.statusDone,
                       color: excelSyncing ? C.textDisabled : 'white', border: 'none', borderRadius: '8px',
                       cursor: excelSyncing ? 'not-allowed' : 'pointer',
-                      fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap', fontFamily: FONT,
+                      fontWeight: 'bold', fontSize: '15px', whiteSpace: 'nowrap', fontFamily: FONT,
                     }}
                   >
                     {excelSyncing ? 'מסנכרן...' : '📥 סנכרן מ-Excel'}
                   </button>
                   {excelSyncResult && (
-                    <div style={{ background: excelSyncResult.startsWith('✓') ? C.bgDone : C.bgBlocked, border: `1px solid ${excelSyncResult.startsWith('✓') ? C.statusDone : C.statusFailed}44`, borderRadius: '8px', padding: '8px 14px', fontSize: '13px', color: excelSyncResult.startsWith('✓') ? C.statusDone : C.statusFailed }}>
+                    <div style={{ background: excelSyncResult.startsWith('✓') ? C.bgDone : C.bgBlocked, border: `1px solid ${excelSyncResult.startsWith('✓') ? C.statusDone : C.statusFailed}44`, borderRadius: '8px', padding: '8px 14px', fontSize: '15px', color: excelSyncResult.startsWith('✓') ? C.statusDone : C.statusFailed }}>
                       {excelSyncResult}
                     </div>
                   )}
@@ -1129,7 +1129,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                       <thead>
                         <tr style={{ background: C.bgNested }}>
                           {['REL ID', 'שם גרסה', 'צוות', 'תאריך Go Live', 'תאריך Rehearsal', 'Filter Date', 'סטטוס', 'פעולות'].map(h => (
-                            <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontSize: '12px', color: C.textSecondary, borderBottom: `2px solid ${C.border}`, fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                            <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontSize: '14px', color: C.textSecondary, borderBottom: `2px solid ${C.border}`, fontWeight: 'bold', whiteSpace: 'nowrap' }}>
                               {h}
                             </th>
                           ))}
@@ -1142,16 +1142,16 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                           const isVisible = filterDate && filterDate > today;
                           return (
                             <tr key={r.id} style={{ borderBottom: `1px solid ${C.border}`, opacity: r.active ? 1 : 0.5 }}>
-                              <td style={{ padding: '8px 12px', fontSize: '13px', color: C.textMuted }}>{r.relId}</td>
-                              <td style={{ padding: '8px 12px', fontSize: '13px', fontWeight: 'bold', color: C.textPrimary }}>{r.relName}</td>
-                              <td style={{ padding: '8px 12px', fontSize: '12px', color: C.textSecondary }}>{r.relTeam || '—'}</td>
-                              <td style={{ padding: '8px 12px', fontSize: '12px', color: C.textSecondary }}>
+                              <td style={{ padding: '8px 12px', fontSize: '15px', color: C.textMuted }}>{r.relId}</td>
+                              <td style={{ padding: '8px 12px', fontSize: '15px', fontWeight: 'bold', color: C.textPrimary }}>{r.relName}</td>
+                              <td style={{ padding: '8px 12px', fontSize: '14px', color: C.textSecondary }}>{r.relTeam || '—'}</td>
+                              <td style={{ padding: '8px 12px', fontSize: '14px', color: C.textSecondary }}>
                                 {r.goLiveDate ? new Date(r.goLiveDate).toLocaleDateString('he-IL') : '—'}
                               </td>
-                              <td style={{ padding: '8px 12px', fontSize: '12px', color: C.textSecondary }}>
+                              <td style={{ padding: '8px 12px', fontSize: '14px', color: C.textSecondary }}>
                                 {r.rehearsalDate ? new Date(r.rehearsalDate).toLocaleDateString('he-IL') : '—'}
                               </td>
-                              <td style={{ padding: '8px 12px', fontSize: '12px' }}>
+                              <td style={{ padding: '8px 12px', fontSize: '14px' }}>
                                 {filterDate ? (
                                   <span style={{ color: isVisible ? C.statusDone : C.statusFailed, fontWeight: 'bold' }}>
                                     {filterDate.toLocaleDateString('he-IL')} {isVisible ? '✓' : '(עבר)'}
@@ -1162,14 +1162,14 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                                 <span style={{
                                   background: r.active ? C.bgDone : C.bgBlocked,
                                   color: r.active ? C.statusDone : C.statusFailed,
-                                  padding: '2px 8px', borderRadius: '10px', fontSize: '12px', fontWeight: 'bold',
+                                  padding: '2px 8px', borderRadius: '10px', fontSize: '14px', fontWeight: 'bold',
                                 }}>
                                   {r.active ? 'פעיל' : 'מושבת'}
                                 </span>
                               </td>
                               <td style={{ padding: '8px 12px' }}>
                                 <button onClick={() => toggleQcRelease(r.id)} style={{
-                                  padding: '4px 10px', fontSize: '12px', border: 'none', borderRadius: '6px',
+                                  padding: '4px 10px', fontSize: '14px', border: 'none', borderRadius: '6px',
                                   background: r.active ? C.bgBlocked : C.bgDone,
                                   color: r.active ? C.statusFailed : C.statusDone, cursor: 'pointer', fontFamily: FONT,
                                 }}>
@@ -1185,21 +1185,19 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                 )}
               </div>
 
-              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '16px 20px', marginTop: '16px', border: `1px solid ${C.border}`, fontSize: '13px', color: C.textSecondary, lineHeight: '1.7' }}>
+              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '16px 20px', marginTop: '16px', border: `1px solid ${C.border}`, fontSize: '15px', color: C.textSecondary, lineHeight: '1.7' }}>
                 <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '8px' }}>🔌 שיטות סנכרון גרסאות QC</strong>
                 <ul style={{ margin: 0, paddingRight: '20px' }}>
-                  <li><strong>מ-Oracle QC (מומלץ לסביבת ייצור)</strong> — דורש הגדרת משתני סביבה בקובץ <code style={{ fontFamily: FONT_MONO }}>.env</code> של הבאק-אנד:
+                  <li><strong>מ-Oracle QC (מומלץ לסביבת ייצור)</strong> — יש להפעיל בלשונית <strong>"QC Oracle"</strong> (לא ב-.env!):
                     <ul style={{ marginTop: '4px' }}>
-                      <li><code style={{ fontFamily: FONT_MONO }}>ORACLE_ENABLED=true</code></li>
-                      <li><code style={{ fontFamily: FONT_MONO }}>ORACLE_USER=username</code></li>
-                      <li><code style={{ fontFamily: FONT_MONO }}>ORACLE_PASSWORD=password</code></li>
-                      <li><code style={{ fontFamily: FONT_MONO }}>ORACLE_CONNECT_STRING=host:port/service</code> (למשל: <code style={{ fontFamily: FONT_MONO }}>qcdb01:1521/QCPROD</code>)</li>
+                      <li><code style={{ fontFamily: FONT_MONO }}>ORACLE_ENABLED</code> — יש לערוך בלשונית "QC Oracle" ולהזין <code style={{ fontFamily: FONT_MONO }}>true</code>. הגדרת משתנה סביבה בשם זה ב-.env <strong>לא</strong> משפיעה — הערך נקרא אך ורק מהפרמטר השמור במסד הנתונים.</li>
+                      <li><code style={{ fontFamily: FONT_MONO }}>ORACLE_USER</code>, <code style={{ fontFamily: FONT_MONO }}>ORACLE_PASSWORD</code>, <code style={{ fontFamily: FONT_MONO }}>ORACLE_CONNECT_STRING</code> — ניתן להגדיר גם כאן בלשונית זו וגם כמשתני סביבה ב-.env (לדוגמה: <code style={{ fontFamily: FONT_MONO }}>qcdb01:1521/QCPROD</code>).</li>
                     </ul>
                   </li>
                   <li><strong>מקובץ Excel</strong> — חלופה ללא Oracle. הגדר <code style={{ fontFamily: FONT_MONO }}>EXCEL_FILE_PATH</code> בלשונית פרמטרים, ובחר שנה לסנכרון. הקובץ חייב להכיל עמודה <strong>"גרסה"</strong>.</li>
                   <li>גרסאות שתאריך הסינון שלהן (filterDate) עבר — לא יוצגו אוטומטית ברשימת הגרסאות. ניתן לשנות זאת ידנית בכל גרסה.</li>
                 </ul>
-                <div style={{ marginTop: '10px', padding: '8px 12px', borderRadius: '6px', background: '#2a1e0a', border: '1px solid #e67e2244', fontSize: '12px', color: '#e67e22', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                <div style={{ marginTop: '10px', padding: '8px 12px', borderRadius: '6px', background: '#2a1e0a', border: '1px solid #e67e2244', fontSize: '14px', color: '#e67e22', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
                   <span>🔒</span>
                   <span><strong>Firewall נדרש:</strong> Outbound TCP <strong>1521</strong> משרת האפליקציה → שרת Oracle QC (כתובת ה-ORACLE_CONNECT_STRING). נדרש רק כשמשתמשים בסנכרון מ-Oracle (לא Excel).</span>
                 </div>
@@ -1210,16 +1208,16 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
           {/* ── QC USERS SYNC TAB ── */}
           {tab === 'qc-users' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '16px 20px', border: `1px solid ${C.border}`, fontSize: '13px', color: C.textSecondary, lineHeight: '1.7' }}>
+              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '16px 20px', border: `1px solid ${C.border}`, fontSize: '15px', color: C.textSecondary, lineHeight: '1.7' }}>
                 <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '6px' }}>מה עושה הסנכרון?</strong>
                 <ul style={{ margin: 0, paddingRight: '20px' }}>
                   <li>שולף את רשימת המשתמשים הפעילים ממערכת QC דרך Oracle.</li>
                   <li>יוצר חשבונות חדשים למשתמשים שאינם קיימים עם סיסמת ברירת מחדל <code style={{ fontFamily: FONT_MONO }}>123456</code>.</li>
                   <li>משתמשים שלא מופיעים ב-QC — יושבתו (לא יימחקו).</li>
                   <li>חשבונות <strong>ADMIN</strong> לא נפגעים בשום תרחיש.</li>
-                  <li><strong>נדרש:</strong> Oracle מוגדר ב-.env (<code style={{ fontFamily: FONT_MONO }}>ORACLE_ENABLED=true</code>).</li>
+                  <li><strong>נדרש:</strong> <code style={{ fontFamily: FONT_MONO }}>ORACLE_ENABLED</code> מופעל בלשונית <strong>"QC Oracle"</strong> (לא כמשתנה סביבה — ראה שם).</li>
                 </ul>
-                <div style={{ marginTop: '10px', padding: '8px 12px', borderRadius: '6px', background: '#2a1e0a', border: '1px solid #e67e2244', fontSize: '12px', color: '#e67e22', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                <div style={{ marginTop: '10px', padding: '8px 12px', borderRadius: '6px', background: '#2a1e0a', border: '1px solid #e67e2244', fontSize: '14px', color: '#e67e22', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
                   <span>🔒</span>
                   <span><strong>Firewall נדרש:</strong> Outbound TCP <strong>1521</strong> משרת האפליקציה → שרת Oracle QC.</span>
                 </div>
@@ -1227,7 +1225,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
               <div>
               <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', border: `1px solid ${C.border}` }}>
                 <h3 style={{ margin: '0 0 8px', color: C.textPrimary }}>🔄 סנכרון משתמשים מ-QC</h3>
-                <p style={{ margin: '0 0 20px', fontSize: '13px', color: C.textSecondary }}>
+                <p style={{ margin: '0 0 20px', fontSize: '15px', color: C.textSecondary }}>
                   פעולה זו תסנכרן את רשימת המשתמשים מול רשימת משתמשי QC (137 משתמשים).<br />
                   משתמשים שאינם ברשימת QC יושבתו. מנהלי מערכת (ADMIN) לא יושפעו.<br />
                   סיסמת ברירת מחדל למשתמשים חדשים: <code style={{ background: C.bgNested, padding: '1px 5px', borderRadius: '3px', fontFamily: FONT_MONO }}>123456</code>
@@ -1235,12 +1233,12 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                 <button onClick={syncQcUsers} disabled={userSyncing} style={{
                   padding: '12px 28px', background: userSyncing ? C.bgHover : C.statusFailed, color: userSyncing ? C.textDisabled : 'white',
                   border: 'none', borderRadius: '8px', cursor: userSyncing ? 'not-allowed' : 'pointer',
-                  fontWeight: 'bold', fontSize: '15px', fontFamily: FONT,
+                  fontWeight: 'bold', fontSize: '16px', fontFamily: FONT,
                 }}>
                   {userSyncing ? 'מסנכרן...' : '🔄 סנכרן משתמשים'}
                 </button>
                 {userSyncResult && (
-                  <div style={{ marginTop: '16px', background: userSyncResult.startsWith('✓') ? C.bgDone : C.bgBlocked, border: `1px solid ${userSyncResult.startsWith('✓') ? C.statusDone : C.statusFailed}44`, borderRadius: '8px', padding: '12px 16px', fontSize: '14px', color: userSyncResult.startsWith('✓') ? C.statusDone : C.statusFailed, fontWeight: 'bold' }}>
+                  <div style={{ marginTop: '16px', background: userSyncResult.startsWith('✓') ? C.bgDone : C.bgBlocked, border: `1px solid ${userSyncResult.startsWith('✓') ? C.statusDone : C.statusFailed}44`, borderRadius: '8px', padding: '12px 16px', fontSize: '15px', color: userSyncResult.startsWith('✓') ? C.statusDone : C.statusFailed, fontWeight: 'bold' }}>
                     {userSyncResult}
                   </div>
                 )}
@@ -1252,7 +1250,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
           {/* ── PERMISSIONS TAB ── */}
           {tab === 'permissions' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '16px 20px', border: `1px solid ${C.border}`, fontSize: '13px', color: C.textSecondary, lineHeight: '1.7' }}>
+              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '16px 20px', border: `1px solid ${C.border}`, fontSize: '15px', color: C.textSecondary, lineHeight: '1.7' }}>
                 <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '8px' }}>תפקידים במערכת</strong>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '10px' }}>
                   {[
@@ -1264,13 +1262,13 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                     { role: 'VIEWER', label: 'צופה', desc: 'קריאה בלבד — אין יכולת עדכון.' },
                   ].map(r => (
                     <div key={r.role} style={{ background: C.bgCard, borderRadius: '8px', padding: '10px 14px', border: `1px solid ${C.border}` }}>
-                      <div style={{ fontWeight: 'bold', fontSize: '13px', color: C.textPrimary }}>{r.label}</div>
-                      <div style={{ fontSize: '11px', color: C.brand, fontFamily: FONT_MONO, marginBottom: '4px' }}>{r.role}</div>
-                      <div style={{ fontSize: '12px', color: C.textMuted }}>{r.desc}</div>
+                      <div style={{ fontWeight: 'bold', fontSize: '15px', color: C.textPrimary }}>{r.label}</div>
+                      <div style={{ fontSize: '13px', color: C.brand, fontFamily: FONT_MONO, marginBottom: '4px' }}>{r.role}</div>
+                      <div style={{ fontSize: '14px', color: C.textMuted }}>{r.desc}</div>
                     </div>
                   ))}
                 </div>
-                <p style={{ margin: '10px 0 0', fontSize: '12px', color: C.textMuted }}>
+                <p style={{ margin: '10px 0 0', fontSize: '14px', color: C.textMuted }}>
                   מטריצת ההרשאות מאפשרת לשנות אילו פעולות כל תפקיד יכול לבצע. לחץ על תא כדי להפעיל/לכבות הרשאה, ואז "שמור" לשורת התפקיד.
                 </p>
               </div>
@@ -1283,7 +1281,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
             if (!templates.length && !templatesLoading) fetchTemplates();
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '16px 20px', border: `1px solid ${C.border}`, fontSize: '13px', color: C.textSecondary, lineHeight: '1.7' }}>
+              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '16px 20px', border: `1px solid ${C.border}`, fontSize: '15px', color: C.textSecondary, lineHeight: '1.7' }}>
                 <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '6px' }}>מהן תבניות גרסה?</strong>
                 <p style={{ margin: 0 }}>
                   תבנית היא "צילום" של תוכנית לילה קיימת — שלבים, משימות, שיוכי צוות — שניתן להשתמש בה ליצירת גרסאות עתידיות.
@@ -1295,15 +1293,15 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                   <div>
                     <h3 style={{ margin: '0 0 4px', color: C.textPrimary }}>📁 תבניות גרסה ({templates.length})</h3>
-                    <p style={{ margin: 0, fontSize: '13px', color: C.textMuted }}>תבניות שמורות ליצירת גרסאות עתידיות</p>
+                    <p style={{ margin: 0, fontSize: '15px', color: C.textMuted }}>תבניות שמורות ליצירת גרסאות עתידיות</p>
                   </div>
                   <button onClick={fetchTemplates} disabled={templatesLoading}
-                    style={{ padding: '8px 16px', background: C.bgHover, border: `1px solid ${C.border}`, borderRadius: '8px', cursor: 'pointer', fontSize: '13px', color: C.textSecondary, fontFamily: FONT }}>
+                    style={{ padding: '8px 16px', background: C.bgHover, border: `1px solid ${C.border}`, borderRadius: '8px', cursor: 'pointer', fontSize: '15px', color: C.textSecondary, fontFamily: FONT }}>
                     {templatesLoading ? '...' : '🔄 רענן'}
                   </button>
                 </div>
                 {templateError && (
-                  <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', fontSize: '13px', color: C.statusFailed }}>
+                  <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', fontSize: '15px', color: C.statusFailed }}>
                     ⚠️ {templateError}
                     <button onClick={() => setTemplateError(null)} style={{ marginRight: '8px', background: 'none', border: 'none', cursor: 'pointer', color: C.statusFailed, fontWeight: 'bold' }}>×</button>
                   </div>
@@ -1320,16 +1318,16 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                     {templates.map((t: any) => (
                       <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 18px', border: `1px solid ${C.border}`, borderRadius: '10px', background: C.bgNested }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 'bold', fontSize: '15px', color: C.textPrimary }}>{t.name}</div>
-                          {t.description && <div style={{ fontSize: '12px', color: C.textMuted, marginTop: '2px' }}>{t.description}</div>}
-                          <div style={{ fontSize: '11px', color: C.textMuted, marginTop: '4px' }}>
+                          <div style={{ fontWeight: 'bold', fontSize: '16px', color: C.textPrimary }}>{t.name}</div>
+                          {t.description && <div style={{ fontSize: '14px', color: C.textMuted, marginTop: '2px' }}>{t.description}</div>}
+                          <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '4px' }}>
                             נוצר ע"י {t.creator?.fullName ?? '—'} · {t.createdAt ? new Date(t.createdAt).toLocaleDateString('he-IL') : ''}
                           </div>
                         </div>
                         <button
                           disabled={deletingTemplateId === t.id}
                           onClick={() => deleteTemplate(t.id)}
-                          style={{ padding: '7px 16px', background: deletingTemplateId === t.id ? C.bgHover : C.statusFailed, color: deletingTemplateId === t.id ? C.textDisabled : 'white', border: 'none', borderRadius: '8px', cursor: deletingTemplateId === t.id ? 'not-allowed' : 'pointer', fontSize: '13px', whiteSpace: 'nowrap', fontFamily: FONT }}
+                          style={{ padding: '7px 16px', background: deletingTemplateId === t.id ? C.bgHover : C.statusFailed, color: deletingTemplateId === t.id ? C.textDisabled : 'white', border: 'none', borderRadius: '8px', cursor: deletingTemplateId === t.id ? 'not-allowed' : 'pointer', fontSize: '15px', whiteSpace: 'nowrap', fontFamily: FONT }}
                         >
                           {deletingTemplateId === t.id ? 'מוחק...' : '🗑 מחק'}
                         </button>
@@ -1356,12 +1354,12 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
                     <div>
                       <h3 style={{ margin: '0 0 4px', color: C.textPrimary }}>🔒 Active Directory / LDAP</h3>
-                      <p style={{ margin: 0, fontSize: '13px', color: C.textMuted }}>
+                      <p style={{ margin: 0, fontSize: '15px', color: C.textMuted }}>
                         כשמופעל — משתמשים מתחברים עם שם משתמש AD. חשבונות המנהל הטכני משתמשים תמיד בהתחברות מקומית.
                       </p>
                     </div>
                     <span style={{
-                      padding: '6px 18px', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold',
+                      padding: '6px 18px', borderRadius: '20px', fontSize: '15px', fontWeight: 'bold',
                       background: isEnabled ? C.bgDone : C.bgHover,
                       color: isEnabled ? C.statusDone : C.textMuted,
                     }}>
@@ -1372,11 +1370,11 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
 
                 <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', border: `1px solid ${C.border}` }}>
                   <h3 style={{ margin: '0 0 6px', color: C.textPrimary }}>הגדרות חיבור</h3>
-                  <p style={{ margin: '0 0 20px', fontSize: '13px', color: C.textMuted }}>
+                  <p style={{ margin: '0 0 20px', fontSize: '15px', color: C.textMuted }}>
                     שנה ערך → לחץ Enter לשמירה מיידית
                   </p>
                   {paramError && (
-                    <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', fontSize: '13px', color: C.statusFailed }}>
+                    <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', fontSize: '15px', color: C.statusFailed }}>
                       ⚠️ {paramError}
                     </div>
                   )}
@@ -1384,19 +1382,19 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                     <thead>
                       <tr style={{ background: C.bgNested }}>
                         {['תיאור', 'מפתח', 'ערך', 'פעולות'].map(h => (
-                          <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: '12px', color: C.textSecondary, fontWeight: 'bold', border: `1px solid ${C.border}` }}>{h}</th>
+                          <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: '14px', color: C.textSecondary, fontWeight: 'bold', border: `1px solid ${C.border}` }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {ldapParams.length === 0 ? (
-                        <tr><td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: C.textMuted, fontSize: '13px' }}>טוען הגדרות LDAP...</td></tr>
+                        <tr><td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: C.textMuted, fontSize: '15px' }}>טוען הגדרות LDAP...</td></tr>
                       ) : ldapParams.map(p => (
                         <tr key={p.key} style={{ borderBottom: `1px solid ${C.border}` }}>
-                          <td style={{ padding: '12px 14px', fontSize: '13px', fontWeight: 'bold', color: C.textPrimary, border: `1px solid ${C.border}` }}>
+                          <td style={{ padding: '12px 14px', fontSize: '15px', fontWeight: 'bold', color: C.textPrimary, border: `1px solid ${C.border}` }}>
                             {p.label.replace(/^LDAP[^:]*: /, '')}
                           </td>
-                          <td style={{ padding: '12px 14px', fontFamily: FONT_MONO, fontSize: '11px', color: C.textMuted, border: `1px solid ${C.border}` }}>{p.key}</td>
+                          <td style={{ padding: '12px 14px', fontFamily: FONT_MONO, fontSize: '13px', color: C.textMuted, border: `1px solid ${C.border}` }}>{p.key}</td>
                           <td style={{ padding: '12px 14px', border: `1px solid ${C.border}`, minWidth: '240px' }}>
                             {editingParam === p.key ? (
                               <input
@@ -1405,10 +1403,10 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                                 value={paramValue}
                                 onChange={e => setParamValue(e.target.value)}
                                 onKeyDown={e => { if (e.key === 'Enter') saveParam(p.key); if (e.key === 'Escape') setEditingParam(null); }}
-                                style={{ width: '100%', padding: '6px 10px', border: `2px solid ${C.brand}`, borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', direction: 'ltr', background: C.bgNested, color: C.textPrimary, fontFamily: FONT_MONO }}
+                                style={{ width: '100%', padding: '6px 10px', border: `2px solid ${C.brand}`, borderRadius: '6px', fontSize: '15px', boxSizing: 'border-box', direction: 'ltr', background: C.bgNested, color: C.textPrimary, fontFamily: FONT_MONO }}
                               />
                             ) : (
-                              <span style={{ fontSize: '13px', color: p.value ? C.textPrimary : C.textMuted, fontStyle: p.value ? 'normal' : 'italic', direction: 'ltr', display: 'inline-block', fontFamily: p.value ? FONT_MONO : FONT }}>
+                              <span style={{ fontSize: '15px', color: p.value ? C.textPrimary : C.textMuted, fontStyle: p.value ? 'normal' : 'italic', direction: 'ltr', display: 'inline-block', fontFamily: p.value ? FONT_MONO : FONT }}>
                                 {p.type === 'password' && p.value ? '••••••••' : (p.value || 'לא הוגדר')}
                               </span>
                             )}
@@ -1417,17 +1415,17 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                             {editingParam === p.key ? (
                               <div style={{ display: 'flex', gap: '6px' }}>
                                 <button onClick={() => saveParam(p.key)} disabled={savingParam}
-                                  style={{ padding: '5px 14px', background: savingParam ? C.bgHover : C.statusDone, color: savingParam ? C.textDisabled : 'white', border: 'none', borderRadius: '6px', cursor: savingParam ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 'bold', fontFamily: FONT }}>
+                                  style={{ padding: '5px 14px', background: savingParam ? C.bgHover : C.statusDone, color: savingParam ? C.textDisabled : 'white', border: 'none', borderRadius: '6px', cursor: savingParam ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold', fontFamily: FONT }}>
                                   {savingParam ? '...' : 'שמור'}
                                 </button>
                                 <button onClick={() => { setEditingParam(null); setParamError(null); }}
-                                  style={{ padding: '5px 12px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>
+                                  style={{ padding: '5px 12px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontFamily: FONT }}>
                                   ביטול
                                 </button>
                               </div>
                             ) : (
                               <button onClick={() => { setEditingParam(p.key); setParamValue(p.value); setParamError(null); }}
-                                style={{ padding: '5px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>
+                                style={{ padding: '5px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontFamily: FONT }}>
                                 ✏️ ערוך
                               </button>
                             )}
@@ -1440,7 +1438,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
 
                 <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', border: `1px solid ${C.border}` }}>
                   <h3 style={{ margin: '0 0 8px', color: C.textPrimary }}>בדיקת חיבור</h3>
-                  <p style={{ margin: '0 0 16px', fontSize: '13px', color: C.textMuted }}>
+                  <p style={{ margin: '0 0 16px', fontSize: '15px', color: C.textMuted }}>
                     בודק את החיבור לשרת LDAP ואת חשבון השירות (Bind DN). לא מאמת משתמש ספציפי.
                   </p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
@@ -1450,14 +1448,14 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                       style={{
                         padding: '9px 22px', background: ldapTesting ? C.bgHover : C.brand,
                         color: ldapTesting ? C.textDisabled : 'white', border: 'none', borderRadius: '8px',
-                        cursor: ldapTesting ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '14px', fontFamily: FONT,
+                        cursor: ldapTesting ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '15px', fontFamily: FONT,
                       }}
                     >
                       {ldapTesting ? 'בודק...' : '🔌 בדוק חיבור'}
                     </button>
                     {ldapTestResult && (
                       <div style={{
-                        padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold',
+                        padding: '8px 16px', borderRadius: '8px', fontSize: '15px', fontWeight: 'bold',
                         background: ldapTestResult.success ? C.bgDone : C.bgBlocked,
                         color: ldapTestResult.success ? C.statusDone : C.statusFailed,
                       }}>
@@ -1467,7 +1465,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                   </div>
                 </div>
 
-                <div style={{ background: C.bgNested, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}`, fontSize: '13px', color: C.textSecondary, lineHeight: '1.7' }}>
+                <div style={{ background: C.bgNested, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}`, fontSize: '15px', color: C.textSecondary, lineHeight: '1.7' }}>
                   <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '8px' }}>כיצד ההתחברות פועלת:</strong>
                   <ul style={{ margin: 0, paddingRight: '20px' }}>
                     <li>כשה-LDAP מופעל, המשתמשים מזינים את <strong>שם המשתמש ב-AD</strong> (לא אימייל) ואת הסיסמה שלהם.</li>
@@ -1476,8 +1474,8 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                     <li>חשבונות <code style={{ background: C.bgCard, padding: '1px 5px', borderRadius: '3px', fontFamily: FONT_MONO }}>nissim@test.com</code> ודומיהם תמיד משתמשים בהתחברות מקומית.</li>
                   </ul>
                   <div style={{ marginTop: '12px', background: '#fff8e1', borderRadius: '8px', padding: '12px 16px', border: '1px solid #ffe082' }}>
-                    <strong style={{ color: '#795548', display: 'block', marginBottom: '8px', fontSize: '13px' }}>🔥 דרישות Firewall</strong>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                    <strong style={{ color: '#795548', display: 'block', marginBottom: '8px', fontSize: '15px' }}>🔥 דרישות Firewall</strong>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                       <thead>
                         <tr style={{ background: '#fff3e0' }}>
                           {['כיוון', 'מקור', 'יעד', 'פורט / פרוטוקול', 'מטרה'].map(h => (
@@ -1491,8 +1489,8 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                         ].map((r, i) => (
                           <tr key={i}>
                             <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontWeight: 'bold', color: '#e65100', whiteSpace: 'nowrap' }}>{r.dir}</td>
-                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '11px' }}>{r.src}</td>
-                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '11px' }}>{r.dst}</td>
+                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '13px' }}>{r.src}</td>
+                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '13px' }}>{r.dst}</td>
                             <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontWeight: 'bold', whiteSpace: 'nowrap', fontFamily: FONT_MONO }}>{r.port}</td>
                             <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', color: '#555' }}>{r.purpose}</td>
                           </tr>
@@ -1521,13 +1519,13 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
                     <div>
                       <h3 style={{ margin: '0 0 4px', color: C.textPrimary }}>🗄️ חיבור Oracle — HP ALM QC</h3>
-                      <p style={{ margin: 0, fontSize: '13px', color: C.textMuted }}>
+                      <p style={{ margin: 0, fontSize: '15px', color: C.textMuted }}>
                         כשמופעל — נתוני כיסוי הבדיקות והתקלות נשלפים ישירות מבסיס הנתונים של QC (Oracle).
                         כשמושבת — מוצגים נתוני Mock לצורך פיתוח ובדיקות.
                       </p>
                     </div>
                     <span style={{
-                      padding: '6px 18px', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold',
+                      padding: '6px 18px', borderRadius: '20px', fontSize: '15px', fontWeight: 'bold',
                       background: isEnabled ? C.bgDone : C.bgHover,
                       color: isEnabled ? C.statusDone : C.textMuted,
                     }}>
@@ -1539,11 +1537,11 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                 {/* Settings */}
                 <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', border: `1px solid ${C.border}` }}>
                   <h3 style={{ margin: '0 0 6px', color: C.textPrimary }}>הגדרות חיבור</h3>
-                  <p style={{ margin: '0 0 20px', fontSize: '13px', color: C.textMuted }}>
+                  <p style={{ margin: '0 0 20px', fontSize: '15px', color: C.textMuted }}>
                     שנה ערך → לחץ Enter לשמירה מיידית. שינויים נכנסים לתוקף בקריאה הבאה (ללא restart).
                   </p>
                   {paramError && (
-                    <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', fontSize: '13px', color: C.statusFailed }}>
+                    <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', fontSize: '15px', color: C.statusFailed }}>
                       ⚠️ {paramError}
                     </div>
                   )}
@@ -1551,19 +1549,19 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                     <thead>
                       <tr style={{ background: C.bgNested }}>
                         {['תיאור', 'מפתח', 'ערך', 'פעולות'].map(h => (
-                          <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: '12px', color: C.textSecondary, fontWeight: 'bold', border: `1px solid ${C.border}` }}>{h}</th>
+                          <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: '14px', color: C.textSecondary, fontWeight: 'bold', border: `1px solid ${C.border}` }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {oracleParams.length === 0 ? (
-                        <tr><td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: C.textMuted, fontSize: '13px' }}>טוען הגדרות Oracle...</td></tr>
+                        <tr><td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: C.textMuted, fontSize: '15px' }}>טוען הגדרות Oracle...</td></tr>
                       ) : oracleParams.map(p => (
                         <tr key={p.key} style={{ borderBottom: `1px solid ${C.border}` }}>
-                          <td style={{ padding: '12px 14px', fontSize: '13px', fontWeight: 'bold', color: C.textPrimary, border: `1px solid ${C.border}` }}>
+                          <td style={{ padding: '12px 14px', fontSize: '15px', fontWeight: 'bold', color: C.textPrimary, border: `1px solid ${C.border}` }}>
                             {p.label.replace(/^QC Oracle: /, '')}
                           </td>
-                          <td style={{ padding: '12px 14px', fontFamily: FONT_MONO, fontSize: '11px', color: C.textMuted, border: `1px solid ${C.border}` }}>{p.key}</td>
+                          <td style={{ padding: '12px 14px', fontFamily: FONT_MONO, fontSize: '13px', color: C.textMuted, border: `1px solid ${C.border}` }}>{p.key}</td>
                           <td style={{ padding: '12px 14px', border: `1px solid ${C.border}`, minWidth: '240px' }}>
                             {editingParam === p.key ? (
                               <input
@@ -1572,10 +1570,10 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                                 value={paramValue}
                                 onChange={e => setParamValue(e.target.value)}
                                 onKeyDown={e => { if (e.key === 'Enter') saveParam(p.key); if (e.key === 'Escape') setEditingParam(null); }}
-                                style={{ width: '100%', padding: '6px 10px', border: `2px solid ${C.brand}`, borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', direction: 'ltr', background: C.bgNested, color: C.textPrimary, fontFamily: FONT_MONO }}
+                                style={{ width: '100%', padding: '6px 10px', border: `2px solid ${C.brand}`, borderRadius: '6px', fontSize: '15px', boxSizing: 'border-box', direction: 'ltr', background: C.bgNested, color: C.textPrimary, fontFamily: FONT_MONO }}
                               />
                             ) : (
-                              <span style={{ fontSize: '13px', color: p.value ? C.textPrimary : C.textMuted, fontStyle: p.value ? 'normal' : 'italic', direction: 'ltr', display: 'inline-block', fontFamily: p.value ? FONT_MONO : FONT }}>
+                              <span style={{ fontSize: '15px', color: p.value ? C.textPrimary : C.textMuted, fontStyle: p.value ? 'normal' : 'italic', direction: 'ltr', display: 'inline-block', fontFamily: p.value ? FONT_MONO : FONT }}>
                                 {p.type === 'password' && p.value ? '••••••••' : (p.value || 'לא הוגדר')}
                               </span>
                             )}
@@ -1584,17 +1582,17 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                             {editingParam === p.key ? (
                               <div style={{ display: 'flex', gap: '6px' }}>
                                 <button onClick={() => saveParam(p.key)} disabled={savingParam}
-                                  style={{ padding: '5px 14px', background: savingParam ? C.bgHover : C.statusDone, color: savingParam ? C.textDisabled : 'white', border: 'none', borderRadius: '6px', cursor: savingParam ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 'bold', fontFamily: FONT }}>
+                                  style={{ padding: '5px 14px', background: savingParam ? C.bgHover : C.statusDone, color: savingParam ? C.textDisabled : 'white', border: 'none', borderRadius: '6px', cursor: savingParam ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold', fontFamily: FONT }}>
                                   {savingParam ? '...' : 'שמור'}
                                 </button>
                                 <button onClick={() => { setEditingParam(null); setParamError(null); }}
-                                  style={{ padding: '5px 12px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>
+                                  style={{ padding: '5px 12px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontFamily: FONT }}>
                                   ביטול
                                 </button>
                               </div>
                             ) : (
                               <button onClick={() => { setEditingParam(p.key); setParamValue(p.value); setParamError(null); }}
-                                style={{ padding: '5px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>
+                                style={{ padding: '5px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontFamily: FONT }}>
                                 ✏️ ערוך
                               </button>
                             )}
@@ -1607,10 +1605,10 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
 
                 {/* Firewall requirements */}
                 <div style={{ background: '#fff8e1', borderRadius: '12px', padding: '20px 24px', border: '1px solid #ffe082' }}>
-                  <strong style={{ color: '#795548', display: 'block', marginBottom: '10px', fontSize: '14px' }}>
+                  <strong style={{ color: '#795548', display: 'block', marginBottom: '10px', fontSize: '15px' }}>
                     🔥 דרישות Firewall — מה נדרש לפתוח
                   </strong>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
                     <thead>
                       <tr style={{ background: '#fff3e0' }}>
                         {['כיוון', 'מקור', 'יעד', 'פורט / פרוטוקול', 'מטרה'].map(h => (
@@ -1624,15 +1622,15 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                       ].map((r, i) => (
                         <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#fff8e1' }}>
                           <td style={{ padding: '8px 12px', border: '1px solid #ffcc80', fontWeight: 'bold', color: '#e65100', whiteSpace: 'nowrap' }}>{r.dir}</td>
-                          <td style={{ padding: '8px 12px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '12px' }}>{r.src}</td>
-                          <td style={{ padding: '8px 12px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '12px' }}>{r.dst}</td>
+                          <td style={{ padding: '8px 12px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '14px' }}>{r.src}</td>
+                          <td style={{ padding: '8px 12px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '14px' }}>{r.dst}</td>
                           <td style={{ padding: '8px 12px', border: '1px solid #ffcc80', fontWeight: 'bold', whiteSpace: 'nowrap', fontFamily: FONT_MONO }}>{r.port}</td>
                           <td style={{ padding: '8px 12px', border: '1px solid #ffcc80', color: '#555' }}>{r.purpose}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  <ul style={{ margin: '14px 0 0', paddingRight: '20px', color: '#6d4c41', lineHeight: '1.8', fontSize: '13px' }}>
+                  <ul style={{ margin: '14px 0 0', paddingRight: '20px', color: '#6d4c41', lineHeight: '1.8', fontSize: '15px' }}>
                     <li><strong>Connect String:</strong> הפורמט הוא <code style={{ background: '#fff3e0', padding: '1px 6px', borderRadius: '4px', fontFamily: FONT_MONO }}>host:1521/service_name</code> — לדוגמה: <code style={{ background: '#fff3e0', padding: '1px 6px', borderRadius: '4px', fontFamily: FONT_MONO }}>qc-oracle.company.local:1521/ALMDB</code></li>
                     <li><strong>Oracle Instant Client:</strong> חייב להיות מותקן על שרת ה-Backend. גרסה מומלצת: 21c Basic Light.</li>
                     <li><strong>משתמש DB:</strong> נדרשת הרשאת <code style={{ background: '#fff3e0', padding: '1px 6px', borderRadius: '4px', fontFamily: FONT_MONO }}>SELECT</code> על הטבלאות <code style={{ background: '#fff3e0', padding: '1px 6px', borderRadius: '4px', fontFamily: FONT_MONO }}>TEST, REQ, REQ_COVER, REQ_RELEASES, REQ_CYCLES, RELEASES, ALL_LISTS, REQ_TYPE, BUG</code></li>
@@ -1653,30 +1651,30 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                 <div style={{ background: isEnabled ? C.bgDone : C.bgNested, borderRadius: '12px', padding: '20px 24px', border: `2px solid ${isEnabled ? C.statusDone : C.border}`, display: 'flex', alignItems: 'center', gap: '16px' }}>
                   <span style={{ fontSize: '32px' }}>{isEnabled ? '📧' : '📪'}</span>
                   <div>
-                    <div style={{ fontWeight: 'bold', fontSize: '16px', color: isEnabled ? C.statusDone : C.textSecondary }}>
+                    <div style={{ fontWeight: 'bold', fontSize: '17px', color: isEnabled ? C.statusDone : C.textSecondary }}>
                       {isEnabled ? 'שליחת מייל מופעלת' : 'שליחת מייל מושבתת'}
                     </div>
-                    <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '2px' }}>
+                    <div style={{ fontSize: '15px', color: C.textMuted, marginTop: '2px' }}>
                       הגדר <code style={{ fontFamily: FONT_MONO }}>EMAIL_ENABLED = true</code> להפעלה
                     </div>
                   </div>
                 </div>
 
                 <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px 24px', border: `1px solid ${C.border}` }}>
-                  <div style={{ fontWeight: 'bold', fontSize: '15px', color: C.textPrimary, marginBottom: '16px' }}>⚙️ הגדרות SMTP</div>
+                  <div style={{ fontWeight: 'bold', fontSize: '16px', color: C.textPrimary, marginBottom: '16px' }}>⚙️ הגדרות SMTP</div>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: C.bgNested }}>
                         {['תיאור', 'מפתח', 'ערך', 'פעולות'].map(h => (
-                          <th key={h} style={{ padding: '9px 14px', textAlign: 'right', fontSize: '12px', color: C.textSecondary, fontWeight: 'bold', border: `1px solid ${C.border}` }}>{h}</th>
+                          <th key={h} style={{ padding: '9px 14px', textAlign: 'right', fontSize: '14px', color: C.textSecondary, fontWeight: 'bold', border: `1px solid ${C.border}` }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {emailParams.map(p => (
                         <tr key={p.key} style={{ borderBottom: `1px solid ${C.border}` }}>
-                          <td style={{ padding: '10px 14px', fontSize: '13px', fontWeight: 'bold', color: C.textPrimary, border: `1px solid ${C.border}` }}>{p.label}</td>
-                          <td style={{ padding: '10px 14px', fontFamily: FONT_MONO, fontSize: '11px', color: C.textMuted, border: `1px solid ${C.border}` }}>{p.key}</td>
+                          <td style={{ padding: '10px 14px', fontSize: '15px', fontWeight: 'bold', color: C.textPrimary, border: `1px solid ${C.border}` }}>{p.label}</td>
+                          <td style={{ padding: '10px 14px', fontFamily: FONT_MONO, fontSize: '13px', color: C.textMuted, border: `1px solid ${C.border}` }}>{p.key}</td>
                           <td style={{ padding: '10px 14px', border: `1px solid ${C.border}`, minWidth: '240px' }}>
                             {editingParam === p.key ? (
                               <input
@@ -1685,10 +1683,10 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                                 value={paramValue}
                                 onChange={e => setParamValue(e.target.value)}
                                 onKeyDown={e => { if (e.key === 'Enter') saveParam(p.key); if (e.key === 'Escape') setEditingParam(null); }}
-                                style={{ width: '100%', padding: '5px 9px', border: `2px solid ${C.brand}`, borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box', direction: 'ltr', background: C.bgNested, color: C.textPrimary, fontFamily: FONT_MONO }}
+                                style={{ width: '100%', padding: '5px 9px', border: `2px solid ${C.brand}`, borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box', direction: 'ltr', background: C.bgNested, color: C.textPrimary, fontFamily: FONT_MONO }}
                               />
                             ) : (
-                              <span style={{ fontSize: '13px', color: p.value ? C.textPrimary : C.textMuted, fontStyle: p.value ? 'normal' : 'italic', direction: 'ltr', display: 'inline-block', fontFamily: p.value ? FONT_MONO : FONT }}>
+                              <span style={{ fontSize: '15px', color: p.value ? C.textPrimary : C.textMuted, fontStyle: p.value ? 'normal' : 'italic', direction: 'ltr', display: 'inline-block', fontFamily: p.value ? FONT_MONO : FONT }}>
                                 {p.type === 'password' && p.value ? '••••••••' : (p.value || 'לא הוגדר')}
                               </span>
                             )}
@@ -1697,17 +1695,17 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                             {editingParam === p.key ? (
                               <div style={{ display: 'flex', gap: '6px' }}>
                                 <button onClick={() => saveParam(p.key)} disabled={savingParam}
-                                  style={{ padding: '4px 12px', background: savingParam ? C.bgHover : C.statusDone, color: savingParam ? C.textDisabled : 'white', border: 'none', borderRadius: '6px', cursor: savingParam ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 'bold', fontFamily: FONT }}>
+                                  style={{ padding: '4px 12px', background: savingParam ? C.bgHover : C.statusDone, color: savingParam ? C.textDisabled : 'white', border: 'none', borderRadius: '6px', cursor: savingParam ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold', fontFamily: FONT }}>
                                   {savingParam ? '...' : 'שמור'}
                                 </button>
                                 <button onClick={() => { setEditingParam(null); setParamError(null); }}
-                                  style={{ padding: '4px 10px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>
+                                  style={{ padding: '4px 10px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontFamily: FONT }}>
                                   ביטול
                                 </button>
                               </div>
                             ) : (
                               <button onClick={() => { setEditingParam(p.key); setParamValue(p.value); setParamError(null); }}
-                                style={{ padding: '4px 12px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>
+                                style={{ padding: '4px 12px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontFamily: FONT }}>
                                 ✏️ ערוך
                               </button>
                             )}
@@ -1719,8 +1717,8 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                 </div>
 
                 <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px 24px', border: `1px solid ${C.border}` }}>
-                  <div style={{ fontWeight: 'bold', fontSize: '15px', color: C.textPrimary, marginBottom: '12px' }}>🔌 בדיקת שליחה</div>
-                  <p style={{ fontSize: '13px', color: C.textSecondary, margin: '0 0 14px' }}>
+                  <div style={{ fontWeight: 'bold', fontSize: '16px', color: C.textPrimary, marginBottom: '12px' }}>🔌 בדיקת שליחה</div>
+                  <p style={{ fontSize: '15px', color: C.textSecondary, margin: '0 0 14px' }}>
                     שולח מייל בדיקה לרשימת התפוצה המוגדרת ב-<code style={{ fontFamily: FONT_MONO }}>EMAIL_DISTRIBUTION_LIST</code>.
                   </p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
@@ -1730,15 +1728,15 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                       style={{
                         padding: '9px 22px', background: emailTesting ? C.bgHover : !isEnabled ? C.bgHover : '#2980b9',
                         color: (emailTesting || !isEnabled) ? C.textDisabled : 'white', border: 'none', borderRadius: '8px',
-                        cursor: (emailTesting || !isEnabled) ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '14px', fontFamily: FONT,
+                        cursor: (emailTesting || !isEnabled) ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '15px', fontFamily: FONT,
                       }}
                     >
                       {emailTesting ? 'שולח...' : '📤 שלח מייל בדיקה'}
                     </button>
-                    {!isEnabled && <span style={{ fontSize: '12px', color: C.textMuted }}>יש להפעיל EMAIL_ENABLED תחילה</span>}
+                    {!isEnabled && <span style={{ fontSize: '14px', color: C.textMuted }}>יש להפעיל EMAIL_ENABLED תחילה</span>}
                     {emailTestResult && (
                       <div style={{
-                        padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold',
+                        padding: '8px 16px', borderRadius: '8px', fontSize: '15px', fontWeight: 'bold',
                         background: emailTestResult.success ? C.bgDone : C.bgBlocked,
                         color: emailTestResult.success ? C.statusDone : C.statusFailed,
                       }}>
@@ -1748,7 +1746,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                   </div>
                 </div>
 
-                <div style={{ background: C.bgNested, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}`, fontSize: '13px', color: C.textSecondary, lineHeight: '1.7' }}>
+                <div style={{ background: C.bgNested, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}`, fontSize: '15px', color: C.textSecondary, lineHeight: '1.7' }}>
                   <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '8px' }}>הגדרות SMTP נפוצות:</strong>
                   <ul style={{ margin: 0, paddingRight: '20px' }}>
                     <li>Gmail: <code style={{ fontFamily: FONT_MONO }}>HOST=smtp.gmail.com, PORT=587, SECURE=false</code> — נדרש App Password</li>
@@ -1757,8 +1755,8 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                     <li><code style={{ fontFamily: FONT_MONO }}>EMAIL_DISTRIBUTION_LIST</code> — רשימת נמענים מופרדת בפסיקים</li>
                   </ul>
                   <div style={{ marginTop: '12px', background: '#fff8e1', borderRadius: '8px', padding: '12px 16px', border: '1px solid #ffe082' }}>
-                    <strong style={{ color: '#795548', display: 'block', marginBottom: '8px', fontSize: '13px' }}>🔥 דרישות Firewall</strong>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                    <strong style={{ color: '#795548', display: 'block', marginBottom: '8px', fontSize: '15px' }}>🔥 דרישות Firewall</strong>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                       <thead>
                         <tr style={{ background: '#fff3e0' }}>
                           {['כיוון', 'מקור', 'יעד', 'פורט / פרוטוקול', 'מטרה'].map(h => (
@@ -1772,8 +1770,8 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                         ].map((r, i) => (
                           <tr key={i}>
                             <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontWeight: 'bold', color: '#e65100', whiteSpace: 'nowrap' }}>{r.dir}</td>
-                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '11px' }}>{r.src}</td>
-                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '11px' }}>{r.dst}</td>
+                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '13px' }}>{r.src}</td>
+                            <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '13px' }}>{r.dst}</td>
                             <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', fontWeight: 'bold', whiteSpace: 'nowrap', fontFamily: FONT_MONO }}>{r.port}</td>
                             <td style={{ padding: '6px 10px', border: '1px solid #ffcc80', color: '#555' }}>{r.purpose}</td>
                           </tr>
@@ -1790,6 +1788,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
             const notifParams = systemParams.filter(p => p.key.startsWith('TEAMS_') || p.key.startsWith('TELEGRAM_'));
             const getP = (key: string) => notifParams.find(p => p.key === key)?.value ?? '';
             const teamsEnabled   = getP('TEAMS_ENABLED')   === 'true';
+            const teamsBotEnabled = getP('TEAMS_BOT_ENABLED') === 'true';
             const telegramEnabled = getP('TELEGRAM_ENABLED') === 'true';
 
             const channelCard = (
@@ -1808,10 +1807,10 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px' }}>
                     <span style={{ fontSize: '32px' }}>{opts.icon}</span>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 'bold', fontSize: '16px', color: opts.enabled ? C.statusDone : C.textSecondary }}>{opts.title}</div>
-                      <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '2px' }}>{opts.subtitle}</div>
+                      <div style={{ fontWeight: 'bold', fontSize: '17px', color: opts.enabled ? C.statusDone : C.textSecondary }}>{opts.title}</div>
+                      <div style={{ fontSize: '15px', color: C.textMuted, marginTop: '2px' }}>{opts.subtitle}</div>
                     </div>
-                    <div style={{ fontSize: '12px', color: C.textMuted, textAlign: 'left' }}>
+                    <div style={{ fontSize: '14px', color: C.textMuted, textAlign: 'left' }}>
                       ערך: <code style={{ fontFamily: FONT_MONO }}>{opts.enabledKey}</code>
                     </div>
                   </div>
@@ -1820,15 +1819,15 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                     <thead>
                       <tr style={{ background: C.bgNested }}>
                         {['תיאור', 'מפתח', 'ערך', 'פעולות'].map(h => (
-                          <th key={h} style={{ padding: '8px 12px', textAlign: 'right', fontSize: '12px', color: C.textSecondary, fontWeight: 'bold', border: `1px solid ${C.border}` }}>{h}</th>
+                          <th key={h} style={{ padding: '8px 12px', textAlign: 'right', fontSize: '14px', color: C.textSecondary, fontWeight: 'bold', border: `1px solid ${C.border}` }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {notifParams.filter(p => p.key === opts.enabledKey || opts.fields.some(f => f.key === p.key)).map(p => (
                         <tr key={p.key} style={{ borderBottom: `1px solid ${C.border}` }}>
-                          <td style={{ padding: '9px 12px', fontSize: '13px', fontWeight: 'bold', color: C.textPrimary, border: `1px solid ${C.border}` }}>{p.label}</td>
-                          <td style={{ padding: '9px 12px', fontFamily: FONT_MONO, fontSize: '11px', color: C.textMuted, border: `1px solid ${C.border}` }}>{p.key}</td>
+                          <td style={{ padding: '9px 12px', fontSize: '15px', fontWeight: 'bold', color: C.textPrimary, border: `1px solid ${C.border}` }}>{p.label}</td>
+                          <td style={{ padding: '9px 12px', fontFamily: FONT_MONO, fontSize: '13px', color: C.textMuted, border: `1px solid ${C.border}` }}>{p.key}</td>
                           <td style={{ padding: '9px 12px', border: `1px solid ${C.border}`, minWidth: '220px' }}>
                             {editingParam === p.key ? (
                               <input autoFocus
@@ -1837,10 +1836,10 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                                 onChange={e => setParamValue(e.target.value)}
                                 onKeyDown={e => { if (e.key === 'Enter') saveParam(p.key); if (e.key === 'Escape') setEditingParam(null); }}
                                 placeholder={opts.fields.find(f => f.key === p.key)?.placeholder || ''}
-                                style={{ width: '100%', padding: '5px 9px', border: `2px solid ${C.brand}`, borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box', direction: 'ltr', background: C.bgNested, color: C.textPrimary, fontFamily: FONT_MONO }}
+                                style={{ width: '100%', padding: '5px 9px', border: `2px solid ${C.brand}`, borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box', direction: 'ltr', background: C.bgNested, color: C.textPrimary, fontFamily: FONT_MONO }}
                               />
                             ) : (
-                              <span style={{ fontSize: '13px', color: p.value ? C.textPrimary : C.textMuted, fontStyle: p.value ? 'normal' : 'italic', direction: 'ltr', display: 'inline-block', fontFamily: p.value ? FONT_MONO : FONT }}>
+                              <span style={{ fontSize: '15px', color: p.value ? C.textPrimary : C.textMuted, fontStyle: p.value ? 'normal' : 'italic', direction: 'ltr', display: 'inline-block', fontFamily: p.value ? FONT_MONO : FONT }}>
                                 {opts.fields.find(f => f.key === p.key)?.isPassword && p.value ? '••••••••' : (p.value || 'לא הוגדר')}
                               </span>
                             )}
@@ -1849,17 +1848,17 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                             {editingParam === p.key ? (
                               <div style={{ display: 'flex', gap: '6px' }}>
                                 <button onClick={() => saveParam(p.key)} disabled={savingParam}
-                                  style={{ padding: '4px 12px', background: savingParam ? C.bgHover : C.statusDone, color: savingParam ? C.textDisabled : 'white', border: 'none', borderRadius: '6px', cursor: savingParam ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 'bold', fontFamily: FONT }}>
+                                  style={{ padding: '4px 12px', background: savingParam ? C.bgHover : C.statusDone, color: savingParam ? C.textDisabled : 'white', border: 'none', borderRadius: '6px', cursor: savingParam ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold', fontFamily: FONT }}>
                                   {savingParam ? '...' : 'שמור'}
                                 </button>
                                 <button onClick={() => { setEditingParam(null); setParamError(null); }}
-                                  style={{ padding: '4px 10px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>
+                                  style={{ padding: '4px 10px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontFamily: FONT }}>
                                   ביטול
                                 </button>
                               </div>
                             ) : (
                               <button onClick={() => { setEditingParam(p.key); setParamValue(p.value); setParamError(null); }}
-                                style={{ padding: '4px 12px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>
+                                style={{ padding: '4px 12px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontFamily: FONT }}>
                                 ✏️ ערוך
                               </button>
                             )}
@@ -1877,15 +1876,15 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                         style={{
                           padding: '8px 20px', background: isTesting ? C.bgHover : !opts.enabled ? C.bgHover : '#2980b9',
                           color: (isTesting || !opts.enabled) ? C.textDisabled : 'white', border: 'none', borderRadius: '8px',
-                          cursor: (isTesting || !opts.enabled) ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px', fontFamily: FONT,
+                          cursor: (isTesting || !opts.enabled) ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '15px', fontFamily: FONT,
                         }}
                       >
                         {isTesting ? 'שולח...' : '🔌 שלח הודעת בדיקה'}
                       </button>
-                      {!opts.enabled && <span style={{ fontSize: '12px', color: C.textMuted }}>יש להפעיל {opts.enabledKey} תחילה</span>}
+                      {!opts.enabled && <span style={{ fontSize: '14px', color: C.textMuted }}>יש להפעיל {opts.enabledKey} תחילה</span>}
                       {res && (
                         <div style={{
-                          padding: '7px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold',
+                          padding: '7px 14px', borderRadius: '8px', fontSize: '15px', fontWeight: 'bold',
                           background: res.ok ? C.bgDone : C.bgBlocked,
                           color: res.ok ? C.statusDone : C.statusFailed,
                         }}>
@@ -1906,13 +1905,13 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                 <div style={{ background: C.bgDone, borderRadius: '12px', padding: '20px 24px', border: `2px solid ${C.statusDone}`, display: 'flex', alignItems: 'center', gap: '16px' }}>
                   <span style={{ fontSize: '32px' }}>🔔</span>
                   <div>
-                    <div style={{ fontWeight: 'bold', fontSize: '16px', color: C.statusDone }}>Web Push — פעיל תמיד</div>
-                    <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '2px' }}>
+                    <div style={{ fontWeight: 'bold', fontSize: '17px', color: C.statusDone }}>Web Push — פעיל תמיד</div>
+                    <div style={{ fontSize: '15px', color: C.textMuted, marginTop: '2px' }}>
                       הודעות דחיפה לדפדפן. עובד ללא הגדרה נוספת — כל המשתמשים שאישרו הרשאות יקבלו התראות.
                     </div>
                     <div style={{ marginTop: '10px', background: '#fff8e1', borderRadius: '8px', padding: '10px 14px', border: '1px solid #ffe082' }}>
-                      <strong style={{ color: '#795548', display: 'block', marginBottom: '6px', fontSize: '12px' }}>🔥 דרישות Firewall</strong>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                      <strong style={{ color: '#795548', display: 'block', marginBottom: '6px', fontSize: '14px' }}>🔥 דרישות Firewall</strong>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                         <thead>
                           <tr style={{ background: '#fff3e0' }}>
                             {['כיוון', 'מקור', 'יעד', 'פורט', 'מטרה'].map(h => (
@@ -1927,8 +1926,8 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                           ].map((r, i) => (
                             <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#fff8e1' }}>
                               <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontWeight: 'bold', color: '#e65100', whiteSpace: 'nowrap' }}>{r.dir}</td>
-                              <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '10px' }}>{r.src}</td>
-                              <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '10px' }}>{r.dst}</td>
+                              <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '12px' }}>{r.src}</td>
+                              <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '12px' }}>{r.dst}</td>
                               <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontWeight: 'bold', whiteSpace: 'nowrap', fontFamily: FONT_MONO }}>{r.port}</td>
                               <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', color: '#555' }}>{r.purpose}</td>
                             </tr>
@@ -1947,7 +1946,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                     { key: 'TEAMS_WEBHOOK_URL', label: 'Webhook URL', placeholder: 'https://outlook.office.com/webhook/...' },
                   ],
                   helpNode: (
-                    <div style={{ background: C.bgNested, borderRadius: '8px', padding: '14px 18px', fontSize: '13px', color: C.textSecondary, lineHeight: '1.7' }}>
+                    <div style={{ background: C.bgNested, borderRadius: '8px', padding: '14px 18px', fontSize: '15px', color: C.textSecondary, lineHeight: '1.7' }}>
                       <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '6px' }}>כיצד לקבל Webhook URL:</strong>
                       <ol style={{ margin: 0, paddingRight: '20px' }}>
                         <li>בנד ב-Teams, פתח את הערוץ הרצוי ← <strong>⋯ (More options)</strong> ← <strong>Connectors</strong></li>
@@ -1957,8 +1956,8 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                         <li>הדבק את ה-URL בשדה TEAMS_WEBHOOK_URL למעלה</li>
                       </ol>
                       <div style={{ marginTop: '10px', background: '#fff8e1', borderRadius: '8px', padding: '10px 14px', border: '1px solid #ffe082' }}>
-                        <strong style={{ color: '#795548', display: 'block', marginBottom: '6px', fontSize: '12px' }}>🔥 דרישות Firewall</strong>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                        <strong style={{ color: '#795548', display: 'block', marginBottom: '6px', fontSize: '14px' }}>🔥 דרישות Firewall</strong>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                           <thead>
                             <tr style={{ background: '#fff3e0' }}>
                               {['כיוון', 'מקור', 'יעד', 'פורט', 'מטרה'].map(h => (
@@ -1972,8 +1971,73 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                             ].map((r, i) => (
                               <tr key={i}>
                                 <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontWeight: 'bold', color: '#e65100', whiteSpace: 'nowrap' }}>{r.dir}</td>
-                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '10px' }}>{r.src}</td>
-                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '10px' }}>{r.dst}</td>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '12px' }}>{r.src}</td>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '12px' }}>{r.dst}</td>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontWeight: 'bold', whiteSpace: 'nowrap', fontFamily: FONT_MONO }}>{r.port}</td>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', color: '#555' }}>{r.purpose}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ),
+                })}
+
+                {/* ─ Microsoft Teams Bot (פעולות אינטראקטיביות) ─ */}
+                {channelCard({
+                  icon: '🤖', title: 'Teams Bot — פעולות אינטראקטיביות (התחל/סיים/חסום)',
+                  subtitle: teamsBotEnabled ? 'הבוט מוגדר — כפתורי פעולה יופיעו בכרטיסי המשימה ב-Teams' : 'דורש הקמת Bot ב-Azure לפני הפעלה',
+                  enabledKey: 'TEAMS_BOT_ENABLED', enabled: teamsBotEnabled,
+                  fields: [
+                    { key: 'TEAMS_BOT_APP_ID',       label: 'Application (client) ID', placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' },
+                    { key: 'TEAMS_BOT_APP_PASSWORD', label: 'Client Secret',            placeholder: '••••••••', isPassword: true },
+                  ],
+                  helpNode: (
+                    <div style={{ background: C.bgNested, borderRadius: '8px', padding: '14px 18px', fontSize: '15px', color: C.textSecondary, lineHeight: '1.7' }}>
+                      <div style={{ marginBottom: '10px', background: '#e3f2fd', borderRadius: '8px', padding: '10px 14px', border: '1px solid #90caf9' }}>
+                        <strong style={{ color: '#1565c0' }}>שונה מה-Webhook למעלה:</strong> זה חלק נפרד שדורש הקמת משאב ב-Azure (לא רק שדה ב-Teams). בלי זה, הכפתורים לא יעבדו — ה-Webhook הרגיל ממשיך לשלוח הודעות טקסט בלבד.
+                      </div>
+                      <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '6px' }}>הקמה חד-פעמית (דורש הרשאות Azure AD + Azure Bot Service):</strong>
+                      <ol style={{ margin: 0, paddingRight: '20px' }}>
+                        <li>ב-<a href="https://portal.azure.com" target="_blank" rel="noreferrer" style={{ color: C.brand }}>Azure Portal</a> ← <strong>Azure Active Directory (Entra ID)</strong> ← <strong>App registrations</strong> ← <strong>New registration</strong> (שם: "DeployCenter Bot")</li>
+                        <li>העתק את <strong>Application (client) ID</strong> שנוצר ← הדבק בשדה למעלה</li>
+                        <li>באפליקציה שנוצרה ← <strong>Certificates &amp; secrets</strong> ← <strong>New client secret</strong> ← העתק את הערך (מוצג פעם אחת בלבד!) ← הדבק בשדה Client Secret למעלה</li>
+                        <li>ב-Azure Portal ← צור משאב חדש מסוג <strong>Azure Bot</strong> ← שייך אותו לאפליקציה שנוצרה (Type: Multi Tenant / App ID קיים)</li>
+                        <li>במשאב ה-Bot ← <strong>Configuration</strong> ← <strong>Messaging endpoint</strong> — הזן:
+                          <div style={{ marginTop: '4px' }}>
+                            <code style={{ fontFamily: FONT_MONO, background: 'white', padding: '3px 8px', borderRadius: '4px', border: `1px solid ${C.border}`, direction: 'ltr', display: 'inline-block' }}>
+                              https://&lt;הכתובת-הציבורית-של-השרת&gt;/notifications/teams/bot/messages
+                            </code>
+                          </div>
+                        </li>
+                        <li>במשאב ה-Bot ← <strong>Channels</strong> ← הוסף ערוץ <strong>Microsoft Teams</strong></li>
+                        <li>ב-<a href="https://admin.teams.microsoft.com" target="_blank" rel="noreferrer" style={{ color: C.brand }}>Teams Admin Center</a> — ודא שמדיניות הארגון מאפשרת התקנת אפליקציות מותאמות-אישית (custom apps), ואז התקן/הוסף את הבוט לערוץ הרצוי</li>
+                        <li>הפעל את <strong>TEAMS_BOT_ENABLED</strong> למעלה</li>
+                      </ol>
+                      <div style={{ marginTop: '10px', fontSize: '14px', color: C.textMuted }}>
+                        זיהוי משתמש: הבוט מזהה מי לחץ על הכפתור לפי כתובת המייל שלו ב-Teams ומשווה מול טבלת המשתמשים הקיימת — אין צורך בשיוך ידני לכל משתמש.
+                      </div>
+                      <div style={{ marginTop: '10px', background: '#fff8e1', borderRadius: '8px', padding: '10px 14px', border: '1px solid #ffe082' }}>
+                        <strong style={{ color: '#795548', display: 'block', marginBottom: '6px', fontSize: '14px' }}>🔥 דרישות Firewall</strong>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                          <thead>
+                            <tr style={{ background: '#fff3e0' }}>
+                              {['כיוון', 'מקור', 'יעד', 'פורט', 'מטרה'].map(h => (
+                                <th key={h} style={{ padding: '5px 8px', textAlign: 'right', color: '#5d4037', fontWeight: 'bold', border: '1px solid #ffcc80' }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[
+                              { dir: 'יוצא ←', src: 'DeployCenter Backend', dst: 'login.botframework.com / login.microsoftonline.com', port: 'TCP 443', purpose: 'אימות ואסימוני גישה ל-Bot Framework' },
+                              { dir: 'יוצא ←', src: 'DeployCenter Backend', dst: 'smba.trafficmanager.net (או serviceUrl של השיחה)', port: 'TCP 443', purpose: 'שליחת/עדכון כרטיסים ב-Teams' },
+                              { dir: 'נכנס ←', src: 'Bot Framework (Azure)', dst: 'DeployCenter Backend', port: 'TCP 443', purpose: 'קבלת פעולות כפתור (Start/Complete/Block)' },
+                            ].map((r, i) => (
+                              <tr key={i}>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontWeight: 'bold', color: '#e65100', whiteSpace: 'nowrap' }}>{r.dir}</td>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '12px' }}>{r.src}</td>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '12px' }}>{r.dst}</td>
                                 <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontWeight: 'bold', whiteSpace: 'nowrap', fontFamily: FONT_MONO }}>{r.port}</td>
                                 <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', color: '#555' }}>{r.purpose}</td>
                               </tr>
@@ -1994,7 +2058,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                     { key: 'TELEGRAM_CHAT_ID',   label: 'Chat ID',   placeholder: '-1001234567890 (קבוצה) או 123456 (פרטי)' },
                   ],
                   helpNode: (
-                    <div style={{ background: C.bgNested, borderRadius: '8px', padding: '14px 18px', fontSize: '13px', color: C.textSecondary, lineHeight: '1.7' }}>
+                    <div style={{ background: C.bgNested, borderRadius: '8px', padding: '14px 18px', fontSize: '15px', color: C.textSecondary, lineHeight: '1.7' }}>
                       <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '6px' }}>כיצד ליצור Telegram Bot:</strong>
                       <ol style={{ margin: 0, paddingRight: '20px' }}>
                         <li>שלח הודעה ל-<strong>@BotFather</strong> בטלגרם ← <code style={{ fontFamily: FONT_MONO }}>/newbot</code></li>
@@ -2005,8 +2069,8 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                         <li>מצא <code style={{ fontFamily: FONT_MONO }}>"chat":&#123;"id": -1001234567890&#125;</code> — זה ה-Chat ID</li>
                       </ol>
                       <div style={{ marginTop: '10px', background: '#fff8e1', borderRadius: '8px', padding: '10px 14px', border: '1px solid #ffe082' }}>
-                        <strong style={{ color: '#795548', display: 'block', marginBottom: '6px', fontSize: '12px' }}>🔥 דרישות Firewall</strong>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                        <strong style={{ color: '#795548', display: 'block', marginBottom: '6px', fontSize: '14px' }}>🔥 דרישות Firewall</strong>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                           <thead>
                             <tr style={{ background: '#fff3e0' }}>
                               {['כיוון', 'מקור', 'יעד', 'פורט', 'מטרה'].map(h => (
@@ -2020,8 +2084,8 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                             ].map((r, i) => (
                               <tr key={i}>
                                 <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontWeight: 'bold', color: '#e65100', whiteSpace: 'nowrap' }}>{r.dir}</td>
-                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '10px' }}>{r.src}</td>
-                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '10px' }}>{r.dst}</td>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '12px' }}>{r.src}</td>
+                                <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontFamily: FONT_MONO, fontSize: '12px' }}>{r.dst}</td>
                                 <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', fontWeight: 'bold', whiteSpace: 'nowrap', fontFamily: FONT_MONO }}>{r.port}</td>
                                 <td style={{ padding: '5px 8px', border: '1px solid #ffcc80', color: '#555' }}>{r.purpose}</td>
                               </tr>
@@ -2041,9 +2105,9 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', border: `1px solid ${C.border}` }}>
               <h3 style={{ margin: '0 0 4px', color: C.textPrimary }}>⚙️ פרמטרי מערכת</h3>
-              <p style={{ margin: '0 0 20px', fontSize: '13px', color: C.textMuted }}>הגדרות גלובליות השולטות בתהליכים במערכת</p>
+              <p style={{ margin: '0 0 20px', fontSize: '15px', color: C.textMuted }}>הגדרות גלובליות השולטות בתהליכים במערכת</p>
               {paramError && (
-                <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', fontSize: '13px', color: C.statusFailed }}>
+                <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', fontSize: '15px', color: C.statusFailed }}>
                   ⚠️ {paramError}
                 </div>
               )}
@@ -2051,15 +2115,15 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                 <thead>
                   <tr style={{ background: C.bgNested }}>
                     {['תיאור', 'מפתח', 'ערך נוכחי', 'פעולות'].map(h => (
-                      <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: '12px', color: C.textSecondary, fontWeight: 'bold', border: `1px solid ${C.border}` }}>{h}</th>
+                      <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: '14px', color: C.textSecondary, fontWeight: 'bold', border: `1px solid ${C.border}` }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {systemParams.filter(p => !p.key.startsWith('EMAIL_') && !p.key.startsWith('LDAP_') && !p.key.startsWith('TEAMS_') && !p.key.startsWith('TELEGRAM_')).map(p => (
                     <tr key={p.key} style={{ borderBottom: `1px solid ${C.border}` }}>
-                      <td style={{ padding: '12px 14px', fontSize: '14px', fontWeight: 'bold', color: C.textPrimary, border: `1px solid ${C.border}` }}>{p.label}</td>
-                      <td style={{ padding: '12px 14px', fontFamily: FONT_MONO, fontSize: '12px', color: C.textMuted, border: `1px solid ${C.border}` }}>{p.key}</td>
+                      <td style={{ padding: '12px 14px', fontSize: '15px', fontWeight: 'bold', color: C.textPrimary, border: `1px solid ${C.border}` }}>{p.label}</td>
+                      <td style={{ padding: '12px 14px', fontFamily: FONT_MONO, fontSize: '14px', color: C.textMuted, border: `1px solid ${C.border}` }}>{p.key}</td>
                       <td style={{ padding: '12px 14px', border: `1px solid ${C.border}`, minWidth: '260px' }}>
                         {editingParam === p.key ? (
                           <input
@@ -2067,11 +2131,11 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                             value={paramValue}
                             onChange={e => setParamValue(e.target.value)}
                             onKeyDown={e => { if (e.key === 'Enter') saveParam(p.key); if (e.key === 'Escape') setEditingParam(null); }}
-                            style={{ width: '100%', padding: '6px 10px', border: `2px solid ${C.brand}`, borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', direction: 'ltr', background: C.bgNested, color: C.textPrimary, fontFamily: FONT_MONO }}
+                            style={{ width: '100%', padding: '6px 10px', border: `2px solid ${C.brand}`, borderRadius: '6px', fontSize: '15px', boxSizing: 'border-box', direction: 'ltr', background: C.bgNested, color: C.textPrimary, fontFamily: FONT_MONO }}
                             placeholder="הזן ערך..."
                           />
                         ) : (
-                          <span style={{ fontSize: '13px', color: p.value ? C.textPrimary : C.textMuted, fontStyle: p.value ? 'normal' : 'italic', direction: 'ltr', display: 'inline-block', fontFamily: p.value ? FONT_MONO : FONT }}>
+                          <span style={{ fontSize: '15px', color: p.value ? C.textPrimary : C.textMuted, fontStyle: p.value ? 'normal' : 'italic', direction: 'ltr', display: 'inline-block', fontFamily: p.value ? FONT_MONO : FONT }}>
                             {p.value || 'לא הוגדר'}
                           </span>
                         )}
@@ -2080,17 +2144,17 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                         {editingParam === p.key ? (
                           <div style={{ display: 'flex', gap: '6px' }}>
                             <button onClick={() => saveParam(p.key)} disabled={savingParam}
-                              style={{ padding: '5px 14px', background: savingParam ? C.bgHover : C.statusDone, color: savingParam ? C.textDisabled : 'white', border: 'none', borderRadius: '6px', cursor: savingParam ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 'bold', fontFamily: FONT }}>
+                              style={{ padding: '5px 14px', background: savingParam ? C.bgHover : C.statusDone, color: savingParam ? C.textDisabled : 'white', border: 'none', borderRadius: '6px', cursor: savingParam ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold', fontFamily: FONT }}>
                               {savingParam ? '...' : 'שמור'}
                             </button>
                             <button onClick={() => { setEditingParam(null); setParamError(null); }}
-                              style={{ padding: '5px 12px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>
+                              style={{ padding: '5px 12px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontFamily: FONT }}>
                               ביטול
                             </button>
                           </div>
                         ) : (
                           <button onClick={() => { setEditingParam(p.key); setParamValue(p.value); setParamError(null); }}
-                            style={{ padding: '5px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontFamily: FONT }}>
+                            style={{ padding: '5px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontFamily: FONT }}>
                             ✏️ ערוך
                           </button>
                         )}
@@ -2099,7 +2163,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                   ))}
                   {systemParams.length === 0 && (
                     <tr>
-                      <td colSpan={4} style={{ padding: '30px', textAlign: 'center', color: C.textMuted, fontSize: '13px' }}>אין פרמטרים מוגדרים</td>
+                      <td colSpan={4} style={{ padding: '30px', textAlign: 'center', color: C.textMuted, fontSize: '15px' }}>אין פרמטרים מוגדרים</td>
                     </tr>
                   )}
                 </tbody>
@@ -2107,14 +2171,14 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
             </div>
 
             {/* ─ Params help section ─ */}
-            <div style={{ background: C.bgNested, borderRadius: '12px', padding: '20px 24px', border: `1px solid ${C.border}`, fontSize: '13px', color: C.textSecondary, lineHeight: '1.8' }}>
-              <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '12px', fontSize: '14px' }}>📖 מדריך פרמטרים</strong>
+            <div style={{ background: C.bgNested, borderRadius: '12px', padding: '20px 24px', border: `1px solid ${C.border}`, fontSize: '15px', color: C.textSecondary, lineHeight: '1.8' }}>
+              <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '12px', fontSize: '15px' }}>📖 מדריך פרמטרים</strong>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div>
                   <code style={{ fontFamily: FONT_MONO, color: C.brand }}>EXCEL_FILE_PATH</code>
                   <span style={{ marginRight: '8px' }}>— נתיב מלא לקובץ ה-Excel של הגשת פיתוחים (CR_LIST).</span>
                   <div style={{ color: C.textMuted, marginTop: '2px', paddingRight: '0' }}>
-                    הנתיב חייב להיות נגיש משרת הבאק-אנד. דוגמאות: <code style={{ fontFamily: FONT_MONO, fontSize: '11px' }}>C:\Files\cr_list.xlsx</code> (Windows) · <code style={{ fontFamily: FONT_MONO, fontSize: '11px' }}>\\server\share\cr_list.xlsx</code> (UNC) · <code style={{ fontFamily: FONT_MONO, fontSize: '11px' }}>/data/cr_list.xlsx</code> (Linux/Docker).
+                    הנתיב חייב להיות נגיש משרת הבאק-אנד. דוגמאות: <code style={{ fontFamily: FONT_MONO, fontSize: '13px' }}>C:\Files\cr_list.xlsx</code> (Windows) · <code style={{ fontFamily: FONT_MONO, fontSize: '13px' }}>\\server\share\cr_list.xlsx</code> (UNC) · <code style={{ fontFamily: FONT_MONO, fontSize: '13px' }}>/data/cr_list.xlsx</code> (Linux/Docker).
                     הקובץ משמש לסנכרון מטלות CR וגרסאות QC (לשונית "גרסאות QC").
                   </div>
                 </div>
@@ -2179,7 +2243,7 @@ const PermissionsTab: React.FC<{
   const groups = ['מסכים', 'פעולות — הטמעות', 'פעולות — ניהול', 'בקרת איכות'];
 
   const thStyle: React.CSSProperties = {
-    padding: '10px 14px', fontSize: '12px', fontWeight: 'bold',
+    padding: '10px 14px', fontSize: '14px', fontWeight: 'bold',
     color: C.textSecondary, textAlign: 'center', borderBottom: `2px solid ${C.border}`,
     whiteSpace: 'nowrap', background: C.bgNested,
   };
@@ -2191,7 +2255,7 @@ const PermissionsTab: React.FC<{
     <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', border: `1px solid ${C.border}` }}>
       <div style={{ marginBottom: '16px' }}>
         <h3 style={{ margin: '0 0 4px', color: C.textPrimary }}>🔐 ניהול הרשאות לפי תפקיד</h3>
-        <p style={{ margin: 0, fontSize: '13px', color: C.textMuted }}>סמן / בטל סימון ולחץ "שמור" בשורת התפקיד</p>
+        <p style={{ margin: 0, fontSize: '15px', color: C.textMuted }}>סמן / בטל סימון ולחץ "שמור" בשורת התפקיד</p>
       </div>
 
       <div style={{ overflowX: 'auto' }}>
@@ -2212,7 +2276,7 @@ const PermissionsTab: React.FC<{
                 <tr>
                   <td colSpan={ROLES.length + 1} style={{
                     padding: '10px 14px', background: C.bgNested,
-                    fontSize: '11px', fontWeight: 'bold', color: C.textMuted,
+                    fontSize: '13px', fontWeight: 'bold', color: C.textMuted,
                     textTransform: 'uppercase', letterSpacing: '1px',
                   }}>
                     {group}
@@ -2222,7 +2286,7 @@ const PermissionsTab: React.FC<{
                   <tr key={perm.key}
                     onMouseEnter={e => (e.currentTarget.style.background = C.bgHover)}
                     onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                    <td style={{ ...tdStyle, textAlign: 'right', fontSize: '13px', color: C.textSecondary, fontWeight: '500' }}>
+                    <td style={{ ...tdStyle, textAlign: 'right', fontSize: '15px', color: C.textSecondary, fontWeight: '500' }}>
                       {perm.label}
                     </td>
                     {ROLES.map(role => {
@@ -2244,14 +2308,14 @@ const PermissionsTab: React.FC<{
             ))}
 
             <tr>
-              <td style={{ ...tdStyle, fontSize: '12px', color: C.textMuted }}>שמירה</td>
+              <td style={{ ...tdStyle, fontSize: '14px', color: C.textMuted }}>שמירה</td>
               {ROLES.map(role => (
                 <td key={role} style={tdStyle}>
                   <button
                     onClick={() => save(role)}
                     disabled={saving}
                     style={{
-                      padding: '5px 12px', fontSize: '12px', border: 'none',
+                      padding: '5px 12px', fontSize: '14px', border: 'none',
                       borderRadius: '6px', cursor: saving ? 'not-allowed' : 'pointer',
                       background: ROLE_COLORS[role], color: 'white', fontWeight: 'bold',
                       opacity: saving ? 0.6 : 1, fontFamily: FONT,

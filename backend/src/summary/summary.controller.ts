@@ -53,6 +53,16 @@ export class SummaryController {
     return this.summaryService.findRehearsalByVersion(versionId);
   }
 
+  @Patch(':versionId/rehearsal')
+  async updateRehearsalSummary(
+    @Param('versionId') versionId: string,
+    @Request() req: any,
+    @Body() body: { headline?: string; morningNotes?: string; crData?: any },
+  ) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לעדכן סיכום חזרה מאושר');
+    return this.summaryService.updateApprovedRehearsal(versionId, body.headline, body.morningNotes, body.crData);
+  }
+
   @Post(':versionId/rehearsal/approve')
   async approveRehearsalSummary(
     @Param('versionId') versionId: string,

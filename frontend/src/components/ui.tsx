@@ -1,5 +1,5 @@
 /**
- * NightOps UI Kit v3 — Asana-Inspired Light Theme
+ * DeployCenter UI Kit v3 — Asana-Inspired Light Theme
  */
 import React, { useState } from 'react';
 import { C, FONT, FONT_MONO, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE,
@@ -435,7 +435,7 @@ export const Alert: React.FC<AlertProps> = ({ variant = 'info', title, children,
       background: bg, border: `1px solid ${border}`, borderRadius: RADIUS.lg,
       padding: `${SP[3]} ${SP[4]}`, ...style,
     }}>
-      <span style={{ fontSize: '14px', flexShrink: 0, marginTop: '1px' }}>{icon ?? ALERT_ICONS[variant]}</span>
+      <span style={{ fontSize: '15px', flexShrink: 0, marginTop: '1px' }}>{icon ?? ALERT_ICONS[variant]}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
         {title && <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color, fontFamily: FONT, marginBottom: '2px' }}>{title}</div>}
         <div style={{ ...TEXT.sm, color, fontFamily: FONT }}>{children}</div>
@@ -609,7 +609,7 @@ export const StatCard: React.FC<StatCardProps> = ({ label, value, icon, color = 
       <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, fontWeight: WEIGHT.medium, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
         {label}
       </span>
-      {icon && <span style={{ fontSize: '16px', opacity: 0.6 }}>{icon}</span>}
+      {icon && <span style={{ fontSize: '17px', opacity: 0.6 }}>{icon}</span>}
     </div>
     <div style={{ display: 'flex', alignItems: 'flex-end', gap: SP[2] }}>
       <span style={{ ...TEXT['3xl'], fontWeight: WEIGHT.bold, color: C.textPrimary, fontFamily: FONT, lineHeight: 1 }}>
@@ -953,7 +953,7 @@ export const SectionCollapse: React.FC<SectionCollapseProps> = ({
       <div style={{ width: '40px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <button onClick={onToggle} style={{
           background: 'none', border: 'none', cursor: 'pointer', padding: '2px',
-          color: C.textMuted, fontSize: '10px', lineHeight: 1, borderRadius: RADIUS.xs,
+          color: C.textMuted, fontSize: '12px', lineHeight: 1, borderRadius: RADIUS.xs,
           transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)', transition: EASE.fast,
         }}>▼</button>
       </div>

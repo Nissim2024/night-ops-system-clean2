@@ -14,6 +14,10 @@ export class LeavesController {
     if (req.user?.role !== 'ADMIN') throw new ForbiddenException('נדרשת הרשאת מנהל');
   }
 
+  private requireAdminOrTeamLead(req: any) {
+    if (!['ADMIN', 'TEAM_LEAD'].includes(req.user?.role)) throw new ForbiddenException('נדרשת הרשאת מנהל או ראש צוות');
+  }
+
   // ── Seasons (read: all; write: admin) ────────────────────────────────────────
 
   @Get('seasons')
@@ -68,8 +72,14 @@ export class LeavesController {
 
   @Get('requests')
   getAllRequests(@Request() req: any, @Query('seasonId') seasonId?: string) {
-    this.requireAdmin(req);
-    return this.svc.getAllRequests(seasonId);
+    this.requireAdminOrTeamLead(req);
+    return this.svc.getAllRequests(seasonId, req.user.sub, req.user.role);
+  }
+
+  @Get('requests/pending-count')
+  getPendingCount(@Request() req: any) {
+    this.requireAdminOrTeamLead(req);
+    return this.svc.getPendingCount(req.user.sub, req.user.role);
   }
 
   @Patch('requests/:id')
@@ -78,7 +88,7 @@ export class LeavesController {
     @Param('id') id: string,
     @Body('status') status: 'APPROVED' | 'DECLINED',
   ) {
-    this.requireAdmin(req);
-    return this.svc.updateRequestStatus(id, status);
+    this.requireAdminOrTeamLead(req);
+    return this.svc.updateRequestStatus(id, status, req.user.sub, req.user.role);
   }
 }

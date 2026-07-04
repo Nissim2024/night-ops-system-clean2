@@ -199,7 +199,7 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
                 transition: EASE.fast, minWidth: '180px',
               }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: '4px' }}>
-                <span style={{ fontSize: '9px', color: season.isActive ? C.success : C.textDisabled }}>
+                <span style={{ fontSize: '11px', color: season.isActive ? C.success : C.textDisabled }}>
                   {season.isActive ? '●' : '○'}
                 </span>
                 <span style={{ ...TEXT.md, fontWeight: WEIGHT.semibold, color: isSelected ? C.brand : C.textPrimary }}>
@@ -219,7 +219,10 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
       {selectedSeason && (
         <div style={{ background: C.bgCard, borderRadius: RADIUS['2xl'], border: `1px solid ${C.border}`, padding: SP[5], marginBottom: SP[5], boxShadow: SHADOW.sm }}>
           {(() => {
-            const locked = selectedSeason.isActive && isSeasonLocked(selectedSeason.dates);
+            // Locked only once every date in the season has passed its own 3-day cutoff —
+            // a multi-month season (e.g. summer) must stay open for its later dates even
+            // after its earliest date's cutoff has passed.
+            const locked = selectedSeason.isActive && selectedSeason.dates.every((sd: SeasonDate) => isSeasonLocked([sd]));
             return (
               <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: SP[4] }}>
                 <span style={{ fontSize: '18px' }}>🗓</span>
@@ -243,7 +246,9 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
               const isoDate  = new Date(sd.date).toISOString().split('T')[0];
               const req      = reqForDate(isoDate);
               const isBusy   = saving === isoDate;
-              const locked   = selectedSeason.isActive && isSeasonLocked(selectedSeason.dates);
+              // Lock this specific date based on its own cutoff, not the season's earliest date —
+              // otherwise a long season (e.g. summer) locks its whole range as soon as it opens.
+              const locked   = selectedSeason.isActive && isSeasonLocked([sd]);
               const disabled = !selectedSeason.isActive || isBusy || locked;
               const isHoliday = sd.type === 'holiday';
               const dotColor  = isHoliday ? '#e74c3c' : '#e67e22';
