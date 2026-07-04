@@ -10,6 +10,7 @@ import { EmployeeLeavesView } from './EmployeeLeavesView';
 import { EmployeeHomeView } from './EmployeeHomeView';
 import { QaTestersView } from './qa/QaTestersView';
 import { FocusModeModal } from './FocusModeModal';
+import { RUNBOOKS } from './qa/RunbookModal';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
 
 // Same order used by VersionProgressChain — picks the most-advanced planning
@@ -70,6 +71,9 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [focusAllTasks, setFocusAllTasks]       = useState<any[]>([]);
   const [focusLoading, setFocusLoading]         = useState(false);
   const [updatingFocusTaskId, setUpdatingFocusTaskId] = useState<string | null>(null);
+  const [myRunbookSteps, setMyRunbookSteps] = useState<{
+    runbookId: string; stepIndex: number; startTime: string; runDate: string; team: string;
+  }[]>([]);
   const isQaTeam = myTeam?.name?.toLowerCase().includes('qa') ?? false;
 
   const payload  = JSON.parse(atob(token.split('.')[1]));
@@ -130,6 +134,18 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
       });
     } catch { /* silent */ }
   };
+
+  // Runbook steps assigned specifically to this employee (any version, upcoming
+  // ones only) — surfaced on Home per the "the employee assigned to the task
+  // should see it" requirement, independent of team-lead/admin visibility.
+  useEffect(() => {
+    const versionId = activeVersion?.id ?? planningVersion?.id;
+    if (!versionId) { setMyRunbookSteps([]); return; }
+    axios.get(`${API}/runbook/${versionId}/upcoming`, { headers })
+      .then(res => setMyRunbookSteps((res.data ?? []).filter((e: any) => e.employeeUserId === payload.sub)))
+      .catch(() => setMyRunbookSteps([]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeVersion?.id, planningVersion?.id, token]);
 
   const openFocusMode = async () => {
     if (!activeVersion) return;
@@ -447,6 +463,7 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
               taskStats={taskStats}
               seasonReminder={seasonReminder}
               teamName={myTeam?.name}
+              myRunbookSteps={myRunbookSteps}
               onGoToTasks={() => setActiveView('tasks')}
               onGoToLeaves={() => setActiveView('leaves')}
               onOpenFocusMode={openFocusMode}

@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as nodemailer from 'nodemailer';
+import { createEvent, EventAttributes } from 'ics';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
@@ -46,7 +47,7 @@ export class EmailService implements OnModuleInit {
     return { enabled: get('EMAIL_ENABLED') === 'true', from: get('EMAIL_FROM'), distributionList: list };
   }
 
-  async sendEmail(subject: string, text: string, extraRecipients?: string[]): Promise<void> {
+  private async getSmtpConfig() {
     const params = await prisma.systemParam.findMany({
       where: { key: { in: EMAIL_PARAMS.map(p => p.key) } },
     });
@@ -55,27 +56,82 @@ export class EmailService implements OnModuleInit {
     if (get('EMAIL_ENABLED') !== 'true') throw new Error('שירות המייל אינו מופעל');
 
     const host = get('EMAIL_HOST');
-    const port = parseInt(get('EMAIL_PORT') || '587', 10);
-    const secure = get('EMAIL_SECURE') === 'true';
-    const user = get('EMAIL_USER');
-    const pass = get('EMAIL_PASSWORD');
     const from = get('EMAIL_FROM');
-
     if (!host || !from) throw new Error('תצורת SMTP חסרה (HOST / FROM)');
 
-    const distList = get('EMAIL_DISTRIBUTION_LIST')
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean);
+    return {
+      host, from,
+      port:   parseInt(get('EMAIL_PORT') || '587', 10),
+      secure: get('EMAIL_SECURE') === 'true',
+      user:   get('EMAIL_USER'),
+      pass:   get('EMAIL_PASSWORD'),
+      distributionList: get('EMAIL_DISTRIBUTION_LIST').split(',').map(s => s.trim()).filter(Boolean),
+    };
+  }
 
-    const to = [...new Set([...distList, ...(extraRecipients ?? [])])];
+  async sendEmail(subject: string, text: string, extraRecipients?: string[]): Promise<void> {
+    const cfg = await this.getSmtpConfig();
+    const to = [...new Set([...cfg.distributionList, ...(extraRecipients ?? [])])];
     if (!to.length) throw new Error('רשימת תפוצה ריקה — הגדר EMAIL_DISTRIBUTION_LIST');
 
     const transport = nodemailer.createTransport({
-      host, port, secure,
-      ...(user && pass ? { auth: { user, pass } } : {}),
+      host: cfg.host, port: cfg.port, secure: cfg.secure,
+      ...(cfg.user && cfg.pass ? { auth: { user: cfg.user, pass: cfg.pass } } : {}),
     });
 
-    await transport.sendMail({ from, to: to.join(', '), subject, text });
+    await transport.sendMail({ from: cfg.from, to: to.join(', '), subject, text });
+  }
+
+  // Sends a real calendar meeting invite (RFC5545 ICS via nodemailer's icalEvent) —
+  // recognized by Outlook/Google Calendar as an "Accept/Decline" invitation, not a
+  // plain attachment. `uid` should be stable per (runbook step) so re-sending
+  // updates the same calendar entry instead of creating duplicates.
+  async sendCalendarInvite(params: {
+    uid:         string;
+    subject:     string;
+    description: string;
+    start:       Date;
+    end:         Date;
+    attendees:   string[];
+    location?:   string;
+  }): Promise<void> {
+    const cfg = await this.getSmtpConfig();
+    const to = [...new Set(params.attendees)].filter(Boolean);
+    if (!to.length) throw new Error('לא נבחרו משתתפים לזימון');
+
+    const toDateArray = (d: Date): [number, number, number, number, number] =>
+      [d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes()];
+
+    const { error, value: icsContent } = createEvent({
+      uid: params.uid,
+      title: params.subject,
+      description: params.description,
+      start: toDateArray(params.start),
+      end: toDateArray(params.end),
+      startInputType: 'local',
+      location: params.location,
+      organizer: { name: 'DeployCenter', email: cfg.from },
+      attendees: to.map(email => ({ email, rsvp: true })),
+      status: 'CONFIRMED',
+    } as EventAttributes);
+
+    if (error || !icsContent) throw new Error(`שגיאה ביצירת קובץ ICS: ${error?.message ?? 'unknown'}`);
+
+    const transport = nodemailer.createTransport({
+      host: cfg.host, port: cfg.port, secure: cfg.secure,
+      ...(cfg.user && cfg.pass ? { auth: { user: cfg.user, pass: cfg.pass } } : {}),
+    });
+
+    await transport.sendMail({
+      from: cfg.from,
+      to: to.join(', '),
+      subject: params.subject,
+      text: params.description,
+      icalEvent: {
+        method: 'REQUEST',
+        filename: 'invite.ics',
+        content: icsContent,
+      },
+    });
   }
 }

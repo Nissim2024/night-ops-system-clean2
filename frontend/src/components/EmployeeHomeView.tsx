@@ -1,6 +1,7 @@
 import React from 'react';
 import { VersionProgressChain } from './VersionProgressChain';
 import { C, FONT, TEXT, WEIGHT, RADIUS, SHADOW, EASE } from '../theme';
+import { RUNBOOKS } from './qa/RunbookModal';
 
 // Same stage → icon/color mapping used in HomeDashboard (manager view) — kept in sync
 // deliberately so employees see the same visual language for the same stage.
@@ -54,6 +55,7 @@ interface Props {
   taskStats: { done: number; inProgress: number; open: number; waiting: number; blocked: number; total: number };
   seasonReminder: { id: string; name: string } | null;
   teamName?: string | null;
+  myRunbookSteps?: { runbookId: string; stepIndex: number; startTime: string; runDate: string; team: string }[];
   onGoToTasks: () => void;
   onGoToLeaves: () => void;
   onOpenFocusMode: () => void;
@@ -61,7 +63,7 @@ interface Props {
 
 export const EmployeeHomeView: React.FC<Props> = ({
   fullName, activeVersion, planningVersion, taskStats, seasonReminder, teamName,
-  onGoToTasks, onGoToLeaves, onOpenFocusMode,
+  myRunbookSteps, onGoToTasks, onGoToLeaves, onOpenFocusMode,
 }) => {
   const firstName = fullName.split(' ')[0] || fullName;
   const hour = new Date().getHours();

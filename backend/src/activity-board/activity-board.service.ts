@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { EmailService } from '../email/email.service';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
@@ -32,6 +33,36 @@ export interface EntryPatch {
 
 @Injectable()
 export class ActivityBoardService {
+  constructor(private readonly email: EmailService) {}
+
+  // Sends a real calendar meeting invite (ICS) for this activity to the chosen
+  // recipients, and remembers them on the entry's own `attendees` field so the
+  // picker is pre-filled next time (re-sending updates the same calendar entry
+  // rather than duplicating it, via the stable uid).
+  async sendInvite(entryId: string, attendees: string[]) {
+    const entry = await prisma.activityBoardEntry.findUnique({ where: { id: entryId } });
+    if (!entry) throw new NotFoundException('פעילות לא נמצאה');
+    if (!entry.dateStart) throw new BadRequestException('לא הוגדר תאריך התחלה לפעילות זו');
+
+    const start = entry.dateStart;
+    const end = entry.dateEnd && entry.dateEnd > start ? entry.dateEnd : new Date(start.getTime() + 30 * 60000);
+
+    try {
+      await this.email.sendCalendarInvite({
+        uid: `activity-${entryId}@deploycenter`,
+        subject: entry.label,
+        description: [entry.notes, entry.owner ? `אחראי: ${entry.owner}${entry.ownerEmployee ? ` · ${entry.ownerEmployee}` : ''}` : '']
+          .filter(Boolean).join('\n'),
+        start, end,
+        attendees,
+      });
+    } catch (err: any) {
+      throw new BadRequestException(err.message || 'שגיאה בשליחת הזימון');
+    }
+
+    await prisma.activityBoardEntry.update({ where: { id: entryId }, data: { attendees } });
+    return { ok: true };
+  }
 
   async getBoard(versionId: string) {
     return prisma.activityBoardEntry.findMany({

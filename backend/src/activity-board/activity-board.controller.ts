@@ -45,4 +45,12 @@ export class ActivityBoardController {
   ) {
     return this.svc.bulkReplace(versionId, body.from as string, body.to as string);
   }
+
+  @Post('entry/:entryId/invite')
+  sendInvite(
+    @Param('entryId') entryId: string,
+    @Body('attendees') attendees: string[],
+  ) {
+    return this.svc.sendInvite(entryId, attendees ?? []);
+  }
 }

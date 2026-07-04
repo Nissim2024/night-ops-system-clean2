@@ -723,17 +723,20 @@ model ActivityBoardEntry {
 }
 
 model RunbookEntry {
-  id        String   @id @default(cuid())
-  versionId String
-  runbookId String
-  stepIndex Int
-  employee  String   @default("")
-  startTime String   @default("")
-  endTime   String   @default("")
-  team      String   @default("")
-  status    String   @default("pending")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String    @id @default(cuid())
+  versionId      String
+  runbookId      String
+  stepIndex      Int
+  employee       String    @default("")
+  employeeUserId String?   // resolved userId of `employee`, when it matches a real team member — used for targeted notifications
+  startTime      String    @default("") // "HH:MM"
+  endTime        String    @default("") // "HH:MM"
+  runDate        DateTime? // calendar date this step is scheduled for (startTime/endTime have no date of their own)
+  team           String    @default("")
+  status         String    @default("pending")
+  notified15MinAt DateTime? // set once the "starts in ~15 min" notification has fired — prevents duplicate sends
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@unique([versionId, runbookId, stepIndex])
 }

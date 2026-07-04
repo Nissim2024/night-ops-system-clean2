@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, RADIUS, SHADOW, EASE } from '../theme';
 import { VersionStatusChip } from './ui';
+import { RUNBOOKS } from './qa/RunbookModal';
 
 const API = process.env.REACT_APP_API_URL ?? 'http://localhost:3000';
 
@@ -205,6 +206,20 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
 
   const isLiveNow = primary && ['ACTIVE', 'REHEARSAL'].includes(primary.status);
   const isMorningAfterNow = primary?.status === 'MORNING_AFTER';
+
+  const myUserId = (() => { try { return JSON.parse(atob(token.split('.')[1])).sub; } catch { return null; } })();
+
+  const [upcomingRunbookSteps, setUpcomingRunbookSteps] = useState<{
+    runbookId: string; stepIndex: number; employee: string; employeeUserId: string | null;
+    startTime: string; endTime: string; runDate: string; team: string; status: string;
+  }[]>([]);
+
+  useEffect(() => {
+    if (!primary?.id) { setUpcomingRunbookSteps([]); return; }
+    axios.get(`${API}/runbook/${primary.id}/upcoming`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => setUpcomingRunbookSteps(res.data ?? []))
+      .catch(() => setUpcomingRunbookSteps([]));
+  }, [primary?.id, token]);
 
   const TEAM_STATUS_STAGES = ['COLLECTING', ...CR_REVIEW_STAGES];
   const showTeamStatus = isRm(role) && primary && TEAM_STATUS_STAGES.includes(primary.status);
@@ -420,8 +435,30 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
     if (st === 'MORNING_AFTER' && rm)   list.push({ icon: '🌅', title: 'אשר בקרות בוקר', desc: 'ודא השלמת כל הבדיקות ואשר סיום', urgent: true, tab: 'dashboard' });
     if (st === 'MORNING_AFTER' && rm)   list.push({ icon: '📄', title: 'הכן דוח סיכום', desc: 'צור וסכם את פעילות הלילה', urgent: true, tab: 'summary-night' });
 
+    // Runbook steps happening today/tomorrow — visible to team leads, admin,
+    // release manager, and the specific employee assigned to that step.
+    const todayStr = new Date().toDateString();
+    const tomorrowStr = new Date(Date.now() + 86400000).toDateString();
+    for (const step of upcomingRunbookSteps) {
+      const isMine = !!myUserId && step.employeeUserId === myUserId;
+      if (!rm && !tl && !isMine) continue;
+      const def = RUNBOOKS[step.runbookId];
+      const stepDef = def?.steps[step.stepIndex];
+      if (!stepDef) continue;
+      const stepDate = new Date(step.runDate).toDateString();
+      const dayLabel = stepDate === todayStr ? 'היום' : stepDate === tomorrowStr ? 'מחר' : null;
+      if (!dayLabel) continue;
+      list.push({
+        icon: '🛠',
+        title: `${stepDef.activity} — ${dayLabel} ${step.startTime}`,
+        desc: `${step.team || stepDef.defaultTeam}${step.employee ? ` · ${step.employee}` : ''}${isMine ? ' · המשימה שלך' : ''}`,
+        urgent: dayLabel === 'היום',
+        onClick: onSwitchToQa,
+      });
+    }
+
     return list;
-  }, [primary, role, canManageLeaves, pendingLeaveCount, onGoToLeaves, nextPhaseInfo, firstPhaseInfo]);
+  }, [primary, role, canManageLeaves, pendingLeaveCount, onGoToLeaves, nextPhaseInfo, firstPhaseInfo, upcomingRunbookSteps, myUserId, onSwitchToQa]);
 
   // Stats — only count non-terminal versions as "in progress"
   const totalVersions  = inProgressVersions.length;

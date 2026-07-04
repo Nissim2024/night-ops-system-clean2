@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { C, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, FONT } from '../../theme';
 import RunbookModal, { getRunbookTrigger, RunbookTrigger } from './RunbookModal';
+import { InviteDialog, InviteTeamOption } from './InviteDialog';
 
 const API  = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 const BLUE = '#4573D2';
@@ -397,7 +398,7 @@ function buildSchedule(
 
 // ── Team / employee data ───────────────────────────────────────────────────────
 
-interface TeamMember { user: { id: string; fullName: string } }
+interface TeamMember { user: { id: string; fullName: string; email?: string } }
 interface TeamOption  { id: string; name: string; members: TeamMember[] }
 
 const MANUAL_SENTINEL = '__manual__';
@@ -517,8 +518,19 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
   const [inlineId,         setInlineId]         = useState<string | null>(null);
   const [inlineDraft,      setInlineDraft]      = useState<{ owner: string; ownerEmployee: string }>({ owner: '', ownerEmployee: '' });
   const [runbookItem,      setRunbookItem]      = useState<{ trigger: RunbookTrigger; dateStartISO: string } | null>(null);
+  const [inviteItem,       setInviteItem]       = useState<ActivityItem | null>(null);
   const DEV_TEAMS_ENTRY: TeamOption = { id: '__dev_teams__', name: 'Dev Teams', members: [] };
   const displayTeams = [DEV_TEAMS_ENTRY, ...teams];
+  const inviteTeams: InviteTeamOption[] = teams.map(t => ({
+    id: t.id, name: t.name,
+    members: t.members.filter(m => m.user.email).map(m => ({ id: m.user.id, fullName: m.user.fullName, email: m.user.email! })),
+  }));
+
+  const handleSendInvite = async (attendees: string[]) => {
+    if (!inviteItem?.dbId) throw new Error('יש לשמור את הפעילות לפני קביעת פגישה');
+    await axios.post(`${API}/activity-board/entry/${inviteItem.dbId}/invite`, { attendees }, { headers });
+    setActivities(prev => prev.map(a => a.id === inviteItem.id ? { ...a, attendees } : a));
+  };
 
   // ── Fetch teams (once) ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -1052,7 +1064,7 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
 
           {/* Table header */}
           <div style={{
-            display: 'grid', gridTemplateColumns: '120px 120px 1fr 110px 130px 130px',
+            display: 'grid', gridTemplateColumns: '120px 120px 1fr 110px 130px 168px',
             padding: `${SP[2]} ${SP[4]}`, borderBottom: `1px solid ${C.border}`,
             background: C.bgNested,
           }}>
@@ -1136,7 +1148,7 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
                     /* Normal view row */
                     <div
                       onClick={() => { if (inlineId === a.id) { setInlineId(null); return; } setExpandedId(expanded ? null : a.id); }}
-                      style={{ display: 'grid', gridTemplateColumns: '120px 120px 1fr 110px 130px 130px', padding: `${SP[2]} ${SP[4]}`, cursor: 'pointer', transition: EASE.fast, alignItems: 'center' }}
+                      style={{ display: 'grid', gridTemplateColumns: '120px 120px 1fr 110px 130px 168px', padding: `${SP[2]} ${SP[4]}`, cursor: 'pointer', transition: EASE.fast, alignItems: 'center' }}
                       onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.background = C.bgHover}
                       onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background = 'transparent'}
                     >
@@ -1232,8 +1244,11 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
                           style={{ padding: '3px 8px', borderRadius: RADIUS.md, border: `1px solid ${a.isRelevant ? C.border : C.warning}`, background: a.isRelevant ? C.bgNested : C.warningBg, color: a.isRelevant ? C.textMuted : C.warning, fontFamily: FONT, ...TEXT.xs, cursor: 'pointer' }}>
                           {a.isRelevant ? '🚫' : '✓'}
                         </button>
-                        <button disabled title="בקרוב — אינטגרציית Outlook"
-                          style={{ padding: '3px 8px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgNested, color: C.textDisabled, fontFamily: FONT, ...TEXT.xs, cursor: 'not-allowed', opacity: 0.6 }}>
+                        <button
+                          onClick={() => setInviteItem(a)}
+                          disabled={!a.dbId}
+                          title={a.dbId ? 'קבע פגישה ביומן' : 'יש לשמור את הפעילות תחילה'}
+                          style={{ padding: '3px 8px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgNested, color: a.dbId ? C.textMuted : C.textDisabled, fontFamily: FONT, ...TEXT.xs, cursor: a.dbId ? 'pointer' : 'not-allowed', opacity: a.dbId ? 1 : 0.6 }}>
                           📅
                         </button>
                       </div>
@@ -1325,6 +1340,20 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
           versionId={versionId}
           token={token}
           onClose={() => setRunbookItem(null)}
+        />
+      )}
+
+      {/* Calendar invite dialog */}
+      {inviteItem && (
+        <InviteDialog
+          title={inviteItem.label}
+          subtitle={[inviteItem.owner, inviteItem.ownerEmployee].filter(Boolean).join(' · ')}
+          startISO={inviteItem.dateStartISO || null}
+          endISO={inviteItem.dateEndISO || inviteItem.dateStartISO || null}
+          teams={inviteTeams}
+          preSelectedEmails={inviteItem.attendees}
+          onSend={handleSendInvite}
+          onClose={() => setInviteItem(null)}
         />
       )}
     </div>
