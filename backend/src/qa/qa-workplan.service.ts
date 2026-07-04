@@ -72,6 +72,24 @@ export class QaWorkPlanService {
     const unassigned: string[] = [];
     const crInputs: CrInput[] = [];
 
+    // Cycles a CR belongs to: assignment.cycles override, else VCA/assignment
+    // stand-alone flag, else the default full split across the three core cycles.
+    const effectiveCyclesFor = (asg: typeof qaAssignments[0] | undefined, vca: typeof vcas[0]): string[] => {
+      const asgCycles       = ((asg as any)?.cycles as string[]) ?? [];
+      const vcaIsStandAlone = (vca as any).isStandAlone ?? false;
+      const asgIsStandAlone = (asg as any)?.isStandAlone as boolean | null ?? null;
+      const effectiveSA     = asgIsStandAlone !== null ? asgIsStandAlone : vcaIsStandAlone;
+      return asgCycles.length > 0
+        ? asgCycles
+        : (effectiveSA ? ['STAND_ALONE'] : ['CYCLE_1', 'CYCLE_2', 'CYCLE_3']);
+    };
+
+    // CRs whose title/label mentions "TARGET" are shared defect-handling duty —
+    // every active tester gets their own copy of the task (full effort each,
+    // not split), rather than requiring one single assigned tester.
+    const ALL_TESTERS_PATTERN = /target/i;
+    let activeTesters: { id: string }[] | null = null;
+
     for (const [crNumber, vca] of crMap) {
       const asg = qaAssignments.find(a => a.crNumber === crNumber);
 
@@ -81,6 +99,27 @@ export class QaWorkPlanService {
 
       // Skip CRs with no QA effort — they have no testing work and must not appear in unassigned warning
       if (!qaEffortDays || qaEffortDays <= 0) continue;
+
+      if (ALL_TESTERS_PATTERN.test(vca.crLabel ?? '')) {
+        if (!activeTesters) {
+          const profiles = await prisma.testerProfile.findMany({ where: { isActive: true }, select: { userId: true } });
+          activeTesters = profiles.map(p => ({ id: p.userId }));
+        }
+        const cycles = effectiveCyclesFor(asg, vca);
+        for (const tester of activeTesters) {
+          crInputs.push({
+            crNumber,
+            crLabel:             vca.crLabel ?? crNumber,
+            qaEffortDays,
+            cycles,
+            primaryTesterId:     tester.id,
+            secondaryTesterId:   null,
+            primarySkillLevel:   3,
+            secondarySkillLevel: 0,
+          });
+        }
+        continue;
+      }
 
       const primaryId = asg?.userId ?? null;
       if (!primaryId) {
@@ -96,16 +135,7 @@ export class QaWorkPlanService {
       const rawSecondary   = secondaryId && appName ? (skillMap.get(secondaryId)?.get(appName) ?? (asg as any).secondarySkillLevel ?? 3) : ((asg as any).secondarySkillLevel ?? 3);
       const secondaryLevel = rawSecondary < 0 ? 1 : rawSecondary;
 
-      // Determine which cycles this CR belongs to:
-      // 1. Use assignment.cycles if set
-      // 2. Fall back to VCA.isStandAlone (or assignment.isStandAlone override)
-      const asgCycles      = ((asg as any).cycles as string[]) ?? [];
-      const vcaIsStandAlone = (vca as any).isStandAlone ?? false;
-      const asgIsStandAlone = (asg as any).isStandAlone as boolean | null ?? null;
-      const effectiveSA     = asgIsStandAlone !== null ? asgIsStandAlone : vcaIsStandAlone;
-      const effectiveCycles = asgCycles.length > 0
-        ? asgCycles
-        : (effectiveSA ? ['STAND_ALONE'] : ['CYCLE_1', 'CYCLE_2', 'CYCLE_3']);
+      const effectiveCycles = effectiveCyclesFor(asg, vca);
 
       crInputs.push({
         crNumber,
@@ -494,7 +524,12 @@ export class QaWorkPlanService {
       cycles:              Partial<Record<CycleType, TaskRef>>;
     };
 
+    // Keyed by crNumber for normal CRs (one primary + optional secondary tester),
+    // but by `crNumber::userId` for "all testers" CRs (e.g. TARGET defect-handling)
+    // where multiple distinct primary testers share the same crNumber — each gets
+    // its own row rather than the later one silently overwriting the earlier ones.
     const crMap = new Map<string, CrRow>();
+    const primaryKeyByCr = new Map<string, string>(); // crNumber → the row key holding its (single) secondary tester slot
 
     for (const cycle of plan.cycles) {
       const ct = cycle.cycleType as CycleType;
@@ -502,8 +537,11 @@ export class QaWorkPlanService {
         if (task.taskType === 'REGRESSION') continue;
         if (!task.isActive) continue;
 
-        if (!crMap.has(task.crNumber)) {
-          crMap.set(task.crNumber, {
+        const rowKey = task.isPrimary ? `${task.crNumber}::${task.userId}` : (primaryKeyByCr.get(task.crNumber) ?? task.crNumber);
+        if (task.isPrimary) primaryKeyByCr.set(task.crNumber, rowKey);
+
+        if (!crMap.has(rowKey)) {
+          crMap.set(rowKey, {
             crNumber:            task.crNumber,
             crLabel:             (task as any).crLabel ?? task.crNumber,
             application:         (task as any).application ?? '',
@@ -516,7 +554,7 @@ export class QaWorkPlanService {
           });
         }
 
-        const row = crMap.get(task.crNumber)!;
+        const row = crMap.get(rowKey)!;
         if (!row.cycles[ct]) {
           row.cycles[ct] = {
             start:  formatDate(task.plannedStart),
