@@ -421,10 +421,18 @@ export class QaWorkPlanService {
     });
     const vcaFirstMap = new Map<string, typeof vcas[0]>();  // crNumber → first VCA
     const crTeamsMap  = new Map<string, Set<string>>();     // crNumber → team names
+    const crTeamEstimateMap = new Map<string, Map<string, number>>(); // crNumber → team name → investment estimate (days)
     for (const vca of vcas) {
       if (!vcaFirstMap.has(vca.crNumber)) vcaFirstMap.set(vca.crNumber, vca);
       if (!crTeamsMap.has(vca.crNumber)) crTeamsMap.set(vca.crNumber, new Set());
       crTeamsMap.get(vca.crNumber)!.add(vca.team.name);
+      // teamEstimateDays is this team's own column from CR_LIST; estimateDays (CR total)
+      // is the fallback used elsewhere in the app when the per-team sync value is missing.
+      const days = vca.teamEstimateDays ?? vca.estimateDays ?? null;
+      if (days != null) {
+        if (!crTeamEstimateMap.has(vca.crNumber)) crTeamEstimateMap.set(vca.crNumber, new Map());
+        crTeamEstimateMap.get(vca.crNumber)!.set(vca.team.name, days);
+      }
     }
 
     // System column (AP→BR) — which DB team names activate a 'Y' flag
@@ -460,10 +468,16 @@ export class QaWorkPlanService {
       [],                          // BR  Release Stability
     ];
 
-    const sysFlag = (crNumber: string, teams: string[]): string => {
+    // Returns this team's investment-estimate days for the CR (matching CR_LIST's own
+    // per-team columns), falling back to 'Y' only when the CR is assigned to the team
+    // but no estimate number was synced yet.
+    const sysFlag = (crNumber: string, teams: string[]): string | number => {
       if (!teams.length) return '';
       const crTeams = crTeamsMap.get(crNumber);
-      return crTeams && teams.some(t => crTeams.has(t)) ? 'Y' : '';
+      if (!crTeams || !teams.some(t => crTeams.has(t))) return '';
+      const estimates = crTeamEstimateMap.get(crNumber);
+      const matchedTeam = teams.find(t => estimates?.has(t));
+      return matchedTeam ? estimates!.get(matchedTeam)! : 'Y';
     };
 
     // ── Build per-CR flat map ─────────────────────────────────────────────────
