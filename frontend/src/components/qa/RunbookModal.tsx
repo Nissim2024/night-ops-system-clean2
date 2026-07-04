@@ -255,14 +255,15 @@ function TeamPicker({ teams, teamValue, empValue, inputStyle, onTeam, onEmp }: T
 // ── Component ──────────────────────────────────────────────────────────────────
 
 interface Props {
-  trigger:      RunbookTrigger;
-  dateStartISO: string;
-  versionId:    string;
-  token:        string;
-  onClose:      () => void;
+  trigger:          RunbookTrigger;
+  dateStartISO:     string;
+  versionId:        string;
+  token:            string;
+  startInRunMode?:  boolean;
+  onClose:          () => void;
 }
 
-export default function RunbookModal({ trigger, dateStartISO, versionId, token, onClose }: Props) {
+export default function RunbookModal({ trigger, dateStartISO, versionId, token, startInRunMode, onClose }: Props) {
   const headers = { Authorization: `Bearer ${token}` };
   const isInt = trigger === 'int';
   const isQa  = trigger === 'qa';
@@ -288,7 +289,7 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
   const [repTeamFrom, setRepTeamFrom] = useState('');
   const [repTeamTo,   setRepTeamTo]   = useState('');
 
-  const [runMode,       setRunMode]       = useState(false);
+  const [runMode,       setRunMode]       = useState(!!startInRunMode);
   const [nearOnly,      setNearOnly]      = useState(false);
   const [savingStatus,  setSavingStatus]  = useState<number | null>(null);
 

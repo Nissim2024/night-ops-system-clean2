@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, RADIUS, SHADOW, EASE } from '../theme';
 import { VersionStatusChip } from './ui';
-import { RUNBOOKS } from './qa/RunbookModal';
+import RunbookModal, { RUNBOOKS, getRunbookTrigger, RunbookTrigger } from './qa/RunbookModal';
 
 const API = process.env.REACT_APP_API_URL ?? 'http://localhost:3000';
 
@@ -220,6 +220,33 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
       .then(res => setUpcomingRunbookSteps(res.data ?? []))
       .catch(() => setUpcomingRunbookSteps([]));
   }, [primary?.id, token]);
+
+  // All activity-board entries for the version — QA-module access (where the
+  // activities board normally lives) is gated to QA-team-members/admin only,
+  // so RELEASE_MANAGER has no other way to see these otherwise. Any entry
+  // scheduled today/tomorrow is surfaced under "your next actions"; ones that
+  // also map to a runbook (refresh/version-transfer activities) get a direct
+  // "launch" link that opens straight into run mode.
+  const [activityBoard, setActivityBoard] = useState<{
+    activityKey: string; label: string; owner: string; ownerEmployee: string;
+    dateStart: string | null; dateEnd: string | null;
+  }[]>([]);
+  const [runbookItem, setRunbookItem] = useState<{ trigger: RunbookTrigger; dateStartISO: string } | null>(null);
+
+  useEffect(() => {
+    if (!primary?.id || !isRm(role)) { setActivityBoard([]); return; }
+    axios.get(`${API}/activity-board/${primary.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => setActivityBoard(res.data ?? []))
+      .catch(() => setActivityBoard([]));
+  }, [primary?.id, role, token]);
+
+  const todayOrTomorrowActivities = activityBoard.filter(a => {
+    if (!a.dateStart) return false;
+    const d = new Date(a.dateStart).toDateString();
+    const todayStr = new Date().toDateString();
+    const tomorrowStr = new Date(Date.now() + 86400000).toDateString();
+    return d === todayStr || d === tomorrowStr;
+  });
 
   const TEAM_STATUS_STAGES = ['COLLECTING', ...CR_REVIEW_STAGES];
   const showTeamStatus = isRm(role) && primary && TEAM_STATUS_STAGES.includes(primary.status);
@@ -457,8 +484,26 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
       });
     }
 
+    // Every activity-board entry scheduled today/tomorrow — release manager/
+    // admin only (activity board access is otherwise QA-module gated). Ones
+    // that map to a runbook get a direct "launch" link into run mode.
+    if (rm) {
+      for (const a of todayOrTomorrowActivities) {
+        const trigger = getRunbookTrigger(a.activityKey);
+        const dayLabel = new Date(a.dateStart!).toDateString() === new Date().toDateString() ? 'היום' : 'מחר';
+        const timeLabel = new Date(a.dateStart!).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+        list.push({
+          icon: trigger ? '▶' : '🗓',
+          title: `${a.label} — ${dayLabel} ${timeLabel}`,
+          desc: [a.owner, a.ownerEmployee].filter(Boolean).join(' · ') + (trigger ? ' · לחץ להפעלת Runbook' : ''),
+          urgent: dayLabel === 'היום',
+          onClick: trigger ? (() => setRunbookItem({ trigger, dateStartISO: a.dateStart! })) : undefined,
+        });
+      }
+    }
+
     return list;
-  }, [primary, role, canManageLeaves, pendingLeaveCount, onGoToLeaves, nextPhaseInfo, firstPhaseInfo, upcomingRunbookSteps, myUserId, onSwitchToQa]);
+  }, [primary, role, canManageLeaves, pendingLeaveCount, onGoToLeaves, nextPhaseInfo, firstPhaseInfo, upcomingRunbookSteps, myUserId, onSwitchToQa, todayOrTomorrowActivities]);
 
   // Stats — only count non-terminal versions as "in progress"
   const totalVersions  = inProgressVersions.length;
@@ -1065,6 +1110,17 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
 
           </div>
         </div>
+      )}
+
+      {runbookItem && (
+        <RunbookModal
+          trigger={runbookItem.trigger}
+          dateStartISO={runbookItem.dateStartISO}
+          versionId={primary?.id ?? ''}
+          token={token}
+          startInRunMode
+          onClose={() => setRunbookItem(null)}
+        />
       )}
     </div>
   );

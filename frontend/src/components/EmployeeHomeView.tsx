@@ -96,6 +96,25 @@ export const EmployeeHomeView: React.FC<Props> = ({
     });
   }
 
+  // Runbook steps assigned specifically to this employee, happening today/tomorrow.
+  const todayStr = new Date().toDateString();
+  const tomorrowStr = new Date(Date.now() + 86400000).toDateString();
+  for (const step of myRunbookSteps ?? []) {
+    const def = RUNBOOKS[step.runbookId];
+    const stepDef = def?.steps[step.stepIndex];
+    if (!stepDef) continue;
+    const stepDate = new Date(step.runDate).toDateString();
+    const dayLabel = stepDate === todayStr ? 'היום' : stepDate === tomorrowStr ? 'מחר' : null;
+    if (!dayLabel) continue;
+    actions.push({
+      icon: '🛠',
+      title: `${stepDef.activity} — ${dayLabel} ${step.startTime}`,
+      desc: `המשימה שלך${step.team ? ` · ${step.team}` : ''}`,
+      urgent: dayLabel === 'היום',
+      onClick: onGoToTasks,
+    });
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* ── Greeting ── */}
