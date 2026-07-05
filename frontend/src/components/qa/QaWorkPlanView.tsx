@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW } from '../../theme';
 import { useDialog } from '../../context/DialogContext';
+import { DateField } from '../DatePicker';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -578,17 +579,17 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           <div style={{ display: 'flex', gap: SP[4], flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <label style={labelStyle}>
               תאריך התחלה (סבב 1)
-              <input
-                type="date" value={cycle1Start}
-                onChange={e => setCycle1Start(e.target.value)}
+              <DateField
+                value={cycle1Start}
+                onChange={v => setCycle1Start(v)}
                 style={inputStyle}
               />
             </label>
             <label style={labelStyle}>
               תאריך סיום בדיקות
-              <input
-                type="date" value={testingEnd}
-                onChange={e => setTestingEnd(e.target.value)}
+              <DateField
+                value={testingEnd}
+                onChange={v => setTestingEnd(v)}
                 style={inputStyle}
               />
             </label>

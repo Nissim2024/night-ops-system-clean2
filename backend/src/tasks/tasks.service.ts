@@ -275,7 +275,8 @@ export class TasksService {
       if (ver?.status === 'ACTIVE') {
         const LOCKED = ['title', 'description', 'notes', 'dependencyNote', 'duration',
                         'priority', 'assignedTeamId', 'assignedUserId', 'assignedUserName',
-                        'crNumber', 'application', 'environment', 'dueDate', 'plannedStart', 'plannedEnd'];
+                        'crNumber', 'application', 'environment', 'dueDate', 'plannedStart', 'plannedEnd',
+                        'orderIndex'];
         if (LOCKED.some(f => data[f] !== undefined)) {
           throw new ForbiddenException('גרסה פעילה — לא ניתן לערוך פרטי משימה');
         }
@@ -287,6 +288,7 @@ export class TasksService {
       priority, assignedTeamId, assignedUserId, assignedUserName,
       crNumber, application, environment, dueDate, plannedStart, plannedEnd,
       actualStart, actualFinish, delayReason, blockedReason, blockedSeverity, subPhaseId,
+      orderIndex,
     } = data;
 
     const task = await prisma.task.update({
@@ -313,6 +315,7 @@ export class TasksService {
         ...(blockedReason !== undefined && { blockedReason: blockedReason || null }),
         ...(blockedSeverity !== undefined && { blockedSeverity: (blockedSeverity || null) as any }),
         ...(subPhaseId !== undefined && { subPhaseId }),
+        ...(orderIndex !== undefined && { orderIndex: Number(orderIndex) }),
       },
     });
 

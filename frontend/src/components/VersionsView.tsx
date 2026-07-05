@@ -7,6 +7,7 @@ import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { PlanWizard } from './PlanWizard';
 import { VersionWizard } from './VersionWizard';
 import { CrPlanReviewPanel } from './CrPlanReviewPanel';
+import { DateField, DateTimeField } from './DatePicker';
 import { FEATURES } from '../featureFlags';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE,
          versionStatusColor, versionStatusBg, versionStatusLabel, statusColor } from '../theme';
@@ -78,6 +79,7 @@ interface Props {
   onVersionsChanged?: () => void;
   onGoLive?: (versionId: string, versionName: string, isRehearsal: boolean) => void;
   onVersionFocus?: (versionId: string) => void;
+  onGoHome?: () => void;
   onGoToAdmin?: () => void;
   initialSelectedId?: string;
   autoNew?: boolean;
@@ -111,7 +113,7 @@ const subtractWorkingDays = (from: string, days: number): string => {
   return d.toISOString().slice(0, 16);
 };
 
-export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLive, onVersionFocus, onGoToAdmin, initialSelectedId, autoNew }) => {
+export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLive, onVersionFocus, onGoHome, onGoToAdmin, initialSelectedId, autoNew }) => {
   const [versions, setVersions] = useState<Version[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -209,8 +211,9 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
       await fetchVersions();
       await fetchVersion(versionId);
       onVersionsChanged?.();
-      // Navigate to the new version so the user can build a plan
-      onVersionFocus?.(versionId);
+      // Back to the home dashboard after creating a version, instead of dropping
+      // straight into the version-detail screen.
+      onGoHome?.();
     } catch (err: any) { setActionError(err?.response?.data?.message || 'שגיאה ביצירת גרסה'); }
     finally { setCreatingTemplate(false); }
   };
@@ -238,6 +241,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
         setImportFile(null);
         await fetchVersions();
         onVersionsChanged?.();
+        onGoHome?.();
       } else {
         setActionError(res.data.message || 'שגיאה בייבוא הקובץ');
       }
@@ -266,6 +270,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
       await fetchVersions();
       await fetchVersion(versionId);
       onVersionsChanged?.();
+      onGoHome?.();
     } catch (err: any) {
       setActionError(err?.response?.data?.message || 'שגיאה ביצירה מתבנית');
     } finally { setCreatingFromTemplate(false); }
@@ -276,6 +281,9 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
     await fetchVersions();
     await fetchVersion(id);
     onVersionsChanged?.();
+    // After approval, send the user back to the home dashboard instead of
+    // leaving them on the version-detail / go-live-plan screen.
+    if (status === 'APPROVED') onGoHome?.();
   };
 
   const deleteVersion = (id: string, name: string, e: React.MouseEvent) => {
@@ -1915,10 +1923,9 @@ const VersionDetail: React.FC<{
               </span>
             ) : editingPlannedEnd ? (
               <>
-                <input
-                  type="datetime-local"
+                <DateTimeField
                   value={plannedEndValue}
-                  onChange={e => setPlannedEndValue(e.target.value)}
+                  onChange={v => setPlannedEndValue(v)}
                   style={{ padding: '4px 8px', border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.md, fontSize: '15px' }}
                 />
                 <button onClick={savePlannedEnd} style={{ padding: '4px 10px', background: C.success, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px' }}>שמור</button>
@@ -1939,10 +1946,9 @@ const VersionDetail: React.FC<{
             🗓 <strong>ישיבת סקירת CR-ים:</strong>
             {editingReviewMeeting ? (
               <>
-                <input
-                  type="datetime-local"
+                <DateTimeField
                   value={reviewMeetingValue}
-                  onChange={e => setReviewMeetingValue(e.target.value)}
+                  onChange={v => setReviewMeetingValue(v)}
                   style={{ padding: '4px 8px', border: `1px solid ${C.borderFocus}`, borderRadius: RADIUS.md, fontSize: '15px' }}
                 />
                 <button onClick={saveReviewMeetingTime} style={{ padding: '4px 10px', background: C.info, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px' }}>שמור</button>
@@ -1960,13 +1966,12 @@ const VersionDetail: React.FC<{
             )}
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            📋 <strong>ישיבת מעבר תוכנית עבודה:</strong>
+            📋 <strong>ישיבת הצגת תוכנית עליה לאוויר:</strong>
             {editingWorkPlanMeeting ? (
               <>
-                <input
-                  type="datetime-local"
+                <DateTimeField
                   value={workPlanMeetingValue}
-                  onChange={e => setWorkPlanMeetingValue(e.target.value)}
+                  onChange={v => setWorkPlanMeetingValue(v)}
                   style={{ padding: '4px 8px', border: `1px solid ${C.borderFocus}`, borderRadius: RADIUS.md, fontSize: '15px' }}
                 />
                 <button onClick={saveWorkPlanMeetingTime} style={{ padding: '4px 10px', background: C.info, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px' }}>שמור</button>
@@ -1989,7 +1994,7 @@ const VersionDetail: React.FC<{
               ⏰ <strong>מועד הגשה:</strong>
               {editingSubmissionDeadline ? (
                 <>
-                  <input type="datetime-local" value={submissionDeadlineValue} onChange={e => setSubmissionDeadlineValue(e.target.value)}
+                  <DateTimeField value={submissionDeadlineValue} onChange={v => setSubmissionDeadlineValue(v)}
                     style={{ padding: '4px 8px', border: `1px solid ${C.borderFocus}`, borderRadius: RADIUS.md, fontSize: '15px' }} />
                   <button onClick={saveSubmissionDeadline} style={{ padding: '4px 10px', background: C.statusBlocked, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px' }}>שמור</button>
                   <button onClick={() => setEditingSubmissionDeadline(false)} style={{ padding: '4px 10px', background: C.bgNested, color: C.textSecondary, border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px' }}>ביטול</button>
@@ -2015,7 +2020,7 @@ const VersionDetail: React.FC<{
               ✅ <strong>מועד אישור:</strong>
               {editingApprovalDeadline ? (
                 <>
-                  <input type="datetime-local" value={approvalDeadlineValue} onChange={e => setApprovalDeadlineValue(e.target.value)}
+                  <DateTimeField value={approvalDeadlineValue} onChange={v => setApprovalDeadlineValue(v)}
                     style={{ padding: '4px 8px', border: `1px solid ${C.borderFocus}`, borderRadius: RADIUS.md, fontSize: '15px' }} />
                   <button onClick={saveApprovalDeadline} style={{ padding: '4px 10px', background: '#2e7d32', color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px' }}>שמור</button>
                   <button onClick={() => setEditingApprovalDeadline(false)} style={{ padding: '4px 10px', background: C.bgNested, color: C.textSecondary, border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px' }}>ביטול</button>
@@ -2067,10 +2072,9 @@ const VersionDetail: React.FC<{
                 ] as { key: keyof typeof qaDatesValue; label: string }[]).map(({ key, label }) => (
                   <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '13px', color: C.textMuted }}>
                     {label}
-                    <input
-                      type="date"
+                    <DateField
                       value={qaDatesValue[key]}
-                      onChange={e => setQaDatesValue(prev => ({ ...prev, [key]: e.target.value }))}
+                      onChange={v => setQaDatesValue(prev => ({ ...prev, [key]: v }))}
                       style={{ padding: '4px 7px', border: `1px solid ${C.borderFocus}`, borderRadius: RADIUS.md, fontSize: '15px', background: C.bgCard, color: C.textPrimary }}
                     />
                   </label>
@@ -2684,9 +2688,9 @@ const VersionDetail: React.FC<{
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
                             <div>
                               <label style={{ fontSize: '13px', color: '#777', display: 'block', marginBottom: '3px' }}>תחילת משימה</label>
-                              <input type="datetime-local" value={editingTask.plannedStart ? utcToLocalInputStr(editingTask.plannedStart) : ''}
-                                onChange={e => {
-                                  const upd: any = { ...editingTask, plannedStart: e.target.value };
+                              <DateTimeField value={editingTask.plannedStart ? utcToLocalInputStr(editingTask.plannedStart) : ''}
+                                onChange={v => {
+                                  const upd: any = { ...editingTask, plannedStart: v };
                                   const mins = parseInt(upd._durationMins);
                                   if (mins > 0 && upd.plannedStart) upd.plannedEnd = calcEndFromMins(upd.plannedStart, mins);
                                   setEditingTask(upd);
@@ -2695,7 +2699,7 @@ const VersionDetail: React.FC<{
                             </div>
                             <div>
                               <label style={{ fontSize: '13px', color: '#777', display: 'block', marginBottom: '3px' }}>סיום משימה (מחושב)</label>
-                              <input type="datetime-local" readOnly value={editingTask.plannedEnd ? utcToLocalInputStr(editingTask.plannedEnd) : ''}
+                              <DateTimeField disabled value={editingTask.plannedEnd ? utcToLocalInputStr(editingTask.plannedEnd) : ''} onChange={() => {}}
                                 style={{ width: '100%', padding: '7px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px', boxSizing: 'border-box', background: '#f5f5f5', color: '#666' }} />
                             </div>
                           </div>
@@ -3013,9 +3017,9 @@ const VersionDetail: React.FC<{
                                     setSelectedTaskSubId(undefined);
                                     setSelectedTaskPhaseStart(phase.plannedStart ?? undefined);
                                     setSelectedTaskPhaseEnd(phase.plannedEnd ?? undefined);
-                                  }} style={{ padding: '3px 7px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}44`, borderRadius: RADIUS.sm, cursor: 'pointer', fontSize: '13px' }}>✏️</button>
+                                  }} style={{ padding: '3px 7px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}44`, borderRadius: RADIUS.sm, cursor: 'pointer', fontSize: '13px' }} title="ערוך משימה">✏️</button>
                                   <button onClick={() => deleteTask(task.id, task.title)}
-                                    style={{ padding: '3px 7px', background: C.dangerBg, color: C.danger, border: `1px solid ${C.danger}44`, borderRadius: RADIUS.sm, cursor: 'pointer', fontSize: '13px' }}>🗑</button>
+                                    style={{ padding: '3px 7px', background: C.dangerBg, color: C.danger, border: `1px solid ${C.danger}44`, borderRadius: RADIUS.sm, cursor: 'pointer', fontSize: '13px' }} title="מחק משימה">🗑</button>
                                 </div>
                               )}
                             </div>
@@ -3214,9 +3218,9 @@ const VersionDetail: React.FC<{
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
                         <div>
                           <label style={{ fontSize: '13px', color: '#777', display: 'block', marginBottom: '3px' }}>תחילת משימה</label>
-                          <input type="datetime-local" value={newTask.plannedStart}
-                            onChange={e => {
-                              const upd: any = { ...newTask, plannedStart: e.target.value };
+                          <DateTimeField value={newTask.plannedStart}
+                            onChange={v => {
+                              const upd: any = { ...newTask, plannedStart: v };
                               const mins = parseInt(upd._durationMins);
                               if (mins > 0 && upd.plannedStart) upd.plannedEnd = calcEndFromMins(upd.plannedStart, mins);
                               setNewTask(upd);
@@ -3225,7 +3229,7 @@ const VersionDetail: React.FC<{
                         </div>
                         <div>
                           <label style={{ fontSize: '13px', color: '#777', display: 'block', marginBottom: '3px' }}>סיום משימה (מחושב)</label>
-                          <input type="datetime-local" readOnly value={newTask.plannedEnd}
+                          <DateTimeField disabled value={newTask.plannedEnd} onChange={() => {}}
                             style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px', boxSizing: 'border-box', background: '#f5f5f5', color: '#666' }} />
                         </div>
                       </div>
@@ -3546,8 +3550,8 @@ const VersionDetail: React.FC<{
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', alignItems: 'center' }}>
                         <label style={{ fontSize: '14px', fontWeight: 'bold', color: '#1a2332', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={phase.name}>{phase.name}</label>
                         <div>
-                          <input type="datetime-local" value={reschPhaseStarts[phase.id] || ''}
-                            onChange={e => setReschPhaseStarts(prev => ({ ...prev, [phase.id]: e.target.value }))}
+                          <DateTimeField value={reschPhaseStarts[phase.id] || ''}
+                            onChange={v => setReschPhaseStarts(prev => ({ ...prev, [phase.id]: v }))}
                             style={{ padding: '6px 8px', border: `1.5px solid ${hasOverlap ? '#e74c3c' : '#ddd'}`, borderRadius: '7px', fontSize: '14px', width: '100%', boxSizing: 'border-box' as any }} />
                           {hasOverlap && prevEnd && (
                             <div style={{ color: '#e74c3c', fontSize: '12px', marginTop: '2px' }}>
@@ -3555,8 +3559,8 @@ const VersionDetail: React.FC<{
                             </div>
                           )}
                         </div>
-                        <input type="datetime-local" value={reschPhaseEnds[phase.id] || ''}
-                          onChange={e => setReschPhaseEnds(prev => ({ ...prev, [phase.id]: e.target.value }))}
+                        <DateTimeField value={reschPhaseEnds[phase.id] || ''}
+                          onChange={v => setReschPhaseEnds(prev => ({ ...prev, [phase.id]: v }))}
                           style={{ padding: '6px 8px', border: '1.5px solid #e67e22', borderRadius: '7px', fontSize: '14px', width: '100%', boxSizing: 'border-box' as any }} />
                       </div>
                     </div>
@@ -3645,9 +3649,8 @@ const VersionDetail: React.FC<{
                                     <div style={{ background: '#fffde7', padding: '10px 12px', borderTop: '1px solid #ffe082', display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                                       <div>
                                         <div style={{ fontSize: '13px', color: '#3498db', marginBottom: '3px', fontWeight: 'bold' }}>שעת התחלה</div>
-                                        <input type="datetime-local" value={reschEditStart}
-                                          onChange={e => {
-                                            const v = e.target.value;
+                                        <DateTimeField value={reschEditStart}
+                                          onChange={v => {
                                             setReschEditStart(v);
                                             const mins = parseDurationToMinutes(reschEditDur);
                                             if (mins && mins > 0 && v) setReschEditEnd(calcEndFromMins(v, mins));
@@ -3670,7 +3673,7 @@ const VersionDetail: React.FC<{
                                       <div style={{ color: '#888', fontWeight: 'bold', paddingBottom: '5px' }}>→</div>
                                       <div>
                                         <div style={{ fontSize: '13px', color: '#666', marginBottom: '3px' }}>שעת סיום</div>
-                                        <input type="datetime-local" value={reschEditEnd} onChange={e => setReschEditEnd(e.target.value)}
+                                        <DateTimeField value={reschEditEnd} onChange={v => setReschEditEnd(v)}
                                           style={{ padding: '5px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }} />
                                       </div>
                                       <button onClick={() => applyTaskEdit(u.taskId)}

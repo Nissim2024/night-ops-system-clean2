@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../../theme';
 import { QaSeasonsView } from './QaSeasonsView';
+import { DateField } from '../DatePicker';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -204,7 +205,7 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
           <div style={{ display: 'flex', gap: SP[3], alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <div>
               <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>תאריך</div>
-              <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)}
+              <DateField value={formDate} onChange={v => setFormDate(v)}
                 style={{ padding: '7px 12px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, ...TEXT.sm, outline: 'none', fontFamily: FONT }} />
             </div>
             <div style={{ flex: 1, minWidth: '160px' }}>

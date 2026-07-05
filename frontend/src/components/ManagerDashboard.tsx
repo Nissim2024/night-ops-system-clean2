@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { HomeDashboard } from './HomeDashboard';
 import { VersionsView } from './VersionsView';
@@ -87,22 +87,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const headers  = { Authorization: `Bearer ${token}` };
   const { can } = usePermissions();
   const push = usePushNotifications(token);
-
-  // Prevent auto-navigation on the very first version fetch so home page stays visible on login
-  const initialLoadDone = useRef(false);
-
-  // לחיצה על גרסה בתפריט → תמיד דף נחיתה (Hub)
-  useEffect(() => {
-    if (!selectedVersionId || !versions.length) return;
-    if (!initialLoadDone.current) { initialLoadDone.current = true; return; }
-    const v = versions.find(x => x.id === selectedVersionId);
-    setActiveTab(
-      payload.role === 'CR_MANAGER' ? 'cr-manager' :
-      payload.role === 'TEAM_LEAD' && v?.status === 'COLLECTING' ? 'proposals' :
-      'list'
-    );
-    setMyTasksMode(false);
-  }, [selectedVersionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const canAccessQa = isQaTeamMember || can('screen:qa');
 
   useSocket({
     userId: payload.sub,
@@ -424,13 +409,33 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
     if (v) {
       setVersionFilter(versionCategory(v));
       setSelectedVersionId(versionId);
-      // Always navigate on version click — including same-version re-click (useEffect won't fire then)
-      setActiveTab(
-        payload.role === 'CR_MANAGER' ? 'cr-manager' :
-        payload.role === 'TEAM_LEAD' && v.status === 'COLLECTING' ? 'proposals' :
-        'list'
-      );
+      // Land on Home instead of the old "list" hub — Home already carries a
+      // direct-access CTA + quick-links per version stage, so this removes the
+      // extra "version → landing page → module" hop for the common case.
+      // CR_MANAGER keeps their dedicated screen, which Home has no content for.
+      // COMPLETED/ROLLED_BACK versions are excluded from Home's "in progress"
+      // card entirely, so routing them to 'home' silently strands the user on
+      // whatever other in-progress version Home picks instead. Send them to
+      // 'list' (which renders VersionHub for closed versions) instead of
+      // straight to 'summary-night', so they still have the Hub's nav cards
+      // to reach the historical rehearsal/night board, not just the report.
+      if (payload.role === 'CR_MANAGER') setActiveTab('cr-manager');
+      else if (['COMPLETED', 'ROLLED_BACK'].includes(v.status)) setActiveTab('list');
+      else setActiveTab('home');
       setMyTasksMode(false);
+    }
+  };
+
+  // Sync-only version of handleVersionFocus for VersionsView's internal
+  // onVersionFocus callback: VersionsView calls this on every fetchVersion()
+  // (mount, row-open, refresh) — not just explicit user version switches — so
+  // it must NOT change activeTab, or opening/refreshing a version's detail
+  // inside the list/version-detail tab immediately bounces back to Home.
+  const handleVersionSync = (versionId: string) => {
+    const v = versions.find(x => x.id === versionId);
+    if (v) {
+      setVersionFilter(versionCategory(v));
+      setSelectedVersionId(versionId);
     }
   };
 
@@ -663,10 +668,10 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           activeTab={activeTab}
           onNewVersionClick={['ADMIN', 'RELEASE_MANAGER'].includes(payload.role) ? () => { setSelectedVersionId(''); setVersionFilter('inactive'); setActiveTab('list'); setOpenNewVersionForm(true); } : undefined}
           activeModule={activeModule}
-          onModuleChange={m => { if (m === 'qa' && !isQaTeamMember && payload.role !== 'ADMIN') return; setActiveModule(m); if (m === 'qa') setActiveQaView('assignment'); }}
+          onModuleChange={m => { if (m === 'qa' && !canAccessQa) return; setActiveModule(m); if (m === 'qa') setActiveQaView('assignment'); }}
           activeQaView={activeQaView}
           onQaViewChange={setActiveQaView}
-          canAccessQa={isQaTeamMember || payload.role === 'ADMIN'}
+          canAccessQa={canAccessQa}
           showLeaves={false}
           leavesActive={activeModule === 'qa' && activeQaView === 'leaves'}
           onLeavesClick={() => { setActiveModule('qa'); setActiveQaView('leaves'); }}
@@ -698,7 +703,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
               onNewVersion={['ADMIN','RELEASE_MANAGER'].includes(payload.role) ? () => {
                 setSelectedVersionId(''); setVersionFilter('inactive'); setActiveTab('list'); setOpenNewVersionForm(true);
               } : undefined}
-              canAccessQa={isQaTeamMember || payload.role === 'ADMIN'}
+              canAccessQa={canAccessQa}
               onSwitchToQa={() => { setActiveModule('qa'); setActiveQaView('assignment'); }}
               onGoToLeaves={() => { setActiveModule('qa'); setActiveQaView('leaves'); }}
             />
@@ -761,8 +766,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 versionFilter={versionFilter}
                 fetchVersions={fetchVersions}
                 handleGoLive={handleGoLive}
-                handleVersionFocus={handleVersionFocus}
+                handleVersionFocus={handleVersionSync}
                 onGoToAdmin={() => setActiveTab('admin')}
+                onGoHome={() => setActiveTab('home')}
                 autoNew={openNewVersionForm}
                 onAutoNewConsumed={() => setOpenNewVersionForm(false)}
               />
@@ -778,8 +784,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
               versionFilter={versionFilter}
               fetchVersions={fetchVersions}
               handleGoLive={handleGoLive}
-              handleVersionFocus={handleVersionFocus}
+              handleVersionFocus={handleVersionSync}
               onGoToAdmin={() => setActiveTab('admin')}
+              onGoHome={() => setActiveTab('home')}
             />
           )}
 
@@ -1444,15 +1451,17 @@ const ListTabContent: React.FC<{
   handleGoLive: (id: string, name: string, isRehearsal: boolean) => void;
   handleVersionFocus: (id: string) => void;
   onGoToAdmin: () => void;
+  onGoHome?: () => void;
   autoNew?: boolean;
   onAutoNewConsumed?: () => void;
-}> = ({ token, selectedVersionId, selectedVersion, versionFilter, fetchVersions, handleGoLive, handleVersionFocus, onGoToAdmin, autoNew, onAutoNewConsumed }) => (
+}> = ({ token, selectedVersionId, selectedVersion, versionFilter, fetchVersions, handleGoLive, handleVersionFocus, onGoToAdmin, onGoHome, autoNew, onAutoNewConsumed }) => (
   <VersionsView
     key={selectedVersionId || versionFilter + (autoNew ? '-new' : '')}
     token={token}
     onVersionsChanged={() => { fetchVersions(); onAutoNewConsumed?.(); }}
     onGoLive={handleGoLive}
     onVersionFocus={handleVersionFocus}
+    onGoHome={onGoHome}
     onGoToAdmin={onGoToAdmin}
     initialSelectedId={selectedVersionId}
     autoNew={autoNew}

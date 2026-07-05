@@ -167,14 +167,39 @@ export class QcReleasesService implements OnModuleInit {
           where: { relName: g.relName, relId: { not: g.relId } },
         });
 
+        let canonicalId: string;
         if (placeholder) {
-          await prisma.qcRelease.update({ where: { id: placeholder.id }, data: { relId: g.relId, ...fields } });
+          const updated = await prisma.qcRelease.update({ where: { id: placeholder.id }, data: { relId: g.relId, ...fields } });
+          canonicalId = updated.id;
         } else {
-          await prisma.qcRelease.upsert({
+          const upserted = await prisma.qcRelease.upsert({
             where: { relId: g.relId },
             create: { relId: g.relId, ...fields },
             update: fields,
           });
+          canonicalId = upserted.id;
+        }
+
+        // Older syncs (pre-2.7.3) could leave a stray duplicate behind — a
+        // second row with the same relName but a different id/relId, still
+        // referenced by Version.qcReleaseId, that never got reconciled above
+        // because a real-relId row already existed by the time this ran.
+        // Repoint any such versions to the canonical row and retire the
+        // orphan, so this doesn't stay silently broken forever.
+        const orphans = await prisma.qcRelease.findMany({
+          where: { relName: g.relName, id: { not: canonicalId } },
+        });
+        for (const orphan of orphans) {
+          const affected = await prisma.version.updateMany({
+            where: { qcReleaseId: orphan.id },
+            data: { qcReleaseId: canonicalId },
+          });
+          if (affected.count > 0) {
+            this.logger.warn(
+              `Repointed ${affected.count} version(s) from orphaned QcRelease ${orphan.id} (relId ${orphan.relId}) to canonical ${canonicalId} (relId ${g.relId})`
+            );
+          }
+          await prisma.qcRelease.update({ where: { id: orphan.id }, data: { active: false } });
         }
       }
 

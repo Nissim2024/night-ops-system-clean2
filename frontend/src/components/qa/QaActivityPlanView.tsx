@@ -3,6 +3,7 @@ import axios from 'axios';
 import { C, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, FONT } from '../../theme';
 import RunbookModal, { getRunbookTrigger, RunbookTrigger } from './RunbookModal';
 import { InviteDialog, InviteTeamOption } from './InviteDialog';
+import { DateField } from '../DatePicker';
 
 const API  = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 const BLUE = '#4573D2';
@@ -804,10 +805,9 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
             <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.bold, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               תחילת אינטגרציה
             </span>
-            <input
-              type="date"
+            <DateField
               value={integrationStart}
-              onChange={e => { setIntegrationStart(e.target.value); setComputed(false); }}
+              onChange={v => { setIntegrationStart(v); setComputed(false); }}
               style={{
                 padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: `1px solid ${C.border}`,
                 background: C.bgNested, color: C.textPrimary, fontFamily: FONT, ...TEXT.sm,
@@ -821,10 +821,9 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
             <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.bold, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               סיום אינטגרציה *
             </span>
-            <input
-              type="date"
+            <DateField
               value={integrationEnd}
-              onChange={e => { setIntegrationEnd(e.target.value); setComputed(false); }}
+              onChange={v => { setIntegrationEnd(v); setComputed(false); }}
               style={{
                 padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: `1px solid ${C.border}`,
                 background: C.bgNested, color: C.textPrimary, fontFamily: FONT, ...TEXT.sm,
@@ -1120,16 +1119,16 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
                       <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
                         <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                           <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.bold }}>תאריך התחלה</span>
-                          <input type="date"
+                          <DateField
                             value={((editDraft as any).dateStartISO ?? a.dateStartISO ?? '').slice(0, 10)}
-                            onChange={e => setEditDraft(d => ({ ...d, dateStartISO: e.target.value } as any))}
+                            onChange={v => setEditDraft(d => ({ ...d, dateStartISO: v } as any))}
                             style={{ padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgCard, color: C.textPrimary, fontFamily: FONT, ...TEXT.sm, outline: 'none' }} />
                         </label>
                         <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                           <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.bold }}>תאריך סיום</span>
-                          <input type="date"
+                          <DateField
                             value={((editDraft as any).dateEndISO ?? a.dateEndISO ?? '').slice(0, 10)}
-                            onChange={e => setEditDraft(d => ({ ...d, dateEndISO: e.target.value } as any))}
+                            onChange={v => setEditDraft(d => ({ ...d, dateEndISO: v } as any))}
                             style={{ padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgCard, color: C.textPrimary, fontFamily: FONT, ...TEXT.sm, outline: 'none' }} />
                         </label>
                       </div>
@@ -1339,6 +1338,7 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
           dateStartISO={runbookItem.dateStartISO}
           versionId={versionId}
           token={token}
+          startInRunMode
           onClose={() => setRunbookItem(null)}
         />
       )}

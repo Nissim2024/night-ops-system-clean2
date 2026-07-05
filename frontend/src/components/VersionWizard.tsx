@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { C } from '../theme';
+import { DateField, DateTimeField, DateRangeField } from './DatePicker';
 
 type Method = 'manual' | 'template' | 'excel';
 
@@ -285,39 +286,23 @@ export const VersionWizard: React.FC<Props> = ({
           {step === 1 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
               <div>
-                <div style={{ ...labelStyle, marginBottom: '10px' }}>🔧 תאריכי אינטגרציה</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                  <div>
-                    <label style={labelStyle}>תחילה {method === 'manual' ? <span style={{ color: C.statusBlocked }}>*</span> : optionalTag}</label>
-                    <input type="date" value={newVersion.integrationStart}
-                      onChange={e => setNewVersion({ ...newVersion, integrationStart: e.target.value })}
-                      style={method === 'manual' ? { ...inputStyle, border: `2px solid ${!newVersion.integrationStart ? C.statusBlocked : C.statusDone}` } : inputStyle} />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>סיום {method === 'manual' ? <span style={{ color: C.statusBlocked }}>*</span> : optionalTag}</label>
-                    <input type="date" value={newVersion.integrationEnd}
-                      onChange={e => setNewVersion({ ...newVersion, integrationEnd: e.target.value })}
-                      style={method === 'manual' ? { ...inputStyle, border: `2px solid ${!newVersion.integrationEnd ? C.statusBlocked : C.statusDone}` } : inputStyle} />
-                  </div>
-                </div>
+                <div style={{ ...labelStyle, marginBottom: '10px' }}>🔧 תאריכי אינטגרציה {method === 'manual' ? <span style={{ color: C.statusBlocked }}>*</span> : optionalTag}</div>
+                <DateRangeField
+                  startIso={newVersion.integrationStart}
+                  endIso={newVersion.integrationEnd}
+                  onChange={(s, e) => setNewVersion({ ...newVersion, integrationStart: s, integrationEnd: e })}
+                  style={method === 'manual' ? { ...inputStyle, border: `2px solid ${!newVersion.integrationStart ? C.statusBlocked : C.statusDone}` } : inputStyle}
+                />
               </div>
 
               <div>
-                <div style={{ ...labelStyle, marginBottom: '10px' }}>🧪 תאריכי בדיקות QA</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                  <div>
-                    <label style={labelStyle}>תחילה {method === 'manual' ? <span style={{ color: C.statusBlocked }}>*</span> : optionalTag}</label>
-                    <input type="date" value={newVersion.qaStart}
-                      onChange={e => setNewVersion({ ...newVersion, qaStart: e.target.value })}
-                      style={method === 'manual' ? { ...inputStyle, border: `2px solid ${!newVersion.qaStart ? C.statusBlocked : C.statusDone}` } : inputStyle} />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>סיום {method === 'manual' ? <span style={{ color: C.statusBlocked }}>*</span> : optionalTag}</label>
-                    <input type="date" value={newVersion.qaEnd}
-                      onChange={e => setNewVersion({ ...newVersion, qaEnd: e.target.value })}
-                      style={method === 'manual' ? { ...inputStyle, border: `2px solid ${!newVersion.qaEnd ? C.statusBlocked : C.statusDone}` } : inputStyle} />
-                  </div>
-                </div>
+                <div style={{ ...labelStyle, marginBottom: '10px' }}>🧪 תאריכי בדיקות QA {method === 'manual' ? <span style={{ color: C.statusBlocked }}>*</span> : optionalTag}</div>
+                <DateRangeField
+                  startIso={newVersion.qaStart}
+                  endIso={newVersion.qaEnd}
+                  onChange={(s, e) => setNewVersion({ ...newVersion, qaStart: s, qaEnd: e })}
+                  style={method === 'manual' ? { ...inputStyle, border: `2px solid ${!newVersion.qaStart ? C.statusBlocked : C.statusDone}` } : inputStyle}
+                />
               </div>
 
               {method !== 'manual' && (
@@ -333,14 +318,14 @@ export const VersionWizard: React.FC<Props> = ({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
               <div>
                 <label style={labelStyle}>📅 ישיבת סקירת CR-ים <span style={{ fontSize: '12px', color: C.textMuted, fontWeight: 'normal' }}>T−10 ימי עבודה</span></label>
-                <input type="datetime-local" value={newVersion.reviewMeetingTime}
-                  onChange={e => setNewVersion({ ...newVersion, reviewMeetingTime: e.target.value })}
+                <DateTimeField value={newVersion.reviewMeetingTime}
+                  onChange={v => setNewVersion({ ...newVersion, reviewMeetingTime: v })}
                   style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>📋 ישיבת מעבר תוכנית עבודה <span style={{ fontSize: '12px', color: C.textMuted, fontWeight: 'normal' }}>T−9 ימי עבודה</span></label>
-                <input type="datetime-local" value={newVersion.workPlanMeetingTime}
-                  onChange={e => setNewVersion({ ...newVersion, workPlanMeetingTime: e.target.value })}
+                <label style={labelStyle}>📋 ישיבת הצגת תוכנית עליה לאוויר <span style={{ fontSize: '12px', color: C.textMuted, fontWeight: 'normal' }}>T−9 ימי עבודה</span></label>
+                <DateTimeField value={newVersion.workPlanMeetingTime}
+                  onChange={v => setNewVersion({ ...newVersion, workPlanMeetingTime: v })}
                   style={inputStyle} />
               </div>
             </div>
@@ -354,14 +339,14 @@ export const VersionWizard: React.FC<Props> = ({
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                   <div>
                     <label style={labelStyle}>תחילה</label>
-                    <input type="datetime-local" value={newVersion.plannedRehearsalStart}
-                      onChange={e => setNewVersion({ ...newVersion, plannedRehearsalStart: e.target.value })}
+                    <DateTimeField value={newVersion.plannedRehearsalStart}
+                      onChange={v => setNewVersion({ ...newVersion, plannedRehearsalStart: v })}
                       style={inputStyle} />
                   </div>
                   <div>
                     <label style={labelStyle}>סיום</label>
-                    <input type="datetime-local" value={newVersion.plannedRehearsalEnd}
-                      onChange={e => setNewVersion({ ...newVersion, plannedRehearsalEnd: e.target.value })}
+                    <DateTimeField value={newVersion.plannedRehearsalEnd}
+                      onChange={v => setNewVersion({ ...newVersion, plannedRehearsalEnd: v })}
                       style={inputStyle} />
                   </div>
                 </div>
@@ -375,14 +360,14 @@ export const VersionWizard: React.FC<Props> = ({
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                   <div>
                     <label style={labelStyle}>תחילה</label>
-                    <input type="datetime-local" value={newVersion.plannedStart}
-                      onChange={e => onPlannedStartChange(e.target.value)}
+                    <DateTimeField value={newVersion.plannedStart}
+                      onChange={v => onPlannedStartChange(v)}
                       style={method !== 'manual' ? { ...inputStyle, border: `2px solid ${!newVersion.plannedStart ? C.statusBlocked : C.statusDone}` } : inputStyle} />
                   </div>
                   <div>
                     <label style={labelStyle}>סיום</label>
-                    <input type="datetime-local" value={newVersion.plannedEnd}
-                      onChange={e => setNewVersion({ ...newVersion, plannedEnd: e.target.value })}
+                    <DateTimeField value={newVersion.plannedEnd}
+                      onChange={v => setNewVersion({ ...newVersion, plannedEnd: v })}
                       style={inputStyle} />
                   </div>
                 </div>

@@ -378,30 +378,21 @@ export class QaService {
     const qaEffortDays       = primaryAsg?.qaEffort ?? fullResult.qaEffortDays ?? 0;
     const currentSecondaryId = (primaryAsg as any)?.secondaryTesterId ?? null;
 
-    // Resolve primary skill level for effort-split calculation
-    let resolvedPrimaryLevel = 3;
-    if (primaryId && fullResult.requiredSkillName) {
-      const ts = await prisma.testerSkill.findFirst({
-        where: { userId: primaryId, skill: { name: fullResult.requiredSkillName } },
-      });
-      if (ts) resolvedPrimaryLevel = ts.level > 0 ? ts.level : 3;
-    }
-
     const candidates = fullResult.recommendations
       .filter((r: any) => r.userId !== primaryId)
       .map((r: any) => {
         const secLevel = r.breakdown.skill.level ?? 3;
         const adjSec   = secLevel < 0 ? 1 : secLevel;
-        const adjPri   = resolvedPrimaryLevel < 0 ? 1 : resolvedPrimaryLevel;
-        const total    = adjPri + adjSec;
-        const secRatio = total > 0 ? adjSec / total : 0.5;
+        // A second tester splits the total effort in half — not a skill-weighted ratio.
+        const estimatedSecondaryEffort = Math.max(1, Math.round(qaEffortDays / 2));
+        const estimatedPrimaryEffort   = Math.max(1, Math.round(qaEffortDays / 2));
 
         return {
           ...r,
           isCurrentSecondary:       r.userId === currentSecondaryId,
-          estimatedSecondaryEffort: Math.max(1, Math.round(qaEffortDays * secRatio)),
-          estimatedPrimaryEffort:   Math.max(1, Math.round(qaEffortDays * (1 - secRatio))),
-          timeSavingDays:           Math.max(0, qaEffortDays - Math.max(1, Math.round(qaEffortDays * (1 - secRatio)))),
+          estimatedSecondaryEffort,
+          estimatedPrimaryEffort,
+          timeSavingDays:           Math.max(0, qaEffortDays - estimatedPrimaryEffort),
           secondarySkillLevel:      adjSec,
         };
       });

@@ -382,8 +382,13 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
     outline: 'none', width: '100%', boxSizing: 'border-box' as const,
   };
 
-  // Column order: # | פעילות | משך | התחלה | סיום | צוות | עובד | סטטוס | זימון
-  const COLS = '28px 1fr 55px 85px 85px 130px 130px 92px';
+  // Column order: # | פעילות | משך | התחלה | סיום | צוות | עובד | סטטוס
+  // Last column holds a compact status <select> in edit mode, but up to 3
+  // action buttons (▶ התחל / ✓ סיים / 🚫 בעיה) in run mode — 92px only fits
+  // the select, so it needs much more room once buttons replace it.
+  const COLS = runMode
+    ? '28px 1fr 55px 85px 85px 130px 130px 240px'
+    : '28px 1fr 55px 85px 85px 130px 130px 92px';
   const HDRS = ['#', 'פעילות', 'משך', 'התחלה', 'סיום', 'צוות', 'עובד', 'סטטוס'];
 
   const staffed   = rows.filter(r => r.employee?.trim()).length;
@@ -431,7 +436,7 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
             fontSize: 17, fontWeight: WEIGHT.bold, color: 'white',
             background: 'rgba(255,255,255,0.18)', borderRadius: RADIUS.full, padding: '4px 14px',
           }}>
-            {staffed}/{def.steps.length}
+            {runMode ? doneCount : staffed}/{def.steps.length}
           </div>
 
           {(isInt || isQa) && !runMode && (

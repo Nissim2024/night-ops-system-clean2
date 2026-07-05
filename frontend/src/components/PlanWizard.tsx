@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { DateField, DateTimeField } from './DatePicker';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -170,10 +171,9 @@ function Step1Content({ version, phaseStarts, phaseEnds, setPhaseStarts, setPhas
       {/* Base night date picker */}
       <div style={{ marginBottom: '18px', padding: '12px 16px', background: '#f0f7ff', border: '1px solid #bfdbfe', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
         <span style={{ fontWeight: '600', fontSize: '15px', color: '#1e40af', whiteSpace: 'nowrap' }}>🌙 תאריך לילה ההטמעה:</span>
-        <input
-          type="date"
+        <DateField
           value={baseDate}
-          onChange={e => setBaseDate(e.target.value)}
+          onChange={v => setBaseDate(v)}
           style={{ padding: '6px 10px', border: '1px solid #93c5fd', borderRadius: '6px', fontSize: '15px', background: 'white', color: '#1a2332' }}
         />
         <button
@@ -199,19 +199,17 @@ function Step1Content({ version, phaseStarts, phaseEnds, setPhaseStarts, setPhas
             <tr key={phase.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
               <td style={{ padding: '10px 12px', color: '#1a2332', fontWeight: '500' }}>{phase.name}</td>
               <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                <input
-                  type="datetime-local"
+                <DateTimeField
                   value={phaseStarts[phase.id] ?? ''}
-                  onChange={e => setPhaseStarts({ ...phaseStarts, [phase.id]: e.target.value })}
-                  style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '15px', direction: 'ltr' }}
+                  onChange={v => setPhaseStarts({ ...phaseStarts, [phase.id]: v })}
+                  style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '15px' }}
                 />
               </td>
               <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                <input
-                  type="datetime-local"
+                <DateTimeField
                   value={phaseEnds[phase.id] ?? ''}
-                  onChange={e => setPhaseEnds({ ...phaseEnds, [phase.id]: e.target.value })}
-                  style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '15px', direction: 'ltr' }}
+                  onChange={v => setPhaseEnds({ ...phaseEnds, [phase.id]: v })}
+                  style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '15px' }}
                 />
               </td>
             </tr>

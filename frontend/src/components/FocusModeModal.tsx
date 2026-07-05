@@ -169,7 +169,7 @@ export const FocusModeModal: React.FC<FocusModeModalProps> = ({
   canOpenWaiting = false, updatingTaskId, onAction, onBatchOpen, openableCount = 0,
   onClose, isMine, nextPhaseInfo,
 }) => {
-  const [nearOnly, setNearOnly] = useState(true);
+  const [nearOnly, setNearOnly] = useState(false);
   const [blockTaskId, setBlockTaskId] = useState<string | null>(null);
   const [blockReason, setBlockReason] = useState('');
   const NEAR_MINUTES = 15;

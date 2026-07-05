@@ -129,7 +129,7 @@ export class VersionCrAssignmentsService {
 
         if (teamName === QA_TEAM_NAME) {
           const qaDay = teamColIdxs.length > 0 ? parseDay(row[teamColIdxs[0]]) : 0;
-          if (qaDay > 0) qaCRs.add(crNumber); // any QA involvement
+          if (qaDay > 0.3) qaCRs.add(crNumber);
         } else {
           const involved = teamColIdxs.some(ci => parseDay(row[ci]) > 0.3);
           if (involved) nonQaCRs.add(crNumber);
@@ -194,7 +194,7 @@ export class VersionCrAssignmentsService {
 
         if (teamName === QA_TEAM_NAME) {
           const qaDay = teamColIdxs.length > 0 ? parseDay(row[teamColIdxs[0]]) : 0;
-          if (qaDay <= 0) continue;
+          if (qaDay <= 0.3) continue;
           qaEffortDays = qaDay;
           teamEstimate = qaDay;
         } else {
@@ -357,7 +357,7 @@ export class VersionCrAssignmentsService {
         const title    = titleCol !== -1 ? String(row[titleCol] ?? '').trim() : '';
         if (!crNumber || !title) continue;
         if (teamName === QA_TEAM_NAME) {
-          if (teamColIdxs.length > 0 && parseDay(row[teamColIdxs[0]]) > 0) qaCRs.add(crNumber);
+          if (teamColIdxs.length > 0 && parseDay(row[teamColIdxs[0]]) > 0.3) qaCRs.add(crNumber);
         } else {
           if (teamColIdxs.some(ci => parseDay(row[ci]) > 0.3)) nonQaCRs.add(crNumber);
         }
@@ -399,7 +399,7 @@ export class VersionCrAssignmentsService {
         let teamEstimate: number | undefined;
         if (teamName === QA_TEAM_NAME) {
           const qaDay = teamColIdxs.length > 0 ? parseDay(row[teamColIdxs[0]]) : 0;
-          if (qaDay <= 0) continue;
+          if (qaDay <= 0.3) continue;
           qaEffortDays = qaDay;
           teamEstimate = qaDay;
         } else {

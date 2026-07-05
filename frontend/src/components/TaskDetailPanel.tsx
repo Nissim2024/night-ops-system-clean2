@@ -3,6 +3,8 @@ import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, EASE, statusColor, statusLabel, severityColor, severityBg, severityLabel } from '../theme';
 import { Avatar, StatusChip, Divider } from './ui';
 import { FEATURES } from '../featureFlags';
+import { useDialog } from '../context/DialogContext';
+import { DateTimeField } from './DatePicker';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -48,34 +50,9 @@ const DateInput: React.FC<{
   onChange: (v: string) => void;
   disabled?: boolean;
   style?: React.CSSProperties;
-}> = ({ value, onChange, disabled, style }) => {
-  const ref = React.useRef<HTMLInputElement>(null);
-  return (
-    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-      <input
-        ref={ref}
-        type="datetime-local"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        disabled={disabled}
-        style={{ ...inp, flex: 1, ...style }}
-      />
-      {!disabled && (
-        <button
-          type="button"
-          onClick={() => { try { (ref.current as any)?.showPicker?.(); } catch { ref.current?.click(); } }}
-          title="פתח לוח שנה"
-          style={{
-            padding: '7px 9px', background: C.bgNested, border: `1px solid ${C.borderEm}`,
-            borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '16px',
-            color: C.textSecondary, flexShrink: 0, lineHeight: 1,
-            transition: EASE.fast,
-          }}
-        >📅</button>
-      )}
-    </div>
-  );
-};
+}> = ({ value, onChange, disabled, style }) => (
+  <DateTimeField value={value} onChange={onChange} disabled={disabled} style={{ ...inp, ...style }} />
+);
 
 interface Props {
   task: any | null;
@@ -123,11 +100,14 @@ export const TaskDetailPanel: React.FC<Props> = ({
   const isAdd = task === null;
   const editable = !isLocked || isAdd;
   const headers = { Authorization: `Bearer ${token}` };
+  const dialog = useDialog();
 
   // ── State ─────────────────────────────────────────────────────────────────────
   const [title, setTitle]       = useState(task?.title ?? '');
   const [durationMins, setDur]  = useState(task?.duration ? String(parseMins(task.duration)) : '');
-  const [plannedStart, setStart]= useState(utcToLocal(task?.plannedStart ?? ''));
+  // When adding a new task (no task yet), seed the start time from the phase's
+  // own schedule instead of leaving it blank — matches the sub-phase's timing.
+  const [plannedStart, setStart]= useState(utcToLocal(task?.plannedStart ?? (isAdd ? phaseStart ?? '' : '')));
   const [plannedEnd,   setEnd]  = useState(utcToLocal(task?.plannedEnd   ?? ''));
   const [teamId,  setTeamId]    = useState(task?.assignedTeam?.id ?? task?.assignedTeamId ?? '');
   const [assignee, setAssignee] = useState(task?.assignedUserName ?? '');
@@ -139,6 +119,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
   );
   const [depNote,  setDepNote]  = useState(task?.dependencyNote ?? '');
   const [notes,    setNotes]    = useState(task?.notes ?? '');
+  const [orderIndex, setOrderIndex] = useState(String(task?.orderIndex ?? 0));
   const [deps,     setDeps]     = useState<any[]>(task?.dependencies ?? []);
   const [depAddId, setDepAddId] = useState('');
   const [status,   setStatus]   = useState(task?.status ?? 'WAITING');
@@ -166,6 +147,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
       setCrList((task.crNumber || '').split(',').map((s: string) => s.trim()).filter(Boolean));
       setDepNote(task.dependencyNote ?? '');
       setNotes(task.notes ?? '');
+      setOrderIndex(String(task.orderIndex ?? 0));
       setDeps(task.dependencies ?? []);
       setStatus(task.status ?? 'WAITING');
       setErrors(new Set());
@@ -279,6 +261,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
       duration:        dur,
       plannedStart:    plannedStart ? toUtcIso(plannedStart) : undefined,
       plannedEnd:      endV        ? toUtcIso(endV)         : undefined,
+      orderIndex:      orderIndex !== '' ? parseInt(orderIndex) : undefined,
     };
   };
 
@@ -286,13 +269,17 @@ export const TaskDetailPanel: React.FC<Props> = ({
     if (!validate()) return;
     setSaving(true);
     try {
+      const depFailures: string[] = [];
       if (isAdd) {
         const res = await axios.post(`${API}/versions/sub-phases/${subPhaseId}/tasks`, buildPayload(), { headers });
         const newId = res.data.id;
         if (selectedProposal && FEATURES.TEAM_LEAD_PROPOSAL)
           await axios.patch(`${API}/task-proposals/${selectedProposal}/mark-used`, { taskId: newId }, { headers }).catch(() => {});
         if (deps.length)
-          await Promise.all(deps.map(d => axios.post(`${API}/versions/tasks/${newId}/dependencies`, { dependsOnTaskId: d.dependsOnTaskId }, { headers }).catch(() => {})));
+          await Promise.all(deps.map(d =>
+            axios.post(`${API}/versions/tasks/${newId}/dependencies`, { dependsOnTaskId: d.dependsOnTaskId }, { headers })
+              .catch(e => { depFailures.push(e?.response?.data?.message || d.dependsOn?.title || d.dependsOnTaskId); })
+          ));
       } else {
         await axios.patch(`${API}/tasks/${task.id}`, buildPayload(), { headers });
         const origIds = (task?.dependencies ?? []).map((d: any) => d.dependsOnTaskId as string);
@@ -300,13 +287,23 @@ export const TaskDetailPanel: React.FC<Props> = ({
         const origSet = new Set(origIds);
         const curSet  = new Set(curIds);
         await Promise.all([
-          ...origIds.filter((id: string) => !curSet.has(id)).map((id: string) => axios.post(`${API}/versions/tasks/${task.id}/dependencies/remove`, { dependsOnTaskId: id }, { headers }).catch(() => {})),
-          ...curIds.filter((id: string) => !origSet.has(id)).map((id: string) => axios.post(`${API}/versions/tasks/${task.id}/dependencies`, { dependsOnTaskId: id }, { headers }).catch(() => {})),
+          ...origIds.filter((id: string) => !curSet.has(id)).map((id: string) =>
+            axios.post(`${API}/versions/tasks/${task.id}/dependencies/remove`, { dependsOnTaskId: id }, { headers })
+              .catch(e => { depFailures.push(e?.response?.data?.message || id); })),
+          ...curIds.filter((id: string) => !origSet.has(id)).map((id: string) =>
+            axios.post(`${API}/versions/tasks/${task.id}/dependencies`, { dependsOnTaskId: id }, { headers })
+              .catch(e => { depFailures.push(e?.response?.data?.message || id); })),
         ]);
+      }
+      if (depFailures.length) {
+        dialog.alert(`המשימה נשמרה, אך התלויות הבאות לא נשמרו:\n${depFailures.join('\n')}`, 'שגיאה בשמירת תלויות', 'danger');
       }
       setSaveOk(true);
       setTimeout(() => { setSaveOk(false); onSave(); }, 700);
-    } catch (err) { console.error(err); }
+    } catch (err: any) {
+      console.error(err);
+      dialog.alert(err?.response?.data?.message || 'שגיאה בשמירת המשימה — הנתונים לא נשמרו', 'שגיאה בשמירה', 'danger');
+    }
     finally { setSaving(false); }
   };
 
@@ -592,6 +589,12 @@ export const TaskDetailPanel: React.FC<Props> = ({
             <Label>הערות כלליות</Label>
             <input value={notes} onChange={e => setNotes(e.target.value)} disabled={!editable} placeholder="הערה..." style={inp} />
           </div>
+        </div>
+
+        {/* ── סדר משימות ── */}
+        <div>
+          <Label>סדר בתוך תת-השלב</Label>
+          <input type="number" value={orderIndex} onChange={e => setOrderIndex(e.target.value)} disabled={!editable} style={{ ...inp, width: '100px' }} />
         </div>
 
         {/* Alert boxes */}

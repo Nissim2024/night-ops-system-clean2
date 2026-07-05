@@ -56,6 +56,7 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
   const [stats,       setStats]       = useState<DashStats | null>(null);
   const [loading,     setLoading]     = useState(true);
   const [teamExempt,  setTeamExempt]  = useState(false);
+  const [submissionDeadline, setSubmissionDeadline] = useState<string | null>(null);
 
   // editing state
   const [editingId,   setEditingId]   = useState<string | null>(null);
@@ -101,6 +102,9 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
     if (isLead) {
       axios.get(`${API}/teams/mine`, { headers })
         .then(r => { if (r.data?.requiresPlan === false) setTeamExempt(true); })
+        .catch(() => {});
+      axios.get(`${API}/versions/${versionId}`, { headers })
+        .then(r => setSubmissionDeadline(r.data?.submissionDeadline ?? null))
         .catch(() => {});
     }
   }, []); // eslint-disable-line
@@ -415,6 +419,23 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
             🔒 <strong style={{ color: C.textSecondary }}>גרסה סגורה — צפייה בלבד</strong>
           </div>
         )}
+
+        {/* Submission deadline */}
+        {!isClosed && submissionDeadline && (() => {
+          const isPast = new Date(submissionDeadline) < new Date();
+          return (
+            <div style={{
+              padding: '8px 14px', borderRadius: '8px', marginBottom: '12px',
+              display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px',
+              background: isPast ? 'rgba(248,81,73,0.10)' : 'rgba(210,153,34,0.10)',
+              border: `1px solid ${isPast ? 'rgba(248,81,73,0.30)' : 'rgba(210,153,34,0.30)'}`,
+              color: isPast ? '#f85149' : '#d29922',
+            }}>
+              ⏰ <strong>מועד הגשה: {new Date(submissionDeadline).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</strong>
+              {isPast && <span>— ⚠ המועד עבר</span>}
+            </div>
+          );
+        })()}
 
         {/* Progress bar */}
         {!isClosed && (

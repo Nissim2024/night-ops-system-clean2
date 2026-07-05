@@ -7,6 +7,7 @@ import { StatusChip, Badge, Avatar, Button, Spinner } from './ui';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { useDialog } from '../context/DialogContext';
 import { FocusModeModal } from './FocusModeModal';
+import { DateTimeField } from './DatePicker';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -1520,14 +1521,14 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
                             <div>
                               <label style={{ fontSize: '13px', color: C.textMuted, display: 'block', marginBottom: '2px' }}>תחילה מתוכננת</label>
-                              <input type="datetime-local" value={anomalyEditForm.plannedStart}
-                                onChange={e => setAnomalyEditForm(f => ({ ...f, plannedStart: e.target.value }))}
+                              <DateTimeField value={anomalyEditForm.plannedStart}
+                                onChange={v => setAnomalyEditForm(f => ({ ...f, plannedStart: v }))}
                                 style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }} />
                             </div>
                             <div>
                               <label style={{ fontSize: '13px', color: C.textMuted, display: 'block', marginBottom: '2px' }}>סיום מתוכנן</label>
-                              <input type="datetime-local" value={anomalyEditForm.plannedEnd}
-                                onChange={e => setAnomalyEditForm(f => ({ ...f, plannedEnd: e.target.value }))}
+                              <DateTimeField value={anomalyEditForm.plannedEnd}
+                                onChange={v => setAnomalyEditForm(f => ({ ...f, plannedEnd: v }))}
                                 style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }} />
                             </div>
                             <div>

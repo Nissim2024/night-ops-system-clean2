@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient({
@@ -45,7 +45,14 @@ export class TeamsService {
   }
 
   async create(data: { name: string; description?: string }) {
-    return prisma.team.create({ data });
+    const name = data.name.trim();
+    const existing = await prisma.team.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' } },
+    });
+    if (existing) {
+      throw new BadRequestException(`צוות בשם "${name}" כבר קיים במערכת`);
+    }
+    return prisma.team.create({ data: { ...data, name } });
   }
 
   async addMember(teamId: string, userId: string, isLead: boolean = false) {
@@ -68,6 +75,14 @@ export class TeamsService {
   async update(id: string, data: { name?: string; description?: string; active?: boolean; apps?: string[]; requiresPlan?: boolean }) {
     const team = await prisma.team.findUnique({ where: { id } });
     if (!team) throw new NotFoundException('Team not found');
+    if (data.name !== undefined) {
+      const name = data.name.trim();
+      const existing = await prisma.team.findFirst({
+        where: { name: { equals: name, mode: 'insensitive' }, id: { not: id } },
+      });
+      if (existing) throw new BadRequestException(`צוות בשם "${name}" כבר קיים במערכת`);
+      data = { ...data, name };
+    }
     // Use raw SQL when requiresPlan is included — Prisma client may not have this field if not regenerated
     if (data.requiresPlan !== undefined) {
       await prisma.$queryRawUnsafe(

@@ -13,6 +13,13 @@ interface Props {
 const fmtTime = (d?: string | Date | null) =>
   d ? new Date(d).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '—';
 
+// Fixed column widths shared by every sub-phase table on this screen — each
+// sub-phase renders its own <table>, so without a shared layout the browser
+// auto-sizes each one from its own content and columns drift out of
+// alignment section to section, even though headers/cells match within any
+// single table.
+const COLUMN_WIDTHS = ['34%', '13%', '11%', '15%', '15%', '12%'];
+
 // Read-only replay of the rehearsal's execution board + GO/NO-GO outcome,
 // reconstructed from Version.lastRehearsalSnapshot (frozen at end-rehearsal
 // time) — the live board/dashboard show the real night once it starts, so
@@ -23,6 +30,18 @@ export const RehearsalBoardView: React.FC<Props> = ({ token, versionId }) => {
   const [snapshot, setSnapshot] = useState<any[]>([]);
   const [phases, setPhases] = useState<any[]>([]);
   const [lastRehearsalAt, setLastRehearsalAt] = useState<string | null>(null);
+  const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set());
+  const [collapsedSubPhases, setCollapsedSubPhases] = useState<Set<string>>(new Set());
+  const togglePhase = (key: string) => setCollapsedPhases(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
+  const toggleSubPhase = (key: string) => setCollapsedSubPhases(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -92,7 +111,12 @@ export const RehearsalBoardView: React.FC<Props> = ({ token, versionId }) => {
       <Card>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
           <span style={{ fontSize: '22px' }}>🎭</span>
-          <div style={{ ...TEXT.md, fontWeight: WEIGHT.bold, color: C.textPrimary, fontFamily: FONT }}>לוח חזרה גנרלית — היסטורי (לקריאה בלבד)</div>
+          <div style={{ ...TEXT.md, fontWeight: WEIGHT.bold, color: C.textPrimary, fontFamily: FONT, flex: 1 }}>לוח חזרה גנרלית — היסטורי (לקריאה בלבד)</div>
+          <button onClick={() => { setCollapsedPhases(new Set()); setCollapsedSubPhases(new Set()); }} style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '15px', fontFamily: FONT }}>▼ פתח הכל</button>
+          <button onClick={() => {
+            setCollapsedPhases(new Set(orderedPhaseGroups.map(g => g.phaseName)));
+            setCollapsedSubPhases(new Set(orderedPhaseGroups.flatMap(g => Array.from(g.subs.values()).map(s => `${g.phaseName}::${s.subPhaseName}`))));
+          }} style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '15px', fontFamily: FONT }}>► סגור הכל</button>
         </div>
         <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>
           תמונת מצב קפואה מרגע סיום החזרה{lastRehearsalAt ? ` (${new Date(lastRehearsalAt).toLocaleString('he-IL')})` : ''}. מציג את מצב המשימות כפי שהיה בחזרה — לא ניתן לערוך.
@@ -130,18 +154,36 @@ export const RehearsalBoardView: React.FC<Props> = ({ token, versionId }) => {
 
       {orderedPhaseGroups.map(phaseGroup => (
         <Card key={phaseGroup.phaseName} padding={4}>
-          <SectionHeader title={phaseGroup.phaseName} style={{ marginBottom: '10px' }} />
-          {Array.from(phaseGroup.subs.values()).sort((a, b) => a.subOrder - b.subOrder).map(sub => (
+          <h3
+            onClick={() => togglePhase(phaseGroup.phaseName)}
+            style={{ margin: '0 0 10px', color: C.textPrimary, fontSize: '17px', fontWeight: WEIGHT.semibold, fontFamily: FONT, display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' as any }}
+          >
+            <span style={{ fontSize: '15px', color: '#999' }}>{collapsedPhases.has(phaseGroup.phaseName) ? '►' : '▼'}</span>
+            <span>{phaseGroup.phaseName}</span>
+            <span style={{ fontSize: '14px', color: C.textMuted, fontWeight: 'normal' }}>({phaseGroup.subs.size} תת-שלבים)</span>
+          </h3>
+          {!collapsedPhases.has(phaseGroup.phaseName) && Array.from(phaseGroup.subs.values()).sort((a, b) => a.subOrder - b.subOrder).map(sub => {
+            const subKey = `${phaseGroup.phaseName}::${sub.subPhaseName}`;
+            return (
             <div key={sub.subPhaseName} style={{ marginBottom: '14px' }}>
-              <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textSecondary, fontFamily: FONT, marginBottom: '6px' }}>
-                {sub.subPhaseName}
-              </div>
+              <h4
+                onClick={() => toggleSubPhase(subKey)}
+                style={{ margin: 0, color: C.textPrimary, fontSize: '15px', fontWeight: WEIGHT.semibold, fontFamily: FONT, cursor: 'pointer', userSelect: 'none' as any, display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}
+              >
+                <span style={{ fontSize: '13px', color: C.textMuted }}>{collapsedSubPhases.has(subKey) ? '►' : '▼'}</span>
+                <span>{sub.subPhaseName}</span>
+                <span style={{ fontSize: '13px', color: C.textMuted, fontWeight: 'normal' }}>({sub.tasks.length})</span>
+              </h4>
+              {!collapsedSubPhases.has(subKey) && (
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                  <colgroup>
+                    {COLUMN_WIDTHS.map((w, i) => <col key={i} style={{ width: w }} />)}
+                  </colgroup>
                   <thead>
                     <tr style={{ background: C.bgNested }}>
                       {['משימה', 'צוות', 'סטטוס', 'מתוכנן', 'בפועל', 'הערה'].map(h => (
-                        <th key={h} style={{ padding: '6px 10px', textAlign: 'right', ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.semibold, borderBottom: `1px solid ${C.border}`, fontFamily: FONT }}>{h}</th>
+                        <th key={h} style={{ padding: '6px 10px', textAlign: 'right', ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.semibold, borderBottom: `1px solid ${C.border}`, fontFamily: FONT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -150,10 +192,10 @@ export const RehearsalBoardView: React.FC<Props> = ({ token, versionId }) => {
                       const reason = t.blockedReason ?? t.delayReason ?? t.failedReason;
                       return (
                         <tr key={t.id} style={{ borderBottom: `1px solid ${C.border}` }}>
-                          <td style={{ padding: '6px 10px', ...TEXT.sm, color: C.textPrimary, fontFamily: FONT }}>
+                          <td style={{ padding: '6px 10px', ...TEXT.sm, color: C.textPrimary, fontFamily: FONT, wordBreak: 'break-word' }}>
                             {t.title}{t.isCriticalForGo && <Badge color={C.brand} bg={`${C.brand}12`} style={{ marginRight: '6px' }}>GO</Badge>}
                           </td>
-                          <td style={{ padding: '6px 10px', ...TEXT.sm, color: C.textSecondary, fontFamily: FONT }}>{t.assignedTeam?.name ?? '—'}</td>
+                          <td style={{ padding: '6px 10px', ...TEXT.sm, color: C.textSecondary, fontFamily: FONT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.assignedTeam?.name ?? '—'}</td>
                           <td style={{ padding: '6px 10px' }}><StatusChip status={t.status} /></td>
                           <td style={{ padding: '6px 10px', ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>
                             {fmtTime(t.rehearsalPlannedStart)} – {fmtTime(t.rehearsalPlannedEnd)}
@@ -168,8 +210,10 @@ export const RehearsalBoardView: React.FC<Props> = ({ token, versionId }) => {
                   </tbody>
                 </table>
               </div>
+              )}
             </div>
-          ))}
+            );
+          })}
         </Card>
       ))}
     </div>

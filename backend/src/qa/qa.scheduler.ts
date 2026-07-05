@@ -34,7 +34,7 @@ export interface CrInput {
   cycles:              string[]; // which cycle types this CR appears in
   primaryTesterId:     string | null;
   secondaryTesterId:   string | null;
-  primarySkillLevel:   number;   // used for effort split ratio
+  primarySkillLevel:   number;   // kept for callers/reporting; no longer used for effort split (now a flat 50/50)
   secondarySkillLevel: number;
 }
 
@@ -180,7 +180,9 @@ function scheduleSingleCycle(
     let pointer = new Date(cycleStart);
 
     for (const cr of queue) {
-      const effortDays = Math.max(1, Math.round(cr.qaEffortDays * effortRatio));
+      const baseEffort = Math.max(1, Math.round(cr.qaEffortDays * effortRatio));
+      // A second tester splits the total effort in half — not extra time on top.
+      const effortDays = cr.secondaryTesterId ? Math.max(1, Math.round(baseEffort / 2)) : baseEffort;
       const taskStart  = new Date(pointer);
       const taskEnd    = addWorkDays(taskStart, effortDays - 1);
 
@@ -212,10 +214,9 @@ function scheduleSingleCycle(
       const primaryTask = primaryTasks.get(cr.crNumber);
       const crStart = primaryTask?.plannedStart ?? pointer;
 
-      const totalSkill = cr.primarySkillLevel + cr.secondarySkillLevel;
-      const secRatio   = totalSkill > 0 ? cr.secondarySkillLevel / totalSkill : 0.5;
+      // Splits the total effort in half with the primary tester (see primary loop above).
       const baseEffort = Math.max(1, Math.round(cr.qaEffortDays * effortRatio));
-      const effortDays = Math.max(1, Math.round(baseEffort * secRatio));
+      const effortDays = Math.max(1, Math.round(baseEffort / 2));
 
       const taskStart = new Date(crStart);
       const taskEnd   = addWorkDays(taskStart, effortDays - 1);

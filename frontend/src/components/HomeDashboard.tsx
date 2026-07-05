@@ -422,7 +422,13 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
     }
     if (st === 'COLLECTING' && tl)      list.push({ icon: '📝', title: 'הגש תוכניות', desc: 'הגש את הצעות המשימות לאישור', urgent: true, tab: 'proposals' });
     if (st === 'COLLECTING' && rm)      list.push({ icon: '👥', title: 'מעקב הגשת תוכניות', desc: 'בדוק שכל הצוותים הגישו את תוכניות ה-CR', tab: 'proposals' });
-    if (st === 'CR_REVIEW' && tl)       list.push({ icon: '📋', title: 'הגש תוכנית CR', desc: 'הגדר תוכנית עלייה לאוויר לצוות שלך', urgent: true, tab: 'implementation-plans' });
+    if (st === 'CR_REVIEW' && tl) {
+      const deadline = (primary as any).submissionDeadline;
+      const deadlineDesc = deadline
+        ? ` — מועד הגשה: ${new Date(deadline).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${new Date(deadline) < new Date() ? ' ⚠ עבר' : ''}`
+        : '';
+      list.push({ icon: '📋', title: 'הגש תוכנית CR', desc: `הגדר תוכנית עלייה לאוויר לצוות שלך${deadlineDesc}`, urgent: true, tab: 'implementation-plans' });
+    }
     if (st === 'CR_REVIEW' && rm)       list.push({ icon: '🔍', title: 'סקור תוכניות CR', desc: 'אשר או החזר הערות על תוכניות הצוותים', tab: 'list' });
     if (st === 'REFINING' && rm)        list.push({ icon: '✏️', title: 'ודא עדכוני תוכניות', desc: 'צוותים מעדכנים לפי הערות', tab: 'list' });
     if (st === 'REVIEW' && rm)          list.push({ icon: '👥', title: 'קיים ישיבת מעבר', desc: 'ישיבה עם כלל המשתתפים לאישור סופי', tab: 'list' });
@@ -454,7 +460,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
       list.push({ icon: '⚡', title: 'War Room', desc: nextDesc, urgent: true, tab: 'dashboard' });
     }
     if (st === 'REHEARSAL' && allPhasesDone && rm) {
-      list.push({ icon: '🎭', title: 'החזרה הגנרלית הושלמה', desc: 'הפק דוח סיכום חזרה וסיים אותה כדי לפתוח את ההרצה האמיתית', urgent: true, tab: 'summary-rehearsal' });
+      list.push({ icon: '🎭', title: 'החזרה הגנרלית הושלמה', desc: 'הפק דוח סיכום חזרה גנרלית וסיים אותה כדי לפתוח את הלילה הפעיל', urgent: true, tab: 'summary-rehearsal' });
     }
     if (st === 'ACTIVE' && allPhasesDone && rm) {
       list.push({ icon: '✅', title: 'ליל ההטמעה הושלם', desc: 'כל המשימות בוצעו — עבור לבקרות הבוקר ולסגירת הגרסה', urgent: true, tab: 'summary-night' });

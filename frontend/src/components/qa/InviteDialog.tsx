@@ -20,12 +20,33 @@ interface InviteDialogProps {
 export function InviteDialog({ title, subtitle, startISO, endISO, teams, preSelectedEmails, onSend, onClose }: InviteDialogProps) {
   const allMembers = React.useMemo(() => {
     const seen = new Set<string>();
-    const list: InviteTeamMember[] = [];
+    const list: (InviteTeamMember & { teamNames: string[] })[] = [];
+    const byEmail = new Map<string, InviteTeamMember & { teamNames: string[] }>();
     for (const t of teams) for (const m of t.members) {
-      if (m.email && !seen.has(m.email)) { seen.add(m.email); list.push(m); }
+      if (!m.email) continue;
+      if (!seen.has(m.email)) {
+        seen.add(m.email);
+        const entry = { ...m, teamNames: [t.name] };
+        byEmail.set(m.email, entry);
+        list.push(entry);
+      } else {
+        byEmail.get(m.email)!.teamNames.push(t.name);
+      }
     }
     return list.sort((a, b) => a.fullName.localeCompare(b.fullName, 'he'));
   }, [teams]);
+
+  const [search, setSearch] = useState('');
+  const [teamFilter, setTeamFilter] = useState('');
+
+  const filteredMembers = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return allMembers.filter(m => {
+      if (teamFilter && !m.teamNames.includes(teamFilter)) return false;
+      if (q && !m.fullName.toLowerCase().includes(q) && !m.email.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [allMembers, search, teamFilter]);
 
   const [selected, setSelected] = useState<Set<string>>(new Set(preSelectedEmails ?? []));
   const [extraEmail, setExtraEmail] = useState('');
@@ -92,14 +113,32 @@ export function InviteDialog({ title, subtitle, startISO, endISO, teams, preSele
         <div style={{ padding: SP[5], display: 'flex', flexDirection: 'column', gap: SP[3] }}>
           <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>בחר משתתפים לזימון:</div>
 
+          <div style={{ display: 'flex', gap: SP[2] }}>
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="חיפוש לפי שם..."
+              style={{ flex: 1, padding: '6px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.sm, fontFamily: FONT }}
+            />
+            <select
+              value={teamFilter}
+              onChange={e => setTeamFilter(e.target.value)}
+              style={{ padding: '6px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.sm, fontFamily: FONT, background: C.bgCard, color: C.textPrimary }}
+            >
+              <option value="">כל הקבוצות</option>
+              {teams.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+            </select>
+          </div>
+
           <div style={{ maxHeight: 220, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: SP[2] }}>
-            {allMembers.map(m => (
+            {filteredMembers.map(m => (
               <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: '5px 4px', cursor: 'pointer', ...TEXT.sm, color: C.textPrimary }}>
                 <input type="checkbox" checked={selected.has(m.email)} onChange={() => toggle(m.email)} />
                 {m.fullName} <span style={{ color: C.textMuted, ...TEXT.xs }}>({m.email})</span>
               </label>
             ))}
             {allMembers.length === 0 && <div style={{ ...TEXT.xs, color: C.textMuted, padding: SP[2] }}>אין משתמשים עם כתובת מייל</div>}
+            {allMembers.length > 0 && filteredMembers.length === 0 && <div style={{ ...TEXT.xs, color: C.textMuted, padding: SP[2] }}>לא נמצאו משתתפים תואמים</div>}
           </div>
 
           <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>

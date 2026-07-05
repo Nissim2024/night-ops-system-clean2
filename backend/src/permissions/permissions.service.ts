@@ -17,7 +17,7 @@ const DEFAULTS: Record<string, string[]> = {
   ADMIN:           [...ALL_PERMISSIONS],
   RELEASE_MANAGER: ['screen:prep','screen:handoff','screen:timeline','screen:night','screen:summary','action:import','action:gonogo','action:task_status','action:open_task_for_execution','action:override_version_edit','action:select_all_tasks'],
   CR_MANAGER:      [],
-  TEAM_LEAD:       ['screen:handoff','screen:timeline','screen:night','screen:summary','action:task_status'],
+  TEAM_LEAD:       ['screen:handoff','screen:timeline','screen:night','screen:summary','screen:prep','screen:qa','action:task_status','action:qa_leave_request','action:qa_manage'],
   EMPLOYEE:        ['action:task_status'],
   VIEWER:          ['screen:timeline','screen:night','screen:summary'],
 };

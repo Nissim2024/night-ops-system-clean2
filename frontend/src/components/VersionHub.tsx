@@ -462,7 +462,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
             { icon: '📅', label: 'התחלה מתוכננת',   field: 'plannedStart',      value: version.plannedStart,      dateOnly: false },
             { icon: '🏁', label: 'סיום מתוכנן',      field: 'plannedEnd',        value: version.plannedEnd,        dateOnly: false },
             { icon: '🗓', label: 'ישיבת סקירת CR-ים',   field: 'reviewMeetingTime',    value: version.reviewMeetingTime,    dateOnly: false },
-            { icon: '📋', label: 'ישיבת מעבר תוכנית',  field: 'workPlanMeetingTime',  value: version.workPlanMeetingTime,  dateOnly: false },
+            { icon: '📋', label: 'ישיבת הצגת תוכנית עליה לאוויר',  field: 'workPlanMeetingTime',  value: version.workPlanMeetingTime,  dateOnly: false },
             { icon: '🔧', label: 'תחילת אינטגרציה',   field: 'integrationStart',  value: version.integrationStart,  dateOnly: true  },
             { icon: '🔧', label: 'סיום אינטגרציה',    field: 'integrationEnd',    value: version.integrationEnd,    dateOnly: true  },
             { icon: '🧪', label: 'תחילת בדיקות QA',   field: 'qaStart',           value: version.qaStart,           dateOnly: true  },

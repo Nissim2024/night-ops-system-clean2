@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Login } from './components/Login';
 import { ManagerDashboard } from './components/ManagerDashboard';
 import { EmployeeDashboard } from './components/EmployeeDashboard';
@@ -21,6 +21,19 @@ function App() {
     localStorage.removeItem('deploycenter_fullName');
     setToken(null);
   };
+
+  // The app has no client-side routing — every screen/tab is internal React state,
+  // not a URL. Without this, the browser's BACK button navigates away from the app's
+  // single history entry entirely, which looks to the user like being logged out.
+  // Trap BACK on the current entry instead — in-app navigation already has its own
+  // "back" affordances (sidebar, breadcrumbs, close buttons).
+  useEffect(() => {
+    if (!token) return;
+    window.history.pushState(null, '', window.location.href);
+    const onPopState = () => window.history.pushState(null, '', window.location.href);
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [token]);
 
   if (!token) {
     return <Login onLogin={handleLogin} />;

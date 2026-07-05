@@ -1,5 +1,6 @@
 ﻿import React, { useState } from 'react';
 import axios from 'axios';
+import { DateField } from './DatePicker';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -75,10 +76,9 @@ export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
               (אופציונלי — אם לא ממולא, ייקחו התאריכים מהקובץ)
             </span>
           </label>
-          <input
-            type="date"
+          <DateField
             value={plannedStart}
-            onChange={e => setPlannedStart(e.target.value)}
+            onChange={v => setPlannedStart(v)}
             style={{ width: '100%', padding: '12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '16px', boxSizing: 'border-box' }}
           />
           {plannedStart && (

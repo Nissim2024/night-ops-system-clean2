@@ -5,6 +5,7 @@ const QaActivityPlanView = lazy(() => import('./QaActivityPlanView'));
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../../theme';
 import { ConfirmDialog, DialogConfig } from '../ConfirmDialog';
 import { useDialog } from '../../context/DialogContext';
+import { DateField } from '../DatePicker';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -66,6 +67,8 @@ interface Assignment {
   cycles:      string[];
   sortOrder:   number | null;
   user:        { id: string; fullName: string; email: string };
+  secondaryTesterId: string | null;
+  secondaryUser:     { id: string; fullName: string; email: string } | null;
 }
 
 interface ScoreBreakdown {
@@ -767,14 +770,14 @@ CRים אלה לא ייכללו בתוכנית העבודה.
 
         <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
           <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>התחלת בדיקות</span>
-          <input type="date" value={cycle1Start} onChange={e => setCycle1Start(e.target.value)}
+          <DateField value={cycle1Start} onChange={v => setCycle1Start(v)}
             style={{ padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, background: C.bgNested, color: C.textPrimary, outline: 'none', fontFamily: FONT }}
           />
         </label>
 
         <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
           <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>סיום בדיקות</span>
-          <input type="date" value={testingEnd} onChange={e => setTestingEnd(e.target.value)}
+          <DateField value={testingEnd} onChange={v => setTestingEnd(v)}
             style={{ padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, background: C.bgNested, color: C.textPrimary, outline: 'none', fontFamily: FONT }}
           />
         </label>
@@ -1131,6 +1134,11 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                               </div>
                               <span style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: testerOverload ? C.danger : C.textPrimary }}>{asg.user.fullName}</span>
                               {testerOverload && <span title="בודק זה חורג ממשך הסבב" style={{ cursor: 'help' }}>⚠️</span>}
+                              {asg.secondaryUser && (
+                                <span title="בודק שני" style={{ ...TEXT.xs, color: C.info, background: C.infoBg, padding: `1px ${SP[1]}`, borderRadius: RADIUS.sm, whiteSpace: 'nowrap' }}>
+                                  + {asg.secondaryUser.fullName}
+                                </span>
+                              )}
                               <button
                                 disabled={isSaving}
                                 onClick={() => unassign(asg.id, cr.crNumber)}

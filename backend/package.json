@@ -1,6 +1,6 @@
 {
   "name": "backend",
-  "version": "2.7.4",
+  "version": "2.7.5",
   "description": "",
   "author": "",
   "private": true,
@@ -41,6 +41,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.2",
+    "@hebcal/core": "^6.6.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",

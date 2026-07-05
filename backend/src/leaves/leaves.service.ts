@@ -1,6 +1,5 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import axios from 'axios';
 
 const prisma = new PrismaClient();
 
@@ -19,11 +18,13 @@ const HOLIDAY_NAME_MAP: Record<string, string> = {
   'Pesach':             'פסח',
   'Shavuot':            'שבועות',
   'Tisha B\'Av':        'תשעה באב',
+  'Tish\'a B\'Av':      'תשעה באב', // hebcal spells this with an apostrophe after "Tish"
   'Lag BaOmer':         'ל"ג בעומר',
   'Tu B\'Av':           'ט"ו באב',
   'Yom HaShoah':        'יום השואה',
   'Yom HaZikaron':      'יום הזיכרון',
   'Yom HaAtzmaut':      'יום העצמאות',
+  'Yom HaAtzma\'ut':    'יום העצמאות', // hebcal spells this with an apostrophe before "ut"
   'Yom Yerushalayim':   'יום ירושלים',
 };
 
@@ -41,7 +42,12 @@ const HOLIDAY_GROUP_MAP: Record<string, string> = {
 // Holidays not in HOLIDAY_GROUP_MAP each become their own season.
 
 function normalizeHolidayTitle(title: string): string | null {
-  let t = title.replace(/\s+[IVX]+\s*$/, '').trim();
+  let t = title
+    .replace(/:\s*\d+(st|nd|rd|th)?\s*(Candles?|Day)\s*$/i, '') // "Chanukah: 1 Candle" / "Chanukah: 8th Day" → "Chanukah"
+    .replace(/\s*\(CH.?.?M\)\s*$/i, '')  // "Sukkot III (CH''M)" → "Sukkot III"
+    .replace(/\s+\d{4}\s*$/, '')         // "Rosh Hashana 5787" → "Rosh Hashana"
+    .replace(/\s+[IVX]+\s*$/, '')        // "Sukkot II" → "Sukkot"
+    .trim();
   if (t.startsWith('Erev ')) t = t.slice(5);
   return HOLIDAY_NAME_MAP[t] ?? null;
 }
@@ -100,13 +106,22 @@ export class LeavesService {
   }
 
   async importHolidays(year: number): Promise<{ created: number; skipped: number }> {
-    // ── 1. Fetch Jewish / Israeli holidays from Hebcal ─────────────────────────
-    const hebcalUrl =
-      `https://www.hebcal.com/hebcal?v=1&cfg=json&year=${year}&maj=on&min=on&mod=on&mf=on&c=off&i=off`;
-    let hebcalItems: any[] = [];
+    // ── 1. Compute Jewish / Israeli holidays locally ───────────────────────────
+    // Uses @hebcal/core (offline Hebrew-calendar math, no network call) instead of
+    // the hebcal.com REST API — the production server is air-gapped and has no
+    // outbound internet access, so the previous fetch silently failed every time
+    // and only the "fixed" (non-Jewish) holidays below ever got imported.
+    let hebcalItems: { date: string; title: string }[] = [];
     try {
-      const res = await axios.get(hebcalUrl, { timeout: 12000 });
-      hebcalItems = res.data?.items ?? [];
+      const { HebrewCalendar } = await import('@hebcal/core');
+      const events = HebrewCalendar.calendar({ year, isHebrewYear: false, il: false });
+      hebcalItems = events
+        .filter(ev => (ev.getCategories?.() ?? []).includes('holiday'))
+        .map(ev => {
+          const g = ev.getDate().greg();
+          const utcMidnight = new Date(Date.UTC(g.getFullYear(), g.getMonth(), g.getDate()));
+          return { date: utcMidnight.toISOString().slice(0, 10), title: ev.getDesc() };
+        });
     } catch {
       // non-fatal — continue with fixed holidays only
     }
@@ -115,7 +130,6 @@ export class LeavesService {
     const groups = new Map<string, { date: Date; label: string }[]>();
 
     for (const item of hebcalItems) {
-      if (!['holiday', 'minor'].includes(item.category)) continue;
       const name = normalizeHolidayTitle(item.title);
       if (!name) continue;
       const groupName = HOLIDAY_GROUP_MAP[name] ?? name;
