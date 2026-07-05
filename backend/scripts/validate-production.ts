@@ -37,7 +37,7 @@ function check(name: string, passed: boolean, detail: string) {
 async function main() {
   console.log('');
   console.log('=================================================');
-  console.log('  DeployCenter 2.7.3 — Production Validation');
+  console.log('  DeployCenter 2.7.4 — Production Validation');
   console.log('=================================================');
   console.log(`  DB  : ${(process.env.DATABASE_URL ?? '').replace(/:\/\/.*@/, '://***@')}`);
   console.log('');

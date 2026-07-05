@@ -60,7 +60,7 @@ async function main() {
     const data: ExportData = {
       exportedAt: new Date().toISOString(),
       exportedBy: process.env.USER ?? process.env.USERNAME ?? 'unknown',
-      sourceVersion: '2.7.3',
+      sourceVersion: '2.7.4',
       users,
       teams,
       teamMembers,

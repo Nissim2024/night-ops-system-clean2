@@ -151,7 +151,7 @@ async function bootstrap() {
   const port = process.env.PORT ?? '3000';
   const db   = (process.env.DATABASE_URL ?? '').replace(/:\/\/.*@/, '://***@');
 
-  console.log(`\nDeployCenter Backend v2.7.3`);
+  console.log(`\nDeployCenter Backend v2.7.4`);
   console.log(`   ENV           : ${env}`);
   console.log(`   PORT          : ${port}`);
   console.log(`   DB            : ${db}`);

@@ -35,7 +35,7 @@ async function main() {
 
     const data = {
       exportedAt:      new Date().toISOString(),
-      sourceVersion:   '2.7.3',
+      sourceVersion:   '2.7.4',
       sourceEnv:       process.env.NODE_ENV ?? 'dev',
       versionTemplates,
       report: {
