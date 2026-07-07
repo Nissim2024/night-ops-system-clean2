@@ -610,10 +610,11 @@ model TesterProfile {
 }
 
 model TesterSkill {
-  userId    String
-  skillId   String
-  level     Int      @default(1) // 1–5
-  updatedAt DateTime @updatedAt
+  userId     String
+  skillId    String
+  level      Int       @default(1) // 1–5
+  lastUsedAt DateTime? // set when the tester is assigned a CR requiring this skill — drives the QA engine's continuity score (not the same as updatedAt, which also bumps on a plain level edit)
+  updatedAt  DateTime  @updatedAt
 
   tester TesterProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
   skill  Skill         @relation(fields: [skillId], references: [id], onDelete: Cascade)
@@ -637,6 +638,8 @@ model QaAssignment {
   sortOrder           Int?     // tester queue position (1, 2, 3…)
   secondaryTesterId   String?  // optional secondary reviewer userId
   secondarySkillLevel Int?     @default(3)
+  secondaryParticipationPct Int? @default(50) // % of total effort the secondary tester carries (rest goes to primary) — editable, defaults to an even 50/50 split
+  standAloneDueDate   DateTime? // optional early deadline for a Stand Alone CR — pulls it ahead of other SA work for this tester
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -655,6 +658,9 @@ model QaWorkPlan {
   status       String    @default("DRAFT")  // DRAFT | APPROVED
   cycle1Start  DateTime
   testingEnd   DateTime
+  cycle1LengthDays Int?  // fixed capacity parameter for cycle 1 (work days) — editable on screen, defaults to 12 when unset
+  cycle2LengthDays Int?  // fixed capacity parameter for cycle 2 (work days) — independently editable, defaults to round(cycle1LengthDays*0.5) when unset
+  cycle3LengthDays Int?  // fixed capacity parameter for cycle 3 (work days) — independently editable, defaults to round(cycle1LengthDays*0.3) when unset
   notes        String?
   createdBy    String?
   approvedBy   String?

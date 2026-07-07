@@ -27,6 +27,7 @@ import { QaLeavesView } from './qa/QaLeavesView';
 import { QaSkillsView } from './qa/QaSkillsView';
 import { QaTestersView } from './qa/QaTestersView';
 import QaAssignmentView from './qa/QaAssignmentView';
+import QcBugDashboardView from './qa/QcBugDashboardView';
 import QaWorkPlanView from './qa/QaWorkPlanView';
 import { FEATURES } from '../featureFlags';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
@@ -682,7 +683,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
         <div style={{ flex: 1, padding: '24px', overflowY: 'auto', minWidth: 0, minHeight: 0, background: C.bgApp }}>
 
           {/* ── Module: ניהול QA ── */}
-          {activeModule === 'qa' && <QaModulePlaceholder view={activeQaView} token={token} role={payload.role} isQaMember={isQaTeamMember} initialVersionId={selectedVersionId || undefined} />}
+          {activeModule === 'qa' && <QaModulePlaceholder view={activeQaView} token={token} role={payload.role} isQaMember={canAccessQa} isQaTeamMember={isQaTeamMember} initialVersionId={selectedVersionId || undefined} />}
 
           {activeModule === 'deployments' && (<>
 
@@ -1398,9 +1399,10 @@ const QA_VIEW_META: Record<string, { icon: string; title: string; sub: string }>
   skills:     { icon: '🧠', title: 'מטריצת סקילים',   sub: 'הגדרת סקילים ורמות מיומנות לכל בודק' },
   leaves:     { icon: '📅', title: 'חופשות',           sub: '' },
   assignment: { icon: '🎯', title: 'תכנון ושיבוץ',    sub: 'שיבוץ בודקים ותכנון סבבי בדיקות' },
+  bugs:       { icon: '🐛', title: 'לוח באגים (QC)',  sub: 'מדדי תקלות מ-QC לפי גרסה' },
 };
 
-const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string; isQaMember?: boolean; initialVersionId?: string }> = ({ view, token, role, isQaMember, initialVersionId }) => {
+const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string; isQaMember?: boolean; isQaTeamMember?: boolean; initialVersionId?: string }> = ({ view, token, role, isQaMember, isQaTeamMember, initialVersionId }) => {
   // Leaves board is accessible to all authenticated users; QA module views are for QA team members and ADMIN
   if (view !== 'leaves' && role !== 'ADMIN' && !isQaMember) {
     return (
@@ -1411,13 +1413,14 @@ const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string;
       </div>
     );
   }
-  // Assignment view uses QaAdminGuard on the backend — ADMIN only
-  if (view === 'assignment' && role !== 'ADMIN') {
+  // Assignment view uses QaAdminGuard on the backend — ADMIN, or a TEAM_LEAD
+  // who actually leads the QA team itself (not any team lead with screen:qa).
+  if (view === 'assignment' && role !== 'ADMIN' && !(role === 'TEAM_LEAD' && isQaTeamMember)) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '12px', color: C.textMuted }}>
         <div style={{ fontSize: '48px' }}>🔒</div>
         <div style={{ fontSize: '18px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>אין הרשאת גישה</div>
-        <div style={{ fontSize: '15px', color: C.textMuted }}>תכנון ושיבוץ מיועד למנהלי מערכת בלבד</div>
+        <div style={{ fontSize: '15px', color: C.textMuted }}>תכנון ושיבוץ מיועד למנהלי מערכת או לראש צוות ה-QA</div>
       </div>
     );
   }
@@ -1425,6 +1428,7 @@ const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string;
   if (view === 'testers')    return <QaTestersView token={token} />;
   if (view === 'skills')     return <QaSkillsView token={token} />;
   if (view === 'assignment') return <QaAssignmentView token={token} initialVersionId={initialVersionId} />;
+  if (view === 'bugs')       return <QcBugDashboardView token={token} initialVersionId={initialVersionId} />;
 
   const meta = QA_VIEW_META[view] ?? { icon: '👥', title: 'ניהול QA', sub: '' };
   return (

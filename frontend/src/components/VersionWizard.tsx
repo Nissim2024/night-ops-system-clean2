@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
 import { C } from '../theme';
-import { DateField, DateTimeField, DateRangeField } from './DatePicker';
+import { DateField, DateTimeField, DateRangeField, formatDMY } from './DatePicker';
+
+const formatDMYTime = (iso?: string): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return `${formatDMY(iso)} ${d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`;
+};
 
 type Method = 'manual' | 'template' | 'excel';
 
@@ -222,7 +229,7 @@ export const VersionWizard: React.FC<Props> = ({
                       })
                       .map(r => (
                         <option key={r.id} value={r.id}>
-                          {r.relName}{r.goLiveDate ? ` — ${new Date(r.goLiveDate).toLocaleDateString('he-IL')}` : r.relEndDate ? ` — ${new Date(r.relEndDate).toLocaleDateString('he-IL')}` : ''}
+                          {r.relName}{r.goLiveDate ? ` — ${formatDMY(r.goLiveDate)}` : r.relEndDate ? ` — ${formatDMY(r.relEndDate)}` : ''}
                         </option>
                       ))}
                   </select>
@@ -389,16 +396,16 @@ export const VersionWizard: React.FC<Props> = ({
                 ...(method === 'manual' ? [['תיאור', newVersion.description]] : []),
                 ...(method === 'template' ? [['תבנית', templates.find(t => t.id === selectedTemplateId)?.name || '—']] : []),
                 ...(method === 'excel' ? [['קובץ', importFile?.name || '—']] : []),
-                ['תחילת אינטגרציה', newVersion.integrationStart],
-                ['סיום אינטגרציה', newVersion.integrationEnd],
-                ['תחילת QA', newVersion.qaStart],
-                ['סיום QA', newVersion.qaEnd],
-                ['ישיבת סקירת CR', newVersion.reviewMeetingTime],
-                ['ישיבת מעבר', newVersion.workPlanMeetingTime],
-                ['חזרה גנרלית — תחילה', newVersion.plannedRehearsalStart],
-                ['חזרה גנרלית — סיום', newVersion.plannedRehearsalEnd],
-                ['ליל ההטמעה — תחילה', newVersion.plannedStart],
-                ['ליל ההטמעה — סיום', newVersion.plannedEnd],
+                ['תחילת אינטגרציה', formatDMY(newVersion.integrationStart)],
+                ['סיום אינטגרציה', formatDMY(newVersion.integrationEnd)],
+                ['תחילת QA', formatDMY(newVersion.qaStart)],
+                ['סיום QA', formatDMY(newVersion.qaEnd)],
+                ['ישיבת סקירת CR', formatDMYTime(newVersion.reviewMeetingTime)],
+                ['ישיבת מעבר', formatDMYTime(newVersion.workPlanMeetingTime)],
+                ['חזרה גנרלית — תחילה', formatDMYTime(newVersion.plannedRehearsalStart)],
+                ['חזרה גנרלית — סיום', formatDMYTime(newVersion.plannedRehearsalEnd)],
+                ['ליל ההטמעה — תחילה', formatDMYTime(newVersion.plannedStart)],
+                ['ליל ההטמעה — סיום', formatDMYTime(newVersion.plannedEnd)],
               ].map(([label, value]) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: C.bgNested, borderRadius: '6px', fontSize: '15px' }}>
                   <span style={{ color: C.textMuted }}>{label}</span>

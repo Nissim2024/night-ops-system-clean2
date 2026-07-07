@@ -44,6 +44,7 @@ const QA_VIEWS = [
   { key: 'testers',    label: 'בודקים',              icon: '👥' },
   { key: 'skills',     label: 'מטריצת סקילים',        icon: '🧠' },
   { key: 'leaves',     label: 'חופשות',               icon: '📅' },
+  { key: 'bugs',       label: 'לוח באגים (QC)',       icon: '🐛' },
 ];
 
 function versionGroup(v: any): string {

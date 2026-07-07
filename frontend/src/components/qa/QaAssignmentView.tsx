@@ -69,6 +69,8 @@ interface Assignment {
   user:        { id: string; fullName: string; email: string };
   secondaryTesterId: string | null;
   secondaryUser:     { id: string; fullName: string; email: string } | null;
+  secondaryParticipationPct: number | null;
+  standAloneDueDate: string | null;
 }
 
 interface ScoreBreakdown {
@@ -215,6 +217,14 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const [syncing, setSyncing]           = useState(false);
   const [crSyncStatuses, setCrSyncStatuses] = useState<Record<string, 'ACTIVE' | 'NEW' | 'REMOVED'>>({});
   const [syncDiff, setSyncDiff]             = useState<SyncDiff | null>(null);
+  const [secondTesterSuggestions, setSecondTesterSuggestions] = useState<{
+    assignmentId: string; crNumber: string; crLabel: string | null;
+    qaEffortDays: number; thresholdDays: number;
+    suggestedTesterId: string; suggestedTesterName: string;
+    suggestedScore: number; timeSavingDays: number;
+  }[]>([]);
+  const [applyingSuggestion, setApplyingSuggestion] = useState<string | null>(null);
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set());
 
   const selectedVersion = useMemo(
     () => versions.find(v => v.id === selectedVId) ?? null,
@@ -223,12 +233,18 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
 
   const [cycle1Start, setCycle1Start]   = useState('');
   const [testingEnd, setTestingEnd]     = useState('');
+  const [cycle1LengthDays, setCycle1LengthDays] = useState(12);
+  const [cycle2LengthDays, setCycle2LengthDays] = useState(6);
+  const [cycle3LengthDays, setCycle3LengthDays] = useState(4);
 
   const [openPicker, setOpenPicker]           = useState<PickerPos | null>(null);
+  const [pickerMode, setPickerMode]           = useState<'primary' | 'secondary'>('primary');
   const [openCyclesPicker, setOpenCyclesPicker] = useState<string | null>(null);
   const [scoring, setScoring]                 = useState<Record<string, ScoringResult>>({});
   const [scoringLoading, setScoringLoading]   = useState<string | null>(null);
   const [saving, setSaving]                   = useState<string | null>(null);
+  const [bulkAssigning, setBulkAssigning]     = useState(false);
+  const [overloadPanelCollapsed, setOverloadPanelCollapsed] = useState(false);
   const [editingEffort, setEditingEffort]     = useState<string | null>(null);  // crNumber being edited
   const [search, setSearch]                   = useState('');
   const [confirmDialog, setConfirmDialog]     = useState<DialogConfig | null>(null);
@@ -258,18 +274,21 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   // ── Load version data ───────────────────────────────────────────────────────
 
   const loadVersion = useCallback(async (vId: string) => {
-    if (!vId) { setCrs([]); setAssignments([]); setScoring({}); setCrSyncStatuses({}); return; }
+    if (!vId) { setCrs([]); setAssignments([]); setScoring({}); setCrSyncStatuses({}); setSecondTesterSuggestions([]); return; }
     setLoading(true);
     try {
-      const [recRes, asgRes, planRes, vcaRes] = await Promise.all([
+      const [recRes, asgRes, planRes, vcaRes, suggRes] = await Promise.all([
         axios.get(`${API}/qa/assignments/recommend?versionId=${vId}`, { headers }),
         axios.get(`${API}/qa/assignments?versionId=${vId}`, { headers }),
         axios.get(`${API}/qa/workplan?versionId=${vId}`, { headers }).catch(() => null),
         axios.get(`${API}/version-cr-assignments/version/${vId}`, { headers }).catch(() => null),
+        axios.get(`${API}/qa/assignments/second-tester-suggestions?versionId=${vId}`, { headers }).catch(() => null),
       ]);
       setCrs(recRes.data);
       setAssignments(asgRes.data);
       setScoring({});
+      setDismissedSuggestions(new Set());
+      if (suggRes) setSecondTesterSuggestions(suggRes.data);
 
       if (vcaRes) {
         const rows = vcaRes.data as { crNumber: string; syncStatus: string }[];
@@ -287,6 +306,9 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
       if (plan?.cycle1Start) {
         setCycle1Start(toInputDate(plan.cycle1Start));
         setTestingEnd(toInputDate(plan.testingEnd));
+        if (plan.cycle1LengthDays) setCycle1LengthDays(plan.cycle1LengthDays);
+        if (plan.cycle2LengthDays) setCycle2LengthDays(plan.cycle2LengthDays);
+        if (plan.cycle3LengthDays) setCycle3LengthDays(plan.cycle3LengthDays);
       }
     } catch {
       // 403 from QA-admin-only endpoints — silently leave state empty
@@ -364,8 +386,9 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
 
   // ── Score picker open ───────────────────────────────────────────────────────
 
-  const openPickerFor = async (crNumber: string, buttonEl: HTMLElement) => {
-    if (openPicker?.crNumber === crNumber) { setOpenPicker(null); return; }
+  const openPickerFor = async (crNumber: string, buttonEl: HTMLElement, mode: 'primary' | 'secondary' = 'primary') => {
+    if (openPicker?.crNumber === crNumber && pickerMode === mode) { setOpenPicker(null); return; }
+    setPickerMode(mode);
     const rect = buttonEl.getBoundingClientRect();
     setOpenCyclesPicker(null);
     const spaceBelow = window.innerHeight - rect.bottom - 8;
@@ -429,6 +452,42 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
     }
   };
 
+  // ── Auto-assign all unassigned CRs ───────────────────────────────────────────
+
+  const autoAssignAll = async () => {
+    // Sort by CR number so the processing order is deterministic and matches
+    // the default table order — the API's own return order isn't guaranteed
+    // stable, and each assignment changes load for the ones that follow it.
+    const targets = visibleCrs
+      .filter(cr => !assignmentMap.has(cr.crNumber))
+      .sort((a, b) => a.crNumber.localeCompare(b.crNumber));
+    if (targets.length === 0) return;
+    setBulkAssigning(true);
+    try {
+      const manualCrs: string[] = [];
+      for (const cr of targets) {
+        const res = await axios.post(
+          `${API}/qa/assignments/auto-assign`,
+          { versionId: selectedVId, crNumber: cr.crNumber },
+          { headers },
+        );
+        if (res.data.status === 'MANUAL_INTERVENTION') manualCrs.push(cr.crNumber);
+      }
+      const asgRes = await axios.get(`${API}/qa/assignments?versionId=${selectedVId}`, { headers });
+      setAssignments(asgRes.data);
+      setScoring({});
+      if (manualCrs.length > 0) {
+        dialog.alert(
+          `${manualCrs.length} CR-ים דורשים שיבוץ ידני ולא שובצו אוטומטית:\n\n${manualCrs.join(', ')}`,
+          'שיבוץ ידני נדרש',
+          'warning',
+        );
+      }
+    } finally {
+      setBulkAssigning(false);
+    }
+  };
+
   // ── Unassign ────────────────────────────────────────────────────────────────
 
   const unassign = async (id: string, crNumber: string) => {
@@ -465,7 +524,7 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const patchAssignment = useCallback(async (
     id: string,
     crNumber: string,
-    patch: { isStandAlone?: boolean | null; cycles?: string[]; sortOrder?: number },
+    patch: { isStandAlone?: boolean | null; cycles?: string[]; sortOrder?: number; standAloneDueDate?: string | null; secondaryParticipationPct?: number | null },
   ) => {
     try {
       const res = await axios.patch(`${API}/qa/assignments/${id}`, patch, { headers });
@@ -550,6 +609,25 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
     });
   };
 
+  // ── Second-tester suggestions ────────────────────────────────────────────────
+
+  const applySecondTesterSuggestion = async (s: typeof secondTesterSuggestions[number]) => {
+    setApplyingSuggestion(s.assignmentId);
+    try {
+      await axios.patch(
+        `${API}/qa/assignments/${s.assignmentId}/secondary`,
+        { secondaryTesterId: s.suggestedTesterId },
+        { headers },
+      );
+      setSecondTesterSuggestions(prev => prev.filter(x => x.assignmentId !== s.assignmentId));
+      await loadVersion(selectedVId);
+    } catch {
+      // leave the suggestion in place — user can retry
+    } finally {
+      setApplyingSuggestion(null);
+    }
+  };
+
   // ── Generate work plan ─────────────────────────────────────────────────────
 
   const doGenerateWorkPlan = async () => {
@@ -557,7 +635,7 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
     try {
       const r = await axios.post(
         `${API}/qa/workplan/generate`,
-        { versionId: selectedVId, cycle1Start, testingEnd },
+        { versionId: selectedVId, cycle1Start, testingEnd, cycle1LengthDays, cycle2LengthDays, cycle3LengthDays },
         { headers },
       );
       const unassignedCrs: string[] = r.data.unassignedCrs ?? [];
@@ -613,10 +691,22 @@ CRים אלה לא ייכללו בתוכנית העבודה.
   // tester load: userId → { fullName, totalDays }
   const testerLoad = useMemo(() => {
     const map = new Map<string, { fullName: string; totalDays: number }>();
+    const bump = (userId: string, fullName: string, days: number) => {
+      const cur = map.get(userId) ?? { fullName, totalDays: 0 };
+      map.set(userId, { fullName: cur.fullName, totalDays: cur.totalDays + days });
+    };
     assignments.forEach(a => {
-      const days = a.qaEffort != null ? a.qaEffort : (effortMap.get(a.crNumber) ?? 0);
-      const cur  = map.get(a.userId) ?? { fullName: a.user.fullName, totalDays: 0 };
-      map.set(a.userId, { fullName: cur.fullName, totalDays: cur.totalDays + days });
+      const total = a.qaEffort != null ? a.qaEffort : (effortMap.get(a.crNumber) ?? 0);
+      // A second tester carries their participation % of the effort — the
+      // rest stays with primary, matching the actual scheduler split, so
+      // adding help to an overloaded tester correctly reduces their load here too.
+      if (a.secondaryUser) {
+        const pct = a.secondaryParticipationPct ?? 50;
+        bump(a.userId, a.user.fullName, Math.round(total * (100 - pct) / 100 * 10) / 10);
+        bump(a.secondaryTesterId!, a.secondaryUser.fullName, Math.round(total * pct / 100 * 10) / 10);
+      } else {
+        bump(a.userId, a.user.fullName, total);
+      }
     });
     return map;
   }, [assignments, effortMap]);
@@ -638,7 +728,62 @@ CRים אלה לא ייכללו בתוכנית העבודה.
   }, [assignments]);
 
   const cycleDays     = countWorkDays(cycle1Start, testingEnd);
-  const overloadCount = Array.from(testerLoad.values()).filter(l => cycleDays > 0 && l.totalDays > cycleDays).length;
+  const overloadCount = Array.from(testerLoad.values()).filter(l => cycle1LengthDays > 0 && l.totalDays > cycle1LengthDays).length;
+
+  // Full active-tester roster (any CR's scored list includes everyone, not
+  // just the top matches) — used to find reassignment candidates who
+  // currently have zero load and so don't even appear in testerLoad.
+  const allTestersRoster = useMemo(() => {
+    const m = new Map<string, string>(); // userId → fullName
+    crs.forEach(cr => cr.testers.forEach(t => { if (!m.has(t.userId)) m.set(t.userId, t.fullName); }));
+    return m;
+  }, [crs]);
+
+  // Who's over capacity and why — checked against the fixed cycle-1-length
+  // parameter (the same one the work plan now uses for its fixed cycle
+  // boundaries), not the whole testing-window "קיבולת לבודק" shown below —
+  // surfaced here as a clear, explicit alert instead of only a colored bar,
+  // with the specific CR driving each overload — plus a one-click
+  // reassignment suggestion when a tester with enough spare capacity to
+  // absorb the biggest CR actually exists.
+  const overloadIssues = useMemo(() => {
+    if (cycle1LengthDays <= 0) return [];
+    const byTester = new Map<string, Assignment[]>();
+    assignments.forEach(a => {
+      const list = byTester.get(a.userId) ?? [];
+      list.push(a);
+      byTester.set(a.userId, list);
+    });
+    const issues: {
+      userId: string; fullName: string; totalDays: number; daysOver: number;
+      biggest?: Assignment; biggestDays: number;
+      suggestion?: { userId: string; fullName: string; newTotal: number };
+    }[] = [];
+    testerLoad.forEach((load, userId) => {
+      if (load.totalDays <= cycle1LengthDays) return;
+      const list    = byTester.get(userId) ?? [];
+      const biggest = [...list].sort((a, b) => (b.qaEffort ?? effortMap.get(b.crNumber) ?? 0) - (a.qaEffort ?? effortMap.get(a.crNumber) ?? 0))[0];
+      const biggestDays = biggest ? (biggest.qaEffort ?? effortMap.get(biggest.crNumber) ?? 0) : 0;
+
+      let suggestion: { userId: string; fullName: string; newTotal: number } | undefined;
+      if (biggest && biggestDays > 0) {
+        allTestersRoster.forEach((fullName, candId) => {
+          if (candId === userId) return;
+          const candTotal = testerLoad.get(candId)?.totalDays ?? 0;
+          const newTotal  = candTotal + biggestDays;
+          if (newTotal > cycle1LengthDays) return; // would overflow the candidate too — not a real fix
+          if (!suggestion || newTotal < suggestion.newTotal) suggestion = { userId: candId, fullName, newTotal };
+        });
+      }
+
+      issues.push({
+        userId, fullName: load.fullName, totalDays: load.totalDays,
+        daysOver: Math.round((load.totalDays - cycle1LengthDays) * 10) / 10,
+        biggest, biggestDays, suggestion,
+      });
+    });
+    return issues.sort((a, b) => b.daysOver - a.daysOver);
+  }, [testerLoad, cycle1LengthDays, assignments, effortMap, allTestersRoster]);
 
   const visibleCrs = crs.filter(cr => !hiddenCrs.has(cr.crNumber) && (crSyncStatuses[cr.crNumber] ?? 'ACTIVE') !== 'REMOVED');
   const assigned   = visibleCrs.filter(cr => assignmentMap.has(cr.crNumber)).length;
@@ -699,7 +844,13 @@ CRים אלה לא ייכללו בתוכנית העבודה.
           const label = tab === 'assignments' ? '📋 שיבוץ בודקים' : tab === 'workplan' ? '🗓 תוכנית עבודה' : '📅 לוח פעילויות';
           const active = activeTab === tab;
           return (
-            <button key={tab} onClick={() => setActiveTab(tab)} style={{
+            <button key={tab} onClick={() => {
+              // Coming back from the work-plan tab (e.g. after adding/removing a
+              // secondary tester there) — refresh so this screen isn't stale,
+              // without requiring a manual page reload.
+              if (tab === 'assignments' && activeTab !== 'assignments') loadVersion(selectedVId);
+              setActiveTab(tab);
+            }} style={{
               padding: `${SP[2]} ${SP[4]}`, border: 'none', background: 'transparent',
               borderBottom: active ? `2px solid ${BLUE}` : '2px solid transparent',
               marginBottom: '-2px',
@@ -737,6 +888,49 @@ CRים אלה לא ייכללו בתוכנית העבודה.
       )}
 
       {activeTab === 'assignments' && <>
+
+      {/* ── Second-tester suggestions — CR whose effort alone exceeds the
+          configured threshold (default 12 days), no secondary tester set yet ── */}
+      {secondTesterSuggestions.filter(s => !dismissedSuggestions.has(s.assignmentId)).length > 0 && (
+        <div style={{
+          background: C.bgInProgress, border: `1px solid ${C.statusInProgress}44`,
+          borderRadius: RADIUS.lg, padding: SP[4], marginBottom: SP[4],
+        }}>
+          <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: SP[2] }}>
+            ⏱ הצעות לבודק שני — CR-ים שעלולים להאריך את סבב 1
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+            {secondTesterSuggestions.filter(s => !dismissedSuggestions.has(s.assignmentId)).map(s => (
+              <div key={s.assignmentId} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP[3],
+                background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`,
+              }}>
+                <div style={{ ...TEXT.sm, color: C.textSecondary }}>
+                  <strong style={{ color: C.textPrimary }}>{s.crNumber}</strong>
+                  {s.crLabel && ` — ${s.crLabel.replace(/^\d+\s*-\s*/, '')}`}
+                  {' '}({s.qaEffortDays} ימים, סף {s.thresholdDays}) — מומלץ: <strong>{s.suggestedTesterName}</strong>
+                  {s.timeSavingDays > 0 && ` · חוסך כ-${s.timeSavingDays} ימים`}
+                </div>
+                <div style={{ display: 'flex', gap: SP[2], flexShrink: 0 }}>
+                  <button
+                    onClick={() => applySecondTesterSuggestion(s)}
+                    disabled={applyingSuggestion === s.assignmentId}
+                    style={{ padding: '5px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold }}
+                  >
+                    {applyingSuggestion === s.assignmentId ? 'מאשר...' : '✓ אשר'}
+                  </button>
+                  <button
+                    onClick={() => setDismissedSuggestions(prev => new Set(prev).add(s.assignmentId))}
+                    style={{ padding: '5px 12px', background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', ...TEXT.xs }}
+                  >
+                    התעלם
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Version + dates + generate */}
       <div style={{
@@ -782,11 +976,53 @@ CRים אלה לא ייכללו בתוכנית העבודה.
           />
         </label>
 
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
+          <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }} title="גבול קבוע לסבב 1. מי שלא מספיק מסומן כחורג, לא מותח את הסבב לכל הצוות">
+            אורך סבב 1 (ימי עבודה)
+          </span>
+          <input
+            type="number" min={1} value={cycle1LengthDays}
+            onChange={e => setCycle1LengthDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
+            style={{ width: 90, padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, background: C.bgNested, color: C.textPrimary, outline: 'none', fontFamily: FONT }}
+          />
+        </label>
+
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
+          <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }} title="גבול קבוע לסבב 2, בלתי תלוי בסבב 1">
+            אורך סבב 2 (ימי עבודה)
+          </span>
+          <input
+            type="number" min={1} value={cycle2LengthDays}
+            onChange={e => setCycle2LengthDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
+            style={{ width: 90, padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, background: C.bgNested, color: C.textPrimary, outline: 'none', fontFamily: FONT }}
+          />
+        </label>
+
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
+          <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }} title="גבול קבוע לסבב 3, בלתי תלוי בסבב 1/2">
+            אורך סבב 3 (ימי עבודה)
+          </span>
+          <input
+            type="number" min={1} value={cycle3LengthDays}
+            onChange={e => setCycle3LengthDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
+            style={{ width: 90, padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, background: C.bgNested, color: C.textPrimary, outline: 'none', fontFamily: FONT }}
+          />
+        </label>
+
         {cycleDays > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
-            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>קיבולת לבודק</span>
+            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>אורך כל התקופה</span>
             <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold }}>
               {cycleDays} ימי עבודה
+            </div>
+          </div>
+        )}
+
+        {selectedVersion?.plannedStart && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }} title="נקבע בשלב יצירת הגרסה — משימות ליבה לא יכולות להימשך מעברו">
+            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>🚀 מועד עלייה לאוויר</span>
+            <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold }}>
+              {new Date(selectedVersion.plannedStart).toLocaleDateString('he-IL')}
             </div>
           </div>
         )}
@@ -810,6 +1046,20 @@ CRים אלה לא ייכללו בתוכנית העבודה.
               {syncing ? '⏳' : '🔄'} סנכרן משימות גרסה
             </button>
             <button
+              disabled={bulkAssigning || visibleCrs.filter(cr => !assignmentMap.has(cr.crNumber)).length === 0}
+              onClick={autoAssignAll}
+              title="שיבוץ אוטומטי לכל ה-CR-ים שטרם שובצו"
+              style={{
+                padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, color: C.textSecondary,
+                border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold,
+                cursor: (bulkAssigning || visibleCrs.filter(cr => !assignmentMap.has(cr.crNumber)).length === 0) ? 'not-allowed' : 'pointer',
+                opacity: (bulkAssigning || visibleCrs.filter(cr => !assignmentMap.has(cr.crNumber)).length === 0) ? 0.5 : 1,
+                fontFamily: FONT, transition: EASE.fast, whiteSpace: 'nowrap',
+              }}
+            >
+              {bulkAssigning ? '⏳ משבץ...' : '⚡ שיבוץ אוטומטי לכולם'}
+            </button>
+            <button
               disabled={generating || !cycle1Start || !testingEnd}
               onClick={generateWorkPlan}
               style={{
@@ -825,6 +1075,55 @@ CRים אלה לא ייכללו בתוכנית העבודה.
           </div>
         )}
       </div>
+
+      {/* ── Overload alert — who exceeds cycle capacity and why ── */}
+      {overloadIssues.length > 0 && (
+        <div style={{
+          marginBottom: SP[4], borderRadius: RADIUS.lg, border: `1px solid ${C.danger}`,
+          background: C.dangerBg, overflow: 'hidden',
+        }}>
+          <div
+            onClick={() => setOverloadPanelCollapsed(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${SP[3]} ${SP[4]}`, cursor: 'pointer' }}
+          >
+            <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.danger }}>
+              ⚠️ {overloadIssues.length} בודקים חורגים מאורך סבב 1 ({cycle1LengthDays} ימי עבודה)
+            </span>
+            <span style={{ ...TEXT.sm, color: C.danger }}>{overloadPanelCollapsed ? '▸ הצג' : '▾ הסתר'}</span>
+          </div>
+          {!overloadPanelCollapsed && (
+            <div style={{ padding: `0 ${SP[4]} ${SP[4]}`, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+              {overloadIssues.map(issue => (
+                <div key={issue.userId} style={{ padding: SP[3], background: C.bgCard, borderRadius: RADIUS.md, border: `1px solid ${C.border}`, ...TEXT.sm, color: C.textPrimary }}>
+                  <div>
+                    <b>{issue.fullName}</b> — משובצים לו {issue.totalDays} ימי עבודה, מול אורך סבב 1 של {cycle1LengthDays} ימים (חריגה של {issue.daysOver} ימים).
+                    {issue.biggest && (
+                      <> ה-CR המשמעותי ביותר בעומס שלו: <b>{issue.biggest.crNumber}</b> ({issue.biggestDays} ימים).</>
+                    )}
+                  </div>
+                  {issue.suggestion && issue.biggest && (
+                    <button
+                      disabled={saving === issue.biggest.crNumber}
+                      onClick={() => {
+                        const crRec = crs.find(c => c.crNumber === issue.biggest!.crNumber);
+                        if (crRec) assign(crRec, issue.suggestion!.userId);
+                      }}
+                      style={{
+                        marginTop: SP[2], padding: `4px ${SP[3]}`, background: C.success, color: '#fff',
+                        border: 'none', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.semibold,
+                        cursor: saving === issue.biggest.crNumber ? 'not-allowed' : 'pointer',
+                        opacity: saving === issue.biggest.crNumber ? 0.6 : 1, fontFamily: FONT,
+                      }}
+                    >
+                      🔧 העבר CR {issue.biggest.crNumber} ל-{issue.suggestion.fullName} (יישאר עם {issue.suggestion.newTotal}/{cycle1LengthDays} ימים) — לבצע?
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Sync diff modal ── */}
       {syncDiff && (
@@ -844,9 +1143,10 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                 <div style={{ marginBottom: SP[3] }}>
                   <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.success, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: SP[2] }}>CRים חדשים שיתווספו</div>
                   {syncDiff.added.map(item => (
-                    <div key={item.crNumber} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[1]} ${SP[2]}`, borderRadius: RADIUS.sm, background: C.successBg, marginBottom: 4 }}>
+                    <div key={`${item.crNumber}-${item.teamName}`} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[1]} ${SP[2]}`, borderRadius: RADIUS.sm, background: C.successBg, marginBottom: 4 }}>
                       <span style={{ background: C.success + '22', color: C.success, padding: `1px ${SP[2]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{item.crNumber}</span>
-                      <span style={{ ...TEXT.xs, color: C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}</span>
+                      <span style={{ ...TEXT.xs, color: C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{item.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}</span>
+                      <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap', flexShrink: 0 }}>{item.teamName}</span>
                     </div>
                   ))}
                 </div>
@@ -855,9 +1155,10 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                 <div>
                   <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.danger, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: SP[2] }}>CRים שהוסרו מהתכולה</div>
                   {syncDiff.removed.map(item => (
-                    <div key={item.crNumber} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[1]} ${SP[2]}`, borderRadius: RADIUS.sm, background: C.dangerBg, marginBottom: 4 }}>
+                    <div key={`${item.crNumber}-${item.teamName}`} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[1]} ${SP[2]}`, borderRadius: RADIUS.sm, background: C.dangerBg, marginBottom: 4 }}>
                       <span style={{ background: C.danger + '22', color: C.danger, padding: `1px ${SP[2]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{item.crNumber}</span>
-                      <span style={{ ...TEXT.xs, color: C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'line-through' }}>{item.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}</span>
+                      <span style={{ ...TEXT.xs, color: C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'line-through', flex: 1 }}>{item.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}</span>
+                      <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap', flexShrink: 0 }}>{item.teamName}</span>
                     </div>
                   ))}
                 </div>
@@ -930,6 +1231,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                       { key: null,     label: 'סבבים' },
                       { key: 'order',  label: 'סדר'   },
                       { key: 'tester', label: 'בודק'  },
+                      { key: null,     label: 'ימי בדיקות (פיצול)' },
                       { key: 'score',  label: 'ציון'  },
                       { key: null,     label: ''      },
                     ] as { key: typeof sortCol | null; label: string }[]).map(({ key, label }) => (
@@ -964,8 +1266,8 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                     // Team lead can override effort via assignment.qaEffort
                     const effortDays = (asg?.qaEffort ?? cr.qaEffortDays);
                     const isEditingEff = editingEffort === cr.crNumber;
-                    const testerOverload = asg && cycleDays > 0
-                      ? (testerLoad.get(asg.userId)?.totalDays ?? 0) > cycleDays : false;
+                    const testerOverload = asg && cycle1LengthDays > 0
+                      ? (testerLoad.get(asg.userId)?.totalDays ?? 0) > cycle1LengthDays : false;
                     const orderNum = asg ? (testerOrderMap.get(cr.crNumber) ?? null) : null;
 
                     // Effective isStandAlone: assignment override or VCA default
@@ -1110,6 +1412,27 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                                   </label>
                                 );
                               })}
+                              {effectiveCycles.includes('STAND_ALONE') && (
+                                <div style={{ marginTop: SP[2], paddingTop: SP[2], borderTop: `1px solid ${C.border}` }}>
+                                  <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, padding: `0 ${SP[2]}`, marginBottom: SP[1] }}>
+                                    מועד יעד מוקדם ל-Stand Alone (אופציונלי)
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: SP[1], padding: `0 ${SP[2]}` }}>
+                                    <DateField
+                                      value={asg.standAloneDueDate ? asg.standAloneDueDate.slice(0, 10) : ''}
+                                      onChange={v => patchAssignment(asg.id, cr.crNumber, { standAloneDueDate: v || null })}
+                                      style={{ padding: `4px ${SP[2]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.xs, background: C.bgNested, color: C.textPrimary, outline: 'none', fontFamily: FONT, flex: 1 }}
+                                    />
+                                    {asg.standAloneDueDate && (
+                                      <button
+                                        title="נקה תאריך יעד"
+                                        onClick={() => patchAssignment(asg.id, cr.crNumber, { standAloneDueDate: null })}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textDisabled, ...TEXT.xs, padding: 2 }}
+                                      >✕</button>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </td>
@@ -1135,9 +1458,49 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                               <span style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: testerOverload ? C.danger : C.textPrimary }}>{asg.user.fullName}</span>
                               {testerOverload && <span title="בודק זה חורג ממשך הסבב" style={{ cursor: 'help' }}>⚠️</span>}
                               {asg.secondaryUser && (
-                                <span title="בודק שני" style={{ ...TEXT.xs, color: C.info, background: C.infoBg, padding: `1px ${SP[1]}`, borderRadius: RADIUS.sm, whiteSpace: 'nowrap' }}>
+                                <span title="בודק שני" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, ...TEXT.xs, color: C.info, background: C.infoBg, padding: `1px ${SP[1]}`, borderRadius: RADIUS.sm, whiteSpace: 'nowrap' }}>
                                   + {asg.secondaryUser.fullName}
+                                  <input
+                                    type="number" min={1} max={99}
+                                    defaultValue={asg.secondaryParticipationPct ?? 50}
+                                    title="% השתתפות הבודק השני מתוך המאמץ הכולל"
+                                    onBlur={async e => {
+                                      const v = Math.min(99, Math.max(1, parseInt(e.target.value, 10) || 50));
+                                      setSaving(cr.crNumber);
+                                      try {
+                                        await axios.patch(`${API}/qa/assignments/${asg.id}`, { secondaryParticipationPct: v }, { headers });
+                                        await loadVersion(selectedVId);
+                                      } finally {
+                                        setSaving(null);
+                                      }
+                                    }}
+                                    onClick={e => e.stopPropagation()}
+                                    style={{ width: 40, padding: '0 3px', border: `1px solid ${C.info}55`, borderRadius: RADIUS.sm, ...TEXT.xs, background: C.bgCard, color: C.info, outline: 'none', fontFamily: FONT, textAlign: 'center', MozAppearance: 'textfield' }}
+                                  />%
+                                  <button
+                                    disabled={isSaving}
+                                    title="הסר בודק שני"
+                                    onClick={async e => {
+                                      e.stopPropagation();
+                                      setSaving(cr.crNumber);
+                                      try {
+                                        await axios.patch(`${API}/qa/assignments/${asg.id}/secondary`, { secondaryTesterId: null }, { headers });
+                                        await loadVersion(selectedVId);
+                                      } finally {
+                                        setSaving(null);
+                                      }
+                                    }}
+                                    style={{ background: 'none', border: 'none', cursor: isSaving ? 'not-allowed' : 'pointer', color: C.info, padding: 0, fontSize: 11, lineHeight: 1 }}
+                                  >✕</button>
                                 </span>
+                              )}
+                              {!asg.secondaryUser && (
+                                <button
+                                  disabled={isSaving}
+                                  onClick={e => { setOpenCyclesPicker(null); openPickerFor(cr.crNumber, e.currentTarget, 'secondary'); }}
+                                  title="הוסף בודק שני"
+                                  style={{ padding: `1px ${SP[1]}`, background: 'transparent', color: C.textMuted, border: `1px dashed ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.xs, cursor: isSaving ? 'not-allowed' : 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' }}
+                                >+ בודק שני</button>
                               )}
                               <button
                                 disabled={isSaving}
@@ -1157,6 +1520,22 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                                 </span>
                               )}
                             </div>
+                          )}
+                        </td>
+
+                        {/* Computed testing-days split (primary/secondary) */}
+                        <td style={{ padding: `${SP[2]} ${SP[3]}`, whiteSpace: 'nowrap', textAlign: 'center' }}>
+                          {asg?.secondaryUser && effortDays != null ? (() => {
+                            const pct = asg.secondaryParticipationPct ?? 50;
+                            const secondaryDays = Math.max(1, Math.round(effortDays * pct / 100 * 10) / 10);
+                            const primaryDays   = Math.max(1, Math.round(effortDays * (100 - pct) / 100 * 10) / 10);
+                            return (
+                              <span title={`${asg.user.fullName}: ${primaryDays} ימים · ${asg.secondaryUser!.fullName}: ${secondaryDays} ימים`} style={{ ...TEXT.xs, color: C.textSecondary, fontWeight: WEIGHT.semibold }}>
+                                {primaryDays} / {secondaryDays}
+                              </span>
+                            );
+                          })() : (
+                            <span style={{ ...TEXT.xs, color: C.textDisabled }}>—</span>
                           )}
                         </td>
 
@@ -1253,7 +1632,26 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                 {scoringLoading === cr.crNumber ? (
                   <div style={{ padding: SP[4], textAlign: 'center', ...TEXT.sm, color: C.textMuted }}>⏳ מחשב ציונים...</div>
                 ) : result ? (
-                  <ScoringPickerContent result={result} allTesters={cr.testers} currentUserId={asg?.userId} onAssign={(userId, score) => assign(cr, userId, score)} />
+                  pickerMode === 'secondary' && asg ? (
+                    <ScoringPickerContent
+                      result={{ ...result, recommendations: result.recommendations.filter(r => r.userId !== asg.userId) }}
+                      allTesters={cr.testers.filter(t => t.userId !== asg.userId)}
+                      currentUserId={asg.secondaryTesterId ?? undefined}
+                      title="בחירת בודק שני"
+                      onAssign={async userId => {
+                        setOpenPicker(null);
+                        setSaving(cr.crNumber);
+                        try {
+                          await axios.patch(`${API}/qa/assignments/${asg.id}/secondary`, { secondaryTesterId: userId }, { headers });
+                          await loadVersion(selectedVId);
+                        } finally {
+                          setSaving(null);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <ScoringPickerContent result={result} allTesters={cr.testers} currentUserId={asg?.userId} onAssign={(userId, score) => assign(cr, userId, score)} />
+                  )
                 ) : (
                   <div style={{ padding: SP[4], textAlign: 'center', ...TEXT.sm, color: C.textMuted }}>שגיאה בטעינת הניקוד</div>
                 )}
@@ -1279,7 +1677,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
             <div style={{ marginTop: SP[3], background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.sm, overflow: 'hidden' }}>
               <div style={{ padding: `${SP[2]} ${SP[4]}`, background: C.bgNested, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: SP[3] }}>
                 <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>📊 עומס בודקים</span>
-                {cycleDays > 0 && <span style={{ ...TEXT.xs, color: C.textMuted }}>קיבולת: {cycleDays} ימי עבודה לבודק</span>}
+                {cycle1LengthDays > 0 && <span style={{ ...TEXT.xs, color: C.textMuted }}>קיבולת: {cycle1LengthDays} ימי עבודה לבודק (אורך סבב 1)</span>}
                 {overloadCount > 0 && (
                   <span style={{ ...TEXT.xs, background: C.dangerBg, color: C.danger, padding: `2px ${SP[2]}`, borderRadius: RADIUS.full, fontWeight: WEIGHT.semibold, border: `1px solid ${C.danger}33` }}>
                     ⚠ {overloadCount} חורג{overloadCount > 1 ? 'ים' : ''}
@@ -1290,7 +1688,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                 {Array.from(testerLoad.entries())
                   .sort((a, b) => b[1].totalDays - a[1].totalDays)
                   .map(([userId, { fullName, totalDays }]) => {
-                    const over = cycleDays > 0 && totalDays > cycleDays;
+                    const over = cycle1LengthDays > 0 && totalDays > cycle1LengthDays;
                     return (
                       <div key={userId} style={{ padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, background: over ? C.dangerBg : C.bgNested, border: `1px solid ${over ? C.danger + '44' : C.border}`, minWidth: 200, flex: '1 1 200px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
@@ -1299,11 +1697,11 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                           </span>
                           {over && (
                             <span style={{ ...TEXT.xs, background: C.dangerBg, color: C.danger, padding: `1px 6px`, borderRadius: RADIUS.full, fontWeight: WEIGHT.bold, border: `1px solid ${C.danger}33` }}>
-                              +{(totalDays - cycleDays).toFixed(1)}י'
+                              +{(totalDays - cycle1LengthDays).toFixed(1)}י'
                             </span>
                           )}
                         </div>
-                        <LoadBar used={totalDays} capacity={cycleDays || totalDays} />
+                        <LoadBar used={totalDays} capacity={cycle1LengthDays || totalDays} />
                       </div>
                     );
                   })}
@@ -1323,12 +1721,13 @@ CRים אלה לא ייכללו בתוכנית העבודה.
 // ── Scoring picker ─────────────────────────────────────────────────────────────
 
 function ScoringPickerContent({
-  result, allTesters, currentUserId, onAssign,
+  result, allTesters, currentUserId, onAssign, title,
 }: {
   result:        ScoringResult;
   allTesters:    CrRec['testers'];
   currentUserId?: string;
   onAssign:      (userId: string, score: number) => void;
+  title?:        string;
 }) {
   const [showManual, setShowManual] = useState(false);
   const [navIdx, setNavIdx]         = useState(-1);
@@ -1377,7 +1776,7 @@ function ScoringPickerContent({
     <div>
       <div style={{ padding: `${SP[2]} ${SP[3]}`, borderBottom: `1px solid ${C.border}`, marginBottom: SP[2] }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>שיבוץ מונחה AI</span>
+          <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{title ?? 'שיבוץ מונחה AI'}</span>
           {isManual ? (
             <span style={{ background: C.dangerBg, color: C.danger, padding: `2px 8px`, borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.bold }}>⚠ שיבוץ ידני נדרש</span>
           ) : (

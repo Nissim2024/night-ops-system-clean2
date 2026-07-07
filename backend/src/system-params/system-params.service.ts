@@ -72,6 +72,12 @@ const DEFAULT_PARAMS = [
     label: 'Anthropic API Key (לניסוח AI מאוחד של תוכניות CR)',
     type: 'password',
   },
+  {
+    key: 'QA_SECOND_TESTER_THRESHOLD_DAYS',
+    value: '12',
+    label: 'סף ימי בדיקה (סבב 1) להצעת בודק שני — CR שחוצה סף זה ואין לו בודק שני יוצג כהמלצה',
+    type: 'number',
+  },
 ];
 
 @Injectable()

@@ -104,6 +104,11 @@ export class QaController {
     return this.qa.suggestSecondaryTesters(versionId, crNumber);
   }
 
+  @Get('assignments/second-tester-suggestions')
+  getSecondTesterSuggestions(@Query('versionId') versionId: string) {
+    return this.qa.getSecondTesterSuggestions(versionId);
+  }
+
   @Post('assignments')
   upsertAssignment(
     @Body() body: {
@@ -136,9 +141,16 @@ export class QaController {
       qaEffort?:            number | null;
       secondaryTesterId?:   string | null;
       secondarySkillLevel?: number | null;
+      secondaryParticipationPct?: number | null;
+      standAloneDueDate?:   string | null;
     },
   ) {
-    return this.qa.patchAssignment(id, body);
+    return this.qa.patchAssignment(id, {
+      ...body,
+      standAloneDueDate: body.standAloneDueDate !== undefined
+        ? (body.standAloneDueDate ? new Date(body.standAloneDueDate) : null)
+        : undefined,
+    });
   }
 
   @Patch('assignments/:id/secondary')
@@ -152,7 +164,9 @@ export class QaController {
       secondarySkillLevel: body.secondaryTesterId ? (body.secondarySkillLevel ?? 3) : null,
     });
 
-    // Regenerate work plan to incorporate secondary tester
+    // Regenerate work plan to incorporate the secondary tester's effort split —
+    // preserving the existing cycle-length parameters (they're editable and
+    // must not silently reset to the 12/6/4 defaults on every secondary change).
     const versionId = (asg as any).versionId;
     const existingPlan = await this.workPlan.getWorkPlan(versionId);
     if (existingPlan) {
@@ -161,6 +175,9 @@ export class QaController {
         new Date(existingPlan.cycle1Start),
         new Date(existingPlan.testingEnd),
         req.user?.email,
+        (existingPlan as any).cycle1LengthDays,
+        (existingPlan as any).cycle2LengthDays,
+        (existingPlan as any).cycle3LengthDays,
       );
       return { assignment: asg, workPlan: regen.workPlan };
     }
@@ -188,7 +205,10 @@ export class QaController {
 
   @Post('workplan/generate')
   generateWorkPlan(
-    @Body() body: { versionId: string; cycle1Start: string; testingEnd: string },
+    @Body() body: {
+      versionId: string; cycle1Start: string; testingEnd: string;
+      cycle1LengthDays?: number; cycle2LengthDays?: number; cycle3LengthDays?: number;
+    },
     @Request() req: any,
   ) {
     return this.workPlan.generateWorkPlan(
@@ -196,6 +216,9 @@ export class QaController {
       new Date(body.cycle1Start),
       new Date(body.testingEnd),
       req.user?.email,
+      body.cycle1LengthDays,
+      body.cycle2LengthDays,
+      body.cycle3LengthDays,
     );
   }
 

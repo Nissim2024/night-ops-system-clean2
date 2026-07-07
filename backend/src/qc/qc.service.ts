@@ -61,6 +61,22 @@ export interface CrItemDto {
   label: string;
 }
 
+export interface BugDashboardDto {
+  reported: number;
+  open: number;
+  rejected: number;
+  production: number;
+  regression: number;
+  changes: number;
+  reopen: number;
+  targetTotal: number;
+  targetOpen: number;
+  dailyReported: { date: string; count: number }[];
+  openByType: { label: string; count: number }[];
+  openByResponsibility: { label: string; count: number }[];
+  openByCr: { label: string; count: number }[];
+}
+
 // ── SQL Queries ───────────────────────────────────────────────────────────────
 
 const TEST_COVERAGE_SQL = `
@@ -147,6 +163,24 @@ const DEFECTS_SQL = `
     AND BG_DETECTED_IN_RCYC = :cycleId
 `;
 
+// Raw rows feeding the bug dashboard (PBIRS-equivalent) — scoped only by
+// release (matches the PBIRS report's default filter state: Cycle/CR
+// Number/Tester/Bug Status all "All"). Aggregation happens in JS below
+// rather than in SQL, since row counts per release are small (~100-500).
+const BUG_DASHBOARD_SQL = `
+  SELECT
+    BG_BUG_ID       AS DEFECT_ID,
+    BG_RESPONSIBLE  AS ASSIGNED_TO,
+    BG_USER_04      AS DEFECT_STATUS,
+    BG_USER_06      AS DEFECT_TYPE,
+    BG_USER_10      AS CATEGORY_REF,
+    BG_USER_58      AS CR_REFERENCE_NUMBER,
+    BG_TARGET_REL   AS TARGET_REL,
+    BG_DETECTION_DATE AS DETECTED_ON_DATE
+  FROM BUG
+  WHERE BG_DETECTED_IN_REL = :releaseId
+`;
+
 // ── Mock data (used when ORACLE_ENABLED=false) ────────────────────────────────
 
 const MOCK_COVERAGE: TestCoverageDto[] = [
@@ -209,6 +243,40 @@ const MOCK_CR_ITEMS: CrItemDto[] = [
   { id: '13502', description: 'Web Site NEXT — עדכוני עיצוב',               label: '13502 - Web Site NEXT — עדכוני עיצוב' },
 ];
 
+// Raw BUG rows shape shared by both the mock data below and real Oracle rows
+// from BUG_DASHBOARD_SQL — computeBugDashboard() aggregates either the same way.
+interface BugRawRow {
+  DEFECT_ID: string | number;
+  ASSIGNED_TO: string | null;
+  DEFECT_STATUS: string | null;
+  DEFECT_TYPE: string | null;
+  CATEGORY_REF: string | null;
+  CR_REFERENCE_NUMBER: string | null;
+  TARGET_REL: string | number | null;
+  DETECTED_ON_DATE: string | Date | null;
+}
+
+const MOCK_BUG_ROWS: BugRawRow[] = [
+  { DEFECT_ID: 1, ASSIGNED_TO: 'CRM Team',     DEFECT_STATUS: 'Open',     DEFECT_TYPE: 'Functional',      CATEGORY_REF: null,          CR_REFERENCE_NUMBER: '13057 - חיוב תחזוקה בפרוקסי כ',   TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-14' },
+  { DEFECT_ID: 2, ASSIGNED_TO: 'CRM Team',     DEFECT_STATUS: 'At Work',  DEFECT_TYPE: 'Functional',      CATEGORY_REF: null,          CR_REFERENCE_NUMBER: '13036 - נתונת דאשת הספסק ד',       TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-21' },
+  { DEFECT_ID: 3, ASSIGNED_TO: 'Website HOT',  DEFECT_STATUS: 'Fixed_Dev',DEFECT_TYPE: 'Setup',           CATEGORY_REF: null,          CR_REFERENCE_NUMBER: '13052 - HBO ניתוח ם',              TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-24' },
+  { DEFECT_ID: 4, ASSIGNED_TO: 'SHOB Dev Team',DEFECT_STATUS: 'Pending',  DEFECT_TYPE: 'Setup',           CATEGORY_REF: null,          CR_REFERENCE_NUMBER: '13054 - שיפור התהליך רץ פי',        TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-25' },
+  { DEFECT_ID: 5, ASSIGNED_TO: 'HOT Design Team', DEFECT_STATUS: 'New',   DEFECT_TYPE: 'Change Requests', CATEGORY_REF: null,          CR_REFERENCE_NUMBER: '13084 - (לעמק) ONT תחיקה ב',        TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-28' },
+  { DEFECT_ID: 6, ASSIGNED_TO: 'HOT Setup Team', DEFECT_STATUS: 'Open',   DEFECT_TYPE: 'Change Requests', CATEGORY_REF: null,          CR_REFERENCE_NUMBER: '13118 - כתובת 2 ד תיוב סוב',        TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-29' },
+  { DEFECT_ID: 7, ASSIGNED_TO: 'BEZEQ',        DEFECT_STATUS: 'Canceled', DEFECT_TYPE: 'GUI',             CATEGORY_REF: null,          CR_REFERENCE_NUMBER: '13131 - ניתוח קדים ל',              TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-30' },
+  { DEFECT_ID: 8, ASSIGNED_TO: 'ETL Team',     DEFECT_STATUS: 'Canceled', DEFECT_TYPE: 'DB Issue',        CATEGORY_REF: null,          CR_REFERENCE_NUMBER: '13048 - שולוגיאתו לק',              TARGET_REL: '374', DETECTED_ON_DATE: '2026-07-01' },
+  { DEFECT_ID: 9, ASSIGNED_TO: 'Marketing Web',DEFECT_STATUS: 'Fixed_Test', DEFECT_TYPE: 'Design',        CATEGORY_REF: null,          CR_REFERENCE_NUMBER: '13075 - CRM General Production',   TARGET_REL: '374', DETECTED_ON_DATE: '2026-07-02' },
+  { DEFECT_ID: 10, ASSIGNED_TO: 'NETC-DT team', DEFECT_STATUS: 'Reopen',  DEFECT_TYPE: 'Environment Issue', CATEGORY_REF: null,        CR_REFERENCE_NUMBER: '13131 - Regression',               TARGET_REL: '374', DETECTED_ON_DATE: '2026-07-05' },
+  { DEFECT_ID: 11, ASSIGNED_TO: 'Project Manager', DEFECT_STATUS: 'Reopen', DEFECT_TYPE: 'Functional',   CATEGORY_REF: null,          CR_REFERENCE_NUMBER: '13057 - חיוב תחזוקה בפרוקסי כ',   TARGET_REL: '374', DETECTED_ON_DATE: '2026-07-06' },
+  { DEFECT_ID: 12, ASSIGNED_TO: 'CRM Team',    DEFECT_STATUS: 'Open',     DEFECT_TYPE: 'Functional',      CATEGORY_REF: 'Production',  CR_REFERENCE_NUMBER: '13036 - נתונת דאשת הספסק ד',       TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-17' },
+  { DEFECT_ID: 13, ASSIGNED_TO: 'HOT Design Team', DEFECT_STATUS: 'At Work', DEFECT_TYPE: 'Setup',       CATEGORY_REF: 'Production',  CR_REFERENCE_NUMBER: '13052 - HBO ניתוח ם',              TARGET_REL: null,  DETECTED_ON_DATE: '2026-06-20' },
+  { DEFECT_ID: 14, ASSIGNED_TO: 'HOT Setup Team', DEFECT_STATUS: 'Fixed_Dev', DEFECT_TYPE: 'GUI',        CATEGORY_REF: 'Production',  CR_REFERENCE_NUMBER: '13084 - (לעמק) ONT תחיקה ב',        TARGET_REL: null,  DETECTED_ON_DATE: '2026-06-23' },
+  { DEFECT_ID: 15, ASSIGNED_TO: 'CRM Team',    DEFECT_STATUS: 'Open',     DEFECT_TYPE: 'Functional',      CATEGORY_REF: 'Regression',  CR_REFERENCE_NUMBER: '13131 - Regression',               TARGET_REL: null,  DETECTED_ON_DATE: '2026-06-26' },
+  { DEFECT_ID: 16, ASSIGNED_TO: 'NETC-DT team', DEFECT_STATUS: 'At Work', DEFECT_TYPE: 'Environment Issue', CATEGORY_REF: 'Regression', CR_REFERENCE_NUMBER: '13048 - שולוגיאתו לק',           TARGET_REL: null,  DETECTED_ON_DATE: '2026-06-27' },
+  { DEFECT_ID: 17, ASSIGNED_TO: 'HOT Design Team', DEFECT_STATUS: 'Fixed_Dev', DEFECT_TYPE: 'Change Requests', CATEGORY_REF: 'Regression', CR_REFERENCE_NUMBER: '13140 - שולוגיאתו',       TARGET_REL: null,  DETECTED_ON_DATE: '2026-07-01' },
+  { DEFECT_ID: 18, ASSIGNED_TO: 'CRM Team',    DEFECT_STATUS: 'Closed',   DEFECT_TYPE: 'Functional',      CATEGORY_REF: null,          CR_REFERENCE_NUMBER: '13036 - נתונת דאשת הספסק ד',       TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-14' },
+];
+
 // ── Helper ────────────────────────────────────────────────────────────────────
 
 async function oracleConnect(): Promise<any> {
@@ -231,6 +299,71 @@ async function oracleConnect(): Promise<any> {
   });
 }
 
+// Bucket definitions confirmed against the team's PBIRS reports (2026-07-06):
+//   Open       = status NOT IN (Closed, Canceled) — a DB-status "Rejected" row
+//                still counts as open in this org's workflow until Canceled.
+//   Rejected   = status = Canceled (the dashboard's "Rejected" label, NOT the
+//                DB's literal "Rejected" status, which is a different, still-open state)
+//   Reopen     = status = Reopen
+//   Changes    = DEFECT_TYPE = 'Change Requests'
+//   Production/Regression = CATEGORY_REF (BG_USER_10) = 'Production'/'Regression'
+//                AND status NOT IN (New, Canceled)
+//   Target     = TARGET_REL is not null; "left" = of those, status != Closed
+function computeBugDashboard(rows: BugRawRow[]): BugDashboardDto {
+  const isOpen = (status: string | null) => !['Closed', 'Canceled'].includes(status ?? '');
+  const notNewOrCanceled = (status: string | null) => !['New', 'Canceled'].includes(status ?? '');
+
+  const open = rows.filter(r => isOpen(r.DEFECT_STATUS));
+  const rejected = rows.filter(r => r.DEFECT_STATUS === 'Canceled');
+  const reopen = rows.filter(r => r.DEFECT_STATUS === 'Reopen');
+  const changes = rows.filter(r => r.DEFECT_TYPE === 'Change Requests');
+  const production = rows.filter(r => r.CATEGORY_REF === 'Production' && notNewOrCanceled(r.DEFECT_STATUS));
+  const regression = rows.filter(r => r.CATEGORY_REF === 'Regression' && notNewOrCanceled(r.DEFECT_STATUS));
+  const targeted = rows.filter(r => r.TARGET_REL !== null && r.TARGET_REL !== undefined && r.TARGET_REL !== '');
+  const targetOpen = targeted.filter(r => r.DEFECT_STATUS !== 'Closed');
+
+  const groupCount = (items: BugRawRow[], keyFn: (r: BugRawRow) => string | null) => {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      const key = keyFn(item) || 'ללא סיווג';
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count);
+  };
+
+  const dailyCounts = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.DETECTED_ON_DATE) continue;
+    const d = new Date(r.DETECTED_ON_DATE);
+    if (isNaN(d.getTime())) continue;
+    const key = d.toISOString().slice(0, 10);
+    dailyCounts.set(key, (dailyCounts.get(key) ?? 0) + 1);
+  }
+  const dailyReported = Array.from(dailyCounts.entries())
+    .map(([date, count]) => ({ date, count }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    reported:   rows.length,
+    open:       open.length,
+    rejected:   rejected.length,
+    production: production.length,
+    regression: regression.length,
+    changes:    changes.length,
+    reopen:     reopen.length,
+    targetTotal: targeted.length,
+    targetOpen:  targetOpen.length,
+    dailyReported,
+    openByType:           groupCount(open, r => r.DEFECT_TYPE),
+    openByResponsibility: groupCount(open, r => r.ASSIGNED_TO),
+    openByCr:             groupCount(open, r => r.CR_REFERENCE_NUMBER),
+  };
+}
+
+const MOCK_BUG_DASHBOARD: BugDashboardDto = computeBugDashboard(MOCK_BUG_ROWS);
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 @Injectable()
@@ -247,6 +380,11 @@ export class QcService {
     const cycleId = rel.goLiveCycleId ?? rel.rehearsalCycleId;
     if (!cycleId) return null;
     return { relId: rel.relId, cycleId };
+  }
+
+  async getStatus(): Promise<{ enabled: boolean }> {
+    const { enabled } = await getOracleConfig();
+    return { enabled };
   }
 
   async getTestCoverage(versionId: string): Promise<TestCoverageDto[]> {
@@ -320,6 +458,29 @@ export class QcService {
       }));
     } catch (err: any) {
       this.logger.error(`Oracle getDefects: ${err.message}`);
+      throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
+  }
+
+  async getBugDashboard(versionId: string): Promise<BugDashboardDto> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) return MOCK_BUG_DASHBOARD;
+
+    const ids = await this.getQcIds(versionId);
+    if (!ids) {
+      this.logger.warn(`No QC release linked to version ${versionId}`);
+      return computeBugDashboard([]);
+    }
+
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const result = await conn.execute(BUG_DASHBOARD_SQL, { releaseId: ids.relId });
+      return computeBugDashboard((result.rows ?? []) as BugRawRow[]);
+    } catch (err: any) {
+      this.logger.error(`Oracle getBugDashboard: ${err.message}`);
       throw err;
     } finally {
       if (conn) await conn.close().catch(() => {});

@@ -78,16 +78,29 @@ interface Cycle {
   tasks: CycleTask[];
 }
 
+interface OverflowIssue {
+  type: 'CORE_OVERFLOW' | 'SA_DUE_DATE_MISSED' | 'GO_LIVE_OVERFLOW';
+  message: string;
+  crNumber?: string;
+  userName?: string;
+  daysOver: number;
+  suggestions: string[];
+}
+
 interface WorkPlan {
   id: string;
   versionId: string;
   status: 'DRAFT' | 'APPROVED';
   cycle1Start: string;
   testingEnd: string;
+  cycle1LengthDays?: number | null;
+  cycle2LengthDays?: number | null;
+  cycle3LengthDays?: number | null;
   notes: string | null;
   createdAt: string;
   approvedBy: string | null;
   cycles: Cycle[];
+  overflowIssues?: OverflowIssue[];
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -125,6 +138,15 @@ const CYCLE_BG: Record<string, string> = {
 const EDITABLE_CYCLES = new Set(['CYCLE_2', 'CYCLE_3', 'UAT', 'REHEARSAL', 'GO_LIVE']);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Overflow issues only carry a tester's full name + crNumber (no task id), so
+// this composite key is how a problem message links back to its schedule row.
+function rowKey(fullName: string, crNumber: string): string {
+  return `${fullName}::${crNumber}`;
+}
+function rowElementId(fullName: string, crNumber: string): string {
+  return `wp-row-${rowKey(fullName, crNumber)}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
 
 function fmtDate(d: string | null | undefined): string {
   if (!d) return '—';
@@ -173,6 +195,9 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
   const [showGenForm, setShowGenForm]     = useState(false);
   const [cycle1Start, setCycle1Start]     = useState('');
   const [testingEnd, setTestingEnd]       = useState('');
+  const [cycle1LengthDays, setCycle1LengthDays] = useState(12);
+  const [cycle2LengthDays, setCycle2LengthDays] = useState(6);
+  const [cycle3LengthDays, setCycle3LengthDays] = useState(4);
   const [expandedCycles, setExpandedCycles] = useState<Set<string>>(new Set());
   const [editNotes, setEditNotes]         = useState<Record<string, string>>({});
   const [savingNotes, setSavingNotes]     = useState<Record<string, boolean>>({});
@@ -185,6 +210,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
   const [loadingSecondary, setLoadingSecondary] = useState(false);
   const [assigningSecondary, setAssigningSecondary] = useState(false);
   const [reorderingTask, setReorderingTask] = useState<string | null>(null);
+  const [issuesCollapsed, setIssuesCollapsed] = useState(false);
 
   // Sync versionId when parent changes initialVersionId
   useEffect(() => {
@@ -223,6 +249,9 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
         const allIds = new Set<string>(wpRes.data.cycles.map((c: Cycle) => c.id as string));
         setExpandedCycles(allIds);
       }
+      if (wpRes.data?.cycle1LengthDays) setCycle1LengthDays(wpRes.data.cycle1LengthDays);
+      if (wpRes.data?.cycle2LengthDays) setCycle2LengthDays(wpRes.data.cycle2LengthDays);
+      if (wpRes.data?.cycle3LengthDays) setCycle3LengthDays(wpRes.data.cycle3LengthDays);
     }).catch(() => setWorkPlan(null))
       .finally(() => setLoading(false));
   }, [versionId]);
@@ -307,7 +336,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
     setGenerating(true);
     try {
       const [genRes, asgRes] = await Promise.all([
-        ax.post(`${API}/qa/workplan/generate`, { versionId, cycle1Start, testingEnd }),
+        ax.post(`${API}/qa/workplan/generate`, { versionId, cycle1Start, testingEnd, cycle1LengthDays, cycle2LengthDays, cycle3LengthDays }),
         ax.get(`${API}/qa/assignments?versionId=${versionId}`).catch(() => ({ data: [] })),
       ]);
       setWorkPlan(genRes.data.workPlan);
@@ -401,6 +430,9 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
         versionId,
         cycle1Start: toInputDate(workPlan.cycle1Start),
         testingEnd:  toInputDate(workPlan.testingEnd),
+        cycle1LengthDays: workPlan.cycle1LengthDays ?? cycle1LengthDays,
+        cycle2LengthDays: workPlan.cycle2LengthDays ?? cycle2LengthDays,
+        cycle3LengthDays: workPlan.cycle3LengthDays ?? cycle3LengthDays,
       });
       setWorkPlan(r.data.workPlan);
       if (r.data.workPlan?.cycles) {
@@ -476,6 +508,16 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
     );
   }, [assignments, workPlan]);
 
+  // Rows referenced by an overflow issue — highlighted in the schedule below,
+  // and the issue message links/scrolls to the matching row.
+  const problematicKeys = useMemo(() => {
+    const keys = new Set<string>();
+    (workPlan?.overflowIssues ?? []).forEach(i => {
+      if (i.userName && i.crNumber) keys.add(rowKey(i.userName, i.crNumber));
+    });
+    return keys;
+  }, [workPlan]);
+
   return (
     <div style={{ padding: initialVersionId ? 0 : SP[6], fontFamily: FONT, direction: 'rtl', minHeight: initialVersionId ? undefined : '100vh', backgroundColor: initialVersionId ? undefined : C.bgApp }}>
 
@@ -525,6 +567,63 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
               <option value="">כל הבודקים</option>
               {allPlanTesters.map(t => <option key={t.userId} value={t.userId}>{t.fullName}</option>)}
             </select>
+          )}
+        </div>
+      )}
+
+      {/* ── Overflow / conflict issues panel ── */}
+      {workPlan && workPlan.overflowIssues && workPlan.overflowIssues.length > 0 && (
+        <div style={{
+          marginBottom: SP[4], borderRadius: RADIUS.lg, border: `1px solid ${C.danger}`,
+          background: C.dangerBg, overflow: 'hidden',
+        }}>
+          <div
+            onClick={() => setIssuesCollapsed(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${SP[3]} ${SP[4]}`, cursor: 'pointer' }}
+          >
+            <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.danger }}>
+              ⚠️ {workPlan.overflowIssues.length} בעיות בתוכנית העבודה — בודקים שלא מספיקים בתוך הסבב שלהם
+            </span>
+            <span style={{ ...TEXT.sm, color: C.danger }}>{issuesCollapsed ? '▸ הצג' : '▾ הסתר'}</span>
+          </div>
+          {!issuesCollapsed && (
+            <div style={{ padding: `0 ${SP[4]} ${SP[4]}`, display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+              {workPlan.overflowIssues.map((issue, i) => {
+                const hasRow = !!(issue.userName && issue.crNumber);
+                const goToRow = () => {
+                  if (!hasRow) return;
+                  // Make sure the owning cycle is expanded before scrolling to it.
+                  const owningCycle = workPlan.cycles.find(c =>
+                    c.tasks.some(t => t.taskType !== 'REGRESSION' && t.user.fullName === issue.userName && t.crNumber === issue.crNumber),
+                  );
+                  if (owningCycle && !expandedCycles.has(owningCycle.id)) toggleCycle(owningCycle.id);
+                  requestAnimationFrame(() => {
+                    setTimeout(() => {
+                      document.getElementById(rowElementId(issue.userName!, issue.crNumber!))
+                        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, owningCycle && !expandedCycles.has(owningCycle.id) ? 150 : 0);
+                  });
+                };
+                return (
+                  <div
+                    key={i}
+                    onClick={hasRow ? goToRow : undefined}
+                    style={{
+                      padding: SP[3], background: C.bgCard, borderRadius: RADIUS.md, border: `1px solid ${C.border}`,
+                      cursor: hasRow ? 'pointer' : 'default',
+                    }}
+                  >
+                    <div style={{ ...TEXT.sm, color: C.textPrimary, marginBottom: SP[2] }}>
+                      {issue.message}
+                      {hasRow && <span style={{ color: C.info, ...TEXT.xs, fontWeight: WEIGHT.semibold, marginRight: SP[2], whiteSpace: 'nowrap' }}>↓ עבור לשורה</span>}
+                    </div>
+                    <ul style={{ margin: 0, paddingRight: 18, ...TEXT.xs, color: C.textSecondary, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {issue.suggestions.map((s, si) => <li key={si}>{s}</li>)}
+                    </ul>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       )}
@@ -591,6 +690,30 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
                 value={testingEnd}
                 onChange={v => setTestingEnd(v)}
                 style={inputStyle}
+              />
+            </label>
+            <label style={labelStyle} title="גבול קבוע לסבב 1. מי שלא מספיק מסומן כחורג, לא מותח את הסבב לכל הצוות">
+              אורך סבב 1 (ימי עבודה)
+              <input
+                type="number" min={1} value={cycle1LengthDays}
+                onChange={e => setCycle1LengthDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                style={{ ...inputStyle, width: 90 }}
+              />
+            </label>
+            <label style={labelStyle} title="גבול קבוע לסבב 2, בלתי תלוי בסבב 1">
+              אורך סבב 2 (ימי עבודה)
+              <input
+                type="number" min={1} value={cycle2LengthDays}
+                onChange={e => setCycle2LengthDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                style={{ ...inputStyle, width: 90 }}
+              />
+            </label>
+            <label style={labelStyle} title="גבול קבוע לסבב 3, בלתי תלוי בסבב 1/2">
+              אורך סבב 3 (ימי עבודה)
+              <input
+                type="number" min={1} value={cycle3LengthDays}
+                onChange={e => setCycle3LengthDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                style={{ ...inputStyle, width: 90 }}
               />
             </label>
             <button
@@ -713,6 +836,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           onOpenSecondary={openSecondaryPanel}
           onReorderTask={reorderTask}
           reorderingTask={reorderingTask}
+          problematicKeys={problematicKeys}
         />
       ))}
 
@@ -757,6 +881,7 @@ interface CycleCardProps {
   onOpenSecondary: (crNumber: string) => void;
   onReorderTask:   (taskId: string, newSortOrder: number) => void;
   reorderingTask:  string | null;
+  problematicKeys: Set<string>;
 }
 
 function CycleCard({
@@ -764,7 +889,7 @@ function CycleCard({
   togglingTasks, editNotes, onNotesChange, onSaveNotes, savingNotes, planApproved,
   filterUserId, editingEffort, onEditEffort, onSaveEffort,
   assignmentMap, onOpenSecondary, onReorderTask, reorderingTask,
-  allAssignments,
+  allAssignments, problematicKeys,
 }: CycleCardProps) {
   const accent = CYCLE_ACCENT[cycle.cycleType] ?? C.textMuted;
   const bg     = CYCLE_BG[cycle.cycleType]     ?? C.bgNested;
@@ -920,6 +1045,7 @@ function CycleCard({
                   onReorderTask={onReorderTask}
                   reorderingTask={reorderingTask}
                   isCycle1={cycle.cycleType === 'CYCLE_1'}
+                  problematicKeys={problematicKeys}
                 />
               ))}
             </div>
@@ -946,12 +1072,14 @@ interface TesterSectionProps {
   onReorderTask:   (taskId: string, newSortOrder: number) => void;
   reorderingTask:  string | null;
   isCycle1:        boolean;
+  problematicKeys: Set<string>;
 }
 
 function TesterSection({
   testerName, tasks, editable, onToggleTask, togglingTasks,
   editingEffort, onEditEffort, onSaveEffort,
   assignmentMap, onOpenSecondary, onReorderTask, reorderingTask, isCycle1,
+  problematicKeys,
 }: TesterSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
   const sorted = [...tasks].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -1030,13 +1158,19 @@ function TesterSection({
                 ? (asg as any)?.secondaryUser?.fullName ?? `בודק שני (${asg.secondaryTesterId.slice(0,6)})`
                 : null;
 
+              const isProblematic = !isReg && problematicKeys.has(rowKey(testerName, task.crNumber));
+
               return (
                 <tr
                   key={task.id}
+                  id={rowElementId(testerName, task.crNumber)}
                   style={{
-                    backgroundColor: rowBg,
+                    backgroundColor: isProblematic ? C.dangerBg : rowBg,
                     opacity: isInactive ? 0.45 : 1,
                     textDecoration: isInactive ? 'line-through' : 'none',
+                    outline: isProblematic ? `2px solid ${C.danger}` : 'none',
+                    outlineOffset: '-2px',
+                    transition: 'outline-color 0.3s',
                   }}
                 >
                   {/* # + reorder arrows */}

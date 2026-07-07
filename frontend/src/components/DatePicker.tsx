@@ -319,6 +319,51 @@ export const DateRangeField: React.FC<DateRangeFieldProps> = ({ startIso, endIso
   );
 };
 
+// ── Time field (replaces native <input type="time"> — that renders in
+// whatever 12h/24h format the OS/browser locale dictates, and a 12h render
+// with an AM/PM suffix doesn't fit the fixed-width box, clipping to one
+// letter. This is always 24-hour HH:MM, so it never needs an AM/PM suffix.) ─
+
+interface TimeFieldProps {
+  value: string; // 'HH:MM' 24-hour
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  style?: React.CSSProperties;
+}
+
+export const TimeField: React.FC<TimeFieldProps> = ({ value, onChange, disabled, style }) => {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => { setDraft(value); }, [value]);
+
+  const commit = (raw: string) => {
+    const digits = raw.replace(/\D/g, '').slice(0, 4);
+    if (!digits) { setDraft(''); onChange(''); return; }
+    let h: number, m: number;
+    if (digits.length <= 2) { h = parseInt(digits, 10); m = 0; }
+    else { h = parseInt(digits.slice(0, digits.length - 2), 10); m = parseInt(digits.slice(-2), 10); }
+    h = Math.min(23, Math.max(0, h || 0));
+    m = Math.min(59, Math.max(0, m || 0));
+    const formatted = `${pad2(h)}:${pad2(m)}`;
+    setDraft(formatted);
+    onChange(formatted);
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={draft}
+      disabled={disabled}
+      placeholder="hh:mm"
+      maxLength={5}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={e => commit(e.target.value)}
+      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      style={{ ...inputBase, width: '76px', textAlign: 'center', direction: 'ltr', cursor: disabled ? 'default' : 'text', opacity: disabled ? 0.6 : 1, ...style }}
+    />
+  );
+};
+
 // ── Date + time field (drop-in for native <input type="datetime-local">) ───
 // Value/onChange use the same 'YYYY-MM-DDTHH:MM' shape as datetime-local.
 
@@ -342,12 +387,10 @@ export const DateTimeField: React.FC<DateTimeFieldProps> = ({ value, onChange, d
           onChange={iso => onChange(`${iso}T${timePart || '00:00'}`)}
         />
       </div>
-      <input
-        type="time"
+      <TimeField
         value={timePart}
         disabled={disabled}
-        onChange={e => onChange(`${datePart || new Date().toISOString().slice(0, 10)}T${e.target.value}`)}
-        style={{ ...inputBase, width: '100px', cursor: disabled ? 'default' : 'text', opacity: disabled ? 0.6 : 1 }}
+        onChange={t => onChange(`${datePart || new Date().toISOString().slice(0, 10)}T${t || '00:00'}`)}
       />
     </div>
   );

@@ -73,18 +73,23 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
     let cancelled = false;
     const load = async () => {
       try {
-        const [verRes, subsRes] = await Promise.all([
+        const [verRes, subsRes, teamsRes] = await Promise.all([
           axios.get(`${API}/versions/${version.id}`, { headers }),
           axios.get(`${API}/versions/${version.id}/submissions`, { headers }).catch(() => ({ data: [] })),
+          axios.get(`${API}/teams`, { headers }).catch(() => ({ data: [] })),
         ]);
         if (cancelled) return;
         const v = verRes.data;
         const allTasks: any[] = (v.phases ?? []).flatMap((p: any) =>
           (p.subPhases ?? []).flatMap((sp: any) => sp.tasks ?? []));
         const subs: any[] = subsRes.data ?? [];
-        // צוותים מעורבים = רק צוותים שיש להם משימה בגרסה בפועל
+        // צוותים הפטורים מהגשת תוכנית (Team.requiresPlan=false) לא נספרים כ"מעורבים"
+        const exemptTeamIds = new Set<string>(
+          (teamsRes.data ?? []).filter((t: any) => t.requiresPlan === false).map((t: any) => t.id)
+        );
+        // צוותים מעורבים = רק צוותים שיש להם משימה בגרסה בפועל, ושאינם פטורים
         const involvedTeamIds = new Set<string>(
-          allTasks.map((t: any) => t.assignedTeamId).filter(Boolean)
+          allTasks.map((t: any) => t.assignedTeamId).filter((id: any) => id && !exemptTeamIds.has(id))
         );
         const totalTeams     = involvedTeamIds.size;
         const submittedTeams = subs.filter((s: any) =>

@@ -104,6 +104,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
   const [defects,             setDefects]             = useState<Defect[]>([]);
   const [coverage,            setCoverage]            = useState<TestCoverage[]>([]);
   const [qcLoading,           setQcLoading]           = useState(false);
+  const [qcMock,              setQcMock]              = useState(true);
   const [phaseDelayReasons,   setPhaseDelayReasons]   = useState<Record<number, string>>({});
   const [coverageRemarks,     setCoverageRemarks]     = useState<Record<number, string>>({});
   const [defectRemarks,       setDefectRemarks]       = useState<Record<string, string>>({});
@@ -135,12 +136,14 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
   const fetchQcData = useCallback(async () => {
     setQcLoading(true);
     try {
-      const [defectsRes, coverageRes] = await Promise.all([
+      const [defectsRes, coverageRes, statusRes] = await Promise.all([
         axios.get(`${API}/qc/defects?versionId=${versionId}`, { headers }),
         axios.get(`${API}/qc/test-coverage?versionId=${versionId}`, { headers }),
+        axios.get(`${API}/qc/status`, { headers }).catch(() => ({ data: { enabled: false } })),
       ]);
       setDefects(defectsRes.data);
       setCoverage(coverageRes.data);
+      setQcMock(!statusRes.data?.enabled);
     } catch (err) { console.error('QC fetch failed', err); }
     finally { setQcLoading(false); }
   }, [versionId, isRehearsal]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -433,19 +436,60 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
     return lines.join('\n');
   };
 
+  // Legacy fallback for insecure contexts (plain HTTP by hostname/IP) where
+  // navigator.clipboard is entirely undefined. Selects a hidden contentEditable
+  // node holding the rich HTML and copies via document.execCommand — still
+  // allowed by browsers over HTTP, unlike the async Clipboard API. Falls back
+  // further to a plain textarea (text-only) if the rich-selection copy fails.
+  const legacyCopyRichText = (html: string, text: string): boolean => {
+    const container = document.createElement('div');
+    container.contentEditable = 'true';
+    container.style.position = 'fixed';
+    container.style.left = '-9999px';
+    container.style.top = '0';
+    container.innerHTML = html;
+    document.body.appendChild(container);
+    const range = document.createRange();
+    range.selectNodeContents(container);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch { ok = false; }
+    selection?.removeAllRanges();
+    document.body.removeChild(container);
+    if (ok) return true;
+
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try { ok = document.execCommand('copy'); } catch { ok = false; }
+    document.body.removeChild(textarea);
+    return ok;
+  };
+
   const copyToEmail = async () => {
     const html = buildEmailHtml();
     const text = buildEmailText();
     // navigator.clipboard only exists in a "secure context" (HTTPS, or localhost) —
     // on a production server reached over plain HTTP by hostname/IP, the whole
-    // Clipboard API is undefined and every branch below throws, so the button
-    // must surface that clearly instead of failing silently.
+    // Clipboard API is undefined. Fall back to the legacy execCommand('copy')
+    // path, which browsers still allow over HTTP.
     if (!navigator.clipboard) {
-      dialog.alert(
-        'העתקה אוטומטית לא זמינה — הדפדפן חוסם גישה ללוח ההעתקה כי האתר לא נטען דרך HTTPS (או localhost). בחר את הטקסט למטה והעתק ידנית (Ctrl+C).',
-        'העתקה לא זמינה',
-        'warning',
-      );
+      if (legacyCopyRichText(html, text)) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+      } else {
+        dialog.alert(
+          'העתקה אוטומטית אינה נתמכת בדפדפן עבור חיבור HTTP. בחר את הטקסט למטה והעתק ידנית (Ctrl+C).',
+          'העתקה לא זמינה',
+          'warning',
+        );
+      }
       return;
     }
     try {
@@ -458,13 +502,22 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
     } catch {
       try {
         await navigator.clipboard.writeText(text);
-      } catch (err: any) {
-        dialog.alert(err?.message || 'שגיאה בהעתקה ללוח', 'שגיאה בהעתקה', 'danger');
-        return;
+      } catch {
+        if (!legacyCopyRichText(html, text)) {
+          dialog.alert('שגיאה בהעתקה ללוח', 'שגיאה בהעתקה', 'danger');
+          return;
+        }
       }
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
+  };
+
+  const openInOutlook = () => {
+    const titleText = isRehearsal ? 'סיכום חזרה גנרלית' : 'סיכום ליל ההטמעה';
+    const subject = `${titleText} — ${versionName}`;
+    const body = buildEmailText();
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
   if (loading) return (
@@ -1041,7 +1094,9 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
           <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h3 style={{ margin: 0, color: C.textPrimary, fontSize: '17px', fontWeight: '700' }}>🧪 תכולת בדיקות (QC Test Coverage)</h3>
-              <span style={{ fontSize: '13px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
+              {qcMock && (
+                <span style={{ fontSize: '13px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
+              )}
             </div>
             {qcLoading ? (
               <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted }}>טוען נתוני QC...</div>
@@ -1092,7 +1147,11 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
           <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h3 style={{ margin: 0, color: C.textPrimary, fontSize: '16px' }}>🐛 תקלות שדווחו (QC)</h3>
-              <span style={{ fontSize: '13px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
+              {qcMock ? (
+                <span style={{ fontSize: '13px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
+              ) : (
+                <span style={{ fontSize: '13px', background: C.bgDone, color: C.statusDone, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusDone}44` }}>מחובר ל-QC ✅</span>
+              )}
             </div>
             {qcLoading ? (
               <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted }}>טוען נתוני QC...</div>
@@ -1238,6 +1297,10 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                 <button onClick={copyToEmail}
                   style={{ padding: '10px 24px', background: copied ? C.statusDone : C.statusWaiting, color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px', fontFamily: FONT, transition: 'background 0.2s' }}>
                   {copied ? '✓ הועתק!' : '📋 העתק לאימייל'}
+                </button>
+                <button onClick={openInOutlook}
+                  style={{ padding: '10px 24px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px', fontFamily: FONT }}>
+                  📧 פתח Outlook
                 </button>
                 <button
                   onClick={emailEnabled ? sendEmail : () => dialog.alert('שירות המייל אינו מופעל — הגדר SMTP בפאנל הניהול', 'שירות מייל מושבת', 'warning')}
@@ -1471,7 +1534,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
               <div style={{ marginBottom: '20px' }}>
                 <h3 style={{ color: '#1a2332', margin: '0 0 10px', fontSize: '17px', borderRight: '4px solid #2980b9', paddingRight: '10px' }}>
                   🧪 תכולת בדיקות (QC)
-                  <span style={{ fontSize: '13px', color: '#e67e22', marginRight: '8px', fontWeight: 'normal' }}>נתוני Mock</span>
+                  {qcMock && <span style={{ fontSize: '13px', color: '#e67e22', marginRight: '8px', fontWeight: 'normal' }}>נתוני Mock</span>}
                 </h3>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
@@ -1508,7 +1571,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
               <div style={{ marginBottom: '20px' }}>
                 <h3 style={{ color: '#1a2332', margin: '0 0 12px', fontSize: '17px', borderRight: '4px solid #9b59b6', paddingRight: '10px' }}>
                   🐛 תקלות שדווחו (QC)
-                  <span style={{ fontSize: '13px', color: '#e67e22', marginRight: '8px', fontWeight: 'normal' }}>נתוני Mock</span>
+                  {qcMock && <span style={{ fontSize: '13px', color: '#e67e22', marginRight: '8px', fontWeight: 'normal' }}>נתוני Mock</span>}
                 </h3>
                 {defects.length === 0 ? (
                   <div style={{ background: '#f0fff4', borderRadius: '6px', padding: '12px', color: '#27ae60', fontWeight: 'bold' }}>✅ לא דווחו תקלות</div>

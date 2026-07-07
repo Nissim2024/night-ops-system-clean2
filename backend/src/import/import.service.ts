@@ -695,10 +695,14 @@ export class ImportService {
 
     const allTeams = await prisma.team.findMany({
       where: { name: { in: [...involvedTeamNames] } },
-      select: { id: true, name: true },
+      select: { id: true, name: true, requiresPlan: true },
     });
     const teamIdByName: Record<string, string> = {};
-    allTeams.forEach(t => { teamIdByName[t.name] = t.id; });
+    const exemptTeamIds = new Set<string>();
+    allTeams.forEach(t => {
+      teamIdByName[t.name] = t.id;
+      if (!t.requiresPlan) exemptTeamIds.add(t.id);
+    });
 
     const proposals = await prisma.taskProposal.findMany({
       where: { versionId },
@@ -716,7 +720,10 @@ export class ImportService {
     for (const teamName of involvedTeamNames) {
       const teamId = teamIdByName[teamName];
       if (!teamId) continue;
-      const isNotRequired = notRequiredIds.has(teamId);
+      // A team permanently exempt from plan submission (Team.requiresPlan=false)
+      // is treated the same as a per-version "not required" override — shown
+      // in the exempted bucket, never counted as pending/missing.
+      const isNotRequired = notRequiredIds.has(teamId) || exemptTeamIds.has(teamId);
       const hasProposals = teamsWithProposals.has(teamId);
       // Include: teams that haven't submitted (pending) OR teams marked as not-required
       if (isNotRequired || !hasProposals) {

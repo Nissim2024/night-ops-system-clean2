@@ -7,6 +7,11 @@ import { QcService } from './qc.service';
 export class QcController {
   constructor(private readonly qcService: QcService) {}
 
+  @Get('status')
+  getStatus() {
+    return this.qcService.getStatus();
+  }
+
   @Get('test-coverage')
   getTestCoverage(@Query('versionId') versionId: string) {
     return this.qcService.getTestCoverage(versionId);
@@ -15,6 +20,11 @@ export class QcController {
   @Get('defects')
   getDefects(@Query('versionId') versionId: string) {
     return this.qcService.getDefects(versionId);
+  }
+
+  @Get('bug-dashboard')
+  getBugDashboard(@Query('versionId') versionId: string) {
+    return this.qcService.getBugDashboard(versionId);
   }
 
   @Get('cr-items')

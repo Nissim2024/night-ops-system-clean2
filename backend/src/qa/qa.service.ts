@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
-import { scoreForCr, ScoringResult } from './qa.engine';
+import { scoreForCr, resolveSkillName, ScoringResult } from './qa.engine';
 import { addWorkDays, nextWorkDay, getFirstWorkDay } from './qa.scheduler';
 
 const prisma = new PrismaClient();
@@ -295,12 +295,20 @@ export class QaService {
     cycles?:     string[],
     sortOrder?:  number,
   ) {
-    const vca = await prisma.versionCrAssignment.findFirst({
+    // A CR can have a VersionCrAssignment row per team — only the QA Team's row
+    // carries a reliable qaEffort (see CR_LIST import). Prefer it explicitly so
+    // we don't silently pick up another team's row with a null effort.
+    const qaTeam = await prisma.team.findFirst({ where: { name: 'QA Team' } });
+    const vcaSelect = { application: true, qaEffort: true, qaEffortOverride: true, isStandAlone: true };
+    const vca = (qaTeam && await prisma.versionCrAssignment.findFirst({
+      where:  { versionId, crNumber, teamId: qaTeam.id },
+      select: vcaSelect,
+    })) ?? await prisma.versionCrAssignment.findFirst({
       where:  { versionId, crNumber },
-      select: { application: true, qaEffort: true, isStandAlone: true },
+      select: vcaSelect,
     });
     const application = vca?.application ?? null;
-    const qaEffort    = (vca as any)?.qaEffort ?? null;
+    const qaEffort    = (vca as any)?.qaEffortOverride ?? (vca as any)?.qaEffort ?? null;
 
     // Default cycles from VCA.isStandAlone when not explicitly provided
     const vcaSA         = (vca as any)?.isStandAlone ?? false;
@@ -319,7 +327,7 @@ export class QaService {
       nextSortOrder = ((agg._max?.sortOrder ?? 0) as number) + 1;
     }
 
-    return prisma.qaAssignment.upsert({
+    const result = await prisma.qaAssignment.upsert({
       where:  { versionId_crNumber: { versionId, crNumber } },
       create: {
         versionId, crNumber, crLabel, userId, notes, assignedBy, application, qaEffort,
@@ -331,13 +339,35 @@ export class QaService {
       update: {
         userId, crLabel, notes, assignedBy, application,
         autoScore: autoScore ?? null,
-        // qaEffort intentionally excluded — manual overrides via patchAssignment must not be overwritten on re-assign
+        // Backfill qaEffort only when it was never set — a non-null value may be
+        // a manual override via patchAssignment and must not be clobbered here.
+        ...(existing?.qaEffort == null && qaEffort != null && { qaEffort }),
         ...(isStandAlone !== undefined && { isStandAlone: isStandAlone ?? null }),
         ...(cycles       !== undefined && { cycles: finalCycles }),
         ...(sortOrder    !== undefined && { sortOrder }),
       } as any,
-      include: { user: { select: { id: true, fullName: true, email: true } } },
+      include: {
+        user:          { select: { id: true, fullName: true, email: true } },
+        secondaryUser: { select: { id: true, fullName: true, email: true } },
+      },
     });
+
+    // Stamp the assigned tester's skill-matrix entry as "recently used" for
+    // this application, so the next scoring run's continuity check (qa.engine.ts)
+    // reflects genuine recent engagement with this specific system rather than
+    // any assignment anywhere.
+    const skillName = resolveSkillName(application);
+    if (skillName) {
+      const skill = await prisma.skill.findFirst({ where: { name: skillName } });
+      if (skill) {
+        await prisma.testerSkill.updateMany({
+          where: { userId, skillId: skill.id },
+          data:  { lastUsedAt: new Date() },
+        });
+      }
+    }
+
+    return result;
   }
 
   async patchAssignment(id: string, patch: {
@@ -347,11 +377,16 @@ export class QaService {
     qaEffort?:            number | null;
     secondaryTesterId?:   string | null;
     secondarySkillLevel?: number | null;
+    secondaryParticipationPct?: number | null;
+    standAloneDueDate?:   Date | null;
   }) {
     const result = await prisma.qaAssignment.update({
       where:   { id },
       data:    patch as any,
-      include: { user: { select: { id: true, fullName: true, email: true } } },
+      include: {
+        user:          { select: { id: true, fullName: true, email: true } },
+        secondaryUser: { select: { id: true, fullName: true, email: true } },
+      },
     });
 
     if (patch.qaEffort != null) {
@@ -368,24 +403,29 @@ export class QaService {
   // ── Secondary tester suggestion ──────────────────────────────────────────────
 
   async suggestSecondaryTesters(versionId: string, crNumber: string) {
-    // Load all candidates (up to 20), then filter/enrich
-    const fullResult = await scoreForCr(crNumber, versionId, 20);
-
     const primaryAsg = await prisma.qaAssignment.findUnique({
       where: { versionId_crNumber: { versionId, crNumber } },
     });
     const primaryId          = primaryAsg?.userId ?? null;
-    const qaEffortDays       = primaryAsg?.qaEffort ?? fullResult.qaEffortDays ?? 0;
     const currentSecondaryId = (primaryAsg as any)?.secondaryTesterId ?? null;
+
+    // Learn the CR's real effort first (cheap probe, maxResults=1) so we can
+    // score candidates against what a SECOND tester would actually carry.
+    const probe             = await scoreForCr(crNumber, versionId, 1);
+    const qaEffortDays      = primaryAsg?.qaEffort ?? probe.qaEffortDays ?? 0;
+    // A second tester splits the total effort in half — not a skill-weighted ratio.
+    const estimatedSecondaryEffort = Math.max(1, Math.round(qaEffortDays / 2));
+    const estimatedPrimaryEffort   = Math.max(1, Math.round(qaEffortDays / 2));
+
+    // Score against the halved effort — otherwise a large CR clamps every
+    // candidate's load score to 0 and "best pick" degenerates to arbitrary order.
+    const fullResult = await scoreForCr(crNumber, versionId, 20, estimatedSecondaryEffort);
 
     const candidates = fullResult.recommendations
       .filter((r: any) => r.userId !== primaryId)
       .map((r: any) => {
         const secLevel = r.breakdown.skill.level ?? 3;
         const adjSec   = secLevel < 0 ? 1 : secLevel;
-        // A second tester splits the total effort in half — not a skill-weighted ratio.
-        const estimatedSecondaryEffort = Math.max(1, Math.round(qaEffortDays / 2));
-        const estimatedPrimaryEffort   = Math.max(1, Math.round(qaEffortDays / 2));
 
         return {
           ...r,
@@ -593,6 +633,46 @@ export class QaService {
       null, // isStandAlone = null → inherit from VCA; cycles auto-set in upsertAssignment
     );
     return { ...result, assigned: top };
+  }
+
+  // Cycle 1's length is driven by whichever tester's CR takes longest (they're
+  // scheduled back-to-back per tester — see scheduleSingleCycle in qa.scheduler.ts).
+  // A CR without a secondary tester whose effort alone exceeds the configured
+  // threshold is flagged here, reusing the existing (previously frontend-unused)
+  // suggestSecondaryTesters() scoring/estimate logic for the actual candidate —
+  // surfaced for the user to approve, not applied automatically.
+  async getSecondTesterSuggestions(versionId: string) {
+    const thresholdParam = await prisma.systemParam.findUnique({ where: { key: 'QA_SECOND_TESTER_THRESHOLD_DAYS' } });
+    const threshold = Number(thresholdParam?.value) || 12;
+
+    const assignments = await prisma.qaAssignment.findMany({
+      where: {
+        versionId,
+        secondaryTesterId: null,
+        cycles: { has: 'CYCLE_1' },
+      },
+    });
+    const overloaded = assignments.filter(a => (a.qaEffort ?? 0) > threshold);
+
+    const suggestions: any[] = [];
+    for (const a of overloaded) {
+      const detail = await this.suggestSecondaryTesters(versionId, a.crNumber);
+      const top = detail.candidates[0];
+      if (!top) continue;
+      suggestions.push({
+        assignmentId:        a.id,
+        crNumber:             a.crNumber,
+        crLabel:              detail.crLabel,
+        qaEffortDays:         detail.qaEffortDays,
+        thresholdDays:        threshold,
+        primaryTesterId:      detail.primaryTesterId,
+        suggestedTesterId:    top.userId,
+        suggestedTesterName:  top.fullName,
+        suggestedScore:       top.totalScore,
+        timeSavingDays:       top.timeSavingDays,
+      });
+    }
+    return suggestions;
   }
 
   // ── Available users (not yet testers) ───────────────────────────────────────

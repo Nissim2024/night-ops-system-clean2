@@ -2120,7 +2120,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {systemParams.filter(p => !p.key.startsWith('EMAIL_') && !p.key.startsWith('LDAP_') && !p.key.startsWith('TEAMS_') && !p.key.startsWith('TELEGRAM_')).map(p => (
+                  {systemParams.filter(p => !p.key.startsWith('EMAIL_') && !p.key.startsWith('LDAP_') && !p.key.startsWith('TEAMS_') && !p.key.startsWith('TELEGRAM_') && !p.key.startsWith('ORACLE_')).map(p => (
                     <tr key={p.key} style={{ borderBottom: `1px solid ${C.border}` }}>
                       <td style={{ padding: '12px 14px', fontSize: '15px', fontWeight: 'bold', color: C.textPrimary, border: `1px solid ${C.border}` }}>{p.label}</td>
                       <td style={{ padding: '12px 14px', fontFamily: FONT_MONO, fontSize: '14px', color: C.textMuted, border: `1px solid ${C.border}` }}>{p.key}</td>

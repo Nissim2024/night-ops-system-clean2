@@ -105,7 +105,7 @@ const APP_ALIASES: Record<string, string> = {
   erp: 'ERP',    ERP: 'ERP',
 };
 
-function resolveSkillName(application: string | null): string | null {
+export function resolveSkillName(application: string | null): string | null {
   if (!application || application === 'null') return null;
   if (APP_ALIASES[application]) return APP_ALIASES[application];
   const lower = application.toLowerCase();
@@ -132,21 +132,37 @@ async function getActiveTesters() {
     fullName: p.user.fullName,
     email:    p.user.email,
     skills:   p.testerSkills.map(ts => ({
-      skillId:   ts.skillId,
-      skillName: ts.skill.name,
-      skillType: ts.skill.type as string,
-      level:     ts.level,
+      skillId:    ts.skillId,
+      skillName:  ts.skill.name,
+      skillType:  ts.skill.type as string,
+      level:      ts.level,
+      lastUsedAt: ts.lastUsedAt,
     })),
   }));
 }
 
 // ── Main scoring function ─────────────────────────────────────────────────────
 
-export async function scoreForCr(crNumber: string, versionId: string, maxResults = 3): Promise<ScoringResult> {
+export async function scoreForCr(
+  crNumber:  string,
+  versionId: string,
+  maxResults = 3,
+  // Effort to use for the load projection instead of the CR's own qaEffort —
+  // e.g. a second-tester suggestion should be scored against the ~half share
+  // it would actually carry, not the full CR effort.
+  effortForLoad?: number,
+): Promise<ScoringResult> {
 
   // ── 1. Load CR info ───────────────────────────────────────────────────────
+  // A CR can have a VersionCrAssignment row per team (e.g. QA Team + EAI Team) —
+  // only the QA Team's row carries a reliable qaEffort (see CR_LIST import).
+  // findFirst without a teamId filter can silently grab another team's row,
+  // whose qaEffort is null, starving the load-balancing component of the score.
 
-  const vcaRow = await prisma.versionCrAssignment.findFirst({
+  const qaTeam = await prisma.team.findFirst({ where: { name: 'QA Team' } });
+  const vcaRow = (qaTeam && await prisma.versionCrAssignment.findFirst({
+    where: { versionId, crNumber, teamId: qaTeam.id },
+  })) ?? await prisma.versionCrAssignment.findFirst({
     where: { versionId, crNumber },
   });
   if (!vcaRow) {
@@ -162,7 +178,7 @@ export async function scoreForCr(crNumber: string, versionId: string, maxResults
 
   const requiredSkillName = resolveSkillName(vcaRow.application);
   const requiredMinLevel  = vcaRow.requiredSkillMinLevel ?? 1;
-  const qaEffortDays      = vcaRow.qaEffort ?? 0;
+  const qaEffortDays      = (vcaRow as any).qaEffortOverride ?? vcaRow.qaEffort ?? 0;
 
   // riskLevel lives in CrPlan, not VersionCrAssignment
   const crPlan   = await prisma.crPlan.findFirst({ where: { versionId, crNumber }, select: { riskLevel: true } });
@@ -170,13 +186,17 @@ export async function scoreForCr(crNumber: string, versionId: string, maxResults
   const weights   = getWeights(riskLevel);
 
   // ── 2. Load version dates + testing window ────────────────────────────────
+  // Use qaStart/qaEnd (the actual QA testing period) for capacity, not
+  // plannedStart/plannedEnd (the release-night window, often under a day) —
+  // using the release window here collapsed windowDays to ~1, which made the
+  // capacity-aware load formula clamp to 0 for almost any real testing effort.
 
   const version = await prisma.version.findUnique({
     where: { id: versionId },
-    select: { plannedStart: true, plannedEnd: true },
+    select: { qaStart: true, qaEnd: true },
   });
-  const versionStart = version?.plannedStart ?? null;
-  const versionEnd   = version?.plannedEnd   ?? null;
+  const versionStart = version?.qaStart ?? null;
+  const versionEnd   = version?.qaEnd   ?? null;
 
   // Testing window in days (used for capacity-aware load)
   let windowDays = 0;
@@ -199,9 +219,9 @@ export async function scoreForCr(crNumber: string, versionId: string, maxResults
   if (versionStart && versionEnd) {
     const overlapping = await prisma.version.findMany({
       where: {
-        id:           { not: versionId },
-        plannedStart: { lte: versionEnd   },
-        plannedEnd:   { gte: versionStart },
+        id:      { not: versionId },
+        qaStart: { lte: versionEnd   },
+        qaEnd:   { gte: versionStart },
       },
       select: { id: true },
     });
@@ -218,30 +238,22 @@ export async function scoreForCr(crNumber: string, versionId: string, maxResults
     loadMap.set(a.userId, (loadMap.get(a.userId) ?? 0) + (a.qaEffort ?? 0));
   });
 
-  // ── 5. Gradual continuity — most recent assignment date per tester ─────────
-
-  const threeMonthsAgo = new Date();
-  threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 6); // look back 6 months for decay
-
-  const history = await prisma.qaAssignment.findMany({
-    where: {
-      versionId:  { not: versionId },
-      createdAt:  { gte: threeMonthsAgo },
-      ...(requiredSkillName
-        ? { application: { contains: requiredSkillName, mode: 'insensitive' } }
-        : {}),
-    },
-    select: { userId: true, createdAt: true },
-    orderBy: { createdAt: 'desc' },
-  });
-
-  // Keep most recent assignment per tester
+  // ── 5. Gradual continuity — read directly from the skill matrix ────────────
+  // TesterSkill.lastUsedAt is stamped whenever the tester is assigned a CR
+  // requiring that skill (see upsertAssignment in qa.service.ts) — this
+  // replaces a prior broad "any recent assignment" history query, which,
+  // whenever the CR's application didn't resolve to a known skill name,
+  // rewarded ANY recent assignment regardless of relevance — a self-
+  // reinforcing bias toward whoever happened to be assigned first. With no
+  // resolved skill there is nothing relevant to check continuity against,
+  // so everyone correctly gets 0 rather than an unscoped "worked recently" match.
   const lastAssignedMap = new Map<string, Date>();
-  history.forEach(h => {
-    if (!lastAssignedMap.has(h.userId)) {
-      lastAssignedMap.set(h.userId, h.createdAt);
+  if (requiredSkillName) {
+    for (const t of allTesters) {
+      const entry = t.skills.find(s => s.skillName === requiredSkillName);
+      if (entry?.lastUsedAt) lastAssignedMap.set(t.userId, entry.lastUsedAt);
     }
-  });
+  }
 
   // ── 6. Hard constraint: leaves ────────────────────────────────────────────
 
@@ -315,14 +327,18 @@ export async function scoreForCr(crNumber: string, versionId: string, maxResults
 
     // ── Load (capacity-aware) ─────────────────────────────────────────
     const currentDays = loadMap.get(t.userId) ?? 0;
+    // Include this CR's own effort in the capacity check — otherwise a tester
+    // with zero prior load looks "free" even for a CR whose effort alone
+    // exceeds the entire window (e.g. a 33-day CR vs. a 20-day window).
+    const projectedDays = currentDays + (effortForLoad ?? qaEffortDays);
     let loadRaw: number;
     if (windowDays > 0) {
-      // Capacity-aware: how full is the tester relative to the testing window?
-      loadRaw = Math.max(0, (1 - currentDays / windowDays) * 100);
+      // Capacity-aware: how full will the tester be, relative to the testing window?
+      loadRaw = Math.max(0, (1 - projectedDays / windowDays) * 100);
     } else {
       // Fallback: relative comparison between testers
-      const maxLoad = Math.max(...Array.from(loadMap.values()), 0);
-      loadRaw = maxLoad > 0 ? (1 - currentDays / maxLoad) * 100 : 100;
+      const maxLoad = Math.max(...Array.from(loadMap.values()), 0) + qaEffortDays;
+      loadRaw = maxLoad > 0 ? (1 - projectedDays / maxLoad) * 100 : 100;
     }
 
     // ── Skill ─────────────────────────────────────────────────────────
@@ -379,7 +395,19 @@ export async function scoreForCr(crNumber: string, versionId: string, maxResults
     };
   });
 
-  scored.sort((a, b) => b.totalScore - a.totalScore);
+  // Tie-break by actual current load (ascending) — once a CR's effort alone
+  // exceeds the window, everyone's load rawScore clamps to 0, and without this
+  // the tie would fall back to arbitrary tester-query order instead of truly
+  // preferring whoever has the least work on their plate right now.
+  // Final tie-break by userId: makes the ordering fully deterministic even
+  // when load, skill and continuity are all identical, instead of depending
+  // on Postgres/Prisma's unordered findMany() row order (not guaranteed
+  // stable across repeated calls with no explicit ORDER BY).
+  scored.sort((a, b) =>
+    b.totalScore - a.totalScore
+    || a.breakdown.load.currentHours - b.breakdown.load.currentHours
+    || a.userId.localeCompare(b.userId),
+  );
 
   return {
     status:           'OK',

@@ -224,8 +224,8 @@ function Step2Content({ version, users, teams, workerReplacements, setWorkerRepl
   version: any;
   users: { id: string; fullName: string }[];
   teams: any[];
-  workerReplacements: Record<string, { toUserId: string; phaseId: string }>;
-  setWorkerReplacements: (v: Record<string, { toUserId: string; phaseId: string }>) => void;
+  workerReplacements: Record<string, { toUserId: string; phaseId: string }[]>;
+  setWorkerReplacements: (v: Record<string, { toUserId: string; phaseId: string }[]>) => void;
 }) {
   const entries = getWorkerEntries(version, users);
   const sortedPhases = [...(version.phases ?? [])].sort((a: any, b: any) => a.orderIndex - b.orderIndex);
@@ -239,11 +239,27 @@ function Step2Content({ version, users, teams, workerReplacements, setWorkerRepl
     );
   }
 
+  const emptyRow = { toUserId: '', phaseId: '' };
+  const rowsFor = (key: string) => workerReplacements[key] ?? [emptyRow];
+
+  const updateRow = (key: string, idx: number, patch: Partial<{ toUserId: string; phaseId: string }>) => {
+    const rows = rowsFor(key).map((r, i) => i === idx ? { ...r, ...patch } : r);
+    setWorkerReplacements({ ...workerReplacements, [key]: rows });
+  };
+  const addRow = (key: string) => {
+    setWorkerReplacements({ ...workerReplacements, [key]: [...rowsFor(key), { ...emptyRow }] });
+  };
+  const removeRow = (key: string, idx: number) => {
+    const rows = rowsFor(key).filter((_, i) => i !== idx);
+    setWorkerReplacements({ ...workerReplacements, [key]: rows.length > 0 ? rows : [emptyRow] });
+  };
+
   return (
     <div>
       <h3 style={{ margin: '0 0 8px', fontSize: '17px', color: '#1a2332' }}>👥 החלפת עובדים</h3>
       <p style={{ margin: '0 0 20px', color: '#666', fontSize: '15px' }}>
-        בחר מחליף לכל עובד מהתבנית. עזוב ריק כדי לשמור על העובד המקורי. ניתן להגביל את ההחלפה לשלב מסוים בלבד, במקום כל הגרסה.
+        בחר מחליף לכל עובד מהתבנית. עזוב ריק כדי לשמור על העובד המקורי. ניתן להגביל את ההחלפה לשלב מסוים בלבד, במקום כל הגרסה —
+        וניתן להוסיף כמה החלפות לאותו עובד, כל אחת עבור שלב אחר.
       </p>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
         <thead>
@@ -251,6 +267,7 @@ function Step2Content({ version, users, teams, workerReplacements, setWorkerRepl
             <th style={{ padding: '10px 12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontWeight: '600', color: '#1a2332' }}>עובד בתבנית</th>
             <th style={{ padding: '10px 12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontWeight: '600', color: '#1a2332' }}>מחליף →</th>
             <th style={{ padding: '10px 12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontWeight: '600', color: '#1a2332' }}>תחולה</th>
+            <th style={{ padding: '10px 12px', borderBottom: '2px solid #e2e8f0', width: '32px' }} />
           </tr>
         </thead>
         <tbody>
@@ -259,31 +276,38 @@ function Step2Content({ version, users, teams, workerReplacements, setWorkerRepl
             const pool: { id: string; fullName: string }[] = team
               ? (team.members || []).map((m: any) => m.user).filter(Boolean)
               : users;
-            const current = workerReplacements[entry.key] ?? { toUserId: '', phaseId: '' };
-            return (
-              <tr key={entry.key} style={{ borderBottom: '1px solid #f1f5f9', background: entry.isEmpty ? '#fffbeb' : 'transparent' }}>
+            const rows = rowsFor(entry.key);
+            const usedPhaseIds = (excludeIdx: number) =>
+              new Set(rows.filter((_, i) => i !== excludeIdx).map(r => r.phaseId).filter(Boolean));
+
+            return rows.map((current, idx) => (
+              <tr key={`${entry.key}:${idx}`} style={{ borderBottom: idx === rows.length - 1 ? '1px solid #f1f5f9' : 'none', background: entry.isEmpty ? '#fffbeb' : 'transparent' }}>
                 <td style={{ padding: '10px 12px', color: entry.isEmpty ? '#92400e' : '#1a2332' }}>
-                  {entry.isEmpty ? (
-                    <span>
-                      <span style={{ color: '#f59e0b', marginLeft: '4px' }}>⚠</span>
-                      לא משובץ
-                    </span>
-                  ) : (
-                    <span>
-                      {entry.displayName}
-                      {entry.isUnknown && (
-                        <span style={{ fontSize: '13px', color: '#ef4444', marginRight: '6px' }} title="עובד לא פעיל / לא קיים במערכת">⚠ לא פעיל</span>
+                  {idx === 0 && (
+                    <>
+                      {entry.isEmpty ? (
+                        <span>
+                          <span style={{ color: '#f59e0b', marginLeft: '4px' }}>⚠</span>
+                          לא משובץ
+                        </span>
+                      ) : (
+                        <span>
+                          {entry.displayName}
+                          {entry.isUnknown && (
+                            <span style={{ fontSize: '13px', color: '#ef4444', marginRight: '6px' }} title="עובד לא פעיל / לא קיים במערכת">⚠ לא פעיל</span>
+                          )}
+                        </span>
                       )}
-                    </span>
-                  )}
-                  {team && (
-                    <span style={{ fontSize: '13px', color: '#94a3b8', marginRight: '6px' }}>({team.name})</span>
+                      {team && (
+                        <span style={{ fontSize: '13px', color: '#94a3b8', marginRight: '6px' }}>({team.name})</span>
+                      )}
+                    </>
                   )}
                 </td>
                 <td style={{ padding: '8px 12px' }}>
                   <select
                     value={current.toUserId}
-                    onChange={e => setWorkerReplacements({ ...workerReplacements, [entry.key]: { ...current, toUserId: e.target.value } })}
+                    onChange={e => updateRow(entry.key, idx, { toUserId: e.target.value })}
                     style={{ padding: '7px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '15px', width: '100%', background: 'white' }}
                   >
                     <option value="">{entry.isEmpty ? '— בחר עובד לשיבוץ —' : '— ללא שינוי —'}</option>
@@ -296,18 +320,35 @@ function Step2Content({ version, users, teams, workerReplacements, setWorkerRepl
                   <select
                     value={current.phaseId}
                     disabled={!current.toUserId}
-                    onChange={e => setWorkerReplacements({ ...workerReplacements, [entry.key]: { ...current, phaseId: e.target.value } })}
+                    onChange={e => updateRow(entry.key, idx, { phaseId: e.target.value })}
                     style={{ padding: '7px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '15px', width: '100%', background: current.toUserId ? 'white' : '#f1f5f9', color: current.toUserId ? '#1a2332' : '#94a3b8' }}
                     title="ברירת מחדל: כל הגרסה"
                   >
                     <option value="">כל הגרסה</option>
                     {sortedPhases.map((p: any) => (
-                      <option key={p.id} value={p.id}>רק שלב: {p.name}</option>
+                      <option key={p.id} value={p.id} disabled={usedPhaseIds(idx).has(p.id)}>רק שלב: {p.name}</option>
                     ))}
                   </select>
                 </td>
+                <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                  {idx === rows.length - 1 ? (
+                    <button
+                      type="button"
+                      title="הוסף החלפה נוספת לאותו עובד עבור שלב אחר"
+                      onClick={() => addRow(entry.key)}
+                      style={{ background: 'none', border: '1px solid #cbd5e1', borderRadius: '6px', width: '26px', height: '26px', cursor: 'pointer', color: '#2563eb', fontSize: '15px', lineHeight: 1 }}
+                    >+</button>
+                  ) : (
+                    <button
+                      type="button"
+                      title="הסר החלפה זו"
+                      onClick={() => removeRow(entry.key, idx)}
+                      style={{ background: 'none', border: '1px solid #cbd5e1', borderRadius: '6px', width: '26px', height: '26px', cursor: 'pointer', color: '#ef4444', fontSize: '15px', lineHeight: 1 }}
+                    >✕</button>
+                  )}
+                </td>
               </tr>
-            );
+            ));
           })}
         </tbody>
       </table>
@@ -625,7 +666,7 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
   const [phaseStarts, setPhaseStarts] = useState<Record<string, string>>(initStarts);
   const [phaseEnds, setPhaseEnds] = useState<Record<string, string>>(initEnds);
 
-  const [workerReplacements, setWorkerReplacements] = useState<Record<string, { toUserId: string; phaseId: string }>>({});
+  const [workerReplacements, setWorkerReplacements] = useState<Record<string, { toUserId: string; phaseId: string }[]>>({});
   const [depsResult, setDepsResult] = useState<{ created: number; skipped: number } | null>(null);
   const [anomalies, setAnomalies] = useState<any[] | null>(null);
   const [sortResult, setSortResult] = useState<{ reordered: number } | null>(null);
@@ -686,7 +727,8 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
   };
 
   const executeStep2 = async () => {
-    const entries = Object.entries(workerReplacements).filter(([, v]) => v.toUserId);
+    const entries = Object.entries(workerReplacements)
+      .flatMap(([fromKey, replacements]) => replacements.filter(r => r.toUserId).map(r => [fromKey, r] as const));
     if (entries.length === 0) { await markStep('done'); return; }
     setLoading(true);
     setError(null);

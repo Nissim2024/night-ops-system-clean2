@@ -12,6 +12,7 @@ import {
   countWorkDays,
   addWorkDays,
   nextWorkDay,
+  dateKey,
 } from './qa.scheduler';
 
 const prisma = new PrismaClient();
@@ -23,18 +24,9 @@ const CYCLE_ORDER: CycleType[] = [
 @Injectable()
 export class QaWorkPlanService {
 
-  // ── Generate / regenerate work plan ────────────────────────────────────────
+  // ── Build the CrInput list the scheduler needs (shared by generate + preview) ──
 
-  async generateWorkPlan(
-    versionId: string,
-    cycle1Start: Date,
-    testingEnd: Date,
-    createdBy?: string,
-  ) {
-    // 1. Validate version exists
-    const version = await prisma.version.findUnique({ where: { id: versionId } });
-    if (!version) throw new NotFoundException('גרסה לא נמצאה');
-
+  private async buildCrInputs(versionId: string): Promise<{ crInputs: CrInput[]; unassigned: string[] }> {
     // 2. Load all CR assignments
     const vcas = await prisma.versionCrAssignment.findMany({ where: { versionId } });
     // Deduplicated metadata (first occurrence wins for label, application, etc.)
@@ -146,11 +138,83 @@ export class QaWorkPlanService {
         secondaryTesterId:   secondaryId,
         primarySkillLevel:   primaryLevel,
         secondarySkillLevel: secondaryId ? secondaryLevel : 0,
+        secondaryParticipationPct: (asg as any)?.secondaryParticipationPct ?? 50,
+        standAloneDueDate:   (asg as any)?.standAloneDueDate ?? null,
       });
     }
 
+    return { crInputs, unassigned };
+  }
+
+  // ── Approved leave days per tester (for schedule-aware day-skipping) ───────
+
+  private async loadLeaveDays(crInputs: CrInput[], from: Date): Promise<Map<string, Set<string>>> {
+    const userIds = new Set<string>();
+    crInputs.forEach(c => {
+      if (c.primaryTesterId)   userIds.add(c.primaryTesterId);
+      if (c.secondaryTesterId) userIds.add(c.secondaryTesterId);
+    });
+    if (userIds.size === 0) return new Map();
+
+    const leaves = await prisma.leaveRequest.findMany({
+      where: {
+        status: 'APPROVED',
+        kind:   'leave',
+        userId: { in: [...userIds] },
+        date:   { gte: from },
+      },
+      select: { userId: true, date: true },
+    });
+
+    const map = new Map<string, Set<string>>();
+    for (const l of leaves) {
+      if (!map.has(l.userId)) map.set(l.userId, new Set());
+      map.get(l.userId)!.add(dateKey(l.date));
+    }
+    return map;
+  }
+
+  // ── Generate / regenerate work plan ────────────────────────────────────────
+
+  async generateWorkPlan(
+    versionId: string,
+    cycle1Start: Date,
+    testingEnd: Date,
+    createdBy?: string,
+    cycle1LengthDays?: number,
+    cycle2LengthDays?: number,
+    cycle3LengthDays?: number,
+  ) {
+    // 1. Validate version exists
+    const version = await prisma.version.findUnique({ where: { id: versionId } });
+    if (!version) throw new NotFoundException('גרסה לא נמצאה');
+
+    const { crInputs, unassigned } = await this.buildCrInputs(versionId);
+
+    // Approved leave days per tester — the scheduler skips these like a
+    // weekend for that specific person, instead of silently running a task
+    // straight through their vacation.
+    const leaveDaysByTester = await this.loadLeaveDays(crInputs, cycle1Start);
+    const effectiveCycle1Length = cycle1LengthDays && cycle1LengthDays > 0 ? cycle1LengthDays : 12;
+    const effectiveCycle2Length = cycle2LengthDays && cycle2LengthDays > 0 ? cycle2LengthDays : undefined;
+    const effectiveCycle3Length = cycle3LengthDays && cycle3LengthDays > 0 ? cycle3LengthDays : undefined;
+
     // 6. Run scheduler
-    const plannedCycles: PlannedCycle[] = buildWorkPlan(crInputs, cycle1Start);
+    const plannedCycles: PlannedCycle[] = buildWorkPlan(
+      crInputs, cycle1Start, leaveDaysByTester,
+      effectiveCycle1Length, effectiveCycle2Length, effectiveCycle3Length,
+    );
+
+    // Persist the actual applied lengths (including derived ones, when the
+    // caller didn't explicitly override cycle 2/3) so they round-trip correctly.
+    const appliedCycle2Length = countWorkDays(
+      plannedCycles.find(c => c.cycleType === 'CYCLE_2')!.plannedStart,
+      plannedCycles.find(c => c.cycleType === 'CYCLE_2')!.plannedEnd,
+    );
+    const appliedCycle3Length = countWorkDays(
+      plannedCycles.find(c => c.cycleType === 'CYCLE_3')!.plannedStart,
+      plannedCycles.find(c => c.cycleType === 'CYCLE_3')!.plannedEnd,
+    );
 
     // 7. Persist — delete existing plan for this version first
     await prisma.$transaction(async tx => {
@@ -162,8 +226,11 @@ export class QaWorkPlanService {
           status:     'DRAFT',
           cycle1Start,
           testingEnd,
+          cycle1LengthDays: effectiveCycle1Length,
+          cycle2LengthDays: appliedCycle2Length,
+          cycle3LengthDays: appliedCycle3Length,
           createdBy:  createdBy ?? null,
-        },
+        } as any,
       });
 
       for (let ci = 0; ci < plannedCycles.length; ci++) {
@@ -228,7 +295,134 @@ export class QaWorkPlanService {
       (a, b) => CYCLE_ORDER.indexOf(a.cycleType as CycleType) - CYCLE_ORDER.indexOf(b.cycleType as CycleType),
     );
 
-    return { ...plan, cycles: sorted };
+    const overflowIssues = await this.computeOverflowIssues(versionId, { ...plan, cycles: sorted });
+
+    return { ...plan, cycles: sorted, overflowIssues };
+  }
+
+  // ── Overflow / conflict detection ───────────────────────────────────────────
+  // Surfaces plan problems in plain language instead of silently persisting
+  // dates that run past the agreed testing window, so the user can decide how
+  // to resolve them (add a second tester, revisit the effort estimate, or
+  // extend the window) rather than discovering it by eyeballing the dates.
+
+  private async computeOverflowIssues(versionId: string, plan: { cycle1Start: Date; testingEnd: Date; cycles: any[] }) {
+    const issues: {
+      type: 'CORE_OVERFLOW' | 'SA_DUE_DATE_MISSED' | 'GO_LIVE_OVERFLOW';
+      message: string;
+      crNumber?: string;
+      userName?: string;
+      daysOver: number;
+      suggestions: string[];
+    }[] = [];
+
+    const coreCycles = plan.cycles.filter((c: any) => ['CYCLE_1', 'CYCLE_2', 'CYCLE_3'].includes(c.cycleType));
+    const saCycle     = plan.cycles.find((c: any) => c.cycleType === 'STAND_ALONE');
+
+    // Cycle boundaries are now a fixed parameter (see buildWorkPlan) — check
+    // each cycle independently for testers whose own real (non-filler) work
+    // runs past THAT cycle's fixed end, instead of comparing a combined
+    // multi-cycle total against the whole testing window. This directly
+    // answers "who doesn't fit in the cycle, and why" per cycle.
+    for (const cycle of coreCycles) {
+      const realTasksByTester = new Map<string, any[]>();
+      for (const task of cycle.tasks) {
+        if (task.taskType !== 'CR') continue; // regression-fill is padding, not a commitment
+        const list = realTasksByTester.get(task.userId) ?? [];
+        list.push(task);
+        realTasksByTester.set(task.userId, list);
+      }
+
+      for (const [userId, tasks] of realTasksByTester) {
+        const lastEnd = tasks.reduce((max: Date, t: any) => t.plannedEnd > max ? t.plannedEnd : max, tasks[0].plannedEnd);
+        if (lastEnd.getTime() <= cycle.plannedEnd.getTime()) continue;
+
+        const daysOver = countWorkDays(nextWorkDay(cycle.plannedEnd), lastEnd);
+        const userName = tasks[0]?.user?.fullName ?? userId;
+        const biggest  = [...tasks].sort((a: any, b: any) => b.effortDays - a.effortDays)[0];
+        const cycleLabel = CYCLE_LABEL[cycle.cycleType as CycleType];
+
+        issues.push({
+          type:        'CORE_OVERFLOW',
+          userName,
+          crNumber:    biggest?.crNumber,
+          daysOver,
+          message: `${userName} לא מספיק לסיים את ${cycleLabel} עד ${cycle.plannedEnd.toLocaleDateString('he-IL')} — חורג ב-${daysOver} ימי עבודה. ${biggest ? `CR ${biggest.crNumber} (${biggest.effortDays} ימים) הוא המשמעותי ביותר בעומס שלו.` : ''} הסבב הבא יתחיל במועד הקבוע לכל שאר הצוות; מי שחורג צריך פתרון — ידני, בודק שני, או הארכת הסבב.`,
+          suggestions: [
+            biggest ? `שקול לשבץ בודק שני ל-CR ${biggest.crNumber} כדי לפצל את המאמץ` : 'שקול לשבץ בודק שני לאחת מהמשימות הגדולות שלו',
+            biggest ? `בדוק שוב את הערכת המאמץ (${biggest.effortDays} ימים) עבור CR ${biggest.crNumber} — ייתכן שהיא לא מדויקת` : 'בדוק שוב את הערכות המאמץ של המשימות שלו',
+            `לחלופין, שקול להאריך את אורך ${cycleLabel}`,
+          ],
+        });
+      }
+    }
+
+    // ── Hard constraint: core tasks must never run past go-live ──────────────
+    // Go-live is set at version creation (Version.plannedStart) — it's the one
+    // date that truly cannot move for QA reasons, unlike cycle boundaries.
+    const version = await prisma.version.findUnique({ where: { id: versionId }, select: { plannedStart: true } });
+    const goLiveDate = version?.plannedStart ?? null;
+    const lastCoreCycle = coreCycles[coreCycles.length - 1];
+
+    if (goLiveDate && lastCoreCycle) {
+      const realTasksByTester = new Map<string, any[]>();
+      for (const task of lastCoreCycle.tasks) {
+        if (task.taskType !== 'CR') continue;
+        const list = realTasksByTester.get(task.userId) ?? [];
+        list.push(task);
+        realTasksByTester.set(task.userId, list);
+      }
+      for (const [userId, tasks] of realTasksByTester) {
+        const lastEnd = tasks.reduce((max: Date, t: any) => t.plannedEnd > max ? t.plannedEnd : max, tasks[0].plannedEnd);
+        if (lastEnd.getTime() <= goLiveDate.getTime()) continue;
+
+        const daysOver  = countWorkDays(nextWorkDay(goLiveDate), lastEnd);
+        const userName  = tasks[0]?.user?.fullName ?? userId;
+        const biggest   = [...tasks].sort((a: any, b: any) => b.effortDays - a.effortDays)[0];
+
+        issues.push({
+          type:     'GO_LIVE_OVERFLOW',
+          userName,
+          crNumber: biggest?.crNumber,
+          daysOver,
+          message: `🚨 ${userName} עדיין בודק/ת אחרי מועד העלייה לאוויר (${goLiveDate.toLocaleDateString('he-IL')}) — חורג ב-${daysOver} ימי עבודה. ${biggest ? `CR ${biggest.crNumber} (${biggest.effortDays} ימים) הוא המשמעותי ביותר.` : ''} משימות ליבה לא יכולות להימשך מעבר לעלייה לאוויר — נדרש פתרון לפני המועד.`,
+          suggestions: [
+            biggest ? `שקול לשבץ בודק שני ל-CR ${biggest.crNumber} כדי לפצל את המאמץ` : 'שקול לשבץ בודק שני לאחת מהמשימות הגדולות שלו',
+            biggest ? `בדוק שוב את הערכת המאמץ (${biggest.effortDays} ימים) עבור CR ${biggest.crNumber} — ייתכן שהיא לא מדויקת` : 'בדוק שוב את הערכות המאמץ של המשימות שלו',
+            'שקול לקצר סבבים אחרים או להתחיל את סבב 1 מוקדם יותר',
+          ],
+        });
+      }
+    }
+
+    // ── Stand Alone due-date misses ──────────────────────────────────────────
+    if (saCycle) {
+      const dueDates = await prisma.qaAssignment.findMany({
+        where: { versionId, standAloneDueDate: { not: null } },
+        select: { crNumber: true, standAloneDueDate: true },
+      });
+      const dueMap = new Map(dueDates.map(d => [d.crNumber, d.standAloneDueDate!]));
+
+      for (const task of saCycle.tasks) {
+        const due = dueMap.get(task.crNumber);
+        if (!due || task.plannedEnd.getTime() <= due.getTime()) continue;
+        const daysOver = countWorkDays(nextWorkDay(due), task.plannedEnd);
+        issues.push({
+          type:     'SA_DUE_DATE_MISSED',
+          userName: task.user?.fullName ?? task.userId,
+          crNumber: task.crNumber,
+          daysOver,
+          message: `CR ${task.crNumber} (Stand Alone) לא יעמוד במועד היעד שנקבע (${due.toLocaleDateString('he-IL')}) — צפוי להסתיים ${daysOver} ימי עבודה אחרי כן, כי ${task.user?.fullName ?? ''} עמוס במשימות ליבה קודמות.`,
+          suggestions: [
+            'שקול לשבץ בודק שני למשימת ה-Stand Alone הזו',
+            'שקול להקדים משימות ליבה אחרות של הבודק כדי לפנות לו זמן',
+            'בדוק אם ניתן לדחות את מועד היעד',
+          ],
+        });
+      }
+    }
+
+    return issues;
   }
 
   // ── Approve work plan ───────────────────────────────────────────────────────

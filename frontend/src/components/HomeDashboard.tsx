@@ -680,18 +680,30 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
                   )}
                 </div>
                 <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
-                  <button
-                    onClick={() => onSelectVersion(primary.id, typeof ph.ctaTab === 'function' ? ph.ctaTab(role) : ph.ctaTab)}
-                    style={{ background: ph.color, color: 'white', border: 'none', borderRadius: RADIUS.md, padding: '10px 20px', ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' as const }}
-                  >
-                    {ph.cta(role)} ←
-                  </button>
-                  <button
-                    onClick={() => onSelectVersion(primary.id, 'list')}
-                    style={{ background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '7px 16px', ...TEXT.xs, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' as const }}
-                  >
-                    פרטי גרסה
-                  </button>
+                  {(() => {
+                    const mainCtaTab = typeof ph.ctaTab === 'function' ? ph.ctaTab(role) : ph.ctaTab;
+                    return (
+                      <>
+                        <button
+                          onClick={() => onSelectVersion(primary.id, mainCtaTab)}
+                          style={{ background: ph.color, color: 'white', border: 'none', borderRadius: RADIUS.md, padding: '10px 20px', ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' as const }}
+                        >
+                          {ph.cta(role)} ←
+                        </button>
+                        {/* Only show the secondary "פרטי גרסה" link when it actually leads
+                            somewhere different — several statuses already route the main
+                            CTA to 'list', making a second identical button pointless. */}
+                        {mainCtaTab !== 'list' && (
+                          <button
+                            onClick={() => onSelectVersion(primary.id, 'list')}
+                            style={{ background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '7px 16px', ...TEXT.xs, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' as const }}
+                          >
+                            פרטי גרסה
+                          </button>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             );
