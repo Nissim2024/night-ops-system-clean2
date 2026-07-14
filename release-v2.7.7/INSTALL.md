@@ -181,8 +181,8 @@ sudo bash install-docker.sh
 - ייבוא `deploycenter-data-export.json` — upsert-בלבד, כולל מטריצת הסקילים/בודקים
 - הפעלת containers עם images חדשים
 
-**⚠ פעולה ידנית נדרשת אחרי השדרוג — הרשאות למודולים החדשים:**
-נוספו 2 מסכי-הרשאה חדשים: `screen:release-intelligence` ו-`screen:quality-hub`. זרעוע ברירת המחדל (`ensureDefaults`) מוסיף שורת RolePermission חדשה **רק לתפקיד שאין לו שורה בכלל** — בשרת קיים ששודרג, לתפקידים הקיימים (כולל ADMIN) **לא** תתווסף ההרשאה אוטומטית. יש להיכנס ל-**AdminPanel → הרשאות לפי תפקיד** ולהעניק את שני המסכים הללו לתפקידים הרלוונטיים (לפחות ADMIN ו-RELEASE_MANAGER) — אחרת שני המודולים החדשים (אינטליגנציה, איכות גרסה) לא יופיעו בסיידבר גם למנהלים.
+**הרשאות למודולים החדשים — מתעדכנות אוטומטית, אין פעולה ידנית:**
+נוספו 2 מסכי-הרשאה חדשים: `screen:release-intelligence` ו-`screen:quality-hub`. **אומת בדיקה חיה (container אמיתי, DB נקי לגמרי):** שלב ייבוא ה-`deploycenter-data-export.json` (חלק סטנדרטי מהשדרוג האוטומטי, ראו למעלה) מבצע `upsert` על טבלת RolePermissions עם `update: permissions` — כלומר הוא **דורס** את רשימת ההרשאות הקיימת של כל תפקיד בערכים מהקובץ המיוצא, ולא רק מוסיף לתפקידים חדשים. הקובץ המצורף כבר כולל את שתי ההרשאות החדשות עבור ADMIN. **חשוב לדעת:** אם לשרת הייצור יש הרשאות מותאמות-אישית שנוספו/הוסרו ידנית ב-AdminPanel ואינן זהות לסביבת הפיתוח שממנה יוצא קובץ הנתונים — הן יידרסו בחזרה לערכי קובץ הייצוא בכל שדרוג. מומלץ לבדוק אחרי כל שדרוג ש-AdminPanel → הרשאות לפי תפקיד עדיין תואם למדיניות הרצויה בשרת הזה.
 
 **⚠ שינוי שובר תאימות — הוסרה סנכרון-Excel לרשימת CR של QC:**
 `POST /qc-releases/sync-excel` ו-`/qc-releases/sync-excel-path` הוסרו לחלוטין. רשימת גרסאות QC מסונכרנת כעת **אך ורק מ-Oracle** (`ORACLE_ENABLED=true` נדרש). אם שרת הייצור הזה הסתמך על סנכרון Excel-בלבד (ללא Oracle) לרשימת ה-QC releases — יכולת זו נעלמת בשדרוג הזה. זה נפרד מ-`QC_RELEASES_FILE`/`EXCEL_FILE_PATH` (סנכרון CR_LIST לגרסה), שלא השתנה.
@@ -351,7 +351,7 @@ docker exec dc-api node /app/dist/scripts/validate-production.js
 ✅ Admin user exists
 ✅ Skills matrix imported (Skill / TesterProfile / TesterSkill)
 ✅ TEAM_LEAD role has screen:qa permission (AdminPanel → הרשאות לפי תפקיד)
-✅ ADMIN/RELEASE_MANAGER roles have screen:release-intelligence + screen:quality-hub permission (new in 2.7.7 — NOT auto-granted on upgrade)
+✅ ADMIN/RELEASE_MANAGER roles have screen:release-intelligence + screen:quality-hub permission (new in 2.7.7 — auto-applied by the standard data-export import, but re-check if this server has custom per-role permissions)
 ✅ QC release-list sync works via Oracle (Excel-only sync path was removed in 2.7.7)
 ✅ Quality Hub KPI Definitions + KPI Scores imported (empty on fresh install/upgrade until imported)
 ✅ Navigation to a version (home, sidebar, closed versions) works without bouncing back

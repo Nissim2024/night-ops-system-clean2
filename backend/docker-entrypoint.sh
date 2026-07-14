@@ -1,10 +1,10 @@
 #!/bin/sh
-# DeployCenter 2.7.4 — Docker Entrypoint
+# DeployCenter 2.7.7 — Docker Entrypoint
 set -e
 
 echo ""
 echo "=================================================="
-echo "  DeployCenter v2.7.4 — Starting"
+echo "  DeployCenter v2.7.7 — Starting"
 echo "=================================================="
 
 # ── Step 1: Run database migrations ────────────────────────────────────────
