@@ -58,7 +58,7 @@ export class LeavesController {
   @Post('requests')
   submitRequest(
     @Request() req: any,
-    @Body() body: { seasonId?: string; date: string; kind: string; reason?: string },
+    @Body() body: { seasonId?: string; date: string; kind: string; reason?: string; groupId?: string },
   ) {
     return this.svc.submitRequest(req.user.sub, body);
   }

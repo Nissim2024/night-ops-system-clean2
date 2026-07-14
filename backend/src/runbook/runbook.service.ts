@@ -16,6 +16,16 @@ interface RunbookEntry {
   status:         string;
 }
 
+interface RunbookStepDef {
+  key:         number;
+  activity:    string;
+  defaultTeam: string;
+  duration:    string;
+  startTime:   string;
+  endTime:     string;
+  bold?:       boolean;
+}
+
 @Injectable()
 export class RunbookService {
   private readonly logger = new Logger(RunbookService.name);
@@ -77,6 +87,52 @@ export class RunbookService {
       },
       select: { runbookId: true, stepIndex: true, employee: true, employeeUserId: true, startTime: true, endTime: true, runDate: true, team: true, status: true },
       orderBy: [{ runDate: 'asc' }, { startTime: 'asc' }],
+    });
+  }
+
+  // ── Template overrides — editable steps for a RUNBOOKS[templateKey] plan ────
+  // Returns null when no override was ever saved; the frontend then falls
+  // back to its built-in hardcoded step list for that templateKey.
+  async getTemplate(templateKey: string) {
+    return prisma.runbookTemplate.findUnique({ where: { templateKey } });
+  }
+
+  // Full-array upsert — used for in-place edits, deletes, and reordering of
+  // already-keyed steps. Never allocates a new step key, so it's safe to call
+  // freely without risking key collisions.
+  async saveTemplate(templateKey: string, title: string, envLabel: string, steps: RunbookStepDef[], userId?: string) {
+    return prisma.runbookTemplate.upsert({
+      where:  { templateKey },
+      update: { title, envLabel, steps: steps as any },
+      create: { templateKey, title, envLabel, steps: steps as any, createdBy: userId ?? null },
+    });
+  }
+
+  // Adds one new step, server-allocating its stable key from the template's
+  // monotonic counter so a previously-deleted step's key is never reused.
+  // Bootstraps the template row from the caller's current in-memory steps if
+  // this templateKey has never been saved before (steps live client-side only
+  // until the first edit).
+  async addTemplateStep(
+    templateKey: string, title: string, envLabel: string,
+    currentSteps: RunbookStepDef[], afterKey: number | null | undefined,
+    newStep: Omit<RunbookStepDef, 'key'>, userId?: string,
+  ) {
+    let row = await prisma.runbookTemplate.findUnique({ where: { templateKey } });
+    if (!row) {
+      row = await prisma.runbookTemplate.create({
+        data: { templateKey, title, envLabel, steps: currentSteps as any, createdBy: userId ?? null },
+      });
+    }
+    const steps = (row.steps as any as RunbookStepDef[]).slice();
+    const key = row.nextStepKey;
+    const step: RunbookStepDef = { ...newStep, key };
+    const insertAt = afterKey != null ? steps.findIndex(s => s.key === afterKey) + 1 : steps.length;
+    steps.splice(insertAt < 0 ? steps.length : insertAt, 0, step);
+
+    return prisma.runbookTemplate.update({
+      where: { templateKey },
+      data:  { steps: steps as any, nextStepKey: key + 1 },
     });
   }
 

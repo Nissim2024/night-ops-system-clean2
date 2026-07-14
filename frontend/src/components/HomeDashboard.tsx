@@ -22,6 +22,7 @@ interface Props {
   role: string;
   fullName: string;
   token: string;
+  selectedVersionId?: string;
   onSelectVersion: (id: string, tab?: string) => void;
   onNewVersion?: () => void;
   onSwitchToQa?: () => void;
@@ -168,7 +169,7 @@ function EmptyState({ canCreate, onNewVersion }: { canCreate: boolean; onNewVers
 // ────────────────────────────────────────────────────────────────
 const CR_REVIEW_STAGES = ['CR_REVIEW', 'REFINING', 'REVIEW'];
 
-export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token, onSelectVersion, onNewVersion, onSwitchToQa, canAccessQa, onGoToLeaves }) => {
+export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token, selectedVersionId, onSelectVersion, onNewVersion, onSwitchToQa, canAccessQa, onGoToLeaves }) => {
   const canCreate = isRm(role);
   const canManageLeaves = ['ADMIN', 'TEAM_LEAD'].includes(role);
 
@@ -195,9 +196,13 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
     [versions]
   );
   const inProgressVersions = activeVersions.filter(v => !['COMPLETED', 'ROLLED_BACK'].includes(v.status));
-  // primary = first version still in progress; when all are done → allDone state
-  const primary = inProgressVersions[0] ?? null;
-  const others  = inProgressVersions.slice(1);
+  // primary = whichever version is selected in the sidebar, as long as it's
+  // still in progress — falls back to the most urgent one (by STATUS_PRIORITY)
+  // when nothing valid is selected, so Home actually follows sidebar clicks
+  // instead of always pinning to the single "most urgent" version.
+  const selectedInProgress = selectedVersionId ? inProgressVersions.find(v => v.id === selectedVersionId) : undefined;
+  const primary = selectedInProgress ?? inProgressVersions[0] ?? null;
+  const others  = inProgressVersions.filter(v => v.id !== primary?.id);
   const allDone = activeVersions.length > 0 && inProgressVersions.length === 0;
 
   const firstName = fullName.split(' ')[0] || fullName;

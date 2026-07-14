@@ -195,14 +195,14 @@ export class LeavesService {
     });
   }
 
-  async submitRequest(userId: string, data: { seasonId?: string; date: string; kind: string; reason?: string }) {
+  async submitRequest(userId: string, data: { seasonId?: string; date: string; kind: string; reason?: string; groupId?: string }) {
     const existing = await prisma.leaveRequest.findFirst({
       where: { userId, date: new Date(data.date) },
     });
     if (existing) {
       return prisma.leaveRequest.update({
         where: { id: existing.id },
-        data: { kind: data.kind, reason: data.reason ?? null, status: 'PENDING' },
+        data: { kind: data.kind, reason: data.reason ?? null, status: 'PENDING', groupId: data.groupId ?? null },
         include: { season: { select: { id: true, name: true } } },
       });
     }
@@ -214,6 +214,7 @@ export class LeavesService {
         kind: data.kind,
         reason: data.reason ?? null,
         status: 'PENDING',
+        groupId: data.groupId ?? null,
       },
       include: { season: { select: { id: true, name: true } } },
     });
@@ -278,9 +279,19 @@ export class LeavesService {
         throw new ForbiddenException('אין הרשאה לטפל בבקשה של עובד מחוץ לצוות שלך');
       }
     }
-    return prisma.leaveRequest.update({
+    // A request submitted as part of a date range shares one groupId across every
+    // day — approving/declining any one of them applies to the whole range in a
+    // single manager action, not day-by-day.
+    if (req.groupId) {
+      await prisma.leaveRequest.updateMany({
+        where: { groupId: req.groupId, userId: req.userId },
+        data: { status },
+      });
+    } else {
+      await prisma.leaveRequest.update({ where: { id: requestId }, data: { status } });
+    }
+    return prisma.leaveRequest.findUnique({
       where: { id: requestId },
-      data: { status },
       include: {
         user:   { select: { id: true, fullName: true, email: true } },
         season: { select: { id: true, name: true } },

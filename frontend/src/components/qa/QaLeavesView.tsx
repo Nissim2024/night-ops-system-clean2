@@ -19,6 +19,50 @@ interface LeaveRequest {
   seasonId?: string;
   season?: { id: string; name: string };
   user: { id: string; fullName: string; email: string };
+  groupId?: string | null;
+}
+
+// A leave range is submitted as one LeaveRequest row per day, sharing one
+// groupId (see EmployeeLeavesView.applyRange). Collapse those rows into a
+// single displayed range so a manager approves/declines the whole range in
+// one action instead of once per day.
+interface DisplayRow {
+  key: string;
+  ids: string[];
+  representativeId: string;
+  user: LeaveRequest['user'];
+  dates: string[]; // sorted ascending
+  kind: 'leave' | 'work';
+  season?: LeaveRequest['season'];
+  seasonId?: string;
+  reason?: string;
+  status: ApprovalStatus;
+}
+
+function buildDisplayRows(reqs: LeaveRequest[]): DisplayRow[] {
+  const byGroup = new Map<string, LeaveRequest[]>();
+  const rows: DisplayRow[] = [];
+  for (const r of reqs) {
+    if (r.groupId) {
+      if (!byGroup.has(r.groupId)) byGroup.set(r.groupId, []);
+      byGroup.get(r.groupId)!.push(r);
+    } else {
+      rows.push({
+        key: r.id, ids: [r.id], representativeId: r.id, user: r.user, dates: [r.date],
+        kind: r.kind, season: r.season, seasonId: r.seasonId, reason: r.reason, status: r.status,
+      });
+    }
+  }
+  Array.from(byGroup.entries()).forEach(([groupId, list]) => {
+    const sorted = [...list].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    rows.push({
+      key: groupId, ids: sorted.map(r => r.id), representativeId: sorted[0].id, user: sorted[0].user,
+      dates: sorted.map(r => r.date), kind: sorted[0].kind, season: sorted[0].season,
+      seasonId: sorted[0].seasonId, reason: sorted[0].reason, status: sorted[0].status,
+    });
+  });
+  rows.sort((a, b) => new Date(a.dates[0]).getTime() - new Date(b.dates[0]).getTime());
+  return rows;
 }
 
 interface Season {
@@ -88,11 +132,14 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
 
   useEffect(() => { load(); }, [load]);
 
-  const updateStatus = async (id: string, status: 'APPROVED' | 'DECLINED') => {
-    setSaving(id);
+  // Backend cascades the status to every sibling row sharing the same groupId
+  // (see LeavesService.updateRequestStatus) — reload the full list rather than
+  // patching just the one id locally, so the whole range reflects the new status.
+  const updateStatus = async (row: DisplayRow, status: 'APPROVED' | 'DECLINED') => {
+    setSaving(row.key);
     try {
-      const res = await axios.patch(`${API}/leaves/requests/${id}`, { status }, { headers });
-      setRequests(prev => prev.map(r => r.id === id ? { ...r, status: res.data.status } : r));
+      await axios.patch(`${API}/leaves/requests/${row.representativeId}`, { status }, { headers });
+      setRequests(prev => prev.map(r => row.ids.includes(r.id) ? { ...r, status } : r));
     } finally { setSaving(null); }
   };
 
@@ -118,9 +165,14 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
     return true;
   });
 
+  const displayRows = buildDisplayRows(filtered);
+
+  // Counted by range (display row), not by day — a 10-day pending request
+  // reads as "1 ממתין", matching what the manager actually needs to act on.
+  const allDisplayRows = buildDisplayRows(requests);
   const counts = {
-    pending:  requests.filter(r => r.status === 'PENDING').length,
-    approved: requests.filter(r => r.status === 'APPROVED').length,
+    pending:  allDisplayRows.filter(r => r.status === 'PENDING').length,
+    approved: allDisplayRows.filter(r => r.status === 'APPROVED').length,
   };
 
   if (loading) {
@@ -275,25 +327,26 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
           ))}
         </div>
 
-        {filtered.length === 0 && (
+        {displayRows.length === 0 && (
           <div style={{ padding: SP[10], textAlign: 'center', color: C.textMuted, ...TEXT.sm }}>
             אין תוצאות
           </div>
         )}
 
-        {filtered.map((req, i) => {
-          const meta = STATUS_META[req.status];
-          const isPending = req.status === 'PENDING';
-          const isSaving  = saving === req.id;
+        {displayRows.map((row, i) => {
+          const meta = STATUS_META[row.status];
+          const isPending = row.status === 'PENDING';
+          const isSaving  = saving === row.key;
+          const isRange   = row.dates.length > 1;
           const cols = isAdmin
             ? '1.4fr 1.2fr 1fr 1.2fr 1.5fr 1fr'
             : '1.4fr 1fr 1.5fr 1.2fr 1fr';
 
           return (
-            <div key={req.id} style={{
+            <div key={row.key} style={{
               display: 'grid', gridTemplateColumns: cols,
               padding: `${SP[3]} ${SP[5]}`,
-              borderBottom: i < filtered.length - 1 ? `1px solid ${C.border}` : 'none',
+              borderBottom: i < displayRows.length - 1 ? `1px solid ${C.border}` : 'none',
               background: i % 2 === 0 ? C.bgCard : C.bgNested,
               alignItems: 'center', transition: EASE.fast,
             }}>
@@ -307,34 +360,38 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.info, flexShrink: 0,
                   }}>
-                    {req.user?.fullName?.charAt(0) ?? '?'}
+                    {row.user?.fullName?.charAt(0) ?? '?'}
                   </div>
                   <div>
-                    <div style={{ ...TEXT.sm, fontWeight: WEIGHT.medium }}>{req.user?.fullName ?? '—'}</div>
-                    <div style={{ ...TEXT.xs, color: C.textMuted }}>{req.user?.email ?? ''}</div>
+                    <div style={{ ...TEXT.sm, fontWeight: WEIGHT.medium }}>{row.user?.fullName ?? '—'}</div>
+                    <div style={{ ...TEXT.xs, color: C.textMuted }}>{row.user?.email ?? ''}</div>
                   </div>
                 </div>
               )}
 
-              {/* Date */}
-              <span style={{ ...TEXT.sm, color: C.textSecondary }}>{fmt(req.date)}</span>
+              {/* Date (range if submitted together) */}
+              <span style={{ ...TEXT.sm, color: C.textSecondary }}>
+                {isRange
+                  ? `${fmt(row.dates[0])} – ${fmt(row.dates[row.dates.length - 1])} (${row.dates.length} ימים)`
+                  : fmt(row.dates[0])}
+              </span>
 
               {/* Kind */}
               <span style={{ ...TEXT.sm }}>
-                {req.kind === 'leave' ? '🏖 חופשה' : '💼 עבודה'}
+                {row.kind === 'leave' ? '🏖 חופשה' : '💼 עבודה'}
               </span>
 
               {/* Season / reason */}
               <div>
-                {req.season?.name && (
+                {row.season?.name && (
                   <span style={{ ...TEXT.xs, color: C.info, background: C.infoBg, padding: '1px 7px', borderRadius: RADIUS.sm, display: 'inline-block' }}>
-                    {req.season.name}
+                    {row.season.name}
                   </span>
                 )}
-                {req.reason && (
-                  <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: req.season ? '3px' : 0 }}>{req.reason}</div>
+                {row.reason && (
+                  <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: row.season ? '3px' : 0 }}>{row.reason}</div>
                 )}
-                {!req.season?.name && !req.reason && <span style={{ ...TEXT.sm, color: C.textDisabled }}>—</span>}
+                {!row.season?.name && !row.reason && <span style={{ ...TEXT.sm, color: C.textDisabled }}>—</span>}
               </div>
 
               {/* Status badge */}
@@ -342,17 +399,17 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
                 {meta.label}
               </span>
 
-              {/* Actions */}
+              {/* Actions — approving/declining a range acts on all its days in one call */}
               <div style={{ display: 'flex', gap: '6px' }}>
                 {isAdmin && isPending && (
                   <>
-                    <button onClick={() => updateStatus(req.id, 'APPROVED')} disabled={isSaving}
+                    <button onClick={() => updateStatus(row, 'APPROVED')} disabled={isSaving}
                       style={{ background: C.successBg, color: C.success, border: `1px solid ${C.success}33`, borderRadius: RADIUS.sm, padding: '4px 10px', cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold, transition: EASE.fast, opacity: isSaving ? 0.5 : 1 }}
                       onMouseEnter={e => e.currentTarget.style.background = C.success + '25'}
                       onMouseLeave={e => e.currentTarget.style.background = C.successBg}>
-                      {isSaving ? '...' : 'אשר'}
+                      {isSaving ? '...' : (isRange ? 'אשר טווח' : 'אשר')}
                     </button>
-                    <button onClick={() => updateStatus(req.id, 'DECLINED')} disabled={isSaving}
+                    <button onClick={() => updateStatus(row, 'DECLINED')} disabled={isSaving}
                       style={{ background: C.dangerBg, color: C.danger, border: `1px solid ${C.danger}33`, borderRadius: RADIUS.sm, padding: '4px 10px', cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold, transition: EASE.fast, opacity: isSaving ? 0.5 : 1 }}
                       onMouseEnter={e => e.currentTarget.style.background = C.danger + '22'}
                       onMouseLeave={e => e.currentTarget.style.background = C.dangerBg}>

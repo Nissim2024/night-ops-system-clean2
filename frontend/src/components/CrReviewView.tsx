@@ -3,6 +3,7 @@ import axios from 'axios';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { useDialog } from '../context/DialogContext';
 import { C, FONT } from '../theme';
+import { cleanHtmlText } from '../utils/textSanitize';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -290,7 +291,7 @@ const NarrativeProposalRow: React.FC<{
           <div style={{ fontSize: '13px', color: C.textSecondary, marginTop: '2px', fontStyle: 'italic' }}>{proposal.title}</div>
         )}
         {proposal.notes && (
-          <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '2px' }}>💬 {proposal.notes}</div>
+          <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '2px' }}>💬 {cleanHtmlText(proposal.notes)}</div>
         )}
         {proposal.reviewNote && !showNote && (
           <div style={{ fontSize: '13px', color: C.warning, marginTop: '3px', background: C.warningBg, padding: '3px 7px', borderRadius: '5px', display: 'inline-block' }}>

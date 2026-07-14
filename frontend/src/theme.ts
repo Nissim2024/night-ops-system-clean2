@@ -112,18 +112,19 @@ export const C = {
 export const FONT      = "'Segoe UI', -apple-system, 'IBM Plex Sans Hebrew', Arial, sans-serif";
 export const FONT_MONO = "'SF Mono', 'Fira Code', 'Consolas', monospace";
 
-// Bumped up significantly (2026-07-04) for readability — legibility for users with
-// weaker eyesight takes priority over information density.
+// Bumped up significantly (2026-07-04), then bumped again by 20%+ (2026-07-14)
+// per direct user request — legibility for users with weaker eyesight takes
+// priority over information density.
 export const TEXT = {
-  xs:   { fontSize: '13px', lineHeight: '19px' },
-  sm:   { fontSize: '14px', lineHeight: '20px' },
-  base: { fontSize: '15px', lineHeight: '22px' },
-  md:   { fontSize: '16px', lineHeight: '24px' },
-  lg:   { fontSize: '18px', lineHeight: '26px' },
-  xl:   { fontSize: '20px', lineHeight: '29px' },
-  '2xl':{ fontSize: '23px', lineHeight: '31px' },
-  '3xl':{ fontSize: '28px', lineHeight: '36px' },
-  '4xl':{ fontSize: '35px', lineHeight: '43px' },
+  xs:   { fontSize: '16px', lineHeight: '23px' },
+  sm:   { fontSize: '17px', lineHeight: '24px' },
+  base: { fontSize: '18px', lineHeight: '27px' },
+  md:   { fontSize: '20px', lineHeight: '29px' },
+  lg:   { fontSize: '22px', lineHeight: '32px' },
+  xl:   { fontSize: '24px', lineHeight: '35px' },
+  '2xl':{ fontSize: '28px', lineHeight: '38px' },
+  '3xl':{ fontSize: '34px', lineHeight: '44px' },
+  '4xl':{ fontSize: '42px', lineHeight: '52px' },
 } as const;
 
 export const WEIGHT = {

@@ -2,6 +2,7 @@
 import axios from 'axios';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { C, FONT, RADIUS, SHADOW } from '../theme';
+import { cleanHtmlText } from '../utils/textSanitize';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -1037,7 +1038,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         {p.actionType && <span style={{ background: C.infoBg, color: C.info, padding: '1px 7px', borderRadius: RADIUS.sm, fontSize: '13px', fontWeight: '600' }}>{p.actionType}</span>}
         <span><span style={{ color: C.textMuted }}>משך: </span>{p.estimatedMins ? `${p.estimatedMins} דק'` : <span style={{ color: C.textDisabled }}>לא הוזן</span>}</span>
         <span><span style={{ color: C.textMuted }}>עובד אחראי: </span>{p.assignedUserName || <span style={{ color: C.textDisabled }}>לא הוזן</span>}</span>
-        {p.notes && <span style={{ color: C.textSecondary, fontStyle: 'italic' }}>📝 {p.notes}</span>}
+        {p.notes && <span style={{ color: C.textSecondary, fontStyle: 'italic' }}>📝 {cleanHtmlText(p.notes)}</span>}
       </div>
     </div>
   );

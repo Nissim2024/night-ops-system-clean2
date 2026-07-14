@@ -1,12 +1,28 @@
 import React, { useState } from 'react';
 import { C } from '../theme';
-import { DateField, DateTimeField, DateRangeField, formatDMY } from './DatePicker';
+import { DateField, DateTimeField, DateRangeField, TimeField, formatDMY } from './DatePicker';
 
+// formatDMY only parses bare 'YYYY-MM-DD' — split off the date part before
+// handing it a full 'YYYY-MM-DDTHH:MM' value, otherwise it silently returns ''.
 const formatDMYTime = (iso?: string): string => {
   if (!iso) return '';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '';
-  return `${formatDMY(iso)} ${d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`;
+  const [datePart, timePart] = iso.split('T');
+  return [formatDMY(datePart), timePart].filter(Boolean).join(' ');
+};
+
+// Like DateTimeField, but never silently defaults a missing time to 00:00 —
+// used for ליל ההטמעה תחילה, where the time must be a real user-entered value
+// so "required" validation can actually tell whether it was set.
+const StrictDateTimeField: React.FC<{ value: string; onChange: (v: string) => void; style?: React.CSSProperties }> = ({ value, onChange, style }) => {
+  const [datePart, timePart] = value ? value.split('T') : ['', ''];
+  return (
+    <div style={{ display: 'flex', gap: '8px' }}>
+      <div style={{ flex: 1 }}>
+        <DateField value={datePart} onChange={d => onChange(`${d}T${timePart}`)} style={style} />
+      </div>
+      <TimeField value={timePart} onChange={t => onChange(`${datePart}T${t}`)} />
+    </div>
+  );
 };
 
 type Method = 'manual' | 'template' | 'excel';
@@ -78,7 +94,8 @@ export const VersionWizard: React.FC<Props> = ({
     (method !== 'excel' || !!importFile);
   const step1Valid = method !== 'manual' || !!(newVersion.integrationStart && newVersion.integrationEnd && newVersion.qaStart && newVersion.qaEnd);
   const step2Valid = true; // meetings are always optional
-  const step3Valid = method === 'manual' || !!newVersion.plannedStart; // go-live start required for template/excel
+  const [plannedStartDate, plannedStartTime] = (newVersion.plannedStart || '').split('T');
+  const step3Valid = method === 'manual' || !!(plannedStartDate && plannedStartTime); // go-live date+time required for template/excel
 
   const canProceed = [step0Valid, step1Valid, step2Valid, step3Valid, true][step];
 
@@ -106,7 +123,10 @@ export const VersionWizard: React.FC<Props> = ({
       ].filter(Boolean) as string[];
     }
     if (step === 3 && method !== 'manual') {
-      return [!newVersion.plannedStart && 'תאריך ושעת ליל ההטמעה'].filter(Boolean) as string[];
+      return [
+        !plannedStartDate && 'תאריך ליל ההטמעה',
+        !plannedStartTime && 'שעת ליל ההטמעה',
+      ].filter(Boolean) as string[];
     }
     return [];
   })();
@@ -314,7 +334,7 @@ export const VersionWizard: React.FC<Props> = ({
 
               {method !== 'manual' && (
                 <div style={{ fontSize: '14px', color: C.textMuted, fontStyle: 'italic' }}>
-                  אם לא ממולא, ניתן להשלים מאוחר יותר דרך פרטי הגרסה.
+                  אם לא מוזן, ניתן להשלים מאוחר יותר דרך פרטי הגרסה.
                 </div>
               )}
             </div>
@@ -367,9 +387,9 @@ export const VersionWizard: React.FC<Props> = ({
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                   <div>
                     <label style={labelStyle}>תחילה</label>
-                    <DateTimeField value={newVersion.plannedStart}
+                    <StrictDateTimeField value={newVersion.plannedStart}
                       onChange={v => onPlannedStartChange(v)}
-                      style={method !== 'manual' ? { ...inputStyle, border: `2px solid ${!newVersion.plannedStart ? C.statusBlocked : C.statusDone}` } : inputStyle} />
+                      style={method !== 'manual' ? { ...inputStyle, border: `2px solid ${!(plannedStartDate && plannedStartTime) ? C.statusBlocked : C.statusDone}` } : inputStyle} />
                   </div>
                   <div>
                     <label style={labelStyle}>סיום</label>

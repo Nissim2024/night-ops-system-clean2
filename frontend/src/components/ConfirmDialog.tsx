@@ -9,7 +9,7 @@ export interface DialogConfig {
   inputLabel?: string;
   inputPlaceholder?: string;
   inputDefaultValue?: string;
-  onConfirm: (value?: string) => void;
+  onConfirm: (value?: string) => void | Promise<void>;
   onCancel?: () => void;
 }
 
@@ -27,9 +27,10 @@ interface Props {
 
 export const ConfirmDialog: React.FC<Props> = ({ config, onClose }) => {
   const [inputValue, setInputValue] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (config) setInputValue(config.inputDefaultValue ?? '');
+    if (config) { setInputValue(config.inputDefaultValue ?? ''); setIsSubmitting(false); }
   }, [config]);
 
   if (!config) return null;
@@ -40,9 +41,17 @@ export const ConfirmDialog: React.FC<Props> = ({ config, onClose }) => {
   const confirmLabel = config.confirmLabel ?? 'אישור';
   const canConfirm = !isInput || inputValue.trim().length > 0;
 
-  const handleConfirm = () => {
-    config.onConfirm(isInput ? inputValue.trim() : undefined);
-    onClose();
+  // onConfirm may be async (API call) — stay open with a pending state until
+  // it resolves, so the dialog doesn't vanish before the underlying screen
+  // has had a chance to refresh (looked like "nothing happened" otherwise).
+  const handleConfirm = async () => {
+    setIsSubmitting(true);
+    try {
+      await config.onConfirm(isInput ? inputValue.trim() : undefined);
+      onClose();
+    } catch {
+      setIsSubmitting(false);
+    }
   };
 
   const handleCancel = () => {
@@ -51,14 +60,14 @@ export const ConfirmDialog: React.FC<Props> = ({ config, onClose }) => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && canConfirm) handleConfirm();
-    if (e.key === 'Escape') handleCancel();
+    if (e.key === 'Enter' && canConfirm && !isSubmitting) handleConfirm();
+    if (e.key === 'Escape' && !isSubmitting) handleCancel();
   };
 
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-      onClick={e => { if (e.target === e.currentTarget) handleCancel(); }}
+      onClick={e => { if (e.target === e.currentTarget && !isSubmitting) handleCancel(); }}
     >
       <div
         style={{ background: 'white', borderRadius: '14px', maxWidth: '440px', width: '90%', boxShadow: '0 12px 48px rgba(0,0,0,0.35)', direction: 'rtl', overflow: 'hidden' }}
@@ -120,17 +129,18 @@ export const ConfirmDialog: React.FC<Props> = ({ config, onClose }) => {
           {config.onCancel !== undefined && (
             <button
               onClick={handleCancel}
-              style={{ padding: '10px 22px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '15px', minWidth: '90px' }}
+              disabled={isSubmitting}
+              style={{ padding: '10px 22px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '8px', cursor: isSubmitting ? 'not-allowed' : 'pointer', fontSize: '15px', minWidth: '90px', opacity: isSubmitting ? 0.6 : 1 }}
             >
               {config.cancelLabel ?? 'ביטול'}
             </button>
           )}
           <button
             onClick={handleConfirm}
-            disabled={!canConfirm}
-            style={{ padding: '10px 22px', background: canConfirm ? colors.btn : '#ccc', color: 'white', border: 'none', borderRadius: '8px', cursor: canConfirm ? 'pointer' : 'not-allowed', fontSize: '15px', fontWeight: 'bold', minWidth: '90px' }}
+            disabled={!canConfirm || isSubmitting}
+            style={{ padding: '10px 22px', background: canConfirm && !isSubmitting ? colors.btn : '#ccc', color: 'white', border: 'none', borderRadius: '8px', cursor: canConfirm && !isSubmitting ? 'pointer' : 'not-allowed', fontSize: '15px', fontWeight: 'bold', minWidth: '90px' }}
           >
-            {confirmLabel}
+            {isSubmitting ? 'מבצע...' : confirmLabel}
           </button>
         </div>
         </div>{/* end content */}

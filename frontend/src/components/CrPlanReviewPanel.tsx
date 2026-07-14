@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT } from '../theme';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
+import { cleanHtmlText } from '../utils/textSanitize';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -527,7 +528,7 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                               <div style={{ fontSize: '15px', color: C.textSecondary, lineHeight: 1.65 }}>{sentence || prop.title}</div>
                               {prop.notes && (
                                 <div style={{ marginTop: '4px', fontSize: '14px', color: C.textMuted, paddingRight: '8px', borderRight: `2px solid ${ph.color}40` }}>
-                                  💬 {prop.notes}
+                                  💬 {cleanHtmlText(prop.notes)}
                                 </div>
                               )}
                             </div>

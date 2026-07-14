@@ -62,14 +62,18 @@ export class VersionCrAssignmentsService {
     });
   }
 
-  async syncFromExcel(versionId: string): Promise<{ synced: number; teamsUpdated: number; skipped: string }> {
+  // ── Private: load raw CR_LIST sheet + resolved column indices (shared by
+  // parseExcelAssignments and getChangeDetail) ──────────────────────────────
+  private async loadSheet(): Promise<{
+    rows: any[][]; headerRowIdx: number; colIdx: (name: string) => number;
+    crCol: number; titleCol: number; verCol: number; statusCol: number;
+    appCol: number; projectCol: number; estimateCol: number; actualsCol: number;
+    parseDay: (v: any) => number;
+  }> {
     const param = await prisma.systemParam.findUnique({ where: { key: 'EXCEL_FILE_PATH' } });
     const filePath = param?.value?.trim();
     if (!filePath) throw new BadRequestException('נתיב קובץ CR_LIST לא הוגדר בפרמטרי המערכת (EXCEL_FILE_PATH)');
     if (!fs.existsSync(filePath)) throw new BadRequestException(`הקובץ לא נמצא: ${filePath}`);
-
-    const version = await prisma.version.findUnique({ where: { id: versionId }, select: { name: true } });
-    if (!version) throw new BadRequestException('גרסה לא נמצאה');
 
     const buffer = fs.readFileSync(filePath);
     const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
@@ -90,203 +94,17 @@ export class VersionCrAssignmentsService {
     const headers: string[] = (rows[headerRowIdx] as any[]).map(h => String(h ?? '').trim());
     const colIdx = (name: string) => headers.findIndex(h => h === name);
 
-    const crCol          = colIdx('# CR');
-    const titleCol       = colIdx('כותרת');
-    const verCol         = colIdx('גרסה');
-    const statusCol      = colIdx('סטטוס');
-    const appCol         = colIdx('מאפיין');
-    const projectCol     = colIdx('פרויקט');
-    const estimateCol    = colIdx('סך כל הערכות');
-    const actualsCol     = colIdx('Actuals');
-    const COL_DESCRIPTION = 5;
-    const COL_MANAGER     = 9;
-
-    // Get all active teams for ID resolution
-    const allTeams = await prisma.team.findMany({ where: { active: true }, select: { id: true, name: true } });
-    const teamIdByName: Record<string, string> = {};
-    allTeams.forEach(t => { teamIdByName[t.name] = t.id; });
-
-    const QA_TEAM_NAME = 'QA Team';
-    const parseDay = (v: any) => { const n = parseFloat(String(v ?? '0').replace(/[^\d.]/g, '')); return isNaN(n) ? 0 : n; };
-
-    // ── Pass 1: determine eligible CRs (must have BOTH QA effort AND non-QA team effort) ──
-    // A CR is a "mixed team CR" only when QA is involved AND at least one other team has work days.
-    const qaCRs    = new Set<string>(); // CRs with QA effort >= 1 day
-    const nonQaCRs = new Set<string>(); // CRs with at least one non-QA team effort > 0.3 days
-
-    for (const [teamName, teamCols] of Object.entries(TEAM_COLUMNS)) {
-      const teamColIdxs = teamCols.map(colIdx).filter(i => i !== -1);
-      if (teamColIdxs.length === 0) continue;
-
-      for (let r = headerRowIdx + 1; r < rows.length; r++) {
-        const row = rows[r] as any[];
-        if (String(row[verCol] ?? '').trim() !== version.name) continue;
-        if (String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
-
-        const crNumber = crCol !== -1 ? String(row[crCol] ?? '').trim() : '';
-        const title    = titleCol !== -1 ? String(row[titleCol] ?? '').trim() : '';
-        if (!crNumber || !title) continue;
-
-        if (teamName === QA_TEAM_NAME) {
-          const qaDay = teamColIdxs.length > 0 ? parseDay(row[teamColIdxs[0]]) : 0;
-          if (qaDay > 0.3) qaCRs.add(crNumber);
-        } else {
-          const involved = teamColIdxs.some(ci => parseDay(row[ci]) > 0.3);
-          if (involved) nonQaCRs.add(crNumber);
-        }
-      }
-    }
-
-    // CRs with any QA involvement AND at least one non-QA team effort
-    const eligibleCRs = new Set([...qaCRs].filter(cr => nonQaCRs.has(cr)));
-
-    // Pre-compute per-CR values from non-team-specific columns (same for all teams)
-    const crEstimateDays: Record<string, number | null> = {};
-    const crHasActual:    Record<string, boolean>       = {};
-    for (let r = headerRowIdx + 1; r < rows.length; r++) {
-      const row = rows[r] as any[];
-      const crNumber = crCol !== -1 ? String(row[crCol] ?? '').trim() : '';
-      if (!crNumber) continue;
-      if (estimateCol !== -1 && !(crNumber in crEstimateDays)) {
-        const raw = parseFloat(String(row[estimateCol] ?? '').replace(/[^\d.]/g, ''));
-        crEstimateDays[crNumber] = isNaN(raw) ? null : raw;
-      }
-      if (actualsCol !== -1 && !crHasActual[crNumber]) {
-        const cell = String(row[actualsCol] ?? '').trim().toLowerCase();
-        if (cell === 'v' || cell === '✓' || cell === 'x' || cell === 'yes' || cell === 'כן') {
-          crHasActual[crNumber] = true;
-        }
-      }
-    }
-
-    // ── Pass 2: collect assignments for eligible CRs only ──
-    type Assignment = {
-      crNumber: string; crLabel: string; teamId: string;
-      crManager: string; crDescription: string; application: string; project: string;
-      qaEffort?: number;         // DAYS — only for QA Team rows
-      teamEstimateDays?: number | null; // this team's estimate days
-      estimateDays?: number | null;     // CR total from "סך כל הערכות"
-      hasActual?: boolean;
-    };
-    const assignments: Assignment[] = [];
-    const seen = new Set<string>(); // "crNumber|teamId"
-
-    for (const [teamName, teamCols] of Object.entries(TEAM_COLUMNS)) {
-      const teamId = teamIdByName[teamName];
-      if (!teamId) continue;
-      const teamColIdxs = teamCols.map(colIdx).filter(i => i !== -1);
-      if (teamColIdxs.length === 0) continue;
-
-      for (let r = headerRowIdx + 1; r < rows.length; r++) {
-        const row = rows[r] as any[];
-        if (String(row[verCol] ?? '').trim() !== version.name) continue;
-        if (String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
-
-        const crNumber = crCol !== -1 ? String(row[crCol] ?? '').trim() : '';
-        const title    = titleCol !== -1 ? String(row[titleCol] ?? '').trim() : '';
-        if (!crNumber || !title) continue;
-
-        // Skip CRs that don't satisfy the mixed-team condition
-        if (!eligibleCRs.has(crNumber)) continue;
-
-        let qaEffortDays: number | undefined;
-        let teamEstimate: number | undefined;
-
-        if (teamName === QA_TEAM_NAME) {
-          const qaDay = teamColIdxs.length > 0 ? parseDay(row[teamColIdxs[0]]) : 0;
-          if (qaDay <= 0.3) continue;
-          qaEffortDays = qaDay;
-          teamEstimate = qaDay;
-        } else {
-          const colSum = teamColIdxs.reduce((s, ci) => s + parseDay(row[ci]), 0);
-          if (colSum <= 0.3) continue;
-          teamEstimate = Math.round(colSum * 100) / 100;
-        }
-
-        const key = `${crNumber}|${teamId}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-
-        assignments.push({
-          crNumber,
-          crLabel:       `${crNumber} - ${title}`,
-          teamId,
-          crManager:     String(row[COL_MANAGER]     ?? '').trim(),
-          crDescription: String(row[COL_DESCRIPTION] ?? '').trim(),
-          application:   appCol     !== -1 ? String(row[appCol]     ?? '').trim() : '',
-          project:       projectCol !== -1 ? String(row[projectCol] ?? '').trim() : '',
-          ...(qaEffortDays !== undefined ? { qaEffort: qaEffortDays } : {}),
-          teamEstimateDays: teamEstimate ?? null,
-          estimateDays: crEstimateDays[crNumber] ?? null,
-          hasActual:    crHasActual[crNumber] ?? false,
-        });
-      }
-    }
-
-    // Upsert — update existing records, insert new ones (no delete of existing data)
-    const now = new Date();
-    let synced = 0;
-    const teamsTouched = new Set<string>();
-
-    for (const a of assignments) {
-      await prisma.versionCrAssignment.upsert({
-        where: { versionId_crNumber_teamId: { versionId, crNumber: a.crNumber, teamId: a.teamId } },
-        create: {
-          versionId,
-          crNumber:        a.crNumber,
-          crLabel:         a.crLabel,
-          teamId:          a.teamId,
-          crManager:       a.crManager || null,
-          crDescription:   a.crDescription || null,
-          application:     a.application || null,
-          ...(a.project ? { project: a.project } : {}),
-          syncedAt:        now,
-          ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
-          teamEstimateDays: a.teamEstimateDays ?? null,
-          estimateDays:    a.estimateDays ?? null,
-          hasActual:       a.hasActual ?? false,
-        } as any,
-        update: {
-          crLabel:         a.crLabel,
-          crManager:       a.crManager || null,
-          crDescription:   a.crDescription || null,
-          application:     a.application || null,
-          ...(a.project ? { project: a.project } : {}),
-          syncedAt:        now,
-          ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
-          teamEstimateDays: a.teamEstimateDays ?? null,
-          estimateDays:    a.estimateDays ?? null,
-          hasActual:       a.hasActual ?? false,
-        } as any,
-      });
-      synced++;
-      teamsTouched.add(a.teamId);
-    }
-
-    // Remove assignments no longer in file.
-    // If a CrPlan exists for a stale CR, auto-mark it notNeededForPlan so it no longer
-    // blocks status transitions — instead of keeping the VCA alive (which caused ghost CRs
-    // to permanently block CR_REVIEW→REFINING even after the CR was removed from Excel).
-    const currentKeys = new Set(assignments.map(a => `${a.crNumber}|${a.teamId}`));
-    const existing = await prisma.versionCrAssignment.findMany({ where: { versionId }, select: { id: true, crNumber: true, teamId: true } });
-    const staleIds = existing.filter(e => !currentKeys.has(`${e.crNumber}|${e.teamId}`)).map(e => e.id);
-    let autoMarked = 0;
-    if (staleIds.length > 0) {
-      const staleCrNumbers = existing.filter(e => staleIds.includes(e.id)).map(e => e.crNumber);
-      const result = await prisma.crPlan.updateMany({
-        where: { versionId, crNumber: { in: staleCrNumbers }, notNeededForPlan: false },
-        data: { notNeededForPlan: true },
-      });
-      autoMarked = result.count;
-      await prisma.versionCrAssignment.deleteMany({ where: { id: { in: staleIds } } });
-    }
-
     return {
-      synced,
-      teamsUpdated: teamsTouched.size,
-      skipped: staleIds.length > 0
-        ? `הוסרו ${staleIds.length} CR שבוטלו / נמחקו מהקובץ${autoMarked > 0 ? ` (${autoMarked} תוכניות סומנו כ"לא נדרש")` : ''}`
-        : '',
+      rows, headerRowIdx, colIdx,
+      crCol:       colIdx('# CR'),
+      titleCol:    colIdx('כותרת'),
+      verCol:      colIdx('גרסה'),
+      statusCol:   colIdx('סטטוס'),
+      appCol:      colIdx('מאפיין'),
+      projectCol:  colIdx('פרויקט'),
+      estimateCol: colIdx('סך כל הערכות'),
+      actualsCol:  colIdx('Actuals'),
+      parseDay: (v: any) => { const n = parseFloat(String(v ?? '0').replace(/[^\d.]/g, '')); return isNaN(n) ? 0 : n; },
     };
   }
 
@@ -299,72 +117,39 @@ export class VersionCrAssignmentsService {
     }[];
     allTeams: { id: string; name: string }[];
   }> {
-    const param = await prisma.systemParam.findUnique({ where: { key: 'EXCEL_FILE_PATH' } });
-    const filePath = param?.value?.trim();
-    if (!filePath) throw new BadRequestException('נתיב קובץ CR_LIST לא הוגדר בפרמטרי המערכת (EXCEL_FILE_PATH)');
-    if (!fs.existsSync(filePath)) throw new BadRequestException(`הקובץ לא נמצא: ${filePath}`);
-
     const version = await prisma.version.findUnique({ where: { id: versionId }, select: { name: true } });
     if (!version) throw new BadRequestException('גרסה לא נמצאה');
 
-    const buffer = fs.readFileSync(filePath);
-    const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-
-    const REQUIRED_COLS = ['# CR', 'כותרת', 'גרסה'];
-    let headerRowIdx = -1;
-    for (let i = 0; i < Math.min(10, rows.length); i++) {
-      const row = (rows[i] as any[]).map(h => String(h ?? '').trim());
-      if (REQUIRED_COLS.every(col => row.includes(col))) { headerRowIdx = i; break; }
-    }
-    if (headerRowIdx === -1) {
-      const sample = (rows[0] as any[]).slice(0, 10).map(h => String(h ?? '').trim()).join(', ');
-      throw new BadRequestException(`מבנה קובץ לא תקין — עמודות חובה חסרות. נמצאו: ${sample}`);
-    }
-
-    const headers: string[] = (rows[headerRowIdx] as any[]).map(h => String(h ?? '').trim());
-    const colIdx = (name: string) => headers.findIndex(h => h === name);
-
-    const crCol       = colIdx('# CR');
-    const titleCol    = colIdx('כותרת');
-    const verCol      = colIdx('גרסה');
-    const statusCol   = colIdx('סטטוס');
-    const appCol      = colIdx('מאפיין');
-    const projectCol  = colIdx('פרויקט');
-    const estimateCol = colIdx('סך כל הערכות');
-    const actualsCol  = colIdx('Actuals');
+    const {
+      rows, headerRowIdx, colIdx, crCol, titleCol, verCol, statusCol, appCol, projectCol,
+      estimateCol, actualsCol, parseDay,
+    } = await this.loadSheet();
     const COL_DESCRIPTION = 5;
     const COL_MANAGER     = 9;
-    const parseDay = (v: any) => { const n = parseFloat(String(v ?? '0').replace(/[^\d.]/g, '')); return isNaN(n) ? 0 : n; };
 
     const allTeams = await prisma.team.findMany({ where: { active: true }, select: { id: true, name: true } });
     const teamIdByName: Record<string, string> = {};
     allTeams.forEach(t => { teamIdByName[t.name] = t.id; });
 
+    // Master gate: a CR belongs to the version's scope iff its QA column > 0.3.
+    // That alone is enough for the QA row itself. A non-QA team's row additionally
+    // requires that team's own column to be > 0.3 (checked per-row further below) —
+    // it does NOT require any other non-QA team to be involved.
     const QA_TEAM_NAME = 'QA Team';
-    const qaCRs    = new Set<string>();
-    const nonQaCRs = new Set<string>();
+    const qaCols = TEAM_COLUMNS[QA_TEAM_NAME].map(colIdx).filter(i => i !== -1);
+    const qaCRs  = new Set<string>();
 
-    for (const [teamName, teamCols] of Object.entries(TEAM_COLUMNS)) {
-      const teamColIdxs = teamCols.map(colIdx).filter(i => i !== -1);
-      if (teamColIdxs.length === 0) continue;
-      for (let r = headerRowIdx + 1; r < rows.length; r++) {
-        const row = rows[r] as any[];
-        if (String(row[verCol] ?? '').trim() !== version.name) continue;
-        if (String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
-        const crNumber = crCol !== -1 ? String(row[crCol] ?? '').trim() : '';
-        const title    = titleCol !== -1 ? String(row[titleCol] ?? '').trim() : '';
-        if (!crNumber || !title) continue;
-        if (teamName === QA_TEAM_NAME) {
-          if (teamColIdxs.length > 0 && parseDay(row[teamColIdxs[0]]) > 0.3) qaCRs.add(crNumber);
-        } else {
-          if (teamColIdxs.some(ci => parseDay(row[ci]) > 0.3)) nonQaCRs.add(crNumber);
-        }
-      }
+    for (let r = headerRowIdx + 1; r < rows.length; r++) {
+      const row = rows[r] as any[];
+      if (String(row[verCol] ?? '').trim() !== version.name) continue;
+      if (String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
+      const crNumber = crCol !== -1 ? String(row[crCol] ?? '').trim() : '';
+      const title    = titleCol !== -1 ? String(row[titleCol] ?? '').trim() : '';
+      if (!crNumber || !title) continue;
+      if (qaCols.length > 0 && parseDay(row[qaCols[0]]) > 0.3) qaCRs.add(crNumber);
     }
 
-    const eligibleCRs = new Set([...qaCRs].filter(cr => nonQaCRs.has(cr)));
+    const eligibleCRs = qaCRs;
     const crEstimateDays: Record<string, number | null> = {};
     const crHasActual:    Record<string, boolean>       = {};
     for (let r = headerRowIdx + 1; r < rows.length; r++) {
@@ -457,9 +242,11 @@ export class VersionCrAssignmentsService {
   }
 
   // ── Apply sync: mark NEW/REMOVED, upsert new CRs ──────────────────────────
-  async syncApply(versionId: string): Promise<{ added: number; removed: number; unchanged: number }> {
-    const { assignments } = await this.parseExcelAssignments(versionId);
-    const excelKeys = new Set(assignments.map(a => `${a.crNumber}|${a.teamId}`));
+  // excludeCrNumbers lets the user drop specific CRs from the "added" preview
+  // before applying — e.g. a CR that legitimately spans several teams'
+  // columns in the Excel and shouldn't be picked up this round for any of them.
+  async syncApply(versionId: string, excludeCrNumbers: string[] = []): Promise<{ added: number; removed: number; unchanged: number }> {
+    const { assignments: allAssignments } = await this.parseExcelAssignments(versionId);
 
     // Existing active + new records (exclude already-REMOVED ones from diff)
     const existing = await prisma.versionCrAssignment.findMany({
@@ -467,6 +254,13 @@ export class VersionCrAssignmentsService {
       select: { id: true, crNumber: true, teamId: true },
     });
     const dbKeys = new Set(existing.map(e => `${e.crNumber}|${e.teamId}`));
+    const existingCrNumbers = new Set(existing.map(e => e.crNumber));
+
+    // Only exclusions for genuinely NEW CRs take effect — this can't be used
+    // to accidentally remove a CR that's already active from a prior sync.
+    const excludeSet = new Set(excludeCrNumbers.filter(cr => !existingCrNumbers.has(cr)));
+    const assignments = allAssignments.filter(a => !excludeSet.has(a.crNumber));
+    const excelKeys = new Set(assignments.map(a => `${a.crNumber}|${a.teamId}`));
 
     const now = new Date();
     let added = 0;
@@ -515,6 +309,86 @@ export class VersionCrAssignmentsService {
     }
 
     return { added, removed: stale.length, unchanged };
+  }
+
+  // ── Explain why a CR is tagged NEW / REMOVED — reads the live CR_LIST file
+  // (not a stored snapshot) so the answer reflects the file's current state,
+  // and cross-checks other versions in the DB for "moved from/to" cases ──────
+  async getChangeDetail(versionId: string, crNumber: string, teamId: string): Promise<{
+    crNumber: string; crLabel: string; teamName: string; syncStatus: string;
+    reason: string;
+    detail: {
+      movedToVersion?: string;
+      movedFromVersion?: string;
+      statusInSource?: string;
+      prevDays?: number | null;
+      currentDays?: number | null;
+      foundInSource: boolean;
+    };
+  }> {
+    const row = await prisma.versionCrAssignment.findUnique({
+      where: { versionId_crNumber_teamId: { versionId, crNumber, teamId } },
+      include: { team: { select: { name: true } } },
+    });
+    if (!row) throw new BadRequestException('שיוך CR לא נמצא');
+
+    const version = await prisma.version.findUnique({ where: { id: versionId }, select: { name: true } });
+    if (!version) throw new BadRequestException('גרסה לא נמצאה');
+
+    const { rows, headerRowIdx, crCol, verCol, statusCol, colIdx, parseDay } = await this.loadSheet();
+    const teamCols = (TEAM_COLUMNS[row.team.name] ?? []).map(colIdx).filter(i => i !== -1);
+
+    const occurrences: { versionName: string; status: string; teamDays: number }[] = [];
+    for (let r = headerRowIdx + 1; r < rows.length; r++) {
+      const line = rows[r] as any[];
+      if (crCol === -1 || String(line[crCol] ?? '').trim() !== crNumber) continue;
+      occurrences.push({
+        versionName: verCol    !== -1 ? String(line[verCol]    ?? '').trim() : '',
+        status:      statusCol !== -1 ? String(line[statusCol] ?? '').trim() : '',
+        teamDays:    teamCols.reduce((s, ci) => s + parseDay(line[ci]), 0),
+      });
+    }
+
+    const detail: any = { foundInSource: occurrences.length > 0 };
+    let reason: string;
+
+    if (row.syncStatus === 'NEW') {
+      const elsewhere = await prisma.versionCrAssignment.findFirst({
+        where: { versionId: { not: versionId }, crNumber, teamId },
+        orderBy: { syncedAt: 'desc' },
+        include: { version: { select: { name: true } } },
+      });
+      if (elsewhere) {
+        detail.movedFromVersion = elsewhere.version.name;
+        reason = `ה-CR שויך בעבר לגרסה "${elsewhere.version.name}" ועבר לגרסה הנוכחית.`;
+      } else {
+        reason = 'CR חדש לגמרי — לא נמצא שיוך קודם לגרסה אחרת במערכת.';
+      }
+    } else {
+      const sameVersion  = occurrences.find(o => o.versionName === version.name);
+      const otherVersion = occurrences.find(o => o.versionName !== version.name && o.versionName !== '');
+
+      if (sameVersion && sameVersion.status === 'מבוטל') {
+        detail.statusInSource = sameVersion.status;
+        reason = `הסטטוס של ה-CR בקובץ המקור שונה ל"בוטל".`;
+      } else if (sameVersion && sameVersion.teamDays <= 0.3) {
+        detail.prevDays = row.teamEstimateDays ?? null;
+        detail.currentDays = 0;
+        reason = `ימי הפיתוח של צוות זה על ה-CR הוסרו בקובץ המקור (${detail.prevDays ?? '?'} ← 0).`;
+      } else if (sameVersion) {
+        reason = 'לא זוהה שינוי בקובץ המקור מול הגרסה הנוכחית — ייתכן שנדרש סנכרון מחדש.';
+      } else if (otherVersion) {
+        detail.movedToVersion = otherVersion.versionName;
+        reason = `ה-CR עבר לגרסה "${otherVersion.versionName}" בקובץ המקור.`;
+      } else {
+        reason = 'ה-CR לא נמצא כלל בקובץ ה-CR_LIST הנוכחי (ייתכן שבוטל או הוסר מהמקור).';
+      }
+    }
+
+    return {
+      crNumber, crLabel: row.crLabel ?? crNumber, teamName: row.team.name,
+      syncStatus: row.syncStatus, reason, detail,
+    };
   }
 
   // ── Delete a CR manually (MANAGERS only) ──────────────────────────────────

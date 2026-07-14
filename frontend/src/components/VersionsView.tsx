@@ -13,6 +13,7 @@ import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE,
          versionStatusColor, versionStatusBg, versionStatusLabel, statusColor } from '../theme';
 import { Button, Card, VersionStatusChip, Badge, SectionHeader, EmptyState, Divider, Alert, Avatar, StatusChip } from './ui';
 import { TaskDetailPanel } from './TaskDetailPanel';
+import { cleanHtmlText } from '../utils/textSanitize';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -604,7 +605,7 @@ const VersionCard: React.FC<{
         {/* Row 2: Meta info */}
         <div style={{ display: 'flex', gap: SP[4], flexWrap: 'wrap', alignItems: 'center' }}>
           {v.description && (
-            <span style={{ ...TEXT.sm, color: C.textMuted }}>{v.description}</span>
+            <span style={{ ...TEXT.sm, color: C.textMuted }}>{cleanHtmlText(v.description)}</span>
           )}
           {v.importedFileName && (
             <span style={{ ...TEXT.xs, color: C.textLink, display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -3103,7 +3104,7 @@ const VersionDetail: React.FC<{
                                       )}
                                       {p.notes && (
                                         <span style={{ fontSize: '13px', color: sel ? 'rgba(255,255,255,0.65)' : '#888', fontStyle: 'italic' }}>
-                                          💬 {p.notes}
+                                          💬 {cleanHtmlText(p.notes)}
                                         </span>
                                       )}
                                     </div>

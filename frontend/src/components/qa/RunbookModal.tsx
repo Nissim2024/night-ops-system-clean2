@@ -19,6 +19,19 @@ export interface RunbookStep {
 
 export interface RunbookDef { title: string; envLabel: string; steps: RunbookStep[] }
 
+// Local, in-memory shape once a plan's steps are loaded for editing. `key` is
+// a stable per-step id independent of array position — assigned as the
+// original array index for built-in plans (matching RunbookEntry.stepIndex
+// values already saved under the old position-based scheme), or server-issued
+// for steps added after a template override exists — so add/delete/reorder
+// never silently reassigns an existing step's saved assignment data to a
+// different activity.
+interface EditableStep extends RunbookStep { key: number }
+
+function toEditable(steps: RunbookStep[]): EditableStep[] {
+  return steps.map((s, i) => ({ ...s, key: i }));
+}
+
 type RowData = {
   employee:       string;
   employeeUserId: string | null;
@@ -275,11 +288,16 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
   };
 
   const [planId,      setPlanId]      = useState<string>(defaultPlan());
+  const [steps,       setSteps]       = useState<EditableStep[]>([]);
   const [rows,        setRows]        = useState<RowData[]>([]);
   const [teams,       setTeams]       = useState<TeamOption[]>([]);
   const [saving,      setSaving]      = useState(false);
   const [saved,       setSaved]       = useState(false);
   const [showReplace, setShowReplace] = useState(false);
+  const [editingSteps, setEditingSteps]     = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateSaved, setTemplateSaved]   = useState(false);
+  const [addingStep,  setAddingStep]  = useState(false);
 
   // Replace state — employee
   const [repEmpFrom,   setRepEmpFrom]   = useState('');
@@ -309,11 +327,16 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
   }, []);
 
   const load = useCallback(async (id: string) => {
-    const res = await axios.get(`${API}/runbook/${versionId}/${id}`, { headers }).catch(() => null);
-    const db: { stepIndex: number; employee: string; employeeUserId: string | null; startTime: string; endTime: string; team: string; status: string }[] = res?.data ?? [];
-    const plan = RUNBOOKS[id];
-    setRows(plan.steps.map((step, idx) => {
-      const e = db.find(x => x.stepIndex === idx);
+    const [entriesRes, templateRes] = await Promise.all([
+      axios.get(`${API}/runbook/${versionId}/${id}`, { headers }).catch(() => null),
+      axios.get(`${API}/runbook/templates/${id}`, { headers }).catch(() => null),
+    ]);
+    const db: { stepIndex: number; employee: string; employeeUserId: string | null; startTime: string; endTime: string; team: string; status: string }[] = entriesRes?.data ?? [];
+    const dbTemplate = templateRes?.data;
+    const effectiveSteps: EditableStep[] = dbTemplate?.steps ?? toEditable(RUNBOOKS[id].steps);
+    setSteps(effectiveSteps);
+    setRows(effectiveSteps.map(step => {
+      const e = db.find(x => x.stepIndex === step.key);
       return e
         ? { employee: e.employee ?? '', employeeUserId: e.employeeUserId ?? null, startTime: e.startTime || step.startTime, endTime: e.endTime || step.endTime, team: e.team ?? '', status: e.status || 'pending' }
         : emptyRow(step);
@@ -326,11 +349,14 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
   const setRow = (i: number, patch: Partial<RowData>) =>
     setRows(prev => { const next = [...prev]; next[i] = { ...next[i], ...patch }; return next; });
 
+  const setStep = (i: number, patch: Partial<EditableStep>) =>
+    setSteps(prev => { const next = [...prev]; next[i] = { ...next[i], ...patch }; return next; });
+
   const handleSave = async () => {
     setSaving(true);
     try {
       await axios.post(`${API}/runbook/${versionId}/${planId}/save`, {
-        entries: rows.map((r, i) => ({ stepIndex: i, ...r, runDate: dateStartISO || null })),
+        entries: rows.map((r, i) => ({ stepIndex: steps[i].key, ...r, runDate: dateStartISO || null })),
       }, { headers });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -346,11 +372,46 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
     setSavingStatus(i);
     try {
       await axios.post(`${API}/runbook/${versionId}/${planId}/save`, {
-        entries: nextRows.map((r, idx) => ({ stepIndex: idx, ...r, runDate: dateStartISO || null })),
+        entries: nextRows.map((r, idx) => ({ stepIndex: steps[idx].key, ...r, runDate: dateStartISO || null })),
       }, { headers });
     } finally {
       setSavingStatus(null);
     }
+  };
+
+  // Persists the current (possibly edited/added/deleted) step list as the
+  // template override for this plan — future loads of this planId use it
+  // instead of the hardcoded RUNBOOKS default.
+  const saveAsTemplate = async () => {
+    setSavingTemplate(true);
+    try {
+      await axios.post(`${API}/runbook/templates/${planId}`, {
+        title: def.title, envLabel: def.envLabel, steps,
+      }, { headers });
+      setTemplateSaved(true);
+      setTimeout(() => setTemplateSaved(false), 2000);
+    } finally { setSavingTemplate(false); }
+  };
+
+  const addStep = async () => {
+    setAddingStep(true);
+    try {
+      const res = await axios.post(`${API}/runbook/templates/${planId}/steps`, {
+        title: def.title, envLabel: def.envLabel, steps,
+        afterKey: null,
+        newStep: { num: steps.length + 1, activity: '', defaultTeam: '', duration: '', startTime: '', endTime: '' },
+      }, { headers });
+      const newSteps: EditableStep[] = res.data.steps;
+      setSteps(newSteps);
+      setRows(prev => [...prev, emptyRow(newSteps[newSteps.length - 1])]);
+    } finally { setAddingStep(false); }
+  };
+
+  const deleteStep = (key: number) => {
+    const idx = steps.findIndex(s => s.key === key);
+    if (idx === -1) return;
+    setSteps(prev => prev.filter(s => s.key !== key));
+    setRows(prev => prev.filter((_, i) => i !== idx));
   };
 
   const EMPTY_SENTINEL = '__EMPTY__';
@@ -436,7 +497,7 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
             fontSize: 17, fontWeight: WEIGHT.bold, color: 'white',
             background: 'rgba(255,255,255,0.18)', borderRadius: RADIUS.full, padding: '4px 14px',
           }}>
-            {runMode ? doneCount : staffed}/{def.steps.length}
+            {runMode ? doneCount : staffed}/{steps.length}
           </div>
 
           {(isInt || isQa) && !runMode && (
@@ -474,6 +535,25 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
               fontFamily: FONT, ...TEXT.xs, cursor: 'pointer', fontWeight: WEIGHT.semibold,
             }}>
               🔄 החלפה
+            </button>
+          )}
+          {!runMode && (
+            <button onClick={() => setEditingSteps(v => !v)} style={{
+              padding: `6px 14px`, borderRadius: RADIUS.md, border: `1px solid rgba(255,255,255,0.4)`,
+              background: editingSteps ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.15)', color: 'white',
+              fontFamily: FONT, ...TEXT.xs, cursor: 'pointer', fontWeight: WEIGHT.semibold,
+            }}>
+              🛠 ערוך שלבים
+            </button>
+          )}
+          {!runMode && editingSteps && (
+            <button onClick={saveAsTemplate} disabled={savingTemplate} style={{
+              padding: `6px 14px`, borderRadius: RADIUS.md, border: 'none',
+              background: templateSaved ? C.success : 'white', color: templateSaved ? 'white' : C.brand,
+              fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.bold,
+              cursor: savingTemplate ? 'wait' : 'pointer', opacity: savingTemplate ? 0.7 : 1,
+            }}>
+              {templateSaved ? '✓ התבנית נשמרה' : savingTemplate ? 'שומר…' : '📑 שמור כתבנית'}
             </button>
           )}
           {!runMode && (
@@ -612,9 +692,10 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
           </div>
 
           {/* Rows */}
-          {def.steps.map((step, i) => {
+          {steps.map((step, i) => {
             const row  = rows[i] ?? emptyRow(step);
             const scfg = statusCfg(row.status);
+            const isEditingThisStep = editingSteps && !runMode;
 
             if (runMode && nearOnly && row.status !== 'in_progress') {
               const start = combineDateAndTime(dateStartISO, row.startTime);
@@ -625,7 +706,7 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
             }
 
             return (
-              <div key={i} style={{
+              <div key={step.key} style={{
                 display: 'grid', gridTemplateColumns: COLS,
                 padding: `${SP[2]} ${SP[4]}`,
                 borderBottom: `1px solid ${C.border}`,
@@ -634,13 +715,47 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
                 opacity: row.status === 'done' ? 0.7 : 1,
                 alignItems: 'center', gap: SP[1],
               }}>
-                <div style={{ fontSize: 13, color: C.textMuted, fontWeight: WEIGHT.bold }}>{step.num}</div>
-
-                <div style={{ fontSize: 16, color: C.textPrimary, fontWeight: step.bold ? WEIGHT.bold : WEIGHT.medium, paddingLeft: SP[2] }}>
-                  {step.activity}
+                <div style={{ fontSize: 13, color: C.textMuted, fontWeight: WEIGHT.bold, display: 'flex', alignItems: 'center', gap: 3 }}>
+                  {isEditingThisStep && (
+                    <button
+                      onClick={() => deleteStep(step.key)}
+                      title="מחק שלב"
+                      style={{ background: 'transparent', border: 'none', color: '#dc3545', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1 }}
+                    >🗑</button>
+                  )}
+                  {i + 1}
                 </div>
 
-                <div style={{ fontSize: 13, color: C.textMuted, whiteSpace: 'nowrap' }}>{step.duration}</div>
+                {isEditingThisStep ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: SP[2] }}>
+                    <input
+                      value={step.activity}
+                      onChange={e => setStep(i, { activity: e.target.value })}
+                      placeholder="שם הפעילות"
+                      style={{ ...inputSm, fontWeight: WEIGHT.semibold }}
+                    />
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <input value={step.defaultTeam} onChange={e => setStep(i, { defaultTeam: e.target.value })} placeholder="צוות ברירת מחדל" style={{ ...inputSm, width: 100, fontSize: 12 }} />
+                      <input value={step.startTime}   onChange={e => setStep(i, { startTime: e.target.value })}   placeholder="התחלה"           style={{ ...inputSm, width: 60,  fontSize: 12 }} />
+                      <input value={step.endTime}     onChange={e => setStep(i, { endTime: e.target.value })}     placeholder="סיום"             style={{ ...inputSm, width: 60,  fontSize: 12 }} />
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 16, color: C.textPrimary, fontWeight: step.bold ? WEIGHT.bold : WEIGHT.medium, paddingLeft: SP[2] }}>
+                    {step.activity}
+                  </div>
+                )}
+
+                {isEditingThisStep ? (
+                  <input
+                    value={step.duration}
+                    onChange={e => setStep(i, { duration: e.target.value })}
+                    placeholder="משך"
+                    style={{ ...inputSm, fontSize: 12 }}
+                  />
+                ) : (
+                  <div style={{ fontSize: 13, color: C.textMuted, whiteSpace: 'nowrap' }}>{step.duration}</div>
+                )}
 
                 {runMode ? (
                   <>
@@ -760,6 +875,19 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
             );
           })}
 
+          {editingSteps && !runMode && (
+            <div style={{ padding: `${SP[3]} ${SP[4]}`, borderBottom: `1px solid ${C.border}` }}>
+              <button onClick={addStep} disabled={addingStep} style={{
+                padding: `6px 16px`, borderRadius: RADIUS.md, border: `1px dashed ${BLUE}`,
+                background: 'transparent', color: BLUE,
+                fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.bold,
+                cursor: addingStep ? 'wait' : 'pointer', opacity: addingStep ? 0.6 : 1,
+              }}>
+                {addingStep ? 'מוסיף…' : '+ הוסף שלב'}
+              </button>
+            </div>
+          )}
+
           {/* Footer */}
           <div style={{
             padding: `${SP[3]} ${SP[5]}`, borderTop: `1px solid ${C.border}`,
@@ -767,7 +895,7 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           }}>
             <span style={{ fontSize: 14, color: C.textMuted }}>
-              {staffed} / {def.steps.length} שלבים מאוישים
+              {staffed} / {steps.length} שלבים מאוישים
               {' · '}
               <span style={{ color: '#28a745', fontWeight: WEIGHT.semibold }}>{doneCount} הושלמו</span>
               {issueCount > 0 && (

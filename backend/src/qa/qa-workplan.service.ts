@@ -439,6 +439,9 @@ export class QaWorkPlanService {
 
   // ── Toggle task active/inactive ─────────────────────────────────────────────
 
+  // Deactivating a task frees up its slot in the tester's queue — the schedule
+  // must be recomputed (and cascaded to CYCLE_2/3 + UAT/REHEARSAL/GO_LIVE)
+  // rather than just leaving a dead gap where the disabled task used to sit.
   async toggleTask(taskId: string, isActive: boolean) {
     const task = await prisma.qaCycleTask.findUnique({
       where: { id: taskId },
@@ -451,24 +454,66 @@ export class QaWorkPlanService {
       throw new BadRequestException('ניתן להשבית משימות רק בסבב 2 ו-3');
     }
 
-    return prisma.qaCycleTask.update({
-      where: { id: taskId },
-      data:  { isActive },
-      include: { user: { select: { id: true, fullName: true, email: true } } },
-    });
+    await prisma.qaCycleTask.update({ where: { id: taskId }, data: { isActive } });
+
+    const newCycleEnd = await this.rescheduleFullCycle(task.cycleId, new Date(task.cycle.plannedStart));
+    await this.cascadeFromCycle(task.cycle.workPlanId, task.cycle.cycleType, newCycleEnd);
+
+    const workPlan = await prisma.qaWorkPlan.findUnique({ where: { id: task.cycle.workPlanId }, select: { versionId: true } });
+    return this.getWorkPlan(workPlan?.versionId ?? '');
   }
 
   // ── Update task effort (team lead manual override) ──────────────────────────
+  // A duration change shifts everyone queued after this task, and may push the
+  // cycle boundary itself — so it cascades exactly like reorderTask does.
 
   async updateTaskEffort(taskId: string, effortDays: number) {
     if (effortDays < 0.5) throw new BadRequestException('מאמץ מינימלי הוא 0.5 ימים');
-    const task = await prisma.qaCycleTask.findUnique({ where: { id: taskId } });
+    const task = await prisma.qaCycleTask.findUnique({ where: { id: taskId }, include: { cycle: true } });
     if (!task) throw new NotFoundException('משימה לא נמצאה');
-    return prisma.qaCycleTask.update({
-      where: { id: taskId },
-      data:  { effortDays },
-      include: { user: { select: { id: true, fullName: true, email: true } } },
+
+    await prisma.qaCycleTask.update({ where: { id: taskId }, data: { effortDays } });
+
+    const newCycleEnd = await this.rescheduleFullCycle(task.cycleId, new Date(task.cycle.plannedStart));
+    await this.cascadeFromCycle(task.cycle.workPlanId, task.cycle.cycleType, newCycleEnd);
+
+    const workPlan = await prisma.qaWorkPlan.findUnique({ where: { id: task.cycle.workPlanId }, select: { versionId: true } });
+    return this.getWorkPlan(workPlan?.versionId ?? '');
+  }
+
+  // ── Reassign a task's tester (swap) ──────────────────────────────────────────
+  // Moves the task to the end of the new tester's queue in this cycle, keeps
+  // the underlying QaAssignment (the assignment board) in sync so both screens
+  // agree on who owns the CR, and cascades the schedule exactly like a reorder.
+  async reassignTester(taskId: string, newUserId: string) {
+    const task = await prisma.qaCycleTask.findUnique({ where: { id: taskId }, include: { cycle: true } });
+    if (!task) throw new NotFoundException('משימה לא נמצאה');
+    if (task.taskType === 'REGRESSION') throw new BadRequestException('לא ניתן להחליף בודק במשימת רגרסיה');
+
+    const newUser = await prisma.user.findUnique({ where: { id: newUserId }, select: { id: true } });
+    if (!newUser) throw new BadRequestException('משתמש לא נמצא');
+
+    const newTesterTaskCount = await prisma.qaCycleTask.count({
+      where: { cycleId: task.cycleId, userId: newUserId, taskType: { not: 'REGRESSION' } },
     });
+
+    await prisma.qaCycleTask.update({
+      where: { id: taskId },
+      data:  { userId: newUserId, sortOrder: newTesterTaskCount + 1 },
+    });
+
+    const workPlan = await prisma.qaWorkPlan.findUnique({ where: { id: task.cycle.workPlanId }, select: { versionId: true } });
+    if (workPlan) {
+      await prisma.qaAssignment.updateMany({
+        where: { versionId: workPlan.versionId, crNumber: task.crNumber },
+        data:  task.isPrimary ? { userId: newUserId } : { secondaryTesterId: newUserId },
+      });
+    }
+
+    const newCycleEnd = await this.rescheduleFullCycle(task.cycleId, new Date(task.cycle.plannedStart));
+    await this.cascadeFromCycle(task.cycle.workPlanId, task.cycle.cycleType, newCycleEnd);
+
+    return this.getWorkPlan(workPlan?.versionId ?? '');
   }
 
   // ── Update cycle dates (after team lead adjusts) ────────────────────────────
@@ -547,6 +592,10 @@ export class QaWorkPlanService {
     for (const [, tasks] of testerMap) {
       let pointer = new Date(cycleStart);
       for (const task of tasks) {
+        // Deactivated tasks don't occupy schedule time — skip them so the
+        // tester's remaining active tasks close the gap instead of leaving
+        // a dead slot where the disabled task used to sit.
+        if (!task.isActive) continue;
         const start = new Date(pointer);
         const end   = addWorkDays(start, Math.max(1, task.effortDays) - 1);
         await (prisma as any).qaCycleTask.update({

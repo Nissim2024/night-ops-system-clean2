@@ -96,6 +96,14 @@ export class QaController {
     return this.qa.scoreForCr(crNumber, versionId);
   }
 
+  @Get('assignments/change-detail')
+  getCrChangeDetail(
+    @Query('versionId') versionId: string,
+    @Query('crNumber')  crNumber:  string,
+  ) {
+    return this.qa.getCrChangeDetail(versionId, crNumber);
+  }
+
   @Get('assignments/secondary-suggest')
   suggestSecondaryTesters(
     @Query('versionId') versionId: string,
@@ -252,6 +260,14 @@ export class QaController {
     @Body('newSortOrder') newSortOrder: number,
   ) {
     return this.workPlan.reorderTask(taskId, newSortOrder);
+  }
+
+  @Patch('workplan/task/:id/reassign')
+  reassignTester(
+    @Param('id') taskId: string,
+    @Body('userId') userId: string,
+  ) {
+    return this.workPlan.reassignTester(taskId, userId);
   }
 
   @Patch('workplan/cycle/:id/notes')

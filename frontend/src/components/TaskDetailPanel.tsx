@@ -249,10 +249,18 @@ export const TaskDetailPanel: React.FC<Props> = ({
     const mins = parseInt(durationMins);
     const dur   = mins > 0 ? minsToStr(mins) : undefined;
     const endV  = mins > 0 && plannedStart ? calcEnd(plannedStart, mins) : plannedEnd;
+    // assignee is tracked as a plain name string (the <select> below is keyed
+    // by fullName, not id) — resolve it back to a real userId here so the
+    // task's assignedUserId foreign key actually follows the reassignment.
+    // Without this, only the denormalized assignedUserName changes and
+    // anything keyed off assignedUserId (notifications, "my tasks" filters)
+    // keeps pointing at whoever was assigned before.
+    const matchedUser = users.find((u: any) => u.fullName === assignee);
     return {
       title: title.trim(),
       assignedTeamId:  teamId      || undefined,
       assignedUserName: assignee   || undefined,
+      assignedUserId:  assignee ? (matchedUser?.id ?? null) : null,
       application:     application || undefined,
       environment:     environment || 'BOTH',
       crNumber:        crList.join(',') || undefined,
@@ -459,12 +467,15 @@ export const TaskDetailPanel: React.FC<Props> = ({
         <div>
           <Label>פיתוחים בגרסה</Label>
           <div style={{ ...errInp(errors.has('crList')), display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center', padding: '6px 10px', minHeight: '40px' }}>
-            {crList.map((cr: string) => (
-              <span key={cr} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: C.infoBg, color: C.info, borderRadius: RADIUS.sm, padding: '2px 8px', fontSize: '15px' }}>
-                {cr}
-                {editable && <button onClick={() => setCrList(l => l.filter(c => c !== cr))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.info, padding: 0, lineHeight: 1, fontSize: '16px' }}>×</button>}
-              </span>
-            ))}
+            {crList.map((cr: string) => {
+              const match = activeCrItems.find(c => c.id === cr);
+              return (
+                <span key={cr} title={match?.label ?? cr} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: C.infoBg, color: C.info, borderRadius: RADIUS.sm, padding: '2px 8px', fontSize: '15px', maxWidth: '260px' }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{match?.label ?? cr}</span>
+                  {editable && <button onClick={() => setCrList(l => l.filter(c => c !== cr))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.info, padding: 0, lineHeight: 1, fontSize: '16px', flexShrink: 0 }}>×</button>}
+                </span>
+              );
+            })}
             {editable && (
               <input list="cr-datalist-panel" value={crInput}
                 onChange={e => {

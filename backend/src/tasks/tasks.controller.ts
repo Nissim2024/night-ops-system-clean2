@@ -56,14 +56,16 @@ export class TasksController {
     assignedTeamId?: string;
     assignedUserId?: string;
     dueDate?: string;
+    subPhaseId?: string;
+    versionId?: string;
   }, @Request() req: any) {
     requireRole(req, MANAGERS, 'רק מנהל לילה יכול ליצור משימה בתוכנית');
     if (body?.title && body.title.length > 500) {
       throw new BadRequestException('title cannot exceed 500 characters');
     }
-    const { title, description, crNumber, application, priority, assignedTeamId, assignedUserId, dueDate } = body;
+    const { title, description, crNumber, application, priority, assignedTeamId, assignedUserId, dueDate, subPhaseId, versionId } = body;
     return this.tasksService.create({
-      title, description, crNumber, application, priority, assignedTeamId, assignedUserId, dueDate,
+      title, description, crNumber, application, priority, assignedTeamId, assignedUserId, dueDate, subPhaseId, versionId,
       createdBy: req.user.sub,
     });
   }

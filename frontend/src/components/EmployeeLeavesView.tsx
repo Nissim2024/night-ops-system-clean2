@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
-import { DateField } from './DatePicker';
+import { DateField, DateRangeField } from './DatePicker';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -35,6 +35,36 @@ interface LeaveRequest {
   status: ApprovalStatus;
   seasonId?: string;
   season?: { id: string; name: string };
+  groupId?: string | null;
+}
+
+// Collapses requests that share a groupId (submitted together as one date
+// range) into a single display entry — a manager-approved/declined range
+// stays one row per day in the DB, but reads as one chip here.
+interface DisplayGroup {
+  key: string;
+  dates: string[]; // sorted ascending
+  kind: RequestKind;
+  status: ApprovalStatus;
+}
+
+function groupForDisplay(reqs: LeaveRequest[]): DisplayGroup[] {
+  const byGroup = new Map<string, LeaveRequest[]>();
+  const out: DisplayGroup[] = [];
+  for (const r of reqs) {
+    if (r.groupId) {
+      if (!byGroup.has(r.groupId)) byGroup.set(r.groupId, []);
+      byGroup.get(r.groupId)!.push(r);
+    } else {
+      out.push({ key: r.id, dates: [r.date], kind: r.kind, status: r.status });
+    }
+  }
+  Array.from(byGroup.entries()).forEach(([groupId, list]) => {
+    const sorted = [...list].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    out.push({ key: groupId, dates: sorted.map(r => r.date), kind: sorted[0].kind, status: sorted[0].status });
+  });
+  out.sort((a, b) => new Date(a.dates[0]).getTime() - new Date(b.dates[0]).getTime());
+  return out;
 }
 
 interface Props {
@@ -81,6 +111,15 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
   const [freeKind, setFreeKind]     = useState<RequestKind>('leave');
   const [freeSaving, setFreeSaving] = useState(false);
 
+  // Bulk range selection — for long seasons (e.g. summer) picking every day
+  // one-by-one is tedious; this applies a kind to every open day in a range
+  // in one action, on top of the existing per-day toggle below.
+  const [rangeStart, setRangeStart] = useState('');
+  const [rangeEnd, setRangeEnd]     = useState('');
+  const [rangeKind, setRangeKind]   = useState<RequestKind>('leave');
+  const [rangeSaving, setRangeSaving] = useState(false);
+  const [rangeSkipped, setRangeSkipped] = useState(0);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -123,6 +162,40 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
       }
     } catch { /* silent */ }
     finally { setSaving(null); }
+  };
+
+  const applyRange = async (season: Season) => {
+    if (!rangeStart || !rangeEnd) return;
+    setRangeSaving(true);
+    setRangeSkipped(0);
+    try {
+      // One groupId shared by every day created in this range submission — lets
+      // the UI display/approve the whole range as one unit, while storage stays
+      // one row per day (qa-workplan.service.ts's per-day leave lookup is unaffected).
+      const groupId = (crypto as any).randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      // Walk every calendar day in the picked range — NOT season.dates. For a
+      // multi-month season like summer, season.dates only holds a couple of
+      // sparse marker entries (e.g. just the first and last day), so filtering
+      // against it silently matched nothing for any sub-range the user picked.
+      const start = new Date(rangeStart);
+      const end = new Date(rangeEnd);
+      let skipped = 0;
+      for (const d = new Date(start); d.getTime() <= end.getTime(); d.setDate(d.getDate() + 1)) {
+        const dow = d.getDay(); // 5 = Friday, 6 = Saturday — not work days, skip silently
+        if (dow === 5 || dow === 6) continue;
+        const isoDate = d.toISOString().split('T')[0];
+        if (isSeasonLocked([{ id: '', date: isoDate, label: '', type: 'holiday', orderIndex: 0 }])) { skipped++; continue; }
+        const existing = reqForDate(isoDate);
+        if (existing?.kind === rangeKind) continue; // already set correctly
+        try {
+          const res = await axios.post(`${API}/leaves/requests`, { seasonId: season.id, date: isoDate, kind: rangeKind, groupId }, { headers });
+          setMyRequests(prev => [...prev.filter(r => r.id !== existing?.id), res.data]);
+        } catch { skipped++; }
+      }
+      setRangeSkipped(skipped);
+    } finally {
+      setRangeSaving(false);
+    }
   };
 
   const submitFree = async () => {
@@ -242,6 +315,47 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
             );
           })()}
 
+          {selectedSeason.isActive && selectedSeason.dates.length > 1 && (
+            <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: SP[4], padding: SP[3], background: C.bgNested, borderRadius: RADIUS.lg, border: `1px solid ${C.border}` }}>
+              <div style={{ minWidth: '260px' }}>
+                <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>טווח תאריכים</div>
+                <DateRangeField startIso={rangeStart} endIso={rangeEnd}
+                  onChange={(s, e) => { setRangeStart(s); setRangeEnd(e); }}
+                  style={{ padding: '6px 10px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgCard, color: C.textPrimary, ...TEXT.sm, outline: 'none', fontFamily: FONT }} />
+              </div>
+              <div>
+                <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>סוג</div>
+                <div style={{ display: 'flex', gap: '4px', background: C.bgCard, padding: '4px', borderRadius: RADIUS.md, border: `1px solid ${C.border}` }}>
+                  {(['leave', 'work'] as const).map(k => (
+                    <button key={k} onClick={() => setRangeKind(k)}
+                      style={{
+                        padding: '5px 14px', borderRadius: RADIUS.sm, border: 'none', cursor: 'pointer',
+                        background: rangeKind === k ? C.bgNested : 'transparent',
+                        color: rangeKind === k ? C.textPrimary : C.textMuted,
+                        ...TEXT.xs, fontWeight: rangeKind === k ? WEIGHT.semibold : WEIGHT.normal,
+                      }}>
+                      {k === 'leave' ? '🏖 חופשה' : '💼 עבודה'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button
+                onClick={() => applyRange(selectedSeason)}
+                disabled={!rangeStart || !rangeEnd || rangeSaving}
+                style={{
+                  padding: '7px 18px', borderRadius: RADIUS.md, cursor: (!rangeStart || !rangeEnd || rangeSaving) ? 'not-allowed' : 'pointer',
+                  background: (!rangeStart || !rangeEnd) ? C.bgCard : C.brand,
+                  color: (!rangeStart || !rangeEnd) ? C.textDisabled : 'white',
+                  border: 'none', ...TEXT.sm, fontWeight: WEIGHT.semibold,
+                }}>
+                {rangeSaving ? 'מחיל...' : 'החל על הטווח'}
+              </button>
+              {rangeSkipped > 0 && !rangeSaving && (
+                <div style={{ ...TEXT.xs, color: C.textMuted }}>{rangeSkipped} ימים בטווח דולגו (נעולים)</div>
+              )}
+            </div>
+          )}
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: SP[3] }}>
             {selectedSeason.dates.map(sd => {
               const isoDate  = new Date(sd.date).toISOString().split('T')[0];
@@ -328,19 +442,23 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
             })}
           </div>
 
-          {/* Summary row */}
+          {/* Summary row — consecutive days submitted together (same groupId) show as one range chip */}
           {myRequests.some(r => r.seasonId === selectedSeason.id) && (
             <div style={{ marginTop: SP[4], padding: `${SP[3]} ${SP[4]}`, background: C.bgNested, borderRadius: RADIUS.lg, display: 'flex', gap: SP[3], flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ ...TEXT.sm, color: C.textMuted }}>הבקשות שלי:</span>
-              {myRequests.filter(r => r.seasonId === selectedSeason.id).map(r => (
-                <span key={r.id} style={{
+              {groupForDisplay(myRequests.filter(r => r.seasonId === selectedSeason.id))
+                .map(g => (
+                <span key={g.key} style={{
                   ...TEXT.xs, fontWeight: WEIGHT.semibold, padding: '3px 10px', borderRadius: RADIUS.full,
-                  background: r.kind === 'leave' ? C.successBg : C.infoBg,
-                  color: r.kind === 'leave' ? C.success : C.info,
-                  border: `1px solid ${r.kind === 'leave' ? C.success : C.info}33`,
+                  background: g.kind === 'leave' ? C.successBg : C.infoBg,
+                  color: g.kind === 'leave' ? C.success : C.info,
+                  border: `1px solid ${g.kind === 'leave' ? C.success : C.info}33`,
                 }}>
-                  {fmt(r.date)} — {r.kind === 'leave' ? 'חופשה' : 'עבודה'}
-                  {r.status !== 'PENDING' && ` (${STATUS_META[r.status].label})`}
+                  {g.dates.length > 1
+                    ? `${fmt(g.dates[0])} — ${fmt(g.dates[g.dates.length - 1])} (${g.dates.length} ימים)`
+                    : fmt(g.dates[0])}
+                  {' '}— {g.kind === 'leave' ? 'חופשה' : 'עבודה'}
+                  {g.status !== 'PENDING' && ` (${STATUS_META[g.status].label})`}
                 </span>
               ))}
             </div>

@@ -130,6 +130,25 @@ export function InviteDialog({ title, subtitle, startISO, endISO, teams, preSele
             </select>
           </div>
 
+          {filteredMembers.length > 0 && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: SP[2], cursor: 'pointer', ...TEXT.xs, color: C.textMuted }}>
+              <input
+                type="checkbox"
+                checked={filteredMembers.every(m => selected.has(m.email))}
+                onChange={e => {
+                  const emails = filteredMembers.map(m => m.email);
+                  setSelected(prev => {
+                    const next = new Set(prev);
+                    if (e.target.checked) emails.forEach(email => next.add(email));
+                    else emails.forEach(email => next.delete(email));
+                    return next;
+                  });
+                }}
+              />
+              בחר הכל {teamFilter || search ? '(מהתוצאות המסוננות)' : ''}
+            </label>
+          )}
+
           <div style={{ maxHeight: 220, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: SP[2] }}>
             {filteredMembers.map(m => (
               <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: '5px 4px', cursor: 'pointer', ...TEXT.sm, color: C.textPrimary }}>

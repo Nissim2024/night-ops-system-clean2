@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, versionStatusColor, versionStatusBg, versionStatusLabel } from '../theme';
 import { useDialog } from '../context/DialogContext';
+import { cleanHtmlText } from '../utils/textSanitize';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -416,7 +417,7 @@ const CrRow: React.FC<CrRowProps> = ({ cr, approving, onApproveCr, onReturnPlan 
             </div>
             {cr.crDescription && (
               <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '500px' }}>
-                {cr.crDescription}
+                {cleanHtmlText(cr.crDescription)}
               </div>
             )}
           </div>
@@ -466,7 +467,7 @@ const CrRow: React.FC<CrRowProps> = ({ cr, approving, onApproveCr, onReturnPlan 
           {cr.crDescription && (
             <div style={{ padding: '8px 20px', borderBottom: `1px solid ${C.border}`, background: 'rgba(163,113,247,0.06)', ...TEXT.xs, color: '#c9b8f7', display: 'flex', gap: '6px' }}>
               <span style={{ color: '#a371f7', fontWeight: WEIGHT.bold, flexShrink: 0 }}>פרטי CR:</span>
-              <span style={{ lineHeight: 1.5 }}>{cr.crDescription}</span>
+              <span style={{ lineHeight: 1.5 }}>{cleanHtmlText(cr.crDescription)}</span>
             </div>
           )}
 
@@ -525,7 +526,7 @@ const CrRow: React.FC<CrRowProps> = ({ cr, approving, onApproveCr, onReturnPlan 
                       {prop.estimatedMins && <span style={{ ...TEXT.xs, color: C.textSecondary }}>· {prop.estimatedMins} דק'</span>}
                       {prop.notes && (
                         <div style={{ width: '100%', marginTop: '2px', paddingRight: '18px', ...TEXT.xs, color: C.textSecondary, display: 'flex', gap: '4px' }}>
-                          <span>💬</span><span>{prop.notes}</span>
+                          <span>💬</span><span>{cleanHtmlText(prop.notes)}</span>
                         </div>
                       )}
                     </div>

@@ -1,7 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import * as XLSX from 'xlsx';
-import { readQcFile, resolveQcFilePath, SmbAccessError } from './smb-file-reader';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
@@ -245,84 +243,4 @@ export class QcReleasesService implements OnModuleInit {
     return prisma.qcRelease.update({ where: { id }, data: { active: !release.active } });
   }
 
-  private nameHash(s: string): number {
-    let h = 5381;
-    for (let i = 0; i < s.length; i++) h = (((h << 5) + h) ^ s.charCodeAt(i)) | 0;
-    return (h >>> 1) || 1;
-  }
-
-  async syncFromExcel(buffer: Buffer, fromYear = 2026): Promise<{ synced: number }> {
-    const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as any[][];
-
-    const REQUIRED_COLS = ['# CR', 'כותרת', 'גרסה'];
-    let headerRowIdx = -1;
-    for (let i = 0; i < Math.min(10, rows.length); i++) {
-      const row = rows[i].map((h: any) => String(h ?? '').trim());
-      if (REQUIRED_COLS.every(col => row.includes(col))) { headerRowIdx = i; break; }
-    }
-    if (headerRowIdx === -1) {
-      const sample = rows[0]?.slice(0, 8).map((h: any) => String(h ?? '').trim()).join(', ') ?? '';
-      throw new Error(`מבנה הקובץ אינו תקין — עמודות "# CR", "כותרת", "גרסה" חסרות. עמודות שנמצאו: ${sample}`);
-    }
-
-    const headers: string[] = rows[headerRowIdx].map((h: any) => String(h ?? '').trim());
-    const colIdx = (name: string) => headers.findIndex(h => h === name);
-    const verCol    = colIdx('גרסה');
-    const statusCol = colIdx('סטטוס');
-
-    const expectedSuffix = String(fromYear).slice(-3);
-    const versionNames = new Set<string>();
-
-    for (let r = headerRowIdx + 1; r < rows.length; r++) {
-      const row = rows[r];
-      const vName = String(row[verCol] ?? '').trim();
-      if (!vName) continue;
-      if (statusCol !== -1 && String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
-      if (vName.slice(-3) !== expectedSuffix) continue;
-      if (vName.toUpperCase().includes('ERP')) continue;
-      versionNames.add(vName);
-    }
-
-    const yearEnd = new Date(fromYear, 11, 31);
-    let synced = 0;
-    for (const relName of versionNames) {
-      const relId = this.nameHash(relName);
-      await prisma.qcRelease.upsert({
-        where: { relId },
-        create: { relId, relName, filterDate: yearEnd, lastSyncAt: new Date() },
-        update: { relName, lastSyncAt: new Date(), active: true },
-      });
-      synced++;
-    }
-
-    this.logger.log(`QC releases synced from CR_LIST: ${synced} versions for year ${fromYear}`);
-    return { synced };
-  }
-
-  // Reads the QC releases Excel from a configured file path.
-  // Path resolution order: QC_RELEASES_FILE env → QC_RELEASES_FILE SystemParam → EXCEL_FILE_PATH (legacy)
-  // On Linux: use a mounted SMB/CIFS path, e.g. /mnt/qc-releases/cr_list.xls
-  async syncFromFilePath(fromYear = 2026): Promise<{ synced: number }> {
-    let filePath: string;
-    try {
-      filePath = await resolveQcFilePath(prisma);
-    } catch (err: any) {
-      this.logger.error(`QC file path resolution failed: ${err.message}`);
-      throw err;
-    }
-
-    try {
-      const { buffer } = readQcFile(filePath);
-      return this.syncFromExcel(buffer, fromYear);
-    } catch (err: any) {
-      if (err instanceof SmbAccessError) {
-        this.logger.error(`SMB file read failed [${err.code}]: ${err.message}`);
-      } else {
-        this.logger.error(`QC file read error: ${err.message}`);
-      }
-      throw err;
-    }
-  }
 }

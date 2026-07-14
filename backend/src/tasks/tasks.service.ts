@@ -90,13 +90,28 @@ export class TasksService {
     assignedTeamId?: string;
     assignedUserId?: string;
     dueDate?: string;
+    subPhaseId?: string;
+    versionId?: string;
     createdBy: string;
   }) {
     data.title = (data.title ?? '').replace(/<[^>]*>/g, '').trim();
     if (!data.title) throw new BadRequestException('שדה "כותרת" הוא חובה');
+
+    // Every task must belong to a version — either given directly, or derived
+    // from its sub-phase — otherwise it becomes an orphan: invisible in
+    // version tracking/QA planning and never cleaned up on version deletion.
+    let versionId = data.versionId || undefined;
+    if (data.subPhaseId) {
+      const subPhase = await prisma.subPhase.findUnique({ where: { id: data.subPhaseId }, include: { phase: true } });
+      if (!subPhase) throw new BadRequestException('תת-שלב לא נמצא');
+      versionId = subPhase.phase.versionId;
+    }
+    if (!versionId) throw new BadRequestException('לא ניתן ליצור משימה ללא שיוך לגרסה');
+
     const task = await prisma.task.create({
       data: {
         ...data,
+        versionId,
         dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
       },
       include: {

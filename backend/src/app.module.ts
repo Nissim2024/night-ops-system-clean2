@@ -29,6 +29,8 @@ import { TeamsBotModule } from './notifications/teams-bot/teams-bot.module';
 import { ActivityBoardModule } from './activity-board/activity-board.module';
 import { RunbookModule } from './runbook/runbook.module';
 import { HealthModule } from './health/health.module';
+import { ReleaseIntelligenceModule } from './release-intelligence/release-intelligence.module';
+import { QualityHubModule } from './quality-hub/quality-hub.module';
 
 @Module({
   imports: [
@@ -48,6 +50,8 @@ import { HealthModule } from './health/health.module';
     ActivityBoardModule,
     RunbookModule,
     HealthModule,
+    ReleaseIntelligenceModule,
+    QualityHubModule,
   ],
   controllers: [AppController],
   providers: [AppService],

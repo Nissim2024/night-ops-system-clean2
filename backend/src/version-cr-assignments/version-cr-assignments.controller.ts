@@ -16,11 +16,13 @@ export class VersionCrAssignmentsController {
     return this.service.findForVersion(versionId, req.user);
   }
 
-  // Auto-sync from Excel file — called on mount by frontend (silent) or manually by manager
+  // Silent auto-sync — called on mount by frontend, or manually. Same underlying
+  // logic as sync/apply (upsert new CRs, soft-mark removed ones); kept as its own
+  // route since callers here don't go through the preview/exclude flow.
   @Post('version/:versionId/sync')
   syncFromExcel(@Param('versionId') versionId: string, @Request() req: any) {
-    if (!MANAGERS.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת מנהל');
-    return this.service.syncFromExcel(versionId);
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.syncApply(versionId);
   }
 
   // Preview diff — reads Excel and returns added/removed/unchanged without touching DB
@@ -32,9 +34,9 @@ export class VersionCrAssignmentsController {
 
   // Apply sync diff — upserts new CRs (status=NEW), marks removed CRs (status=REMOVED)
   @Post('version/:versionId/sync/apply')
-  syncApply(@Param('versionId') versionId: string, @Request() req: any) {
+  syncApply(@Param('versionId') versionId: string, @Body() body: { excludeCrNumbers?: string[] }, @Request() req: any) {
     if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
-    return this.service.syncApply(versionId);
+    return this.service.syncApply(versionId, body?.excludeCrNumbers ?? []);
   }
 
   // Manual delete of a CR after user confirmation (MANAGERS only)
@@ -56,6 +58,18 @@ export class VersionCrAssignmentsController {
   ) {
     if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
     return this.service.patchCr(versionId, crNumber, body);
+  }
+
+  // Explains why a CR is tagged NEW/REMOVED — reads live CR_LIST file, no DB writes
+  @Get('version/:versionId/cr/:crNumber/team/:teamId/change-detail')
+  getChangeDetail(
+    @Param('versionId') versionId: string,
+    @Param('crNumber')  crNumber: string,
+    @Param('teamId')    teamId: string,
+    @Request() req: any,
+  ) {
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.getChangeDetail(versionId, crNumber, teamId);
   }
 
   @Get('version/:versionId/stats')

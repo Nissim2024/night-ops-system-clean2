@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, Request } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 import { RunbookService } from './runbook.service';
 
@@ -6,6 +6,31 @@ import { RunbookService } from './runbook.service';
 @Controller('runbook')
 export class RunbookController {
   constructor(private readonly svc: RunbookService) {}
+
+  // ── Template overrides (must stay above the generic :versionId/:runbookId
+  // routes below — otherwise Nest would match "templates" as a versionId) ──
+  @Get('templates/:templateKey')
+  getTemplate(@Param('templateKey') templateKey: string) {
+    return this.svc.getTemplate(templateKey);
+  }
+
+  @Post('templates/:templateKey')
+  saveTemplate(
+    @Param('templateKey') templateKey: string,
+    @Body() body: { title: string; envLabel: string; steps: any[] },
+    @Request() req: any,
+  ) {
+    return this.svc.saveTemplate(templateKey, body.title, body.envLabel, body.steps, req.user?.sub);
+  }
+
+  @Post('templates/:templateKey/steps')
+  addTemplateStep(
+    @Param('templateKey') templateKey: string,
+    @Body() body: { title: string; envLabel: string; steps: any[]; afterKey?: number | null; newStep: any },
+    @Request() req: any,
+  ) {
+    return this.svc.addTemplateStep(templateKey, body.title, body.envLabel, body.steps, body.afterKey, body.newStep, req.user?.sub);
+  }
 
   @Get(':versionId/upcoming')
   getUpcoming(

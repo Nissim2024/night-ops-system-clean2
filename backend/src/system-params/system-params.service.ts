@@ -78,6 +78,24 @@ const DEFAULT_PARAMS = [
     label: 'סף ימי בדיקה (סבב 1) להצעת בודק שני — CR שחוצה סף זה ואין לו בודק שני יוצג כהמלצה',
     type: 'number',
   },
+  {
+    key: 'DEFAULT_TEST_DURATION_MINUTES',
+    value: '15',
+    label: 'Release Intelligence: משך ברירת מחדל לבדיקה בודדת (דקות) — לחישוב תחזית',
+    type: 'number',
+  },
+  {
+    key: 'FORECAST_ALERT_DAYS',
+    value: '5',
+    label: 'Release Intelligence: סף ימים לפני עלייה לאוויר להתראת "בסיכון" בתחזית',
+    type: 'number',
+  },
+  {
+    key: 'RELEASE_QUALITY_TARGET_SCORE',
+    value: '93',
+    label: 'Quality Hub: ציון גרסה יעד (0-100) — קובע את סטטוס "מעל/מתחת ליעד" במסך סקירה כללית',
+    type: 'number',
+  },
 ];
 
 @Injectable()

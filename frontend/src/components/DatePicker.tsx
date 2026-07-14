@@ -274,6 +274,12 @@ export const DateRangeField: React.FC<DateRangeFieldProps> = ({ startIso, endIso
         <input readOnly value={formatDMY(endIso)} placeholder="עד תאריך" disabled={disabled}
           onClick={() => !disabled && setOpen(o => !o)}
           style={{ ...inputBase, flex: 1, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1, ...style }} />
+        {!disabled && (startIso || endIso) && (
+          <button type="button" title="נקה תאריכים" onClick={() => { onChange('', ''); setOpen(false); }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '15px', color: C.textMuted, padding: '0 4px', flexShrink: 0 }}>
+            ✕
+          </button>
+        )}
       </div>
       <PopoverPortal anchorRef={ref} open={open} align="end">
         <div style={{ minWidth: '560px' }}>

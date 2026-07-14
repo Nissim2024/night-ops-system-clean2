@@ -4,6 +4,7 @@ import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
 import { useDialog } from '../context/DialogContext';
 import { Card, Badge, StatCard, ProgressBar, SectionHeader, Alert, TextArea, Button } from './ui';
 import { NightStatsDashboard } from './NightStatsDashboard';
+import { cleanHtmlText } from '../utils/textSanitize';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -224,6 +225,15 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
   const incompleteCount = nonWaitingTasks.filter(t => t.status !== 'DONE').length;
 
   const isActiveRun = version?.status === 'ACTIVE' && !isRehearsal;
+  // Test coverage table: only show status columns that have at least one
+  // non-zero value across all rows, to cut visual noise from all-zero columns.
+  const coverageCols = React.useMemo(() => ({
+    passed:       coverage.some(r => r.passed > 0),
+    failed:       coverage.some(r => r.failed > 0),
+    notCompleted: coverage.some(r => r.notCompleted > 0),
+    blocked:      coverage.some(r => r.blocked > 0),
+    notRun:       coverage.some(r => r.notRun > 0),
+  }), [coverage]);
   const morningSubPhaseIds = React.useMemo<Set<string>>(() => {
     if (!version?.phases?.length) return new Set();
     const ids = new Set<string>();
@@ -1107,7 +1117,15 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                   <thead>
                     <tr style={{ background: C.bgActive }}>
-                      {['#', 'פרויקט/רגרסיה/באג', 'כותרת / CR', 'אחראי', 'Passed', 'Failed', 'Not Completed', 'Blocked', 'Not Run', 'הערות'].map(h => (
+                      {[
+                        '#', 'פרויקט/רגרסיה/באג', 'כותרת / CR', 'אחראי',
+                        ...(coverageCols.passed ? ['Passed'] : []),
+                        ...(coverageCols.failed ? ['Failed'] : []),
+                        ...(coverageCols.notCompleted ? ['Not Completed'] : []),
+                        ...(coverageCols.blocked ? ['Blocked'] : []),
+                        ...(coverageCols.notRun ? ['Not Run'] : []),
+                        'הערות',
+                      ].map(h => (
                         <th key={h} style={{ padding: '9px 10px', textAlign: 'right', color: C.textPrimary, fontWeight: '600', whiteSpace: 'nowrap', border: `1px solid ${C.border}`, fontSize: '14px' }}>{h}</th>
                       ))}
                     </tr>
@@ -1119,11 +1137,11 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                         <td style={{ ...tdBase, fontWeight: r.subject ? 'bold' : 'normal', color: r.subject ? C.textPrimary : C.textMuted, whiteSpace: 'nowrap' }}>{r.subject || '—'}</td>
                         <td style={{ ...tdBase, maxWidth: '240px' }}>{r.title}</td>
                         <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{r.responsible}</td>
-                        <td style={{ ...tdBase, textAlign: 'center', color: C.statusDone, fontWeight: r.passed > 0 ? 'bold' : 'normal' }}>{r.passed}</td>
-                        <td style={{ ...tdBase, textAlign: 'center', color: r.failed > 0 ? C.statusFailed : C.textMuted, fontWeight: r.failed > 0 ? 'bold' : 'normal' }}>{r.failed}</td>
-                        <td style={{ ...tdBase, textAlign: 'center', color: r.notCompleted > 0 ? C.statusInProgress : C.textMuted }}>{r.notCompleted}</td>
-                        <td style={{ ...tdBase, textAlign: 'center', color: r.blocked > 0 ? C.statusFailed : C.textMuted }}>{r.blocked}</td>
-                        <td style={{ ...tdBase, textAlign: 'center', color: C.textMuted }}>{r.notRun}</td>
+                        {coverageCols.passed && <td style={{ ...tdBase, textAlign: 'center', color: C.statusDone, fontWeight: r.passed > 0 ? 'bold' : 'normal' }}>{r.passed}</td>}
+                        {coverageCols.failed && <td style={{ ...tdBase, textAlign: 'center', color: r.failed > 0 ? C.statusFailed : C.textMuted, fontWeight: r.failed > 0 ? 'bold' : 'normal' }}>{r.failed}</td>}
+                        {coverageCols.notCompleted && <td style={{ ...tdBase, textAlign: 'center', color: r.notCompleted > 0 ? C.statusInProgress : C.textMuted }}>{r.notCompleted}</td>}
+                        {coverageCols.blocked && <td style={{ ...tdBase, textAlign: 'center', color: r.blocked > 0 ? C.statusFailed : C.textMuted }}>{r.blocked}</td>}
+                        {coverageCols.notRun && <td style={{ ...tdBase, textAlign: 'center', color: C.textMuted }}>{r.notRun}</td>}
                         <td style={{ ...tdBase, minWidth: '120px' }}>
                           <textarea
                             value={coverageRemarks[i] || ''}
@@ -1180,7 +1198,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                         <tr key={d.id} style={{ background: i % 2 === 0 ? 'transparent' : C.bgNested }}>
                           <td style={{ ...tdBase, color: C.statusOpen, fontWeight: 'bold', whiteSpace: 'nowrap' }}>{d.id}</td>
                           <td style={{ ...tdBase, maxWidth: '160px', fontWeight: 'bold', color: C.textPrimary }}>{d.title}</td>
-                          <td style={{ ...tdBase, maxWidth: '220px' }}>{d.description}</td>
+                          <td style={{ ...tdBase, maxWidth: '220px' }}>{cleanHtmlText(d.description)}</td>
                           <td style={{ ...tdBase }}>
                             <span style={{ background: (SEVERITY_COLORS[d.severity] || '#95a5a6') + '22', color: SEVERITY_COLORS[d.severity] || '#95a5a6', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap' }}>{d.severity}</span>
                           </td>
@@ -1198,7 +1216,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                           </td>
                           <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.testPhase}</td>
                           <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.defectType}</td>
-                          <td style={{ ...tdBase, maxWidth: '160px' }}>{d.notes}</td>
+                          <td style={{ ...tdBase, maxWidth: '160px' }}>{cleanHtmlText(d.notes)}</td>
                           <td style={{ ...tdBase, minWidth: '120px' }}>
                             <textarea
                               value={defectRemarks[d.id] || ''}
@@ -1540,7 +1558,15 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                     <thead>
                       <tr style={{ background: '#f0f7ff' }}>
-                        {['#', 'פרויקט/רגרסיה/באג', 'כותרת / CR', 'אחראי', 'Passed', 'Failed', 'Not Completed', 'Blocked', 'Not Run', 'הערות'].map(h => (
+                        {[
+                          '#', 'פרויקט/רגרסיה/באג', 'כותרת / CR', 'אחראי',
+                          ...(coverageCols.passed ? ['Passed'] : []),
+                          ...(coverageCols.failed ? ['Failed'] : []),
+                          ...(coverageCols.notCompleted ? ['Not Completed'] : []),
+                          ...(coverageCols.blocked ? ['Blocked'] : []),
+                          ...(coverageCols.notRun ? ['Not Run'] : []),
+                          'הערות',
+                        ].map(h => (
                           <th key={h} style={{ padding: '6px 8px', textAlign: 'right', color: '#2d4a7a', fontWeight: 'bold', whiteSpace: 'nowrap', border: '1px solid #c8d8f0' }}>{h}</th>
                         ))}
                       </tr>
@@ -1552,11 +1578,11 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                           <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', fontWeight: r.subject ? 'bold' : 'normal', color: '#333' }}>{r.subject || '—'}</td>
                           <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', maxWidth: '200px', color: '#333' }}>{r.title}</td>
                           <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', color: '#333' }}>{r.responsible}</td>
-                          <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', textAlign: 'center', color: '#27ae60', fontWeight: r.passed > 0 ? 'bold' : 'normal' }}>{r.passed}</td>
-                          <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', textAlign: 'center', color: r.failed > 0 ? '#e74c3c' : '#aaa' }}>{r.failed}</td>
-                          <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', textAlign: 'center', color: r.notCompleted > 0 ? '#e67e22' : '#aaa' }}>{r.notCompleted}</td>
-                          <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', textAlign: 'center', color: r.blocked > 0 ? '#c0392b' : '#aaa' }}>{r.blocked}</td>
-                          <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', textAlign: 'center', color: '#95a5a6' }}>{r.notRun}</td>
+                          {coverageCols.passed && <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', textAlign: 'center', color: '#27ae60', fontWeight: r.passed > 0 ? 'bold' : 'normal' }}>{r.passed}</td>}
+                          {coverageCols.failed && <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', textAlign: 'center', color: r.failed > 0 ? '#e74c3c' : '#aaa' }}>{r.failed}</td>}
+                          {coverageCols.notCompleted && <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', textAlign: 'center', color: r.notCompleted > 0 ? '#e67e22' : '#aaa' }}>{r.notCompleted}</td>}
+                          {coverageCols.blocked && <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', textAlign: 'center', color: r.blocked > 0 ? '#c0392b' : '#aaa' }}>{r.blocked}</td>}
+                          {coverageCols.notRun && <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', textAlign: 'center', color: '#95a5a6' }}>{r.notRun}</td>}
                           <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', color: '#555' }}>{coverageRemarks[i] || '—'}</td>
                         </tr>
                       ))}
@@ -1596,7 +1622,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                             <tr key={d.id} style={{ background: i % 2 === 0 ? 'white' : '#fdf5ff' }}>
                               <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', color: '#2980b9', fontWeight: 'bold', whiteSpace: 'nowrap' }}>{d.id}</td>
                               <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', fontWeight: 'bold', maxWidth: '140px', color: '#1a2332' }}>{d.title}</td>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', maxWidth: '200px', color: '#555' }}>{d.description}</td>
+                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', maxWidth: '200px', color: '#555' }}>{cleanHtmlText(d.description)}</td>
                               <td style={{ padding: '6px 8px', border: '1px solid #ead9f5' }}>
                                 <span style={{ background: (SEVERITY_COLORS[d.severity] || '#95a5a6') + '22', color: SEVERITY_COLORS[d.severity] || '#95a5a6', padding: '1px 5px', borderRadius: '6px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>{d.severity}</span>
                               </td>
@@ -1610,7 +1636,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                               </td>
                               <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', whiteSpace: 'nowrap', color: '#333' }}>{d.testPhase}</td>
                               <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', whiteSpace: 'nowrap', color: '#333' }}>{d.defectType}</td>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', maxWidth: '140px', color: '#555' }}>{d.notes}</td>
+                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', maxWidth: '140px', color: '#555' }}>{cleanHtmlText(d.notes)}</td>
                               <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', color: '#555' }}>{defectRemarks[d.id] || '—'}</td>
                             </tr>
                           ))}

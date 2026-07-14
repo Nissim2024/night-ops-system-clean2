@@ -4,6 +4,7 @@ import { usePermissions } from '../context/PermissionsContext';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { C, FONT, FONT_MONO, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
 import { Card, Badge, Button, TextField, Select, Toggle, SectionHeader, Avatar, TabBar, EmptyState, Divider, Alert } from './ui';
+import { cleanHtmlText } from '../utils/textSanitize';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -50,6 +51,8 @@ const PERMISSION_DEFS = [
   { key: 'screen:summary',     label: 'מסך סיכום',          group: 'מסכים' },
   { key: 'screen:admin',       label: 'מסך ניהול',          group: 'מסכים' },
   { key: 'screen:qa',          label: 'מסך בקרת איכות',     group: 'מסכים' },
+  { key: 'screen:release-intelligence', label: 'מסך Release Intelligence', group: 'מסכים' },
+  { key: 'screen:quality-hub',          label: 'מסך איכות גרסה (Quality Hub)', group: 'מסכים' },
   // Deployment actions
   { key: 'action:import',                  label: 'ייבוא Excel',                       group: 'פעולות — הטמעות' },
   { key: 'action:gonogo',                  label: 'GO / NO GO',                        group: 'פעולות — הטמעות' },
@@ -80,7 +83,7 @@ interface QcRelease {
 }
 
 export const AdminPanel: React.FC<Props> = ({ token }) => {
-  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'ldap' | 'oracle' | 'email' | 'notifications'>('users');
+  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'ldap' | 'oracle' | 'email' | 'notifications' | 'quality-hub'>('users');
   const { allPermissions, updateRole, saving: permSaving } = usePermissions();
   const [users, setUsers]     = useState<any[]>([]);
   const [teams, setTeams]     = useState<any[]>([]);
@@ -90,10 +93,6 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
   const [qcReleases, setQcReleases]         = useState<QcRelease[]>([]);
   const [qcSyncing, setQcSyncing]           = useState(false);
   const [qcSyncResult, setQcSyncResult]     = useState<string | null>(null);
-
-  const [excelSyncing, setExcelSyncing]       = useState(false);
-  const [excelSyncResult, setExcelSyncResult] = useState<string | null>(null);
-  const [excelYear, setExcelYear]             = useState(new Date().getFullYear());
 
   const [userSyncing, setUserSyncing]       = useState(false);
   const [userSyncResult, setUserSyncResult] = useState<string | null>(null);
@@ -111,6 +110,11 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
 
   const [ldapTesting, setLdapTesting]         = useState(false);
   const [ldapTestResult, setLdapTestResult]   = useState<{ success: boolean; message: string } | null>(null);
+
+  const [qhDefFile, setQhDefFile]             = useState<File | null>(null);
+  const [qhScoresFile, setQhScoresFile]       = useState<File | null>(null);
+  const [qhImporting, setQhImporting]         = useState<'definitions' | 'scores' | null>(null);
+  const [qhResult, setQhResult]               = useState<{ target: 'definitions' | 'scores'; success: boolean; message: string } | null>(null);
 
   const [emailTesting, setEmailTesting]       = useState(false);
   const [emailTestResult, setEmailTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -210,25 +214,6 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
     }
   };
 
-  const syncQcFromExcel = async () => {
-    setExcelSyncing(true);
-    setExcelSyncResult(null);
-    try {
-      const res = await axios.post(`${API}/qc-releases/sync-excel-path?fromYear=${excelYear}`, {}, { headers });
-      if (res.data.error) {
-        setExcelSyncResult(`⚠️ ${res.data.error}`);
-      } else {
-        setExcelSyncResult(`✓ סונכרנו ${res.data.synced} גרסאות QC מהקובץ`);
-        const qcRes = await axios.get(`${API}/qc-releases`, { headers });
-        setQcReleases(qcRes.data);
-      }
-    } catch (e: any) {
-      setExcelSyncResult(`שגיאה: ${e?.response?.data?.message || e.message}`);
-    } finally {
-      setExcelSyncing(false);
-    }
-  };
-
   const toggleQcRelease = async (id: string) => {
     try {
       await axios.patch(`${API}/qc-releases/${id}/toggle`, {}, { headers });
@@ -314,6 +299,33 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
     } catch (e: any) {
       setParamError(e?.response?.data?.message || 'שגיאה בשמירה');
     } finally { setSavingParam(false); }
+  };
+
+  const importQualityHubFile = async (target: 'definitions' | 'scores') => {
+    const file = target === 'definitions' ? qhDefFile : qhScoresFile;
+    if (!file) return;
+    setQhImporting(target);
+    setQhResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const endpoint = target === 'definitions' ? 'kpi-definitions' : 'kpi-scores';
+      const res = await axios.post(`${API}/quality-hub/import/${endpoint}`, formData, {
+        headers: { ...headers, 'Content-Type': 'multipart/form-data' },
+      });
+      if (res.data.success) {
+        const msg = target === 'definitions'
+          ? `יובאו בהצלחה — ${res.data.created} חדשים, ${res.data.updated} עודכנו`
+          : `יובאו בהצלחה — ${res.data.created} חדשים, ${res.data.updated} עודכנו, ${res.data.releasesAffected} גרסאות`;
+        setQhResult({ target, success: true, message: msg });
+      } else {
+        setQhResult({ target, success: false, message: res.data.message || 'שגיאה בייבוא' });
+      }
+    } catch (e: any) {
+      setQhResult({ target, success: false, message: e?.response?.data?.message || 'שגיאה בייבוא הקובץ' });
+    } finally {
+      setQhImporting(null);
+    }
   };
 
   useEffect(() => { fetchAll(); }, []); // eslint-disable-line
@@ -516,6 +528,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
     { key: 'oracle',        label: 'QC Oracle',     icon: '🗄️' },
     { key: 'email',         label: 'מייל',          icon: '📧' },
     { key: 'notifications', label: 'התראות',        icon: '🔔' },
+    { key: 'quality-hub',   label: 'איכות גרסה',    icon: '🏆' },
   ] as const;
 
   return (
@@ -998,7 +1011,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
                                 <div style={{ minWidth: 0 }}>
                                   <div style={{ fontWeight: 'bold', fontSize: '16px', color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
-                                  {t.description && <div style={{ fontSize: '14px', color: C.textMuted, marginTop: '2px' }}>{t.description}</div>}
+                                  {t.description && <div style={{ fontSize: '14px', color: C.textMuted, marginTop: '2px' }}>{cleanHtmlText(t.description)}</div>}
                                 </div>
                                 <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
                                   <button onClick={() => openEditTeam(t)} title="ערוך צוות"
@@ -1085,40 +1098,6 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                   </div>
                 )}
 
-                <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: '14px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-                  <div>
-                    <div style={{ fontSize: '15px', fontWeight: 'bold', color: C.textSecondary, marginBottom: '3px' }}>📥 סנכרן מקובץ Excel (CR_LIST)</div>
-                    <div style={{ fontSize: '14px', color: C.textMuted }}>קורא מהנתיב המוגדר בפרמטר EXCEL_FILE_PATH — ללא חיבור Oracle</div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <label style={{ fontSize: '14px', color: C.textSecondary, whiteSpace: 'nowrap' }}>שנה:</label>
-                    <input
-                      type="number"
-                      value={excelYear}
-                      onChange={e => setExcelYear(Number(e.target.value))}
-                      style={{ width: '80px', padding: '6px 8px', border: `1px solid ${C.border}`, borderRadius: '6px', fontSize: '15px', background: C.bgNested, color: C.textPrimary, fontFamily: FONT }}
-                      min={2020} max={2099}
-                    />
-                  </div>
-                  <button
-                    onClick={syncQcFromExcel}
-                    disabled={excelSyncing}
-                    style={{
-                      padding: '8px 18px', background: excelSyncing ? C.bgHover : C.statusDone,
-                      color: excelSyncing ? C.textDisabled : 'white', border: 'none', borderRadius: '8px',
-                      cursor: excelSyncing ? 'not-allowed' : 'pointer',
-                      fontWeight: 'bold', fontSize: '15px', whiteSpace: 'nowrap', fontFamily: FONT,
-                    }}
-                  >
-                    {excelSyncing ? 'מסנכרן...' : '📥 סנכרן מ-Excel'}
-                  </button>
-                  {excelSyncResult && (
-                    <div style={{ background: excelSyncResult.startsWith('✓') ? C.bgDone : C.bgBlocked, border: `1px solid ${excelSyncResult.startsWith('✓') ? C.statusDone : C.statusFailed}44`, borderRadius: '8px', padding: '8px 14px', fontSize: '15px', color: excelSyncResult.startsWith('✓') ? C.statusDone : C.statusFailed }}>
-                      {excelSyncResult}
-                    </div>
-                  )}
-                </div>
-
                 {qcReleases.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '40px', color: C.textMuted }}>
                     <p>אין גרסאות QC. לחץ "סנכרן מ-QC" כדי לטעון (דורש חיבור Oracle).</p>
@@ -1194,7 +1173,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                       <li><code style={{ fontFamily: FONT_MONO }}>ORACLE_USER</code>, <code style={{ fontFamily: FONT_MONO }}>ORACLE_PASSWORD</code>, <code style={{ fontFamily: FONT_MONO }}>ORACLE_CONNECT_STRING</code> — ניתן להגדיר גם כאן בלשונית זו וגם כמשתני סביבה ב-.env (לדוגמה: <code style={{ fontFamily: FONT_MONO }}>qcdb01:1521/QCPROD</code>).</li>
                     </ul>
                   </li>
-                  <li><strong>מקובץ Excel</strong> — חלופה ללא Oracle. הגדר <code style={{ fontFamily: FONT_MONO }}>EXCEL_FILE_PATH</code> בלשונית פרמטרים, ובחר שנה לסנכרון. הקובץ חייב להכיל עמודה <strong>"גרסה"</strong>.</li>
+                  <li>גרסאות QC מסונכרנות אך ורק מ-Oracle — שמות ו-ID של גרסה אינם נטענים עוד מקובץ Excel.</li>
                   <li>גרסאות שתאריך הסינון שלהן (filterDate) עבר — לא יוצגו אוטומטית ברשימת הגרסאות. ניתן לשנות זאת ידנית בכל גרסה.</li>
                 </ul>
                 <div style={{ marginTop: '10px', padding: '8px 12px', borderRadius: '6px', background: '#2a1e0a', border: '1px solid #e67e2244', fontSize: '14px', color: '#e67e22', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
@@ -1319,7 +1298,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                       <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 18px', border: `1px solid ${C.border}`, borderRadius: '10px', background: C.bgNested }}>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontWeight: 'bold', fontSize: '16px', color: C.textPrimary }}>{t.name}</div>
-                          {t.description && <div style={{ fontSize: '14px', color: C.textMuted, marginTop: '2px' }}>{t.description}</div>}
+                          {t.description && <div style={{ fontSize: '14px', color: C.textMuted, marginTop: '2px' }}>{cleanHtmlText(t.description)}</div>}
                           <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '4px' }}>
                             נוצר ע"י {t.creator?.fullName ?? '—'} · {t.createdAt ? new Date(t.createdAt).toLocaleDateString('he-IL') : ''}
                           </div>
@@ -2096,6 +2075,93 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                     </div>
                   ),
                 })}
+              </div>
+            );
+          })()}
+
+          {/* ── QUALITY HUB TAB ── */}
+          {tab === 'quality-hub' && (() => {
+            const uploadCard = (opts: {
+              title: string; subtitle: string; target: 'definitions' | 'scores';
+              file: File | null; setFile: (f: File | null) => void;
+            }) => {
+              const inputId = `qh-file-${opts.target}`;
+              const isImporting = qhImporting === opts.target;
+              const result = qhResult?.target === opts.target ? qhResult : null;
+              return (
+                <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', border: `1px solid ${C.border}`, flex: 1, minWidth: '340px' }}>
+                  <h3 style={{ margin: '0 0 4px', color: C.textPrimary }}>{opts.title}</h3>
+                  <p style={{ margin: '0 0 16px', fontSize: '15px', color: C.textMuted }}>{opts.subtitle}</p>
+                  <div
+                    style={{ border: `2px dashed ${C.border}`, borderRadius: '8px', padding: '24px', textAlign: 'center', background: C.bgNested, cursor: 'pointer' }}
+                    onClick={() => document.getElementById(inputId)?.click()}
+                  >
+                    <div style={{ fontSize: '32px', marginBottom: '6px' }}>📊</div>
+                    {opts.file ? (
+                      <div>
+                        <div style={{ fontWeight: 'bold', color: C.textPrimary, fontSize: '15px' }}>{opts.file.name}</div>
+                        <div style={{ color: C.textMuted, fontSize: '13px', marginTop: '2px' }}>{(opts.file.size / 1024).toFixed(1)} KB</div>
+                      </div>
+                    ) : (
+                      <div>
+                        <div style={{ color: C.textMuted, fontSize: '14px' }}>לחץ לבחירת קובץ</div>
+                        <div style={{ color: C.textDisabled, fontSize: '13px', marginTop: '2px' }}>xlsx, xls — עד 10MB</div>
+                      </div>
+                    )}
+                  </div>
+                  <input
+                    id={inputId}
+                    type="file"
+                    accept=".xlsx,.xls"
+                    style={{ display: 'none' }}
+                    onChange={e => opts.setFile(e.target.files?.[0] || null)}
+                  />
+                  <button
+                    onClick={() => importQualityHubFile(opts.target)}
+                    disabled={!opts.file || isImporting}
+                    style={{
+                      marginTop: '14px', width: '100%', padding: '10px', borderRadius: '8px', border: 'none',
+                      background: !opts.file || isImporting ? C.textDisabled : C.brand, color: '#fff',
+                      fontWeight: 'bold', fontSize: '15px', cursor: !opts.file || isImporting ? 'default' : 'pointer',
+                    }}
+                  >
+                    {isImporting ? 'מייבא...' : 'ייבא קובץ'}
+                  </button>
+                  {result && (
+                    <div style={{
+                      marginTop: '12px', padding: '10px 12px', borderRadius: '6px', fontSize: '14px',
+                      background: result.success ? C.bgDone : C.bgBlocked,
+                      color: result.success ? C.statusDone : C.statusFailed,
+                      border: `1px solid ${result.success ? C.statusDone : C.statusFailed}44`,
+                    }}>
+                      {result.success ? '✅ ' : '⚠️ '}{result.message}
+                    </div>
+                  )}
+                </div>
+              );
+            };
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px 24px', border: `1px solid ${C.border}` }}>
+                  <h3 style={{ margin: '0 0 4px', color: C.textPrimary }}>🏆 ייבוא נתוני איכות גרסה</h3>
+                  <p style={{ margin: 0, fontSize: '15px', color: C.textMuted }}>
+                    מודל ציון האיכות מחושב מחוץ ל-DeployCenter (Excel מה-QC). כאן רק מייבאים את הקבצים — לא משנים נוסחאות או משקלים.
+                    ייבוא חוזר מעדכן (upsert) רשומות קיימות ומוסיף חדשות.
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                  {uploadCard({
+                    title: 'הגדרות KPI (KPI_RELEASE_SCORE_SETUP)',
+                    subtitle: 'קובץ ה-12 מדדים: שם, יעד, משקל, אחראי, מטרה ותיאור',
+                    target: 'definitions', file: qhDefFile, setFile: setQhDefFile,
+                  })}
+                  {uploadCard({
+                    title: 'ציוני גרסאות (RELEASES_KPI_SCORES)',
+                    subtitle: 'טבלת עובדות היסטורית: ציון בפועל לכל מדד בכל גרסה',
+                    target: 'scores', file: qhScoresFile, setFile: setQhScoresFile,
+                  })}
+                </div>
               </div>
             );
           })()}

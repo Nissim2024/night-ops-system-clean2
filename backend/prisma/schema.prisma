@@ -43,6 +43,12 @@ enum BlockSeverity {
   CRITICAL
 }
 
+enum RiskStatus {
+  OPEN
+  MITIGATED
+  CLOSED
+}
+
 enum VersionStatus {
   DRAFT
   CR_REVIEW
@@ -102,6 +108,7 @@ model User {
   qaAssignments         QaAssignment[]
   qaSecondaryAssignments QaAssignment[] @relation("qaSecondaryAssignments")
   qaCycleTasks          QaCycleTask[]
+  createdReleaseRisks   ReleaseRisk[]
 }
 
 model Team {
@@ -180,6 +187,11 @@ model Version {
   qaAssignments        QaAssignment[]
   versionCrAssignments VersionCrAssignment[]
   qaWorkPlan           QaWorkPlan?
+  releaseRisks         ReleaseRisk[]
+  releaseInsights      ReleaseInsight[]
+  releaseHealth        ReleaseHealth?
+  releaseForecast      ReleaseForecast?
+  goNoGoDecision       GoNoGoDecision?
 }
 
 model Phase {
@@ -573,11 +585,14 @@ model LeaveRequest {
   kind      String      // "leave" | "work"
   reason    String?
   status    LeaveStatus @default(PENDING)
+  groupId   String?     // shares one id across every day of a range submitted together — lets the UI display/approve the whole range as one unit while storage stays one-row-per-day (qa-workplan.service.ts's per-day lookup keeps working unchanged)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   season Season? @relation(fields: [seasonId], references: [id])
+
+  @@index([groupId])
 }
 
 // ── QA Module ────────────────────────────────────────────────────────────────
@@ -745,4 +760,153 @@ model RunbookEntry {
   updatedAt      DateTime  @updatedAt
 
   @@unique([versionId, runbookId, stepIndex])
+}
+
+// Editable override of a built-in RUNBOOKS[templateKey] step list (frontend
+// constant). steps[].key is a stable id — NOT the array position — so
+// RunbookEntry.stepIndex (keyed by step key) survives step add/delete/reorder
+// without silently misaligning to the wrong activity. nextStepKey is a
+// monotonic counter so a deleted step's key is never reissued to a new step.
+model RunbookTemplate {
+  id          String   @id @default(uuid())
+  templateKey String   @unique
+  title       String
+  envLabel    String
+  steps       Json
+  nextStepKey Int      @default(100)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ── Release Intelligence Center (Phase 1: schema + Overview) ──────────────
+// Non-intrusive extension layer over existing Deployment/QA data — see
+// project memory "Release Intelligence Center spec" for the full spec.
+// ReleaseHealth/ReleaseForecast are single-row-per-version snapshots
+// (recomputed and upserted whenever the Overview screen is loaded), not
+// historical logs.
+
+model ReleaseRisk {
+  id          String     @id @default(uuid())
+  versionId   String
+  title       String
+  description String?
+  severity    Priority   @default(MEDIUM)
+  impact      String?
+  probability String?
+  owner       String?
+  mitigation  String?
+  status      RiskStatus @default(OPEN)
+  createdBy   String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  creator User    @relation(fields: [createdBy], references: [id])
+}
+
+model ReleaseInsight {
+  id             String   @id @default(uuid())
+  versionId      String
+  category       String   // AUTO: COVERAGE|FORECAST|CAPACITY|CR_HEALTH|REOPEN — MANUAL: ANNOUNCEMENT|ENVIRONMENT|KNOWN_ISSUE|RELEASE|BLOCKER
+  severity       Priority @default(MEDIUM)
+  title          String?  // manual messages only — auto-insights use `message` alone
+  message        String
+  recommendation String?
+  source         String   @default("AUTO") // AUTO | MANUAL
+  createdBy      String?  // manual messages only
+  createdAt      DateTime @default(now())
+
+  version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
+}
+
+model ReleaseHealth {
+  versionId     String   @id
+  healthScore   Int
+  coverageScore Int
+  qualityScore  Int
+  riskScore     Int
+  forecastScore Int
+  calculatedAt  DateTime @default(now())
+
+  version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
+}
+
+model ReleaseForecast {
+  versionId      String    @id
+  calculatedDate DateTime  @default(now())
+  remainingTests Int
+  velocity       Float
+  forecastDate   DateTime?
+  status         String    // ON_TRACK | AT_RISK | BEHIND_PLAN
+
+  version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
+}
+
+// Advisory/record-only decision log — spec section 26. Deliberately NOT
+// coupled to VersionStatus or any existing workflow gate (non-intrusive
+// extension rule, spec section 2); approving a stage here has zero effect
+// anywhere else in the app.
+model GoNoGoDecision {
+  versionId            String    @id
+  systemRecommendation String    // GO | CONDITIONAL_GO | NO_GO
+  qaManagerStatus      String?   // PENDING | APPROVED | REJECTED
+  qaManagerBy          String?
+  qaManagerAt          DateTime?
+  releaseManagerStatus String?
+  releaseManagerBy     String?
+  releaseManagerAt     DateTime?
+  managementStatus     String?
+  managementBy         String?
+  managementAt         DateTime?
+  updatedAt            DateTime  @updatedAt
+
+  version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
+}
+
+// ── Release Quality Hub ──────────────────────────────────────────────────────
+// Consumes an organizational quality-scoring methodology that is computed
+// OUTSIDE DeployCenter (Excel exports from the QC system). DeployCenter never
+// recomputes KPIs/formulas/weights here — these two models just store the
+// already-computed values so they can be visualized/compared/navigated.
+// Soft-linked to Version by name string (not FK): most historical releases
+// (124 of them, back to 2017) predate DeployCenter and have no Version row.
+
+model KpiDefinition {
+  id                String   @id @default(uuid())
+  kpiOrder          Int
+  kpiName           String   @unique // join key: matches ReleaseKpiScore.kpiName exactly
+  kpiType           String            // "%" | "Quantity" | "Time"
+  target            Float
+  weight            Float
+  measuredEntity    String            // איפיון / פיתוח / QA / צוות הטמעה / ALL
+  purpose           String?
+  description       String?
+  dataSource        String?
+  measurementPeriod String?
+  trend             String?           // "מינימום" today — lower Grade vs Target is better
+  comments          String?
+  updatedAt         DateTime @updatedAt
+}
+
+model ReleaseKpiScore {
+  id            String   @id @default(uuid())
+  releaseName   String            // REL_NAME, e.g. "ITv04-2026" — soft-link to Version.name
+  kpiName       String            // SegmentName — soft-link to KpiDefinition.kpiName
+  target        Float
+  grade         Float?            // null when source had "-"
+  weight        Float
+  relativeScore Float?
+  calcScore     Float?
+  allCount      Float?            // "ALL" column from source — meaning not fully confirmed, displayed as-is
+  showStopper   Float?            // "TB, SS"
+  severe        Float?            // "sev"
+  medium        Float?            // "Med"
+  low           Float?            // "Low"
+  importedAt    DateTime @default(now())
+  qualitativeNote String?         // manually-entered per-release analysis: אחריות / שיפורים נדרשים / מאפייני הבעיות
+
+  @@unique([releaseName, kpiName])
+  @@index([releaseName])
+  @@index([kpiName])
 }

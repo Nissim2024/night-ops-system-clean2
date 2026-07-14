@@ -1,6 +1,24 @@
 ﻿import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { HomeDashboard } from './HomeDashboard';
+import { ReleaseIntelligenceOverview } from './release-intelligence/ReleaseIntelligenceOverview';
+import { DailyQaManagementView } from './release-intelligence/DailyQaManagementView';
+import { CrHealthView } from './release-intelligence/CrHealthView';
+import { CoverageReadinessView } from './release-intelligence/CoverageReadinessView';
+import { CycleProgressView } from './release-intelligence/CycleProgressView';
+import { TimelineActivitiesView } from './release-intelligence/TimelineActivitiesView';
+import { CapacityView } from './release-intelligence/CapacityView';
+import { ForecastTrackingView } from './release-intelligence/ForecastTrackingView';
+import { DefectsView } from './release-intelligence/DefectsView';
+import { ReopenAnalysisView } from './release-intelligence/ReopenAnalysisView';
+import { AlertsIntelligenceView } from './release-intelligence/AlertsIntelligenceView';
+import { GoNoGoView } from './release-intelligence/GoNoGoView';
+import { OpenProdDefectsView } from './quality-hub/OpenProdDefectsView';
+import { ReleaseOverviewView } from './quality-hub/ReleaseOverviewView';
+import { KpiMatrixView } from './quality-hub/KpiMatrixView';
+import { ReleaseComparisonView } from './quality-hub/ReleaseComparisonView';
+import { ReleaseQualityTimelineView } from './quality-hub/ReleaseQualityTimelineView';
+import { KpiConfigView } from './quality-hub/KpiConfigView';
 import { VersionsView } from './VersionsView';
 import { ImportView } from './ImportView';
 import { WarRoom } from './WarRoom';
@@ -79,9 +97,13 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [warRoomRefresh, setWarRoomRefresh]      = useState(0);
   const [myTeamId, setMyTeamId]                 = useState('');
   const [openNewVersionForm, setOpenNewVersionForm] = useState(false);
-  const [activeModule, setActiveModule] = useState<'deployments' | 'qa'>('deployments');
+  const [activeModule, setActiveModule] = useState<'deployments' | 'qa' | 'release-intelligence' | 'quality-hub'>('deployments');
   const [activeQaView, setActiveQaView]  = useState('assignment');
+  const [activeRiView, setActiveRiView]  = useState('overview');
+  const [activeQhView, setActiveQhView]  = useState('overview');
+  const [qhKpiMatrixRelease, setQhKpiMatrixRelease] = useState<string | undefined>(undefined);
   const [isQaTeamMember, setIsQaTeamMember] = useState(false);
+  const [isQaTeamLead, setIsQaTeamLead] = useState(false);
 
   const payload  = JSON.parse(atob(token.split('.')[1]));
   const fullName = localStorage.getItem('deploycenter_fullName') || payload.fullName || 'מנהל';
@@ -89,6 +111,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const { can } = usePermissions();
   const push = usePushNotifications(token);
   const canAccessQa = isQaTeamMember || can('screen:qa');
+  const canAccessReleaseIntelligence = can('screen:release-intelligence');
+  const canAccessQualityHub = can('screen:quality-hub');
 
   useSocket({
     userId: payload.sub,
@@ -187,6 +211,12 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
       setVersions(r.data);
       setSelectedVersionId(prev => {
         if (r.data.some((v: any) => v.id === prev)) return prev;
+        // While the "create new version" wizard is open, selectedVersionId is
+        // intentionally '' — don't let a background refresh (e.g. a
+        // VERSION_UPDATED socket event from another user) auto-pick a version
+        // here, since that changes ListTabContent's `key` and remounts
+        // VersionsView mid-wizard, silently wiping the in-progress form.
+        if (openNewVersionForm) return prev;
         const active = r.data.find((v: any) => ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(v.status));
         if (active) return active.id;
         const inactive = r.data.find((v: any) => !v.isArchived && !['ACTIVE', 'REHEARSAL', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(v.status));
@@ -217,6 +247,10 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
         t.members?.some((m: any) => (m.userId || m.user?.id) === payload.sub)
       );
       setIsQaTeamMember(!!qaTeam);
+      // Leading the QA team grants QA-admin access on top of whatever the
+      // user's own base role is (e.g. a RELEASE_MANAGER — "מנהל הלילה" —
+      // who is also QA team lead) — mirrors the backend QaAdminGuard.
+      setIsQaTeamLead(!!qaTeam?.members?.some((m: any) => (m.userId || m.user?.id) === payload.sub && m.isLead));
       if (payload.role === 'TEAM_LEAD') {
         const myTeam = teams.find((t: any) =>
           t.members?.some((m: any) => m.userId === payload.sub || m.user?.id === payload.sub)
@@ -669,10 +703,24 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           activeTab={activeTab}
           onNewVersionClick={['ADMIN', 'RELEASE_MANAGER'].includes(payload.role) ? () => { setSelectedVersionId(''); setVersionFilter('inactive'); setActiveTab('list'); setOpenNewVersionForm(true); } : undefined}
           activeModule={activeModule}
-          onModuleChange={m => { if (m === 'qa' && !canAccessQa) return; setActiveModule(m); if (m === 'qa') setActiveQaView('assignment'); }}
+          onModuleChange={m => {
+            if (m === 'qa' && !canAccessQa) return;
+            if (m === 'release-intelligence' && !canAccessReleaseIntelligence) return;
+            if (m === 'quality-hub' && !canAccessQualityHub) return;
+            setActiveModule(m);
+            if (m === 'qa') setActiveQaView('assignment');
+            if (m === 'release-intelligence') setActiveRiView('overview');
+            if (m === 'quality-hub') setActiveQhView('overview');
+          }}
           activeQaView={activeQaView}
           onQaViewChange={setActiveQaView}
           canAccessQa={canAccessQa}
+          activeRiView={activeRiView}
+          onRiViewChange={setActiveRiView}
+          canAccessReleaseIntelligence={canAccessReleaseIntelligence}
+          activeQhView={activeQhView}
+          onQhViewChange={setActiveQhView}
+          canAccessQualityHub={canAccessQualityHub}
           showLeaves={false}
           leavesActive={activeModule === 'qa' && activeQaView === 'leaves'}
           onLeavesClick={() => { setActiveModule('qa'); setActiveQaView('leaves'); }}
@@ -683,7 +731,69 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
         <div style={{ flex: 1, padding: '24px', overflowY: 'auto', minWidth: 0, minHeight: 0, background: C.bgApp }}>
 
           {/* ── Module: ניהול QA ── */}
-          {activeModule === 'qa' && <QaModulePlaceholder view={activeQaView} token={token} role={payload.role} isQaMember={canAccessQa} isQaTeamMember={isQaTeamMember} initialVersionId={selectedVersionId || undefined} />}
+          {activeModule === 'qa' && <QaModulePlaceholder view={activeQaView} token={token} role={payload.role} isQaMember={canAccessQa} isQaTeamMember={isQaTeamMember} isQaTeamLead={isQaTeamLead} initialVersionId={selectedVersionId || undefined} />}
+
+          {/* ── Module: Release Intelligence ── */}
+          {activeModule === 'release-intelligence' && activeRiView === 'overview' && (
+            <ReleaseIntelligenceOverview token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+          )}
+          {activeModule === 'release-intelligence' && activeRiView === 'daily-qa' && (
+            <DailyQaManagementView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+          )}
+          {activeModule === 'release-intelligence' && activeRiView === 'cr-health' && (
+            <CrHealthView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+          )}
+          {activeModule === 'release-intelligence' && activeRiView === 'coverage-readiness' && (
+            <CoverageReadinessView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+          )}
+          {activeModule === 'release-intelligence' && activeRiView === 'cycle-progress' && (
+            <CycleProgressView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+          )}
+          {activeModule === 'release-intelligence' && activeRiView === 'timeline-activities' && (
+            <TimelineActivitiesView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+          )}
+          {activeModule === 'release-intelligence' && activeRiView === 'capacity' && (
+            <CapacityView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+          )}
+          {activeModule === 'release-intelligence' && activeRiView === 'forecast-tracking' && (
+            <ForecastTrackingView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+          )}
+          {activeModule === 'release-intelligence' && activeRiView === 'defects' && (
+            <DefectsView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+          )}
+          {activeModule === 'release-intelligence' && activeRiView === 'reopen-analysis' && (
+            <ReopenAnalysisView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+          )}
+          {activeModule === 'release-intelligence' && activeRiView === 'alerts-intelligence' && (
+            <AlertsIntelligenceView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+          )}
+          {activeModule === 'release-intelligence' && activeRiView === 'go-no-go' && (
+            <GoNoGoView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+          )}
+
+          {/* ── Module: Quality Hub ── */}
+          {activeModule === 'quality-hub' && activeQhView === 'overview' && (
+            <ReleaseOverviewView
+              token={token}
+              role={payload.role}
+              onSelectRelease={(releaseName) => { setQhKpiMatrixRelease(releaseName); setActiveQhView('kpi-matrix'); }}
+            />
+          )}
+          {activeModule === 'quality-hub' && activeQhView === 'kpi-matrix' && (
+            <KpiMatrixView token={token} role={payload.role} initialRelease={qhKpiMatrixRelease} />
+          )}
+          {activeModule === 'quality-hub' && activeQhView === 'comparison' && (
+            <ReleaseComparisonView token={token} role={payload.role} />
+          )}
+          {activeModule === 'quality-hub' && activeQhView === 'timeline' && (
+            <ReleaseQualityTimelineView token={token} role={payload.role} />
+          )}
+          {activeModule === 'quality-hub' && activeQhView === 'kpi-config' && (
+            <KpiConfigView token={token} role={payload.role} />
+          )}
+          {activeModule === 'quality-hub' && activeQhView === 'open-prod-defects' && (
+            <OpenProdDefectsView token={token} />
+          )}
 
           {activeModule === 'deployments' && (<>
 
@@ -694,6 +804,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
               role={payload.role}
               fullName={fullName}
               token={token}
+              selectedVersionId={selectedVersionId}
               onSelectVersion={(id, tab) => {
                 setSelectedVersionId(id);
                 setVersionFilter(
@@ -1402,7 +1513,7 @@ const QA_VIEW_META: Record<string, { icon: string; title: string; sub: string }>
   bugs:       { icon: '🐛', title: 'לוח באגים (QC)',  sub: 'מדדי תקלות מ-QC לפי גרסה' },
 };
 
-const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string; isQaMember?: boolean; isQaTeamMember?: boolean; initialVersionId?: string }> = ({ view, token, role, isQaMember, isQaTeamMember, initialVersionId }) => {
+const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string; isQaMember?: boolean; isQaTeamMember?: boolean; isQaTeamLead?: boolean; initialVersionId?: string }> = ({ view, token, role, isQaMember, isQaTeamMember, isQaTeamLead, initialVersionId }) => {
   // Leaves board is accessible to all authenticated users; QA module views are for QA team members and ADMIN
   if (view !== 'leaves' && role !== 'ADMIN' && !isQaMember) {
     return (
@@ -1413,9 +1524,10 @@ const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string;
       </div>
     );
   }
-  // Assignment view uses QaAdminGuard on the backend — ADMIN, or a TEAM_LEAD
-  // who actually leads the QA team itself (not any team lead with screen:qa).
-  if (view === 'assignment' && role !== 'ADMIN' && !(role === 'TEAM_LEAD' && isQaTeamMember)) {
+  // Assignment view uses QaAdminGuard on the backend — ADMIN, or whoever
+  // actually leads the QA team itself, on top of whatever their own base
+  // role is (e.g. a RELEASE_MANAGER — "מנהל הלילה" — who also leads QA).
+  if (view === 'assignment' && role !== 'ADMIN' && !isQaTeamLead) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '12px', color: C.textMuted }}>
         <div style={{ fontSize: '48px' }}>🔒</div>

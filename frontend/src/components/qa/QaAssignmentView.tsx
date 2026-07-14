@@ -188,8 +188,6 @@ function CycleChip({ cycleType }: { cycleType: string }) {
 
 interface Props { token: string; initialVersionId?: string; }
 
-const LS_VERSION_KEY = 'qa-selected-version';
-
 interface PickerPos { crNumber: string; top?: number; bottom?: number; right: number; maxH?: number; }
 
 export default function QaAssignmentView({ token, initialVersionId }: Props) {
@@ -199,15 +197,15 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const isManager = ['RELEASE_MANAGER', 'ADMIN'].includes(userRole);
 
   const [versions, setVersions]         = useState<Version[]>([]);
-  const [selectedVId, setSelectedVId]   = useState(() => initialVersionId ?? localStorage.getItem(LS_VERSION_KEY) ?? '');
+  // Deliberately NOT falling back to localStorage here — a version picked
+  // manually below is meant to be a transient, in-session browse, not a
+  // choice that outlives the session and silently diverges from whatever
+  // the global header shows on the next visit.
+  const [selectedVId, setSelectedVId]   = useState(() => initialVersionId ?? '');
 
   // When parent changes the target version (e.g. navigating from a specific deployment version), follow it
   useEffect(() => {
-    if (initialVersionId) {
-      setSelectedVId(initialVersionId);
-      localStorage.setItem(LS_VERSION_KEY, initialVersionId);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (initialVersionId) setSelectedVId(initialVersionId);
   }, [initialVersionId]);
   const [activeTab, setActiveTab]       = useState<'assignments' | 'workplan' | 'activity'>('assignments');
   const [crs, setCrs]                   = useState<CrRec[]>([]);
@@ -217,6 +215,20 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const [syncing, setSyncing]           = useState(false);
   const [crSyncStatuses, setCrSyncStatuses] = useState<Record<string, 'ACTIVE' | 'NEW' | 'REMOVED'>>({});
   const [syncDiff, setSyncDiff]             = useState<SyncDiff | null>(null);
+  const [excludedAddedCrs, setExcludedAddedCrs] = useState<Set<string>>(new Set());
+  // syncDiff.added has one entry per (CR, team) pair — the same CR can span
+  // several teams' Excel columns and legitimately produce multiple entries.
+  // Group them into one row per CR so the preview doesn't show duplicates.
+  const addedGrouped = useMemo(() => {
+    if (!syncDiff) return [];
+    const byCr = new Map<string, { crNumber: string; crLabel: string | null; teamNames: string[] }>();
+    for (const item of syncDiff.added) {
+      const existing = byCr.get(item.crNumber);
+      if (existing) { if (item.teamName) existing.teamNames.push(item.teamName); }
+      else byCr.set(item.crNumber, { crNumber: item.crNumber, crLabel: item.crLabel, teamNames: item.teamName ? [item.teamName] : [] });
+    }
+    return Array.from(byCr.values());
+  }, [syncDiff]);
   const [secondTesterSuggestions, setSecondTesterSuggestions] = useState<{
     assignmentId: string; crNumber: string; crLabel: string | null;
     qaEffortDays: number; thresholdDays: number;
@@ -277,6 +289,10 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
     if (!vId) { setCrs([]); setAssignments([]); setScoring({}); setCrSyncStatuses({}); setSecondTesterSuggestions([]); return; }
     setLoading(true);
     try {
+      // Pick up CR_LIST changes automatically on load — without this, edits
+      // to the Excel file never reach this screen until someone remembers
+      // to open the manual "sync preview" modal.
+      await axios.post(`${API}/version-cr-assignments/version/${vId}/sync`, {}, { headers }).catch(() => {});
       const [recRes, asgRes, planRes, vcaRes, suggRes] = await Promise.all([
         axios.get(`${API}/qa/assignments/recommend?versionId=${vId}`, { headers }),
         axios.get(`${API}/qa/assignments?versionId=${vId}`, { headers }),
@@ -562,6 +578,7 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
     setSyncing(true);
     try {
       const r = await axios.post(`${API}/version-cr-assignments/version/${selectedVId}/sync/preview`, {}, { headers });
+      setExcludedAddedCrs(new Set());
       setSyncDiff(r.data as SyncDiff);
     } catch (e: any) {
       dialog.alert(e?.response?.data?.message ?? 'שגיאה בתצוגה מקדימה', 'שגיאה', 'danger');
@@ -575,7 +592,11 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
     setSyncDiff(null);
     setSyncing(true);
     try {
-      await axios.post(`${API}/version-cr-assignments/version/${selectedVId}/sync/apply`, {}, { headers });
+      await axios.post(
+        `${API}/version-cr-assignments/version/${selectedVId}/sync/apply`,
+        { excludeCrNumbers: Array.from(excludedAddedCrs) },
+        { headers },
+      );
       await loadVersion(selectedVId);
       dialog.alert('הסנכרון הושלם — CRים חדשים סומנו בירוק, CRים שהוסרו סומנו באדום', 'סנכרון הצליח', 'success');
     } catch (e: any) {
@@ -593,6 +614,27 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
       setCrSyncStatuses(prev => { const n = { ...prev }; delete n[crNumber]; return n; });
     } catch (e: any) {
       dialog.alert(e?.response?.data?.message ?? 'שגיאה במחיקה', 'שגיאה', 'danger');
+    }
+  };
+
+  const showCrChangeDetail = async (crNumber: string) => {
+    if (!selectedVId) return;
+    try {
+      const res = await axios.get(
+        `${API}/qa/assignments/change-detail?versionId=${selectedVId}&crNumber=${crNumber}`,
+        { headers },
+      );
+      const d = res.data;
+      const lines = [d.reason as string];
+      if (d.detail?.movedToVersion)   lines.push(`גרסה חדשה: ${d.detail.movedToVersion}`);
+      if (d.detail?.movedFromVersion) lines.push(`גרסה קודמת: ${d.detail.movedFromVersion}`);
+      if (d.detail?.statusInSource)   lines.push(`סטטוס בקובץ: ${d.detail.statusInSource}`);
+      if (d.detail?.prevDays !== undefined && d.detail?.currentDays !== undefined) {
+        lines.push(`ימי פיתוח: ${d.detail.prevDays ?? '?'} ← ${d.detail.currentDays}`);
+      }
+      dialog.alert(lines.join('\n'), `${d.crNumber} — ${d.crLabel ?? ''}`, d.syncStatus === 'REMOVED' ? 'warning' : 'info');
+    } catch (e: any) {
+      dialog.alert(e?.response?.data?.message ?? 'שגיאה בטעינת פרטי השינוי', 'שגיאה', 'danger');
     }
   };
 
@@ -945,7 +987,6 @@ CRים אלה לא ייכללו בתוכנית העבודה.
             onChange={e => {
               const v = e.target.value;
               setSelectedVId(v);
-              localStorage.setItem(LS_VERSION_KEY, v);
               setSearch('');
               // Reset dates — loadVersion restores them if a work plan exists
               setCycle1Start('');
@@ -1134,21 +1175,33 @@ CRים אלה לא ייכללו בתוכנית העבודה.
               <button onClick={() => setSyncDiff(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 18, fontFamily: FONT }}>✕</button>
             </div>
             <div style={{ padding: `${SP[3]} ${SP[5]}`, display: 'flex', gap: SP[3], borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-              <span style={{ background: C.successBg, color: C.success, padding: `3px ${SP[3]}`, borderRadius: RADIUS.full, ...TEXT.sm, fontWeight: WEIGHT.bold }}>+{syncDiff.added.length} חדשים</span>
+              <span style={{ background: C.successBg, color: C.success, padding: `3px ${SP[3]}`, borderRadius: RADIUS.full, ...TEXT.sm, fontWeight: WEIGHT.bold }}>+{addedGrouped.filter(g => !excludedAddedCrs.has(g.crNumber)).length} חדשים</span>
               <span style={{ background: C.dangerBg,  color: C.danger,  padding: `3px ${SP[3]}`, borderRadius: RADIUS.full, ...TEXT.sm, fontWeight: WEIGHT.bold }}>−{syncDiff.removed.length} הוסרו</span>
               <span style={{ background: C.bgNested,  color: C.textMuted, padding: `3px ${SP[3]}`, borderRadius: RADIUS.full, ...TEXT.sm, fontWeight: WEIGHT.medium }}>{syncDiff.unchanged} ללא שינוי</span>
             </div>
             <div style={{ overflowY: 'auto', flex: 1, padding: SP[4] }}>
-              {syncDiff.added.length > 0 && (
+              {addedGrouped.length > 0 && (
                 <div style={{ marginBottom: SP[3] }}>
                   <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.success, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: SP[2] }}>CRים חדשים שיתווספו</div>
-                  {syncDiff.added.map(item => (
-                    <div key={`${item.crNumber}-${item.teamName}`} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[1]} ${SP[2]}`, borderRadius: RADIUS.sm, background: C.successBg, marginBottom: 4 }}>
-                      <span style={{ background: C.success + '22', color: C.success, padding: `1px ${SP[2]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{item.crNumber}</span>
-                      <span style={{ ...TEXT.xs, color: C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{item.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}</span>
-                      <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap', flexShrink: 0 }}>{item.teamName}</span>
-                    </div>
-                  ))}
+                  {addedGrouped.map(item => {
+                    const excluded = excludedAddedCrs.has(item.crNumber);
+                    return (
+                      <div key={item.crNumber} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[1]} ${SP[2]}`, borderRadius: RADIUS.sm, background: excluded ? C.bgNested : C.successBg, marginBottom: 4, opacity: excluded ? 0.5 : 1 }}>
+                        <span style={{ background: C.success + '22', color: C.success, padding: `1px ${SP[2]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{item.crNumber}</span>
+                        <span style={{ ...TEXT.xs, color: C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: excluded ? 'line-through' : 'none', flex: 1 }}>{item.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}</span>
+                        <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap', flexShrink: 0 }}>{item.teamNames.join(', ')}</span>
+                        <button
+                          onClick={() => setExcludedAddedCrs(prev => {
+                            const n = new Set(prev);
+                            excluded ? n.delete(item.crNumber) : n.add(item.crNumber);
+                            return n;
+                          })}
+                          title={excluded ? 'בטל הסרה — הוסף בחזרה לשיבוץ' : 'הסר CR זה מהשיבוץ (כל הצוותים)'}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: excluded ? C.success : C.textMuted, fontSize: 14, flexShrink: 0, fontFamily: FONT }}
+                        >{excluded ? '↺' : '✕'}</button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
               {syncDiff.removed.length > 0 && (
@@ -1168,11 +1221,16 @@ CRים אלה לא ייכללו בתוכנית העבודה.
               )}
             </div>
             <div style={{ padding: `${SP[3]} ${SP[5]}`, borderTop: `1px solid ${C.border}`, display: 'flex', gap: SP[2], justifyContent: 'flex-start', flexShrink: 0 }}>
-              <button
-                onClick={applySyncConfirmed}
-                disabled={syncDiff.added.length === 0 && syncDiff.removed.length === 0}
-                style={{ padding: `${SP[2]} ${SP[4]}`, background: BLUE, color: '#fff', border: 'none', borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: (syncDiff.added.length === 0 && syncDiff.removed.length === 0) ? 'not-allowed' : 'pointer', fontFamily: FONT, opacity: (syncDiff.added.length === 0 && syncDiff.removed.length === 0) ? 0.5 : 1 }}
-              >אשר ובצע סנכרון</button>
+              {(() => {
+                const nothingToApply = addedGrouped.every(g => excludedAddedCrs.has(g.crNumber)) && syncDiff.removed.length === 0;
+                return (
+                  <button
+                    onClick={applySyncConfirmed}
+                    disabled={nothingToApply}
+                    style={{ padding: `${SP[2]} ${SP[4]}`, background: BLUE, color: '#fff', border: 'none', borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: nothingToApply ? 'not-allowed' : 'pointer', fontFamily: FONT, opacity: nothingToApply ? 0.5 : 1 }}
+                  >אשר ובצע סנכרון</button>
+                );
+              })()}
               <button
                 onClick={() => setSyncDiff(null)}
                 style={{ padding: `${SP[2]} ${SP[4]}`, background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT }}
@@ -1311,8 +1369,8 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                               {cr.crLabel ? cr.crLabel.replace(/^\d+\s*-\s*/, '') : <span style={{ color: C.textDisabled }}>—</span>}
                             </div>
                             <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                              {syncStatus === 'NEW'     && <span style={{ background: C.successBg, color: C.success, padding: '1px 5px', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold }}>חדש 🟢</span>}
-                              {syncStatus === 'REMOVED' && <span style={{ background: C.dangerBg,  color: C.danger,  padding: '1px 5px', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold }}>⚠ הוסר מהתכולה</span>}
+                              {syncStatus === 'NEW'     && <span onClick={() => showCrChangeDetail(cr.crNumber)} title="לחץ לפרטי השינוי" style={{ background: C.successBg, color: C.success, padding: '1px 5px', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, cursor: 'pointer', textDecoration: 'underline dotted' }}>חדש 🟢</span>}
+                              {syncStatus === 'REMOVED' && <span onClick={() => showCrChangeDetail(cr.crNumber)} title="לחץ לפרטי השינוי" style={{ background: C.dangerBg,  color: C.danger,  padding: '1px 5px', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, cursor: 'pointer', textDecoration: 'underline dotted' }}>⚠ הוסר מהתכולה</span>}
                               {cr.riskLevel && (
                                 <span style={{ background: risk.bg, color: risk.color, padding: '1px 5px', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.semibold }}>
                                   {riskLabel(cr.riskLevel)}

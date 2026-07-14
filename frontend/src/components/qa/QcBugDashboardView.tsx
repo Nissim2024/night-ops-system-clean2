@@ -4,7 +4,6 @@ import { C, FONT, TEXT, WEIGHT, RADIUS } from '../../theme';
 import { Card, Badge } from '../ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
-const LS_VERSION_KEY = 'dc_qc_bug_dashboard_version';
 
 interface Version { id: string; name: string; status: string; isArchived: boolean; }
 
@@ -96,17 +95,17 @@ const DailyTrendChart: React.FC<{ data: { date: string; count: number }[] }> = (
 export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId }) => {
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const [versions, setVersions] = useState<Version[]>([]);
-  const [selectedVId, setSelectedVId] = useState(() => initialVersionId ?? localStorage.getItem(LS_VERSION_KEY) ?? '');
+  // Deliberately NOT falling back to localStorage — a manually-browsed
+  // version shouldn't outlive the session and silently diverge from
+  // whatever the global header shows on the next visit.
+  const [selectedVId, setSelectedVId] = useState(() => initialVersionId ?? '');
   const [dashboard, setDashboard] = useState<BugDashboardDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [qcMock, setQcMock] = useState(true);
 
   useEffect(() => {
-    if (initialVersionId) {
-      setSelectedVId(initialVersionId);
-      localStorage.setItem(LS_VERSION_KEY, initialVersionId);
-    }
+    if (initialVersionId) setSelectedVId(initialVersionId);
   }, [initialVersionId]);
 
   useEffect(() => {
@@ -140,7 +139,6 @@ export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId })
 
   const handleVersionChange = (vId: string) => {
     setSelectedVId(vId);
-    localStorage.setItem(LS_VERSION_KEY, vId);
   };
 
   return (

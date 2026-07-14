@@ -27,6 +27,16 @@ export class QcController {
     return this.qcService.getBugDashboard(versionId);
   }
 
+  @Get('open-production-defects-history')
+  getOpenProductionDefectsHistory() {
+    return this.qcService.getOpenProductionDefectsHistory();
+  }
+
+  @Get('defect-status-history')
+  getDefectStatusHistory(@Query('defectId') defectId: string) {
+    return this.qcService.getDefectStatusHistory(defectId);
+  }
+
   @Get('cr-items')
   getCrItems(
     @Query('releaseId') releaseId?: string,

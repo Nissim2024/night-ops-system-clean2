@@ -3,8 +3,10 @@ import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import { scoreForCr, resolveSkillName, ScoringResult } from './qa.engine';
 import { addWorkDays, nextWorkDay, getFirstWorkDay } from './qa.scheduler';
+import { VersionCrAssignmentsService } from '../version-cr-assignments/version-cr-assignments.service';
 
 const prisma = new PrismaClient();
+const vcaService = new VersionCrAssignmentsService();
 
 @Injectable()
 export class QaService {
@@ -616,6 +618,12 @@ export class QaService {
 
   async scoreForCr(crNumber: string, versionId: string): Promise<ScoringResult> {
     return scoreForCr(crNumber, versionId);
+  }
+
+  async getCrChangeDetail(versionId: string, crNumber: string) {
+    const qaTeam = await prisma.team.findFirst({ where: { name: 'QA Team' } });
+    if (!qaTeam) throw new BadRequestException('צוות QA לא נמצא');
+    return vcaService.getChangeDetail(versionId, crNumber, qaTeam.id);
   }
 
   async autoAssign(crNumber: string, versionId: string) {

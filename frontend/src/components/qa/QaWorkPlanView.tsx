@@ -211,6 +211,14 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
   const [assigningSecondary, setAssigningSecondary] = useState(false);
   const [reorderingTask, setReorderingTask] = useState<string | null>(null);
   const [issuesCollapsed, setIssuesCollapsed] = useState(false);
+  const [allTesters, setAllTesters]       = useState<{ userId: string; fullName: string }[]>([]);
+  const [swappingTask, setSwappingTask]   = useState<string | null>(null);
+  const [reassigning, setReassigning]     = useState<string | null>(null);
+
+  useEffect(() => {
+    ax.get(`${API}/qa/testers`).then(r => setAllTesters(r.data ?? [])).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Sync versionId when parent changes initialVersionId
   useEffect(() => {
@@ -366,24 +374,38 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
     }
   };
 
+  // Deactivating a task frees up its slot in the tester's queue, so the
+  // backend recalculates the whole cascaded schedule — use its response
+  // rather than optimistically patching just this one task's flag.
   const toggleTask = async (task: CycleTask) => {
     setTogglingTasks(prev => new Set(Array.from(prev).concat(task.id)));
     try {
-      await ax.patch(`${API}/qa/workplan/task/${task.id}/toggle`, { isActive: !task.isActive });
-      setWorkPlan(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          cycles: prev.cycles.map(c => ({
-            ...c,
-            tasks: c.tasks.map(t => t.id === task.id ? { ...t, isActive: !t.isActive } : t),
-          })),
-        };
-      });
+      const r = await ax.patch(`${API}/qa/workplan/task/${task.id}/toggle`, { isActive: !task.isActive });
+      if (r.data) setWorkPlan(r.data);
     } catch {
       dialog.alert('שגיאה בעדכון המשימה', 'שגיאה', 'danger');
     } finally {
       setTogglingTasks(prev => new Set(Array.from(prev).filter(id => id !== task.id)));
+    }
+  };
+
+  // Moves a task to a different tester's queue — mirrors the update into the
+  // QaAssignment board (same CR, same version) so both screens agree on who
+  // owns it, and refreshes the cascaded schedule the same way reorder does.
+  const reassignTester = async (taskId: string, newUserId: string) => {
+    setReassigning(taskId);
+    try {
+      const r = await ax.patch(`${API}/qa/workplan/task/${taskId}/reassign`, { userId: newUserId });
+      if (r.data) setWorkPlan(r.data);
+      const asgRes = await ax.get(`${API}/qa/assignments?versionId=${versionId}`).catch(() => ({ data: [] }));
+      const asgList = asgRes.data as QaAssignment[];
+      setAssignments(asgList);
+      setAssignedUserIds(new Set(asgList.map(a => a.userId)));
+    } catch (e: any) {
+      dialog.alert(e?.response?.data?.message ?? 'שגיאה בהחלפת בודק', 'שגיאה', 'danger');
+    } finally {
+      setReassigning(null);
+      setSwappingTask(null);
     }
   };
 
@@ -402,22 +424,16 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
     }
   };
 
+  // A duration change shifts everyone queued after this task, so — like
+  // toggleTask — this takes the backend's cascaded schedule instead of
+  // patching only the edited task's own effortDays.
   const saveTaskEffort = async (taskId: string, effortStr: string) => {
     const effort = parseFloat(effortStr);
     setEditingEffort(null);
     if (isNaN(effort) || effort < 0.5) return;
     try {
-      await ax.patch(`${API}/qa/workplan/task/${taskId}/effort`, { effortDays: effort });
-      setWorkPlan(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          cycles: prev.cycles.map(c => ({
-            ...c,
-            tasks: c.tasks.map(t => t.id === taskId ? { ...t, effortDays: effort } : t),
-          })),
-        };
-      });
+      const r = await ax.patch(`${API}/qa/workplan/task/${taskId}/effort`, { effortDays: effort });
+      if (r.data) setWorkPlan(r.data);
     } catch { dialog.alert('שגיאה בעדכון מאמץ המשימה', 'שגיאה', 'danger'); }
   };
 
@@ -837,6 +853,11 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           onReorderTask={reorderTask}
           reorderingTask={reorderingTask}
           problematicKeys={problematicKeys}
+          allTesters={allTesters}
+          swappingTask={swappingTask}
+          onStartSwap={setSwappingTask}
+          onReassignTester={reassignTester}
+          reassigning={reassigning}
         />
       ))}
 
@@ -882,6 +903,11 @@ interface CycleCardProps {
   onReorderTask:   (taskId: string, newSortOrder: number) => void;
   reorderingTask:  string | null;
   problematicKeys: Set<string>;
+  allTesters:      { userId: string; fullName: string }[];
+  swappingTask:    string | null;
+  onStartSwap:     (taskId: string | null) => void;
+  onReassignTester: (taskId: string, newUserId: string) => void;
+  reassigning:     string | null;
 }
 
 function CycleCard({
@@ -890,6 +916,7 @@ function CycleCard({
   filterUserId, editingEffort, onEditEffort, onSaveEffort,
   assignmentMap, onOpenSecondary, onReorderTask, reorderingTask,
   allAssignments, problematicKeys,
+  allTesters, swappingTask, onStartSwap, onReassignTester, reassigning,
 }: CycleCardProps) {
   const accent = CYCLE_ACCENT[cycle.cycleType] ?? C.textMuted;
   const bg     = CYCLE_BG[cycle.cycleType]     ?? C.bgNested;
@@ -1046,6 +1073,11 @@ function CycleCard({
                   reorderingTask={reorderingTask}
                   isCycle1={cycle.cycleType === 'CYCLE_1'}
                   problematicKeys={problematicKeys}
+                  allTesters={allTesters}
+                  swappingTask={swappingTask}
+                  onStartSwap={onStartSwap}
+                  onReassignTester={onReassignTester}
+                  reassigning={reassigning}
                 />
               ))}
             </div>
@@ -1073,13 +1105,18 @@ interface TesterSectionProps {
   reorderingTask:  string | null;
   isCycle1:        boolean;
   problematicKeys: Set<string>;
+  allTesters:      { userId: string; fullName: string }[];
+  swappingTask:    string | null;
+  onStartSwap:     (taskId: string | null) => void;
+  onReassignTester: (taskId: string, newUserId: string) => void;
+  reassigning:     string | null;
 }
 
 function TesterSection({
   testerName, tasks, editable, onToggleTask, togglingTasks,
   editingEffort, onEditEffort, onSaveEffort,
   assignmentMap, onOpenSecondary, onReorderTask, reorderingTask, isCycle1,
-  problematicKeys,
+  problematicKeys, allTesters, swappingTask, onStartSwap, onReassignTester, reassigning,
 }: TesterSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
   const sorted = [...tasks].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -1128,6 +1165,7 @@ function TesterSection({
             <col style={{ width: 95 }} />
             <col style={{ width: 68 }} />
             {editable && <col style={{ width: 60 }} />}
+            {editable && <col style={{ width: 130 }} />}
           </colgroup>
           <thead>
             <tr style={{ backgroundColor: C.bgNested }}>
@@ -1140,6 +1178,7 @@ function TesterSection({
               <th style={thStyle}>סיום</th>
               <th style={{ ...thStyle, textAlign: 'center' }}>ימים</th>
               {editable && <th style={{ ...thStyle, textAlign: 'center' }}>פעיל</th>}
+              {editable && <th style={{ ...thStyle, textAlign: 'center' }}>בודק</th>}
             </tr>
           </thead>
           <tbody>
@@ -1287,6 +1326,36 @@ function TesterSection({
                         >
                           {togglingTasks.has(task.id) ? '...' : task.isActive ? 'כן' : 'לא'}
                         </button>
+                      )}
+                    </td>
+                  )}
+                  {editable && (
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                      {!isReg && (
+                        swappingTask === task.id ? (
+                          <select
+                            autoFocus
+                            defaultValue=""
+                            disabled={reassigning === task.id}
+                            onChange={e => { if (e.target.value) onReassignTester(task.id, e.target.value); }}
+                            onBlur={() => onStartSwap(null)}
+                            style={{ ...TEXT.xs, padding: '2px 4px', borderRadius: RADIUS.sm, border: `1px solid ${C.info}`, fontFamily: FONT, maxWidth: 120 }}
+                          >
+                            <option value="">-- בחר בודק --</option>
+                            {allTesters.filter(t => t.userId !== task.userId).map(t => (
+                              <option key={t.userId} value={t.userId}>{t.fullName}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <button
+                            title="החלף בודק"
+                            onClick={() => onStartSwap(task.id)}
+                            disabled={reassigning === task.id}
+                            style={{ ...smallBtnStyle, backgroundColor: C.bgNested, color: C.textMuted, border: `1px solid ${C.border}` }}
+                          >
+                            {reassigning === task.id ? '...' : '🔄 החלף'}
+                          </button>
+                        )
                       )}
                     </td>
                   )}
