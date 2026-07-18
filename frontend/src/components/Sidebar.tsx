@@ -16,8 +16,11 @@ interface Props {
   versionFilter?: string;
   onVersionFilterChange?: (f: any) => void;
   // ── Module switcher ──────────────────────────────────────────────────
-  activeModule?: 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub';
-  onModuleChange?: (m: 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub') => void;
+  activeModule?: 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub';
+  onModuleChange?: (m: 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub') => void;
+  activeVmView?: string;
+  onVmViewChange?: (v: string) => void;
+  canAccessVersionManagement?: boolean;
   activeQaView?: string;
   onQaViewChange?: (v: string) => void;
   canAccessQa?: boolean;
@@ -53,6 +56,12 @@ const QA_VIEWS = [
   { key: 'bugs',       label: 'לוח באגים (QC)',       icon: '🐛' },
 ];
 
+const VM_VIEWS = [
+  { key: 'create',   label: 'יצירת גרסה',       icon: '➕' },
+  { key: 'manage',   label: 'ניהול תכולה',      icon: '📋' },
+  { key: 'changes',  label: 'ניהול שינויים',    icon: '🔄' },
+];
+
 const RI_VIEWS = [
   { key: 'overview', label: 'סקירה כללית', icon: '📊' },
   { key: 'daily-qa', label: 'ניהול QA יומי', icon: '📋' },
@@ -75,6 +84,7 @@ const QH_VIEWS = [
   { key: 'timeline', label: 'ציר זמן איכות', icon: '📈' },
   { key: 'kpi-config', label: 'הגדרות KPI', icon: '⚙️' },
   { key: 'open-prod-defects', label: 'תקלות ייצור פתוחות', icon: '📆' },
+  { key: 'new-vs-target-defects', label: 'יחס תקלות חדשות ביצור', icon: '📈' },
 ];
 
 function versionGroup(v: any): string {
@@ -92,6 +102,9 @@ export const Sidebar: React.FC<Props> = ({
   onNewVersionClick,
   activeModule = 'deployments',
   onModuleChange,
+  activeVmView = 'manage',
+  onVmViewChange,
+  canAccessVersionManagement = false,
   activeQaView = 'testers',
   onQaViewChange,
   canAccessQa = false,
@@ -117,6 +130,7 @@ export const Sidebar: React.FC<Props> = ({
 
   const toggle = (id: string) => setOpen(prev => ({ ...prev, [id]: !prev[id] }));
 
+  const isVm          = activeModule === 'version-management';
   const isDeployments = activeModule === 'deployments';
   const isQa          = activeModule === 'qa';
   const isRi           = activeModule === 'release-intelligence';
@@ -141,79 +155,34 @@ export const Sidebar: React.FC<Props> = ({
         }}>⚡ TEST</div>
       )}
 
-      {/* ─── Module switcher (ADMIN only) ─── */}
-      {(canAccessQa || canAccessReleaseIntelligence || canAccessQualityHub) && (
-        <div style={{ padding: `${SP[3]} ${SP[3]} 0`, display: 'flex', gap: '6px' }}>
-          <button
-            onClick={() => onModuleChange?.('deployments')}
-            style={{
-              flex: 1, padding: '8px 6px',
-              background: isDeployments ? C.sidebarBgActive : 'transparent',
-              border: isDeployments ? `1px solid rgba(255,255,255,0.12)` : `1px solid ${C.sidebarBorder}`,
-              borderRadius: RADIUS.md, cursor: 'pointer',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
-              transition: EASE.fast,
-            }}
-            onMouseEnter={e => { if (!isDeployments) e.currentTarget.style.background = C.sidebarBgHover; }}
-            onMouseLeave={e => { if (!isDeployments) e.currentTarget.style.background = 'transparent'; }}
-          >
-            <span style={{ fontSize: '17px', lineHeight: 1 }}>🌙</span>
-            <span style={{ fontSize: '13px', fontWeight: isDeployments ? WEIGHT.semibold : WEIGHT.medium, color: isDeployments ? C.sidebarText : 'rgba(255,255,255,0.55)', lineHeight: 1 }}>הטמעות</span>
-          </button>
-          {canAccessQa && (
+      {/* ─── Module switcher ─── */}
+      {(canAccessVersionManagement || canAccessQa || canAccessReleaseIntelligence || canAccessQualityHub) && (
+        <div style={{ padding: `${SP[3]} ${SP[3]} 0`, display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+          {[
+            { key: 'version-management' as const, label: 'ניהול גרסה',  icon: '🧭', active: isVm,          show: canAccessVersionManagement },
+            { key: 'qa' as const,                  label: 'ניהול QA',    icon: '👥', active: isQa,          show: canAccessQa },
+            { key: 'deployments' as const,         label: 'הטמעות',      icon: '🌙', active: isDeployments, show: true },
+            { key: 'release-intelligence' as const, label: 'ניהול בדיקות', icon: '🧠', active: isRi,        show: canAccessReleaseIntelligence },
+            { key: 'quality-hub' as const,         label: 'איכות גרסה',  icon: '🏆', active: isQh,          show: canAccessQualityHub },
+          ].filter(m => m.show).map(m => (
             <button
-              onClick={() => onModuleChange?.('qa')}
+              key={m.key}
+              onClick={() => onModuleChange?.(m.key)}
               style={{
-                flex: 1, padding: '8px 6px',
-                background: isQa ? C.sidebarBgActive : 'transparent',
-                border: isQa ? `1px solid rgba(255,255,255,0.12)` : `1px solid ${C.sidebarBorder}`,
+                flex: '1 1 30%', minWidth: '78px', padding: '8px 6px',
+                background: m.active ? C.sidebarBgActive : 'transparent',
+                border: m.active ? `1px solid rgba(255,255,255,0.12)` : `1px solid ${C.sidebarBorder}`,
                 borderRadius: RADIUS.md, cursor: 'pointer',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
                 transition: EASE.fast,
               }}
-              onMouseEnter={e => { if (!isQa) e.currentTarget.style.background = C.sidebarBgHover; }}
-              onMouseLeave={e => { if (!isQa) e.currentTarget.style.background = 'transparent'; }}
+              onMouseEnter={e => { if (!m.active) e.currentTarget.style.background = C.sidebarBgHover; }}
+              onMouseLeave={e => { if (!m.active) e.currentTarget.style.background = 'transparent'; }}
             >
-              <span style={{ fontSize: '17px', lineHeight: 1 }}>👥</span>
-              <span style={{ fontSize: '13px', fontWeight: isQa ? WEIGHT.semibold : WEIGHT.medium, color: isQa ? C.sidebarText : 'rgba(255,255,255,0.55)', lineHeight: 1 }}>ניהול QA</span>
+              <span style={{ fontSize: '17px', lineHeight: 1 }}>{m.icon}</span>
+              <span style={{ fontSize: '13px', fontWeight: m.active ? WEIGHT.semibold : WEIGHT.medium, color: m.active ? C.sidebarText : 'rgba(255,255,255,0.55)', lineHeight: 1 }}>{m.label}</span>
             </button>
-          )}
-          {canAccessReleaseIntelligence && (
-            <button
-              onClick={() => onModuleChange?.('release-intelligence')}
-              style={{
-                flex: 1, padding: '8px 6px',
-                background: isRi ? C.sidebarBgActive : 'transparent',
-                border: isRi ? `1px solid rgba(255,255,255,0.12)` : `1px solid ${C.sidebarBorder}`,
-                borderRadius: RADIUS.md, cursor: 'pointer',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
-                transition: EASE.fast,
-              }}
-              onMouseEnter={e => { if (!isRi) e.currentTarget.style.background = C.sidebarBgHover; }}
-              onMouseLeave={e => { if (!isRi) e.currentTarget.style.background = 'transparent'; }}
-            >
-              <span style={{ fontSize: '17px', lineHeight: 1 }}>🧠</span>
-              <span style={{ fontSize: '13px', fontWeight: isRi ? WEIGHT.semibold : WEIGHT.medium, color: isRi ? C.sidebarText : 'rgba(255,255,255,0.55)', lineHeight: 1 }}>אינטליגנציה</span>
-            </button>
-          )}
-          {canAccessQualityHub && (
-            <button
-              onClick={() => onModuleChange?.('quality-hub')}
-              style={{
-                flex: 1, padding: '8px 6px',
-                background: isQh ? C.sidebarBgActive : 'transparent',
-                border: isQh ? `1px solid rgba(255,255,255,0.12)` : `1px solid ${C.sidebarBorder}`,
-                borderRadius: RADIUS.md, cursor: 'pointer',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
-                transition: EASE.fast,
-              }}
-              onMouseEnter={e => { if (!isQh) e.currentTarget.style.background = C.sidebarBgHover; }}
-              onMouseLeave={e => { if (!isQh) e.currentTarget.style.background = 'transparent'; }}
-            >
-              <span style={{ fontSize: '17px', lineHeight: 1 }}>🏆</span>
-              <span style={{ fontSize: '13px', fontWeight: isQh ? WEIGHT.semibold : WEIGHT.medium, color: isQh ? C.sidebarText : 'rgba(255,255,255,0.55)', lineHeight: 1 }}>איכות גרסה</span>
-            </button>
-          )}
+          ))}
         </div>
       )}
 
@@ -240,8 +209,10 @@ export const Sidebar: React.FC<Props> = ({
         </div>
       )}
 
-      {/* ─── Deployments: גרסאות ─── */}
-      {isDeployments && (<>
+      {/* ─── Deployments: גרסאות — hidden on the Home tab, which is a cross-module
+           landing page, not a Deployments sub-screen; only the module switcher
+           and Home link should show there ─── */}
+      {isDeployments && activeTab !== 'home' && (<>
 
         {/* כותרת גרסאות — רמה ראשונה */}
         <div
@@ -404,6 +375,46 @@ export const Sidebar: React.FC<Props> = ({
 
       </>)}
 
+      {/* ─── Version Management Module nav ─── */}
+      {isVm && canAccessVersionManagement && (
+        <div style={{ padding: `${SP[3]} ${SP[3]} 0`, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em', textTransform: 'uppercase' as const, padding: `6px ${SP[2]} 4px` }}>
+            ניהול גרסה
+          </div>
+          {VM_VIEWS.map(view => {
+            const isActive = activeVmView === view.key;
+            const isHov    = hoveredItem === view.key;
+            return (
+              <button key={view.key}
+                onClick={() => onVmViewChange?.(view.key)}
+                onMouseEnter={() => setHoveredItem(view.key)}
+                onMouseLeave={() => setHoveredItem(null)}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: '11px',
+                  padding: `11px ${SP[2]}`, borderRadius: RADIUS.lg, cursor: 'pointer',
+                  background: isActive ? C.sidebarBgActive : isHov ? C.sidebarBgHover : 'transparent',
+                  border: isActive ? `1px solid rgba(255,255,255,0.12)` : '1px solid transparent',
+                  textAlign: 'right' as const, direction: 'rtl', transition: EASE.fast,
+                  position: 'relative', overflow: 'hidden',
+                }}>
+                {isActive && (
+                  <div style={{ position: 'absolute', right: 0, top: '15%', bottom: '15%', width: '3px', borderRadius: '0 3px 3px 0', background: C.brand, boxShadow: `0 0 8px ${C.brand}80` }} />
+                )}
+                <span style={{ fontSize: '18px', flexShrink: 0, lineHeight: 1 }}>{view.icon}</span>
+                <span style={{
+                  fontSize: '17px',
+                  fontWeight: isActive ? WEIGHT.semibold : WEIGHT.medium,
+                  color: isActive ? C.sidebarText : 'rgba(255,255,255,0.78)',
+                  flex: 1,
+                }}>
+                  {view.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* ─── QA Module nav ─── */}
       {isQa && canAccessQa && (
         <div style={{ padding: `${SP[3]} ${SP[3]} 0`, display: 'flex', flexDirection: 'column', gap: '2px' }}>
@@ -448,7 +459,7 @@ export const Sidebar: React.FC<Props> = ({
       {isRi && canAccessReleaseIntelligence && (
         <div style={{ padding: `${SP[3]} ${SP[3]} 0`, display: 'flex', flexDirection: 'column', gap: '2px' }}>
           <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em', textTransform: 'uppercase' as const, padding: `6px ${SP[2]} 4px` }}>
-            Release Intelligence
+            ניהול בדיקות
           </div>
           {RI_VIEWS.map(view => {
             const isActive = activeRiView === view.key;

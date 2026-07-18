@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, RADIUS, SHADOW, EASE } from '../theme';
+import { C, FONT, FONT_MONO, TEXT, WEIGHT, RADIUS, SHADOW, EASE } from '../theme';
 import { VersionStatusChip } from './ui';
 import RunbookModal, { RUNBOOKS, getRunbookTrigger, RunbookTrigger } from './qa/RunbookModal';
 
@@ -17,6 +17,8 @@ interface TeamStatusRow {
   allDone: boolean;
 }
 
+type ModuleKey = 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub';
+
 interface Props {
   versions: any[];
   role: string;
@@ -27,6 +29,11 @@ interface Props {
   onNewVersion?: () => void;
   onSwitchToQa?: () => void;
   canAccessQa?: boolean;
+  isQaTeamMember?: boolean;
+  canAccessVersionManagement?: boolean;
+  canAccessReleaseIntelligence?: boolean;
+  canAccessQualityHub?: boolean;
+  onSwitchToModule?: (m: ModuleKey) => void;
   onGoToLeaves?: () => void;
 }
 
@@ -60,7 +67,50 @@ const PHASE_META: Record<string, {
 
 function isRm(r: string) { return ['RELEASE_MANAGER', 'ADMIN'].includes(r); }
 
+// Shared with ManagerDashboard's sidebar module switcher — clicking "הטמעות"
+// should land on whatever tab is actually relevant for the version's current
+// stage (proposals while collecting, War Room while live, etc.), the same
+// resolution the old hero CTA used, not just whatever tab happened to be
+// active before (which is 'home' when coming from the Home dashboard).
+export function getDeploymentsTabForStatus(status: string, role: string): string {
+  const ph = PHASE_META[status] ?? PHASE_META['DRAFT'];
+  return typeof ph.ctaTab === 'function' ? ph.ctaTab(role) : ph.ctaTab;
+}
 
+// ────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────
+// Module status card — used by the home-page module grid, one per
+// top-level module, showing the 1-3 lines most relevant to a manager.
+// ────────────────────────────────────────────────────────────────
+function KpiTile({ icon, accent, value, label, sub, subTone, footer, onClick }: {
+  icon: string; accent: string; value: string; label: string;
+  sub?: string | null; subTone?: 'ok' | 'warn' | 'muted'; footer?: string | null; onClick?: () => void;
+}) {
+  const subColor = subTone === 'ok' ? C.success : subTone === 'warn' ? C.warning : C.textMuted;
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        background: C.bgCard, border: `1px solid ${C.border}`, borderTop: `3px solid ${accent}`,
+        borderRadius: RADIUS.lg, padding: '16px 18px', cursor: onClick ? 'pointer' : 'default',
+        transition: EASE.fast, display: 'flex', flexDirection: 'column', gap: '10px',
+      }}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(-3px)'; (e.currentTarget as HTMLElement).style.boxShadow = SHADOW.md; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'none'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ width: '30px', height: '30px', borderRadius: RADIUS.md, background: `color-mix(in oklch, ${accent} 14%, transparent)`, color: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px' }}>{icon}</div>
+        <span style={{ fontSize: '13px', color: C.textMuted }}>←</span>
+      </div>
+      <div>
+        <div style={{ fontSize: '26px', fontWeight: WEIGHT.bold, color: C.textPrimary, lineHeight: 1, fontVariantNumeric: 'tabular-nums' as const }}>{value}</div>
+        <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textSecondary, marginTop: '4px' }}>{label}</div>
+      </div>
+      {sub && <div style={{ ...TEXT.xs, color: subColor, fontWeight: subTone === 'warn' ? WEIGHT.semibold : WEIGHT.normal }}>{sub}</div>}
+      {footer && <div style={{ ...TEXT.xs, color: C.textMuted, paddingTop: '8px', borderTop: `1px solid ${C.border}` }}>{footer}</div>}
+    </div>
+  );
+}
 
 // ────────────────────────────────────────────────────────────────
 // Stat card
@@ -75,7 +125,7 @@ function StatCard({ value, label, delta, deltaColor }: { value: string; label: s
   );
 }
 
-interface QaSummary { totalCrs: number; assignedCrs: number; hasWorkPlan: boolean; }
+interface QaSummary { totalCrs: number; assignedCrs: number; hasWorkPlan: boolean; priorityCount: number; }
 
 // ────────────────────────────────────────────────────────────────
 // Version row (compact)
@@ -119,24 +169,57 @@ function VersionRow({ v, isPrimary, onSelect, qaSummary, role }: { v: any; isPri
 }
 
 // ────────────────────────────────────────────────────────────────
-// Next action item
+// Risk / activity row — the unified cross-module feed. Each item is
+// tagged with the module it belongs to (colored chip), so "risks and
+// activities from every module" reads as one prioritized list instead
+// of a deployments-only to-do list.
 // ────────────────────────────────────────────────────────────────
-function ActionItem({ icon, title, desc, urgent, onClick }: { icon: string; title: string; desc: string; urgent?: boolean; onClick?: () => void }) {
+const MODULE_META: Record<ModuleKey, { label: string; color: string }> = {
+  'version-management':   { label: 'ניהול גרסה',   color: C.moduleRelease },
+  'qa':                   { label: 'ניהול QA',     color: C.moduleTestPlan },
+  'deployments':          { label: 'הטמעות',       color: C.moduleGoLive },
+  'release-intelligence': { label: 'ניהול בדיקות', color: C.moduleTracking },
+  'quality-hub':          { label: 'איכות גרסה',   color: C.moduleAnalytics },
+};
+
+// `detail` items skip navigation entirely and expand inline instead — the
+// point of a drill-down is showing the specific list (which teams, which
+// CRs) right where you clicked, not sending the user off to re-find it on
+// a whole-module screen.
+function RiskRow({ icon, title, desc, urgent, module, onClick, detail, expanded, onToggle }: {
+  icon: string; title: string; desc: string; urgent?: boolean; module?: ModuleKey; onClick?: () => void;
+  detail?: string[]; expanded?: boolean; onToggle?: () => void;
+}) {
+  const meta = MODULE_META[module ?? 'deployments'];
+  const hasDetail = !!detail && detail.length > 0;
   return (
-    <div
-      onClick={onClick}
-      style={{
-        display: 'flex', alignItems: 'flex-start', gap: '10px',
-        padding: '10px 0', borderBottom: `1px solid ${C.border}`,
-        cursor: onClick ? 'pointer' : 'default',
-      }}
-    >
-      <span style={{ fontSize: '17px', flexShrink: 0, marginTop: '1px' }}>{icon}</span>
-      <div style={{ flex: 1 }}>
-        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: urgent ? C.danger : C.textPrimary }}>{title}</div>
-        <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>{desc}</div>
+    <div style={{ borderBottom: `1px solid ${C.border}` }}>
+      <div
+        onClick={hasDetail ? onToggle : onClick}
+        style={{
+          display: 'flex', alignItems: 'flex-start', gap: '10px',
+          padding: '10px 0',
+          cursor: (hasDetail || onClick) ? 'pointer' : 'default',
+        }}
+      >
+        <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: urgent ? C.danger : meta.color, flexShrink: 0, marginTop: '6px' }} />
+        <span style={{ fontSize: '16px', flexShrink: 0, marginTop: '1px' }}>{icon}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: urgent ? C.danger : C.textPrimary }}>{title}</div>
+          <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>{desc}</div>
+        </div>
+        {hasDetail && <span style={{ ...TEXT.xs, color: C.textMuted, flexShrink: 0, marginTop: '2px' }}>{expanded ? '▲' : '▼'}</span>}
+        <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: meta.color, background: `color-mix(in oklch, ${meta.color} 14%, transparent)`, borderRadius: RADIUS.full, padding: '2px 9px', flexShrink: 0, whiteSpace: 'nowrap' as const }}>
+          {meta.label}
+        </span>
       </div>
-      {urgent && <span style={{ ...TEXT.xs, color: C.danger, fontWeight: WEIGHT.semibold, flexShrink: 0, marginTop: '2px' }}>⚠ דחוף</span>}
+      {hasDetail && expanded && (
+        <div style={{ padding: '0 0 10px 19px', display: 'flex', flexWrap: 'wrap' as const, gap: '6px' }}>
+          {detail!.map((d, i) => (
+            <span key={i} style={{ ...TEXT.xs, color: C.textSecondary, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '3px 9px' }}>{d}</span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -169,9 +252,19 @@ function EmptyState({ canCreate, onNewVersion }: { canCreate: boolean; onNewVers
 // ────────────────────────────────────────────────────────────────
 const CR_REVIEW_STAGES = ['CR_REVIEW', 'REFINING', 'REVIEW'];
 
-export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token, selectedVersionId, onSelectVersion, onNewVersion, onSwitchToQa, canAccessQa, onGoToLeaves }) => {
+export const HomeDashboard: React.FC<Props> = ({
+  versions, role, fullName, token, selectedVersionId, onSelectVersion, onNewVersion, onSwitchToQa, canAccessQa,
+  isQaTeamMember, canAccessVersionManagement, canAccessReleaseIntelligence, canAccessQualityHub, onSwitchToModule, onGoToLeaves,
+}) => {
   const canCreate = isRm(role);
   const canManageLeaves = ['ADMIN', 'TEAM_LEAD'].includes(role);
+  // TEAM_LEAD gets a blanket screen:qa role permission (for QA-team leads
+  // whose team happens to be the QA team) that ORs with actual QA-team
+  // membership — fine for gating the QA module itself, but on Home it means
+  // every team lead sees QA-planning cards regardless of whether QA is
+  // actually their concern. Narrow to real membership here; leave the
+  // module-level permission (and RM/ADMIN visibility) untouched.
+  const homeShowQa = role === 'TEAM_LEAD' ? !!isQaTeamMember : !!canAccessQa;
 
   const [pendingLeaveCount, setPendingLeaveCount] = useState(0);
   const [teamStatus, setTeamStatus] = useState<TeamStatusRow[]>([]);
@@ -186,9 +279,6 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
     qaFilteredEstimateDays: number;
     byTeam: { teamId: string; teamName: string; totalDays: number; qaFilteredDays: number; crs: { crNumber: string; crLabel: string; teamDays: number; hasQa: boolean }[] }[];
   } | null>(null);
-  const [estimateDrillOpen, setEstimateDrillOpen] = useState(false);
-  const [estimateQaFilter, setEstimateQaFilter] = useState(false);
-  const [estimateExpandedTeam, setEstimateExpandedTeam] = useState<string | null>(null);
 
   // Pick the most urgent non-archived version
   const activeVersions = useMemo(
@@ -213,6 +303,28 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
   const isMorningAfterNow = primary?.status === 'MORNING_AFTER';
 
   const myUserId = (() => { try { return JSON.parse(atob(token.split('.')[1])).sub; } catch { return null; } })();
+
+  // Which risk-feed row (by index) is inline-expanded to show its specific detail list
+  const [expandedRiskIdx, setExpandedRiskIdx] = useState<number | null>(null);
+
+  // Manual, RM/ADMIN-authored notice pinned atop the risks/activities feed —
+  // local override so edits reflect immediately without waiting on a parent refetch.
+  const [localNotice, setLocalNotice] = useState<string | null | undefined>(undefined);
+  const [editingNotice, setEditingNotice] = useState(false);
+  const [noticeDraft, setNoticeDraft] = useState('');
+  const [savingNotice, setSavingNotice] = useState(false);
+  useEffect(() => { setLocalNotice(primary?.homeNotice ?? null); setEditingNotice(false); }, [primary?.id, primary?.homeNotice]);
+  const canEditNotice = isRm(role);
+  const saveNotice = async (text: string) => {
+    if (!primary) return;
+    setSavingNotice(true);
+    try {
+      await axios.patch(`${API}/versions/${primary.id}`, { homeNotice: text || null }, { headers: { Authorization: `Bearer ${token}` } });
+      setLocalNotice(text || null);
+      setEditingNotice(false);
+    } catch (e) { console.error('Failed to save home notice', e); }
+    setSavingNotice(false);
+  };
 
   const [upcomingRunbookSteps, setUpcomingRunbookSteps] = useState<{
     runbookId: string; stepIndex: number; employee: string; employeeUserId: string | null;
@@ -298,13 +410,121 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
       .catch(() => setPendingLeaveCount(0));
   }, [canManageLeaves, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch QA summary for primary version (accessible to all authenticated users via /qa-stats)
+  // Fetch QA summary for primary version — gated to whoever should actually see QA-planning info on Home
   useEffect(() => {
-    if (!canAccessQa || !primary) { setQaSummary(null); return; }
+    if (!homeShowQa || !primary) { setQaSummary(null); return; }
     axios.get(`${API}/qa-stats/summary?versionId=${primary.id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setQaSummary(r.data))
       .catch(() => setQaSummary(null));
-  }, [canAccessQa, primary?.id, token]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [homeShowQa, primary?.id, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lightweight per-module summaries for the module-status card grid below —
+  // release-intelligence's defect KPIs and quality-hub's release score.
+  const [defectsSummary, setDefectsSummary] = useState<{ open: number } | null>(null);
+  useEffect(() => {
+    if (!canAccessReleaseIntelligence || !primary) { setDefectsSummary(null); return; }
+    axios.get(`${API}/release-intelligence/defects/${primary.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setDefectsSummary(r.data?.kpis ?? null))
+      .catch(() => setDefectsSummary(null));
+  }, [canAccessReleaseIntelligence, primary?.id, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Testing progress (% of planned test cases passed) — distinct from the defect
+  // count, so the release-intelligence tile shows execution progress too, not just
+  // how many bugs are open. Real coverage data only exists once integration
+  // testing has actually started — gate by integrationStart, not by version
+  // status, so we don't show a misleading "0%" before that date.
+  const integrationStarted = !!primary?.integrationStart && new Date(primary.integrationStart).getTime() <= Date.now();
+  const [testCoveragePct, setTestCoveragePct] = useState<number | null>(null);
+  useEffect(() => {
+    if (!canAccessReleaseIntelligence || !primary || !integrationStarted) { setTestCoveragePct(null); return; }
+    axios.get(`${API}/release-intelligence/overview/${primary.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setTestCoveragePct(typeof r.data?.coveragePct === 'number' ? r.data.coveragePct : null))
+      .catch(() => setTestCoveragePct(null));
+  }, [canAccessReleaseIntelligence, primary?.id, integrationStarted, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Tasks converted from approved team plans but not yet placed in the runbook
+  // (subPhase assigned at conversion, but no plannedStart yet) — invisible
+  // otherwise until someone opens the scheduling wizard. Also counts tasks
+  // flagged morningFollowup=true (set at template level, today only surfaced
+  // in the night-summary Word doc) so MORNING_AFTER can show it live.
+  const [taskSchedule, setTaskSchedule] = useState<{ total: number; unscheduled: number; morningFollowup: number } | null>(null);
+  useEffect(() => {
+    if (!primary) { setTaskSchedule(null); return; }
+    axios.get(`${API}/tasks?versionId=${primary.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => {
+        const list: any[] = Array.isArray(r.data) ? r.data : [];
+        setTaskSchedule({
+          total: list.length,
+          unscheduled: list.filter(t => !t.plannedStart).length,
+          morningFollowup: list.filter(t => t.morningFollowup).length,
+        });
+      })
+      .catch(() => setTaskSchedule(null));
+  }, [primary?.id, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // QA classification progress (isCore/urgent/priorityTestDate) — meaningful
+  // even before scope approval, unlike scope-change flags.
+  const [classificationStats, setClassificationStats] = useState<{ totalCrs: number; classifiedCrs: number } | null>(null);
+  useEffect(() => {
+    if (!homeShowQa || !primary) { setClassificationStats(null); return; }
+    axios.get(`${API}/version-cr-assignments/version/${primary.id}/classification-stats`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setClassificationStats(r.data ?? null))
+      .catch(() => setClassificationStats(null));
+  }, [homeShowQa, primary?.id, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [qualityScore, setQualityScore] = useState<{ totalScore: number; status: string } | null>(null);
+  // Reference score from the most recent release that DOES have quality-hub
+  // data — shown in place of the version's own score until it gets one
+  // (own quality data is normally only imported after COMPLETED), so the
+  // tile isn't dead for most of the version's lifecycle.
+  const [previousReleaseScore, setPreviousReleaseScore] = useState<{ releaseName: string; totalScore: number } | null>(null);
+  useEffect(() => {
+    if (!canAccessQualityHub) { setPreviousReleaseScore(null); return; }
+    axios.get(`${API}/quality-hub/releases`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => {
+        const list: any[] = Array.isArray(r.data) ? r.data : [];
+        setPreviousReleaseScore(list.length > 0 ? { releaseName: list[0].releaseName, totalScore: list[0].totalScore } : null);
+      })
+      .catch(() => setPreviousReleaseScore(null));
+  }, [canAccessQualityHub, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!canAccessQualityHub || !primary) { setQualityScore(null); return; }
+    axios.get(`${API}/quality-hub/overview/${encodeURIComponent(primary.name)}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setQualityScore(r.data ? { totalScore: r.data.totalScore, status: r.data.status } : null))
+      .catch(() => setQualityScore(null));
+  }, [canAccessQualityHub, primary?.id, primary?.name, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Real defect rows (not just counts) for the "תקלות שדורשות תשומת לב" panel —
+  // filtered client-side to open + high/critical severity.
+  const [defectsList, setDefectsList] = useState<{ id: string; title: string; severity: string; status: string }[]>([]);
+  useEffect(() => {
+    if (!canAccessReleaseIntelligence || !primary) { setDefectsList([]); return; }
+    axios.get(`${API}/qc/defects?versionId=${primary.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setDefectsList(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setDefectsList([]));
+  }, [canAccessReleaseIntelligence, primary?.id, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Same definitions as release-intelligence.service.ts (CLOSED_DEFECT_STATUSES / CRITICAL_SEVERITIES) —
+  // must stay in sync so this panel's count agrees with the "תקלות פתוחות" KPI tile above it.
+  const openDefects = useMemo(
+    () => defectsList.filter(d => !['Closed', 'Canceled', 'Rejected', 'Fixed'].includes(d.status)),
+    [defectsList]
+  );
+  const criticalDefectsCount = useMemo(
+    () => openDefects.filter(d => ['Show Stopper', 'Severe'].includes(d.severity)).length,
+    [openDefects]
+  );
+
+  // CRs whose scope changed after the version's scope was already approved —
+  // "ניהול גרסה" module's own ongoing-change signal, surfaced here too.
+  const [scopeAttentionCount, setScopeAttentionCount] = useState(0);
+  useEffect(() => {
+    if (!canAccessVersionManagement || !primary?.scopeApprovedAt) { setScopeAttentionCount(0); return; }
+    axios.get(`${API}/version-cr-assignments/version/${primary.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setScopeAttentionCount((r.data || []).filter((a: any) => a.needsAttention).length))
+      .catch(() => setScopeAttentionCount(0));
+  }, [canAccessVersionManagement, primary?.id, primary?.scopeApprovedAt, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch CR investment estimate stats; if empty, auto-sync from Excel then re-fetch
   useEffect(() => {
@@ -407,13 +627,56 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
     const st = primary.status;
     const rm = isRm(role);
     const tl = role === 'TEAM_LEAD';
-    const list: { icon: string; title: string; desc: string; urgent?: boolean; tab?: string; onClick?: () => void }[] = [];
+    const list: { icon: string; title: string; desc: string; urgent?: boolean; tab?: string; onClick?: () => void; module?: ModuleKey; detail?: string[] }[] = [];
 
     if (canManageLeaves && pendingLeaveCount > 0) {
       list.push({
         icon: '🏖', title: `${pendingLeaveCount} בקשות חופשה ממתינות לאישור`,
         desc: 'עובדים הגישו בקשות חופשה שממתינות לטיפולך', urgent: true,
-        onClick: onGoToLeaves,
+        onClick: onGoToLeaves, module: 'qa',
+      });
+    }
+
+    if (showTeamStatus && teamStatus.some(t => !t.allDone)) {
+      const missing = teamStatus.filter(t => !t.allDone);
+      list.push({
+        icon: '📋', title: `${missing.length} תוכניות חסרות`,
+        desc: isCollecting ? 'צוותים שטרם הגישו הצעות משימות' : 'צוותים שטרם הגישו תוכנית CR',
+        urgent: !!reviewIsApproaching,
+        detail: missing.map(t => t.teamName),
+        module: 'deployments',
+      });
+    }
+
+    if (homeShowQa && qaSummary && qaSummary.priorityCount > 0) {
+      list.push({
+        icon: '🚩', title: `${qaSummary.priorityCount} CR-ים דורשים בדיקה ראשונית בעדיפות`,
+        desc: 'CR-ים שעולים לייצור לפני הגרסה או מחוץ למסגרתה — סומנו לבדיקה ראשונה בשיבוץ', urgent: true,
+        onClick: onSwitchToQa, module: 'qa',
+      });
+    }
+
+    if (canAccessVersionManagement && scopeAttentionCount > 0) {
+      list.push({
+        icon: '🧭', title: `${scopeAttentionCount} CR-ים נוספו/הוסרו מהתכולה אחרי אישורה`,
+        desc: 'דורשים סקירה ואישור תכולה מחדש', urgent: true,
+        onClick: () => onSwitchToModule?.('version-management'), module: 'version-management',
+      });
+    }
+
+    if (canAccessReleaseIntelligence && criticalDefectsCount > 0) {
+      list.push({
+        icon: '🔍', title: `${criticalDefectsCount} תקלות קריטיות פתוחות`,
+        desc: 'תקלות בחומרה קריטית שטרם טופלו', urgent: true,
+        onClick: () => onSwitchToModule?.('release-intelligence'), module: 'release-intelligence',
+      });
+    }
+
+    if (canAccessQualityHub && qualityScore && qualityScore.status !== 'ABOVE_TARGET') {
+      list.push({
+        icon: '🏆', title: `ציון האיכות מתחת ליעד (${qualityScore.totalScore})`,
+        desc: 'כדאי לבדוק את פירוט ה-KPI לגרסה זו', urgent: false,
+        onClick: () => onSwitchToModule?.('quality-hub'), module: 'quality-hub',
       });
     }
 
@@ -491,7 +754,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
         title: `${stepDef.activity} — ${dayLabel} ${step.startTime}`,
         desc: `${step.team || stepDef.defaultTeam}${step.employee ? ` · ${step.employee}` : ''}${isMine ? ' · המשימה שלך' : ''}`,
         urgent: dayLabel === 'היום',
-        onClick: onSwitchToQa,
+        onClick: onSwitchToQa, module: 'qa',
       });
     }
 
@@ -514,7 +777,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
     }
 
     return list;
-  }, [primary, role, canManageLeaves, pendingLeaveCount, onGoToLeaves, nextPhaseInfo, firstPhaseInfo, upcomingRunbookSteps, myUserId, onSwitchToQa, todayOrTomorrowActivities]);
+  }, [primary, role, canManageLeaves, pendingLeaveCount, onGoToLeaves, nextPhaseInfo, firstPhaseInfo, upcomingRunbookSteps, myUserId, onSwitchToQa, todayOrTomorrowActivities, homeShowQa, qaSummary, canAccessVersionManagement, scopeAttentionCount, onSwitchToModule, canAccessReleaseIntelligence, criticalDefectsCount, canAccessQualityHub, qualityScore, showTeamStatus, teamStatus, isCollecting, reviewIsApproaching]);
 
   // Stats — only count non-terminal versions as "in progress"
   const totalVersions  = inProgressVersions.length;
@@ -617,23 +880,64 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
             const ph = PHASE_META[primary.status] ?? PHASE_META['DRAFT'];
             return (
               <div style={{
-                background: ph.bg, border: `1.5px solid ${ph.color}30`, borderRadius: RADIUS.lg,
+                background: 'linear-gradient(135deg, #14152A 0%, #22244a 60%, #241f42 100%)',
+                borderRadius: RADIUS.lg,
                 padding: '20px 24px', display: 'flex', alignItems: 'center', gap: '20px',
                 animation: ph.pulse ? 'home-glow 3s ease-in-out infinite' : 'none',
+                boxShadow: SHADOW.md,
               }}>
                 <span style={{ fontSize: '36px', flexShrink: 0 }}>{ph.icon}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '28px', fontWeight: WEIGHT.bold, color: ph.color, lineHeight: 1.1, marginBottom: '4px', letterSpacing: '-0.01em' }}>
+                  <div style={{ fontSize: '28px', fontWeight: WEIGHT.bold, color: 'white', lineHeight: 1.1, marginBottom: '4px', letterSpacing: '-0.01em' }}>
                     {primary.name}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                    <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: ph.color, opacity: 0.85 }}>{ph.icon} {ph.label}</span>
-                  </div>
-                  <div style={{ ...TEXT.xs, color: C.textSecondary }}>
-                    {primary.status === 'APPROVED' && primary.rehearsalSummary
-                      ? 'החזרה הגנרלית הושלמה. ממתינים לפתיחת הלילה הפעיל.'
-                      : ph.desc(role)}
-                  </div>
+                  {/* Key-dates timeline — the whole calendar arc (integration → QA →
+                      rehearsal → go-live) in one glance, not just the single next
+                      date. Once the night is actually running the live phase strip
+                      below takes over, so this stops being the useful view. */}
+                  {!['ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(primary.status) && (() => {
+                    const milestones: { label: string; date: Date }[] = [];
+                    if (primary.integrationStart) milestones.push({ label: 'תחילת אינטגרציה', date: new Date(primary.integrationStart) });
+                    if (primary.integrationEnd) milestones.push({ label: 'סיום אינטגרציה', date: new Date(primary.integrationEnd) });
+                    if (primary.qaStart) milestones.push({ label: 'תחילת QA', date: new Date(primary.qaStart) });
+                    if (primary.qaEnd) milestones.push({ label: 'סיום QA', date: new Date(primary.qaEnd) });
+                    if (primary.plannedRehearsalStart) milestones.push({ label: 'חזרה גנרלית', date: new Date(primary.plannedRehearsalStart) });
+                    if (primary.plannedStart) milestones.push({ label: 'עלייה לאוויר', date: new Date(primary.plannedStart) });
+                    if (milestones.length === 0) return null;
+                    // Sort by actual date, not fixed process order — rehearsal and QA
+                    // windows can genuinely overlap, and the timeline should read as
+                    // real chronology, not an idealized stage sequence.
+                    milestones.sort((a, b) => a.date.getTime() - b.date.getTime());
+                    const now = Date.now();
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '2px', marginTop: '10px', overflowX: 'auto' as const, paddingBottom: '2px' }}>
+                        {milestones.map((m, i) => {
+                          const isPast = m.date.getTime() <= now;
+                          const isNext = !isPast && milestones.slice(0, i).every(mm => mm.date.getTime() <= now);
+                          return (
+                            <React.Fragment key={i}>
+                              {i > 0 && (
+                                <div style={{ width: '16px', height: 0, marginTop: '4px', borderTop: `1.5px dashed ${isPast ? 'rgba(110,231,168,.4)' : 'rgba(255,255,255,.2)'}`, flexShrink: 0 }} />
+                              )}
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', flexShrink: 0, opacity: isPast ? 0.55 : 1 }}>
+                                <div style={{
+                                  width: '8px', height: '8px', borderRadius: '50%',
+                                  background: isPast ? '#6EE7A8' : isNext ? 'white' : 'rgba(255,255,255,.35)',
+                                  boxShadow: isNext ? '0 0 0 3px rgba(255,255,255,.15)' : 'none',
+                                }} />
+                                <div style={{ ...TEXT.xs, color: isNext ? 'white' : 'rgba(255,255,255,.55)', fontWeight: isNext ? WEIGHT.semibold : WEIGHT.normal, whiteSpace: 'nowrap' as const }}>
+                                  {m.label}
+                                </div>
+                                <div style={{ fontSize: '10px', color: 'rgba(255,255,255,.45)', whiteSpace: 'nowrap' as const }}>
+                                  {m.date.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}
+                                </div>
+                              </div>
+                            </React.Fragment>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                   {/* Phase progress strip for ACTIVE/REHEARSAL */}
                   {livePhases.some(p => p.state !== 'done') && (
                     <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -642,7 +946,7 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
                         const isActive   = p.state === 'active';
                         const isUpcoming = p.state === 'upcoming';
                         const icon = isDone ? '✅' : isActive ? '▶' : '○';
-                        const color = isDone ? C.success : isActive ? ph.color : C.textMuted;
+                        const color = isDone ? '#6EE7A8' : isActive ? 'white' : 'rgba(255,255,255,.55)';
                         const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
                         return (
                           <div
@@ -651,8 +955,8 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
                             style={{
                               display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer',
                               padding: '5px 8px', borderRadius: RADIUS.sm,
-                              background: isActive ? `${ph.color}14` : 'transparent',
-                              border: isActive ? `1px solid ${ph.color}30` : '1px solid transparent',
+                              background: isActive ? 'rgba(255,255,255,.08)' : 'transparent',
+                              border: isActive ? '1px solid rgba(255,255,255,.16)' : '1px solid transparent',
                               opacity: isUpcoming ? 0.5 : 1,
                             }}
                           >
@@ -660,9 +964,9 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
                             <span style={{ ...TEXT.xs, fontWeight: isActive ? WEIGHT.semibold : WEIGHT.normal, color, flex: 1 }}>{p.name}</span>
                             {p.total > 0 && (
                               <>
-                                <span style={{ ...TEXT.xs, color: C.textMuted, flexShrink: 0 }}>{p.done}/{p.total}</span>
-                                <div style={{ width: 48, height: 4, background: C.bgHover, borderRadius: 2, flexShrink: 0, overflow: 'hidden' }}>
-                                  <div style={{ height: '100%', width: `${pct}%`, background: isDone ? C.success : ph.color, borderRadius: 2 }} />
+                                <span style={{ ...TEXT.xs, color: 'rgba(255,255,255,.55)', flexShrink: 0 }}>{p.done}/{p.total}</span>
+                                <div style={{ width: 48, height: 4, background: 'rgba(255,255,255,.14)', borderRadius: 2, flexShrink: 0, overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', width: `${pct}%`, background: isDone ? '#6EE7A8' : 'white', borderRadius: 2 }} />
                                 </div>
                               </>
                             )}
@@ -671,42 +975,33 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
                       })}
                     </div>
                   )}
-                  {qaSummary && qaSummary.totalCrs > 0 && (
-                    <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' as const }}>
-                      <span style={{ ...TEXT.xs, color: '#7c3aed', background: 'rgba(124,58,237,0.10)', border: '1px solid rgba(124,58,237,0.2)', borderRadius: '10px', padding: '2px 8px' }}>
-                        🧪 QA: {qaSummary.assignedCrs}/{qaSummary.totalCrs} CRs שובצו
-                      </span>
-                      {qaSummary.hasWorkPlan && (
-                        <span style={{ ...TEXT.xs, color: C.success, background: 'rgba(55,196,122,0.08)', border: '1px solid rgba(55,196,122,0.2)', borderRadius: '10px', padding: '2px 8px' }}>
-                          ✓ לוח פעילויות מוכן
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
-                  {(() => {
-                    const mainCtaTab = typeof ph.ctaTab === 'function' ? ph.ctaTab(role) : ph.ctaTab;
+                  {/* Go-live date + countdown — this is the one piece of info that's
+                      genuinely specific to the hero (not duplicated by any KPI tile
+                      below it). Navigation buttons were removed entirely — every
+                      destination they led to (version details, War Room, etc.) is
+                      already one click away from a KPI tile or the risks feed below,
+                      so a dedicated hero CTA was pure duplication. */}
+                  {primary.plannedStart && !['ACTIVE', 'REHEARSAL', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(primary.status) && (() => {
+                    const goLive = new Date(primary.plannedStart);
+                    const msLeft = goLive.getTime() - Date.now();
+                    const dateLabel = `${goLive.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', year: 'numeric' })} · ${goLive.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`;
+                    const overdue = msLeft <= 0;
+                    const daysLeft = Math.ceil(msLeft / 86400000);
+                    const countdownLabel = overdue ? '⚠ תאריך היעד חלף' : daysLeft <= 1 ? '🚀 עולים לאוויר מחר' : `🚀 בעוד ${daysLeft} ימים`;
                     return (
-                      <>
-                        <button
-                          onClick={() => onSelectVersion(primary.id, mainCtaTab)}
-                          style={{ background: ph.color, color: 'white', border: 'none', borderRadius: RADIUS.md, padding: '10px 20px', ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' as const }}
-                        >
-                          {ph.cta(role)} ←
-                        </button>
-                        {/* Only show the secondary "פרטי גרסה" link when it actually leads
-                            somewhere different — several statuses already route the main
-                            CTA to 'list', making a second identical button pointless. */}
-                        {mainCtaTab !== 'list' && (
-                          <button
-                            onClick={() => onSelectVersion(primary.id, 'list')}
-                            style={{ background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '7px 16px', ...TEXT.xs, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' as const }}
-                          >
-                            פרטי גרסה
-                          </button>
-                        )}
-                      </>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' as const }}>
+                        <span style={{
+                          ...TEXT.xs, fontWeight: WEIGHT.bold, color: 'white',
+                          background: overdue ? 'rgba(240,106,106,.25)' : 'rgba(255,255,255,.14)',
+                          border: `1px solid ${overdue ? 'rgba(240,106,106,.4)' : 'rgba(255,255,255,.22)'}`,
+                          borderRadius: '10px', padding: '2px 10px',
+                        }}>
+                          {countdownLabel}
+                        </span>
+                        <span style={{ ...TEXT.xs, color: 'rgba(255,255,255,.6)' }}>
+                          עלייה לאוויר: {dateLabel}
+                        </span>
+                      </div>
                     );
                   })()}
                 </div>
@@ -714,60 +1009,101 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
             );
           })()}
 
-          {/* ── Track selector — deployment quick-links always shown; QA card only when accessible ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: canAccessQa ? '1fr 1fr' : '1fr', gap: '12px' }}>
-            <div
-              onClick={() => primary && onSelectVersion(primary.id, 'list')}
-              style={{ background: `${C.brand}08`, border: `1.5px solid ${C.brand}40`, borderRadius: RADIUS.lg, padding: '14px 18px', cursor: 'pointer', transition: EASE.fast }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = `${C.brand}12`; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = `${C.brand}08`; }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-                <span style={{ fontSize: '18px' }}>🚀</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>מסלול הטמעה</div>
-                </div>
-                <span style={{ ...TEXT.xs, background: C.brand, color: 'white', borderRadius: '10px', padding: '1px 7px', fontWeight: WEIGHT.semibold, flexShrink: 0 }}>פעיל</span>
-              </div>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
-                {[
-                  { label: '📅 לוח זמנים',  tab: 'version-detail' },
-                  { label: '⚡ לוח בקרה',   tab: 'dashboard' },
-                  { label: '🚀 דף ההרצה',   tab: 'board' },
-                  ...(primary?.lastRehearsalAt ? [
-                    { label: '🎭 סיכום חזרה', tab: 'summary-rehearsal' },
-                    { label: '🎭 לוח חזרה (היסטורי)', tab: 'rehearsal-board' },
-                  ] : []),
-                  { label: '📄 סיכום לילה', tab: 'summary-night' },
-                ].map(({ label, tab }) => (
-                  <span
-                    key={tab}
-                    onClick={e => { e.stopPropagation(); primary && onSelectVersion(primary.id, tab); }}
-                    style={{ ...TEXT.xs, color: C.brand, background: `${C.brand}12`, border: `1px solid ${C.brand}30`, borderRadius: '10px', padding: '2px 9px', cursor: 'pointer', fontWeight: WEIGHT.medium, whiteSpace: 'nowrap' as const, transition: EASE.fast }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = `${C.brand}22`; }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = `${C.brand}12`; }}
-                  >
-                    {label}
-                  </span>
-                ))}
-              </div>
-            </div>
-            {canAccessQa && (
-              <div
-                onClick={onSwitchToQa}
-                style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '14px 18px', cursor: 'pointer', transition: EASE.fast }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(124,58,237,0.4)'; (e.currentTarget as HTMLElement).style.background = 'rgba(124,58,237,0.04)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = C.border; (e.currentTarget as HTMLElement).style.background = C.bgCard; }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '18px' }}>🧪</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>ניהול QA</div>
-                    <div style={{ ...TEXT.xs, color: C.textMuted }}>שיבוץ בודקים · סבבי QA · לוח פעילויות</div>
-                  </div>
-                  <span style={{ ...TEXT.xs, color: '#7c3aed', fontWeight: WEIGHT.semibold, flexShrink: 0 }}>עבור ←</span>
-                </div>
-              </div>
+          {/* ── KPI tile grid — one tile per module, real data, top border = module accent ── */}
+          <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: '4px 0 -4px' }}>תמונת מצב לפי מודול</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '12px' }}>
+
+            {canAccessVersionManagement && (
+              <KpiTile
+                icon="🧭" accent={C.moduleRelease}
+                value={estimateStats && (estimateStats as any).crCount != null ? String((estimateStats as any).crCount) : '—'}
+                label="CR-ים בתכולה"
+                sub={primary?.scopeApprovedAt ? '✓ תכולה אושרה' : scopeAttentionCount > 0 ? `⚠ ${scopeAttentionCount} דורשים אישור מחדש` : 'ממתין לאישור תכולה'}
+                subTone={primary?.scopeApprovedAt && scopeAttentionCount === 0 ? 'ok' : 'warn'}
+                footer={estimateStats ? `📊 ${estimateStats.totalEstimateDays} ימ״ע השקעה כוללת · ${planningCount} גרסאות בתכנון` : `${planningCount} גרסאות בתכנון · ${endedCount} הסתיימו`}
+                onClick={() => onSwitchToModule?.('version-management')}
+              />
+            )}
+
+            {homeShowQa && (() => {
+              // qaSummary.totalCrs counts raw VersionCrAssignment rows (one per
+              // team per CR, not deduplicated) — it's nonzero the moment CR_LIST
+              // syncs, long before QA assignment actually starts, and CRs that
+              // don't need QA at all still inflate it. Use assignedCrs (real
+              // QaAssignment rows) to gate "has assignment started," and never
+              // show totalCrs as a denominator — it doesn't mean what it looks
+              // like it means.
+              const assignmentStarted = !!qaSummary && qaSummary.assignedCrs > 0;
+              const hasClassification = !assignmentStarted && !!classificationStats && classificationStats.totalCrs > 0;
+              return (
+                <KpiTile
+                  icon="🧪" accent={C.moduleTestPlan}
+                  value={
+                    assignmentStarted ? String(qaSummary!.assignedCrs)
+                    : hasClassification ? `${classificationStats!.classifiedCrs}/${classificationStats!.totalCrs}`
+                    : '—'
+                  }
+                  label={assignmentStarted ? 'משימות משובצות לבדיקות' : 'CR-ים סווגו (core/עדיפות)'}
+                  sub={
+                    assignmentStarted
+                      ? (qaSummary!.priorityCount > 0 ? `⚠ ${qaSummary!.priorityCount} בעדיפות דחופה` : qaSummary!.hasWorkPlan ? '✓ לוח פעילויות מוכן' : 'לוח פעילויות טרם נבנה')
+                      : hasClassification ? 'שיבוץ לבודקים טרם החל' : 'ממתין לתכולה'
+                  }
+                  subTone={assignmentStarted ? (qaSummary!.priorityCount > 0 ? 'warn' : qaSummary!.hasWorkPlan ? 'ok' : 'muted') : 'muted'}
+                  footer={estimateStats ? `📊 ${estimateStats.qaFilteredEstimateDays} ימ״ע ב-CR-ים עם QA` : null}
+                  onClick={onSwitchToQa}
+                />
+              );
+            })()}
+
+            <KpiTile
+              icon="🌙" accent={C.moduleGoLive}
+              value={taskSchedule ? String(taskSchedule.total) : '—'}
+              label="משימות בתוכנית העלייה"
+              sub={(() => {
+                if (teamStatus.length === 0) return (PHASE_META[primary.status] ?? PHASE_META['DRAFT']).label;
+                const missing = teamStatus.filter(t => !t.allDone);
+                if (missing.length === 0) return `✓ ${teamStatus.length}/${teamStatus.length} צוותים השלימו הגשה`;
+                return missing.length <= 2
+                  ? `⚠ ממתין ל: ${missing.map(t => t.teamName).join(', ')}`
+                  : `⚠ ${missing.length} צוותים טרם השלימו הגשה`;
+              })()}
+              subTone={teamStatus.length > 0 && teamStatus.every(t => t.allDone) ? 'ok' : 'warn'}
+              footer={(() => {
+                if (primary.status === 'MORNING_AFTER' && taskSchedule && taskSchedule.morningFollowup > 0) {
+                  return `☀️ ${taskSchedule.morningFollowup} משימות דורשות מעקב בוקר`;
+                }
+                if (livePhases.length > 0) return `${livePhases.filter(p => p.state === 'done').length}/${livePhases.length} שלבים הושלמו`;
+                if (reviewMeetingTime && reviewMeetingTime.getTime() > Date.now()) {
+                  return `🗓 תוכנית מסגרת נבנתה · ישיבת סקירה: ${reviewMeetingTime.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })} ${reviewMeetingTime.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`;
+                }
+                if (taskSchedule && taskSchedule.unscheduled > 0) return `⏳ ${taskSchedule.unscheduled} משימות ממתינות לשיבוץ`;
+                return null;
+              })()}
+              onClick={() => onSelectVersion(primary.id, 'list')}
+            />
+
+            {canAccessReleaseIntelligence && (
+              <KpiTile
+                icon="🔍" accent={C.moduleTracking}
+                value={defectsSummary ? String(defectsSummary.open) : '—'}
+                label="תקלות פתוחות"
+                sub={criticalDefectsCount > 0 ? `⚠ ${criticalDefectsCount} קריטיות` : defectsSummary ? '✓ אין תקלות קריטיות' : null}
+                subTone={criticalDefectsCount > 0 ? 'warn' : 'ok'}
+                footer={testCoveragePct !== null ? `📊 ${testCoveragePct}% מהבדיקות המתוכננות בוצעו` : null}
+                onClick={() => onSwitchToModule?.('release-intelligence')}
+              />
+            )}
+
+            {canAccessQualityHub && (
+              <KpiTile
+                icon="🏆" accent={C.moduleAnalytics}
+                value={qualityScore ? String(qualityScore.totalScore) : previousReleaseScore ? String(previousReleaseScore.totalScore) : '—'}
+                label={qualityScore ? 'ציון איכות' : previousReleaseScore ? `ציון גרסה קודמת (${previousReleaseScore.releaseName})` : 'ציון איכות'}
+                sub={qualityScore ? (qualityScore.status === 'ABOVE_TARGET' ? '✓ מעל יעד' : '↓ מתחת ליעד') : previousReleaseScore ? 'רפרנס בלבד — עוד אין ציון לגרסה זו' : 'אין ציון איכות עדיין'}
+                subTone={qualityScore?.status === 'ABOVE_TARGET' ? 'ok' : qualityScore ? 'warn' : 'muted'}
+                onClick={() => onSwitchToModule?.('quality-hub')}
+              />
             )}
           </div>
 
@@ -796,230 +1132,55 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
             </div>
           )}
 
-          {/* ── Stats row ── */}
-          {activeVersions.length > 0 && (
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <StatCard value={String(totalVersions)} label="גרסאות בתהליך" delta={liveCount > 0 ? `🔴 ${liveCount} בביצוע` : totalVersions > 0 ? '📋 בתכנון' : undefined} deltaColor={liveCount > 0 ? C.danger : C.textMuted} />
-              <StatCard value={String(planningCount)} label="בשלבי תכנון" />
-              <StatCard value={String(actions.filter(a => a.urgent).length)} label="פעולות דחופות" deltaColor={C.danger} delta={(() => { const u = actions.filter(a => a.urgent); return u.length > 0 ? `⚠ ${u[0].title}` : '✓ הכל תקין'; })()} />
-              <StatCard value={String(endedCount)} label="גרסאות שהסתיימו" deltaColor={C.success} />
-              {estimateStats && ((estimateStats as any).crCount > 0 || (estimateStats as any).qaTaskCount > 0) && (
-                <div
-                  onClick={() => setEstimateDrillOpen(o => !o)}
-                  style={{ background: estimateDrillOpen ? 'rgba(69,115,210,0.06)' : C.bgCard, border: `1px solid ${estimateDrillOpen ? '#4573D2' : C.border}`, borderRadius: RADIUS.lg, padding: '16px 20px', flex: 1, cursor: 'pointer', transition: EASE.fast }}
-                >
-                  <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: C.textPrimary, lineHeight: 1.2 }}>
-                    {estimateQaFilter ? `${(estimateStats as any).qaFilteredEstimateDays ?? '?'} ימ"ע` : `${estimateStats.totalEstimateDays ?? '?'} ימ"ע`}
-                  </div>
-                  <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>סך הערכות השקעה</div>
-                  <div style={{ ...TEXT.xs, color: '#4573D2', marginTop: '6px' }}>{estimateDrillOpen ? '▲ סגור' : '▼ פירוט לפי צוות'}</div>
-                </div>
-              )}
-              {teamStatus.length > 0 && (() => {
-                const done = teamStatus.filter(t => t.allDone).length;
-                const total = teamStatus.length;
-                const hasReturned = teamStatus.some(t => t.returned > 0);
-                return (
-                  <StatCard
-                    value={`${done}/${total}`}
-                    label={isCollecting ? 'צוותים הגישו הצעות' : 'צוותים הגישו תוכניות CR'}
-                    delta={hasReturned ? `↩ ${teamStatus.reduce((s,t)=>s+t.returned,0)} הוחזרו` : done === total ? '✓ כולם הגישו' : `${total - done} ממתינים`}
-                    deltaColor={hasReturned ? C.warning : done === total ? C.success : C.textMuted}
-                  />
-                );
-              })()}
-            </div>
-          )}
-
-          {/* ── Estimate drill-down panel ── */}
-          {estimateDrillOpen && estimateStats && (
-            <div style={{ background: C.bgCard, border: '1px solid #4573D2', borderRadius: RADIUS.lg, padding: '20px' }}>
-              {/* Header + toggle */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                <span style={{ fontSize: '17px' }}>📊</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>פירוט הערכות השקעה לפי צוות</div>
-                  <div style={{ ...TEXT.xs, color: C.textMuted }}>לחץ על צוות לפירוט CRs</div>
-                </div>
-                {/* Toggle filter */}
-                <div style={{ display: 'flex', gap: '4px', background: C.bgApp, borderRadius: RADIUS.md, padding: '3px' }}>
-                  {[
-                    { key: false, label: 'כל CRs' },
-                    { key: true,  label: 'CRs עם QA' },
-                  ].map(opt => (
-                    <button
-                      key={String(opt.key)}
-                      onClick={() => { setEstimateQaFilter(opt.key); setEstimateExpandedTeam(null); }}
-                      style={{
-                        border: 'none', borderRadius: RADIUS.sm, padding: '5px 14px',
-                        ...TEXT.xs, fontWeight: WEIGHT.semibold, fontFamily: FONT, cursor: 'pointer',
-                        background: estimateQaFilter === opt.key ? C.bgCard : 'transparent',
-                        color: estimateQaFilter === opt.key ? C.textPrimary : C.textMuted,
-                        boxShadow: estimateQaFilter === opt.key ? SHADOW.xs : 'none',
-                        transition: EASE.fast,
-                      }}
-                    >{opt.label}</button>
-                  ))}
-                </div>
-                {/* Grand total badge */}
-                <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: '#4573D2', background: 'rgba(69,115,210,0.08)', borderRadius: RADIUS.md, padding: '4px 12px' }}>
-                  סה"כ: {estimateQaFilter ? estimateStats.qaFilteredEstimateDays : estimateStats.totalEstimateDays} ימ"ע
-                </div>
-              </div>
-
-              {/* Team list */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {(estimateQaFilter
-                  ? estimateStats.byTeam.filter(t => t.qaFilteredDays > 0)
-                  : estimateStats.byTeam
-                ).map(team => {
-                  const days    = estimateQaFilter ? team.qaFilteredDays : team.totalDays;
-                  const crs     = estimateQaFilter ? team.crs.filter(c => c.hasQa) : team.crs;
-                  const isOpen  = estimateExpandedTeam === team.teamId;
-                  const maxDays = Math.max(...(estimateQaFilter
-                    ? estimateStats.byTeam.filter(t => t.qaFilteredDays > 0).map(t => t.qaFilteredDays)
-                    : estimateStats.byTeam.map(t => t.totalDays)), 1);
-                  const barPct  = Math.round((days / maxDays) * 100);
-                  return (
-                    <div key={team.teamId} style={{ borderRadius: RADIUS.md, overflow: 'hidden', border: `1px solid ${isOpen ? '#4573D2' : C.border}`, transition: EASE.fast }}>
-                      {/* Team row */}
-                      <div
-                        onClick={() => setEstimateExpandedTeam(isOpen ? null : team.teamId)}
-                        style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', cursor: 'pointer', background: isOpen ? 'rgba(69,115,210,0.04)' : C.bgCard }}
-                      >
-                        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, minWidth: '130px' }}>{team.teamName}</div>
-                        {/* Bar */}
-                        <div style={{ flex: 1, background: C.bgApp, borderRadius: '4px', height: '8px', overflow: 'hidden' }}>
-                          <div style={{ width: `${barPct}%`, height: '100%', background: '#4573D2', borderRadius: '4px', transition: 'width 0.4s ease' }} />
-                        </div>
-                        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: '#4573D2', minWidth: '60px', textAlign: 'left' as const }}>{days} ימ"ע</div>
-                        <div style={{ ...TEXT.xs, color: C.textMuted, minWidth: '50px', textAlign: 'left' as const }}>{crs.length} CRs</div>
-                        <div style={{ ...TEXT.xs, color: '#4573D2' }}>{isOpen ? '▲' : '▼'}</div>
-                      </div>
-                      {/* CR list for team */}
-                      {isOpen && (
-                        <div style={{ background: C.bgApp, padding: '8px 14px 10px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                          {crs.map(cr => (
-                            <div key={cr.crNumber} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '5px 6px', borderRadius: RADIUS.sm }}>
-                              <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textMuted, minWidth: '60px' }}>{cr.crNumber}</div>
-                              <div style={{ ...TEXT.xs, color: C.textSecondary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{cr.crLabel.replace(cr.crNumber + ' - ', '')}</div>
-                              {cr.hasQa && <span style={{ ...TEXT.xs, color: '#37C47A', fontWeight: WEIGHT.semibold }}>QA</span>}
-                              <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: '#4573D2', minWidth: '50px', textAlign: 'left' as const }}>{cr.teamDays} ימ"ע</div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                {(estimateQaFilter ? estimateStats.byTeam.filter(t => t.qaFilteredDays > 0) : estimateStats.byTeam).length === 0 && (
-                  <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center' as const, padding: '20px' }}>
-                    הפירוט לפי צוות זמין לאחר סינכרון CR_LIST עם הגרסה
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ── Team submission status panel ── */}
-          {showTeamStatus && (
-            <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-                <span style={{ fontSize: '17px' }}>📋</span>
-                <div>
-                  <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{isCollecting ? 'סטטוס הגשות הצעות משימות לפי צוות' : 'סטטוס הגשות תוכניות CR לפי צוות'}</div>
-                  <div style={{ ...TEXT.xs, color: C.textMuted }}>{isCollecting ? 'מעקב אחר הגשת הצעות המשימות של הצוותים' : 'מעקב אחר הגשת תוכניות עלייה לאוויר'}</div>
-                </div>
-                {!teamStatusLoading && teamStatus.length > 0 && (() => {
-                  const done = teamStatus.filter(t => t.allDone).length;
-                  const all  = teamStatus.length;
-                  return (
-                    <div style={{ marginRight: 'auto', ...TEXT.xs, color: done === all ? C.success : C.warning, fontWeight: WEIGHT.semibold }}>
-                      {done}/{all} צוותים השלימו
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* Warning banner: review approaching + teams haven't submitted */}
-              {reviewIsApproaching && !teamStatusLoading && teamStatus.some(t => !t.allDone) && (
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', background: 'rgba(232,175,0,0.08)', border: `1px solid rgba(232,175,0,0.35)`, borderRadius: RADIUS.md, padding: '10px 14px', marginBottom: '12px' }}>
-                  <span style={{ fontSize: '17px', flexShrink: 0 }}>⏰</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.warning }}>
-                      פגישת סקירת התוכניות בעוד {reviewHoursLabel}
-                    </div>
-                    <div style={{ ...TEXT.xs, color: C.textSecondary, marginTop: '2px' }}>
-                      {teamStatus.filter(t => !t.allDone).length} צוותים עדיין לא {isCollecting ? 'הגישו הצעות' : 'הגישו תוכנית CR'} —
-                      {' '}{teamStatus.filter(t => !t.allDone).map(t => t.teamName).join(', ')}
-                    </div>
-                  </div>
-                  {reviewMeetingTime && (
-                    <div style={{ flexShrink: 0, ...TEXT.xs, color: C.textMuted, textAlign: 'center' as const, whiteSpace: 'nowrap' as const }}>
-                      {reviewMeetingTime.toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'short' })}
-                      <br />{reviewMeetingTime.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {teamStatusLoading ? (
-                <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: '16px 0' }}>טוען...</div>
-              ) : teamStatus.length === 0 ? (
-                <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: '16px 0' }}>אין תוכניות CR בגרסה זו</div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {teamStatus.map(t => {
-                    const pct = t.total > 0 ? Math.round(((t.approved + t.submitted) / t.total) * 100) : 0;
-                    const icon = t.allDone ? '✅' : t.returned > 0 ? '↩️' : t.submitted > 0 ? '⏳' : '🔴';
-                    const barColor = t.allDone ? C.success : t.returned > 0 ? C.warning : t.submitted > 0 ? '#4573D2' : C.danger;
-                    return (
-                      <div
-                        key={t.teamId}
-                        onClick={() => primary && onSelectVersion(primary.id, isCollecting ? 'proposals' : 'list')}
-                        style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px', borderRadius: RADIUS.sm, cursor: 'pointer', border: `1px solid ${C.border}`, transition: EASE.fast }}
-                        onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = C.bgHover}
-                        onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
-                      >
-                        <span style={{ fontSize: '15px', flexShrink: 0 }}>{icon}</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>{t.teamName}</span>
-                            <span style={{ ...TEXT.xs, color: C.textMuted, flexShrink: 0, marginRight: '8px' }}>
-                              {isCollecting ? (
-                                <>
-                                  {t.submitted > 0 && <span style={{ color: C.success }}>✓{t.submitted} מוכנות </span>}
-                                  {t.draft > 0    && <span style={{ color: C.textMuted }}>✎{t.draft} טיוטה</span>}
-                                </>
-                              ) : (
-                                <>
-                                  {t.approved > 0 && <span style={{ color: C.success }}>✓{t.approved} </span>}
-                                  {t.submitted > 0 && <span style={{ color: '#4573D2' }}>↑{t.submitted} </span>}
-                                  {t.returned > 0 && <span style={{ color: C.warning }}>↩{t.returned} </span>}
-                                  {t.draft > 0 && <span style={{ color: C.textMuted }}>✎{t.draft}</span>}
-                                </>
-                              )}
-                            </span>
-                          </div>
-                          <div style={{ height: '4px', borderRadius: '2px', background: C.border, overflow: 'hidden' }}>
-                            <div style={{ height: '100%', width: `${pct}%`, background: barColor, borderRadius: '2px', transition: 'width 0.4s ease' }} />
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
+          {/* Estimate breakdown + team-submission detail now live inside the ניהול גרסה
+              module itself (VersionOpeningModule) — the compact team-status panel in
+              the right column below is the only summary kept here. */}
 
           {/* ── Two-column body ── */}
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px', alignItems: 'start' }}>
 
-            {/* Left: Actions */}
+            {/* Left: unified cross-module risk/activity feed */}
             <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '20px' }}>
-              <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '4px' }}>📌 הפעולות הבאות שלך</div>
-              <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '12px' }}>בהתאם לתפקידך ושלב הגרסה הפעילה</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>📌 סיכונים ופעילויות — כל המודולים</div>
+                {actions.length > 0 && <div style={{ ...TEXT.xs, color: C.textMuted }}>{actions.length} פריטים</div>}
+              </div>
+              <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '12px' }}>בהתאם לתפקידך ושלב הגרסה הפעילה, מכל המודולים יחד</div>
+
+              {/* ── Manual notice — RM/ADMIN-authored, pinned above the computed feed ── */}
+              {editingNotice ? (
+                <div style={{ background: C.bgHover, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.md, padding: '10px 12px', marginBottom: '14px' }}>
+                  <textarea
+                    autoFocus
+                    value={noticeDraft}
+                    onChange={e => setNoticeDraft(e.target.value)}
+                    placeholder="הודעה ידנית לצוותים (למשל: תזכורת לישיבת סטטוס)…"
+                    style={{ width: '100%', minHeight: '54px', resize: 'vertical' as const, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '7px 9px', ...TEXT.sm, color: C.textPrimary, fontFamily: FONT, background: C.bgCard }}
+                  />
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px', justifyContent: 'flex-end' }}>
+                    <button onClick={() => setEditingNotice(false)} style={{ background: 'transparent', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '5px 12px', ...TEXT.xs, color: C.textMuted, cursor: 'pointer', fontFamily: FONT }}>ביטול</button>
+                    {localNotice && <button onClick={() => saveNotice('')} disabled={savingNotice} style={{ background: 'transparent', border: `1px solid ${C.danger}`, borderRadius: RADIUS.sm, padding: '5px 12px', ...TEXT.xs, color: C.danger, cursor: 'pointer', fontFamily: FONT }}>הסר הודעה</button>}
+                    <button onClick={() => saveNotice(noticeDraft)} disabled={savingNotice} style={{ background: C.brand, border: 'none', borderRadius: RADIUS.sm, padding: '5px 14px', ...TEXT.xs, fontWeight: WEIGHT.semibold, color: 'white', cursor: 'pointer', fontFamily: FONT }}>{savingNotice ? '...' : 'שמור'}</button>
+                  </div>
+                </div>
+              ) : localNotice ? (
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', background: 'rgba(69,115,210,0.06)', border: `1px solid rgba(69,115,210,0.25)`, borderRadius: RADIUS.md, padding: '10px 14px', marginBottom: '14px' }}>
+                  <span style={{ fontSize: '16px', flexShrink: 0 }}>📌</span>
+                  <div style={{ flex: 1, ...TEXT.sm, color: C.textPrimary, whiteSpace: 'pre-wrap' as const }}>{localNotice}</div>
+                  {canEditNotice && (
+                    <button onClick={() => { setNoticeDraft(localNotice); setEditingNotice(true); }} style={{ flexShrink: 0, background: 'transparent', border: 'none', ...TEXT.xs, color: C.brand, cursor: 'pointer', fontFamily: FONT, fontWeight: WEIGHT.semibold }}>✏️ ערוך</button>
+                  )}
+                </div>
+              ) : canEditNotice ? (
+                <button
+                  onClick={() => { setNoticeDraft(''); setEditingNotice(true); }}
+                  style={{ width: '100%', marginBottom: '14px', background: 'transparent', border: `1px dashed ${C.border}`, borderRadius: RADIUS.md, padding: '8px', ...TEXT.xs, color: C.textMuted, cursor: 'pointer', fontFamily: FONT, transition: EASE.fast }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = C.brand; e.currentTarget.style.color = C.brand; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; }}
+                >
+                  📌 + הוסף הודעה ידנית לצוותים
+                </button>
+              ) : null}
 
               {/* ── Sub-phase progress (ACTIVE / REHEARSAL only) ── */}
               {livePhases.length > 0 && (() => {
@@ -1091,12 +1252,16 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
               ) : (
                 <div>
                   {actions.map((a, i) => (
-                    <ActionItem
+                    <RiskRow
                       key={i}
                       icon={a.icon}
                       title={a.title}
                       desc={a.desc}
                       urgent={a.urgent}
+                      module={a.module}
+                      detail={a.detail}
+                      expanded={expandedRiskIdx === i}
+                      onToggle={() => setExpandedRiskIdx(prev => prev === i ? null : i)}
                       onClick={a.onClick ?? (a.tab ? () => onSelectVersion(primary.id, a.tab) : undefined)}
                     />
                   ))}
@@ -1104,31 +1269,60 @@ export const HomeDashboard: React.FC<Props> = ({ versions, role, fullName, token
               )}
             </div>
 
-            {/* Right: All versions */}
-            <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '20px' }}>
-              <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '14px' }}>
-                📦 כל הגרסאות הפעילות
-              </div>
+            {/* Right: team status + defects needing attention + other versions */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
-              <VersionRow v={primary} isPrimary onSelect={onSelectVersion} qaSummary={qaSummary} role={role} />
-              {others.map(v => <VersionRow key={v.id} v={v} isPrimary={false} onSelect={onSelectVersion} role={role} />)}
-
-              {others.length === 0 && (
-                <div style={{ ...TEXT.xs, color: C.textMuted, textAlign: 'center', padding: '8px 0' }}>
-                  גרסה אחת בלבד
+              {canAccessReleaseIntelligence && openDefects.length > 0 && (
+                <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '18px 20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                    <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>תקלות שדורשות תשומת לב</div>
+                    <div style={{ ...TEXT.xs, color: C.textMuted }}>{openDefects.length} פתוחות</div>
+                  </div>
+                  <div>
+                    {[...openDefects]
+                      .sort((a, b) => (['Show Stopper', 'Severe'].includes(b.severity) ? 1 : 0) - (['Show Stopper', 'Severe'].includes(a.severity) ? 1 : 0))
+                      .slice(0, 5).map(d => {
+                      const sevColor = ['Show Stopper', 'Severe'].includes(d.severity) ? C.danger : d.severity === 'Medium' ? C.warning : C.textMuted;
+                      return (
+                        <div key={d.id} onClick={() => onSwitchToModule?.('release-intelligence')} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 0', borderBottom: `1px solid ${C.border}`, cursor: 'pointer' }}>
+                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: sevColor, flexShrink: 0 }} />
+                          <span style={{ ...TEXT.xs, fontFamily: FONT_MONO, fontWeight: WEIGHT.bold, color: C.textSecondary, background: C.bgNested, borderRadius: RADIUS.sm, padding: '1px 6px', flexShrink: 0 }}>{d.id}</span>
+                          <span style={{ ...TEXT.xs, color: C.textPrimary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{d.title}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
-              {canCreate && onNewVersion && (
-                <button
-                  onClick={onNewVersion}
-                  style={{ width: '100%', marginTop: '10px', background: 'transparent', border: `1px dashed ${C.border}`, borderRadius: RADIUS.md, padding: '9px', ...TEXT.xs, color: C.textMuted, cursor: 'pointer', fontFamily: FONT, transition: EASE.fast }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = C.brand; e.currentTarget.style.color = C.brand; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; }}
-                >
-                  + פתח גרסה חדשה
-                </button>
-              )}
+              <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderTop: `3px solid ${C.moduleRelease}`, borderRadius: RADIUS.lg, padding: '18px 20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                  <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+                    🧭 כל הגרסאות
+                  </div>
+                  <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.moduleRelease, background: `color-mix(in oklch, ${C.moduleRelease} 14%, transparent)`, borderRadius: RADIUS.full, padding: '2px 9px' }}>ניהול גרסה</span>
+                </div>
+
+                <VersionRow v={primary} isPrimary onSelect={onSelectVersion} qaSummary={qaSummary} role={role} />
+                {others.map(v => <VersionRow key={v.id} v={v} isPrimary={false} onSelect={onSelectVersion} role={role} />)}
+
+                {others.length === 0 && (
+                  <div style={{ ...TEXT.xs, color: C.textMuted, textAlign: 'center', padding: '8px 0' }}>
+                    גרסה אחת בלבד
+                  </div>
+                )}
+
+                {canCreate && onNewVersion && (
+                  <button
+                    onClick={onNewVersion}
+                    style={{ width: '100%', marginTop: '10px', background: 'transparent', border: `1px dashed ${C.border}`, borderRadius: RADIUS.md, padding: '9px', ...TEXT.xs, color: C.textMuted, cursor: 'pointer', fontFamily: FONT, transition: EASE.fast }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = C.brand; e.currentTarget.style.color = C.brand; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; }}
+                  >
+                    + פתח גרסה חדשה
+                  </button>
+                )}
+              </div>
             </div>
 
           </div>

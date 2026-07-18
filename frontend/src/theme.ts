@@ -3,46 +3,55 @@
 
 // ── Color Palette ─────────────────────────────────────────────────────────────
 
+// v4 — "Indigo" foundations, adapted 2026-07-17 from a Claude-Design handoff
+// (design_handoff_deploycenter/styles.css). Only the foundation tokens
+// (surfaces/borders/brand/sidebar/text/semantic + radii/shadows/fonts) were
+// swapped — domain-specific palettes (task status, priority, severity,
+// version status, team colors) are intentionally left on the previous
+// values since the handoff didn't specify replacements for them, and
+// changing those risks clashing with the new brand hue. Experimental branch
+// (redesign-indigo-experiment) — revert to v3 values above if this doesn't
+// look right in practice.
 export const C = {
   // ── Main content surfaces (LIGHT) ─────────────────────────────────────────
-  bgApp:        '#F5F5F5',   // page / outer shell
+  bgApp:        '#F7F8FB',   // page / outer shell
   bgCard:       '#FFFFFF',   // cards, panels
   bgElevated:   '#FFFFFF',   // elevated panels
-  bgNested:     '#F9F9F9',   // table rows, input bg
-  bgHover:      '#F3F4F6',   // row hover
-  bgActive:     '#EAF0FB',   // active / selected row
-  bgOverlay:    'rgba(0,0,0,0.45)',
+  bgNested:     '#F1F2F7',   // table rows, input bg
+  bgHover:      '#ECEDF5',   // row hover
+  bgActive:     '#E6E7F5',   // active / selected row
+  bgOverlay:    'rgba(20,21,42,0.45)',
 
   // ── Borders (light) ───────────────────────────────────────────────────────
-  border:       '#E8E8E8',
-  borderEm:     '#D4D4D4',
-  borderFocus:  '#4573D2',   // Asana focus ring blue
+  border:       '#E5E7EE',
+  borderEm:     '#D3D6E0',
+  borderFocus:  'oklch(0.55 0.19 265)',
 
-  // ── Brand (Asana warm red-orange) ─────────────────────────────────────────
-  brand:        '#F06A6A',   // Asana primary
-  brandHover:   '#E05555',
-  brandDim:     '#FEF2F2',
-  brandGlow:    'rgba(240,106,106,0.18)',
+  // ── Brand (indigo) ──────────────────────────────────────────────────────
+  brand:        'oklch(0.55 0.19 265)',
+  brandHover:   'oklch(0.48 0.19 265)',
+  brandDim:     'oklch(0.94 0.03 265)',
+  brandGlow:    'oklch(0.55 0.19 265 / 0.18)',
 
-  // ── Sidebar (DARK — Asana-style) ──────────────────────────────────────────
-  sidebarBg:        '#1E1F21',
-  sidebarBgHover:   '#2C2D30',
-  sidebarBgActive:  '#3B3D40',
-  sidebarBorder:    '#3B3D40',
-  sidebarText:      '#EFEFEF',
-  sidebarTextMuted: '#838589',
-  sidebarAccent:    '#F06A6A',
+  // ── Sidebar (deep indigo-black — always dark regardless of app theme) ────
+  sidebarBg:        '#14152A',
+  sidebarBgHover:   '#1F2140',
+  sidebarBgActive:  '#2A2C52',
+  sidebarBorder:    '#2A2C52',
+  sidebarText:      '#EDEDF7',
+  sidebarTextMuted: '#8B8EA8',
+  sidebarAccent:    'oklch(0.55 0.19 265)',
 
   // ── Header ────────────────────────────────────────────────────────────────
   headerBg:     '#FFFFFF',
-  headerBorder: '#E8E8E8',
+  headerBorder: '#E5E7EE',
 
   // ── Text (dark — for light backgrounds) ──────────────────────────────────
-  textPrimary:   '#1E1F21',
-  textSecondary: '#4D4D4D',
-  textMuted:     '#7F7F7F',
-  textDisabled:  '#BDBDBD',
-  textLink:      '#4573D2',
+  textPrimary:   '#14152A',
+  textSecondary: '#585B70',
+  textMuted:     '#9497AC',
+  textDisabled:  '#C3C5D3',
+  textLink:      '#0891B2',
   textInverse:   '#FFFFFF',
 
   // ── Task status — color ───────────────────────────────────────────────────
@@ -65,14 +74,14 @@ export const C = {
   bgRollback:   'rgba(158,158,158,0.08)',
 
   // ── Semantic ──────────────────────────────────────────────────────────────
-  success:     '#37C47A',
-  successBg:   'rgba(55,196,122,0.10)',
-  warning:     '#E8AF00',
-  warningBg:   'rgba(232,175,0,0.10)',
-  danger:      '#F06A6A',
-  dangerBg:    'rgba(240,106,106,0.10)',
-  info:        '#4573D2',
-  infoBg:      'rgba(69,115,210,0.10)',
+  success:     '#16A34A',
+  successBg:   '#EAFBF0',
+  warning:     '#D97706',
+  warningBg:   '#FEF6E7',
+  danger:      '#DC2626',
+  dangerBg:    '#FDECEC',
+  info:        '#0891B2',
+  infoBg:      '#E8F7FA',
 
   // ── Priority (Asana-style) ────────────────────────────────────────────────
   priorityHigh:   '#CD1A1A',
@@ -105,12 +114,24 @@ export const C = {
 
   // ── Team palette ─────────────────────────────────────────────────────────
   teams: ['#4573D2','#37C47A','#9C6ADE','#E8AF00','#F06A6A','#42B0C5','#F0883E','#6366F1'],
+
+  // ── Module accents (from the indigo design handoff) — one fixed hue per
+  // module, same oklch chroma/lightness family. Additive: not wired into any
+  // existing component yet except ModuleFlowStrip's own literal colors.
+  moduleRelease:     'oklch(0.55 0.19 265)', // Release Management — indigo
+  moduleTestPlan:    'oklch(0.55 0.19 300)', // Test Planning — violet
+  moduleMilestones:  'oklch(0.65 0.15 75)',  // Milestones — amber
+  moduleTracking:    'oklch(0.58 0.13 195)', // Test Tracking — teal
+  moduleDefects:     'oklch(0.55 0.20 20)',  // Defects — rose
+  moduleGoLive:      'oklch(0.60 0.17 45)',  // Go-Live — orange
+  moduleAnalytics:   'oklch(0.55 0.17 250)', // Analytics — blue
+  moduleAccess:      'oklch(0.45 0.02 260)', // Access/SSO — muted slate
 } as const;
 
 // ── Typography ────────────────────────────────────────────────────────────────
 
-export const FONT      = "'Segoe UI', -apple-system, 'IBM Plex Sans Hebrew', Arial, sans-serif";
-export const FONT_MONO = "'SF Mono', 'Fira Code', 'Consolas', monospace";
+export const FONT      = "'Rubik', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif";
+export const FONT_MONO = "'Fira Code', 'SF Mono', Consolas, monospace";
 
 // Bumped up significantly (2026-07-04), then bumped again by 20%+ (2026-07-14)
 // per direct user request — legibility for users with weaker eyesight takes
@@ -143,22 +164,22 @@ export const SP = {
 
 // ── Border Radius ─────────────────────────────────────────────────────────────
 export const RADIUS = {
-  xs: '3px', sm: '4px', md: '6px', lg: '8px',
-  xl: '10px', '2xl': '12px', '3xl': '16px', full: '9999px',
+  xs: '4px', sm: '6px', md: '8px', lg: '12px',
+  xl: '16px', '2xl': '16px', '3xl': '20px', full: '9999px',
 } as const;
 
 // ── Shadows (light theme) ─────────────────────────────────────────────────────
 export const SHADOW = {
-  xs:      '0 1px 2px rgba(0,0,0,0.06)',
-  sm:      '0 1px 4px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)',
-  md:      '0 4px 12px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.04)',
-  lg:      '0 8px 24px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.05)',
-  xl:      '0 16px 40px rgba(0,0,0,0.14), 0 0 0 1px rgba(0,0,0,0.05)',
-  floating:'0 24px 64px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.06)',
-  brand:   '0 0 0 3px rgba(240,106,106,0.25)',
-  glow:    '0 0 16px rgba(240,106,106,0.20)',
-  inset:   'inset 0 1px 2px rgba(0,0,0,0.06)',
-  card:    '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)',
+  xs:      '0 1px 2px rgba(20,21,42,.05)',
+  sm:      '0 2px 8px rgba(20,21,42,.08)',
+  md:      '0 6px 20px rgba(20,21,42,.10)',
+  lg:      '0 10px 32px rgba(20,21,42,.12)',
+  xl:      '0 20px 48px rgba(20,21,42,.14)',
+  floating:'0 28px 72px rgba(20,21,42,.18)',
+  brand:   '0 0 0 3px rgba(79,70,229,0.25)',
+  glow:    '0 0 16px rgba(79,70,229,0.20)',
+  inset:   'inset 0 1px 2px rgba(20,21,42,.06)',
+  card:    '0 1px 3px rgba(20,21,42,.08), 0 1px 2px rgba(20,21,42,.04)',
 } as const;
 
 // ── Transitions ───────────────────────────────────────────────────────────────

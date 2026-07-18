@@ -98,6 +98,7 @@ model User {
   teamMemberships   TeamMember[]
   createdVersions   Version[]          @relation("createdByUser")
   approvedVersions  Version[]          @relation("approvedByUser")
+  scopeApprovedVersions Version[]      @relation("scopeApprovedByUser")
   createdTasks      Task[]             @relation("taskCreator")
   assignedTasks     Task[]             @relation("taskAssignee")
   auditLogs         AuditLog[]
@@ -155,6 +156,8 @@ model Version {
   createdBy               String
   approvedBy              String?
   approvedAt              DateTime?
+  scopeApprovedBy         String?
+  scopeApprovedAt         DateTime?
   lastRehearsalSnapshot   Json?
   lastRehearsalAt         DateTime?
   lastNightSnapshot       Json?
@@ -170,6 +173,8 @@ model Version {
   submissionDeadline      DateTime?
   approvalDeadline        DateTime?
   wizardState             Json?
+  homeNotice              String?       // manual, RM/ADMIN-authored notice pinned atop the Home risks/activities feed
+  homeNoticeUpdatedAt     DateTime?
   createdAt               DateTime      @default(now())
   updatedAt               DateTime      @updatedAt
 
@@ -178,6 +183,7 @@ model Version {
 
   creator          User              @relation("createdByUser", fields: [createdBy], references: [id])
   approver         User?             @relation("approvedByUser", fields: [approvedBy], references: [id])
+  scopeApprover    User?             @relation("scopeApprovedByUser", fields: [scopeApprovedBy], references: [id])
   phases               Phase[]
   submissions          TeamSubmission[]
   nightSummary         NightSummary?
@@ -453,6 +459,16 @@ model CrPlan {
   nightTestingNotes String?
   morningMonitoring String?
   notNeededForPlan  Boolean  @default(false)
+  removedByTeam     Boolean  @default(false) // team explicitly deleted this CR — sync must never resurrect it
+  // ── טופס CR מובנה (exception-first) — אפיון 2026-07-17 ──
+  gateAnswered      Boolean  @default(false) // האם ראש הצוות ענה על שאלת השער (Section 1)
+  changeTypes       String[] @default([])    // מה משתנה — קוד/פרמטר/הרשאה/Setup/ממשק/Job/סקריפט/הסבת נתונים/קובץ
+  prerequisites     String[] @default([])    // תנאים מקדימים
+  prerequisitesNote String?                  // הערות חופשיות נוספות לתנאים מקדימים
+  nightTestNeeded   Boolean  @default(false) // בדיקות חריגות בליל הגרסה (הפירוט ב-nightTestingNotes)
+  nextDayTestNeeded Boolean  @default(false) // בדיקות חריגות ביום שאחרי
+  nextDayTestNotes  String?
+  rollbackType      String?                  // כיבוי פרמטר/הסרת הרשאה/עצירת Job/החזרת קובץ/חזרה מגיבוי/לא נדרש/אחר
   // ── תוכניות הטמעה — מחזור הגשה/סקירה/אישור ──
   submissionStatus       CrPlanSubmissionStatus @default(DRAFT)
   submittedAt            DateTime?
@@ -472,14 +488,56 @@ model CrPlan {
   version Version       @relation(fields: [versionId], references: [id])
   team    Team          @relation(fields: [teamId], references: [id])
   crDeps  CrDependency[]
+  actions          CrPlanAction[]
+  monitoringPoints CrPlanMonitoringPoint[]
 
   @@unique([versionId, teamId, crNumber])
 }
 
 model CrDependency {
-  id          String @id @default(uuid())
+  id          String  @id @default(uuid())
   crPlanId    String
   dependsOnCr String
+  note        String? // הסבר התלות (למה ה-CR הזה תלוי ב-CR האחר)
+
+  crPlan CrPlan @relation(fields: [crPlanId], references: [id], onDelete: Cascade)
+}
+
+// פעולה חריגה בודדת בתוך תוכנית CR (Section 2 בטופס)
+// "מתי" מבוטא כ-phase/subPhaseId אמיתיים מתוכנית המסגרת של הגרסה (לא enum מופשט) —
+// כדי לאפשר גזירת TaskProposal אוטומטית ומדוייקת (ר' CrPlansService.syncDerivedProposals).
+model CrPlanAction {
+  id                 String   @id @default(uuid())
+  crPlanId           String
+  actionType         String
+  description        String
+  phase              Int      @default(2) // 1=בוקר לפני גרסה, 2=HOTNET, 3=HOT, 4=בוקר לאחר גרסה
+  subPhaseId         String?               // תת-שלב מדוייק (אופציונלי) בתוך ה-phase שנבחר
+  system             String?               // מערכת/אפליקציה עליה מתבצעת הפעולה
+  estimatedMins      Int?                  // משך זמן פוטנציאלי — מוזן ישירות ל-TaskProposal הנגזר
+  dependsOnTaskId    String?               // תלות במשימה קיימת אמיתית מתוכנית המסגרת (Task.id) — תמיד "אחרי"
+  dependencyNote     String?               // הערה חופשית — משמש כאשר אין משימה תואמת בתוכנית
+  ownerName          String?
+  derivedProposalId  String?               // TaskProposal שנוצר/מסונכרן אוטומטית מפעולה זו
+  orderIndex         Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  crPlan CrPlan @relation(fields: [crPlanId], references: [id], onDelete: Cascade)
+}
+
+// נקודת בקרה/ניטור בודדת (Section 5 בטופס)
+model CrPlanMonitoringPoint {
+  id                String   @id @default(uuid())
+  crPlanId          String
+  type              String   // Interface / Table / Job / Report / Queue / File / Other
+  name              String
+  note              String?
+  phase              Int      @default(4) // כל שלב אפשרי — ברירת מחדל: בוקר לאחר גרסה
+  assignedTeamId    String?               // צוות אחראי לביצוע הבקרה
+  assignedUserName  String?               // עובד אחראי — קיומו מפעיל גזירת TaskProposal אוטומטית
+  derivedProposalId String?               // TaskProposal שנוצר/מסונכרן אוטומטית מנקודת בקרה זו
+  orderIndex        Int      @default(0)
+  createdAt         DateTime @default(now())
 
   crPlan CrPlan @relation(fields: [crPlanId], references: [id], onDelete: Cascade)
 }
@@ -538,6 +596,12 @@ model VersionCrAssignment {
   hasActual             Boolean? // true when "Actuals" column has a V mark
   syncedAt              DateTime @default(now())
   syncStatus            String   @default("ACTIVE") // "ACTIVE" | "NEW" | "REMOVED"
+  reviewed              Boolean  @default(false) // set during the version-opening validation step
+  needsAttention        Boolean  @default(false) // scope changed (NEW/REMOVED) after scopeApprovedAt was set
+  isCore                Boolean  @default(false) // QA classification: core CR — independent axis from isStandAlone
+  priorityTestDate      DateTime? // CR goes to production before this version / outside its scope — must be tested first, sorts first in its tester's queue
+  notes                 String?  // free-text QA note
+  urgent                Boolean  @default(false) // flags for QA-lead follow-up on the home dashboard
 
   version Version @relation(fields: [versionId], references: [id])
   team    Team    @relation(fields: [teamId], references: [id])

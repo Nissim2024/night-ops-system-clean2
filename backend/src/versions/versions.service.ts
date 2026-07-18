@@ -439,6 +439,28 @@ async addTask(subPhaseId: string, data: {
     });
   }
 
+  // Stage-1 scope approval: stamps scopeApprovedAt/scopeApprovedBy and clears any
+  // pending needsAttention flags. Does NOT itself move the status machine — the
+  // COLLECTING→CR_REVIEW gate in updateStatus() requires this to have run first.
+  // Callable again later (e.g. after a post-approval scope change) to re-confirm.
+  async approveScope(id: string, userId: string) {
+    const version = await prisma.version.findUnique({ where: { id } });
+    if (!version) throw new NotFoundException('גרסה לא נמצאה');
+    if (!version.integrationStart) {
+      throw new BadRequestException('יש להזין תאריך תחילת בדיקות אינטגרציה לפני אישור התכולה');
+    }
+    // Effort-estimate / SA-classification validation happens downstream at the
+    // QA assignment stage, not here — scope approval only needs dates + a synced CR list.
+    await prisma.versionCrAssignment.updateMany({
+      where: { versionId: id },
+      data: { needsAttention: false },
+    });
+    return prisma.version.update({
+      where: { id },
+      data: { scopeApprovedAt: new Date(), scopeApprovedBy: userId },
+    });
+  }
+
   async updateStatus(id: string, status: VersionStatus, userId: string, userRole: string, force = false) {
     const MANAGER_ROLES = ['RELEASE_MANAGER', 'ADMIN'];
     if (force && !MANAGER_ROLES.includes(userRole)) {
@@ -468,6 +490,19 @@ async addTask(subPhaseId: string, data: {
       throw new BadRequestException(
         `מעבר סטטוס לא חוקי: "${version.status}" → "${status}"`
       );
+    }
+
+    // COLLECTING → CR_REVIEW: integration-test start date must be set, and scope
+    // must have been formally approved via approveScope() first. Effort-estimate
+    // and SA/integrative classification are validated downstream at the QA
+    // assignment stage, not gated here.
+    if (version.status === VersionStatus.COLLECTING && status === VersionStatus.CR_REVIEW && !force) {
+      if (!version.integrationStart) {
+        throw new BadRequestException('יש להזין תאריך תחילת בדיקות אינטגרציה לפני המעבר לסקירת CR');
+      }
+      if (!version.scopeApprovedAt) {
+        throw new BadRequestException('יש לאשר את תכולת הגרסה לפני המעבר לסקירת CR');
+      }
     }
 
     // CR_REVIEW → REFINING: involved teams must have submitted and CrPlans must be approved
@@ -672,7 +707,7 @@ async addTask(subPhaseId: string, data: {
     integrationStart?: string | null; integrationEnd?: string | null; qaStart?: string | null; qaEnd?: string | null;
     plannedRehearsalStart?: string | null; plannedRehearsalEnd?: string | null;
     submissionDeadline?: string | null; approvalDeadline?: string | null;
-    name?: string; description?: string;
+    name?: string; description?: string; homeNotice?: string | null;
   }) {
     const version = await prisma.version.findUnique({ where: { id } });
     if (!version) throw new NotFoundException('Version not found');
@@ -694,6 +729,10 @@ async addTask(subPhaseId: string, data: {
     if ('approvalDeadline'    in data) update.approvalDeadline    = data.approvalDeadline    ? new Date(data.approvalDeadline)    : null;
     if ('name'        in data && data.name)        update.name        = data.name;
     if ('description' in data)                     update.description = data.description ?? null;
+    if ('homeNotice'  in data) {
+      update.homeNotice = data.homeNotice?.trim() || null;
+      update.homeNoticeUpdatedAt = update.homeNotice ? new Date() : null;
+    }
     return prisma.version.update({ where: { id }, data: update });
   }
 
@@ -753,33 +792,20 @@ async addTask(subPhaseId: string, data: {
       where: { versionId, assignedTeamId: teamId },
     });
 
-    // Validate submission: allow if all CrPlans are "not needed", block if active CRs have no proposals
+    // Validate submission against the exception-first CR-plan model (matches the
+    // frontend's isCrDone check): every CR is done once its plan says "no special
+    // impact", or its plan has itself been confirmed/submitted. Task-proposals are
+    // secondary bookkeeping now — they're never a submission blocker on their own.
     const crPlans = await prisma.crPlan.findMany({
-      where: { versionId, teamId },
-      select: { notNeededForPlan: true },
+      where: { versionId, teamId, removedByTeam: false },
+      select: { crNumber: true, notNeededForPlan: true, submissionStatus: true },
     });
 
-    const proposalCount = await prisma.taskProposal.count({ where: { versionId, teamId } });
-
-    if (crPlans.length > 0) {
-      const allNotNeeded = crPlans.every((cp: any) => cp.notNeededForPlan);
-      if (!allNotNeeded && proposalCount === 0) {
-        throw new BadRequestException('לא ניתן להגיש — יש פיתוחים הדורשים משימות. הוסף משימות או סמן "לא נדרש לתוכנית" עבור כל פיתוח.');
-      }
-      // allNotNeeded === true → all CRs acknowledged, submission allowed with 0 proposals
-    } else {
-      // No CrPlans synced yet — require at least one proposal
-      if (proposalCount === 0) {
-        throw new BadRequestException('לא ניתן להגיש — לא נמצאו משימות. סנכרן את רשימת הפיתוחים ומלא משימות לפני ההגשה.');
-      }
-    }
-
-    // Block submission if any proposal is still in DRAFT (not ready, not already used in a task)
-    const draftCount = await prisma.taskProposal.count({
-      where: { versionId, teamId, status: 'DRAFT', usedInTaskId: null },
-    });
-    if (draftCount > 0) {
-      throw new BadRequestException(`לא ניתן להגיש — ${draftCount} משימ${draftCount === 1 ? 'ה' : 'ות'} עדיין בטיוטא. סמן אותן כ"מוכן" לפני ההגשה.`);
+    const pending = crPlans.filter((cp: any) =>
+      !cp.notNeededForPlan && cp.submissionStatus !== 'SUBMITTED' && cp.submissionStatus !== 'APPROVED',
+    );
+    if (pending.length > 0) {
+      throw new BadRequestException(`לא ניתן להגיש — יש CR-ים שטרם טופלו: ${pending.map((p: any) => p.crNumber).join(', ')}. יש לענות על שאלת השער ולאשר את התוכנית עבור כל CR.`);
     }
 
     // Idempotent: if already submitted, return current record without updating submittedAt
@@ -1539,15 +1565,20 @@ async addTask(subPhaseId: string, data: {
         },
       });
 
-      // Task proposals grouped by phase
+      // Task proposals grouped by phase — ordered by phase then submission time so
+      // merged multi-team tasks read as an actual chronological sequence within
+      // each phase, not arbitrary DB row order. reviewStatus/reviewNote/actionType
+      // were missing from the select, which meant the review UI always rendered
+      // every proposal as "ממתין" (pending) regardless of its real approval state.
       const proposals = await prisma.taskProposal.findMany({
         where: { versionId, crNumber },
         select: {
-          id: true, teamId: true, title: true, app: true,
+          id: true, teamId: true, title: true, app: true, actionType: true,
           estimatedMins: true, phase: true, notes: true,
-          assignedUserName: true, status: true,
+          assignedUserName: true, status: true, reviewStatus: true, reviewNote: true,
+          createdAt: true,
         },
-        orderBy: { phase: 'asc' },
+        orderBy: [{ phase: 'asc' }, { createdAt: 'asc' }],
       });
 
       // Enrich proposals with team names

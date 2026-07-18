@@ -62,6 +62,45 @@ export class VersionCrAssignmentsService {
     });
   }
 
+  // Cross-team coordination info per CR — which OTHER teams and which systems
+  // a CR touches. Purely descriptive (no plan content), so unlike findForVersion
+  // it isn't restricted to the caller's own team: a team lead needs to know who
+  // else to coordinate with on a shared CR, not just their own team's row.
+  async getCrScope(versionId: string) {
+    const rows = await prisma.versionCrAssignment.findMany({
+      where: { versionId, syncStatus: { not: 'REMOVED' } },
+      include: { team: { select: { name: true } } },
+    });
+    const byCr = new Map<string, { teamNames: Set<string>; systems: Set<string> }>();
+    for (const r of rows) {
+      let entry = byCr.get(r.crNumber);
+      if (!entry) { entry = { teamNames: new Set(), systems: new Set() }; byCr.set(r.crNumber, entry); }
+      if (r.team?.name) entry.teamNames.add(r.team.name);
+      if (r.application) entry.systems.add(r.application);
+    }
+    return Array.from(byCr.entries()).map(([crNumber, e]) => ({
+      crNumber, teamNames: Array.from(e.teamNames), systems: Array.from(e.systems),
+    }));
+  }
+
+  // QA classification progress — how many distinct CRs already have at least
+  // one of isCore/urgent/priorityTestDate set. Doesn't depend on scope
+  // approval: a lead can classify a CR the moment it's synced from CR_LIST.
+  async getClassificationStats(versionId: string) {
+    const rows = await prisma.versionCrAssignment.findMany({
+      where: { versionId, syncStatus: { not: 'REMOVED' } },
+      select: { crNumber: true, isCore: true, urgent: true, priorityTestDate: true },
+    });
+    const byCr = new Map<string, boolean>();
+    for (const r of rows) {
+      const classified = !!r.isCore || !!r.urgent || !!r.priorityTestDate;
+      byCr.set(r.crNumber, (byCr.get(r.crNumber) ?? false) || classified);
+    }
+    const totalCrs = byCr.size;
+    const classifiedCrs = Array.from(byCr.values()).filter(Boolean).length;
+    return { totalCrs, classifiedCrs };
+  }
+
   // ── Private: load raw CR_LIST sheet + resolved column indices (shared by
   // parseExcelAssignments and getChangeDetail) ──────────────────────────────
   private async loadSheet(): Promise<{
@@ -248,6 +287,11 @@ export class VersionCrAssignmentsService {
   async syncApply(versionId: string, excludeCrNumbers: string[] = []): Promise<{ added: number; removed: number; unchanged: number }> {
     const { assignments: allAssignments } = await this.parseExcelAssignments(versionId);
 
+    // If scope was already approved, any add/remove from here on is a genuine
+    // post-approval scope change — flag it instead of silently absorbing it.
+    const version = await prisma.version.findUnique({ where: { id: versionId }, select: { scopeApprovedAt: true } });
+    const scopeAlreadyApproved = !!version?.scopeApprovedAt;
+
     // Existing active + new records (exclude already-REMOVED ones from diff)
     const existing = await prisma.versionCrAssignment.findMany({
       where: { versionId, syncStatus: { not: 'REMOVED' } },
@@ -276,6 +320,7 @@ export class VersionCrAssignmentsService {
           crManager: a.crManager || null, crDescription: a.crDescription || null,
           application: a.application || null, project: a.project || null,
           syncedAt: now, syncStatus: 'NEW',
+          needsAttention: scopeAlreadyApproved,
           ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
           teamEstimateDays: (a as any).teamEstimateDays ?? null,
           estimateDays: a.estimateDays ?? null, hasActual: a.hasActual ?? false,
@@ -304,7 +349,7 @@ export class VersionCrAssignmentsService {
       });
       await prisma.versionCrAssignment.updateMany({
         where: { id: { in: stale.map(e => e.id) } },
-        data: { syncStatus: 'REMOVED' },
+        data: { syncStatus: 'REMOVED', needsAttention: scopeAlreadyApproved },
       });
     }
 
@@ -400,10 +445,22 @@ export class VersionCrAssignmentsService {
     return { deleted: count };
   }
 
-  async patchCr(versionId: string, crNumber: string, patch: { qaEffortOverride?: number | null; isStandAlone?: boolean }) {
+  async patchCr(versionId: string, crNumber: string, patch: {
+    qaEffortOverride?: number | null; isStandAlone?: boolean; reviewed?: boolean;
+    isCore?: boolean; priorityTestDate?: string | null; notes?: string | null; urgent?: boolean;
+  }) {
     const data: any = {};
     if (patch.qaEffortOverride !== undefined) data.qaEffortOverride = patch.qaEffortOverride;
     if (patch.isStandAlone     !== undefined) data.isStandAlone     = patch.isStandAlone;
+    if (patch.isCore           !== undefined) data.isCore           = patch.isCore;
+    if (patch.priorityTestDate !== undefined) data.priorityTestDate = patch.priorityTestDate ? new Date(patch.priorityTestDate) : null;
+    if (patch.notes            !== undefined) data.notes            = patch.notes;
+    if (patch.urgent           !== undefined) data.urgent           = patch.urgent;
+    if (patch.reviewed         !== undefined) {
+      data.reviewed = patch.reviewed;
+      // marking a CR reviewed also acknowledges any pending post-approval scope-change flag
+      if (patch.reviewed) data.needsAttention = false;
+    }
     if (Object.keys(data).length === 0) return { ok: true };
     await prisma.versionCrAssignment.updateMany({
       where: { versionId, crNumber },

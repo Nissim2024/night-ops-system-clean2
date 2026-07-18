@@ -585,12 +585,12 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         : `🚨 חריגה +${fmtMins(dm)}`;
       const sc = dm === null ? '#6c757d' : dm <= 0 ? '#27ae60' : dm < SIGNIFICANT_MINS ? '#e67e22' : '#e74c3c';
       const reason = phaseDelayReasons[i];
-      return `<tr style="border-bottom:1px solid #e9ecef;">
-        <td style="padding:9px 8px;font-weight:bold;color:#2c3e50;font-size:13px;text-align:right;">${pt.name}</td>
-        <td style="padding:9px 8px;font-size:12px;color:#6c757d;text-align:right;">${ltr(pt.environment)}</td>
-        <td style="padding:9px 8px;font-size:12px;color:#6c757d;text-align:right;white-space:nowrap;">${timePair(pt.plannedStart, pt.plannedEnd)}</td>
-        <td style="padding:9px 8px;font-size:12px;color:#6c757d;text-align:right;white-space:nowrap;">${timePair(pt.actualStart, pt.actualEnd)}</td>
-        <td style="padding:9px 8px;font-size:12px;font-weight:bold;color:${sc};text-align:right;white-space:nowrap;">${statusTxt}${reason ? `<br><span style="font-size:11px;color:#6c757d;font-weight:normal;">הערה: ${reason}</span>` : ''}</td>
+      return `<tr>
+        <td style="padding:9px 8px;font-weight:bold;color:#2c3e50;font-size:13px;text-align:right;border-bottom:1px solid #e9ecef;">${pt.name}</td>
+        <td style="padding:9px 8px;font-size:12px;color:#6c757d;text-align:right;border-bottom:1px solid #e9ecef;">${ltr(pt.environment)}</td>
+        <td style="padding:9px 8px;font-size:12px;color:#6c757d;text-align:right;white-space:nowrap;border-bottom:1px solid #e9ecef;">${timePair(pt.plannedStart, pt.plannedEnd)}</td>
+        <td style="padding:9px 8px;font-size:12px;color:#6c757d;text-align:right;white-space:nowrap;border-bottom:1px solid #e9ecef;">${timePair(pt.actualStart, pt.actualEnd)}</td>
+        <td style="padding:9px 8px;font-size:12px;font-weight:bold;color:${sc};text-align:right;white-space:nowrap;border-bottom:1px solid #e9ecef;">${statusTxt}${reason ? `<br><span style="font-size:11px;color:#6c757d;font-weight:normal;">הערה: ${reason}</span>` : ''}</td>
       </tr>`;
     }).join('');
 
@@ -674,16 +674,16 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
     const defectTableRows = defects.map(d => {
       const sevColor = SEV_COLORS[d.severity] || '#95a5a6';
       const stColor  = d.status === 'Open' ? '#e74c3c' : d.status === 'Closed' ? '#27ae60' : '#95a5a6';
-      return `<tr style="border-bottom:1px solid #e9ecef;">
-        <td style="padding:7px 8px;font-size:12px;color:#2c3e50;text-align:right;max-width:200px;">${d.title}</td>
-        <td style="padding:7px 8px;font-size:12px;color:#6c757d;text-align:right;white-space:nowrap;">${d.assignedTo}</td>
-        <td style="padding:7px 8px;text-align:center;white-space:nowrap;">
+      return `<tr>
+        <td style="padding:7px 8px;font-size:12px;color:#2c3e50;text-align:right;max-width:200px;border-bottom:1px solid #e9ecef;">${d.title}</td>
+        <td style="padding:7px 8px;font-size:12px;color:#6c757d;text-align:right;white-space:nowrap;border-bottom:1px solid #e9ecef;">${d.assignedTo}</td>
+        <td style="padding:7px 8px;text-align:center;white-space:nowrap;border-bottom:1px solid #e9ecef;">
           <span style="background:${sevColor};color:white;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:bold;">${d.severity}</span>
         </td>
-        <td style="padding:7px 8px;text-align:center;white-space:nowrap;">
+        <td style="padding:7px 8px;text-align:center;white-space:nowrap;border-bottom:1px solid #e9ecef;">
           <span style="background:${stColor};color:white;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:bold;">${d.status}</span>
         </td>
-        <td style="padding:7px 8px;font-size:11px;color:#6c757d;text-align:right;white-space:nowrap;">${d.reporter}</td>
+        <td style="padding:7px 8px;font-size:11px;color:#6c757d;text-align:right;white-space:nowrap;border-bottom:1px solid #e9ecef;">${d.reporter}</td>
       </tr>`;
     }).join('');
 
@@ -721,21 +721,21 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
     // ── Test coverage ────────────────────────────────────────────
     const coverageRows = coverage.map(cv => {
       const passPct = cv.total > 0 ? Math.round((cv.passed / cv.total) * 100) : 0;
-      return `<tr style="border-bottom:1px solid #e9ecef;">
-        <td style="padding:8px;font-size:12px;color:#2c3e50;text-align:right;">${cv.title || cv.cycle}</td>
-        <td style="padding:8px;font-size:12px;color:#6c757d;text-align:right;">${cv.responsible}</td>
-        <td style="padding:8px;text-align:center;font-size:12px;font-weight:bold;color:#2c3e50;">${cv.total}</td>
-        <td style="padding:8px;text-align:center;">
+      return `<tr>
+        <td style="padding:8px;font-size:12px;color:#2c3e50;text-align:right;border-bottom:1px solid #e9ecef;">${cv.title || cv.cycle}</td>
+        <td style="padding:8px;font-size:12px;color:#6c757d;text-align:right;border-bottom:1px solid #e9ecef;">${cv.responsible}</td>
+        <td style="padding:8px;text-align:center;font-size:12px;font-weight:bold;color:#2c3e50;border-bottom:1px solid #e9ecef;">${cv.total}</td>
+        <td style="padding:8px;text-align:center;border-bottom:1px solid #e9ecef;">
           <span style="background:#27ae60;color:white;padding:1px 8px;border-radius:8px;font-size:12px;font-weight:bold;">${cv.passed}</span>
         </td>
-        <td style="padding:8px;text-align:center;">
+        <td style="padding:8px;text-align:center;border-bottom:1px solid #e9ecef;">
           <span style="background:#e74c3c;color:white;padding:1px 8px;border-radius:8px;font-size:12px;font-weight:bold;">${cv.failed}</span>
         </td>
-        <td style="padding:8px;text-align:center;">
+        <td style="padding:8px;text-align:center;border-bottom:1px solid #e9ecef;">
           <span style="background:#e67e22;color:white;padding:1px 8px;border-radius:8px;font-size:12px;font-weight:bold;">${cv.blocked}</span>
         </td>
-        <td style="padding:8px;text-align:center;font-size:12px;color:#6c757d;">${cv.notRun}</td>
-        <td style="padding:8px;text-align:center;">
+        <td style="padding:8px;text-align:center;font-size:12px;color:#6c757d;border-bottom:1px solid #e9ecef;">${cv.notRun}</td>
+        <td style="padding:8px;text-align:center;border-bottom:1px solid #e9ecef;">
           <div style="background:linear-gradient(to left,#27ae60 ${passPct}%,#e9ecef ${passPct}%);height:14px;min-width:60px;border-radius:3px;"></div>
           <div style="font-size:10px;color:#6c757d;margin-top:2px;text-align:center;">${passPct}%</div>
         </td>
@@ -776,7 +776,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 <body dir="rtl" style="margin:0;padding:0;background:#f4f6f8;font-family:Arial,Helvetica,sans-serif;direction:rtl;">
 <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f4f6f8">
 <tr><td style="padding:8px;">
-<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="border:1px solid #dee2e6;">
 
   <!-- HEADER -->
   <tr><td bgcolor="#1e3a5f" align="center" style="padding:28px 32px;">

@@ -89,6 +89,21 @@ export interface DefectStatusHistoryDto {
   changeTime: string;
 }
 
+// "יחס תקלות חדשות ביצור" — Target = defects whose TARGET_REL is that release
+// (the release they were meant to be fixed by), New = defects actually
+// DETECTED_IN_REL that release. Same BUG table as the rest of this file, two
+// different grouping keys — confirmed against the reference Power BI page.
+export interface NewVsTargetDefectDto {
+  defectId: string;
+  targetRelId: string | null;
+  targetRelName: string | null;
+  detectedRelId: string | null;
+  detectedRelName: string | null;
+  responsibility: string | null;
+  severity: string | null;
+  detectedDate: string | null;
+}
+
 export interface BugDashboardDto {
   reported: number;
   open: number;
@@ -191,6 +206,24 @@ const DEFECTS_SQL = `
   WHERE BG_USER_05 = 'Sanity Test'
     AND BG_DETECTED_IN_REL  = :releaseId
     AND BG_DETECTED_IN_RCYC = :cycleId
+`;
+
+// "יחס תקלות חדשות ביצור" — cross-release, all-history (no releaseId param,
+// same pattern as OPEN_PROD_DEFECTS_HISTORY_SQL below). REL_NAME resolved via
+// a self-join to RELEASES so the frontend never has to map numeric IDs itself.
+const NEW_VS_TARGET_DEFECTS_SQL = `
+  SELECT
+    BG.BG_BUG_ID          AS DEFECT_ID,
+    BG.BG_TARGET_REL      AS TARGET_REL_ID,
+    RT.REL_NAME           AS TARGET_REL_NAME,
+    BG.BG_DETECTED_IN_REL AS DETECTED_REL_ID,
+    RD.REL_NAME           AS DETECTED_REL_NAME,
+    BG.BG_USER_03         AS RESPONSIBILITY,
+    BG.BG_SEVERITY        AS SEVERITY,
+    BG.BG_DETECTION_DATE  AS DETECTED_DATE
+  FROM BUG BG
+  LEFT JOIN RELEASES RT ON RT.REL_ID = BG.BG_TARGET_REL
+  LEFT JOIN RELEASES RD ON RD.REL_ID = BG.BG_DETECTED_IN_REL
 `;
 
 // Raw rows feeding the bug dashboard (PBIRS-equivalent) — scoped only by
@@ -431,6 +464,63 @@ function buildMockOpenProdDefectsHistory(): OpenProdDefectMonthDto[] {
 }
 
 const MOCK_OPEN_PROD_DEFECTS_HISTORY: OpenProdDefectMonthDto[] = buildMockOpenProdDefectsHistory();
+
+// Compact per-release quota (Target) + per-team defect counts (New), expanded
+// below into one row per synthetic defect — mirrors what NEW_VS_TARGET_DEFECTS_SQL
+// returns for real Oracle data (one BUG row with a TARGET_REL and a
+// DETECTED_IN_REL, which may differ when a defect slips past its target release).
+const MOCK_NEW_VS_TARGET_SOURCE: {
+  release: string; target: number;
+  byTeam: { team: string; newCount: number; severities: string[] }[];
+}[] = [
+  { release: 'ITv01-2025', target: 5,  byTeam: [{ team: 'NETC-DT team', newCount: 27, severities: ['Severe', 'Severe', 'Medium', 'Show Stopper', 'Low'] }] },
+  { release: 'ITv02-2025', target: 16, byTeam: [{ team: 'NETC-DT team', newCount: 10, severities: ['Medium', 'Low', 'Severe'] }] },
+  { release: 'ITv03-2025', target: 16, byTeam: [{ team: 'NETC-DT team', newCount: 11, severities: ['Low', 'Medium'] }] },
+  { release: 'ITv04-2025', target: 10, byTeam: [{ team: 'NETC-DT team', newCount: 18, severities: ['Severe', 'Show Stopper', 'Medium'] }] },
+  { release: 'ITv05-2025', target: 10, byTeam: [{ team: 'NETC-DT team', newCount: 14, severities: ['Medium', 'Low'] }] },
+  { release: 'ITv06-2025', target: 31, byTeam: [{ team: 'NETC-DT team', newCount: 12, severities: ['Low', 'Medium'] }] },
+  { release: 'ITv07-2025', target: 31, byTeam: [{ team: 'NETC-DT team', newCount: 10, severities: ['Medium'] }] },
+  { release: 'ITv08-2025', target: 14, byTeam: [{ team: 'NETC-DT team', newCount: 22, severities: ['Severe', 'Medium', 'Low'] }] },
+];
+
+function buildMockNewVsTargetDefects(): NewVsTargetDefectDto[] {
+  const rows: NewVsTargetDefectDto[] = [];
+  let seq = 30000;
+  for (const r of MOCK_NEW_VS_TARGET_SOURCE) {
+    // Target quota — defects whose TARGET_REL is this release (fix commitment).
+    // Left undetected (detectedRelName: null) so these rows count only toward
+    // Target, not New — a real BUG row would have its own separate detected-in
+    // release, often not this one at all.
+    for (let i = 0; i < r.target; i++) {
+      rows.push({
+        defectId: String(seq++),
+        targetRelId: r.release, targetRelName: r.release,
+        detectedRelId: null, detectedRelName: null,
+        responsibility: r.byTeam[0]?.team ?? null,
+        severity: 'Medium',
+        detectedDate: null,
+      });
+    }
+    // New defects actually detected in this release, per team — no target
+    // commitment tracked in this mock (targetRelName: null), so they count
+    // only toward New, not Target.
+    for (const t of r.byTeam) {
+      for (let i = 0; i < t.newCount; i++) {
+        rows.push({
+          defectId: String(seq++),
+          targetRelId: null, targetRelName: null,
+          detectedRelId: r.release, detectedRelName: r.release,
+          responsibility: t.team,
+          severity: t.severities[i % t.severities.length],
+          detectedDate: null,
+        });
+      }
+    }
+  }
+  return rows;
+}
+
+const MOCK_NEW_VS_TARGET_DEFECTS: NewVsTargetDefectDto[] = buildMockNewVsTargetDefects();
 
 const MOCK_DEFECT_STATUS_HISTORY: Record<string, DefectStatusHistoryDto[]> = {
   '20411': [
@@ -694,6 +784,34 @@ export class QcService {
       return computeBugDashboard((result.rows ?? []) as BugRawRow[]);
     } catch (err: any) {
       this.logger.error(`Oracle getBugDashboard: ${err.message}`);
+      throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
+  }
+
+  // "יחס תקלות חדשות ביצור" — cross-release, all-history (no versionId scoping,
+  // same rationale as getOpenProductionDefectsHistory below).
+  async getNewVsTargetDefects(): Promise<NewVsTargetDefectDto[]> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) return MOCK_NEW_VS_TARGET_DEFECTS;
+
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const result = await conn.execute(NEW_VS_TARGET_DEFECTS_SQL);
+      return (result.rows ?? []).map((r: any): NewVsTargetDefectDto => ({
+        defectId:        String(r.DEFECT_ID),
+        targetRelId:     r.TARGET_REL_ID   != null ? String(r.TARGET_REL_ID) : null,
+        targetRelName:   r.TARGET_REL_NAME ?? null,
+        detectedRelId:   r.DETECTED_REL_ID != null ? String(r.DETECTED_REL_ID) : null,
+        detectedRelName: r.DETECTED_REL_NAME ?? null,
+        responsibility:  r.RESPONSIBILITY ?? null,
+        severity:        r.SEVERITY ?? null,
+        detectedDate:    r.DETECTED_DATE ? new Date(r.DETECTED_DATE).toISOString().slice(0, 10) : null,
+      }));
+    } catch (err: any) {
+      this.logger.error(`Oracle getNewVsTargetDefects: ${err.message}`);
       throw err;
     } finally {
       if (conn) await conn.close().catch(() => {});

@@ -158,18 +158,22 @@ export class TaskProposalsService {
     return { ok: true };
   }
 
-  async removeByCr(versionId: string, crNumber: string, user: { sub: string; role: string }) {
-    const membership = await prisma.teamMember.findFirst({
-      where: { userId: user.sub },
-      select: { teamId: true },
-    });
-    await prisma.taskProposal.deleteMany({
-      where: {
-        versionId,
-        crNumber,
-        ...(membership && !MANAGERS.includes(user.role) ? { teamId: membership.teamId } : {}),
-      },
-    });
+  // Always scoped to a single resolved team — a CR can have separate proposal lists
+  // per team, and deleting one team's list must never touch another team's copy,
+  // even for managers/admins (who resolve their acting team via teamIdOverride).
+  async removeByCr(versionId: string, crNumber: string, user: { sub: string; role: string }, teamIdOverride?: string) {
+    let teamId: string | undefined;
+    if (MANAGERS.includes(user.role) && teamIdOverride) {
+      teamId = teamIdOverride;
+    } else {
+      const membership = await prisma.teamMember.findFirst({
+        where: { userId: user.sub },
+        select: { teamId: true },
+      });
+      teamId = membership?.teamId;
+    }
+    if (!teamId) throw new ForbiddenException('לא ניתן לזהות צוות למחיקה');
+    await prisma.taskProposal.deleteMany({ where: { versionId, crNumber, teamId } });
     return { ok: true };
   }
 
@@ -213,7 +217,21 @@ export class TaskProposalsService {
       select: { teamId: true, status: true },
     });
 
-    const teamIds = [...new Set(proposals.map(p => p.teamId))];
+    // Seed from every team actually assigned CRs on this version — not just
+    // teams that already have a TaskProposal row. A team that never opened
+    // the screen at all previously vanished from this list entirely, making
+    // "all teams done" true the moment the one team that DID engage finished,
+    // even with several other assigned teams having submitted nothing.
+    const exemptRows: any[] = await prisma.$queryRawUnsafe(`SELECT id FROM "Team" WHERE "requiresPlan" = false`);
+    const exemptTeamIds = new Set(exemptRows.map((r: any) => String(r.id)));
+    const assignmentRows = await prisma.versionCrAssignment.findMany({
+      where: { versionId, syncStatus: { not: 'REMOVED' } },
+      select: { teamId: true },
+      distinct: ['teamId'],
+    });
+    const expectedTeamIds = assignmentRows.map(r => r.teamId).filter(id => !exemptTeamIds.has(id));
+
+    const teamIds = [...new Set([...expectedTeamIds, ...proposals.map(p => p.teamId)])];
     const teams = await prisma.team.findMany({
       where: { id: { in: teamIds } },
       select: { id: true, name: true },
@@ -221,11 +239,11 @@ export class TaskProposalsService {
     const teamNameMap = new Map(teams.map(t => [t.id, t.name]));
 
     const map = new Map<string, { teamId: string; teamName: string; total: number; draft: number; submitted: number; returned: number; approved: number }>();
+    for (const teamId of teamIds) {
+      map.set(teamId, { teamId, teamName: teamNameMap.get(teamId) ?? teamId, total: 0, draft: 0, submitted: 0, returned: 0, approved: 0 });
+    }
     for (const p of proposals) {
-      if (!map.has(p.teamId)) {
-        map.set(p.teamId, { teamId: p.teamId, teamName: teamNameMap.get(p.teamId) ?? p.teamId, total: 0, draft: 0, submitted: 0, returned: 0, approved: 0 });
-      }
-      const row = map.get(p.teamId)!;
+      const row = map.get(p.teamId) ?? map.set(p.teamId, { teamId: p.teamId, teamName: teamNameMap.get(p.teamId) ?? p.teamId, total: 0, draft: 0, submitted: 0, returned: 0, approved: 0 }).get(p.teamId)!;
       row.total++;
       if ((p.status as string) === 'READY') row.submitted++;
       else row.draft++;

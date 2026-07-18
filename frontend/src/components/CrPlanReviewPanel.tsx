@@ -21,6 +21,22 @@ const RISK: Record<string, { color: string; bg: string; label: string }> = {
   HIGH:   { color: '#f85149', bg: 'rgba(248,81,73,0.18)',    label: 'סיכון גבוה'   },
 };
 
+// Merging several teams' proposals into one shared phase-timeline only reads as
+// a coherent story if you can tell at a glance who owns each step — a stable
+// color per team name (not per-row-random) makes that possible.
+const TEAM_PALETTE = ['#4573D2', '#9C6ADE', '#37C47A', '#E8AF00', '#F0883E', '#14B8A6', '#EC6BAD', '#6366F1'];
+function teamColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return TEAM_PALETTE[hash % TEAM_PALETTE.length];
+}
+// A note that starts with "תלות" is a dependency call-out, not a generic
+// comment — worth its own visual treatment so the causal thread between merged
+// tasks (from potentially different teams) is visible, not just their order.
+function isDependencyNote(notes: string): boolean {
+  return /^\s*תלות/.test(notes);
+}
+
 /* ─── Types ────────────────────────────────────────────────────────────────── */
 interface TeamInfo  { id: string; name: string }
 interface CrAssign  { crNumber: string; crLabel?: string; crManager?: string; crDescription?: string; team: TeamInfo }
@@ -57,7 +73,11 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
   const [proposals,     setProposals]     = useState<Proposal[]>([]);
   const [submissions,   setSubmissions]   = useState<TeamSub[]>([]);
   const [selectedCr,    setSelectedCr]    = useState<string | null>(null);
-  const [selectedTab,   setSelectedTab]   = useState<'plan' | 'tasks'>('plan');
+  // Defaults to "משימות" (tasks) — in real usage teams fill in the structured
+  // exceptional-action rows, not the legacy free-text plan fields ("תוכנית CR"),
+  // which is almost always empty. Landing there first made it look like there
+  // was no unified plan to review at all.
+  const [selectedTab,   setSelectedTab]   = useState<'plan' | 'tasks'>('tasks');
   const [crFilter,      setCrFilter]      = useState<'all' | 'pending' | 'approved' | 'not_required'>('all');
   const [dialog,        setDialog]        = useState<DialogConfig | null>(null);
   const [approving,     setApproving]     = useState<Set<string>>(new Set());
@@ -496,9 +516,9 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                   const ph = PHASE_COLOR[phase] ?? { bg: C.bgNested, color: C.textMuted };
                   const phaseName = PHASE_LABEL[phase] ?? `שלב ${phase}`;
                   return (
-                    <div key={phase} style={{ marginBottom: '14px' }}>
+                    <div key={phase} style={{ marginBottom: '18px' }}>
                       {/* Phase header */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '7px', padding: '6px 12px', background: ph.bg, borderRadius: '7px', border: `1px solid ${ph.color}25` }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', padding: '6px 12px', background: ph.bg, borderRadius: '7px', border: `1px solid ${ph.color}25` }}>
                         <span style={{ fontSize: '14px', fontWeight: 800, color: ph.color }}>{phaseName}</span>
                         <span style={{ fontSize: '13px', color: ph.color, background: 'white', padding: '1px 7px', borderRadius: '8px', border: `1px solid ${ph.color}30` }}>{phaseProps.length}</span>
                       </div>
@@ -507,34 +527,61 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                           ?? plans.find(p => p.team?.id === prop.teamId)?.team?.name
                           ?? '';
                         const action = prop.actionType || prop.title || '';
-                        /* build narrative sentence from available fields */
+                        /* build narrative sentence — team identity moved out into its
+                           own chip below, so it doesn't need repeating in the sentence */
                         const parts = [
                           prop.assignedUserName || null,
-                          teamName ? `מצוות ${teamName}` : null,
                           action ? `מבצע ${action}` : null,
                           prop.app ? `במערכת ${prop.app}` : null,
                           prop.estimatedMins ? `משך הפעילות כ-${prop.estimatedMins} דקות` : null,
                         ].filter(Boolean);
                         const sentence = parts.join(' ');
+                        const tColor = teamColor(teamName || '?');
+                        const depNote = prop.notes && isDependencyNote(prop.notes);
+                        const isLast = i === phaseProps.length - 1;
                         return (
-                          <div key={prop.id} style={{
-                            padding: '9px 14px', borderRadius: '8px', marginBottom: '6px',
-                            background: i % 2 === 0 ? C.bgApp : C.bgNested,
-                            border: `1px solid ${C.border}`, borderRight: `3px solid ${ph.color}60`,
-                            display: 'flex', alignItems: 'flex-start', gap: '8px',
-                          }}>
-                            <span style={{ color: ph.color, fontSize: '15px', flexShrink: 0, lineHeight: '1.65' }}>•</span>
-                            <div style={{ flex: 1, minWidth: 0 }}>
+                          <div key={prop.id} style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', gap: '11px', paddingBottom: isLast ? 0 : '8px' }}>
+                            {/* Connecting thread — visually links merged tasks (possibly
+                                from different teams) into one sequential story. */}
+                            {!isLast && (
+                              <div style={{ position: 'absolute', top: '26px', bottom: '-2px', right: '13px', width: '2px', background: C.border }} />
+                            )}
+                            <div style={{
+                              width: '26px', height: '26px', borderRadius: '50%', flexShrink: 0, zIndex: 1,
+                              background: prop.status === 'READY' ? 'rgba(63,185,80,0.16)' : C.bgNested,
+                              border: `1.5px solid ${prop.status === 'READY' ? '#3fb950' : C.border}`,
+                              color: prop.status === 'READY' ? '#3fb950' : C.textMuted,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: '12px', fontWeight: 800,
+                            }}>
+                              {prop.status === 'READY' ? '✓' : i + 1}
+                            </div>
+                            <div style={{
+                              flex: 1, minWidth: 0, padding: '9px 14px', borderRadius: '8px',
+                              background: C.bgApp, border: `1px solid ${C.border}`, borderRight: `3px solid ${ph.color}60`,
+                            }}>
+                              {teamName && (
+                                <span style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: '4px', marginBottom: '4px',
+                                  background: `${tColor}16`, color: tColor, border: `1px solid ${tColor}40`,
+                                  borderRadius: '999px', padding: '1px 8px', fontWeight: 700, fontSize: '12px',
+                                }}>
+                                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: tColor }} />
+                                  {teamName}
+                                </span>
+                              )}
                               <div style={{ fontSize: '15px', color: C.textSecondary, lineHeight: 1.65 }}>{sentence || prop.title}</div>
                               {prop.notes && (
-                                <div style={{ marginTop: '4px', fontSize: '14px', color: C.textMuted, paddingRight: '8px', borderRight: `2px solid ${ph.color}40` }}>
-                                  💬 {cleanHtmlText(prop.notes)}
+                                <div style={{
+                                  marginTop: '4px', fontSize: '14px', paddingRight: '8px',
+                                  color: depNote ? C.info : C.textMuted,
+                                  fontWeight: depNote ? 600 : 400,
+                                  borderRight: `2px solid ${depNote ? C.info : ph.color}40`,
+                                }}>
+                                  {depNote ? '↳' : '💬'} {cleanHtmlText(prop.notes)}
                                 </div>
                               )}
                             </div>
-                            <span style={{ flexShrink: 0, fontSize: '13px', padding: '2px 8px', borderRadius: '5px', fontWeight: 700, background: prop.status === 'READY' ? 'rgba(63,185,80,0.18)' : 'rgba(210,153,34,0.18)', color: prop.status === 'READY' ? '#3fb950' : '#d29922', border: `1px solid ${prop.status === 'READY' ? 'rgba(63,185,80,0.4)' : 'rgba(210,153,34,0.4)'}` }}>
-                              {prop.status === 'READY' ? 'מוכן' : 'טיוטא'}
-                            </span>
                           </div>
                         );
                       })}
@@ -595,7 +642,7 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                 const isSelected = selectedCr === crNumber;
                 const dotColor   = isApproved ? '#3fb950' : isNotNeeded ? '#8b949e' : missingCount === 0 ? '#d29922' : '#ef4444';
                 return (
-                  <div key={crNumber} onClick={() => setSelectedCr(crNumber)}
+                  <div key={crNumber} onClick={() => { setSelectedCr(crNumber); setSelectedTab('tasks'); }}
                     style={{ display: 'flex', alignItems: 'flex-start', gap: '9px', padding: '9px 14px', cursor: 'pointer', borderBottom: `1px solid ${C.bgNested}`, borderRight: `3px solid ${isSelected ? C.brand : 'transparent'}`, background: isSelected ? C.infoBg : 'transparent', transition: 'background 0.1s' }}
                     onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = C.bgHover; }}
                     onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}

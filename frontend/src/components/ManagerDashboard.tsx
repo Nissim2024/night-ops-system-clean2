@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { HomeDashboard } from './HomeDashboard';
+import { HomeDashboard, getDeploymentsTabForStatus } from './HomeDashboard';
 import { ReleaseIntelligenceOverview } from './release-intelligence/ReleaseIntelligenceOverview';
 import { DailyQaManagementView } from './release-intelligence/DailyQaManagementView';
 import { CrHealthView } from './release-intelligence/CrHealthView';
@@ -14,18 +14,21 @@ import { ReopenAnalysisView } from './release-intelligence/ReopenAnalysisView';
 import { AlertsIntelligenceView } from './release-intelligence/AlertsIntelligenceView';
 import { GoNoGoView } from './release-intelligence/GoNoGoView';
 import { OpenProdDefectsView } from './quality-hub/OpenProdDefectsView';
+import { NewVsTargetDefectsView } from './quality-hub/NewVsTargetDefectsView';
 import { ReleaseOverviewView } from './quality-hub/ReleaseOverviewView';
 import { KpiMatrixView } from './quality-hub/KpiMatrixView';
 import { ReleaseComparisonView } from './quality-hub/ReleaseComparisonView';
 import { ReleaseQualityTimelineView } from './quality-hub/ReleaseQualityTimelineView';
 import { KpiConfigView } from './quality-hub/KpiConfigView';
 import { VersionsView } from './VersionsView';
+import { VersionManagementModuleView } from './VersionManagementModuleView';
 import { ImportView } from './ImportView';
 import { WarRoom } from './WarRoom';
 import { NightSummary } from './NightSummary';
 import { RehearsalBoardView } from './RehearsalBoardView';
 import { TeamView } from './TeamView';
 import { Sidebar } from './Sidebar';
+import { ModuleFlowStrip } from './ModuleFlowStrip';
 import { useSocket } from '../hooks/useSocket';
 import { TimelineView } from './TimelineView';
 import { AdminPanel } from './AdminPanel';
@@ -38,6 +41,7 @@ import { VersionHub } from './VersionHub';
 import { TeamLeadProposalView } from './TeamLeadProposalView';
 import { CrHandoffView } from './CrHandoffView';
 import { CrReviewView } from './CrReviewView';
+import { UnifiedGoLivePlanView } from './UnifiedGoLivePlanView';
 import { ImplementationPlansView } from './ImplementationPlansView';
 import { CrManagerView } from './CrManagerView';
 import { QaSeasonsView } from './qa/QaSeasonsView';
@@ -69,7 +73,7 @@ interface ToastItem {
 
 export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const appDialog = useDialog();
-  type Tab = 'home' | 'list' | 'version-detail' | 'proposals' | 'cr-review' | 'board' | 'overview' | 'timeline' | 'dashboard' | 'summary-rehearsal' | 'summary-night' | 'rehearsal-board' | 'admin' | 'implementation-plans' | 'cr-manager';
+  type Tab = 'home' | 'list' | 'version-detail' | 'proposals' | 'cr-review' | 'unified-plan' | 'board' | 'overview' | 'timeline' | 'dashboard' | 'summary-rehearsal' | 'summary-night' | 'rehearsal-board' | 'admin' | 'implementation-plans' | 'cr-manager';
   const [activeTab, setActiveTab]               = useState<Tab>(() => {
     try { return JSON.parse(atob(token.split('.')[1])).role === 'CR_MANAGER' ? 'cr-manager' : 'home'; }
     catch { return 'home'; }
@@ -97,7 +101,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [warRoomRefresh, setWarRoomRefresh]      = useState(0);
   const [myTeamId, setMyTeamId]                 = useState('');
   const [openNewVersionForm, setOpenNewVersionForm] = useState(false);
-  const [activeModule, setActiveModule] = useState<'deployments' | 'qa' | 'release-intelligence' | 'quality-hub'>('deployments');
+  const [activeModule, setActiveModule] = useState<'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub'>('deployments');
+  const [activeVmView, setActiveVmView]  = useState('manage');
   const [activeQaView, setActiveQaView]  = useState('assignment');
   const [activeRiView, setActiveRiView]  = useState('overview');
   const [activeQhView, setActiveQhView]  = useState('overview');
@@ -113,6 +118,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const canAccessQa = isQaTeamMember || can('screen:qa');
   const canAccessReleaseIntelligence = can('screen:release-intelligence');
   const canAccessQualityHub = can('screen:quality-hub');
+  const canAccessVersionManagement = ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role);
 
   useSocket({
     userId: payload.sub,
@@ -493,6 +499,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
     { key: 'version-detail', label: 'פרטים',    icon: '📋' },
     { key: 'proposals',      label: 'הגשות',    icon: '📝' },
     { key: 'cr-review', label: 'סקירת CR', icon: '🔍' },
+    { key: 'unified-plan', label: 'תוכנית מאוחדת', icon: '📜' },
     { key: 'board',     label: isRehearsal ? 'ביצוע חזרה' : 'לוח',      icon: isRehearsal ? '🎭' : '⬛' },
     { key: 'overview',  label: isRehearsal ? 'סקירת חזרה' : 'סקירה',    icon: '👥' },
     { key: 'timeline',  label: 'ציר זמן',  icon: '⏱' },
@@ -516,6 +523,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           ? ['COLLECTING', 'CR_REVIEW'].includes(vStatus ?? '')
           : ['COLLECTING', 'CR_REVIEW', 'REFINING'].includes(vStatus ?? '') && can('screen:prep');
         case 'cr-review': return ['CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED', 'REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(vStatus ?? '') &&
+                                 ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role);
+        case 'unified-plan': return ['CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED', 'REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(vStatus ?? '') &&
                                  ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role);
         case 'board':     return isExecution || ['COMPLETED', 'ROLLED_BACK'].includes(vStatus ?? '');
         case 'overview':  return isExecution;
@@ -653,6 +662,28 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
         </div>
       </div>
 
+      {/* ─── Module flow strip — chronological relationship between the 4 top-level modules ─── */}
+      <ModuleFlowStrip
+        activeModule={activeTab === 'home' ? null : activeModule}
+        onModuleChange={m => {
+          if (m === 'version-management' && !canAccessVersionManagement) return;
+          if (m === 'qa' && !canAccessQa) return;
+          if (m === 'release-intelligence' && !canAccessReleaseIntelligence) return;
+          if (m === 'quality-hub' && !canAccessQualityHub) return;
+          setActiveModule(m);
+          if (m === 'deployments' && activeTab === 'home') {
+            setActiveTab(getDeploymentsTabForStatus(selectedVersion?.status ?? 'DRAFT', payload.role) as Tab);
+          }
+          if (m === 'qa') setActiveQaView('assignment');
+          if (m === 'release-intelligence') setActiveRiView('overview');
+          if (m === 'quality-hub') setActiveQhView('overview');
+        }}
+        canAccessVersionManagement={canAccessVersionManagement}
+        canAccessQa={canAccessQa}
+        canAccessReleaseIntelligence={canAccessReleaseIntelligence}
+        canAccessQualityHub={canAccessQualityHub}
+      />
+
       {/* ─── Progress Chain — only when a specific version is in focus (not on home tab) ─── */}
       {activeModule === 'deployments' && activeTab !== 'home' && selectedVersion && versionFilter !== 'archived' && filteredVersions.some(v => v.id === selectedVersionId) && (
         <VersionProgressChain
@@ -704,14 +735,24 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           onNewVersionClick={['ADMIN', 'RELEASE_MANAGER'].includes(payload.role) ? () => { setSelectedVersionId(''); setVersionFilter('inactive'); setActiveTab('list'); setOpenNewVersionForm(true); } : undefined}
           activeModule={activeModule}
           onModuleChange={m => {
+            if (m === 'version-management' && !canAccessVersionManagement) return;
             if (m === 'qa' && !canAccessQa) return;
             if (m === 'release-intelligence' && !canAccessReleaseIntelligence) return;
             if (m === 'quality-hub' && !canAccessQualityHub) return;
             setActiveModule(m);
+            // Home ('activeTab') isn't a real deployments screen — coming from
+            // Home, clicking הטמעות should land on whatever tab is actually
+            // relevant at the version's current stage, not silently stay put.
+            if (m === 'deployments' && activeTab === 'home') {
+              setActiveTab(getDeploymentsTabForStatus(selectedVersion?.status ?? 'DRAFT', payload.role) as Tab);
+            }
             if (m === 'qa') setActiveQaView('assignment');
             if (m === 'release-intelligence') setActiveRiView('overview');
             if (m === 'quality-hub') setActiveQhView('overview');
           }}
+          activeVmView={activeVmView}
+          onVmViewChange={setActiveVmView}
+          canAccessVersionManagement={canAccessVersionManagement}
           activeQaView={activeQaView}
           onQaViewChange={setActiveQaView}
           canAccessQa={canAccessQa}
@@ -729,6 +770,19 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
 
         {/* Main content (second = left in RTL) */}
         <div style={{ flex: 1, padding: '24px', overflowY: 'auto', minWidth: 0, minHeight: 0, background: C.bgApp }}>
+
+          {/* ── Module: ניהול גרסה ── */}
+          {activeModule === 'version-management' && (
+            <VersionManagementModuleView
+              token={token}
+              versions={versions}
+              selectedVersionId={selectedVersionId}
+              onSelectVersion={setSelectedVersionId}
+              activeView={activeVmView}
+              onViewChange={setActiveVmView}
+              onRefreshVersions={fetchVersions}
+            />
+          )}
 
           {/* ── Module: ניהול QA ── */}
           {activeModule === 'qa' && <QaModulePlaceholder view={activeQaView} token={token} role={payload.role} isQaMember={canAccessQa} isQaTeamMember={isQaTeamMember} isQaTeamLead={isQaTeamLead} initialVersionId={selectedVersionId || undefined} />}
@@ -794,6 +848,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           {activeModule === 'quality-hub' && activeQhView === 'open-prod-defects' && (
             <OpenProdDefectsView token={token} />
           )}
+          {activeModule === 'quality-hub' && activeQhView === 'new-vs-target-defects' && (
+            <NewVsTargetDefectsView token={token} />
+          )}
 
           {activeModule === 'deployments' && (<>
 
@@ -816,8 +873,18 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 setSelectedVersionId(''); setVersionFilter('inactive'); setActiveTab('list'); setOpenNewVersionForm(true);
               } : undefined}
               canAccessQa={canAccessQa}
+              isQaTeamMember={isQaTeamMember}
+              canAccessVersionManagement={canAccessVersionManagement}
+              canAccessReleaseIntelligence={canAccessReleaseIntelligence}
+              canAccessQualityHub={canAccessQualityHub}
               onSwitchToQa={() => { setActiveModule('qa'); setActiveQaView('assignment'); }}
               onGoToLeaves={() => { setActiveModule('qa'); setActiveQaView('leaves'); }}
+              onSwitchToModule={m => {
+                setActiveModule(m);
+                if (m === 'qa') setActiveQaView('assignment');
+                if (m === 'release-intelligence') setActiveRiView('overview');
+                if (m === 'quality-hub') setActiveQhView('overview');
+              }}
             />
           )}
 
@@ -881,6 +948,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 handleVersionFocus={handleVersionSync}
                 onGoToAdmin={() => setActiveTab('admin')}
                 onGoHome={() => setActiveTab('home')}
+                onNavigateTab={tab => setActiveTab(tab as Tab)}
                 autoNew={openNewVersionForm}
                 onAutoNewConsumed={() => setOpenNewVersionForm(false)}
               />
@@ -899,6 +967,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
               handleVersionFocus={handleVersionSync}
               onGoToAdmin={() => setActiveTab('admin')}
               onGoHome={() => setActiveTab('home')}
+              onNavigateTab={tab => setActiveTab(tab as Tab)}
             />
           )}
 
@@ -911,6 +980,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 versionId={selectedVersionId}
                 versionName={selectedVersion.name}
                 reviewMeetingTime={selectedVersion.reviewMeetingTime}
+                isManager={['RELEASE_MANAGER', 'ADMIN'].includes(payload.role)}
               />
             ) : <EmptyVersionMessage />
           )}
@@ -920,6 +990,18 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
             noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
             selectedVersionId && selectedVersion ? (
               <CrReviewView
+                token={token}
+                versionId={selectedVersionId}
+                versionName={selectedVersion.name}
+              />
+            ) : <EmptyVersionMessage />
+          )}
+
+          {/* ── Tab: תוכנית מאוחדת לעלייה לאוויר ── */}
+          {activeTab === 'unified-plan' && (
+            noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
+            selectedVersionId && selectedVersion ? (
+              <UnifiedGoLivePlanView
                 token={token}
                 versionId={selectedVersionId}
                 versionName={selectedVersion.name}
@@ -1568,9 +1650,10 @@ const ListTabContent: React.FC<{
   handleVersionFocus: (id: string) => void;
   onGoToAdmin: () => void;
   onGoHome?: () => void;
+  onNavigateTab?: (tab: string) => void;
   autoNew?: boolean;
   onAutoNewConsumed?: () => void;
-}> = ({ token, selectedVersionId, selectedVersion, versionFilter, fetchVersions, handleGoLive, handleVersionFocus, onGoToAdmin, onGoHome, autoNew, onAutoNewConsumed }) => (
+}> = ({ token, selectedVersionId, selectedVersion, versionFilter, fetchVersions, handleGoLive, handleVersionFocus, onGoToAdmin, onGoHome, onNavigateTab, autoNew, onAutoNewConsumed }) => (
   <VersionsView
     key={selectedVersionId || versionFilter + (autoNew ? '-new' : '')}
     token={token}
@@ -1579,6 +1662,7 @@ const ListTabContent: React.FC<{
     onVersionFocus={handleVersionFocus}
     onGoHome={onGoHome}
     onGoToAdmin={onGoToAdmin}
+    onNavigateTab={onNavigateTab}
     initialSelectedId={selectedVersionId}
     autoNew={autoNew}
   />

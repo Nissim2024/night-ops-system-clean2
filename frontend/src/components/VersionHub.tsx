@@ -248,6 +248,16 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
           badge: undefined as string | undefined,
           badgeColor: C.textMuted,
         }] : []),
+        ...(isManager ? [{
+          id: 'unified-plan',
+          icon: '📜',
+          title: 'תוכנית מאוחדת',
+          subtitle: 'תסריט אחד רציף לכל הצוותים לפי סדר זמנים',
+          tab: 'unified-plan',
+          enabled: hasCrPlans || enabledWhenClosed(hasCrPlans),
+          badge: undefined as string | undefined,
+          badgeColor: C.textMuted,
+        }] : []),
         ...(['RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'].includes(userRole) ? [{
           id: 'implementation-plans',
           icon: '📁',

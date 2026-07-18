@@ -47,6 +47,10 @@ interface CrRec {
   application:  string | null;
   project:      string | null;
   isStandAlone: boolean;
+  isCore:       boolean;
+  priorityTestDate: string | null;
+  notes:        string | null;
+  urgent:       boolean;
   qaEffortDays: number | null;
   systems:      string[];
   riskLevel:    string | null;
@@ -252,6 +256,7 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const [openPicker, setOpenPicker]           = useState<PickerPos | null>(null);
   const [pickerMode, setPickerMode]           = useState<'primary' | 'secondary'>('primary');
   const [openCyclesPicker, setOpenCyclesPicker] = useState<string | null>(null);
+  const [openPriorityPicker, setOpenPriorityPicker] = useState<string | null>(null);
   const [scoring, setScoring]                 = useState<Record<string, ScoringResult>>({});
   const [scoringLoading, setScoringLoading]   = useState<string | null>(null);
   const [saving, setSaving]                   = useState<string | null>(null);
@@ -266,6 +271,7 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const [showHidden, setShowHidden]           = useState(false);
   const pickerRef      = useRef<HTMLDivElement>(null);
   const cyclesPickerRef = useRef<HTMLDivElement>(null);
+  const priorityPickerRef = useRef<HTMLDivElement>(null);
 
   // ── Fetch versions ──────────────────────────────────────────────────────────
 
@@ -380,6 +386,7 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
         if (!inDom && !inRect) setOpenPicker(null);
       }
       if (cyclesPickerRef.current && !cyclesPickerRef.current.contains(e.target as Node)) setOpenCyclesPicker(null);
+      if (priorityPickerRef.current && !priorityPickerRef.current.contains(e.target as Node)) setOpenPriorityPicker(null);
     };
     const closePicker = (e: Event) => {
       if (pickerRef.current && pickerRef.current.contains(e.target as Node)) return;
@@ -570,6 +577,18 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patchAssignment, headers, selectedVId]);
+
+  // ── Patch CR-level classification/priority fields (isCore / urgent / priorityTestDate / notes) ──
+  const patchCrRecord = useCallback(async (
+    crNumber: string,
+    patch: { isCore?: boolean; urgent?: boolean; priorityTestDate?: string | null; notes?: string | null },
+  ) => {
+    setCrs(prev => prev.map(c => c.crNumber === crNumber ? { ...c, ...patch } : c));
+    try {
+      await axios.patch(`${API}/version-cr-assignments/cr/${selectedVId}/${crNumber}`, patch, { headers });
+    } catch (e) { console.error('CR record patch failed', e); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [headers, selectedVId]);
 
   // ── Sync CR_LIST from Excel (preview → modal → apply) ────────────────────
 
@@ -1286,6 +1305,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                       { key: 'label',  label: 'תיאור' },
                       { key: 'effort', label: 'ימי עבודה' },
                       { key: null,     label: 'סוג'   },
+                      { key: null,     label: 'עדיפות' },
                       { key: null,     label: 'סבבים' },
                       { key: 'order',  label: 'סדר'   },
                       { key: 'tester', label: 'בודק'  },
@@ -1405,22 +1425,93 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                           )}
                         </td>
 
-                        {/* סוג: integrative / SA toggle — always interactive */}
+                        {/* סוג: integrative / SA toggle + ליבה (core) toggle — always interactive */}
                         <td style={{ padding: `${SP[2]} ${SP[3]}`, whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <button
+                              title={effectiveSA ? 'לחץ להפוך לאינטגרטיבי' : 'לחץ להפוך ל-Stand Alone'}
+                              onClick={() => toggleStandAlone(cr, asg, effectiveSA)}
+                              style={{
+                                padding: '2px 8px',
+                                background: effectiveSA ? 'rgba(183,107,0,0.13)' : BLUE_BG,
+                                color:      effectiveSA ? '#b76b00'              : BLUE,
+                                border:     `1px solid ${effectiveSA ? '#b76b0044' : BLUE + '44'}`,
+                                borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold,
+                                cursor: 'pointer', fontFamily: FONT, transition: EASE.fast,
+                              }}
+                            >
+                              {effectiveSA ? 'SA' : 'אינטג\''}
+                            </button>
+                            <button
+                              title={cr.isCore ? 'לחץ להסיר סימון ליבה' : 'לחץ לסמן כליבה'}
+                              onClick={() => patchCrRecord(cr.crNumber, { isCore: !cr.isCore })}
+                              style={{
+                                padding: '2px 8px',
+                                background: cr.isCore ? 'rgba(220,38,38,0.10)' : C.bgNested,
+                                color:      cr.isCore ? '#dc2626'              : C.textMuted,
+                                border:     `1px solid ${cr.isCore ? '#dc262644' : C.border}`,
+                                borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold,
+                                cursor: 'pointer', fontFamily: FONT, transition: EASE.fast,
+                              }}
+                            >
+                              ליבה
+                            </button>
+                          </div>
+                        </td>
+
+                        {/* עדיפות: urgent flag + priority test date + notes — popover */}
+                        <td style={{ padding: `${SP[2]} ${SP[3]}`, position: 'relative', whiteSpace: 'nowrap' }}>
                           <button
-                            title={effectiveSA ? 'לחץ להפוך לאינטגרטיבי' : 'לחץ להפוך ל-Stand Alone'}
-                            onClick={() => toggleStandAlone(cr, asg, effectiveSA)}
+                            title="עדיפות בדיקה / דחיפות / הערות"
+                            onClick={() => setOpenPriorityPicker(openPriorityPicker === cr.crNumber ? null : cr.crNumber)}
                             style={{
                               padding: '2px 8px',
-                              background: effectiveSA ? 'rgba(183,107,0,0.13)' : BLUE_BG,
-                              color:      effectiveSA ? '#b76b00'              : BLUE,
-                              border:     `1px solid ${effectiveSA ? '#b76b0044' : BLUE + '44'}`,
+                              background: cr.urgent ? C.dangerBg : cr.priorityTestDate ? '#fff7e6' : cr.notes ? C.bgNested : 'transparent',
+                              color:      cr.urgent ? C.danger   : cr.priorityTestDate ? '#b76b00' : C.textMuted,
+                              border:     `1px solid ${cr.urgent ? C.danger + '44' : cr.priorityTestDate ? '#b76b0044' : C.border}`,
                               borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold,
                               cursor: 'pointer', fontFamily: FONT, transition: EASE.fast,
                             }}
                           >
-                            {effectiveSA ? 'SA' : 'אינטג\''}
+                            {cr.urgent ? '🔴 דחוף' : cr.priorityTestDate ? `📅 ${new Date(cr.priorityTestDate).toLocaleDateString('he-IL')}` : cr.notes ? '📝' : '—'}
                           </button>
+
+                          {openPriorityPicker === cr.crNumber && (
+                            <div
+                              ref={priorityPickerRef}
+                              style={{ position: 'absolute', top: '100%', right: 0, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.lg, width: 260, zIndex: 400, padding: SP[3], display: 'flex', flexDirection: 'column', gap: SP[2] }}
+                              onClick={e => e.stopPropagation()}
+                            >
+                              <label style={{ display: 'flex', alignItems: 'center', gap: SP[2], cursor: 'pointer', ...TEXT.sm, color: C.textPrimary }}>
+                                <input
+                                  type="checkbox"
+                                  checked={cr.urgent}
+                                  onChange={e => patchCrRecord(cr.crNumber, { urgent: e.target.checked })}
+                                />
+                                🔴 דחוף — תזכורת להמשך טיפול
+                              </label>
+                              <div>
+                                <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>
+                                  עולה לייצור לפני הגרסה / מחוץ למסגרתה — יש לבדוק ראשון
+                                </div>
+                                <input
+                                  type="date"
+                                  value={cr.priorityTestDate ? cr.priorityTestDate.slice(0, 10) : ''}
+                                  onChange={e => patchCrRecord(cr.crNumber, { priorityTestDate: e.target.value || null })}
+                                  style={{ width: '100%', padding: '5px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.sm, fontFamily: FONT, boxSizing: 'border-box' }}
+                                />
+                              </div>
+                              <div>
+                                <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>הערות</div>
+                                <textarea
+                                  defaultValue={cr.notes ?? ''}
+                                  onBlur={e => patchCrRecord(cr.crNumber, { notes: e.target.value || null })}
+                                  rows={2}
+                                  style={{ width: '100%', padding: '5px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.sm, fontFamily: FONT, resize: 'vertical', boxSizing: 'border-box' }}
+                                />
+                              </div>
+                            </div>
+                          )}
                         </td>
 
                         {/* סבבים: cycles multiselect */}

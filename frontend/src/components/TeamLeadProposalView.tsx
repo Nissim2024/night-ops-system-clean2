@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
-import { C, FONT, RADIUS, SHADOW } from '../theme';
+import { C, FONT, FONT_MONO, RADIUS, SHADOW, WEIGHT } from '../theme';
 import { cleanHtmlText } from '../utils/textSanitize';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -44,14 +44,6 @@ const TEAM_APPS: Record<string, string[]> = {
   // Teams not listed → show all APPS (fallback handled below)
 };
 
-const APP_TO_TEAMS: Record<string, string[]> = (() => {
-  const m: Record<string, string[]> = {};
-  Object.entries(TEAM_APPS).forEach(([team, apps]) => {
-    apps.forEach(app => { m[app] = [...(m[app] || []), team]; });
-  });
-  return m;
-})();
-
 const ACTION_TYPES = [
   'הרצת סקריפט',
   'הגדרת פרמטרים',
@@ -65,14 +57,38 @@ const ACTION_TYPES = [
   'פעולה ידנית',
   'אחר',
 ];
-const CR_TYPES   = ['תיקון תקלה', 'פיתוח חדש', 'שינוי תשתית', 'שיפור ביצועים'];
-const RISK_LEVELS = ['LOW', 'MEDIUM', 'HIGH'];
-const RISK_LABELS: Record<string, string> = { LOW: 'נמוך', MEDIUM: 'בינוני', HIGH: 'גבוה' };
-const RISK_COLORS: Record<string, { bg: string; color: string }> = {
-  LOW:    { bg: C.successBg, color: C.success },
-  MEDIUM: { bg: C.warningBg, color: C.warning },
-  HIGH:   { bg: C.dangerBg,  color: C.danger },
-};
+// ── טופס CR מובנה (exception-first) — אפיון 2026-07-17 ─────────────────────────
+const GOLIVE = C.moduleGoLive; // מודול "עלייה לאוויר" — הגוון הייעודי מהעיצוב שאושר
+const CHANGE_TYPES = ['קוד', 'פרמטר', 'הרשאה', 'Setup', 'ממשק', 'תהליך מתוזמן / Job', 'סקריפט', 'הסבת נתונים', 'קובץ'];
+const PREREQUISITE_OPTIONS = ['אישור מנהל', 'גיבוי מוקדם', 'חלון תחזוקה', 'תיאום עם צוות חיצוני'];
+const ACTION_TYPE_OPTIONS = [
+  'הרצת סקריפט', 'הסבת נתונים', 'טעינת קובץ', 'יצירת תיקייה', 'עדכון Crontab',
+  'עצירת Job', 'הפעלת Job', 'פתיחת פרמטר', 'פתיחת הרשאה', 'בדיקה ידנית', 'פעולת תפעול', 'אחר',
+];
+const MONITORING_TYPES = ['Interface', 'Table', 'Job', 'Report', 'Queue', 'File', 'Other'];
+const ROLLBACK_TYPES = ['כיבוי פרמטר', 'הסרת הרשאה', 'עצירת Job', 'החזרת קובץ', 'חזרה מגיבוי', 'לא נדרש — תיקון ידני', 'אחר'];
+
+interface CrPlanAction {
+  id?: string;
+  actionType: string;
+  description: string;
+  phase: number;
+  subPhaseId?: string;
+  system?: string;
+  estimatedMins?: number;
+  dependsOnTaskId?: string;
+  dependencyNote?: string;
+  ownerName?: string;
+}
+interface CrPlanMonitoringPoint {
+  id?: string;
+  type: string;
+  name: string;
+  note?: string;
+  phase: number;
+  assignedTeamId?: string;
+  assignedUserName?: string;
+}
 
 interface Proposal {
   id: string;
@@ -108,7 +124,20 @@ interface CrPlanData {
   nightTestingNotes?: string;
   morningMonitoring?: string;
   notNeededForPlan: boolean;
-  crDeps: { id: string; dependsOnCr: string }[];
+  crDeps: { id: string; dependsOnCr: string; note?: string }[];
+  submissionStatus?: 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED';
+  returnReason?: string;
+  // ── טופס CR מובנה ──
+  gateAnswered: boolean;
+  changeTypes: string[];
+  prerequisites: string[];
+  prerequisitesNote?: string;
+  nightTestNeeded: boolean;
+  nextDayTestNeeded: boolean;
+  nextDayTestNotes?: string;
+  rollbackType?: string;
+  actions: (CrPlanAction & { id: string })[];
+  monitoringPoints: (CrPlanMonitoringPoint & { id: string })[];
 }
 
 interface CrPlanForm {
@@ -124,6 +153,18 @@ interface CrPlanForm {
   nightTestingNotes: string;
   morningMonitoring: string;
   dependsOnCrs: string[];
+  dependencyNotes: Record<string, string>;
+  // ── טופס CR מובנה ──
+  gateAnswered: boolean;
+  changeTypes: string[];
+  prerequisites: string[];
+  prerequisitesNote: string;
+  nightTestNeeded: boolean;
+  nextDayTestNeeded: boolean;
+  nextDayTestNotes: string;
+  rollbackType: string;
+  actions: CrPlanAction[];
+  monitoringPoints: CrPlanMonitoringPoint[];
 }
 
 const emptyCrPlanForm = (): CrPlanForm => ({
@@ -139,7 +180,52 @@ const emptyCrPlanForm = (): CrPlanForm => ({
   nightTestingNotes: '',
   morningMonitoring: '',
   dependsOnCrs: [],
+  dependencyNotes: {},
+  gateAnswered: false,
+  changeTypes: [],
+  prerequisites: [],
+  prerequisitesNote: '',
+  nightTestNeeded: false,
+  nextDayTestNeeded: false,
+  nextDayTestNotes: '',
+  rollbackType: '',
+  actions: [],
+  monitoringPoints: [],
 });
+
+// Builds editable form state from a saved CrPlan — used both after fetching the
+// version's plans and right after a save/submit response, so ids assigned by the
+// server (needed to keep CrPlanAction rows stable across saves) always flow back
+// into local state instead of being silently dropped.
+const planToForm = (p: CrPlanData): CrPlanForm => {
+  const dependencyNotes: Record<string, string> = {};
+  for (const d of p.crDeps) if (d.note) dependencyNotes[d.dependsOnCr] = d.note;
+  return {
+    crType: p.crType ?? 'פיתוח חדש',
+    riskLevel: p.riskLevel ?? '',
+    systems: Array.from(new Set((p.systems ?? []).filter(Boolean))),
+    workPlan: p.workPlan ?? '',
+    scripts: p.scripts ?? '',
+    runTimes: p.runTimes ?? '',
+    rollbackPlan: p.rollbackPlan ?? '',
+    gradualRollout: p.gradualRollout,
+    gradualDetails: p.gradualDetails ?? '',
+    nightTestingNotes: p.nightTestingNotes ?? '',
+    morningMonitoring: p.morningMonitoring ?? '',
+    dependsOnCrs: p.crDeps.map(d => d.dependsOnCr),
+    dependencyNotes,
+    gateAnswered: p.gateAnswered ?? false,
+    changeTypes: p.changeTypes ?? [],
+    prerequisites: p.prerequisites ?? [],
+    prerequisitesNote: p.prerequisitesNote ?? '',
+    nightTestNeeded: p.nightTestNeeded ?? false,
+    nextDayTestNeeded: p.nextDayTestNeeded ?? false,
+    nextDayTestNotes: p.nextDayTestNotes ?? '',
+    rollbackType: p.rollbackType ?? '',
+    actions: (p.actions ?? []).map(a => ({ ...a })),
+    monitoringPoints: (p.monitoringPoints ?? []).map(m => ({ ...m })),
+  };
+};
 
 interface CrItem { id: string; label: string; crManager?: string; crDescription?: string; }
 interface User { id: string; fullName: string; }
@@ -185,13 +271,20 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   const [users, setUsers]               = useState<User[]>([]);
   const [myTeamName, setMyTeamName]     = useState('');
   const [myTeamId, setMyTeamId]         = useState('');
+  // Default-locked to the submitting team — the checkbox is an explicit opt-in
+  // to assign a task to a different (e.g. QA) team, not the default path.
+  const [allowOtherTeam, setAllowOtherTeam] = useState(false);
   const [teams, setTeams]               = useState<any[]>([]);
   const [loading, setLoading]           = useState(true);
+  // Cross-team coordination info per CR — all teams + systems touching it,
+  // not just this lead's own (see cr-scope endpoint on version-cr-assignments).
+  const [crScope, setCrScope]           = useState<Record<string, { teamNames: string[]; systems: string[] }>>({});
 
   // Submission state
   const [submissionDone, setSubmissionDone] = useState(false);
   const [submitting, setSubmitting]         = useState(false);
   const [submitError, setSubmitError]       = useState<string | null>(null);
+  const [submitErrorCrs, setSubmitErrorCrs] = useState<string[]>([]);
   const [managerUnlocked, setManagerUnlocked] = useState(false);
   // locked = הגשה הושלמה ולא בוצע ביטול נעילה ע"י מנהל
   const locked = submissionDone && !managerUnlocked;
@@ -209,6 +302,14 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   const [expandedPlans, setExpandedPlans] = useState<Set<string>>(new Set());
   const [crPlanForms, setCrPlanForms]   = useState<Record<string, CrPlanForm>>({});
   const [savingPlan, setSavingPlan]     = useState<string | null>(null);
+  const [derivedTaskNote, setDerivedTaskNote] = useState<Record<string, string>>({});
+  // Per-CR: once a plan is SUBMITTED/APPROVED the form locks read-only — clicking
+  // the confirm button again shouldn't silently keep re-saving it. An explicit
+  // "פתח לעריכה" unlocks one specific CR for editing.
+  const [unlockedForEdit, setUnlockedForEdit] = useState<Set<string>>(new Set());
+  // Collapsible dependency picker — which action's picker is open, and which phase
+  // groups within it are expanded. Only one can be open at a time.
+  const [depPicker, setDepPicker] = useState<{ actionIdx: number; openPhases: Set<number> } | null>(null);
   const [selectedCr, setSelectedCr]   = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState<'plan' | 'tasks'>('plan');
 
@@ -307,6 +408,35 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
       .catch(() => {});
   }, [versionId]); // eslint-disable-line
 
+  // Real tasks already scheduled in this version's framework plan — used to let a team
+  // pick an actual dependency instead of typing free text (TEAM_LEAD sees all teams' tasks).
+  const [frameworkTasks, setFrameworkTasks] = useState<{ id: string; title: string; subPhaseId: string | null }[]>([]);
+
+  useEffect(() => {
+    if (!versionId) return;
+    axios.get(`${API}/tasks`, { headers, params: { versionId } })
+      .then(r => setFrameworkTasks((r.data as any[]).map(t => ({ id: t.id, title: t.title, subPhaseId: t.subPhaseId }))))
+      .catch(() => {});
+  }, [versionId]); // eslint-disable-line
+
+  // Framework tasks grouped שלב ← תת-שלב ← משימה, for the collapsible dependency picker.
+  const frameworkTasksByPhase = useMemo(() => {
+    const subPhaseById = new Map(subPhaseOpts.map(sp => [sp.id, sp]));
+    const byPhase = new Map<number, { phaseLabel: string; bySubPhase: Map<string, { subPhaseName: string; tasks: { id: string; title: string }[] }> }>();
+    for (const t of frameworkTasks) {
+      const sp = t.subPhaseId ? subPhaseById.get(t.subPhaseId) : undefined;
+      const phaseOrderIndex = sp?.phaseOrderIndex ?? 0;
+      const phaseLabel = sp ? `שלב ${phaseOrderIndex} — ${sp.phaseName}` : 'ללא שלב';
+      if (!byPhase.has(phaseOrderIndex)) byPhase.set(phaseOrderIndex, { phaseLabel, bySubPhase: new Map() });
+      const phaseEntry = byPhase.get(phaseOrderIndex)!;
+      const subKey = sp?.id ?? '__none__';
+      const subName = sp?.name ?? 'ללא תת-שלב';
+      if (!phaseEntry.bySubPhase.has(subKey)) phaseEntry.bySubPhase.set(subKey, { subPhaseName: subName, tasks: [] });
+      phaseEntry.bySubPhase.get(subKey)!.tasks.push({ id: t.id, title: t.title });
+    }
+    return Array.from(byPhase.entries()).sort((a, b) => a[0] - b[0]);
+  }, [frameworkTasks, subPhaseOpts]);
+
   // Phase labels derived from actual version phase names
   const phaseLabels = useMemo(() => {
     const map: Record<number, string> = {};
@@ -351,23 +481,15 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
       const forms: Record<string, CrPlanForm> = {};
       for (const p of res.data as CrPlanData[]) {
         map[p.crNumber] = p;
-        forms[p.crNumber] = {
-          crType: p.crType ?? 'פיתוח חדש',
-          riskLevel: p.riskLevel ?? '',
-          systems: Array.from(new Set((p.systems ?? []).filter(Boolean))),
-          workPlan: p.workPlan ?? '',
-          scripts: p.scripts ?? '',
-          runTimes: p.runTimes ?? '',
-          rollbackPlan: p.rollbackPlan ?? '',
-          gradualRollout: p.gradualRollout,
-          gradualDetails: p.gradualDetails ?? '',
-          nightTestingNotes: p.nightTestingNotes ?? '',
-          morningMonitoring: p.morningMonitoring ?? '',
-          dependsOnCrs: p.crDeps.map(d => d.dependsOnCr),
-        };
+        forms[p.crNumber] = planToForm(p);
       }
       setCrPlans(map);
-      setCrPlanForms(prev => ({ ...forms, ...prev }));
+      // Freshly-fetched server data must win over local state — a separate effect
+      // seeds an empty draft form the moment a CR shows up in `proposals`, which can
+      // race ahead of this fetch and otherwise clobber an already-submitted plan's
+      // real gateAnswered/actions back to a blank gate screen (list still says "done"
+      // since that reads from `crPlans`, but the detail panel would show the gate again).
+      setCrPlanForms(prev => ({ ...prev, ...forms }));
     } catch { /* silent */ }
   }, [versionId]); // eslint-disable-line
 
@@ -377,6 +499,13 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         .sort((a: any, b: any) => a.fullName.localeCompare(b.fullName, 'he'))))
       .catch(() => {});
     axios.get(`${API}/teams`, { headers }).then(r => setTeams(r.data)).catch(() => {});
+    axios.get(`${API}/version-cr-assignments/version/${versionId}/cr-scope`, { headers })
+      .then(r => {
+        const map: Record<string, { teamNames: string[]; systems: string[] }> = {};
+        (r.data ?? []).forEach((row: any) => { map[row.crNumber] = { teamNames: row.teamNames, systems: row.systems }; });
+        setCrScope(map);
+      })
+      .catch(() => setCrScope({}));
     Promise.all([fetchProposals(), fetchCrPlans().then(() => syncCrItems(true))])
       .finally(() => setLoading(false)); // spinner stays until proposals + CR sync complete
   }, [versionId]); // eslint-disable-line
@@ -466,6 +595,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   const openAdd = (crNumber?: string, crLabel?: string, isFree?: boolean) => {
     setEditId(null);
     setForm({ ...emptyForm, crNumber: crNumber || '', crLabel: crLabel || '', isFree: isFree ?? false, responsibleTeamId: myTeamId });
+    setAllowOtherTeam(false);
     setCrSearch(crNumber || '');
     setError(null);
     setOpenFormForCr(isFree ? FREE_KEY : (crNumber || FREE_KEY));
@@ -473,14 +603,19 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
   const openEdit = (p: Proposal) => {
     setEditId(p.id);
+    const responsibleTeamId = (p as any).responsibleTeamId ?? '';
     setForm({
       title: p.title, app: p.app ?? '', actionType: p.actionType ?? '',
       estimatedMins: p.estimatedMins?.toString() ?? '',
       crNumber: p.crNumber ?? '', crLabel: p.crLabel ?? '', isFree: !p.crNumber,
       notes: p.notes ?? '', assignedUserName: p.assignedUserName ?? '', phase: p.phase,
       subPhaseId: '',
-      responsibleTeamId: (p as any).responsibleTeamId ?? '',
+      responsibleTeamId,
     });
+    // Pre-check the box if this task was already assigned to a team other than
+    // ours, so an existing cross-team assignment stays visible instead of
+    // being silently forced back to our own team.
+    setAllowOtherTeam(!!responsibleTeamId && responsibleTeamId !== myTeamId);
     setCrSearch(p.crNumber || '');
     setError(null);
     setOpenFormForCr(p.crNumber || FREE_KEY);
@@ -588,13 +723,16 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           .map(c => ({ id: c.crNumber, label: c.crLabel, crManager: c.crManager, crDescription: c.crDescription }));
         return [...updated, ...toAdd];
       });
-      // Create CrPlan entry for each CR found (skip existing ones)
+      // Create a CrPlan entry for any CR not seen before. syncOnly tells the backend
+      // to never touch (or resurrect) a plan the team already explicitly deleted, and
+      // to leave gate/actions/dependencies alone on plans that already exist.
       await Promise.all(crs.map(c =>
         axios.post(`${API}/cr-plans/version/${versionId}`, {
           crNumber: c.crNumber,
           crLabel: c.crLabel,
           crManager: c.crManager || undefined,
           crDescription: c.crDescription || undefined,
+          syncOnly: true,
           ...(teamIdOverride ? { teamIdOverride } : {}),
         }, { headers }).catch(() => { /* skip if already exists */ })
       ));
@@ -613,9 +751,12 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
       confirmLabel: 'מחק CR',
       cancelLabel: 'ביטול',
       onConfirm: async () => {
-        await axios.delete(`${API}/task-proposals/version/${versionId}/cr/${crNumber}`, { headers });
+        const teamQuery = teamIdOverride ? `?teamIdOverride=${teamIdOverride}` : '';
+        await axios.delete(`${API}/task-proposals/version/${versionId}/cr/${crNumber}${teamQuery}`, { headers });
         const plan = crPlans[crNumber];
         if (plan) await axios.delete(`${API}/cr-plans/${plan.id}`, { headers });
+        setCrPlanForms(prev => { const next = { ...prev }; delete next[crNumber]; return next; });
+        if (selectedCr === crNumber) setSelectedCr(null);
         await Promise.all([fetchProposals(), fetchCrPlans()]);
       },
       onCancel: () => {},
@@ -633,9 +774,8 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     }
   };
 
-  const saveCrPlan = async (crNumber: string) => {
-    const f = crPlanForms[crNumber];
-    if (!f) return;
+  const saveCrPlan = async (crNumber: string, overrides?: Partial<CrPlanForm>, notNeededForPlan?: boolean) => {
+    const f = { ...(crPlanForms[crNumber] || emptyCrPlanForm()), ...overrides };
     setSavingPlan(crNumber);
     try {
       const label = getCrLabel(crNumber) || crPlans[crNumber]?.crLabel || '';
@@ -654,11 +794,87 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         nightTestingNotes: f.nightTestingNotes || undefined,
         morningMonitoring: f.morningMonitoring || undefined,
         dependsOnCrs: f.dependsOnCrs,
+        dependencyNotes: f.dependencyNotes,
+        notNeededForPlan: notNeededForPlan !== undefined ? notNeededForPlan : crPlans[crNumber]?.notNeededForPlan,
+        gateAnswered: f.gateAnswered,
+        changeTypes: f.changeTypes,
+        prerequisites: f.prerequisites,
+        prerequisitesNote: f.prerequisitesNote || undefined,
+        nightTestNeeded: f.nightTestNeeded,
+        nextDayTestNeeded: f.nextDayTestNeeded,
+        nextDayTestNotes: f.nextDayTestNotes || undefined,
+        rollbackType: f.rollbackType || undefined,
+        actions: f.actions,
+        monitoringPoints: f.monitoringPoints,
         ...(teamIdOverride ? { teamIdOverride } : {}),
       }, { headers });
       setCrPlans(prev => ({ ...prev, [crNumber]: res.data }));
-    } catch { /* silent */ }
+      // Rebuild form state from the server response (not the locally-sent `f`) so
+      // ids assigned to newly-created actions/monitoring points flow back into local
+      // state — otherwise the next save can't match them by id and would duplicate them.
+      setCrPlanForms(prev => ({ ...prev, [crNumber]: planToForm(res.data) }));
+      return res.data as CrPlanData;
+    } catch { /* silent */ return null; }
     finally { setSavingPlan(null); }
+  };
+
+  // Section-1 gate answer: "No" = no special impact (saves + submits immediately,
+  // matching the mockup's single-click "אשר וחזור לרשימה"). "Yes" reveals sections 2-7.
+  // Submits a saved plan (DRAFT → SUBMITTED) and merges the response into crPlans[crNumber]
+  // only — NOT a full fetchCrPlans() refetch, which would race with other CRs being
+  // answered/confirmed concurrently and can clobber a just-saved sibling CR with a stale
+  // snapshot (e.g. rapid-fire "No" clicks across several CRs).
+  const submitCrPlan = async (crNumber: string, planId: string) => {
+    try {
+      const res = await axios.patch(`${API}/cr-plans/${planId}/submit`, {}, { headers });
+      const { derivedTasks, ...plan } = res.data;
+      setCrPlans(prev => ({ ...prev, [crNumber]: { ...prev[crNumber], ...plan } }));
+      const created = derivedTasks?.created ?? 0;
+      const updated = derivedTasks?.updated ?? 0;
+      if (created > 0 || updated > 0) {
+        const parts: string[] = [];
+        if (created > 0) parts.push(`${created} משימות נוצרו`);
+        if (updated > 0) parts.push(`${updated} עודכנו`);
+        setDerivedTaskNote(prev => ({ ...prev, [crNumber]: `⚡ ${parts.join(' · ')} אוטומטית בלשונית "משימות נגזרות" — יש להשלים משך ביצוע ולסמן "מוכן"` }));
+        await fetchProposals();
+      }
+    } catch { /* silent */ }
+  };
+
+  const answerGate = async (crNumber: string, hasImpact: boolean) => {
+    const saved = await saveCrPlan(crNumber, { gateAnswered: true }, !hasImpact);
+    if (!hasImpact && saved?.id) {
+      await submitCrPlan(crNumber, saved.id);
+      // A CR marked "no special impact" can't have leftover tasks — e.g. someone
+      // added one manually from the "משימות נגזרות" tab before answering the gate.
+      const teamQuery = teamIdOverride ? `?teamIdOverride=${teamIdOverride}` : '';
+      await axios.delete(`${API}/task-proposals/version/${versionId}/cr/${crNumber}${teamQuery}`, { headers }).catch(() => {});
+      await fetchProposals();
+    }
+  };
+
+  // Section-7 "אשר תוכנית CR" — save the full form, then submit the plan (DRAFT → SUBMITTED).
+  // saveCrPlan clears `savingPlan` in its own finally as soon as the save leg finishes,
+  // which used to leave the confirm button re-enabled for the whole submit leg — a
+  // double-click (or an impatient re-click on a slow network) could fire this whole
+  // function twice concurrently. Both overlapping submits then race
+  // syncDerivedProposals: each reads the same not-yet-linked CrPlanAction and creates
+  // its own TaskProposal, leaving a duplicate derived task behind. Re-asserting
+  // savingPlan immediately after saveCrPlan resolves (synchronously, before the next
+  // await) closes that window — see backend/src/cr-plans/cr-plans.service.ts
+  // syncDerivedProposals/upsertDerivedProposal for the create-vs-update decision.
+  const confirmCrPlan = async (crNumber: string) => {
+    setSavingPlan(crNumber);
+    try {
+      const saved = await saveCrPlan(crNumber);
+      setSavingPlan(crNumber);
+      if (saved?.id) await submitCrPlan(crNumber, saved.id);
+    } finally {
+      setSavingPlan(null);
+      // Re-lock after a re-confirm — editing an already-submitted plan again requires
+      // explicitly clicking "פתח לעריכה" again, it doesn't stay open indefinitely.
+      setUnlockedForEdit(prev => { const next = new Set(prev); next.delete(crNumber); return next; });
+    }
   };
 
   const toggleNotNeeded = async (crNumber: string) => {
@@ -670,38 +886,45 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         crNumber,
         crLabel: label || undefined,
         notNeededForPlan: !current,
+        // Reverting "no special impact" reopens the gate so the team can re-answer.
+        gateAnswered: current ? false : true,
         ...(teamIdOverride ? { teamIdOverride } : {}),
       }, { headers });
       setCrPlans(prev => ({ ...prev, [crNumber]: { ...(prev[crNumber] || res.data), ...res.data } }));
+      setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...(prev[crNumber] || emptyCrPlanForm()), gateAnswered: !current ? true : false } }));
+      // A CR marked "no special impact" can't have leftover tasks tied to it —
+      // clean up anything that was manually added before this flip.
+      if (!current) {
+        const teamQuery = teamIdOverride ? `?teamIdOverride=${teamIdOverride}` : '';
+        await axios.delete(`${API}/task-proposals/version/${versionId}/cr/${crNumber}${teamQuery}`, { headers }).catch(() => {});
+        await fetchProposals();
+      }
     } catch { /* silent */ }
     finally { setTogglingNotNeeded(prev => { const next = new Set(prev); next.delete(crNumber); return next; }); }
+  };
+
+  // A CR is "done" once its plan is either flagged not-needed (gate answered "No")
+  // or has been confirmed/submitted (Section 7, or CR-manager already approved it).
+  const isCrDone = (cr: string) => {
+    const p = crPlans[cr];
+    return !!p && (p.notNeededForPlan || p.submissionStatus === 'SUBMITTED' || p.submissionStatus === 'APPROVED');
   };
 
   const submitDone = async () => {
     if (!myTeamId) return;
 
-    // Validate 1: every CR must be either "not needed" or have at least one READY proposal
-    const draftCrs: string[] = [];
-    for (const [crNumber, crProposals] of crGroups) {
-      if (crPlans[crNumber]?.notNeededForPlan) continue;
-      const hasReady = crProposals.some(p => p.status === 'READY' || p.usedInTaskId);
-      if (!hasReady) draftCrs.push(crNumber);
-    }
-    if (draftCrs.length > 0) {
-      setSubmitError(`לא ניתן להגיש — יש CR-ים שלא טופלו: ${draftCrs.join(', ')}. יש לסמן לפחות צעד אחד כ"מוכן", או לסמן את ה-CR כ"לא נדרש לתוכנית".`);
+    const pendingCrs = crGroups.filter(([cr]) => !isCrDone(cr)).map(([cr]) => cr);
+    if (pendingCrs.length > 0) {
+      setSubmitError(`לא ניתן להגיש — יש CR-ים שטרם טופלו: ${pendingCrs.length}. לחץ על CR ברשימה למטה כדי להשלים אותו.`);
+      setSubmitErrorCrs(pendingCrs);
+      // Lead the team lead straight to the first unfinished CR instead of making
+      // them hunt for it in the sidebar list.
+      setSelectedCr(pendingCrs[0]);
+      setSelectedTab('plan');
       return;
     }
 
-    // Validate 2: no proposal (including free/no-CR) may remain in DRAFT
-    const draftFree = freeGroup.filter(p => p.status !== 'READY' && !p.usedInTaskId);
-    const draftInCrs = crGroups.flatMap(([, ps]) => ps.filter(p => p.status !== 'READY' && !p.usedInTaskId));
-    const totalDraft = draftFree.length + draftInCrs.length;
-    if (totalDraft > 0) {
-      setSubmitError(`לא ניתן להגיש — ${totalDraft} משימ${totalDraft === 1 ? 'ה' : 'ות'} עדיין בטיוטא. סמן אותן כ"מוכן" לפני ההגשה.`);
-      return;
-    }
-
-    setSubmitting(true); setSubmitError(null);
+    setSubmitting(true); setSubmitError(null); setSubmitErrorCrs([]);
     try {
       await axios.post(`${API}/versions/${versionId}/submit/${myTeamId}`, {}, { headers });
       setSubmissionDone(true);
@@ -711,12 +934,8 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   };
 
   const totalReady = proposals.filter(p => p.status === 'READY').length;
-  const draftCount = proposals.filter(p => p.status !== 'READY' && !p.usedInTaskId).length;
-  const allCrsHandled = crGroups.length > 0 && crGroups.every(([cr, ps]) =>
-    crPlans[cr]?.notNeededForPlan ||
-    ps.some(p => p.status === 'READY' || p.usedInTaskId)
-  );
-  const canSubmit = allCrsHandled && draftCount === 0;
+  const doneCrCount = crGroups.filter(([cr]) => isCrDone(cr)).length;
+  const canSubmit = crGroups.length > 0 && doneCrCount === crGroups.length;
 
   // Filter users to team members only
   const teamUsers = useMemo(() => {
@@ -916,18 +1135,32 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             <div>
               <label style={labelStyle}>צוות אחראי</label>
               <select
-                value={form.responsibleTeamId || myTeamId}
+                value={allowOtherTeam ? (form.responsibleTeamId || myTeamId) : myTeamId}
+                disabled={!allowOtherTeam}
                 onChange={e => setForm(f => ({ ...f, responsibleTeamId: e.target.value, assignedUserName: '' }))}
-                style={{ ...inputStyle, padding: '10px 12px' }}
+                style={{ ...inputStyle, padding: '10px 12px', ...(!allowOtherTeam ? { background: C.bgNested, color: C.textMuted, cursor: 'not-allowed' } : {}) }}
               >
-                {allowedTeams.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {(allowOtherTeam ? allowedTeams : allowedTeams.filter((t: any) => t.id === myTeamId))
+                  .map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
-              {(form.phase === 2 || form.phase === 3) && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginTop: '6px' }}>
+                <input type="checkbox" id="allow-other-team" checked={allowOtherTeam}
+                  onChange={e => {
+                    const checked = e.target.checked;
+                    setAllowOtherTeam(checked);
+                    if (!checked) setForm(f => ({ ...f, responsibleTeamId: myTeamId, assignedUserName: '' }));
+                  }}
+                  style={{ width: '14px', height: '14px', cursor: 'pointer' }} />
+                <label htmlFor="allow-other-team" style={{ fontSize: '13px', color: C.textSecondary, cursor: 'pointer' }}>
+                  אפשר לבחור צוות אחר
+                </label>
+              </div>
+              {allowOtherTeam && (form.phase === 2 || form.phase === 3) && (
                 <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '3px' }}>
                   ניתן לשייך לצוות QA לביצוע בדיקות
                 </div>
               )}
-              {form.phase === 4 && (
+              {allowOtherTeam && form.phase === 4 && (
                 <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '3px' }}>
                   ניתן לשייך לצוות QA / תפעול לבקרות בוקר
                 </div>
@@ -1044,232 +1277,483 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   );
 
   // ── CrPlan form content ──────────────────────────────────────────────────────
-  const renderCrPlanPanel = (crNumber: string) => {
-    const f        = crPlanForms[crNumber] || emptyCrPlanForm();
-    const otherCrs = allCrNumbers.filter(c => c !== crNumber);
-    const crItem   = crItems.find(c => c.id === crNumber);
-    const crManager     = crItem?.crManager     || crPlans[crNumber]?.crManager     || '';
-    const crDescription = crItem?.crDescription || crPlans[crNumber]?.crDescription || '';
-    const crTitle = crItem?.label
-      ? crItem.label.replace(/^\S+\s*-\s*/, '')
-      : crPlans[crNumber]?.crLabel?.replace(/^\S+\s*-\s*/, '') || crNumber;
-
-    const sect: React.CSSProperties = { height: '1px', background: C.border, margin: '4px 0' };
-    const fLbl: React.CSSProperties = { fontSize: '12px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: '3px' };
-    const ta:   React.CSSProperties = { ...inputStyle, minHeight: '48px', resize: 'vertical', padding: '7px 10px', fontSize: '14px' };
-    const sel:  React.CSSProperties = { ...inputStyle, padding: '7px 10px', fontSize: '14px' };
-
-    const rowHdr = (lbl: string, req: boolean, onExtract: () => void) => (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '3px' }}>
-        <label style={{ ...fLbl, marginBottom: 0 }}>{lbl}{req && <span style={{ color: C.danger }}> *</span>}</label>
-        <button onClick={onExtract} style={{ fontSize: '12px', fontWeight: 600, padding: '2px 8px', background: C.infoBg, color: C.info, border: `1px solid ${C.info}30`, borderRadius: '4px', cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-          ⚡ הפק משימות
+  // ── Section-1 gate — "האם קיימת השפעה תפעולית מיוחדת ל-CR זה?" ──────────────
+  const renderGate = (crNumber: string) => (
+    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.xl, padding: '28px 26px', textAlign: 'center', boxShadow: SHADOW.sm, maxWidth: '620px', margin: '0 auto' }}>
+      <div style={{ fontSize: '18px', fontWeight: WEIGHT.bold, marginBottom: '20px', lineHeight: 1.4, color: C.textPrimary }}>
+        האם קיימת השפעה תפעולית מיוחדת ל-CR זה?
+      </div>
+      <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+        <button onClick={() => answerGate(crNumber, false)} style={{
+          flex: 1, maxWidth: '240px', padding: '18px', borderRadius: RADIUS.lg, fontSize: '15px',
+          fontWeight: WEIGHT.bold, cursor: 'pointer', fontFamily: FONT,
+          border: '2px solid rgba(22,163,74,.25)', background: C.successBg, color: C.success,
+        }}>
+          לא — הטמעה רגילה
+        </button>
+        <button onClick={() => answerGate(crNumber, true)} style={{
+          flex: 1, maxWidth: '240px', padding: '18px', borderRadius: RADIUS.lg, fontSize: '15px',
+          fontWeight: WEIGHT.bold, cursor: 'pointer', fontFamily: FONT,
+          border: '2px solid rgba(217,119,6,.3)', background: C.warningBg, color: C.warning,
+        }}>
+          כן — יש פרטים למלא
         </button>
       </div>
-    );
+    </div>
+  );
+
+  // ── Sections 2–7 — accordion form shown once the gate answer is "כן" ────────
+  const renderCrPlanForm = (crNumber: string) => {
+    const f        = crPlanForms[crNumber] || emptyCrPlanForm();
+    const otherCrs = allCrNumbers.filter(c => c !== crNumber);
+    const plan     = crPlans[crNumber];
+    const submitted = plan?.submissionStatus === 'SUBMITTED' || plan?.submissionStatus === 'APPROVED';
+    const lockedForEdit = submitted && !unlockedForEdit.has(crNumber);
+
+    const update = (patch: Partial<CrPlanForm>) =>
+      setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...(prev[crNumber] || emptyCrPlanForm()), ...patch } }));
+
+    const toggleChip = (list: string[], item: string, key: 'changeTypes' | 'prerequisites') => {
+      const next = list.includes(item) ? list.filter(x => x !== item) : [...list, item];
+      update({ [key]: next } as any);
+    };
+
+    const autoGrow = (e: React.FormEvent<HTMLTextAreaElement>) => {
+      const el = e.currentTarget;
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight}px`;
+    };
+
+    const phaseOptions = Object.keys(phaseLabels).length > 0 ? Object.keys(phaseLabels).map(Number).sort((a, b) => a - b) : [1, 2, 3, 4];
+    // Exceptional actions most commonly happen release night — default to the 2nd
+    // real phase (HOTNET/night) when available, matching the CR-12996 example in the spec.
+    const defaultPhase = phaseOptions[Math.min(1, phaseOptions.length - 1)];
+    const addAction = () => update({ actions: [...f.actions, { actionType: ACTION_TYPE_OPTIONS[0], description: '', phase: defaultPhase, subPhaseId: '', dependencyNote: '', ownerName: '' }] });
+    const updateAction = (idx: number, patch: Partial<CrPlanAction>) =>
+      update({ actions: f.actions.map((a, i) => i === idx ? { ...a, ...patch } : a) });
+    const removeAction = (idx: number) => {
+      update({ actions: f.actions.filter((_, i) => i !== idx) });
+      setDepPicker(null);
+    };
+
+    const addMonitoring = () => update({ monitoringPoints: [...f.monitoringPoints, { type: MONITORING_TYPES[0], name: '', note: '', phase: phaseOptions[phaseOptions.length - 1] }] });
+    const updateMonitoring = (idx: number, patch: Partial<CrPlanMonitoringPoint>) =>
+      update({ monitoringPoints: f.monitoringPoints.map((m, i) => i === idx ? { ...m, ...patch } : m) });
+    const removeMonitoring = (idx: number) => update({ monitoringPoints: f.monitoringPoints.filter((_, i) => i !== idx) });
+
+    // "תמיד כדאי להציג לראש הצוות את הצוותים והמערכות המעורבים" — pulled from the
+    // real cross-team CR assignment scope (cr-scope endpoint), not just whatever
+    // systems this lead happened to tag on their own exceptional actions, so the
+    // team lead sees every other team + system actually touching this CR.
+    const scope = crScope[crNumber];
+    const myTeamLabel = teamNameOverride || myTeamName;
+    const involvedTeams = (scope?.teamNames ?? []).filter(t => t !== myTeamLabel);
+    const involvedSystems = scope?.systems ?? [];
+
+    const depTaskTitle = (taskId: string) => frameworkTasks.find(t => t.id === taskId)?.title;
+    const toggleDepPhase = (ph: number) => setDepPicker(prev => {
+      if (!prev) return prev;
+      const next = new Set(prev.openPhases);
+      if (next.has(ph)) next.delete(ph); else next.add(ph);
+      return { ...prev, openPhases: next };
+    });
+
+    const secHdr: React.CSSProperties = {
+      padding: '12px 18px', borderBottom: `1px solid ${C.border}`, fontSize: '12px', fontWeight: WEIGHT.bold,
+      color: C.textSecondary, textTransform: 'uppercase', letterSpacing: '.04em', display: 'flex', alignItems: 'center', gap: '8px',
+    };
+    const secNum = (n: number): React.CSSProperties => ({
+      width: '20px', height: '20px', borderRadius: '50%', background: GOLIVE, color: '#fff',
+      fontSize: '10px', fontWeight: WEIGHT.bold, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+    });
+    const sec: React.CSSProperties = {
+      background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.xs, marginBottom: '12px', overflow: 'hidden',
+    };
+    const secBody: React.CSSProperties = { padding: '14px 18px' };
+    const chip = (selected: boolean): React.CSSProperties => ({
+      fontSize: '12px', fontWeight: WEIGHT.semibold, padding: '5px 12px', borderRadius: RADIUS.full, cursor: 'pointer',
+      border: `1px solid ${selected ? GOLIVE : C.borderEm}`,
+      background: selected ? `${GOLIVE}22` : C.bgCard,
+      color: selected ? GOLIVE : C.textSecondary,
+    });
+    const miniSel: React.CSSProperties = { fontFamily: FONT, fontSize: '12px', padding: '6px 10px', borderRadius: RADIUS.sm, border: `1px solid ${C.borderEm}`, background: C.bgCard, color: C.textPrimary };
+    const miniTa: React.CSSProperties = { width: '100%', fontFamily: FONT, fontSize: '13px', padding: '8px 10px', borderRadius: RADIUS.sm, border: `1px solid ${C.borderEm}`, background: C.bgCard, color: C.textPrimary, resize: 'none', minHeight: '42px', boxSizing: 'border-box', overflow: 'hidden' };
 
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        {/* hidden preserved fields */}
-        <div style={{ display: 'none' }}>
-          <textarea value={f.scripts}  onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, scripts:  e.target.value } }))} />
-          <textarea value={f.runTimes} onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, runTimes: e.target.value } }))} />
-        </div>
-
-        {/* META STRIP — read-only */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '7px 12px', fontSize: '13px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flex: 1, minWidth: 0 }}>
-            <span style={{ fontSize: '12px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>פרטי CR:</span>
-            <span style={{ color: C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={crDescription || crTitle}>{crDescription || crTitle || '—'}</span>
-          </div>
-          {crManager && <>
-            <div style={{ width: '1px', height: '16px', background: C.border, flexShrink: 0 }} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
-              <span style={{ fontSize: '12px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.04em' }}>מנהל:</span>
-              <span style={{ color: C.textSecondary, fontWeight: 600 }}>{crManager}</span>
-            </div>
-          </>}
-          {(() => {
-            const teams = Array.from(new Set(
-              f.systems.flatMap(s => APP_TO_TEAMS[s] || [])
-            ));
-            if (!teams.length) return null;
-            return <>
-              <div style={{ width: '1px', height: '16px', background: C.border, flexShrink: 0 }} />
-              <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0, maxWidth: '240px', minWidth: 0 }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>צוותים:</span>
-                <span style={{ color: C.textSecondary, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={teams.join(', ')}>
-                  {teams.join(', ')}
-                </span>
-              </div>
-            </>;
-          })()}
-        </div>
-
-        {/* ROW 1: סוג CR | רמת סיכון | מערכות מעורבות — 3 columns */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.4fr', gap: '10px' }}>
-          <div>
-            <label style={fLbl}>סוג CR <span style={{ color: C.danger }}>*</span></label>
-            <select value={f.crType}
-              onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, crType: e.target.value } }))}
-              style={sel}>
-              <option value="">-- בחר --</option>
-              {CR_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={fLbl}>רמת סיכון <span style={{ color: C.danger }}>*</span></label>
-            <select value={f.riskLevel}
-              onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, riskLevel: e.target.value } }))}
-              style={{ ...sel, background: f.riskLevel ? RISK_COLORS[f.riskLevel]?.bg : undefined, color: f.riskLevel ? RISK_COLORS[f.riskLevel]?.color : undefined, fontWeight: f.riskLevel ? '600' : 'normal' }}>
-              <option value="">-- בחר --</option>
-              {RISK_LEVELS.map(r => <option key={r} value={r}>{RISK_LABELS[r]}</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={fLbl}>מערכות מעורבות</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px', padding: '4px 7px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, background: C.bgCard, minHeight: '32px' }}>
-              {f.systems.filter(Boolean).map((s, idx) => (
-                <span key={`${s}-${idx}`} style={{ background: C.infoBg, color: C.info, padding: '2px 7px', borderRadius: RADIUS.sm, fontSize: '13px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px', border: `1px solid ${C.info}25` }}>
-                  {s}
-                  <button onClick={() => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, systems: f.systems.filter(x => x !== s) } }))}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.info, padding: 0, fontSize: '15px', lineHeight: 1, opacity: 0.6, flexShrink: 0 }}>×</button>
-                </span>
-              ))}
-              <select onChange={e => {
-                const value = e.target.value;
-                if (value && !f.systems.includes(value))
-                  setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, systems: [...f.systems, value] } }));
-                e.target.value = '';
-              }} style={{ border: 'none', outline: 'none', fontSize: '13px', color: C.textMuted, background: 'transparent', cursor: 'pointer', direction: 'rtl' }} defaultValue="">
-                <option value="" disabled>+ הוסף מערכת</option>
-                {teamAppList.filter(a => !f.systems.includes(a)).map(a => <option key={a} value={a}>{a}</option>)}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div style={sect} />
-
-        {/* תוכנית עבודה */}
-        <div>
-          {rowHdr('תוכנית עבודה', false, () => openExtract(crNumber, f.workPlan, 'תוכנית עבודה', 3))}
-          <textarea value={f.workPlan}
-            onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, workPlan: e.target.value } }))}
-            style={ta} placeholder="תאר את שלבי הביצוע של ה-CR..." />
-        </div>
-
-        {/* Rollback */}
-        <div>
-          {rowHdr('תוכנית Rollback', false, () => openExtract(crNumber, f.rollbackPlan, 'פעולות Rollback', 3))}
-          <textarea value={f.rollbackPlan}
-            onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, rollbackPlan: e.target.value } }))}
-            style={ta} placeholder="תהליך ה-Rollback במקרה של כשל..." />
-        </div>
-
-        {/* Gradual rollout */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '8px 11px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: '6px' }}>
-          <input type="checkbox" checked={f.gradualRollout} id={`grad-${crNumber}`}
-            onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, gradualRollout: e.target.checked } }))}
-            style={{ width: '15px', height: '15px', cursor: 'pointer' }} />
-          <label htmlFor={`grad-${crNumber}`} style={{ fontSize: '14px', color: C.textSecondary, cursor: 'pointer' }}>פריסה הדרגתית (Gradual Rollout)</label>
-        </div>
-        {f.gradualRollout && (
-          <div>
-            {rowHdr('פרטי עלייה מדורגת', false, () => openExtract(crNumber, f.gradualDetails, 'עלייה מדורגת', 3))}
-            <input value={f.gradualDetails}
-              onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, gradualDetails: e.target.value } }))}
-              style={{ ...inputStyle, padding: '7px 10px', fontSize: '14px' }}
-              placeholder="תאר שלבי העלייה..." />
+      <div>
+        {plan?.submissionStatus === 'RETURNED' && plan.returnReason && (
+          <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}40`, borderRadius: RADIUS.md, padding: '10px 14px', fontSize: '13px', color: C.danger, marginBottom: '12px' }}>
+            ⚠ התוכנית הוחזרה לתיקון: {plan.returnReason}
           </div>
         )}
 
-        <div style={sect} />
+        {(involvedSystems.length > 0 || involvedTeams.length > 0) && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '8px 14px', marginBottom: '12px', fontSize: '12px' }}>
+            {involvedSystems.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ color: C.textMuted, fontWeight: WEIGHT.semibold }}>מערכות מעורבות:</span>
+                <span style={{ color: C.textSecondary }}>{involvedSystems.join(', ')}</span>
+              </div>
+            )}
+            {involvedTeams.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ color: C.textMuted, fontWeight: WEIGHT.semibold }}>צוותים נוספים מעורבים:</span>
+                <span style={{ color: C.textSecondary }}>{involvedTeams.join(', ')}</span>
+              </div>
+            )}
+          </div>
+        )}
 
-        {/* בדיקות לילה */}
-        <div>
-          {rowHdr('בדיקות לילה (שלב 2/3)', true, () => openExtract(crNumber, f.nightTestingNotes, 'בדיקות לילה', 2))}
-          <textarea value={f.nightTestingNotes}
-            onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, nightTestingNotes: e.target.value } }))}
-            style={{ ...ta, borderColor: !f.nightTestingNotes ? `${C.danger}50` : C.border }}
-            placeholder="מה כדאי לבדוק בלילה..." />
+        {lockedForEdit && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: C.successBg, border: '1px solid rgba(22,163,74,.3)', borderRadius: RADIUS.md, padding: '10px 14px', marginBottom: '12px' }}>
+            <span style={{ fontSize: '13px', color: '#0F5A2A', flex: 1 }}>✓ התוכנית הוגשה ונעולה לעריכה.</span>
+            <button onClick={() => setUnlockedForEdit(prev => new Set(prev).add(crNumber))}
+              style={{ fontSize: '13px', fontWeight: WEIGHT.bold, padding: '6px 14px', borderRadius: RADIUS.md, background: C.bgCard, color: C.success, border: `1px solid ${C.success}60`, cursor: 'pointer', fontFamily: FONT, flexShrink: 0 }}>
+              ✏️ פתח לעריכה
+            </button>
+          </div>
+        )}
+
+        <div style={{ pointerEvents: lockedForEdit ? 'none' : undefined, opacity: lockedForEdit ? 0.6 : 1 }}>
+        {/* Section 1 — מה משתנה */}
+        <div style={sec}>
+          <div style={secHdr}><span style={secNum(1)}>1</span>מה משתנה</div>
+          <div style={secBody}>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {CHANGE_TYPES.map(ct => (
+                <span key={ct} style={chip(f.changeTypes.includes(ct))} onClick={() => toggleChip(f.changeTypes, ct, 'changeTypes')}>{ct}</span>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* ניטור בוקר */}
-        <div>
-          {rowHdr('ניטור בוקר אחרי (שלב 4)', true, () => openExtract(crNumber, f.morningMonitoring, 'בדיקות בוקר אחרי', 4))}
-          <textarea value={f.morningMonitoring}
-            onChange={e => setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, morningMonitoring: e.target.value } }))}
-            style={{ ...ta, borderColor: !f.morningMonitoring ? `${C.danger}50` : C.border }}
-            placeholder="מה לבדוק בבוקר שלמחרת..." />
+        {/* Section 2 — פעולות מיוחדות */}
+        <div style={sec}>
+          <div style={secHdr}><span style={secNum(2)}>2</span>פעולות מיוחדות</div>
+          <div style={secBody}>
+            {f.actions.map((a, idx) => (
+              <div key={idx} style={{ background: C.bgNested, borderRadius: RADIUS.md, padding: '12px 14px', marginBottom: '10px' }}>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                  <select value={a.actionType} onChange={e => updateAction(idx, { actionType: e.target.value })} style={miniSel}>
+                    {ACTION_TYPE_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <div style={{ flex: 1 }} />
+                  <button onClick={() => removeAction(idx)} style={{ background: 'none', border: 'none', color: C.danger, cursor: 'pointer', fontSize: '13px' }}>הסר</button>
+                </div>
+                <textarea value={a.description} onInput={autoGrow} onChange={e => updateAction(idx, { description: e.target.value })}
+                  style={{ ...miniTa, marginBottom: '8px' }} placeholder="תאר את הפעולה שיש לבצע..." />
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                  {phaseOptions.map(ph => {
+                    const fullLabel = phaseLabels[ph] || PHASE_LABELS[ph] || `שלב ${ph}`;
+                    const shortLabel = fullLabel.split(' — ')[1] || fullLabel;
+                    const sel = a.phase === ph;
+                    return (
+                      <span key={ph} title={fullLabel}
+                        onClick={() => updateAction(idx, { phase: ph, subPhaseId: '' })}
+                        style={{
+                          fontSize: '11px', fontWeight: WEIGHT.bold, padding: '3px 10px', borderRadius: RADIUS.full, cursor: 'pointer',
+                          background: sel ? GOLIVE : C.bgCard,
+                          border: `1px solid ${sel ? GOLIVE : C.borderEm}`,
+                          color: sel ? '#fff' : C.textMuted,
+                        }}>
+                        {shortLabel}
+                      </span>
+                    );
+                  })}
+                </div>
+                {subPhaseOpts.filter(sp => sp.phaseOrderIndex === a.phase).length > 0 && (
+                  <select value={a.subPhaseId || ''} onChange={e => updateAction(idx, { subPhaseId: e.target.value })}
+                    style={{ ...miniSel, width: '100%', boxSizing: 'border-box', marginBottom: '8px' }}>
+                    <option value="">תת-שלב מדוייק — לא נבחר (ישובץ בתחילת השלב)</option>
+                    {subPhaseOpts.filter(sp => sp.phaseOrderIndex === a.phase).map(sp => (
+                      <option key={sp.id} value={sp.id}>{sp.name}</option>
+                    ))}
+                  </select>
+                )}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                  <select value={a.system || ''} onChange={e => updateAction(idx, { system: e.target.value || undefined })} style={miniSel}>
+                    <option value="">מערכת — ללא</option>
+                    {teamAppList.map((app: string) => <option key={app} value={app}>{app}</option>)}
+                  </select>
+                  <input type="number" min={1} value={a.estimatedMins ?? ''} onChange={e => updateAction(idx, { estimatedMins: e.target.value ? parseInt(e.target.value) : undefined })}
+                    placeholder="משך זמן משוער (דק')" style={{ ...miniSel, width: '100%', boxSizing: 'border-box' }} />
+                  <select value={a.ownerName || ''} onChange={e => updateAction(idx, { ownerName: e.target.value })} style={miniSel}>
+                    <option value="">אחראי — ללא</option>
+                    {teamUsers.map((u: any) => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
+                  </select>
+                </div>
+
+                {/* תלות לוגית — בורר מתקפל שלב ← תת-שלב ← משימה. תלות = "חייבת להסתיים קודם". */}
+                <div style={{ marginBottom: '6px' }}>
+                  <div onClick={() => setDepPicker(p => p?.actionIdx === idx ? null : { actionIdx: idx, openPhases: new Set() })}
+                    style={{ ...miniSel, width: '100%', boxSizing: 'border-box', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: a.dependsOnTaskId ? C.textPrimary : C.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {a.dependsOnTaskId ? `תלות: ${depTaskTitle(a.dependsOnTaskId) || '—'}` : 'תלות לוגית — לחץ לבחירת משימה מהתוכנית'}
+                    </span>
+                    <span style={{ flexShrink: 0, color: C.textMuted, marginRight: '6px' }}>{depPicker?.actionIdx === idx ? '▴' : '▾'}</span>
+                  </div>
+                  {depPicker?.actionIdx === idx && (
+                    <div style={{ border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.sm, marginTop: '4px', maxHeight: '220px', overflowY: 'auto', background: C.bgCard }}>
+                      <div onClick={() => { updateAction(idx, { dependsOnTaskId: undefined }); setDepPicker(null); }}
+                        style={{ padding: '7px 10px', fontSize: '12px', color: C.textMuted, cursor: 'pointer', borderBottom: `1px solid ${C.bgNested}` }}>
+                        ✕ ללא תלות במשימה קיימת
+                      </div>
+                      {frameworkTasksByPhase.map(([phaseOrderIndex, { phaseLabel, bySubPhase }]) => {
+                        const isOpen = depPicker.openPhases.has(phaseOrderIndex);
+                        const taskCount = Array.from(bySubPhase.values()).reduce((n, s) => n + s.tasks.length, 0);
+                        return (
+                          <div key={phaseOrderIndex}>
+                            <div onClick={() => toggleDepPhase(phaseOrderIndex)} style={{ padding: '7px 10px', fontSize: '12px', fontWeight: WEIGHT.semibold, color: C.textSecondary, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', background: C.bgNested }}>
+                              <span>{phaseLabel} ({taskCount})</span>
+                              <span>{isOpen ? '▴' : '▾'}</span>
+                            </div>
+                            {isOpen && Array.from(bySubPhase.entries()).map(([subKey, sub]) => (
+                              <div key={subKey}>
+                                <div style={{ padding: '5px 12px 2px', fontSize: '10.5px', color: C.textDisabled, textTransform: 'uppercase' }}>{sub.subPhaseName}</div>
+                                {sub.tasks.map((t, ti) => (
+                                  <div key={`${t.id}-${ti}`} onClick={() => { updateAction(idx, { dependsOnTaskId: t.id }); setDepPicker(null); }}
+                                    style={{
+                                      padding: '5px 16px', fontSize: '12px', cursor: 'pointer',
+                                      color: a.dependsOnTaskId === t.id ? GOLIVE : C.textPrimary,
+                                      fontWeight: a.dependsOnTaskId === t.id ? WEIGHT.semibold : WEIGHT.normal,
+                                      background: a.dependsOnTaskId === t.id ? `${GOLIVE}14` : 'transparent',
+                                    }}>
+                                    {t.title}
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <input value={a.dependencyNote || ''} onChange={e => updateAction(idx, { dependencyNote: e.target.value })}
+                  placeholder="הערת תלות נוספת / תלות שאינה משימה בתוכנית..." style={{ ...miniSel, width: '100%', boxSizing: 'border-box' }} />
+              </div>
+            ))}
+            <button onClick={addAction} style={{ width: '100%', padding: '9px', border: `1.5px dashed ${C.borderEm}`, borderRadius: RADIUS.md, background: 'none', color: C.textMuted, fontSize: '13px', fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT }}>
+              + הוסף פעולה
+            </button>
+          </div>
         </div>
 
-        {/* תלויות CR */}
+        {/* Section 3 — תנאים מקדימים */}
+        <div style={sec}>
+          <div style={secHdr}><span style={secNum(3)}>3</span>תנאים מקדימים</div>
+          <div style={secBody}>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+              {PREREQUISITE_OPTIONS.map(p => (
+                <span key={p} style={chip(f.prerequisites.includes(p))} onClick={() => toggleChip(f.prerequisites, p, 'prerequisites')}>{p}</span>
+              ))}
+            </div>
+            <input value={f.prerequisitesNote} onChange={e => update({ prerequisitesNote: e.target.value })}
+              style={{ ...miniSel, width: '100%', boxSizing: 'border-box' }} placeholder="הערות חופשיות נוספות..." />
+          </div>
+        </div>
+
+        {/* Section 4 — בדיקות מיוחדות */}
+        <div style={sec}>
+          <div style={secHdr}><span style={secNum(4)}>4</span>בדיקות מיוחדות</div>
+          <div style={secBody}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+              <span style={{ fontSize: '13px', fontWeight: WEIGHT.semibold, flex: 1, color: C.textPrimary }}>נדרשות בדיקות מיוחדות בליל הגרסה?</span>
+              {[true, false].map(v => (
+                <span key={String(v)} onClick={() => update({ nightTestNeeded: v })} style={{
+                  fontSize: '12px', fontWeight: WEIGHT.bold, padding: '4px 14px', borderRadius: RADIUS.full, cursor: 'pointer',
+                  border: `1px solid ${f.nightTestNeeded === v ? (v ? 'rgba(217,119,6,.35)' : C.borderEm) : C.borderEm}`,
+                  background: f.nightTestNeeded === v ? (v ? C.warningBg : C.bgNested) : C.bgCard,
+                  color: f.nightTestNeeded === v ? (v ? C.warning : C.textMuted) : C.textMuted,
+                }}>{v ? 'כן' : 'לא'}</span>
+              ))}
+            </div>
+            {f.nightTestNeeded && (
+              <textarea value={f.nightTestingNotes} onInput={autoGrow} onChange={e => update({ nightTestingNotes: e.target.value })}
+                style={{ ...miniTa, marginBottom: '10px' }} placeholder="מה יש לבדוק בליל הגרסה..." />
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+              <span style={{ fontSize: '13px', fontWeight: WEIGHT.semibold, flex: 1, color: C.textPrimary }}>נדרשות בדיקות מיוחדות ביום שאחרי?</span>
+              {[true, false].map(v => (
+                <span key={String(v)} onClick={() => update({ nextDayTestNeeded: v })} style={{
+                  fontSize: '12px', fontWeight: WEIGHT.bold, padding: '4px 14px', borderRadius: RADIUS.full, cursor: 'pointer',
+                  border: `1px solid ${f.nextDayTestNeeded === v ? (v ? 'rgba(217,119,6,.35)' : C.borderEm) : C.borderEm}`,
+                  background: f.nextDayTestNeeded === v ? (v ? C.warningBg : C.bgNested) : C.bgCard,
+                  color: f.nextDayTestNeeded === v ? (v ? C.warning : C.textMuted) : C.textMuted,
+                }}>{v ? 'כן' : 'לא'}</span>
+              ))}
+            </div>
+            {f.nextDayTestNeeded && (
+              <textarea value={f.nextDayTestNotes} onInput={autoGrow} onChange={e => update({ nextDayTestNotes: e.target.value })}
+                style={miniTa} placeholder="מה יש לבדוק ביום שאחרי..." />
+            )}
+          </div>
+        </div>
+
+        {/* Section 5 — נקודות בקרה (Monitoring) */}
+        <div style={sec}>
+          <div style={secHdr}><span style={secNum(5)}>5</span>נקודות בקרה (Monitoring)</div>
+          <div style={secBody}>
+            {f.monitoringPoints.map((m, idx) => {
+              const monTeamMembers = teams.find((t: any) => t.id === m.assignedTeamId)?.members?.map((mm: any) => mm.user).filter(Boolean) ?? teamUsers;
+              return (
+                <div key={idx} style={{ background: C.bgNested, borderRadius: RADIUS.md, padding: '12px 14px', marginBottom: '10px' }}>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                    <select value={m.type} onChange={e => updateMonitoring(idx, { type: e.target.value })} style={miniSel}>
+                      {MONITORING_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <input value={m.name} onChange={e => updateMonitoring(idx, { name: e.target.value })} style={{ ...miniSel, flex: 1, boxSizing: 'border-box', fontFamily: FONT_MONO }} placeholder="שם ממשק/עבודה/טבלה" />
+                    <button onClick={() => removeMonitoring(idx)} style={{ background: 'none', border: 'none', color: C.danger, cursor: 'pointer', fontSize: '13px', flexShrink: 0 }}>הסר</button>
+                  </div>
+                  <input value={m.note || ''} onChange={e => updateMonitoring(idx, { note: e.target.value })}
+                    style={{ ...miniSel, width: '100%', boxSizing: 'border-box', marginBottom: '8px' }} placeholder="לוודא ש..." />
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                    {phaseOptions.map(ph => {
+                      const fullLabel = phaseLabels[ph] || PHASE_LABELS[ph] || `שלב ${ph}`;
+                      const shortLabel = fullLabel.split(' — ')[1] || fullLabel;
+                      const sel = m.phase === ph;
+                      return (
+                        <span key={ph} title={fullLabel} onClick={() => updateMonitoring(idx, { phase: ph })}
+                          style={{
+                            fontSize: '11px', fontWeight: WEIGHT.bold, padding: '3px 10px', borderRadius: RADIUS.full, cursor: 'pointer',
+                            background: sel ? GOLIVE : C.bgCard,
+                            border: `1px solid ${sel ? GOLIVE : C.borderEm}`,
+                            color: sel ? '#fff' : C.textMuted,
+                          }}>
+                          {shortLabel}
+                        </span>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <select value={m.assignedTeamId || ''} onChange={e => updateMonitoring(idx, { assignedTeamId: e.target.value || undefined, assignedUserName: undefined })} style={miniSel}>
+                      <option value="">צוות אחראי — ללא</option>
+                      {teams.filter((t: any) => t.active).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                    <select value={m.assignedUserName || ''} onChange={e => updateMonitoring(idx, { assignedUserName: e.target.value || undefined })} style={miniSel}>
+                      <option value="">עובד אחראי — ללא</option>
+                      {monTeamMembers.map((u: any) => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
+                    </select>
+                  </div>
+                </div>
+              );
+            })}
+            <button onClick={addMonitoring} style={{ width: '100%', padding: '9px', border: `1.5px dashed ${C.borderEm}`, borderRadius: RADIUS.md, background: 'none', color: C.textMuted, fontSize: '13px', fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT }}>
+              + הוסף נקודת בקרה
+            </button>
+          </div>
+        </div>
+
+        {/* Section 6 — Rollback */}
+        <div style={sec}>
+          <div style={secHdr}><span style={secNum(6)}>6</span>Rollback</div>
+          <div style={secBody}>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <select value={f.rollbackType} onChange={e => update({ rollbackType: e.target.value })} style={miniSel}>
+                <option value="">-- בחר סוג Rollback --</option>
+                {ROLLBACK_TYPES.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+              <input value={f.rollbackPlan} onChange={e => update({ rollbackPlan: e.target.value })} style={{ ...miniSel, flex: 1 }} placeholder="הערות Rollback..." />
+            </div>
+          </div>
+        </div>
+
+        {/* תלויות CR (ברמת ה-CR, לא ברמת פעולה בודדת) */}
         {otherCrs.length > 0 && (
-          <>
-            <div style={sect} />
-            <div>
-              <label style={fLbl}>תלויות ב-CR-ים אחרים</label>
+          <div style={sec}>
+            <div style={secHdr}>תלויות ב-CR-ים אחרים</div>
+            <div style={secBody}>
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                 {otherCrs.map(cr => (
-                  <label key={cr} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '14px', cursor: 'pointer', background: C.bgCard, padding: '3px 10px', borderRadius: RADIUS.md, border: `1px solid ${f.dependsOnCrs.includes(cr) ? C.statusWaiting : C.border}`, color: f.dependsOnCrs.includes(cr) ? C.statusWaiting : C.textSecondary, fontWeight: f.dependsOnCrs.includes(cr) ? '600' : 'normal' }}>
-                    <input type="checkbox" checked={f.dependsOnCrs.includes(cr)}
-                      onChange={e => {
-                        const next = e.target.checked ? [...f.dependsOnCrs, cr] : f.dependsOnCrs.filter(x => x !== cr);
-                        setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...f, dependsOnCrs: next } }));
-                      }} style={{ margin: 0 }} />
+                  <span key={cr} style={chip(f.dependsOnCrs.includes(cr))}
+                    onClick={() => {
+                      const next = f.dependsOnCrs.includes(cr) ? f.dependsOnCrs.filter(x => x !== cr) : [...f.dependsOnCrs, cr];
+                      update({ dependsOnCrs: next });
+                    }}>
                     {cr}
-                  </label>
+                  </span>
                 ))}
               </div>
+              {f.dependsOnCrs.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '10px' }}>
+                  {f.dependsOnCrs.map(cr => (
+                    <div key={cr} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '12px', fontFamily: FONT_MONO, color: C.textMuted, width: '90px', flexShrink: 0 }}>{cr} תלוי ב-</span>
+                      <input value={f.dependencyNotes[cr] || ''}
+                        onChange={e => update({ dependencyNotes: { ...f.dependencyNotes, [cr]: e.target.value } })}
+                        style={{ ...miniSel, flex: 1 }} placeholder="הסבר את התלות..." />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          </>
+          </div>
         )}
+
+        </div>
+
+        {/* Section 7 — תקציר וסגירה */}
+        <div style={sec}>
+          <div style={secHdr}><span style={secNum(7)}>7</span>תקציר וסגירה</div>
+          <div style={secBody}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px', fontSize: '13px', color: C.textSecondary, lineHeight: 1.6 }}>
+              <div>• שינויים ב-<strong style={{ color: C.textPrimary }}>{f.changeTypes.length ? f.changeTypes.join(', ') : '—'}</strong></div>
+              <div>• <strong style={{ color: C.textPrimary }}>{f.actions.length} פעולות מיוחדות</strong>{f.actions.length > 0 && ` — ${f.actions.map(a => `${a.actionType} (${(phaseLabels[a.phase] || PHASE_LABELS[a.phase] || `שלב ${a.phase}`).split(' — ')[1] || a.phase}${a.estimatedMins ? `, ${a.estimatedMins} דק'` : ''})`).join(', ')}`}</div>
+              <div>• תנאים מקדימים: <strong style={{ color: C.textPrimary }}>{f.prerequisites.length ? f.prerequisites.join(', ') : 'אין'}</strong>{f.prerequisitesNote && ` — ${f.prerequisitesNote}`}</div>
+              <div>• בדיקות: {f.nightTestNeeded ? 'ליל גרסה' : ''}{f.nightTestNeeded && f.nextDayTestNeeded ? ' + ' : ''}{f.nextDayTestNeeded ? 'יום אחרי' : ''}{!f.nightTestNeeded && !f.nextDayTestNeeded && 'אין בדיקות מיוחדות'}</div>
+              <div>• <strong style={{ color: C.textPrimary }}>{f.monitoringPoints.length} נקודות בקרה</strong> הוגדרו</div>
+              <div>• Rollback: <strong style={{ color: C.textPrimary }}>{f.rollbackType || 'לא הוגדר'}</strong></div>
+            </div>
+            <button onClick={() => confirmCrPlan(crNumber)} disabled={savingPlan === crNumber || lockedForEdit} style={{
+              width: '100%', padding: '14px', background: (savingPlan === crNumber || lockedForEdit) ? C.textDisabled : GOLIVE, color: '#fff',
+              border: 'none', borderRadius: RADIUS.md, fontSize: '14px', fontWeight: WEIGHT.bold, cursor: (savingPlan === crNumber || lockedForEdit) ? 'not-allowed' : 'pointer', fontFamily: FONT,
+            }}>
+              {savingPlan === crNumber ? 'שומר...' : lockedForEdit ? '✓ הוגש ונעול' : submitted ? '✓ שמור מחדש וסגור לעריכה' : '✓ אשר תוכנית CR'}
+            </button>
+            {derivedTaskNote[crNumber] && (
+              <div style={{ marginTop: '10px', background: C.infoBg, border: `1px solid ${C.info}40`, borderRadius: RADIUS.md, padding: '10px 12px', fontSize: '12.5px', color: C.info, lineHeight: 1.5 }}>
+                {derivedTaskNote[crNumber]}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     );
   };
 
   // ── Left panel: single CR list item ─────────────────────────────────────────
   const renderListItem = (crNumber: string, crProposals: Proposal[]) => {
-    const isNotNeeded = crPlans[crNumber]?.notNeededForPlan;
-    const readyCount  = crProposals.filter(p => p.status === 'READY' || p.usedInTaskId).length;
-    const isSelected  = selectedCr === crNumber;
-    const label       = getCrLabel(crNumber);
-    const hasDraft    = crProposals.some(p => p.status === 'DRAFT' && !p.usedInTaskId);
+    const plan        = crPlans[crNumber];
+    const isNotNeeded  = plan?.notNeededForPlan;
+    const isSubmitted  = plan?.submissionStatus === 'SUBMITTED' || plan?.submissionStatus === 'APPROVED';
+    const isReturned   = plan?.submissionStatus === 'RETURNED';
+    const isDone       = isNotNeeded || isSubmitted;
+    const isSelected   = selectedCr === crNumber;
+    const label        = getCrLabel(crNumber);
 
-    const dotBg = isNotNeeded ? C.textDisabled
-      : crProposals.length > 0 && readyCount === crProposals.length ? C.success
-      : hasDraft || crProposals.length > 0 ? C.warning
-      : C.danger;
-
-    const subText = isNotNeeded ? '— לא נדרש'
-      : crProposals.length === 0 ? '◯ לא טופל'
-      : readyCount === crProposals.length ? `✓ ${readyCount} מוכן`
-      : `⚠ ${readyCount}/${crProposals.length} מוכן`;
-
-    const subColor = isNotNeeded ? C.textDisabled
-      : crProposals.length === 0 ? C.danger
-      : readyCount === crProposals.length ? C.success
-      : C.warning;
+    const chipStyle: React.CSSProperties = isReturned
+      ? { background: C.dangerBg, color: C.danger }
+      : isDone
+      ? { background: C.successBg, color: C.success }
+      : { background: C.warningBg, color: C.warning };
+    const chipText = isReturned ? '⚠ הוחזר' : isDone ? '✅ הושלם' : '⏳ ממתין';
 
     return (
       <div key={crNumber}
         onClick={() => { setSelectedCr(crNumber); setSelectedTab('plan'); }}
         style={{
-          display: 'flex', alignItems: 'flex-start', gap: '9px', padding: '9px 14px',
+          display: 'flex', alignItems: 'center', gap: '10px', padding: '11px 14px',
           cursor: 'pointer', borderBottom: `1px solid ${C.bgNested}`,
-          borderRight: `3px solid ${isSelected ? C.brand : 'transparent'}`,
-          background: isSelected ? C.infoBg : 'transparent',
-          opacity: isNotNeeded ? 0.5 : 1,
+          borderRight: `3px solid ${isSelected ? GOLIVE : 'transparent'}`,
+          background: isSelected ? `${GOLIVE}14` : 'transparent',
+          opacity: isDone && !isSelected ? 0.62 : 1,
+          transition: 'background .12s',
         }}>
-        <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: dotBg, flexShrink: 0, marginTop: '5px' }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: '12px', fontWeight: 700, color: C.info, fontFamily: 'monospace' }}>{crNumber}</div>
-          <div style={{ fontSize: '13px', color: isSelected ? C.textPrimary : C.textSecondary, lineHeight: 1.35, marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {label || crNumber}
-          </div>
-          <div style={{ fontSize: '12px', marginTop: '2px', color: subColor }}>{subText}</div>
-        </div>
+        <span style={{ fontSize: '11px', fontFamily: FONT_MONO, color: C.textMuted, width: '76px', flexShrink: 0 }}>{crNumber}</span>
+        <span style={{ flex: 1, minWidth: 0, fontSize: '13px', fontWeight: WEIGHT.semibold, color: isSelected ? C.textPrimary : C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {label || crNumber}
+        </span>
+        <span style={{ fontSize: '10.5px', fontWeight: WEIGHT.bold, padding: '3px 9px', borderRadius: RADIUS.full, flexShrink: 0, ...chipStyle }}>{chipText}</span>
       </div>
     );
   };
@@ -1282,38 +1766,15 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     const isSavingPln  = savingPlan === crNumber;
     const isTogglingNN = togglingNotNeeded.has(crNumber);
     const saved        = crPlans[crNumber];
-    const hasSaved     = !!saved;
     const f            = crPlanForms[crNumber] || emptyCrPlanForm();
-    const isDirty      = !!saved && (
-      f.crType !== (saved.crType || '') ||
-      f.riskLevel !== (saved.riskLevel || '') ||
-      JSON.stringify(f.systems) !== JSON.stringify(saved.systems || []) ||
-      f.workPlan !== (saved.workPlan || '') ||
-      f.scripts !== (saved.scripts || '') ||
-      f.runTimes !== (saved.runTimes || '') ||
-      f.rollbackPlan !== (saved.rollbackPlan || '') ||
-      f.gradualRollout !== (saved.gradualRollout ?? false) ||
-      f.gradualDetails !== (saved.gradualDetails || '') ||
-      f.nightTestingNotes !== (saved.nightTestingNotes || '') ||
-      f.morningMonitoring !== (saved.morningMonitoring || '') ||
-      JSON.stringify(f.dependsOnCrs) !== JSON.stringify((saved as any).dependsOnCrs || [])
-    );
 
     const draftCount = crProposals.filter(p => p.status === 'DRAFT' && !p.usedInTaskId).length;
 
-    // Readiness calculation — plan form fields only
-    const issues: string[] = [];
-    if (!f.crType)            issues.push('סוג CR');
-    if (!f.riskLevel)         issues.push('רמת סיכון');
-    if (!f.nightTestingNotes) issues.push('בדיקות לילה');
-    if (!f.morningMonitoring) issues.push('ניטור בוקר');
-    if (f.riskLevel === 'HIGH' && !f.rollbackPlan) issues.push('Rollback');
-    const planPct   = Math.round((1 - issues.length / 5) * 100);
-    // Overall readiness = plan form complete AND all tasks are READY
-    const planDone  = issues.length === 0;
-    const tasksDone = draftCount === 0;
-    const pctReady  = planDone && tasksDone ? 100 : planPct;
-    const readColor = planDone && tasksDone ? C.success : planPct >= 60 ? C.warning : C.danger;
+    // Readiness = per-CR submission status (DRAFT → SUBMITTED/APPROVED via the
+    // Section-1 gate + Section-7 confirm), independent of the legacy task-proposal flow.
+    const crSubmitted = saved?.submissionStatus === 'SUBMITTED' || saved?.submissionStatus === 'APPROVED';
+    const crReturned   = saved?.submissionStatus === 'RETURNED';
+    const gateAnswered = !!f.gateAnswered;
 
     // Next CR navigation
     const activeCrs = crGroups.filter(([cr]) => !crPlans[cr]?.notNeededForPlan).map(([cr]) => cr);
@@ -1340,32 +1801,38 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           <span style={{ fontFamily: 'monospace', fontWeight: 700, color: C.info, background: C.infoBg, padding: '3px 9px', borderRadius: RADIUS.sm, fontSize: '14px', flexShrink: 0 }}>{crNumber}</span>
           <span style={{ flex: 1, fontWeight: 600, fontSize: '15px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.textPrimary }}>{label || crNumber}</span>
           {!isNotNeeded && (
-            planDone && !tasksDone ? (
-              /* Plan form complete but tasks still in draft */
-              <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px', fontWeight: 700, padding: '2px 9px', borderRadius: '9999px', flexShrink: 0, color: C.warning, background: `${C.warning}18`, border: `1px solid ${C.warning}35` }}
-                title={`תוכנית CR מלאה, אך ${draftCount} משימ${draftCount === 1 ? 'ה' : 'ות'} עדיין בטיוטא`}>
-                ✓ תוכנית · {draftCount} משימה בטיוטא
+            crReturned ? (
+              <span style={{ fontSize: '13px', fontWeight: 700, padding: '2px 9px', borderRadius: '9999px', flexShrink: 0, color: C.danger, background: C.dangerBg, border: `1px solid ${C.danger}35` }}>
+                ⚠ הוחזר לתיקון
+              </span>
+            ) : crSubmitted ? (
+              <span style={{ fontSize: '13px', fontWeight: 700, padding: '2px 9px', borderRadius: '9999px', flexShrink: 0, color: C.success, background: C.successBg, border: `1px solid ${C.success}35` }}>
+                ✅ הושלם
+              </span>
+            ) : gateAnswered ? (
+              <span style={{ fontSize: '13px', fontWeight: 700, padding: '2px 9px', borderRadius: '9999px', flexShrink: 0, color: C.warning, background: C.warningBg, border: `1px solid ${C.warning}35` }}>
+                ⏳ בטיוטה
               </span>
             ) : (
-              <span style={{ fontSize: '13px', fontWeight: 700, padding: '2px 9px', borderRadius: '9999px', flexShrink: 0, color: readColor, background: `${readColor}18`, border: `1px solid ${readColor}35` }}>
-                {pctReady}% מוכן
+              <span style={{ fontSize: '13px', fontWeight: 700, padding: '2px 9px', borderRadius: '9999px', flexShrink: 0, color: C.textMuted, background: C.bgNested, border: `1px solid ${C.border}` }}>
+                טרם נענה
               </span>
             )
           )}
-          {!locked && (
+          {/* Once the gate has been answered, offer a quick escape hatch back to
+              "not needed" — before that, the gate itself is the only entry point. */}
+          {!locked && isNotNeeded && (
             <button
               onClick={() => toggleNotNeeded(crNumber)}
               disabled={isTogglingNN}
-              title={isNotNeeded ? 'לחץ להחזיר CR זה לתהליך הרגיל' : 'לחץ לסמן CR זה כלא נדרש לתוכנית הלילה'}
+              title="לחץ להחזיר CR זה לתהליך הרגיל"
               style={{
                 fontSize: '13px', fontWeight: 600, flexShrink: 0, fontFamily: FONT,
                 padding: '3px 9px', borderRadius: '6px',
                 cursor: isTogglingNN ? 'not-allowed' : 'pointer',
-                color:      isNotNeeded ? C.warning      : C.textSecondary,
-                background: isNotNeeded ? C.warningBg    : C.bgNested,
-                border:     isNotNeeded ? `1px solid ${C.warning}50` : `1px solid ${C.border}`,
+                color: C.warning, background: C.warningBg, border: `1px solid ${C.warning}50`,
               }}>
-              {isTogglingNN ? '...' : isNotNeeded ? '↩ החזר לתהליך' : 'סמן כ"לא נדרש"'}
+              {isTogglingNN ? '...' : '↩ החזר לתהליך'}
             </button>
           )}
           {!locked && (
@@ -1393,25 +1860,20 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px' }}>
             {isNotNeeded ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '48px 0', textAlign: 'center' }}>
-                <div style={{ fontSize: '36px' }}>⏭</div>
-                <div style={{ fontSize: '15px', fontWeight: 700, color: C.textSecondary }}>CR זה מסומן כ"לא נדרש לתוכנית"</div>
-                <div style={{ fontSize: '14px', color: C.textMuted, maxWidth: '280px' }}>הוא לא ישפיע על השלמת ההגשה. אם גילית שהוא כן נדרש — לחץ:</div>
+                <div style={{ background: C.successBg, border: '1px solid rgba(22,163,74,.25)', borderRadius: RADIUS.md, padding: '14px 18px', fontSize: '13px', color: '#0F5A2A', lineHeight: 1.6, maxWidth: '440px' }}>
+                  ✓ נבחר: ללא השפעה מיוחדת — CR זה נכלל בהטמעה הרגילה ואינו דורש תיאום נוסף, סקריפטים או בדיקות מיוחדות.
+                </div>
                 {!locked && (
                   <button onClick={() => toggleNotNeeded(crNumber)} disabled={isTogglingNN}
-                    style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, padding: '9px 22px', borderRadius: '8px', background: C.warning, color: C.textInverse, border: 'none', cursor: isTogglingNN ? 'not-allowed' : 'pointer' }}>
-                    {isTogglingNN ? '...' : '↩ החזר CR לתהליך הרגיל'}
+                    style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, padding: '8px 18px', borderRadius: RADIUS.md, background: 'none', color: C.textMuted, border: `1px solid ${C.borderEm}`, cursor: isTogglingNN ? 'not-allowed' : 'pointer' }}>
+                    {isTogglingNN ? '...' : '↩ בעצם יש השפעה — פתח מחדש'}
                   </button>
                 )}
               </div>
+            ) : !gateAnswered ? (
+              renderGate(crNumber)
             ) : (
-              <>
-                {issues.length > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: `${C.warning}18`, border: `1px solid ${C.warning}35`, borderRadius: '7px', padding: '7px 11px', fontSize: '13px', color: C.warning, marginBottom: '12px' }}>
-                    ⚠ חסר: <strong>{issues.join(' · ')}</strong>
-                  </div>
-                )}
-                {renderCrPlanPanel(crNumber)}
-              </>
+              renderCrPlanForm(crNumber)
             )}
           </div>
         ) : (
@@ -1432,23 +1894,19 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           </div>
         )}
 
-        {/* Footer — save + next navigation */}
-        {selectedTab === 'plan' && !isNotNeeded && (
+        {/* Footer — save draft + next navigation */}
+        {selectedTab === 'plan' && !isNotNeeded && gateAnswered && (!crSubmitted || unlockedForEdit.has(crNumber)) && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '10px 18px', background: C.bgCard, borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
             <button onClick={() => saveCrPlan(crNumber)} disabled={isSavingPln}
-              style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, padding: '7px 18px', borderRadius: '7px', background: isSavingPln ? C.textDisabled : C.info, color: C.textInverse, border: 'none', cursor: isSavingPln ? 'not-allowed' : 'pointer' }}>
-              {isSavingPln ? 'שומר...' : 'שמור'}
+              style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, padding: '7px 18px', borderRadius: RADIUS.md, background: isSavingPln ? C.textDisabled : C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, cursor: isSavingPln ? 'not-allowed' : 'pointer' }}>
+              {isSavingPln ? 'שומר...' : 'שמור טיוטה'}
             </button>
             {nextCrNum && (
               <button onClick={() => { setSelectedCr(nextCrNum); setSelectedTab('plan'); }}
-                style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, padding: '7px 14px', borderRadius: '7px', background: C.bgCard, color: C.info, border: `1px solid ${C.info}40`, cursor: 'pointer' }}>
+                style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, padding: '7px 14px', borderRadius: RADIUS.md, background: C.bgCard, color: GOLIVE, border: `1px solid ${GOLIVE}40`, cursor: 'pointer' }}>
                 הבא: {nextCrNum} ←
               </button>
             )}
-            {hasSaved && !isDirty && <span style={{ fontSize: '13px', color: C.success }}>✓ נשמר</span>}
-            {hasSaved && isDirty && <span style={{ fontSize: '13px', color: C.warning, fontWeight: 600 }}>● שינויים לא נשמרו</span>}
-            <div style={{ flex: 1 }} />
-            <span style={{ fontSize: '13px', color: C.textDisabled }}>שמירה אוטומטית פעילה</span>
           </div>
         )}
       </div>
@@ -1669,21 +2127,21 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
               <button
                 onClick={submitDone}
                 disabled={submitting || !canSubmit}
-                title={draftCount > 0 ? `סמן את כל המשימות כ"מוכן" לפני ההגשה (${draftCount} בטיוטא)` : ''}
+                title={!canSubmit ? `יש להשלים ${crGroups.length - doneCrCount} CR-ים לפני ההגשה` : ''}
                 style={{
                   padding: '8px 18px',
-                  background: submitting ? C.textDisabled : (!canSubmit ? C.textMuted : C.brand),
+                  background: submitting ? C.textDisabled : (!canSubmit ? C.textMuted : GOLIVE),
                   color: C.textInverse, border: 'none', borderRadius: RADIUS.lg,
                   cursor: (submitting || !canSubmit) ? 'not-allowed' : 'pointer',
                   fontWeight: '700', fontSize: '15px',
                   opacity: !canSubmit ? 0.75 : 1,
                 }}
               >
-                {submitting ? '...' : 'סיימתי הגשה'}
+                {submitting ? '...' : 'סיימתי הגשת תוכניות'}
               </button>
-              {draftCount > 0 && proposals.length > 0 && (
+              {!canSubmit && crGroups.length > 0 && (
                 <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap' }}>
-                  ⚠ {draftCount} משימות עדיין בטיוטא
+                  נותרו {crGroups.length - doneCrCount} CR-ים למילוי
                 </span>
               )}
             </div>
@@ -1701,9 +2159,28 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
       {/* Submission error */}
       {submitError && (
-        <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}`, borderRadius: RADIUS.lg, padding: '10px 16px', marginBottom: '12px', fontSize: '15px', color: C.danger, display: 'flex', alignItems: 'center', gap: '8px' }}>
-          ⚠️ {submitError}
-          <button onClick={() => setSubmitError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.danger, fontWeight: '700', marginRight: 'auto' }}>×</button>
+        <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}`, borderRadius: RADIUS.lg, padding: '10px 16px', marginBottom: '12px', fontSize: '15px', color: C.danger }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            ⚠️ {submitError}
+            <button onClick={() => { setSubmitError(null); setSubmitErrorCrs([]); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.danger, fontWeight: '700', marginRight: 'auto' }}>×</button>
+          </div>
+          {submitErrorCrs.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+              {submitErrorCrs.map(cr => (
+                <span key={cr}
+                  onClick={() => { setSelectedCr(cr); setSelectedTab('plan'); }}
+                  style={{
+                    fontSize: '13px', fontWeight: '700', fontFamily: FONT_MONO, cursor: 'pointer',
+                    padding: '3px 10px', borderRadius: RADIUS.full,
+                    background: selectedCr === cr ? C.danger : C.bgCard,
+                    color: selectedCr === cr ? C.textInverse : C.danger,
+                    border: `1px solid ${C.danger}`,
+                  }}>
+                  {cr} ←
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -1747,15 +2224,17 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           <div style={{ width: '252px', flexShrink: 0, overflowY: 'auto', background: C.bgCard, borderLeft: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column' }}>
 
             {/* List header with progress */}
-            <div style={{ padding: '10px 14px 8px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-              <div style={{ fontSize: '12px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '6px' }}>CR-ים לטיפול</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ flex: 1, height: '3px', background: C.bgNested, borderRadius: '9999px', overflow: 'hidden' }}>
-                  <div style={{ width: `${Math.round(crGroups.filter(([cr, ps]) => crPlans[cr]?.notNeededForPlan || (ps.length > 0 && ps.filter(p => p.status === 'READY' || p.usedInTaskId).length === ps.length)).length / Math.max(crGroups.length, 1) * 100)}%`, height: '100%', background: C.success, borderRadius: '9999px' }} />
-                </div>
-                <span style={{ fontSize: '13px', fontWeight: 700, color: C.success, whiteSpace: 'nowrap' }}>
-                  {crGroups.filter(([cr, ps]) => crPlans[cr]?.notNeededForPlan || (ps.length > 0 && ps.filter(p => p.status === 'READY' || p.usedInTaskId).length === ps.length)).length}/{crGroups.length}
+            <div style={{ padding: '12px 14px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px' }}>
+                <span style={{ fontSize: '12.5px', fontWeight: WEIGHT.semibold, color: C.textSecondary }}>
+                  {doneCrCount} מתוך {crGroups.length} תוכניות הושלמו
                 </span>
+                <span style={{ fontSize: '18px', fontWeight: WEIGHT.bold, color: GOLIVE }}>
+                  {crGroups.length > 0 ? Math.round(doneCrCount / crGroups.length * 100) : 0}%
+                </span>
+              </div>
+              <div style={{ height: '8px', background: C.bgNested, borderRadius: '9999px', overflow: 'hidden' }}>
+                <div style={{ width: `${crGroups.length > 0 ? Math.round(doneCrCount / crGroups.length * 100) : 0}%`, height: '100%', background: GOLIVE, borderRadius: '9999px', transition: 'width .3s ease-out' }} />
               </div>
             </div>
 

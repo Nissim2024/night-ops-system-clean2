@@ -58,10 +58,11 @@ export class TaskProposalsController {
   removeByCr(
     @Param('versionId') versionId: string,
     @Param('crNumber') crNumber: string,
+    @Query('teamIdOverride') teamIdOverride: string | undefined,
     @Request() req: any,
   ) {
     if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
-    return this.service.removeByCr(versionId, crNumber, req.user);
+    return this.service.removeByCr(versionId, crNumber, req.user, teamIdOverride);
   }
 
   @Delete(':id')

@@ -277,6 +277,10 @@ export class QaService {
           application:  cr.application,
           project:      cr.project ?? null,
           isStandAlone: (cr as any).isStandAlone ?? false,
+          isCore:       (cr as any).isCore ?? false,
+          priorityTestDate: (cr as any).priorityTestDate ?? null,
+          notes:        (cr as any).notes ?? null,
+          urgent:       (cr as any).urgent ?? false,
           qaEffortDays: qaEffortMap.get(cr.crNumber) ?? null,
           systems:      hints,
           riskLevel:    plan?.riskLevel ?? null,
@@ -301,7 +305,7 @@ export class QaService {
     // carries a reliable qaEffort (see CR_LIST import). Prefer it explicitly so
     // we don't silently pick up another team's row with a null effort.
     const qaTeam = await prisma.team.findFirst({ where: { name: 'QA Team' } });
-    const vcaSelect = { application: true, qaEffort: true, qaEffortOverride: true, isStandAlone: true };
+    const vcaSelect = { application: true, qaEffort: true, qaEffortOverride: true, isStandAlone: true, urgent: true, priorityTestDate: true };
     const vca = (qaTeam && await prisma.versionCrAssignment.findFirst({
       where:  { versionId, crNumber, teamId: qaTeam.id },
       select: vcaSelect,
@@ -316,17 +320,23 @@ export class QaService {
     const vcaSA         = (vca as any)?.isStandAlone ?? false;
     const finalCycles   = cycles ?? (vcaSA ? ['STAND_ALONE'] : ['CYCLE_1', 'CYCLE_2', 'CYCLE_3']);
 
-    // Auto sortOrder on CREATE: max for this tester + 1
+    // Auto sortOrder on CREATE: max for this tester + 1 — except a CR flagged
+    // urgent, or one that must go live before/outside this version (priorityTestDate
+    // set), which jumps to the front of that tester's queue instead (min - 1).
     let nextSortOrder = sortOrder;
     const existing = await prisma.qaAssignment.findUnique({
       where: { versionId_crNumber: { versionId, crNumber } },
     });
+    const isPriority = !!((vca as any)?.urgent || (vca as any)?.priorityTestDate);
     if (!existing && nextSortOrder === undefined) {
       const agg = await (prisma.qaAssignment as any).aggregate({
         where: { versionId, userId },
         _max:  { sortOrder: true },
+        _min:  { sortOrder: true },
       });
-      nextSortOrder = ((agg._max?.sortOrder ?? 0) as number) + 1;
+      nextSortOrder = isPriority
+        ? ((agg._min?.sortOrder ?? 1) as number) - 1
+        : ((agg._max?.sortOrder ?? 0) as number) + 1;
     }
 
     const result = await prisma.qaAssignment.upsert({

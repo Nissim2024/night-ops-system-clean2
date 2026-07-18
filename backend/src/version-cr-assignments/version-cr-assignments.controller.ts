@@ -53,7 +53,10 @@ export class VersionCrAssignmentsController {
   patchCr(
     @Param('versionId') versionId: string,
     @Param('crNumber')  crNumber: string,
-    @Body() body: { qaEffortOverride?: number | null; isStandAlone?: boolean },
+    @Body() body: {
+      qaEffortOverride?: number | null; isStandAlone?: boolean; reviewed?: boolean;
+      isCore?: boolean; priorityTestDate?: string | null; notes?: string | null; urgent?: boolean;
+    },
     @Request() req: any,
   ) {
     if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
@@ -70,6 +73,23 @@ export class VersionCrAssignmentsController {
   ) {
     if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
     return this.service.getChangeDetail(versionId, crNumber, teamId);
+  }
+
+  // Cross-team coordination info — all teams + systems touching each CR,
+  // regardless of caller's own team (a team lead needs to see who else is
+  // involved on a shared CR, not just their own team's assignment row).
+  @Get('version/:versionId/cr-scope')
+  getCrScope(@Param('versionId') versionId: string, @Request() req: any) {
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.getCrScope(versionId);
+  }
+
+  // QA classification progress (isCore/urgent/priorityTestDate) — available
+  // before scope approval, unlike scope-change flags.
+  @Get('version/:versionId/classification-stats')
+  getClassificationStats(@Param('versionId') versionId: string, @Request() req: any) {
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.getClassificationStats(versionId);
   }
 
   @Get('version/:versionId/stats')

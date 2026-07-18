@@ -32,6 +32,11 @@ export class QcController {
     return this.qcService.getOpenProductionDefectsHistory();
   }
 
+  @Get('new-vs-target-defects')
+  getNewVsTargetDefects() {
+    return this.qcService.getNewVsTargetDefects();
+  }
+
   @Get('defect-status-history')
   getDefectStatusHistory(@Query('defectId') defectId: string) {
     return this.qcService.getDefectStatusHistory(defectId);

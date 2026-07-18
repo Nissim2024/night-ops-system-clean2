@@ -6,6 +6,7 @@ import { TeamLeadProposalView } from './TeamLeadProposalView';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { PlanWizard } from './PlanWizard';
 import { VersionWizard } from './VersionWizard';
+import { useVersionCreation } from '../hooks/useVersionCreation';
 import { CrPlanReviewPanel } from './CrPlanReviewPanel';
 import { DateField, DateTimeField } from './DatePicker';
 import { FEATURES } from '../featureFlags';
@@ -65,15 +66,6 @@ interface Version {
   archivedAt?: string;
 }
 
-interface QcRelease {
-  id: string;
-  relId: number;
-  relName: string;
-  goLiveDate?: string;
-  rehearsalDate?: string;
-  filterDate?: string;
-  relEndDate?: string;
-}
 
 interface Props {
   token: string;
@@ -82,54 +74,21 @@ interface Props {
   onVersionFocus?: (versionId: string) => void;
   onGoHome?: () => void;
   onGoToAdmin?: () => void;
+  onNavigateTab?: (tab: string) => void;
   initialSelectedId?: string;
   autoNew?: boolean;
 }
 
 const EMPTY_TASK = { title: '', assignedUserName: '', crNumber: '', application: '', environment: 'BOTH', notes: '', dependencyNote: '', duration: '', plannedStart: '', plannedEnd: '', _durationMins: '' };
 
-// Compute the default plannedEnd from a given plannedStart value:
-// next calendar day at 04:00 (night finishes at 04:00 AM next morning)
-const defaultPlannedEnd = (plannedStart: string): string => {
-  if (!plannedStart) return '';
-  const d = new Date(plannedStart);
-  if (isNaN(d.getTime())) return '';
-  d.setDate(d.getDate() + 1);
-  d.setHours(4, 0, 0, 0);
-  return d.toISOString().slice(0, 16);
-};
-
-// Subtract N working days (skip Fri=5, Sat=6) from a Date, return "YYYY-MM-DDT10:00" string
-const subtractWorkingDays = (from: string, days: number): string => {
-  if (!from) return '';
-  const d = new Date(from);
-  if (isNaN(d.getTime())) return '';
-  let remaining = days;
-  while (remaining > 0) {
-    d.setDate(d.getDate() - 1);
-    const dow = d.getDay();
-    if (dow !== 5 && dow !== 6) remaining--;
-  }
-  d.setHours(10, 0, 0, 0);
-  return d.toISOString().slice(0, 16);
-};
-
-export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLive, onVersionFocus, onGoHome, onGoToAdmin, initialSelectedId, autoNew }) => {
+export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLive, onVersionFocus, onGoHome, onGoToAdmin, onNavigateTab, initialSelectedId, autoNew }) => {
   const [versions, setVersions] = useState<Version[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(autoNew ?? false);
-  const [newVersion, setNewVersion] = useState({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', workPlanMeetingTime: '', integrationStart: '', integrationEnd: '', qaStart: '', qaEnd: '', plannedRehearsalStart: '', plannedRehearsalEnd: '', qcReleaseId: '' });
-  const [qcReleases, setQcReleases] = useState<QcRelease[]>([]);
-  const [creatingTemplate, setCreatingTemplate] = useState(false);
-  const [importFile, setImportFile] = useState<File | null>(null);
-  const [importing, setImporting] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [templates, setTemplates] = useState<any[]>([]);
-  const [selectedTemplateId, setSelectedTemplateId] = useState('');
-  const [creatingFromTemplate, setCreatingFromTemplate] = useState(false);
   const [outerDialog, setOuterDialog] = useState<DialogConfig | null>(null);
   const [depToastOuter, setDepToastOuter] = useState<any[] | null>(null);
   const depToastTimerOuter = React.useRef<any>(null);
@@ -165,117 +124,23 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
 
   useEffect(() => {
     fetchVersions();
-    axios.get(`${API}/qc-releases/active`, { headers }).then(res => setQcReleases(res.data)).catch(() => {});
-    axios.get(`${API}/version-templates`, { headers }).then(res => setTemplates(res.data)).catch(() => {});
   }, []); // eslint-disable-line
+
+  const vc = useVersionCreation(token, {
+    onListChanged: () => { fetchVersions(); onVersionsChanged?.(); },
+    onCreated: (versionId) => {
+      setShowNew(false);
+      if (versionId) fetchVersion(versionId);
+      // Back to the home dashboard after creating a version, instead of dropping
+      // straight into the version-detail screen.
+      onGoHome?.();
+    },
+  });
 
   // Auto-select version when initialSelectedId changes (e.g. from sidebar selection)
   useEffect(() => {
     if (initialSelectedId) fetchVersion(initialSelectedId);
   }, [initialSelectedId]); // eslint-disable-line
-
-  const handlePlannedStartChange = (val: string) => {
-    setNewVersion(prev => ({
-      ...prev,
-      plannedStart: val,
-      plannedEnd: prev.plannedEnd ? prev.plannedEnd : defaultPlannedEnd(val),
-      reviewMeetingTime: prev.reviewMeetingTime ? prev.reviewMeetingTime : subtractWorkingDays(val, 10),
-      workPlanMeetingTime: prev.workPlanMeetingTime ? prev.workPlanMeetingTime : subtractWorkingDays(val, 9),
-    }));
-  };
-
-  const syncCrsInBackground = (versionId: string) => {
-    axios.post(`${API}/version-cr-assignments/version/${versionId}/sync`, {}, { headers }).catch(() => {});
-  };
-
-  const formComplete = !!(
-    newVersion.name.trim() &&
-    newVersion.description.trim() &&
-    newVersion.integrationStart &&
-    newVersion.integrationEnd &&
-    newVersion.qaStart &&
-    newVersion.qaEnd
-  );
-
-  const createEmpty = async () => {
-    if (!formComplete) return;
-    setCreatingTemplate(true);
-    try {
-      const res = await axios.post(`${API}/versions`, {
-        ...newVersion,
-        qcReleaseId: newVersion.qcReleaseId || undefined,
-      }, { headers });
-      const versionId = res.data.id;
-      syncCrsInBackground(versionId);
-      setShowNew(false);
-      setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', workPlanMeetingTime: '', integrationStart: '', integrationEnd: '', qaStart: '', qaEnd: '', plannedRehearsalStart: '', plannedRehearsalEnd: '', qcReleaseId: '' });
-      await fetchVersions();
-      await fetchVersion(versionId);
-      onVersionsChanged?.();
-      // Back to the home dashboard after creating a version, instead of dropping
-      // straight into the version-detail screen.
-      onGoHome?.();
-    } catch (err: any) { setActionError(err?.response?.data?.message || 'שגיאה ביצירת גרסה'); }
-    finally { setCreatingTemplate(false); }
-  };
-
-  const importFromFile = async () => {
-    if (!importFile || !newVersion.name.trim()) return;
-    setImporting(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', importFile);
-      formData.append('versionName', newVersion.name);
-      if (newVersion.plannedStart) formData.append('plannedStart', newVersion.plannedStart.slice(0, 10));
-      if (newVersion.qcReleaseId) formData.append('qcReleaseId', newVersion.qcReleaseId);
-      if (newVersion.integrationStart) formData.append('integrationStart', newVersion.integrationStart);
-      if (newVersion.integrationEnd) formData.append('integrationEnd', newVersion.integrationEnd);
-      if (newVersion.qaStart) formData.append('qaStart', newVersion.qaStart);
-      if (newVersion.qaEnd) formData.append('qaEnd', newVersion.qaEnd);
-      if (newVersion.plannedRehearsalStart) formData.append('plannedRehearsalStart', newVersion.plannedRehearsalStart);
-      if (newVersion.plannedRehearsalEnd) formData.append('plannedRehearsalEnd', newVersion.plannedRehearsalEnd);
-      const res = await axios.post(`${API}/import/excel`, formData, { headers });
-      if (res.data.success) {
-        if (res.data.versionId) syncCrsInBackground(res.data.versionId);
-        setShowNew(false);
-        setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', workPlanMeetingTime: '', integrationStart: '', integrationEnd: '', qaStart: '', qaEnd: '', plannedRehearsalStart: '', plannedRehearsalEnd: '', qcReleaseId: '' });
-        setImportFile(null);
-        await fetchVersions();
-        onVersionsChanged?.();
-        onGoHome?.();
-      } else {
-        setActionError(res.data.message || 'שגיאה בייבוא הקובץ');
-      }
-    } catch (err: any) {
-      setActionError(err?.response?.data?.message || 'שגיאה בייבוא הקובץ');
-    } finally { setImporting(false); }
-  };
-
-  const createFromTemplate = async () => {
-    if (!selectedTemplateId) { setActionError('יש לבחור תבנית לפני יצירה'); return; }
-    if (!newVersion.name.trim()) { setActionError('נדרש שם גרסה לפני יצירה'); return; }
-    if (!newVersion.plannedStart) { setActionError('נדרש תאריך ושעת התחלה מתוכנן לפני יצירה'); return; }
-    if (!newVersion.plannedEnd) { setActionError('נדרש תאריך ושעת סיום מתוכנן לפני יצירה'); return; }
-    setCreatingFromTemplate(true);
-    try {
-      const res = await axios.post(`${API}/versions`, {
-        ...newVersion,
-        qcReleaseId: newVersion.qcReleaseId || undefined,
-      }, { headers });
-      const versionId = res.data.id;
-      await axios.post(`${API}/version-templates/${selectedTemplateId}/apply-to-version/${versionId}`, {}, { headers });
-      syncCrsInBackground(versionId);
-      setShowNew(false);
-      setNewVersion({ name: '', description: '', plannedStart: '', plannedEnd: '', reviewMeetingTime: '', workPlanMeetingTime: '', integrationStart: '', integrationEnd: '', qaStart: '', qaEnd: '', plannedRehearsalStart: '', plannedRehearsalEnd: '', qcReleaseId: '' });
-      setSelectedTemplateId('');
-      await fetchVersions();
-      await fetchVersion(versionId);
-      onVersionsChanged?.();
-      onGoHome?.();
-    } catch (err: any) {
-      setActionError(err?.response?.data?.message || 'שגיאה ביצירה מתבנית');
-    } finally { setCreatingFromTemplate(false); }
-  };
 
   const updateStatus = async (id: string, status: string, force?: boolean): Promise<void> => {
     await axios.patch(`${API}/versions/${id}/status`, { status, ...(force ? { force: true } : {}) }, { headers });
@@ -367,6 +232,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
           onStatusChange={(status, force) => updateStatus(selected.id, status, force)}
           onGoLive={onGoLive}
           showDepToast={showDepToastOuter}
+          onNavigateTab={onNavigateTab}
         />
         {depToastOuter && depToastOuter.length > 0 && (
           <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 99999, display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '340px', pointerEvents: 'auto' }}>
@@ -437,7 +303,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
           <Button
             variant="primary"
             size="md"
-            onClick={() => { setShowNew(true); setImportFile(null); }}
+            onClick={() => { setShowNew(true); vc.setImportFile(null); }}
             icon={
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
@@ -452,24 +318,24 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
 
       {showNew && (
         <VersionWizard
-          newVersion={newVersion}
-          setNewVersion={setNewVersion}
-          qcReleases={qcReleases}
-          templates={templates}
-          selectedTemplateId={selectedTemplateId}
-          setSelectedTemplateId={setSelectedTemplateId}
-          importFile={importFile}
-          setImportFile={setImportFile}
-          onPlannedStartChange={handlePlannedStartChange}
-          onCreateEmpty={createEmpty}
-          onCreateFromTemplate={createFromTemplate}
-          onImportFromFile={importFromFile}
-          creatingTemplate={creatingTemplate}
-          creatingFromTemplate={creatingFromTemplate}
-          importing={importing}
-          actionError={actionError}
-          setActionError={setActionError}
-          onClose={() => { setShowNew(false); setImportFile(null); setSelectedTemplateId(''); setActionError(null); }}
+          newVersion={vc.newVersion}
+          setNewVersion={vc.setNewVersion}
+          qcReleases={vc.qcReleases}
+          templates={vc.templates}
+          selectedTemplateId={vc.selectedTemplateId}
+          setSelectedTemplateId={vc.setSelectedTemplateId}
+          importFile={vc.importFile}
+          setImportFile={vc.setImportFile}
+          onPlannedStartChange={vc.handlePlannedStartChange}
+          onCreateEmpty={vc.createEmpty}
+          onCreateFromTemplate={vc.createFromTemplate}
+          onImportFromFile={vc.importFromFile}
+          creatingTemplate={vc.creatingTemplate}
+          creatingFromTemplate={vc.creatingFromTemplate}
+          importing={vc.importing}
+          actionError={vc.actionError}
+          setActionError={vc.setActionError}
+          onClose={() => { setShowNew(false); vc.reset(); }}
         />
       )}
 
@@ -735,7 +601,8 @@ const VersionDetail: React.FC<{
   onStatusChange: (s: string, force?: boolean) => Promise<void>;
   onGoLive?: (versionId: string, versionName: string, isRehearsal: boolean) => void;
   showDepToast?: (affected: any[]) => void;
-}> = ({ version, token, userRole, onBack, onRefresh, onStatusChange, onGoLive, showDepToast }) => {
+  onNavigateTab?: (tab: string) => void;
+}> = ({ version, token, userRole, onBack, onRefresh, onStatusChange, onGoLive, showDepToast, onNavigateTab }) => {
   const headers = { Authorization: `Bearer ${token}` };
   const isManager = ['RELEASE_MANAGER', 'ADMIN'].includes(userRole);
   const { can } = usePermissions();
@@ -1833,6 +1700,15 @@ const VersionDetail: React.FC<{
                 }}
                 style={{ padding: '6px 14px', background: C.success, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '15px', fontWeight: 'bold' }}>
                 💾 שמור כתבנית
+              </button>
+            )}
+
+            {/* Unified go-live script — relevant once teams start submitting CR plans (CR_REVIEW onward) */}
+            {isManager && onNavigateTab && ['CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED'].includes(version.status) && (
+              <button
+                onClick={() => onNavigateTab('unified-plan')}
+                style={{ padding: '6px 14px', background: C.bgCard, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '15px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                📜 תוכנית מאוחדת
               </button>
             )}
 

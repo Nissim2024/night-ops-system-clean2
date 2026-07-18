@@ -28,6 +28,22 @@ const RISK_COLORS: Record<string, { bg: string; color: string }> = {
   HIGH:   { bg: C.dangerBg,  color: C.statusFailed },
 };
 const RISK_LABELS: Record<string, string> = { LOW: 'נמוך', MEDIUM: 'בינוני', HIGH: 'גבוה' };
+
+// Merging several teams' proposals into one shared phase-timeline only reads as
+// a coherent story if you can tell at a glance who owns each step — a stable
+// color per team name (not per-row-random) makes that possible.
+const TEAM_PALETTE = ['#4573D2', '#9C6ADE', '#37C47A', '#E8AF00', '#F0883E', '#14B8A6', '#EC6BAD', '#6366F1'];
+function teamColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return TEAM_PALETTE[hash % TEAM_PALETTE.length];
+}
+// A note that starts with "תלות" is a dependency call-out, not a generic
+// comment — worth its own visual treatment so the causal thread between merged
+// tasks (from potentially different teams) is visible, not just their order.
+function isDependencyNote(notes: string): boolean {
+  return /^\s*תלות/.test(notes);
+}
 const ACTION_TYPES = [
   'הרצת סקריפט', 'הגדרת פרמטרים', 'הגדרת הרשאות', 'עצירת תהליך מתוזמן',
   'החזרת תהליך מתוזמן', 'הטמעת קוד', 'הסבת נתונים', 'בדיקת תקינות', 'הגדרת תצורה', 'פעולה ידנית', 'אחר',
@@ -233,7 +249,8 @@ const NarrativeProposalRow: React.FC<{
   proposal: Proposal; token: string; versionId: string;
   teams: { id: string; name: string }[]; users: { id: string; fullName: string }[];
   subPhaseOpts: SubPhaseOpt[]; onUpdated: () => void; crNumber: string;
-}> = ({ proposal, token, versionId, teams, users, subPhaseOpts, onUpdated, crNumber }) => {
+  stepIndex: number; isLast: boolean;
+}> = ({ proposal, token, versionId, teams, users, subPhaseOpts, onUpdated, crNumber, stepIndex, isLast }) => {
   const dialog = useDialog();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving]   = useState(false);
@@ -268,30 +285,60 @@ const NarrativeProposalRow: React.FC<{
     cursor: saving ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 600, background: C.bgNested, color: C.textMuted,
   };
 
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'flex-start', gap: '9px',
-      padding: '9px 12px', borderRadius: '8px', marginBottom: '5px',
-      background: C.bgApp, border: `1px solid ${C.border}`,
-      borderRight: `3px solid ${meta.border}`,
-    }}>
-      <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: meta.color, flexShrink: 0, marginTop: '5px' }} />
+  const tColor = teamColor(proposal.teamName);
+  const depNote = proposal.notes && isDependencyNote(proposal.notes);
 
+  return (
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', gap: '11px', paddingBottom: isLast ? 0 : '10px' }}>
+      {/* Connecting thread — visually links merged tasks (possibly from
+          different teams) into one sequential story within the phase. */}
+      {!isLast && (
+        <div style={{ position: 'absolute', top: '26px', bottom: '-2px', right: '13px', width: '2px', background: C.border }} />
+      )}
+      <div style={{
+        width: '26px', height: '26px', borderRadius: '50%', flexShrink: 0, zIndex: 1,
+        background: meta.color === C.textMuted ? C.bgNested : `${meta.color}18`,
+        border: `1.5px solid ${meta.color}`, color: meta.color,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: '12px', fontWeight: 800,
+      }}>
+        {proposal.reviewStatus === 'APPROVED' ? '✓' : stepIndex}
+      </div>
+
+      <div style={{
+        flex: 1, minWidth: 0, display: 'flex', alignItems: 'flex-start', gap: '9px',
+        padding: '9px 12px', borderRadius: '8px',
+        background: C.bgApp, border: `1px solid ${C.border}`,
+        borderRight: `3px solid ${meta.border}`,
+      }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: '15px', color: C.textPrimary, lineHeight: 1.5 }}>
           <strong>{proposal.actionType || proposal.title}</strong>
           {proposal.app && <span style={{ color: C.textSecondary }}> — {proposal.app}</span>}
         </div>
-        <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '2px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '3px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: '4px',
+            background: `${tColor}16`, color: tColor, border: `1px solid ${tColor}40`,
+            borderRadius: '999px', padding: '1px 8px', fontWeight: 700, fontSize: '12px',
+          }}>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: tColor }} />
+            {proposal.teamName}
+          </span>
           {proposal.assignedUserName && <span>👤 {proposal.assignedUserName}</span>}
-          <span>👥 {proposal.teamName}</span>
           {proposal.estimatedMins && <span>⏱ כ-{proposal.estimatedMins} דק'</span>}
         </div>
         {proposal.title !== proposal.actionType && proposal.title && proposal.actionType && (
           <div style={{ fontSize: '13px', color: C.textSecondary, marginTop: '2px', fontStyle: 'italic' }}>{proposal.title}</div>
         )}
         {proposal.notes && (
-          <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '2px' }}>💬 {cleanHtmlText(proposal.notes)}</div>
+          <div style={{
+            fontSize: '13px', marginTop: '3px',
+            color: depNote ? C.info : C.textMuted,
+            fontWeight: depNote ? 600 : 400,
+          }}>
+            {depNote ? '↳' : '💬'} {cleanHtmlText(proposal.notes)}
+          </div>
         )}
         {proposal.reviewNote && !showNote && (
           <div style={{ fontSize: '13px', color: C.warning, marginTop: '3px', background: C.warningBg, padding: '3px 7px', borderRadius: '5px', display: 'inline-block' }}>
@@ -320,6 +367,7 @@ const NarrativeProposalRow: React.FC<{
           style={{ ...btnBase, background: proposal.reviewStatus === 'REJECTED' ? C.danger : C.bgNested, color: proposal.reviewStatus === 'REJECTED' ? 'white' : C.textMuted, borderColor: proposal.reviewStatus === 'REJECTED' ? C.danger : C.border }}>✗</button>
         <button onClick={() => setEditing(true)} title="ערוך" style={{ ...btnBase, fontSize: '13px' }}>⚙</button>
         <button onClick={remove} title="מחק" style={{ ...btnBase, color: C.danger, fontSize: '13px' }}>🗑</button>
+      </div>
       </div>
     </div>
   );
@@ -644,14 +692,15 @@ const CrCard: React.FC<{
               const pb = PHASE_BADGE[phase];
               const phaseName = subPhaseOpts.find(sp => sp.phaseOrderIndex === phase)?.phaseName || PHASE_LABELS[phase];
               return (
-                <div key={phase} style={{ marginBottom: '14px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '7px', padding: '6px 12px', background: pb.bg, borderRadius: '7px', border: `1px solid ${pb.color}25` }}>
+                <div key={phase} style={{ marginBottom: '18px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', padding: '6px 12px', background: pb.bg, borderRadius: '7px', border: `1px solid ${pb.color}25` }}>
                     <span style={{ fontSize: '14px', fontWeight: 800, color: pb.color }}>{phaseName}</span>
                     <span style={{ fontSize: '13px', color: pb.color, background: 'white', padding: '1px 7px', borderRadius: '8px', border: `1px solid ${pb.color}30` }}>{phaseProposals.length}</span>
                   </div>
-                  {phaseProposals.map(p => (
+                  {phaseProposals.map((p, i) => (
                     <NarrativeProposalRow key={p.id} proposal={p} token={token} versionId={versionId}
-                      teams={teams} users={users} subPhaseOpts={subPhaseOpts} onUpdated={onReload} crNumber={entry.crNumber} />
+                      teams={teams} users={users} subPhaseOpts={subPhaseOpts} onUpdated={onReload} crNumber={entry.crNumber}
+                      stepIndex={i + 1} isLast={i === phaseProposals.length - 1} />
                   ))}
                 </div>
               );
@@ -938,6 +987,7 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
           {/* RIGHT: detail */}
           {selectedEntry ? (
             <CrCard
+              key={selectedEntry.crNumber}
               entry={selectedEntry} token={token} versionId={propVersionId!}
               teams={teams} users={users} subPhaseOpts={subPhaseOpts} onReload={load}
             />

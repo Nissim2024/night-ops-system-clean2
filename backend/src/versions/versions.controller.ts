@@ -67,7 +67,7 @@ export class VersionsController {
       integrationStart?: string | null; integrationEnd?: string | null; qaStart?: string | null; qaEnd?: string | null;
       plannedRehearsalStart?: string | null; plannedRehearsalEnd?: string | null;
       submissionDeadline?: string | null; approvalDeadline?: string | null;
-      name?: string; description?: string;
+      name?: string; description?: string; homeNotice?: string | null;
     },
     @Request() req: any,
   ) {
@@ -156,6 +156,12 @@ export class VersionsController {
   updateStatus(@Param('id') id: string, @Body() body: { status: VersionStatus; force?: boolean }, @Request() req: any) {
     requireRole(req, MANAGERS, 'רק מנהל לילה יכול לשנות סטטוס גרסה');
     return this.versionsService.updateStatus(id, body.status, req.user.sub, req.user.role, body.force ?? false);
+  }
+
+  @Post(':id/approve-scope')
+  approveScope(@Param('id') id: string, @Request() req: any) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לאשר תכולה');
+    return this.versionsService.approveScope(id, req.user.sub);
   }
 
   @Patch(':id/archive')
