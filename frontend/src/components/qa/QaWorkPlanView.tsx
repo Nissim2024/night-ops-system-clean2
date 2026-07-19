@@ -187,6 +187,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
   const [versions, setVersions]           = useState<Version[]>([]);
   const [versionId, setVersionId]         = useState(initialVersionId ?? '');
   const [assignedUserIds, setAssignedUserIds] = useState<Set<string>>(new Set());
+  const [urgentCrNumbers, setUrgentCrNumbers] = useState<Set<string>>(new Set());
   const [assignments, setAssignments]     = useState<QaAssignment[]>([]);
   const [workPlan, setWorkPlan]           = useState<WorkPlan | null>(null);
   const [unassigned, setUnassigned]       = useState<string[]>([]);
@@ -248,7 +249,8 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
     Promise.all([
       ax.get(`${API}/qa/workplan?versionId=${versionId}`),
       ax.get(`${API}/qa/assignments?versionId=${versionId}`).catch(() => ({ data: [] })),
-    ]).then(([wpRes, asgRes]) => {
+      ax.get(`${API}/version-cr-assignments/version/${versionId}`).catch(() => ({ data: [] })),
+    ]).then(([wpRes, asgRes, vcaRes]) => {
       setWorkPlan(wpRes.data ?? null);
       const asgList = asgRes.data as QaAssignment[];
       setAssignments(asgList);
@@ -260,6 +262,11 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
       if (wpRes.data?.cycle1LengthDays) setCycle1LengthDays(wpRes.data.cycle1LengthDays);
       if (wpRes.data?.cycle2LengthDays) setCycle2LengthDays(wpRes.data.cycle2LengthDays);
       if (wpRes.data?.cycle3LengthDays) setCycle3LengthDays(wpRes.data.cycle3LengthDays);
+      // Purely visual — same urgent/priorityTestDate flags QaAssignmentView shows,
+      // just surfaced here too so it's clear at a glance why a task already sits
+      // first in its tester's queue (sortOrder already handles the actual ordering).
+      const urgentRows = (vcaRes.data as any[] ?? []).filter(c => c.urgent || c.priorityTestDate);
+      setUrgentCrNumbers(new Set(urgentRows.map(c => c.crNumber)));
     }).catch(() => setWorkPlan(null))
       .finally(() => setLoading(false));
   }, [versionId]);
@@ -858,6 +865,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           onStartSwap={setSwappingTask}
           onReassignTester={reassignTester}
           reassigning={reassigning}
+          urgentCrNumbers={urgentCrNumbers}
         />
       ))}
 
@@ -908,6 +916,7 @@ interface CycleCardProps {
   onStartSwap:     (taskId: string | null) => void;
   onReassignTester: (taskId: string, newUserId: string) => void;
   reassigning:     string | null;
+  urgentCrNumbers: Set<string>;
 }
 
 function CycleCard({
@@ -917,6 +926,7 @@ function CycleCard({
   assignmentMap, onOpenSecondary, onReorderTask, reorderingTask,
   allAssignments, problematicKeys,
   allTesters, swappingTask, onStartSwap, onReassignTester, reassigning,
+  urgentCrNumbers,
 }: CycleCardProps) {
   const accent = CYCLE_ACCENT[cycle.cycleType] ?? C.textMuted;
   const bg     = CYCLE_BG[cycle.cycleType]     ?? C.bgNested;
@@ -1078,6 +1088,7 @@ function CycleCard({
                   onStartSwap={onStartSwap}
                   onReassignTester={onReassignTester}
                   reassigning={reassigning}
+                  urgentCrNumbers={urgentCrNumbers}
                 />
               ))}
             </div>
@@ -1110,6 +1121,7 @@ interface TesterSectionProps {
   onStartSwap:     (taskId: string | null) => void;
   onReassignTester: (taskId: string, newUserId: string) => void;
   reassigning:     string | null;
+  urgentCrNumbers: Set<string>;
 }
 
 function TesterSection({
@@ -1117,6 +1129,7 @@ function TesterSection({
   editingEffort, onEditEffort, onSaveEffort,
   assignmentMap, onOpenSecondary, onReorderTask, reorderingTask, isCycle1,
   problematicKeys, allTesters, swappingTask, onStartSwap, onReassignTester, reassigning,
+  urgentCrNumbers,
 }: TesterSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
   const sorted = [...tasks].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -1241,6 +1254,9 @@ function TesterSection({
                   </td>
                   <td style={tdStyle}>
                     <span style={{ ...TEXT.xs, fontWeight: WEIGHT.medium, color: isReg ? C.statusWaiting : isSecondary ? C.info : C.textLink }}>
+                      {!isReg && urgentCrNumbers.has(task.crNumber) && (
+                        <span title="דחוף — מתוזמן ראשון בתור הבודק" style={{ marginLeft: 3 }}>🔴</span>
+                      )}
                       {isReg ? '—' : task.crNumber}
                     </span>
                   </td>
