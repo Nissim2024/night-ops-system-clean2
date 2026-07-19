@@ -43,6 +43,12 @@ const DEFAULT_PARAMS = [
     type: 'text',
   },
   {
+    key: 'QA_EFFORT_THRESHOLD_DAYS',
+    value: '0',
+    label: 'סף מאמץ QA (ימים) לכניסת CR לתכולת הגרסה — CR נכנס אם מאמץ ה-QA שלו גדול מהערך הזה',
+    type: 'number',
+  },
+  {
     key: 'ORACLE_ENABLED',
     value: 'false',
     label: 'QC Oracle: מופעל (true/false)',

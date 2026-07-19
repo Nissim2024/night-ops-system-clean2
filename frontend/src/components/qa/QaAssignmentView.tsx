@@ -273,6 +273,33 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const cyclesPickerRef = useRef<HTMLDivElement>(null);
   const priorityPickerRef = useRef<HTMLDivElement>(null);
 
+  // Column widths (px) — draggable via the resize handle on each header cell.
+  // Index matches the column order in TABLE_COLUMNS below.
+  const DEFAULT_COL_WIDTHS = [120, 90, 220, 90, 90, 110, 130, 60, 140, 160, 70, 90];
+  const [colWidths, setColWidths] = useState<number[]>(DEFAULT_COL_WIDTHS);
+  const resizingCol = useRef<{ index: number; startX: number; startWidth: number } | null>(null);
+
+  const startColResize = useCallback((index: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizingCol.current = { index, startX: e.clientX, startWidth: colWidths[index] };
+    const onMove = (ev: MouseEvent) => {
+      if (!resizingCol.current) return;
+      // RTL layout: dragging right (positive delta) narrows the column.
+      const delta = ev.clientX - resizingCol.current.startX;
+      const next = Math.max(50, resizingCol.current.startWidth - delta);
+      setColWidths(prev => prev.map((w, i) => i === resizingCol.current!.index ? next : w));
+    };
+    const onUp = () => {
+      resizingCol.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colWidths]);
+
   // ── Fetch versions ──────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -529,7 +556,10 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const saveEffort = useCallback(async (crNumber: string, value: string, asgId?: string) => {
     const parsed = parseFloat(value);
     setEditingEffort(null);
-    if (isNaN(parsed) || parsed < 0.5) return;
+    // Was a hardcoded 0.5-day floor — silently blocked saving any sub-half-day
+    // effort with no feedback, which broke editing once QA_EFFORT_THRESHOLD_DAYS
+    // was lowered below 0.5 (e.g. to 0), since such CRs are now legitimately in scope.
+    if (isNaN(parsed) || parsed <= 0) return;
     try {
       if (asgId) {
         const res = await axios.patch(`${API}/qa/assignments/${asgId}`, { qaEffort: parsed }, { headers });
@@ -1296,7 +1326,10 @@ CRים אלה לא ייכללו בתוכנית העבודה.
           {/* Table */}
           <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'visible', boxShadow: SHADOW.sm }}>
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900, tableLayout: 'fixed' }}>
+                <colgroup>
+                  {colWidths.map((w, i) => <col key={i} style={{ width: w }} />)}
+                </colgroup>
                 <thead>
                   <tr style={{ background: C.bgNested }}>
                     {([
@@ -1312,15 +1345,17 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                       { key: null,     label: 'ימי בדיקות (פיצול)' },
                       { key: 'score',  label: 'ציון'  },
                       { key: null,     label: ''      },
-                    ] as { key: typeof sortCol | null; label: string }[]).map(({ key, label }) => (
+                    ] as { key: typeof sortCol | null; label: string }[]).map(({ key, label }, i) => (
                       <th
                         key={label || '__actions'}
                         onClick={key ? () => handleSort(key) : undefined}
                         style={{
+                          position: 'relative',
                           padding: `${SP[2]} ${SP[3]}`, textAlign: 'right', ...TEXT.xs,
                           fontWeight: WEIGHT.bold, color: key && sortCol === key ? BLUE : C.textMuted,
                           textTransform: 'uppercase', letterSpacing: '0.04em',
                           borderBottom: `1px solid ${C.border}`, whiteSpace: 'nowrap',
+                          overflow: 'hidden', textOverflow: 'ellipsis',
                           cursor: key ? 'pointer' : 'default',
                           userSelect: 'none',
                         }}
@@ -1329,6 +1364,12 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                         {key && sortCol === key && (
                           <span style={{ marginRight: 4, fontSize: 10 }}>{sortDir === 'asc' ? '▲' : '▼'}</span>
                         )}
+                        <span
+                          title="גרור כדי לשנות רוחב עמודה"
+                          onMouseDown={e => startColResize(i, e)}
+                          onClick={e => e.stopPropagation()}
+                          style={{ position: 'absolute', top: 0, bottom: 0, left: -3, width: 6, cursor: 'col-resize', zIndex: 1 }}
+                        />
                       </th>
                     ))}
                   </tr>
@@ -1369,9 +1410,9 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                       <tr key={cr.crNumber} style={{ background: rowBg, borderBottom: `1px solid ${C.border}`, opacity: syncStatus === 'REMOVED' ? 0.75 : 1 }}>
 
                         {/* Project */}
-                        <td style={{ padding: `${SP[2]} ${SP[3]}`, whiteSpace: 'nowrap', maxWidth: 120 }}>
+                        <td style={{ padding: `${SP[2]} ${SP[3]}` }}>
                           {cr.project
-                            ? <span style={{ ...TEXT.xs, color: C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }} title={cr.project}>{cr.project}</span>
+                            ? <span style={{ ...TEXT.xs, color: C.textSecondary, whiteSpace: 'normal', wordBreak: 'break-word', display: 'block' }} title={cr.project}>{cr.project}</span>
                             : <span style={{ ...TEXT.xs, color: C.textDisabled }}>—</span>}
                         </td>
 
@@ -1385,7 +1426,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                         {/* Label */}
                         <td style={{ padding: `${SP[2]} ${SP[3]}`, maxWidth: 220 }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                            <div style={{ ...TEXT.sm, color: syncStatus === 'REMOVED' ? C.textMuted : C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: syncStatus === 'REMOVED' ? 'line-through' : 'none' }} title={cr.crLabel ?? ''}>
+                            <div style={{ ...TEXT.sm, color: syncStatus === 'REMOVED' ? C.textMuted : C.textPrimary, whiteSpace: 'normal', wordBreak: 'break-word', textDecoration: syncStatus === 'REMOVED' ? 'line-through' : 'none' }} title={cr.crLabel ?? ''}>
                               {cr.crLabel ? cr.crLabel.replace(/^\d+\s*-\s*/, '') : <span style={{ color: C.textDisabled }}>—</span>}
                             </div>
                             <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
@@ -1400,29 +1441,39 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                           </div>
                         </td>
 
-                        {/* QA Effort — always editable */}
+                        {/* QA Effort — always editable; original CR_LIST value kept visible when overridden */}
                         <td style={{ padding: `${SP[2]} ${SP[3]}`, whiteSpace: 'nowrap', textAlign: 'center' }}>
-                          {isEditingEff ? (
-                            <input
-                              autoFocus
-                              type="number" min="0.5" step="0.5"
-                              defaultValue={effortDays ?? 1}
-                              style={{ width: 54, padding: '2px 4px', border: `1px solid ${BLUE}`, borderRadius: RADIUS.sm, ...TEXT.xs, textAlign: 'center', fontFamily: FONT, outline: 'none' }}
-                              onBlur={e => saveEffort(cr.crNumber, e.target.value, asg?.id)}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter') saveEffort(cr.crNumber, (e.target as HTMLInputElement).value, asg?.id);
-                                if (e.key === 'Escape') setEditingEffort(null);
-                              }}
-                            />
-                          ) : (
-                            <span
-                              title="לחץ לעריכה"
-                              onClick={() => setEditingEffort(cr.crNumber)}
-                              style={{ background: BLUE_BG, color: BLUE, padding: `2px 8px`, borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.bold, cursor: 'pointer', userSelect: 'none' }}
-                            >
-                              {effortDays != null ? `${effortDays}י'` : '—'}
-                            </span>
-                          )}
+                          {(() => {
+                            const wasOverridden = asg?.qaEffort != null && cr.qaEffortDays != null && asg.qaEffort !== cr.qaEffortDays;
+                            return isEditingEff ? (
+                              <input
+                                autoFocus
+                                type="number" min="0.1" step="0.1"
+                                defaultValue={effortDays ?? 1}
+                                style={{ width: 54, padding: '2px 4px', border: `1px solid ${BLUE}`, borderRadius: RADIUS.sm, ...TEXT.xs, textAlign: 'center', fontFamily: FONT, outline: 'none' }}
+                                onBlur={e => saveEffort(cr.crNumber, e.target.value, asg?.id)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') saveEffort(cr.crNumber, (e.target as HTMLInputElement).value, asg?.id);
+                                  if (e.key === 'Escape') setEditingEffort(null);
+                                }}
+                              />
+                            ) : (
+                              <span
+                                title={wasOverridden ? `לחץ לעריכה — ערך מקורי מ-CR_LIST: ${cr.qaEffortDays}י'` : 'לחץ לעריכה'}
+                                onClick={() => setEditingEffort(cr.crNumber)}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer', userSelect: 'none' }}
+                              >
+                                <span style={{ background: BLUE_BG, color: BLUE, padding: `2px 8px`, borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.bold }}>
+                                  {effortDays != null ? `${effortDays}י'` : '—'}
+                                </span>
+                                {wasOverridden && (
+                                  <span style={{ ...TEXT.xs, color: C.textDisabled, textDecoration: 'line-through' }}>
+                                    {cr.qaEffortDays}י'
+                                  </span>
+                                )}
+                              </span>
+                            );
+                          })()}
                         </td>
 
                         {/* סוג: integrative / SA toggle + ליבה (core) toggle — always interactive */}
@@ -1462,7 +1513,12 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                         {/* עדיפות: urgent flag + priority test date + notes — popover */}
                         <td style={{ padding: `${SP[2]} ${SP[3]}`, position: 'relative', whiteSpace: 'nowrap' }}>
                           <button
-                            title="עדיפות בדיקה / דחיפות / הערות"
+                            title={
+                              cr.urgent ? 'דחוף — לחץ לפרטים (תאריך/הערה)'
+                              : cr.priorityTestDate ? `מועד עדיפות: ${new Date(cr.priorityTestDate).toLocaleDateString('he-IL')} — לחץ לפרטים`
+                              : cr.notes ? `הערה: ${cr.notes} — לחץ לפרטים`
+                              : 'עדיפות בדיקה / דחיפות / הערות'
+                            }
                             onClick={() => setOpenPriorityPicker(openPriorityPicker === cr.crNumber ? null : cr.crNumber)}
                             style={{
                               padding: '2px 8px',
@@ -1473,13 +1529,14 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                               cursor: 'pointer', fontFamily: FONT, transition: EASE.fast,
                             }}
                           >
-                            {cr.urgent ? '🔴 דחוף' : cr.priorityTestDate ? `📅 ${new Date(cr.priorityTestDate).toLocaleDateString('he-IL')}` : cr.notes ? '📝' : '—'}
+                            {/* Closed state stays a single compact glyph — full date/note only on click, in the popover below */}
+                            {cr.urgent ? '🔴 דחוף' : cr.priorityTestDate ? '📅' : cr.notes ? '📝' : '—'}
                           </button>
 
                           {openPriorityPicker === cr.crNumber && (
                             <div
                               ref={priorityPickerRef}
-                              style={{ position: 'absolute', top: '100%', right: 0, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.lg, width: 260, zIndex: 400, padding: SP[3], display: 'flex', flexDirection: 'column', gap: SP[2] }}
+                              style={{ position: 'absolute', top: '100%', right: 0, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.lg, width: 300, zIndex: 400, padding: SP[3], display: 'flex', flexDirection: 'column', gap: SP[2] }}
                               onClick={e => e.stopPropagation()}
                             >
                               <label style={{ display: 'flex', alignItems: 'center', gap: SP[2], cursor: 'pointer', ...TEXT.sm, color: C.textPrimary }}>
@@ -1598,9 +1655,9 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                         </td>
 
                         {/* Assigned tester */}
-                        <td style={{ padding: `${SP[2]} ${SP[3]}`, minWidth: 160 }}>
+                        <td style={{ padding: `${SP[2]} ${SP[3]}` }}>
                           {asg ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: SP[1] }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: SP[1], flexWrap: 'wrap' }}>
                               <div style={{ width: 24, height: 24, borderRadius: '50%', background: testerOverload ? C.dangerBg : BLUE_BG, color: testerOverload ? C.danger : BLUE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: WEIGHT.bold, fontSize: '12px', flexShrink: 0, border: testerOverload ? `1px solid ${C.danger}44` : 'none' }}>
                                 {asg.user.fullName.charAt(0).toUpperCase()}
                               </div>
@@ -1661,7 +1718,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                               >✕</button>
                             </div>
                           ) : (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: SP[1] }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: SP[1], flexWrap: 'wrap' }}>
                               <span style={{ ...TEXT.xs, color: C.textDisabled }}>לא שובץ</span>
                               {top1 && (
                                 <span style={{ background: C.successBg, color: C.success, padding: `1px 6px`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.medium, whiteSpace: 'nowrap' }}>

@@ -10,8 +10,17 @@ export class QaStatsController {
 
   @Get('summary')
   async getSummary(@Query('versionId') versionId: string) {
-    const [totalCrs, assignedCrs, workPlan, priorityRows] = await Promise.all([
-      prisma.versionCrAssignment.count({ where: { versionId } }),
+    const [totalCrRows, assignedCrs, workPlan, priorityRows] = await Promise.all([
+      // VersionCrAssignment has one ROW PER TEAM per CR (unique on
+      // [versionId, crNumber, teamId]) — a plain count() here inflates the
+      // real CR count by however many teams touch each CR. Distinct on
+      // crNumber (and excluding REMOVED, matching how scope is defined
+      // everywhere else) gives the actual number of CRs in scope.
+      prisma.versionCrAssignment.findMany({
+        where: { versionId, syncStatus: { not: 'REMOVED' } },
+        select: { crNumber: true },
+        distinct: ['crNumber'],
+      }),
       prisma.qaAssignment.count({ where: { versionId } }),
       prisma.qaWorkPlan.findUnique({ where: { versionId }, select: { id: true } }),
       (prisma.versionCrAssignment as any).findMany({
@@ -20,6 +29,6 @@ export class QaStatsController {
         distinct: ['crNumber'],
       }),
     ]);
-    return { totalCrs, assignedCrs, hasWorkPlan: !!workPlan, priorityCount: priorityRows.length };
+    return { totalCrs: totalCrRows.length, assignedCrs, hasWorkPlan: !!workPlan, priorityCount: priorityRows.length };
   }
 }

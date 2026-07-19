@@ -170,7 +170,13 @@ export class VersionCrAssignmentsService {
     const teamIdByName: Record<string, string> = {};
     allTeams.forEach(t => { teamIdByName[t.name] = t.id; });
 
-    // Master gate: a CR belongs to the version's scope iff its QA column > 0.3.
+    // Configurable via AdminPanel → System Params (QA_EFFORT_THRESHOLD_DAYS,
+    // default 0) instead of a hardcoded cutoff — any QA effort above this
+    // value qualifies a CR for the version's scope.
+    const thresholdParam = await prisma.systemParam.findUnique({ where: { key: 'QA_EFFORT_THRESHOLD_DAYS' } });
+    const qaThreshold = Number(thresholdParam?.value ?? '0') || 0;
+
+    // Master gate: a CR belongs to the version's scope iff its QA column > threshold.
     // That alone is enough for the QA row itself. A non-QA team's row additionally
     // requires that team's own column to be > 0.3 (checked per-row further below) —
     // it does NOT require any other non-QA team to be involved.
@@ -185,7 +191,7 @@ export class VersionCrAssignmentsService {
       const crNumber = crCol !== -1 ? String(row[crCol] ?? '').trim() : '';
       const title    = titleCol !== -1 ? String(row[titleCol] ?? '').trim() : '';
       if (!crNumber || !title) continue;
-      if (qaCols.length > 0 && parseDay(row[qaCols[0]]) > 0.3) qaCRs.add(crNumber);
+      if (qaCols.length > 0 && parseDay(row[qaCols[0]]) > qaThreshold) qaCRs.add(crNumber);
     }
 
     const eligibleCRs = qaCRs;
@@ -223,7 +229,7 @@ export class VersionCrAssignmentsService {
         let teamEstimate: number | undefined;
         if (teamName === QA_TEAM_NAME) {
           const qaDay = teamColIdxs.length > 0 ? parseDay(row[teamColIdxs[0]]) : 0;
-          if (qaDay <= 0.3) continue;
+          if (qaDay <= qaThreshold) continue;
           qaEffortDays = qaDay;
           teamEstimate = qaDay;
         } else {
@@ -382,6 +388,11 @@ export class VersionCrAssignmentsService {
 
     const { rows, headerRowIdx, crCol, verCol, statusCol, colIdx, parseDay } = await this.loadSheet();
     const teamCols = (TEAM_COLUMNS[row.team.name] ?? []).map(colIdx).filter(i => i !== -1);
+    // Same configurable threshold as the sync gate (QA_EFFORT_THRESHOLD_DAYS) —
+    // must stay in sync with parseExcelAssignments' gate or this reason text
+    // can contradict the actual syncStatus that produced the NEW/REMOVED badge.
+    const thresholdParam = await prisma.systemParam.findUnique({ where: { key: 'QA_EFFORT_THRESHOLD_DAYS' } });
+    const teamThreshold = row.team.name === 'QA Team' ? (Number(thresholdParam?.value ?? '0') || 0) : 0.3;
 
     const occurrences: { versionName: string; status: string; teamDays: number }[] = [];
     for (let r = headerRowIdx + 1; r < rows.length; r++) {
@@ -412,16 +423,31 @@ export class VersionCrAssignmentsService {
     } else {
       const sameVersion  = occurrences.find(o => o.versionName === version.name);
       const otherVersion = occurrences.find(o => o.versionName !== version.name && o.versionName !== '');
+      // "Before" = last value this row was synced with; "after" = what the live
+      // file shows right now. teamEstimateDays covers non-QA teams, qaEffort
+      // covers the QA Team row — whichever is populated for this row's team.
+      const prevDays = row.teamEstimateDays ?? row.qaEffort ?? null;
 
       if (sameVersion && sameVersion.status === 'מבוטל') {
         detail.statusInSource = sameVersion.status;
+        detail.prevDays = prevDays;
+        detail.currentDays = sameVersion.teamDays;
         reason = `הסטטוס של ה-CR בקובץ המקור שונה ל"בוטל".`;
-      } else if (sameVersion && sameVersion.teamDays <= 0.3) {
-        detail.prevDays = row.teamEstimateDays ?? null;
-        detail.currentDays = 0;
-        reason = `ימי הפיתוח של צוות זה על ה-CR הוסרו בקובץ המקור (${detail.prevDays ?? '?'} ← 0).`;
+      } else if (sameVersion && sameVersion.teamDays <= teamThreshold) {
+        detail.prevDays = prevDays;
+        detail.currentDays = sameVersion.teamDays;
+        reason = `ימי הפיתוח של צוות זה על ה-CR ירדו בקובץ המקור (${prevDays ?? '?'} ← ${sameVersion.teamDays}, מתחת לסף ${teamThreshold}).`;
+      } else if (sameVersion && prevDays != null && Math.abs(sameVersion.teamDays - prevDays) >= 0.05) {
+        // Still in scope, but the effort figure itself moved — the change that
+        // triggered a re-sync even though it didn't cross the removal threshold.
+        detail.prevDays = prevDays;
+        detail.currentDays = sameVersion.teamDays;
+        reason = `ימי הפיתוח של צוות זה על ה-CR השתנו בקובץ המקור (${prevDays} ← ${sameVersion.teamDays}) — עדיין מעל הסף, ללא השפעה על התכולה.`;
       } else if (sameVersion) {
-        reason = 'לא זוהה שינוי בקובץ המקור מול הגרסה הנוכחית — ייתכן שנדרש סנכרון מחדש.';
+        detail.prevDays = prevDays;
+        detail.currentDays = sameVersion.teamDays;
+        if (sameVersion.status) detail.statusInSource = sameVersion.status;
+        reason = 'לא זוהה שינוי בימי המאמץ או בסטטוס בקובץ המקור מול הגרסה הנוכחית — ייתכן שנדרש סנכרון מחדש.';
       } else if (otherVersion) {
         detail.movedToVersion = otherVersion.versionName;
         reason = `ה-CR עבר לגרסה "${otherVersion.versionName}" בקובץ המקור.`;
@@ -518,10 +544,12 @@ export class VersionCrAssignmentsService {
     const qaTeam = allTeams.find(t => t.name === 'QA Team');
     const qaTeamId = qaTeam?.id;
 
-    // CRs where QA > 0.3
+    // CRs where QA effort clears the configurable scope threshold (QA_EFFORT_THRESHOLD_DAYS)
+    const scopeThresholdParam = await prisma.systemParam.findUnique({ where: { key: 'QA_EFFORT_THRESHOLD_DAYS' } });
+    const scopeThreshold = Number(scopeThresholdParam?.value ?? '0') || 0;
     const qaCrSet = new Set<string>();
     for (const r of rows) {
-      if (qaTeamId && r.teamId === qaTeamId && (r.qaEffort ?? 0) > 0.3) {
+      if (qaTeamId && r.teamId === qaTeamId && (r.qaEffort ?? 0) > scopeThreshold) {
         qaCrSet.add(r.crNumber);
       }
     }
