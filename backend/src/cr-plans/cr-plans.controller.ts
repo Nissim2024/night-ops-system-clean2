@@ -21,6 +21,23 @@ export class CrPlansController {
     return this.service.findForVersion(versionId, req.user, teamId);
   }
 
+  @Get('version/:versionId/team-visibility')
+  getTeamVisibility(@Param('versionId') versionId: string, @Request() req: any) {
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.getTeamVisibility(versionId, req.user);
+  }
+
+  @Get('version/:versionId/cr/:crNumber/team/:teamId/preview')
+  getTeamPlanPreview(
+    @Param('versionId') versionId: string,
+    @Param('crNumber') crNumber: string,
+    @Param('teamId') teamId: string,
+    @Request() req: any,
+  ) {
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.getTeamPlanPreview(versionId, crNumber, teamId, req.user);
+  }
+
   @Post('version/:versionId')
   upsert(
     @Param('versionId') versionId: string,
@@ -67,8 +84,8 @@ export class CrPlansController {
 
   @Get('version/:versionId/team-status')
   getTeamStatus(@Param('versionId') versionId: string, @Request() req: any) {
-    if (!MANAGERS.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת מנהל');
-    return this.service.getTeamStatus(versionId);
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.getTeamStatus(versionId, req.user);
   }
 
   @Patch(':id/submit')

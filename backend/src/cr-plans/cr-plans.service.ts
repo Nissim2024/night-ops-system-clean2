@@ -43,6 +43,65 @@ export class CrPlansService {
     });
   }
 
+  // ── Cross-team visibility for a team lead — status only, never plan content ──
+  // findForVersion() deliberately hard-scopes TEAM_LEAD to their own team's rows
+  // (line ~32 above), so a lead has no way to see whether a shared CR's other
+  // teams have started/submitted. This is a separate, narrow read: only for CRs
+  // the caller's own team is actually assigned to, and only status fields — never
+  // another team's actions/workPlan/rollback text.
+  async getTeamVisibility(versionId: string, user: { sub: string }) {
+    const membership = await prisma.teamMember.findFirst({
+      where: { userId: user.sub },
+      select: { teamId: true },
+    });
+    if (!membership) return [];
+    const myTeamId = membership.teamId;
+
+    const myAssignments = await prisma.versionCrAssignment.findMany({
+      where: { versionId, teamId: myTeamId, syncStatus: { not: 'REMOVED' } },
+      select: { crNumber: true },
+    });
+    const myCrNumbers = [...new Set(myAssignments.map(a => a.crNumber))];
+    if (myCrNumbers.length === 0) return [];
+
+    const [allAssignments, allPlans] = await Promise.all([
+      prisma.versionCrAssignment.findMany({
+        where: { versionId, crNumber: { in: myCrNumbers }, syncStatus: { not: 'REMOVED' } },
+        select: { crNumber: true, crLabel: true, teamId: true, team: { select: { name: true } } },
+      }),
+      prisma.crPlan.findMany({
+        where: { versionId, crNumber: { in: myCrNumbers }, removedByTeam: false },
+        select: {
+          crNumber: true, teamId: true, submissionStatus: true,
+          notNeededForPlan: true, gateAnswered: true,
+        },
+      }),
+    ]);
+
+    const planKey = (crNumber: string, teamId: string) => `${crNumber}|${teamId}`;
+    const planByKey = new Map(allPlans.map(p => [planKey(p.crNumber, p.teamId), p]));
+
+    const byCr = new Map<string, { crNumber: string; crLabel: string | null; teams: any[] }>();
+    for (const a of allAssignments) {
+      if (!byCr.has(a.crNumber)) byCr.set(a.crNumber, { crNumber: a.crNumber, crLabel: a.crLabel, teams: [] });
+      const entry = byCr.get(a.crNumber)!;
+      // A team can appear more than once per CR in VersionCrAssignment (one row
+      // isn't guaranteed unique per team in every import path) — don't duplicate.
+      if (entry.teams.some((t: any) => t.teamId === a.teamId)) continue;
+      const plan = planByKey.get(planKey(a.crNumber, a.teamId));
+      entry.teams.push({
+        teamId: a.teamId,
+        teamName: a.team.name,
+        isMine: a.teamId === myTeamId,
+        submissionStatus: plan?.submissionStatus ?? null,
+        notNeededForPlan: plan?.notNeededForPlan ?? false,
+        gateAnswered: plan?.gateAnswered ?? false,
+        started: !!plan,
+      });
+    }
+    return Array.from(byCr.values());
+  }
+
   async upsert(
     versionId: string,
     user: { sub: string; role: string },
@@ -587,9 +646,20 @@ export class CrPlansService {
     });
   }
 
-  async getTeamStatus(versionId: string) {
+  // Managers see every team's status; a team lead only ever sees their own row
+  // (derived from their own membership, never from a client-supplied team id).
+  async getTeamStatus(versionId: string, user: { sub: string; role: string }) {
+    let filterTeamId: string | undefined;
+    if (!MANAGERS.includes(user.role)) {
+      const membership = await prisma.teamMember.findFirst({
+        where: { userId: user.sub },
+        select: { teamId: true },
+      });
+      if (!membership) return [];
+      filterTeamId = membership.teamId;
+    }
     const plans = await prisma.crPlan.findMany({
-      where: { versionId },
+      where: { versionId, ...(filterTeamId ? { teamId: filterTeamId } : {}) },
       select: {
         teamId: true,
         submissionStatus: true,
@@ -609,7 +679,8 @@ export class CrPlansService {
       select: { teamId: true },
       distinct: ['teamId'],
     });
-    const expectedTeamIds = assignmentRows.map(r => r.teamId).filter(id => !exemptTeamIds.has(id));
+    let expectedTeamIds = assignmentRows.map(r => r.teamId).filter(id => !exemptTeamIds.has(id));
+    if (filterTeamId) expectedTeamIds = expectedTeamIds.filter(id => id === filterTeamId);
     const missingTeamIds = expectedTeamIds.filter(id => !plans.some(p => p.teamId === id));
     const missingTeams = missingTeamIds.length > 0
       ? await prisma.team.findMany({ where: { id: { in: missingTeamIds } }, select: { id: true, name: true } })
@@ -635,6 +706,60 @@ export class CrPlansService {
       ...r,
       allDone: r.total > 0 && r.draft === 0 && r.returned === 0,
     })).sort((a, b) => a.teamName.localeCompare(b.teamName, 'he'));
+  }
+
+  // Read-only preview of another team's plan for a shared CR — status-visibility
+  // (getTeamVisibility) tells you a team submitted; this shows what they actually
+  // planned so a lead can understand cross-team impact before finalizing their own
+  // work. Gated to CRs both teams are actually assigned to, and only once the
+  // target plan is SUBMITTED/APPROVED — a team's in-progress draft stays private.
+  async getTeamPlanPreview(
+    versionId: string, crNumber: string, teamId: string,
+    user: { sub: string; role: string },
+  ) {
+    if (!MANAGERS.includes(user.role)) {
+      const membership = await prisma.teamMember.findFirst({
+        where: { userId: user.sub },
+        select: { teamId: true },
+      });
+      if (!membership) throw new ForbiddenException('אין הרשאה');
+      const myAssignment = await prisma.versionCrAssignment.findFirst({
+        where: { versionId, crNumber, teamId: membership.teamId, syncStatus: { not: 'REMOVED' } },
+      });
+      if (!myAssignment) throw new ForbiddenException('הצוות שלך אינו מעורב ב-CR זה');
+    }
+
+    const plan = await prisma.crPlan.findFirst({
+      where: { versionId, crNumber, teamId, removedByTeam: false },
+      include: {
+        team: { select: { name: true } },
+        actions: { orderBy: { orderIndex: 'asc' } },
+        monitoringPoints: { orderBy: { orderIndex: 'asc' } },
+      },
+    });
+    if (!plan) throw new NotFoundException('לא נמצאה תוכנית לצוות זה ב-CR זה');
+    if (!['SUBMITTED', 'APPROVED'].includes(plan.submissionStatus as string)) {
+      throw new ForbiddenException('התוכנית עדיין בטיוטה — אינה זמינה לתצוגה מקדימה');
+    }
+
+    return {
+      teamName: plan.team.name,
+      crLabel: plan.crLabel,
+      notNeededForPlan: plan.notNeededForPlan,
+      submittedAt: plan.submittedAt,
+      submittedByName: plan.submittedByName,
+      actions: plan.actions.map(a => ({
+        actionType: a.actionType, description: a.description, phase: a.phase,
+        system: a.system, estimatedMins: a.estimatedMins, ownerName: a.ownerName,
+      })),
+      monitoringPoints: plan.monitoringPoints.map(m => ({
+        type: m.type, name: m.name, note: m.note, phase: m.phase, assignedUserName: m.assignedUserName,
+      })),
+      nightTestNeeded: plan.nightTestNeeded,
+      nextDayTestNeeded: plan.nextDayTestNeeded,
+      rollbackType: plan.rollbackType,
+      rollbackPlan: plan.rollbackPlan,
+    };
   }
 
   // Soft-delete (tombstone) rather than a hard delete — if the CR is still present
