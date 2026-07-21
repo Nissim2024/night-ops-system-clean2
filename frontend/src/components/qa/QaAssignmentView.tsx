@@ -119,6 +119,32 @@ function countWorkDays(start: string, end: string): number {
   return count;
 }
 
+// Mirrors backend/src/qa/qa.scheduler.ts exactly — kept in sync so the live
+// preview of round boundaries here matches what generate-workplan actually
+// produces server-side.
+function getFirstWorkDay(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  while (!isWorkDay(d)) d.setDate(d.getDate() + 1);
+  return d;
+}
+function nextWorkDay(date: Date): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() + 1);
+  while (!isWorkDay(d)) d.setDate(d.getDate() + 1);
+  return d;
+}
+function addWorkDays(date: Date, days: number): Date {
+  if (days <= 0) return new Date(date);
+  const d = new Date(date);
+  let remaining = days;
+  while (remaining > 0) {
+    d.setDate(d.getDate() + 1);
+    if (isWorkDay(d)) remaining--;
+  }
+  return d;
+}
+
 function toInputDate(d: string | null | undefined): string {
   if (!d) return '';
   return new Date(d).toISOString().split('T')[0];
@@ -273,21 +299,25 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const cyclesPickerRef = useRef<HTMLDivElement>(null);
   const priorityPickerRef = useRef<HTMLDivElement>(null);
 
-  // Column widths (px) — draggable via the resize handle on each header cell.
-  // Index matches the column order in TABLE_COLUMNS below.
-  const DEFAULT_COL_WIDTHS = [120, 90, 220, 90, 90, 110, 130, 60, 140, 160, 70, 90];
+  // Column widths as % of table width (sums to 100) — draggable via the resize
+  // handle on each header cell. Percentage-based, not px, so the table always
+  // fills exactly its container's width and never needs a horizontal
+  // scrollbar, regardless of screen size. Index matches the column order below.
+  const DEFAULT_COL_WIDTHS = [8, 9, 16, 8, 5, 9, 7, 3, 18, 6, 3, 8];
   const [colWidths, setColWidths] = useState<number[]>(DEFAULT_COL_WIDTHS);
-  const resizingCol = useRef<{ index: number; startX: number; startWidth: number } | null>(null);
+  const resizingCol = useRef<{ index: number; startX: number; startWidth: number; tableWidth: number } | null>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
 
   const startColResize = useCallback((index: number, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    resizingCol.current = { index, startX: e.clientX, startWidth: colWidths[index] };
+    const tableWidth = tableRef.current?.clientWidth || 1000;
+    resizingCol.current = { index, startX: e.clientX, startWidth: colWidths[index], tableWidth };
     const onMove = (ev: MouseEvent) => {
       if (!resizingCol.current) return;
       // RTL layout: dragging right (positive delta) narrows the column.
-      const delta = ev.clientX - resizingCol.current.startX;
-      const next = Math.max(50, resizingCol.current.startWidth - delta);
+      const deltaPct = ((ev.clientX - resizingCol.current.startX) / resizingCol.current.tableWidth) * 100;
+      const next = Math.max(3, resizingCol.current.startWidth - deltaPct);
       setColWidths(prev => prev.map((w, i) => i === resizingCol.current!.index ? next : w));
     };
     const onUp = () => {
@@ -821,6 +851,26 @@ CRים אלה לא ייכללו בתוכנית העבודה.
   const cycleDays     = countWorkDays(cycle1Start, testingEnd);
   const overloadCount = Array.from(testerLoad.values()).filter(l => cycle1LengthDays > 0 && l.totalDays > cycle1LengthDays).length;
 
+  // Live preview of each round's actual start/end date, recomputed whenever the
+  // start date or any round length changes — mirrors buildWorkPlan's boundary
+  // math exactly so this matches what generate-workplan will actually produce.
+  const cycleRanges = useMemo(() => {
+    if (!cycle1Start) return null;
+    const start      = getFirstWorkDay(new Date(cycle1Start));
+    const cycle1End   = addWorkDays(start, Math.max(1, cycle1LengthDays) - 1);
+    const cycle2Start = nextWorkDay(cycle1End);
+    const cycle2End   = addWorkDays(cycle2Start, Math.max(1, cycle2LengthDays) - 1);
+    const cycle3Start = nextWorkDay(cycle2End);
+    const cycle3End   = addWorkDays(cycle3Start, Math.max(1, cycle3LengthDays) - 1);
+    return {
+      cycle1: { start, end: cycle1End },
+      cycle2: { start: cycle2Start, end: cycle2End },
+      cycle3: { start: cycle3Start, end: cycle3End },
+    };
+  }, [cycle1Start, cycle1LengthDays, cycle2LengthDays, cycle3LengthDays]);
+  const fmtRange = (r: { start: Date; end: Date }) =>
+    `${r.start.toLocaleDateString('he-IL')} – ${r.end.toLocaleDateString('he-IL')}`;
+
   // Full active-tester roster (any CR's scored list includes everyone, not
   // just the top matches) — used to find reassignment candidates who
   // currently have zero load and so don't even appear in testerLoad.
@@ -1077,6 +1127,15 @@ CRים אלה לא ייכללו בתוכנית העבודה.
           />
         </label>
 
+        {cycleRanges && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
+            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>תאריכי סבב 1</span>
+            <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>
+              {fmtRange(cycleRanges.cycle1)}
+            </div>
+          </div>
+        )}
+
         <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
           <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }} title="גבול קבוע לסבב 2, בלתי תלוי בסבב 1">
             אורך סבב 2 (ימי עבודה)
@@ -1088,6 +1147,15 @@ CRים אלה לא ייכללו בתוכנית העבודה.
           />
         </label>
 
+        {cycleRanges && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
+            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>תאריכי סבב 2</span>
+            <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>
+              {fmtRange(cycleRanges.cycle2)}
+            </div>
+          </div>
+        )}
+
         <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
           <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }} title="גבול קבוע לסבב 3, בלתי תלוי בסבב 1/2">
             אורך סבב 3 (ימי עבודה)
@@ -1098,6 +1166,15 @@ CRים אלה לא ייכללו בתוכנית העבודה.
             style={{ width: 90, padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, background: C.bgNested, color: C.textPrimary, outline: 'none', fontFamily: FONT }}
           />
         </label>
+
+        {cycleRanges && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
+            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>תאריכי סבב 3</span>
+            <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>
+              {fmtRange(cycleRanges.cycle3)}
+            </div>
+          </div>
+        )}
 
         {cycleDays > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
@@ -1326,9 +1403,9 @@ CRים אלה לא ייכללו בתוכנית העבודה.
           {/* Table */}
           <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'visible', boxShadow: SHADOW.sm }}>
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900, tableLayout: 'fixed' }}>
+              <table ref={tableRef} style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                 <colgroup>
-                  {colWidths.map((w, i) => <col key={i} style={{ width: w }} />)}
+                  {colWidths.map((w, i) => <col key={i} style={{ width: `${w}%` }} />)}
                 </colgroup>
                 <thead>
                   <tr style={{ background: C.bgNested }}>
@@ -1477,8 +1554,8 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                         </td>
 
                         {/* סוג: integrative / SA toggle + ליבה (core) toggle — always interactive */}
-                        <td style={{ padding: `${SP[2]} ${SP[3]}`, whiteSpace: 'nowrap' }}>
-                          <div style={{ display: 'flex', gap: '4px' }}>
+                        <td style={{ padding: `${SP[2]} ${SP[3]}` }}>
+                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                             <button
                               title={effectiveSA ? 'לחץ להפוך לאינטגרטיבי' : 'לחץ להפוך ל-Stand Alone'}
                               onClick={() => toggleStandAlone(cr, asg, effectiveSA)}
@@ -1755,8 +1832,8 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                         </td>
 
                         {/* Actions + score picker */}
-                        <td style={{ padding: `${SP[2]} ${SP[3]}`, whiteSpace: 'nowrap' }}>
-                          <div style={{ display: 'flex', gap: SP[1], alignItems: 'center' }}>
+                        <td style={{ padding: `${SP[2]} ${SP[3]}` }}>
+                          <div style={{ display: 'flex', gap: SP[1], alignItems: 'center', flexWrap: 'wrap' }}>
                             <button
                               disabled={isSaving}
                               onClick={async () => { const r = await autoAssign(cr.crNumber); if (r?.status === 'MANUAL_INTERVENTION') { dialog.alert('שיבוץ ידני נדרש:\n\n' + r.blockReasons.join('\n'), 'שיבוץ ידני נדרש', 'warning'); } }}

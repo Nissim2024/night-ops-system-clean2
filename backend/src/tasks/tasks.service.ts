@@ -33,7 +33,12 @@ export class TasksService {
             where: {
               assignedTeamId: { in: myTeamIds },
               ...(filters?.status && { status: filters.status }),
-              ...(filters?.versionId && { versionId: filters.versionId }),
+              ...(filters?.versionId && {
+                OR: [
+                  { versionId: filters.versionId },
+                  { subPhase: { phase: { versionId: filters.versionId } } },
+                ],
+              }),
             },
             include: {
               assignedTeam: true,
@@ -51,7 +56,16 @@ export class TasksService {
       where: {
         ...(filters?.status && { status: filters.status }),
         ...(teamIdFilter && { assignedTeamId: teamIdFilter }),
-        ...(filters?.versionId && { versionId: filters.versionId }),
+        // Match via the task's own versionId OR its subPhase's parent version —
+        // a handful of tasks exist in the DB with subPhaseId set but versionId
+        // left null/stale (denormalization drift from an older creation path),
+        // which silently disappeared from every versionId-filtered query.
+        ...(filters?.versionId && {
+          OR: [
+            { versionId: filters.versionId },
+            { subPhase: { phase: { versionId: filters.versionId } } },
+          ],
+        }),
       },
       include: {
         assignedTeam: true,

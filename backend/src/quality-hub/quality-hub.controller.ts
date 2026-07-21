@@ -69,6 +69,14 @@ export class QualityHubController {
     }
   }
 
+  // On-demand refresh from the same server path the nightly job reads from
+  // (no file picker needed) — see QualityHubService.importFromServerPath.
+  @Post('import/from-server')
+  async importFromServer(@Request() req: any) {
+    requireRole(req, IMPORTERS, 'רק מנהל גרסה או אדמין יכולים לייבא נתוני איכות');
+    return this.service.importFromServerPath();
+  }
+
   @Get('releases')
   getReleases() {
     return this.service.getReleases();

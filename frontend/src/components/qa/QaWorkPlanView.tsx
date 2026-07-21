@@ -78,6 +78,16 @@ interface Cycle {
   tasks: CycleTask[];
 }
 
+interface ChangeLogEntry {
+  id: string;
+  action: 'EFFORT_CHANGED' | 'TASK_DELETED';
+  crNumber: string | null;
+  userEmail: string | null;
+  beforeData: Record<string, any> | null;
+  afterData: Record<string, any> | null;
+  createdAt: string;
+}
+
 interface OverflowIssue {
   type: 'CORE_OVERFLOW' | 'SA_DUE_DATE_MISSED' | 'GO_LIVE_OVERFLOW';
   message: string;
@@ -168,6 +178,27 @@ function countTasks(cycle: Cycle) {
   };
 }
 
+// Israeli work week (Sun–Thu) — mirrors backend/src/qa/qa.scheduler.ts's isWorkDay.
+function isWorkDay(d: Date): boolean { const dow = d.getDay(); return dow !== 5 && dow !== 6; }
+function countWorkDaysBetween(start: string, end: string): number {
+  const s = new Date(start); s.setHours(0, 0, 0, 0);
+  const e = new Date(end);   e.setHours(0, 0, 0, 0);
+  let count = 0;
+  const d = new Date(s);
+  while (d <= e) { if (isWorkDay(d)) count++; d.setDate(d.getDate() + 1); }
+  return count;
+}
+
+// Sum of effortDays actually assigned in this cycle — the round's real testing-day
+// load, as opposed to the CR-count badge above. Filtering by tester answers "how many
+// of the round's days does THIS person's own workload actually fill?"
+function cycleAssignedDays(cycle: Cycle, filterUserId: string): number {
+  return cycle.tasks
+    .filter(t => t.isActive && t.taskType !== 'REGRESSION')
+    .filter(t => !filterUserId || t.userId === filterUserId)
+    .reduce((sum, t) => sum + t.effortDays, 0);
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -215,6 +246,9 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
   const [allTesters, setAllTesters]       = useState<{ userId: string; fullName: string }[]>([]);
   const [swappingTask, setSwappingTask]   = useState<string | null>(null);
   const [reassigning, setReassigning]     = useState<string | null>(null);
+  const [deletingTask, setDeletingTask]   = useState<string | null>(null);
+  const [changeLog, setChangeLog]         = useState<ChangeLogEntry[] | null>(null);
+  const [showChangeLog, setShowChangeLog] = useState(false);
 
   useEffect(() => {
     ax.get(`${API}/qa/testers`).then(r => setAllTesters(r.data ?? [])).catch(() => {});
@@ -444,6 +478,35 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
     } catch { dialog.alert('שגיאה בעדכון מאמץ המשימה', 'שגיאה', 'danger'); }
   };
 
+  // Corrective action — allowed even after the plan is approved (unlike most
+  // other edits here), since removing a task that shouldn't be in the plan is
+  // exactly the kind of fix a team lead needs post-approval. The backend logs
+  // it to the change log whenever it happens while the plan is APPROVED.
+  const deleteTask = async (task: CycleTask) => {
+    const label = task.crLabel ?? task.crNumber;
+    if (!await dialog.confirm(`למחוק את המשימה "${label}" (${task.user.fullName})?`, 'מחיקת משימה', 'danger')) return;
+    setDeletingTask(task.id);
+    try {
+      const r = await ax.delete(`${API}/qa/workplan/task/${task.id}`);
+      if (r.data) setWorkPlan(r.data);
+    } catch (e: any) {
+      dialog.alert(e?.response?.data?.message ?? 'שגיאה במחיקת המשימה', 'שגיאה', 'danger');
+    } finally {
+      setDeletingTask(null);
+    }
+  };
+
+  const loadChangeLog = async () => {
+    if (!versionId) return;
+    try {
+      const r = await ax.get(`${API}/qa/workplan/changelog?versionId=${versionId}`);
+      setChangeLog(r.data);
+      setShowChangeLog(true);
+    } catch {
+      dialog.alert('שגיאה בטעינת יומן השינויים', 'שגיאה', 'danger');
+    }
+  };
+
   const revertToOriginal = async () => {
     if (!workPlan || !versionId) return;
     if (!await dialog.confirm('לחזור לתוכנית המקורית? כל השינויים הידניים יאבדו.', 'חזרה לתוכנית המקורית', 'danger')) return;
@@ -568,6 +631,9 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
                 <button onClick={approve} style={btnStyle(C.success)}>✓ אשר תוכנית</button>
               )}
               <button onClick={exportExcel} style={btnStyle(C.info)}>⬇ ייצוא Excel</button>
+              {workPlan.status === 'APPROVED' && (
+                <button onClick={loadChangeLog} style={btnStyle('#6366F1')}>🕘 יומן שינויים</button>
+              )}
               <button onClick={() => setShowGenForm(f => !f)} style={btnStyle(C.warning)}>↺ יצור מחדש</button>
               <button onClick={revertToOriginal} disabled={reverting} style={btnStyle('#6B7280', reverting)}>{reverting ? 'מחשב...' : '⟲ חזור למקור'}</button>
             </div>
@@ -582,6 +648,9 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
             <button onClick={approve} style={btnStyle(C.success)}>✓ אשר תוכנית</button>
           )}
           <button onClick={exportExcel} style={btnStyle(C.info)}>⬇ ייצוא Excel</button>
+          {workPlan.status === 'APPROVED' && (
+            <button onClick={loadChangeLog} style={btnStyle('#6366F1')}>🕘 יומן שינויים</button>
+          )}
           <button onClick={() => setShowGenForm(f => !f)} style={btnStyle(C.warning)}>↺ יצור מחדש</button>
           <button onClick={revertToOriginal} disabled={reverting} style={btnStyle('#6B7280', reverting)}>{reverting ? 'מחשב...' : '⟲ חזור לתוכנית המקורית'}</button>
           {/* Filter by employee */}
@@ -865,6 +934,8 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           onStartSwap={setSwappingTask}
           onReassignTester={reassignTester}
           reassigning={reassigning}
+          onDeleteTask={deleteTask}
+          deletingTask={deletingTask}
           urgentCrNumbers={urgentCrNumbers}
         />
       ))}
@@ -883,6 +954,43 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           onRemove={() => assignSecondary(secondaryPanel.assignmentId, null)}
           onClose={() => { setSecondaryPanel(null); setSecondaryData(null); }}
         />
+      )}
+
+      {/* ── Change log — entries written only for corrections made after approval ── */}
+      {showChangeLog && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 4000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setShowChangeLog(false)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: C.bgCard, borderRadius: RADIUS.lg, padding: SP[5], maxWidth: 560, width: '92vw', maxHeight: '78vh', overflowY: 'auto', boxShadow: '0 20px 48px rgba(0,0,0,.25)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[3] }}>
+              <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>🕘 יומן שינויים לאחר אישור התוכנית</span>
+              <button onClick={() => setShowChangeLog(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: C.textMuted }}>✕</button>
+            </div>
+            {!changeLog || changeLog.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: SP[6], color: C.textMuted }}>אין תיקונים שבוצעו מאז אישור התוכנית</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+                {changeLog.map(entry => (
+                  <div key={entry.id} style={{ background: C.bgNested, borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, ...TEXT.sm }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: SP[2] }}>
+                      <span style={{ fontWeight: WEIGHT.medium, color: C.textPrimary }}>
+                        {entry.action === 'TASK_DELETED'
+                          ? `נמחקה משימה — CR ${entry.crNumber ?? entry.beforeData?.crNumber ?? '—'}`
+                          : `שונה מאמץ — CR ${entry.crNumber ?? '—'}: ${entry.beforeData?.effortDays ?? '?'} ← ${entry.afterData?.effortDays ?? '?'} ימים`}
+                      </span>
+                      <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap' }}>
+                        {new Date(entry.createdAt).toLocaleString('he-IL')}
+                      </span>
+                    </div>
+                    {entry.userEmail && (
+                      <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: 2 }}>ע"י {entry.userEmail}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -916,6 +1024,8 @@ interface CycleCardProps {
   onStartSwap:     (taskId: string | null) => void;
   onReassignTester: (taskId: string, newUserId: string) => void;
   reassigning:     string | null;
+  onDeleteTask:    (t: CycleTask) => void;
+  deletingTask:    string | null;
   urgentCrNumbers: Set<string>;
 }
 
@@ -926,12 +1036,15 @@ function CycleCard({
   assignmentMap, onOpenSecondary, onReorderTask, reorderingTask,
   allAssignments, problematicKeys,
   allTesters, swappingTask, onStartSwap, onReassignTester, reassigning,
+  onDeleteTask, deletingTask,
   urgentCrNumbers,
 }: CycleCardProps) {
   const accent = CYCLE_ACCENT[cycle.cycleType] ?? C.textMuted;
   const bg     = CYCLE_BG[cycle.cycleType]     ?? C.bgNested;
   const label  = CYCLE_LABEL[cycle.cycleType]  ?? cycle.cycleType;
   const counts = countTasks(cycle);
+  const totalWorkDays = countWorkDaysBetween(cycle.plannedStart, cycle.plannedEnd);
+  const assignedDays  = cycleAssignedDays(cycle, filterUserId);
   const editable = EDITABLE_CYCLES.has(cycle.cycleType) && !planApproved;
   const isRehearsalOrGoLive = cycle.cycleType === 'REHEARSAL' || cycle.cycleType === 'GO_LIVE';
   const markedCrs = isRehearsalOrGoLive
@@ -976,6 +1089,18 @@ function CycleCard({
             padding: `2px ${SP[2]}`, borderRadius: RADIUS.sm,
           }}>
             {counts.active}/{counts.total} CRים פעילים
+          </span>
+        )}
+        {!isRehearsalOrGoLive && (
+          <span
+            title={filterUserId ? 'ימי עבודה של העובד המסונן בסבב, מתוך ימי הסבב' : 'סה"כ ימי עבודה משובצים בסבב, מתוך ימי הסבב'}
+            style={{
+              ...TEXT.xs, fontWeight: WEIGHT.medium,
+              backgroundColor: assignedDays > totalWorkDays ? C.dangerBg : accent + '22',
+              color: assignedDays > totalWorkDays ? C.danger : accent,
+              padding: `2px ${SP[2]}`, borderRadius: RADIUS.sm,
+            }}>
+            {assignedDays}/{totalWorkDays} ימי בדיקה{filterUserId ? ' לעובד' : ''}
           </span>
         )}
         {isRehearsalOrGoLive && markedCrs.length > 0 && (
@@ -1088,6 +1213,8 @@ function CycleCard({
                   onStartSwap={onStartSwap}
                   onReassignTester={onReassignTester}
                   reassigning={reassigning}
+                  onDeleteTask={onDeleteTask}
+                  deletingTask={deletingTask}
                   urgentCrNumbers={urgentCrNumbers}
                 />
               ))}
@@ -1121,6 +1248,8 @@ interface TesterSectionProps {
   onStartSwap:     (taskId: string | null) => void;
   onReassignTester: (taskId: string, newUserId: string) => void;
   reassigning:     string | null;
+  onDeleteTask:    (t: CycleTask) => void;
+  deletingTask:    string | null;
   urgentCrNumbers: Set<string>;
 }
 
@@ -1129,6 +1258,7 @@ function TesterSection({
   editingEffort, onEditEffort, onSaveEffort,
   assignmentMap, onOpenSecondary, onReorderTask, reorderingTask, isCycle1,
   problematicKeys, allTesters, swappingTask, onStartSwap, onReassignTester, reassigning,
+  onDeleteTask, deletingTask,
   urgentCrNumbers,
 }: TesterSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
@@ -1177,6 +1307,7 @@ function TesterSection({
             <col style={{ width: 95 }} />
             <col style={{ width: 95 }} />
             <col style={{ width: 68 }} />
+            <col style={{ width: 34 }} />
             {editable && <col style={{ width: 60 }} />}
             {editable && <col style={{ width: 130 }} />}
           </colgroup>
@@ -1190,6 +1321,7 @@ function TesterSection({
               <th style={thStyle}>התחלה</th>
               <th style={thStyle}>סיום</th>
               <th style={{ ...thStyle, textAlign: 'center' }}>ימים</th>
+              <th style={{ ...thStyle, textAlign: 'center' }}></th>
               {editable && <th style={{ ...thStyle, textAlign: 'center' }}>פעיל</th>}
               {editable && <th style={{ ...thStyle, textAlign: 'center' }}>בודק</th>}
             </tr>
@@ -1322,6 +1454,23 @@ function TesterSection({
                       >
                         {task.effortDays}
                       </span>
+                    )}
+                  </td>
+                  {/* Delete — a corrective action, always available regardless of
+                      the cycle's editable/approval gate (unlike toggle/reassign below) */}
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>
+                    {!isReg && !isSecondary && (
+                      <button
+                        title="מחק משימה"
+                        onClick={() => onDeleteTask(task)}
+                        disabled={deletingTask === task.id}
+                        style={{
+                          ...smallBtnStyle, backgroundColor: 'transparent', color: C.danger,
+                          border: '1px solid transparent', cursor: deletingTask === task.id ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {deletingTask === task.id ? '…' : '🗑'}
+                      </button>
                     )}
                   </td>
                   {editable && (

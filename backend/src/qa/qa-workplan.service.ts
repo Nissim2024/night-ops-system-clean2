@@ -467,10 +467,24 @@ export class QaWorkPlanService {
   // A duration change shifts everyone queued after this task, and may push the
   // cycle boundary itself — so it cascades exactly like reorderTask does.
 
-  async updateTaskEffort(taskId: string, effortDays: number) {
+  async updateTaskEffort(taskId: string, effortDays: number, userEmail?: string) {
     if (effortDays < 0.5) throw new BadRequestException('מאמץ מינימלי הוא 0.5 ימים');
-    const task = await prisma.qaCycleTask.findUnique({ where: { id: taskId }, include: { cycle: true } });
+    const task = await prisma.qaCycleTask.findUnique({
+      where: { id: taskId },
+      include: { cycle: { include: { workPlan: true } } },
+    });
     if (!task) throw new NotFoundException('משימה לא נמצאה');
+
+    if (task.cycle.workPlan.status === 'APPROVED') {
+      await prisma.qaWorkPlanChangeLog.create({
+        data: {
+          workPlanId: task.cycle.workPlanId, qaCycleTaskId: task.id, crNumber: task.crNumber,
+          action: 'EFFORT_CHANGED', userEmail,
+          beforeData: { effortDays: task.effortDays },
+          afterData: { effortDays },
+        },
+      });
+    }
 
     await prisma.qaCycleTask.update({ where: { id: taskId }, data: { effortDays } });
 
@@ -479,6 +493,51 @@ export class QaWorkPlanService {
 
     const workPlan = await prisma.qaWorkPlan.findUnique({ where: { id: task.cycle.workPlanId }, select: { versionId: true } });
     return this.getWorkPlan(workPlan?.versionId ?? '');
+  }
+
+  // ── Delete a task from the plan (corrective action — allowed even after
+  // approval, unlike most other edits, per explicit product decision) ────────
+  async deleteTask(taskId: string, userEmail?: string) {
+    const task = await prisma.qaCycleTask.findUnique({
+      where: { id: taskId },
+      include: { cycle: { include: { workPlan: true } } },
+    });
+    if (!task) throw new NotFoundException('משימה לא נמצאה');
+
+    if (task.cycle.workPlan.status === 'APPROVED') {
+      await prisma.qaWorkPlanChangeLog.create({
+        data: {
+          workPlanId: task.cycle.workPlanId, qaCycleTaskId: null, crNumber: task.crNumber,
+          action: 'TASK_DELETED', userEmail,
+          beforeData: {
+            crNumber: task.crNumber, crLabel: task.crLabel, userId: task.userId,
+            effortDays: task.effortDays, taskType: task.taskType,
+            plannedStart: task.plannedStart, plannedEnd: task.plannedEnd,
+          },
+        },
+      });
+    }
+
+    const cycleId = task.cycleId;
+    const workPlanId = task.cycle.workPlanId;
+    const cycleType = task.cycle.cycleType as CycleType;
+    await prisma.qaCycleTask.delete({ where: { id: taskId } });
+
+    const newCycleEnd = await this.rescheduleFullCycle(cycleId, new Date(task.cycle.plannedStart));
+    await this.cascadeFromCycle(workPlanId, cycleType, newCycleEnd);
+
+    const workPlan = await prisma.qaWorkPlan.findUnique({ where: { id: workPlanId }, select: { versionId: true } });
+    return this.getWorkPlan(workPlan?.versionId ?? '');
+  }
+
+  // ── Change log — only ever contains entries written post-approval ─────────
+  async getChangeLog(versionId: string) {
+    const workPlan = await prisma.qaWorkPlan.findUnique({ where: { versionId }, select: { id: true } });
+    if (!workPlan) return [];
+    return prisma.qaWorkPlanChangeLog.findMany({
+      where: { workPlanId: workPlan.id },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   // ── Reassign a task's tester (swap) ──────────────────────────────────────────

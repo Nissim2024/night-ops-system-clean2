@@ -56,6 +56,7 @@ export class VersionCrAssignmentsController {
     @Body() body: {
       qaEffortOverride?: number | null; isStandAlone?: boolean; reviewed?: boolean;
       isCore?: boolean; priorityTestDate?: string | null; notes?: string | null; urgent?: boolean;
+      alreadyInProduction?: boolean;
     },
     @Request() req: any,
   ) {

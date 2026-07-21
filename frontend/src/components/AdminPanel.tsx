@@ -115,6 +115,8 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
   const [qhScoresFile, setQhScoresFile]       = useState<File | null>(null);
   const [qhImporting, setQhImporting]         = useState<'definitions' | 'scores' | null>(null);
   const [qhResult, setQhResult]               = useState<{ target: 'definitions' | 'scores'; success: boolean; message: string } | null>(null);
+  const [qhServerImporting, setQhServerImporting] = useState(false);
+  const [qhServerResult, setQhServerResult]   = useState<{ success: boolean; message: string } | null>(null);
 
   const [emailTesting, setEmailTesting]       = useState(false);
   const [emailTestResult, setEmailTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -325,6 +327,30 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
       setQhResult({ target, success: false, message: e?.response?.data?.message || 'שגיאה בייבוא הקובץ' });
     } finally {
       setQhImporting(null);
+    }
+  };
+
+  const importQualityHubFromServer = async () => {
+    setQhServerImporting(true);
+    setQhServerResult(null);
+    try {
+      const res = await axios.post(`${API}/quality-hub/import/from-server`, {}, { headers });
+      const { setup, scores } = res.data;
+      const setupOk = !('error' in setup);
+      const scoresOk = !('error' in scores);
+      if (setupOk && scoresOk) {
+        setQhServerResult({
+          success: true,
+          message: `יובא בהצלחה — הגדרות KPI: ${setup.created} חדשים/${setup.updated} עודכנו · ציוני גרסאות: ${scores.created} חדשים/${scores.updated} עודכנו (${scores.releasesAffected} גרסאות)`,
+        });
+      } else {
+        const errs = [!setupOk && `הגדרות KPI: ${setup.error}`, !scoresOk && `ציוני גרסאות: ${scores.error}`].filter(Boolean).join(' · ');
+        setQhServerResult({ success: false, message: errs });
+      }
+    } catch (e: any) {
+      setQhServerResult({ success: false, message: e?.response?.data?.message || 'שגיאה בייבוא מהשרת' });
+    } finally {
+      setQhServerImporting(false);
     }
   };
 
@@ -2150,17 +2176,52 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                     ייבוא חוזר מעדכן (upsert) רשומות קיימות ומוסיף חדשות.
                   </p>
                 </div>
-                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-                  {uploadCard({
-                    title: 'הגדרות KPI (KPI_RELEASE_SCORE_SETUP)',
-                    subtitle: 'קובץ ה-12 מדדים: שם, יעד, משקל, אחראי, מטרה ותיאור',
-                    target: 'definitions', file: qhDefFile, setFile: setQhDefFile,
-                  })}
-                  {uploadCard({
-                    title: 'ציוני גרסאות (RELEASES_KPI_SCORES)',
-                    subtitle: 'טבלת עובדות היסטורית: ציון בפועל לכל מדד בכל גרסה',
-                    target: 'scores', file: qhScoresFile, setFile: setQhScoresFile,
-                  })}
+
+                <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px 24px', border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: '260px' }}>
+                    <h3 style={{ margin: '0 0 4px', color: C.textPrimary }}>🔄 ייבוא אוטומטי מהשרת</h3>
+                    <p style={{ margin: 0, fontSize: '15px', color: C.textMuted }}>
+                      הקבצים נטענים אוטומטית כל לילה מאותו נתיב שרת בו נמצא קובץ ה-CR_LIST (ללא בחירת קובץ ידנית).
+                      ניתן גם להריץ ייבוא מיידי בלחיצת כפתור.
+                    </p>
+                  </div>
+                  <button
+                    onClick={importQualityHubFromServer}
+                    disabled={qhServerImporting}
+                    style={{
+                      padding: '10px 20px', borderRadius: '8px', border: 'none', whiteSpace: 'nowrap',
+                      background: qhServerImporting ? C.textDisabled : C.brand, color: '#fff',
+                      fontWeight: 'bold', fontSize: '15px', cursor: qhServerImporting ? 'default' : 'pointer',
+                    }}
+                  >
+                    {qhServerImporting ? 'מייבא...' : '🔄 ייבא מהשרת עכשיו'}
+                  </button>
+                  {qhServerResult && (
+                    <div style={{
+                      width: '100%', padding: '10px 12px', borderRadius: '6px', fontSize: '14px',
+                      background: qhServerResult.success ? C.bgDone : C.bgBlocked,
+                      color: qhServerResult.success ? C.statusDone : C.statusFailed,
+                      border: `1px solid ${qhServerResult.success ? C.statusDone : C.statusFailed}44`,
+                    }}>
+                      {qhServerResult.success ? '✅ ' : '⚠️ '}{qhServerResult.message}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <p style={{ margin: '0 0 12px', fontSize: '14px', color: C.textMuted }}>לחלופין ניתן להעלות קבצים ידנית:</p>
+                  <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                    {uploadCard({
+                      title: 'הגדרות KPI (KPI_RELEASE_SCORE_SETUP)',
+                      subtitle: 'קובץ ה-12 מדדים: שם, יעד, משקל, אחראי, מטרה ותיאור',
+                      target: 'definitions', file: qhDefFile, setFile: setQhDefFile,
+                    })}
+                    {uploadCard({
+                      title: 'ציוני גרסאות (RELEASES_KPI_SCORES)',
+                      subtitle: 'טבלת עובדות היסטורית: ציון בפועל לכל מדד בכל גרסה',
+                      target: 'scores', file: qhScoresFile, setFile: setQhScoresFile,
+                    })}
+                  </div>
                 </div>
               </div>
             );

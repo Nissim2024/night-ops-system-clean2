@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { useDialog } from '../context/DialogContext';
-import { C, FONT } from '../theme';
+import { C, FONT, FONT_MONO, RADIUS, SHADOW } from '../theme';
 import { cleanHtmlText } from '../utils/textSanitize';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -11,10 +11,17 @@ const PHASE_LABELS: Record<number, string> = {
   1: 'בוקר לפני גרסה', 2: 'הטמעה בהוטנט', 3: 'הטמעה בהוט', 4: 'בוקר שלאחר גרסה',
 };
 const PHASE_BADGE: Record<number, { bg: string; color: string }> = {
-  1: { bg: '#e8f4fd', color: '#2980b9' },
-  2: { bg: '#e8f8e8', color: '#27ae60' },
-  3: { bg: '#fef5e7', color: '#e67e22' },
-  4: { bg: '#f5e8fd', color: '#8e44ad' },
+  1: { bg: C.infoBg,    color: C.info },
+  2: { bg: C.successBg, color: C.success },
+  3: { bg: C.warningBg, color: C.warning },
+  4: { bg: C.bgWaiting, color: C.statusWaiting },
+};
+const SUBMISSION_META: Record<string, { label: string; dot: string }> = {
+  NOT_STARTED: { label: 'אין התייחסות', dot: C.textDisabled },
+  DRAFT:       { label: 'טיוטה',         dot: C.warning },
+  RETURNED:    { label: 'הוחזר',         dot: C.danger },
+  SUBMITTED:   { label: 'הוגש',          dot: C.success },
+  APPROVED:    { label: 'אושר',          dot: C.success },
 };
 const REVIEW_META: Record<string, { label: string; bg: string; color: string; border: string }> = {
   PENDING:        { label: 'ממתין',    bg: C.bgNested,  color: C.textMuted,     border: C.border },
@@ -44,9 +51,15 @@ function teamColor(name: string): string {
 function isDependencyNote(notes: string): boolean {
   return /^\s*תלות/.test(notes);
 }
+// Kept in sync with TeamLeadProposalView's ACTION_TYPE_OPTIONS — a CrPlanAction's
+// actionType flows automatically into its derived TaskProposal (derivedProposalId),
+// so any value missing from this list renders as a blank, unselected dropdown the
+// moment a manager edits that proposal here.
 const ACTION_TYPES = [
-  'הרצת סקריפט', 'הגדרת פרמטרים', 'הגדרת הרשאות', 'עצירת תהליך מתוזמן',
-  'החזרת תהליך מתוזמן', 'הטמעת קוד', 'הסבת נתונים', 'בדיקת תקינות', 'הגדרת תצורה', 'פעולה ידנית', 'אחר',
+  'הרצת סקריפט', 'הסבת נתונים', 'טעינת קובץ', 'יצירת תיקייה', 'עדכון Crontab',
+  'עצירת Job', 'הפעלת Job', 'פתיחת פרמטר', 'פתיחת הרשאה', 'בדיקה ידנית', 'פעולת תפעול',
+  'הגדרת פרמטרים', 'הגדרת הרשאות', 'עצירת תהליך מתוזמן', 'החזרת תהליך מתוזמן',
+  'הטמעת קוד', 'בדיקת תקינות', 'הגדרת תצורה', 'פעולה ידנית', 'אחר',
 ];
 const APPS = [
   'BILI','CRM','OSB','DP','WEB-RETAIL','WEB-NEXT','WEB-HOT','TOP','IRB','NC','ERP',
@@ -66,14 +79,23 @@ interface CrPlanEntry {
   crPlan: {
     crManager?: string | null; crDescription?: string | null; crType?: string | null;
     riskLevel?: string | null; systems?: string[]; nightTestingNotes?: string | null;
-    gradualRollout: boolean; gradualDetails?: string | null; rollbackPlan?: string | null;
-    morningMonitoring?: string | null;
+    gradualRollout: boolean; gradualDetails?: string | null; activationDate?: string | null; rollbackPlan?: string | null;
+    rollbackType?: string | null; morningMonitoring?: string | null; notNeededForPlan?: boolean;
+    submissionStatus?: string; planApproved?: boolean; monitoringPointsCount?: number;
   };
 }
 interface CrEntry {
   crNumber: string; crLabel: string; managers: string[];
   hasGradualRollout: boolean; crApproved: boolean; planApprovedAt?: string | null;
   teams: CrPlanEntry[]; proposalsByPhase: Record<number, Proposal[]>; totalProposals: number;
+  monitoringPointsTotal?: number;
+}
+interface TeamPlanPreview {
+  teamName: string; crLabel: string; notNeededForPlan: boolean;
+  submittedAt?: string | null; submittedByName?: string | null;
+  actions: { actionType: string; description: string; phase: number; system?: string | null; estimatedMins?: number | null; ownerName?: string | null }[];
+  monitoringPoints: { type: string; name: string; note?: string | null; phase: number; assignedUserName?: string | null }[];
+  nightTestNeeded?: boolean; nextDayTestNeeded?: boolean; rollbackType?: string | null; rollbackPlan?: string | null;
 }
 interface Props { token: string; versionId?: string; versionName?: string; }
 interface SubPhaseOpt { id: string; name: string; phaseName: string; phaseOrderIndex: number; }
@@ -382,9 +404,22 @@ const CrCard: React.FC<{
   const [selectedTab, setSelectedTab] = useState<'tasks' | 'plan'>('tasks');
   const [addOpen, setAddOpen]         = useState(false);
   const [approvingAll, setApprovingAll] = useState(false);
+  const [approvingPhase, setApprovingPhase] = useState<number | null>(null);
   const [approving, setApproving]     = useState(false);
   const [summary, setSummary]         = useState('');
   const [summarizing, setSummarizing] = useState(false);
+  const [teamPreview, setTeamPreview] = useState<{ teamName: string; loading: boolean; error?: string; data?: TeamPlanPreview } | null>(null);
+
+  const openTeamPreview = async (teamId: string, teamName: string) => {
+    setTeamPreview({ teamName, loading: true });
+    try {
+      const r = await axios.get(`${API}/cr-plans/version/${versionId}/cr/${entry.crNumber}/team/${teamId}/preview`,
+        { headers: { Authorization: `Bearer ${token}` } });
+      setTeamPreview({ teamName, loading: false, data: r.data });
+    } catch (e: any) {
+      setTeamPreview({ teamName, loading: false, error: e.response?.data?.message ?? 'שגיאה בטעינת התוכנית' });
+    }
+  };
 
   interface ExtractItemCr { text: string; checked: boolean; phase: number; estimatedMins: string; teamId: string; duplicateId?: string; }
   const [extractModalCr, setExtractModalCr] = useState<{
@@ -394,16 +429,56 @@ const CrCard: React.FC<{
   const [dialog, setDialog] = useState<DialogConfig | null>(null);
 
   const headers = { Authorization: `Bearer ${token}` };
+  const [approvingTeam, setApprovingTeam] = useState<string | null>(null);
+  const approveTeamPlan = async (teamId: string, approve: boolean) => {
+    setApprovingTeam(teamId);
+    try {
+      await axios.patch(`${API}/cr-plans/version/${versionId}/${approve ? 'approve-cr' : 'unapprove-cr'}`, { crNumber: entry.crNumber, teamId }, { headers });
+      onReload();
+    } finally {
+      setApprovingTeam(prev => prev === teamId ? null : prev);
+    }
+  };
+
+  // "מצב הקראה" — reads the merged cross-team story aloud via the browser's
+  // built-in TTS, meant for the release-review meeting (no server round-trip).
+  const [speaking, setSpeaking] = useState(false);
+  const toggleNarrate = () => {
+    if (speaking) { window.speechSynthesis.cancel(); setSpeaking(false); return; }
+    const text = [1, 2, 3, 4].flatMap(phase => (entry.proposalsByPhase[phase] ?? []).map(p => {
+      const who = p.assignedUserName ? `${p.assignedUserName} מ-${p.teamName}` : `מישהו מ-${p.teamName}`;
+      const action = p.actionType || p.title || '';
+      return action ? `${who} מבצע ${action}${p.app ? ` במערכת ${p.app}` : ''}.` : '';
+    })).filter(Boolean).join(' ');
+    if (!text) return;
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'he-IL';
+    utter.onend = () => setSpeaking(false);
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utter);
+    setSpeaking(true);
+  };
   const allProposals  = Object.values(entry.proposalsByPhase).flat();
   const pendingCount  = allProposals.filter(p => p.reviewStatus === 'PENDING').length;
   const approvedCount = allProposals.filter(p => p.reviewStatus === 'APPROVED').length;
-  const teamsWithoutSubmission = entry.teams.filter(t => !allProposals.some(p => p.teamId === t.teamId));
+  const teamsWithoutSubmission = entry.teams.filter(t => !['SUBMITTED', 'APPROVED'].includes(t.crPlan.submissionStatus ?? ''));
   const allTeamsSubmitted = teamsWithoutSubmission.length === 0;
   const allReviewed   = allProposals.length > 0 && pendingCount === 0 && allTeamsSubmitted;
   const crApproved    = entry.crApproved;
 
   const riskLevel = entry.teams.find(t => t.crPlan.riskLevel)?.crPlan.riskLevel ?? '';
   const crType    = entry.teams.find(t => t.crPlan.crType)?.crPlan.crType ?? '';
+  const isTargetCr = /target/i.test(crType) || /target/i.test(entry.crLabel || '');
+  const [targetSummary, setTargetSummary] = useState<{
+    teams: { teamId: string; teamName: string; approved: boolean; defectCount: number; specialCount: number; managementCount: number }[];
+    totalDefects: number; totalSpecial: number; totalManagement: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!isTargetCr) { setTargetSummary(null); return; }
+    axios.get(`${API}/target-cr/version/${versionId}/cr/${entry.crNumber}/summary`, { headers })
+      .then(r => setTargetSummary(r.data))
+      .catch(() => setTargetSummary(null));
+  }, [isTargetCr, versionId, entry.crNumber]); // eslint-disable-line
 
   const approveAll = async () => {
     setApprovingAll(true);
@@ -415,6 +490,19 @@ const CrCard: React.FC<{
       );
       onReload();
     } finally { setApprovingAll(false); }
+  };
+
+  const approvePhase = async (phase: number) => {
+    setApprovingPhase(phase);
+    try {
+      const phaseProposals = entry.proposalsByPhase[phase] ?? [];
+      await Promise.all(
+        phaseProposals.filter(p => p.reviewStatus === 'PENDING').map(p =>
+          axios.patch(`${API}/task-proposals/${p.id}/review`, { reviewStatus: 'APPROVED', reviewNote: '' }, { headers })
+        )
+      );
+      onReload();
+    } finally { setApprovingPhase(null); }
   };
 
   const doCreateExtractedCr = async (replaceConflicts: boolean) => {
@@ -496,7 +584,10 @@ const CrCard: React.FC<{
     const nightItems    = entry.teams.filter(t => t.crPlan.nightTestingNotes).map(t => ({ teamId: t.teamId, teamName: t.teamName, text: t.crPlan.nightTestingNotes! }));
     const morningItems  = entry.teams.filter(t => t.crPlan.morningMonitoring).map(t => ({ teamId: t.teamId, teamName: t.teamName, text: t.crPlan.morningMonitoring! }));
     const rollbackItems = entry.teams.filter(t => t.crPlan.rollbackPlan).map(t => ({ teamId: t.teamId, teamName: t.teamName, text: t.crPlan.rollbackPlan! }));
-    const gradualItems  = entry.teams.filter(t => t.crPlan.gradualRollout && t.crPlan.gradualDetails).map(t => ({ teamId: t.teamId, teamName: t.teamName, text: t.crPlan.gradualDetails! }));
+    const gradualItems  = entry.teams.filter(t => t.crPlan.gradualRollout && t.crPlan.gradualDetails).map(t => ({
+      teamId: t.teamId, teamName: t.teamName,
+      text: t.crPlan.gradualDetails! + (t.crPlan.activationDate ? ` · תאריך הפעלה: ${new Date(t.crPlan.activationDate).toLocaleDateString('he-IL')}` : ''),
+    }));
 
     const crMgr  = entry.teams.map(t => t.crPlan.crManager).find(v => v);
     const crDesc = entry.teams.map(t => t.crPlan.crDescription).find(v => v);
@@ -504,9 +595,9 @@ const CrCard: React.FC<{
 
     return (
       <div>
-        {/* AI Summary header */}
+        {/* AI Summary header — indigo brand accent, matching the design system's .ai-card */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-          <div style={{ fontSize: '15px', fontWeight: 700, color: '#6c3483' }}>✨ סיכום AI</div>
+          <div style={{ fontSize: '13px', fontWeight: 800, color: C.brand }}>✨ סיכום AI — התוכנית המאוחדת</div>
           <button disabled={summarizing}
             onClick={async () => {
               setSummarizing(true);
@@ -517,15 +608,15 @@ const CrCard: React.FC<{
                 setSummary(`שגיאה: ${e?.response?.data?.message || e.message}`);
               } finally { setSummarizing(false); }
             }}
-            style={{ fontSize: '14px', padding: '5px 14px', background: summarizing ? '#ccc' : '#6c3483', color: 'white', border: 'none', borderRadius: '7px', cursor: summarizing ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
-            {summarizing ? '⏳ מסכם...' : summary ? '⟳ צור מחדש' : '✨ סכם תוכנית'}
+            style={{ fontSize: '11px', fontWeight: 700, padding: '5px 12px', background: C.bgCard, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.full, cursor: summarizing ? 'not-allowed' : 'pointer', opacity: summarizing ? 0.6 : 1 }}>
+            {summarizing ? '⏳ מסכם...' : summary ? '🔄 עדכן' : '✨ סכם תוכנית'}
           </button>
         </div>
         {summary && (
-          <div style={{ background: '#f0edf8', border: '2px solid #9b59b6', borderRadius: '10px', padding: '14px 16px', marginBottom: '16px' }}>
-            <div style={{ fontSize: '15px', color: '#1a2332', lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>{summary}</div>
+          <div style={{ background: C.bgCard, border: `1px solid ${C.brand}38`, borderRadius: RADIUS.lg, padding: '14px 18px', marginBottom: '16px' }}>
+            <div style={{ fontSize: '12.5px', color: C.textPrimary, lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>{summary}</div>
             <button onClick={() => setSummary('')}
-              style={{ marginTop: '8px', fontSize: '13px', padding: '2px 10px', background: 'none', border: '1px solid #9b59b660', borderRadius: '5px', color: '#9b59b6', cursor: 'pointer' }}>
+              style={{ marginTop: '8px', fontSize: '13px', padding: '2px 10px', background: 'none', border: `1px solid ${C.brand}40`, borderRadius: RADIUS.sm, color: C.brand, cursor: 'pointer' }}>
               ✕ סגור
             </button>
           </div>
@@ -533,25 +624,25 @@ const CrCard: React.FC<{
 
         {/* CR file meta */}
         {(crMgr || crDesc) && (
-          <div style={{ marginBottom: '14px', paddingBottom: '12px', borderBottom: `1px solid #ede0ff` }}>
+          <div style={{ marginBottom: '14px', paddingBottom: '12px', borderBottom: `1px solid ${C.border}` }}>
             <div style={{ display: 'grid', gridTemplateColumns: crMgr ? '1fr 1fr' : '1fr', gap: '8px', marginBottom: crDesc ? '8px' : 0 }}>
               <div>
-                <div style={{ fontSize: '13px', color: '#9b59b6', fontWeight: 700, marginBottom: '3px' }}>שם ה-CR</div>
-                <div style={{ background: '#f0edf8', border: '1px solid #d7bef7', borderRadius: '7px', padding: '8px 12px', fontSize: '15px', color: '#333' }}>
+                <div style={{ fontSize: '13px', color: C.textMuted, fontWeight: 700, marginBottom: '3px' }}>שם ה-CR</div>
+                <div style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '8px 12px', fontSize: '15px', color: C.textPrimary }}>
                   {entry.crLabel !== entry.crNumber ? entry.crLabel.replace(/^\S+\s*-\s*/, '') : '—'}
                 </div>
               </div>
               {crMgr && (
                 <div>
-                  <div style={{ fontSize: '13px', color: '#9b59b6', fontWeight: 700, marginBottom: '3px' }}>מנהל CR</div>
-                  <div style={{ background: '#f0edf8', border: '1px solid #d7bef7', borderRadius: '7px', padding: '8px 12px', fontSize: '15px', color: '#333' }}>{crMgr}</div>
+                  <div style={{ fontSize: '13px', color: C.textMuted, fontWeight: 700, marginBottom: '3px' }}>מנהל CR</div>
+                  <div style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '8px 12px', fontSize: '15px', color: C.textPrimary }}>{crMgr}</div>
                 </div>
               )}
             </div>
             {crDesc && (
               <div>
-                <div style={{ fontSize: '13px', color: '#9b59b6', fontWeight: 700, marginBottom: '3px' }}>פרטים</div>
-                <div style={{ background: '#f0edf8', border: '1px solid #d7bef7', borderRadius: '7px', padding: '8px 12px', fontSize: '15px', color: '#333', whiteSpace: 'pre-wrap' }}>{crDesc}</div>
+                <div style={{ fontSize: '13px', color: C.textMuted, fontWeight: 700, marginBottom: '3px' }}>פרטים</div>
+                <div style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '8px 12px', fontSize: '15px', color: C.textPrimary, whiteSpace: 'pre-wrap' }}>{crDesc}</div>
               </div>
             )}
           </div>
@@ -559,11 +650,11 @@ const CrCard: React.FC<{
 
         {/* Team chips */}
         {entry.teams.length > 0 && (
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '16px', paddingBottom: '12px', borderBottom: `1px solid #ede0ff` }}>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '16px', paddingBottom: '12px', borderBottom: `1px solid ${C.border}` }}>
             {entry.teams.map(t => (
-              <div key={t.teamId} style={{ background: 'white', border: '1px solid #d7bef7', borderRadius: '8px', padding: '5px 11px', fontSize: '14px' }}>
-                <span style={{ fontWeight: 700, color: '#1a2332' }}>{t.teamName}</span>
-                {t.teamLead && <span style={{ color: '#888', marginRight: '5px' }}>· {t.teamLead}</span>}
+              <div key={t.teamId} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '5px 11px', fontSize: '14px' }}>
+                <span style={{ fontWeight: 700, color: C.textPrimary }}>{t.teamName}</span>
+                {t.teamLead && <span style={{ color: C.textMuted, marginRight: '5px' }}>· {t.teamLead}</span>}
               </div>
             ))}
           </div>
@@ -594,7 +685,7 @@ const CrCard: React.FC<{
         display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap',
         background: C.bgCard, flexShrink: 0,
       }}>
-        <span style={{ background: '#1a2332', color: 'white', padding: '3px 10px', borderRadius: '6px', fontFamily: 'monospace', fontWeight: 700, fontSize: '15px', flexShrink: 0 }}>
+        <span style={{ background: C.textPrimary, color: 'white', padding: '3px 10px', borderRadius: '6px', fontFamily: FONT_MONO, fontWeight: 700, fontSize: '15px', flexShrink: 0 }}>
           {entry.crNumber}
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -612,7 +703,7 @@ const CrCard: React.FC<{
           </span>
         )}
         {crType && (
-          <span style={{ fontSize: '13px', background: '#f0f4fa', color: '#2d4a7a', padding: '2px 8px', borderRadius: '6px', flexShrink: 0 }}>{crType}</span>
+          <span style={{ fontSize: '13px', background: C.bgNested, color: C.textSecondary, padding: '2px 8px', borderRadius: '6px', flexShrink: 0 }}>{crType}</span>
         )}
         {/* Approval status / action */}
         {crApproved ? (
@@ -635,8 +726,8 @@ const CrCard: React.FC<{
               onReload();
             } finally { setApproving(false); }
           }} disabled={approving}
-            style={{ padding: '6px 16px', background: C.success, color: 'white', border: 'none', borderRadius: '7px', cursor: approving ? 'not-allowed' : 'pointer', fontSize: '15px', fontWeight: 700, flexShrink: 0 }}>
-            {approving ? 'שומר…' : '✓ אשר CR'}
+            style={{ padding: '10px 20px', background: C.moduleGoLive, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: approving ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 700, flexShrink: 0, boxShadow: SHADOW.sm }}>
+            {approving ? 'שומר…' : '✓ אשר תוכנית מאוחדת'}
           </button>
         ) : !allTeamsSubmitted ? (
           <span style={{ fontSize: '13px', color: C.warning, background: C.warningBg, padding: '3px 9px', borderRadius: '6px', border: `1px solid ${C.warning}40`, flexShrink: 0 }}>
@@ -647,6 +738,97 @@ const CrCard: React.FC<{
             {pendingCount} ממתינות לסקירה
           </span>
         ) : null}
+      </div>
+
+      {/* ── TARGET CR summary — replaces the normal per-team status meaning for
+          umbrella CRs wrapping a batch of QC defects, not real development ── */}
+      {isTargetCr && targetSummary && (
+        <div style={{ padding: '12px 16px', borderBottom: `1px solid ${C.border}`, background: `${C.moduleGoLive}0d`, flexShrink: 0 }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: C.moduleGoLive, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: '8px' }}>
+            🎯 TARGET CR — תקלות QC
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+            {targetSummary.teams.map(t => (
+              <span key={t.teamId} style={{
+                display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 12px', borderRadius: '999px',
+                border: `1px solid ${C.borderEm}`, background: C.bgCard, fontSize: '12px', fontWeight: 700,
+              }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: t.approved ? C.success : C.warning }} />
+                {t.teamName} · {t.defectCount} תקלות{t.approved ? ' · אושר' : ''}
+              </span>
+            ))}
+          </div>
+          <div style={{ fontSize: '13px', color: C.textSecondary }}>
+            <strong style={{ color: C.textPrimary }}>{targetSummary.totalDefects}</strong> תקלות TARGET סה"כ ·{' '}
+            <strong style={{ color: C.textPrimary }}>{targetSummary.totalSpecial}</strong> דורשות הטמעה מיוחדת ·{' '}
+            <strong style={{ color: C.textPrimary }}>{targetSummary.totalManagement}</strong> סומנו כחשובות להנהלה
+          </div>
+        </div>
+      )}
+
+      {/* ── Teams status strip + KPI row ── */}
+      <div style={{ padding: '12px 16px', borderBottom: `1px solid ${C.border}`, background: C.bgApp, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.05em' }}>
+            סטטוס הגשה לפי צוות
+          </div>
+          <button onClick={toggleNarrate}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: C.moduleGoLive, background: `${C.moduleGoLive}18`, border: `1px solid ${C.moduleGoLive}4d`, padding: '4px 12px', borderRadius: RADIUS.full, cursor: 'pointer' }}>
+            {speaking ? '⏹ עצור הקראה' : '🔊 מצב הקראה'}
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
+          {entry.teams.map(t => {
+            const meta = SUBMISSION_META[t.crPlan.submissionStatus ?? 'NOT_STARTED'] ?? SUBMISSION_META.NOT_STARTED;
+            const canPreview = ['SUBMITTED', 'APPROVED'].includes(t.crPlan.submissionStatus ?? '') && !t.crPlan.notNeededForPlan;
+            const canApproveTeam = canPreview;
+            const isBusy = approvingTeam === t.teamId;
+            return (
+              <span key={t.teamId}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '7px', padding: '5px 12px',
+                  borderRadius: RADIUS.full, border: `1px solid ${C.borderEm}`, background: C.bgCard,
+                  fontSize: '12.5px', fontWeight: 700,
+                }}>
+                <span onClick={() => canPreview && openTeamPreview(t.teamId, t.teamName)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '7px', cursor: canPreview ? 'pointer' : 'default' }}>
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: meta.dot, flexShrink: 0 }} />
+                  {t.teamName} · {t.crPlan.notNeededForPlan ? 'אין פעילות מיוחדת' : meta.label}
+                </span>
+                {canApproveTeam && (
+                  <button onClick={() => approveTeamPlan(t.teamId, !t.crPlan.planApproved)} disabled={isBusy}
+                    style={{ fontSize: '11px', fontWeight: 700, color: t.crPlan.planApproved ? C.textMuted : C.success, background: 'transparent', border: 'none', cursor: isBusy ? 'not-allowed' : 'pointer', padding: 0 }}>
+                    {isBusy ? '…' : t.crPlan.planApproved ? '↩ בטל' : '✓ Approve Team'}
+                  </button>
+                )}
+              </span>
+            );
+          })}
+        </div>
+
+        {!allTeamsSubmitted && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '8px', background: C.warningBg,
+            border: `1px solid ${C.warning}40`, borderRadius: RADIUS.md, padding: '9px 14px',
+            fontSize: '12.5px', color: C.warning, fontWeight: 600, marginBottom: '14px',
+          }}>
+            ⚠ לא ניתן לאשר את ה-CR — ממתין להתייחסות {teamsWithoutSubmission.map(t => t.teamName).join(', ')}
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
+          {[
+            { label: 'צוותים מעורבים', val: entry.teams.length },
+            { label: 'משימות בתוכנית המאוחדת', val: allProposals.length },
+            { label: 'נקודות בקרה',   val: entry.monitoringPointsTotal ?? 0 },
+            { label: 'מוכן לאישור?',   val: crApproved ? '✓ אושר' : allReviewed ? 'מוכן' : !allTeamsSubmitted ? `ממתין ל-${teamsWithoutSubmission.length}` : `${pendingCount} לסקירה`, warn: !crApproved && !allReviewed },
+          ].map((kpi, i) => (
+            <div key={i} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '10px 14px', boxShadow: SHADOW.xs }}>
+              <div style={{ fontSize: '10.5px', fontWeight: 600, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.04em' }}>{kpi.label}</div>
+              <div style={{ fontSize: typeof kpi.val === 'string' && kpi.val.length > 6 ? '15px' : '22px', fontWeight: 800, marginTop: '4px', color: kpi.warn ? C.warning : C.textPrimary }}>{kpi.val}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* ── Tabs ── */}
@@ -691,11 +873,18 @@ const CrCard: React.FC<{
               if (!phaseProposals.length) return null;
               const pb = PHASE_BADGE[phase];
               const phaseName = subPhaseOpts.find(sp => sp.phaseOrderIndex === phase)?.phaseName || PHASE_LABELS[phase];
+              const phasePending = phaseProposals.filter(p => p.reviewStatus === 'PENDING').length;
               return (
                 <div key={phase} style={{ marginBottom: '18px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', padding: '6px 12px', background: pb.bg, borderRadius: '7px', border: `1px solid ${pb.color}25` }}>
                     <span style={{ fontSize: '14px', fontWeight: 800, color: pb.color }}>{phaseName}</span>
                     <span style={{ fontSize: '13px', color: pb.color, background: 'white', padding: '1px 7px', borderRadius: '8px', border: `1px solid ${pb.color}30` }}>{phaseProposals.length}</span>
+                    {phasePending > 0 && (
+                      <button onClick={() => approvePhase(phase)} disabled={approvingPhase === phase}
+                        style={{ marginRight: 'auto', fontSize: '11.5px', fontWeight: 700, color: pb.color, background: 'white', border: `1px solid ${pb.color}40`, borderRadius: RADIUS.full, padding: '3px 10px', cursor: 'pointer', flexShrink: 0 }}>
+                        {approvingPhase === phase ? 'מאשר…' : `✓ אשר שלב (${phasePending})`}
+                      </button>
+                    )}
                   </div>
                   {phaseProposals.map((p, i) => (
                     <NarrativeProposalRow key={p.id} proposal={p} token={token} versionId={versionId}
@@ -705,6 +894,26 @@ const CrCard: React.FC<{
                 </div>
               );
             })}
+
+            {/* Consolidated rollback — one team, one line each */}
+            {entry.teams.some(t => t.crPlan.rollbackPlan || t.crPlan.rollbackType) && (
+              <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.xs, padding: '14px 16px', marginBottom: '16px' }}>
+                <div style={{ fontSize: '13.5px', fontWeight: 800, color: C.textPrimary, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  ↩ Rollback מרוכז
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {entry.teams.filter(t => t.crPlan.rollbackPlan || t.crPlan.rollbackType).map(t => {
+                    const tColor = teamColor(t.teamName);
+                    return (
+                      <div key={t.teamId} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12.5px', color: C.textSecondary }}>
+                        <span style={{ fontSize: '10px', fontWeight: 700, padding: '3px 9px', borderRadius: RADIUS.full, color: 'white', background: tColor, flexShrink: 0 }}>{t.teamName}</span>
+                        <span>{t.crPlan.rollbackType ? `${t.crPlan.rollbackType} — ` : ''}{t.crPlan.rollbackPlan || 'אין פירוט נוסף'}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {allProposals.length === 0 && !addOpen && (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: C.textDisabled }}>
@@ -738,7 +947,7 @@ const CrCard: React.FC<{
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
                     <input value={item.text} disabled={!item.checked}
                       onChange={e => setExtractModalCr(m => m ? { ...m, items: m.items.map((it, j) => j === i ? { ...it, text: e.target.value } : it) } : null)}
-                      style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '15px', color: '#1a2332', outline: 'none', fontFamily: 'Arial', boxSizing: 'border-box' as const }} />
+                      style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '15px', color: C.textPrimary, outline: 'none', fontFamily: FONT, boxSizing: 'border-box' as const }} />
                     {item.duplicateId && <span style={{ fontSize: '12px', color: '#e67e22', fontWeight: 600 }}>⚠ כבר קיימת — תישאל אם להחליף</span>}
                   </div>
                   <input type="number" min={1} value={item.estimatedMins} disabled={!item.checked}
@@ -763,6 +972,58 @@ const CrCard: React.FC<{
                 {extractingCr ? 'יוצר…' : `צור ${extractModalCr.items.filter(i => i.checked).length} משימות`}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Team plan preview modal ── */}
+      {teamPreview && (
+        <div style={{ position: 'fixed', inset: 0, background: C.bgOverlay, zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setTeamPreview(null)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: C.bgCard, borderRadius: RADIUS.xl, padding: '22px 24px', maxWidth: '540px', width: '92vw', maxHeight: '82vh', overflowY: 'auto', boxShadow: SHADOW.floating }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+              <div style={{ fontSize: '16px', fontWeight: 800, color: C.textPrimary }}>תקציר תוכנית — {teamPreview.teamName}</div>
+              <button onClick={() => setTeamPreview(null)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '18px', color: C.textMuted }}>✕</button>
+            </div>
+            {teamPreview.loading ? (
+              <div style={{ textAlign: 'center', padding: '30px', color: C.textMuted }}>⏳ טוען…</div>
+            ) : teamPreview.error ? (
+              <div style={{ textAlign: 'center', padding: '30px', color: C.danger }}>{teamPreview.error}</div>
+            ) : teamPreview.data?.notNeededForPlan ? (
+              <div style={{ padding: '14px 16px', background: C.infoBg, border: `1px solid ${C.info}30`, borderRadius: RADIUS.md, fontSize: '13px', color: C.info }}>
+                הצוות אישר שאין לו פעילות מיוחדת ב-CR זה.
+              </div>
+            ) : teamPreview.data ? (
+              <>
+                {teamPreview.data.actions.length > 0 && (
+                  <div style={{ marginBottom: '14px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', marginBottom: '6px' }}>פעילויות ({teamPreview.data.actions.length})</div>
+                    {teamPreview.data.actions.map((a, i) => (
+                      <div key={i} style={{ padding: '8px 12px', background: C.bgNested, borderRadius: RADIUS.md, marginBottom: '6px', fontSize: '12.5px', color: C.textPrimary }}>
+                        <strong>{a.actionType}</strong>{a.system ? ` — ${a.system}` : ''}
+                        <div style={{ color: C.textSecondary, marginTop: '2px' }}>{a.description}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {teamPreview.data.monitoringPoints.length > 0 && (
+                  <div style={{ marginBottom: '14px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', marginBottom: '6px' }}>נקודות בקרה ({teamPreview.data.monitoringPoints.length})</div>
+                    {teamPreview.data.monitoringPoints.map((m, i) => (
+                      <div key={i} style={{ padding: '8px 12px', background: C.bgNested, borderRadius: RADIUS.md, marginBottom: '6px', fontSize: '12.5px', color: C.textPrimary }}>
+                        <strong>{m.name}</strong> — {m.type}{m.note ? <div style={{ color: C.textSecondary, marginTop: '2px' }}>{m.note}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {(teamPreview.data.rollbackPlan || teamPreview.data.rollbackType) && (
+                  <div style={{ fontSize: '12.5px', color: C.textSecondary }}>
+                    <strong>Rollback:</strong> {teamPreview.data.rollbackType ? `${teamPreview.data.rollbackType} — ` : ''}{teamPreview.data.rollbackPlan}
+                  </div>
+                )}
+              </>
+            ) : null}
           </div>
         </div>
       )}
@@ -871,29 +1132,27 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
 
   return (
     <div style={{ direction: 'rtl', fontFamily: FONT }}>
-      {/* ── Gradient header (keep as-is) ── */}
+      {/* ── Header ── */}
       <div style={{
-        background: `linear-gradient(135deg, ${C.textPrimary} 0%, ${C.statusOpen} 100%)`,
-        borderRadius: '12px', padding: '16px 24px', marginBottom: '18px', color: 'white',
+        background: C.bgCard, border: `1px solid ${C.border}`, boxShadow: SHADOW.xs,
+        borderRadius: RADIUS.lg, padding: '16px 24px', marginBottom: '18px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px',
       }}>
         <div>
-          <div style={{ fontSize: '18px', fontWeight: 700 }}>ישיבת מעבר — סקירת CR-ים</div>
-          <div style={{ fontSize: '15px', color: 'rgba(255,255,255,0.7)', marginTop: '2px' }}>{propVersionName}</div>
+          <div style={{ fontSize: '18px', fontWeight: 800, color: C.textPrimary }}>Consolidated CR Review — ישיבת מעבר</div>
+          <div style={{ fontSize: '13.5px', color: C.textMuted, marginTop: '2px' }}>{propVersionName}</div>
         </div>
-        <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '22px', fontWeight: 800 }}>{data.length}</div>
-            <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>CR-ים</div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '22px', fontWeight: 800, color: '#2ecc71' }}>{approvedCrCount}</div>
-            <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>CR אושרו</div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '22px', fontWeight: 800, color: '#f39c12' }}>{totalPending}</div>
-            <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>ממתינות לסקירה</div>
-          </div>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          {[
+            { val: data.length, lbl: 'CR-ים', color: C.textPrimary },
+            { val: approvedCrCount, lbl: 'CR אושרו', color: C.success },
+            { val: totalPending, lbl: 'ממתינות לסקירה', color: C.warning },
+          ].map((s, i) => (
+            <div key={i} style={{ textAlign: 'center', background: C.bgNested, borderRadius: RADIUS.md, padding: '8px 16px' }}>
+              <div style={{ fontSize: '20px', fontWeight: 800, color: s.color }}>{s.val}</div>
+              <div style={{ fontSize: '11px', color: C.textMuted }}>{s.lbl}</div>
+            </div>
+          ))}
         </div>
       </div>
 

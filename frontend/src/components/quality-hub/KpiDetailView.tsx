@@ -122,6 +122,7 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
   const [defects, setDefects] = useState<any[] | null>(null);
   const [showDefects, setShowDefects] = useState(false);
   const [defectsLoading, setDefectsLoading] = useState(false);
+  const [defectsError, setDefectsError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -136,6 +137,7 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
     setQcLink(null);
     setShowDefects(false);
     setDefects(null);
+    setDefectsError(null);
     axios.get(`${API}/quality-hub/qc-link/${encodeURIComponent(releaseName)}`, { headers })
       .then(res => setQcLink(res.data))
       .catch(() => setQcLink(null));
@@ -145,11 +147,12 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
   const toggleDefects = () => {
     if (showDefects) { setShowDefects(false); return; }
     setShowDefects(true);
-    if (defects != null || !qcLink?.versionId) return;
+    if (defects != null || defectsError || !qcLink?.versionId) return;
     setDefectsLoading(true);
+    setDefectsError(null);
     axios.get(`${API}/qc/defects?versionId=${qcLink.versionId}`, { headers })
       .then(res => setDefects(res.data ?? []))
-      .catch(() => setDefects([]))
+      .catch(e => setDefectsError(e?.response?.data?.message || e.message || 'שגיאה בטעינת התקלות'))
       .finally(() => setDefectsLoading(false));
   };
 
@@ -242,6 +245,8 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
                 <div style={{ marginTop: SP[3], overflowX: 'auto' }}>
                   {defectsLoading ? (
                     <div style={{ ...TEXT.xs, color: C.textMuted, padding: SP[3] }}>טוען...</div>
+                  ) : defectsError ? (
+                    <div style={{ ...TEXT.xs, color: C.danger, padding: SP[3] }}>⚠️ שגיאה בטעינת התקלות: {defectsError}</div>
                   ) : !defects || defects.length === 0 ? (
                     <div style={{ ...TEXT.xs, color: C.textMuted, padding: SP[3] }}>אין תקלות זמינות לגרסה זו</div>
                   ) : (

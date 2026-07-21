@@ -51,21 +51,21 @@ export class CrPlansController {
   @Patch('version/:versionId/approve-cr')
   approveCr(
     @Param('versionId') versionId: string,
-    @Body() body: { crNumber: string },
+    @Body() body: { crNumber: string; teamId?: string },
     @Request() req: any,
   ) {
     if (!MANAGERS.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת מנהל לילה');
-    return this.service.approveCr(versionId, body.crNumber);
+    return this.service.approveCr(versionId, body.crNumber, body.teamId);
   }
 
   @Patch('version/:versionId/unapprove-cr')
   unapproveCr(
     @Param('versionId') versionId: string,
-    @Body() body: { crNumber: string },
+    @Body() body: { crNumber: string; teamId?: string },
     @Request() req: any,
   ) {
     if (!MANAGERS.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת מנהל לילה');
-    return this.service.unapproveCr(versionId, body.crNumber);
+    return this.service.unapproveCr(versionId, body.crNumber, body.teamId);
   }
 
   @Delete(':id')

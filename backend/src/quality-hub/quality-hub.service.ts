@@ -1,6 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
+import * as path from 'path';
+import { readQcFile, resolveQcFilePath, SmbAccessError } from '../qc-releases/smb-file-reader';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
@@ -58,6 +61,60 @@ export interface ReleaseSummary {
 
 @Injectable()
 export class QualityHubService {
+  private readonly logger = new Logger(QualityHubService.name);
+
+  // ── Server-path import — same directory as cr_list.xls, refreshed daily
+  // (and on-demand) instead of a one-off manual upload. File names match the
+  // exact source files (see importKpiDefinitions/importKpiScores comments);
+  // override via SystemParam if the real file names ever differ.
+  private async resolveQualityFilePath(kind: 'scores' | 'setup'): Promise<string> {
+    const paramKey = kind === 'scores' ? 'QUALITY_KPI_SCORES_FILE' : 'QUALITY_KPI_SETUP_FILE';
+    const override = await prisma.systemParam.findUnique({ where: { key: paramKey } });
+    if (override?.value?.trim()) return override.value.trim();
+
+    const crListPath = await resolveQcFilePath(prisma);
+    const dir = path.dirname(crListPath);
+    const fileName = kind === 'scores' ? 'RELEASES_KPI_SCORES.xlsx' : 'KPI_RELEASE_SCORE_SETUP.xlsx';
+    return path.join(dir, fileName);
+  }
+
+  async importFromServerPath(): Promise<{
+    setup: { created: number; updated: number } | { error: string };
+    scores: { created: number; updated: number; releasesAffected: number } | { error: string };
+  }> {
+    const [setupPath, scoresPath] = await Promise.all([
+      this.resolveQualityFilePath('setup'),
+      this.resolveQualityFilePath('scores'),
+    ]);
+
+    const readAndImport = async <T>(filePath: string, importFn: (buf: Buffer) => Promise<T>): Promise<T | { error: string }> => {
+      try {
+        const { buffer } = readQcFile(filePath);
+        return await importFn(buffer);
+      } catch (err: any) {
+        const message = err instanceof SmbAccessError ? err.message : (err?.message ?? String(err));
+        this.logger.error(`Quality Hub server-path import failed for ${filePath}: ${message}`);
+        return { error: message };
+      }
+    };
+
+    const [setup, scores] = await Promise.all([
+      readAndImport(setupPath, buf => this.importKpiDefinitions(buf)),
+      readAndImport(scoresPath, buf => this.importKpiScores(buf)),
+    ]);
+
+    return { setup, scores };
+  }
+
+  // Runs once a day (03:00) so the day's fresh export is always picked up
+  // without anyone needing to remember to click import.
+  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  async scheduledImport() {
+    this.logger.log('Running scheduled Quality Hub import from server path...');
+    const result = await this.importFromServerPath();
+    this.logger.log(`Scheduled Quality Hub import done: ${JSON.stringify(result)}`);
+  }
+
   // ── Import (Multer buffer → xlsx → Prisma upsert) ───────────────────────
   // Source: KPI_RELEASE_SCORE_SETUP.xlsx — header has METRIC_DESCRIPTION twice
   // (short "purpose" text at col 8, long description at col 10), so parsing

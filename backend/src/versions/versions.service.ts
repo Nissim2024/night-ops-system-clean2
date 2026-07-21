@@ -325,7 +325,7 @@ async addTask(subPhaseId: string, data: {
       },
       {
         name: 'פעילויות בוקר לאחר גרסה', orderIndex: 4, environment: 'BOTH', isGoNoGo: false,
-        subPhases: ['החזרת תהליכים', 'הטמעות קוד יום אחרי', 'בקרות ומעקב ממשקים'],
+        subPhases: ['החזרת תהליכים', 'הטמעות קוד יום אחרי', 'בקרות ומעקב ממשקים', 'בדיקות', 'הוספה או הזזה של תהליכים'],
       },
     ];
 
@@ -805,7 +805,19 @@ async addTask(subPhaseId: string, data: {
       !cp.notNeededForPlan && cp.submissionStatus !== 'SUBMITTED' && cp.submissionStatus !== 'APPROVED',
     );
     if (pending.length > 0) {
-      throw new BadRequestException(`לא ניתן להגיש — יש CR-ים שטרם טופלו: ${pending.map((p: any) => p.crNumber).join(', ')}. יש לענות על שאלת השער ולאשר את התוכנית עבור כל CR.`);
+      // TARGET CRs are approved via TargetCrReview.approved, entirely separate from
+      // CrPlan.submissionStatus — a CR handled through that flow never flips its own
+      // CrPlan to SUBMITTED/APPROVED, so it would otherwise block submission forever
+      // even once genuinely approved (matches the frontend's isCrDone check).
+      const approvedTargetCrs = await prisma.targetCrReview.findMany({
+        where: { versionId, teamId, crNumber: { in: pending.map((p: any) => p.crNumber) }, approved: true },
+        select: { crNumber: true },
+      });
+      const approvedSet = new Set(approvedTargetCrs.map(r => r.crNumber));
+      const stillPending = pending.filter((p: any) => !approvedSet.has(p.crNumber));
+      if (stillPending.length > 0) {
+        throw new BadRequestException(`לא ניתן להגיש — יש CR-ים שטרם טופלו: ${stillPending.map((p: any) => p.crNumber).join(', ')}. יש לענות על שאלת השער ולאשר את התוכנית עבור כל CR.`);
+      }
     }
 
     // Idempotent: if already submitted, return current record without updating submittedAt
@@ -1525,11 +1537,22 @@ async addTask(subPhaseId: string, data: {
 
     const vcaMap = new Map<string, string | null>();
     const vcas = await prisma.versionCrAssignment.findMany({
-      where: { versionId },
-      select: { crNumber: true, crLabel: true },
+      where: { versionId, syncStatus: { not: 'REMOVED' } },
+      select: { crNumber: true, crLabel: true, teamId: true },
     });
     for (const v of vcas) {
       if (!vcaMap.has(v.crNumber)) vcaMap.set(v.crNumber, v.crLabel ?? null);
+    }
+    // Teams exempt from plan submission (Team.requiresPlan=false) must never be
+    // injected as "missing" below — otherwise they show up as "אין התייחסות"
+    // and block CR approval for something they were never required to do.
+    const exemptRows: any[] = await prisma.$queryRawUnsafe(`SELECT id FROM "Team" WHERE "requiresPlan" = false`);
+    const exemptTeamIds = new Set(exemptRows.map((r: any) => String(r.id)));
+    const assignedTeamIdsByCr = new Map<string, Set<string>>();
+    for (const v of vcas) {
+      if (exemptTeamIds.has(v.teamId)) continue;
+      if (!assignedTeamIdsByCr.has(v.crNumber)) assignedTeamIdsByCr.set(v.crNumber, new Set());
+      assignedTeamIdsByCr.get(v.crNumber)!.add(v.teamId);
     }
 
     const crMap = new Map<string, string | null>();
@@ -1562,6 +1585,7 @@ async addTask(subPhaseId: string, data: {
               },
             },
           },
+          _count: { select: { monitoringPoints: true } },
         },
       });
 
@@ -1616,11 +1640,38 @@ async addTask(subPhaseId: string, data: {
           nightTestingNotes: plan.nightTestingNotes ?? null,
           gradualRollout: plan.gradualRollout,
           gradualDetails: plan.gradualDetails ?? null,
+          activationDate: plan.activationDate ?? null,
           rollbackPlan: plan.rollbackPlan ?? null,
+          rollbackType: plan.rollbackType ?? null,
           morningMonitoring: plan.morningMonitoring ?? null,
           notNeededForPlan: plan.notNeededForPlan,
+          submissionStatus: plan.submissionStatus,
+          planApproved: plan.planApproved,
+          monitoringPointsCount: plan._count?.monitoringPoints ?? 0,
         },
       }));
+
+      // Teams assigned to this CR (via VersionCrAssignment) that never opened
+      // a CrPlan at all — without these, "all teams involved have responded"
+      // silently reads true the moment one engaged team finishes.
+      const assignedTeamIds = assignedTeamIdsByCr.get(crNumber) ?? new Set<string>();
+      const planTeamIds = new Set(teams.map((t: any) => t.teamId));
+      const missingTeamIds = [...assignedTeamIds].filter(id => !planTeamIds.has(id));
+      if (missingTeamIds.length > 0) {
+        const missingTeams = await prisma.team.findMany({ where: { id: { in: missingTeamIds } }, select: { id: true, name: true } });
+        for (const t of missingTeams) {
+          teams.push({
+            teamId: t.id, teamName: t.name, teamLead: null,
+            crPlan: {
+              crManager: null, crDescription: null, crType: null, riskLevel: null, systems: [],
+              workPlan: null, scripts: null, runTimes: null, nightTestingNotes: null,
+              gradualRollout: false, gradualDetails: null, activationDate: null, rollbackPlan: null, rollbackType: null,
+              morningMonitoring: null, notNeededForPlan: false,
+              submissionStatus: 'NOT_STARTED', planApproved: false, monitoringPointsCount: 0,
+            },
+          });
+        }
+      }
 
       const managers = [...new Set(
         teams.map((t: any) => t.teamLead).filter(Boolean) as string[]
@@ -1628,6 +1679,7 @@ async addTask(subPhaseId: string, data: {
 
       const crApproved = crPlans.length > 0 && crPlans.every((p: any) => p.planApproved);
       const planApprovedAt = crPlans.find((p: any) => p.planApprovedAt)?.planApprovedAt ?? null;
+      const monitoringPointsTotal = teams.reduce((sum: number, t: any) => sum + (t.crPlan.monitoringPointsCount ?? 0), 0);
 
       result.push({
         crNumber,
@@ -1639,6 +1691,7 @@ async addTask(subPhaseId: string, data: {
         teams,
         proposalsByPhase,
         totalProposals: proposals.length,
+        monitoringPointsTotal,
       });
     }
 
@@ -1808,6 +1861,8 @@ ${sections.join('\n\n')}`;
           { name: 'החזרת תהליכים', orderIndex: 1 },
           { name: 'הטמעות קוד יום אחרי', orderIndex: 2 },
           { name: 'בקרות ומעקב ממשקים', orderIndex: 3 },
+          { name: 'בדיקות', orderIndex: 4 },
+          { name: 'הוספה או הזזה של תהליכים', orderIndex: 5 },
         ],
       },
     ];
@@ -1953,9 +2008,12 @@ ${sections.join('\n\n')}`;
     const version = await prisma.version.findUnique({ where: { id: versionId } });
     if (!version) throw new NotFoundException('Version not found');
 
-    // Find submissions that are NOT yet submitted
+    // Find submissions that are NOT yet submitted — excluding teams exempt from
+    // plan submission entirely (Team.requiresPlan=false) or explicitly marked
+    // not-required-for-approval for this version, so they never get nagged for
+    // something they were never supposed to submit.
     const pendingSubmissions = await prisma.teamSubmission.findMany({
-      where: { versionId, status: { not: 'SUBMITTED' } },
+      where: { versionId, status: { not: 'SUBMITTED' }, notRequiredForApproval: false, team: { requiresPlan: true } },
       include: { team: { include: { members: { where: { isLead: true }, include: { user: { select: { id: true, fullName: true, email: true } } } } } } },
     });
 

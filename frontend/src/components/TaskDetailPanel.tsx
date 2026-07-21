@@ -114,6 +114,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
   const [application, setApp]   = useState(task?.application ?? '');
   const [environment, setEnv]   = useState(task?.environment ?? 'BOTH');
   const [crInput, setCrInput]   = useState('');
+  const [crInputError, setCrInputError] = useState<string | null>(null);
   const [crList,  setCrList]    = useState<string[]>(
     (task?.crNumber || '').split(',').map((s: string) => s.trim()).filter(Boolean)
   );
@@ -480,10 +481,25 @@ export const TaskDetailPanel: React.FC<Props> = ({
               <input list="cr-datalist-panel" value={crInput}
                 onChange={e => {
                   setCrInput(e.target.value);
+                  setCrInputError(null);
                   const match = activeCrItems.find(c => c.id === e.target.value || c.label === e.target.value);
                   if (match && !crList.includes(match.id)) { setCrList(l => [...l, match.id]); setCrInput(''); }
                 }}
-                onKeyDown={e => { if (e.key === 'Enter' && crInput.trim()) { e.preventDefault(); if (!crList.includes(crInput.trim())) setCrList(l => [...l, crInput.trim()]); setCrInput(''); } }}
+                onKeyDown={e => {
+                  if (e.key !== 'Enter' || !crInput.trim()) return;
+                  e.preventDefault();
+                  // Auto-fill against the real CR list for this version — typing a
+                  // number that doesn't match a real, in-scope CR shouldn't silently
+                  // add a bogus entry.
+                  const typed = crInput.trim();
+                  const match = activeCrItems.find(c => c.id === typed || c.label === typed);
+                  if (match) {
+                    if (!crList.includes(match.id)) setCrList(l => [...l, match.id]);
+                    setCrInput('');
+                  } else {
+                    setCrInputError(`CR ${typed} לא נמצא ברשימת הפיתוחים של גרסה זו`);
+                  }
+                }}
                 placeholder={crList.length ? '+ הוסף' : 'הקלד CR# והקש Enter'}
                 style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: '15px', flex: 1, minWidth: '120px', color: C.textPrimary, fontFamily: FONT }}
               />
@@ -493,6 +509,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
             </datalist>
           </div>
           {!teamId && <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, marginTop: '3px' }}>בחר צוות כדי לסנן את הרשימה</div>}
+          {crInputError && <div style={{ ...TEXT.xs, color: C.danger, fontFamily: FONT, marginTop: '3px' }}>⚠ {crInputError}</div>}
         </div>
 
         {/* ── משך + התחלה + סיום (שורה אחת) ── */}

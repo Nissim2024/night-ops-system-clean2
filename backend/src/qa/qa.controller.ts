@@ -250,8 +250,22 @@ export class QaController {
   updateTaskEffort(
     @Param('id') taskId: string,
     @Body('effortDays') effortDays: number,
+    @Request() req: any,
   ) {
-    return this.workPlan.updateTaskEffort(taskId, effortDays);
+    return this.workPlan.updateTaskEffort(taskId, effortDays, req.user?.email);
+  }
+
+  @Delete('workplan/task/:id')
+  deleteTask(
+    @Param('id') taskId: string,
+    @Request() req: any,
+  ) {
+    return this.workPlan.deleteTask(taskId, req.user?.email);
+  }
+
+  @Get('workplan/changelog')
+  getChangeLog(@Query('versionId') versionId: string) {
+    return this.workPlan.getChangeLog(versionId);
   }
 
   @Patch('workplan/task/:id/sort')

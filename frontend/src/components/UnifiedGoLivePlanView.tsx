@@ -7,6 +7,7 @@ const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${win
 interface Proposal {
   id: string; teamId: string; teamName: string; title: string;
   app?: string; actionType?: string; phase: number; notes?: string;
+  estimatedMins?: number; assignedUserName?: string;
   status: string; reviewStatus: string;
 }
 interface CrEntry {
@@ -34,6 +35,26 @@ interface DayPart {
 // ongoing follow-up check rather than a go-live-morning action item, so it's
 // used to split phase 4 between the "morning of" and "day after" buckets.
 const isFollowUp = (title: string) => title.startsWith('בקרה — ');
+
+// Same narrative phrasing team leads already see live in the wizard while
+// submitting their plan (wizardNarrative in TeamLeadProposalView.tsx) — reused
+// here so the merged cross-team plan reads as one continuous story instead of
+// a raw title + tag badges per row.
+function narrativeSentence(item: Proposal): string {
+  const who = item.assignedUserName ? `${item.assignedUserName} מ-${item.teamName}` : `מישהו מ-${item.teamName}`;
+  if (isFollowUp(item.title)) {
+    // Monitoring-derived title/notes are always generated in this exact shape
+    // by syncDerivedProposals: "בקרה — {type}: {name}" / "לוודא: {note}".
+    const rest = item.title.replace(/^בקרה — /, '');
+    const note = item.notes?.replace(/^לוודא: /, '');
+    return `${who} יעקוב אחר ${rest}${note ? ` — לוודא ${note}` : ''}.`;
+  }
+  const sys = item.app ? ` במערכת ${item.app}` : '';
+  const dur = item.estimatedMins ? ` משך משוער כ-${item.estimatedMins} דק'.` : '';
+  const prefix = item.actionType ? `${item.actionType}: ` : '';
+  const desc = item.actionType && item.title.startsWith(prefix) ? item.title.slice(prefix.length) : item.title;
+  return `${who} יבצע ${item.actionType || 'פעולה'}${sys}${desc ? ` — ${desc}` : ''}.${dur}`;
+}
 
 function fmtDate(d: Date): string {
   return d.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' });
@@ -185,8 +206,8 @@ export const UnifiedGoLivePlanView: React.FC<Props> = ({ token, versionId, versi
                         {num}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ ...TEXT.base, fontWeight: WEIGHT.medium, color: C.textPrimary }}>
-                          {item.title}
+                        <div style={{ ...TEXT.base, fontWeight: WEIGHT.medium, color: C.textPrimary, lineHeight: 1.6 }}>
+                          {narrativeSentence(item)}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
                           <span style={{

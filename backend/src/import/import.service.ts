@@ -2,6 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import * as fs from 'fs';
+import { TEAM_COLUMNS } from '../common/team-columns';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
@@ -428,33 +429,6 @@ export class ImportService {
   }
 
   // ── Team column mapping: DB team name → Excel column header(s) ──
-  private static readonly TEAM_COLUMNS: Record<string, string[]> = {
-    'CAWA Team':               ['CAWA'],
-    'CRM Dev Team':            ['CRM'],
-    'Cyber Security Team':     ['CYBER', 'Cyber PT', 'אבט"מ'],
-    'DBA Team':                ['DBA'],
-    'EAI Team':                ['EAI'],
-    'ERP Team':                ['ERP'],
-    'ETL Team':                ['ETL'],
-    'IVR Team':                ['IVR'],
-    'JACADA Team':             ['JACADA'],
-    'MAILIT Team':             ['MAILIT'],
-    'NC Team':                 ['NC'],
-    'NETCOL Team':             ['NETCOL'],
-    'OSS Team':                ['OSS'],
-    'PrintBoss Team':          ['PRINTBOS'],
-    'Provisioning Team':       ['PROV'],
-    'PT Team':                 ['PT'],
-    'QA Team':                 ['QA', 'QA BI', 'QA מוצרים'],
-    'BI Team':                 ['BI'],
-    'REMEDY Team':             ['REMEDY'],
-    'Setup Team':              ['SETUP', 'Setup יש'],
-    'TV Team':                 ['TV'],
-    'Web Dev Team':            ['WEB'],
-    'NETC Team':               ['WIZ'],
-    'Billing Operations Team': ['תפעול בילינג'],
-    'Telecom Team':            ['תקשורת'],
-  };
 
   async fetchCrsForTeam(versionId: string, userId: string, userRole: string, teamIdOverride?: string): Promise<{ crNumber: string; crLabel: string; application: string; crManager: string; crDescription: string }[]> {
     const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
@@ -495,7 +469,7 @@ export class ImportService {
 
     const team = await prisma.team.findUnique({ where: { id: resolvedTeamId }, select: { name: true } });
     if (!team) throw new BadRequestException('צוות לא נמצא');
-    const teamCols = ImportService.TEAM_COLUMNS[team.name];
+    const teamCols = TEAM_COLUMNS[team.name];
     if (!teamCols || teamCols.length === 0) throw new BadRequestException(`לא הוגדרו עמודות לצוות "${team.name}" בקובץ`);
 
     const buffer = fs.readFileSync(filePath);
@@ -671,7 +645,7 @@ export class ImportService {
 
     // Build a map: teamName → Set of unique CR numbers they're involved in
     const crsByTeam: Record<string, Set<string>> = {};
-    for (const [teamName, teamCols] of Object.entries(ImportService.TEAM_COLUMNS)) {
+    for (const [teamName, teamCols] of Object.entries(TEAM_COLUMNS)) {
       const teamColIdxs = teamCols.map(colIdx).filter(i => i !== -1);
       if (teamColIdxs.length === 0) continue;
       for (let r = headerRowIdx + 1; r < rows.length; r++) {

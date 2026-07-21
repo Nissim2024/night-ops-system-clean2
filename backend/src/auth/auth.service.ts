@@ -33,7 +33,7 @@ export class AuthService {
         const user = await this.usersService.findByEmail(ldapUser.email);
         if (!user || !user.active) throw invalid();
 
-        const token = this.jwtService.sign({ sub: user.id, role: user.role });
+        const token = this.jwtService.sign({ sub: user.id, role: user.role, email: user.email });
         return { token, user: { id: user.id, email: user.email, role: user.role, fullName: user.fullName } };
       }
     }
@@ -45,7 +45,7 @@ export class AuthService {
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) throw invalid();
 
-    const token = this.jwtService.sign({ sub: user.id, role: user.role });
+    const token = this.jwtService.sign({ sub: user.id, role: user.role, email: user.email });
     return { token, user: { id: user.id, email: user.email, role: user.role, fullName: user.fullName } };
   }
 

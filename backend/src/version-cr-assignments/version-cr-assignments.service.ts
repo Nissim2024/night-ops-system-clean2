@@ -2,34 +2,10 @@ import { Injectable, ForbiddenException, BadRequestException } from '@nestjs/com
 import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import * as fs from 'fs';
+import { TEAM_COLUMNS } from '../common/team-columns';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
-
-// Excel column headers per DB team name — same map as import.service
-const TEAM_COLUMNS: Record<string, string[]> = {
-  'CAWA Team':               ['CAWA'],
-  'CRM Dev Team':            ['CRM'],
-  'Cyber Security Team':     ['CYBER', 'Cyber PT', 'אבט"מ'],
-  'DBA Team':                ['DBA'],
-  'EAI Team':                ['EAI'],
-  'ERP Team':                ['ERP'],
-  'ETL Team':                ['ETL'],
-  'IVR Team':                ['IVR'],
-  'NC Team':                 ['NC'],
-  'NETCOL Team':             ['NETCOL'],
-  'OSS Team':                ['OSS'],
-  'PrintBoss Team':          ['PRINTBOS'],
-  'Provisioning Team':       ['PROV'],
-  'PT Team':                 ['PT'],
-  'QA Team':                 ['QA', 'QA BI', 'QA מוצרים'],
-  'BI Team':                 ['BI'],
-  'Setup Team':              ['SETUP', 'Setup יש'],
-  'TV Team':                 ['TV'],
-  'Web Dev Team':            ['WEB'],
-  'NETC Team':               ['WIZ'],
-  'Billing Operations Team': ['תפעול בילינג'],
-};
 
 @Injectable()
 export class VersionCrAssignmentsService {
@@ -474,6 +450,7 @@ export class VersionCrAssignmentsService {
   async patchCr(versionId: string, crNumber: string, patch: {
     qaEffortOverride?: number | null; isStandAlone?: boolean; reviewed?: boolean;
     isCore?: boolean; priorityTestDate?: string | null; notes?: string | null; urgent?: boolean;
+    alreadyInProduction?: boolean;
   }) {
     const data: any = {};
     if (patch.qaEffortOverride !== undefined) data.qaEffortOverride = patch.qaEffortOverride;
@@ -482,6 +459,7 @@ export class VersionCrAssignmentsService {
     if (patch.priorityTestDate !== undefined) data.priorityTestDate = patch.priorityTestDate ? new Date(patch.priorityTestDate) : null;
     if (patch.notes            !== undefined) data.notes            = patch.notes;
     if (patch.urgent           !== undefined) data.urgent           = patch.urgent;
+    if (patch.alreadyInProduction !== undefined) data.alreadyInProduction = patch.alreadyInProduction;
     if (patch.reviewed         !== undefined) {
       data.reviewed = patch.reviewed;
       // marking a CR reviewed also acknowledges any pending post-approval scope-change flag

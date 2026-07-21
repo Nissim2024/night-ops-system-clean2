@@ -51,7 +51,10 @@ const PHASE_META: Record<string, {
   pulse?: boolean;
 }> = {
   DRAFT:        { label: 'שלב טיוטה',          icon: '📋', color: '#4573D2', bg: 'rgba(69,115,210,0.07)',    desc: r => isRm(r) ? 'הגדר לוח זמנים, תכולה ומסגרת הגרסה.' : 'ממתין לפתיחת שלב האיסוף.',               cta: r => isRm(r) ? 'הגדר גרסה' : 'ראה פרטים',       ctaTab: 'list' },
-  COLLECTING:   { label: 'איסוף משימות',        icon: '📝', color: '#9C6ADE', bg: 'rgba(156,106,222,0.07)', desc: r => r === 'TEAM_LEAD' ? 'הגש את הצעות המשימות לאישור.' : isRm(r) ? 'עקב אחר שיבוץ הצוותים.'  : 'בדוק אם שובצת למשימות.',                     cta: r => r === 'TEAM_LEAD' ? 'הגש תוכניות' : 'ראה סטטוס', ctaTab: 'proposals' },
+  // Managers land on the version's own plan/schedule screen (phases, sub-phases,
+  // tasks, GO/NO-GO, status-progression controls) — not the team-lead submission
+  // screen, which is only relevant to TEAM_LEAD. Mirrors CR_REVIEW's split below.
+  COLLECTING:   { label: 'איסוף משימות',        icon: '📝', color: '#9C6ADE', bg: 'rgba(156,106,222,0.07)', desc: r => r === 'TEAM_LEAD' ? 'הגש את הצעות המשימות לאישור.' : isRm(r) ? 'עקב אחר שיבוץ הצוותים.'  : 'בדוק אם שובצת למשימות.',                     cta: r => r === 'TEAM_LEAD' ? 'הגש תוכניות' : 'ראה סטטוס', ctaTab: r => r === 'TEAM_LEAD' ? 'proposals' : 'list' },
   // Managers review CR plans on the version detail page itself (team-status grid + CR list) — the
   // separate implementation-plans screen is redundant for them. Team leads still use it to submit.
   CR_REVIEW:    { label: 'סקירת CR',             icon: '🔍', color: '#E8AF00', bg: 'rgba(232,175,0,0.07)',   desc: r => r === 'TEAM_LEAD' ? 'יש להגיש תוכנית CR לאישור.' : 'צוותים מגישים תוכניות עלייה לאוויר.', cta: r => r === 'TEAM_LEAD' ? 'הגש תוכנית CR' : 'סקור תוכניות', ctaTab: r => r === 'TEAM_LEAD' ? 'implementation-plans' : 'list' },
@@ -82,9 +85,10 @@ export function getDeploymentsTabForStatus(status: string, role: string): string
 // Module status card — used by the home-page module grid, one per
 // top-level module, showing the 1-3 lines most relevant to a manager.
 // ────────────────────────────────────────────────────────────────
-function KpiTile({ icon, accent, value, label, sub, subTone, footer, onClick }: {
+function KpiTile({ icon, accent, value, label, sub, subTone, footer, onClick, moduleLabel }: {
   icon: string; accent: string; value: string; label: string;
   sub?: string | null; subTone?: 'ok' | 'warn' | 'muted'; footer?: string | null; onClick?: () => void;
+  moduleLabel?: string;
 }) {
   const subColor = subTone === 'ok' ? C.success : subTone === 'warn' ? C.warning : C.textMuted;
   return (
@@ -99,8 +103,11 @@ function KpiTile({ icon, accent, value, label, sub, subTone, footer, onClick }: 
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'none'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ width: '30px', height: '30px', borderRadius: RADIUS.md, background: `color-mix(in oklch, ${accent} 14%, transparent)`, color: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px' }}>{icon}</div>
-        <span style={{ fontSize: '13px', color: C.textMuted }}>←</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+          <div style={{ width: '30px', height: '30px', flexShrink: 0, borderRadius: RADIUS.md, background: `color-mix(in oklch, ${accent} 14%, transparent)`, color: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px' }}>{icon}</div>
+          {moduleLabel && <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: accent, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>{moduleLabel}</span>}
+        </div>
+        <span style={{ fontSize: '13px', color: C.textMuted, flexShrink: 0 }}>←</span>
       </div>
       <div>
         <div style={{ fontSize: '26px', fontWeight: WEIGHT.bold, color: C.textPrimary, lineHeight: 1, fontVariantNumeric: 'tabular-nums' as const }}>{value}</div>
@@ -269,7 +276,9 @@ export const HomeDashboard: React.FC<Props> = ({
   const [pendingLeaveCount, setPendingLeaveCount] = useState(0);
   const [teamStatus, setTeamStatus] = useState<TeamStatusRow[]>([]);
   const [teamStatusLoading, setTeamStatusLoading] = useState(false);
-  const [myTeamSummary, setMyTeamSummary] = useState<{ total: number; ready: number; draft: number } | null>(null);
+  const [reminderSending, setReminderSending] = useState(false);
+  const [reminderResult, setReminderResult] = useState<{ sent: number; teams: string[] } | { error: string } | null>(null);
+  const [myTeamSummary, setMyTeamSummary] = useState<{ total: number; ready: number; draft: number; allDone?: boolean } | null>(null);
   const [qaSummary, setQaSummary] = useState<QaSummary | null>(null);
   const [livePhases, setLivePhases] = useState<{ name: string; done: number; total: number; state: 'done' | 'active' | 'upcoming' }[]>([]);
   const [nextPhaseInfo, setNextPhaseInfo] = useState<{ name: string; startTime?: string | null } | null>(null);
@@ -392,11 +401,11 @@ export const HomeDashboard: React.FC<Props> = ({
     axios.get(url, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => {
         if (primary.status === 'COLLECTING') {
-          setMyTeamSummary(r.data);
+          setMyTeamSummary({ ...r.data, allDone: r.data.total > 0 && r.data.ready === r.data.total });
         } else {
           // cr-plans endpoint returns array; take first row (team lead's own team)
           const row = (r.data as any[])[0];
-          setMyTeamSummary(row ? { total: row.total, ready: row.submitted, draft: row.draft } : null);
+          setMyTeamSummary(row ? { total: row.total, ready: row.submitted, draft: row.draft, allDone: row.allDone } : null);
         }
       })
       .catch(() => setMyTeamSummary(null));
@@ -461,6 +470,29 @@ export const HomeDashboard: React.FC<Props> = ({
       })
       .catch(() => setTaskSchedule(null));
   }, [primary?.id, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Task proposals approved but not yet converted into real scheduled tasks —
+  // separate from taskSchedule.total (which only counts real Task rows), so a
+  // manager can see "130 tasks scheduled, +5 more still waiting to be placed"
+  // instead of the pending ones silently missing from the headline count.
+  const [pendingConversionCount, setPendingConversionCount] = useState(0);
+  useEffect(() => {
+    if (!primary || !isRm(role)) { setPendingConversionCount(0); return; }
+    axios.get(`${API}/task-proposals/version/${primary.id}/count-pending`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setPendingConversionCount(r.data?.count ?? 0))
+      .catch(() => setPendingConversionCount(0));
+  }, [primary?.id, role, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Team lead's own slice of the go-live plan: how many scheduled tasks are
+  // assigned to their team, and how many of their team's approved proposals
+  // are still waiting to be converted into real scheduled tasks.
+  const [myTeamTaskSummary, setMyTeamTaskSummary] = useState<{ teamName: string | null; assignedTotal: number; pendingScheduling: number } | null>(null);
+  useEffect(() => {
+    if (!primary || role !== 'TEAM_LEAD') { setMyTeamTaskSummary(null); return; }
+    axios.get(`${API}/task-proposals/version/${primary.id}/my-team-task-summary`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setMyTeamTaskSummary(r.data ?? null))
+      .catch(() => setMyTeamTaskSummary(null));
+  }, [primary?.id, role, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // QA classification progress (isCore/urgent/priorityTestDate) — meaningful
   // even before scope approval, unlike scope-change flags.
@@ -688,9 +720,14 @@ export const HomeDashboard: React.FC<Props> = ({
         list.push({ icon: '📋', title: 'בנה תוכנית הטמעה', desc: 'החל תבנית על הגרסה ובנה את לוח הזמנים', tab: 'version-detail' });
       }
     }
-    if (st === 'COLLECTING' && tl)      list.push({ icon: '📝', title: 'הגש תוכניות', desc: 'הגש את הצעות המשימות לאישור', urgent: true, tab: 'proposals' });
+    // Both submit-reminder cards below only make sense while the team lead's own
+    // submission is genuinely incomplete — previously they were pushed purely off
+    // the version's status, so a team lead who already finished (myTeamSummary.allDone)
+    // kept seeing "הגש תוכניות" on their home page with nothing left to actually submit.
+    if (st === 'COLLECTING' && tl && !myTeamSummary?.allDone)
+      list.push({ icon: '📝', title: 'הגש תוכניות', desc: 'הגש את הצעות המשימות לאישור', urgent: true, tab: 'proposals' });
     if (st === 'COLLECTING' && rm)      list.push({ icon: '👥', title: 'מעקב הגשת תוכניות', desc: 'בדוק שכל הצוותים הגישו את תוכניות ה-CR', tab: 'proposals' });
-    if (st === 'CR_REVIEW' && tl) {
+    if (st === 'CR_REVIEW' && tl && !myTeamSummary?.allDone) {
       const deadline = (primary as any).submissionDeadline;
       const deadlineDesc = deadline
         ? ` — מועד הגשה: ${new Date(deadline).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${new Date(deadline) < new Date() ? ' ⚠ עבר' : ''}`
@@ -777,7 +814,7 @@ export const HomeDashboard: React.FC<Props> = ({
     }
 
     return list;
-  }, [primary, role, canManageLeaves, pendingLeaveCount, onGoToLeaves, nextPhaseInfo, firstPhaseInfo, upcomingRunbookSteps, myUserId, onSwitchToQa, todayOrTomorrowActivities, homeShowQa, qaSummary, canAccessVersionManagement, scopeAttentionCount, onSwitchToModule, canAccessReleaseIntelligence, criticalDefectsCount, canAccessQualityHub, qualityScore, showTeamStatus, teamStatus, isCollecting, reviewIsApproaching]);
+  }, [primary, role, canManageLeaves, pendingLeaveCount, onGoToLeaves, nextPhaseInfo, firstPhaseInfo, upcomingRunbookSteps, myUserId, onSwitchToQa, todayOrTomorrowActivities, homeShowQa, qaSummary, canAccessVersionManagement, scopeAttentionCount, onSwitchToModule, canAccessReleaseIntelligence, criticalDefectsCount, canAccessQualityHub, qualityScore, showTeamStatus, teamStatus, isCollecting, reviewIsApproaching, myTeamSummary]);
 
   // Stats — only count non-terminal versions as "in progress"
   const totalVersions  = inProgressVersions.length;
@@ -1015,7 +1052,7 @@ export const HomeDashboard: React.FC<Props> = ({
 
             {canAccessVersionManagement && (
               <KpiTile
-                icon="🧭" accent={C.moduleRelease}
+                icon="🧭" accent={C.moduleRelease} moduleLabel={MODULE_META['version-management'].label}
                 value={estimateStats && (estimateStats as any).crCount != null ? String((estimateStats as any).crCount) : '—'}
                 label="CR-ים בתכולה"
                 sub={primary?.scopeApprovedAt ? '✓ תכולה אושרה' : scopeAttentionCount > 0 ? `⚠ ${scopeAttentionCount} דורשים אישור מחדש` : 'ממתין לאישור תכולה'}
@@ -1037,7 +1074,7 @@ export const HomeDashboard: React.FC<Props> = ({
               const hasClassification = !assignmentStarted && !!classificationStats && classificationStats.totalCrs > 0;
               return (
                 <KpiTile
-                  icon="🧪" accent={C.moduleTestPlan}
+                  icon="🧪" accent={C.moduleTestPlan} moduleLabel={MODULE_META['qa'].label}
                   value={
                     assignmentStarted ? String(qaSummary!.assignedCrs)
                     : hasClassification ? `${classificationStats!.classifiedCrs}/${classificationStats!.totalCrs}`
@@ -1057,7 +1094,7 @@ export const HomeDashboard: React.FC<Props> = ({
             })()}
 
             <KpiTile
-              icon="🌙" accent={C.moduleGoLive}
+              icon="🌙" accent={C.moduleGoLive} moduleLabel={MODULE_META['deployments'].label}
               value={taskSchedule ? String(taskSchedule.total) : '—'}
               label="משימות בתוכנית העלייה"
               sub={(() => {
@@ -1073,19 +1110,24 @@ export const HomeDashboard: React.FC<Props> = ({
                 if (primary.status === 'MORNING_AFTER' && taskSchedule && taskSchedule.morningFollowup > 0) {
                   return `☀️ ${taskSchedule.morningFollowup} משימות דורשות מעקב בוקר`;
                 }
+                if (isRm(role) && pendingConversionCount > 0) return `🔄 ${pendingConversionCount} הצעות מאושרות ממתינות לשיבוץ לתוכנית`;
+                if (role === 'TEAM_LEAD' && myTeamTaskSummary) {
+                  const base = `👥 ${myTeamTaskSummary.assignedTotal} משימות משוייכות לצוות שלך`;
+                  return myTeamTaskSummary.pendingScheduling > 0 ? `${base} · ${myTeamTaskSummary.pendingScheduling} ממתינות לשיבוץ` : base;
+                }
                 if (livePhases.length > 0) return `${livePhases.filter(p => p.state === 'done').length}/${livePhases.length} שלבים הושלמו`;
                 if (reviewMeetingTime && reviewMeetingTime.getTime() > Date.now()) {
                   return `🗓 תוכנית מסגרת נבנתה · ישיבת סקירה: ${reviewMeetingTime.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })} ${reviewMeetingTime.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`;
                 }
-                if (taskSchedule && taskSchedule.unscheduled > 0) return `⏳ ${taskSchedule.unscheduled} משימות ממתינות לשיבוץ`;
+                if (taskSchedule && taskSchedule.unscheduled > 0) return `⏳ ${taskSchedule.unscheduled} משימות ללא תאריך מתוכנן`;
                 return null;
               })()}
-              onClick={() => onSelectVersion(primary.id, 'list')}
+              onClick={() => onSelectVersion(primary.id, getDeploymentsTabForStatus(primary.status, role))}
             />
 
             {canAccessReleaseIntelligence && (
               <KpiTile
-                icon="🔍" accent={C.moduleTracking}
+                icon="🔍" accent={C.moduleTracking} moduleLabel={MODULE_META['release-intelligence'].label}
                 value={defectsSummary ? String(defectsSummary.open) : '—'}
                 label="תקלות פתוחות"
                 sub={criticalDefectsCount > 0 ? `⚠ ${criticalDefectsCount} קריטיות` : defectsSummary ? '✓ אין תקלות קריטיות' : null}
@@ -1097,7 +1139,7 @@ export const HomeDashboard: React.FC<Props> = ({
 
             {canAccessQualityHub && (
               <KpiTile
-                icon="🏆" accent={C.moduleAnalytics}
+                icon="🏆" accent={C.moduleAnalytics} moduleLabel={MODULE_META['quality-hub'].label}
                 value={qualityScore ? String(qualityScore.totalScore) : previousReleaseScore ? String(previousReleaseScore.totalScore) : '—'}
                 label={qualityScore ? 'ציון איכות' : previousReleaseScore ? `ציון גרסה קודמת (${previousReleaseScore.releaseName})` : 'ציון איכות'}
                 sub={qualityScore ? (qualityScore.status === 'ABOVE_TARGET' ? '✓ מעל יעד' : '↓ מתחת ליעד') : previousReleaseScore ? 'רפרנס בלבד — עוד אין ציון לגרסה זו' : 'אין ציון איכות עדיין'}
@@ -1127,6 +1169,50 @@ export const HomeDashboard: React.FC<Props> = ({
                 <div style={{ flexShrink: 0, textAlign: 'center' as const, ...TEXT.xs, color: '#C97A00', fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap' as const }}>
                   {reviewMeetingTime.toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'short' })}
                   <br />{reviewMeetingTime.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Teams pending submission — always available here (not just when the
+              review meeting is close), so a manager can nudge stragglers any time
+              instead of digging into the version screen for it. ── */}
+          {showTeamStatus && primary && teamStatus.some(t => !t.allDone) && (
+            <div style={{ display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap', background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '12px 18px' }}>
+              <span style={{ fontSize: '20px', flexShrink: 0 }}>👥</span>
+              <div style={{ flex: 1, minWidth: '220px' }}>
+                <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>
+                  {teamStatus.filter(t => !t.allDone).length} צוותים טרם השלימו הגשה ל{primary.name}
+                </div>
+                <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>
+                  {teamStatus.filter(t => !t.allDone).map(t => t.teamName).join(', ')}
+                </div>
+              </div>
+              <button
+                disabled={reminderSending}
+                onClick={async () => {
+                  setReminderSending(true);
+                  setReminderResult(null);
+                  try {
+                    const res = await axios.post(`${API}/versions/${primary.id}/send-collecting-reminder`, {}, { headers: { Authorization: `Bearer ${token}` } });
+                    setReminderResult({ sent: res.data.sent, teams: res.data.teams });
+                  } catch (err: any) {
+                    setReminderResult({ error: err?.response?.data?.message || 'שגיאה לא ידועה' });
+                  } finally {
+                    setReminderSending(false);
+                  }
+                }}
+                style={{ padding: '7px 16px', background: reminderSending ? C.textDisabled : C.statusInProgress, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: reminderSending ? 'not-allowed' : 'pointer', ...TEXT.xs, fontWeight: WEIGHT.bold, whiteSpace: 'nowrap', flexShrink: 0 }}
+              >
+                {reminderSending ? 'שולח...' : '📧 שלח תזכורת למי שלא סיים'}
+              </button>
+              {reminderResult && (
+                <div style={{ width: '100%', ...TEXT.xs, color: 'error' in reminderResult ? C.danger : (reminderResult.sent > 0 ? C.success : C.warning) }}>
+                  {'error' in reminderResult
+                    ? `⚠ שגיאה בשליחת תזכורת: ${reminderResult.error}`
+                    : reminderResult.sent > 0
+                      ? `✅ נשלחו ${reminderResult.sent} תזכורות: ${reminderResult.teams.join(', ')}`
+                      : 'כל הצוותים כבר הגישו, לא נשלחו תזכורות'}
                 </div>
               )}
             </div>
@@ -1223,8 +1309,10 @@ export const HomeDashboard: React.FC<Props> = ({
                 );
               })()}
 
-              {/* Team lead warning: review approaching + no ready submissions (null = fetch failed/pending = treat as not submitted) */}
-              {isTl && reviewIsApproaching && showMyTeamWarning && (myTeamSummary === null || myTeamSummary.ready === 0) && (
+              {/* Team lead warning: not submitted yet (null = fetch failed/pending = treat as
+                  not submitted) — shown as soon as there's nothing ready, not just when the
+                  review meeting is close, so the deadline date is visible well in advance. */}
+              {isTl && showMyTeamWarning && (myTeamSummary === null || myTeamSummary.ready === 0) && (
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', background: 'rgba(240,106,106,0.08)', border: `1px solid rgba(240,106,106,0.3)`, borderRadius: RADIUS.md, padding: '10px 14px', marginBottom: '12px' }}>
                   <span style={{ fontSize: '18px', flexShrink: 0 }}>⚠️</span>
                   <div>
@@ -1232,8 +1320,9 @@ export const HomeDashboard: React.FC<Props> = ({
                       {primary.status === 'COLLECTING' ? 'לא הגשת הצעות משימות עדיין' : 'לא הגשת תוכנית CR עדיין'}
                     </div>
                     <div style={{ ...TEXT.xs, color: C.textSecondary, marginTop: '2px' }}>
-                      פגישת הסקירה בעוד {reviewHoursLabel}
-                      {reviewMeetingTime && ` (${reviewMeetingTime.toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })})`}
+                      {reviewMeetingTime
+                        ? `יש להגיש עד למועד ישיבת המעבר: ${reviewMeetingTime.toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'short' })}, ${reviewMeetingTime.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}${reviewIsApproaching ? ` (בעוד ${reviewHoursLabel})` : ''}`
+                        : 'מועד ישיבת המעבר טרם נקבע — יש להגיש בהקדם האפשרי'}
                     </div>
                   </div>
                   <button
@@ -1244,6 +1333,26 @@ export const HomeDashboard: React.FC<Props> = ({
                   </button>
                 </div>
               )}
+
+              {/* Team lead success: submitted every CR's plan for this version */}
+              {isTl && showMyTeamWarning && myTeamSummary?.allDone && (() => {
+                const total = myTeamSummary.total;
+                const pct = total > 0 ? Math.round((myTeamSummary.ready / total) * 100) : 100;
+                return (
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', background: C.successBg, border: `1px solid rgba(55,196,122,0.35)`, borderRadius: RADIUS.md, padding: '10px 14px', marginBottom: '12px' }}>
+                    <span style={{ fontSize: '18px', flexShrink: 0 }}>✅</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.success }}>
+                        {myTeamSummary.ready} מתוך {total} תוכניות הושלמו
+                      </div>
+                      <div style={{ height: '5px', background: C.border, borderRadius: '3px', overflow: 'hidden', marginTop: '6px' }}>
+                        <div style={{ height: '100%', width: `${pct}%`, background: C.success, borderRadius: '3px', transition: 'width 0.4s' }} />
+                      </div>
+                    </div>
+                    <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.success, flexShrink: 0, fontVariantNumeric: 'tabular-nums' as const }}>{pct}%</span>
+                  </div>
+                );
+              })()}
 
               {actions.length === 0 ? (
                 <div style={{ ...TEXT.sm, color: C.textMuted, padding: '20px 0', textAlign: 'center' }}>

@@ -61,6 +61,16 @@ export interface CrItemDto {
   label: string;
 }
 
+// Defects scoped to one CR + release, for the TARGET-CR gate screen.
+export interface TargetDefectDto {
+  id: string;
+  assignedTo: string;
+  crReferenceNumber: string;
+  title: string;
+  status: string;
+  severity: string;
+}
+
 // KPI 11 — "מצב תקלות ייצור פתוחות לאורך חודשים": one row per (month, defect)
 // still open as of that month-end. `area` (BG_USER_10) doubles as the
 // "module" breakdown per the user's confirmation — its values aren't only
@@ -230,6 +240,24 @@ const NEW_VS_TARGET_DEFECTS_SQL = `
 // release (matches the PBIRS report's default filter state: Cycle/CR
 // Number/Tester/Bug Status all "All"). Aggregation happens in JS below
 // rather than in SQL, since row counts per release are small (~100-500).
+// Defects for one CR within one release, for the TARGET-CR gate screen —
+// team-name matching happens in JS (computeTargetDefects) since Oracle's
+// BG_RESPONSIBLE free text ("CRM Team", "NETC-DT team"...) doesn't map
+// cleanly to a SQL-side equality/LIKE against our own Team.name values.
+const TARGET_CR_DEFECTS_SQL = `
+  SELECT
+    BG_BUG_ID       AS DEFECT_ID,
+    BG_RESPONSIBLE  AS ASSIGNED_TO,
+    BG_USER_58      AS CR_REFERENCE_NUMBER,
+    BG_SUBJECT      AS SUBJECT,
+    BG_SUMMARY      AS SUMMARY,
+    BG_USER_04      AS DEFECT_STATUS,
+    BG_SEVERITY     AS SEVERITY
+  FROM BUG
+  WHERE BG_DETECTED_IN_REL = :releaseId
+    AND BG_USER_58 LIKE :crPattern
+`;
+
 const BUG_DASHBOARD_SQL = `
   SELECT
     BG_BUG_ID       AS DEFECT_ID,
@@ -483,6 +511,33 @@ const MOCK_NEW_VS_TARGET_SOURCE: {
   { release: 'ITv08-2025', target: 14, byTeam: [{ team: 'NETC-DT team', newCount: 22, severities: ['Severe', 'Medium', 'Low'] }] },
 ];
 
+// Strips common team-suffix words so Oracle's free-text BG_RESPONSIBLE
+// ("CRM Team", "NETC-DT team", "צוות CRM") can be fuzzily matched against our
+// own Team.name values without requiring an exact mapping table.
+function normalizeTeamName(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/\bteam\b/gi, '')
+    .replace(/צוות/g, '')
+    .replace(/[-_\s]+/g, '')
+    .trim();
+}
+
+function buildMockTargetDefects(crNumber: string): TargetDefectDto[] {
+  const teams = ['CRM Team', 'EAI Team', 'OSS Team', 'QA Team'];
+  const titles = [
+    'שדרוג בקליק', 'Billing', 'WIZ', 'תיקון תצוגה בממשק', 'עדכון פרמטר',
+  ];
+  return Array.from({ length: 6 }, (_, i) => ({
+    id: String(1000 + i),
+    assignedTo: teams[i % teams.length],
+    crReferenceNumber: `${crNumber} - TARGET`,
+    title: titles[i % titles.length],
+    status: i % 3 === 0 ? 'Closed' : 'Open',
+    severity: i % 4 === 0 ? 'Severe' : 'Medium',
+  }));
+}
+
 function buildMockNewVsTargetDefects(): NewVsTargetDefectDto[] {
   const rows: NewVsTargetDefectDto[] = [];
   let seq = 30000;
@@ -685,6 +740,20 @@ export class QcService {
     return { relId: rel.relId, cycleId };
   }
 
+  // Release-only lookup — for queries (bug dashboard, TARGET-CR defects) that
+  // filter purely on BG_DETECTED_IN_REL and never touch a test cycle. Using
+  // getQcIds() for these incorrectly requires goLiveCycleId/rehearsalCycleId
+  // to be resolved even though the SQL never references cycleId — a version
+  // whose QcRelease is linked but hasn't had its cycle assigned yet would
+  // silently fall back to all-zero/empty results despite having real data.
+  private async getRelId(versionId: string): Promise<number | null> {
+    const version = await prisma.version.findUnique({
+      where: { id: versionId },
+      include: { qcRelease: true },
+    });
+    return (version as any)?.qcRelease?.relId ?? null;
+  }
+
   async getStatus(): Promise<{ enabled: boolean }> {
     const { enabled } = await getOracleConfig();
     return { enabled };
@@ -767,12 +836,49 @@ export class QcService {
     }
   }
 
+  // Defects for one CR, optionally narrowed to one team (fuzzy name match —
+  // see normalizeTeamName). Used by the TARGET-CR gate screen.
+  async getTargetCrDefects(versionId: string, crNumber: string, teamName?: string): Promise<TargetDefectDto[]> {
+    const { enabled } = await getOracleConfig();
+    const all = enabled ? await this.fetchTargetCrDefectsFromOracle(versionId, crNumber) : buildMockTargetDefects(crNumber);
+    if (!teamName) return all;
+    const normTeam = normalizeTeamName(teamName);
+    return all.filter(d => {
+      const normAssigned = normalizeTeamName(d.assignedTo);
+      return normAssigned.includes(normTeam) || normTeam.includes(normAssigned);
+    });
+  }
+
+  private async fetchTargetCrDefectsFromOracle(versionId: string, crNumber: string): Promise<TargetDefectDto[]> {
+    const relId = await this.getRelId(versionId);
+    if (!relId) return [];
+
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const result = await conn.execute(TARGET_CR_DEFECTS_SQL, { releaseId: relId, crPattern: `${crNumber}%` });
+      return (result.rows ?? []).map((r: any): TargetDefectDto => ({
+        id:                String(r.DEFECT_ID),
+        assignedTo:        r.ASSIGNED_TO         ?? '',
+        crReferenceNumber: r.CR_REFERENCE_NUMBER ?? '',
+        title:             r.SUMMARY || r.SUBJECT || '',
+        status:            r.DEFECT_STATUS       ?? '',
+        severity:          r.SEVERITY             ?? '',
+      }));
+    } catch (err: any) {
+      this.logger.error(`Oracle getTargetCrDefects: ${err.message}`);
+      throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
+  }
+
   async getBugDashboard(versionId: string): Promise<BugDashboardDto> {
     const { enabled } = await getOracleConfig();
     if (!enabled) return MOCK_BUG_DASHBOARD;
 
-    const ids = await this.getQcIds(versionId);
-    if (!ids) {
+    const relId = await this.getRelId(versionId);
+    if (!relId) {
       this.logger.warn(`No QC release linked to version ${versionId}`);
       return computeBugDashboard([]);
     }
@@ -780,7 +886,7 @@ export class QcService {
     let conn: any;
     try {
       conn = await oracleConnect();
-      const result = await conn.execute(BUG_DASHBOARD_SQL, { releaseId: ids.relId });
+      const result = await conn.execute(BUG_DASHBOARD_SQL, { releaseId: relId });
       return computeBugDashboard((result.rows ?? []) as BugRawRow[]);
     } catch (err: any) {
       this.logger.error(`Oracle getBugDashboard: ${err.message}`);

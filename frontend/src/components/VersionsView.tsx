@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { usePermissions } from '../context/PermissionsContext';
 import { TeamView } from './TeamView';
@@ -660,6 +660,17 @@ const VersionDetail: React.FC<{
   const [selectedTeam, setSelectedTeam] = useState('');
   const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set());
   const [collapsedSubPhases, setCollapsedSubPhases] = useState<Set<string>>(new Set());
+  // Default to fully collapsed (phases + sub-phases) the first time a version's
+  // plan actually has phase data loaded — otherwise arriving at the page dumps
+  // every task under every phase on screen at once. Only auto-collapses once per
+  // version id, so it doesn't fight the user's own expand/collapse afterwards.
+  const collapsedInitRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!version.phases?.length || collapsedInitRef.current === version.id) return;
+    collapsedInitRef.current = version.id;
+    setCollapsedPhases(new Set(version.phases.map((p: any) => p.id)));
+    setCollapsedSubPhases(new Set(version.phases.flatMap((p: any) => (p.subPhases ?? []).map((s: any) => s.id))));
+  }, [version.id, version.phases]);
   const [filterTeam, setFilterTeam] = useState<string | null>(null);
   const [editingPlannedEnd, setEditingPlannedEnd] = useState(false);
   const [plannedEndValue, setPlannedEndValue] = useState(
@@ -729,9 +740,6 @@ const VersionDetail: React.FC<{
   const [reassigning, setReassigning] = useState(false);
   const [reassignResult, setReassignResult] = useState<{ updated: number; toUserName: string } | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
-  const [collectingTeamsExpanded, setCollectingTeamsExpanded] = useState(version.status === 'CR_REVIEW');
-  const [reminderSending, setReminderSending] = useState(false);
-  const [reminderResult, setReminderResult] = useState<{ sent: number; teams: string[] } | null>(null);
   const [crSummary, setCrSummary] = useState<any[] | null>(null);
   const [crSummaryLoading, setCrSummaryLoading] = useState(false);
   const [crSummaryExpanded, setCrSummaryExpanded] = useState(false);
@@ -1703,15 +1711,6 @@ const VersionDetail: React.FC<{
               </button>
             )}
 
-            {/* Unified go-live script — relevant once teams start submitting CR plans (CR_REVIEW onward) */}
-            {isManager && onNavigateTab && ['CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED'].includes(version.status) && (
-              <button
-                onClick={() => onNavigateTab('unified-plan')}
-                style={{ padding: '6px 14px', background: C.bgCard, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '15px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                📜 תוכנית מאוחדת
-              </button>
-            )}
-
             {/* Status progression — back buttons (new order: DRAFT→COLLECTING→CR_REVIEW→REFINING) */}
             {isManager && version.status === 'COLLECTING' && (
               <button onClick={() => handleStatusChange('DRAFT')} disabled={statusLoading} style={{ padding: '8px 16px', background: C.bgNested, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '15px' }}>← חזור לטיוטה</button>
@@ -2157,64 +2156,6 @@ const VersionDetail: React.FC<{
           />
         </div>
       )}
-
-      {/* ── COLLECTING / CR_REVIEW: סטטוס הגשות צוותים + כפתור תזכורת ── */}
-      {['COLLECTING', 'CR_REVIEW'].includes(version.status) && isManager && (
-        <div style={{ marginBottom: '16px', background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '12px', overflow: 'hidden' }}>
-          <div
-            onClick={() => setCollectingTeamsExpanded(p => !p)}
-            style={{ padding: '12px 20px', borderBottom: collectingTeamsExpanded ? `1px solid ${C.border}` : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', userSelect: 'none', background: C.bgNested }}
-          >
-            <span style={{ fontSize: '15px', fontWeight: '700', color: C.textPrimary, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              👥 סטטוס הגשות צוותים
-            </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              {isManager && (
-                <button
-                  onClick={async e => {
-                    e.stopPropagation();
-                    setReminderSending(true);
-                    setReminderResult(null);
-                    try {
-                      const res = await axios.post(`${API}/versions/${version.id}/send-collecting-reminder`, {}, { headers });
-                      setReminderResult({ sent: res.data.sent, teams: res.data.teams });
-                    } catch (err: any) {
-                      showAlert('שגיאה בשליחת תזכורת', err?.response?.data?.message || 'שגיאה לא ידועה', 'danger');
-                    } finally {
-                      setReminderSending(false);
-                    }
-                  }}
-                  disabled={reminderSending}
-                  style={{ padding: '5px 14px', background: reminderSending ? C.textDisabled : C.statusInProgress, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: reminderSending ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap' }}
-                >
-                  {reminderSending ? 'שולח...' : '📧 שלח תזכורת למי שלא סיים'}
-                </button>
-              )}
-              <span style={{ color: C.textMuted, fontSize: '15px' }}>{collectingTeamsExpanded ? '▲ סגור' : '▼ פתח'}</span>
-            </div>
-          </div>
-          {reminderResult && (
-            <div style={{ padding: '8px 20px', background: reminderResult.sent > 0 ? C.successBg : C.warningBg, borderBottom: `1px solid ${C.border}`, fontSize: '14px', color: reminderResult.sent > 0 ? C.success : C.warning }}>
-              {reminderResult.sent > 0
-                ? `✅ נשלחו ${reminderResult.sent} תזכורות: ${reminderResult.teams.join(', ')}`
-                : 'כל הצוותים כבר הגישו, לא נשלחו תזכורות'}
-            </div>
-          )}
-          {collectingTeamsExpanded && (
-            <div style={{ padding: '16px 20px' }}>
-              <CrPlanReviewPanel
-                token={token}
-                versionId={version.id}
-                versionStatus={version.status}
-                isManager={isManager}
-                section="teams"
-                onTeamReview={(teamId, teamName) => setTeamPanelOpen({ teamId, teamName })}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
 
       {version.status !== 'CR_REVIEW' && <>
 

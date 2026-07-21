@@ -12,5 +12,6 @@ import { QcService } from './qc.service';
   ],
   controllers: [QcController],
   providers: [QcService],
+  exports: [QcService],
 })
 export class QcModule {}

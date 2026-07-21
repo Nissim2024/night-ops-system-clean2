@@ -28,6 +28,12 @@ export class TaskProposalsController {
     return this.service.getMyTeamSummary(versionId, req.user);
   }
 
+  @Get('version/:versionId/my-team-task-summary')
+  getMyTeamTaskSummary(@Param('versionId') versionId: string, @Request() req: any) {
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.getMyTeamTaskSummary(versionId, req.user);
+  }
+
   @Get('version/:versionId')
   getForVersion(
     @Param('versionId') versionId: string,

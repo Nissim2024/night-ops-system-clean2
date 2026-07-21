@@ -70,15 +70,21 @@ const BreakdownPanel: React.FC<{ title: string; total: number; rows: { label: st
   );
 };
 
+const MIN_POINT_GAP = 26; // px between points before the chart starts scrolling instead of squeezing
+
 const MonthlyTrendChart: React.FC<{
   data: { monthLabel: string; count: number }[];
   selectedMonth: string | null;
   onSelectMonth: (m: string) => void;
 }> = ({ data, selectedMonth, onSelectMonth }) => {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
   if (data.length === 0) {
     return <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, padding: '20px', textAlign: 'center' }}>אין נתוני מגמה</div>;
   }
-  const width = 760, height = 160, padX = 30, padY = 24;
+
+  const height = 180, padX = 36, padY = 24;
+  const width = Math.max(760, padX * 2 + (data.length - 1) * MIN_POINT_GAP);
   const max = Math.max(1, ...data.map(d => d.count));
   const stepX = data.length > 1 ? (width - padX * 2) / (data.length - 1) : 0;
   const points = data.map((d, i) => {
@@ -88,22 +94,100 @@ const MonthlyTrendChart: React.FC<{
   });
   const polyline = points.map(p => `${p.x},${p.y}`).join(' ');
 
+  // Selective x-axis labels only — one point every ~90px, plus always the last
+  // point — never a label on every point (that's what produced the unreadable
+  // wall of overlapping text).
+  const labelEvery = Math.max(1, Math.ceil(90 / (stepX || 90)));
+  const activeIdx = hoverIdx ?? points.findIndex(p => p.d.monthLabel === selectedMonth);
+  const activePoint = activeIdx >= 0 ? points[activeIdx] : null;
+
   return (
-    <svg width="100%" viewBox={`0 0 ${width} ${height}`} style={{ overflow: 'visible' }}>
-      <polyline points={polyline} fill="none" stroke={C.brand} strokeWidth={2} />
-      {points.map((p, i) => {
-        const isSelected = p.d.monthLabel === selectedMonth;
-        return (
-          <g key={i} style={{ cursor: 'pointer' }} onClick={() => onSelectMonth(p.d.monthLabel)}>
-            <circle cx={p.x} cy={p.y} r={isSelected ? 6 : 3} fill={isSelected ? C.danger : C.brand} />
-            <text x={p.x} y={p.y - 10} fontSize="14" fill={C.textPrimary} textAnchor="middle" fontFamily={FONT}>{p.d.count}</text>
-            <text x={p.x} y={height - 4} fontSize="12" fill={isSelected ? C.danger : C.textMuted} fontWeight={isSelected ? 'bold' : 'normal'} textAnchor="middle" fontFamily={FONT}>
-              {p.d.monthLabel}
+    <div style={{ overflowX: 'auto' }}>
+      <svg width={width} height={height + 10} viewBox={`0 0 ${width} ${height + 10}`} style={{ overflow: 'visible', display: 'block' }}>
+        <polyline points={polyline} fill="none" stroke={C.brand} strokeWidth={2} />
+        {points.map((p, i) => {
+          const isSelected = p.d.monthLabel === selectedMonth;
+          const showLabel = i === points.length - 1 || i % labelEvery === 0;
+          return (
+            <g key={i}
+              style={{ cursor: 'pointer' }}
+              onClick={() => onSelectMonth(p.d.monthLabel)}
+              onMouseEnter={() => setHoverIdx(i)}
+              onMouseLeave={() => setHoverIdx(null)}
+            >
+              {/* Wider invisible hit-target so hovering doesn't require pixel-perfect aim */}
+              <rect x={p.x - stepX / 2} y={0} width={stepX || 20} height={height} fill="transparent" />
+              <circle cx={p.x} cy={p.y} r={isSelected ? 6 : 3} fill={isSelected ? C.danger : C.brand} />
+              {showLabel && (
+                <text x={p.x} y={height - 4} fontSize="11" fill={isSelected ? C.danger : C.textMuted} fontWeight={isSelected ? 'bold' : 'normal'} textAnchor="middle" fontFamily={FONT}>
+                  {p.d.monthLabel}
+                </text>
+              )}
+            </g>
+          );
+        })}
+        {/* Value shown only for the hovered/selected point — never all of them at once */}
+        {activePoint && (
+          <g pointerEvents="none">
+            <rect x={activePoint.x - 16} y={activePoint.y - 26} width={32} height={18} rx={4} fill={C.textPrimary} />
+            <text x={activePoint.x} y={activePoint.y - 13} fontSize="12" fill={C.bgCard} textAnchor="middle" fontFamily={FONT} fontWeight="bold">
+              {activePoint.d.count}
             </text>
           </g>
-        );
-      })}
-    </svg>
+        )}
+      </svg>
+    </div>
+  );
+};
+
+// Compact multi-select dropdown — "הכל" when nothing is picked (no filtering),
+// otherwise a checkbox list of every option plus a live count of selections.
+const MultiSelectFilter: React.FC<{
+  label: string; options: string[]; selected: string[]; onChange: (next: string[]) => void;
+}> = ({ label, options, selected, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  const toggle = (opt: string) => {
+    onChange(selected.includes(opt) ? selected.filter(o => o !== opt) : [...selected, opt]);
+  };
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button onClick={() => setOpen(o => !o)} style={{ ...selectStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', cursor: 'pointer' }}>
+        <span>{label} — {selected.length === 0 ? 'הכל' : `נבחרו ${selected.length}`}</span>
+        <span style={{ fontSize: '11px', color: C.textMuted }}>{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', right: 0, zIndex: 20, marginTop: '2px',
+          background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.md,
+          minWidth: '200px', maxHeight: '260px', overflowY: 'auto', boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+          padding: '6px',
+        }}>
+          {selected.length > 0 && (
+            <div onClick={() => onChange([])} style={{ ...TEXT.xs, color: C.brand, cursor: 'pointer', padding: '5px 8px', fontFamily: FONT }}>
+              ✕ נקה בחירה
+            </div>
+          )}
+          {options.map(o => (
+            <label key={o} style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '5px 8px', cursor: 'pointer', fontFamily: FONT, ...TEXT.sm, color: C.textPrimary }}>
+              <input type="checkbox" checked={selected.includes(o)} onChange={() => toggle(o)} />
+              {o}
+            </label>
+          ))}
+          {options.length === 0 && <div style={{ ...TEXT.xs, color: C.textMuted, padding: '5px 8px' }}>אין אפשרויות</div>}
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -125,11 +209,11 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
   const [error, setError] = useState<string | null>(null);
   const [qcMock, setQcMock] = useState(true);
 
-  const [fResponsibility, setFResponsibility] = useState('');
-  const [fStatus, setFStatus] = useState('');
-  const [fYear, setFYear] = useState('');
-  const [fFixType, setFFixType] = useState('');
-  const [fBugType, setFBugType] = useState('');
+  const [fResponsibility, setFResponsibility] = useState<string[]>([]);
+  const [fStatus, setFStatus] = useState<string[]>([]);
+  const [fYear, setFYear] = useState<string[]>([]);
+  const [fFixType, setFFixType] = useState<string[]>([]);
+  const [fBugType, setFBugType] = useState<string[]>([]);
 
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [selectedDefect, setSelectedDefect] = useState<string | null>(null);
@@ -159,11 +243,11 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
   const bugTypeOptions        = useMemo(() => Array.from(new Set(rows.map(r => r.bugType).filter(Boolean))).sort() as string[], [rows]);
 
   const filteredRows = useMemo(() => rows.filter(r =>
-    (!fResponsibility || r.responsibility === fResponsibility) &&
-    (!fStatus || r.statusAtMonth === fStatus) &&
-    (!fYear || r.monthLabel.startsWith(fYear)) &&
-    (!fFixType || r.fixType === fFixType) &&
-    (!fBugType || r.bugType === fBugType)
+    (fResponsibility.length === 0 || fResponsibility.includes(r.responsibility || '')) &&
+    (fStatus.length === 0 || fStatus.includes(r.statusAtMonth || '')) &&
+    (fYear.length === 0 || fYear.some(y => r.monthLabel.startsWith(y))) &&
+    (fFixType.length === 0 || fFixType.includes(r.fixType || '')) &&
+    (fBugType.length === 0 || fBugType.includes(r.bugType || ''))
   ), [rows, fResponsibility, fStatus, fYear, fFixType, fBugType]);
 
   const monthlyTrend = useMemo(() => {
@@ -206,26 +290,11 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
           )}
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          <select value={fResponsibility} onChange={e => setFResponsibility(e.target.value)} style={selectStyle}>
-            <option value="">Responsibility — הכל</option>
-            {responsibilityOptions.map(o => <option key={o} value={o}>{o}</option>)}
-          </select>
-          <select value={fStatus} onChange={e => setFStatus(e.target.value)} style={selectStyle}>
-            <option value="">Status — הכל</option>
-            {statusOptions.map(o => <option key={o} value={o}>{o}</option>)}
-          </select>
-          <select value={fYear} onChange={e => setFYear(e.target.value)} style={selectStyle}>
-            <option value="">Year — הכל</option>
-            {yearOptions.map(o => <option key={o} value={o}>{o}</option>)}
-          </select>
-          <select value={fFixType} onChange={e => setFFixType(e.target.value)} style={selectStyle}>
-            <option value="">Fix Type — הכל</option>
-            {fixTypeOptions.map(o => <option key={o} value={o}>{o}</option>)}
-          </select>
-          <select value={fBugType} onChange={e => setFBugType(e.target.value)} style={selectStyle}>
-            <option value="">Type — הכל</option>
-            {bugTypeOptions.map(o => <option key={o} value={o}>{o}</option>)}
-          </select>
+          <MultiSelectFilter label="Responsibility" options={responsibilityOptions} selected={fResponsibility} onChange={setFResponsibility} />
+          <MultiSelectFilter label="Status" options={statusOptions} selected={fStatus} onChange={setFStatus} />
+          <MultiSelectFilter label="Year" options={yearOptions} selected={fYear} onChange={setFYear} />
+          <MultiSelectFilter label="Fix Type" options={fixTypeOptions} selected={fFixType} onChange={setFFixType} />
+          <MultiSelectFilter label="Type" options={bugTypeOptions} selected={fBugType} onChange={setFBugType} />
         </div>
       </Card>
 

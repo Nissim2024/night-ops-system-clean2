@@ -95,37 +95,37 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  teamMemberships   TeamMember[]
-  createdVersions   Version[]          @relation("createdByUser")
-  approvedVersions  Version[]          @relation("approvedByUser")
-  scopeApprovedVersions Version[]      @relation("scopeApprovedByUser")
-  createdTasks      Task[]             @relation("taskCreator")
-  assignedTasks     Task[]             @relation("taskAssignee")
-  auditLogs         AuditLog[]
-  submissions       TeamSubmission[]
-  versionTemplates  VersionTemplate[]
-  testerProfile     TesterProfile?
-  leaveRequests     LeaveRequest[]
-  qaAssignments         QaAssignment[]
-  qaSecondaryAssignments QaAssignment[] @relation("qaSecondaryAssignments")
-  qaCycleTasks          QaCycleTask[]
-  createdReleaseRisks   ReleaseRisk[]
+  teamMemberships        TeamMember[]
+  createdVersions        Version[]         @relation("createdByUser")
+  approvedVersions       Version[]         @relation("approvedByUser")
+  scopeApprovedVersions  Version[]         @relation("scopeApprovedByUser")
+  createdTasks           Task[]            @relation("taskCreator")
+  assignedTasks          Task[]            @relation("taskAssignee")
+  auditLogs              AuditLog[]
+  submissions            TeamSubmission[]
+  versionTemplates       VersionTemplate[]
+  testerProfile          TesterProfile?
+  leaveRequests          LeaveRequest[]
+  qaAssignments          QaAssignment[]
+  qaSecondaryAssignments QaAssignment[]    @relation("qaSecondaryAssignments")
+  qaCycleTasks           QaCycleTask[]
+  createdReleaseRisks    ReleaseRisk[]
 }
 
 model Team {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  apps        String[] @default([])
+  id           String   @id @default(uuid())
+  name         String
+  description  String?
+  apps         String[] @default([])
   active       Boolean  @default(true)
   requiresPlan Boolean  @default(true)
   createdAt    DateTime @default(now())
 
-  members          TeamMember[]
-  assignedTasks    Task[]               @relation("taskAssignedTeam")
-  phases           Phase[]
-  submissions      TeamSubmission[]
-  crPlans          CrPlan[]
+  members              TeamMember[]
+  assignedTasks        Task[]                @relation("taskAssignedTeam")
+  phases               Phase[]
+  submissions          TeamSubmission[]
+  crPlans              CrPlan[]
   versionCrAssignments VersionCrAssignment[]
 }
 
@@ -141,49 +141,49 @@ model TeamMember {
 }
 
 model Version {
-  id                      String        @id @default(uuid())
-  name                    String
-  description             String?
-  status                  VersionStatus @default(DRAFT)
-  collectionDeadline      DateTime?
-  reviewMeetingTime       DateTime?
-  workPlanMeetingTime     DateTime?
-  plannedStart            DateTime?
-  plannedEnd              DateTime?
-  actualStart             DateTime?
-  completedAt             DateTime?
-  importedFileName        String?
-  createdBy               String
-  approvedBy              String?
-  approvedAt              DateTime?
-  scopeApprovedBy         String?
-  scopeApprovedAt         DateTime?
-  lastRehearsalSnapshot   Json?
-  lastRehearsalAt         DateTime?
-  lastNightSnapshot       Json?
-  lastNightAt             DateTime?
-  isArchived              Boolean       @default(false)
-  archivedAt              DateTime?
-  integrationStart        DateTime?
-  integrationEnd          DateTime?
-  qaStart                 DateTime?
-  qaEnd                   DateTime?
-  plannedRehearsalStart   DateTime?
-  plannedRehearsalEnd     DateTime?
-  submissionDeadline      DateTime?
-  approvalDeadline        DateTime?
-  wizardState             Json?
-  homeNotice              String?       // manual, RM/ADMIN-authored notice pinned atop the Home risks/activities feed
-  homeNoticeUpdatedAt     DateTime?
-  createdAt               DateTime      @default(now())
-  updatedAt               DateTime      @updatedAt
+  id                    String        @id @default(uuid())
+  name                  String
+  description           String?
+  status                VersionStatus @default(DRAFT)
+  collectionDeadline    DateTime?
+  reviewMeetingTime     DateTime?
+  workPlanMeetingTime   DateTime?
+  plannedStart          DateTime?
+  plannedEnd            DateTime?
+  actualStart           DateTime?
+  completedAt           DateTime?
+  importedFileName      String?
+  createdBy             String
+  approvedBy            String?
+  approvedAt            DateTime?
+  scopeApprovedBy       String?
+  scopeApprovedAt       DateTime?
+  lastRehearsalSnapshot Json?
+  lastRehearsalAt       DateTime?
+  lastNightSnapshot     Json?
+  lastNightAt           DateTime?
+  isArchived            Boolean       @default(false)
+  archivedAt            DateTime?
+  integrationStart      DateTime?
+  integrationEnd        DateTime?
+  qaStart               DateTime?
+  qaEnd                 DateTime?
+  plannedRehearsalStart DateTime?
+  plannedRehearsalEnd   DateTime?
+  submissionDeadline    DateTime?
+  approvalDeadline      DateTime?
+  wizardState           Json?
+  homeNotice            String? // manual, RM/ADMIN-authored notice pinned atop the Home risks/activities feed
+  homeNoticeUpdatedAt   DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
 
-  qcReleaseId      String?
-  qcRelease        QcRelease?        @relation(fields: [qcReleaseId], references: [id])
+  qcReleaseId String?
+  qcRelease   QcRelease? @relation(fields: [qcReleaseId], references: [id])
 
-  creator          User              @relation("createdByUser", fields: [createdBy], references: [id])
-  approver         User?             @relation("approvedByUser", fields: [approvedBy], references: [id])
-  scopeApprover    User?             @relation("scopeApprovedByUser", fields: [scopeApprovedBy], references: [id])
+  creator              User                  @relation("createdByUser", fields: [createdBy], references: [id])
+  approver             User?                 @relation("approvedByUser", fields: [approvedBy], references: [id])
+  scopeApprover        User?                 @relation("scopeApprovedByUser", fields: [scopeApprovedBy], references: [id])
   phases               Phase[]
   submissions          TeamSubmission[]
   nightSummary         NightSummary?
@@ -201,16 +201,16 @@ model Version {
 }
 
 model Phase {
-  id          String      @id @default(uuid())
-  versionId   String
-  teamId      String?
-  name        String
-  orderIndex  Int
-  environment Environment @default(BOTH)
-  isGoNoGo   Boolean     @default(false)
+  id           String      @id @default(uuid())
+  versionId    String
+  teamId       String?
+  name         String
+  orderIndex   Int
+  environment  Environment @default(BOTH)
+  isGoNoGo     Boolean     @default(false)
   plannedStart DateTime?
-  plannedEnd  DateTime?
-  createdAt   DateTime    @default(now())
+  plannedEnd   DateTime?
+  createdAt    DateTime    @default(now())
 
   version   Version    @relation(fields: [versionId], references: [id])
   team      Team?      @relation(fields: [teamId], references: [id])
@@ -229,61 +229,61 @@ model SubPhase {
 }
 
 model Task {
-  id                String          @id @default(uuid())
-  title             String
-  description       String?
-  crNumber          String?
-  application       String?
-  status            TaskStatus      @default(OPEN)
-  priority          Priority        @default(MEDIUM)
-  assignedTeamId    String?
-  assignedUserId    String?
-  assignedUserName  String?
-  blockedReason     String?
-  blockedSeverity   BlockSeverity?
-  completedAt       DateTime?
-  createdBy         String
-  createdByTeamLead String?
-  environment       Environment     @default(BOTH)
-  executionStatus   ExecutionStatus @default(NOT_TESTED)
-  followupNotes     String?
-  isCritical        Boolean         @default(false)
-  isCriticalForGo   Boolean         @default(false)
-  lastEditedAt      DateTime?
-  lastEditedBy      String?
-  morningFollowup   Boolean         @default(false)
-  notes             String?
-  dependencyNote    String?
-  duration          String?
-  orderIndex        Int             @default(0)
-  startedAt         DateTime?
-  actualStart       DateTime?
-  actualFinish      DateTime?
-  delayReason       String?
-  subPhaseId        String?
-  testerInNight     String?
-  testerInVersion   String?
-  versionId         String?
-  plannedStart      DateTime?
-  plannedEnd        DateTime?
+  id                    String          @id @default(uuid())
+  title                 String
+  description           String?
+  crNumber              String?
+  application           String?
+  status                TaskStatus      @default(OPEN)
+  priority              Priority        @default(MEDIUM)
+  assignedTeamId        String?
+  assignedUserId        String?
+  assignedUserName      String?
+  blockedReason         String?
+  blockedSeverity       BlockSeverity?
+  completedAt           DateTime?
+  createdBy             String
+  createdByTeamLead     String?
+  environment           Environment     @default(BOTH)
+  executionStatus       ExecutionStatus @default(NOT_TESTED)
+  followupNotes         String?
+  isCritical            Boolean         @default(false)
+  isCriticalForGo       Boolean         @default(false)
+  lastEditedAt          DateTime?
+  lastEditedBy          String?
+  morningFollowup       Boolean         @default(false)
+  notes                 String?
+  dependencyNote        String?
+  duration              String?
+  orderIndex            Int             @default(0)
+  startedAt             DateTime?
+  actualStart           DateTime?
+  actualFinish          DateTime?
+  delayReason           String?
+  subPhaseId            String?
+  testerInNight         String?
+  testerInVersion       String?
+  versionId             String?
+  plannedStart          DateTime?
+  plannedEnd            DateTime?
   rehearsalPlannedStart DateTime?
   rehearsalPlannedEnd   DateTime?
-  dueDate           DateTime?
-  goNoGoWaived      Boolean         @default(false)
-  waivedBy          String?
-  waivedAt          DateTime?
-  failedReason      String?
-  failureReasonId   String?
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  dueDate               DateTime?
+  goNoGoWaived          Boolean         @default(false)
+  waivedBy              String?
+  waivedAt              DateTime?
+  failedReason          String?
+  failureReasonId       String?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
 
-  assignedTeam Team?              @relation("taskAssignedTeam", fields: [assignedTeamId], references: [id])
-  assignedUser User?              @relation("taskAssignee", fields: [assignedUserId], references: [id])
-  creator      User               @relation("taskCreator", fields: [createdBy], references: [id])
-  subPhase     SubPhase?          @relation(fields: [subPhaseId], references: [id])
+  assignedTeam Team?            @relation("taskAssignedTeam", fields: [assignedTeamId], references: [id])
+  assignedUser User?            @relation("taskAssignee", fields: [assignedUserId], references: [id])
+  creator      User             @relation("taskCreator", fields: [createdBy], references: [id])
+  subPhase     SubPhase?        @relation(fields: [subPhaseId], references: [id])
   auditLogs    AuditLog[]
-  dependencies TaskDependency[]   @relation("taskDeps")
-  dependents   TaskDependency[]   @relation("taskDependents")
+  dependencies TaskDependency[] @relation("taskDeps")
+  dependents   TaskDependency[] @relation("taskDependents")
 }
 
 model TaskDependency {
@@ -332,7 +332,7 @@ model AuditLog {
 
 model RolePermissions {
   role        Role     @id
-  permissions Json     // string[]
+  permissions Json // string[]
   updatedAt   DateTime @updatedAt
 }
 
@@ -404,28 +404,28 @@ enum ReviewStatus {
 }
 
 model TaskProposal {
-  id            String         @id @default(uuid())
-  versionId     String
-  teamId        String
-  submittedBy   String
-  title         String
-  app           String?
-  estimatedMins Int?
-  crNumber      String?
-  notes              String?
-  assignedUserName   String?        // whom the team lead designates as responsible
-  crLabel            String?        // display label from QC for the linked CR
-  phase         Int            // 1=בוקר גרסה, 2=HOTNET, 3=HOT, 4=בוקר לאחר
-  system        String?        // CRM / WIZ / ETL / EAI / MEDIATION …
-  actionType    String?        // הטמעת קוד / פרמטרים / הרשאות / תהליך / הסבה / פעולה ידנית
-  subPhaseId         String?        // exact sub-phase chosen (optional, used at conversion)
-  responsibleTeamId  String?        // צוות אחראי לביצוע (may differ from submitting teamId)
-  status        ProposalStatus @default(DRAFT)
-  usedInTaskId  String?        // set when manager picks this proposal
-  reviewStatus  ReviewStatus   @default(PENDING)
-  reviewNote    String?        // manager comment when rejecting / returning
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id                String         @id @default(uuid())
+  versionId         String
+  teamId            String
+  submittedBy       String
+  title             String
+  app               String?
+  estimatedMins     Int?
+  crNumber          String?
+  notes             String?
+  assignedUserName  String? // whom the team lead designates as responsible
+  crLabel           String? // display label from QC for the linked CR
+  phase             Int // 1=בוקר גרסה, 2=HOTNET, 3=HOT, 4=בוקר לאחר
+  system            String? // CRM / WIZ / ETL / EAI / MEDIATION …
+  actionType        String? // הטמעת קוד / פרמטרים / הרשאות / תהליך / הסבה / פעולה ידנית
+  subPhaseId        String? // exact sub-phase chosen (optional, used at conversion)
+  responsibleTeamId String? // צוות אחראי לביצוע (may differ from submitting teamId)
+  status            ProposalStatus @default(DRAFT)
+  usedInTaskId      String? // set when manager picks this proposal
+  reviewStatus      ReviewStatus   @default(PENDING)
+  reviewNote        String? // manager comment when rejecting / returning
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   version Version @relation(fields: [versionId], references: [id])
 }
@@ -438,56 +438,57 @@ enum CrPlanSubmissionStatus {
 }
 
 model CrPlan {
-  id                String   @id @default(uuid())
-  versionId         String
-  teamId            String
-  crNumber          String
-  crLabel           String?
-  crManager         String?  // מנהל CR מהקובץ
-  crDescription     String?  // פרטים מהקובץ
-  crType            String?  // תיקון תקלה / פיתוח / תשתית
-  riskLevel         String?  // LOW / MEDIUM / HIGH
-  systems           String[] @default([])
-  planApproved      Boolean  @default(false)
-  planApprovedAt    DateTime?
-  workPlan          String?
-  scripts           String?
-  runTimes          String?
-  rollbackPlan      String?
-  gradualRollout    Boolean  @default(false)
-  gradualDetails    String?
-  nightTestingNotes String?
-  morningMonitoring String?
-  notNeededForPlan  Boolean  @default(false)
-  removedByTeam     Boolean  @default(false) // team explicitly deleted this CR — sync must never resurrect it
+  id                  String                 @id @default(uuid())
+  versionId           String
+  teamId              String
+  crNumber            String
+  crLabel             String?
+  crManager           String? // מנהל CR מהקובץ
+  crDescription       String? // פרטים מהקובץ
+  crType              String? // תיקון תקלה / פיתוח / תשתית
+  riskLevel           String? // LOW / MEDIUM / HIGH
+  systems             String[]               @default([])
+  planApproved        Boolean                @default(false)
+  planApprovedAt      DateTime?
+  workPlan            String?
+  scripts             String?
+  runTimes            String?
+  rollbackPlan        String?
+  gradualRollout      Boolean                @default(false) // false = עלייה בליל הגרסה (רגילה), true = עלייה מדורגת
+  gradualDetails      String? // שלבי העלייה (טקסט חופשי) — רלוונטי רק כאשר gradualRollout=true
+  activationDate      DateTime? // תאריך הפעלה — רלוונטי רק כאשר gradualRollout=true
+  nightTestingNotes   String?
+  morningMonitoring   String?
+  notNeededForPlan    Boolean                @default(false)
+  removedByTeam       Boolean                @default(false) // team explicitly deleted this CR — sync must never resurrect it
   // ── טופס CR מובנה (exception-first) — אפיון 2026-07-17 ──
-  gateAnswered      Boolean  @default(false) // האם ראש הצוות ענה על שאלת השער (Section 1)
-  changeTypes       String[] @default([])    // מה משתנה — קוד/פרמטר/הרשאה/Setup/ממשק/Job/סקריפט/הסבת נתונים/קובץ
-  prerequisites     String[] @default([])    // תנאים מקדימים
-  prerequisitesNote String?                  // הערות חופשיות נוספות לתנאים מקדימים
-  nightTestNeeded   Boolean  @default(false) // בדיקות חריגות בליל הגרסה (הפירוט ב-nightTestingNotes)
-  nextDayTestNeeded Boolean  @default(false) // בדיקות חריגות ביום שאחרי
-  nextDayTestNotes  String?
-  rollbackType      String?                  // כיבוי פרמטר/הסרת הרשאה/עצירת Job/החזרת קובץ/חזרה מגיבוי/לא נדרש/אחר
+  gateAnswered        Boolean                @default(false) // האם ראש הצוות ענה על שאלת השער (Section 1)
+  changeTypes         String[]               @default([]) // מה משתנה — קוד/פרמטר/הרשאה/Setup/ממשק/Job/סקריפט/הסבת נתונים/קובץ
+  prerequisites       String[]               @default([]) // תנאים מקדימים
+  prerequisitesNote   String? // הערות חופשיות נוספות לתנאים מקדימים
+  nightTestNeeded     Boolean                @default(false) // בדיקות חריגות בליל הגרסה (הפירוט ב-nightTestingNotes)
+  nextDayTestNeeded   Boolean                @default(false) // בדיקות חריגות ביום שאחרי
+  nextDayTestNotes    String?
+  rollbackType        String? // כיבוי פרמטר/הסרת הרשאה/עצירת Job/החזרת קובץ/חזרה מגיבוי/לא נדרש/אחר
   // ── תוכניות הטמעה — מחזור הגשה/סקירה/אישור ──
-  submissionStatus       CrPlanSubmissionStatus @default(DRAFT)
-  submittedAt            DateTime?
-  submittedByName        String?
-  returnReason           String?
-  returnedAt             DateTime?
-  approvedByName         String?
-  reviewNote             String?
+  submissionStatus    CrPlanSubmissionStatus @default(DRAFT)
+  submittedAt         DateTime?
+  submittedByName     String?
+  returnReason        String?
+  returnedAt          DateTime?
+  approvedByName      String?
+  reviewNote          String?
   // ── אישור מנהל CR (שלב לפני סקירה) ──
-  crManagerApproved      Boolean   @default(false)
-  crManagerApprovedAt    DateTime?
-  crManagerApprovedBy    String?
-  crManagerNote          String?
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  crManagerApproved   Boolean                @default(false)
+  crManagerApprovedAt DateTime?
+  crManagerApprovedBy String?
+  crManagerNote       String?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
 
-  version Version       @relation(fields: [versionId], references: [id])
-  team    Team          @relation(fields: [teamId], references: [id])
-  crDeps  CrDependency[]
+  version          Version                 @relation(fields: [versionId], references: [id])
+  team             Team                    @relation(fields: [teamId], references: [id])
+  crDeps           CrDependency[]
   actions          CrPlanAction[]
   monitoringPoints CrPlanMonitoringPoint[]
 
@@ -507,20 +508,20 @@ model CrDependency {
 // "מתי" מבוטא כ-phase/subPhaseId אמיתיים מתוכנית המסגרת של הגרסה (לא enum מופשט) —
 // כדי לאפשר גזירת TaskProposal אוטומטית ומדוייקת (ר' CrPlansService.syncDerivedProposals).
 model CrPlanAction {
-  id                 String   @id @default(uuid())
-  crPlanId           String
-  actionType         String
-  description        String
-  phase              Int      @default(2) // 1=בוקר לפני גרסה, 2=HOTNET, 3=HOT, 4=בוקר לאחר גרסה
-  subPhaseId         String?               // תת-שלב מדוייק (אופציונלי) בתוך ה-phase שנבחר
-  system             String?               // מערכת/אפליקציה עליה מתבצעת הפעולה
-  estimatedMins      Int?                  // משך זמן פוטנציאלי — מוזן ישירות ל-TaskProposal הנגזר
-  dependsOnTaskId    String?               // תלות במשימה קיימת אמיתית מתוכנית המסגרת (Task.id) — תמיד "אחרי"
-  dependencyNote     String?               // הערה חופשית — משמש כאשר אין משימה תואמת בתוכנית
-  ownerName          String?
-  derivedProposalId  String?               // TaskProposal שנוצר/מסונכרן אוטומטית מפעולה זו
-  orderIndex         Int      @default(0)
-  createdAt      DateTime @default(now())
+  id                String   @id @default(uuid())
+  crPlanId          String
+  actionType        String
+  description       String
+  phase             Int      @default(2) // 1=בוקר לפני גרסה, 2=HOTNET, 3=HOT, 4=בוקר לאחר גרסה
+  subPhaseId        String? // תת-שלב מדוייק (אופציונלי) בתוך ה-phase שנבחר
+  system            String? // מערכת/אפליקציה עליה מתבצעת הפעולה
+  estimatedMins     Int? // משך זמן פוטנציאלי — מוזן ישירות ל-TaskProposal הנגזר
+  dependsOnTaskId   String? // תלות במשימה קיימת אמיתית מתוכנית המסגרת (Task.id) — תמיד "אחרי"
+  dependencyNote    String? // הערה חופשית — משמש כאשר אין משימה תואמת בתוכנית
+  ownerName         String?
+  derivedProposalId String? // TaskProposal שנוצר/מסונכרן אוטומטית מפעולה זו
+  orderIndex        Int      @default(0)
+  createdAt         DateTime @default(now())
 
   crPlan CrPlan @relation(fields: [crPlanId], references: [id], onDelete: Cascade)
 }
@@ -529,17 +530,60 @@ model CrPlanAction {
 model CrPlanMonitoringPoint {
   id                String   @id @default(uuid())
   crPlanId          String
-  type              String   // Interface / Table / Job / Report / Queue / File / Other
+  type              String // Interface / Table / Job / Report / Queue / File / Other
   name              String
   note              String?
-  phase              Int      @default(4) // כל שלב אפשרי — ברירת מחדל: בוקר לאחר גרסה
-  assignedTeamId    String?               // צוות אחראי לביצוע הבקרה
-  assignedUserName  String?               // עובד אחראי — קיומו מפעיל גזירת TaskProposal אוטומטית
-  derivedProposalId String?               // TaskProposal שנוצר/מסונכרן אוטומטית מנקודת בקרה זו
+  phase             Int      @default(4) // כל שלב אפשרי — ברירת מחדל: בוקר לאחר גרסה
+  assignedTeamId    String? // צוות אחראי לביצוע הבקרה
+  assignedUserName  String? // עובד אחראי — קיומו מפעיל גזירת TaskProposal אוטומטית
+  derivedProposalId String? // TaskProposal שנוצר/מסונכרן אוטומטית מנקודת בקרה זו
   orderIndex        Int      @default(0)
   createdAt         DateTime @default(now())
 
   crPlan CrPlan @relation(fields: [crPlanId], references: [id], onDelete: Cascade)
+}
+
+// ── TARGET CR — סקירה שונה לגמרי מ-CR רגיל ──────────────────────────────────
+// CR מסוג "מעטפת" לתקלות QC (זוהה לפי crType/crLabel המכילים "TARGET") — ראש
+// הצוות לא ממלא טופס השפעות/פעולות רגיל, אלא מאשר רשימת תקלות שהגיעה מ-Oracle
+// ומסמן תקלות בודדות כדורשות הטמעה מיוחדת / חשובות להנהלה. תקלות שקיבלו דגל
+// "דורשת הטמעה מיוחדת" גוזרות CrPlanAction/CrPlanMonitoringPoint אמיתיים על אותו
+// CrPlan, ומשם ממשיכות באותו נתיב סנכרון ל-TaskProposal כמו כל פעולה רגילה.
+model TargetCrReview {
+  id             String    @id @default(uuid())
+  versionId      String
+  crNumber       String
+  teamId         String
+  gateChecklist1 Boolean   @default(false) // בדקתי את רשימת התקלות
+  gateChecklist2 Boolean   @default(false) // לא חסרה תקלה שאמורה להיכלל
+  gateChecklist3 Boolean   @default(false) // לא מופיעות תקלות שאינן מוכרות לי
+  approved       Boolean   @default(false)
+  approvedByName String?
+  approvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  defects TargetCrDefect[]
+
+  @@unique([versionId, crNumber, teamId])
+}
+
+model TargetCrDefect {
+  id                            String   @id @default(uuid())
+  reviewId                      String
+  defectId                      String // מזהה תקלה מ-Oracle (BG_BUG_ID)
+  description                   String?
+  requiresSpecialImplementation Boolean  @default(false)
+  implementationReason          String? // Script / Data Migration / בדיקת לקוח ראשון / ניטור מיוחד / אחר
+  importantToManagement         Boolean  @default(false)
+  derivedActionId               String? // CrPlanAction.id שנוצר מתקלה זו
+  derivedMonitoringPointId      String? // CrPlanMonitoringPoint.id — כאשר הסיבה היא "ניטור מיוחד"
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+
+  review TargetCrReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewId, defectId])
 }
 
 model NightSummary {
@@ -578,7 +622,7 @@ model SystemParam {
 }
 
 model VersionCrAssignment {
-  id                    String   @id @default(uuid())
+  id                    String    @id @default(uuid())
   versionId             String
   crNumber              String
   crLabel               String?
@@ -587,21 +631,22 @@ model VersionCrAssignment {
   crDescription         String?
   application           String?
   project               String?
-  qaEffort              Float?   // QA effort in DAYS (from CR_LIST QA+QA_BI cols ÷ 8)
-  qaEffortOverride      Float?   // manual override — not overwritten on re-sync
-  requiredSkillMinLevel Int?     // minimum skill level to test this CR (default 1)
-  isStandAlone          Boolean  @default(false)
-  estimateDays          Float?   // from "סך כל הערכות" column in CR_LIST (CR total, all teams)
-  teamEstimateDays      Float?   // this team's individual estimate days from their column in CR_LIST
+  qaEffort              Float? // QA effort in DAYS (from CR_LIST QA+QA_BI cols ÷ 8)
+  qaEffortOverride      Float? // manual override — not overwritten on re-sync
+  requiredSkillMinLevel Int? // minimum skill level to test this CR (default 1)
+  isStandAlone          Boolean   @default(false)
+  estimateDays          Float? // from "סך כל הערכות" column in CR_LIST (CR total, all teams)
+  teamEstimateDays      Float? // this team's individual estimate days from their column in CR_LIST
   hasActual             Boolean? // true when "Actuals" column has a V mark
-  syncedAt              DateTime @default(now())
-  syncStatus            String   @default("ACTIVE") // "ACTIVE" | "NEW" | "REMOVED"
-  reviewed              Boolean  @default(false) // set during the version-opening validation step
-  needsAttention        Boolean  @default(false) // scope changed (NEW/REMOVED) after scopeApprovedAt was set
-  isCore                Boolean  @default(false) // QA classification: core CR — independent axis from isStandAlone
+  syncedAt              DateTime  @default(now())
+  syncStatus            String    @default("ACTIVE") // "ACTIVE" | "NEW" | "REMOVED"
+  reviewed              Boolean   @default(false) // set during the version-opening validation step
+  needsAttention        Boolean   @default(false) // scope changed (NEW/REMOVED) after scopeApprovedAt was set
+  isCore                Boolean   @default(false) // QA classification: core CR — independent axis from isStandAlone
   priorityTestDate      DateTime? // CR goes to production before this version / outside its scope — must be tested first, sorts first in its tester's queue
-  notes                 String?  // free-text QA note
-  urgent                Boolean  @default(false) // flags for QA-lead follow-up on the home dashboard
+  notes                 String? // free-text QA note
+  urgent                Boolean   @default(false) // flags for QA-lead follow-up on the home dashboard
+  alreadyInProduction   Boolean   @default(false) // CR was already deployed separately (e.g. an earlier hotfix) — excluded from this version's required-plan/review checks without deleting the row
 
   version Version @relation(fields: [versionId], references: [id])
   team    Team    @relation(fields: [teamId], references: [id])
@@ -631,12 +676,12 @@ model Season {
 }
 
 model SeasonDate {
-  id       String   @id @default(uuid())
-  seasonId String
-  date     DateTime
-  label    String
-  type     String   // "holiday" | "chol_hamoed"
-  orderIndex Int    @default(0)
+  id         String   @id @default(uuid())
+  seasonId   String
+  date       DateTime
+  label      String
+  type       String // "holiday" | "chol_hamoed"
+  orderIndex Int      @default(0)
 
   season Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
 }
@@ -646,10 +691,10 @@ model LeaveRequest {
   userId    String
   seasonId  String?
   date      DateTime
-  kind      String      // "leave" | "work"
+  kind      String // "leave" | "work"
   reason    String?
   status    LeaveStatus @default(PENDING)
-  groupId   String?     // shares one id across every day of a range submitted together — lets the UI display/approve the whole range as one unit while storage stays one-row-per-day (qa-workplan.service.ts's per-day lookup keeps working unchanged)
+  groupId   String? // shares one id across every day of a range submitted together — lets the UI display/approve the whole range as one unit while storage stays one-row-per-day (qa-workplan.service.ts's per-day lookup keeps working unchanged)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
@@ -702,25 +747,25 @@ model TesterSkill {
 }
 
 model QaAssignment {
-  id                  String   @id @default(uuid())
-  versionId           String
-  crNumber            String
-  crLabel             String?
-  application         String?  // denormalized from VersionCrAssignment (for continuity queries)
-  userId              String
-  qaEffort            Float?   // denormalized days (for load-balancing queries)
-  autoScore           Int?     // computed score at assignment time (0-100)
-  notes               String?
-  assignedBy          String?
-  isStandAlone        Boolean? // null=inherit VCA; true=SA; false=force integrative
-  cycles              String[] @default([]) // e.g. ["CYCLE_1","CYCLE_2","CYCLE_3","STAND_ALONE","UAT"]
-  sortOrder           Int?     // tester queue position (1, 2, 3…)
-  secondaryTesterId   String?  // optional secondary reviewer userId
-  secondarySkillLevel Int?     @default(3)
-  secondaryParticipationPct Int? @default(50) // % of total effort the secondary tester carries (rest goes to primary) — editable, defaults to an even 50/50 split
-  standAloneDueDate   DateTime? // optional early deadline for a Stand Alone CR — pulls it ahead of other SA work for this tester
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                        String    @id @default(uuid())
+  versionId                 String
+  crNumber                  String
+  crLabel                   String?
+  application               String? // denormalized from VersionCrAssignment (for continuity queries)
+  userId                    String
+  qaEffort                  Float? // denormalized days (for load-balancing queries)
+  autoScore                 Int? // computed score at assignment time (0-100)
+  notes                     String?
+  assignedBy                String?
+  isStandAlone              Boolean? // null=inherit VCA; true=SA; false=force integrative
+  cycles                    String[]  @default([]) // e.g. ["CYCLE_1","CYCLE_2","CYCLE_3","STAND_ALONE","UAT"]
+  sortOrder                 Int? // tester queue position (1, 2, 3…)
+  secondaryTesterId         String? // optional secondary reviewer userId
+  secondarySkillLevel       Int?      @default(3)
+  secondaryParticipationPct Int?      @default(50) // % of total effort the secondary tester carries (rest goes to primary) — editable, defaults to an even 50/50 split
+  standAloneDueDate         DateTime? // optional early deadline for a Stand Alone CR — pulls it ahead of other SA work for this tester
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
 
   version       Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
   user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -732,29 +777,47 @@ model QaAssignment {
 // ── QA Work Plan ─────────────────────────────────────────────────────────────
 
 model QaWorkPlan {
-  id           String    @id @default(uuid())
-  versionId    String    @unique
-  status       String    @default("DRAFT")  // DRAFT | APPROVED
-  cycle1Start  DateTime
-  testingEnd   DateTime
-  cycle1LengthDays Int?  // fixed capacity parameter for cycle 1 (work days) — editable on screen, defaults to 12 when unset
-  cycle2LengthDays Int?  // fixed capacity parameter for cycle 2 (work days) — independently editable, defaults to round(cycle1LengthDays*0.5) when unset
-  cycle3LengthDays Int?  // fixed capacity parameter for cycle 3 (work days) — independently editable, defaults to round(cycle1LengthDays*0.3) when unset
-  notes        String?
-  createdBy    String?
-  approvedBy   String?
-  approvedAt   DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id               String    @id @default(uuid())
+  versionId        String    @unique
+  status           String    @default("DRAFT") // DRAFT | APPROVED
+  cycle1Start      DateTime
+  testingEnd       DateTime
+  cycle1LengthDays Int? // fixed capacity parameter for cycle 1 (work days) — editable on screen, defaults to 12 when unset
+  cycle2LengthDays Int? // fixed capacity parameter for cycle 2 (work days) — independently editable, defaults to round(cycle1LengthDays*0.5) when unset
+  cycle3LengthDays Int? // fixed capacity parameter for cycle 3 (work days) — independently editable, defaults to round(cycle1LengthDays*0.3) when unset
+  notes            String?
+  createdBy        String?
+  approvedBy       String?
+  approvedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  version Version   @relation(fields: [versionId], references: [id], onDelete: Cascade)
-  cycles  QaCycle[]
+  version    Version               @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  cycles     QaCycle[]
+  changeLogs QaWorkPlanChangeLog[]
+}
+
+// תיעוד תיקונים בתוכנית עבודה — נכתב רק כאשר התוכנית כבר במצב APPROVED, כדי
+// לענות בדיוק על הצורך: "מה השתנה אחרי שהתוכנית אושרה". תיקונים לפני האישור
+// (עוד בטיוטה) אינם נרשמים — צפויים ושכיחים מדי כדי להיות שימושיים כלוג.
+model QaWorkPlanChangeLog {
+  id            String   @id @default(uuid())
+  workPlanId    String
+  qaCycleTaskId String? // null כאשר המשימה עצמה נמחקה
+  action        String // EFFORT_CHANGED | TASK_DELETED
+  crNumber      String?
+  userEmail     String?
+  beforeData    Json?
+  afterData     Json?
+  createdAt     DateTime @default(now())
+
+  workPlan QaWorkPlan @relation(fields: [workPlanId], references: [id], onDelete: Cascade)
 }
 
 model QaCycle {
   id           String   @id @default(uuid())
   workPlanId   String
-  cycleType    String   // CYCLE_1 | CYCLE_2 | CYCLE_3 | STAND_ALONE | REHEARSAL | GO_LIVE
+  cycleType    String // CYCLE_1 | CYCLE_2 | CYCLE_3 | STAND_ALONE | REHEARSAL | GO_LIVE
   plannedStart DateTime
   plannedEnd   DateTime
   notes        String?
@@ -770,7 +833,7 @@ model QaCycleTask {
   cycleId      String
   crNumber     String
   crLabel      String?
-  taskType     String   @default("CR")  // CR | STAND_ALONE | REGRESSION
+  taskType     String   @default("CR") // CR | STAND_ALONE | REGRESSION
   userId       String
   effortDays   Float
   plannedStart DateTime
@@ -787,41 +850,41 @@ model QaCycleTask {
 }
 
 model ActivityBoardEntry {
-  id          String    @id @default(cuid())
-  versionId   String
-  activityKey String
-  label       String
-  owner          String    @default("")
-  ownerEmployee  String    @default("")
-  notes       String    @default("")
-  attendees   String[]  @default([])
-  category    String    @default("other")
-  dateStart   DateTime?
-  dateEnd     DateTime?
-  sortOrder   Int       @default(0)
-  isRelevant  Boolean   @default(true)
-  isCustom    Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id            String    @id @default(cuid())
+  versionId     String
+  activityKey   String
+  label         String
+  owner         String    @default("")
+  ownerEmployee String    @default("")
+  notes         String    @default("")
+  attendees     String[]  @default([])
+  category      String    @default("other")
+  dateStart     DateTime?
+  dateEnd       DateTime?
+  sortOrder     Int       @default(0)
+  isRelevant    Boolean   @default(true)
+  isCustom      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@unique([versionId, activityKey])
 }
 
 model RunbookEntry {
-  id             String    @id @default(cuid())
-  versionId      String
-  runbookId      String
-  stepIndex      Int
-  employee       String    @default("")
-  employeeUserId String?   // resolved userId of `employee`, when it matches a real team member — used for targeted notifications
-  startTime      String    @default("") // "HH:MM"
-  endTime        String    @default("") // "HH:MM"
-  runDate        DateTime? // calendar date this step is scheduled for (startTime/endTime have no date of their own)
-  team           String    @default("")
-  status         String    @default("pending")
+  id              String    @id @default(cuid())
+  versionId       String
+  runbookId       String
+  stepIndex       Int
+  employee        String    @default("")
+  employeeUserId  String? // resolved userId of `employee`, when it matches a real team member — used for targeted notifications
+  startTime       String    @default("") // "HH:MM"
+  endTime         String    @default("") // "HH:MM"
+  runDate         DateTime? // calendar date this step is scheduled for (startTime/endTime have no date of their own)
+  team            String    @default("")
+  status          String    @default("pending")
   notified15MinAt DateTime? // set once the "starts in ~15 min" notification has fired — prevents duplicate sends
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@unique([versionId, runbookId, stepIndex])
 }
@@ -872,13 +935,13 @@ model ReleaseRisk {
 model ReleaseInsight {
   id             String   @id @default(uuid())
   versionId      String
-  category       String   // AUTO: COVERAGE|FORECAST|CAPACITY|CR_HEALTH|REOPEN — MANUAL: ANNOUNCEMENT|ENVIRONMENT|KNOWN_ISSUE|RELEASE|BLOCKER
+  category       String // AUTO: COVERAGE|FORECAST|CAPACITY|CR_HEALTH|REOPEN — MANUAL: ANNOUNCEMENT|ENVIRONMENT|KNOWN_ISSUE|RELEASE|BLOCKER
   severity       Priority @default(MEDIUM)
-  title          String?  // manual messages only — auto-insights use `message` alone
+  title          String? // manual messages only — auto-insights use `message` alone
   message        String
   recommendation String?
   source         String   @default("AUTO") // AUTO | MANUAL
-  createdBy      String?  // manual messages only
+  createdBy      String? // manual messages only
   createdAt      DateTime @default(now())
 
   version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
@@ -902,7 +965,7 @@ model ReleaseForecast {
   remainingTests Int
   velocity       Float
   forecastDate   DateTime?
-  status         String    // ON_TRACK | AT_RISK | BEHIND_PLAN
+  status         String // ON_TRACK | AT_RISK | BEHIND_PLAN
 
   version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
 }
@@ -913,8 +976,8 @@ model ReleaseForecast {
 // anywhere else in the app.
 model GoNoGoDecision {
   versionId            String    @id
-  systemRecommendation String    // GO | CONDITIONAL_GO | NO_GO
-  qaManagerStatus      String?   // PENDING | APPROVED | REJECTED
+  systemRecommendation String // GO | CONDITIONAL_GO | NO_GO
+  qaManagerStatus      String? // PENDING | APPROVED | REJECTED
   qaManagerBy          String?
   qaManagerAt          DateTime?
   releaseManagerStatus String?
@@ -940,35 +1003,35 @@ model KpiDefinition {
   id                String   @id @default(uuid())
   kpiOrder          Int
   kpiName           String   @unique // join key: matches ReleaseKpiScore.kpiName exactly
-  kpiType           String            // "%" | "Quantity" | "Time"
+  kpiType           String // "%" | "Quantity" | "Time"
   target            Float
   weight            Float
-  measuredEntity    String            // איפיון / פיתוח / QA / צוות הטמעה / ALL
+  measuredEntity    String // איפיון / פיתוח / QA / צוות הטמעה / ALL
   purpose           String?
   description       String?
   dataSource        String?
   measurementPeriod String?
-  trend             String?           // "מינימום" today — lower Grade vs Target is better
+  trend             String? // "מינימום" today — lower Grade vs Target is better
   comments          String?
   updatedAt         DateTime @updatedAt
 }
 
 model ReleaseKpiScore {
-  id            String   @id @default(uuid())
-  releaseName   String            // REL_NAME, e.g. "ITv04-2026" — soft-link to Version.name
-  kpiName       String            // SegmentName — soft-link to KpiDefinition.kpiName
-  target        Float
-  grade         Float?            // null when source had "-"
-  weight        Float
-  relativeScore Float?
-  calcScore     Float?
-  allCount      Float?            // "ALL" column from source — meaning not fully confirmed, displayed as-is
-  showStopper   Float?            // "TB, SS"
-  severe        Float?            // "sev"
-  medium        Float?            // "Med"
-  low           Float?            // "Low"
-  importedAt    DateTime @default(now())
-  qualitativeNote String?         // manually-entered per-release analysis: אחריות / שיפורים נדרשים / מאפייני הבעיות
+  id              String   @id @default(uuid())
+  releaseName     String // REL_NAME, e.g. "ITv04-2026" — soft-link to Version.name
+  kpiName         String // SegmentName — soft-link to KpiDefinition.kpiName
+  target          Float
+  grade           Float? // null when source had "-"
+  weight          Float
+  relativeScore   Float?
+  calcScore       Float?
+  allCount        Float? // "ALL" column from source — meaning not fully confirmed, displayed as-is
+  showStopper     Float? // "TB, SS"
+  severe          Float? // "sev"
+  medium          Float? // "Med"
+  low             Float? // "Low"
+  importedAt      DateTime @default(now())
+  qualitativeNote String? // manually-entered per-release analysis: אחריות / שיפורים נדרשים / מאפייני הבעיות
 
   @@unique([releaseName, kpiName])
   @@index([releaseName])

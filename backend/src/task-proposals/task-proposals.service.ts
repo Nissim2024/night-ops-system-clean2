@@ -205,16 +205,38 @@ export class TaskProposalsService {
 
     const proposals = await prisma.taskProposal.findMany({
       where: { versionId, teamId: membership.teamId },
-      select: { status: true },
+      select: { status: true, usedInTaskId: true },
     });
-    const ready = proposals.filter(p => (p.status as string) === 'READY').length;
+    // A proposal already converted into a real scheduled Task counts as done even
+    // if its own status was never flipped to READY — conversion doesn't touch it
+    // (same gap already fixed in the frontend's readiness checks).
+    const ready = proposals.filter(p => (p.status as string) === 'READY' || p.usedInTaskId).length;
     return { total: proposals.length, ready, draft: proposals.length - ready };
+  }
+
+  async getMyTeamTaskSummary(versionId: string, user: { sub: string; role: string }) {
+    const membership = await prisma.teamMember.findFirst({
+      where: { userId: user.sub },
+      select: { teamId: true, team: { select: { name: true } } },
+    });
+    if (!membership) return { teamName: null, assignedTotal: 0, pendingScheduling: 0 };
+
+    const assignedTotal = await prisma.task.count({
+      where: {
+        assignedTeamId: membership.teamId,
+        OR: [{ versionId }, { subPhase: { phase: { versionId } } }],
+      },
+    });
+    const pendingScheduling = await prisma.taskProposal.count({
+      where: { versionId, teamId: membership.teamId, reviewStatus: { not: 'REJECTED' as any }, usedInTaskId: null },
+    });
+    return { teamName: membership.team?.name ?? null, assignedTotal, pendingScheduling };
   }
 
   async getTeamStatus(versionId: string) {
     const proposals = await prisma.taskProposal.findMany({
       where: { versionId },
-      select: { teamId: true, status: true },
+      select: { teamId: true, status: true, usedInTaskId: true },
     });
 
     // Seed from every team actually assigned CRs on this version — not just
@@ -231,7 +253,10 @@ export class TaskProposalsService {
     });
     const expectedTeamIds = assignmentRows.map(r => r.teamId).filter(id => !exemptTeamIds.has(id));
 
-    const teamIds = [...new Set([...expectedTeamIds, ...proposals.map(p => p.teamId)])];
+    // Exempt teams are excluded even if they still have leftover TaskProposal rows
+    // (e.g. created before the team was marked exempt) — otherwise they'd sneak
+    // back into the list via this union and show up as "not done".
+    const teamIds = [...new Set([...expectedTeamIds, ...proposals.map(p => p.teamId)])].filter(id => !exemptTeamIds.has(id));
     const teams = await prisma.team.findMany({
       where: { id: { in: teamIds } },
       select: { id: true, name: true },
@@ -243,9 +268,13 @@ export class TaskProposalsService {
       map.set(teamId, { teamId, teamName: teamNameMap.get(teamId) ?? teamId, total: 0, draft: 0, submitted: 0, returned: 0, approved: 0 });
     }
     for (const p of proposals) {
+      if (exemptTeamIds.has(p.teamId)) continue;
       const row = map.get(p.teamId) ?? map.set(p.teamId, { teamId: p.teamId, teamName: teamNameMap.get(p.teamId) ?? p.teamId, total: 0, draft: 0, submitted: 0, returned: 0, approved: 0 }).get(p.teamId)!;
       row.total++;
-      if ((p.status as string) === 'READY') row.submitted++;
+      // A proposal already converted into a real scheduled Task counts as done
+      // even if its own status was never flipped to READY (conversion doesn't
+      // touch it) — matches the same fix applied to getMyTeamSummary.
+      if ((p.status as string) === 'READY' || p.usedInTaskId) row.submitted++;
       else row.draft++;
     }
 

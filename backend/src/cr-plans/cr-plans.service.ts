@@ -119,6 +119,7 @@ export class CrPlansService {
       rollbackPlan?: string;
       gradualRollout?: boolean;
       gradualDetails?: string;
+      activationDate?: string | null;
       nightTestingNotes?: string;
       morningMonitoring?: string;
       dependsOnCrs?: string[];
@@ -307,17 +308,17 @@ export class CrPlansService {
     }
   }
 
-  async approveCr(versionId: string, crNumber: string) {
+  async approveCr(versionId: string, crNumber: string, teamId?: string) {
     await prisma.crPlan.updateMany({
-      where: { versionId, crNumber },
+      where: { versionId, crNumber, ...(teamId ? { teamId } : {}) },
       data: { planApproved: true, planApprovedAt: new Date() },
     });
     return { ok: true, crNumber };
   }
 
-  async unapproveCr(versionId: string, crNumber: string) {
+  async unapproveCr(versionId: string, crNumber: string, teamId?: string) {
     await prisma.crPlan.updateMany({
-      where: { versionId, crNumber },
+      where: { versionId, crNumber, ...(teamId ? { teamId } : {}) },
       data: { planApproved: false, planApprovedAt: null },
     });
     return { ok: true, crNumber };
@@ -387,7 +388,7 @@ export class CrPlansService {
         versionId: plan.versionId, teamId: plan.teamId, submittedBy, title,
         phase: action.phase, subPhaseId: action.subPhaseId, app: action.system, estimatedMins: action.estimatedMins,
         crNumber: plan.crNumber, crLabel: plan.crLabel, assignedUserName: action.ownerName, notes,
-        responsibleTeamId: undefined,
+        responsibleTeamId: undefined, actionType: action.actionType,
       });
       if (result === 'updated') {
         updated++;
@@ -407,7 +408,7 @@ export class CrPlansService {
         versionId: plan.versionId, teamId: plan.teamId, submittedBy, title,
         phase: point.phase, subPhaseId: null, app: null, estimatedMins: null,
         crNumber: plan.crNumber, crLabel: plan.crLabel, assignedUserName: point.assignedUserName, notes,
-        responsibleTeamId: point.assignedTeamId,
+        responsibleTeamId: point.assignedTeamId, actionType: null,
       });
       if (result === 'updated') {
         updated++;
@@ -430,6 +431,7 @@ export class CrPlansService {
       versionId: string; teamId: string; submittedBy: string; title: string; phase: number;
       subPhaseId: string | null; app: string | null; estimatedMins: number | null; crNumber: string; crLabel: string | null;
       assignedUserName: string | null; notes: string | undefined; responsibleTeamId: string | null | undefined;
+      actionType: string | null;
     },
   ): Promise<'updated' | { id: string }> {
     if (derivedProposalId) {
@@ -441,7 +443,7 @@ export class CrPlansService {
             data: {
               title: fields.title, phase: fields.phase, subPhaseId: fields.subPhaseId ?? undefined,
               app: fields.app ?? undefined, estimatedMins: fields.estimatedMins ?? undefined,
-              assignedUserName: fields.assignedUserName ?? undefined,
+              assignedUserName: fields.assignedUserName ?? undefined, actionType: fields.actionType ?? undefined,
               notes: fields.notes, crNumber: fields.crNumber, crLabel: fields.crLabel ?? undefined,
               ...(fields.responsibleTeamId !== undefined ? { responsibleTeamId: fields.responsibleTeamId } : {}),
             },
@@ -474,7 +476,8 @@ export class CrPlansService {
         title: fields.title, phase: fields.phase, subPhaseId: fields.subPhaseId ?? undefined,
         app: fields.app ?? undefined, estimatedMins: fields.estimatedMins ?? undefined,
         crNumber: fields.crNumber, crLabel: fields.crLabel ?? undefined,
-        assignedUserName: fields.assignedUserName ?? undefined, notes: fields.notes, status: 'DRAFT',
+        assignedUserName: fields.assignedUserName ?? undefined, actionType: fields.actionType ?? undefined,
+        notes: fields.notes, status: 'DRAFT',
       },
     });
     if (fields.responsibleTeamId) {
@@ -662,11 +665,22 @@ export class CrPlansService {
       where: { versionId, ...(filterTeamId ? { teamId: filterTeamId } : {}) },
       select: {
         teamId: true,
+        crNumber: true,
         submissionStatus: true,
         notNeededForPlan: true,
         team: { select: { name: true } },
       },
     });
+
+    // TARGET CRs are approved via TargetCrReview.approved, entirely separate from
+    // CrPlan.submissionStatus — without this, a team whose only remaining CR is an
+    // approved TARGET CR looks permanently stuck in "draft" (same gap already fixed
+    // in submitTeamTasks and the frontend's isCrDone).
+    const approvedTargetReviews = await prisma.targetCrReview.findMany({
+      where: { versionId, ...(filterTeamId ? { teamId: filterTeamId } : {}), approved: true },
+      select: { teamId: true, crNumber: true },
+    });
+    const approvedTargetKeys = new Set(approvedTargetReviews.map(r => `${r.teamId}:${r.crNumber}`));
 
     // Seed from every team actually assigned CRs on this version — not just
     // teams that already have a CrPlan row. A team that never opened the
@@ -696,7 +710,8 @@ export class CrPlansService {
       }
       const row = map.get(p.teamId)!;
       row.total++;
-      if (p.notNeededForPlan || (p.submissionStatus as string) === 'APPROVED') row.approved++;
+      const isApprovedTarget = approvedTargetKeys.has(`${p.teamId}:${p.crNumber}`);
+      if (p.notNeededForPlan || isApprovedTarget || (p.submissionStatus as string) === 'APPROVED') row.approved++;
       else if ((p.submissionStatus as string) === 'SUBMITTED') row.submitted++;
       else if ((p.submissionStatus as string) === 'RETURNED') row.returned++;
       else row.draft++;
@@ -759,6 +774,9 @@ export class CrPlansService {
       nextDayTestNeeded: plan.nextDayTestNeeded,
       rollbackType: plan.rollbackType,
       rollbackPlan: plan.rollbackPlan,
+      gradualRollout: plan.gradualRollout,
+      gradualDetails: plan.gradualDetails,
+      activationDate: plan.activationDate,
     };
   }
 

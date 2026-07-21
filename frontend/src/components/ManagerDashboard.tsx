@@ -41,6 +41,7 @@ import { VersionHub } from './VersionHub';
 import { TeamLeadProposalView } from './TeamLeadProposalView';
 import { CrHandoffView } from './CrHandoffView';
 import { CrReviewView } from './CrReviewView';
+import { ReleaseAssignmentView } from './ReleaseAssignmentView';
 import { UnifiedGoLivePlanView } from './UnifiedGoLivePlanView';
 import { ImplementationPlansView } from './ImplementationPlansView';
 import { CrManagerView } from './CrManagerView';
@@ -73,7 +74,7 @@ interface ToastItem {
 
 export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const appDialog = useDialog();
-  type Tab = 'home' | 'list' | 'version-detail' | 'proposals' | 'cr-review' | 'unified-plan' | 'board' | 'overview' | 'timeline' | 'dashboard' | 'summary-rehearsal' | 'summary-night' | 'rehearsal-board' | 'admin' | 'implementation-plans' | 'cr-manager';
+  type Tab = 'home' | 'list' | 'version-detail' | 'proposals' | 'cr-review' | 'release-assignment' | 'unified-plan' | 'board' | 'overview' | 'timeline' | 'dashboard' | 'summary-rehearsal' | 'summary-night' | 'rehearsal-board' | 'admin' | 'implementation-plans' | 'cr-manager';
   const [activeTab, setActiveTab]               = useState<Tab>(() => {
     try { return JSON.parse(atob(token.split('.')[1])).role === 'CR_MANAGER' ? 'cr-manager' : 'home'; }
     catch { return 'home'; }
@@ -116,7 +117,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const { can } = usePermissions();
   const push = usePushNotifications(token);
   const canAccessQa = isQaTeamMember || can('screen:qa');
-  const canAccessReleaseIntelligence = can('screen:release-intelligence');
+  const canAccessReleaseIntelligence = isQaTeamMember || can('screen:release-intelligence');
   const canAccessQualityHub = can('screen:quality-hub');
   const canAccessVersionManagement = ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role);
 
@@ -499,6 +500,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
     { key: 'version-detail', label: 'פרטים',    icon: '📋' },
     { key: 'proposals',      label: 'הגשות',    icon: '📝' },
     { key: 'cr-review', label: 'סקירת CR', icon: '🔍' },
+    { key: 'release-assignment', label: 'שיבוץ לתוכנית', icon: '📥' },
     { key: 'unified-plan', label: 'תוכנית מאוחדת', icon: '📜' },
     { key: 'board',     label: isRehearsal ? 'ביצוע חזרה' : 'לוח',      icon: isRehearsal ? '🎭' : '⬛' },
     { key: 'overview',  label: isRehearsal ? 'סקירת חזרה' : 'סקירה',    icon: '👥' },
@@ -523,6 +525,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           ? ['COLLECTING', 'CR_REVIEW'].includes(vStatus ?? '')
           : ['COLLECTING', 'CR_REVIEW', 'REFINING'].includes(vStatus ?? '') && can('screen:prep');
         case 'cr-review': return ['CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED', 'REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(vStatus ?? '') &&
+                                 ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role);
+        case 'release-assignment': return ['CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED', 'REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(vStatus ?? '') &&
                                  ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role);
         case 'unified-plan': return ['CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED', 'REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(vStatus ?? '') &&
                                  ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role);
@@ -990,6 +994,18 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
             noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
             selectedVersionId && selectedVersion ? (
               <CrReviewView
+                token={token}
+                versionId={selectedVersionId}
+                versionName={selectedVersion.name}
+              />
+            ) : <EmptyVersionMessage />
+          )}
+
+          {/* ── Tab: שיבוץ לתוכנית ── */}
+          {activeTab === 'release-assignment' && (
+            noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
+            selectedVersionId && selectedVersion ? (
+              <ReleaseAssignmentView
                 token={token}
                 versionId={selectedVersionId}
                 versionName={selectedVersion.name}

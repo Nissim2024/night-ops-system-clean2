@@ -31,6 +31,7 @@ import { RunbookModule } from './runbook/runbook.module';
 import { HealthModule } from './health/health.module';
 import { ReleaseIntelligenceModule } from './release-intelligence/release-intelligence.module';
 import { QualityHubModule } from './quality-hub/quality-hub.module';
+import { TargetCrModule } from './target-cr/target-cr.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { QualityHubModule } from './quality-hub/quality-hub.module';
     HealthModule,
     ReleaseIntelligenceModule,
     QualityHubModule,
+    TargetCrModule,
   ],
   controllers: [AppController],
   providers: [AppService],
