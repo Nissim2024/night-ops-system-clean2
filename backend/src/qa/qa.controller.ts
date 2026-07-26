@@ -230,6 +230,23 @@ export class QaController {
     );
   }
 
+  @Patch('workplan/settings')
+  updatePlanSettings(
+    @Body() body: {
+      versionId: string; cycle1Start: string; testingEnd: string;
+      cycle1LengthDays?: number; cycle2LengthDays?: number; cycle3LengthDays?: number;
+    },
+  ) {
+    return this.workPlan.updatePlanSettings(
+      body.versionId,
+      new Date(body.cycle1Start),
+      new Date(body.testingEnd),
+      body.cycle1LengthDays,
+      body.cycle2LengthDays,
+      body.cycle3LengthDays,
+    );
+  }
+
   @Post('workplan/approve')
   approveWorkPlan(
     @Body('versionId') versionId: string,
@@ -266,6 +283,29 @@ export class QaController {
   @Get('workplan/changelog')
   getChangeLog(@Query('versionId') versionId: string) {
     return this.workPlan.getChangeLog(versionId);
+  }
+
+  @Patch('workplan/task/:id/archive')
+  archiveTask(
+    @Param('id') taskId: string,
+    @Body('reason') reason: string,
+    @Request() req: any,
+  ) {
+    return this.workPlan.archiveTask(taskId, reason, req.user?.email);
+  }
+
+  @Patch('workplan/task/:id/restore')
+  restoreTask(
+    @Param('id') taskId: string,
+    @Body('reason') reason: string,
+    @Request() req: any,
+  ) {
+    return this.workPlan.restoreTask(taskId, reason, req.user?.email);
+  }
+
+  @Get('workplan/archived')
+  getArchivedTasks(@Query('versionId') versionId: string) {
+    return this.workPlan.getArchivedTasks(versionId);
   }
 
   @Patch('workplan/task/:id/sort')

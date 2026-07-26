@@ -10,6 +10,18 @@ const CR_APPROVERS = ['RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'];
 export class TargetCrController {
   constructor(private service: TargetCrService) {}
 
+  // Self-scoped — every query inside is hard-scoped to req.user.sub's own QA
+  // assignments, so no LEADS_UP check here (unlike every other route below).
+  @Get('my-defects')
+  getMyDefects(@Query('versionId') versionId: string, @Request() req: any) {
+    return this.service.getMyDefects(versionId, req.user);
+  }
+
+  @Get('my-defect-stats')
+  getMyDefectStats(@Query('versionId') versionId: string, @Request() req: any) {
+    return this.service.getMyDefectStats(versionId, req.user);
+  }
+
   @Get('version/:versionId/status')
   getStatusForTeam(
     @Param('versionId') versionId: string,

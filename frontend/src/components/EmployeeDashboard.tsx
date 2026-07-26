@@ -9,6 +9,7 @@ import { usePushNotifications } from '../hooks/usePushNotifications';
 import { EmployeeLeavesView } from './EmployeeLeavesView';
 import { EmployeeHomeView } from './EmployeeHomeView';
 import { QaTestersView } from './qa/QaTestersView';
+import { MyQaTasksView, MyQaTask, TargetDefectGroup } from './qa/MyQaTasksView';
 import { FocusModeModal } from './FocusModeModal';
 import { RUNBOOKS } from './qa/RunbookModal';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
@@ -46,13 +47,14 @@ interface Props {
   onLogout: () => void;
 }
 
-type NavView = 'home' | 'tasks' | 'leaves' | 'skills';
+type NavView = 'home' | 'tasks' | 'leaves' | 'skills' | 'qaTasks';
 
 const NAV_ITEMS: { key: NavView; label: string; icon: string }[] = [
-  { key: 'home',   label: 'דף הבית',        icon: '🏠' },
-  { key: 'tasks',  label: 'משימות הרצה',   icon: '🌙' },
-  { key: 'leaves', label: 'חופשות',         icon: '📅' },
-  { key: 'skills', label: 'מטריצת מיומנויות', icon: '🎯' },
+  { key: 'home',    label: 'דף הבית',           icon: '🏠' },
+  { key: 'tasks',   label: 'משימות הרצה',      icon: '🌙' },
+  { key: 'qaTasks', label: 'המשימות שלי (QA)', icon: '🧪' },
+  { key: 'leaves',  label: 'חופשות',            icon: '📅' },
+  { key: 'skills',  label: 'מטריצת מיומנויות',  icon: '🎯' },
 ];
 
 export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
@@ -74,6 +76,11 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [myRunbookSteps, setMyRunbookSteps] = useState<{
     runbookId: string; stepIndex: number; startTime: string; runDate: string; team: string;
   }[]>([]);
+  const [isQaTester, setIsQaTester]   = useState(false);
+  const [myQaTasks, setMyQaTasks]     = useState<MyQaTask[]>([]);
+  const [qaSummary, setQaSummary]     = useState<{ cycles: { cycleType: string; plannedStart: string; plannedEnd: string }[] } | null>(null);
+  const [targetDefectGroups, setTargetDefectGroups] = useState<TargetDefectGroup[]>([]);
+  const [defectStats, setDefectStats] = useState<{ opened: number; stillOpen: number; waitingForMyVerification: number; expectedMin: number; tooFew: boolean } | null>(null);
   const isQaTeam = myTeam?.name?.toLowerCase().includes('qa') ?? false;
 
   const payload  = JSON.parse(atob(token.split('.')[1]));
@@ -146,6 +153,46 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
       .catch(() => setMyRunbookSteps([]));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeVersion?.id, planningVersion?.id, token]);
+
+  // QA work-plan tasks assigned specifically to this employee for the current
+  // version — separate from the general night-execution Task model above.
+  // `isTester` gates whether the "המשימות שלי (QA)" nav tab even shows, since
+  // being a QA tester (TesterProfile) is independent of team/role.
+  useEffect(() => {
+    const versionId = activeVersion?.id ?? planningVersion?.id;
+    if (!versionId) { setIsQaTester(false); setMyQaTasks([]); return; }
+    axios.get(`${API}/qa/me/tasks?versionId=${versionId}`, { headers })
+      .then(res => { setIsQaTester(!!res.data?.isTester); setMyQaTasks(res.data?.tasks ?? []); })
+      .catch(() => { setIsQaTester(false); setMyQaTasks([]); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeVersion?.id, planningVersion?.id, token]);
+
+  // QA cycle dates (for the milestone timeline on Home) — only fetched for an
+  // actual QA tester, matching the scope of this addition (the tester's own
+  // dashboard, not a general change for every employee).
+  useEffect(() => {
+    const versionId = activeVersion?.id ?? planningVersion?.id;
+    if (!isQaTester || !versionId) { setQaSummary(null); return; }
+    axios.get(`${API}/qa-stats/summary?versionId=${versionId}`, { headers })
+      .then(res => setQaSummary(res.data))
+      .catch(() => setQaSummary(null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isQaTester, activeVersion?.id, planningVersion?.id, token]);
+
+  // TARGET CR defects assigned to me + my own defect-reporting stats — fetched
+  // once here so both the home-page KPI summary and the "המשימות שלי (QA)"
+  // tab's detail list share the same data instead of double-fetching.
+  useEffect(() => {
+    const versionId = activeVersion?.id ?? planningVersion?.id;
+    if (!isQaTester || !versionId) { setTargetDefectGroups([]); setDefectStats(null); return; }
+    axios.get(`${API}/target-cr/my-defects?versionId=${versionId}`, { headers })
+      .then(res => setTargetDefectGroups(res.data ?? []))
+      .catch(() => setTargetDefectGroups([]));
+    axios.get(`${API}/target-cr/my-defect-stats?versionId=${versionId}`, { headers })
+      .then(res => setDefectStats(res.data))
+      .catch(() => setDefectStats(null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isQaTester, activeVersion?.id, planningVersion?.id, token]);
 
   const openFocusMode = async () => {
     if (!activeVersion) return;
@@ -230,6 +277,7 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const visibleNavItems = NAV_ITEMS.filter(item => {
     if (item.key === 'skills') return false;          // employees never see skills matrix
     if (item.key === 'leaves') return isQaTeam;       // only QA team members see vacations
+    if (item.key === 'qaTasks') return isQaTester;    // only active QA testers (TesterProfile) see their QA tasks
     return true;                                       // tasks — everyone
   });
 
@@ -237,7 +285,8 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
   React.useEffect(() => {
     if (!loading && activeView === 'skills') setActiveView('tasks');
     if (!loading && activeView === 'leaves' && !isQaTeam) setActiveView('tasks');
-  }, [isQaTeam, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!loading && activeView === 'qaTasks' && !isQaTester) setActiveView('home');
+  }, [isQaTeam, isQaTester, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const initials = fullName.split(' ').map((w: string) => w[0]).slice(0, 2).join('');
 
@@ -464,8 +513,14 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
               seasonReminder={seasonReminder}
               teamName={myTeam?.name}
               myRunbookSteps={myRunbookSteps}
+              isQaTester={isQaTester}
+              myQaTasks={myQaTasks}
+              qaSummary={qaSummary}
+              targetDefectGroups={targetDefectGroups}
+              defectStats={defectStats}
               onGoToTasks={() => setActiveView('tasks')}
               onGoToLeaves={() => setActiveView('leaves')}
+              onGoToQaTasks={() => setActiveView('qaTasks')}
               onOpenFocusMode={openFocusMode}
             />
           )}
@@ -475,6 +530,18 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
 
           {/* ─── Skills matrix view ─── */}
           {activeView === 'skills' && <QaTestersView token={token} />}
+
+          {/* ─── My QA tasks view ─── */}
+          {activeView === 'qaTasks' && (
+            <MyQaTasksView
+              tasks={myQaTasks}
+              versionName={(activeVersion ?? planningVersion)?.name}
+              versionId={(activeVersion ?? planningVersion)?.id}
+              token={token}
+              fullName={fullName}
+              targetDefectGroups={targetDefectGroups}
+            />
+          )}
 
           {/* ─── Tasks view ─── */}
           {activeView === 'tasks' && (loading ? (

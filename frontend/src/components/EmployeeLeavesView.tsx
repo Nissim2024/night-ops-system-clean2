@@ -25,7 +25,7 @@ interface Season {
 }
 
 type RequestKind = 'leave' | 'work';
-type ApprovalStatus = 'PENDING' | 'APPROVED' | 'DECLINED';
+type ApprovalStatus = 'PENDING' | 'APPROVED' | 'DECLINED' | 'CANCELLED';
 
 interface LeaveRequest {
   id: string;
@@ -36,6 +36,9 @@ interface LeaveRequest {
   seasonId?: string;
   season?: { id: string; name: string };
   groupId?: string | null;
+  cancelledByName?: string | null;
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
 }
 
 // Collapses requests that share a groupId (submitted together as one date
@@ -88,10 +91,21 @@ const isSeasonLocked = (dates: SeasonDate[]): boolean => {
   return today >= lockDate;
 };
 
+// Returns the (optional) cancellation reason if the user wants to proceed,
+// or undefined if they backed out. An approved leave gets an extra confirm
+// step since cancelling it is more consequential than a still-pending one.
+function confirmCancelReason(req: LeaveRequest): string | undefined {
+  if (req.status === 'APPROVED') {
+    if (!window.confirm('החופשה כבר אושרה. לבטל אותה בכל זאת?')) return undefined;
+  }
+  return window.prompt('סיבת ביטול (לא חובה):') ?? undefined;
+}
+
 const STATUS_META: Record<ApprovalStatus, { label: string; color: string; bg: string }> = {
-  PENDING:  { label: 'ממתין',  color: C.warning, bg: C.warningBg },
-  APPROVED: { label: 'אושר',   color: C.success, bg: C.successBg },
-  DECLINED: { label: 'נדחה',   color: C.danger,  bg: C.dangerBg  },
+  PENDING:   { label: 'ממתין',  color: C.warning,    bg: C.warningBg },
+  APPROVED:  { label: 'אושר',   color: C.success,    bg: C.successBg },
+  DECLINED:  { label: 'נדחה',   color: C.danger,     bg: C.dangerBg  },
+  CANCELLED: { label: 'בוטל',   color: C.textMuted,  bg: C.bgNested  },
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -148,12 +162,15 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
     const isoDate = new Date(sd.date).toISOString().split('T')[0];
     setSaving(isoDate);
     try {
-      if (existing && existing.kind === kind) {
-        // cancel
-        await axios.delete(`${API}/leaves/requests/${existing.id}`, { headers });
-        setMyRequests(prev => prev.filter(r => r.id !== existing.id));
+      if (existing && existing.kind === kind && existing.status !== 'CANCELLED') {
+        // cancel — clicking a range that shares a groupId cancels the whole
+        // range on the server, so refetch instead of patching just this row.
+        const reason = confirmCancelReason(existing);
+        if (reason === undefined) { setSaving(null); return; }
+        await axios.delete(`${API}/leaves/requests/${existing.id}`, { headers, data: { reason } });
+        await load();
       } else {
-        // create / update
+        // create / update (also re-requesting a previously cancelled day)
         const res = await axios.post(`${API}/leaves/requests`, { seasonId, date: isoDate, kind }, { headers });
         setMyRequests(prev => {
           const filtered = prev.filter(r => r.id !== existing?.id);
@@ -210,9 +227,11 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
     } finally { setFreeSaving(false); }
   };
 
-  const cancelFree = async (id: string) => {
-    await axios.delete(`${API}/leaves/requests/${id}`, { headers });
-    setMyRequests(prev => prev.filter(r => r.id !== id));
+  const cancelFree = async (r: LeaveRequest) => {
+    const reason = confirmCancelReason(r);
+    if (reason === undefined) return;
+    await axios.delete(`${API}/leaves/requests/${r.id}`, { headers, data: { reason } });
+    await load();
   };
 
   const selectedSeason = seasons.find(s => s.id === selectedSeasonId);
@@ -406,6 +425,11 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
                       }}>
                         {req.kind === 'leave' ? '🏖 חופשה' : '💼 עבודה'} — {STATUS_META[req.status].label}
                       </span>
+                      {req.status === 'CANCELLED' && req.cancelledByName && (
+                        <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>
+                          בוטל ע"י {req.cancelledByName}{req.cancelReason ? ` — ${req.cancelReason}` : ''}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -520,11 +544,16 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
                 <span>{r.kind === 'leave' ? '🏖' : '💼'}</span>
                 <span style={{ ...TEXT.sm, fontWeight: WEIGHT.medium }}>{fmt(r.date)}</span>
                 {r.reason && <span style={{ ...TEXT.sm, color: C.textMuted }}>{r.reason}</span>}
+                {r.status === 'CANCELLED' && r.cancelledByName && (
+                  <span style={{ ...TEXT.xs, color: C.textMuted }}>
+                    בוטל ע"י {r.cancelledByName}{r.cancelReason ? ` — ${r.cancelReason}` : ''}
+                  </span>
+                )}
                 <span style={{ marginRight: 'auto', ...TEXT.xs, fontWeight: WEIGHT.semibold, color: STATUS_META[r.status].color, background: STATUS_META[r.status].bg, padding: '2px 8px', borderRadius: RADIUS.full, border: `1px solid ${STATUS_META[r.status].color}33` }}>
                   {STATUS_META[r.status].label}
                 </span>
-                {r.status === 'PENDING' && (
-                  <button onClick={() => cancelFree(r.id)}
+                {(r.status === 'PENDING' || r.status === 'APPROVED') && (
+                  <button onClick={() => cancelFree(r)}
                     style={{ ...TEXT.xs, color: C.danger, background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 6px' }}>
                     ביטול
                   </button>

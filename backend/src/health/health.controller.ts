@@ -61,7 +61,7 @@ export class HealthController {
     return {
       status:    overall,
       timestamp: new Date().toISOString(),
-      version:   '2.7.9',
+      version:   '2.8.0',
       database:  dbStatus,
       oracle:    oracleResult.status,
       cr_list:   crListResult.status,

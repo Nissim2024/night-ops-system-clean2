@@ -8,7 +8,7 @@ const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${win
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type ApprovalStatus = 'PENDING' | 'APPROVED' | 'DECLINED';
+type ApprovalStatus = 'PENDING' | 'APPROVED' | 'DECLINED' | 'CANCELLED';
 
 interface LeaveRequest {
   id: string;
@@ -20,6 +20,11 @@ interface LeaveRequest {
   season?: { id: string; name: string };
   user: { id: string; fullName: string; email: string };
   groupId?: string | null;
+  decidedByName?: string | null;
+  decidedAt?: string | null;
+  cancelledByName?: string | null;
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
 }
 
 // A leave range is submitted as one LeaveRequest row per day, sharing one
@@ -37,6 +42,11 @@ interface DisplayRow {
   seasonId?: string;
   reason?: string;
   status: ApprovalStatus;
+  decidedByName?: string | null;
+  decidedAt?: string | null;
+  cancelledByName?: string | null;
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
 }
 
 function buildDisplayRows(reqs: LeaveRequest[]): DisplayRow[] {
@@ -50,15 +60,20 @@ function buildDisplayRows(reqs: LeaveRequest[]): DisplayRow[] {
       rows.push({
         key: r.id, ids: [r.id], representativeId: r.id, user: r.user, dates: [r.date],
         kind: r.kind, season: r.season, seasonId: r.seasonId, reason: r.reason, status: r.status,
+        decidedByName: r.decidedByName, decidedAt: r.decidedAt,
+        cancelledByName: r.cancelledByName, cancelledAt: r.cancelledAt, cancelReason: r.cancelReason,
       });
     }
   }
   Array.from(byGroup.entries()).forEach(([groupId, list]) => {
     const sorted = [...list].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const rep = sorted[0];
     rows.push({
-      key: groupId, ids: sorted.map(r => r.id), representativeId: sorted[0].id, user: sorted[0].user,
-      dates: sorted.map(r => r.date), kind: sorted[0].kind, season: sorted[0].season,
-      seasonId: sorted[0].seasonId, reason: sorted[0].reason, status: sorted[0].status,
+      key: groupId, ids: sorted.map(r => r.id), representativeId: rep.id, user: rep.user,
+      dates: sorted.map(r => r.date), kind: rep.kind, season: rep.season,
+      seasonId: rep.seasonId, reason: rep.reason, status: rep.status,
+      decidedByName: rep.decidedByName, decidedAt: rep.decidedAt,
+      cancelledByName: rep.cancelledByName, cancelledAt: rep.cancelledAt, cancelReason: rep.cancelReason,
     });
   });
   rows.sort((a, b) => new Date(a.dates[0]).getTime() - new Date(b.dates[0]).getTime());
@@ -84,9 +99,10 @@ const fmt = (d: string) =>
   new Date(d).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric', weekday: 'short' });
 
 const STATUS_META: Record<ApprovalStatus, { label: string; color: string; bg: string; border: string }> = {
-  PENDING:  { label: 'ממתין לאישור', color: C.warning, bg: C.warningBg, border: `${C.warning}33` },
-  APPROVED: { label: 'מאושר',        color: C.success, bg: C.successBg, border: `${C.success}33` },
-  DECLINED: { label: 'נדחה',         color: C.danger,  bg: C.dangerBg,  border: `${C.danger}33`  },
+  PENDING:   { label: 'ממתין לאישור', color: C.warning,   bg: C.warningBg, border: `${C.warning}33` },
+  APPROVED:  { label: 'מאושר',        color: C.success,   bg: C.successBg, border: `${C.success}33` },
+  DECLINED:  { label: 'נדחה',         color: C.danger,    bg: C.dangerBg,  border: `${C.danger}33`  },
+  CANCELLED: { label: 'בוטל',         color: C.textMuted, bg: C.bgNested,  border: `${C.border}`    },
 };
 
 type FilterStatus = 'all' | ApprovalStatus;
@@ -140,6 +156,20 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
     try {
       await axios.patch(`${API}/leaves/requests/${row.representativeId}`, { status }, { headers });
       setRequests(prev => prev.map(r => row.ids.includes(r.id) ? { ...r, status } : r));
+    } finally { setSaving(null); }
+  };
+
+  // Manager-initiated cancel — allowed on PENDING or already-APPROVED leave.
+  // Reload rather than patch locally: the backend cascades to every sibling
+  // row sharing the range's groupId (see LeavesService.applyCancellation).
+  const cancelRow = async (row: DisplayRow) => {
+    if (row.status === 'APPROVED' && !window.confirm('לבטל חופשה שכבר אושרה לעובד?')) return;
+    const reason = window.prompt('סיבת ביטול (לא חובה):');
+    if (reason === null) return;
+    setSaving(row.key);
+    try {
+      await axios.patch(`${API}/leaves/requests/${row.representativeId}`, { status: 'CANCELLED', reason: reason || undefined }, { headers });
+      await load();
     } finally { setSaving(null); }
   };
 
@@ -281,7 +311,7 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
       <div style={{ display: 'flex', gap: SP[2], marginBottom: SP[4], flexWrap: 'wrap' }}>
         {/* Status filter */}
         <div style={{ display: 'flex', gap: '4px', background: C.bgNested, borderRadius: RADIUS.lg, padding: '4px', border: `1px solid ${C.border}` }}>
-          {(['all', 'PENDING', 'APPROVED', 'DECLINED'] as FilterStatus[]).map(s => {
+          {(['all', 'PENDING', 'APPROVED', 'DECLINED', 'CANCELLED'] as FilterStatus[]).map(s => {
             const isActive = filterStatus === s;
             const label = s === 'all' ? 'הכל' : STATUS_META[s as ApprovalStatus]?.label ?? s;
             return (
@@ -394,12 +424,24 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
                 {!row.season?.name && !row.reason && <span style={{ ...TEXT.sm, color: C.textDisabled }}>—</span>}
               </div>
 
-              {/* Status badge */}
-              <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: meta.color, background: meta.bg, border: `1px solid ${meta.border}`, padding: '3px 10px', borderRadius: RADIUS.full, display: 'inline-block' }}>
-                {meta.label}
-              </span>
+              {/* Status badge + audit trail (who decided/cancelled it, and when) */}
+              <div>
+                <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: meta.color, background: meta.bg, border: `1px solid ${meta.border}`, padding: '3px 10px', borderRadius: RADIUS.full, display: 'inline-block' }}>
+                  {meta.label}
+                </span>
+                {row.status === 'CANCELLED' && row.cancelledByName && (
+                  <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>
+                    ע"י {row.cancelledByName}{row.cancelReason ? ` — ${row.cancelReason}` : ''}
+                  </div>
+                )}
+                {(row.status === 'APPROVED' || row.status === 'DECLINED') && row.decidedByName && (
+                  <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>
+                    ע"י {row.decidedByName}
+                  </div>
+                )}
+              </div>
 
-              {/* Actions — approving/declining a range acts on all its days in one call */}
+              {/* Actions — approving/declining/cancelling a range acts on all its days in one call */}
               <div style={{ display: 'flex', gap: '6px' }}>
                 {isAdmin && isPending && (
                   <>
@@ -416,6 +458,12 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
                       דחה
                     </button>
                   </>
+                )}
+                {isAdmin && (row.status === 'PENDING' || row.status === 'APPROVED') && (
+                  <button onClick={() => cancelRow(row)} disabled={isSaving}
+                    style={{ background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '4px 10px', cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold, transition: EASE.fast, opacity: isSaving ? 0.5 : 1 }}>
+                    {isSaving ? '...' : 'בטל'}
+                  </button>
                 )}
                 {!isAdmin && <span style={{ ...TEXT.xs, color: C.textDisabled }}>—</span>}
               </div>

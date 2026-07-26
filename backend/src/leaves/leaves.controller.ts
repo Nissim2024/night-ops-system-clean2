@@ -64,8 +64,8 @@ export class LeavesController {
   }
 
   @Delete('requests/:id')
-  cancelRequest(@Request() req: any, @Param('id') id: string) {
-    return this.svc.cancelRequest(req.user.sub, id);
+  cancelRequest(@Request() req: any, @Param('id') id: string, @Body('reason') reason?: string) {
+    return this.svc.cancelRequest(req.user.sub, id, reason);
   }
 
   // ── All requests (admin) ─────────────────────────────────────────────────────
@@ -86,9 +86,10 @@ export class LeavesController {
   updateStatus(
     @Request() req: any,
     @Param('id') id: string,
-    @Body('status') status: 'APPROVED' | 'DECLINED',
+    @Body('status') status: 'APPROVED' | 'DECLINED' | 'CANCELLED',
+    @Body('reason') reason?: string,
   ) {
     this.requireAdminOrTeamLead(req);
-    return this.svc.updateRequestStatus(id, status, req.user.sub, req.user.role);
+    return this.svc.updateRequestStatus(id, status, req.user.sub, req.user.role, reason);
   }
 }

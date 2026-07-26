@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import axios from 'axios';
 import { VersionOpeningModule, StepKey } from './VersionOpeningModule';
+import { VersionOverview } from './VersionOverview';
 import { VersionWizard } from './VersionWizard';
 import { useVersionCreation } from '../hooks/useVersionCreation';
 import { C, FONT, WEIGHT, RADIUS } from '../theme';
@@ -13,7 +14,7 @@ interface Props {
   versions: any[];
   selectedVersionId: string;
   onSelectVersion: (id: string) => void;
-  activeView: string; // 'create' | 'manage' | 'validate' | 'changes'
+  activeView: string; // 'overview' | 'create' | 'manage' | 'validate' | 'changes' | 'open' | 'approve'
   onViewChange: (v: string) => void;
   onRefreshVersions: () => void;
 }
@@ -23,6 +24,8 @@ const OPEN_STATUSES = ['DRAFT', 'COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW',
 const VIEW_TO_STEP: Record<string, StepKey> = {
   manage: 'scope',
   changes: 'manage',
+  open: 'open', // landing here explicitly (e.g. from Home's "קבע תאריכי גרסה") always opens the dates step
+  approve: 'approve', // jumping here from the overview's "אישור תכולה" row
 };
 
 export const VersionManagementModuleView: React.FC<Props> = ({
@@ -98,6 +101,12 @@ export const VersionManagementModuleView: React.FC<Props> = ({
         <div style={{ color: C.textMuted, padding: '40px', textAlign: 'center' }}>
           {openVersions.length === 0 ? 'אין גרסאות פתוחות — צור גרסה חדשה כדי להתחיל.' : 'בחר גרסה מהרשימה.'}
         </div>
+      ) : activeView === 'overview' ? (
+        <VersionOverview
+          version={selectedVersion}
+          token={token}
+          onJumpToStep={onViewChange}
+        />
       ) : (
         <VersionOpeningModule
           version={selectedVersion}

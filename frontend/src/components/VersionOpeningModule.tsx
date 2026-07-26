@@ -64,20 +64,42 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
   const [error, setError] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
 
-  const [dates, setDates] = useState({
-    integrationStart: toDateOnly(version.integrationStart),
-    integrationEnd: toDateOnly(version.integrationEnd),
-    plannedStart: version.plannedStart ? utcToLocalInputStr(version.plannedStart) : '',
+  const dateFieldsFromVersion = (v: any) => ({
+    integrationStart: toDateOnly(v.integrationStart),
+    integrationEnd: toDateOnly(v.integrationEnd),
+    qaStart: toDateOnly(v.qaStart),
+    qaEnd: toDateOnly(v.qaEnd),
+    plannedStart: v.plannedStart ? utcToLocalInputStr(v.plannedStart) : '',
+    reviewMeetingTime: v.reviewMeetingTime ? utcToLocalInputStr(v.reviewMeetingTime) : '',
+    workPlanMeetingTime: v.workPlanMeetingTime ? utcToLocalInputStr(v.workPlanMeetingTime) : '',
+    submissionDeadline: v.submissionDeadline ? utcToLocalInputStr(v.submissionDeadline) : '',
+    approvalDeadline: v.approvalDeadline ? utcToLocalInputStr(v.approvalDeadline) : '',
   });
+
+  const [dates, setDates] = useState(dateFieldsFromVersion(version));
   const [savingDates, setSavingDates] = useState(false);
 
   useEffect(() => {
-    setDates({
-      integrationStart: toDateOnly(version.integrationStart),
-      integrationEnd: toDateOnly(version.integrationEnd),
-      plannedStart: version.plannedStart ? utcToLocalInputStr(version.plannedStart) : '',
-    });
-  }, [version.integrationStart, version.integrationEnd, version.plannedStart]);
+    setDates(dateFieldsFromVersion(version));
+  }, [
+    version.integrationStart, version.integrationEnd, version.qaStart, version.qaEnd, version.plannedStart,
+    version.reviewMeetingTime, version.workPlanMeetingTime, version.submissionDeadline, version.approvalDeadline,
+  ]);
+
+  // integrationStart/End + qaStart/End are owned by the QA work plan once one
+  // exists for a datesLockedToWorkPlan version (see versions.service.ts's
+  // updateFields guard, added alongside this) — direct edits are rejected
+  // server-side, so mirror that here: disable the fields and drop them from
+  // the save payload instead of letting the whole save fail on an unrelated
+  // field. plannedStart/reviewMeetingTime/workPlanMeetingTime/deadlines stay
+  // freely editable regardless.
+  const [hasWorkPlan, setHasWorkPlan] = useState(false);
+  useEffect(() => {
+    axios.get(`${API}/qa/workplan`, { headers, params: { versionId: version.id } })
+      .then(r => setHasWorkPlan(!!r.data))
+      .catch(() => setHasWorkPlan(false));
+  }, [version.id]); // eslint-disable-line
+  const datesLocked = !!version.datesLockedToWorkPlan && hasWorkPlan;
 
   const [rows, setRows] = useState<CrRow[]>([]);
   const [loadingRows, setLoadingRows] = useState(false);
@@ -127,11 +149,20 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
     setSavingDates(true);
     setError(null);
     try {
-      await axios.patch(`${API}/versions/${version.id}`, {
-        integrationStart: dates.integrationStart || null,
-        integrationEnd: dates.integrationEnd || null,
+      const payload: any = {
         plannedStart: dates.plannedStart ? toUtcIso(dates.plannedStart) : null,
-      }, { headers });
+        reviewMeetingTime: dates.reviewMeetingTime ? toUtcIso(dates.reviewMeetingTime) : null,
+        workPlanMeetingTime: dates.workPlanMeetingTime ? toUtcIso(dates.workPlanMeetingTime) : null,
+        submissionDeadline: dates.submissionDeadline ? toUtcIso(dates.submissionDeadline) : null,
+        approvalDeadline: dates.approvalDeadline ? toUtcIso(dates.approvalDeadline) : null,
+      };
+      if (!datesLocked) {
+        payload.integrationStart = dates.integrationStart || null;
+        payload.integrationEnd = dates.integrationEnd || null;
+        payload.qaStart = dates.qaStart || null;
+        payload.qaEnd = dates.qaEnd || null;
+      }
+      await axios.patch(`${API}/versions/${version.id}`, payload, { headers });
       onRefresh();
     } catch (e: any) {
       setError(e?.response?.data?.message || e?.message || 'שגיאה בשמירת תאריכים');
@@ -179,7 +210,11 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
     setApproving(false);
   };
 
-  const datesComplete = !!(dates.integrationStart && dates.integrationEnd && dates.plannedStart);
+  // Driven by the persisted version, not the live `dates` draft — otherwise
+  // just typing into the fields (before ever clicking "שמור") flips this to
+  // true and the openStep-tracking effect below yanks the user straight to
+  // the next step mid-edit, with nothing saved yet.
+  const datesComplete = !!(version.integrationStart && version.integrationEnd && version.plannedStart);
   const scopeExists = activeRows.length > 0;
   const scopeApproved = !!version.scopeApprovedAt;
 
@@ -297,22 +332,80 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
 
           {openStep === 'open' && (
             <div>
-              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>תחילת בדיקות אינטגרציה</label>
-                  <DateField value={dates.integrationStart} onChange={v => setDates(d => ({ ...d, integrationStart: v }))} />
+              {datesLocked && (
+                <div style={{
+                  marginBottom: '14px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md,
+                  padding: '8px 12px', fontSize: '13px', color: C.textSecondary,
+                }}>
+                  ● תאריכי אינטגרציה ו-QA מנוהלים אוטומטית על ידי תוכנית העבודה של QA ואינם ניתנים לעריכה כאן — לשינוי לוח הזמנים יש לעדכן את תוכנית העבודה במודול 2 (תכנון ושיבוץ בדיקות).
                 </div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>סיום בדיקות אינטגרציה</label>
-                  <DateField value={dates.integrationEnd} onChange={v => setDates(d => ({ ...d, integrationEnd: v }))} minIso={dates.integrationStart || undefined} />
+                  <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '8px' }}>אינטגרציה ו-QA</div>
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>תחילת בדיקות אינטגרציה</label>
+                      <DateField value={dates.integrationStart} onChange={v => setDates(d => ({ ...d, integrationStart: v }))} disabled={datesLocked} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>סיום בדיקות אינטגרציה</label>
+                      <DateField value={dates.integrationEnd} onChange={v => setDates(d => ({ ...d, integrationEnd: v }))} minIso={dates.integrationStart || undefined} disabled={datesLocked} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>תחילת QA</label>
+                      <DateField value={dates.qaStart} onChange={v => setDates(d => ({ ...d, qaStart: v }))} disabled={datesLocked} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>סיום QA</label>
+                      <DateField value={dates.qaEnd} onChange={v => setDates(d => ({ ...d, qaEnd: v }))} minIso={dates.qaStart || undefined} disabled={datesLocked} />
+                    </div>
+                  </div>
                 </div>
+
                 <div>
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>יעד לעליה לאוויר (ליל ההטמעה)</label>
-                  <DateTimeField value={dates.plannedStart} onChange={v => setDates(d => ({ ...d, plannedStart: v }))} />
+                  <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '8px' }}>עלייה לאוויר</div>
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>יעד לעליה לאוויר (ליל ההטמעה)</label>
+                      <DateTimeField value={dates.plannedStart} onChange={v => setDates(d => ({ ...d, plannedStart: v }))} />
+                    </div>
+                  </div>
                 </div>
-                <button onClick={saveDates} disabled={savingDates} style={btnStyle(C.brand, savingDates)}>
-                  {savingDates ? '...' : '💾 שמור תאריכים'}
-                </button>
+
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '8px' }}>ישיבות</div>
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>ישיבת סקירה</label>
+                      <DateTimeField value={dates.reviewMeetingTime} onChange={v => setDates(d => ({ ...d, reviewMeetingTime: v }))} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>ישיבת תוכנית עבודה</label>
+                      <DateTimeField value={dates.workPlanMeetingTime} onChange={v => setDates(d => ({ ...d, workPlanMeetingTime: v }))} />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '8px' }}>מועדי הגשה ואישור</div>
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>מועד הגשת תוכניות</label>
+                      <DateTimeField value={dates.submissionDeadline} onChange={v => setDates(d => ({ ...d, submissionDeadline: v }))} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>מועד אישור תוכניות</label>
+                      <DateTimeField value={dates.approvalDeadline} onChange={v => setDates(d => ({ ...d, approvalDeadline: v }))} />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <button onClick={saveDates} disabled={savingDates} style={btnStyle(C.brand, savingDates)}>
+                    {savingDates ? '...' : '💾 שמור תאריכים'}
+                  </button>
+                </div>
               </div>
             </div>
           )}

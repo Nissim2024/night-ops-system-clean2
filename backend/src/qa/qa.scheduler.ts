@@ -149,6 +149,37 @@ export function countWorkDays(start: Date, end: Date, leaveDays?: Set<string>): 
 
 // ── Main entry point ──────────────────────────────────────────────────────────
 
+/**
+ * Merge a global set of holiday date-keys into every tester's own leave-day
+ * set, so downstream per-tester scheduling (which only ever consults
+ * `leaveDaysByTester.get(userId)`) treats holidays exactly like that
+ * tester's approved leave — without touching `isWorkDay` or any other
+ * function's signature. Testers with no existing leave entry still get the
+ * holiday set (they're collected from the CR list itself, not just the map's
+ * existing keys), so a holiday isn't silently skipped for someone who simply
+ * has no approved leave on record.
+ */
+function mergeHolidaysIntoTesterMap(
+  leaveDaysByTester: Map<string, Set<string>>,
+  holidayDays:       Set<string>,
+  crs:               CrInput[],
+): Map<string, Set<string>> {
+  if (holidayDays.size === 0) return leaveDaysByTester;
+  const testerIds = new Set<string>();
+  for (const cr of crs) {
+    if (cr.primaryTesterId)   testerIds.add(cr.primaryTesterId);
+    if (cr.secondaryTesterId) testerIds.add(cr.secondaryTesterId);
+  }
+  for (const uid of leaveDaysByTester.keys()) testerIds.add(uid);
+
+  const merged = new Map<string, Set<string>>();
+  for (const uid of testerIds) {
+    const own = leaveDaysByTester.get(uid);
+    merged.set(uid, own ? new Set([...own, ...holidayDays]) : new Set(holidayDays));
+  }
+  return merged;
+}
+
 export function buildWorkPlan(
   crs:               CrInput[],
   cycle1Start:       Date,
@@ -166,19 +197,23 @@ export function buildWorkPlan(
   cycle1LengthDays:  number = 12,
   cycle2LengthDays?: number,
   cycle3LengthDays?: number,
+  // Global non-work dates (approved-season holidays — see dateKey) applied
+  // for everyone alike, unlike leaveDaysByTester which is per-tester.
+  holidayDays:       Set<string> = new Set(),
 ): PlannedCycle[] {
-  const start    = getFirstWorkDay(cycle1Start);
+  const start    = getFirstWorkDay(cycle1Start, holidayDays);
   const planned: PlannedCycle[] = [];
+  const effLeaveDaysByTester = mergeHolidaysIntoTesterMap(leaveDaysByTester, holidayDays, crs);
 
   const effCycle1Length = Math.max(1, cycle1LengthDays);
   const effCycle2Length = Math.max(1, cycle2LengthDays ?? Math.round(effCycle1Length * (CYCLE_EFFORT_RATIO.CYCLE_2! / CYCLE_EFFORT_RATIO.CYCLE_1!)));
   const effCycle3Length = Math.max(1, cycle3LengthDays ?? Math.round(effCycle1Length * (CYCLE_EFFORT_RATIO.CYCLE_3! / CYCLE_EFFORT_RATIO.CYCLE_1!)));
 
-  const cycle1End    = addWorkDays(start, effCycle1Length - 1);
-  const cycle2Start  = nextWorkDay(cycle1End);
-  const cycle2End    = addWorkDays(cycle2Start, effCycle2Length - 1);
-  const cycle3Start  = nextWorkDay(cycle2End);
-  const cycle3End    = addWorkDays(cycle3Start, effCycle3Length - 1);
+  const cycle1End    = addWorkDays(start, effCycle1Length - 1, holidayDays);
+  const cycle2Start  = nextWorkDay(cycle1End, holidayDays);
+  const cycle2End    = addWorkDays(cycle2Start, effCycle2Length - 1, holidayDays);
+  const cycle3Start  = nextWorkDay(cycle2End, holidayDays);
+  const cycle3End    = addWorkDays(cycle3Start, effCycle3Length - 1, holidayDays);
 
   const fixedBoundaries: Record<'CYCLE_1' | 'CYCLE_2' | 'CYCLE_3', { start: Date; end: Date }> = {
     CYCLE_1: { start, end: cycle1End },
@@ -197,9 +232,9 @@ export function buildWorkPlan(
     const ratio    = CYCLE_EFFORT_RATIO[ct]!;
     const cycleCrs = crs.filter(c => c.cycles.includes(ct));
     const b        = fixedBoundaries[ct as 'CYCLE_1' | 'CYCLE_2' | 'CYCLE_3'];
-    const cycle    = scheduleSingleCycle(ct, b.start, b.end, cycleCrs, ratio, leaveDaysByTester, carryOverEnd);
+    const cycle    = scheduleSingleCycle(ct, b.start, b.end, cycleCrs, ratio, effLeaveDaysByTester, carryOverEnd);
     planned.push(cycle);
-    corePointer = nextWorkDay(cycle.plannedEnd);
+    corePointer = nextWorkDay(cycle.plannedEnd, holidayDays);
 
     carryOverEnd = new Map();
     cycle.tasks.forEach(t => {
@@ -228,9 +263,9 @@ export function buildWorkPlan(
   // cycle1Start. Any gap between today and cycle1Start has no core busy
   // blocks yet (this version's core work hasn't started), so SA is free to
   // use it.
-  const saEarliestStart = getFirstWorkDay(new Date());
+  const saEarliestStart = getFirstWorkDay(new Date(), holidayDays);
   const saCrs = crs.filter(c => c.cycles.includes('STAND_ALONE'));
-  const saCycle = scheduleStandAlone(saCrs, busyByTester, saEarliestStart, leaveDaysByTester);
+  const saCycle = scheduleStandAlone(saCrs, busyByTester, saEarliestStart, effLeaveDaysByTester);
   planned.push(saCycle);
 
   // Regression-fill — computed LAST, after both core CR work and SA work are
@@ -257,7 +292,7 @@ export function buildWorkPlan(
     let order = cycle.tasks.length;
 
     for (const userId of testersInCycle) {
-      const leaveDays = leaveDaysByTester.get(userId);
+      const leaveDays = effLeaveDaysByTester.get(userId);
       const busy      = allBusyByTester.get(userId) ?? [];
       const idleSegments = computeIdleSegments(b.start, b.end, busy, leaveDays);
       for (const seg of idleSegments) {
@@ -285,7 +320,7 @@ export function buildWorkPlan(
   // so this doesn't gate the rest of the plan and isn't conflict-checked
   // against the tester's other work.
   const UAT_WINDOW_DAYS = 3;
-  const uatStart = subtractWorkDays(cycle1End, UAT_WINDOW_DAYS - 1) < start ? start : subtractWorkDays(cycle1End, UAT_WINDOW_DAYS - 1);
+  const uatStart = subtractWorkDays(cycle1End, UAT_WINDOW_DAYS - 1, holidayDays) < start ? start : subtractWorkDays(cycle1End, UAT_WINDOW_DAYS - 1, holidayDays);
   const uatCrs   = crs.filter(c => c.cycles.includes('UAT'));
   const uatTasks: PlannedTask[] = [];
   let uatOrder = 0;
@@ -310,8 +345,8 @@ export function buildWorkPlan(
   planned.push({ cycleType: 'UAT', plannedStart: uatStart, plannedEnd: cycle1End, tasks: uatTasks });
 
   // Rehearsal + Go-Live: no tasks generated — team lead fills content
-  const rehearsalStart = nextWorkDay(corePointer);
-  const goLiveStart    = nextWorkDay(rehearsalStart);
+  const rehearsalStart = nextWorkDay(corePointer, holidayDays);
+  const goLiveStart    = nextWorkDay(rehearsalStart, holidayDays);
 
   planned.push({ cycleType: 'REHEARSAL', plannedStart: rehearsalStart, plannedEnd: rehearsalStart, tasks: [] });
   planned.push({ cycleType: 'GO_LIVE',   plannedStart: goLiveStart,    plannedEnd: goLiveStart,    tasks: [] });

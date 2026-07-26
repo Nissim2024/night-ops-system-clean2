@@ -26,6 +26,17 @@ const CYCLE_INFO: Record<string, { label: string; fullLabel: string; color: stri
   GO_LIVE:     { label: 'GL',  fullLabel: 'עליה לאוויר',   color: '#F06A6A', bg: 'rgba(240,106,106,0.10)' },
 };
 
+// Same effort-split ratio the real scheduler (buildWorkPlan / CYCLE_EFFORT_RATIO
+// in qa.scheduler.ts) applies per cycle a CR participates in — a CR with
+// 1+2+3 selected doesn't repeat its full effort in every cycle; later cycles
+// get a shrinking share (regression-style retesting), so the "load per cycle"
+// preview below matches what generating a work plan will actually produce.
+const LOAD_VIEW_CYCLES = ['CYCLE_1', 'CYCLE_2', 'CYCLE_3', 'STAND_ALONE'] as const;
+type LoadViewCycle = typeof LOAD_VIEW_CYCLES[number];
+const CYCLE_EFFORT_RATIO: Record<LoadViewCycle, number> = {
+  CYCLE_1: 1.0, CYCLE_2: 0.5, CYCLE_3: 0.30, STAND_ALONE: 1.0,
+};
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 interface Version {
@@ -51,11 +62,39 @@ interface CrRec {
   priorityTestDate: string | null;
   notes:        string | null;
   urgent:       boolean;
+  qaArrivalDate: string | null;
+  qaReceived:    boolean;
+  qaReceivedAt:  string | null;
   qaEffortDays: number | null;
   systems:      string[];
   riskLevel:    string | null;
   testers:      { userId: string; fullName: string; email: string; score: number; matchedSkills: { skillName: string; level: number }[] }[];
 }
+
+interface CrArchiveHistoryEntry {
+  id: string;
+  action: string; // TASK_ARCHIVED | TASK_RESTORED
+  userEmail: string | null;
+  userName: string | null;
+  cycleType: string | null;
+  reason: string | null;
+  createdAt: string;
+  isCurrentlyArchived: boolean;
+}
+
+interface CrDetail {
+  crNumber: string; crLabel: string; crDescription: string | null; crManager: string | null;
+  application: string | null; estimateDays: number | null; notes: string | null;
+  versionName: string; teams: string[]; status: string;
+  archiveHistory: CrArchiveHistoryEntry[];
+}
+
+// Mirrors QaWorkPlanView.tsx's CYCLE_LABEL — used only for the CR-detail
+// modal's archive-history section here.
+const CYCLE_LABEL: Record<string, string> = {
+  CYCLE_1: 'סבב 1', CYCLE_2: 'סבב 2', CYCLE_3: 'סבב 3',
+  STAND_ALONE: 'Stand Alone', UAT: 'UAT', REHEARSAL: 'חזרה גנרלית', GO_LIVE: 'עליה לאוויר',
+};
 
 interface SyncDiffItem { crNumber: string; crLabel: string | null; teamName?: string; }
 interface SyncDiff { added: SyncDiffItem[]; removed: SyncDiffItem[]; unchanged: number; }
@@ -106,41 +145,51 @@ interface ScoringResult {
 }
 
 // ── Work-day helpers (Israeli: Sun–Thu work, Fri+Sat off) ────────────────────
+// `holidayDays` (yyyy-mm-dd keys, see dateKeyStr) mirrors backend/src/qa/qa.scheduler.ts's
+// holiday handling — approved-season holiday dates, fetched from GET /leaves/seasons
+// and filtered to isActive, are skipped like a weekend everywhere the backend skips them.
 
-function isWorkDay(d: Date): boolean { const dow = d.getDay(); return dow !== 5 && dow !== 6; }
+function dateKeyStr(d: Date): string { return d.toISOString().slice(0, 10); }
 
-function countWorkDays(start: string, end: string): number {
+function isWorkDay(d: Date, holidayDays?: Set<string>): boolean {
+  const dow = d.getDay();
+  if (dow === 5 || dow === 6) return false;
+  if (holidayDays && holidayDays.has(dateKeyStr(d))) return false;
+  return true;
+}
+
+function countWorkDays(start: string, end: string, holidayDays?: Set<string>): number {
   if (!start || !end) return 0;
   const s = new Date(start); s.setHours(0, 0, 0, 0);
   const e = new Date(end);   e.setHours(0, 0, 0, 0);
   let count = 0;
   const d = new Date(s);
-  while (d <= e) { if (isWorkDay(d)) count++; d.setDate(d.getDate() + 1); }
+  while (d <= e) { if (isWorkDay(d, holidayDays)) count++; d.setDate(d.getDate() + 1); }
   return count;
 }
 
 // Mirrors backend/src/qa/qa.scheduler.ts exactly — kept in sync so the live
 // preview of round boundaries here matches what generate-workplan actually
 // produces server-side.
-function getFirstWorkDay(date: Date): Date {
+function getFirstWorkDay(date: Date, holidayDays?: Set<string>): Date {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
-  while (!isWorkDay(d)) d.setDate(d.getDate() + 1);
+  while (!isWorkDay(d, holidayDays)) d.setDate(d.getDate() + 1);
   return d;
 }
-function nextWorkDay(date: Date): Date {
+function nextWorkDay(date: Date, holidayDays?: Set<string>): Date {
   const d = new Date(date);
   d.setDate(d.getDate() + 1);
-  while (!isWorkDay(d)) d.setDate(d.getDate() + 1);
+  while (!isWorkDay(d, holidayDays)) d.setDate(d.getDate() + 1);
   return d;
 }
-function addWorkDays(date: Date, days: number): Date {
+function addWorkDays(date: Date, days: number, holidayDays?: Set<string>): Date {
   if (days <= 0) return new Date(date);
   const d = new Date(date);
   let remaining = days;
   while (remaining > 0) {
     d.setDate(d.getDate() + 1);
-    if (isWorkDay(d)) remaining--;
+    if (isWorkDay(d, holidayDays)) remaining--;
   }
   return d;
 }
@@ -200,6 +249,29 @@ function LoadBar({ used, capacity }: { used: number; capacity: number }) {
   );
 }
 
+// ── CR detail modal field ───────────────────────────────────────────────────────
+
+// CR description/notes come from the source Excel file as raw text and sometimes
+// carry literal numeric HTML entities (e.g. "&#10;" for a line break) instead of
+// real characters — decode them so the text reads normally instead of showing
+// the escape codes. A <textarea> round-trip is the standard safe decode (we only
+// ever read .value back, never insert as HTML), so this can't introduce XSS.
+function decodeHtmlEntities(text: string | null | undefined): string {
+  if (!text) return '';
+  const el = document.createElement('textarea');
+  el.innerHTML = text;
+  return el.value;
+}
+
+function DetailField({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div>
+      <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>{label}</div>
+      <div style={{ ...TEXT.sm, color: value ? C.textPrimary : C.textDisabled }}>{value ?? '—'}</div>
+    </div>
+  );
+}
+
 // ── Cycle chip ─────────────────────────────────────────────────────────────────
 
 function CycleChip({ cycleType }: { cycleType: string }) {
@@ -220,6 +292,22 @@ interface Props { token: string; initialVersionId?: string; }
 
 interface PickerPos { crNumber: string; top?: number; bottom?: number; right: number; maxH?: number; }
 
+// Shared by the cycles picker and the priority/QA-arrival picker — both used
+// to be position:absolute inside their <td>, which the table's overflowX:auto
+// wrapper implicitly clips vertically (per CSS spec, overflow-x != visible
+// forces overflow-y to auto too). Anchoring via getBoundingClientRect + fixed
+// positioning (like the score picker below) escapes that clipping entirely.
+function computeAnchoredPos(crNumber: string, buttonEl: HTMLElement, width: number): PickerPos {
+  const rect = buttonEl.getBoundingClientRect();
+  const spaceBelow = window.innerHeight - rect.bottom - 8;
+  const spaceAbove = rect.top - 8;
+  const openBelow  = spaceBelow >= spaceAbove;
+  const safeRight  = Math.min(window.innerWidth - rect.right, window.innerWidth - width - 8);
+  return openBelow
+    ? { crNumber, top:    rect.bottom + 4,                   right: safeRight, maxH: Math.max(spaceBelow, 160) }
+    : { crNumber, bottom: window.innerHeight - rect.top + 4, right: safeRight, maxH: Math.max(spaceAbove, 160) };
+}
+
 export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const dialog  = useDialog();
   const headers   = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
@@ -227,6 +315,10 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const isManager = ['RELEASE_MANAGER', 'ADMIN'].includes(userRole);
 
   const [versions, setVersions]         = useState<Version[]>([]);
+  // Approved-season holiday dates (yyyy-mm-dd) — mirrors the backend's
+  // Season.isActive gate so cycle-date previews here match what
+  // generate-workplan will actually produce.
+  const [holidayDays, setHolidayDays]   = useState<Set<string>>(new Set());
   // Deliberately NOT falling back to localStorage here — a version picked
   // manually below is meant to be a transient, in-session browse, not a
   // choice that outlives the session and silently diverges from whatever
@@ -278,16 +370,30 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const [cycle1LengthDays, setCycle1LengthDays] = useState(12);
   const [cycle2LengthDays, setCycle2LengthDays] = useState(6);
   const [cycle3LengthDays, setCycle3LengthDays] = useState(4);
+  const [planExists, setPlanExists]     = useState(false); // does a QaWorkPlan already exist for this version — gates "save" vs. "generate"
+  const [savingSettings, setSavingSettings] = useState(false);
 
   const [openPicker, setOpenPicker]           = useState<PickerPos | null>(null);
   const [pickerMode, setPickerMode]           = useState<'primary' | 'secondary'>('primary');
-  const [openCyclesPicker, setOpenCyclesPicker] = useState<string | null>(null);
-  const [openPriorityPicker, setOpenPriorityPicker] = useState<string | null>(null);
+  const [openCyclesPicker, setOpenCyclesPicker] = useState<PickerPos | null>(null);
+  const [openPriorityPicker, setOpenPriorityPicker] = useState<PickerPos | null>(null);
+  // Local draft for the priority/QA-arrival popover — fields only reach the
+  // server when "שמור" is clicked, instead of saving piecemeal on every
+  // keystroke/blur, so it's unambiguous whether what's on screen was saved.
+  const [priorityDraft, setPriorityDraft] = useState<{
+    priorityTestDate: string; notes: string; urgent: boolean;
+    qaArrivalDate: string; qaReceived: boolean; qaReceivedAt: string;
+  } | null>(null);
+  const [savingPriority, setSavingPriority] = useState(false);
   const [scoring, setScoring]                 = useState<Record<string, ScoringResult>>({});
   const [scoringLoading, setScoringLoading]   = useState<string | null>(null);
   const [saving, setSaving]                   = useState<string | null>(null);
   const [bulkAssigning, setBulkAssigning]     = useState(false);
   const [overloadPanelCollapsed, setOverloadPanelCollapsed] = useState(false);
+  const [loadViewCycle, setLoadViewCycle] = useState<LoadViewCycle>('CYCLE_1'); // which cycle the "עומס בודקים" panel currently shows
+  const [crDetailFor, setCrDetailFor] = useState<string | null>(null); // crNumber whose detail modal is open
+  const [crDetail, setCrDetail]       = useState<CrDetail | null>(null);
+  const [crDetailLoading, setCrDetailLoading] = useState(false);
   const [editingEffort, setEditingEffort]     = useState<string | null>(null);  // crNumber being edited
   const [search, setSearch]                   = useState('');
   const [confirmDialog, setConfirmDialog]     = useState<DialogConfig | null>(null);
@@ -346,10 +452,24 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
+  useEffect(() => {
+    if (!token) return;
+    axios.get(`${API}/leaves/seasons`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => {
+        const keys = new Set<string>();
+        (r.data as { isActive: boolean; dates: { date: string }[] }[])
+          .filter(s => s.isActive)
+          .forEach(s => s.dates.forEach(d => keys.add(new Date(d.date).toISOString().slice(0, 10))));
+        setHolidayDays(keys);
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
   // ── Load version data ───────────────────────────────────────────────────────
 
   const loadVersion = useCallback(async (vId: string) => {
-    if (!vId) { setCrs([]); setAssignments([]); setScoring({}); setCrSyncStatuses({}); setSecondTesterSuggestions([]); return; }
+    if (!vId) { setCrs([]); setAssignments([]); setScoring({}); setCrSyncStatuses({}); setSecondTesterSuggestions([]); setPlanExists(false); return; }
     setLoading(true);
     try {
       // Pick up CR_LIST changes automatically on load — without this, edits
@@ -382,6 +502,7 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
 
       // Restore dates only if there is an existing (even DRAFT) work plan
       const plan = planRes?.data;
+      setPlanExists(!!plan?.cycle1Start);
       if (plan?.cycle1Start) {
         setCycle1Start(toInputDate(plan.cycle1Start));
         setTestingEnd(toInputDate(plan.testingEnd));
@@ -443,14 +564,17 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
         if (!inDom && !inRect) setOpenPicker(null);
       }
       if (cyclesPickerRef.current && !cyclesPickerRef.current.contains(e.target as Node)) setOpenCyclesPicker(null);
-      if (priorityPickerRef.current && !priorityPickerRef.current.contains(e.target as Node)) setOpenPriorityPicker(null);
+      if (priorityPickerRef.current && !priorityPickerRef.current.contains(e.target as Node)) { setOpenPriorityPicker(null); setPriorityDraft(null); }
     };
+    // Fixed-position popovers don't track their anchor while the page/table
+    // scrolls, so close them on scroll rather than let them visually drift.
     const closePicker = (e: Event) => {
-      if (pickerRef.current && pickerRef.current.contains(e.target as Node)) return;
-      setOpenPicker(null);
+      if (!(pickerRef.current && pickerRef.current.contains(e.target as Node))) setOpenPicker(null);
+      if (!(cyclesPickerRef.current && cyclesPickerRef.current.contains(e.target as Node))) setOpenCyclesPicker(null);
+      if (!(priorityPickerRef.current && priorityPickerRef.current.contains(e.target as Node))) { setOpenPriorityPicker(null); setPriorityDraft(null); }
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpenPicker(null);
+      if (e.key === 'Escape') { setOpenPicker(null); setOpenCyclesPicker(null); setOpenPriorityPicker(null); setPriorityDraft(null); }
     };
     document.addEventListener('mousedown', handler);
     window.addEventListener('scroll', closePicker, true);
@@ -641,7 +765,10 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   // ── Patch CR-level classification/priority fields (isCore / urgent / priorityTestDate / notes) ──
   const patchCrRecord = useCallback(async (
     crNumber: string,
-    patch: { isCore?: boolean; urgent?: boolean; priorityTestDate?: string | null; notes?: string | null },
+    patch: {
+      isCore?: boolean; urgent?: boolean; priorityTestDate?: string | null; notes?: string | null;
+      qaArrivalDate?: string | null; qaReceived?: boolean; qaReceivedAt?: string | null;
+    },
   ) => {
     setCrs(prev => prev.map(c => c.crNumber === crNumber ? { ...c, ...patch } : c));
     try {
@@ -649,6 +776,41 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
     } catch (e) { console.error('CR record patch failed', e); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [headers, selectedVId]);
+
+  const openCrDetail = useCallback(async (crNumber: string) => {
+    setCrDetailFor(crNumber);
+    setCrDetail(null);
+    setCrDetailLoading(true);
+    try {
+      const res = await axios.get(`${API}/version-cr-assignments/version/${selectedVId}/cr/${crNumber}/detail`, { headers });
+      setCrDetail(res.data);
+    } catch {
+      setCrDetail(null);
+    } finally {
+      setCrDetailLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [headers, selectedVId]);
+
+  const savePriorityDraft = useCallback(async (crNumber: string) => {
+    if (!priorityDraft) return;
+    setSavingPriority(true);
+    try {
+      await patchCrRecord(crNumber, {
+        priorityTestDate: priorityDraft.priorityTestDate || null,
+        notes:            priorityDraft.notes || null,
+        urgent:           priorityDraft.urgent,
+        qaArrivalDate:    priorityDraft.qaArrivalDate || null,
+        qaReceived:       priorityDraft.qaReceived,
+        qaReceivedAt:     priorityDraft.qaReceived ? (priorityDraft.qaReceivedAt || null) : null,
+      });
+      setOpenPriorityPicker(null);
+      setPriorityDraft(null);
+    } finally {
+      setSavingPriority(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priorityDraft, patchCrRecord]);
 
   // ── Sync CR_LIST from Excel (preview → modal → apply) ────────────────────
 
@@ -764,10 +926,32 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
         ? `⚠ ${unassignedCrs.length} CRים ללא שיבוץ לא נכללו:\n${unassignedCrs.slice(0,5).join(', ')}${unassignedCrs.length > 5 ? '...' : ''}`
         : 'כל ה-CRים המשובצים נכללו בתוכנית.';
       dialog.alert(msg, 'תוכנית עבודה נוצרה', unassignedCrs.length > 0 ? 'warning' : 'success');
+      setPlanExists(true);
     } catch (e: any) {
       dialog.alert(e?.response?.data?.message ?? 'שגיאה ביצירת תוכנית העבודה', 'שגיאה', 'danger');
     } finally {
       setGenerating(false);
+    }
+  };
+
+  // ── Save plan settings (dates / cycle lengths) without regenerating ────────
+  // Unlike generateWorkPlan, this doesn't delete/rebuild the plan — it only
+  // updates the stored dates and lengths. If cycle1Start moved, the backend
+  // reflows CYCLE_1 (and cascades CYCLE_2/3/UAT/REHEARSAL/GO_LIVE) in place,
+  // keeping any manual reassignments/effort overrides/approval status intact.
+  const doSaveWorkPlanSettings = async () => {
+    setSavingSettings(true);
+    try {
+      await axios.patch(
+        `${API}/qa/workplan/settings`,
+        { versionId: selectedVId, cycle1Start, testingEnd, cycle1LengthDays, cycle2LengthDays, cycle3LengthDays },
+        { headers },
+      );
+      dialog.alert('השינויים נשמרו. שינוי בתאריך ההתחלה עדכן את מועדי הסבבים הקיימים; שינוי באורך סבב בלבד יילקח בחשבון רק ביצירת תוכנית מחדש.', 'נשמר', 'success');
+    } catch (e: any) {
+      dialog.alert(e?.response?.data?.message ?? 'שגיאה בשמירת השינויים', 'שגיאה', 'danger');
+    } finally {
+      setSavingSettings(false);
     }
   };
 
@@ -832,6 +1016,50 @@ CRים אלה לא ייכללו בתוכנית העבודה.
     return map;
   }, [assignments, effortMap]);
 
+  const crByNumber = useMemo(() => new Map(crs.map(c => [c.crNumber, c])), [crs]);
+
+  // Per-cycle tester load for the "עומס בודקים" panel below — unlike
+  // testerLoad above (a flat sum across every cycle a CR touches, used only
+  // for the CYCLE_1 overload alert), this scales each CR's effort by
+  // CYCLE_EFFORT_RATIO for the currently-selected cycle and only counts CRs
+  // that actually participate in it, plus how many CRs ("פיתוחים") that is.
+  const testerLoadForView = useMemo(() => {
+    const map = new Map<string, { fullName: string; totalDays: number; crCount: number }>();
+    const ratio = CYCLE_EFFORT_RATIO[loadViewCycle];
+    const bump = (userId: string, fullName: string, days: number) => {
+      const cur = map.get(userId) ?? { fullName, totalDays: 0, crCount: 0 };
+      map.set(userId, { fullName: cur.fullName, totalDays: cur.totalDays + days, crCount: cur.crCount + 1 });
+    };
+    assignments.forEach(a => {
+      const crRec = crByNumber.get(a.crNumber);
+      const effSA = a.isStandAlone !== null ? a.isStandAlone : (crRec?.isStandAlone ?? false);
+      const cycles = a.cycles?.length > 0 ? a.cycles : (effSA ? ['STAND_ALONE'] : ['CYCLE_1', 'CYCLE_2', 'CYCLE_3']);
+      if (!cycles.includes(loadViewCycle)) return;
+      const total = a.qaEffort != null ? a.qaEffort : (effortMap.get(a.crNumber) ?? 0);
+      // Whole-day rounding with a 1-day floor — matches qa.scheduler.ts's
+      // scheduleSingleCycle/splitEffort exactly, so this preview doesn't show
+      // e.g. "1.8 days" for a task that generation will actually create as a
+      // full 2-day task (or "0.3 days" for one that gets floored up to 1).
+      const scaled = Math.max(1, Math.round(total * ratio));
+      if (a.secondaryUser) {
+        const pct = a.secondaryParticipationPct ?? 50;
+        bump(a.userId, a.user.fullName, Math.max(1, Math.round(scaled * (100 - pct) / 100)));
+        bump(a.secondaryTesterId!, a.secondaryUser.fullName, Math.max(1, Math.round(scaled * pct / 100)));
+      } else {
+        bump(a.userId, a.user.fullName, scaled);
+      }
+    });
+    return map;
+  }, [assignments, effortMap, crByNumber, loadViewCycle]);
+
+  // Capacity to compare against for the selected view — Stand Alone has no
+  // shared length parameter (each CR has its own due date instead), so there's
+  // no over-capacity coloring for that view.
+  const capacityForView =
+    loadViewCycle === 'CYCLE_1' ? cycle1LengthDays :
+    loadViewCycle === 'CYCLE_2' ? cycle2LengthDays :
+    loadViewCycle === 'CYCLE_3' ? cycle3LengthDays : 0;
+
   // Per-tester queue order: crNumber → order number (1, 2, 3…)
   const testerOrderMap = useMemo(() => {
     const grouped = new Map<string, Assignment[]>();
@@ -848,7 +1076,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
     return orderMap;
   }, [assignments]);
 
-  const cycleDays     = countWorkDays(cycle1Start, testingEnd);
+  const cycleDays     = countWorkDays(cycle1Start, testingEnd, holidayDays);
   const overloadCount = Array.from(testerLoad.values()).filter(l => cycle1LengthDays > 0 && l.totalDays > cycle1LengthDays).length;
 
   // Live preview of each round's actual start/end date, recomputed whenever the
@@ -856,18 +1084,18 @@ CRים אלה לא ייכללו בתוכנית העבודה.
   // math exactly so this matches what generate-workplan will actually produce.
   const cycleRanges = useMemo(() => {
     if (!cycle1Start) return null;
-    const start      = getFirstWorkDay(new Date(cycle1Start));
-    const cycle1End   = addWorkDays(start, Math.max(1, cycle1LengthDays) - 1);
-    const cycle2Start = nextWorkDay(cycle1End);
-    const cycle2End   = addWorkDays(cycle2Start, Math.max(1, cycle2LengthDays) - 1);
-    const cycle3Start = nextWorkDay(cycle2End);
-    const cycle3End   = addWorkDays(cycle3Start, Math.max(1, cycle3LengthDays) - 1);
+    const start      = getFirstWorkDay(new Date(cycle1Start), holidayDays);
+    const cycle1End   = addWorkDays(start, Math.max(1, cycle1LengthDays) - 1, holidayDays);
+    const cycle2Start = nextWorkDay(cycle1End, holidayDays);
+    const cycle2End   = addWorkDays(cycle2Start, Math.max(1, cycle2LengthDays) - 1, holidayDays);
+    const cycle3Start = nextWorkDay(cycle2End, holidayDays);
+    const cycle3End   = addWorkDays(cycle3Start, Math.max(1, cycle3LengthDays) - 1, holidayDays);
     return {
       cycle1: { start, end: cycle1End },
       cycle2: { start: cycle2Start, end: cycle2End },
       cycle3: { start: cycle3Start, end: cycle3End },
     };
-  }, [cycle1Start, cycle1LengthDays, cycle2LengthDays, cycle3LengthDays]);
+  }, [cycle1Start, cycle1LengthDays, cycle2LengthDays, cycle3LengthDays, holidayDays]);
   const fmtRange = (r: { start: Date; end: Date }) =>
     `${r.start.toLocaleDateString('he-IL')} – ${r.end.toLocaleDateString('he-IL')}`;
 
@@ -1226,9 +1454,26 @@ CRים אלה לא ייכללו בתוכנית העבודה.
             >
               {bulkAssigning ? '⏳ משבץ...' : '⚡ שיבוץ אוטומטי לכולם'}
             </button>
+            {planExists && (
+              <button
+                disabled={savingSettings || !cycle1Start || !testingEnd}
+                onClick={doSaveWorkPlanSettings}
+                title="שומר תאריכים/אורכי סבב על התוכנית הקיימת — לא מוחק שיבוצים, דריסות מאמץ, או אישור שכבר ניתן"
+                style={{
+                  padding: `${SP[2]} ${SP[4]}`, background: C.bgNested, color: C.textPrimary,
+                  border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold,
+                  cursor: (savingSettings || !cycle1Start || !testingEnd) ? 'not-allowed' : 'pointer',
+                  opacity: (savingSettings || !cycle1Start || !testingEnd) ? 0.5 : 1,
+                  fontFamily: FONT, transition: EASE.fast, whiteSpace: 'nowrap',
+                }}
+              >
+                {savingSettings ? '⏳ שומר...' : '💾 שמור שינויים'}
+              </button>
+            )}
             <button
               disabled={generating || !cycle1Start || !testingEnd}
               onClick={generateWorkPlan}
+              title={planExists ? 'מוחק את התוכנית הקיימת ובונה אותה מחדש מאפס — כולל שיבוצים ידניים ואישור' : undefined}
               style={{
                 padding: `${SP[2]} ${SP[4]}`, background: BLUE, color: '#fff',
                 border: 'none', borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold,
@@ -1237,7 +1482,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                 fontFamily: FONT, transition: EASE.fast, whiteSpace: 'nowrap',
               }}
             >
-              {generating ? '⏳ מחשב...' : '📋 צור תוכנית עבודה'}
+              {generating ? '⏳ מחשב...' : planExists ? '🔁 בנה מחדש מאפס' : '📋 צור תוכנית עבודה'}
             </button>
           </div>
         )}
@@ -1455,7 +1700,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                   {filtered.map((cr, i) => {
                     const asg        = assignmentMap.get(cr.crNumber);
                     const isSaving   = saving === cr.crNumber;
-                    const isOpenCyc  = openCyclesPicker === cr.crNumber;
+                    const isOpenCyc  = openCyclesPicker?.crNumber === cr.crNumber;
                     const result     = scoring[cr.crNumber];
                     const top1       = cr.testers.find(t => t.score > 0);
                     const risk       = riskStyle(cr.riskLevel);
@@ -1495,7 +1740,11 @@ CRים אלה לא ייכללו בתוכנית העבודה.
 
                         {/* CR number */}
                         <td style={{ padding: `${SP[2]} ${SP[3]}`, whiteSpace: 'nowrap' }}>
-                          <span style={{ background: BLUE_BG, color: BLUE, padding: `2px ${SP[2]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold }}>
+                          <span
+                            onClick={() => openCrDetail(cr.crNumber)}
+                            title="לחץ לפרטי ה-CR"
+                            style={{ background: BLUE_BG, color: BLUE, padding: `2px ${SP[2]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, cursor: 'pointer', textDecoration: 'underline dotted' }}
+                          >
                             {cr.crNumber}
                           </span>
                         </td>
@@ -1587,74 +1836,60 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                           </div>
                         </td>
 
-                        {/* עדיפות: urgent flag + priority test date + notes — popover */}
+                        {/* עדיפות: urgent flag + go-live date + QA-arrival tracking + notes — popover */}
                         <td style={{ padding: `${SP[2]} ${SP[3]}`, position: 'relative', whiteSpace: 'nowrap' }}>
-                          <button
-                            title={
-                              cr.urgent ? 'דחוף — לחץ לפרטים (תאריך/הערה)'
-                              : cr.priorityTestDate ? `מועד עדיפות: ${new Date(cr.priorityTestDate).toLocaleDateString('he-IL')} — לחץ לפרטים`
-                              : cr.notes ? `הערה: ${cr.notes} — לחץ לפרטים`
-                              : 'עדיפות בדיקה / דחיפות / הערות'
-                            }
-                            onClick={() => setOpenPriorityPicker(openPriorityPicker === cr.crNumber ? null : cr.crNumber)}
-                            style={{
-                              padding: '2px 8px',
-                              background: cr.urgent ? C.dangerBg : cr.priorityTestDate ? '#fff7e6' : cr.notes ? C.bgNested : 'transparent',
-                              color:      cr.urgent ? C.danger   : cr.priorityTestDate ? '#b76b00' : C.textMuted,
-                              border:     `1px solid ${cr.urgent ? C.danger + '44' : cr.priorityTestDate ? '#b76b0044' : C.border}`,
-                              borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold,
-                              cursor: 'pointer', fontFamily: FONT, transition: EASE.fast,
-                            }}
-                          >
-                            {/* Closed state stays a single compact glyph — full date/note only on click, in the popover below */}
-                            {cr.urgent ? '🔴 דחוף' : cr.priorityTestDate ? '📅' : cr.notes ? '📝' : '—'}
-                          </button>
+                          {(() => {
+                            const qaOverdue = !!cr.qaArrivalDate && !cr.qaReceived && new Date(cr.qaArrivalDate) < new Date();
+                            const tooltipParts: string[] = [];
+                            if (cr.urgent) tooltipParts.push('דחוף');
+                            if (cr.priorityTestDate) tooltipParts.push(`תאריך עליה לאוויר: ${new Date(cr.priorityTestDate).toLocaleDateString('he-IL')}`);
+                            if (cr.qaArrivalDate) tooltipParts.push(`הגעה ל-QA: ${new Date(cr.qaArrivalDate).toLocaleDateString('he-IL')}${cr.qaReceived ? ' ✓ התקבל' : qaOverdue ? ' ⚠ טרם התקבל' : ''}`);
+                            if (cr.notes) tooltipParts.push(`הערה: ${cr.notes}`);
+                            const title = tooltipParts.length > 0 ? `${tooltipParts.join(' | ')} — לחץ לפרטים` : 'עדיפות בדיקה / דחיפות / הערות / הגעה ל-QA';
 
-                          {openPriorityPicker === cr.crNumber && (
-                            <div
-                              ref={priorityPickerRef}
-                              style={{ position: 'absolute', top: '100%', right: 0, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.lg, width: 300, zIndex: 400, padding: SP[3], display: 'flex', flexDirection: 'column', gap: SP[2] }}
-                              onClick={e => e.stopPropagation()}
-                            >
-                              <label style={{ display: 'flex', alignItems: 'center', gap: SP[2], cursor: 'pointer', ...TEXT.sm, color: C.textPrimary }}>
-                                <input
-                                  type="checkbox"
-                                  checked={cr.urgent}
-                                  onChange={e => patchCrRecord(cr.crNumber, { urgent: e.target.checked })}
-                                />
-                                🔴 דחוף — תזכורת להמשך טיפול
-                              </label>
-                              <div>
-                                <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>
-                                  עולה לייצור לפני הגרסה / מחוץ למסגרתה — יש לבדוק ראשון
-                                </div>
-                                <input
-                                  type="date"
-                                  value={cr.priorityTestDate ? cr.priorityTestDate.slice(0, 10) : ''}
-                                  onChange={e => patchCrRecord(cr.crNumber, { priorityTestDate: e.target.value || null })}
-                                  style={{ width: '100%', padding: '5px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.sm, fontFamily: FONT, boxSizing: 'border-box' }}
-                                />
-                              </div>
-                              <div>
-                                <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>הערות</div>
-                                <textarea
-                                  defaultValue={cr.notes ?? ''}
-                                  onBlur={e => patchCrRecord(cr.crNumber, { notes: e.target.value || null })}
-                                  rows={2}
-                                  style={{ width: '100%', padding: '5px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.sm, fontFamily: FONT, resize: 'vertical', boxSizing: 'border-box' }}
-                                />
-                              </div>
-                            </div>
-                          )}
+                            return (
+                              <button
+                                title={title}
+                                onClick={e => {
+                                  if (openPriorityPicker?.crNumber === cr.crNumber) {
+                                    setOpenPriorityPicker(null);
+                                    setPriorityDraft(null);
+                                  } else {
+                                    setOpenPriorityPicker(computeAnchoredPos(cr.crNumber, e.currentTarget, 640));
+                                    setPriorityDraft({
+                                      priorityTestDate: cr.priorityTestDate ? cr.priorityTestDate.slice(0, 10) : '',
+                                      notes: cr.notes ?? '',
+                                      urgent: cr.urgent,
+                                      qaArrivalDate: cr.qaArrivalDate ? cr.qaArrivalDate.slice(0, 10) : '',
+                                      qaReceived: cr.qaReceived,
+                                      qaReceivedAt: cr.qaReceivedAt ? cr.qaReceivedAt.slice(0, 10) : '',
+                                    });
+                                  }
+                                }}
+                                style={{
+                                  padding: '2px 8px',
+                                  background: cr.urgent ? C.dangerBg : qaOverdue ? C.dangerBg : cr.priorityTestDate ? '#fff7e6' : cr.notes ? C.bgNested : 'transparent',
+                                  color:      cr.urgent ? C.danger   : qaOverdue ? C.danger   : cr.priorityTestDate ? '#b76b00' : C.textMuted,
+                                  border:     `1px solid ${cr.urgent ? C.danger + '44' : qaOverdue ? C.danger + '44' : cr.priorityTestDate ? '#b76b0044' : C.border}`,
+                                  borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold,
+                                  cursor: 'pointer', fontFamily: FONT, transition: EASE.fast,
+                                }}
+                              >
+                                {/* Closed state stays a compact glyph — full detail only on click, in the popover below */}
+                                {cr.urgent ? '🔴 דחוף' : cr.priorityTestDate ? '📅' : cr.notes ? '📝' : '—'}
+                                {qaOverdue && ' 📥'}
+                              </button>
+                            );
+                          })()}
                         </td>
 
                         {/* סבבים: cycles multiselect */}
                         <td style={{ padding: `${SP[2]} ${SP[3]}`, position: 'relative', whiteSpace: 'nowrap' }}>
                           {asg ? (
                             <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', cursor: 'pointer' }}
-                              onClick={() => {
+                              onClick={e => {
                                 setOpenPicker(p => p?.crNumber === cr.crNumber ? null : p);
-                                setOpenCyclesPicker(isOpenCyc ? null : cr.crNumber);
+                                setOpenCyclesPicker(isOpenCyc ? null : computeAnchoredPos(cr.crNumber, e.currentTarget, 210));
                               }}
                             >
                               {effectiveCycles.map(ct => <CycleChip key={ct} cycleType={ct} />)}
@@ -1662,60 +1897,6 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                           ) : (
                             <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', opacity: 0.45 }}>
                               {(cr.isStandAlone ? ['STAND_ALONE'] : ['CYCLE_1', 'CYCLE_2', 'CYCLE_3']).map(ct => <CycleChip key={ct} cycleType={ct} />)}
-                            </div>
-                          )}
-
-                          {/* Cycles picker popup */}
-                          {isOpenCyc && asg && (
-                            <div
-                              ref={cyclesPickerRef}
-                              style={{ position: 'absolute', top: '100%', right: 0, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.lg, width: 210, zIndex: 400, padding: SP[2] }}
-                            >
-                              <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, padding: `${SP[1]} ${SP[2]}`, marginBottom: SP[1], textTransform: 'uppercase', letterSpacing: '0.04em' }}>סבבי בדיקות</div>
-                              {ALL_CYCLES.map(ct => {
-                                const info     = CYCLE_INFO[ct];
-                                const selected = effectiveCycles.includes(ct);
-                                return (
-                                  <label key={ct} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[1]} ${SP[2]}`, cursor: 'pointer', borderRadius: RADIUS.sm, background: selected ? info.bg : 'transparent' }}>
-                                    <input
-                                      type="checkbox"
-                                      checked={selected}
-                                      style={{ accentColor: info.color, cursor: 'pointer' }}
-                                      onChange={() => {
-                                        const newCycles = selected
-                                          ? effectiveCycles.filter(c => c !== ct)
-                                          : [...effectiveCycles, ct];
-                                        patchAssignment(asg.id, cr.crNumber, { cycles: newCycles });
-                                      }}
-                                    />
-                                    <span style={{ background: info.bg, color: info.color, padding: '1px 5px', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, minWidth: 28, textAlign: 'center', border: `1px solid ${info.color}33` }}>
-                                      {info.label}
-                                    </span>
-                                    <span style={{ ...TEXT.xs, color: C.textSecondary }}>{info.fullLabel}</span>
-                                  </label>
-                                );
-                              })}
-                              {effectiveCycles.includes('STAND_ALONE') && (
-                                <div style={{ marginTop: SP[2], paddingTop: SP[2], borderTop: `1px solid ${C.border}` }}>
-                                  <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, padding: `0 ${SP[2]}`, marginBottom: SP[1] }}>
-                                    מועד יעד מוקדם ל-Stand Alone (אופציונלי)
-                                  </div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: SP[1], padding: `0 ${SP[2]}` }}>
-                                    <DateField
-                                      value={asg.standAloneDueDate ? asg.standAloneDueDate.slice(0, 10) : ''}
-                                      onChange={v => patchAssignment(asg.id, cr.crNumber, { standAloneDueDate: v || null })}
-                                      style={{ padding: `4px ${SP[2]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.xs, background: C.bgNested, color: C.textPrimary, outline: 'none', fontFamily: FONT, flex: 1 }}
-                                    />
-                                    {asg.standAloneDueDate && (
-                                      <button
-                                        title="נקה תאריך יעד"
-                                        onClick={() => patchAssignment(asg.id, cr.crNumber, { standAloneDueDate: null })}
-                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textDisabled, ...TEXT.xs, padding: 2 }}
-                                      >✕</button>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
                             </div>
                           )}
                         </td>
@@ -1942,6 +2123,184 @@ CRים אלה לא ייכללו בתוכנית העבודה.
             ) : null;
           })()}
 
+          {/* Cycles picker — fixed-position, mirrors the score picker above */}
+          {openCyclesPicker && (() => {
+            const cr  = crs.find(c => c.crNumber === openCyclesPicker.crNumber);
+            const asg = cr ? assignmentMap.get(cr.crNumber) : undefined;
+            if (!cr || !asg) return null;
+            const effectiveSA = asg.isStandAlone !== null ? asg.isStandAlone : cr.isStandAlone;
+            const effectiveCycles = asg.cycles?.length > 0 ? asg.cycles : (effectiveSA ? ['STAND_ALONE'] : ['CYCLE_1', 'CYCLE_2', 'CYCLE_3']);
+            return (
+              <div
+                ref={cyclesPickerRef}
+                style={{
+                  position: 'fixed',
+                  ...(openCyclesPicker.top    !== undefined ? { top:    openCyclesPicker.top    } : {}),
+                  ...(openCyclesPicker.bottom !== undefined ? { bottom: openCyclesPicker.bottom } : {}),
+                  right: openCyclesPicker.right,
+                  background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.lg,
+                  width: 210, maxHeight: openCyclesPicker.maxH ?? 400, overflowY: 'auto',
+                  zIndex: 1000, padding: SP[2],
+                }}
+              >
+                <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, padding: `${SP[1]} ${SP[2]}`, marginBottom: SP[1], textTransform: 'uppercase', letterSpacing: '0.04em' }}>סבבי בדיקות</div>
+                {ALL_CYCLES.map(ct => {
+                  const info     = CYCLE_INFO[ct];
+                  const selected = effectiveCycles.includes(ct);
+                  return (
+                    <label key={ct} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[1]} ${SP[2]}`, cursor: 'pointer', borderRadius: RADIUS.sm, background: selected ? info.bg : 'transparent' }}>
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        style={{ accentColor: info.color, cursor: 'pointer' }}
+                        onChange={() => {
+                          const newCycles = selected
+                            ? effectiveCycles.filter(c => c !== ct)
+                            : [...effectiveCycles, ct];
+                          patchAssignment(asg.id, cr.crNumber, { cycles: newCycles });
+                        }}
+                      />
+                      <span style={{ background: info.bg, color: info.color, padding: '1px 5px', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, minWidth: 28, textAlign: 'center', border: `1px solid ${info.color}33` }}>
+                        {info.label}
+                      </span>
+                      <span style={{ ...TEXT.xs, color: C.textSecondary }}>{info.fullLabel}</span>
+                    </label>
+                  );
+                })}
+                {effectiveCycles.includes('STAND_ALONE') && (
+                  <div style={{ marginTop: SP[2], paddingTop: SP[2], borderTop: `1px solid ${C.border}` }}>
+                    <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, padding: `0 ${SP[2]}`, marginBottom: SP[1] }}>
+                      מועד יעד מוקדם ל-Stand Alone (אופציונלי)
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: SP[1], padding: `0 ${SP[2]}` }}>
+                      <DateField
+                        value={asg.standAloneDueDate ? asg.standAloneDueDate.slice(0, 10) : ''}
+                        onChange={v => patchAssignment(asg.id, cr.crNumber, { standAloneDueDate: v || null })}
+                        style={{ padding: `4px ${SP[2]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.xs, background: C.bgNested, color: C.textPrimary, outline: 'none', fontFamily: FONT, flex: 1 }}
+                      />
+                      {asg.standAloneDueDate && (
+                        <button
+                          title="נקה תאריך יעד"
+                          onClick={() => patchAssignment(asg.id, cr.crNumber, { standAloneDueDate: null })}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textDisabled, ...TEXT.xs, padding: 2 }}
+                        >✕</button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Priority / go-live / QA-arrival picker — fixed-position, mirrors the score picker above */}
+          {openPriorityPicker && priorityDraft && (() => {
+            const cr = crs.find(c => c.crNumber === openPriorityPicker.crNumber);
+            if (!cr) return null;
+            return (
+              <div
+                ref={priorityPickerRef}
+                style={{
+                  position: 'fixed',
+                  ...(openPriorityPicker.top    !== undefined ? { top:    openPriorityPicker.top    } : {}),
+                  ...(openPriorityPicker.bottom !== undefined ? { bottom: openPriorityPicker.bottom } : {}),
+                  right: openPriorityPicker.right,
+                  background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.lg,
+                  width: 640, maxHeight: openPriorityPicker.maxH ?? 600, overflowY: 'auto',
+                  zIndex: 1000, padding: SP[4], display: 'flex', flexDirection: 'column', gap: SP[3],
+                }}
+                onClick={e => e.stopPropagation()}
+              >
+                <label style={{ display: 'flex', alignItems: 'center', gap: SP[2], cursor: 'pointer', ...TEXT.sm, color: C.textPrimary }}>
+                  <input
+                    type="checkbox"
+                    checked={priorityDraft.urgent}
+                    onChange={e => setPriorityDraft(d => d && { ...d, urgent: e.target.checked })}
+                  />
+                  🔴 דחוף — תזכורת להמשך טיפול
+                </label>
+
+                <div>
+                  <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, marginBottom: '4px' }}>🚀 תאריך עליה לאוויר</div>
+                  <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '6px' }}>
+                    עולה לייצור לפני הגרסה / מחוץ למסגרתה — יש לבדוק ראשון
+                  </div>
+                  <input
+                    type="date"
+                    value={priorityDraft.priorityTestDate}
+                    onChange={e => setPriorityDraft(d => d && { ...d, priorityTestDate: e.target.value })}
+                    style={{ width: '100%', padding: '5px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.sm, fontFamily: FONT, boxSizing: 'border-box' }}
+                  />
+                </div>
+
+                <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: SP[3] }}>
+                  <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, marginBottom: '6px' }}>📥 הגעה ל-QA</div>
+                  <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div style={{ flex: '1 1 180px' }}>
+                      <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>תאריך הגעה צפוי</div>
+                      <input
+                        type="date"
+                        value={priorityDraft.qaArrivalDate}
+                        onChange={e => setPriorityDraft(d => d && { ...d, qaArrivalDate: e.target.value })}
+                        style={{ width: '100%', padding: '5px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.sm, fontFamily: FONT, boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: SP[2], cursor: 'pointer', ...TEXT.sm, color: C.textPrimary, flex: '0 0 auto', paddingBottom: '6px' }}>
+                      <input
+                        type="checkbox"
+                        checked={priorityDraft.qaReceived}
+                        onChange={e => setPriorityDraft(d => d && {
+                          ...d, qaReceived: e.target.checked,
+                          qaReceivedAt: e.target.checked && !d.qaReceivedAt ? new Date().toISOString().slice(0, 10) : d.qaReceivedAt,
+                        })}
+                      />
+                      ✓ התקבל
+                    </label>
+                    {priorityDraft.qaReceived && (
+                      <div style={{ flex: '1 1 180px' }}>
+                        <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>תאריך קבלה בפועל</div>
+                        <input
+                          type="date"
+                          value={priorityDraft.qaReceivedAt}
+                          onChange={e => setPriorityDraft(d => d && { ...d, qaReceivedAt: e.target.value })}
+                          style={{ width: '100%', padding: '5px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.sm, fontFamily: FONT, boxSizing: 'border-box' }}
+                        />
+                        {priorityDraft.qaArrivalDate && priorityDraft.qaReceivedAt > priorityDraft.qaArrivalDate && (
+                          <div style={{ ...TEXT.xs, color: C.danger, marginTop: '4px' }}>⚠ התקבל באיחור</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>הערות</div>
+                  <textarea
+                    value={priorityDraft.notes}
+                    onChange={e => setPriorityDraft(d => d && { ...d, notes: e.target.value })}
+                    rows={2}
+                    style={{ width: '100%', padding: '5px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.sm, fontFamily: FONT, resize: 'vertical', boxSizing: 'border-box' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-start', borderTop: `1px solid ${C.border}`, paddingTop: SP[3] }}>
+                  <button
+                    disabled={savingPriority}
+                    onClick={() => savePriorityDraft(cr.crNumber)}
+                    style={{ padding: `6px ${SP[4]}`, background: BLUE, color: '#fff', border: 'none', borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: savingPriority ? 'not-allowed' : 'pointer', opacity: savingPriority ? 0.6 : 1, fontFamily: FONT }}
+                  >
+                    {savingPriority ? '⏳ שומר...' : '💾 שמור'}
+                  </button>
+                  <button
+                    onClick={() => { setOpenPriorityPicker(null); setPriorityDraft(null); }}
+                    style={{ padding: `6px ${SP[4]}`, background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT }}
+                  >
+                    ביטול
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Progress bar */}
           <div style={{ marginTop: SP[3], padding: SP[3], background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, display: 'flex', alignItems: 'center', gap: SP[3] }}>
             <div style={{ flex: 1, height: 6, background: C.bgHover, borderRadius: RADIUS.full, overflow: 'hidden' }}>
@@ -1955,23 +2314,48 @@ CRים אלה לא ייכללו בתוכנית העבודה.
             )}
           </div>
 
-          {/* Tester load panel */}
+          {/* Tester load panel — switchable per-cycle view */}
           {testerLoad.size > 0 && (
             <div style={{ marginTop: SP[3], background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.sm, overflow: 'hidden' }}>
-              <div style={{ padding: `${SP[2]} ${SP[4]}`, background: C.bgNested, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: SP[3] }}>
+              <div style={{ padding: `${SP[2]} ${SP[4]}`, background: C.bgNested, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: SP[3], flexWrap: 'wrap' }}>
                 <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>📊 עומס בודקים</span>
-                {cycle1LengthDays > 0 && <span style={{ ...TEXT.xs, color: C.textMuted }}>קיבולת: {cycle1LengthDays} ימי עבודה לבודק (אורך סבב 1)</span>}
-                {overloadCount > 0 && (
+
+                {/* Cycle view selector */}
+                <div style={{ display: 'flex', gap: '4px', background: C.bgCard, padding: '3px', borderRadius: RADIUS.md, border: `1px solid ${C.border}` }}>
+                  {LOAD_VIEW_CYCLES.map(ct => {
+                    const info = CYCLE_INFO[ct];
+                    const active = loadViewCycle === ct;
+                    return (
+                      <button key={ct} onClick={() => setLoadViewCycle(ct)}
+                        style={{
+                          padding: '4px 10px', borderRadius: RADIUS.sm, border: 'none', cursor: 'pointer',
+                          background: active ? info.bg : 'transparent',
+                          color: active ? info.color : C.textMuted,
+                          ...TEXT.xs, fontWeight: active ? WEIGHT.bold : WEIGHT.normal, fontFamily: FONT, transition: EASE.fast,
+                        }}>
+                        {info.fullLabel}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {capacityForView > 0 && (
+                  <span style={{ ...TEXT.xs, color: C.textMuted }}>קיבולת: {capacityForView} ימי עבודה לבודק (אורך {CYCLE_INFO[loadViewCycle].fullLabel})</span>
+                )}
+                {loadViewCycle === 'CYCLE_1' && overloadCount > 0 && (
                   <span style={{ ...TEXT.xs, background: C.dangerBg, color: C.danger, padding: `2px ${SP[2]}`, borderRadius: RADIUS.full, fontWeight: WEIGHT.semibold, border: `1px solid ${C.danger}33` }}>
                     ⚠ {overloadCount} חורג{overloadCount > 1 ? 'ים' : ''}
                   </span>
                 )}
               </div>
               <div style={{ padding: SP[3], display: 'flex', flexWrap: 'wrap', gap: SP[2] }}>
-                {Array.from(testerLoad.entries())
+                {testerLoadForView.size === 0 && (
+                  <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[2] }}>אין CR-ים בסבב זה</div>
+                )}
+                {Array.from(testerLoadForView.entries())
                   .sort((a, b) => b[1].totalDays - a[1].totalDays)
-                  .map(([userId, { fullName, totalDays }]) => {
-                    const over = cycle1LengthDays > 0 && totalDays > cycle1LengthDays;
+                  .map(([userId, { fullName, totalDays, crCount }]) => {
+                    const over = capacityForView > 0 && totalDays > capacityForView;
                     return (
                       <div key={userId} style={{ padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, background: over ? C.dangerBg : C.bgNested, border: `1px solid ${over ? C.danger + '44' : C.border}`, minWidth: 200, flex: '1 1 200px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
@@ -1980,11 +2364,14 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                           </span>
                           {over && (
                             <span style={{ ...TEXT.xs, background: C.dangerBg, color: C.danger, padding: `1px 6px`, borderRadius: RADIUS.full, fontWeight: WEIGHT.bold, border: `1px solid ${C.danger}33` }}>
-                              +{(totalDays - cycle1LengthDays).toFixed(1)}י'
+                              +{(totalDays - capacityForView).toFixed(1)}י'
                             </span>
                           )}
                         </div>
-                        <LoadBar used={totalDays} capacity={cycle1LengthDays || totalDays} />
+                        <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '5px' }}>
+                          {crCount} פיתוח{crCount !== 1 ? 'ים' : ''}
+                        </div>
+                        <LoadBar used={totalDays} capacity={capacityForView || totalDays} />
                       </div>
                     );
                   })}
@@ -1995,6 +2382,88 @@ CRים אלה לא ייכללו בתוכנית העבודה.
       )}
 
       </>}
+
+      {/* ── CR detail modal ── */}
+      {crDetailFor && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: SP[4] }}
+          onClick={() => { setCrDetailFor(null); setCrDetail(null); }}>
+          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.xl, boxShadow: SHADOW.xl, width: '100%', maxWidth: 1010, maxHeight: '85vh', display: 'flex', flexDirection: 'column', direction: 'rtl' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ padding: `${SP[4]} ${SP[5]}`, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
+                <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>📄 פרטי CR {crDetailFor}</span>
+                {crDetail?.versionName && (
+                  <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.brand, background: C.brandDim, padding: `2px ${SP[3]}`, borderRadius: RADIUS.full }}>
+                    {crDetail.versionName}
+                  </span>
+                )}
+              </div>
+              <button onClick={() => { setCrDetailFor(null); setCrDetail(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 18, fontFamily: FONT }}>✕</button>
+            </div>
+            <div style={{ overflowY: 'auto', flex: 1, padding: SP[5], display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+              {crDetailLoading ? (
+                <div style={{ textAlign: 'center', padding: SP[6], color: C.textMuted, ...TEXT.sm }}>⏳ טוען...</div>
+              ) : !crDetail ? (
+                <div style={{ textAlign: 'center', padding: SP[6], color: C.textMuted, ...TEXT.sm }}>שגיאה בטעינת פרטי ה-CR</div>
+              ) : (
+                <>
+                  <div>
+                    <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>כותרת</div>
+                    <div style={{ ...TEXT.md, color: C.textPrimary, fontWeight: WEIGHT.semibold }}>{crDetail.crLabel}</div>
+                  </div>
+                  {crDetail.crDescription && (
+                    <div>
+                      <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>תיאור</div>
+                      <div style={{ ...TEXT.sm, color: C.textSecondary, whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{decodeHtmlEntities(crDetail.crDescription)}</div>
+                    </div>
+                  )}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: SP[4], padding: SP[4], background: C.bgNested, borderRadius: RADIUS.lg }}>
+                    <DetailField label="מנהל CR" value={crDetail.crManager} />
+                    <DetailField label="מאפיין" value={crDetail.application} />
+                    <DetailField label="סך כל הערכות" value={crDetail.estimateDays != null ? `${crDetail.estimateDays} ימים` : null} />
+                    <DetailField label="סטטוס" value={crDetail.status} />
+                    <DetailField label="צוותים מעורבים" value={crDetail.teams.length > 0 ? crDetail.teams.join(', ') : null} />
+                  </div>
+                  {crDetail.notes && (
+                    <div>
+                      <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>הערות</div>
+                      <div style={{ ...TEXT.sm, color: C.textSecondary, whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{decodeHtmlEntities(crDetail.notes)}</div>
+                    </div>
+                  )}
+                  {crDetail.archiveHistory.length > 0 && (
+                    <div>
+                      <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: SP[2] }}>
+                        📦 היסטוריית ארכיון
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+                        {crDetail.archiveHistory.map(entry => (
+                          <div key={entry.id} style={{ background: C.bgNested, borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, ...TEXT.sm }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: SP[2] }}>
+                              <span style={{ fontWeight: WEIGHT.medium, color: entry.action === 'TASK_ARCHIVED' ? C.danger : C.success }}>
+                                {entry.action === 'TASK_ARCHIVED' ? '📦 הועבר לארכיון' : '↺ שוחזר מהארכיון'}
+                                {entry.cycleType ? ` — ${CYCLE_LABEL[entry.cycleType] ?? entry.cycleType}` : ''}
+                              </span>
+                              <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap' }}>
+                                {new Date(entry.createdAt).toLocaleString('he-IL')}
+                              </span>
+                            </div>
+                            {entry.reason && (
+                              <div style={{ ...TEXT.xs, color: C.textSecondary, marginTop: 2 }}>סיבה: {entry.reason}</div>
+                            )}
+                            {entry.userEmail && (
+                              <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: 2 }}>ע"י {entry.userEmail}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmDialog config={confirmDialog} onClose={() => setConfirmDialog(null)} />
     </div>

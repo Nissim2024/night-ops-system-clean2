@@ -3,6 +3,8 @@ import axios from 'axios';
 import { C, FONT, FONT_MONO, TEXT, WEIGHT, RADIUS, SHADOW, EASE } from '../theme';
 import { VersionStatusChip } from './ui';
 import RunbookModal, { RUNBOOKS, getRunbookTrigger, RunbookTrigger } from './qa/RunbookModal';
+import { VersionMilestoneTimeline } from './shared/VersionMilestoneTimeline';
+import { GoLiveCountdown } from './shared/GoLiveCountdown';
 
 const API = process.env.REACT_APP_API_URL ?? 'http://localhost:3000';
 
@@ -33,7 +35,7 @@ interface Props {
   canAccessVersionManagement?: boolean;
   canAccessReleaseIntelligence?: boolean;
   canAccessQualityHub?: boolean;
-  onSwitchToModule?: (m: ModuleKey) => void;
+  onSwitchToModule?: (m: ModuleKey, vmView?: string) => void;
   onGoToLeaves?: () => void;
 }
 
@@ -132,7 +134,11 @@ function StatCard({ value, label, delta, deltaColor }: { value: string; label: s
   );
 }
 
-interface QaSummary { totalCrs: number; assignedCrs: number; hasWorkPlan: boolean; priorityCount: number; }
+interface QaSummary {
+  totalCrs: number; assignedCrs: number; hasWorkPlan: boolean; priorityCount: number;
+  goLiveSoonCount: number; qaArrivalOverdueCount: number;
+  cycles: { cycleType: string; plannedStart: string; plannedEnd: string }[];
+}
 
 // ────────────────────────────────────────────────────────────────
 // Version row (compact)
@@ -443,6 +449,7 @@ export const HomeDashboard: React.FC<Props> = ({
   // testing has actually started — gate by integrationStart, not by version
   // status, so we don't show a misleading "0%" before that date.
   const integrationStarted = !!primary?.integrationStart && new Date(primary.integrationStart).getTime() <= Date.now();
+
   const [testCoveragePct, setTestCoveragePct] = useState<number | null>(null);
   useEffect(() => {
     if (!canAccessReleaseIntelligence || !primary || !integrationStarted) { setTestCoveragePct(null); return; }
@@ -688,11 +695,32 @@ export const HomeDashboard: React.FC<Props> = ({
       });
     }
 
+    if (homeShowQa && qaSummary && qaSummary.goLiveSoonCount > 0) {
+      list.push({
+        icon: '🚀', title: `${qaSummary.goLiveSoonCount} CR-ים עולים לאוויר בתוך 3 ימים`,
+        desc: 'תאריך העלייה לאוויר קרוב או כבר חלף — ודא שהבדיקה הושלמה', urgent: true,
+        onClick: onSwitchToQa, module: 'qa',
+      });
+    }
+
+    if (homeShowQa && qaSummary && qaSummary.qaArrivalOverdueCount > 0) {
+      list.push({
+        icon: '📥', title: `${qaSummary.qaArrivalOverdueCount} CR-ים לא סומנו כהתקבלו ב-QA`,
+        desc: 'תאריך ההגעה הצפוי ל-QA חלף ואף אחד מהם לא סומן כ"התקבל"', urgent: true,
+        onClick: onSwitchToQa, module: 'qa',
+      });
+    }
+
     if (canAccessVersionManagement && scopeAttentionCount > 0) {
       list.push({
         icon: '🧭', title: `${scopeAttentionCount} CR-ים נוספו/הוסרו מהתכולה אחרי אישורה`,
         desc: 'דורשים סקירה ואישור תכולה מחדש', urgent: true,
-        onClick: () => onSwitchToModule?.('version-management'), module: 'version-management',
+        // 'changes' → VIEW_TO_STEP['changes'] = 'manage' step, where the
+        // attention-rows list + "✓ אשר שינויים" button actually live
+        // (VersionOpeningModule.tsx:330) — and select primary explicitly so
+        // this doesn't land on whatever version was last picked in that module.
+        onClick: () => { onSelectVersion(primary.id); onSwitchToModule?.('version-management', 'changes'); },
+        module: 'version-management',
       });
     }
 
@@ -713,10 +741,19 @@ export const HomeDashboard: React.FC<Props> = ({
     }
 
     if (st === 'DRAFT' && rm) {
-      const hasDates = !!(primary.integrationStart && primary.integrationEnd && primary.qaStart && primary.qaEnd);
-      if (!hasDates) {
-        list.push({ icon: '📅', title: 'קבע תאריכי גרסה', desc: 'הגדר תאריכי אינטגרציה ו-QA לפני בניית תוכנית ההטמעה', tab: 'version-detail' });
-      } else {
+      // Mirrors VersionOpeningModule's own datesComplete check (integrationStart/End
+      // + plannedStart — its 'open' step doesn't have qaStart/qaEnd fields at all),
+      // so this item's destination always matches what it says it'll do there.
+      const datesComplete = !!(primary.integrationStart && primary.integrationEnd && primary.plannedStart);
+      const planBuilt = (primary._count?.phases ?? 0) > 0;
+      if (!datesComplete) {
+        list.push({
+          icon: '📅', title: 'קבע תאריכי גרסה',
+          desc: 'הגדר תאריכי אינטגרציה ותאריך יעד לעלייה לאוויר במסך פתיחת הגרסה',
+          onClick: () => { onSelectVersion(primary.id); onSwitchToModule?.('version-management', 'open'); },
+          module: 'version-management',
+        });
+      } else if (!planBuilt) {
         list.push({ icon: '📋', title: 'בנה תוכנית הטמעה', desc: 'החל תבנית על הגרסה ובנה את לוח הזמנים', tab: 'version-detail' });
       }
     }
@@ -814,7 +851,7 @@ export const HomeDashboard: React.FC<Props> = ({
     }
 
     return list;
-  }, [primary, role, canManageLeaves, pendingLeaveCount, onGoToLeaves, nextPhaseInfo, firstPhaseInfo, upcomingRunbookSteps, myUserId, onSwitchToQa, todayOrTomorrowActivities, homeShowQa, qaSummary, canAccessVersionManagement, scopeAttentionCount, onSwitchToModule, canAccessReleaseIntelligence, criticalDefectsCount, canAccessQualityHub, qualityScore, showTeamStatus, teamStatus, isCollecting, reviewIsApproaching, myTeamSummary]);
+  }, [primary, role, canManageLeaves, pendingLeaveCount, onGoToLeaves, nextPhaseInfo, firstPhaseInfo, upcomingRunbookSteps, myUserId, onSwitchToQa, todayOrTomorrowActivities, homeShowQa, qaSummary, canAccessVersionManagement, scopeAttentionCount, onSwitchToModule, onSelectVersion, canAccessReleaseIntelligence, criticalDefectsCount, canAccessQualityHub, qualityScore, showTeamStatus, teamStatus, isCollecting, reviewIsApproaching, myTeamSummary]);
 
   // Stats — only count non-terminal versions as "in progress"
   const totalVersions  = inProgressVersions.length;
@@ -932,49 +969,7 @@ export const HomeDashboard: React.FC<Props> = ({
                       rehearsal → go-live) in one glance, not just the single next
                       date. Once the night is actually running the live phase strip
                       below takes over, so this stops being the useful view. */}
-                  {!['ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(primary.status) && (() => {
-                    const milestones: { label: string; date: Date }[] = [];
-                    if (primary.integrationStart) milestones.push({ label: 'תחילת אינטגרציה', date: new Date(primary.integrationStart) });
-                    if (primary.integrationEnd) milestones.push({ label: 'סיום אינטגרציה', date: new Date(primary.integrationEnd) });
-                    if (primary.qaStart) milestones.push({ label: 'תחילת QA', date: new Date(primary.qaStart) });
-                    if (primary.qaEnd) milestones.push({ label: 'סיום QA', date: new Date(primary.qaEnd) });
-                    if (primary.plannedRehearsalStart) milestones.push({ label: 'חזרה גנרלית', date: new Date(primary.plannedRehearsalStart) });
-                    if (primary.plannedStart) milestones.push({ label: 'עלייה לאוויר', date: new Date(primary.plannedStart) });
-                    if (milestones.length === 0) return null;
-                    // Sort by actual date, not fixed process order — rehearsal and QA
-                    // windows can genuinely overlap, and the timeline should read as
-                    // real chronology, not an idealized stage sequence.
-                    milestones.sort((a, b) => a.date.getTime() - b.date.getTime());
-                    const now = Date.now();
-                    return (
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '2px', marginTop: '10px', overflowX: 'auto' as const, paddingBottom: '2px' }}>
-                        {milestones.map((m, i) => {
-                          const isPast = m.date.getTime() <= now;
-                          const isNext = !isPast && milestones.slice(0, i).every(mm => mm.date.getTime() <= now);
-                          return (
-                            <React.Fragment key={i}>
-                              {i > 0 && (
-                                <div style={{ width: '16px', height: 0, marginTop: '4px', borderTop: `1.5px dashed ${isPast ? 'rgba(110,231,168,.4)' : 'rgba(255,255,255,.2)'}`, flexShrink: 0 }} />
-                              )}
-                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', flexShrink: 0, opacity: isPast ? 0.55 : 1 }}>
-                                <div style={{
-                                  width: '8px', height: '8px', borderRadius: '50%',
-                                  background: isPast ? '#6EE7A8' : isNext ? 'white' : 'rgba(255,255,255,.35)',
-                                  boxShadow: isNext ? '0 0 0 3px rgba(255,255,255,.15)' : 'none',
-                                }} />
-                                <div style={{ ...TEXT.xs, color: isNext ? 'white' : 'rgba(255,255,255,.55)', fontWeight: isNext ? WEIGHT.semibold : WEIGHT.normal, whiteSpace: 'nowrap' as const }}>
-                                  {m.label}
-                                </div>
-                                <div style={{ fontSize: '10px', color: 'rgba(255,255,255,.45)', whiteSpace: 'nowrap' as const }}>
-                                  {m.date.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}
-                                </div>
-                              </div>
-                            </React.Fragment>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
+                  <VersionMilestoneTimeline version={primary} cycles={qaSummary?.cycles} />
                   {/* Phase progress strip for ACTIVE/REHEARSAL */}
                   {livePhases.some(p => p.state !== 'done') && (
                     <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1018,29 +1013,7 @@ export const HomeDashboard: React.FC<Props> = ({
                       destination they led to (version details, War Room, etc.) is
                       already one click away from a KPI tile or the risks feed below,
                       so a dedicated hero CTA was pure duplication. */}
-                  {primary.plannedStart && !['ACTIVE', 'REHEARSAL', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(primary.status) && (() => {
-                    const goLive = new Date(primary.plannedStart);
-                    const msLeft = goLive.getTime() - Date.now();
-                    const dateLabel = `${goLive.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', year: 'numeric' })} · ${goLive.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`;
-                    const overdue = msLeft <= 0;
-                    const daysLeft = Math.ceil(msLeft / 86400000);
-                    const countdownLabel = overdue ? '⚠ תאריך היעד חלף' : daysLeft <= 1 ? '🚀 עולים לאוויר מחר' : `🚀 בעוד ${daysLeft} ימים`;
-                    return (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' as const }}>
-                        <span style={{
-                          ...TEXT.xs, fontWeight: WEIGHT.bold, color: 'white',
-                          background: overdue ? 'rgba(240,106,106,.25)' : 'rgba(255,255,255,.14)',
-                          border: `1px solid ${overdue ? 'rgba(240,106,106,.4)' : 'rgba(255,255,255,.22)'}`,
-                          borderRadius: '10px', padding: '2px 10px',
-                        }}>
-                          {countdownLabel}
-                        </span>
-                        <span style={{ ...TEXT.xs, color: 'rgba(255,255,255,.6)' }}>
-                          עלייה לאוויר: {dateLabel}
-                        </span>
-                      </div>
-                    );
-                  })()}
+                  <GoLiveCountdown plannedStart={primary.plannedStart} status={primary.status} />
                 </div>
               </div>
             );

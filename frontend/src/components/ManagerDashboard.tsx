@@ -103,7 +103,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [myTeamId, setMyTeamId]                 = useState('');
   const [openNewVersionForm, setOpenNewVersionForm] = useState(false);
   const [activeModule, setActiveModule] = useState<'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub'>('deployments');
-  const [activeVmView, setActiveVmView]  = useState('manage');
+  const [activeVmView, setActiveVmView]  = useState('overview');
   const [activeQaView, setActiveQaView]  = useState('assignment');
   const [activeRiView, setActiveRiView]  = useState('overview');
   const [activeQhView, setActiveQhView]  = useState('overview');
@@ -750,6 +750,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
             if (m === 'deployments' && activeTab === 'home') {
               setActiveTab(getDeploymentsTabForStatus(selectedVersion?.status ?? 'DRAFT', payload.role) as Tab);
             }
+            if (m === 'version-management') setActiveVmView('overview');
             if (m === 'qa') setActiveQaView('assignment');
             if (m === 'release-intelligence') setActiveRiView('overview');
             if (m === 'quality-hub') setActiveQhView('overview');
@@ -883,8 +884,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
               canAccessQualityHub={canAccessQualityHub}
               onSwitchToQa={() => { setActiveModule('qa'); setActiveQaView('assignment'); }}
               onGoToLeaves={() => { setActiveModule('qa'); setActiveQaView('leaves'); }}
-              onSwitchToModule={m => {
+              onSwitchToModule={(m, vmView) => {
                 setActiveModule(m);
+                if (m === 'version-management' && vmView) setActiveVmView(vmView);
                 if (m === 'qa') setActiveQaView('assignment');
                 if (m === 'release-intelligence') setActiveRiView('overview');
                 if (m === 'quality-hub') setActiveQhView('overview');

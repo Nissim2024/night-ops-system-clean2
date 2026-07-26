@@ -319,7 +319,7 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
 
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
             <BreakdownPanel title="לפי חומרה" total={monthRows.length} rows={groupCount(monthRows, r => r.severity)} />
-            <BreakdownPanel title="לפי מודול" total={monthRows.length} rows={groupCount(monthRows, r => r.area)} />
+            <BreakdownPanel title="לפי קטגוריה / CR מקושר" total={monthRows.length} rows={groupCount(monthRows, r => r.area)} />
             <BreakdownPanel title="לפי צוות" total={monthRows.length} rows={groupCount(monthRows, r => r.responsibility)} />
             <BreakdownPanel title="לפי סוג תקלה" total={monthRows.length} rows={groupCount(monthRows, r => r.bugType)} />
           </div>
@@ -332,7 +332,7 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
               <table style={{ width: '100%', borderCollapse: 'collapse', ...TEXT.xs, fontFamily: FONT }}>
                 <thead>
                   <tr style={{ background: C.bgNested }}>
-                    {['תקלה', 'חומרה', 'צוות', 'מודול', 'סוג', 'סטטוס', 'תאריך גילוי', 'Reopen'].map(h => (
+                    {['תקלה', 'חומרה', 'צוות', 'קטגוריה/CR', 'סוג', 'סטטוס', 'תאריך גילוי', 'Reopen'].map(h => (
                       <th key={h} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: WEIGHT.semibold, color: C.textSecondary, borderBottom: `1px solid ${C.border}` }}>{h}</th>
                     ))}
                   </tr>

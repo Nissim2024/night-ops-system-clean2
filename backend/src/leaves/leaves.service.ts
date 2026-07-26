@@ -199,10 +199,16 @@ export class LeavesService {
     const existing = await prisma.leaveRequest.findFirst({
       where: { userId, date: new Date(data.date) },
     });
+    // Resubmitting (e.g. after a decline or a self-cancel) starts a fresh
+    // approval cycle — clear out the previous decision/cancellation trail
+    // so it doesn't read as if it belonged to this new request.
     if (existing) {
       return prisma.leaveRequest.update({
         where: { id: existing.id },
-        data: { kind: data.kind, reason: data.reason ?? null, status: 'PENDING', groupId: data.groupId ?? null },
+        data: {
+          kind: data.kind, reason: data.reason ?? null, status: 'PENDING', groupId: data.groupId ?? null,
+          decidedByName: null, decidedAt: null, cancelledByName: null, cancelledAt: null, cancelReason: null,
+        },
         include: { season: { select: { id: true, name: true } } },
       });
     }
@@ -220,12 +226,36 @@ export class LeavesService {
     });
   }
 
-  async cancelRequest(userId: string, requestId: string) {
+  // Employee cancelling their own request — allowed regardless of current
+  // status (including an already-APPROVED leave), per product decision:
+  // the employee may change their mind after approval, but the cancellation
+  // must be visible to the manager (status + cancelledByName/At/reason),
+  // not silently deleted.
+  async cancelRequest(userId: string, requestId: string, reason?: string) {
     const req = await prisma.leaveRequest.findUnique({ where: { id: requestId } });
     if (!req) throw new NotFoundException('בקשה לא נמצאה');
     if (req.userId !== userId) throw new ForbiddenException('אין הרשאה לבטל בקשה זו');
-    await prisma.leaveRequest.delete({ where: { id: requestId } });
+    if (req.status === 'CANCELLED') throw new ForbiddenException('הבקשה כבר בוטלה');
+    const actor = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
+    await this.applyCancellation(req, actor?.fullName ?? 'עובד', reason);
     return { ok: true };
+  }
+
+  // Shared by employee self-cancel and manager-initiated cancel: cascades to
+  // every day sharing the same groupId (a range submitted together), same
+  // as the existing approve/decline cascade below.
+  private async applyCancellation(req: { id: string; userId: string; groupId: string | null }, actorName: string, reason?: string) {
+    const data = {
+      status: 'CANCELLED' as const,
+      cancelledByName: actorName,
+      cancelledAt: new Date(),
+      cancelReason: reason ?? null,
+    };
+    if (req.groupId) {
+      await prisma.leaveRequest.updateMany({ where: { groupId: req.groupId, userId: req.userId }, data });
+    } else {
+      await prisma.leaveRequest.update({ where: { id: req.id }, data });
+    }
   }
 
   // ── Requests — admin / team lead ─────────────────────────────────────────────
@@ -270,7 +300,13 @@ export class LeavesService {
     });
   }
 
-  async updateRequestStatus(requestId: string, status: 'APPROVED' | 'DECLINED', actingUserId: string, actingRole: string) {
+  async updateRequestStatus(
+    requestId: string,
+    status: 'APPROVED' | 'DECLINED' | 'CANCELLED',
+    actingUserId: string,
+    actingRole: string,
+    reason?: string,
+  ) {
     const req = await prisma.leaveRequest.findUnique({ where: { id: requestId } });
     if (!req) throw new NotFoundException('בקשה לא נמצאה');
     if (actingRole !== 'ADMIN') {
@@ -279,16 +315,23 @@ export class LeavesService {
         throw new ForbiddenException('אין הרשאה לטפל בבקשה של עובד מחוץ לצוות שלך');
       }
     }
-    // A request submitted as part of a date range shares one groupId across every
-    // day — approving/declining any one of them applies to the whole range in a
-    // single manager action, not day-by-day.
-    if (req.groupId) {
-      await prisma.leaveRequest.updateMany({
-        where: { groupId: req.groupId, userId: req.userId },
-        data: { status },
-      });
+    const actor = await prisma.user.findUnique({ where: { id: actingUserId }, select: { fullName: true } });
+    const actorName = actor?.fullName ?? 'מנהל';
+
+    if (status === 'CANCELLED') {
+      // Manager-initiated cancel — allowed on a request in any status,
+      // including one already APPROVED, same as the employee self-cancel path.
+      await this.applyCancellation(req, actorName, reason);
     } else {
-      await prisma.leaveRequest.update({ where: { id: requestId }, data: { status } });
+      // A request submitted as part of a date range shares one groupId across every
+      // day — approving/declining any one of them applies to the whole range in a
+      // single manager action, not day-by-day.
+      const data = { status, decidedByName: actorName, decidedAt: new Date() };
+      if (req.groupId) {
+        await prisma.leaveRequest.updateMany({ where: { groupId: req.groupId, userId: req.userId }, data });
+      } else {
+        await prisma.leaveRequest.update({ where: { id: requestId }, data });
+      }
     }
     return prisma.leaveRequest.findUnique({
       where: { id: requestId },

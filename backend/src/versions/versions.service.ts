@@ -126,6 +126,11 @@ export class VersionsService {
         qcReleaseId: data.qcReleaseId || undefined,
         createdBy: data.createdBy,
         status: VersionStatus.DRAFT,
+        // Every version created from here on has its downstream dates
+        // (integration/QA/rehearsal/go-live) locked to the QA work plan once
+        // one exists — see qa-workplan.service.ts. Existing versions default
+        // to false and are never migrated, per explicit product decision.
+        datesLockedToWorkPlan: true,
       },
     } as any);
 
@@ -702,6 +707,17 @@ async addTask(subPhaseId: string, data: {
     return prisma.version.update({ where: { id }, data });
   }
 
+  // integrationStart/End, qaStart/End and plannedRehearsalStart/End are owned by
+  // the QA work plan (qa-workplan.service.ts's syncVersionDatesFromWorkPlan)
+  // once one exists for a datesLockedToWorkPlan version — see schema comment.
+  // Keyed here so updateFields can reject direct edits instead of silently
+  // fighting the QA sync for whichever write happens to run last.
+  private static readonly QA_SYNCED_DATE_FIELDS: Record<string, string> = {
+    integrationStart: 'תחילת אינטגרציה', integrationEnd: 'סיום אינטגרציה',
+    qaStart: 'תחילת QA', qaEnd: 'סיום QA',
+    plannedRehearsalStart: 'תחילת חזרה', plannedRehearsalEnd: 'סיום חזרה',
+  };
+
   async updateFields(id: string, data: {
     plannedStart?: string | null; plannedEnd?: string | null; reviewMeetingTime?: string | null; workPlanMeetingTime?: string | null;
     integrationStart?: string | null; integrationEnd?: string | null; qaStart?: string | null; qaEnd?: string | null;
@@ -714,6 +730,21 @@ async addTask(subPhaseId: string, data: {
     if (['COMPLETED', 'ROLLED_BACK'].includes(version.status)) {
       throw new BadRequestException('גרסה סגורה (COMPLETED / ROLLED_BACK) נעולה לעריכה');
     }
+
+    if ((version as any).datesLockedToWorkPlan) {
+      const hasWorkPlan = await prisma.qaWorkPlan.findUnique({ where: { versionId: id }, select: { id: true } });
+      if (hasWorkPlan) {
+        const blocked = Object.keys(VersionsService.QA_SYNCED_DATE_FIELDS).filter(f => f in data);
+        if (blocked.length > 0) {
+          const labels = blocked.map(f => VersionsService.QA_SYNCED_DATE_FIELDS[f]).join(', ');
+          throw new BadRequestException(`${labels} מנוהלים אוטומטית על ידי תוכנית העבודה של QA ואינם ניתנים לעריכה ישירה`);
+        }
+      }
+      if ('plannedStart' in data && data.plannedStart === null && version.plannedStart) {
+        throw new BadRequestException('לא ניתן לאפס את תאריך העלייה לאוויר לאחר שנקבע');
+      }
+    }
+
     const update: any = {};
     if ('plannedStart'          in data) update.plannedStart          = data.plannedStart          ? new Date(data.plannedStart)          : null;
     if ('plannedEnd'            in data) update.plannedEnd            = data.plannedEnd            ? new Date(data.plannedEnd)            : null;

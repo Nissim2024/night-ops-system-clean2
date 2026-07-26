@@ -69,6 +69,20 @@ interface SecondaryData {
   candidates: SecondaryCandidate[];
 }
 
+interface ArchivedTask {
+  id: string;
+  crNumber: string;
+  crLabel: string | null;
+  taskType: 'CR' | 'STAND_ALONE' | 'REGRESSION';
+  userId: string;
+  user: { id: string; fullName: string; email: string };
+  effortDays: number;
+  plannedStart: string;
+  plannedEnd: string;
+  cycle: { cycleType: string };
+  updatedAt: string;
+}
+
 interface Cycle {
   id: string;
   cycleType: string;
@@ -179,13 +193,21 @@ function countTasks(cycle: Cycle) {
 }
 
 // Israeli work week (Sun–Thu) — mirrors backend/src/qa/qa.scheduler.ts's isWorkDay.
-function isWorkDay(d: Date): boolean { const dow = d.getDay(); return dow !== 5 && dow !== 6; }
-function countWorkDaysBetween(start: string, end: string): number {
+// `holidayDays` (yyyy-mm-dd keys) mirrors the backend's approved-season holiday
+// set (Season.isActive), fetched from GET /leaves/seasons, so stats/axis math
+// derived from already-scheduled dates doesn't count a holiday as a work day.
+function isWorkDay(d: Date, holidayDays?: Set<string>): boolean {
+  const dow = d.getDay();
+  if (dow === 5 || dow === 6) return false;
+  if (holidayDays && holidayDays.has(d.toISOString().slice(0, 10))) return false;
+  return true;
+}
+function countWorkDaysBetween(start: string, end: string, holidayDays?: Set<string>): number {
   const s = new Date(start); s.setHours(0, 0, 0, 0);
   const e = new Date(end);   e.setHours(0, 0, 0, 0);
   let count = 0;
   const d = new Date(s);
-  while (d <= e) { if (isWorkDay(d)) count++; d.setDate(d.getDate() + 1); }
+  while (d <= e) { if (isWorkDay(d, holidayDays)) count++; d.setDate(d.getDate() + 1); }
   return count;
 }
 
@@ -249,9 +271,27 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
   const [deletingTask, setDeletingTask]   = useState<string | null>(null);
   const [changeLog, setChangeLog]         = useState<ChangeLogEntry[] | null>(null);
   const [showChangeLog, setShowChangeLog] = useState(false);
+  const [archivedTasks, setArchivedTasks] = useState<ArchivedTask[]>([]);
+  const [showArchive, setShowArchive]     = useState(false);
+  const [restoringTask, setRestoringTask] = useState<string | null>(null);
+  // Approved-season holiday dates (yyyy-mm-dd) — see isWorkDay above.
+  const [holidayDays, setHolidayDays]     = useState<Set<string>>(new Set());
 
   useEffect(() => {
     ax.get(`${API}/qa/testers`).then(r => setAllTesters(r.data ?? [])).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    ax.get(`${API}/leaves/seasons`)
+      .then(r => {
+        const keys = new Set<string>();
+        (r.data as { isActive: boolean; dates: { date: string }[] }[])
+          .filter(s => s.isActive)
+          .forEach(s => s.dates.forEach(d => keys.add(new Date(d.date).toISOString().slice(0, 10))));
+        setHolidayDays(keys);
+      })
+      .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -478,21 +518,57 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
     } catch { dialog.alert('שגיאה בעדכון מאמץ המשימה', 'שגיאה', 'danger'); }
   };
 
-  // Corrective action — allowed even after the plan is approved (unlike most
-  // other edits here), since removing a task that shouldn't be in the plan is
-  // exactly the kind of fix a team lead needs post-approval. The backend logs
-  // it to the change log whenever it happens while the plan is APPROVED.
-  const deleteTask = async (task: CycleTask) => {
+  // Soft-remove (recoverable — see restoreTask/showArchive below), not a hard
+  // delete: allowed even after the plan is approved, since pulling a task
+  // that shouldn't be in the plan is exactly the kind of fix a team lead
+  // needs post-approval. A reason is always required, regardless of approval
+  // status, so the archive trail (shown here and in the CR-detail modal)
+  // always explains why.
+  const archiveTask = async (task: CycleTask) => {
     const label = task.crLabel ?? task.crNumber;
-    if (!await dialog.confirm(`למחוק את המשימה "${label}" (${task.user.fullName})?`, 'מחיקת משימה', 'danger')) return;
+    let reason = window.prompt(`סיבת העברה לארכיון עבור "${label}" (${task.user.fullName}):`);
+    while (reason !== null && !reason.trim()) {
+      reason = window.prompt('נדרשת סיבה — אנא הזן טקסט:');
+    }
+    if (!reason) return;
     setDeletingTask(task.id);
     try {
-      const r = await ax.delete(`${API}/qa/workplan/task/${task.id}`);
+      const r = await ax.patch(`${API}/qa/workplan/task/${task.id}/archive`, { reason: reason.trim() });
       if (r.data) setWorkPlan(r.data);
     } catch (e: any) {
-      dialog.alert(e?.response?.data?.message ?? 'שגיאה במחיקת המשימה', 'שגיאה', 'danger');
+      dialog.alert(e?.response?.data?.message ?? 'שגיאה בהעברה לארכיון', 'שגיאה', 'danger');
     } finally {
       setDeletingTask(null);
+    }
+  };
+
+  const loadArchive = async () => {
+    if (!versionId) return;
+    try {
+      const r = await ax.get(`${API}/qa/workplan/archived?versionId=${versionId}`);
+      setArchivedTasks(r.data);
+      setShowArchive(true);
+    } catch {
+      dialog.alert('שגיאה בטעינת הארכיון', 'שגיאה', 'danger');
+    }
+  };
+
+  const restoreTask = async (task: ArchivedTask) => {
+    const label = task.crLabel ?? task.crNumber;
+    let reason = window.prompt(`סיבת שחזור עבור "${label}" (${task.user.fullName}):`);
+    while (reason !== null && !reason.trim()) {
+      reason = window.prompt('נדרשת סיבה — אנא הזן טקסט:');
+    }
+    if (!reason) return;
+    setRestoringTask(task.id);
+    try {
+      const r = await ax.patch(`${API}/qa/workplan/task/${task.id}/restore`, { reason: reason.trim() });
+      if (r.data) setWorkPlan(r.data);
+      setArchivedTasks(prev => prev.filter(t => t.id !== task.id));
+    } catch (e: any) {
+      dialog.alert(e?.response?.data?.message ?? 'שגיאה בשחזור המשימה', 'שגיאה', 'danger');
+    } finally {
+      setRestoringTask(null);
     }
   };
 
@@ -634,6 +710,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
               {workPlan.status === 'APPROVED' && (
                 <button onClick={loadChangeLog} style={btnStyle('#6366F1')}>🕘 יומן שינויים</button>
               )}
+              <button onClick={loadArchive} style={btnStyle('#6B7280')}>📦 ארכיון</button>
               <button onClick={() => setShowGenForm(f => !f)} style={btnStyle(C.warning)}>↺ יצור מחדש</button>
               <button onClick={revertToOriginal} disabled={reverting} style={btnStyle('#6B7280', reverting)}>{reverting ? 'מחשב...' : '⟲ חזור למקור'}</button>
             </div>
@@ -651,6 +728,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           {workPlan.status === 'APPROVED' && (
             <button onClick={loadChangeLog} style={btnStyle('#6366F1')}>🕘 יומן שינויים</button>
           )}
+          <button onClick={loadArchive} style={btnStyle('#6B7280')}>📦 ארכיון</button>
           <button onClick={() => setShowGenForm(f => !f)} style={btnStyle(C.warning)}>↺ יצור מחדש</button>
           <button onClick={revertToOriginal} disabled={reverting} style={btnStyle('#6B7280', reverting)}>{reverting ? 'מחשב...' : '⟲ חזור לתוכנית המקורית'}</button>
           {/* Filter by employee */}
@@ -910,6 +988,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
         <CycleCard
           key={cycle.id}
           cycle={cycle}
+          standAloneCycle={workPlan?.cycles.find(c => c.cycleType === 'STAND_ALONE')}
           expanded={expandedCycles.has(cycle.id)}
           onToggleExpand={() => toggleCycle(cycle.id)}
           onToggleTask={toggleTask}
@@ -934,9 +1013,10 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           onStartSwap={setSwappingTask}
           onReassignTester={reassignTester}
           reassigning={reassigning}
-          onDeleteTask={deleteTask}
+          onDeleteTask={archiveTask}
           deletingTask={deletingTask}
           urgentCrNumbers={urgentCrNumbers}
+          holidayDays={holidayDays}
         />
       ))}
 
@@ -992,6 +1072,256 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           </div>
         </div>
       )}
+
+      {/* ── Archive — soft-removed tasks, restorable ── */}
+      {showArchive && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 4000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setShowArchive(false)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: C.bgCard, borderRadius: RADIUS.lg, padding: SP[5], maxWidth: 640, width: '92vw', maxHeight: '78vh', overflowY: 'auto', boxShadow: '0 20px 48px rgba(0,0,0,.25)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[3] }}>
+              <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>📦 ארכיון משימות</span>
+              <button onClick={() => setShowArchive(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: C.textMuted }}>✕</button>
+            </div>
+            {archivedTasks.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: SP[6], color: C.textMuted }}>אין משימות בארכיון</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+                {archivedTasks.map(task => (
+                  <div key={task.id} style={{ background: C.bgNested, borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, ...TEXT.sm, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP[3] }}>
+                    <div>
+                      <div style={{ fontWeight: WEIGHT.medium, color: C.textPrimary }}>
+                        CR {task.crNumber} {task.crLabel ? `— ${task.crLabel}` : ''}
+                      </div>
+                      <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: 2 }}>
+                        {task.user.fullName} · {CYCLE_LABEL[task.cycle.cycleType] ?? task.cycle.cycleType} · {task.effortDays} ימים · הועבר לארכיון {new Date(task.updatedAt).toLocaleString('he-IL')}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => restoreTask(task)}
+                      disabled={restoringTask === task.id}
+                      style={{ ...btnStyle(C.success, restoringTask === task.id), fontSize: 12, padding: '5px 10px', whiteSpace: 'nowrap' }}
+                    >
+                      {restoringTask === task.id ? '...' : '↺ שחזר'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Gantt chart ───────────────────────────────────────────────────────────────
+// One horizontal timeline per cycle: a top bar for the cycle's own span, then
+// one row per tester with a segment per active task (colored in fixed order
+// per row — CVD-safe categorical set, see dataviz skill). Time reads right→left
+// (day 0 anchored next to the tester-name column, matching this card's RTL
+// reading direction). A task that runs past the cycle's own end (overflow) is
+// never clipped — the axis stretches to fit it, with a dashed marker at the
+// cycle's real end so the overrun stays visible instead of disappearing off
+// the edge.
+
+// Fixed-order categorical palette (dataviz skill's validated default — CVD-safe
+// adjacent-pair contrast). Colors distinguish *adjacent tasks within one row*,
+// not a cross-row shared category, so there's no global legend — each segment
+// carries its own identity via a direct label (CR number) instead. TARGET CRs
+// (shared defect-handling duty — every active tester gets their own copy, see
+// ALL_TESTERS_PATTERN in qa.service.ts) get their own reserved color instead of
+// a rotation slot, so the same visual identity marks them in every row they
+// appear in and no regular CR is ever colored the same way.
+const GANTT_TASK_COLORS = ['#2a78d6', '#008300', '#e87ba4', '#eda100', '#1baf7a', '#eb6834', '#4a3aa7', '#e34948'];
+const GANTT_TARGET_COLOR = '#14152A'; // app's own dark-indigo sidebar tone — distinct from every categorical slot
+const TARGET_CR_PATTERN = /target/i;
+
+function ganttDayOf(fromIso: string, toIso: string, holidayDays?: Set<string>): number {
+  // 1-based work-day index of `to` relative to `from` (from itself = day 1).
+  return countWorkDaysBetween(fromIso, toIso, holidayDays);
+}
+
+function GanttChart({ cycle, label, testerGroups, saGhostsByUser, holidayDays }: {
+  cycle: Cycle;
+  label: string;
+  testerGroups: Map<string, { name: string; tasks: CycleTask[] }>;
+  saGhostsByUser: Map<string, CycleTask[]>;
+  holidayDays: Set<string>;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  // Custom fixed-position tooltip instead of the native `title` attribute —
+  // native tooltips are unreliable on these thin, absolutely-positioned
+  // segments (delayed, easily lost to a re-render, sometimes never fire).
+  const [hoveredSeg, setHoveredSeg] = useState<{ text: string; x: number; y: number } | null>(null);
+  const cycleLengthDays = Math.max(1, countWorkDaysBetween(cycle.plannedStart, cycle.plannedEnd, holidayDays));
+
+  type Seg = { id: string; crNumber: string; label: string; startDay: number; durationDays: number; color: string | null; isTarget: boolean; isGhost: boolean };
+  const rows = Array.from(testerGroups.entries())
+    .map(([userId, group]) => {
+      const active = group.tasks.filter(t => t.isActive).sort((a, b) => a.plannedStart.localeCompare(b.plannedStart));
+      let colorIdx = 0;
+      const segs: Seg[] = active.map(t => {
+        const startDay = ganttDayOf(cycle.plannedStart, t.plannedStart, holidayDays);
+        const endDay   = ganttDayOf(cycle.plannedStart, t.plannedEnd, holidayDays);
+        const isFiller = t.taskType === 'REGRESSION';
+        const isTarget = !isFiller && TARGET_CR_PATTERN.test(t.crLabel ?? t.crNumber);
+        const color = isFiller ? null : isTarget ? GANTT_TARGET_COLOR : GANTT_TASK_COLORS[colorIdx++ % GANTT_TASK_COLORS.length];
+        return {
+          id: t.id, crNumber: isFiller ? 'רגרסיה' : t.crNumber, label: t.crLabel ?? t.crNumber,
+          startDay, durationDays: Math.max(1, endDay - startDay + 1), color, isTarget, isGhost: false,
+        };
+      });
+      // Ghost segments — this tester's Stand Alone tasks that chronologically fall
+      // inside this cycle's own window (see saGhostsByUser in CycleCard). Positioned
+      // the same way, but never consume a rotation color and render read-only.
+      for (const t of saGhostsByUser.get(userId) ?? []) {
+        const startDay = ganttDayOf(cycle.plannedStart, t.plannedStart, holidayDays);
+        const endDay   = ganttDayOf(cycle.plannedStart, t.plannedEnd, holidayDays);
+        segs.push({
+          id: `ghost-${t.id}`, crNumber: t.crNumber, label: t.crLabel ?? t.crNumber,
+          startDay, durationDays: Math.max(1, endDay - startDay + 1), color: null, isTarget: false, isGhost: true,
+        });
+      }
+      segs.sort((a, b) => a.startDay - b.startDay);
+      return { name: group.name, segs };
+    })
+    .filter(r => r.segs.length > 0)
+    .sort((a, b) => a.name.localeCompare(b.name, 'he'));
+
+  if (rows.length === 0) return null;
+
+  const axisMaxDays = Math.max(
+    cycleLengthDays,
+    ...rows.flatMap(r => r.segs.map(s => s.startDay + s.durationDays - 1)),
+  );
+  const pct = (days: number) => (days / axisMaxDays) * 100;
+
+  // ~5 round ticks across the axis, always including 0 and the cycle length.
+  const tickStep = Math.max(1, Math.round(cycleLengthDays / 5 / 5) * 5) || Math.ceil(cycleLengthDays / 5);
+  const ticks = Array.from({ length: Math.floor(axisMaxDays / tickStep) + 1 }, (_, i) => i * tickStep)
+    .filter(t => t <= axisMaxDays);
+  if (ticks[ticks.length - 1] !== axisMaxDays) ticks.push(axisMaxDays);
+
+  const ROW_H = 30;
+  const LABEL_W = 156; // wide enough for full first+last names ("Stanislav Abramyan") without ellipsis
+
+  return (
+    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, marginBottom: SP[4], overflow: 'hidden' }}>
+      <div
+        onClick={() => setCollapsed(v => !v)}
+        style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: SP[4], paddingBottom: collapsed ? SP[4] : SP[3], cursor: 'pointer', userSelect: 'none', direction: 'rtl' }}
+      >
+        <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em', flex: 1 }}>
+          📊 ציר זמן — עומס בודקים ב{label}
+        </span>
+        <span style={{ color: C.textMuted, fontSize: '13px' }}>{collapsed ? '▼' : '▲'}</span>
+      </div>
+
+      {!collapsed && (
+        <div style={{ padding: `0 ${SP[4]} ${SP[4]}`, direction: 'rtl' }}>
+          {/* Cycle-span row */}
+          <div style={{ display: 'flex', alignItems: 'center', height: ROW_H, marginBottom: SP[2] }}>
+            <div style={{ width: LABEL_W, flexShrink: 0, ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textSecondary, paddingRight: SP[2], boxSizing: 'border-box' }}>
+              {label}
+            </div>
+            <div style={{ flex: 1, position: 'relative', height: 14 }}>
+              <div style={{
+                position: 'absolute', top: 0, height: '100%', borderRadius: RADIUS.full,
+                right: 0, width: `${pct(cycleLengthDays)}%`,
+                background: C.brandDim, border: `1px solid ${C.brand}55`,
+              }} />
+            </div>
+          </div>
+
+          {/* Tester rows */}
+          {rows.map(row => (
+            <div key={row.name} style={{ display: 'flex', alignItems: 'center', height: ROW_H }}>
+              <div
+                title={row.name}
+                style={{
+                  width: LABEL_W, flexShrink: 0, ...TEXT.xs, fontWeight: WEIGHT.medium, color: C.textPrimary,
+                  paddingRight: SP[2], boxSizing: 'border-box', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}
+              >
+                {row.name}
+              </div>
+              <div style={{ flex: 1, position: 'relative', height: 18, background: C.bgNested, borderRadius: RADIUS.sm }}>
+                {/* Cycle-end marker — segments crossing it are overflowing the cycle */}
+                {cycleLengthDays < axisMaxDays && (
+                  <div style={{ position: 'absolute', top: -2, bottom: -2, right: `${pct(cycleLengthDays)}%`, borderRight: `1px dashed ${C.danger}88` }} />
+                )}
+                {row.segs.map(seg => {
+                  const rightPct = pct(seg.startDay - 1);
+                  const widthPct = pct(seg.durationDays);
+                  const wide = widthPct > 6;
+                  const titlePrefix = seg.isGhost ? '↗ Stand Alone (סבב אחר) — ' : seg.isTarget ? '🎯 TARGET — ' : '';
+                  const tooltipText = `${titlePrefix}${seg.crNumber} — ${seg.label} (${seg.durationDays} ${seg.durationDays === 1 ? 'יום' : 'ימים'})`;
+                  return (
+                    <div
+                      key={seg.id}
+                      onMouseEnter={e => {
+                        const r = e.currentTarget.getBoundingClientRect();
+                        setHoveredSeg({ text: tooltipText, x: r.left + r.width / 2, y: r.top });
+                      }}
+                      onMouseLeave={() => setHoveredSeg(null)}
+                      style={{
+                        position: 'absolute', top: 0, height: '100%',
+                        right: `${rightPct}%`, width: `${widthPct}%`,
+                        background: seg.isGhost ? C.bgCard : seg.color ?? C.bgCard,
+                        ...(seg.isGhost
+                          ? { border: `1px dashed ${C.brand}88`, opacity: 0.75 }
+                          : seg.color ? {} : { backgroundImage: `repeating-linear-gradient(45deg, ${C.textDisabled}, ${C.textDisabled} 3px, ${C.bgCard} 3px, ${C.bgCard} 6px)` }),
+                        borderRadius: RADIUS.sm,
+                        boxSizing: 'border-box', border: seg.isGhost ? `1px dashed ${C.brand}88` : `1px solid ${C.bgCard}`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                        cursor: 'default',
+                      }}
+                    >
+                      {wide && (
+                        <span style={{ fontWeight: WEIGHT.bold, color: seg.isGhost ? C.brand : seg.color ? '#fff' : C.textMuted, whiteSpace: 'nowrap', fontSize: 11 }}>
+                          {seg.isGhost ? `↗ SA ${seg.crNumber}` : seg.isTarget ? `🎯 ${seg.crNumber}` : seg.crNumber}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+
+          {/* Axis */}
+          <div style={{ display: 'flex', height: 18 }}>
+            <div style={{ width: LABEL_W, flexShrink: 0 }} />
+            <div style={{ flex: 1, position: 'relative' }}>
+              {ticks.map(t => (
+                <span key={t} style={{
+                  position: 'absolute', right: `${pct(t)}%`, transform: 'translateX(50%)',
+                  color: C.textMuted, fontSize: 11, top: 2,
+                }}>
+                  {t}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: 'flex' }}>
+            <div style={{ width: LABEL_W, flexShrink: 0 }} />
+            <div style={{ flex: 1, textAlign: 'center', color: C.textMuted, fontSize: 11 }}>
+              ימים בסבב הבדיקות{axisMaxDays > cycleLengthDays ? ' (כולל חריגה מהסבב)' : ''}
+            </div>
+          </div>
+        </div>
+      )}
+      {hoveredSeg && (
+        <div style={{
+          position: 'fixed', left: hoveredSeg.x, top: hoveredSeg.y, transform: 'translate(-50%, -100%) translateY(-6px)',
+          background: C.textPrimary, color: C.bgCard, ...TEXT.xs, fontWeight: WEIGHT.medium,
+          padding: `${SP[1]} ${SP[2]}`, borderRadius: RADIUS.sm, boxShadow: SHADOW.md,
+          whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 1000, direction: 'rtl',
+        }}>
+          {hoveredSeg.text}
+        </div>
+      )}
     </div>
   );
 }
@@ -1027,6 +1357,8 @@ interface CycleCardProps {
   onDeleteTask:    (t: CycleTask) => void;
   deletingTask:    string | null;
   urgentCrNumbers: Set<string>;
+  standAloneCycle: Cycle | undefined;
+  holidayDays:     Set<string>;
 }
 
 function CycleCard({
@@ -1037,13 +1369,13 @@ function CycleCard({
   allAssignments, problematicKeys,
   allTesters, swappingTask, onStartSwap, onReassignTester, reassigning,
   onDeleteTask, deletingTask,
-  urgentCrNumbers,
+  urgentCrNumbers, standAloneCycle, holidayDays,
 }: CycleCardProps) {
   const accent = CYCLE_ACCENT[cycle.cycleType] ?? C.textMuted;
   const bg     = CYCLE_BG[cycle.cycleType]     ?? C.bgNested;
   const label  = CYCLE_LABEL[cycle.cycleType]  ?? cycle.cycleType;
   const counts = countTasks(cycle);
-  const totalWorkDays = countWorkDaysBetween(cycle.plannedStart, cycle.plannedEnd);
+  const totalWorkDays = countWorkDaysBetween(cycle.plannedStart, cycle.plannedEnd, holidayDays);
   const assignedDays  = cycleAssignedDays(cycle, filterUserId);
   const editable = EDITABLE_CYCLES.has(cycle.cycleType) && !planApproved;
   const isRehearsalOrGoLive = cycle.cycleType === 'REHEARSAL' || cycle.cycleType === 'GO_LIVE';
@@ -1059,6 +1391,23 @@ function CycleCard({
       testerGroups.set(task.userId, { name: task.user.fullName, tasks: [] });
     }
     testerGroups.get(task.userId)!.tasks.push(task);
+  }
+
+  // Cross-cycle visibility: a tester's Stand Alone task can chronologically fall
+  // inside this (core) cycle's own window — e.g. their SA load overflowed into
+  // it — which is otherwise invisible here since SA is a fully separate cycle.
+  // Surface it as a read-only "ghost" entry, only for testers who already have
+  // a real row in this cycle (never creates a new row just for a ghost).
+  const isCoreCycle = cycle.cycleType === 'CYCLE_1' || cycle.cycleType === 'CYCLE_2' || cycle.cycleType === 'CYCLE_3';
+  const saGhostsByUser = new Map<string, CycleTask[]>();
+  if (isCoreCycle && standAloneCycle) {
+    for (const t of standAloneCycle.tasks) {
+      if (!t.isActive || !testerGroups.has(t.userId)) continue;
+      if (filterUserId && t.userId !== filterUserId) continue;
+      if (t.plannedStart > cycle.plannedEnd || t.plannedEnd < cycle.plannedStart) continue; // no calendar overlap with this cycle
+      if (!saGhostsByUser.has(t.userId)) saGhostsByUser.set(t.userId, []);
+      saGhostsByUser.get(t.userId)!.push(t);
+    }
   }
 
   const noteVal = editNotes[cycle.id] ?? (cycle.notes ?? '');
@@ -1191,11 +1540,13 @@ function CycleCard({
             </p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+              <GanttChart cycle={cycle} label={label} testerGroups={testerGroups} saGhostsByUser={saGhostsByUser} holidayDays={holidayDays} />
               {Array.from(testerGroups.entries()).map(([userId, group]) => (
                 <TesterSection
                   key={userId}
                   testerName={group.name}
                   tasks={group.tasks}
+                  ghostTasks={saGhostsByUser.get(userId) ?? []}
                   editable={editable}
                   onToggleTask={onToggleTask}
                   togglingTasks={togglingTasks}
@@ -1231,6 +1582,7 @@ function CycleCard({
 interface TesterSectionProps {
   testerName:      string;
   tasks:           CycleTask[];
+  ghostTasks:      CycleTask[];
   editable:        boolean;
   onToggleTask:    (t: CycleTask) => void;
   togglingTasks:   Set<string>;
@@ -1254,7 +1606,7 @@ interface TesterSectionProps {
 }
 
 function TesterSection({
-  testerName, tasks, editable, onToggleTask, togglingTasks,
+  testerName, tasks, ghostTasks, editable, onToggleTask, togglingTasks,
   editingEffort, onEditEffort, onSaveEffort,
   assignmentMap, onOpenSecondary, onReorderTask, reorderingTask, isCycle1,
   problematicKeys, allTesters, swappingTask, onStartSwap, onReassignTester, reassigning,
@@ -1262,9 +1614,34 @@ function TesterSection({
   urgentCrNumbers,
 }: TesterSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [dragTaskId, setDragTaskId] = useState<string | null>(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
   const sorted = [...tasks].sort((a, b) => a.sortOrder - b.sortOrder);
   const crTasks = sorted.filter(t => t.taskType !== 'REGRESSION' && t.isPrimary);
   const totalDays = crTasks.filter(t => t.isActive).reduce((s, t) => s + t.effortDays, 0);
+
+  // Real rows (unchanged order/index logic) merged with read-only Stand Alone
+  // "ghost" rows at their true chronological position, for display only — the
+  // ghosts never enter sortOrder/crTasks/reorder math above.
+  type DisplayRow = { kind: 'real'; task: CycleTask } | { kind: 'ghost'; task: CycleTask };
+  const displayRows: DisplayRow[] = [
+    ...sorted.map(t => ({ kind: 'real' as const, task: t })),
+    ...ghostTasks.map(t => ({ kind: 'ghost' as const, task: t })),
+  ].sort((a, b) => a.task.plannedStart.localeCompare(b.task.plannedStart));
+  const colCount = 9 + (editable ? 2 : 0);
+
+  // Drag-and-drop reorder — same onReorderTask call the ▲▼ arrows already use,
+  // just computing the target position from where the row was dropped instead
+  // of ±1. Only within this tester's own CYCLE_1 queue (arrows have the same
+  // restriction — cycles 2/3 are derived downstream, not manually reordered).
+  const handleDrop = (targetTask: CycleTask) => {
+    const draggedId = dragTaskId;
+    setDragTaskId(null);
+    setDragOverTaskId(null);
+    if (!draggedId || draggedId === targetTask.id) return;
+    const targetOrder = crTasks.findIndex(t => t.id === targetTask.id) + 1;
+    if (targetOrder > 0) onReorderTask(draggedId, targetOrder);
+  };
 
   return (
     <div>
@@ -1327,7 +1704,21 @@ function TesterSection({
             </tr>
           </thead>
           <tbody>
-            {sorted.map((task) => {
+            {displayRows.map((row) => {
+              if (row.kind === 'ghost') {
+                const t = row.task;
+                return (
+                  <tr key={`ghost-${t.id}`} style={{ backgroundColor: C.brandDim }}>
+                    <td colSpan={colCount} style={{ ...tdStyle, padding: `${SP[1]} ${SP[2]}` }}>
+                      <span style={{ ...TEXT.xs, color: C.brand, fontWeight: WEIGHT.bold }}>↗ Stand Alone</span>
+                      <span style={{ ...TEXT.xs, color: C.textSecondary, fontStyle: 'italic', marginRight: SP[2] }}>
+                        {t.crNumber} — {t.crLabel ?? t.crNumber} · {fmtDate(t.plannedStart)}–{fmtDate(t.plannedEnd)} · {t.effortDays} ימים
+                      </span>
+                    </td>
+                  </tr>
+                );
+              }
+              const task = row.task;
               const isReg      = task.taskType === 'REGRESSION';
               const isSecondary = !task.isPrimary;
               const isInactive = !task.isActive;
@@ -1348,19 +1739,31 @@ function TesterSection({
                 <tr
                   key={task.id}
                   id={rowElementId(testerName, task.crNumber)}
+                  onDragOver={isCycle1 && orderNum != null ? e => { e.preventDefault(); if (dragTaskId && dragTaskId !== task.id) setDragOverTaskId(task.id); } : undefined}
+                  onDragLeave={isCycle1 && orderNum != null ? () => setDragOverTaskId(prev => prev === task.id ? null : prev) : undefined}
+                  onDrop={isCycle1 && orderNum != null ? e => { e.preventDefault(); handleDrop(task); } : undefined}
                   style={{
-                    backgroundColor: isProblematic ? C.dangerBg : rowBg,
+                    backgroundColor: dragOverTaskId === task.id ? C.infoBg : isProblematic ? C.dangerBg : rowBg,
                     opacity: isInactive ? 0.45 : 1,
                     textDecoration: isInactive ? 'line-through' : 'none',
-                    outline: isProblematic ? `2px solid ${C.danger}` : 'none',
+                    outline: dragOverTaskId === task.id ? `2px dashed ${C.info}` : isProblematic ? `2px solid ${C.danger}` : 'none',
                     outlineOffset: '-2px',
                     transition: 'outline-color 0.3s',
                   }}
                 >
-                  {/* # + reorder arrows */}
+                  {/* # + drag handle + reorder arrows */}
                   <td style={{ ...tdStyle, textAlign: 'center', padding: `${SP[1]} 4px` }}>
                     {orderNum != null ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'center' }}>
+                        {isCycle1 && !isReordering && (
+                          <span
+                            draggable
+                            title="גרור לשינוי סדר"
+                            onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDragTaskId(task.id); }}
+                            onDragEnd={() => { setDragTaskId(null); setDragOverTaskId(null); }}
+                            style={{ cursor: 'grab', color: C.textDisabled, ...TEXT.xs, lineHeight: 1, userSelect: 'none' }}
+                          >⠿</span>
+                        )}
                         <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.medium, minWidth: 16 }}>{orderNum}</span>
                         {isCycle1 && !isReordering && (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -1456,12 +1859,13 @@ function TesterSection({
                       </span>
                     )}
                   </td>
-                  {/* Delete — a corrective action, always available regardless of
-                      the cycle's editable/approval gate (unlike toggle/reassign below) */}
+                  {/* Archive — a corrective, recoverable action (see the "ארכיון"
+                      panel), always available regardless of the cycle's
+                      editable/approval gate (unlike toggle/reassign below) */}
                   <td style={{ ...tdStyle, textAlign: 'center' }}>
                     {!isReg && !isSecondary && (
                       <button
-                        title="מחק משימה"
+                        title="העבר לארכיון (ניתן לשחזור)"
                         onClick={() => onDeleteTask(task)}
                         disabled={deletingTask === task.id}
                         style={{
@@ -1469,7 +1873,7 @@ function TesterSection({
                           border: '1px solid transparent', cursor: deletingTask === task.id ? 'not-allowed' : 'pointer',
                         }}
                       >
-                        {deletingTask === task.id ? '…' : '🗑'}
+                        {deletingTask === task.id ? '…' : '📦'}
                       </button>
                     )}
                   </td>

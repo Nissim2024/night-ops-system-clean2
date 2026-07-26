@@ -69,6 +69,7 @@ export class TargetCrService {
         status: od.status,
         severity: od.severity,
         assignedTo: od.assignedTo,
+        qaTester: od.qaTester,
         requiresSpecialImplementation: local?.requiresSpecialImplementation ?? false,
         implementationReason: local?.implementationReason ?? null,
         importantToManagement: local?.importantToManagement ?? false,
@@ -87,6 +88,108 @@ export class TargetCrService {
       },
       teamName: team.name,
       defects,
+    };
+  }
+
+  // ── Self-scoped: a QA tester's own TARGET CR defects ────────────────────────
+  // "Assigned to me" here means: every defect under a TARGET CR I'm actually
+  // testing (per QaCycleTask), not a per-defect Oracle ASSIGNED_TO match — that
+  // field is free text in "Last, First" order and has no reliable link to our
+  // User records, so per-defect matching would silently miss most defects.
+  // Reuses getReview per CR, which already resolves the caller's own team via
+  // resolveTeamId — a QA tester's TeamMember row naturally scopes this to the
+  // QA team's own defect list for that CR.
+  private readonly TARGET_CR_PATTERN = /target/i;
+
+  // BG_USER_37 (qaTester) is Oracle free text and its exact name order isn't
+  // confirmed from real data yet (Oracle is disabled in dev) — likely "Last,
+  // First" like other BG_USER_* name fields (e.g. crManager shows "Keynan,
+  // Shaul"). Token-set comparison makes this order-independent, so it works
+  // whichever way it turns out to be stored.
+  private namesLikelyMatch(oracleName: string, fullName: string): boolean {
+    if (!oracleName || !fullName) return false;
+    const norm = (s: string) => s.toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+    const aTokens = norm(oracleName).split(' ').filter(Boolean);
+    const bTokens = norm(fullName).split(' ').filter(Boolean);
+    if (aTokens.length === 0 || bTokens.length === 0 || aTokens.length !== bTokens.length) return false;
+    const bSet = new Set(bTokens);
+    return aTokens.every(t => bSet.has(t));
+  }
+
+  async getMyDefects(versionId: string, user: { sub: string; role: string }) {
+    const [tasks, me] = await Promise.all([
+      prisma.qaCycleTask.findMany({
+        where: { userId: user.sub, isArchived: false, taskType: { not: 'REGRESSION' }, cycle: { workPlan: { versionId } } } as any,
+        select: { crNumber: true, crLabel: true },
+      }),
+      prisma.user.findUnique({ where: { id: user.sub }, select: { fullName: true } }),
+    ]);
+    const crLabelByNumber = new Map(tasks.map(t => [t.crNumber, t.crLabel]));
+    const targetCrNumbers = Array.from(new Set(
+      tasks.filter(t => this.TARGET_CR_PATTERN.test(t.crLabel ?? t.crNumber)).map(t => t.crNumber),
+    ));
+
+    const results: { crNumber: string; crLabel: string | null; teamName: string; defects: any[] }[] = [];
+    for (const crNumber of targetCrNumbers) {
+      try {
+        const r = await this.getReview(versionId, crNumber, undefined as any, user);
+        // Inclusion stays CR-based (every defect under a TARGET CR I'm testing) —
+        // isMine is a soft, best-effort highlight only, never a filter, since the
+        // Oracle field's exact name format isn't confirmed from real data yet.
+        const defects = r.defects.map((d: any) => ({ ...d, isMine: this.namesLikelyMatch(d.qaTester, me?.fullName ?? '') }));
+        results.push({ crNumber, crLabel: crLabelByNumber.get(crNumber) ?? null, teamName: r.teamName, defects });
+      } catch {
+        // Skip a CR that fails to resolve (e.g. Oracle unavailable for it right
+        // now) rather than failing the whole list for every other CR.
+      }
+    }
+    return results;
+  }
+
+  // ── Self-scoped: a QA tester's own defect-reporting stats ───────────────────
+  // "Defects I reported" — filtered by Oracle's BG_DETECTED_BY (the person who
+  // found/logged the bug), a different field from BG_USER_37/qaTester (TARGET
+  // defect assignment) and BG_RESPONSIBLE/assignedTo (team queue). Confirmed
+  // with the user (2026-07-24):
+  //   - "Fixed_Test" = fixed by dev, waiting for the tester to verify/retest.
+  //   - "too few defects" threshold = sum of each assigned CR's own dev-effort
+  //     days (VersionCrAssignment.estimateDays), at a rate of 1 expected
+  //     defect per dev-day — a CR with no known estimate contributes 0, and if
+  //     the total is 0 the warning never fires (nothing to compare against).
+  async getMyDefectStats(versionId: string, user: { sub: string; role: string }) {
+    const [tasks, me] = await Promise.all([
+      prisma.qaCycleTask.findMany({
+        where: { userId: user.sub, isArchived: false, taskType: { not: 'REGRESSION' }, cycle: { workPlan: { versionId } } } as any,
+        select: { crNumber: true },
+      }),
+      prisma.user.findUnique({ where: { id: user.sub }, select: { fullName: true } }),
+    ]);
+    const crNumbers = Array.from(new Set(tasks.map(t => t.crNumber)));
+
+    let expectedMin = 0;
+    if (crNumbers.length > 0) {
+      const vcas = await prisma.versionCrAssignment.findMany({
+        where: { versionId, crNumber: { in: crNumbers } },
+        select: { crNumber: true, estimateDays: true },
+      });
+      const estimateByCr = new Map<string, number>();
+      for (const v of vcas) {
+        if (!estimateByCr.has(v.crNumber) && v.estimateDays != null) estimateByCr.set(v.crNumber, v.estimateDays);
+      }
+      expectedMin = Math.round(Array.from(estimateByCr.values()).reduce((sum, d) => sum + d, 0));
+    }
+
+    const allDefects = await this.qcService.getMyReportedDefects(versionId);
+    const myName = me?.fullName ?? '';
+    const mine = allDefects.filter(d => this.namesLikelyMatch(d.detectedBy, myName));
+    const CLOSED_STATUSES = new Set(['Closed', 'Canceled']);
+    const opened = mine.length;
+    const stillOpen = mine.filter(d => !CLOSED_STATUSES.has(d.status)).length;
+    const waitingForMyVerification = mine.filter(d => d.status === 'Fixed_Test').length;
+
+    return {
+      opened, stillOpen, waitingForMyVerification, expectedMin,
+      tooFew: expectedMin > 0 && opened < expectedMin,
     };
   }
 

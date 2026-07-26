@@ -174,6 +174,66 @@ export class QaWorkPlanService {
     return map;
   }
 
+  // ── Holiday days (global, applies to every tester alike) ───────────────────
+  // Season.isActive is the single "approved for scheduling" gate for every
+  // date under it — Jewish holidays and non-Jewish ones (Silvester, Christmas)
+  // alike. A season stays isActive:false until someone explicitly approves it
+  // (see leaves.service.ts importHolidays), so an unapproved/stale season
+  // never blocks scheduling.
+  private async loadHolidayDays(): Promise<Set<string>> {
+    const dates = await prisma.seasonDate.findMany({
+      where: { season: { isActive: true } },
+      select: { date: true },
+    });
+    return new Set(dates.map(d => dateKey(d.date)));
+  }
+
+  // ── Sync the version's own dates from the QA cascade ────────────────────────
+  // Only for versions created after 2026-07-24 (datesLockedToWorkPlan=true —
+  // see schema comment and versions.service.ts's create()): once a QA work
+  // plan exists, integrationStart/End, qaStart/End and plannedRehearsalStart/End
+  // are no longer independently editable — they're whatever the QA cascade
+  // currently computes. Called after every operation that can move cycle
+  // dates (generate, settings save, and — via cascadeFromCycle —
+  // toggle/effort/reassign/reorder/delete/archive/restore), so those dates
+  // never silently drift from the plan.
+  // plannedStart (go-live) is different by product decision: it's filled in
+  // from the GO_LIVE cycle only the first time a plan exists for the version
+  // (while it's still null) — after the team has looked at the plan and the
+  // date is set, it's a fixed external commitment and no longer moves on its
+  // own; further plan edits are checked against it (GO_LIVE_OVERFLOW below),
+  // not the other way around. A release manager can still deliberately
+  // change it via the normal version PATCH — that's a human decision, not
+  // this sync.
+  // Legacy versions (datesLockedToWorkPlan=false) are untouched — this is a
+  // no-op for every version that existed before this feature shipped.
+  private async syncVersionDatesFromWorkPlan(
+    workPlanId: string,
+    extra?: { integrationStart?: Date; integrationEnd?: Date },
+  ) {
+    const plan = await prisma.qaWorkPlan.findUnique({ where: { id: workPlanId }, select: { versionId: true } });
+    if (!plan) return;
+    const version = await prisma.version.findUnique({ where: { id: plan.versionId }, select: { datesLockedToWorkPlan: true, plannedStart: true } as any });
+    if (!(version as any)?.datesLockedToWorkPlan) return;
+
+    const cycles = await prisma.qaCycle.findMany({ where: { workPlanId } });
+    const byType = new Map(cycles.map(c => [c.cycleType, c]));
+    const cycle1   = byType.get('CYCLE_1');
+    const lastCore = byType.get('CYCLE_3') ?? byType.get('CYCLE_2') ?? byType.get('CYCLE_1');
+    const rehearsal = byType.get('REHEARSAL');
+    const goLive    = byType.get('GO_LIVE');
+
+    const data: any = { ...extra };
+    if (cycle1) data.qaStart = cycle1.plannedStart;
+    if (lastCore) data.qaEnd = lastCore.plannedEnd;
+    if (rehearsal) { data.plannedRehearsalStart = rehearsal.plannedStart; data.plannedRehearsalEnd = rehearsal.plannedEnd; }
+    if (goLive && !(version as any).plannedStart) data.plannedStart = goLive.plannedStart;
+
+    if (Object.keys(data).length > 0) {
+      await prisma.version.update({ where: { id: plan.versionId }, data });
+    }
+  }
+
   // ── Generate / regenerate work plan ────────────────────────────────────────
 
   async generateWorkPlan(
@@ -184,6 +244,8 @@ export class QaWorkPlanService {
     cycle1LengthDays?: number,
     cycle2LengthDays?: number,
     cycle3LengthDays?: number,
+    integrationStart?: Date,
+    integrationEnd?: Date,
   ) {
     // 1. Validate version exists
     const version = await prisma.version.findUnique({ where: { id: versionId } });
@@ -195,6 +257,7 @@ export class QaWorkPlanService {
     // weekend for that specific person, instead of silently running a task
     // straight through their vacation.
     const leaveDaysByTester = await this.loadLeaveDays(crInputs, cycle1Start);
+    const holidayDays = await this.loadHolidayDays();
     const effectiveCycle1Length = cycle1LengthDays && cycle1LengthDays > 0 ? cycle1LengthDays : 12;
     const effectiveCycle2Length = cycle2LengthDays && cycle2LengthDays > 0 ? cycle2LengthDays : undefined;
     const effectiveCycle3Length = cycle3LengthDays && cycle3LengthDays > 0 ? cycle3LengthDays : undefined;
@@ -203,6 +266,7 @@ export class QaWorkPlanService {
     const plannedCycles: PlannedCycle[] = buildWorkPlan(
       crInputs, cycle1Start, leaveDaysByTester,
       effectiveCycle1Length, effectiveCycle2Length, effectiveCycle3Length,
+      holidayDays,
     );
 
     // Persist the actual applied lengths (including derived ones, when the
@@ -210,13 +274,16 @@ export class QaWorkPlanService {
     const appliedCycle2Length = countWorkDays(
       plannedCycles.find(c => c.cycleType === 'CYCLE_2')!.plannedStart,
       plannedCycles.find(c => c.cycleType === 'CYCLE_2')!.plannedEnd,
+      holidayDays,
     );
     const appliedCycle3Length = countWorkDays(
       plannedCycles.find(c => c.cycleType === 'CYCLE_3')!.plannedStart,
       plannedCycles.find(c => c.cycleType === 'CYCLE_3')!.plannedEnd,
+      holidayDays,
     );
 
     // 7. Persist — delete existing plan for this version first
+    let newPlanId = '';
     await prisma.$transaction(async tx => {
       await tx.qaWorkPlan.deleteMany({ where: { versionId } });
 
@@ -232,6 +299,7 @@ export class QaWorkPlanService {
           createdBy:  createdBy ?? null,
         } as any,
       });
+      newPlanId = plan.id;
 
       for (let ci = 0; ci < plannedCycles.length; ci++) {
         const pc = plannedCycles[ci];
@@ -264,8 +332,77 @@ export class QaWorkPlanService {
       }
     });
 
+    await this.syncVersionDatesFromWorkPlan(newPlanId, { integrationStart, integrationEnd });
+
     const result = await this.getWorkPlan(versionId);
     return { workPlan: result, unassignedCrs: unassigned };
+  }
+
+  // ── Save plan-level fields (dates / cycle lengths) without regenerating ────
+  // Unlike generateWorkPlan (which deletes and rebuilds the whole plan — losing
+  // manual reassignments, effort overrides, task toggles, sort order, cycle
+  // notes, and APPROVED status), this only updates QaWorkPlan's own columns.
+  // If cycle1Start actually moved, CYCLE_1 is reflowed from the new start
+  // (same day-by-day layout used by toggle/reorder/effort edits) and the
+  // shift cascades through CYCLE_2/CYCLE_3/UAT/REHEARSAL/GO_LIVE — so already
+  // -created cycles move with the plan instead of going stale. Tester load
+  // needs no separate recompute: getWorkPlan() derives overflowIssues live
+  // from current cycle/task data on every read.
+  // Cycle length values (cycle1/2/3LengthDays) are capacity *inputs* to the
+  // from-scratch scheduler (buildWorkPlan) — they don't re-partition which
+  // CRs sit in which cycle after the fact, so changing only the length here
+  // updates the stored target (used next time someone regenerates) without
+  // moving any already-scheduled task.
+  async updatePlanSettings(
+    versionId: string,
+    cycle1Start: Date,
+    testingEnd: Date,
+    cycle1LengthDays?: number,
+    cycle2LengthDays?: number,
+    cycle3LengthDays?: number,
+  ) {
+    const plan = await prisma.qaWorkPlan.findUnique({ where: { versionId }, include: { cycles: true } });
+    if (!plan) throw new NotFoundException('אין תוכנית עבודה קיימת לגרסה זו — יש ליצור תוכנית קודם');
+
+    const cycle1StartMoved = plan.cycle1Start.getTime() !== cycle1Start.getTime();
+
+    const effCycle1Length = cycle1LengthDays ?? plan.cycle1LengthDays ?? 12;
+    const effCycle2Length = cycle2LengthDays ?? plan.cycle2LengthDays ?? undefined;
+    const effCycle3Length = cycle3LengthDays ?? plan.cycle3LengthDays ?? undefined;
+    const lengthsChanged =
+      effCycle1Length !== plan.cycle1LengthDays ||
+      effCycle2Length !== plan.cycle2LengthDays ||
+      effCycle3Length !== plan.cycle3LengthDays;
+
+    await prisma.qaWorkPlan.update({
+      where: { versionId },
+      data: {
+        cycle1Start,
+        testingEnd,
+        cycle1LengthDays: effCycle1Length,
+        cycle2LengthDays: effCycle2Length,
+        cycle3LengthDays: effCycle3Length,
+      } as any,
+    });
+
+    // A length change alone (no start-date move) also cascades now — pinned
+    // to the new target length via fixedLengthDays, not just re-run with the
+    // old floating boundary — so "save" visibly reshapes the schedule
+    // (holiday-aware) instead of only updating the stored target for the
+    // next full regenerate.
+    if (cycle1StartMoved || lengthsChanged) {
+      const cycle1 = plan.cycles.find(c => c.cycleType === 'CYCLE_1');
+      if (cycle1) {
+        const holidayDays = await this.loadHolidayDays();
+        const newEnd = await this.rescheduleFullCycle(cycle1.id, cycle1Start, holidayDays, effCycle1Length);
+        await this.cascadeFromCycle(plan.id, 'CYCLE_1', newEnd, holidayDays, {
+          CYCLE_2: effCycle2Length,
+          CYCLE_3: effCycle3Length,
+        });
+      }
+    }
+
+    return this.getWorkPlan(versionId);
   }
 
   // ── Get work plan for a version ─────────────────────────────────────────────
@@ -278,6 +415,7 @@ export class QaWorkPlanService {
           orderBy: { cycleType: 'asc' },
           include: {
             tasks: {
+              where:   { isArchived: false } as any,
               orderBy: [{ sortOrder: 'asc' }],
               include: {
                 user: { select: { id: true, fullName: true, email: true } },
@@ -318,6 +456,7 @@ export class QaWorkPlanService {
 
     const coreCycles = plan.cycles.filter((c: any) => ['CYCLE_1', 'CYCLE_2', 'CYCLE_3'].includes(c.cycleType));
     const saCycle     = plan.cycles.find((c: any) => c.cycleType === 'STAND_ALONE');
+    const holidayDays = await this.loadHolidayDays();
 
     // Cycle boundaries are now a fixed parameter (see buildWorkPlan) — check
     // each cycle independently for testers whose own real (non-filler) work
@@ -337,7 +476,7 @@ export class QaWorkPlanService {
         const lastEnd = tasks.reduce((max: Date, t: any) => t.plannedEnd > max ? t.plannedEnd : max, tasks[0].plannedEnd);
         if (lastEnd.getTime() <= cycle.plannedEnd.getTime()) continue;
 
-        const daysOver = countWorkDays(nextWorkDay(cycle.plannedEnd), lastEnd);
+        const daysOver = countWorkDays(nextWorkDay(cycle.plannedEnd, holidayDays), lastEnd, holidayDays);
         const userName = tasks[0]?.user?.fullName ?? userId;
         const biggest  = [...tasks].sort((a: any, b: any) => b.effortDays - a.effortDays)[0];
         const cycleLabel = CYCLE_LABEL[cycle.cycleType as CycleType];
@@ -376,7 +515,7 @@ export class QaWorkPlanService {
         const lastEnd = tasks.reduce((max: Date, t: any) => t.plannedEnd > max ? t.plannedEnd : max, tasks[0].plannedEnd);
         if (lastEnd.getTime() <= goLiveDate.getTime()) continue;
 
-        const daysOver  = countWorkDays(nextWorkDay(goLiveDate), lastEnd);
+        const daysOver  = countWorkDays(nextWorkDay(goLiveDate, holidayDays), lastEnd, holidayDays);
         const userName  = tasks[0]?.user?.fullName ?? userId;
         const biggest   = [...tasks].sort((a: any, b: any) => b.effortDays - a.effortDays)[0];
 
@@ -406,7 +545,7 @@ export class QaWorkPlanService {
       for (const task of saCycle.tasks) {
         const due = dueMap.get(task.crNumber);
         if (!due || task.plannedEnd.getTime() <= due.getTime()) continue;
-        const daysOver = countWorkDays(nextWorkDay(due), task.plannedEnd);
+        const daysOver = countWorkDays(nextWorkDay(due, holidayDays), task.plannedEnd, holidayDays);
         issues.push({
           type:     'SA_DUE_DATE_MISSED',
           userName: task.user?.fullName ?? task.userId,
@@ -456,8 +595,9 @@ export class QaWorkPlanService {
 
     await prisma.qaCycleTask.update({ where: { id: taskId }, data: { isActive } });
 
-    const newCycleEnd = await this.rescheduleFullCycle(task.cycleId, new Date(task.cycle.plannedStart));
-    await this.cascadeFromCycle(task.cycle.workPlanId, task.cycle.cycleType, newCycleEnd);
+    const holidayDays = await this.loadHolidayDays();
+    const newCycleEnd = await this.rescheduleFullCycle(task.cycleId, new Date(task.cycle.plannedStart), holidayDays);
+    await this.cascadeFromCycle(task.cycle.workPlanId, task.cycle.cycleType, newCycleEnd, holidayDays);
 
     const workPlan = await prisma.qaWorkPlan.findUnique({ where: { id: task.cycle.workPlanId }, select: { versionId: true } });
     return this.getWorkPlan(workPlan?.versionId ?? '');
@@ -488,8 +628,9 @@ export class QaWorkPlanService {
 
     await prisma.qaCycleTask.update({ where: { id: taskId }, data: { effortDays } });
 
-    const newCycleEnd = await this.rescheduleFullCycle(task.cycleId, new Date(task.cycle.plannedStart));
-    await this.cascadeFromCycle(task.cycle.workPlanId, task.cycle.cycleType, newCycleEnd);
+    const holidayDays = await this.loadHolidayDays();
+    const newCycleEnd = await this.rescheduleFullCycle(task.cycleId, new Date(task.cycle.plannedStart), holidayDays);
+    await this.cascadeFromCycle(task.cycle.workPlanId, task.cycle.cycleType, newCycleEnd, holidayDays);
 
     const workPlan = await prisma.qaWorkPlan.findUnique({ where: { id: task.cycle.workPlanId }, select: { versionId: true } });
     return this.getWorkPlan(workPlan?.versionId ?? '');
@@ -523,11 +664,141 @@ export class QaWorkPlanService {
     const cycleType = task.cycle.cycleType as CycleType;
     await prisma.qaCycleTask.delete({ where: { id: taskId } });
 
-    const newCycleEnd = await this.rescheduleFullCycle(cycleId, new Date(task.cycle.plannedStart));
-    await this.cascadeFromCycle(workPlanId, cycleType, newCycleEnd);
+    const holidayDays = await this.loadHolidayDays();
+    const newCycleEnd = await this.rescheduleFullCycle(cycleId, new Date(task.cycle.plannedStart), holidayDays);
+    await this.cascadeFromCycle(workPlanId, cycleType, newCycleEnd, holidayDays);
 
     const workPlan = await prisma.qaWorkPlan.findUnique({ where: { id: workPlanId }, select: { versionId: true } });
     return this.getWorkPlan(workPlan?.versionId ?? '');
+  }
+
+  // ── Archive a task (soft-remove — recoverable via restoreTask, unlike
+  // deleteTask above). The reason is always recorded, regardless of approval
+  // status — unlike the other change-log writes, which only fire post
+  // -approval — since this is meant to be a deliberate, explained removal
+  // from day one, not just a post-approval audit trail. ──────────────────────
+  async archiveTask(taskId: string, reason: string, userEmail?: string) {
+    const task = await prisma.qaCycleTask.findUnique({
+      where: { id: taskId },
+      include: { cycle: true },
+    });
+    if (!task) throw new NotFoundException('משימה לא נמצאה');
+    if ((task as any).isArchived) throw new BadRequestException('המשימה כבר בארכיון');
+
+    await prisma.qaCycleTask.update({ where: { id: taskId }, data: { isArchived: true } as any });
+    await prisma.qaWorkPlanChangeLog.create({
+      data: {
+        workPlanId: task.cycle.workPlanId, qaCycleTaskId: task.id, crNumber: task.crNumber,
+        action: 'TASK_ARCHIVED', userEmail,
+        beforeData: {
+          crNumber: task.crNumber, crLabel: task.crLabel, userId: task.userId,
+          effortDays: task.effortDays, taskType: task.taskType,
+          plannedStart: task.plannedStart, plannedEnd: task.plannedEnd,
+        },
+        afterData: { reason },
+      },
+    });
+
+    const holidayDays = await this.loadHolidayDays();
+    const newCycleEnd = await this.rescheduleFullCycle(task.cycleId, new Date(task.cycle.plannedStart), holidayDays);
+    await this.cascadeFromCycle(task.cycle.workPlanId, task.cycle.cycleType, newCycleEnd, holidayDays);
+
+    const workPlan = await prisma.qaWorkPlan.findUnique({ where: { id: task.cycle.workPlanId }, select: { versionId: true } });
+    return this.getWorkPlan(workPlan?.versionId ?? '');
+  }
+
+  // ── Restore an archived task — reinserted as an active task again, at the
+  // end of its tester's queue in its original cycle. ─────────────────────────
+  async restoreTask(taskId: string, reason: string, userEmail?: string) {
+    const task = await prisma.qaCycleTask.findUnique({
+      where: { id: taskId },
+      include: { cycle: true },
+    });
+    if (!task) throw new NotFoundException('משימה לא נמצאה');
+    if (!(task as any).isArchived) throw new BadRequestException('המשימה אינה בארכיון');
+
+    const maxSortOrder = await prisma.qaCycleTask.aggregate({
+      where: { cycleId: task.cycleId, userId: task.userId, taskType: { not: 'REGRESSION' } },
+      _max: { sortOrder: true },
+    });
+
+    await prisma.qaCycleTask.update({
+      where: { id: taskId },
+      data: { isArchived: false, sortOrder: (maxSortOrder._max.sortOrder ?? 0) + 1 } as any,
+    });
+    await prisma.qaWorkPlanChangeLog.create({
+      data: {
+        workPlanId: task.cycle.workPlanId, qaCycleTaskId: task.id, crNumber: task.crNumber,
+        action: 'TASK_RESTORED', userEmail,
+        afterData: { reason },
+      },
+    });
+
+    const holidayDays = await this.loadHolidayDays();
+    const newCycleEnd = await this.rescheduleFullCycle(task.cycleId, new Date(task.cycle.plannedStart), holidayDays);
+    await this.cascadeFromCycle(task.cycle.workPlanId, task.cycle.cycleType, newCycleEnd, holidayDays);
+
+    const workPlan = await prisma.qaWorkPlan.findUnique({ where: { id: task.cycle.workPlanId }, select: { versionId: true } });
+    return this.getWorkPlan(workPlan?.versionId ?? '');
+  }
+
+  // ── List archived tasks for a version (across all cycles) ──────────────────
+  async getArchivedTasks(versionId: string) {
+    const workPlan = await prisma.qaWorkPlan.findUnique({ where: { versionId }, select: { id: true } });
+    if (!workPlan) return [];
+    return prisma.qaCycleTask.findMany({
+      where: { isArchived: true, cycle: { workPlanId: workPlan.id } } as any,
+      include: {
+        user:  { select: { id: true, fullName: true, email: true } },
+        cycle: { select: { cycleType: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+  }
+
+  // ── Self-scoped "my tasks" — for the plain QA tester's own home-page card
+  // (see qa-my-tasks.controller.ts, which is JwtGuard-only, NOT QaAdminGuard
+  // -gated, since it's hard-scoped to req.user.sub and never touches anyone
+  // else's data). Excludes REGRESSION_FILL (busywork placeholder, not a real
+  // assignment) and archived tasks, matching how "real commitments" are
+  // already defined elsewhere (see computeOverflowIssues above).
+  async getMyTasks(userId: string, versionId: string) {
+    const [testerProfile, workPlan] = await Promise.all([
+      prisma.testerProfile.findUnique({ where: { userId } }),
+      prisma.qaWorkPlan.findUnique({ where: { versionId }, select: { id: true } }),
+    ]);
+    const isTester = !!testerProfile?.isActive;
+    if (!workPlan) return { isTester, tasks: [] };
+
+    const tasks = await prisma.qaCycleTask.findMany({
+      where: { userId, isArchived: false, taskType: { not: 'REGRESSION' }, cycle: { workPlanId: workPlan.id } } as any,
+      include: { cycle: { select: { cycleType: true, plannedStart: true, plannedEnd: true } } },
+      orderBy: [{ plannedStart: 'asc' }],
+    });
+
+    // Project/application + priority flags live on VersionCrAssignment, not
+    // QaCycleTask — merged in here so the tester's own list can show "project"
+    // and surface urgent/priority CRs without a second round-trip.
+    const crNumbers = [...new Set(tasks.map(t => t.crNumber))];
+    const vcas = crNumbers.length > 0
+      ? await prisma.versionCrAssignment.findMany({
+          where: { versionId, crNumber: { in: crNumbers } },
+          select: { crNumber: true, application: true, urgent: true, priorityTestDate: true } as any,
+        })
+      : [];
+    const vcaMap = new Map<string, { application: string | null; urgent: boolean; priorityTestDate: Date | null }>();
+    for (const v of vcas as any[]) {
+      if (!vcaMap.has(v.crNumber)) vcaMap.set(v.crNumber, { application: v.application, urgent: v.urgent, priorityTestDate: v.priorityTestDate });
+    }
+
+    const enrichedTasks = tasks.map(t => ({
+      ...t,
+      application:       vcaMap.get(t.crNumber)?.application ?? null,
+      urgent:            vcaMap.get(t.crNumber)?.urgent ?? false,
+      priorityTestDate:  vcaMap.get(t.crNumber)?.priorityTestDate ?? null,
+    }));
+
+    return { isTester, tasks: enrichedTasks };
   }
 
   // ── Change log — only ever contains entries written post-approval ─────────
@@ -569,8 +840,9 @@ export class QaWorkPlanService {
       });
     }
 
-    const newCycleEnd = await this.rescheduleFullCycle(task.cycleId, new Date(task.cycle.plannedStart));
-    await this.cascadeFromCycle(task.cycle.workPlanId, task.cycle.cycleType, newCycleEnd);
+    const holidayDays = await this.loadHolidayDays();
+    const newCycleEnd = await this.rescheduleFullCycle(task.cycleId, new Date(task.cycle.plannedStart), holidayDays);
+    await this.cascadeFromCycle(task.cycle.workPlanId, task.cycle.cycleType, newCycleEnd, holidayDays);
 
     return this.getWorkPlan(workPlan?.versionId ?? '');
   }
@@ -621,10 +893,11 @@ export class QaWorkPlanService {
 
     // Recalculate dates for the full cycle (all testers, preserving their orders)
     const cycleStart = new Date(task.cycle.plannedStart);
-    const newCycleEnd = await this.rescheduleFullCycle(cycleId, cycleStart);
+    const holidayDays = await this.loadHolidayDays();
+    const newCycleEnd = await this.rescheduleFullCycle(cycleId, cycleStart, holidayDays);
 
     // Cascade to subsequent core cycles
-    await this.cascadeFromCycle(task.cycle.workPlanId, task.cycle.cycleType, newCycleEnd);
+    await this.cascadeFromCycle(task.cycle.workPlanId, task.cycle.cycleType, newCycleEnd, holidayDays);
 
     // Resolve versionId from workPlanId
     const workPlan = await (prisma as any).qaWorkPlan.findUnique({
@@ -634,9 +907,18 @@ export class QaWorkPlanService {
     return this.getWorkPlan(workPlan?.versionId ?? '');
   }
 
-  private async rescheduleFullCycle(cycleId: string, cycleStart: Date): Promise<Date> {
+  // `fixedLengthDays`, when given, pins the cycle's own boundary to that
+  // capacity — same "fixed boundary" philosophy as buildWorkPlan (see there):
+  // testers who finish early get regression-fill up to it; a tester who runs
+  // past it keeps their real (overflowing) dates — flagged via
+  // computeOverflowIssues — but the cycle's own end, and hence where the next
+  // cycle starts, doesn't wait for them. Only the plan-settings save path
+  // (updatePlanSettings) passes this — task-level edits (toggle/effort/
+  // reassign/reorder/delete) keep the original floating boundary, which
+  // tracks whoever finishes last, since changing those was not asked for.
+  private async rescheduleFullCycle(cycleId: string, cycleStart: Date, holidayDays: Set<string> = new Set(), fixedLengthDays?: number): Promise<Date> {
     const allTasks: any[] = await (prisma as any).qaCycleTask.findMany({
-      where:   { cycleId, taskType: { not: 'REGRESSION' } },
+      where:   { cycleId, taskType: { not: 'REGRESSION' }, isArchived: false },
       orderBy: [{ userId: 'asc' }, { sortOrder: 'asc' }],
     });
 
@@ -656,15 +938,19 @@ export class QaWorkPlanService {
         // a dead slot where the disabled task used to sit.
         if (!task.isActive) continue;
         const start = new Date(pointer);
-        const end   = addWorkDays(start, Math.max(1, task.effortDays) - 1);
+        const end   = addWorkDays(start, Math.max(1, task.effortDays) - 1, holidayDays);
         await (prisma as any).qaCycleTask.update({
           where: { id: task.id },
           data:  { plannedStart: start, plannedEnd: end },
         });
-        pointer = nextWorkDay(end);
+        pointer = nextWorkDay(end, holidayDays);
         if (end > maxEnd) maxEnd = end;
       }
     }
+
+    const boundaryEnd = fixedLengthDays
+      ? addWorkDays(cycleStart, Math.max(1, fixedLengthDays) - 1, holidayDays)
+      : maxEnd;
 
     // Rebuild regression fills
     await (prisma as any).qaCycleTask.deleteMany({ where: { cycleId, taskType: 'REGRESSION' } });
@@ -673,15 +959,15 @@ export class QaWorkPlanService {
       if (!lastTask) continue;
       const updated: any = await (prisma as any).qaCycleTask.findUnique({ where: { id: lastTask.id } });
       const testerEnd = new Date(updated.plannedEnd);
-      if (testerEnd < maxEnd) {
-        const fillStart = nextWorkDay(testerEnd);
-        const fillDays  = countWorkDays(fillStart, maxEnd);
+      if (testerEnd < boundaryEnd) {
+        const fillStart = nextWorkDay(testerEnd, holidayDays);
+        const fillDays  = countWorkDays(fillStart, boundaryEnd, holidayDays);
         if (fillDays > 0) {
           await (prisma as any).qaCycleTask.create({
             data: {
               cycleId, crNumber: 'REGRESSION_FILL', crLabel: 'בדיקות רגרסיה',
               taskType: 'REGRESSION', userId,
-              effortDays: fillDays, plannedStart: fillStart, plannedEnd: maxEnd,
+              effortDays: fillDays, plannedStart: fillStart, plannedEnd: boundaryEnd,
               isActive: true, isPrimary: true, sortOrder: 9999,
             },
           });
@@ -691,13 +977,19 @@ export class QaWorkPlanService {
 
     await (prisma as any).qaCycle.update({
       where: { id: cycleId },
-      data:  { plannedStart: cycleStart, plannedEnd: maxEnd },
+      data:  { plannedStart: cycleStart, plannedEnd: boundaryEnd },
     });
 
-    return maxEnd;
+    return boundaryEnd;
   }
 
-  private async cascadeFromCycle(workPlanId: string, fromCycleType: string, fromCycleEnd: Date) {
+  private async cascadeFromCycle(
+    workPlanId: string,
+    fromCycleType: string,
+    fromCycleEnd: Date,
+    holidayDays: Set<string> = new Set(),
+    fixedCycleLengths?: Partial<Record<'CYCLE_2' | 'CYCLE_3', number>>,
+  ) {
     const CORE_ORDER = ['CYCLE_1', 'CYCLE_2', 'CYCLE_3'];
     const fromIdx = CORE_ORDER.indexOf(fromCycleType);
     if (fromIdx === -1) return;
@@ -711,28 +1003,35 @@ export class QaWorkPlanService {
       const ct    = CORE_ORDER[i];
       const cycle = cycleMap.get(ct);
       if (!cycle) continue;
-      const cycleStart = nextWorkDay(pointer);
-      pointer = await this.rescheduleFullCycle(cycle.id, cycleStart);
+      const cycleStart = nextWorkDay(pointer, holidayDays);
+      const fixedLen    = fixedCycleLengths?.[ct as 'CYCLE_2' | 'CYCLE_3'];
+      pointer = await this.rescheduleFullCycle(cycle.id, cycleStart, holidayDays, fixedLen);
     }
 
     // Chain UAT → Rehearsal → GoLive
     const uatCycle = cycleMap.get('UAT');
     if (uatCycle) {
-      const uatStart = nextWorkDay(pointer);
+      const uatStart = nextWorkDay(pointer, holidayDays);
       await (prisma as any).qaCycle.update({ where: { id: uatCycle.id }, data: { plannedStart: uatStart, plannedEnd: uatStart } });
       pointer = uatStart;
       const rehCycle = cycleMap.get('REHEARSAL');
       if (rehCycle) {
-        const rStart = nextWorkDay(pointer);
+        const rStart = nextWorkDay(pointer, holidayDays);
         await (prisma as any).qaCycle.update({ where: { id: rehCycle.id }, data: { plannedStart: rStart, plannedEnd: rStart } });
         pointer = rStart;
         const glCycle = cycleMap.get('GO_LIVE');
         if (glCycle) {
-          const glStart = nextWorkDay(pointer);
+          const glStart = nextWorkDay(pointer, holidayDays);
           await (prisma as any).qaCycle.update({ where: { id: glCycle.id }, data: { plannedStart: glStart, plannedEnd: glStart } });
         }
       }
     }
+
+    // Every caller of cascadeFromCycle (settings save, toggle, effort edit,
+    // reassign, reorder, delete, archive, restore) ends up here — a single
+    // choke point to keep the version's own dates in sync with the cascade,
+    // instead of repeating this call at each of those 8 call sites.
+    await this.syncVersionDatesFromWorkPlan(workPlanId);
   }
 
   // ── Export to Excel ─────────────────────────────────────────────────────────

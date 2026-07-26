@@ -57,6 +57,7 @@ export class VersionCrAssignmentsController {
       qaEffortOverride?: number | null; isStandAlone?: boolean; reviewed?: boolean;
       isCore?: boolean; priorityTestDate?: string | null; notes?: string | null; urgent?: boolean;
       alreadyInProduction?: boolean;
+      qaArrivalDate?: string | null; qaReceived?: boolean; qaReceivedAt?: string | null;
     },
     @Request() req: any,
   ) {
@@ -74,6 +75,19 @@ export class VersionCrAssignmentsController {
   ) {
     if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
     return this.service.getChangeDetail(versionId, crNumber, teamId);
+  }
+
+  // Full CR detail for the "click the CR number" modal (name/description/
+  // manager/application/estimate/teams/version/notes/status)
+  @Get('version/:versionId/cr/:crNumber/detail')
+  getCrDetail(
+    @Param('versionId') versionId: string,
+    @Param('crNumber')  crNumber: string,
+    @Request() req: any,
+  ) {
+    // Permission is resolved in the service — leads/managers can view any CR;
+    // a plain QA tester only the CRs they're actually assigned to test.
+    return this.service.getCrDetail(versionId, crNumber, req.user);
   }
 
   // Cross-team coordination info — all teams + systems touching each CR,

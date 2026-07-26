@@ -175,6 +175,20 @@ model Version {
   wizardState           Json?
   homeNotice            String? // manual, RM/ADMIN-authored notice pinned atop the Home risks/activities feed
   homeNoticeUpdatedAt   DateTime?
+  // When true (set on creation for every version created after 2026-07-24 —
+  // see versions.service.ts's create()): once a QaWorkPlan exists,
+  // integrationStart/End, qaStart/End and plannedRehearsalStart/End are
+  // synced from the QA work plan on every plan change (qa-workplan.service.ts)
+  // and shouldn't be edited independently. plannedStart (go-live) is
+  // different: it's auto-filled from the plan's GO_LIVE cycle only the first
+  // time (while still null) — once set, it's a fixed external commitment a
+  // release manager sets deliberately (still editable via the normal version
+  // PATCH) and the QA cascade never overwrites it again; later plan changes
+  // are instead checked against it (GO_LIVE_OVERFLOW). Existing versions
+  // default to false (unlocked, legacy independent-date behavior) and are
+  // never migrated — per explicit product decision, only new versions get
+  // the new behavior.
+  datesLockedToWorkPlan Boolean       @default(false)
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
 
@@ -643,10 +657,13 @@ model VersionCrAssignment {
   reviewed              Boolean   @default(false) // set during the version-opening validation step
   needsAttention        Boolean   @default(false) // scope changed (NEW/REMOVED) after scopeApprovedAt was set
   isCore                Boolean   @default(false) // QA classification: core CR — independent axis from isStandAlone
-  priorityTestDate      DateTime? // CR goes to production before this version / outside its scope — must be tested first, sorts first in its tester's queue
+  priorityTestDate      DateTime? // go-live date shown to QA when it's before this version / outside its scope — must be tested first, sorts first in its tester's queue
   notes                 String? // free-text QA note
   urgent                Boolean   @default(false) // flags for QA-lead follow-up on the home dashboard
   alreadyInProduction   Boolean   @default(false) // CR was already deployed separately (e.g. an earlier hotfix) — excluded from this version's required-plan/review checks without deleting the row
+  qaArrivalDate         DateTime? // planned date the CR is expected to arrive at QA
+  qaReceived            Boolean   @default(false) // QA lead confirms the CR actually arrived
+  qaReceivedAt          DateTime? // actual arrival date — compared against qaArrivalDate to flag a late arrival
 
   version Version @relation(fields: [versionId], references: [id])
   team    Team    @relation(fields: [teamId], references: [id])
@@ -660,6 +677,7 @@ enum LeaveStatus {
   PENDING
   APPROVED
   DECLINED
+  CANCELLED
 }
 
 model Season {
@@ -695,6 +713,13 @@ model LeaveRequest {
   reason    String?
   status    LeaveStatus @default(PENDING)
   groupId   String? // shares one id across every day of a range submitted together — lets the UI display/approve the whole range as one unit while storage stays one-row-per-day (qa-workplan.service.ts's per-day lookup keeps working unchanged)
+
+  decidedByName   String? // who approved/declined (denormalized name, no FK — same convention as QaWorkPlan.approvedBy)
+  decidedAt       DateTime?
+  cancelledByName String? // who cancelled — either the requesting employee or an approving manager
+  cancelledAt     DateTime?
+  cancelReason    String? // optional free-text reason for cancellation
+
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
@@ -804,11 +829,11 @@ model QaWorkPlanChangeLog {
   id            String   @id @default(uuid())
   workPlanId    String
   qaCycleTaskId String? // null כאשר המשימה עצמה נמחקה
-  action        String // EFFORT_CHANGED | TASK_DELETED
+  action        String // EFFORT_CHANGED | TASK_DELETED | TASK_ARCHIVED | TASK_RESTORED
   crNumber      String?
   userEmail     String?
   beforeData    Json?
-  afterData     Json?
+  afterData     Json? // for TASK_ARCHIVED/TASK_RESTORED: { reason }
   createdAt     DateTime @default(now())
 
   workPlan QaWorkPlan @relation(fields: [workPlanId], references: [id], onDelete: Cascade)
@@ -842,6 +867,7 @@ model QaCycleTask {
   isPrimary    Boolean  @default(true)
   sortOrder    Int      @default(0)
   notes        String?
+  isArchived   Boolean  @default(false) // soft-removed — excluded from active schedule/view but restorable; see QaWorkPlanChangeLog for the archive/restore reason trail
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

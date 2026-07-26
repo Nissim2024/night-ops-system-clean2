@@ -1,4 +1,4 @@
-import { Injectable, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import * as fs from 'fs';
@@ -6,6 +6,7 @@ import { TEAM_COLUMNS } from '../common/team-columns';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
+const LEADS_UP = ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'];
 
 @Injectable()
 export class VersionCrAssignmentsService {
@@ -438,6 +439,112 @@ export class VersionCrAssignmentsService {
     };
   }
 
+  // ── Full CR detail for the "click the CR number" modal ─────────────────────
+  // Descriptive fields (label/description/manager/application/estimate/notes)
+  // come from the DB row (first team's row wins — they're duplicated per team
+  // by the CR_LIST import). Teams involved is derived from every row sharing
+  // this crNumber+versionId. Status is read live from the CR_LIST Excel, same
+  // source as getChangeDetail above — non-fatal if the file is unavailable
+  // (e.g. SMB not mounted), the rest of the modal still has something to show.
+  //
+  // Permission: leads/managers can view any CR's detail; a plain QA tester
+  // (EMPLOYEE role) can only view it for a CR they're actually assigned to
+  // test (via QaAssignment or a QaCycleTask) — not a blanket employee-wide
+  // opening, since this can include internal QA notes.
+  async getCrDetail(versionId: string, crNumber: string, user: { sub: string; role: string }) {
+    if (!LEADS_UP.includes(user.role)) {
+      const [assignment, task] = await Promise.all([
+        prisma.qaAssignment.findFirst({ where: { versionId, crNumber, userId: user.sub } }),
+        prisma.qaCycleTask.findFirst({ where: { crNumber, userId: user.sub, cycle: { workPlan: { versionId } } } as any }),
+      ]);
+      if (!assignment && !task) throw new ForbiddenException('אין הרשאה לצפות בפרטי CR זה');
+    }
+
+    const rows = await prisma.versionCrAssignment.findMany({
+      where: { versionId, crNumber },
+      include: { team: { select: { name: true } } },
+      orderBy: { syncedAt: 'asc' },
+    });
+    if (rows.length === 0) throw new NotFoundException('CR לא נמצא בגרסה זו');
+    const first = rows[0];
+
+    const version = await prisma.version.findUnique({ where: { id: versionId }, select: { name: true } });
+
+    let status = '';
+    try {
+      const { rows: sheetRows, headerRowIdx, crCol, statusCol } = await this.loadSheet();
+      if (crCol !== -1 && statusCol !== -1) {
+        for (let r = headerRowIdx + 1; r < sheetRows.length; r++) {
+          const line = sheetRows[r] as any[];
+          if (String(line[crCol] ?? '').trim() === crNumber) {
+            status = String(line[statusCol] ?? '').trim();
+            break;
+          }
+        }
+      }
+    } catch { /* CR_LIST file unavailable — status stays blank */ }
+
+    // Archive/restore history for this CR's QA work-plan tasks (see
+    // qa-workplan.service.ts's archiveTask/restoreTask) — surfaced here so a
+    // manager reviewing the CR can see the full trail without switching
+    // screens. Empty when the version has no work plan or this CR was never
+    // archived.
+    let archiveHistory: {
+      id: string; action: string; userEmail: string | null;
+      userName: string | null; cycleType: string | null; reason: string | null;
+      createdAt: Date; isCurrentlyArchived: boolean;
+    }[] = [];
+    try {
+      const workPlan = await prisma.qaWorkPlan.findUnique({ where: { versionId }, select: { id: true } });
+      if (workPlan) {
+        const [logs, archivedTasks] = await Promise.all([
+          prisma.qaWorkPlanChangeLog.findMany({
+            where: { workPlanId: workPlan.id, crNumber, action: { in: ['TASK_ARCHIVED', 'TASK_RESTORED'] } },
+            orderBy: { createdAt: 'asc' },
+          }),
+          prisma.qaCycleTask.findMany({
+            where: { crNumber, isArchived: true, cycle: { workPlanId: workPlan.id } } as any,
+            select: { id: true },
+          }),
+        ]);
+        const archivedTaskIds = new Set(archivedTasks.map(t => t.id));
+        const cycleTypeById = new Map<string, string>();
+        const taskIds = [...new Set(logs.map(l => l.qaCycleTaskId).filter((id): id is string => !!id))];
+        if (taskIds.length > 0) {
+          const tasksWithCycle = await prisma.qaCycleTask.findMany({
+            where: { id: { in: taskIds } },
+            select: { id: true, cycle: { select: { cycleType: true } } },
+          });
+          tasksWithCycle.forEach(t => cycleTypeById.set(t.id, t.cycle.cycleType));
+        }
+        archiveHistory = logs.map(l => ({
+          id: l.id,
+          action: l.action,
+          userEmail: l.userEmail,
+          userName: l.userEmail,
+          cycleType: l.qaCycleTaskId ? cycleTypeById.get(l.qaCycleTaskId) ?? null : null,
+          reason: (l.afterData as any)?.reason ?? null,
+          createdAt: l.createdAt,
+          isCurrentlyArchived: l.qaCycleTaskId ? archivedTaskIds.has(l.qaCycleTaskId) : false,
+        }));
+      }
+    } catch { /* archive history is best-effort — never blocks the CR detail view */ }
+
+    return {
+      crNumber,
+      crLabel:       first.crLabel ?? crNumber,
+      crDescription: first.crDescription,
+      crManager:     first.crManager,
+      application:   first.application,
+      estimateDays:  first.estimateDays,
+      notes:         first.notes,
+      versionName:   version?.name ?? '',
+      teams:         [...new Set(rows.map(r => r.team.name))],
+      status,
+      archiveHistory,
+    };
+  }
+
   // ── Delete a CR manually (MANAGERS only) ──────────────────────────────────
   async deleteCr(versionId: string, crNumber: string, user: { sub: string; role: string }): Promise<{ deleted: number }> {
     if (!MANAGERS.includes(user.role)) throw new ForbiddenException('רק מנהל גרסה יכול למחוק CR');
@@ -451,6 +558,7 @@ export class VersionCrAssignmentsService {
     qaEffortOverride?: number | null; isStandAlone?: boolean; reviewed?: boolean;
     isCore?: boolean; priorityTestDate?: string | null; notes?: string | null; urgent?: boolean;
     alreadyInProduction?: boolean;
+    qaArrivalDate?: string | null; qaReceived?: boolean; qaReceivedAt?: string | null;
   }) {
     const data: any = {};
     if (patch.qaEffortOverride !== undefined) data.qaEffortOverride = patch.qaEffortOverride;
@@ -460,6 +568,9 @@ export class VersionCrAssignmentsService {
     if (patch.notes            !== undefined) data.notes            = patch.notes;
     if (patch.urgent           !== undefined) data.urgent           = patch.urgent;
     if (patch.alreadyInProduction !== undefined) data.alreadyInProduction = patch.alreadyInProduction;
+    if (patch.qaArrivalDate    !== undefined) data.qaArrivalDate    = patch.qaArrivalDate ? new Date(patch.qaArrivalDate) : null;
+    if (patch.qaReceived       !== undefined) data.qaReceived       = patch.qaReceived;
+    if (patch.qaReceivedAt     !== undefined) data.qaReceivedAt     = patch.qaReceivedAt ? new Date(patch.qaReceivedAt) : null;
     if (patch.reviewed         !== undefined) {
       data.reviewed = patch.reviewed;
       // marking a CR reviewed also acknowledges any pending post-approval scope-change flag

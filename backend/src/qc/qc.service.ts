@@ -65,16 +65,33 @@ export interface CrItemDto {
 export interface TargetDefectDto {
   id: string;
   assignedTo: string;
+  qaTester: string; // BG_USER_37 — the specific QA tester this TARGET defect belongs to (distinct from assignedTo/BG_RESPONSIBLE, which is a team/queue, not a person)
   crReferenceNumber: string;
   title: string;
   status: string;
   severity: string;
 }
 
+// Raw defect row for the "my reported defects" self-scoped stat — release-
+// wide, filtered/aggregated by the caller (target-cr.service.ts) since the
+// tester-name match is a JS-side free-text comparison, same as elsewhere.
+export interface ReportedDefectDto {
+  id: string;
+  detectedBy: string;
+  status: string;
+}
+
 // KPI 11 — "מצב תקלות ייצור פתוחות לאורך חודשים": one row per (month, defect)
-// still open as of that month-end. `area` (BG_USER_10) doubles as the
-// "module" breakdown per the user's confirmation — its values aren't only
-// Production/Regression, other values are actual module/component names.
+// still open as of that month-end. `area` (BG_USER_10) is NOT a module/
+// component field — confirmed directly by the user (2026-07-24): it's a
+// three-way overloaded value — either the CR/task number from CR_LIST that
+// this defect is linked to (when the bug relates to a specific scope task),
+// or the literal string "Production" (bug reproduces in production, no
+// linked task) or "Regression" (doesn't reproduce in production, no linked
+// task). The Production/Regression split (used elsewhere via CATEGORY_REF)
+// is correct as-is; a breakdown of THIS field is really "category or linked
+// CR", not "module" — kept the field name for compatibility, but see the
+// frontend label ("קטגוריה / CR מקושר", not "מודול").
 export interface OpenProdDefectMonthDto {
   monthDate: string;      // ISO month-start date
   monthLabel: string;     // 'YYYY-MM'
@@ -89,7 +106,7 @@ export interface OpenProdDefectMonthDto {
   detectedBy: string | null;
   detectedDate: string | null;
   reopenYn: string | null;
-  area: string | null;     // module/component (BG_USER_10)
+  area: string | null;     // category ("Production"/"Regression") or linked CR/task number (BG_USER_10) — see interface comment above
   bugType: string | null;
   fixType: string | null;
 }
@@ -248,6 +265,7 @@ const TARGET_CR_DEFECTS_SQL = `
   SELECT
     BG_BUG_ID       AS DEFECT_ID,
     BG_RESPONSIBLE  AS ASSIGNED_TO,
+    BG_USER_37      AS QA_TESTER,
     BG_USER_58      AS CR_REFERENCE_NUMBER,
     BG_SUBJECT      AS SUBJECT,
     BG_SUMMARY      AS SUMMARY,
@@ -256,6 +274,18 @@ const TARGET_CR_DEFECTS_SQL = `
   FROM BUG
   WHERE BG_DETECTED_IN_REL = :releaseId
     AND BG_USER_58 LIKE :crPattern
+`;
+
+// Raw rows for a tester's own "defects I reported" stats — scoped only by
+// release; the tester-name match against BG_DETECTED_BY happens in JS (same
+// free-text-name-matching reasoning as BG_RESPONSIBLE elsewhere in this file).
+const MY_REPORTED_DEFECTS_SQL = `
+  SELECT
+    BG_BUG_ID       AS DEFECT_ID,
+    BG_DETECTED_BY  AS DETECTED_BY,
+    BG_USER_04      AS DEFECT_STATUS
+  FROM BUG
+  WHERE BG_DETECTED_IN_REL = :releaseId
 `;
 
 const BUG_DASHBOARD_SQL = `
@@ -525,16 +555,28 @@ function normalizeTeamName(s: string): string {
 
 function buildMockTargetDefects(crNumber: string): TargetDefectDto[] {
   const teams = ['CRM Team', 'EAI Team', 'OSS Team', 'QA Team'];
+  const testers = ['Cohen, Dana', 'Levi, Yossi', 'Peretz, Nissim', ''];
   const titles = [
     'שדרוג בקליק', 'Billing', 'WIZ', 'תיקון תצוגה בממשק', 'עדכון פרמטר',
   ];
   return Array.from({ length: 6 }, (_, i) => ({
     id: String(1000 + i),
     assignedTo: teams[i % teams.length],
+    qaTester: testers[i % testers.length],
     crReferenceNumber: `${crNumber} - TARGET`,
     title: titles[i % titles.length],
     status: i % 3 === 0 ? 'Closed' : 'Open',
     severity: i % 4 === 0 ? 'Severe' : 'Medium',
+  }));
+}
+
+function buildMockReportedDefects(): ReportedDefectDto[] {
+  const reporters = ['Cohen, Dana', 'Levi, Yossi', 'Peretz, Nissim', 'Mizrahi, Tal'];
+  const statuses = ['Open', 'Fixed_Dev', 'Fixed_Test', 'Closed', 'Reopen'];
+  return Array.from({ length: 20 }, (_, i) => ({
+    id: String(2000 + i),
+    detectedBy: reporters[i % reporters.length],
+    status: statuses[i % statuses.length],
   }));
 }
 
@@ -860,6 +902,7 @@ export class QcService {
       return (result.rows ?? []).map((r: any): TargetDefectDto => ({
         id:                String(r.DEFECT_ID),
         assignedTo:        r.ASSIGNED_TO         ?? '',
+        qaTester:          r.QA_TESTER            ?? '',
         crReferenceNumber: r.CR_REFERENCE_NUMBER ?? '',
         title:             r.SUMMARY || r.SUBJECT || '',
         status:            r.DEFECT_STATUS       ?? '',
@@ -867,6 +910,33 @@ export class QcService {
       }));
     } catch (err: any) {
       this.logger.error(`Oracle getTargetCrDefects: ${err.message}`);
+      throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
+  }
+
+  // Release-wide raw defect rows (id/detectedBy/status) for a tester's own
+  // "defects I reported" self-scoped stat — see target-cr.service.ts's
+  // getMyDefectStats, which does the tester-name filtering and counting.
+  async getMyReportedDefects(versionId: string): Promise<ReportedDefectDto[]> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) return buildMockReportedDefects();
+
+    const relId = await this.getRelId(versionId);
+    if (!relId) return [];
+
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const result = await conn.execute(MY_REPORTED_DEFECTS_SQL, { releaseId: relId });
+      return (result.rows ?? []).map((r: any): ReportedDefectDto => ({
+        id:         String(r.DEFECT_ID),
+        detectedBy: r.DETECTED_BY   ?? '',
+        status:     r.DEFECT_STATUS ?? '',
+      }));
+    } catch (err: any) {
+      this.logger.error(`Oracle getMyReportedDefects: ${err.message}`);
       throw err;
     } finally {
       if (conn) await conn.close().catch(() => {});

@@ -1,0 +1,1 @@
+ALTER TABLE "Version" ADD COLUMN "datesLockedToWorkPlan" BOOLEAN NOT NULL DEFAULT false;

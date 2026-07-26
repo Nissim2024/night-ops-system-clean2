@@ -1,0 +1,1 @@
+ALTER TABLE "QaCycleTask" ADD COLUMN "isArchived" BOOLEAN NOT NULL DEFAULT false;
