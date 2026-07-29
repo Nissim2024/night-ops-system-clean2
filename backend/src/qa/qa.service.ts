@@ -415,6 +415,37 @@ export class QaService {
     return result;
   }
 
+  // ── Reorder a tester's assignment queue ──────────────────────────────────────
+  // This drives buildWorkPlan's manualSortOrder (see qa.scheduler.ts) — moving a
+  // CR here changes where it lands the next time the work plan is generated for
+  // this tester, not just the display order on this screen.
+  async reorderAssignment(id: string, newSortOrder: number) {
+    const asg = await prisma.qaAssignment.findUnique({ where: { id } });
+    if (!asg) throw new NotFoundException('שיבוץ לא נמצא');
+
+    const { versionId, userId } = asg;
+    const queue = await prisma.qaAssignment.findMany({
+      where:   { versionId, userId },
+      orderBy: { sortOrder: 'asc' },
+    });
+
+    const others = queue.filter(a => a.id !== id);
+    const clamp  = Math.max(1, Math.min(newSortOrder, queue.length));
+    others.splice(clamp - 1, 0, asg);
+
+    await prisma.$transaction(
+      others.map((a, i) => prisma.qaAssignment.update({ where: { id: a.id }, data: { sortOrder: i + 1 } })),
+    );
+
+    return prisma.qaAssignment.findMany({
+      where: { versionId },
+      include: {
+        user:          { select: { id: true, fullName: true, email: true } },
+        secondaryUser: { select: { id: true, fullName: true, email: true } },
+      },
+    });
+  }
+
   // ── Secondary tester suggestion ──────────────────────────────────────────────
 
   async suggestSecondaryTesters(versionId: string, crNumber: string) {

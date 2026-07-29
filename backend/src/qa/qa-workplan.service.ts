@@ -111,6 +111,10 @@ export class QaWorkPlanService {
             secondarySkillLevel: 0,
             urgent:              (vca as any).urgent ?? false,
             qaArrivalDate:       (vca as any).qaArrivalDate ?? null,
+            // No manualSortOrder here: this CR is broadcast to every active
+            // tester, and QaAssignment has one row per (version, CR) — not
+            // per tester — so there's no single tester's "queue position"
+            // that would make sense to apply uniformly to everyone's copy.
           });
         }
         continue;
@@ -145,6 +149,7 @@ export class QaWorkPlanService {
         standAloneDueDate:   (asg as any)?.standAloneDueDate ?? null,
         urgent:              (vca as any).urgent ?? false,
         qaArrivalDate:       (vca as any).qaArrivalDate ?? null,
+        manualSortOrder:     asg?.sortOrder ?? null,
       });
     }
 
@@ -959,6 +964,23 @@ export class QaWorkPlanService {
         (prisma as any).qaCycleTask.update({ where: { id: t.id }, data: { sortOrder: i + 1 } }),
       ),
     );
+
+    // Keep the assignment screen's queue order in sync — it shows the same
+    // "this tester's task order" concept, and must not silently diverge from
+    // a reorder made here in the actual work plan.
+    const workPlanForSync = await (prisma as any).qaWorkPlan.findUnique({
+      where: { id: task.cycle.workPlanId }, select: { versionId: true },
+    });
+    if (workPlanForSync?.versionId) {
+      await prisma.$transaction(
+        others.map((t: any, i: number) =>
+          prisma.qaAssignment.updateMany({
+            where: { versionId: workPlanForSync.versionId, crNumber: t.crNumber, userId },
+            data:  { sortOrder: i + 1 },
+          }),
+        ),
+      );
+    }
 
     // Recalculate dates for the full cycle (all testers, preserving their orders)
     const cycleStart = new Date(task.cycle.plannedStart);

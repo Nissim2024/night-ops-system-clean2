@@ -400,6 +400,7 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const [crDetail, setCrDetail]       = useState<CrDetail | null>(null);
   const [crDetailLoading, setCrDetailLoading] = useState(false);
   const [editingEffort, setEditingEffort]     = useState<string | null>(null);  // crNumber being edited
+  const [reorderingCr, setReorderingCr]       = useState<string | null>(null);  // crNumber currently being reordered
   const [search, setSearch]                   = useState('');
   const [confirmDialog, setConfirmDialog]     = useState<DialogConfig | null>(null);
   const [sortCol, setSortCol]                 = useState<'cr' | 'label' | 'effort' | 'tester' | 'score' | 'order'>('cr');
@@ -751,6 +752,22 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
       setAssignments(prev => [...prev.filter(a => a.crNumber !== crNumber), res.data]);
     } catch (e) {
       console.error('patch failed', e);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [headers]);
+
+  // ── Reorder a tester's queue — feeds buildWorkPlan's manualSortOrder, not
+  // just this screen's display order (see qa.scheduler.ts) ───────────────────
+
+  const reorderAssignment = useCallback(async (asg: Assignment, newSortOrder: number) => {
+    setReorderingCr(asg.crNumber);
+    try {
+      const res = await axios.patch(`${API}/qa/assignments/${asg.id}/reorder`, { newSortOrder }, { headers });
+      setAssignments(res.data);
+    } catch (e) {
+      console.error('reorder failed', e);
+    } finally {
+      setReorderingCr(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [headers]);
@@ -1120,6 +1137,15 @@ CRים אלה לא ייכללו בתוכנית העבודה.
       sorted.forEach((a, i) => orderMap.set(a.crNumber, i + 1));
     });
     return orderMap;
+  }, [assignments]);
+
+  // crNumber → that tester's total queue length (for clamping the ▲▼ reorder buttons)
+  const testerQueueLengthMap = useMemo(() => {
+    const counts = new Map<string, number>();
+    assignments.forEach(a => counts.set(a.userId, (counts.get(a.userId) ?? 0) + 1));
+    const lengthMap = new Map<string, number>();
+    assignments.forEach(a => lengthMap.set(a.crNumber, counts.get(a.userId) ?? 1));
+    return lengthMap;
   }, [assignments]);
 
   const cycleDays     = countWorkDays(cycle1Start, testingEnd, holidayDays);
@@ -1947,12 +1973,32 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                           )}
                         </td>
 
-                        {/* סדר: queue position per tester */}
+                        {/* סדר: queue position per tester — also feeds buildWorkPlan's manualSortOrder */}
                         <td style={{ padding: `${SP[2]} ${SP[3]}`, textAlign: 'center', whiteSpace: 'nowrap' }}>
-                          {orderNum != null ? (
-                            <span style={{ background: C.bgNested, border: `1px solid ${C.border}`, color: C.textSecondary, padding: '2px 7px', borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.bold }}>
-                              {orderNum}
-                            </span>
+                          {orderNum != null && asg ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
+                              <span style={{ background: C.bgNested, border: `1px solid ${C.border}`, color: C.textSecondary, padding: '2px 7px', borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.bold }}>
+                                {orderNum}
+                              </span>
+                              {reorderingCr === cr.crNumber ? (
+                                <span style={{ ...TEXT.xs, color: C.textMuted }}>⟳</span>
+                              ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                                  <button
+                                    title="הזז למעלה בתור הבודק"
+                                    disabled={orderNum === 1}
+                                    onClick={() => reorderAssignment(asg, orderNum - 1)}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 1px', lineHeight: 1, fontSize: 9, color: C.textMuted, opacity: orderNum === 1 ? 0.2 : 0.6 }}
+                                  >▲</button>
+                                  <button
+                                    title="הזז למטה בתור הבודק"
+                                    disabled={orderNum === testerQueueLengthMap.get(cr.crNumber)}
+                                    onClick={() => reorderAssignment(asg, orderNum + 1)}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 1px', lineHeight: 1, fontSize: 9, color: C.textMuted, opacity: orderNum === testerQueueLengthMap.get(cr.crNumber) ? 0.2 : 0.6 }}
+                                  >▼</button>
+                                </div>
+                              )}
+                            </div>
                           ) : (
                             <span style={{ ...TEXT.xs, color: C.textDisabled }}>—</span>
                           )}

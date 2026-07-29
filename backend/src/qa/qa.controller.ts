@@ -161,6 +161,14 @@ export class QaController {
     });
   }
 
+  @Patch('assignments/:id/reorder')
+  reorderAssignment(
+    @Param('id') id: string,
+    @Body() body: { newSortOrder: number },
+  ) {
+    return this.qa.reorderAssignment(id, body.newSortOrder);
+  }
+
   @Patch('assignments/:id/secondary')
   async patchSecondary(
     @Param('id') id: string,

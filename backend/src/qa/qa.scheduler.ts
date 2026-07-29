@@ -51,6 +51,11 @@ export interface CrInput {
   // scheduled for (Stand Alone) testing before this. Null/undefined means no
   // such constraint: testable from day one, purely by priority order.
   qaArrivalDate?: Date | null;
+  // Manual queue position set by the team lead on the assignment screen
+  // (QaAssignment.sortOrder). Used only as the base ordering within each
+  // tester's queue — urgent/due-date/qaArrivalDate can still pull a CR ahead
+  // of this. Null/undefined sorts after every CR that has an explicit value.
+  manualSortOrder?: number | null;
 }
 
 export interface PlannedTask {
@@ -220,6 +225,14 @@ export function buildWorkPlan(
   // decision); see scheduleStandAlone for how overflow past it is handled.
   testingEnd?: Date,
 ): PlannedCycle[] {
+  // Manual queue order (assignment screen) is the base ordering every cycle
+  // and Stand Alone build their per-tester queues from — every downstream
+  // grouping-by-tester step (scheduleSingleCycle, scheduleStandAlone) simply
+  // preserves whatever order it receives, so sorting once here is enough for
+  // the whole plan to respect it. Stable sort: CRs without a manual order
+  // keep their relative position, after every CR that has one.
+  crs = [...crs].sort((a, b) => (a.manualSortOrder ?? Infinity) - (b.manualSortOrder ?? Infinity));
+
   const start    = getFirstWorkDay(cycle1Start, holidayDays);
   const planned: PlannedCycle[] = [];
   const effLeaveDaysByTester = mergeHolidaysIntoTesterMap(leaveDaysByTester, holidayDays, crs);
