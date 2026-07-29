@@ -259,8 +259,9 @@ export class QaController {
   toggleTask(
     @Param('id') taskId: string,
     @Body('isActive') isActive: boolean,
+    @Request() req: any,
   ) {
-    return this.workPlan.toggleTask(taskId, isActive);
+    return this.workPlan.toggleTask(taskId, isActive, req.user?.email);
   }
 
   @Patch('workplan/task/:id/effort')
@@ -320,8 +321,9 @@ export class QaController {
   reassignTester(
     @Param('id') taskId: string,
     @Body('userId') userId: string,
+    @Request() req: any,
   ) {
-    return this.workPlan.reassignTester(taskId, userId);
+    return this.workPlan.reassignTester(taskId, userId, req.user?.email);
   }
 
   @Patch('workplan/cycle/:id/notes')

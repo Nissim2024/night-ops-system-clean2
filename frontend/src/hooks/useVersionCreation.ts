@@ -46,8 +46,9 @@ const subtractWorkingDays = (from: string, days: number): string => {
 };
 
 // Shared state + handlers behind the VersionWizard UI (manual / from-template /
-// Excel-import creation) — used both by VersionsView's "+ גרסה חדשה" and by
-// VersionManagementModuleView's "יצירת גרסה" sub-module so the two never drift.
+// Excel-import creation) — used by VersionsView's "יצירת תוכנית הטמעה" and
+// HomeDashboard's equivalent buttons (deployments module only; version
+// creation was removed from the ניהול גרסה module 2026-07-27).
 export function useVersionCreation(token: string, opts: { onCreated: (versionId: string) => void; onListChanged?: () => void }) {
   const headers = { Authorization: `Bearer ${token}` };
   const [newVersion, setNewVersion] = useState<NewVersionState>(EMPTY_NEW_VERSION);

@@ -2,8 +2,6 @@ import React, { useEffect } from 'react';
 import axios from 'axios';
 import { VersionOpeningModule, StepKey } from './VersionOpeningModule';
 import { VersionOverview } from './VersionOverview';
-import { VersionWizard } from './VersionWizard';
-import { useVersionCreation } from '../hooks/useVersionCreation';
 import { C, FONT, WEIGHT, RADIUS } from '../theme';
 import { VersionStatusChip } from './ui';
 
@@ -14,7 +12,7 @@ interface Props {
   versions: any[];
   selectedVersionId: string;
   onSelectVersion: (id: string) => void;
-  activeView: string; // 'overview' | 'create' | 'manage' | 'validate' | 'changes' | 'open' | 'approve'
+  activeView: string; // 'overview' | 'manage' | 'validate' | 'changes' | 'open' | 'approve'
   onViewChange: (v: string) => void;
   onRefreshVersions: () => void;
 }
@@ -28,6 +26,10 @@ const VIEW_TO_STEP: Record<string, StepKey> = {
   approve: 'approve', // jumping here from the overview's "אישור תכולה" row
 };
 
+// Version creation lives in the deployments module (VersionsView's "יצירת
+// תוכנית הטמעה") — this module only manages versions that already exist, per
+// explicit product decision (2026-07-27): "ניהול גרסה" is not where a version
+// gets created.
 export const VersionManagementModuleView: React.FC<Props> = ({
   token, versions, selectedVersionId, onSelectVersion, activeView, onViewChange, onRefreshVersions,
 }) => {
@@ -36,20 +38,10 @@ export const VersionManagementModuleView: React.FC<Props> = ({
   const selectedVersion = versions.find(v => v.id === selectedVersionId) ?? null;
 
   useEffect(() => {
-    if (activeView !== 'create' && !selectedVersion && openVersions.length > 0) {
+    if (!selectedVersion && openVersions.length > 0) {
       onSelectVersion(openVersions[0].id);
     }
-  }, [activeView, selectedVersion, openVersions]); // eslint-disable-line
-
-  // Same creation wizard (manual / from-template / Excel-import) used by
-  // VersionsView's "+ גרסה חדשה" — kept in sync via the shared hook.
-  const vc = useVersionCreation(token, {
-    onListChanged: onRefreshVersions,
-    onCreated: (versionId) => {
-      if (versionId) onSelectVersion(versionId);
-      onViewChange('manage');
-    },
-  });
+  }, [selectedVersion, openVersions]); // eslint-disable-line
 
   const onStatusChange = async (s: string) => {
     await axios.patch(`${API}/versions/${selectedVersionId}/status`, { status: s }, { headers });
@@ -58,29 +50,6 @@ export const VersionManagementModuleView: React.FC<Props> = ({
 
   return (
     <div style={{ fontFamily: FONT, direction: 'rtl' }}>
-      {activeView === 'create' && (
-        <VersionWizard
-          newVersion={vc.newVersion}
-          setNewVersion={vc.setNewVersion}
-          qcReleases={vc.qcReleases}
-          templates={vc.templates}
-          selectedTemplateId={vc.selectedTemplateId}
-          setSelectedTemplateId={vc.setSelectedTemplateId}
-          importFile={vc.importFile}
-          setImportFile={vc.setImportFile}
-          onPlannedStartChange={vc.handlePlannedStartChange}
-          onCreateEmpty={vc.createEmpty}
-          onCreateFromTemplate={vc.createFromTemplate}
-          onImportFromFile={vc.importFromFile}
-          creatingTemplate={vc.creatingTemplate}
-          creatingFromTemplate={vc.creatingFromTemplate}
-          importing={vc.importing}
-          actionError={vc.actionError}
-          setActionError={vc.setActionError}
-          onClose={() => { vc.reset(); onViewChange('manage'); }}
-        />
-      )}
-
       {/* ── Version picker ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
         <select
@@ -92,14 +61,11 @@ export const VersionManagementModuleView: React.FC<Props> = ({
           {openVersions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
         </select>
         {selectedVersion && <VersionStatusChip status={selectedVersion.status} size="md" />}
-        <button onClick={() => onViewChange('create')} style={{ padding: '8px 16px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px', fontWeight: WEIGHT.semibold }}>
-          ➕ גרסה חדשה
-        </button>
       </div>
 
       {!selectedVersion ? (
         <div style={{ color: C.textMuted, padding: '40px', textAlign: 'center' }}>
-          {openVersions.length === 0 ? 'אין גרסאות פתוחות — צור גרסה חדשה כדי להתחיל.' : 'בחר גרסה מהרשימה.'}
+          {openVersions.length === 0 ? 'אין גרסאות פתוחות — ניתן ליצור תוכנית הטמעה חדשה במודול הטמעות.' : 'בחר גרסה מהרשימה.'}
         </div>
       ) : activeView === 'overview' ? (
         <VersionOverview

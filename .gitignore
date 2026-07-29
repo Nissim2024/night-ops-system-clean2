@@ -11,3 +11,7 @@ backend.log
 frontend/frontend-dev.log
 frontend/frontend-restart.log
 .gstack/
+
+# Real QC export data used to seed dev-mode mock fallbacks — contains real
+# customer numbers and employee names in free-text fields, never commit.
+backend/src/qc/seed-data/

@@ -144,7 +144,7 @@ export const VersionWizard: React.FC<Props> = ({
         {/* Header */}
         <div style={{ padding: '18px 28px 16px', background: 'linear-gradient(135deg, #1a2332 0%, #2d4a7a 100%)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <div>
-            <div style={{ fontSize: '17px', fontWeight: 'bold', letterSpacing: '0.3px' }}>📋 יצירת גרסה חדשה</div>
+            <div style={{ fontSize: '17px', fontWeight: 'bold', letterSpacing: '0.3px' }}>📋 יצירת תוכנית הטמעה</div>
             <div style={{ fontSize: '14px', color: '#94a3b8', marginTop: '3px' }}>{newVersion.name || 'ללא שם עדיין'}</div>
           </div>
           <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', fontSize: '15px', cursor: 'pointer', padding: '7px 14px', borderRadius: '8px' }}>

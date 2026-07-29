@@ -14,6 +14,26 @@ const CRITICAL_SEVERITIES = ['Show Stopper', 'Severe'];
 
 const SEVERITY_RANK: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
 
+// Maps our internal QaCycle.cycleType to the real QC RELEASE_CYCLES.RCYC_NAME
+// values it corresponds to — normalized (lowercase/trim) since the real data
+// has several human-typo variants for the same real cycle (confirmed against
+// the actual CYCLES.xlsx export 2026-07-28): "Dress Rehearsal" also appears
+// as "Dress Reherssal", "Dress Rehessal", and "Dress rehearsal"; Stand Alone
+// appears as "Stand Alone Item"/"Stand Alone Items", never bare "Stand Alone".
+function cycleNameMatches(cycleType: string, realCycleName: string): boolean {
+  const n = realCycleName.trim().toLowerCase();
+  switch (cycleType) {
+    case 'CYCLE_1': return n === 'cycle 1';
+    case 'CYCLE_2': return n === 'cycle 2';
+    case 'CYCLE_3': return n === 'cycle 3';
+    case 'UAT': return n === 'uat';
+    case 'GO_LIVE': return n === 'go live';
+    case 'REHEARSAL': return n.startsWith('dress reh');
+    case 'STAND_ALONE': return n.startsWith('stand alone');
+    default: return false;
+  }
+}
+
 @Injectable()
 export class ReleaseIntelligenceService {
   private qcService = new QcService();
@@ -293,21 +313,75 @@ export class ReleaseIntelligenceService {
 
   // ── Cycle Progress & QG — spec section 17 ───────────────────────────────────
   async getCycleProgress(versionId: string) {
-    const [workPlan, defects] = await Promise.all([
-      prisma.qaWorkPlan.findUnique({ where: { versionId }, include: { cycles: true } }),
+    const [workPlan, defects, users, version] = await Promise.all([
+      prisma.qaWorkPlan.findUnique({ where: { versionId }, include: { cycles: { include: { tasks: true } } } }),
       this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
+      prisma.user.findMany({ select: { id: true, fullName: true } }),
+      prisma.version.findUnique({ where: { id: versionId }, include: { qcRelease: true } }),
     ]);
     const openDefects = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
     const { qgSummary, qgPass } = this.computeQgSummary(openDefects);
+    const nameById = new Map(users.map(u => [u.id, u.fullName]));
+    const releaseName = (version as any)?.qcRelease?.relName ?? version?.name ?? '';
 
     const now = Date.now();
     const cycles = [...(workPlan?.cycles ?? [])].sort((a, b) => a.plannedStart.getTime() - b.plannedStart.getTime());
+
+    // Real per-CR test coverage (see qc.service.ts's getCrCoverage), fetched
+    // for the version's own real CR scope (VersionCrAssignment — same source
+    // getScopeOverview uses), NOT from our dev/test QaCycleTask scheduling.
+    // Caught live 2026-07-28: CR 12978 was listed under Cycle 1 only because
+    // OUR OWN synthetic work-plan scheduler happened to assign it there —
+    // its real coverage is entirely under "Stand Alone Items". The per-cycle
+    // CR list below must be grounded in the real (release, cycle) match, not
+    // in an arbitrary fake scheduling decision that has no bearing on which
+    // cycle a CR was actually tested in historically.
+    const vcaRows = await prisma.versionCrAssignment.findMany({
+      where: { versionId, syncStatus: { not: 'REMOVED' } },
+      select: { crNumber: true },
+    });
+    const versionCrNumbers = [...new Set(vcaRows.map(r => r.crNumber))];
+    const [coverageRows, qgTargets] = await Promise.all([
+      this.qcService.getCrCoverage(versionCrNumbers),
+      this.qcService.getCycleQgTargets(),
+    ]);
+
     const timeline = cycles.map(c => {
       const total = c.plannedEnd.getTime() - c.plannedStart.getTime();
       const elapsed = Math.min(Math.max(now - c.plannedStart.getTime(), 0), Math.max(total, 0));
       const progressPct = total > 0 ? Math.round((elapsed / total) * 100) : (now > c.plannedEnd.getTime() ? 100 : 0);
       const state: 'done' | 'active' | 'upcoming' = now > c.plannedEnd.getTime() ? 'done' : now < c.plannedStart.getTime() ? 'upcoming' : 'active';
-      return { cycleType: c.cycleType, plannedStart: c.plannedStart, plannedEnd: c.plannedEnd, progressPct, state };
+
+      // testerCount/testers still reflect OUR OWN work-plan staffing for this
+      // cycle (a legitimate, separate stat) — only the CR list + coverage
+      // numbers below are now real-data-driven, not this cycle's tasks.
+      const crTasks = c.tasks.filter(t => t.taskType !== 'REGRESSION');
+      const testerIds = new Set(crTasks.map(t => t.userId));
+
+      const crCoverage = coverageRows
+        .filter(row => row.releaseName === releaseName && cycleNameMatches(c.cycleType, row.cycleName))
+        .map(row => ({
+          crNumber: row.crNumber, crLabel: `${row.crNumber} - ${row.crTitle}`,
+          passed: row.passed, failed: row.failed, notRun: row.notRun,
+          blocked: row.blocked, notCompleted: row.notCompleted, notReady: row.notReady,
+          total: row.total, coveragePct: row.coveragePct,
+        }));
+      const crs = crCoverage.map(cc => ({ crNumber: cc.crNumber, crLabel: cc.crLabel }));
+      const totalTests = crCoverage.reduce((s, cc) => s + cc.total, 0);
+      const executedTests = crCoverage.reduce((s, cc) => s + cc.passed + cc.failed + cc.blocked + cc.notCompleted, 0);
+      const coveragePct = totalTests > 0 ? Math.round((executedTests / totalTests) * 100) : null;
+
+      // Real QG target for this cycle (RELEASE_CYCLES.QG_HIGH) — shown as a
+      // marker on the coverage bar, not baked into the bar's own fill color,
+      // per the user's explicit choice (2026-07-28: "קו מסומן עם סימון יעד").
+      const qgTarget = qgTargets.find(t => t.releaseName === releaseName && cycleNameMatches(c.cycleType, t.cycleName));
+
+      return {
+        cycleType: c.cycleType, plannedStart: c.plannedStart, plannedEnd: c.plannedEnd, progressPct, state,
+        crCount: crs.length, testerCount: testerIds.size, crs,
+        testers: [...testerIds].map(id => nameById.get(id) ?? id),
+        coveragePct, crCoverage, qgTargetPct: qgTarget?.qgHigh ?? null,
+      };
     });
     const currentCycle = timeline.find(t => t.state === 'active') ?? null;
     const overallProgressPct = timeline.length > 0

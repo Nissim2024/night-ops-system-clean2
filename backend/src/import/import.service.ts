@@ -2,7 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import * as fs from 'fs';
-import { TEAM_COLUMNS } from '../common/team-columns';
+import { TEAM_COLUMNS, EXCLUDED_CR_STATUSES } from '../common/team-columns';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
@@ -504,7 +504,7 @@ export class ImportService {
       const title    = String(row[titleCol] ?? '').trim();
       if (!crNumber || !title) continue;
       if (String(row[verCol] ?? '').trim() !== version.name) continue;
-      if (String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
+      if (EXCLUDED_CR_STATUSES.has(String(row[statusCol] ?? '').trim())) continue;
       const involved = teamColIdxs.some(ci => {
         const val = parseFloat(String(row[ci] ?? '0').replace(/[^\d.]/g, ''));
         return !isNaN(val) && val > 0.3;
@@ -651,7 +651,7 @@ export class ImportService {
       for (let r = headerRowIdx + 1; r < rows.length; r++) {
         const row = rows[r] as any[];
         if (String(row[verCol] ?? '').trim() !== version.name) continue;
-        if (String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
+        if (EXCLUDED_CR_STATUSES.has(String(row[statusCol] ?? '').trim())) continue;
         const involved = teamColIdxs.some(ci => {
           const val = parseFloat(String(row[ci] ?? '0').replace(/[^\d.]/g, ''));
           return !isNaN(val) && val > 1;

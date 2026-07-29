@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
@@ -61,15 +63,83 @@ export interface CrItemDto {
   label: string;
 }
 
-// Defects scoped to one CR + release, for the TARGET-CR gate screen.
+// Defects scoped to one CR + release, for the TARGET-CR gate screen and the
+// version-management overview's TARGET defect list. Field set mirrors
+// TARGET_CR_DEFECTS_SQL 1:1 (see below) so every BUG column the query pulls
+// has a home here — the frontend's column-picker (Select Columns dialog)
+// lets the user choose which of these to actually display; `title`/`system`/
+// `status` etc. are kept as the small "always useful" subset already
+// consumed by existing screens (by-area treemap, defect-summary tile).
 export interface TargetDefectDto {
-  id: string;
-  assignedTo: string;
-  qaTester: string; // BG_USER_37 — the specific QA tester this TARGET defect belongs to (distinct from assignedTo/BG_RESPONSIBLE, which is a team/queue, not a person)
-  crReferenceNumber: string;
-  title: string;
-  status: string;
-  severity: string;
+  id: string;                    // BG_BUG_ID
+  assignedTo: string;            // BG_RESPONSIBLE
+  qaTester: string;              // BG_USER_37 — the specific QA tester this TARGET defect belongs to (distinct from assignedTo/BG_RESPONSIBLE, which is a team/queue, not a person)
+  crReferenceNumber: string;     // BG_USER_58
+  system: string;                // BG_PROJECT — the "area"/system a defect belongs to, used for the version-management overview's by-area treemap
+  title: string;                 // BG_SUMMARY || BG_SUBJECT
+  status: string;                // BG_USER_04
+  severity: string;              // BG_SEVERITY
+  // ── Extended fields (all remaining columns from TARGET_CR_DEFECTS_SQL) ──
+  subject: string;               // BG_SUBJECT
+  summary: string;               // BG_SUMMARY
+  description: string;           // BG_DESCRIPTION (HTML-stripped)
+  notes: string;                 // BG_DEV_COMMENTS (HTML-entity-cleaned) — developer comments
+  reproducible: string;          // BG_REPRODUCIBLE
+  priority: string;              // BG_PRIORITY
+  detectedBy: string;            // BG_DETECTED_BY
+  detectedOnDate: string;        // BG_DETECTION_DATE
+  estimatedFixTime: string;      // BG_ESTIMATED_FIX_TIME
+  actualFixTime: string;         // BG_ACTUAL_FIX_TIME
+  environment: string;           // BG_USER_02
+  responsibility: string;        // BG_USER_03
+  testPhase: string;             // BG_USER_05
+  defectType: string;            // BG_USER_06
+  closedBy: string;              // BG_USER_07
+  deploymentReason: string;      // BG_USER_08
+  fixedUntil: string;            // BG_USER_09
+  crHbrNumberReference: string;  // BG_USER_10
+  vendorStatus: string;          // BG_USER_11
+  responseDate: string;          // BG_USER_12
+  supportReferenceNumber: string;// BG_USER_13
+  subModule: string;             // BG_USER_14
+  fixedInProd: string;           // BG_USER_15
+  mainModule: string;            // BG_USER_16
+  reason: string;                // BG_USER_17
+  supportStatus: string;         // BG_USER_18
+  vendorAssignTo: string;        // BG_USER_19
+  category: string;              // BG_USER_20
+  itemType: string;              // BG_USER_22
+  estimateFixTime: string;       // BG_USER_23
+  platform: string;              // BG_USER_24
+  modified: string;              // BG_VTS
+  detectedInRelease: string;     // BG_DETECTED_IN_REL, resolved to RELEASES.REL_NAME via a join — not the raw REL_ID
+  detectedInCycle: string;       // BG_DETECTED_IN_RCYC, resolved to RELEASE_CYCLES.RCYC_NAME via a join — not the raw RCYC_ID
+  targetRelease: string;         // BG_TARGET_REL, resolved to RELEASES.REL_NAME — the release this defect is targeted to be tested in (BG_TARGET_REL is also the WHERE-clause filter column, matched by ID before resolution)
+  targetCycle: string;           // BG_TARGET_RCYC, resolved to RELEASE_CYCLES.RCYC_NAME
+  crStatus: string;              // BG_USER_27
+  dropNumber: string;            // BG_USER_28
+  reopenYn: string;               // BG_USER_29
+  influence: string;             // BG_USER_31
+  fixType: string;               // BG_USER_33
+  secondaryPriority: string;     // BG_USER_39
+  releaseDefect: string;         // BG_USER_43
+  businessProcess: string;       // BG_USER_44
+  foundByAutomation: string;     // BG_USER_45
+  mainBusinessProcess: string;   // BG_USER_46
+  impact: string;                // BG_USER_47
+  productionReason: string;      // BG_USER_48
+  environmentComponent: string;  // BG_USER_49
+  willBeTestAtGoLive: string;    // BG_USER_50
+  deploymentCategory: string;    // BG_USER_51
+  defectResponsible: string;     // BG_USER_52
+  targetReleaseReason: string;   // BG_USER_53
+  targetType: string;            // BG_USER_54
+  systemComponent: string;       // BG_USER_55
+  forRegressionTest: string;     // BG_USER_56
+  escDefectResponsible: string;  // BG_USER_57
+  toBeTestedOnProd: string;      // BG_USER_59
+  deploymentDateProd: string;    // BG_USER_60
+  targetScopeApproved: string;   // BG_USER_61
 }
 
 // Raw defect row for the "my reported defects" self-scoped stat — release-
@@ -261,19 +331,113 @@ const NEW_VS_TARGET_DEFECTS_SQL = `
 // team-name matching happens in JS (computeTargetDefects) since Oracle's
 // BG_RESPONSIBLE free text ("CRM Team", "NETC-DT team"...) doesn't map
 // cleanly to a SQL-side equality/LIKE against our own Team.name values.
+// Scoped by release only — a TARGET CR is a catch-all for a team's release
+// defects, not a single feature tied to one CR number, so BG_USER_58 (the
+// defect's own CR-reference field) is deliberately NOT filtered here. Every
+// TARGET CR's gate screen for a given team+release shows the same full team
+// defect list, matching how the team actually works the release.
+// WHERE filters on BG_TARGET_REL (the release a defect is TARGETED to be
+// tested/fixed in) — NOT BG_DETECTED_IN_REL (the release it was originally
+// found in). These are different BUG-table concepts; using DETECTED_IN_REL
+// here was a bug (fixed 2026-07-28 against the user-supplied reference
+// query) that under/over-counted a version's actual TARGET defect scope.
 const TARGET_CR_DEFECTS_SQL = `
   SELECT
-    BG_BUG_ID       AS DEFECT_ID,
-    BG_RESPONSIBLE  AS ASSIGNED_TO,
-    BG_USER_37      AS QA_TESTER,
-    BG_USER_58      AS CR_REFERENCE_NUMBER,
-    BG_SUBJECT      AS SUBJECT,
-    BG_SUMMARY      AS SUMMARY,
-    BG_USER_04      AS DEFECT_STATUS,
-    BG_SEVERITY     AS SEVERITY
+    BG_BUG_ID AS Defect_ID,
+    BG_RESPONSIBLE AS Assigned_To,
+    BG_PROJECT AS PROJECT,
+    BG_SUBJECT AS SUBJECT,
+    BG_SUMMARY AS SUMMARY,
+    REGEXP_REPLACE(DBMS_LOB.SUBSTR(BUG.BG_DESCRIPTION, 4000, 1), '<[^>]*>', '') AS Defect_Description,
+    -- BG_DEV_COMMENTS ("notes") — same HTML-entity cleanup chain as DEFECTS_SQL's
+    -- DEFECT_COMMENTS, since dev comments come through with the same raw
+    -- &gt;/&lt;/&nbsp;/&amp;/&quot; entities and repeated-space runs that break
+    -- readability (especially for Hebrew text) if left undecoded.
+    REGEXP_REPLACE(
+      REGEXP_REPLACE(
+        REGEXP_REPLACE(
+          REGEXP_REPLACE(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(
+                TRIM(REGEXP_REPLACE(DBMS_LOB.SUBSTR(BUG.BG_DEV_COMMENTS, 4000, 1), '<[^>]*>', '')),
+                '&gt;', '>'
+              ),
+              '&lt;', '<'
+            ),
+            '&nbsp;', ' '
+          ),
+          '&amp;', '&'
+        ),
+        '&quot;', ''
+      ),
+      '[ ]{2,}', ' '
+    ) AS Defect_Comments,
+    BG_REPRODUCIBLE AS REPRODUCIBLE_Y_N,
+    BG_SEVERITY AS Severity,
+    BG_PRIORITY AS PRIORITY,
+    BG_DETECTED_BY AS Detected_By,
+    BG_DETECTION_DATE AS Detected_on_Date,
+    BG_ESTIMATED_FIX_TIME AS Estimated_Fix_Time,
+    BG_ACTUAL_FIX_TIME AS FIX_TIME,
+    BG_USER_02 AS Environment,
+    BG_USER_03 AS Responsibility,
+    BG_USER_04 AS DEFECT_STATUS,
+    BG_USER_05 AS Test_Phase,
+    BG_USER_06 AS DEFECT_TYPE,
+    BG_USER_07 AS Closed_By,
+    BG_USER_08 AS Deployment_Reason,
+    BG_USER_09 AS FIxed_Until,
+    BG_USER_10 AS CR_HBR_Number_reference,
+    BG_USER_11 AS Vendor_Status,
+    BG_USER_12 AS Response_Date,
+    BG_USER_13 AS Support_Reference_Number,
+    BG_USER_14 AS Sub_Module,
+    BG_USER_15 AS FIxed_in_Prod,
+    BG_USER_16 AS Main_Module,
+    BG_USER_17 AS Reason,
+    BG_USER_18 AS Support_Status,
+    BG_USER_19 AS Vendor_assign_to,
+    BG_USER_20 AS Category,
+    BG_USER_22 AS Item_Type,
+    BG_USER_23 AS Estimate_fix_time,
+    BG_USER_24 AS Platform,
+    BG_VTS AS Modified,
+    detected_rel.REL_NAME AS Detected_in_Release,
+    detected_rcyc.RCYC_NAME AS Detected_in_Cycle,
+    target_rel.REL_NAME AS Target_Release,
+    target_rcyc.RCYC_NAME AS Target_Cycle,
+    BG_USER_27 AS CR_Status,
+    BG_USER_28 AS "Drop#",
+    BG_USER_29 AS Reopen_Y_N,
+    BG_USER_31 AS Influence,
+    BG_USER_33 AS Fix_Type,
+    BG_USER_37 AS QA_Tester,
+    BG_USER_39 AS Secondary_Priority,
+    BG_USER_43 AS Release_Defect,
+    BG_USER_44 AS Business_Processe,
+    BG_USER_45 AS Found_By_Automation,
+    BG_USER_46 AS Main_Business_Processe,
+    BG_USER_47 AS Impact,
+    BG_USER_48 AS Poduction_Reason,
+    BG_USER_49 AS Environment_Componnent,
+    BG_USER_50 AS Will_Be_Test_At_Go_Live,
+    BG_USER_51 AS Deployment_Category,
+    BG_USER_52 AS Defect_Responsible,
+    BG_USER_53 AS Target_Release_Reason,
+    BG_USER_54 AS Target_Type,
+    BG_USER_55 AS System_Component,
+    BG_USER_56 AS For_Regression_Test,
+    BG_USER_57 AS Esc_Defect_Responsible,
+    BG_USER_58 AS CR_Reference_Number,
+    BG_USER_59 AS To_be_tested_on_prod,
+    BG_USER_60 AS Deployment_Date_Prod,
+    BG_USER_61 AS Target_Scope_Approved
   FROM BUG
-  WHERE BG_DETECTED_IN_REL = :releaseId
-    AND BG_USER_58 LIKE :crPattern
+  LEFT JOIN RELEASES detected_rel ON detected_rel.REL_ID = BUG.BG_DETECTED_IN_REL
+  LEFT JOIN RELEASES target_rel ON target_rel.REL_ID = BUG.BG_TARGET_REL
+  LEFT JOIN RELEASE_CYCLES detected_rcyc ON detected_rcyc.RCYC_ID = BUG.BG_DETECTED_IN_RCYC
+  LEFT JOIN RELEASE_CYCLES target_rcyc ON target_rcyc.RCYC_ID = BUG.BG_TARGET_RCYC
+  WHERE BG_TARGET_REL = :releaseId
 `;
 
 // Raw rows for a tester's own "defects I reported" stats — scoped only by
@@ -553,20 +717,132 @@ function normalizeTeamName(s: string): string {
     .trim();
 }
 
-function buildMockTargetDefects(crNumber: string): TargetDefectDto[] {
+// Real anonymized-in-place QC export (985 rows), gitignored — see
+// backend/src/qc/seed-data/. Not present on every machine/CI, so this falls
+// back to the synthetic generator below when missing. Loaded once and
+// cached; the file never changes at runtime.
+let realTargetDefectsCache: TargetDefectDto[] | null | undefined;
+function loadRealTargetDefects(): TargetDefectDto[] | null {
+  if (realTargetDefectsCache !== undefined) return realTargetDefectsCache;
+  try {
+    // Resolved from process.cwd() (backend/), not __dirname — this file
+    // lives under src/ and is never copied into dist/ by the Nest build
+    // (no nest-cli.json asset-copy config), so __dirname would look in the
+    // wrong place once running from compiled output.
+    const filePath = path.join(process.cwd(), 'src', 'qc', 'seed-data', 'target-defects.local.json');
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    realTargetDefectsCache = JSON.parse(raw) as TargetDefectDto[];
+  } catch {
+    realTargetDefectsCache = null;
+  }
+  return realTargetDefectsCache;
+}
+
+// Real per-CR test-execution coverage (QC_REQUIRMENTS_COVERAGE export),
+// aggregated by CR number — see backend/src/qc/seed-data/. Same
+// gitignored-real-data pattern as loadRealTargetDefects. coveragePct here is
+// "% of planned tests actually executed" (Passed+Failed+Blocked+NotCompleted
+// over the total, i.e. everything except NotRun/NotReady) — execution rate,
+// not pass rate.
+export interface CrCoverageDto {
+  crNumber: string; crTitle: string; releaseName: string; cycleName: string;
+  passed: number; failed: number; notRun: number; blocked: number; notCompleted: number; notReady: number;
+  total: number; coveragePct: number;
+}
+let realCrCoverageCache: CrCoverageDto[] | null | undefined;
+function loadRealCrCoverage(): CrCoverageDto[] | null {
+  if (realCrCoverageCache !== undefined) return realCrCoverageCache;
+  try {
+    const filePath = path.join(process.cwd(), 'src', 'qc', 'seed-data', 'test-coverage.local.json');
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    realCrCoverageCache = JSON.parse(raw) as CrCoverageDto[];
+  } catch {
+    realCrCoverageCache = null;
+  }
+  return realCrCoverageCache;
+}
+
+// Real per-cycle Quality Gate coverage targets (RELEASE_CYCLES.QG_HIGH/
+// QG_MEDIUM/QG_LOW), keyed by (releaseName, cycleName) — see
+// backend/src/qc/seed-data/. Same gitignored-real-data pattern as the two
+// loaders above. Genuinely varies per real cycle (26 distinct combos seen),
+// not a flat 100% everywhere.
+export interface CycleQgTargetDto {
+  releaseName: string; cycleName: string; qgHigh: number; qgMedium: number; qgLow: number;
+}
+let realCycleQgTargetsCache: CycleQgTargetDto[] | null | undefined;
+function loadRealCycleQgTargets(): CycleQgTargetDto[] | null {
+  if (realCycleQgTargetsCache !== undefined) return realCycleQgTargetsCache;
+  try {
+    const filePath = path.join(process.cwd(), 'src', 'qc', 'seed-data', 'cycle-qg-targets.local.json');
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    realCycleQgTargetsCache = JSON.parse(raw) as CycleQgTargetDto[];
+  } catch {
+    realCycleQgTargetsCache = null;
+  }
+  return realCycleQgTargetsCache;
+}
+
+function buildMockTargetDefects(crNumber: string, releaseName?: string): TargetDefectDto[] {
+  const real = loadRealTargetDefects();
+  if (real) {
+    // Strict match only — showing defects targeted at a DIFFERENT real
+    // release than the one actually selected is exactly the bug this is
+    // fixing, so no substring/fuzzy fallback here. A version with no real
+    // historical match (e.g. a synthetic dev/test version name that was
+    // never a real QC release) correctly gets an empty list rather than a
+    // misleading mix of unrelated releases.
+    return releaseName ? real.filter(d => d.targetRelease === releaseName) : [];
+  }
   const teams = ['CRM Team', 'EAI Team', 'OSS Team', 'QA Team'];
   const testers = ['Cohen, Dana', 'Levi, Yossi', 'Peretz, Nissim', ''];
+  const systems = ['BSA', 'HOT Energy', 'Billing', 'VC', 'ממשקים'];
   const titles = [
     'שדרוג בקליק', 'Billing', 'WIZ', 'תיקון תצוגה בממשק', 'עדכון פרמטר',
+  ];
+  // Extended fields (everything beyond the small "always useful" subset
+  // above) default to '' in mock mode — dev/Oracle-disabled fallback only
+  // needs to be type-correct, not data-accurate; the column-picker simply
+  // shows blanks for these until a real Oracle connection is enabled.
+  const blankExtendedFields = {
+    subject: '', summary: '', description: '', notes: '', reproducible: '', priority: '',
+    detectedBy: '', detectedOnDate: '', estimatedFixTime: '', actualFixTime: '',
+    environment: '', responsibility: '', testPhase: '', defectType: '', closedBy: '',
+    deploymentReason: '', fixedUntil: '', crHbrNumberReference: '', vendorStatus: '',
+    responseDate: '', supportReferenceNumber: '', subModule: '', fixedInProd: '',
+    mainModule: '', reason: '', supportStatus: '', vendorAssignTo: '', category: '',
+    itemType: '', estimateFixTime: '', platform: '', modified: '', detectedInRelease: '',
+    detectedInCycle: '', targetRelease: '', targetCycle: '', crStatus: '', dropNumber: '',
+    reopenYn: '', influence: '', fixType: '', secondaryPriority: '', releaseDefect: '',
+    businessProcess: '', foundByAutomation: '', mainBusinessProcess: '', impact: '',
+    productionReason: '', environmentComponent: '', willBeTestAtGoLive: '',
+    deploymentCategory: '', defectResponsible: '', targetReleaseReason: '', targetType: '',
+    systemComponent: '', forRegressionTest: '', escDefectResponsible: '', toBeTestedOnProd: '',
+    deploymentDateProd: '', targetScopeApproved: '',
+  };
+  // A couple of rows get realistic multi-line Hebrew description/notes text
+  // (dev mode only) so the field-detail form's large text areas have
+  // something real to render, not just blanks.
+  const sampleDescriptions = [
+    'הלקוח מדווח כי לאחר עדכון הגרסה, מסך הצפייה בחשבונית אינו מציג את פירוט השירותים כנדרש.\nהתקלה חוזרת על עצמה גם בסביבת בדיקה וגם בסביבת production.\n\nשלבים לשחזור:\n1. כניסה לאזור אישי\n2. מעבר למסך "חשבוניות"\n3. פתיחת חשבונית אחרונה',
+    '',
+  ];
+  const sampleNotes = [
+    'נבדק ע"י צוות הפיתוח — הבעיה נובעת מ-timeout בקריאה ל-API של Billing.\nנדרש תיקון בצד השרת + עדכון ה-timeout ל-30 שניות.',
+    '',
   ];
   return Array.from({ length: 6 }, (_, i) => ({
     id: String(1000 + i),
     assignedTo: teams[i % teams.length],
     qaTester: testers[i % testers.length],
     crReferenceNumber: `${crNumber} - TARGET`,
+    system: systems[i % systems.length],
     title: titles[i % titles.length],
     status: i % 3 === 0 ? 'Closed' : 'Open',
     severity: i % 4 === 0 ? 'Severe' : 'Medium',
+    ...blankExtendedFields,
+    description: sampleDescriptions[i % sampleDescriptions.length],
+    notes: sampleNotes[i % sampleNotes.length],
   }));
 }
 
@@ -801,6 +1077,27 @@ export class QcService {
     return { enabled };
   }
 
+  // Real per-CR test coverage for an ad-hoc list of CR numbers — used by the
+  // release-intelligence cycle-progress cards (mock/dev mode only; the live
+  // path already has its own version/cycle-scoped query in getTestCoverage
+  // below, which is the correct production source once Oracle is enabled).
+  async getCrCoverage(crNumbers: string[]): Promise<CrCoverageDto[]> {
+    const { enabled } = await getOracleConfig();
+    if (enabled) return [];
+    const real = loadRealCrCoverage();
+    if (!real) return [];
+    const wanted = new Set(crNumbers);
+    return real.filter(c => wanted.has(c.crNumber));
+  }
+
+  // Real per-cycle QG coverage targets — mock/dev mode only, same rationale
+  // as getCrCoverage above.
+  async getCycleQgTargets(): Promise<CycleQgTargetDto[]> {
+    const { enabled } = await getOracleConfig();
+    if (enabled) return [];
+    return loadRealCycleQgTargets() ?? [];
+  }
+
   async getTestCoverage(versionId: string): Promise<TestCoverageDto[]> {
     const { enabled } = await getOracleConfig();
     if (!enabled) return MOCK_COVERAGE;
@@ -878,11 +1175,27 @@ export class QcService {
     }
   }
 
-  // Defects for one CR, optionally narrowed to one team (fuzzy name match —
-  // see normalizeTeamName). Used by the TARGET-CR gate screen.
+  // All of a team's defects for the release (not scoped to one CR number —
+  // see TARGET_CR_DEFECTS_SQL), optionally narrowed to one team (fuzzy name
+  // match — see normalizeTeamName). Used by the TARGET-CR gate screen.
+  // crNumber is kept only to label mock rows in dev/Oracle-disabled mode.
   async getTargetCrDefects(versionId: string, crNumber: string, teamName?: string): Promise<TargetDefectDto[]> {
     const { enabled } = await getOracleConfig();
-    const all = enabled ? await this.fetchTargetCrDefectsFromOracle(versionId, crNumber) : buildMockTargetDefects(crNumber);
+    let all: TargetDefectDto[];
+    if (enabled) {
+      all = await this.fetchTargetCrDefectsFromOracle(versionId);
+    } else {
+      // Mock mode must still scope by release — the real seed dataset (see
+      // loadRealTargetDefects) spans real historical releases (2022-2025),
+      // so without this filter every dev/test version would show a random
+      // mix of OTHER releases' defects (caught live 2026-07-28: the
+      // "Target Release" column showed everything except the actually
+      // selected version). Falls back to '' (no match, so an empty result)
+      // when the version has no linked QcRelease.
+      const version = await prisma.version.findUnique({ where: { id: versionId }, include: { qcRelease: true } });
+      const releaseName = (version as any)?.qcRelease?.relName ?? version?.name ?? '';
+      all = buildMockTargetDefects(crNumber, releaseName);
+    }
     if (!teamName) return all;
     const normTeam = normalizeTeamName(teamName);
     return all.filter(d => {
@@ -891,22 +1204,83 @@ export class QcService {
     });
   }
 
-  private async fetchTargetCrDefectsFromOracle(versionId: string, crNumber: string): Promise<TargetDefectDto[]> {
+  private async fetchTargetCrDefectsFromOracle(versionId: string): Promise<TargetDefectDto[]> {
     const relId = await this.getRelId(versionId);
     if (!relId) return [];
 
     let conn: any;
     try {
       conn = await oracleConnect();
-      const result = await conn.execute(TARGET_CR_DEFECTS_SQL, { releaseId: relId, crPattern: `${crNumber}%` });
+      const result = await conn.execute(TARGET_CR_DEFECTS_SQL, { releaseId: relId });
       return (result.rows ?? []).map((r: any): TargetDefectDto => ({
         id:                String(r.DEFECT_ID),
         assignedTo:        r.ASSIGNED_TO         ?? '',
         qaTester:          r.QA_TESTER            ?? '',
         crReferenceNumber: r.CR_REFERENCE_NUMBER ?? '',
+        system:            r.PROJECT             ?? '',
         title:             r.SUMMARY || r.SUBJECT || '',
         status:            r.DEFECT_STATUS       ?? '',
         severity:          r.SEVERITY             ?? '',
+        subject:                r.SUBJECT                 ?? '',
+        summary:                r.SUMMARY                 ?? '',
+        description:            r.DEFECT_DESCRIPTION      ?? '',
+        notes:                  r.DEFECT_COMMENTS         ?? '',
+        reproducible:           r.REPRODUCIBLE_Y_N        ?? '',
+        priority:               r.PRIORITY                ?? '',
+        detectedBy:             r.DETECTED_BY             ?? '',
+        detectedOnDate:         r.DETECTED_ON_DATE        ?? '',
+        estimatedFixTime:       r.ESTIMATED_FIX_TIME      ?? '',
+        actualFixTime:          r.FIX_TIME                ?? '',
+        environment:            r.ENVIRONMENT             ?? '',
+        responsibility:         r.RESPONSIBILITY          ?? '',
+        testPhase:              r.TEST_PHASE              ?? '',
+        defectType:             r.DEFECT_TYPE             ?? '',
+        closedBy:               r.CLOSED_BY               ?? '',
+        deploymentReason:       r.DEPLOYMENT_REASON       ?? '',
+        fixedUntil:             r.FIXED_UNTIL             ?? '',
+        crHbrNumberReference:   r.CR_HBR_NUMBER_REFERENCE ?? '',
+        vendorStatus:           r.VENDOR_STATUS           ?? '',
+        responseDate:           r.RESPONSE_DATE           ?? '',
+        supportReferenceNumber: r.SUPPORT_REFERENCE_NUMBER ?? '',
+        subModule:              r.SUB_MODULE              ?? '',
+        fixedInProd:            r.FIXED_IN_PROD           ?? '',
+        mainModule:             r.MAIN_MODULE             ?? '',
+        reason:                 r.REASON                  ?? '',
+        supportStatus:          r.SUPPORT_STATUS          ?? '',
+        vendorAssignTo:         r.VENDOR_ASSIGN_TO        ?? '',
+        category:               r.CATEGORY                ?? '',
+        itemType:               r.ITEM_TYPE               ?? '',
+        estimateFixTime:        r.ESTIMATE_FIX_TIME       ?? '',
+        platform:               r.PLATFORM                ?? '',
+        modified:               r.MODIFIED                ?? '',
+        detectedInRelease:      r.DETECTED_IN_RELEASE     ?? '',
+        detectedInCycle:        r.DETECTED_IN_CYCLE       ?? '',
+        targetRelease:          r.TARGET_RELEASE          ?? '',
+        targetCycle:            r.TARGET_CYCLE            ?? '',
+        crStatus:               r.CR_STATUS               ?? '',
+        dropNumber:             r['Drop#']                ?? '',
+        reopenYn:               r.REOPEN_Y_N              ?? '',
+        influence:              r.INFLUENCE               ?? '',
+        fixType:                r.FIX_TYPE                ?? '',
+        secondaryPriority:      r.SECONDARY_PRIORITY      ?? '',
+        releaseDefect:          r.RELEASE_DEFECT          ?? '',
+        businessProcess:        r.BUSINESS_PROCESSE       ?? '',
+        foundByAutomation:      r.FOUND_BY_AUTOMATION     ?? '',
+        mainBusinessProcess:    r.MAIN_BUSINESS_PROCESSE  ?? '',
+        impact:                 r.IMPACT                  ?? '',
+        productionReason:       r.PODUCTION_REASON        ?? '',
+        environmentComponent:   r.ENVIRONMENT_COMPONNENT  ?? '',
+        willBeTestAtGoLive:     r.WILL_BE_TEST_AT_GO_LIVE ?? '',
+        deploymentCategory:     r.DEPLOYMENT_CATEGORY     ?? '',
+        defectResponsible:      r.DEFECT_RESPONSIBLE      ?? '',
+        targetReleaseReason:    r.TARGET_RELEASE_REASON   ?? '',
+        targetType:             r.TARGET_TYPE             ?? '',
+        systemComponent:        r.SYSTEM_COMPONENT        ?? '',
+        forRegressionTest:      r.FOR_REGRESSION_TEST     ?? '',
+        escDefectResponsible:   r.ESC_DEFECT_RESPONSIBLE  ?? '',
+        toBeTestedOnProd:       r.TO_BE_TESTED_ON_PROD    ?? '',
+        deploymentDateProd:     r.DEPLOYMENT_DATE_PROD    ?? '',
+        targetScopeApproved:    r.TARGET_SCOPE_APPROVED   ?? '',
       }));
     } catch (err: any) {
       this.logger.error(`Oracle getTargetCrDefects: ${err.message}`);

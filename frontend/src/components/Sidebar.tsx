@@ -58,7 +58,6 @@ const QA_VIEWS = [
 
 const VM_VIEWS = [
   { key: 'overview', label: 'סקירה כללית',      icon: '📊' },
-  { key: 'create',   label: 'יצירת גרסה',       icon: '➕' },
   { key: 'manage',   label: 'ניהול תכולה',      icon: '📋' },
   { key: 'changes',  label: 'ניהול שינויים',    icon: '🔄' },
 ];

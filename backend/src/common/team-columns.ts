@@ -31,3 +31,27 @@ export const TEAM_COLUMNS: Record<string, string[]> = {
   'Billing Operations Team': ['תפעול בילינג'],
   'Telecom Team':            ['תקשורת'],
 };
+
+// CR_LIST "סטטוס" values that mean the CR isn't actually committed to a
+// version's scope (yet, or anymore) — confirmed against the real status
+// dropdown, not just the literal "מבוטל" a CR normally cancels through.
+// Shared by import.service.ts and version-cr-assignments.service.ts, which
+// each parse the same CR_LIST file independently — keep this the only copy
+// so the two never silently diverge on which statuses count as excluded.
+export const EXCLUDED_CR_STATUSES = new Set([
+  'מבוטל',
+  'ממתין לשיבוץ גרסה',
+  'בחקירה',
+  'לישיבת הערכות השקעה',
+  'בהערכת השקעה',
+  'הקפאה',
+]);
+
+// A CR is a "TARGET CR" (catch-all defect-handling CR, gated through
+// TargetCrReview instead of a regular task-proposal form) when its label/
+// title contains "target" (case-insensitive) — the only signal available,
+// since CR_LIST has no dedicated type column for this. Previously duplicated
+// independently in qa-workplan.service.ts and target-cr.service.ts; keep
+// this the only copy so a version-wide count and a per-CR check never
+// silently disagree on which CRs qualify.
+export const TARGET_CR_PATTERN = /target/i;

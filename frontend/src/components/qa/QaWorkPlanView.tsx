@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW } from '../../theme';
 import { useDialog } from '../../context/DialogContext';
+import { ConfirmDialog, DialogConfig } from '../ConfirmDialog';
 import { DateField } from '../DatePicker';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -32,6 +33,28 @@ interface CycleTask {
   isActive: boolean;
   isPrimary: boolean;
   sortOrder: number;
+}
+
+// A task shown read-only inside a cycle card it doesn't actually belong to
+// (see the cross-cycle ghost logic in CycleCard) — ghostLabel names whichever
+// cycle it's really scheduled in, so the marker reads correctly regardless of
+// which direction it's surfaced (SA task shown inside a core cycle, or a core
+// task shown inside the SA cycle).
+interface GhostTask extends CycleTask {
+  ghostLabel: string;
+  // True only if this ghost's own date range genuinely intersects one of the
+  // tester's real (active) tasks in the cycle it's shown inside — as opposed
+  // to merely falling somewhere within that cycle's overall calendar window.
+  // Should never happen given the scheduler's own conflict-avoidance, but
+  // surfacing it explicitly (instead of only ever showing the neutral
+  // "co-occurring, not conflicting" ghost style) is what actually answers
+  // "is there an overlap or not" at a glance, per a manual reassignment/edit
+  // bypassing the scheduler.
+  hasConflict: boolean;
+}
+
+function rangesOverlap(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
+  return aStart <= bEnd && bStart <= aEnd;
 }
 
 interface QaAssignment {
@@ -94,7 +117,7 @@ interface Cycle {
 
 interface ChangeLogEntry {
   id: string;
-  action: 'EFFORT_CHANGED' | 'TASK_DELETED';
+  action: 'EFFORT_CHANGED' | 'TASK_DELETED' | 'TASK_ARCHIVED' | 'TASK_RESTORED' | 'TASK_REASSIGNED' | 'TASK_TOGGLED';
   crNumber: string | null;
   userEmail: string | null;
   beforeData: Record<string, any> | null;
@@ -158,6 +181,30 @@ const CYCLE_BG: Record<string, string> = {
   REHEARSAL:   'rgba(156,106,222,0.08)',
   GO_LIVE:     C.brandDim,
 };
+
+// One-line human description per change-log action — every write site in
+// qa-workplan.service.ts (EFFORT_CHANGED/TASK_DELETED/TASK_ARCHIVED/
+// TASK_RESTORED/TASK_REASSIGNED/TASK_TOGGLED) must have a case here, or it
+// silently falls through to the generic fallback below.
+function describeChangeLogEntry(entry: ChangeLogEntry): string {
+  const cr = entry.crNumber ?? entry.beforeData?.crNumber ?? '—';
+  switch (entry.action) {
+    case 'TASK_DELETED':
+      return `נמחקה משימה — CR ${cr}`;
+    case 'EFFORT_CHANGED':
+      return `שונה מאמץ — CR ${cr}: ${entry.beforeData?.effortDays ?? '?'} ← ${entry.afterData?.effortDays ?? '?'} ימים`;
+    case 'TASK_ARCHIVED':
+      return `הועברה לארכיון — CR ${cr}${entry.afterData?.reason ? ` (${entry.afterData.reason})` : ''}`;
+    case 'TASK_RESTORED':
+      return `שוחזרה מהארכיון — CR ${cr}${entry.afterData?.reason ? ` (${entry.afterData.reason})` : ''}`;
+    case 'TASK_REASSIGNED':
+      return `הוחלף בודק — CR ${cr}: ${entry.beforeData?.userName ?? '?'} ← ${entry.afterData?.userName ?? '?'}`;
+    case 'TASK_TOGGLED':
+      return `${entry.afterData?.isActive ? 'הופעלה' : 'הושבתה'} משימה — CR ${cr}`;
+    default:
+      return `שינוי — CR ${cr}`;
+  }
+}
 
 const EDITABLE_CYCLES = new Set(['CYCLE_2', 'CYCLE_3', 'UAT', 'REHEARSAL', 'GO_LIVE']);
 
@@ -232,6 +279,7 @@ interface Props {
 
 export default function QaWorkPlanView({ token, initialVersionId, versionQaStart, versionQaEnd }: Props) {
   const dialog = useDialog();
+  const [confirmDialog, setConfirmDialog] = useState<DialogConfig | null>(null);
   const ax = useMemo(
     () => axios.create({ headers: { Authorization: `Bearer ${token}` } }),
     [token],
@@ -524,22 +572,29 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
   // needs post-approval. A reason is always required, regardless of approval
   // status, so the archive trail (shown here and in the CR-detail modal)
   // always explains why.
-  const archiveTask = async (task: CycleTask) => {
+  const archiveTask = (task: CycleTask) => {
     const label = task.crLabel ?? task.crNumber;
-    let reason = window.prompt(`סיבת העברה לארכיון עבור "${label}" (${task.user.fullName}):`);
-    while (reason !== null && !reason.trim()) {
-      reason = window.prompt('נדרשת סיבה — אנא הזן טקסט:');
-    }
-    if (!reason) return;
-    setDeletingTask(task.id);
-    try {
-      const r = await ax.patch(`${API}/qa/workplan/task/${task.id}/archive`, { reason: reason.trim() });
-      if (r.data) setWorkPlan(r.data);
-    } catch (e: any) {
-      dialog.alert(e?.response?.data?.message ?? 'שגיאה בהעברה לארכיון', 'שגיאה', 'danger');
-    } finally {
-      setDeletingTask(null);
-    }
+    setConfirmDialog({
+      title: 'העברה לארכיון',
+      message: `סיבת העברה לארכיון עבור "${label}" (${task.user.fullName}):`,
+      inputLabel: 'סיבה',
+      inputPlaceholder: 'לדוגמה: הוסר מהיקף הגרסה',
+      variant: 'warning',
+      confirmLabel: 'העבר לארכיון',
+      cancelLabel: 'ביטול',
+      onConfirm: async (reason?: string) => {
+        setDeletingTask(task.id);
+        try {
+          const r = await ax.patch(`${API}/qa/workplan/task/${task.id}/archive`, { reason: reason!.trim() });
+          if (r.data) setWorkPlan(r.data);
+        } catch (e: any) {
+          dialog.alert(e?.response?.data?.message ?? 'שגיאה בהעברה לארכיון', 'שגיאה', 'danger');
+        } finally {
+          setDeletingTask(null);
+        }
+      },
+      onCancel: () => {},
+    });
   };
 
   const loadArchive = async () => {
@@ -553,23 +608,30 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
     }
   };
 
-  const restoreTask = async (task: ArchivedTask) => {
+  const restoreTask = (task: ArchivedTask) => {
     const label = task.crLabel ?? task.crNumber;
-    let reason = window.prompt(`סיבת שחזור עבור "${label}" (${task.user.fullName}):`);
-    while (reason !== null && !reason.trim()) {
-      reason = window.prompt('נדרשת סיבה — אנא הזן טקסט:');
-    }
-    if (!reason) return;
-    setRestoringTask(task.id);
-    try {
-      const r = await ax.patch(`${API}/qa/workplan/task/${task.id}/restore`, { reason: reason.trim() });
-      if (r.data) setWorkPlan(r.data);
-      setArchivedTasks(prev => prev.filter(t => t.id !== task.id));
-    } catch (e: any) {
-      dialog.alert(e?.response?.data?.message ?? 'שגיאה בשחזור המשימה', 'שגיאה', 'danger');
-    } finally {
-      setRestoringTask(null);
-    }
+    setConfirmDialog({
+      title: 'שחזור מהארכיון',
+      message: `סיבת שחזור עבור "${label}" (${task.user.fullName}):`,
+      inputLabel: 'סיבה',
+      inputPlaceholder: 'לדוגמה: הוחזר להיקף הגרסה',
+      variant: 'info',
+      confirmLabel: 'שחזר',
+      cancelLabel: 'ביטול',
+      onConfirm: async (reason?: string) => {
+        setRestoringTask(task.id);
+        try {
+          const r = await ax.patch(`${API}/qa/workplan/task/${task.id}/restore`, { reason: reason!.trim() });
+          if (r.data) setWorkPlan(r.data);
+          setArchivedTasks(prev => prev.filter(t => t.id !== task.id));
+        } catch (e: any) {
+          dialog.alert(e?.response?.data?.message ?? 'שגיאה בשחזור המשימה', 'שגיאה', 'danger');
+        } finally {
+          setRestoringTask(null);
+        }
+      },
+      onCancel: () => {},
+    });
   };
 
   const loadChangeLog = async () => {
@@ -681,6 +743,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
   }, [workPlan]);
 
   return (
+    <>
     <div style={{ padding: initialVersionId ? 0 : SP[6], fontFamily: FONT, direction: 'rtl', minHeight: initialVersionId ? undefined : '100vh', backgroundColor: initialVersionId ? undefined : C.bgApp }}>
 
       {/* ── Header — only when standalone page ── */}
@@ -989,6 +1052,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           key={cycle.id}
           cycle={cycle}
           standAloneCycle={workPlan?.cycles.find(c => c.cycleType === 'STAND_ALONE')}
+          coreCycles={(workPlan?.cycles ?? []).filter(c => ['CYCLE_1', 'CYCLE_2', 'CYCLE_3'].includes(c.cycleType))}
           expanded={expandedCycles.has(cycle.id)}
           onToggleExpand={() => toggleCycle(cycle.id)}
           onToggleTask={toggleTask}
@@ -1043,7 +1107,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           <div onClick={e => e.stopPropagation()}
             style={{ background: C.bgCard, borderRadius: RADIUS.lg, padding: SP[5], maxWidth: 560, width: '92vw', maxHeight: '78vh', overflowY: 'auto', boxShadow: '0 20px 48px rgba(0,0,0,.25)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[3] }}>
-              <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>🕘 יומן שינויים לאחר אישור התוכנית</span>
+              <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>🕘 יומן שינויים</span>
               <button onClick={() => setShowChangeLog(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: C.textMuted }}>✕</button>
             </div>
             {!changeLog || changeLog.length === 0 ? (
@@ -1054,9 +1118,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
                   <div key={entry.id} style={{ background: C.bgNested, borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, ...TEXT.sm }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: SP[2] }}>
                       <span style={{ fontWeight: WEIGHT.medium, color: C.textPrimary }}>
-                        {entry.action === 'TASK_DELETED'
-                          ? `נמחקה משימה — CR ${entry.crNumber ?? entry.beforeData?.crNumber ?? '—'}`
-                          : `שונה מאמץ — CR ${entry.crNumber ?? '—'}: ${entry.beforeData?.effortDays ?? '?'} ← ${entry.afterData?.effortDays ?? '?'} ימים`}
+                        {describeChangeLogEntry(entry)}
                       </span>
                       <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap' }}>
                         {new Date(entry.createdAt).toLocaleString('he-IL')}
@@ -1112,6 +1174,8 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
         </div>
       )}
     </div>
+    <ConfirmDialog config={confirmDialog} onClose={() => setConfirmDialog(null)} />
+    </>
   );
 }
 
@@ -1142,11 +1206,12 @@ function ganttDayOf(fromIso: string, toIso: string, holidayDays?: Set<string>): 
   return countWorkDaysBetween(fromIso, toIso, holidayDays);
 }
 
-function GanttChart({ cycle, label, testerGroups, saGhostsByUser, holidayDays }: {
+function GanttChart({ cycle, label, testerGroups, saGhostsByUser, urgentCrNumbers, holidayDays }: {
   cycle: Cycle;
   label: string;
   testerGroups: Map<string, { name: string; tasks: CycleTask[] }>;
-  saGhostsByUser: Map<string, CycleTask[]>;
+  saGhostsByUser: Map<string, GhostTask[]>;
+  urgentCrNumbers: Set<string>;
   holidayDays: Set<string>;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -1156,7 +1221,7 @@ function GanttChart({ cycle, label, testerGroups, saGhostsByUser, holidayDays }:
   const [hoveredSeg, setHoveredSeg] = useState<{ text: string; x: number; y: number } | null>(null);
   const cycleLengthDays = Math.max(1, countWorkDaysBetween(cycle.plannedStart, cycle.plannedEnd, holidayDays));
 
-  type Seg = { id: string; crNumber: string; label: string; startDay: number; durationDays: number; color: string | null; isTarget: boolean; isGhost: boolean };
+  type Seg = { id: string; crNumber: string; label: string; startDay: number; durationDays: number; color: string | null; isTarget: boolean; isGhost: boolean; ghostLabel?: string; hasConflict?: boolean; isUrgent: boolean };
   const rows = Array.from(testerGroups.entries())
     .map(([userId, group]) => {
       const active = group.tasks.filter(t => t.isActive).sort((a, b) => a.plannedStart.localeCompare(b.plannedStart));
@@ -1170,17 +1235,23 @@ function GanttChart({ cycle, label, testerGroups, saGhostsByUser, holidayDays }:
         return {
           id: t.id, crNumber: isFiller ? 'רגרסיה' : t.crNumber, label: t.crLabel ?? t.crNumber,
           startDay, durationDays: Math.max(1, endDay - startDay + 1), color, isTarget, isGhost: false,
+          isUrgent: !isFiller && urgentCrNumbers.has(t.crNumber),
         };
       });
       // Ghost segments — this tester's Stand Alone tasks that chronologically fall
       // inside this cycle's own window (see saGhostsByUser in CycleCard). Positioned
       // the same way, but never consume a rotation color and render read-only.
+      // Dashed brand border = co-occurring, no actual day-level overlap (the normal,
+      // expected case). Solid red + ⚠ = ghost.hasConflict — its dates genuinely
+      // intersect one of the tester's real tasks here, which the scheduler should
+      // never produce on its own; only a manual reassignment/edit could cause it.
       for (const t of saGhostsByUser.get(userId) ?? []) {
         const startDay = ganttDayOf(cycle.plannedStart, t.plannedStart, holidayDays);
         const endDay   = ganttDayOf(cycle.plannedStart, t.plannedEnd, holidayDays);
         segs.push({
           id: `ghost-${t.id}`, crNumber: t.crNumber, label: t.crLabel ?? t.crNumber,
           startDay, durationDays: Math.max(1, endDay - startDay + 1), color: null, isTarget: false, isGhost: true,
+          ghostLabel: t.ghostLabel, hasConflict: t.hasConflict, isUrgent: false,
         });
       }
       segs.sort((a, b) => a.startDay - b.startDay);
@@ -1255,7 +1326,10 @@ function GanttChart({ cycle, label, testerGroups, saGhostsByUser, holidayDays }:
                   const rightPct = pct(seg.startDay - 1);
                   const widthPct = pct(seg.durationDays);
                   const wide = widthPct > 6;
-                  const titlePrefix = seg.isGhost ? '↗ Stand Alone (סבב אחר) — ' : seg.isTarget ? '🎯 TARGET — ' : '';
+                  const ghostColor = seg.hasConflict ? C.danger : C.brand;
+                  const titlePrefix = seg.isGhost
+                    ? (seg.hasConflict ? `⚠ חפיפה בפועל! ↗ ${seg.ghostLabel} (סבב אחר) — ` : `↗ ${seg.ghostLabel} (סבב אחר, אין חפיפה בפועל) — `)
+                    : seg.isTarget ? '🎯 TARGET — ' : '';
                   const tooltipText = `${titlePrefix}${seg.crNumber} — ${seg.label} (${seg.durationDays} ${seg.durationDays === 1 ? 'יום' : 'ימים'})`;
                   return (
                     <div
@@ -1270,17 +1344,32 @@ function GanttChart({ cycle, label, testerGroups, saGhostsByUser, holidayDays }:
                         right: `${rightPct}%`, width: `${widthPct}%`,
                         background: seg.isGhost ? C.bgCard : seg.color ?? C.bgCard,
                         ...(seg.isGhost
-                          ? { border: `1px dashed ${C.brand}88`, opacity: 0.75 }
+                          ? { border: `1px dashed ${ghostColor}88`, opacity: 0.75 }
                           : seg.color ? {} : { backgroundImage: `repeating-linear-gradient(45deg, ${C.textDisabled}, ${C.textDisabled} 3px, ${C.bgCard} 3px, ${C.bgCard} 6px)` }),
                         borderRadius: RADIUS.sm,
-                        boxSizing: 'border-box', border: seg.isGhost ? `1px dashed ${C.brand}88` : `1px solid ${C.bgCard}`,
+                        boxSizing: 'border-box', border: seg.isGhost ? `1px dashed ${ghostColor}88` : `1px solid ${C.bgCard}`,
                         display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
                         cursor: 'default',
                       }}
                     >
+                      {/* Urgent marker — always at the left edge of the bar (regardless of
+                          bar width/RTL day-direction), per explicit request: a fixed visual
+                          landmark independent of the segment's own text label. */}
+                      {seg.isUrgent && (
+                        <span
+                          title="דחוף"
+                          style={{
+                            position: 'absolute', left: 2, top: '50%', transform: 'translateY(-50%)',
+                            fontWeight: WEIGHT.bold, fontSize: 11, color: C.danger, lineHeight: 1,
+                          }}
+                        >!</span>
+                      )}
+                      {seg.isGhost && seg.hasConflict && (
+                        <span title="חפיפה בפועל" style={{ position: 'absolute', left: 2, top: '50%', transform: 'translateY(-50%)', fontSize: 11, lineHeight: 1 }}>⚠</span>
+                      )}
                       {wide && (
-                        <span style={{ fontWeight: WEIGHT.bold, color: seg.isGhost ? C.brand : seg.color ? '#fff' : C.textMuted, whiteSpace: 'nowrap', fontSize: 11 }}>
-                          {seg.isGhost ? `↗ SA ${seg.crNumber}` : seg.isTarget ? `🎯 ${seg.crNumber}` : seg.crNumber}
+                        <span style={{ fontWeight: WEIGHT.bold, color: seg.isGhost ? ghostColor : seg.color ? '#fff' : C.textMuted, whiteSpace: 'nowrap', fontSize: 11 }}>
+                          {seg.isGhost ? `↗ ${seg.ghostLabel} ${seg.crNumber}` : seg.isTarget ? `🎯 ${seg.crNumber}` : seg.crNumber}
                         </span>
                       )}
                     </div>
@@ -1358,6 +1447,7 @@ interface CycleCardProps {
   deletingTask:    string | null;
   urgentCrNumbers: Set<string>;
   standAloneCycle: Cycle | undefined;
+  coreCycles:      Cycle[];
   holidayDays:     Set<string>;
 }
 
@@ -1369,7 +1459,7 @@ function CycleCard({
   allAssignments, problematicKeys,
   allTesters, swappingTask, onStartSwap, onReassignTester, reassigning,
   onDeleteTask, deletingTask,
-  urgentCrNumbers, standAloneCycle, holidayDays,
+  urgentCrNumbers, standAloneCycle, coreCycles, holidayDays,
 }: CycleCardProps) {
   const accent = CYCLE_ACCENT[cycle.cycleType] ?? C.textMuted;
   const bg     = CYCLE_BG[cycle.cycleType]     ?? C.bgNested;
@@ -1393,20 +1483,42 @@ function CycleCard({
     testerGroups.get(task.userId)!.tasks.push(task);
   }
 
-  // Cross-cycle visibility: a tester's Stand Alone task can chronologically fall
-  // inside this (core) cycle's own window — e.g. their SA load overflowed into
-  // it — which is otherwise invisible here since SA is a fully separate cycle.
-  // Surface it as a read-only "ghost" entry, only for testers who already have
-  // a real row in this cycle (never creates a new row just for a ghost).
+  // Cross-cycle visibility, both directions — a tester's Stand Alone task can
+  // chronologically fall inside a core cycle's window (e.g. their SA load
+  // overflowed into it), and just as easily a core-cycle task can fall inside
+  // the SA cycle's own window — either way it's otherwise invisible since SA
+  // and core are fully separate cycles. Surface it as a read-only "ghost"
+  // entry, only for testers who already have a real row in this cycle (never
+  // creates a new row just for a ghost). The scheduler itself never lets these
+  // overlap in time for the same tester (scheduleStandAlone conflict-checks
+  // against the tester's core busy periods) — this is purely about making
+  // that already-true fact visible here instead of only inferable by
+  // cross-referencing two separate cards.
   const isCoreCycle = cycle.cycleType === 'CYCLE_1' || cycle.cycleType === 'CYCLE_2' || cycle.cycleType === 'CYCLE_3';
-  const saGhostsByUser = new Map<string, CycleTask[]>();
+  const isStandAloneCycle = cycle.cycleType === 'STAND_ALONE';
+  const saGhostsByUser = new Map<string, GhostTask[]>();
   if (isCoreCycle && standAloneCycle) {
     for (const t of standAloneCycle.tasks) {
       if (!t.isActive || !testerGroups.has(t.userId)) continue;
       if (filterUserId && t.userId !== filterUserId) continue;
       if (t.plannedStart > cycle.plannedEnd || t.plannedEnd < cycle.plannedStart) continue; // no calendar overlap with this cycle
+      const hasConflict = testerGroups.get(t.userId)!.tasks
+        .some(real => real.isActive && rangesOverlap(t.plannedStart, t.plannedEnd, real.plannedStart, real.plannedEnd));
       if (!saGhostsByUser.has(t.userId)) saGhostsByUser.set(t.userId, []);
-      saGhostsByUser.get(t.userId)!.push(t);
+      saGhostsByUser.get(t.userId)!.push({ ...t, ghostLabel: CYCLE_LABEL.STAND_ALONE, hasConflict });
+    }
+  } else if (isStandAloneCycle) {
+    for (const coreCycle of coreCycles) {
+      const ghostLabel = CYCLE_LABEL[coreCycle.cycleType] ?? coreCycle.cycleType;
+      for (const t of coreCycle.tasks) {
+        if (!t.isActive || !testerGroups.has(t.userId)) continue;
+        if (filterUserId && t.userId !== filterUserId) continue;
+        if (t.plannedStart > cycle.plannedEnd || t.plannedEnd < cycle.plannedStart) continue; // no calendar overlap with the SA cycle's own window
+        const hasConflict = testerGroups.get(t.userId)!.tasks
+          .some(real => real.isActive && rangesOverlap(t.plannedStart, t.plannedEnd, real.plannedStart, real.plannedEnd));
+        if (!saGhostsByUser.has(t.userId)) saGhostsByUser.set(t.userId, []);
+        saGhostsByUser.get(t.userId)!.push({ ...t, ghostLabel, hasConflict });
+      }
     }
   }
 
@@ -1540,7 +1652,7 @@ function CycleCard({
             </p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-              <GanttChart cycle={cycle} label={label} testerGroups={testerGroups} saGhostsByUser={saGhostsByUser} holidayDays={holidayDays} />
+              <GanttChart cycle={cycle} label={label} testerGroups={testerGroups} saGhostsByUser={saGhostsByUser} urgentCrNumbers={urgentCrNumbers} holidayDays={holidayDays} />
               {Array.from(testerGroups.entries()).map(([userId, group]) => (
                 <TesterSection
                   key={userId}
@@ -1582,7 +1694,7 @@ function CycleCard({
 interface TesterSectionProps {
   testerName:      string;
   tasks:           CycleTask[];
-  ghostTasks:      CycleTask[];
+  ghostTasks:      GhostTask[];
   editable:        boolean;
   onToggleTask:    (t: CycleTask) => void;
   togglingTasks:   Set<string>;
@@ -1623,7 +1735,7 @@ function TesterSection({
   // Real rows (unchanged order/index logic) merged with read-only Stand Alone
   // "ghost" rows at their true chronological position, for display only — the
   // ghosts never enter sortOrder/crTasks/reorder math above.
-  type DisplayRow = { kind: 'real'; task: CycleTask } | { kind: 'ghost'; task: CycleTask };
+  type DisplayRow = { kind: 'real'; task: CycleTask } | { kind: 'ghost'; task: GhostTask };
   const displayRows: DisplayRow[] = [
     ...sorted.map(t => ({ kind: 'real' as const, task: t })),
     ...ghostTasks.map(t => ({ kind: 'ghost' as const, task: t })),
@@ -1707,10 +1819,13 @@ function TesterSection({
             {displayRows.map((row) => {
               if (row.kind === 'ghost') {
                 const t = row.task;
+                const ghostColor = t.hasConflict ? C.danger : C.brand;
                 return (
-                  <tr key={`ghost-${t.id}`} style={{ backgroundColor: C.brandDim }}>
+                  <tr key={`ghost-${t.id}`} style={{ backgroundColor: t.hasConflict ? C.dangerBg : C.brandDim }}>
                     <td colSpan={colCount} style={{ ...tdStyle, padding: `${SP[1]} ${SP[2]}` }}>
-                      <span style={{ ...TEXT.xs, color: C.brand, fontWeight: WEIGHT.bold }}>↗ Stand Alone</span>
+                      <span style={{ ...TEXT.xs, color: ghostColor, fontWeight: WEIGHT.bold }}>
+                        {t.hasConflict ? `⚠ חפיפה בפועל — ↗ ${t.ghostLabel}` : `↗ ${t.ghostLabel} (אין חפיפה בפועל)`}
+                      </span>
                       <span style={{ ...TEXT.xs, color: C.textSecondary, fontStyle: 'italic', marginRight: SP[2] }}>
                         {t.crNumber} — {t.crLabel ?? t.crNumber} · {fmtDate(t.plannedStart)}–{fmtDate(t.plannedEnd)} · {t.effortDays} ימים
                       </span>

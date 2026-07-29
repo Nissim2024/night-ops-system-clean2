@@ -49,6 +49,15 @@ export class TargetCrController {
     return this.service.getSummary(versionId, crNumber);
   }
 
+  // Version-wide TARGET defect rollup — for the version-management overview
+  // (all teams, not just the caller's own), so restricted the same as the
+  // per-CR summary above rather than the team-lead-scoped LEADS_UP routes.
+  @Get('version/:versionId/defect-summary')
+  getVersionTargetDefectSummary(@Param('versionId') versionId: string, @Request() req: any) {
+    if (!CR_APPROVERS.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת מנהל CR לפחות');
+    return this.service.getVersionTargetDefectSummary(versionId);
+  }
+
   @Patch(':reviewId/gate')
   updateGate(
     @Param('reviewId') reviewId: string,

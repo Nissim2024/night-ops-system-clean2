@@ -1,15 +1,76 @@
-import { Injectable, ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import * as fs from 'fs';
-import { TEAM_COLUMNS } from '../common/team-columns';
+import { TEAM_COLUMNS, EXCLUDED_CR_STATUSES, TARGET_CR_PATTERN } from '../common/team-columns';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
 const LEADS_UP = ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'];
 
+type LoadedSheet = {
+  rows: any[][]; headerRowIdx: number; colIdx: (name: string) => number;
+  crCol: number; titleCol: number; verCol: number; statusCol: number;
+  appCol: number; projectCol: number; estimateCol: number; actualsCol: number;
+  parseDay: (v: any) => number;
+};
+
 @Injectable()
 export class VersionCrAssignmentsService {
+  // In-memory cache of the parsed CR_LIST sheet, keyed by file path + mtime +
+  // size. Parsing this file (XLSX.read + sheet_to_json) takes ~1.3s on the
+  // real ~8k-row file — loadSheet() is called on every CR-detail open, every
+  // change-history click, and every sync, so without this cache a manager
+  // clicking through a CR list re-pays that cost on each click. Invalidates
+  // itself automatically the moment the file on disk changes (no restart
+  // needed) since mtime/size no longer match.
+  private sheetCache: { filePath: string; mtimeMs: number; size: number; parsed: LoadedSheet } | null = null;
+  private readonly logger = new Logger(VersionCrAssignmentsService.name);
+
+  // Guards against firing twice within the same target minute (the tick
+  // below runs every minute, so without this it would keep re-triggering
+  // for the full 60s the clock matches CR_LIST_SYNC_TIME).
+  private lastNightlySyncDate: string | null = null;
+
+  // Checked every minute against the admin-configurable CR_LIST_SYNC_TIME
+  // system param (HH:mm, default 00:15) rather than a fixed @Cron expression
+  // — so changing the time in AdminPanel takes effect on the very next tick,
+  // with no reschedule/restart needed. Same polling pattern already used by
+  // runbook.service.ts's EVERY_MINUTE cron.
+  @Cron(CronExpression.EVERY_MINUTE)
+  async checkNightlySyncSchedule() {
+    const param = await prisma.systemParam.findUnique({ where: { key: 'CR_LIST_SYNC_TIME' } });
+    const target = (param?.value ?? '00:15').trim();
+    const now = new Date();
+    const current = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const today = now.toISOString().slice(0, 10);
+    if (current !== target || this.lastNightlySyncDate === today) return;
+    this.lastNightlySyncDate = today;
+    await this.runNightlySync();
+  }
+
+  // Re-syncs every non-terminal version's CR scope from the Excel file, so
+  // nobody needs to remember to click "sync" — mirrors the existing pattern
+  // in quality-hub.service.ts's scheduledImport(). Skips COMPLETED/
+  // ROLLED_BACK and archived versions, since their scope is done and
+  // shouldn't move.
+  private async runNightlySync() {
+    const versions = await prisma.version.findMany({
+      where: { isArchived: false, status: { notIn: ['COMPLETED', 'ROLLED_BACK'] } },
+      select: { id: true, name: true },
+    });
+    this.logger.log(`Running scheduled nightly CR_LIST sync for ${versions.length} version(s)...`);
+    for (const v of versions) {
+      try {
+        const result = await this.syncApply(v.id);
+        this.logger.log(`Synced ${v.name}: ${JSON.stringify(result)}`);
+      } catch (err: any) {
+        this.logger.error(`Nightly sync failed for ${v.name}: ${err?.message ?? err}`);
+      }
+    }
+    this.logger.log('Scheduled nightly CR_LIST sync done.');
+  }
 
   async findForVersion(versionId: string, user: { sub: string; role: string }) {
     // Exclude assignments from teams that don't require plan submission
@@ -80,16 +141,21 @@ export class VersionCrAssignmentsService {
 
   // ── Private: load raw CR_LIST sheet + resolved column indices (shared by
   // parseExcelAssignments and getChangeDetail) ──────────────────────────────
-  private async loadSheet(): Promise<{
-    rows: any[][]; headerRowIdx: number; colIdx: (name: string) => number;
-    crCol: number; titleCol: number; verCol: number; statusCol: number;
-    appCol: number; projectCol: number; estimateCol: number; actualsCol: number;
-    parseDay: (v: any) => number;
-  }> {
+  private async loadSheet(): Promise<LoadedSheet> {
     const param = await prisma.systemParam.findUnique({ where: { key: 'EXCEL_FILE_PATH' } });
     const filePath = param?.value?.trim();
     if (!filePath) throw new BadRequestException('נתיב קובץ CR_LIST לא הוגדר בפרמטרי המערכת (EXCEL_FILE_PATH)');
     if (!fs.existsSync(filePath)) throw new BadRequestException(`הקובץ לא נמצא: ${filePath}`);
+
+    const stat = fs.statSync(filePath);
+    if (
+      this.sheetCache &&
+      this.sheetCache.filePath === filePath &&
+      this.sheetCache.mtimeMs === stat.mtimeMs &&
+      this.sheetCache.size === stat.size
+    ) {
+      return this.sheetCache.parsed;
+    }
 
     const buffer = fs.readFileSync(filePath);
     const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
@@ -110,7 +176,7 @@ export class VersionCrAssignmentsService {
     const headers: string[] = (rows[headerRowIdx] as any[]).map(h => String(h ?? '').trim());
     const colIdx = (name: string) => headers.findIndex(h => h === name);
 
-    return {
+    const parsed: LoadedSheet = {
       rows, headerRowIdx, colIdx,
       crCol:       colIdx('# CR'),
       titleCol:    colIdx('כותרת'),
@@ -122,6 +188,8 @@ export class VersionCrAssignmentsService {
       actualsCol:  colIdx('Actuals'),
       parseDay: (v: any) => { const n = parseFloat(String(v ?? '0').replace(/[^\d.]/g, '')); return isNaN(n) ? 0 : n; },
     };
+    this.sheetCache = { filePath, mtimeMs: stat.mtimeMs, size: stat.size, parsed };
+    return parsed;
   }
 
   // ── Private: parse CR_LIST Excel and return eligible assignments ──────────────
@@ -129,7 +197,7 @@ export class VersionCrAssignmentsService {
     assignments: {
       crNumber: string; crLabel: string; teamId: string; teamName: string;
       crManager: string; crDescription: string; application: string; project: string;
-      qaEffort?: number; estimateDays?: number | null; hasActual?: boolean;
+      qaEffort?: number; estimateDays?: number | null; hasActual?: boolean; actualEffortDays?: number | null;
     }[];
     allTeams: { id: string; name: string }[];
   }> {
@@ -164,7 +232,7 @@ export class VersionCrAssignmentsService {
     for (let r = headerRowIdx + 1; r < rows.length; r++) {
       const row = rows[r] as any[];
       if (String(row[verCol] ?? '').trim() !== version.name) continue;
-      if (String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
+      if (EXCLUDED_CR_STATUSES.has(String(row[statusCol] ?? '').trim())) continue;
       const crNumber = crCol !== -1 ? String(row[crCol] ?? '').trim() : '';
       const title    = titleCol !== -1 ? String(row[titleCol] ?? '').trim() : '';
       if (!crNumber || !title) continue;
@@ -174,6 +242,7 @@ export class VersionCrAssignmentsService {
     const eligibleCRs = qaCRs;
     const crEstimateDays: Record<string, number | null> = {};
     const crHasActual:    Record<string, boolean>       = {};
+    const crActualDays:   Record<string, number | null> = {};
     for (let r = headerRowIdx + 1; r < rows.length; r++) {
       const row = rows[r] as any[];
       const crNumber = crCol !== -1 ? String(row[crCol] ?? '').trim() : '';
@@ -185,6 +254,13 @@ export class VersionCrAssignmentsService {
       if (actualsCol !== -1 && !crHasActual[crNumber]) {
         const cell = String(row[actualsCol] ?? '').trim().toLowerCase();
         if (['v', '✓', 'x', 'yes', 'כן'].includes(cell)) crHasActual[crNumber] = true;
+      }
+      // Same "Actuals" column, read as a number this time — some releases put
+      // an actual-days figure there instead of a plain checkbox mark; a
+      // checkbox-style cell parses to NaN → null, same as an empty cell.
+      if (actualsCol !== -1 && !(crNumber in crActualDays)) {
+        const raw = parseFloat(String(row[actualsCol] ?? '').replace(/[^\d.]/g, ''));
+        crActualDays[crNumber] = isNaN(raw) ? null : raw;
       }
     }
 
@@ -198,7 +274,7 @@ export class VersionCrAssignmentsService {
       for (let r = headerRowIdx + 1; r < rows.length; r++) {
         const row = rows[r] as any[];
         if (String(row[verCol] ?? '').trim() !== version.name) continue;
-        if (String(row[statusCol] ?? '').trim() === 'מבוטל') continue;
+        if (EXCLUDED_CR_STATUSES.has(String(row[statusCol] ?? '').trim())) continue;
         const crNumber = crCol !== -1 ? String(row[crCol] ?? '').trim() : '';
         const title    = titleCol !== -1 ? String(row[titleCol] ?? '').trim() : '';
         if (!crNumber || !title || !eligibleCRs.has(crNumber)) continue;
@@ -227,6 +303,7 @@ export class VersionCrAssignmentsService {
           teamEstimateDays: teamEstimate ?? null,
           estimateDays: crEstimateDays[crNumber] ?? null,
           hasActual:    crHasActual[crNumber] ?? false,
+          actualEffortDays: crActualDays[crNumber] ?? null,
         });
       }
     }
@@ -307,6 +384,7 @@ export class VersionCrAssignmentsService {
           ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
           teamEstimateDays: (a as any).teamEstimateDays ?? null,
           estimateDays: a.estimateDays ?? null, hasActual: a.hasActual ?? false,
+          actualEffortDays: (a as any).actualEffortDays ?? null,
         } as any,
         update: {
           crLabel: a.crLabel, crManager: a.crManager || null,
@@ -316,6 +394,7 @@ export class VersionCrAssignmentsService {
           ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
           teamEstimateDays: (a as any).teamEstimateDays ?? null,
           estimateDays: a.estimateDays ?? null, hasActual: a.hasActual ?? false,
+          actualEffortDays: (a as any).actualEffortDays ?? null,
         } as any,
       });
       if (isNew) added++; else unchanged++;
@@ -405,11 +484,11 @@ export class VersionCrAssignmentsService {
       // covers the QA Team row — whichever is populated for this row's team.
       const prevDays = row.teamEstimateDays ?? row.qaEffort ?? null;
 
-      if (sameVersion && sameVersion.status === 'מבוטל') {
+      if (sameVersion && EXCLUDED_CR_STATUSES.has(sameVersion.status)) {
         detail.statusInSource = sameVersion.status;
         detail.prevDays = prevDays;
         detail.currentDays = sameVersion.teamDays;
-        reason = `הסטטוס של ה-CR בקובץ המקור שונה ל"בוטל".`;
+        reason = `הסטטוס של ה-CR בקובץ המקור שונה ל"${sameVersion.status}".`;
       } else if (sameVersion && sameVersion.teamDays <= teamThreshold) {
         detail.prevDays = prevDays;
         detail.currentDays = sameVersion.teamDays;
@@ -607,7 +686,7 @@ export class VersionCrAssignmentsService {
     let rows: any[];
     try {
       rows = await (prisma.versionCrAssignment as any).findMany({
-        where: { versionId },
+        where: { versionId, syncStatus: { not: 'REMOVED' } },
         select: {
           crNumber: true, crLabel: true, teamId: true,
           qaEffort: true, teamEstimateDays: true, estimateDays: true, hasActual: true,
@@ -617,7 +696,7 @@ export class VersionCrAssignmentsService {
     } catch {
       // Fallback: teamEstimateDays column not yet migrated on this DB
       rows = await (prisma.versionCrAssignment as any).findMany({
-        where: { versionId },
+        where: { versionId, syncStatus: { not: 'REMOVED' } },
         select: {
           crNumber: true, crLabel: true, teamId: true,
           qaEffort: true, estimateDays: true, hasActual: true,
@@ -651,18 +730,23 @@ export class VersionCrAssignmentsService {
       }
     }
 
-    // Sum teamEstimateDays across all non-QA teams (represents true total team investment).
+    // Sum teamEstimateDays across ALL teams including QA — matches
+    // getScopeOverview's plannedDays definition ("sum of all team columns
+    // that have investment estimates"); excluding the QA team here used to
+    // make this tile's total disagree with the version-management module's
+    // own overview for the same version. qaFilteredEstimateDays stays scoped
+    // to non-QA teams (it feeds the separate "QA ניהול" tile's "days in CRs
+    // that have QA effort" metric, not the overall investment total).
     // Falls back to summing estimateDays per distinct CR when teamEstimateDays is not yet synced.
     let totalEstimateDays = 0;
     let qaFilteredEstimateDays = 0;
-    const hasTeamEstimates = rows.some(r => r.teamId !== qaTeamId && (r.teamEstimateDays ?? 0) > 0);
+    const hasTeamEstimates = rows.some(r => (r.teamEstimateDays ?? 0) > 0);
 
     if (hasTeamEstimates) {
       for (const r of rows) {
-        if (r.teamId === qaTeamId) continue;
         const days = r.teamEstimateDays ?? 0;
         totalEstimateDays += days;
-        if (qaCrSet.has(r.crNumber)) qaFilteredEstimateDays += days;
+        if (r.teamId !== qaTeamId && qaCrSet.has(r.crNumber)) qaFilteredEstimateDays += days;
       }
     } else {
       // Fallback: use "סך כל הערכות" per distinct CR
@@ -739,6 +823,91 @@ export class VersionCrAssignmentsService {
       qaFilteredEstimateDays: Math.round(qaFilteredEstimateDays * 10) / 10,
       actualsCount:           actualsCrSet.size,
       byTeam,
+    };
+  }
+
+  // ── Scope & reach overview — the version-management module's landing page ──
+  // Distinct from getVersionStats above (which drives the CR-plan estimate
+  // breakdown by team): this is the tile-row + developments-treemap data for
+  // the module's dashboard. crCount/coreCrCount/saCrCount/targetCrCount are
+  // per-CR (deduplicated across teams); plannedDays sums teamEstimateDays
+  // across every team-row (a CR spanning N teams contributes N estimates,
+  // per the product decision to sum "all team columns that have investment
+  // estimates"); actualDays sums actualEffortDays once per distinct CR (the
+  // Actuals column is CR-level, not per-team, so summing per row would
+  // double/triple-count a multi-team CR).
+  async getScopeOverview(versionId: string) {
+    const rows = await prisma.versionCrAssignment.findMany({
+      where: { versionId, syncStatus: { not: 'REMOVED' } },
+      select: {
+        crNumber: true, crLabel: true, application: true, teamId: true,
+        isStandAlone: true, needsAttention: true,
+        teamEstimateDays: true, estimateDays: true,
+        actualEffortDays: true,
+        team: { select: { name: true } },
+      } as any,
+    });
+
+    const byCr = new Map<string, (typeof rows)[number]>();
+    for (const r of rows) if (!byCr.has(r.crNumber)) byCr.set(r.crNumber, r);
+    const crList = Array.from(byCr.values());
+
+    // Effective SA status must match QaAssignmentView's own logic: a tester's
+    // individual QaAssignment.isStandAlone (set via the assignment screen's SA
+    // toggle) overrides the CR-level VersionCrAssignment.isStandAlone default
+    // whenever it's non-null — and the assignment screen writes to THAT field,
+    // not the CR-level one, once an assignment exists. Reading only the CR-
+    // level flag here undercounts SA (and inflates core) for any version where
+    // testers are already assigned.
+    const assignments = await prisma.qaAssignment.findMany({
+      where: { versionId },
+      select: { crNumber: true, isStandAlone: true },
+    });
+    const saOverrideByCr = new Map(assignments.map(a => [a.crNumber, a.isStandAlone]));
+    const isEffectiveSA = (c: any): boolean => {
+      const override = saOverrideByCr.get(c.crNumber);
+      return override !== undefined && override !== null ? override : !!c.isStandAlone;
+    };
+
+    const crCount     = crList.length;
+    // "Core" isn't its own manually-set flag — a CR is core iff it's NOT in
+    // the Stand Alone cycle. Derived from effective isStandAlone rather than
+    // the separate (manually-toggled, mostly unused) isCore field.
+    const saCrCount   = crList.filter(isEffectiveSA).length;
+    const coreCrCount = crCount - saCrCount;
+    const targetCrCount = crList.filter(c => TARGET_CR_PATTERN.test(c.crLabel ?? '')).length;
+
+    let plannedDays = 0;
+    for (const r of rows) plannedDays += (r as any).teamEstimateDays ?? 0;
+
+    let actualDays = 0;
+    for (const c of crList) actualDays += (c as any).actualEffortDays ?? 0;
+
+    const ratioPct = plannedDays > 0 ? Math.round((actualDays / plannedDays) * 10000) / 100 : null;
+
+    // CR list for the "סה״כ CR-ים" tile's list modal — built from these same
+    // rows (not a separate findForVersion call, which additionally drops CRs
+    // whose only team has requiresPlan=false) so the list the tile opens
+    // always matches the count printed on the tile itself.
+    const teamsByCr = new Map<string, Map<string, string>>(); // crNumber -> teamId -> teamName
+    for (const r of rows) {
+      if (!teamsByCr.has(r.crNumber)) teamsByCr.set(r.crNumber, new Map());
+      teamsByCr.get(r.crNumber)!.set((r as any).teamId, (r as any).team.name);
+    }
+    const crs = crList.map((c: any) => ({
+      crNumber: c.crNumber,
+      crLabel: c.crLabel,
+      needsAttention: rows.some((r: any) => r.crNumber === c.crNumber && r.needsAttention),
+      actualEffortDays: c.actualEffortDays != null ? Math.round(c.actualEffortDays * 100) / 100 : null,
+      teams: Array.from((teamsByCr.get(c.crNumber) ?? new Map()).entries()).map(([teamId, teamName]) => ({ teamId, teamName })),
+    }));
+
+    return {
+      crCount, coreCrCount, saCrCount, targetCrCount,
+      plannedDays: Math.round(plannedDays * 100) / 100,
+      actualDays:  Math.round(actualDays * 100) / 100,
+      ratioPct,
+      crs,
     };
   }
 }

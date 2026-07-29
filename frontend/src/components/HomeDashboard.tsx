@@ -246,14 +246,14 @@ function EmptyState({ canCreate, onNewVersion }: { canCreate: boolean; onNewVers
       <span style={{ fontSize: '52px' }}>📦</span>
       <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: C.textPrimary }}>אין גרסאות פעילות</div>
       <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', maxWidth: '340px', lineHeight: 1.6 }}>
-        {canCreate ? 'לא קיימות גרסאות פעילות. צור גרסה חדשה כדי להתחיל תהליך.' : 'פנה למנהל הגרסה לפתיחת גרסה.'}
+        {canCreate ? 'לא קיימות גרסאות פעילות. צור תוכנית הטמעה חדשה כדי להתחיל תהליך.' : 'פנה למנהל הגרסה לפתיחת גרסה.'}
       </div>
       {canCreate && (
         <button
           onClick={onNewVersion}
           style={{ marginTop: '8px', background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, padding: '10px 24px', ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT }}
         >
-          + פתח גרסה חדשה
+          + יצירת תוכנית הטמעה
         </button>
       )}
     </div>
@@ -294,6 +294,11 @@ export const HomeDashboard: React.FC<Props> = ({
     qaFilteredEstimateDays: number;
     byTeam: { teamId: string; teamName: string; totalDays: number; qaFilteredDays: number; crs: { crNumber: string; crLabel: string; teamDays: number; hasQa: boolean }[] }[];
   } | null>(null);
+  // TARGET-defect fixed/total count for the version-management KPI tile's
+  // footer — endpoint is CR_APPROVERS-gated (narrower than the tile itself),
+  // so a 403 for lower-permission roles just leaves this null and the footer
+  // omits the extra clause rather than erroring.
+  const [targetDefectStats, setTargetDefectStats] = useState<{ total: number; fixedCount: number } | null>(null);
 
   // Pick the most urgent non-archived version
   const activeVersions = useMemo(
@@ -584,6 +589,14 @@ export const HomeDashboard: React.FC<Props> = ({
       })
       .catch(() => setEstimateStats(null));
   }, [primary?.id, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch TARGET-defect fixed/total count for the version-management tile footer.
+  useEffect(() => {
+    if (!canAccessVersionManagement || !primary) { setTargetDefectStats(null); return; }
+    axios.get(`${API}/target-cr/version/${primary.id}/defect-summary`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setTargetDefectStats({ total: r.data?.total ?? 0, fixedCount: r.data?.fixedCount ?? 0 }))
+      .catch(() => setTargetDefectStats(null));
+  }, [canAccessVersionManagement, primary?.id, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch phase progress when version is ACTIVE or REHEARSAL
   useEffect(() => {
@@ -895,7 +908,7 @@ export const HomeDashboard: React.FC<Props> = ({
               onMouseEnter={e => (e.currentTarget.style.background = '#E05555')}
               onMouseLeave={e => (e.currentTarget.style.background = C.brand)}
             >
-              + גרסה חדשה
+              + יצירת תוכנית הטמעה
             </button>
           )}
         </div>
@@ -919,7 +932,7 @@ export const HomeDashboard: React.FC<Props> = ({
                 onClick={onNewVersion}
                 style={{ flexShrink: 0, background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, padding: '8px 18px', ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT }}
               >
-                + פתח גרסה חדשה
+                + יצירת תוכנית הטמעה
               </button>
             )}
           </div>
@@ -939,7 +952,7 @@ export const HomeDashboard: React.FC<Props> = ({
                 onMouseEnter={e => { e.currentTarget.style.borderColor = C.brand; e.currentTarget.style.color = C.brand; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; }}
               >
-                + פתח גרסה חדשה
+                + יצירת תוכנית הטמעה
               </button>
             )}
           </div>
@@ -1030,7 +1043,10 @@ export const HomeDashboard: React.FC<Props> = ({
                 label="CR-ים בתכולה"
                 sub={primary?.scopeApprovedAt ? '✓ תכולה אושרה' : scopeAttentionCount > 0 ? `⚠ ${scopeAttentionCount} דורשים אישור מחדש` : 'ממתין לאישור תכולה'}
                 subTone={primary?.scopeApprovedAt && scopeAttentionCount === 0 ? 'ok' : 'warn'}
-                footer={estimateStats ? `📊 ${estimateStats.totalEstimateDays} ימ״ע השקעה כוללת · ${planningCount} גרסאות בתכנון` : `${planningCount} גרסאות בתכנון · ${endedCount} הסתיימו`}
+                footer={
+                  (estimateStats ? `📊 ${estimateStats.totalEstimateDays} ימ״ע השקעה כוללת · ${planningCount} גרסאות בתכנון` : `${planningCount} גרסאות בתכנון · ${endedCount} הסתיימו`)
+                  + (targetDefectStats && targetDefectStats.total > 0 ? ` · 🎯 ${targetDefectStats.fixedCount}/${targetDefectStats.total} תקלות TARGET תוקנו` : '')
+                }
                 onClick={() => onSwitchToModule?.('version-management')}
               />
             )}
@@ -1401,7 +1417,7 @@ export const HomeDashboard: React.FC<Props> = ({
                     onMouseEnter={e => { e.currentTarget.style.borderColor = C.brand; e.currentTarget.style.color = C.brand; }}
                     onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; }}
                   >
-                    + פתח גרסה חדשה
+                    + יצירת תוכנית הטמעה
                   </button>
                 )}
               </div>

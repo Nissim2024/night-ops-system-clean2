@@ -652,6 +652,7 @@ model VersionCrAssignment {
   estimateDays          Float? // from "סך כל הערכות" column in CR_LIST (CR total, all teams)
   teamEstimateDays      Float? // this team's individual estimate days from their column in CR_LIST
   hasActual             Boolean? // true when "Actuals" column has a V mark
+  actualEffortDays       Float? // numeric value of the "Actuals" column itself (0 for a checkbox-style V/X cell, a real number when the source file has one) — used for the plan-vs-actual ratio on the version-management overview
   syncedAt              DateTime  @default(now())
   syncStatus            String    @default("ACTIVE") // "ACTIVE" | "NEW" | "REMOVED"
   reviewed              Boolean   @default(false) // set during the version-opening validation step
@@ -829,7 +830,7 @@ model QaWorkPlanChangeLog {
   id            String   @id @default(uuid())
   workPlanId    String
   qaCycleTaskId String? // null כאשר המשימה עצמה נמחקה
-  action        String // EFFORT_CHANGED | TASK_DELETED | TASK_ARCHIVED | TASK_RESTORED
+  action        String // EFFORT_CHANGED | TASK_DELETED | TASK_ARCHIVED | TASK_RESTORED | TASK_REASSIGNED | TASK_TOGGLED
   crNumber      String?
   userEmail     String?
   beforeData    Json?

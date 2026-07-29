@@ -310,7 +310,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
               </svg>
             }
           >
-            גרסה חדשה
+            יצירת תוכנית הטמעה
           </Button>
           )}
         </div>

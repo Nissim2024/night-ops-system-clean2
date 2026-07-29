@@ -336,6 +336,11 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const [generating, setGenerating]     = useState(false);
   const [syncing, setSyncing]           = useState(false);
   const [crSyncStatuses, setCrSyncStatuses] = useState<Record<string, 'ACTIVE' | 'NEW' | 'REMOVED'>>({});
+  // Non-archived QaCycleTask ids per CR, from the same work-plan fetch already
+  // done in loadVersion (plan.cycles[].tasks) — lets a REMOVED CR's row here
+  // archive its work-plan task(s) directly, without needing the workplan tab.
+  const [cycleTasksByCr, setCycleTasksByCr] = useState<Map<string, { id: string }[]>>(new Map());
+  const [archivingCr, setArchivingCr] = useState<string | null>(null);
   const [syncDiff, setSyncDiff]             = useState<SyncDiff | null>(null);
   const [excludedAddedCrs, setExcludedAddedCrs] = useState<Set<string>>(new Set());
   // syncDiff.added has one entry per (CR, team) pair — the same CR can span
@@ -469,7 +474,7 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   // ── Load version data ───────────────────────────────────────────────────────
 
   const loadVersion = useCallback(async (vId: string) => {
-    if (!vId) { setCrs([]); setAssignments([]); setScoring({}); setCrSyncStatuses({}); setSecondTesterSuggestions([]); setPlanExists(false); return; }
+    if (!vId) { setCrs([]); setAssignments([]); setScoring({}); setCrSyncStatuses({}); setSecondTesterSuggestions([]); setPlanExists(false); setCycleTasksByCr(new Map()); return; }
     setLoading(true);
     try {
       // Pick up CR_LIST changes automatically on load — without this, edits
@@ -503,6 +508,14 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
       // Restore dates only if there is an existing (even DRAFT) work plan
       const plan = planRes?.data;
       setPlanExists(!!plan?.cycle1Start);
+      const taskMap = new Map<string, { id: string }[]>();
+      for (const cycle of plan?.cycles ?? []) {
+        for (const t of cycle.tasks ?? []) {
+          if (!taskMap.has(t.crNumber)) taskMap.set(t.crNumber, []);
+          taskMap.get(t.crNumber)!.push({ id: t.id });
+        }
+      }
+      setCycleTasksByCr(taskMap);
       if (plan?.cycle1Start) {
         setCycle1Start(toInputDate(plan.cycle1Start));
         setTestingEnd(toInputDate(plan.testingEnd));
@@ -856,6 +869,39 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
     } catch (e: any) {
       dialog.alert(e?.response?.data?.message ?? 'שגיאה במחיקה', 'שגיאה', 'danger');
     }
+  };
+
+  // Archives every work-plan task tied to this CR (primary + secondary tester
+  // tasks together, one reason) — the recoverable counterpart to "מחק CR
+  // לצמיתות" above, for when the CR itself should stay archived/restorable
+  // rather than have its assignment record deleted outright. Same soft-delete
+  // (QaCycleTask.isArchived) the workplan tab's archive panel already shows.
+  const archiveCrTasks = (crNumber: string) => {
+    const tasks = cycleTasksByCr.get(crNumber);
+    if (!tasks || tasks.length === 0 || !selectedVId) return;
+    const cr = crs.find(c => c.crNumber === crNumber);
+    const label = cr?.crLabel ?? crNumber;
+    setConfirmDialog({
+      title: 'העברה לארכיון',
+      message: `סיבת העברה לארכיון עבור "${label}":`,
+      inputLabel: 'סיבה',
+      inputPlaceholder: 'לדוגמה: הוסר מהיקף הגרסה',
+      variant: 'warning',
+      confirmLabel: 'העבר לארכיון',
+      cancelLabel: 'ביטול',
+      onConfirm: async (reason?: string) => {
+        setArchivingCr(crNumber);
+        try {
+          await Promise.all(tasks.map(t => axios.patch(`${API}/qa/workplan/task/${t.id}/archive`, { reason: reason!.trim() }, { headers })));
+          await loadVersion(selectedVId);
+        } catch (e: any) {
+          dialog.alert(e?.response?.data?.message ?? 'שגיאה בהעברה לארכיון', 'שגיאה', 'danger');
+        } finally {
+          setArchivingCr(null);
+        }
+      },
+      onCancel: () => {},
+    });
   };
 
   const showCrChangeDetail = async (crNumber: string) => {
@@ -1344,6 +1390,15 @@ CRים אלה לא ייכללו בתוכנית העבודה.
           />
         </label>
 
+        {cycleRanges && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
+            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>תאריכי סבב 1</span>
+            <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>
+              {fmtRange(cycleRanges.cycle1)}
+            </div>
+          </div>
+        )}
+
         <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
           <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }} title="גבול קבוע לסבב 1. מי שלא מספיק מסומן כחורג, לא מותח את הסבב לכל הצוות">
             אורך סבב 1 (ימי עבודה)
@@ -1357,9 +1412,9 @@ CRים אלה לא ייכללו בתוכנית העבודה.
 
         {cycleRanges && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
-            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>תאריכי סבב 1</span>
+            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>תאריכי סבב 2</span>
             <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>
-              {fmtRange(cycleRanges.cycle1)}
+              {fmtRange(cycleRanges.cycle2)}
             </div>
           </div>
         )}
@@ -1377,9 +1432,9 @@ CRים אלה לא ייכללו בתוכנית העבודה.
 
         {cycleRanges && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
-            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>תאריכי סבב 2</span>
+            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>תאריכי סבב 3</span>
             <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>
-              {fmtRange(cycleRanges.cycle2)}
+              {fmtRange(cycleRanges.cycle3)}
             </div>
           </div>
         )}
@@ -1394,15 +1449,6 @@ CRים אלה לא ייכללו בתוכנית העבודה.
             style={{ width: 90, padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, background: C.bgNested, color: C.textPrimary, outline: 'none', fontFamily: FONT }}
           />
         </label>
-
-        {cycleRanges && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
-            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>תאריכי סבב 3</span>
-            <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>
-              {fmtRange(cycleRanges.cycle3)}
-            </div>
-          </div>
-        )}
 
         {cycleDays > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
@@ -2035,6 +2081,14 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                               onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#dc2626'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#dc2626'; }}
                               onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.textDisabled; (e.currentTarget as HTMLButtonElement).style.borderColor = C.border; }}
                             >🙈</button>
+                            {syncStatus === 'REMOVED' && isManager && (cycleTasksByCr.get(cr.crNumber)?.length ?? 0) > 0 && (
+                              <button
+                                disabled={archivingCr === cr.crNumber}
+                                title="העבר את משימות ה-QA של ה-CR הזה לארכיון (ניתן לשחזור מטאב תוכנית עבודה)"
+                                onClick={() => archiveCrTasks(cr.crNumber)}
+                                style={{ padding: '5px 7px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.xs, cursor: archivingCr === cr.crNumber ? 'not-allowed' : 'pointer', fontFamily: FONT, lineHeight: 1, fontWeight: WEIGHT.semibold, opacity: archivingCr === cr.crNumber ? 0.5 : 1 }}
+                              >📦 ארכיון</button>
+                            )}
                             {syncStatus === 'REMOVED' && isManager && (
                               <button
                                 title="מחק CR לצמיתות"

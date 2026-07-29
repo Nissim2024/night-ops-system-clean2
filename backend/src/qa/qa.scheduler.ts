@@ -42,6 +42,15 @@ export interface CrInput {
   // Optional early deadline for a Stand Alone CR — pulls it ahead of a
   // tester's other SA work (SA is otherwise allowed to run past testingEnd).
   standAloneDueDate?:  Date | null;
+  // Urgent SA work jumps to the front of a tester's SA queue, ahead of
+  // everything except an earlier due date, so it lands as close to
+  // cycle1Start (the version's own test-start date) as that tester's real
+  // availability allows — see scheduleStandAlone's prioritize().
+  urgent?: boolean;
+  // Planned date the CR's code is expected to arrive at QA — a CR can't be
+  // scheduled for (Stand Alone) testing before this. Null/undefined means no
+  // such constraint: testable from day one, purely by priority order.
+  qaArrivalDate?: Date | null;
 }
 
 export interface PlannedTask {
@@ -57,6 +66,12 @@ export interface PlannedTask {
   // Stand Alone tasks only — present when the CR had a standAloneDueDate.
   dueDate?:        Date | null;
   missedDueDate?:  boolean;
+  // Stand Alone tasks only — set when this task's real end date runs past
+  // the version's own testingEnd. SA is meant to stay bounded to the
+  // version's window; this only happens when there genuinely isn't enough
+  // tester capacity to fit everything inside it (an exception, not the norm
+  // — see scheduleStandAlone).
+  exceedsVersionEnd?: boolean;
 }
 
 export interface PlannedCycle {
@@ -200,6 +215,10 @@ export function buildWorkPlan(
   // Global non-work dates (approved-season holidays — see dateKey) applied
   // for everyone alike, unlike leaveDaysByTester which is per-tester.
   holidayDays:       Set<string> = new Set(),
+  // The version's own testing-end date — Stand Alone tasks are bound to
+  // [cycle1Start, testingEnd] as the target window (2026-07-29 product
+  // decision); see scheduleStandAlone for how overflow past it is handled.
+  testingEnd?: Date,
 ): PlannedCycle[] {
   const start    = getFirstWorkDay(cycle1Start, holidayDays);
   const planned: PlannedCycle[] = [];
@@ -257,15 +276,17 @@ export function buildWorkPlan(
   }
   busyByTester.forEach(list => list.sort((a, b) => a.start.getTime() - b.start.getTime()));
 
-  // SA tasks are fully independent of this version's release train — they can
-  // go to production in an earlier/separate version, or mid-way through this
-  // one, so their earliest possible start is "today" (real-world), not
-  // cycle1Start. Any gap between today and cycle1Start has no core busy
-  // blocks yet (this version's core work hasn't started), so SA is free to
-  // use it.
-  const saEarliestStart = getFirstWorkDay(new Date(), holidayDays);
+  // SA tasks are bound to the version's own timeline — they start no earlier
+  // than cycle1Start (same as everyone else's testing) and target
+  // testingEnd as their window (2026-07-29 product decision, replacing the
+  // previous "today" real-world anchor: that made SA drift arbitrarily far
+  // from the rest of the plan whenever a work plan was regenerated long
+  // after the version's own dates, e.g. re-viewing an old version months
+  // later). Urgent CRs land at/near this same start; qaArrivalDate can still
+  // push an individual CR later within the window (see scheduleStandAlone).
+  const saEarliestStart = start;
   const saCrs = crs.filter(c => c.cycles.includes('STAND_ALONE'));
-  const saCycle = scheduleStandAlone(saCrs, busyByTester, saEarliestStart, effLeaveDaysByTester);
+  const saCycle = scheduleStandAlone(saCrs, busyByTester, saEarliestStart, effLeaveDaysByTester, testingEnd);
   planned.push(saCycle);
 
   // Regression-fill — computed LAST, after both core CR work and SA work are
@@ -413,6 +434,14 @@ function scheduleStandAlone(
   busyByTester:     Map<string, { start: Date; end: Date; taskType: string }[]>,
   earliestStart:    Date,
   leaveDaysByTester: Map<string, Set<string>>,
+  // The version's own testing-end date — SA is meant to stay bounded to
+  // [earliestStart, windowEnd] (2026-07-29 product decision: SA tasks should
+  // be bound to the version's own dates, only exceeding the end in genuine
+  // capacity-shortage cases, tracked via PlannedTask.exceedsVersionEnd).
+  // Purely informational here — scheduling still lets a task run past it
+  // rather than dropping work that doesn't fit; a hard cutoff would just
+  // silently lose CRs that need testing.
+  windowEnd?: Date,
 ): PlannedCycle {
   const tasks: PlannedTask[] = [];
   let maxEnd = new Date(earliestStart);
@@ -433,11 +462,17 @@ function scheduleStandAlone(
     }
   }
 
-  // Due-dated tasks first (earliest due date first), then the rest in original order.
+  // Priority order: urgent first (so it lands as close to earliestStart —
+  // i.e. cycle1Start, the version's own test-start date — as that tester's
+  // real availability allows), then due-dated (earliest due date first),
+  // then everything else in original order. A CR that's both urgent and
+  // due-dated is treated as urgent — urgency is "start ASAP," which a due
+  // date can only ever pull earlier within, not override.
   const prioritize = (list: CrInput[]): CrInput[] => {
-    const withDue    = list.filter(c => c.standAloneDueDate).sort((a, b) => a.standAloneDueDate!.getTime() - b.standAloneDueDate!.getTime());
-    const withoutDue = list.filter(c => !c.standAloneDueDate);
-    return [...withDue, ...withoutDue];
+    const urgent     = list.filter(c => c.urgent);
+    const withDue    = list.filter(c => !c.urgent && c.standAloneDueDate).sort((a, b) => a.standAloneDueDate!.getTime() - b.standAloneDueDate!.getTime());
+    const withoutDue = list.filter(c => !c.urgent && !c.standAloneDueDate);
+    return [...urgent, ...withDue, ...withoutDue];
   };
 
   const scheduleQueue = (queues: Map<string, CrInput[]>, isPrimary: boolean) => {
@@ -457,9 +492,14 @@ function scheduleStandAlone(
           // A second tester carries their participation % of the effort.
           : splitEffort(fullEffort, cr.secondaryParticipationPct).secondary;
 
+        // A CR can't be tested before its code actually arrives at QA — an
+        // empty qaArrivalDate means no such constraint, so it's schedulable
+        // from day one (earliestStart) purely by priority order.
+        const readyFrom = cr.qaArrivalDate && cr.qaArrivalDate.getTime() > cursor.getTime() ? cr.qaArrivalDate : cursor;
+
         // No REGRESSION_FILL exists yet at this point (see buildWorkPlan) —
         // SA only has to avoid real CR commitments, whether due-dated or not.
-        const { taskStart, taskEnd } = findFreeSlot(cursor, effortDays, busy, leaveDays);
+        const { taskStart, taskEnd } = findFreeSlot(readyFrom, effortDays, busy, leaveDays);
 
         tasks.push({
           crNumber: cr.crNumber, crLabel: cr.crLabel, taskType: 'STAND_ALONE',
@@ -467,6 +507,7 @@ function scheduleStandAlone(
           sortOrder: order++, isPrimary,
           dueDate:       cr.standAloneDueDate ?? null,
           missedDueDate: cr.standAloneDueDate ? taskEnd.getTime() > cr.standAloneDueDate.getTime() : false,
+          exceedsVersionEnd: windowEnd ? taskEnd.getTime() > windowEnd.getTime() : false,
         });
 
         busy.push({ start: taskStart, end: taskEnd, taskType: 'STAND_ALONE' });

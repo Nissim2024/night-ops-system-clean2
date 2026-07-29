@@ -102,6 +102,12 @@ const DEFAULT_PARAMS = [
     label: 'Quality Hub: ציון גרסה יעד (0-100) — קובע את סטטוס "מעל/מתחת ליעד" במסך סקירה כללית',
     type: 'number',
   },
+  {
+    key: 'CR_LIST_SYNC_TIME',
+    value: '00:15',
+    label: 'שעת סינכרון לילי של קובץ CR_LIST (HH:mm)',
+    type: 'text',
+  },
 ];
 
 @Injectable()

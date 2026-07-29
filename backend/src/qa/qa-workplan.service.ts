@@ -14,6 +14,7 @@ import {
   nextWorkDay,
   dateKey,
 } from './qa.scheduler';
+import { TARGET_CR_PATTERN } from '../common/team-columns';
 
 const prisma = new PrismaClient();
 
@@ -79,7 +80,7 @@ export class QaWorkPlanService {
     // CRs whose title/label mentions "TARGET" are shared defect-handling duty —
     // every active tester gets their own copy of the task (full effort each,
     // not split), rather than requiring one single assigned tester.
-    const ALL_TESTERS_PATTERN = /target/i;
+    const ALL_TESTERS_PATTERN = TARGET_CR_PATTERN;
     let activeTesters: { id: string }[] | null = null;
 
     for (const [crNumber, vca] of crMap) {
@@ -108,6 +109,8 @@ export class QaWorkPlanService {
             secondaryTesterId:   null,
             primarySkillLevel:   3,
             secondarySkillLevel: 0,
+            urgent:              (vca as any).urgent ?? false,
+            qaArrivalDate:       (vca as any).qaArrivalDate ?? null,
           });
         }
         continue;
@@ -140,6 +143,8 @@ export class QaWorkPlanService {
         secondarySkillLevel: secondaryId ? secondaryLevel : 0,
         secondaryParticipationPct: (asg as any)?.secondaryParticipationPct ?? 50,
         standAloneDueDate:   (asg as any)?.standAloneDueDate ?? null,
+        urgent:              (vca as any).urgent ?? false,
+        qaArrivalDate:       (vca as any).qaArrivalDate ?? null,
       });
     }
 
@@ -251,6 +256,17 @@ export class QaWorkPlanService {
     const version = await prisma.version.findUnique({ where: { id: versionId } });
     if (!version) throw new NotFoundException('גרסה לא נמצאה');
 
+    // Go-live can't be earlier than the testing window it's supposed to
+    // follow. Only checked when plannedStart is already set — for a brand
+    // new (datesLockedToWorkPlan) version it's still null at this point and
+    // only gets filled in after this very call (syncVersionDatesFromWorkPlan),
+    // so there's nothing yet to violate.
+    if (version.plannedStart && version.plannedStart < testingEnd) {
+      throw new BadRequestException(
+        'תאריך העלייה לאוויר של הגרסה מוקדם מתאריך סיום הבדיקות המבוקש — יש לעדכן את תאריך העלייה לאוויר לפני יצירת תוכנית זו, או לקצר את חלון הבדיקות',
+      );
+    }
+
     const { crInputs, unassigned } = await this.buildCrInputs(versionId);
 
     // Approved leave days per tester — the scheduler skips these like a
@@ -266,7 +282,7 @@ export class QaWorkPlanService {
     const plannedCycles: PlannedCycle[] = buildWorkPlan(
       crInputs, cycle1Start, leaveDaysByTester,
       effectiveCycle1Length, effectiveCycle2Length, effectiveCycle3Length,
-      holidayDays,
+      holidayDays, testingEnd,
     );
 
     // Persist the actual applied lengths (including derived ones, when the
@@ -364,6 +380,17 @@ export class QaWorkPlanService {
     const plan = await prisma.qaWorkPlan.findUnique({ where: { versionId }, include: { cycles: true } });
     if (!plan) throw new NotFoundException('אין תוכנית עבודה קיימת לגרסה זו — יש ליצור תוכנית קודם');
 
+    // Same "go-live can't precede testing end" guard as generateWorkPlan —
+    // here plannedStart is much more likely to already be set (a plan already
+    // exists, so for a datesLockedToWorkPlan version it was filled in the
+    // first time the plan was generated).
+    const version = await prisma.version.findUnique({ where: { id: versionId }, select: { plannedStart: true } });
+    if (version?.plannedStart && version.plannedStart < testingEnd) {
+      throw new BadRequestException(
+        'תאריך העלייה לאוויר של הגרסה מוקדם מתאריך סיום הבדיקות המבוקש — יש לעדכן את תאריך העלייה לאוויר לפני שינוי זה, או לקצר את חלון הבדיקות',
+      );
+    }
+
     const cycle1StartMoved = plan.cycle1Start.getTime() !== cycle1Start.getTime();
 
     const effCycle1Length = cycle1LengthDays ?? plan.cycle1LengthDays ?? 12;
@@ -446,7 +473,7 @@ export class QaWorkPlanService {
 
   private async computeOverflowIssues(versionId: string, plan: { cycle1Start: Date; testingEnd: Date; cycles: any[] }) {
     const issues: {
-      type: 'CORE_OVERFLOW' | 'SA_DUE_DATE_MISSED' | 'GO_LIVE_OVERFLOW';
+      type: 'CORE_OVERFLOW' | 'SA_DUE_DATE_MISSED' | 'GO_LIVE_OVERFLOW' | 'SA_TESTING_END_OVERFLOW';
       message: string;
       crNumber?: string;
       userName?: string;
@@ -561,6 +588,30 @@ export class QaWorkPlanService {
       }
     }
 
+    // ── Stand Alone tasks exceeding the version's testing window ─────────────
+    // SA is bound to [cycle1Start, testingEnd] by construction (see
+    // scheduleStandAlone) — this only fires when there genuinely isn't enough
+    // tester capacity to fit everything inside that window, which is meant to
+    // be an exception surfaced to the user, not a silent overrun.
+    if (saCycle) {
+      for (const task of saCycle.tasks) {
+        if (task.plannedEnd.getTime() <= plan.testingEnd.getTime()) continue;
+        const daysOver = countWorkDays(nextWorkDay(plan.testingEnd, holidayDays), task.plannedEnd, holidayDays);
+        issues.push({
+          type:     'SA_TESTING_END_OVERFLOW',
+          userName: task.user?.fullName ?? task.userId,
+          crNumber: task.crNumber,
+          daysOver,
+          message: `CR ${task.crNumber} (Stand Alone) חורג מתאריך סיום הבדיקות של הגרסה (${plan.testingEnd.toLocaleDateString('he-IL')}) — צפוי להסתיים ${daysOver} ימי עבודה אחרי כן, כי אין מספיק קיבולת בודקים פנויה בתוך חלון הגרסה.`,
+          suggestions: [
+            'שקול לשבץ בודק שני למשימת ה-Stand Alone הזו',
+            'שקול להקדים משימות אחרות של הבודק כדי לפנות לו זמן',
+            'אם המשימה אינה דחופה, ניתן להשאיר אותה חורגת — זהו מקרה חריג מתוכנן',
+          ],
+        });
+      }
+    }
+
     return issues;
   }
 
@@ -581,7 +632,7 @@ export class QaWorkPlanService {
   // Deactivating a task frees up its slot in the tester's queue — the schedule
   // must be recomputed (and cascaded to CYCLE_2/3 + UAT/REHEARSAL/GO_LIVE)
   // rather than just leaving a dead gap where the disabled task used to sit.
-  async toggleTask(taskId: string, isActive: boolean) {
+  async toggleTask(taskId: string, isActive: boolean, userEmail?: string) {
     const task = await prisma.qaCycleTask.findUnique({
       where: { id: taskId },
       include: { cycle: true },
@@ -594,6 +645,16 @@ export class QaWorkPlanService {
     }
 
     await prisma.qaCycleTask.update({ where: { id: taskId }, data: { isActive } });
+    if (task.isActive !== isActive) {
+      await prisma.qaWorkPlanChangeLog.create({
+        data: {
+          workPlanId: task.cycle.workPlanId, qaCycleTaskId: task.id, crNumber: task.crNumber,
+          action: 'TASK_TOGGLED', userEmail,
+          beforeData: { isActive: task.isActive },
+          afterData:  { isActive },
+        },
+      });
+    }
 
     const holidayDays = await this.loadHolidayDays();
     const newCycleEnd = await this.rescheduleFullCycle(task.cycleId, new Date(task.cycle.plannedStart), holidayDays);
@@ -815,12 +876,12 @@ export class QaWorkPlanService {
   // Moves the task to the end of the new tester's queue in this cycle, keeps
   // the underlying QaAssignment (the assignment board) in sync so both screens
   // agree on who owns the CR, and cascades the schedule exactly like a reorder.
-  async reassignTester(taskId: string, newUserId: string) {
-    const task = await prisma.qaCycleTask.findUnique({ where: { id: taskId }, include: { cycle: true } });
+  async reassignTester(taskId: string, newUserId: string, userEmail?: string) {
+    const task = await prisma.qaCycleTask.findUnique({ where: { id: taskId }, include: { cycle: true, user: { select: { fullName: true } } } });
     if (!task) throw new NotFoundException('משימה לא נמצאה');
     if (task.taskType === 'REGRESSION') throw new BadRequestException('לא ניתן להחליף בודק במשימת רגרסיה');
 
-    const newUser = await prisma.user.findUnique({ where: { id: newUserId }, select: { id: true } });
+    const newUser = await prisma.user.findUnique({ where: { id: newUserId }, select: { id: true, fullName: true } });
     if (!newUser) throw new BadRequestException('משתמש לא נמצא');
 
     const newTesterTaskCount = await prisma.qaCycleTask.count({
@@ -830,6 +891,14 @@ export class QaWorkPlanService {
     await prisma.qaCycleTask.update({
       where: { id: taskId },
       data:  { userId: newUserId, sortOrder: newTesterTaskCount + 1 },
+    });
+    await prisma.qaWorkPlanChangeLog.create({
+      data: {
+        workPlanId: task.cycle.workPlanId, qaCycleTaskId: task.id, crNumber: task.crNumber,
+        action: 'TASK_REASSIGNED', userEmail,
+        beforeData: { userId: task.userId, userName: task.user.fullName },
+        afterData:  { userId: newUser.id, userName: newUser.fullName },
+      },
     });
 
     const workPlan = await prisma.qaWorkPlan.findUnique({ where: { id: task.cycle.workPlanId }, select: { versionId: true } });
@@ -1142,10 +1211,14 @@ export class QaWorkPlanService {
         if (task.isPrimary) primaryKeyByCr.set(task.crNumber, rowKey);
 
         if (!crMap.has(rowKey)) {
+          // application/project lives on VersionCrAssignment, not QaCycleTask
+          // (the task itself has no such column) — look it up from the same
+          // vcaFirstMap already loaded above instead of reading a field that
+          // was never actually there.
           crMap.set(rowKey, {
             crNumber:            task.crNumber,
             crLabel:             (task as any).crLabel ?? task.crNumber,
-            application:         (task as any).application ?? '',
+            application:         vcaFirstMap.get(task.crNumber)?.application ?? '',
             sortOrder:           task.sortOrder,
             primaryTester:       '',
             primaryEffortDays:   0,
@@ -1178,6 +1251,24 @@ export class QaWorkPlanService {
 
     const sortedCrs = Array.from(crMap.values())
       .sort((a, b) => a.sortOrder - b.sortOrder);
+
+    // Task Order (column F) must restart at 1 for each tester's own queue —
+    // sortedCrs above is one global list mixing every tester together (for a
+    // stable overall row order in the sheet), so ranking by its row index
+    // there gives a meaningless CR-wide 1..N instead of each tester's actual
+    // position in their own queue. Group by primary tester and rank within
+    // that group only, using each row's already-per-tester sortOrder.
+    const taskOrderByRow = new Map<CrRow, number>();
+    const rowsByTester = new Map<string, CrRow[]>();
+    for (const cr of sortedCrs) {
+      const key = cr.primaryTester || '—';
+      if (!rowsByTester.has(key)) rowsByTester.set(key, []);
+      rowsByTester.get(key)!.push(cr);
+    }
+    for (const rows of rowsByTester.values()) {
+      [...rows].sort((a, b) => a.sortOrder - b.sortOrder)
+        .forEach((cr, i) => taskOrderByRow.set(cr, i + 1));
+    }
 
     // ── Headers — exact ALM column names, A through BR (70 columns) ──────────
     const headers = [
@@ -1274,7 +1365,7 @@ export class QaWorkPlanService {
         cr.crLabel,                                 // C  CR Name
         crDesc,                                     // D  Description - RE_REQ_COMMENT
         'Release Item',                             // E  CR Type
-        idx + 1,                                    // F  Task Order
+        taskOrderByRow.get(cr) ?? idx + 1,           // F  Task Order (per-tester rank, not global row index)
         cr.primaryTester,                           // G  Asign To
         cr.primaryEffortDays || '',                 // H  QA effort
         cr.secondaryTester,                         // I  rq_user_27 Secondary Tester

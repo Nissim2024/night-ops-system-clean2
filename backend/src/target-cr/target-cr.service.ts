@@ -1,6 +1,7 @@
 import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { QcService } from '../qc/qc.service';
+import { QcService, TargetDefectDto } from '../qc/qc.service';
+import { TARGET_CR_PATTERN } from '../common/team-columns';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
@@ -99,7 +100,6 @@ export class TargetCrService {
   // Reuses getReview per CR, which already resolves the caller's own team via
   // resolveTeamId — a QA tester's TeamMember row naturally scopes this to the
   // QA team's own defect list for that CR.
-  private readonly TARGET_CR_PATTERN = /target/i;
 
   // BG_USER_37 (qaTester) is Oracle free text and its exact name order isn't
   // confirmed from real data yet (Oracle is disabled in dev) — likely "Last,
@@ -126,7 +126,7 @@ export class TargetCrService {
     ]);
     const crLabelByNumber = new Map(tasks.map(t => [t.crNumber, t.crLabel]));
     const targetCrNumbers = Array.from(new Set(
-      tasks.filter(t => this.TARGET_CR_PATTERN.test(t.crLabel ?? t.crNumber)).map(t => t.crNumber),
+      tasks.filter(t => TARGET_CR_PATTERN.test(t.crLabel ?? t.crNumber)).map(t => t.crNumber),
     ));
 
     const results: { crNumber: string; crLabel: string | null; teamName: string; defects: any[] }[] = [];
@@ -230,6 +230,72 @@ export class TargetCrService {
       totalDefects: allDefects.length,
       totalSpecial: allDefects.filter(d => d.requiresSpecialImplementation).length,
       totalManagement: allDefects.filter(d => d.importantToManagement).length,
+    };
+  }
+
+  // Version-wide TARGET defect rollup for the version-management overview —
+  // hits live Oracle data directly via qcService.getTargetCrDefects (release+
+  // team scoped, no CR-number filter — see qc.service.ts), not the locally
+  // -synced TargetCrDefect rows used by getSummary above, which only exist
+  // for a CR a team lead has actually opened. This way the count is accurate
+  // even before anyone has visited a single TARGET CR's gate screen.
+  async getVersionTargetDefectSummary(versionId: string) {
+    const seen = new Set<string>();
+    const byArea = new Map<string, number>();
+    // Full TargetDefectDto shape (every BUG column TARGET_CR_DEFECTS_SQL
+    // pulls), not just the 5-field subset the old byArea-only view needed —
+    // the frontend's column-picker table lets the user choose which of these
+    // to actually display.
+    const defectList: TargetDefectDto[] = [];
+
+    const addDefects = (defects: TargetDefectDto[]) => {
+      for (const d of defects) {
+        if (seen.has(d.id)) continue;
+        seen.add(d.id);
+        const area = d.system?.trim() || 'ללא אזור';
+        byArea.set(area, (byArea.get(area) ?? 0) + 1);
+        defectList.push({ ...d, system: area });
+      }
+    };
+
+    const { enabled } = await this.qcService.getStatus();
+    if (enabled) {
+      // Live Oracle: scope per-team, matching this version's own real team
+      // assignments — meaningful because both sides (our teams, QC's
+      // BG_RESPONSIBLE) refer to the same real organization.
+      const rows = await prisma.versionCrAssignment.findMany({
+        where: { versionId, syncStatus: { not: 'REMOVED' } },
+        select: { crLabel: true, team: { select: { name: true } } },
+      });
+      const targetTeamNames = new Set<string>();
+      for (const r of rows) {
+        if (TARGET_CR_PATTERN.test(r.crLabel ?? '')) targetTeamNames.add(r.team.name);
+      }
+      for (const teamName of targetTeamNames) {
+        addDefects(await this.qcService.getTargetCrDefects(versionId, '', teamName));
+      }
+    } else {
+      // Mock/dev-seed mode: the version's own CR/team assignments are
+      // synthetic test data with no real relationship to which real team a
+      // real historical defect is assigned to — filtering by team here would
+      // throw away almost every genuine release-scoped match (caught live
+      // 2026-07-28: 26 real ITv01-2026 defects, only 1 survived the team
+      // filter). Just take everything scoped to the release, unfiltered.
+      addDefects(await this.qcService.getTargetCrDefects(versionId, ''));
+    }
+
+    // "Fixed" = status containing closed/fix (case-insensitive) — covers the
+    // common QC status vocabulary (Closed, Fixed, Fixed_Dev, Fixed_Test)
+    // without requiring an exact enum match, since BG_USER_04 is free text.
+    const fixedCount = defectList.filter(d => /closed|fix/i.test(d.status ?? '')).length;
+
+    return {
+      total: seen.size,
+      fixedCount,
+      byArea: Array.from(byArea.entries())
+        .map(([area, count]) => ({ area, count }))
+        .sort((a, b) => b.count - a.count),
+      defects: defectList,
     };
   }
 
