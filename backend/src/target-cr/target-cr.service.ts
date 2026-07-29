@@ -258,31 +258,17 @@ export class TargetCrService {
       }
     };
 
-    const { enabled } = await this.qcService.getStatus();
-    if (enabled) {
-      // Live Oracle: scope per-team, matching this version's own real team
-      // assignments — meaningful because both sides (our teams, QC's
-      // BG_RESPONSIBLE) refer to the same real organization.
-      const rows = await prisma.versionCrAssignment.findMany({
-        where: { versionId, syncStatus: { not: 'REMOVED' } },
-        select: { crLabel: true, team: { select: { name: true } } },
-      });
-      const targetTeamNames = new Set<string>();
-      for (const r of rows) {
-        if (TARGET_CR_PATTERN.test(r.crLabel ?? '')) targetTeamNames.add(r.team.name);
-      }
-      for (const teamName of targetTeamNames) {
-        addDefects(await this.qcService.getTargetCrDefects(versionId, '', teamName));
-      }
-    } else {
-      // Mock/dev-seed mode: the version's own CR/team assignments are
-      // synthetic test data with no real relationship to which real team a
-      // real historical defect is assigned to — filtering by team here would
-      // throw away almost every genuine release-scoped match (caught live
-      // 2026-07-28: 26 real ITv01-2026 defects, only 1 survived the team
-      // filter). Just take everything scoped to the release, unfiltered.
-      addDefects(await this.qcService.getTargetCrDefects(versionId, ''));
-    }
+    // No team filter, live Oracle or mock alike: this is a version-wide
+    // rollup, scoped only by release — not per-team. An earlier version of
+    // this tried scoping live Oracle results by matching this version's own
+    // team assignments against BG_RESPONSIBLE/ASSIGNED_TO, on the assumption
+    // that a real production org would line up cleanly. It didn't: caught
+    // live in production on ITv01-2026, 26 real defects collapsed to 2 once
+    // that filter ran — the same failure mode already documented (and fixed)
+    // for mock mode below, just never applied to the live branch. Per-team
+    // scoping still exists where it belongs: the Consolidated CR Review
+    // screen (getSummary, TargetCrReview) is genuinely team-scoped by design.
+    addDefects(await this.qcService.getTargetCrDefects(versionId, ''));
 
     // "Fixed" = status containing closed/fix (case-insensitive) — covers the
     // common QC status vocabulary (Closed, Fixed, Fixed_Dev, Fixed_Test)
