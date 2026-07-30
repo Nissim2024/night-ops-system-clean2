@@ -342,8 +342,8 @@ export class ReleaseIntelligenceService {
     });
     const versionCrNumbers = [...new Set(vcaRows.map(r => r.crNumber))];
     const [coverageRows, qgTargets] = await Promise.all([
-      this.qcService.getCrCoverage(versionCrNumbers),
-      this.qcService.getCycleQgTargets(),
+      this.qcService.getCrCoverage(versionCrNumbers, versionId),
+      this.qcService.getCycleQgTargets(versionId),
     ]);
 
     const timeline = cycles.map(c => {

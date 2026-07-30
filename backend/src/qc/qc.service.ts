@@ -221,6 +221,20 @@ export interface BugDashboardDto {
 
 // ── SQL Queries ───────────────────────────────────────────────────────────────
 
+// Same RELEASES/RELEASE_CYCLES join as QC_RELEASES_SQL (qc-releases.service.ts)
+// — every cycle of one release, with its QG target thresholds.
+const RELEASE_CYCLES_QG_SQL = `
+  SELECT
+    rr.rel_name  AS RELEASE_NAME,
+    rc.rcyc_name AS CYCLE_NAME,
+    rc.qg_high   AS QG_HIGH,
+    rc.qg_medium AS QG_MEDIUM,
+    rc.qg_low    AS QG_LOW
+  FROM releases rr, release_cycles rc
+  WHERE rr.rel_id = rc.rcyc_parent_id
+    AND rr.rel_id = :releaseId
+`;
+
 const TEST_COVERAGE_SQL = `
   SELECT
     COUNT(*)                                                                           AS TOTAL,
@@ -261,6 +275,51 @@ const TEST_COVERAGE_SQL = `
   GROUP BY
     RQ.RQ_REQ_NAME, RQR.RQRL_RELEASE_ID, RQC.RQC_CYCLE_ID,
     RQ.RQ_REQ_ID, RQ.RQ_FATHER_ID, RQ.RQ_USER_29, RQ.RQ_USER_05
+`;
+
+// Same TEST/REQ_COVER/REQ join as TEST_COVERAGE_SQL, but grouped by the
+// requirement itself (RQ_REQ_ID/RQ_FATHER_ID) across every cycle of the
+// release, instead of by RQ_USER_05/RQ_USER_29 for one specific cycle. The
+// leaf requirement actually linked to a TEST rarely carries CR_NUMBER
+// itself — that lives on an ancestor folder (see REQ_HIERARCHY_SQL) — so
+// this only resolves ID/parent-ID; the CR walk happens in getCrCoverage.
+const TEST_COVERAGE_BY_REQ_SQL = `
+  SELECT
+    RQ.RQ_REQ_ID                                                                        AS REQ_ID,
+    RQ.RQ_FATHER_ID                                                                     AS FATHER_ID,
+    RCYC.RCYC_NAME                                                                      AS CYCLE_NAME,
+    RR.REL_NAME                                                                         AS RELEASE_NAME,
+    COUNT(*)                                                                            AS TOTAL,
+    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Passed'          THEN 1 ELSE 0 END)             AS PASSED,
+    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Failed'          THEN 1 ELSE 0 END)             AS FAILED,
+    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'No Run'          THEN 1 ELSE 0 END)             AS NOT_RUN,
+    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Blocked'         THEN 1 ELSE 0 END)             AS BLOCKED,
+    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Not Completed'   THEN 1 ELSE 0 END)             AS NOT_COMPLETED,
+    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Not Ready fr QA' THEN 1 ELSE 0 END)             AS NOT_READY
+  FROM
+    TEST TS, REQ_COVER RC, REQ RQ, REQ_RELEASES RQR, REQ_CYCLES RQC, RELEASE_CYCLES RCYC, RELEASES RR
+  WHERE
+    TS.TS_TEST_ID       = RC.RC_ENTITY_ID  AND
+    RQ.RQ_REQ_ID        = RC.RC_REQ_ID     AND
+    RC.RC_ENTITY_TYPE   = 'TEST'           AND
+    RQR.RQRL_REQ_ID     = RQ.RQ_REQ_ID     AND
+    RQR.RQRL_REQ_ID     = RQC.RQC_REQ_ID   AND
+    RQR.RQRL_RELEASE_ID = RR.REL_ID        AND
+    RQC.RQC_CYCLE_ID    = RCYC.RCYC_ID     AND
+    RR.REL_ID           = :releaseId
+  GROUP BY
+    RQ.RQ_REQ_ID, RQ.RQ_FATHER_ID, RCYC.RCYC_NAME, RR.REL_NAME
+`;
+
+// Full requirement parent-chain + CR link, unscoped by release — a leaf
+// requirement's owning CR often lives several folder-levels up (see
+// getCrCoverage), and that ancestor folder isn't guaranteed to carry its
+// own REQ_RELEASES row for this release, so this can't be release-scoped
+// without risking a broken chain. Only 3 narrow columns; REQ tables run in
+// the tens of thousands of rows, not millions — a full scan is cheap.
+const REQ_HIERARCHY_SQL = `
+  SELECT RQ_REQ_ID, RQ_FATHER_ID, CR_NUMBER, RQ_REQ_NAME
+  FROM REQ
 `;
 
 const DEFECTS_SQL = `
@@ -1077,25 +1136,134 @@ export class QcService {
     return { enabled };
   }
 
-  // Real per-CR test coverage for an ad-hoc list of CR numbers — used by the
-  // release-intelligence cycle-progress cards (mock/dev mode only; the live
-  // path already has its own version/cycle-scoped query in getTestCoverage
-  // below, which is the correct production source once Oracle is enabled).
-  async getCrCoverage(crNumbers: string[]): Promise<CrCoverageDto[]> {
+  // Real per-CR test coverage — used by the release-intelligence cycle-
+  // progress cards. Mock mode filters the seed dataset by crNumber directly.
+  // Live mode has to work harder: the requirement actually linked to a TEST
+  // rarely carries CR_NUMBER itself — it sits on an ancestor folder several
+  // levels up the RQ_FATHER_ID chain — so this fetches per-requirement
+  // coverage counts and the full parent/CR map separately, then resolves +
+  // aggregates in application code. Confirmed against a real REQ/Coverage
+  // export (2026-07-30): checking only the leaf or its immediate parent
+  // resolves under half of real coverage rows to a CR; walking the full
+  // chain is what actually finds it.
+  async getCrCoverage(crNumbers: string[], versionId?: string): Promise<CrCoverageDto[]> {
     const { enabled } = await getOracleConfig();
-    if (enabled) return [];
-    const real = loadRealCrCoverage();
-    if (!real) return [];
-    const wanted = new Set(crNumbers);
-    return real.filter(c => wanted.has(c.crNumber));
+    if (!enabled) {
+      const real = loadRealCrCoverage();
+      if (!real) return [];
+      const wanted = new Set(crNumbers);
+      return real.filter(c => wanted.has(c.crNumber));
+    }
+    if (!versionId) return [];
+
+    const relId = await this.getRelId(versionId);
+    if (!relId) return [];
+
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const [covResult, hierResult] = await Promise.all([
+        conn.execute(TEST_COVERAGE_BY_REQ_SQL, { releaseId: relId }),
+        conn.execute(REQ_HIERARCHY_SQL),
+      ]);
+
+      const hierarchy = new Map<string, { fatherId: string | null; crNumber: string | null; reqName: string }>();
+      for (const r of (hierResult.rows ?? []) as any[]) {
+        hierarchy.set(String(r.RQ_REQ_ID), {
+          fatherId: r.RQ_FATHER_ID != null ? String(r.RQ_FATHER_ID) : null,
+          crNumber: r.CR_NUMBER ?? null,
+          reqName:  r.RQ_REQ_NAME ?? '',
+        });
+      }
+
+      // Nearest ancestor (or the leaf itself) carrying a CR_NUMBER — a
+      // visited-set caps a corrupt/cyclical father chain in the data.
+      const resolveCr = (reqId: string): { crNumber: string; reqName: string } | null => {
+        let cur = reqId;
+        const seen = new Set<string>();
+        while (!seen.has(cur)) {
+          seen.add(cur);
+          const node = hierarchy.get(cur);
+          if (!node) return null;
+          if (node.crNumber) return { crNumber: node.crNumber, reqName: node.reqName };
+          if (!node.fatherId) return null;
+          cur = node.fatherId;
+        }
+        return null;
+      };
+
+      const wanted = crNumbers.length > 0 ? new Set(crNumbers) : null;
+      type Agg = {
+        crNumber: string; crTitle: string; releaseName: string; cycleName: string;
+        passed: number; failed: number; notRun: number; blocked: number; notCompleted: number; notReady: number; total: number;
+      };
+      const byKey = new Map<string, Agg>();
+
+      for (const r of (covResult.rows ?? []) as any[]) {
+        const resolved = resolveCr(String(r.REQ_ID));
+        if (!resolved || (wanted && !wanted.has(resolved.crNumber))) continue;
+
+        const cycleName = r.CYCLE_NAME ?? '';
+        const key = `${resolved.crNumber}::${cycleName}`;
+        const existing = byKey.get(key) ?? {
+          crNumber: resolved.crNumber,
+          crTitle: resolved.reqName.replace(new RegExp(`^${resolved.crNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`), ''),
+          releaseName: r.RELEASE_NAME ?? '', cycleName,
+          passed: 0, failed: 0, notRun: 0, blocked: 0, notCompleted: 0, notReady: 0, total: 0,
+        };
+        existing.passed       += Number(r.PASSED ?? 0);
+        existing.failed       += Number(r.FAILED ?? 0);
+        existing.notRun       += Number(r.NOT_RUN ?? 0);
+        existing.blocked      += Number(r.BLOCKED ?? 0);
+        existing.notCompleted += Number(r.NOT_COMPLETED ?? 0);
+        existing.notReady     += Number(r.NOT_READY ?? 0);
+        existing.total        += Number(r.TOTAL ?? 0);
+        byKey.set(key, existing);
+      }
+
+      return Array.from(byKey.values()).map(v => {
+        const executed = v.passed + v.failed + v.blocked + v.notCompleted;
+        return { ...v, coveragePct: v.total > 0 ? Math.round((executed / v.total) * 100) : 0 };
+      });
+    } catch (err: any) {
+      this.logger.error(`Oracle getCrCoverage: ${err.message}`);
+      throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
   }
 
-  // Real per-cycle QG coverage targets — mock/dev mode only, same rationale
-  // as getCrCoverage above.
-  async getCycleQgTargets(): Promise<CycleQgTargetDto[]> {
+  // Real per-cycle QG coverage targets. Mock mode returns the full seed
+  // array (release-name filtering happens in the caller, same as
+  // getCrCoverage). Live mode queries RELEASE_CYCLES.QG_HIGH/QG_MEDIUM/
+  // QG_LOW directly, scoped to this version's release — this was
+  // previously a stub returning [] for Oracle-enabled environments, which
+  // silently emptied the Cycle Progress screen's QG Summary/target-marker
+  // in production (caught live on ITv06-2026, 2026-07-30).
+  async getCycleQgTargets(versionId: string): Promise<CycleQgTargetDto[]> {
     const { enabled } = await getOracleConfig();
-    if (enabled) return [];
-    return loadRealCycleQgTargets() ?? [];
+    if (!enabled) return loadRealCycleQgTargets() ?? [];
+
+    const relId = await this.getRelId(versionId);
+    if (!relId) return [];
+
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const result = await conn.execute(RELEASE_CYCLES_QG_SQL, { releaseId: relId });
+      return (result.rows ?? []).map((r: any): CycleQgTargetDto => ({
+        releaseName: r.RELEASE_NAME ?? '',
+        cycleName:   r.CYCLE_NAME   ?? '',
+        qgHigh:      Number(r.QG_HIGH   ?? 0),
+        qgMedium:    Number(r.QG_MEDIUM ?? 0),
+        qgLow:       Number(r.QG_LOW    ?? 0),
+      }));
+    } catch (err: any) {
+      this.logger.error(`Oracle getCycleQgTargets: ${err.message}`);
+      throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
   }
 
   async getTestCoverage(versionId: string): Promise<TestCoverageDto[]> {

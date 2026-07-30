@@ -90,7 +90,7 @@ function CycleCard({ c, onShowDetail }: { c: CycleTimelineItem; onShowDetail: (c
       </div>
 
       <div style={{ ...TEXT.xs, color: C.textMuted, display: 'flex', alignItems: 'center', gap: '4px' }}>
-        🕐 {c.state === 'upcoming' ? 'נפתח בעוד' : 'נסגר בעוד'} {countdown}
+        🕐 {countdown === 'הסתיים' ? countdown : `${c.state === 'upcoming' ? 'נפתח בעוד' : 'נסגר בעוד'} ${countdown}`}
       </div>
 
       {/* Progress bar = test coverage (% of planned tests executed), not time
