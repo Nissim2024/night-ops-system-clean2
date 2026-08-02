@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { QcService, TestCoverageDto, DefectDto, BugDashboardDto } from '../qc/qc.service';
+import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDto } from '../qc/qc.service';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
@@ -341,9 +341,10 @@ export class ReleaseIntelligenceService {
       select: { crNumber: true },
     });
     const versionCrNumbers = [...new Set(vcaRows.map(r => r.crNumber))];
-    const [coverageRows, qgTargets] = await Promise.all([
+    const [coverageRows, qgTargets, defectsByCycle] = await Promise.all([
       this.qcService.getCrCoverage(versionCrNumbers, versionId),
       this.qcService.getCycleQgTargets(versionId),
+      this.qcService.getDefectsByCycle(versionId).catch((): DefectByCycleDto[] => []),
     ]);
 
     const timeline = cycles.map(c => {
@@ -357,6 +358,13 @@ export class ReleaseIntelligenceService {
       // numbers below are now real-data-driven, not this cycle's tasks.
       const crTasks = c.tasks.filter(t => t.taskType !== 'REGRESSION');
       const testerIds = new Set(crTasks.map(t => t.userId));
+
+      // Real per-cycle defect count — replaces testerCount in the card per
+      // the user's request (2026-07-24): "instead of testers, put the number
+      // of defects reported in the cycle". Same real detected-cycle match as
+      // crCoverage below, grounded in DETECTED_IN_REL/DETECTED_IN_CYCLE, not
+      // our own work-plan staffing.
+      const defectCount = defectsByCycle.filter(d => cycleNameMatches(c.cycleType, d.detectedInCycle)).length;
 
       const crCoverage = coverageRows
         .filter(row => row.releaseName === releaseName && cycleNameMatches(c.cycleType, row.cycleName))
@@ -378,7 +386,7 @@ export class ReleaseIntelligenceService {
 
       return {
         cycleType: c.cycleType, plannedStart: c.plannedStart, plannedEnd: c.plannedEnd, progressPct, state,
-        crCount: crs.length, testerCount: testerIds.size, crs,
+        crCount: crs.length, testerCount: testerIds.size, defectCount, crs,
         testers: [...testerIds].map(id => nameById.get(id) ?? id),
         coveragePct, crCoverage, qgTargetPct: qgTarget?.qgHigh ?? null,
       };

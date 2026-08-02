@@ -4,6 +4,7 @@ import { C, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, FONT } from '../../theme';
 import RunbookModal, { getRunbookTrigger, RunbookTrigger } from './RunbookModal';
 import { InviteDialog, InviteTeamOption } from './InviteDialog';
 import { DateField } from '../DatePicker';
+import { useDialog } from '../../context/DialogContext';
 
 const API  = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 const BLUE = '#4573D2';
@@ -489,6 +490,7 @@ interface Props {
 
 export default function QaActivityPlanView({ token, versionId, versionIntegrationStart, versionIntegrationEnd }: Props) {
   const headers = { Authorization: `Bearer ${token}` };
+  const dialog = useDialog();
 
   const [workPlan,         setWorkPlan]         = useState<WorkPlan | null>(null);
   const [loadingPlan,      setLoadingPlan]      = useState(false);
@@ -645,6 +647,22 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Deletes every activity-board entry for this version — the granular
+  // counterpart to the old whole-version delete.
+  const [deletingBoard, setDeletingBoard] = useState(false);
+  const handleDeleteBoard = async () => {
+    if (!versionId) return;
+    if (!await dialog.confirm('למחוק את כל לוח הפעילויות לצמיתות? ניתן לחשב מחדש מאפס בכל עת.', 'מחיקת לוח פעילויות', 'danger')) return;
+    setDeletingBoard(true);
+    try {
+      await axios.delete(`${API}/activity-board/${versionId}`, { headers });
+      setActivities([]);
+      setBoardSaved(false);
+    } finally {
+      setDeletingBoard(false);
     }
   };
 
@@ -926,6 +944,19 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
               cursor: saving ? 'wait' : 'pointer', transition: EASE.fast,
             }}>
               {saving ? '...' : boardSaved ? '✓ לוח שמור' : '💾 שמור לוח'}
+            </button>
+          )}
+
+          {/* Delete board */}
+          {boardSaved && (
+            <button onClick={handleDeleteBoard} disabled={deletingBoard} style={{
+              padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,
+              border: `1px solid ${C.danger}55`, background: 'transparent', color: C.danger,
+              fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.semibold,
+              cursor: deletingBoard ? 'wait' : 'pointer', transition: EASE.fast,
+              opacity: deletingBoard ? 0.6 : 1,
+            }}>
+              {deletingBoard ? '⏳ מוחק...' : '🗑 מחק לוח פעילויות'}
             </button>
           )}
 

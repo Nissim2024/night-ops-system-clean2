@@ -86,10 +86,6 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
   const [selected, setSelected] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(autoNew ?? false);
-  const [showArchived, setShowArchived] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [outerDialog, setOuterDialog] = useState<DialogConfig | null>(null);
   const [depToastOuter, setDepToastOuter] = useState<any[] | null>(null);
   const depToastTimerOuter = React.useRef<any>(null);
   const showDepToastOuter = (affected: any[]) => {
@@ -152,74 +148,6 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
     if (status === 'APPROVED') onGoHome?.();
   };
 
-  const deleteVersion = (id: string, name: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setOuterDialog({
-      title: 'מחיקת גרסה',
-      message: `למחוק את הגרסה "${name}" וכל הנתונים שלה לצמיתות?\nפעולה זו אינה הפיכה.`,
-      confirmLabel: 'מחק',
-      variant: 'danger',
-      onConfirm: async () => {
-        setOuterDialog(null);
-        setDeletingId(id);
-        setActionError(null);
-        try {
-          await axios.delete(`${API}/versions/${id}`, { headers });
-          await fetchVersions();
-          onVersionsChanged?.();
-        } catch (err: any) {
-          const msg = err?.response?.data?.message || err?.message || 'שגיאה במחיקת הגרסה';
-          setActionError(`שגיאת מחיקה: ${msg}`);
-        } finally { setDeletingId(null); }
-      },
-      onCancel: () => setOuterDialog(null),
-    });
-  };
-
-  const archiveVersion = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setOuterDialog({
-      title: 'העברה לארכיון',
-      message: 'להעביר גרסה זו לארכיון? ניתן לשחזר בכל עת.',
-      confirmLabel: 'העבר לארכיון',
-      variant: 'warning',
-      onConfirm: async () => {
-        setOuterDialog(null);
-        setActionError(null);
-        try {
-          await axios.patch(`${API}/versions/${id}/archive`, {}, { headers });
-          await fetchVersions();
-          onVersionsChanged?.();
-        } catch (err: any) {
-          setActionError(`שגיאת ארכיון: ${err?.response?.data?.message || err?.message || 'שגיאה'}`);
-        }
-      },
-      onCancel: () => setOuterDialog(null),
-    });
-  };
-
-  const restoreVersion = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setOuterDialog({
-      title: 'שחזור גרסה',
-      message: 'לשחזר גרסה זו מהארכיון? הסטטוס ישוחזר ל"מאושר".',
-      confirmLabel: 'שחזר',
-      variant: 'info',
-      onConfirm: async () => {
-        setOuterDialog(null);
-        setActionError(null);
-        try {
-          await axios.patch(`${API}/versions/${id}/restore`, {}, { headers });
-          await fetchVersions();
-          onVersionsChanged?.();
-        } catch (err: any) {
-          setActionError(`שגיאת שחזור: ${err?.response?.data?.message || err?.message || 'שגיאה'}`);
-        }
-      },
-      onCancel: () => setOuterDialog(null),
-    });
-  };
-
   if (selected) {
     return (
       <>
@@ -278,25 +206,6 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
               {versions.filter(v => !v.isArchived).length}
             </Badge>
           </div>
-          <button
-            onClick={() => setShowArchived(a => !a)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: SP[2],
-              padding: '5px 14px',
-              background: showArchived ? C.bgActive : C.bgNested,
-              color: showArchived ? C.textPrimary : C.textMuted,
-              border: `1px solid ${showArchived ? C.borderEm : C.border}`,
-              borderRadius: RADIUS.full, cursor: 'pointer',
-              ...TEXT.xs, fontWeight: WEIGHT.semibold, fontFamily: FONT,
-              transition: EASE.fast,
-            }}
-          >
-            <span>📦</span>
-            ארכיון
-            <Badge color={C.textDisabled} bg={C.bgHover}>
-              {versions.filter(v => v.isArchived).length}
-            </Badge>
-          </button>
         </div>
         <div style={{ display: 'flex', gap: SP[2] }}>
           {isManager && (
@@ -347,14 +256,6 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
           <p>אין גרסאות עדיין — צור את הראשונה!</p>
         </div>
       ) : (
-        <>
-        {actionError && (
-          <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '8px', padding: '10px 16px', marginBottom: '12px', color: C.statusFailed, fontSize: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>{actionError}</span>
-            <button onClick={() => setActionError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.statusFailed, fontWeight: 'bold', fontSize: '17px' }}>×</button>
-          </div>
-        )}
-
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {versions
             .filter(v => !v.isArchived)
@@ -362,46 +263,11 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
             <VersionCard
               key={v.id}
               v={v}
-              isDeleting={deletingId === v.id}
               onOpen={() => fetchVersion(v.id)}
-              onDelete={userRole === 'ADMIN' ? (e) => deleteVersion(v.id, v.name, e) : undefined}
-              onArchive={(e) => archiveVersion(v.id, e)}
             />
           ))}
         </div>
-
-        {showArchived && (
-          <div style={{ marginTop: '24px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-              <h3 style={{ margin: 0, color: C.textMuted }}>📦 ארכיון</h3>
-              <span style={{ fontSize: '14px', color: C.textDisabled }}>גרסאות שהסתיימו — ניתן לשחזר</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', opacity: 0.8 }}>
-              {versions
-                .filter(v => v.isArchived)
-                .map(v => (
-                <VersionCard
-                  key={v.id}
-                  v={v}
-                  isDeleting={deletingId === v.id}
-                  onOpen={() => fetchVersion(v.id)}
-                  onDelete={userRole === 'ADMIN' ? (e) => deleteVersion(v.id, v.name, e) : undefined}
-                  onArchive={undefined}
-                  onRestore={(e) => restoreVersion(v.id, e)}
-                />
-              ))}
-              {versions.filter(v => ['COMPLETED', 'ROLLED_BACK'].includes(v.status)).length === 0 && (
-                <div style={{ textAlign: 'center', padding: '30px', color: C.textMuted, background: C.bgCard, borderRadius: '12px', border: `1px solid ${C.border}` }}>
-                  אין גרסאות בארכיון
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-        </>
       )}
-      <ConfirmDialog config={outerDialog} onClose={() => setOuterDialog(null)} />
-
     </div>
   );
 };
@@ -412,9 +278,13 @@ const fmtDateTime = (iso: string) => {
   return `${d.toLocaleDateString('he-IL')} ${d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`;
 };
 
-const VersionCard: React.FC<{
+// Exported for reuse in AdminPanel's "ניהול גרסאות" section — the only place
+// delete/archive/restore still live (see product decision: this list, used
+// day-to-day to open versions, shouldn't carry destructive actions once a
+// version has real work in it).
+export const VersionCard: React.FC<{
   v: Version;
-  isDeleting: boolean;
+  isDeleting?: boolean;
   onOpen: () => void;
   onDelete?: (e: React.MouseEvent) => void;
   onArchive?: (e: React.MouseEvent) => void;
@@ -914,6 +784,25 @@ const VersionDetail: React.FC<{
 
   const showConfirm = (title: string, message: string, onConfirm: () => void, confirmLabel = 'אישור', variant: DialogConfig['variant'] = 'danger') =>
     setDialog({ title, message, variant, confirmLabel, onConfirm: () => { setDialog(null); onConfirm(); }, onCancel: () => setDialog(null) });
+
+  // Deletes just this version's Tasks/Phases/SubPhases — the granular
+  // counterpart to the whole-version delete (now admin-only, elsewhere).
+  // Doesn't touch QA assignments, work plan, CR plans, or activity board.
+  const [deletingPlan, setDeletingPlan] = useState(false);
+  const deleteImplementationPlan = () => showConfirm(
+    'מחיקת תוכנית הטמעה',
+    `למחוק את כל השלבים והמשימות של "${version.name}" לצמיתות?\nשיבוצי QA, תוכנית בדיקות ולוח פעילויות לא יושפעו. פעולה זו אינה הפיכה.`,
+    async () => {
+      setDeletingPlan(true);
+      try {
+        await axios.delete(`${API}/versions/${version.id}/implementation-plan`, { headers });
+        onRefresh();
+      } catch (err: any) {
+        showAlert('שגיאה', err?.response?.data?.message || 'שגיאה במחיקת תוכנית ההטמעה', 'danger');
+      } finally { setDeletingPlan(false); }
+    },
+    'מחק תוכנית הטמעה',
+  );
 
   const togglePhase = (id: string) => {
     setCollapsedPhases(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -2214,6 +2103,20 @@ const VersionDetail: React.FC<{
               אין תבניות שמורות. תוכל להוסיף שלבים ידנית או לשמור תבנית מגרסה קיימת.
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Delete implementation plan — granular, not the whole version ── */}
+      {isManager && !isLocked && (version.phases?.length ?? 0) > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
+          <button
+            disabled={deletingPlan}
+            onClick={deleteImplementationPlan}
+            title="מוחק את השלבים והמשימות בלבד — לא נוגע בשיבוצי QA, תוכנית בדיקות או לוח פעילויות"
+            style={{ padding: '6px 14px', background: 'transparent', color: C.danger, border: `1px solid ${C.danger}55`, borderRadius: '8px', cursor: deletingPlan ? 'not-allowed' : 'pointer', fontSize: '14px', fontFamily: FONT, opacity: deletingPlan ? 0.6 : 1 }}
+          >
+            {deletingPlan ? '⏳ מוחק...' : '🗑 מחק תוכנית הטמעה'}
+          </button>
         </div>
       )}
 

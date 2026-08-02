@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common';
 import { VersionsService } from './versions.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
-import { VersionStatus } from '@prisma/client';
+import { VersionStatus, Priority } from '@prisma/client';
 
 const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
 const LEADS_UP = ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN'];
@@ -67,7 +67,7 @@ export class VersionsController {
       integrationStart?: string | null; integrationEnd?: string | null; qaStart?: string | null; qaEnd?: string | null;
       plannedRehearsalStart?: string | null; plannedRehearsalEnd?: string | null;
       submissionDeadline?: string | null; approvalDeadline?: string | null;
-      name?: string; description?: string; homeNotice?: string | null;
+      name?: string; description?: string;
     },
     @Request() req: any,
   ) {
@@ -207,6 +207,12 @@ export class VersionsController {
   delete(@Param('id') id: string, @Request() req: any) {
     requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול למחוק גרסה');
     return this.versionsService.delete(id);
+  }
+
+  @Delete(':id/implementation-plan')
+  deleteImplementationPlan(@Param('id') id: string, @Request() req: any) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול למחוק תוכנית הטמעה');
+    return this.versionsService.deleteImplementationPlan(id);
   }
 
   @Post(':id/resolve-deps')
@@ -350,5 +356,38 @@ export class VersionsController {
   sendCollectingReminder(@Param('id') id: string, @Request() req: any) {
     requireRole(req, MANAGERS, 'רק מנהל לילה יכול לשלוח תזכורות');
     return this.versionsService.sendCollectingReminder(id);
+  }
+
+  // ── Home-page manual notices ──────────────────────────────────────────────
+
+  @Get(':id/notices')
+  listNotices(@Param('id') id: string) {
+    return this.versionsService.listNotices(id);
+  }
+
+  @Post(':id/notices')
+  createNotice(
+    @Param('id') id: string,
+    @Body() body: { text: string; urgency?: Priority },
+    @Request() req: any,
+  ) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול להוסיף הודעה');
+    return this.versionsService.createNotice(id, body.text, body.urgency ?? 'MEDIUM', req.user.sub);
+  }
+
+  @Patch(':id/notices/:noticeId')
+  updateNotice(
+    @Param('noticeId') noticeId: string,
+    @Body() body: { text?: string; urgency?: Priority },
+    @Request() req: any,
+  ) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לערוך הודעה');
+    return this.versionsService.updateNotice(noticeId, body);
+  }
+
+  @Delete(':id/notices/:noticeId')
+  deleteNotice(@Param('noticeId') noticeId: string, @Request() req: any) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול למחוק הודעה');
+    return this.versionsService.deleteNotice(noticeId);
   }
 }

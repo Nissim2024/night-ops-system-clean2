@@ -13,6 +13,7 @@ import {
   addWorkDays,
   nextWorkDay,
   dateKey,
+  splitEffort,
 } from './qa.scheduler';
 import { TARGET_CR_PATTERN } from '../common/team-columns';
 
@@ -439,6 +440,18 @@ export class QaWorkPlanService {
 
   // ── Get work plan for a version ─────────────────────────────────────────────
 
+  // Deletes the whole generated work plan (QaWorkPlan → QaCycle → QaCycleTask
+  // → QaWorkPlanChangeLog all cascade) — the granular counterpart to
+  // Version.delete(). Doesn't touch QaAssignment (who's assigned to what) —
+  // see QaService.deleteAllAssignments for that; a new plan can be generated
+  // again from the surviving assignments at any time.
+  async deleteWorkPlan(versionId: string) {
+    await prisma.qaWorkPlan.delete({ where: { versionId } }).catch(() => {
+      throw new NotFoundException('אין תוכנית עבודה קיימת לגרסה זו');
+    });
+    return { ok: true };
+  }
+
   async getWorkPlan(versionId: string) {
     const plan = await prisma.qaWorkPlan.findUnique({
       where: { versionId },
@@ -447,7 +460,7 @@ export class QaWorkPlanService {
           orderBy: { cycleType: 'asc' },
           include: {
             tasks: {
-              where:   { isArchived: false } as any,
+              where:   { isArchived: false },
               orderBy: [{ sortOrder: 'asc' }],
               include: {
                 user: { select: { id: true, fullName: true, email: true } },
@@ -478,10 +491,17 @@ export class QaWorkPlanService {
 
   private async computeOverflowIssues(versionId: string, plan: { cycle1Start: Date; testingEnd: Date; cycles: any[] }) {
     const issues: {
-      type: 'CORE_OVERFLOW' | 'SA_DUE_DATE_MISSED' | 'GO_LIVE_OVERFLOW' | 'SA_TESTING_END_OVERFLOW';
+      type: 'CORE_OVERFLOW' | 'CORE_TESTING_END_OVERFLOW' | 'SA_DUE_DATE_MISSED' | 'GO_LIVE_OVERFLOW' | 'SA_TESTING_END_OVERFLOW';
       message: string;
       crNumber?: string;
       userName?: string;
+      // Machine-readable identity for the tester + cycle this issue is about
+      // — the free-text message is for reading, these are for the frontend
+      // to map an issue onto a specific (tester, cycle) cell without parsing
+      // Hebrew prose. GO_LIVE_OVERFLOW's cycleType is the last core cycle
+      // (the one it was actually detected against), not go-live itself.
+      userId?: string;
+      cycleType?: string;
       daysOver: number;
       suggestions: string[];
     }[] = [];
@@ -516,6 +536,8 @@ export class QaWorkPlanService {
         issues.push({
           type:        'CORE_OVERFLOW',
           userName,
+          userId,
+          cycleType:   cycle.cycleType,
           crNumber:    biggest?.crNumber,
           daysOver,
           message: `${userName} לא מספיק לסיים את ${cycleLabel} עד ${cycle.plannedEnd.toLocaleDateString('he-IL')} — חורג ב-${daysOver} ימי עבודה. ${biggest ? `CR ${biggest.crNumber} (${biggest.effortDays} ימים) הוא המשמעותי ביותר בעומס שלו.` : ''} הסבב הבא יתחיל במועד הקבוע לכל שאר הצוות; מי שחורג צריך פתרון — ידני, בודק שני, או הארכת הסבב.`,
@@ -526,6 +548,34 @@ export class QaWorkPlanService {
           ],
         });
       }
+    }
+
+    // ── Core cycles must not run past the version's testing-end date ─────────
+    // Unlike CORE_OVERFLOW above (a per-tester capacity problem within an
+    // already-fixed cycle boundary), this is structural: the cycle's own
+    // planned end sits after testingEnd, which happens whenever cycle 1+2+3's
+    // combined length doesn't fit inside [cycle1Start, testingEnd]. Flagged
+    // once per affected cycle (not per tester — everyone in that cycle is
+    // equally affected), and prominently (🚨) since product intent is that
+    // core testing must never slip past the stated testing window — unlike
+    // Stand Alone, which is allowed to (see SA_TESTING_END_OVERFLOW below),
+    // this is surfaced as a warning rather than blocked outright so it
+    // doesn't prevent saving/generating an otherwise-valid plan.
+    for (const cycle of coreCycles) {
+      if (cycle.plannedEnd.getTime() <= plan.testingEnd.getTime()) continue;
+      const daysOver = countWorkDays(nextWorkDay(plan.testingEnd, holidayDays), cycle.plannedEnd, holidayDays);
+      const cycleLabel = CYCLE_LABEL[cycle.cycleType as CycleType];
+      issues.push({
+        type:      'CORE_TESTING_END_OVERFLOW',
+        cycleType: cycle.cycleType,
+        daysOver,
+        message: `🚨 ${cycleLabel} (${cycle.plannedStart.toLocaleDateString('he-IL')} – ${cycle.plannedEnd.toLocaleDateString('he-IL')}) חורג מתאריך סיום הבדיקות של הגרסה (${plan.testingEnd.toLocaleDateString('he-IL')}) ב-${daysOver} ימי עבודה — סבבי ליבה אינם אמורים להימשך מעבר לחלון הבדיקות שהוגדר.`,
+        suggestions: [
+          'האריכו את תאריך סיום הבדיקות של הגרסה',
+          `קצרו את אורך ${cycleLabel} או את הסבבים שלפניו`,
+          'שקלו להקדים את תאריך התחלת הבדיקות',
+        ],
+      });
     }
 
     // ── Hard constraint: core tasks must never run past go-live ──────────────
@@ -554,6 +604,8 @@ export class QaWorkPlanService {
         issues.push({
           type:     'GO_LIVE_OVERFLOW',
           userName,
+          userId,
+          cycleType: lastCoreCycle.cycleType,
           crNumber: biggest?.crNumber,
           daysOver,
           message: `🚨 ${userName} עדיין בודק/ת אחרי מועד העלייה לאוויר (${goLiveDate.toLocaleDateString('he-IL')}) — חורג ב-${daysOver} ימי עבודה. ${biggest ? `CR ${biggest.crNumber} (${biggest.effortDays} ימים) הוא המשמעותי ביותר.` : ''} משימות ליבה לא יכולות להימשך מעבר לעלייה לאוויר — נדרש פתרון לפני המועד.`,
@@ -581,6 +633,8 @@ export class QaWorkPlanService {
         issues.push({
           type:     'SA_DUE_DATE_MISSED',
           userName: task.user?.fullName ?? task.userId,
+          userId:   task.userId,
+          cycleType: 'STAND_ALONE',
           crNumber: task.crNumber,
           daysOver,
           message: `CR ${task.crNumber} (Stand Alone) לא יעמוד במועד היעד שנקבע (${due.toLocaleDateString('he-IL')}) — צפוי להסתיים ${daysOver} ימי עבודה אחרי כן, כי ${task.user?.fullName ?? ''} עמוס במשימות ליבה קודמות.`,
@@ -605,6 +659,8 @@ export class QaWorkPlanService {
         issues.push({
           type:     'SA_TESTING_END_OVERFLOW',
           userName: task.user?.fullName ?? task.userId,
+          userId:   task.userId,
+          cycleType: 'STAND_ALONE',
           crNumber: task.crNumber,
           daysOver,
           message: `CR ${task.crNumber} (Stand Alone) חורג מתאריך סיום הבדיקות של הגרסה (${plan.testingEnd.toLocaleDateString('he-IL')}) — צפוי להסתיים ${daysOver} ימי עבודה אחרי כן, כי אין מספיק קיבולת בודקים פנויה בתוך חלון הגרסה.`,
@@ -749,9 +805,9 @@ export class QaWorkPlanService {
       include: { cycle: true },
     });
     if (!task) throw new NotFoundException('משימה לא נמצאה');
-    if ((task as any).isArchived) throw new BadRequestException('המשימה כבר בארכיון');
+    if (task.isArchived) throw new BadRequestException('המשימה כבר בארכיון');
 
-    await prisma.qaCycleTask.update({ where: { id: taskId }, data: { isArchived: true } as any });
+    await prisma.qaCycleTask.update({ where: { id: taskId }, data: { isArchived: true } });
     await prisma.qaWorkPlanChangeLog.create({
       data: {
         workPlanId: task.cycle.workPlanId, qaCycleTaskId: task.id, crNumber: task.crNumber,
@@ -781,7 +837,7 @@ export class QaWorkPlanService {
       include: { cycle: true },
     });
     if (!task) throw new NotFoundException('משימה לא נמצאה');
-    if (!(task as any).isArchived) throw new BadRequestException('המשימה אינה בארכיון');
+    if (!task.isArchived) throw new BadRequestException('המשימה אינה בארכיון');
 
     const maxSortOrder = await prisma.qaCycleTask.aggregate({
       where: { cycleId: task.cycleId, userId: task.userId, taskType: { not: 'REGRESSION' } },
@@ -790,7 +846,7 @@ export class QaWorkPlanService {
 
     await prisma.qaCycleTask.update({
       where: { id: taskId },
-      data: { isArchived: false, sortOrder: (maxSortOrder._max.sortOrder ?? 0) + 1 } as any,
+      data: { isArchived: false, sortOrder: (maxSortOrder._max.sortOrder ?? 0) + 1 },
     });
     await prisma.qaWorkPlanChangeLog.create({
       data: {
@@ -813,13 +869,60 @@ export class QaWorkPlanService {
     const workPlan = await prisma.qaWorkPlan.findUnique({ where: { versionId }, select: { id: true } });
     if (!workPlan) return [];
     return prisma.qaCycleTask.findMany({
-      where: { isArchived: true, cycle: { workPlanId: workPlan.id } } as any,
+      where: { isArchived: true, cycle: { workPlanId: workPlan.id } },
       include: {
         user:  { select: { id: true, fullName: true, email: true } },
         cycle: { select: { cycleType: true } },
       },
       orderBy: { updatedAt: 'desc' },
     });
+  }
+
+  // ── Archive a whole CR's QA work — the assignment-screen counterpart to
+  // archiveTask above. Archives every non-archived QaCycleTask tied to this
+  // CR (reusing archiveTask's own cascade/reschedule logic per task) and
+  // marks VersionCrAssignment.isArchived, which is what the assignment
+  // screen's row-visibility and tester-load calculations actually key off —
+  // QaAssignment itself is left untouched (kept as history, per product
+  // decision, rather than deleted). Safe to call even with zero tasks (e.g.
+  // a CR archived before any work plan exists). ─────────────────────────────
+  async archiveCr(versionId: string, crNumber: string, reason: string, userEmail?: string) {
+    const workPlan = await prisma.qaWorkPlan.findUnique({ where: { versionId }, select: { id: true } });
+    const tasks = workPlan
+      ? await prisma.qaCycleTask.findMany({
+          where: { crNumber, isArchived: false, cycle: { workPlanId: workPlan.id } },
+          select: { id: true },
+        })
+      : [];
+    for (const t of tasks) {
+      await this.archiveTask(t.id, reason, userEmail);
+    }
+    await prisma.versionCrAssignment.updateMany({
+      where: { versionId, crNumber },
+      data: { isArchived: true, archivedAt: new Date(), archivedReason: reason },
+    });
+    return this.getWorkPlan(versionId);
+  }
+
+  // ── Restore a whole CR's QA work — the counterpart to archiveCr. Restores
+  // every archived QaCycleTask for this CR and clears
+  // VersionCrAssignment.isArchived. ───────────────────────────────────────
+  async restoreCr(versionId: string, crNumber: string, reason: string, userEmail?: string) {
+    const workPlan = await prisma.qaWorkPlan.findUnique({ where: { versionId }, select: { id: true } });
+    const tasks = workPlan
+      ? await prisma.qaCycleTask.findMany({
+          where: { crNumber, isArchived: true, cycle: { workPlanId: workPlan.id } },
+          select: { id: true },
+        })
+      : [];
+    for (const t of tasks) {
+      await this.restoreTask(t.id, reason, userEmail);
+    }
+    await prisma.versionCrAssignment.updateMany({
+      where: { versionId, crNumber },
+      data: { isArchived: false, archivedAt: null, archivedReason: null },
+    });
+    return this.getWorkPlan(versionId);
   }
 
   // ── Self-scoped "my tasks" — for the plain QA tester's own home-page card
@@ -837,7 +940,7 @@ export class QaWorkPlanService {
     if (!workPlan) return { isTester, tasks: [] };
 
     const tasks = await prisma.qaCycleTask.findMany({
-      where: { userId, isArchived: false, taskType: { not: 'REGRESSION' }, cycle: { workPlanId: workPlan.id } } as any,
+      where: { userId, isArchived: false, taskType: { not: 'REGRESSION' }, cycle: { workPlanId: workPlan.id } },
       include: { cycle: { select: { cycleType: true, plannedStart: true, plannedEnd: true } } },
       orderBy: [{ plannedStart: 'asc' }],
     });
@@ -1157,6 +1260,30 @@ export class QaWorkPlanService {
       }
     }
 
+    // ── Real per-CR QA effort — same resolution as buildCrInputs ─────────────
+    // QaCycleTask.effortDays is a per-CYCLE fraction (CYCLE_1=100%, CYCLE_2=50%,
+    // CYCLE_3=30% of the real estimate — independent re-test passes, not parts
+    // of one total), so it must never be used as "the CR's QA effort" — that
+    // was column H's bug (whatever cycle got processed last silently won).
+    const qaTeam = await prisma.team.findFirst({ where: { name: 'QA Team' } });
+    const qaEffortMap = new Map<string, number>(); // crNumber → days from QA Team row
+    if (qaTeam) {
+      vcas.filter(v => v.teamId === qaTeam.id && (v as any).qaEffort != null)
+        .forEach(v => {
+          const effort = (v as any).qaEffortOverride ?? (v as any).qaEffort;
+          if (effort != null) qaEffortMap.set(v.crNumber, effort);
+        });
+    }
+    const assignmentsByCr = new Map<string, { qaEffort: number | null; secondaryParticipationPct: number | null }>();
+    (await prisma.qaAssignment.findMany({ where: { versionId } })).forEach(a => {
+      assignmentsByCr.set(a.crNumber, { qaEffort: (a as any).qaEffort ?? null, secondaryParticipationPct: (a as any).secondaryParticipationPct ?? null });
+    });
+    const realQaEffort = (crNumber: string): number | null => {
+      const asg = assignmentsByCr.get(crNumber);
+      const vca = vcaFirstMap.get(crNumber);
+      return asg?.qaEffort ?? qaEffortMap.get(crNumber) ?? (vca as any)?.qaEffortOverride ?? (vca as any)?.qaEffort ?? null;
+    };
+
     // System column (AP→BR) — which DB team names activate a 'Y' flag
     const SYSTEM_TEAMS: string[][] = [
       [],                          // AP  A&A
@@ -1210,9 +1337,12 @@ export class QaWorkPlanService {
       application:         string;
       sortOrder:           number;
       primaryTester:       string;
-      primaryEffortDays:   number;
       secondaryTester:     string;
-      secondaryEffortDays: number;
+      // The secondary's own real queue position — distinct from sortOrder
+      // above (the primary's), captured from the secondary's own task, so
+      // their exported row ranks correctly within THEIR OWN queue, not the
+      // primary's.
+      secondarySortOrder:  number | null;
       cycles:              Partial<Record<CycleType, TaskRef>>;
     };
 
@@ -1243,9 +1373,8 @@ export class QaWorkPlanService {
             application:         vcaFirstMap.get(task.crNumber)?.application ?? '',
             sortOrder:           task.sortOrder,
             primaryTester:       '',
-            primaryEffortDays:   0,
             secondaryTester:     '',
-            secondaryEffortDays: 0,
+            secondarySortOrder:  null,
             cycles:              {},
           });
         }
@@ -1260,13 +1389,15 @@ export class QaWorkPlanService {
           };
         }
 
+        // Only the tester's name is captured per occurrence — sortOrder was
+        // already captured once at row init (above), and effort is resolved
+        // separately below from the real QA-effort estimate, never from
+        // task.effortDays (a per-cycle re-test fraction, not the CR's total).
         if (task.isPrimary) {
-          row.primaryTester     = task.user.fullName;
-          row.primaryEffortDays = task.effortDays;
-          row.sortOrder         = task.sortOrder;
+          row.primaryTester = task.user.fullName;
         } else if (!row.secondaryTester) {
-          row.secondaryTester     = task.user.fullName;
-          row.secondaryEffortDays = task.effortDays;
+          row.secondaryTester = task.user.fullName;
+          row.secondarySortOrder = task.sortOrder;
         }
       }
     }
@@ -1274,25 +1405,43 @@ export class QaWorkPlanService {
     const sortedCrs = Array.from(crMap.values())
       .sort((a, b) => a.sortOrder - b.sortOrder);
 
-    // Task Order (column F) must restart at 1 for each tester's own queue —
-    // sortedCrs above is one global list mixing every tester together (for a
-    // stable overall row order in the sheet), so ranking by its row index
-    // there gives a meaningless CR-wide 1..N instead of each tester's actual
-    // position in their own queue. Group by primary tester and rank within
-    // that group only, using each row's already-per-tester sortOrder.
-    const taskOrderByRow = new Map<CrRow, number>();
-    const rowsByTester = new Map<string, CrRow[]>();
+    // A secondary tester gets their own full exported row (a real ALM record
+    // assigned to them, not just a name/effort pair riding on the primary's
+    // row) — same CR, same cycle windows, but their own "Asign To"/effort and
+    // their own Task Order ranking. The primary's row is unaffected and still
+    // carries the secondary's name/effort in columns I/J too, so no
+    // information is lost either way.
+    type ExportRow = { cr: CrRow; role: 'primary' | 'secondary' };
+    const exportRows: ExportRow[] = [];
     for (const cr of sortedCrs) {
-      const key = cr.primaryTester || '—';
-      if (!rowsByTester.has(key)) rowsByTester.set(key, []);
-      rowsByTester.get(key)!.push(cr);
-    }
-    for (const rows of rowsByTester.values()) {
-      [...rows].sort((a, b) => a.sortOrder - b.sortOrder)
-        .forEach((cr, i) => taskOrderByRow.set(cr, i + 1));
+      exportRows.push({ cr, role: 'primary' });
+      if (cr.secondaryTester) exportRows.push({ cr, role: 'secondary' });
     }
 
-    // ── Headers — exact ALM column names, A through BR (70 columns) ──────────
+    // Task Order (column F) must restart at 1 for each real tester's own
+    // queue, using THEIR OWN sortOrder — a secondary-tester row ranks by the
+    // secondary's actual position in their queue, not the primary's.
+    const taskOrderByRow = new Map<ExportRow, number>();
+    const rowsByTester = new Map<string, ExportRow[]>();
+    for (const er of exportRows) {
+      const key = (er.role === 'primary' ? er.cr.primaryTester : er.cr.secondaryTester) || '—';
+      if (!rowsByTester.has(key)) rowsByTester.set(key, []);
+      rowsByTester.get(key)!.push(er);
+    }
+    for (const rows of rowsByTester.values()) {
+      [...rows]
+        .sort((a, b) => {
+          const soA = a.role === 'primary' ? a.cr.sortOrder : (a.cr.secondarySortOrder ?? a.cr.sortOrder);
+          const soB = b.role === 'primary' ? b.cr.sortOrder : (b.cr.secondarySortOrder ?? b.cr.sortOrder);
+          return soA - soB;
+        })
+        .forEach((er, i) => taskOrderByRow.set(er, i + 1));
+    }
+
+    // ── Headers — exact ALM column names, A through BR (70 columns). Order and
+    // text verified 2026-08-02 against a real ALM export (ITv06-2026_scope.xlsx)
+    // — including the double space in column I and "(איפיון)" in column AP,
+    // both confirmed intentional (not typos) against that reference file. ────
     const headers = [
       'CR - RQ_USER_02',                          // A
       'Project (Folder - 3)',                      // B
@@ -1302,7 +1451,7 @@ export class QaWorkPlanService {
       'Task Order',                                // F
       'Asign To - RQ_USER_05',                     // G
       'QA effort',                                 // H
-      'rq_user_27 Secondary Tester',               // I
+      'rq_user_27  Secondary Tester',              // I
       'QA effort 2',                               // J
       'QA BI',                                     // K
       'QA BI_Efforts',                             // L
@@ -1367,7 +1516,8 @@ export class QaWorkPlanService {
     ];
 
     // ── Data rows (row 2 onwards) ─────────────────────────────────────────────
-    const dataRows: any[][] = sortedCrs.map((cr, idx) => {
+    const dataRows: any[][] = exportRows.map((er, idx) => {
+      const cr = er.cr;
       const c1  = cr.cycles['CYCLE_1'];
       const c2  = cr.cycles['CYCLE_2'];
       const c3  = cr.cycles['CYCLE_3'];
@@ -1381,18 +1531,42 @@ export class QaWorkPlanService {
       const crDesc     = vca?.crDescription ?? '';
       const hasSetup   = crTeamsMap.get(cr.crNumber)?.has('Setup Team') ?? false;
 
+      // Real total QA effort for this CR (not a per-cycle re-test fraction —
+      // see realQaEffort above), split by the secondary's participation % when
+      // a secondary tester exists.
+      const totalEffort  = realQaEffort(cr.crNumber);
+      const secondaryPct = assignmentsByCr.get(cr.crNumber)?.secondaryParticipationPct ?? null;
+      const split = totalEffort != null && cr.secondaryTester ? splitEffort(totalEffort, secondaryPct) : null;
+      const primaryEffort   = split ? split.primary : (totalEffort ?? '');
+      const secondaryEffort = split ? split.secondary : '';
+
+      // A secondary-tester row is its own real assignment record — "Asign To"
+      // is the secondary, with their own effort share; columns I/J (which
+      // name a *different* CR's secondary) don't apply to it, so they're left
+      // blank rather than repeating the primary/secondary pair a second time.
+      const assignee       = er.role === 'primary' ? cr.primaryTester : cr.secondaryTester;
+      const assigneeEffort = er.role === 'primary' ? primaryEffort : secondaryEffort;
+      const secondaryName  = er.role === 'primary' ? cr.secondaryTester : '';
+      const secondaryVal   = er.role === 'primary' ? secondaryEffort : '';
+
+      // The secondary tester's row must not share the primary's exact CR Name —
+      // the target ALM import can't ingest two rows with an identical name, so
+      // the secondary's copy gets a "_2" suffix (see product ask: same CR,
+      // same schedule, but a distinct importable task name per tester).
+      const crNameForRow = er.role === 'secondary' ? `${cr.crLabel}_2` : cr.crLabel;
+
       return [
         cr.crNumber,                                // A  CR - RQ_USER_02
         cr.application,                             // B  Project (Folder - 3)
-        cr.crLabel,                                 // C  CR Name
+        crNameForRow,                                // C  CR Name
         crDesc,                                     // D  Description - RE_REQ_COMMENT
-        'Release Item',                             // E  CR Type
-        taskOrderByRow.get(cr) ?? idx + 1,           // F  Task Order (per-tester rank, not global row index)
-        cr.primaryTester,                           // G  Asign To
-        cr.primaryEffortDays || '',                 // H  QA effort
-        cr.secondaryTester,                         // I  rq_user_27 Secondary Tester
-        cr.secondaryEffortDays || '',               // J  QA effort 2
-        cr.primaryTester ? 'Y' : '',                // K  QA BI
+        sa ? 'Stand Alone Item' : 'Release Item',   // E  CR Type
+        taskOrderByRow.get(er) ?? idx + 1,           // F  Task Order (per-tester rank, not global row index)
+        assignee,                                   // G  Asign To
+        assigneeEffort,                              // H  QA effort
+        secondaryName,                               // I  rq_user_27 Secondary Tester
+        secondaryVal,                                 // J  QA effort 2
+        assignee ? 'Y' : '',                        // K  QA BI
         '',                                         // L  QA BI_Efforts
         '',                                         // M  Cycle 0
         uat ? 'Y' : '',                             // N  UAT

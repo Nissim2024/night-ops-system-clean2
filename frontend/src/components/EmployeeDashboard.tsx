@@ -154,6 +154,18 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeVersion?.id, planningVersion?.id, token]);
 
+  // Manual, RM/ADMIN-authored notices for the current version — read-only here
+  // (only RM/ADMIN can add/edit, from HomeDashboard), just displayed.
+  const [homeNotices, setHomeNotices] = useState<{ id: string; text: string; urgency: string }[]>([]);
+  useEffect(() => {
+    const versionId = activeVersion?.id ?? planningVersion?.id;
+    if (!versionId) { setHomeNotices([]); return; }
+    axios.get(`${API}/versions/${versionId}/notices`, { headers })
+      .then(res => setHomeNotices(res.data ?? []))
+      .catch(() => setHomeNotices([]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeVersion?.id, planningVersion?.id, token]);
+
   // QA work-plan tasks assigned specifically to this employee for the current
   // version — separate from the general night-execution Task model above.
   // `isTester` gates whether the "המשימות שלי (QA)" nav tab even shows, since
@@ -512,6 +524,7 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
               taskStats={taskStats}
               seasonReminder={seasonReminder}
               teamName={myTeam?.name}
+              homeNotices={homeNotices}
               myRunbookSteps={myRunbookSteps}
               isQaTester={isQaTester}
               myQaTasks={myQaTasks}

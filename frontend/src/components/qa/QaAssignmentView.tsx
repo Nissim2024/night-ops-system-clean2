@@ -69,6 +69,9 @@ interface CrRec {
   systems:      string[];
   riskLevel:    string | null;
   testers:      { userId: string; fullName: string; email: string; score: number; matchedSkills: { skillName: string; level: number }[] }[];
+  isArchived:    boolean;
+  archivedAt:    string | null;
+  archivedReason: string | null;
 }
 
 interface CrArchiveHistoryEntry {
@@ -98,6 +101,33 @@ const CYCLE_LABEL: Record<string, string> = {
 
 interface SyncDiffItem { crNumber: string; crLabel: string | null; teamName?: string; }
 interface SyncDiff { added: SyncDiffItem[]; removed: SyncDiffItem[]; unchanged: number; }
+
+// Same shape as qa-workplan.service.ts's computeOverflowIssues — real,
+// server-computed overflow from the actual generated plan (dates, holidays,
+// carry-over), as opposed to the estimate below (cycle1LengthDays vs. raw
+// effort totals, all that's available before a plan exists).
+interface OverflowIssue {
+  type: 'CORE_OVERFLOW' | 'CORE_TESTING_END_OVERFLOW' | 'SA_DUE_DATE_MISSED' | 'GO_LIVE_OVERFLOW' | 'SA_TESTING_END_OVERFLOW';
+  message: string;
+  crNumber?: string;
+  userName?: string;
+  userId?: string;
+  cycleType?: string;
+  daysOver: number;
+  suggestions: string[];
+}
+
+// Full per-cycle task data from the generated work plan — used for the
+// per-tester Gantt timeline (real dates) once a plan exists. Only the fields
+// the timeline actually needs; see qa-workplan.service.ts's getWorkPlan for
+// the full shape.
+interface PlanTask {
+  id: string; crNumber: string; crLabel: string | null;
+  taskType: 'CR' | 'STAND_ALONE' | 'REGRESSION';
+  userId: string; effortDays: number;
+  plannedStart: string; plannedEnd: string; isActive: boolean; isPrimary: boolean;
+}
+interface PlanCycle { cycleType: string; plannedStart: string; plannedEnd: string; tasks: PlanTask[]; }
 
 interface Assignment {
   id:          string;
@@ -148,11 +178,32 @@ interface ScoringResult {
 // `holidayDays` (yyyy-mm-dd keys, see dateKeyStr) mirrors backend/src/qa/qa.scheduler.ts's
 // holiday handling — approved-season holiday dates, fetched from GET /leaves/seasons
 // and filtered to isActive, are skipped like a weekend everywhere the backend skips them.
+//
+// The backend encodes dates as e.g. "2026-01-31T22:00:00.000Z", meaning
+// midnight Israel time (which lands on the *next* UTC calendar day in
+// winter). Reading that with plain `new Date(iso)` + local getters/setters
+// only gives the right calendar day when the browser's OWN system timezone
+// happens to be Israel's — on any other timezone the weekday/date silently
+// shifts (caught live 2026-07-30: cycle-length math was correct in this
+// session's own Asia/Jerusalem test environment, wrong in the user's real
+// browser). toIsraelDay() extracts the *intended* Israel calendar date
+// explicitly, regardless of the runtime's own timezone, and returns it as a
+// UTC-midnight Date — every helper below then uses ONLY UTC getters/setters,
+// so results never depend on where the code happens to be running.
+
+const ISRAEL_DATE_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit' });
+
+function toIsraelDay(input: string | Date): Date {
+  const d = typeof input === 'string' ? new Date(input) : input;
+  const parts = ISRAEL_DATE_FMT.formatToParts(d);
+  const get = (type: string) => Number(parts.find(p => p.type === type)!.value);
+  return new Date(Date.UTC(get('year'), get('month') - 1, get('day')));
+}
 
 function dateKeyStr(d: Date): string { return d.toISOString().slice(0, 10); }
 
 function isWorkDay(d: Date, holidayDays?: Set<string>): boolean {
-  const dow = d.getDay();
+  const dow = d.getUTCDay();
   if (dow === 5 || dow === 6) return false;
   if (holidayDays && holidayDays.has(dateKeyStr(d))) return false;
   return true;
@@ -160,27 +211,26 @@ function isWorkDay(d: Date, holidayDays?: Set<string>): boolean {
 
 function countWorkDays(start: string, end: string, holidayDays?: Set<string>): number {
   if (!start || !end) return 0;
-  const s = new Date(start); s.setHours(0, 0, 0, 0);
-  const e = new Date(end);   e.setHours(0, 0, 0, 0);
+  const s = toIsraelDay(start);
+  const e = toIsraelDay(end);
   let count = 0;
   const d = new Date(s);
-  while (d <= e) { if (isWorkDay(d, holidayDays)) count++; d.setDate(d.getDate() + 1); }
+  while (d <= e) { if (isWorkDay(d, holidayDays)) count++; d.setUTCDate(d.getUTCDate() + 1); }
   return count;
 }
 
 // Mirrors backend/src/qa/qa.scheduler.ts exactly — kept in sync so the live
 // preview of round boundaries here matches what generate-workplan actually
 // produces server-side.
-function getFirstWorkDay(date: Date, holidayDays?: Set<string>): Date {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  while (!isWorkDay(d, holidayDays)) d.setDate(d.getDate() + 1);
+function getFirstWorkDay(date: Date | string, holidayDays?: Set<string>): Date {
+  const d = toIsraelDay(date);
+  while (!isWorkDay(d, holidayDays)) d.setUTCDate(d.getUTCDate() + 1);
   return d;
 }
 function nextWorkDay(date: Date, holidayDays?: Set<string>): Date {
   const d = new Date(date);
-  d.setDate(d.getDate() + 1);
-  while (!isWorkDay(d, holidayDays)) d.setDate(d.getDate() + 1);
+  d.setUTCDate(d.getUTCDate() + 1);
+  while (!isWorkDay(d, holidayDays)) d.setUTCDate(d.getUTCDate() + 1);
   return d;
 }
 function addWorkDays(date: Date, days: number, holidayDays?: Set<string>): Date {
@@ -188,7 +238,7 @@ function addWorkDays(date: Date, days: number, holidayDays?: Set<string>): Date 
   const d = new Date(date);
   let remaining = days;
   while (remaining > 0) {
-    d.setDate(d.getDate() + 1);
+    d.setUTCDate(d.getUTCDate() + 1);
     if (isWorkDay(d, holidayDays)) remaining--;
   }
   return d;
@@ -247,6 +297,273 @@ function LoadBar({ used, capacity }: { used: number; capacity: number }) {
       {over && <span style={{ ...TEXT.xs, color: C.danger, fontWeight: WEIGHT.bold }}>⚠</span>}
     </div>
   );
+}
+
+// ── Per-tester timeline (Gantt when a plan exists, capacity bars otherwise) ──
+// Only rendered when a specific tester is selected in the filter above. The
+// goal in both modes is the same: let the user see, in one glance, everything
+// this person has and where they run out of room — not just a per-CR row in
+// a flat table.
+
+const TIMELINE_COLORS = ['#2a78d6', '#008300', '#e87ba4', '#eda100', '#1baf7a', '#eb6834', '#4a3aa7', '#e34948'];
+
+function TesterTimeline({
+  filterTesterId, testerName, planExists, planCycles, assignments, crByNumber, effortMap,
+  cycle1LengthDays, cycle2LengthDays, cycle3LengthDays, holidayDays, missingFromPlan,
+}: {
+  filterTesterId: string;
+  testerName: string;
+  planExists: boolean;
+  planCycles: PlanCycle[];
+  assignments: Assignment[];
+  crByNumber: Map<string, CrRec>;
+  effortMap: Map<string, number>;
+  cycle1LengthDays: number; cycle2LengthDays: number; cycle3LengthDays: number;
+  holidayDays: Set<string>;
+  missingFromPlan: Assignment[];
+}) {
+  return (
+    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.sm, padding: SP[4], marginBottom: SP[4] }}>
+      <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: SP[3] }}>
+        📊 ציר זמן — {testerName}
+      </div>
+      {planExists && missingFromPlan.length > 0 && (
+        <div style={{ ...TEXT.xs, color: C.warning, background: C.warningBg, border: `1px solid ${C.warning}`, borderRadius: RADIUS.md, padding: SP[2], marginBottom: SP[3] }}>
+          ⚠ {missingFromPlan.length} מתוך המשימות הנוכחיות של {testerName} ({missingFromPlan.map(a => a.crNumber).join(', ')}) אינ{missingFromPlan.length === 1 ? 'ה' : 'ן'} בתוכנית הזו — ציר הזמן למטה מציג את התוכנית הקיימת, לא בהכרח את השיבוץ העדכני. יש ליצור מחדש כדי לסנכרן.
+        </div>
+      )}
+      {planExists
+        ? <RealTesterGantt filterTesterId={filterTesterId} planCycles={planCycles} holidayDays={holidayDays} cycle1LengthDays={cycle1LengthDays} />
+        : <PreplanCapacityBars
+            filterTesterId={filterTesterId} assignments={assignments} crByNumber={crByNumber} effortMap={effortMap}
+            cycle1LengthDays={cycle1LengthDays} cycle2LengthDays={cycle2LengthDays} cycle3LengthDays={cycle3LengthDays}
+          />}
+    </div>
+  );
+}
+
+// ── Mode A: no plan yet — duration bars, not dates ───────────────────────────
+// Top line = the cycle's configured length. Bottom line = this tester's CRs
+// for that cycle, stacked in queue order, each sized by its (ratio-scaled)
+// estimated effort — so overflow past the top line is visible before a real
+// plan is ever generated. Stand Alone has no fixed length pre-plan, so it's
+// shown as a plain segment list with no capacity line to compare against.
+function PreplanCapacityBars({
+  filterTesterId, assignments, crByNumber, effortMap, cycle1LengthDays, cycle2LengthDays, cycle3LengthDays,
+}: {
+  filterTesterId: string;
+  assignments: Assignment[];
+  crByNumber: Map<string, CrRec>;
+  effortMap: Map<string, number>;
+  cycle1LengthDays: number; cycle2LengthDays: number; cycle3LengthDays: number;
+}) {
+  const mine = assignments
+    .filter(a => a.userId === filterTesterId || a.secondaryTesterId === filterTesterId)
+    .sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
+
+  type Seg = { crNumber: string; crLabel: string | null; days: number; urgent: boolean };
+  const segsForCycle = (cycleType: string): Seg[] => {
+    const segs: Seg[] = [];
+    for (const a of mine) {
+      const crRec = crByNumber.get(a.crNumber);
+      const effSA = a.isStandAlone !== null ? a.isStandAlone : (crRec?.isStandAlone ?? false);
+      const cycles = a.cycles?.length > 0 ? a.cycles : (effSA ? ['STAND_ALONE'] : ['CYCLE_1', 'CYCLE_2', 'CYCLE_3']);
+      if (!cycles.includes(cycleType)) continue;
+      const total = a.qaEffort != null ? a.qaEffort : (effortMap.get(a.crNumber) ?? 0);
+      const ratio = CYCLE_EFFORT_RATIO[cycleType as LoadViewCycle] ?? 1;
+      const scaled = Math.max(1, Math.round(total * ratio));
+      const isSecondary = a.userId !== filterTesterId;
+      const myShare = isSecondary
+        ? Math.max(1, Math.round(scaled * (a.secondaryParticipationPct ?? 50) / 100))
+        : (a.secondaryTesterId ? Math.max(1, Math.round(scaled * (100 - (a.secondaryParticipationPct ?? 50)) / 100)) : scaled);
+      segs.push({ crNumber: a.crNumber, crLabel: a.crLabel, days: myShare, urgent: crRec?.urgent ?? false });
+    }
+    return segs;
+  };
+
+  const cycleRows: { label: string; capacity: number; segs: Seg[] }[] = [
+    { label: 'סבב 1', capacity: cycle1LengthDays, segs: segsForCycle('CYCLE_1') },
+    { label: 'סבב 2', capacity: cycle2LengthDays, segs: segsForCycle('CYCLE_2') },
+    { label: 'סבב 3', capacity: cycle3LengthDays, segs: segsForCycle('CYCLE_3') },
+  ];
+  const saSegs = segsForCycle('STAND_ALONE');
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+      {cycleRows.map(row => {
+        if (row.segs.length === 0) return null;
+        const totalDays = row.segs.reduce((s, x) => s + x.days, 0);
+        const scaleBase = Math.max(row.capacity, totalDays);
+        const pctOf = (d: number) => (d / scaleBase) * 100;
+        const over = totalDays > row.capacity;
+        return (
+          <div key={row.label}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', ...TEXT.xs, color: C.textMuted, marginBottom: 4 }}>
+              <span style={{ fontWeight: WEIGHT.semibold, color: C.textSecondary }}>{row.label}</span>
+              <span style={{ color: over ? C.danger : C.textMuted, fontWeight: over ? WEIGHT.bold : WEIGHT.normal }}>
+                {totalDays} / {row.capacity} ימים{over ? ' ⚠ חריגה' : ''}
+              </span>
+            </div>
+            {/* Capacity line */}
+            <div style={{ position: 'relative', height: 8, background: C.bgNested, borderRadius: RADIUS.sm, marginBottom: 4 }}>
+              <div style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: `${pctOf(row.capacity)}%`, background: C.border, borderRadius: RADIUS.sm }} />
+            </div>
+            {/* Load line — segmented by CR, in queue order */}
+            <div style={{ display: 'flex', height: 22, borderRadius: RADIUS.sm, overflow: 'hidden', border: `1px solid ${C.border}` }}>
+              {row.segs.map((seg, i) => (
+                <div
+                  key={seg.crNumber + i}
+                  title={`${seg.crNumber} — ${seg.crLabel ?? seg.crNumber} (${seg.days} ימים)`}
+                  style={{
+                    width: `${pctOf(seg.days)}%`, background: TIMELINE_COLORS[i % TIMELINE_COLORS.length],
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                    borderLeft: i > 0 ? `1px solid ${C.bgCard}` : 'none', position: 'relative',
+                  }}
+                >
+                  {seg.urgent && <span style={{ position: 'absolute', right: 2, color: '#fff', fontWeight: WEIGHT.bold, fontSize: 10 }}>🔴</span>}
+                  {pctOf(seg.days) > 6 && <span style={{ ...TEXT.xs, color: '#fff', fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{seg.crNumber}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+      {saSegs.length > 0 && (
+        <div>
+          <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: 4 }}>
+            Stand Alone (ללא קיבולת קבועה)
+          </div>
+          <div style={{ display: 'flex', height: 22, borderRadius: RADIUS.sm, overflow: 'hidden', border: `1px solid ${C.border}` }}>
+            {saSegs.map((seg, i) => (
+              <div
+                key={seg.crNumber + i}
+                title={`${seg.crNumber} — ${seg.crLabel ?? seg.crNumber} (${seg.days} ימים)`}
+                style={{
+                  flex: seg.days, background: TIMELINE_COLORS[i % TIMELINE_COLORS.length],
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                  borderLeft: i > 0 ? `1px solid ${C.bgCard}` : 'none', position: 'relative', minWidth: 24,
+                }}
+              >
+                {seg.urgent && <span style={{ position: 'absolute', right: 2, color: '#fff', fontWeight: WEIGHT.bold, fontSize: 10 }}>🔴</span>}
+                <span style={{ ...TEXT.xs, color: '#fff', fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{seg.crNumber}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {cycleRows.every(r => r.segs.length === 0) && saSegs.length === 0 && (
+        <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[3] }}>אין עדיין משימות משובצות לבודק זה</div>
+      )}
+    </div>
+  );
+}
+
+// ── Mode B: real plan exists — one combined line ─────────────────────────────
+// Cycle 1's real length is the capacity reference (same visual language as
+// Mode A's pre-plan bars, now with real numbers). This tester's Cycle 1 tasks
+// AND their Stand Alone tasks are placed one after another on the SAME line,
+// in real chronological order — the question this answers is "does
+// everything this person has in Cycle 1 + SA actually fit inside Cycle 1's
+// length." A CR that belongs to neither Cycle 1 nor Stand Alone (only
+// Cycle 2/3/UAT/etc.) has no natural place on that line, so it's listed
+// separately underneath instead of being silently missing.
+function RealTesterGantt({ filterTesterId, planCycles, holidayDays, cycle1LengthDays }: {
+  filterTesterId: string; planCycles: PlanCycle[]; holidayDays: Set<string>; cycle1LengthDays: number;
+}) {
+  const tasksOf = (cycleType: string) =>
+    (planCycles.find(c => c.cycleType === cycleType)?.tasks ?? [])
+      .filter(t => t.isActive && t.taskType !== 'REGRESSION' && t.userId === filterTesterId);
+
+  // Capacity reference is the LIVE settings-field value (same prop
+  // PreplanCapacityBars uses), not the actual persisted plan's own cycle
+  // dates — otherwise editing "אורך סבב 1" without regenerating would leave
+  // the capacity line stuck at whatever was last generated (reported live
+  // 2026-07-30).
+  const cycle1Tasks = tasksOf('CYCLE_1').map(t => ({ ...t, srcCycle: 'CYCLE_1' as const }));
+  const saTasks     = tasksOf('STAND_ALONE').map(t => ({ ...t, srcCycle: 'STAND_ALONE' as const }));
+  const mainTasks   = [...cycle1Tasks, ...saTasks].sort((a, b) => a.plannedStart.localeCompare(b.plannedStart));
+
+  // CRs that exist ONLY outside Cycle 1 / Stand Alone — flagged, not silently dropped.
+  const mainCrNumbers = new Set(mainTasks.map(t => t.crNumber));
+  const otherByCr = new Map<string, PlanTask & { cycleType: string }>();
+  for (const c of planCycles) {
+    if (c.cycleType === 'CYCLE_1' || c.cycleType === 'STAND_ALONE') continue;
+    for (const t of c.tasks) {
+      if (!t.isActive || t.taskType === 'REGRESSION' || t.userId !== filterTesterId) continue;
+      if (mainCrNumbers.has(t.crNumber)) continue; // already shown via its Cycle 1/SA occurrence
+      const cur = otherByCr.get(t.crNumber);
+      if (!cur || t.plannedStart < cur.plannedStart) otherByCr.set(t.crNumber, { ...t, cycleType: c.cycleType });
+    }
+  }
+  const otherShown = Array.from(otherByCr.values()).sort((a, b) => a.plannedStart.localeCompare(b.plannedStart));
+
+  if (mainTasks.length === 0 && otherShown.length === 0) {
+    return <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[3] }}>אין עדיין משימות בתוכנית העבודה לבודק זה</div>;
+  }
+
+  const segs = mainTasks.map(t => ({
+    crNumber: t.crNumber, crLabel: t.crLabel, isSA: t.srcCycle === 'STAND_ALONE',
+    days: Math.max(1, countWorkDays(t.plannedStart, t.plannedEnd, holidayDays)),
+  }));
+  const totalDays  = segs.reduce((s, x) => s + x.days, 0);
+  const scaleBase  = Math.max(cycle1LengthDays, totalDays, 1);
+  const pctOf      = (d: number) => (d / scaleBase) * 100;
+  const over       = cycle1LengthDays > 0 && totalDays > cycle1LengthDays;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+      {mainTasks.length > 0 && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', ...TEXT.xs, color: C.textMuted, marginBottom: 4 }}>
+            <span style={{ fontWeight: WEIGHT.semibold, color: C.textSecondary }}>סבב 1 + Stand Alone</span>
+            <span style={{ color: over ? C.danger : C.textMuted, fontWeight: over ? WEIGHT.bold : WEIGHT.normal }}>
+              {totalDays} / {cycle1LengthDays} ימים{over ? ' ⚠ חריגה' : ''}
+            </span>
+          </div>
+          {/* Capacity line — Cycle 1's real length */}
+          <div style={{ position: 'relative', height: 8, background: C.bgNested, borderRadius: RADIUS.sm, marginBottom: 4 }}>
+            <div style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: `${pctOf(cycle1LengthDays)}%`, background: C.border, borderRadius: RADIUS.sm }} />
+          </div>
+          {/* Load line — Cycle 1 + SA tasks, sequential, real durations */}
+          <div style={{ display: 'flex', height: 24, borderRadius: RADIUS.sm, overflow: 'hidden', border: `1px solid ${C.border}` }}>
+            {segs.map((seg, i) => (
+              <div
+                key={seg.crNumber + i}
+                title={`${seg.crNumber} — ${seg.crLabel ?? seg.crNumber} (${seg.days} ימים)${seg.isSA ? ' — Stand Alone' : ''}`}
+                style={{
+                  width: `${pctOf(seg.days)}%`, background: TIMELINE_COLORS[i % TIMELINE_COLORS.length],
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                  borderLeft: i > 0 ? `1px solid ${C.bgCard}` : 'none',
+                  backgroundImage: seg.isSA ? 'repeating-linear-gradient(45deg, rgba(255,255,255,0.25), rgba(255,255,255,0.25) 4px, transparent 4px, transparent 8px)' : undefined,
+                  position: 'relative',
+                }}
+              >
+                {pctOf(seg.days) > 6 && <span style={{ ...TEXT.xs, color: '#fff', fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{seg.crNumber}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {otherShown.length > 0 && (
+        <div>
+          <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.danger, marginBottom: 4 }}>
+            ⚠ משימות נוספות שאינן בסבב 1 או ב-Stand Alone
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {otherShown.map(t => (
+              <div key={t.crNumber} style={{ ...TEXT.xs, color: C.textSecondary, padding: `4px ${SP[2]}`, background: C.dangerBg, borderRadius: RADIUS.sm }}>
+                CR {t.crNumber} — {t.crLabel ?? t.crNumber} · {CYCLE_LABEL[t.cycleType] ?? t.cycleType} · מתחיל {fmtDateIso(t.plannedStart)}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function fmtDateIso(iso: string): string {
+  return new Date(iso).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' });
 }
 
 // ── CR detail modal field ───────────────────────────────────────────────────────
@@ -376,6 +693,8 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const [cycle2LengthDays, setCycle2LengthDays] = useState(6);
   const [cycle3LengthDays, setCycle3LengthDays] = useState(4);
   const [planExists, setPlanExists]     = useState(false); // does a QaWorkPlan already exist for this version — gates "save" vs. "generate"
+  const [planOverflowIssues, setPlanOverflowIssues] = useState<OverflowIssue[]>([]); // real overflow from the generated plan, once one exists
+  const [planCycles, setPlanCycles] = useState<PlanCycle[]>([]); // full per-cycle task data, for the per-tester Gantt timeline
   const [savingSettings, setSavingSettings] = useState(false);
 
   const [openPicker, setOpenPicker]           = useState<PickerPos | null>(null);
@@ -395,6 +714,8 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const [saving, setSaving]                   = useState<string | null>(null);
   const [bulkAssigning, setBulkAssigning]     = useState(false);
   const [overloadPanelCollapsed, setOverloadPanelCollapsed] = useState(false);
+  const [estimatePanelCollapsed, setEstimatePanelCollapsed] = useState(false);
+  const [structuralPanelCollapsed, setStructuralPanelCollapsed] = useState(false);
   const [loadViewCycle, setLoadViewCycle] = useState<LoadViewCycle>('CYCLE_1'); // which cycle the "עומס בודקים" panel currently shows
   const [crDetailFor, setCrDetailFor] = useState<string | null>(null); // crNumber whose detail modal is open
   const [crDetail, setCrDetail]       = useState<CrDetail | null>(null);
@@ -402,11 +723,13 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const [editingEffort, setEditingEffort]     = useState<string | null>(null);  // crNumber being edited
   const [reorderingCr, setReorderingCr]       = useState<string | null>(null);  // crNumber currently being reordered
   const [search, setSearch]                   = useState('');
+  const [filterTesterId, setFilterTesterId]   = useState('');
   const [confirmDialog, setConfirmDialog]     = useState<DialogConfig | null>(null);
   const [sortCol, setSortCol]                 = useState<'cr' | 'label' | 'effort' | 'tester' | 'score' | 'order'>('cr');
   const [sortDir, setSortDir]                 = useState<'asc' | 'desc'>('asc');
   const [hiddenCrs, setHiddenCrs]             = useState<Set<string>>(new Set());
   const [showHidden, setShowHidden]           = useState(false);
+  const [showArchived, setShowArchived]       = useState(false);
   const pickerRef      = useRef<HTMLDivElement>(null);
   const cyclesPickerRef = useRef<HTMLDivElement>(null);
   const priorityPickerRef = useRef<HTMLDivElement>(null);
@@ -475,7 +798,7 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   // ── Load version data ───────────────────────────────────────────────────────
 
   const loadVersion = useCallback(async (vId: string) => {
-    if (!vId) { setCrs([]); setAssignments([]); setScoring({}); setCrSyncStatuses({}); setSecondTesterSuggestions([]); setPlanExists(false); setCycleTasksByCr(new Map()); return; }
+    if (!vId) { setCrs([]); setAssignments([]); setScoring({}); setCrSyncStatuses({}); setSecondTesterSuggestions([]); setPlanExists(false); setPlanOverflowIssues([]); setPlanCycles([]); setCycleTasksByCr(new Map()); return; }
     setLoading(true);
     try {
       // Pick up CR_LIST changes automatically on load — without this, edits
@@ -509,6 +832,8 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
       // Restore dates only if there is an existing (even DRAFT) work plan
       const plan = planRes?.data;
       setPlanExists(!!plan?.cycle1Start);
+      setPlanOverflowIssues(plan?.overflowIssues ?? []);
+      setPlanCycles(plan?.cycles ?? []);
       const taskMap = new Map<string, { id: string }[]>();
       for (const cycle of plan?.cycles ?? []) {
         for (const t of cycle.tasks ?? []) {
@@ -888,14 +1213,13 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
     }
   };
 
-  // Archives every work-plan task tied to this CR (primary + secondary tester
-  // tasks together, one reason) — the recoverable counterpart to "מחק CR
-  // לצמיתות" above, for when the CR itself should stay archived/restorable
-  // rather than have its assignment record deleted outright. Same soft-delete
-  // (QaCycleTask.isArchived) the workplan tab's archive panel already shows.
+  // Archives this CR's whole QA footprint in one call — every work-plan task
+  // (primary + secondary tester together) AND VersionCrAssignment.isArchived,
+  // which is what actually drives row-visibility and tester-load calculations
+  // on this screen. The recoverable counterpart to "מחק CR לצמיתות" above:
+  // QaAssignment itself is kept as history, not deleted (see restoreCr).
   const archiveCrTasks = (crNumber: string) => {
-    const tasks = cycleTasksByCr.get(crNumber);
-    if (!tasks || tasks.length === 0 || !selectedVId) return;
+    if (!selectedVId) return;
     const cr = crs.find(c => c.crNumber === crNumber);
     const label = cr?.crLabel ?? crNumber;
     setConfirmDialog({
@@ -909,13 +1233,69 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
       onConfirm: async (reason?: string) => {
         setArchivingCr(crNumber);
         try {
-          await Promise.all(tasks.map(t => axios.patch(`${API}/qa/workplan/task/${t.id}/archive`, { reason: reason!.trim() }, { headers })));
+          await axios.patch(`${API}/qa/workplan/cr/${selectedVId}/${crNumber}/archive`, { reason: reason!.trim() }, { headers });
           await loadVersion(selectedVId);
         } catch (e: any) {
           dialog.alert(e?.response?.data?.message ?? 'שגיאה בהעברה לארכיון', 'שגיאה', 'danger');
         } finally {
           setArchivingCr(null);
         }
+      },
+      onCancel: () => {},
+    });
+  };
+
+  // Restores a CR archived via archiveCrTasks — reverses both halves
+  // (QaCycleTask restore + VersionCrAssignment.isArchived=false) in one call.
+  // Named distinctly from restoreCr above (which un-hides a locally-hidden
+  // CR — a client-only concept, unrelated to server-side archiving).
+  const restoreArchivedCr = (crNumber: string) => {
+    if (!selectedVId) return;
+    const cr = crs.find(c => c.crNumber === crNumber);
+    const label = cr?.crLabel ?? crNumber;
+    setConfirmDialog({
+      title: 'שחזור מהארכיון',
+      message: `לשחזר את "${label}" מהארכיון בחזרה לתצוגה הפעילה?`,
+      inputLabel: 'סיבה (אופציונלי)',
+      inputPlaceholder: 'לדוגמה: חזר לתכולה',
+      variant: 'warning',
+      confirmLabel: 'שחזר',
+      cancelLabel: 'ביטול',
+      onConfirm: async (reason?: string) => {
+        setArchivingCr(crNumber);
+        try {
+          await axios.patch(`${API}/qa/workplan/cr/${selectedVId}/${crNumber}/restore`, { reason: (reason ?? '').trim() || 'שוחזר מהארכיון' }, { headers });
+          await loadVersion(selectedVId);
+        } catch (e: any) {
+          dialog.alert(e?.response?.data?.message ?? 'שגיאה בשחזור מהארכיון', 'שגיאה', 'danger');
+        } finally {
+          setArchivingCr(null);
+        }
+      },
+      onCancel: () => {},
+    });
+  };
+
+  // Deletes every QA assignment for this version — the granular counterpart
+  // to the old whole-version delete. Doesn't touch the generated work plan
+  // (that's a separate action, see QaWorkPlanView) or the CR scope itself.
+  const [deletingAssignments, setDeletingAssignments] = useState(false);
+  const deleteAllAssignments = () => {
+    if (!selectedVId) return;
+    setConfirmDialog({
+      title: 'מחיקת שיבוץ',
+      message: `למחוק את כל שיבוצי הבודקים לגרסה "${versions.find(v => v.id === selectedVId)?.name ?? ''}"?\nתוכנית העבודה (אם קיימת) לא תימחק, אבל תתייחס לשיבוצים שכבר לא קיימים. פעולה זו אינה הפיכה.`,
+      confirmLabel: 'מחק שיבוץ',
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        setDeletingAssignments(true);
+        try {
+          await axios.delete(`${API}/qa/assignments?versionId=${selectedVId}`, { headers });
+          await loadVersion(selectedVId);
+        } catch (e: any) {
+          dialog.alert(e?.response?.data?.message ?? 'שגיאה במחיקת השיבוץ', 'שגיאה', 'danger');
+        } finally { setDeletingAssignments(false); }
       },
       onCancel: () => {},
     });
@@ -1056,6 +1436,14 @@ CRים אלה לא ייכללו בתוכנית העבודה.
     return m;
   }, [crs]);
 
+  // Archived CRs are kept as QaAssignment history (not deleted) but must not
+  // count toward tester load/capacity anywhere on this screen — every load
+  // calculation below skips them.
+  const archivedCrSet = useMemo(
+    () => new Set(crs.filter(c => c.isArchived).map(c => c.crNumber)),
+    [crs],
+  );
+
   // tester load: userId → { fullName, totalDays }
   const testerLoad = useMemo(() => {
     const map = new Map<string, { fullName: string; totalDays: number }>();
@@ -1064,6 +1452,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
       map.set(userId, { fullName: cur.fullName, totalDays: cur.totalDays + days });
     };
     assignments.forEach(a => {
+      if (archivedCrSet.has(a.crNumber)) return;
       const total = a.qaEffort != null ? a.qaEffort : (effortMap.get(a.crNumber) ?? 0);
       // A second tester carries their participation % of the effort — the
       // rest stays with primary, matching the actual scheduler split, so
@@ -1077,7 +1466,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
       }
     });
     return map;
-  }, [assignments, effortMap]);
+  }, [assignments, effortMap, archivedCrSet]);
 
   const crByNumber = useMemo(() => new Map(crs.map(c => [c.crNumber, c])), [crs]);
 
@@ -1094,6 +1483,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
       map.set(userId, { fullName: cur.fullName, totalDays: cur.totalDays + days, crCount: cur.crCount + 1 });
     };
     assignments.forEach(a => {
+      if (archivedCrSet.has(a.crNumber)) return;
       const crRec = crByNumber.get(a.crNumber);
       const effSA = a.isStandAlone !== null ? a.isStandAlone : (crRec?.isStandAlone ?? false);
       const cycles = a.cycles?.length > 0 ? a.cycles : (effSA ? ['STAND_ALONE'] : ['CYCLE_1', 'CYCLE_2', 'CYCLE_3']);
@@ -1113,7 +1503,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
       }
     });
     return map;
-  }, [assignments, effortMap, crByNumber, loadViewCycle]);
+  }, [assignments, effortMap, crByNumber, loadViewCycle, archivedCrSet]);
 
   // Capacity to compare against for the selected view — Stand Alone has no
   // shared length parameter (each CR has its own due date instead), so there's
@@ -1191,6 +1581,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
     if (cycle1LengthDays <= 0) return [];
     const byTester = new Map<string, Assignment[]>();
     assignments.forEach(a => {
+      if (archivedCrSet.has(a.crNumber)) return;
       const list = byTester.get(a.userId) ?? [];
       list.push(a);
       byTester.set(a.userId, list);
@@ -1224,9 +1615,74 @@ CRים אלה לא ייכללו בתוכנית העבודה.
       });
     });
     return issues.sort((a, b) => b.daysOver - a.daysOver);
-  }, [testerLoad, cycle1LengthDays, assignments, effortMap, allTestersRoster]);
+  }, [testerLoad, cycle1LengthDays, assignments, effortMap, allTestersRoster, archivedCrSet]);
 
-  const visibleCrs = crs.filter(cr => !hiddenCrs.has(cr.crNumber) && (crSyncStatuses[cr.crNumber] ?? 'ACTIVE') !== 'REMOVED');
+  // Real overflow from the generated plan (qa-workplan.service.ts's
+  // computeOverflowIssues — same data the Work Plan screen's matrix uses),
+  // grouped by tester. Once a plan exists this replaces the estimate above —
+  // the two must never show conflicting numbers for the same person.
+  const planIssuesByTester = useMemo(() => {
+    const map = new Map<string, { fullName: string; issues: OverflowIssue[] }>();
+    planOverflowIssues.forEach(issue => {
+      if (!issue.userId) return;
+      const cur = map.get(issue.userId) ?? { fullName: issue.userName ?? issue.userId, issues: [] };
+      cur.issues.push(issue);
+      map.set(issue.userId, cur);
+    });
+    return Array.from(map.entries()).map(([userId, v]) => ({ userId, ...v }));
+  }, [planOverflowIssues]);
+
+  // Structural issues that aren't about any one tester (currently just
+  // CORE_TESTING_END_OVERFLOW — a whole core cycle's own boundary sits past
+  // the version's testing-end date). These have no userId, so they're
+  // invisible to planIssuesByTester's per-tester grouping above; surfaced
+  // separately here instead of being silently dropped.
+  const planStructuralIssues = useMemo(
+    () => planOverflowIssues.filter(i => !i.userId),
+    [planOverflowIssues],
+  );
+
+  // CRs currently assigned but absent from the generated plan — the plan is
+  // a separate persisted snapshot that doesn't update itself when
+  // assignments change afterward (reassignment, sync, etc.), so the two can
+  // legitimately show different CR sets for the same tester until the plan
+  // is regenerated. Same check as QaWorkPlanView.tsx's missingFromPlan.
+  const planCrNumbers = useMemo(
+    () => new Set(planCycles.flatMap(c => c.tasks.map(t => t.crNumber))),
+    [planCycles],
+  );
+  const missingFromPlan = useMemo(
+    () => (planExists ? assignments.filter(a => a.userId && !planCrNumbers.has(a.crNumber)) : []),
+    [assignments, planCrNumbers, planExists],
+  );
+
+  // Per-tester precision the general check above can't give: a CR can exist
+  // SOMEWHERE in the plan (so it passes missingFromPlan) but be assigned to a
+  // DIFFERENT tester there than in the current live assignment — e.g. a CR
+  // got reassigned after the plan was generated, without regenerating. That
+  // tester's live table row shows the CR; their Gantt (built from the plan)
+  // won't, since the plan still has it under the old assignee. This is
+  // exactly "the Gantt shows different CR numbers than the table" reported
+  // live on 2026-07-30.
+  const planCrsByTester = useMemo(() => {
+    const map = new Map<string, Set<string>>(); // userId → crNumbers they have a real task for in the plan
+    planCycles.forEach(c => c.tasks.forEach(t => {
+      if (t.taskType === 'REGRESSION') return;
+      if (!map.has(t.userId)) map.set(t.userId, new Set());
+      map.get(t.userId)!.add(t.crNumber);
+    }));
+    return map;
+  }, [planCycles]);
+  const missingForFilterTester = useMemo(() => {
+    if (!planExists || !filterTesterId) return [];
+    const theirPlanCrs = planCrsByTester.get(filterTesterId);
+    return assignments.filter(a =>
+      (a.userId === filterTesterId || a.secondaryTesterId === filterTesterId) &&
+      !(theirPlanCrs?.has(a.crNumber)),
+    );
+  }, [assignments, planCrsByTester, planExists, filterTesterId]);
+
+  const visibleCrs = crs.filter(cr => !hiddenCrs.has(cr.crNumber) && !cr.isArchived && (crSyncStatuses[cr.crNumber] ?? 'ACTIVE') !== 'REMOVED');
   const assigned   = visibleCrs.filter(cr => assignmentMap.has(cr.crNumber)).length;
   const unassigned = visibleCrs.length - assigned;
   const handleSort = (col: typeof sortCol) => {
@@ -1237,9 +1693,14 @@ CRים אלה לא ייכללו בתוכנית העבודה.
   const filtered = crs
     .filter(cr =>
       !hiddenCrs.has(cr.crNumber) &&
+      !cr.isArchived &&
       (!search ||
         cr.crNumber.includes(search) ||
-        (cr.crLabel || '').toLowerCase().includes(search.toLowerCase())),
+        (cr.crLabel || '').toLowerCase().includes(search.toLowerCase())) &&
+      (!filterTesterId || (() => {
+        const asg = assignmentMap.get(cr.crNumber);
+        return asg?.userId === filterTesterId || asg?.secondaryTesterId === filterTesterId;
+      })()),
     )
     .sort((a, b) => {
       const asg_a = assignmentMap.get(a.crNumber);
@@ -1560,8 +2021,67 @@ CRים אלה לא ייכללו בתוכנית העבודה.
         )}
       </div>
 
-      {/* ── Overload alert — who exceeds cycle capacity and why ── */}
-      {overloadIssues.length > 0 && (
+      {isManager && assignments.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: SP[3] }}>
+          <button
+            disabled={deletingAssignments}
+            onClick={deleteAllAssignments}
+            title="מוחק את כל שיבוצי הבודקים לגרסה זו — לא נוגע בתוכנית העבודה או בתכולת ה-CRים"
+            style={{ padding: `4px ${SP[3]}`, background: 'transparent', color: C.danger, border: `1px solid ${C.danger}55`, borderRadius: RADIUS.sm, ...TEXT.xs, cursor: deletingAssignments ? 'not-allowed' : 'pointer', fontFamily: FONT, opacity: deletingAssignments ? 0.6 : 1 }}
+          >
+            {deletingAssignments ? '⏳ מוחק...' : '🗑 מחק שיבוץ'}
+          </button>
+        </div>
+      )}
+
+      {/* ── Plan out of date — assigned CRs missing from the generated plan ── */}
+      {missingFromPlan.length > 0 && (
+        <div style={{ border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], borderRight: `4px solid ${C.warning}`, backgroundColor: C.warningBg, marginBottom: SP[4] }}>
+          <div style={{ display: 'flex', gap: SP[2], alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <strong style={{ color: C.warning, ...TEXT.sm, whiteSpace: 'nowrap' }}>
+              ⚠ תוכנית העבודה לא מעודכנת:
+            </strong>
+            <span style={{ ...TEXT.sm, color: C.textSecondary }}>
+              {missingFromPlan.length} {missingFromPlan.length === 1 ? 'CR משובץ' : 'CRים משובצים'} שאינ{missingFromPlan.length === 1 ? 'ו' : 'ם'} בתוכנית הקיימת ({missingFromPlan.map(a => a.crNumber).join(', ')}) — ציר הזמן ומסך תוכנית העבודה עדיין מציגים את התוכנית הישנה. יש ליצור מחדש (🔁 בנה מחדש מאפס למעלה) כדי לראות נתונים עדכניים.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Structural alert: a whole core cycle runs past testing-end ──────────
+           Not about any one tester — everyone in that cycle is equally affected —
+           so it's shown once per affected cycle instead of per person. Core
+           cycles are expected to never slip past the version's testing window
+           (unlike Stand Alone, which is allowed to and only warns); this is
+           surfaced prominently but doesn't block saving/generating the plan. ── */}
+      {planExists && planStructuralIssues.length > 0 && (
+        <div style={{
+          marginBottom: SP[4], borderRadius: RADIUS.lg, border: `2px solid ${C.danger}`,
+          background: C.dangerBg, overflow: 'hidden',
+        }}>
+          <div
+            onClick={() => setStructuralPanelCollapsed(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${SP[3]} ${SP[4]}`, cursor: 'pointer' }}
+          >
+            <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.danger }}>
+              🚨 {planStructuralIssues.length} סבבי ליבה חורגים מתאריך סיום הבדיקות
+            </span>
+            <span style={{ ...TEXT.sm, color: C.danger }}>{structuralPanelCollapsed ? '▸ הצג' : '▾ הסתר'}</span>
+          </div>
+          {!structuralPanelCollapsed && (
+            <div style={{ padding: `0 ${SP[4]} ${SP[4]}`, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+              {planStructuralIssues.map((issue, i) => (
+                <div key={i} style={{ padding: SP[3], background: C.bgCard, borderRadius: RADIUS.md, border: `1px solid ${C.border}`, ...TEXT.sm, color: C.textPrimary }}>
+                  {issue.message}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Overload alert: real plan data once one exists ── */}
+      {planExists && planIssuesByTester.length > 0 && (
         <div style={{
           marginBottom: SP[4], borderRadius: RADIUS.lg, border: `1px solid ${C.danger}`,
           background: C.dangerBg, overflow: 'hidden',
@@ -1571,11 +2091,47 @@ CRים אלה לא ייכללו בתוכנית העבודה.
             style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${SP[3]} ${SP[4]}`, cursor: 'pointer' }}
           >
             <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.danger }}>
-              ⚠️ {overloadIssues.length} בודקים חורגים מאורך סבב 1 ({cycle1LengthDays} ימי עבודה)
+              ⚠️ {planIssuesByTester.length} בודקים עם חריגה בתוכנית העבודה בפועל
             </span>
             <span style={{ ...TEXT.sm, color: C.danger }}>{overloadPanelCollapsed ? '▸ הצג' : '▾ הסתר'}</span>
           </div>
           {!overloadPanelCollapsed && (
+            <div style={{ padding: `0 ${SP[4]} ${SP[4]}`, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+              {planIssuesByTester.map(t => (
+                <div key={t.userId} style={{ padding: SP[3], background: C.bgCard, borderRadius: RADIUS.md, border: `1px solid ${C.border}`, ...TEXT.sm, color: C.textPrimary }}>
+                  <b>{t.fullName}</b>
+                  {t.issues.map((issue, i) => (
+                    <div key={i} style={{ marginTop: SP[1], ...TEXT.xs, color: C.textSecondary }}>⚠ {issue.message}</div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Overload alert: live estimate against the current (possibly unsaved)
+           cycle-1 length / assignment inputs. Shown whether or not a plan exists,
+           so cycle-length/reassignment changes get immediate feedback instead of
+           requiring a full "בנה מחדש מאפס" round-trip to find out if they helped.
+           Kept visually distinct (amber, not red) from the panel above — that one
+           reflects what's actually saved; this one is a forecast that only takes
+           effect once the plan is (re)built. ── */}
+      {overloadIssues.length > 0 && (
+        <div style={{
+          marginBottom: SP[4], borderRadius: RADIUS.lg, border: `1px solid ${C.warning}`,
+          background: C.warningBg, overflow: 'hidden',
+        }}>
+          <div
+            onClick={() => setEstimatePanelCollapsed(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${SP[3]} ${SP[4]}`, cursor: 'pointer' }}
+          >
+            <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.warning }}>
+              ⚠️ {overloadIssues.length} בודקים חורגים מאורך סבב 1 ({cycle1LengthDays} ימי עבודה) — הערכה לפי ההגדרות הנוכחיות{planExists ? ', תיכנס לתוקף רק לאחר בנייה מחדש' : ', לפני יצירת תוכנית עבודה'}
+            </span>
+            <span style={{ ...TEXT.sm, color: C.warning }}>{estimatePanelCollapsed ? '▸ הצג' : '▾ הסתר'}</span>
+          </div>
+          {!estimatePanelCollapsed && (
             <div style={{ padding: `0 ${SP[4]} ${SP[4]}`, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
               {overloadIssues.map(issue => (
                 <div key={issue.userId} style={{ padding: SP[3], background: C.bgCard, borderRadius: RADIUS.md, border: `1px solid ${C.border}`, ...TEXT.sm, color: C.textPrimary }}>
@@ -1709,13 +2265,48 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                   🙈 מוסתרות ({hiddenCrs.size})
                 </button>
               )}
+              {archivedCrSet.size > 0 && (
+                <button
+                  onClick={() => setShowArchived(v => !v)}
+                  style={{ padding: `2px ${SP[3]}`, background: showArchived ? C.bgNested : C.bgNested, color: showArchived ? C.textPrimary : C.textMuted, border: `1px solid ${showArchived ? C.borderEm : C.border}`, borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT }}
+                >
+                  📦 בארכיון ({archivedCrSet.size})
+                </button>
+              )}
             </div>
             <input
               type="text" placeholder="חיפוש CR / תיאור..."
               value={search} onChange={e => setSearch(e.target.value)}
               style={{ padding: `6px ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, fontFamily: FONT, background: C.bgNested, color: C.textPrimary, outline: 'none', width: 200 }}
             />
+            <select
+              value={filterTesterId} onChange={e => setFilterTesterId(e.target.value)}
+              style={{ padding: `6px ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, fontFamily: FONT, background: C.bgNested, color: C.textPrimary, outline: 'none' }}
+            >
+              <option value="">כל הבודקים</option>
+              {Array.from(allTestersRoster.entries())
+                .sort((a, b) => a[1].localeCompare(b[1], 'he'))
+                .map(([userId, fullName]) => <option key={userId} value={userId}>{fullName}</option>)}
+            </select>
           </div>
+
+          {/* Per-tester timeline — only when a specific tester is selected */}
+          {filterTesterId && (
+            <TesterTimeline
+              filterTesterId={filterTesterId}
+              testerName={allTestersRoster.get(filterTesterId) ?? ''}
+              planExists={planExists}
+              planCycles={planCycles}
+              assignments={assignments}
+              crByNumber={crByNumber}
+              effortMap={effortMap}
+              cycle1LengthDays={cycle1LengthDays}
+              cycle2LengthDays={cycle2LengthDays}
+              cycle3LengthDays={cycle3LengthDays}
+              holidayDays={holidayDays}
+              missingFromPlan={missingForFilterTester}
+            />
+          )}
 
           {/* Table */}
           <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'visible', boxShadow: SHADOW.sm }}>
@@ -2127,10 +2718,10 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                               onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#dc2626'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#dc2626'; }}
                               onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.textDisabled; (e.currentTarget as HTMLButtonElement).style.borderColor = C.border; }}
                             >🙈</button>
-                            {syncStatus === 'REMOVED' && isManager && (cycleTasksByCr.get(cr.crNumber)?.length ?? 0) > 0 && (
+                            {syncStatus === 'REMOVED' && isManager && (
                               <button
                                 disabled={archivingCr === cr.crNumber}
-                                title="העבר את משימות ה-QA של ה-CR הזה לארכיון (ניתן לשחזור מטאב תוכנית עבודה)"
+                                title="העבר את ה-CR הזה לארכיון — יוסתר מהתצוגה הפעילה ולא ייספר בעומס הבודקים, ניתן לשחזור"
                                 onClick={() => archiveCrTasks(cr.crNumber)}
                                 style={{ padding: '5px 7px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.xs, cursor: archivingCr === cr.crNumber ? 'not-allowed' : 'pointer', fontFamily: FONT, lineHeight: 1, fontWeight: WEIGHT.semibold, opacity: archivingCr === cr.crNumber ? 0.5 : 1 }}
                               >📦 ארכיון</button>
@@ -2168,6 +2759,28 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                       title="שחזר לרשימה"
                       style={{ padding: '2px 6px', background: 'transparent', color: '#7c3aed', border: '1px solid #c4b5fd', borderRadius: RADIUS.sm, ...TEXT.xs, cursor: 'pointer', fontFamily: FONT, fontWeight: WEIGHT.semibold }}
                     >↩ שחזר</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {showArchived && archivedCrSet.size > 0 && (
+            <div style={{ marginTop: SP[3], background: C.bgHover, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.lg, padding: SP[3] }}>
+              <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: SP[2] }}>
+                📦 CRים בארכיון — {archivedCrSet.size}, מוסתרים מהתצוגה הפעילה ולא נספרים בעומס הבודקים
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[2] }}>
+                {crs.filter(cr => cr.isArchived).map(cr => (
+                  <div key={cr.crNumber} style={{ display: 'flex', alignItems: 'center', gap: SP[1], background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: `4px ${SP[2]}` }}>
+                    <span style={{ background: BLUE_BG, color: BLUE, padding: `1px ${SP[1]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold }}>{cr.crNumber}</span>
+                    {cr.crLabel && <span style={{ ...TEXT.xs, color: C.textSecondary, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={cr.archivedReason ?? ''}>{cr.crLabel.replace(/^\d+\s*-\s*/, '')}</span>}
+                    <button
+                      disabled={archivingCr === cr.crNumber}
+                      onClick={() => restoreArchivedCr(cr.crNumber)}
+                      title="שחזר מהארכיון לתצוגה הפעילה"
+                      style={{ padding: '2px 6px', background: 'transparent', color: C.brand, border: `1px solid ${C.brand}`, borderRadius: RADIUS.sm, ...TEXT.xs, cursor: archivingCr === cr.crNumber ? 'not-allowed' : 'pointer', fontFamily: FONT, fontWeight: WEIGHT.semibold, opacity: archivingCr === cr.crNumber ? 0.5 : 1 }}
+                    >♻ שחזר</button>
                   </div>
                 ))}
               </div>

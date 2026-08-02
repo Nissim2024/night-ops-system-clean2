@@ -83,6 +83,11 @@ export class QaController {
     return this.qa.getAssignments(versionId);
   }
 
+  @Delete('assignments')
+  deleteAllAssignments(@Query('versionId') versionId: string) {
+    return this.qa.deleteAllAssignments(versionId);
+  }
+
   @Get('assignments/recommend')
   recommendTesters(@Query('versionId') versionId: string) {
     return this.qa.recommendTesters(versionId);
@@ -219,6 +224,11 @@ export class QaController {
     return this.workPlan.getWorkPlan(versionId);
   }
 
+  @Delete('workplan')
+  deleteWorkPlan(@Query('versionId') versionId: string) {
+    return this.workPlan.deleteWorkPlan(versionId);
+  }
+
   @Post('workplan/generate')
   generateWorkPlan(
     @Body() body: {
@@ -315,6 +325,26 @@ export class QaController {
   @Get('workplan/archived')
   getArchivedTasks(@Query('versionId') versionId: string) {
     return this.workPlan.getArchivedTasks(versionId);
+  }
+
+  @Patch('workplan/cr/:versionId/:crNumber/archive')
+  archiveCr(
+    @Param('versionId') versionId: string,
+    @Param('crNumber') crNumber: string,
+    @Body('reason') reason: string,
+    @Request() req: any,
+  ) {
+    return this.workPlan.archiveCr(versionId, crNumber, reason, req.user?.email);
+  }
+
+  @Patch('workplan/cr/:versionId/:crNumber/restore')
+  restoreCr(
+    @Param('versionId') versionId: string,
+    @Param('crNumber') crNumber: string,
+    @Body('reason') reason: string,
+    @Request() req: any,
+  ) {
+    return this.workPlan.restoreCr(versionId, crNumber, reason, req.user?.email);
   }
 
   @Patch('workplan/task/:id/sort')

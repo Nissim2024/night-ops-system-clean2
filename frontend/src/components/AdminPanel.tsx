@@ -5,6 +5,7 @@ import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { C, FONT, FONT_MONO, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
 import { Card, Badge, Button, TextField, Select, Toggle, SectionHeader, Avatar, TabBar, EmptyState, Divider, Alert } from './ui';
 import { cleanHtmlText } from '../utils/textSanitize';
+import { VersionCard } from './VersionsView';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -83,7 +84,7 @@ interface QcRelease {
 }
 
 export const AdminPanel: React.FC<Props> = ({ token }) => {
-  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'ldap' | 'oracle' | 'email' | 'notifications' | 'quality-hub'>('users');
+  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'versions' | 'ldap' | 'oracle' | 'email' | 'notifications' | 'quality-hub'>('users');
   const { allPermissions, updateRole, saving: permSaving } = usePermissions();
   const [users, setUsers]     = useState<any[]>([]);
   const [teams, setTeams]     = useState<any[]>([]);
@@ -107,6 +108,15 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const [templateError, setTemplateError]     = useState<string | null>(null);
+
+  // Full-version delete/archive/restore — moved here from VersionsView per
+  // product decision: once a version has real work in QA/deployments/etc,
+  // that day-to-day list shouldn't carry destructive whole-version actions.
+  const [adminVersions, setAdminVersions]       = useState<any[]>([]);
+  const [adminVersionsLoading, setAdminVersionsLoading] = useState(false);
+  const [showArchivedVersions, setShowArchivedVersions] = useState(false);
+  const [deletingVersionId, setDeletingVersionId] = useState<string | null>(null);
+  const [versionActionError, setVersionActionError] = useState<string | null>(null);
 
   const [ldapTesting, setLdapTesting]         = useState(false);
   const [ldapTestResult, setLdapTestResult]   = useState<{ success: boolean; message: string } | null>(null);
@@ -195,6 +205,79 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
     } finally {
       setDeletingTemplateId(null);
     }
+  };
+
+  const fetchAdminVersions = async () => {
+    setAdminVersionsLoading(true);
+    try {
+      const res = await axios.get(`${API}/versions`, { headers });
+      setAdminVersions(res.data);
+    } catch {
+      setVersionActionError('שגיאה בטעינת גרסאות');
+    } finally {
+      setAdminVersionsLoading(false);
+    }
+  };
+
+  const deleteAdminVersion = (id: string, name: string) => {
+    setDialog({
+      title: 'מחיקת גרסה',
+      message: `למחוק את הגרסה "${name}" וכל הנתונים שלה לצמיתות — משימות, שיבוצי QA, תוכנית בדיקות, סיכונים, הכל?\nפעולה זו אינה הפיכה.`,
+      confirmLabel: 'מחק',
+      variant: 'danger',
+      onConfirm: async () => {
+        setDialog(null);
+        setDeletingVersionId(id);
+        setVersionActionError(null);
+        try {
+          await axios.delete(`${API}/versions/${id}`, { headers });
+          await fetchAdminVersions();
+        } catch (err: any) {
+          setVersionActionError(`שגיאת מחיקה: ${err?.response?.data?.message || err?.message || 'שגיאה'}`);
+        } finally { setDeletingVersionId(null); }
+      },
+      onCancel: () => setDialog(null),
+    });
+  };
+
+  const archiveAdminVersion = (id: string) => {
+    setDialog({
+      title: 'העברה לארכיון',
+      message: 'להעביר גרסה זו לארכיון? ניתן לשחזר בכל עת.',
+      confirmLabel: 'העבר לארכיון',
+      variant: 'warning',
+      onConfirm: async () => {
+        setDialog(null);
+        setVersionActionError(null);
+        try {
+          await axios.patch(`${API}/versions/${id}/archive`, {}, { headers });
+          await fetchAdminVersions();
+        } catch (err: any) {
+          setVersionActionError(`שגיאת ארכיון: ${err?.response?.data?.message || err?.message || 'שגיאה'}`);
+        }
+      },
+      onCancel: () => setDialog(null),
+    });
+  };
+
+  const restoreAdminVersion = (id: string) => {
+    setDialog({
+      title: 'שחזור גרסה',
+      message: 'לשחזר גרסה זו מהארכיון? הסטטוס ישוחזר ל"מאושר".',
+      confirmLabel: 'שחזר',
+      variant: 'info',
+      onConfirm: async () => {
+        setDialog(null);
+        setVersionActionError(null);
+        try {
+          await axios.patch(`${API}/versions/${id}/restore`, {}, { headers });
+          await fetchAdminVersions();
+        } catch (err: any) {
+          setVersionActionError(`שגיאת שחזור: ${err?.response?.data?.message || err?.message || 'שגיאה'}`);
+        }
+      },
+      onCancel: () => setDialog(null),
+    });
   };
 
   const syncQcReleases = async () => {
@@ -550,6 +633,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
     { key: 'qc-users',    label: 'סנכרון',       icon: '🔄' },
     { key: 'params',      label: 'פרמטרים',      icon: '⚙️' },
     { key: 'templates',   label: 'תבניות',        icon: '📁' },
+    { key: 'versions',    label: 'ניהול גרסאות',  icon: '🗑️' },
     { key: 'ldap',          label: 'AD / LDAP',     icon: '🔒' },
     { key: 'oracle',        label: 'QC Oracle',     icon: '🗄️' },
     { key: 'email',         label: 'מייל',          icon: '📧' },
@@ -1341,6 +1425,95 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
                   </div>
                 )}
               </div>
+              </div>
+            );
+          })()}
+
+          {/* ── VERSIONS TAB — full-version delete/archive/restore, moved here
+               from the day-to-day versions list (VersionsView) so a manager
+               working the active list can't accidentally nuke a version that
+               already has real QA/deployment work in it. ── */}
+          {tab === 'versions' && (() => {
+            if (!adminVersions.length && !adminVersionsLoading) fetchAdminVersions();
+            const active = adminVersions.filter((v: any) => !v.isArchived);
+            const archived = adminVersions.filter((v: any) => v.isArchived);
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ background: C.bgNested, borderRadius: '12px', padding: '16px 20px', border: `1px solid ${C.border}`, fontSize: '15px', color: C.textSecondary, lineHeight: '1.7' }}>
+                  <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '6px' }}>⚠️ פעולות בלתי הפיכות</strong>
+                  <p style={{ margin: 0 }}>
+                    מחיקת גרסה מוחקת <strong>לצמיתות</strong> את כל הנתונים שלה — תוכנית הטמעה, שיבוצי QA, תוכנית בדיקות, סיכונים, הכל.
+                    להסרה זמנית/הפיכה, השתמשו בהעברה לארכיון במקום.
+                  </p>
+                </div>
+                <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', border: `1px solid ${C.border}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <h3 style={{ margin: 0, color: C.textPrimary }}>🗑️ ניהול גרסאות ({active.length})</h3>
+                      <button
+                        onClick={() => setShowArchivedVersions(v => !v)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 12px',
+                          background: showArchivedVersions ? C.bgActive : C.bgNested,
+                          color: showArchivedVersions ? C.textPrimary : C.textMuted,
+                          border: `1px solid ${showArchivedVersions ? C.borderEm : C.border}`,
+                          borderRadius: RADIUS.full, cursor: 'pointer', fontSize: '13px', fontWeight: 600, fontFamily: FONT,
+                        }}
+                      >
+                        📦 ארכיון ({archived.length})
+                      </button>
+                    </div>
+                    <button onClick={fetchAdminVersions} disabled={adminVersionsLoading}
+                      style={{ padding: '8px 16px', background: C.bgHover, border: `1px solid ${C.border}`, borderRadius: '8px', cursor: 'pointer', fontSize: '15px', color: C.textSecondary, fontFamily: FONT }}>
+                      {adminVersionsLoading ? '...' : '🔄 רענן'}
+                    </button>
+                  </div>
+                  {versionActionError && (
+                    <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', fontSize: '15px', color: C.statusFailed }}>
+                      ⚠️ {versionActionError}
+                      <button onClick={() => setVersionActionError(null)} style={{ marginRight: '8px', background: 'none', border: 'none', cursor: 'pointer', color: C.statusFailed, fontWeight: 'bold' }}>×</button>
+                    </div>
+                  )}
+                  {adminVersionsLoading ? (
+                    <div style={{ textAlign: 'center', padding: '40px', color: C.textMuted }}>טוען גרסאות...</div>
+                  ) : (
+                    <>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {active.map((v: any) => (
+                          <VersionCard
+                            key={v.id}
+                            v={v}
+                            isDeleting={deletingVersionId === v.id}
+                            onOpen={() => {}}
+                            onDelete={(e) => { e.stopPropagation(); deleteAdminVersion(v.id, v.name); }}
+                            onArchive={(e) => { e.stopPropagation(); archiveAdminVersion(v.id); }}
+                          />
+                        ))}
+                      </div>
+                      {showArchivedVersions && (
+                        <div style={{ marginTop: '20px' }}>
+                          <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '10px' }}>📦 ארכיון — ניתן לשחזר</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', opacity: 0.85 }}>
+                            {archived.length === 0 ? (
+                              <div style={{ textAlign: 'center', padding: '30px', color: C.textMuted, background: C.bgNested, borderRadius: '12px', border: `1px solid ${C.border}` }}>
+                                אין גרסאות בארכיון
+                              </div>
+                            ) : archived.map((v: any) => (
+                              <VersionCard
+                                key={v.id}
+                                v={v}
+                                isDeleting={deletingVersionId === v.id}
+                                onOpen={() => {}}
+                                onDelete={(e) => { e.stopPropagation(); deleteAdminVersion(v.id, v.name); }}
+                                onRestore={(e) => { e.stopPropagation(); restoreAdminVersion(v.id); }}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
             );
           })()}

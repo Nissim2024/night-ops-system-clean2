@@ -71,6 +71,15 @@ export class ActivityBoardService {
     });
   }
 
+  // Deletes every activity-board entry for this version — the granular
+  // counterpart to Version.delete() (which used to be the only way to clear
+  // this data, by deleting the whole version). Recoverable only by rebuilding
+  // the board from scratch — there is no undo.
+  async deleteBoard(versionId: string) {
+    await prisma.activityBoardEntry.deleteMany({ where: { versionId } });
+    return { ok: true };
+  }
+
   async saveBoard(versionId: string, entries: EntryInput[]) {
     await prisma.activityBoardEntry.deleteMany({ where: { versionId } });
     if (entries.length === 0) return [];

@@ -126,10 +126,12 @@ interface ChangeLogEntry {
 }
 
 interface OverflowIssue {
-  type: 'CORE_OVERFLOW' | 'SA_DUE_DATE_MISSED' | 'GO_LIVE_OVERFLOW';
+  type: 'CORE_OVERFLOW' | 'SA_DUE_DATE_MISSED' | 'GO_LIVE_OVERFLOW' | 'SA_TESTING_END_OVERFLOW';
   message: string;
   crNumber?: string;
   userName?: string;
+  userId?: string;
+  cycleType?: string;
   daysOver: number;
   suggestions: string[];
 }
@@ -301,6 +303,9 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
   const [cycle2LengthDays, setCycle2LengthDays] = useState(6);
   const [cycle3LengthDays, setCycle3LengthDays] = useState(4);
   const [expandedCycles, setExpandedCycles] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<'cycles' | 'employees'>('cycles');
+  const [expandedMatrixCell, setExpandedMatrixCell] = useState<string | null>(null);
+  const [onlyOverflowing, setOnlyOverflowing] = useState(false);
   const [editNotes, setEditNotes]         = useState<Record<string, string>>({});
   const [savingNotes, setSavingNotes]     = useState<Record<string, boolean>>({});
   const [togglingTasks, setTogglingTasks] = useState<Set<string>>(new Set());
@@ -667,6 +672,22 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
     } finally { setReverting(false); }
   };
 
+  // Deletes the whole generated work plan — the granular counterpart to the
+  // old whole-version delete. Doesn't touch QA assignments (who's assigned
+  // to what); a new plan can be generated again from those at any time.
+  const [deletingPlan, setDeletingPlan] = useState(false);
+  const deleteWorkPlan = async () => {
+    if (!versionId) return;
+    if (!await dialog.confirm('למחוק את כל תוכנית העבודה (כל הסבבים והמשימות המתוזמנות) לצמיתות? שיבוצי הבודקים עצמם לא יימחקו — ניתן ליצור תוכנית חדשה מהם בכל עת.', 'מחיקת תוכנית בדיקות', 'danger')) return;
+    setDeletingPlan(true);
+    try {
+      await ax.delete(`${API}/qa/workplan?versionId=${versionId}`);
+      setWorkPlan(null);
+    } catch (e: any) {
+      dialog.alert(e?.response?.data?.message ?? 'שגיאה במחיקת תוכנית העבודה', 'שגיאה', 'danger');
+    } finally { setDeletingPlan(false); }
+  };
+
   // All unique testers who appear in work plan tasks
   const allPlanTesters = useMemo(() => {
     if (!workPlan) return [] as { userId: string; fullName: string }[];
@@ -776,6 +797,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
               <button onClick={loadArchive} style={btnStyle('#6B7280')}>📦 ארכיון</button>
               <button onClick={() => setShowGenForm(f => !f)} style={btnStyle(C.warning)}>↺ יצור מחדש</button>
               <button onClick={revertToOriginal} disabled={reverting} style={btnStyle('#6B7280', reverting)}>{reverting ? 'מחשב...' : '⟲ חזור למקור'}</button>
+              <button onClick={deleteWorkPlan} disabled={deletingPlan} style={btnStyle(C.danger, deletingPlan)}>{deletingPlan ? 'מוחק...' : '🗑 מחק תוכנית בדיקות'}</button>
             </div>
           )}
         </div>
@@ -794,6 +816,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           <button onClick={loadArchive} style={btnStyle('#6B7280')}>📦 ארכיון</button>
           <button onClick={() => setShowGenForm(f => !f)} style={btnStyle(C.warning)}>↺ יצור מחדש</button>
           <button onClick={revertToOriginal} disabled={reverting} style={btnStyle('#6B7280', reverting)}>{reverting ? 'מחשב...' : '⟲ חזור לתוכנית המקורית'}</button>
+          <button onClick={deleteWorkPlan} disabled={deletingPlan} style={btnStyle(C.danger, deletingPlan)}>{deletingPlan ? 'מוחק...' : '🗑 מחק תוכנית בדיקות'}</button>
           {/* Filter by employee */}
           {allPlanTesters.length > 0 && (
             <select value={filterUserId} onChange={e => setFilterUserId(e.target.value)} style={{ ...selectStyle, minWidth: 160, marginRight: 'auto' }}>
@@ -1046,8 +1069,38 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
         </div>
       )}
 
+      {/* ── View mode toggle ── */}
+      {workPlan && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: SP[4] }}>
+          <div style={{ display: 'flex', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, overflow: 'hidden' }}>
+            <button
+              onClick={() => setViewMode('cycles')}
+              style={{
+                padding: '6px 14px', border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: FONT,
+                fontWeight: WEIGHT.semibold, background: viewMode === 'cycles' ? C.brand : C.bgCard,
+                color: viewMode === 'cycles' ? '#fff' : C.textSecondary,
+              }}
+            >📅 לפי סבב</button>
+            <button
+              onClick={() => setViewMode('employees')}
+              style={{
+                padding: '6px 14px', border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: FONT,
+                fontWeight: WEIGHT.semibold, background: viewMode === 'employees' ? C.brand : C.bgCard,
+                color: viewMode === 'employees' ? '#fff' : C.textSecondary,
+              }}
+            >👤 לפי עובד</button>
+          </div>
+          {viewMode === 'employees' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, ...TEXT.sm, color: C.textSecondary, cursor: 'pointer' }}>
+              <input type="checkbox" checked={onlyOverflowing} onChange={e => setOnlyOverflowing(e.target.checked)} />
+              הצג רק חורגים
+            </label>
+          )}
+        </div>
+      )}
+
       {/* ── Cycle cards ── */}
-      {(workPlan?.cycles ?? []).map(cycle => (
+      {viewMode === 'cycles' && (workPlan?.cycles ?? []).map(cycle => (
         <CycleCard
           key={cycle.id}
           cycle={cycle}
@@ -1083,6 +1136,32 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           holidayDays={holidayDays}
         />
       ))}
+
+      {/* ── Employee × cycle matrix ── */}
+      {viewMode === 'employees' && workPlan && (
+        <EmployeeCycleMatrix
+          workPlan={workPlan}
+          allPlanTesters={allPlanTesters}
+          urgentCrNumbers={urgentCrNumbers}
+          holidayDays={holidayDays}
+          onlyOverflowing={onlyOverflowing}
+          expandedCell={expandedMatrixCell}
+          onToggleCell={key => setExpandedMatrixCell(prev => prev === key ? null : key)}
+          onGoToRow={(userName, crNumber) => {
+            const owningCycle = workPlan.cycles.find(c =>
+              c.tasks.some(t => t.taskType !== 'REGRESSION' && t.user.fullName === userName && t.crNumber === crNumber),
+            );
+            setViewMode('cycles');
+            if (owningCycle && !expandedCycles.has(owningCycle.id)) toggleCycle(owningCycle.id);
+            requestAnimationFrame(() => {
+              setTimeout(() => {
+                document.getElementById(rowElementId(userName, crNumber))
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }, owningCycle && !expandedCycles.has(owningCycle.id) ? 150 : 0);
+            });
+          }}
+        />
+      )}
 
       {/* ── Secondary reviewer panel ── */}
       {secondaryPanel && (
@@ -1411,6 +1490,170 @@ function GanttChart({ cycle, label, testerGroups, saGhostsByUser, urgentCrNumber
           {hoveredSeg.text}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── EmployeeCycleMatrix ───────────────────────────────────────────────────────
+// "Full picture per employee" — a row per tester, a column per cycle, so you
+// can see everything they have (and where they exceed) without switching
+// between cycle cards. Overflow coloring comes from the SAME overflowIssues
+// the server already computes (matched via userId/cycleType) — not a
+// separate client-side estimate, so this can never disagree with the
+// warning panel above.
+
+const MATRIX_CYCLES = ['CYCLE_1', 'CYCLE_2', 'CYCLE_3', 'STAND_ALONE', 'UAT'];
+
+function EmployeeCycleMatrix({
+  workPlan, allPlanTesters, urgentCrNumbers, holidayDays, onlyOverflowing, expandedCell, onToggleCell, onGoToRow,
+}: {
+  workPlan: WorkPlan;
+  allPlanTesters: { userId: string; fullName: string }[];
+  urgentCrNumbers: Set<string>;
+  holidayDays: Set<string>;
+  onlyOverflowing: boolean;
+  expandedCell: string | null;
+  onToggleCell: (key: string) => void;
+  onGoToRow: (userName: string, crNumber: string) => void;
+}) {
+  const cycles = MATRIX_CYCLES
+    .map(ct => workPlan.cycles.find(c => c.cycleType === ct))
+    .filter((c): c is Cycle => !!c && c.tasks.length > 0);
+
+  const issuesByCell = useMemo(() => {
+    const map = new Map<string, OverflowIssue[]>();
+    (workPlan.overflowIssues ?? []).forEach(issue => {
+      if (!issue.userId || !issue.cycleType) return;
+      const key = `${issue.userId}::${issue.cycleType}`;
+      const list = map.get(key) ?? [];
+      list.push(issue);
+      map.set(key, list);
+    });
+    return map;
+  }, [workPlan.overflowIssues]);
+
+  const tasksByCell = useMemo(() => {
+    const map = new Map<string, CycleTask[]>();
+    for (const cycle of cycles) {
+      for (const t of cycle.tasks) {
+        if (!t.isActive || t.taskType === 'REGRESSION') continue;
+        const key = `${t.userId}::${cycle.cycleType}`;
+        const list = map.get(key) ?? [];
+        list.push(t);
+        map.set(key, list);
+      }
+    }
+    return map;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cycles]);
+
+  const rows = useMemo(() => {
+    return allPlanTesters.map(tester => {
+      const cells = cycles.map(cycle => {
+        const key = `${tester.userId}::${cycle.cycleType}`;
+        const tasks = (tasksByCell.get(key) ?? []).slice().sort((a, b) => a.plannedStart.localeCompare(b.plannedStart));
+        const assignedDays = tasks.reduce((s, t) => s + t.effortDays, 0);
+        const hasFixedCapacity = cycle.cycleType === 'CYCLE_1' || cycle.cycleType === 'CYCLE_2' || cycle.cycleType === 'CYCLE_3';
+        const capacityDays = hasFixedCapacity ? countWorkDaysBetween(cycle.plannedStart, cycle.plannedEnd, holidayDays) : null;
+        const issues = issuesByCell.get(key) ?? [];
+        return { cycleType: cycle.cycleType, key, tasks, assignedDays, capacityDays, issues, hasOverflow: issues.length > 0 };
+      });
+      const anyOverflow = cells.some(c => c.hasOverflow);
+      const totalDays = cells.reduce((s, c) => s + c.assignedDays, 0);
+      return { tester, cells, anyOverflow, totalDays };
+    })
+      .filter(r => !onlyOverflowing || r.anyOverflow)
+      .sort((a, b) => (b.anyOverflow ? 1 : 0) - (a.anyOverflow ? 1 : 0) || a.tester.fullName.localeCompare(b.tester.fullName, 'he'));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allPlanTesters, cycles, tasksByCell, issuesByCell, onlyOverflowing]);
+
+  if (cycles.length === 0) return null;
+
+  return (
+    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'hidden', marginBottom: SP[4] }}>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', direction: 'rtl' }}>
+          <thead>
+            <tr style={{ background: C.bgNested }}>
+              <th style={{ padding: SP[3], textAlign: 'right', ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, whiteSpace: 'nowrap' }}>עובד</th>
+              {cycles.map(c => (
+                <th key={c.cycleType} style={{ padding: SP[3], textAlign: 'center', ...TEXT.xs, fontWeight: WEIGHT.bold, color: CYCLE_ACCENT[c.cycleType] ?? C.textMuted, whiteSpace: 'nowrap' }}>
+                  {CYCLE_LABEL[c.cycleType] ?? c.cycleType}
+                </th>
+              ))}
+              <th style={{ padding: SP[3], textAlign: 'center', ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, whiteSpace: 'nowrap' }}>סה״כ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(row => (
+              <tr key={row.tester.userId} style={{ borderTop: `1px solid ${C.border}` }}>
+                <td style={{ padding: SP[3], ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, whiteSpace: 'nowrap' }}>
+                  {row.anyOverflow && <span title="חורג באחד הסבבים" style={{ marginLeft: 6 }}>⚠️</span>}
+                  {row.tester.fullName}
+                </td>
+                {row.cells.map(cell => {
+                  const isExpanded = expandedCell === cell.key;
+                  const isEmpty = cell.tasks.length === 0;
+                  return (
+                    <td key={cell.cycleType} style={{ padding: SP[2], textAlign: 'center', verticalAlign: 'top' }}>
+                      {isEmpty ? (
+                        <span style={{ color: C.textDisabled, ...TEXT.xs }}>—</span>
+                      ) : (
+                        <div>
+                          <button
+                            onClick={() => onToggleCell(cell.key)}
+                            style={{
+                              border: `1px solid ${cell.hasOverflow ? C.danger : C.border}`,
+                              background: cell.hasOverflow ? C.dangerBg : C.bgNested,
+                              color: cell.hasOverflow ? C.danger : C.textSecondary,
+                              borderRadius: RADIUS.md, padding: '4px 10px', cursor: 'pointer',
+                              fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.bold, whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {cell.capacityDays != null ? `${cell.assignedDays}/${cell.capacityDays} ימים` : `${cell.assignedDays} ימים`}
+                            {' · '}{cell.tasks.length} CR{cell.tasks.length === 1 ? '' : 'ים'}
+                            {cell.hasOverflow && ' ⚠'}
+                          </button>
+                          {isExpanded && (
+                            <div style={{ marginTop: SP[2], textAlign: 'right', background: C.bgApp, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: SP[2], minWidth: 220 }}>
+                              {cell.tasks.map(t => (
+                                <div
+                                  key={t.id}
+                                  onClick={() => onGoToRow(row.tester.fullName, t.crNumber)}
+                                  style={{ display: 'flex', justifyContent: 'space-between', gap: SP[2], padding: '3px 0', cursor: 'pointer', borderBottom: `1px solid ${C.border}` }}
+                                >
+                                  <span style={{ ...TEXT.xs, color: C.textPrimary }}>
+                                    {urgentCrNumbers.has(t.crNumber) && <span title="דחוף" style={{ color: C.danger, marginLeft: 4 }}>🔴</span>}
+                                    {t.crNumber} — {t.crLabel ?? t.crNumber}
+                                  </span>
+                                  <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap' }}>{t.effortDays}י׳</span>
+                                </div>
+                              ))}
+                              {cell.issues.map((issue, i) => (
+                                <div key={i} style={{ ...TEXT.xs, color: C.danger, marginTop: SP[2] }}>⚠ {issue.message}</div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+                <td style={{ padding: SP[2], textAlign: 'center', ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+                  {row.totalDays} ימים
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={cycles.length + 2} style={{ padding: SP[5], textAlign: 'center', color: C.textMuted, ...TEXT.sm }}>
+                  {onlyOverflowing ? 'אין חריגות כרגע 🎉' : 'אין בודקים בתוכנית'}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import axios from 'axios';
-import { C, FONT, FONT_MONO, TEXT, WEIGHT, RADIUS, SHADOW, EASE } from '../theme';
+import { C, FONT, FONT_MONO, TEXT, WEIGHT, RADIUS, SHADOW, EASE, severityColor, severityBg, severityLabel } from '../theme';
 import { VersionStatusChip } from './ui';
 import RunbookModal, { RUNBOOKS, getRunbookTrigger, RunbookTrigger } from './qa/RunbookModal';
 import { VersionMilestoneTimeline } from './shared/VersionMilestoneTimeline';
@@ -327,22 +327,55 @@ export const HomeDashboard: React.FC<Props> = ({
   // Which risk-feed row (by index) is inline-expanded to show its specific detail list
   const [expandedRiskIdx, setExpandedRiskIdx] = useState<number | null>(null);
 
-  // Manual, RM/ADMIN-authored notice pinned atop the risks/activities feed —
-  // local override so edits reflect immediately without waiting on a parent refetch.
-  const [localNotice, setLocalNotice] = useState<string | null | undefined>(undefined);
-  const [editingNotice, setEditingNotice] = useState(false);
+  // Manual, RM/ADMIN-authored notices pinned atop the risks/activities feed —
+  // several can coexist concurrently, each with its own urgency level.
+  type Urgency = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  interface VersionNotice { id: string; text: string; urgency: Urgency; createdAt: string; creator?: { fullName: string } }
+  const [notices, setNotices] = useState<VersionNotice[]>([]);
+  const [addingNotice, setAddingNotice] = useState(false);
+  const [editingNoticeId, setEditingNoticeId] = useState<string | null>(null);
   const [noticeDraft, setNoticeDraft] = useState('');
+  const [noticeUrgencyDraft, setNoticeUrgencyDraft] = useState<Urgency>('MEDIUM');
   const [savingNotice, setSavingNotice] = useState(false);
-  useEffect(() => { setLocalNotice(primary?.homeNotice ?? null); setEditingNotice(false); }, [primary?.id, primary?.homeNotice]);
   const canEditNotice = isRm(role);
-  const saveNotice = async (text: string) => {
+
+  const loadNotices = React.useCallback(() => {
+    if (!primary?.id) { setNotices([]); return; }
+    axios.get(`${API}/versions/${primary.id}/notices`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => setNotices(res.data ?? []))
+      .catch(() => setNotices([]));
+  }, [primary?.id, token]);
+  useEffect(() => { loadNotices(); setAddingNotice(false); setEditingNoticeId(null); }, [loadNotices]);
+
+  const startAddNotice = () => { setNoticeDraft(''); setNoticeUrgencyDraft('MEDIUM'); setEditingNoticeId(null); setAddingNotice(true); };
+  const startEditNotice = (n: VersionNotice) => { setNoticeDraft(n.text); setNoticeUrgencyDraft(n.urgency); setEditingNoticeId(n.id); setAddingNotice(false); };
+  const cancelNoticeEdit = () => { setAddingNotice(false); setEditingNoticeId(null); };
+
+  const saveNotice = async () => {
+    if (!primary || !noticeDraft.trim()) return;
+    setSavingNotice(true);
+    try {
+      if (editingNoticeId) {
+        await axios.patch(`${API}/versions/${primary.id}/notices/${editingNoticeId}`,
+          { text: noticeDraft, urgency: noticeUrgencyDraft }, { headers: { Authorization: `Bearer ${token}` } });
+      } else {
+        await axios.post(`${API}/versions/${primary.id}/notices`,
+          { text: noticeDraft, urgency: noticeUrgencyDraft }, { headers: { Authorization: `Bearer ${token}` } });
+      }
+      loadNotices();
+      cancelNoticeEdit();
+    } catch (e) { console.error('Failed to save home notice', e); }
+    setSavingNotice(false);
+  };
+
+  const deleteNotice = async (id: string) => {
     if (!primary) return;
     setSavingNotice(true);
     try {
-      await axios.patch(`${API}/versions/${primary.id}`, { homeNotice: text || null }, { headers: { Authorization: `Bearer ${token}` } });
-      setLocalNotice(text || null);
-      setEditingNotice(false);
-    } catch (e) { console.error('Failed to save home notice', e); }
+      await axios.delete(`${API}/versions/${primary.id}/notices/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      loadNotices();
+      cancelNoticeEdit();
+    } catch (e) { console.error('Failed to delete home notice', e); }
     setSavingNotice(false);
   };
 
@@ -1222,8 +1255,29 @@ export const HomeDashboard: React.FC<Props> = ({
               </div>
               <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '12px' }}>בהתאם לתפקידך ושלב הגרסה הפעילה, מכל המודולים יחד</div>
 
-              {/* ── Manual notice — RM/ADMIN-authored, pinned above the computed feed ── */}
-              {editingNotice ? (
+              {/* ── Manual notices — RM/ADMIN-authored, pinned above the computed feed.
+                   Several can coexist; each carries its own urgency level, shown as
+                   a colored badge (reusing the app-wide severity palette) and used
+                   to sort most-urgent-first. ── */}
+              {notices.filter(n => n.id !== editingNoticeId).map(n => (
+                <div key={n.id} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', background: severityBg(n.urgency), border: `1px solid ${severityColor(n.urgency)}40`, borderRadius: RADIUS.md, padding: '10px 14px', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '16px', flexShrink: 0 }}>📌</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'inline-block', ...TEXT.xs, fontWeight: WEIGHT.bold, color: severityColor(n.urgency), background: C.bgCard, border: `1px solid ${severityColor(n.urgency)}`, borderRadius: RADIUS.full, padding: '1px 8px', marginBottom: '4px' }}>
+                      {severityLabel(n.urgency)}
+                    </span>
+                    <div style={{ ...TEXT.sm, color: C.textPrimary, whiteSpace: 'pre-wrap' as const }}>{n.text}</div>
+                  </div>
+                  {canEditNotice && (
+                    <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                      <button onClick={() => startEditNotice(n)} style={{ background: 'transparent', border: 'none', ...TEXT.xs, color: C.brand, cursor: 'pointer', fontFamily: FONT, fontWeight: WEIGHT.semibold }}>✏️ ערוך</button>
+                      <button onClick={() => deleteNotice(n.id)} disabled={savingNotice} style={{ background: 'transparent', border: 'none', ...TEXT.xs, color: C.danger, cursor: 'pointer', fontFamily: FONT, fontWeight: WEIGHT.semibold }}>🗑 מחק</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {(addingNotice || editingNoticeId) ? (
                 <div style={{ background: C.bgHover, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.md, padding: '10px 12px', marginBottom: '14px' }}>
                   <textarea
                     autoFocus
@@ -1232,23 +1286,26 @@ export const HomeDashboard: React.FC<Props> = ({
                     placeholder="הודעה ידנית לצוותים (למשל: תזכורת לישיבת סטטוס)…"
                     style={{ width: '100%', minHeight: '54px', resize: 'vertical' as const, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '7px 9px', ...TEXT.sm, color: C.textPrimary, fontFamily: FONT, background: C.bgCard }}
                   />
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px', justifyContent: 'flex-end' }}>
-                    <button onClick={() => setEditingNotice(false)} style={{ background: 'transparent', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '5px 12px', ...TEXT.xs, color: C.textMuted, cursor: 'pointer', fontFamily: FONT }}>ביטול</button>
-                    {localNotice && <button onClick={() => saveNotice('')} disabled={savingNotice} style={{ background: 'transparent', border: `1px solid ${C.danger}`, borderRadius: RADIUS.sm, padding: '5px 12px', ...TEXT.xs, color: C.danger, cursor: 'pointer', fontFamily: FONT }}>הסר הודעה</button>}
-                    <button onClick={() => saveNotice(noticeDraft)} disabled={savingNotice} style={{ background: C.brand, border: 'none', borderRadius: RADIUS.sm, padding: '5px 14px', ...TEXT.xs, fontWeight: WEIGHT.semibold, color: 'white', cursor: 'pointer', fontFamily: FONT }}>{savingNotice ? '...' : 'שמור'}</button>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px', alignItems: 'center' }}>
+                    <span style={{ ...TEXT.xs, color: C.textMuted }}>רמת דחיפות:</span>
+                    <select
+                      value={noticeUrgencyDraft}
+                      onChange={e => setNoticeUrgencyDraft(e.target.value as Urgency)}
+                      style={{ border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '4px 8px', ...TEXT.xs, color: C.textPrimary, fontFamily: FONT, background: C.bgCard }}
+                    >
+                      <option value="LOW">{severityLabel('LOW')}</option>
+                      <option value="MEDIUM">{severityLabel('MEDIUM')}</option>
+                      <option value="HIGH">{severityLabel('HIGH')}</option>
+                      <option value="CRITICAL">{severityLabel('CRITICAL')}</option>
+                    </select>
+                    <div style={{ flex: 1 }} />
+                    <button onClick={cancelNoticeEdit} style={{ background: 'transparent', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '5px 12px', ...TEXT.xs, color: C.textMuted, cursor: 'pointer', fontFamily: FONT }}>ביטול</button>
+                    <button onClick={saveNotice} disabled={savingNotice || !noticeDraft.trim()} style={{ background: C.brand, border: 'none', borderRadius: RADIUS.sm, padding: '5px 14px', ...TEXT.xs, fontWeight: WEIGHT.semibold, color: 'white', cursor: savingNotice || !noticeDraft.trim() ? 'not-allowed' : 'pointer', fontFamily: FONT, opacity: savingNotice || !noticeDraft.trim() ? 0.6 : 1 }}>{savingNotice ? '...' : 'שמור'}</button>
                   </div>
-                </div>
-              ) : localNotice ? (
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', background: 'rgba(69,115,210,0.06)', border: `1px solid rgba(69,115,210,0.25)`, borderRadius: RADIUS.md, padding: '10px 14px', marginBottom: '14px' }}>
-                  <span style={{ fontSize: '16px', flexShrink: 0 }}>📌</span>
-                  <div style={{ flex: 1, ...TEXT.sm, color: C.textPrimary, whiteSpace: 'pre-wrap' as const }}>{localNotice}</div>
-                  {canEditNotice && (
-                    <button onClick={() => { setNoticeDraft(localNotice); setEditingNotice(true); }} style={{ flexShrink: 0, background: 'transparent', border: 'none', ...TEXT.xs, color: C.brand, cursor: 'pointer', fontFamily: FONT, fontWeight: WEIGHT.semibold }}>✏️ ערוך</button>
-                  )}
                 </div>
               ) : canEditNotice ? (
                 <button
-                  onClick={() => { setNoticeDraft(''); setEditingNotice(true); }}
+                  onClick={startAddNotice}
                   style={{ width: '100%', marginBottom: '14px', background: 'transparent', border: `1px dashed ${C.border}`, borderRadius: RADIUS.md, padding: '8px', ...TEXT.xs, color: C.textMuted, cursor: 'pointer', fontFamily: FONT, transition: EASE.fast }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor = C.brand; e.currentTarget.style.color = C.brand; }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; }}
@@ -1401,8 +1458,12 @@ export const HomeDashboard: React.FC<Props> = ({
                   <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.moduleRelease, background: `color-mix(in oklch, ${C.moduleRelease} 14%, transparent)`, borderRadius: RADIUS.full, padding: '2px 9px' }}>ניהול גרסה</span>
                 </div>
 
-                <VersionRow v={primary} isPrimary onSelect={onSelectVersion} qaSummary={qaSummary} role={role} />
-                {others.map(v => <VersionRow key={v.id} v={v} isPrimary={false} onSelect={onSelectVersion} role={role} />)}
+                {/* "כל הגרסאות" just switches which version is selected and stays on
+                    the home dashboard — unlike VersionRow's other call sites, which
+                    deep-link into the phase-appropriate tab (ph.ctaTab) for that
+                    version's status. */}
+                <VersionRow v={primary} isPrimary onSelect={id => onSelectVersion(id, 'home')} qaSummary={qaSummary} role={role} />
+                {others.map(v => <VersionRow key={v.id} v={v} isPrimary={false} onSelect={id => onSelectVersion(id, 'home')} role={role} />)}
 
                 {others.length === 0 && (
                   <div style={{ ...TEXT.xs, color: C.textMuted, textAlign: 'center', padding: '8px 0' }}>

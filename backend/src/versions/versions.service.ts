@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { PrismaClient, VersionStatus } from '@prisma/client';
+import { PrismaClient, VersionStatus, Priority } from '@prisma/client';
 import { EmailService } from '../email/email.service';
 import { EventsGateway } from '../events/events.gateway';
 
@@ -723,7 +723,7 @@ async addTask(subPhaseId: string, data: {
     integrationStart?: string | null; integrationEnd?: string | null; qaStart?: string | null; qaEnd?: string | null;
     plannedRehearsalStart?: string | null; plannedRehearsalEnd?: string | null;
     submissionDeadline?: string | null; approvalDeadline?: string | null;
-    name?: string; description?: string; homeNotice?: string | null;
+    name?: string; description?: string;
   }) {
     const version = await prisma.version.findUnique({ where: { id } });
     if (!version) throw new NotFoundException('Version not found');
@@ -760,10 +760,6 @@ async addTask(subPhaseId: string, data: {
     if ('approvalDeadline'    in data) update.approvalDeadline    = data.approvalDeadline    ? new Date(data.approvalDeadline)    : null;
     if ('name'        in data && data.name)        update.name        = data.name;
     if ('description' in data)                     update.description = data.description ?? null;
-    if ('homeNotice'  in data) {
-      update.homeNotice = data.homeNotice?.trim() || null;
-      update.homeNoticeUpdatedAt = update.homeNotice ? new Date() : null;
-    }
     return prisma.version.update({ where: { id }, data: update });
   }
 
@@ -891,7 +887,11 @@ async addTask(subPhaseId: string, data: {
     });
   }
 
-  async delete(id: string) {
+  // The "implementation plan" — every Task/Phase/SubPhase and their
+  // dependencies — for this version. Shared by delete() (whole-version wipe)
+  // and deleteImplementationPlan() (the granular counterpart, called from the
+  // deployments screen without touching QA/CR-plan/other-module data).
+  private async deleteTasksAndPhases(id: string) {
     const tasks = await prisma.task.findMany({ where: { versionId: id }, select: { id: true } });
     const taskIds = tasks.map(t => t.id);
 
@@ -909,6 +909,17 @@ async addTask(subPhaseId: string, data: {
       await prisma.subPhase.deleteMany({ where: { phaseId: { in: phaseIds } } });
       await prisma.phase.deleteMany({ where: { id: { in: phaseIds } } });
     }
+  }
+
+  async deleteImplementationPlan(id: string) {
+    const version = await prisma.version.findUnique({ where: { id }, select: { id: true } });
+    if (!version) throw new NotFoundException('Version not found');
+    await this.deleteTasksAndPhases(id);
+    return { message: 'תוכנית ההטמעה נמחקה בהצלחה' };
+  }
+
+  async delete(id: string) {
+    await this.deleteTasksAndPhases(id);
 
     await prisma.teamSubmission.deleteMany({ where: { versionId: id } });
     await prisma.nightSummary.deleteMany({ where: { versionId: id } });
@@ -2077,5 +2088,55 @@ ${sections.join('\n\n')}`;
     }
 
     return { sent, skipped, teams: teamNames };
+  }
+
+  // ── Home-page manual notices — several concurrent, RM/ADMIN-authored,
+  // each with its own urgency level. Replaces the old single Version.homeNotice
+  // text field. Ordered most-urgent-first, then newest-first within a level. ──
+
+  private static readonly NOTICE_URGENCY_RANK: Record<Priority, number> = {
+    CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3,
+  };
+
+  async listNotices(versionId: string) {
+    const notices = await prisma.versionNotice.findMany({
+      where: { versionId },
+      include: { creator: { select: { fullName: true } } },
+    });
+    return notices.sort((a, b) =>
+      VersionsService.NOTICE_URGENCY_RANK[a.urgency] - VersionsService.NOTICE_URGENCY_RANK[b.urgency]
+      || b.createdAt.getTime() - a.createdAt.getTime(),
+    );
+  }
+
+  async createNotice(versionId: string, text: string, urgency: Priority, createdBy: string) {
+    const trimmed = text.trim();
+    if (!trimmed) throw new BadRequestException('טקסט ההודעה לא יכול להיות ריק');
+    const version = await prisma.version.findUnique({ where: { id: versionId }, select: { id: true } });
+    if (!version) throw new NotFoundException('גרסה לא נמצאה');
+    return prisma.versionNotice.create({
+      data: { versionId, text: trimmed, urgency, createdBy },
+      include: { creator: { select: { fullName: true } } },
+    });
+  }
+
+  async updateNotice(noticeId: string, data: { text?: string; urgency?: Priority }) {
+    const update: any = {};
+    if ('text' in data) {
+      const trimmed = (data.text ?? '').trim();
+      if (!trimmed) throw new BadRequestException('טקסט ההודעה לא יכול להיות ריק');
+      update.text = trimmed;
+    }
+    if ('urgency' in data) update.urgency = data.urgency;
+    return prisma.versionNotice.update({
+      where: { id: noticeId },
+      data: update,
+      include: { creator: { select: { fullName: true } } },
+    });
+  }
+
+  async deleteNotice(noticeId: string) {
+    await prisma.versionNotice.delete({ where: { id: noticeId } });
+    return { ok: true };
   }
 }

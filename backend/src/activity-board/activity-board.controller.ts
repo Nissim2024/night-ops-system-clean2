@@ -1,7 +1,9 @@
-import { Controller, Get, Post, Patch, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Request, UseGuards, ForbiddenException } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 import type { EntryInput, EntryPatch } from './activity-board.service';
 import { ActivityBoardService } from './activity-board.service';
+
+const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
 
 @UseGuards(JwtGuard)
 @Controller('activity-board')
@@ -11,6 +13,12 @@ export class ActivityBoardController {
   @Get(':versionId')
   getBoard(@Param('versionId') versionId: string) {
     return this.svc.getBoard(versionId);
+  }
+
+  @Delete(':versionId')
+  deleteBoard(@Param('versionId') versionId: string, @Request() req: any) {
+    if (!MANAGERS.includes(req.user.role)) throw new ForbiddenException('רק מנהל לילה יכול למחוק לוח פעילויות');
+    return this.svc.deleteBoard(versionId);
   }
 
   @Post(':versionId/save')

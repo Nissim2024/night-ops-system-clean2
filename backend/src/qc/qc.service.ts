@@ -151,6 +151,18 @@ export interface ReportedDefectDto {
   status: string;
 }
 
+// Release-wide defect rows keyed by REAL detected cycle (RELEASE_CYCLES.RCYC_NAME,
+// same join/naming variants as CrCoverageDto's cycleName — see cycleNameMatches
+// in release-intelligence.service.ts) — used by getCycleProgress to count
+// "defects reported in the cycle" per app cycle. Filtered by DETECTED_IN_REL
+// (not TARGET_REL, unlike TARGET_CR_DEFECTS_SQL) since we want defects that
+// actually surfaced during this release's testing, not ones merely targeted at it.
+export interface DefectByCycleDto {
+  id: string;
+  detectedInCycle: string;
+  status: string;
+}
+
 // KPI 11 — "מצב תקלות ייצור פתוחות לאורך חודשים": one row per (month, defect)
 // still open as of that month-end. `area` (BG_USER_10) is NOT a module/
 // component field — confirmed directly by the user (2026-07-24): it's a
@@ -508,6 +520,17 @@ const MY_REPORTED_DEFECTS_SQL = `
     BG_DETECTED_BY  AS DETECTED_BY,
     BG_USER_04      AS DEFECT_STATUS
   FROM BUG
+  WHERE BG_DETECTED_IN_REL = :releaseId
+`;
+
+// Release-wide defects grouped by their REAL detected cycle — see DefectByCycleDto.
+const DEFECTS_BY_CYCLE_SQL = `
+  SELECT
+    BG_BUG_ID              AS DEFECT_ID,
+    BG_USER_04             AS DEFECT_STATUS,
+    detected_rcyc.RCYC_NAME AS DETECTED_IN_CYCLE
+  FROM BUG
+  LEFT JOIN RELEASE_CYCLES detected_rcyc ON detected_rcyc.RCYC_ID = BUG.BG_DETECTED_IN_RCYC
   WHERE BG_DETECTED_IN_REL = :releaseId
 `;
 
@@ -1479,6 +1502,42 @@ export class QcService {
       }));
     } catch (err: any) {
       this.logger.error(`Oracle getMyReportedDefects: ${err.message}`);
+      throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
+  }
+
+  // Mock/offline mode reuses the same gitignored real-data seed as
+  // getTargetCrDefects (loadRealTargetDefects) — it already carries
+  // detectedInRelease/detectedInCycle for every row, just filtered here by
+  // the release that DETECTED the defect rather than the one it TARGETS.
+  async getDefectsByCycle(versionId: string): Promise<DefectByCycleDto[]> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) {
+      const version = await prisma.version.findUnique({ where: { id: versionId }, include: { qcRelease: true } });
+      const releaseName = (version as any)?.qcRelease?.relName ?? version?.name ?? '';
+      const real = loadRealTargetDefects();
+      if (!real || !releaseName) return [];
+      return real
+        .filter(d => d.detectedInRelease === releaseName)
+        .map(d => ({ id: d.id, detectedInCycle: d.detectedInCycle, status: d.status }));
+    }
+
+    const relId = await this.getRelId(versionId);
+    if (!relId) return [];
+
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const result = await conn.execute(DEFECTS_BY_CYCLE_SQL, { releaseId: relId });
+      return (result.rows ?? []).map((r: any): DefectByCycleDto => ({
+        id: String(r.DEFECT_ID),
+        detectedInCycle: r.DETECTED_IN_CYCLE ?? '',
+        status: r.DEFECT_STATUS ?? '',
+      }));
+    } catch (err: any) {
+      this.logger.error(`Oracle getDefectsByCycle: ${err.message}`);
       throw err;
     } finally {
       if (conn) await conn.close().catch(() => {});

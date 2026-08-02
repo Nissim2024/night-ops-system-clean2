@@ -110,6 +110,7 @@ model User {
   qaSecondaryAssignments QaAssignment[]    @relation("qaSecondaryAssignments")
   qaCycleTasks           QaCycleTask[]
   createdReleaseRisks    ReleaseRisk[]
+  createdVersionNotices  VersionNotice[]
 }
 
 model Team {
@@ -173,8 +174,6 @@ model Version {
   submissionDeadline    DateTime?
   approvalDeadline      DateTime?
   wizardState           Json?
-  homeNotice            String? // manual, RM/ADMIN-authored notice pinned atop the Home risks/activities feed
-  homeNoticeUpdatedAt   DateTime?
   // When true (set on creation for every version created after 2026-07-24 —
   // see versions.service.ts's create()): once a QaWorkPlan exists,
   // integrationStart/End, qaStart/End and plannedRehearsalStart/End are
@@ -212,6 +211,7 @@ model Version {
   releaseHealth        ReleaseHealth?
   releaseForecast      ReleaseForecast?
   goNoGoDecision       GoNoGoDecision?
+  notices              VersionNotice[]
 }
 
 model Phase {
@@ -665,6 +665,9 @@ model VersionCrAssignment {
   qaArrivalDate         DateTime? // planned date the CR is expected to arrive at QA
   qaReceived            Boolean   @default(false) // QA lead confirms the CR actually arrived
   qaReceivedAt          DateTime? // actual arrival date — compared against qaArrivalDate to flag a late arrival
+  isArchived            Boolean   @default(false) // RM archived this CR's QA work (see QaWorkPlanService.archiveCr) — hidden from active assignment views and excluded from tester load/capacity calcs, but the row and its QaAssignment/QaCycleTask history are kept, not deleted
+  archivedAt            DateTime?
+  archivedReason        String?
 
   version Version @relation(fields: [versionId], references: [id])
   team    Team    @relation(fields: [teamId], references: [id])
@@ -954,6 +957,22 @@ model ReleaseRisk {
   createdBy   String
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
+
+  version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  creator User    @relation(fields: [createdBy], references: [id])
+}
+
+// Manual, RM/ADMIN-authored notices pinned atop the Home risks/activities
+// feed — supersedes the old single Version.homeNotice text field, allowing
+// several concurrent notices each with their own urgency level.
+model VersionNotice {
+  id        String   @id @default(uuid())
+  versionId String
+  text      String
+  urgency   Priority @default(MEDIUM)
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
   creator User    @relation(fields: [createdBy], references: [id])

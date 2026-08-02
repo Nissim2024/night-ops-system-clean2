@@ -288,6 +288,9 @@ export class QaService {
           systems:      hints,
           riskLevel:    plan?.riskLevel ?? null,
           testers:      scored,
+          isArchived:     (cr as any).isArchived ?? false,
+          archivedAt:     (cr as any).archivedAt ?? null,
+          archivedReason: (cr as any).archivedReason ?? null,
         };
       });
   }
@@ -656,6 +659,15 @@ export class QaService {
     await prisma.qaAssignment
       .delete({ where: { id } })
       .catch(() => { throw new NotFoundException('שיבוץ לא נמצא'); });
+  }
+
+  // Deletes every QaAssignment for this version — the granular counterpart to
+  // Version.delete() (which used to be the only way to clear this data, by
+  // deleting the whole version). Doesn't touch the generated work plan
+  // (QaWorkPlan/QaCycleTask) — see deleteWorkPlan on QaWorkPlanService for that.
+  async deleteAllAssignments(versionId: string) {
+    const { count } = await prisma.qaAssignment.deleteMany({ where: { versionId } });
+    return { deleted: count };
   }
 
   // ── Scoring engine wrapper ────────────────────────────────────────────────────

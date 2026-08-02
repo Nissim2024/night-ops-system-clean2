@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { VersionProgressChain } from './VersionProgressChain';
-import { C, FONT, TEXT, WEIGHT, RADIUS, SHADOW, EASE } from '../theme';
+import { C, FONT, TEXT, WEIGHT, RADIUS, SHADOW, EASE, severityColor, severityLabel } from '../theme';
 import { RUNBOOKS } from './qa/RunbookModal';
 import { MyQaTask, TargetDefectGroup } from './qa/MyQaTasksView';
 import { VersionMilestoneTimeline } from './shared/VersionMilestoneTimeline';
@@ -63,6 +63,7 @@ interface Props {
   taskStats: { done: number; inProgress: number; open: number; waiting: number; blocked: number; total: number };
   seasonReminder: { id: string; name: string } | null;
   teamName?: string | null;
+  homeNotices?: { id: string; text: string; urgency: string }[];
   myRunbookSteps?: { runbookId: string; stepIndex: number; startTime: string; runDate: string; team: string }[];
   isQaTester?: boolean;
   myQaTasks?: MyQaTask[];
@@ -77,7 +78,7 @@ interface Props {
 
 export const EmployeeHomeView: React.FC<Props> = ({
   fullName, activeVersion, planningVersion, taskStats, seasonReminder, teamName,
-  myRunbookSteps, isQaTester, myQaTasks, qaSummary, targetDefectGroups, defectStats,
+  homeNotices, myRunbookSteps, isQaTester, myQaTasks, qaSummary, targetDefectGroups, defectStats,
   onGoToTasks, onGoToLeaves, onGoToQaTasks, onOpenFocusMode,
 }) => {
   const firstName = fullName.split(' ')[0] || fullName;
@@ -183,15 +184,22 @@ export const EmployeeHomeView: React.FC<Props> = ({
               general change for every employee. */}
           {isQaTester && (
             <>
-              {primary.homeNotice && (
-                <div style={{
+              {(homeNotices ?? []).map(n => (
+                <div key={n.id} style={{
+                  display: 'flex', gap: '8px', alignItems: 'flex-start',
                   ...TEXT.sm, color: 'white', background: 'rgba(255,255,255,.08)',
                   border: '1px solid rgba(255,255,255,.16)', borderRadius: RADIUS.md,
-                  padding: '8px 12px', marginTop: '16px', whiteSpace: 'pre-wrap' as const,
+                  padding: '8px 12px', marginTop: '10px',
                 }}>
-                  📌 {primary.homeNotice}
+                  <span style={{ flexShrink: 0 }}>📌</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'inline-block', ...TEXT.xs, fontWeight: WEIGHT.bold, color: severityColor(n.urgency), background: 'white', borderRadius: RADIUS.full, padding: '1px 8px', marginBottom: '4px' }}>
+                      {severityLabel(n.urgency)}
+                    </span>
+                    <div style={{ whiteSpace: 'pre-wrap' as const }}>{n.text}</div>
+                  </div>
                 </div>
-              )}
+              ))}
               <VersionMilestoneTimeline version={primary} cycles={qaSummary?.cycles} />
               <GoLiveCountdown plannedStart={primary.plannedStart} status={primary.status} />
             </>

@@ -11,7 +11,7 @@ interface CrCoverageRow {
 }
 interface CycleTimelineItem {
   cycleType: string; plannedStart: string; plannedEnd: string; progressPct: number; state: 'done' | 'active' | 'upcoming';
-  crCount: number; testerCount: number; crs: { crNumber: string; crLabel: string }[]; testers: string[];
+  crCount: number; testerCount: number; defectCount: number; crs: { crNumber: string; crLabel: string }[]; testers: string[];
   coveragePct: number | null; crCoverage: CrCoverageRow[]; qgTargetPct: number | null;
 }
 interface CycleProgress {
@@ -84,8 +84,8 @@ function CycleCard({ c, onShowDetail }: { c: CycleTimelineItem; onShowDetail: (c
           <div style={{ ...TEXT.xs, color: C.textMuted }}>CR-ים</div>
         </div>
         <div style={{ textAlign: 'center', flex: 1, borderRight: `1px solid ${C.border}` }}>
-          <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{c.testerCount}</div>
-          <div style={{ ...TEXT.xs, color: C.textMuted }}>בודקים</div>
+          <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{c.defectCount}</div>
+          <div style={{ ...TEXT.xs, color: C.textMuted }}>תקלות שדווחו</div>
         </div>
       </div>
 
