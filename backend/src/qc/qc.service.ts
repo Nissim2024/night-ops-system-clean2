@@ -31,6 +31,8 @@ export interface TestCoverageDto {
   blocked: number;
   notRun: number;
   notReady: number;
+  notApplicable: number;
+  notRelevant: number;
   subject: string;
   title: string;
   release: string;
@@ -235,18 +237,31 @@ export interface BugDashboardDto {
 
 // Same RELEASES/RELEASE_CYCLES join as QC_RELEASES_SQL (qc-releases.service.ts)
 // — every cycle of one release, with its QG target thresholds.
+// QG_HIGH/QG_MEDIUM/QG_LOW aren't real columns on RELEASE_CYCLES — same
+// generic-custom-field pattern as REQ_HIERARCHY_SQL's CR_NUMBER. Confirmed
+// against production Oracle 2026-08-03 (ORA-00904 on the old literals) and
+// mapped via the user's own RELEASE_CYCLES export query: RCYC_USER_01 = QG
+// High, RCYC_USER_02 = QG Medium, RCYC_USER_03 = QG Low (RCYC_USER_04 is
+// Environment, unused here).
 const RELEASE_CYCLES_QG_SQL = `
   SELECT
-    rr.rel_name  AS RELEASE_NAME,
-    rc.rcyc_name AS CYCLE_NAME,
-    rc.qg_high   AS QG_HIGH,
-    rc.qg_medium AS QG_MEDIUM,
-    rc.qg_low    AS QG_LOW
+    rr.rel_name    AS RELEASE_NAME,
+    rc.rcyc_name   AS CYCLE_NAME,
+    rc.rcyc_user_01 AS QG_HIGH,
+    rc.rcyc_user_02 AS QG_MEDIUM,
+    rc.rcyc_user_03 AS QG_LOW
   FROM releases rr, release_cycles rc
   WHERE rr.rel_id = rc.rcyc_parent_id
     AND rr.rel_id = :releaseId
 `;
 
+// TS_EXEC_STATUS literals confirmed against production's real distinct
+// values 2026-08-03 (SELECT DISTINCT TS_EXEC_STATUS FROM TEST): Passed,
+// Failed, No Run, Not Completed, Blocked, Not Ready for QA, N/A, Not
+// Relevant, and null (untested/never-run rows — no bucket, only counted in
+// TOTAL, so total can still exceed the sum of all named buckets).
+// 'Not Ready fr QA' (missing "o") was the old literal — silently zeroed
+// this bucket in every real query since it never matched.
 const TEST_COVERAGE_SQL = `
   SELECT
     COUNT(*)                                                                           AS TOTAL,
@@ -256,7 +271,9 @@ const TEST_COVERAGE_SQL = `
     SUM(CASE WHEN TS.TS_EXEC_STATUS = 'No Run'          THEN 1 ELSE 0 END)            AS NOT_RUN,
     SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Blocked'         THEN 1 ELSE 0 END)            AS BLOCKED,
     SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Not Completed'   THEN 1 ELSE 0 END)            AS NOT_COMPLETED,
-    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Not Ready fr QA' THEN 1 ELSE 0 END)            AS NOT_READY,
+    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Not Ready for QA' THEN 1 ELSE 0 END)           AS NOT_READY,
+    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'N/A'             THEN 1 ELSE 0 END)            AS NOT_APPLICABLE,
+    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Not Relevant'    THEN 1 ELSE 0 END)            AS NOT_RELEVANT,
     RQ.RQ_USER_29                                                                      AS SUBJECT,
     RQ.RQ_REQ_NAME                                                                     AS TITLE,
     RQR.RQRL_RELEASE_ID                                                                AS RELEASE_ID,
@@ -307,7 +324,9 @@ const TEST_COVERAGE_BY_REQ_SQL = `
     SUM(CASE WHEN TS.TS_EXEC_STATUS = 'No Run'          THEN 1 ELSE 0 END)             AS NOT_RUN,
     SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Blocked'         THEN 1 ELSE 0 END)             AS BLOCKED,
     SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Not Completed'   THEN 1 ELSE 0 END)             AS NOT_COMPLETED,
-    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Not Ready fr QA' THEN 1 ELSE 0 END)             AS NOT_READY
+    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Not Ready for QA' THEN 1 ELSE 0 END)            AS NOT_READY,
+    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'N/A'             THEN 1 ELSE 0 END)             AS NOT_APPLICABLE,
+    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Not Relevant'    THEN 1 ELSE 0 END)             AS NOT_RELEVANT
   FROM
     TEST TS, REQ_COVER RC, REQ RQ, REQ_RELEASES RQR, REQ_CYCLES RQC, RELEASE_CYCLES RCYC, RELEASES RR
   WHERE
@@ -329,8 +348,12 @@ const TEST_COVERAGE_BY_REQ_SQL = `
 // own REQ_RELEASES row for this release, so this can't be release-scoped
 // without risking a broken chain. Only 3 narrow columns; REQ tables run in
 // the tens of thousands of rows, not millions — a full scan is cheap.
+// CR_NUMBER isn't a real column on REQ — the CR number lives in the generic
+// custom field RQ_USER_02 (same field CR_LIST's own ALM export uses, see
+// qa-workplan.service.ts's "CR - RQ_USER_02" header) — confirmed against
+// production Oracle 2026-08-03 (ORA-00904 on the old literal "CR_NUMBER").
 const REQ_HIERARCHY_SQL = `
-  SELECT RQ_REQ_ID, RQ_FATHER_ID, CR_NUMBER, RQ_REQ_NAME
+  SELECT RQ_REQ_ID, RQ_FATHER_ID, RQ_USER_02 AS CR_NUMBER, RQ_REQ_NAME
   FROM REQ
 `;
 
@@ -662,19 +685,19 @@ const DEFECT_STATUS_HISTORY_SQL = `
 // ── Mock data (used when ORACLE_ENABLED=false) ────────────────────────────────
 
 const MOCK_COVERAGE: TestCoverageDto[] = [
-  { total: 1,  responsible: 'maamona', planned: 1,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, subject: '',                    title: 'HOT WEB',                                           release: '374', cycle: '1276', planId: '74538', labId: '74532' },
-  { total: 6,  responsible: 'maamona', planned: 6,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, subject: 'צמצום שיחות',           title: '12969 - דרישות חדשות מערכת תזכורות ב CRM',          release: '374', cycle: '1276', planId: '74543', labId: '74542' },
-  { total: 5,  responsible: 'roiv',    planned: 5,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, subject: '',                    title: 'CRM HOTNET',                                        release: '374', cycle: '1276', planId: '74549', labId: '74548' },
-  { total: 2,  responsible: 'roiv',    planned: 2,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, subject: 'שו"ש - חטיבת שירות',  title: '13072 - שינוי בהתנהלות של מסך AI',                  release: '374', cycle: '1276', planId: '74531', labId: '74530' },
-  { total: 3,  responsible: 'maamona', planned: 3,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, subject: '',                    title: 'שפיות בילי',                                        release: '374', cycle: '1276', planId: '74537', labId: '74532' },
-  { total: 21, responsible: 'roiv',    planned: 21, passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, subject: '',                    title: 'Addressability',                                    release: '374', cycle: '1276', planId: '74533', labId: '74532' },
-  { total: 1,  responsible: 'maamona', planned: 1,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, subject: '',                    title: 'Web Site NEXT',                                     release: '374', cycle: '1276', planId: '74539', labId: '74532' },
-  { total: 5,  responsible: 'roiv',    planned: 5,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, subject: 'HOT ENERGY',          title: '12821 - שירות חשמל בכתובות ללא תשתית הוט',          release: '374', cycle: '1276', planId: '74525', labId: '74524' },
-  { total: 5,  responsible: 'roiv',    planned: 5,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, subject: '',                    title: 'CRM',                                               release: '374', cycle: '1276', planId: '74534', labId: '74532' },
-  { total: 8,  responsible: 'roiv',    planned: 8,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, subject: '',                    title: 'Wizard HOTNET',                                     release: '374', cycle: '1276', planId: '74550', labId: '74548' },
-  { total: 3,  responsible: 'roiv',    planned: 3,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, subject: '',                    title: 'TOP TECH',                                          release: '374', cycle: '1276', planId: '74535', labId: '74532' },
-  { total: 2,  responsible: 'maamona', planned: 2,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, subject: '',                    title: 'חשבוניות ודף מקדים',                                release: '374', cycle: '1276', planId: '74551', labId: '74548' },
-  { total: 2,  responsible: 'maamona', planned: 2,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, subject: '',                    title: 'חשבוניות ודף מקדים',                                release: '374', cycle: '1276', planId: '74536', labId: '74532' },
+  { total: 1,  responsible: 'maamona', planned: 1,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, notApplicable: 0, notRelevant: 0, subject: '',                    title: 'HOT WEB',                                           release: '374', cycle: '1276', planId: '74538', labId: '74532' },
+  { total: 6,  responsible: 'maamona', planned: 6,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, notApplicable: 0, notRelevant: 0, subject: 'צמצום שיחות',           title: '12969 - דרישות חדשות מערכת תזכורות ב CRM',          release: '374', cycle: '1276', planId: '74543', labId: '74542' },
+  { total: 5,  responsible: 'roiv',    planned: 5,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, notApplicable: 0, notRelevant: 0, subject: '',                    title: 'CRM HOTNET',                                        release: '374', cycle: '1276', planId: '74549', labId: '74548' },
+  { total: 2,  responsible: 'roiv',    planned: 2,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, notApplicable: 0, notRelevant: 0, subject: 'שו"ש - חטיבת שירות',  title: '13072 - שינוי בהתנהלות של מסך AI',                  release: '374', cycle: '1276', planId: '74531', labId: '74530' },
+  { total: 3,  responsible: 'maamona', planned: 3,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, notApplicable: 0, notRelevant: 0, subject: '',                    title: 'שפיות בילי',                                        release: '374', cycle: '1276', planId: '74537', labId: '74532' },
+  { total: 21, responsible: 'roiv',    planned: 21, passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, notApplicable: 0, notRelevant: 0, subject: '',                    title: 'Addressability',                                    release: '374', cycle: '1276', planId: '74533', labId: '74532' },
+  { total: 1,  responsible: 'maamona', planned: 1,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, notApplicable: 0, notRelevant: 0, subject: '',                    title: 'Web Site NEXT',                                     release: '374', cycle: '1276', planId: '74539', labId: '74532' },
+  { total: 5,  responsible: 'roiv',    planned: 5,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, notApplicable: 0, notRelevant: 0, subject: 'HOT ENERGY',          title: '12821 - שירות חשמל בכתובות ללא תשתית הוט',          release: '374', cycle: '1276', planId: '74525', labId: '74524' },
+  { total: 5,  responsible: 'roiv',    planned: 5,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, notApplicable: 0, notRelevant: 0, subject: '',                    title: 'CRM',                                               release: '374', cycle: '1276', planId: '74534', labId: '74532' },
+  { total: 8,  responsible: 'roiv',    planned: 8,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, notApplicable: 0, notRelevant: 0, subject: '',                    title: 'Wizard HOTNET',                                     release: '374', cycle: '1276', planId: '74550', labId: '74548' },
+  { total: 3,  responsible: 'roiv',    planned: 3,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, notApplicable: 0, notRelevant: 0, subject: '',                    title: 'TOP TECH',                                          release: '374', cycle: '1276', planId: '74535', labId: '74532' },
+  { total: 2,  responsible: 'maamona', planned: 2,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, notApplicable: 0, notRelevant: 0, subject: '',                    title: 'חשבוניות ודף מקדים',                                release: '374', cycle: '1276', planId: '74551', labId: '74548' },
+  { total: 2,  responsible: 'maamona', planned: 2,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, notApplicable: 0, notRelevant: 0, subject: '',                    title: 'חשבוניות ודף מקדים',                                release: '374', cycle: '1276', planId: '74536', labId: '74532' },
 ];
 
 const MOCK_DEFECTS: DefectDto[] = [
@@ -829,6 +852,7 @@ function loadRealTargetDefects(): TargetDefectDto[] | null {
 export interface CrCoverageDto {
   crNumber: string; crTitle: string; releaseName: string; cycleName: string;
   passed: number; failed: number; notRun: number; blocked: number; notCompleted: number; notReady: number;
+  notApplicable: number; notRelevant: number;
   total: number; coveragePct: number;
 }
 let realCrCoverageCache: CrCoverageDto[] | null | undefined;
@@ -1218,7 +1242,8 @@ export class QcService {
       const wanted = crNumbers.length > 0 ? new Set(crNumbers) : null;
       type Agg = {
         crNumber: string; crTitle: string; releaseName: string; cycleName: string;
-        passed: number; failed: number; notRun: number; blocked: number; notCompleted: number; notReady: number; total: number;
+        passed: number; failed: number; notRun: number; blocked: number; notCompleted: number; notReady: number;
+        notApplicable: number; notRelevant: number; total: number;
       };
       const byKey = new Map<string, Agg>();
 
@@ -1232,20 +1257,26 @@ export class QcService {
           crNumber: resolved.crNumber,
           crTitle: resolved.reqName.replace(new RegExp(`^${resolved.crNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`), ''),
           releaseName: r.RELEASE_NAME ?? '', cycleName,
-          passed: 0, failed: 0, notRun: 0, blocked: 0, notCompleted: 0, notReady: 0, total: 0,
+          passed: 0, failed: 0, notRun: 0, blocked: 0, notCompleted: 0, notReady: 0,
+          notApplicable: 0, notRelevant: 0, total: 0,
         };
-        existing.passed       += Number(r.PASSED ?? 0);
-        existing.failed       += Number(r.FAILED ?? 0);
-        existing.notRun       += Number(r.NOT_RUN ?? 0);
-        existing.blocked      += Number(r.BLOCKED ?? 0);
-        existing.notCompleted += Number(r.NOT_COMPLETED ?? 0);
-        existing.notReady     += Number(r.NOT_READY ?? 0);
-        existing.total        += Number(r.TOTAL ?? 0);
+        existing.passed        += Number(r.PASSED ?? 0);
+        existing.failed        += Number(r.FAILED ?? 0);
+        existing.notRun        += Number(r.NOT_RUN ?? 0);
+        existing.blocked       += Number(r.BLOCKED ?? 0);
+        existing.notCompleted  += Number(r.NOT_COMPLETED ?? 0);
+        existing.notReady      += Number(r.NOT_READY ?? 0);
+        existing.notApplicable += Number(r.NOT_APPLICABLE ?? 0);
+        existing.notRelevant   += Number(r.NOT_RELEVANT ?? 0);
+        existing.total         += Number(r.TOTAL ?? 0);
         byKey.set(key, existing);
       }
 
+      // N/A and Not Relevant count toward "executed" (2026-08-03 product
+      // decision) — a test the team deliberately marked out-of-scope for
+      // this cycle shouldn't drag coverage % down like a genuine not-run gap.
       return Array.from(byKey.values()).map(v => {
-        const executed = v.passed + v.failed + v.blocked + v.notCompleted;
+        const executed = v.passed + v.failed + v.blocked + v.notCompleted + v.notApplicable + v.notRelevant;
         return { ...v, coveragePct: v.total > 0 ? Math.round((executed / v.total) * 100) : 0 };
       });
     } catch (err: any) {
@@ -1313,6 +1344,8 @@ export class QcService {
         blocked:      Number(r.BLOCKED),
         notCompleted: Number(r.NOT_COMPLETED),
         notReady:     Number(r.NOT_READY),
+        notApplicable: Number(r.NOT_APPLICABLE),
+        notRelevant:  Number(r.NOT_RELEVANT),
         subject:      r.SUBJECT   ?? '',
         title:        r.TITLE     ?? '',
         release:      String(r.RELEASE_ID),

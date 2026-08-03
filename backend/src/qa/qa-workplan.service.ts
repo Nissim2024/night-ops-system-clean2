@@ -1335,6 +1335,7 @@ export class QaWorkPlanService {
       crNumber:            string;
       crLabel:             string;
       application:         string;
+      project:             string;
       sortOrder:           number;
       primaryTester:       string;
       secondaryTester:     string;
@@ -1371,6 +1372,7 @@ export class QaWorkPlanService {
             crNumber:            task.crNumber,
             crLabel:             (task as any).crLabel ?? task.crNumber,
             application:         vcaFirstMap.get(task.crNumber)?.application ?? '',
+            project:             vcaFirstMap.get(task.crNumber)?.project ?? '',
             sortOrder:           task.sortOrder,
             primaryTester:       '',
             secondaryTester:     '',
@@ -1400,6 +1402,53 @@ export class QaWorkPlanService {
           row.secondarySortOrder = task.sortOrder;
         }
       }
+    }
+
+    // TARGET-pattern CRs are broadcast internally to every active tester as
+    // their own individual task (own queue slot, own tracking on the
+    // assignment screen — see ALL_TESTERS_PATTERN in buildCrInputs) — but
+    // that's a work-plan/assignment-screen concern only. The ALM export
+    // needs exactly one importable row per CR, not one per tester, since
+    // everyone eventually tests it anyway: collapse them into a single row
+    // with "Asign To" = "ALL" (per user request 2026-08-03), spanning the
+    // earliest start to the latest end across all testers' individual
+    // copies of the task.
+    const parseDMY = (s: string): number => {
+      const [dd, mm, yy] = s.split('/').map(Number);
+      return new Date(yy, (mm || 1) - 1, dd || 1).getTime();
+    };
+    const targetGroups = new Map<string, CrRow[]>();
+    for (const row of crMap.values()) {
+      if (!TARGET_CR_PATTERN.test(row.crLabel)) continue;
+      if (!targetGroups.has(row.crNumber)) targetGroups.set(row.crNumber, []);
+      targetGroups.get(row.crNumber)!.push(row);
+    }
+    for (const [crNumber, rows] of targetGroups) {
+      for (const key of crMap.keys()) {
+        const r = crMap.get(key)!;
+        if (r.crNumber === crNumber && TARGET_CR_PATTERN.test(r.crLabel)) crMap.delete(key);
+      }
+      const mergedCycles: Partial<Record<CycleType, TaskRef>> = {};
+      const cycleTypes = new Set<CycleType>();
+      rows.forEach(r => (Object.keys(r.cycles) as CycleType[]).forEach(ct => cycleTypes.add(ct)));
+      for (const ct of cycleTypes) {
+        const refs = rows.map(r => r.cycles[ct]).filter((x): x is TaskRef => !!x);
+        if (!refs.length) continue;
+        mergedCycles[ct] = {
+          start:  refs.reduce((min, r) => parseDMY(r.start) < parseDMY(min) ? r.start : min, refs[0].start),
+          end:    refs.reduce((max, r) => parseDMY(r.end)   > parseDMY(max) ? r.end   : max, refs[0].end),
+          tester: 'ALL',
+          effort: refs[0].effort,
+        };
+      }
+      crMap.set(crNumber, {
+        ...rows[0],
+        primaryTester:      'ALL',
+        secondaryTester:    '',
+        secondarySortOrder: null,
+        sortOrder:           Math.min(...rows.map(r => r.sortOrder)),
+        cycles:              mergedCycles,
+      });
     }
 
     const sortedCrs = Array.from(crMap.values())
@@ -1557,7 +1606,7 @@ export class QaWorkPlanService {
 
       return [
         cr.crNumber,                                // A  CR - RQ_USER_02
-        cr.application,                             // B  Project (Folder - 3)
+        cr.project,                                  // B  Project (Folder - 3)
         crNameForRow,                                // C  CR Name
         crDesc,                                     // D  Description - RE_REQ_COMMENT
         sa ? 'Stand Alone Item' : 'Release Item',   // E  CR Type
@@ -1566,7 +1615,7 @@ export class QaWorkPlanService {
         assigneeEffort,                              // H  QA effort
         secondaryName,                               // I  rq_user_27 Secondary Tester
         secondaryVal,                                 // J  QA effort 2
-        assignee ? 'Y' : '',                        // K  QA BI
+        '',                                         // K  QA BI (no default — must be set explicitly, not inferred from assignment; 2026-08-03)
         '',                                         // L  QA BI_Efforts
         '',                                         // M  Cycle 0
         uat ? 'Y' : '',                             // N  UAT

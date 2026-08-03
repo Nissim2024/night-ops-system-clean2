@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDto } from '../qc/qc.service';
+import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDto, CrCoverageDto, CycleQgTargetDto } from '../qc/qc.service';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
@@ -341,9 +341,16 @@ export class ReleaseIntelligenceService {
       select: { crNumber: true },
     });
     const versionCrNumbers = [...new Set(vcaRows.map(r => r.crNumber))];
+    // Each Oracle-backed call is caught independently — a failure in any one
+    // of them (e.g. a real-Oracle query that behaves differently in prod
+    // than in the mock/offline path — see qc.service.ts's own error logging
+    // for the real cause) degrades just that piece of data instead of
+    // taking down the whole screen with "לא ניתן לטעון נתונים עבור גרסה זו"
+    // (found live in production, 2026-08-02 — getCrCoverage/getCycleQgTargets
+    // were the only two of these four calls NOT wrapped like this).
     const [coverageRows, qgTargets, defectsByCycle] = await Promise.all([
-      this.qcService.getCrCoverage(versionCrNumbers, versionId),
-      this.qcService.getCycleQgTargets(versionId),
+      this.qcService.getCrCoverage(versionCrNumbers, versionId).catch((): CrCoverageDto[] => []),
+      this.qcService.getCycleQgTargets(versionId).catch((): CycleQgTargetDto[] => []),
       this.qcService.getDefectsByCycle(versionId).catch((): DefectByCycleDto[] => []),
     ]);
 

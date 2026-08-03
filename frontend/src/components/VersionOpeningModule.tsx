@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { DateField, DateTimeField } from './DatePicker';
 import { C, FONT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
@@ -228,7 +228,20 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
   const activeStepKey: StepKey = scopeApproved ? 'manage' : firstNotDone;
 
   const [openStep, setOpenStep] = useState<StepKey>(activeStepKey);
-  useEffect(() => { setOpenStep(activeStepKey); }, [activeStepKey]); // eslint-disable-line
+  // Once the user (or an explicit focusStep navigation) has picked a step,
+  // that choice sticks for the rest of this mount — otherwise activeStepKey
+  // recomputing after `rows` finishes its async load (see loadRows below)
+  // silently yanks the view back to the "natural" current step, undoing
+  // e.g. a "ניהול תאריכים" jump straight to the dates step (found live in
+  // production 2026-08-03: reproduces on any version still mid CR_REVIEW,
+  // since scopeExists — and therefore activeStepKey — only settles once the
+  // CR rows fetch resolves; an already-approved version's activeStepKey is
+  // 'manage' from the first render and never moves, so it never reproduced there).
+  const userPickedStepRef = useRef(false);
+  useEffect(() => {
+    if (userPickedStepRef.current) return;
+    setOpenStep(activeStepKey);
+  }, [activeStepKey]); // eslint-disable-line
 
   const [expanded, setExpanded] = useState(!scopeApproved || attentionRows.length > 0);
   useEffect(() => {
@@ -236,7 +249,7 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
   }, [scopeApproved, attentionRows.length]);
 
   useEffect(() => {
-    if (focusStep) { setOpenStep(focusStep); setExpanded(true); }
+    if (focusStep) { userPickedStepRef.current = true; setOpenStep(focusStep); setExpanded(true); }
   }, [focusStep]);
 
   const stepDescriptions: Record<StepKey, string> = {
@@ -274,7 +287,7 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
               return (
                 <React.Fragment key={s.key}>
                   <div
-                    onClick={(e) => { e.stopPropagation(); setOpenStep(s.key); setExpanded(true); }}
+                    onClick={(e) => { e.stopPropagation(); userPickedStepRef.current = true; setOpenStep(s.key); setExpanded(true); }}
                     title={s.label}
                     style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flexShrink: 0, cursor: 'pointer' }}
                   >
