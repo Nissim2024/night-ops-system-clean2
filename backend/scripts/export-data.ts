@@ -57,10 +57,15 @@ async function main() {
       prisma.testerSkill.findMany(),
     ]);
 
+    // Same single-source-of-truth fix applied to health.controller.ts/main.ts/
+    // docker-entrypoint.sh — this was hardcoded to '2.7.4' regardless of the
+    // actual running version, silently mislabeling every export made since.
+    const pkgVersion: string = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf-8')).version ?? 'unknown';
+
     const data: ExportData = {
       exportedAt: new Date().toISOString(),
       exportedBy: process.env.USER ?? process.env.USERNAME ?? 'unknown',
-      sourceVersion: '2.7.4',
+      sourceVersion: pkgVersion,
       users,
       teams,
       teamMembers,
