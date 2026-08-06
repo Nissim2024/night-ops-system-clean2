@@ -1,8 +1,24 @@
 import { Controller, Get, Post, Body, HttpCode } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
+import * as path from 'path';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
+
+// Read once from package.json (present at the container's WORKDIR root per
+// Dockerfile's `COPY --from=builder /app/package.json ./`) instead of a
+// hardcoded literal — this drifted stale in production before (stuck at
+// '2.8.1' while the app had already shipped 2.8.2), since nothing forced it
+// to be bumped alongside the real version. Reading it dynamically makes that
+// whole class of bug structurally impossible instead of relying on
+// remembering to edit this file on every release.
+const APP_VERSION: string = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf-8')).version ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+})();
 
 async function checkOracle(): Promise<{ status: 'ok' | 'disabled' | 'error'; message?: string }> {
   const rows = await prisma.systemParam.findMany({
@@ -61,7 +77,7 @@ export class HealthController {
     return {
       status:    overall,
       timestamp: new Date().toISOString(),
-      version:   '2.8.1',
+      version:   APP_VERSION,
       database:  dbStatus,
       oracle:    oracleResult.status,
       cr_list:   crListResult.status,

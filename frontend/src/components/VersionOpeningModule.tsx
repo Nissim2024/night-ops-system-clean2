@@ -9,6 +9,7 @@ interface CrRow {
   crNumber: string;
   crLabel: string | null;
   teamNames: string[];
+  teams: { id: string; name: string; needsAttention: boolean }[];
   needsAttention: boolean;
   syncStatus: string;
 }
@@ -129,11 +130,15 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
         const existing = byCr.get(r.crNumber);
         if (existing) {
           if (r.team?.name && !existing.teamNames.includes(r.team.name)) existing.teamNames.push(r.team.name);
+          if (r.team?.id && !existing.teams.some(t => t.id === r.team.id)) {
+            existing.teams.push({ id: r.team.id, name: r.team.name, needsAttention: r.needsAttention });
+          }
           existing.needsAttention = existing.needsAttention || r.needsAttention;
         } else {
           byCr.set(r.crNumber, {
             crNumber: r.crNumber, crLabel: r.crLabel,
             teamNames: r.team?.name ? [r.team.name] : [],
+            teams: r.team?.id ? [{ id: r.team.id, name: r.team.name, needsAttention: r.needsAttention }] : [],
             needsAttention: r.needsAttention, syncStatus: r.syncStatus,
           });
         }
@@ -441,7 +446,7 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
                 </div>
               </div>
               {loadingRows ? <div style={{ color: C.textMuted }}>טוען...</div> : (
-                <CrList rows={rows} />
+                <CrList rows={rows} versionId={version.id} headers={headers} />
               )}
 
               {estimateStats && (
@@ -578,23 +583,73 @@ const EstimateBreakdown: React.FC<{
   );
 };
 
-const CrList: React.FC<{ rows: CrRow[] }> = ({ rows }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-    {rows.map(r => (
-      <div key={r.crNumber} style={{
-        display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px',
-        background: r.needsAttention ? C.warningBg : C.bgNested,
-        border: `1px solid ${r.needsAttention ? C.warning : C.border}`, borderRadius: RADIUS.md,
-        opacity: r.syncStatus === 'REMOVED' ? 0.6 : 1,
-      }}>
-        <span style={{ fontWeight: WEIGHT.semibold, color: C.textPrimary, minWidth: '90px' }}>{r.crNumber}</span>
-        <span style={{ color: C.textSecondary, flex: 1, textDecoration: r.syncStatus === 'REMOVED' ? 'line-through' : 'none' }}>{r.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}</span>
-        <span style={{ fontSize: '13px', color: C.textMuted }}>{r.teamNames.join(', ')}</span>
-        {r.syncStatus === 'NEW' && <span style={{ fontSize: '12px', color: C.brand, fontWeight: WEIGHT.bold }}>חדש</span>}
-        {r.syncStatus === 'REMOVED' && <span style={{ fontSize: '12px', color: C.danger, fontWeight: WEIGHT.bold }}>הוסר</span>}
-        {r.needsAttention && <span style={{ fontSize: '12px', color: C.warning, fontWeight: WEIGHT.bold }}>⚠ דורש תשומת לב</span>}
-      </div>
-    ))}
-    {rows.length === 0 && <div style={{ color: C.textMuted }}>אין CR-ים בתכולת הגרסה. יש לסנכרן מקובץ CR_LIST.</div>}
-  </div>
-);
+// Per-team change reason, fetched on demand from the same endpoint
+// VersionOverview's CR-detail screen already uses — reused here instead of
+// duplicated, just surfaced inline instead of as a separate screen.
+type ChangeDetail = { teamName: string; reason: string };
+
+const CrList: React.FC<{ rows: CrRow[]; versionId: string; headers: Record<string, string> }> = ({ rows, versionId, headers }) => {
+  const [expandedCr, setExpandedCr] = useState<string | null>(null);
+  const [details, setDetails] = useState<ChangeDetail[] | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  const toggle = async (r: CrRow) => {
+    if (expandedCr === r.crNumber) { setExpandedCr(null); return; }
+    setExpandedCr(r.crNumber);
+    setDetails(null);
+    setLoadingDetail(true);
+    const flaggedTeams = (r.teams ?? []).filter(t => t.needsAttention);
+    try {
+      const results = await Promise.all(flaggedTeams.map(t =>
+        axios.get(`${API}/version-cr-assignments/version/${versionId}/cr/${r.crNumber}/team/${t.id}/change-detail`, { headers })
+          .then(res => ({ teamName: t.name, reason: res.data.reason as string }))
+          .catch(() => ({ teamName: t.name, reason: 'שגיאה בטעינת הסיבה.' }))
+      ));
+      setDetails(results);
+    } finally {
+      setLoadingDetail(false);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      {rows.map(r => (
+        <div key={r.crNumber} style={{
+          background: r.needsAttention ? C.warningBg : C.bgNested,
+          border: `1px solid ${r.needsAttention ? C.warning : C.border}`, borderRadius: RADIUS.md,
+          opacity: r.syncStatus === 'REMOVED' ? 0.6 : 1,
+        }}>
+          <div
+            onClick={r.needsAttention ? () => toggle(r) : undefined}
+            style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', cursor: r.needsAttention ? 'pointer' : 'default' }}
+          >
+            <span style={{ fontWeight: WEIGHT.semibold, color: C.textPrimary, minWidth: '90px' }}>{r.crNumber}</span>
+            <span style={{ color: C.textSecondary, flex: 1, textDecoration: r.syncStatus === 'REMOVED' ? 'line-through' : 'none' }}>{r.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}</span>
+            <span style={{ fontSize: '13px', color: C.textMuted }}>{r.teamNames.join(', ')}</span>
+            {r.syncStatus === 'NEW' && <span style={{ fontSize: '12px', color: C.brand, fontWeight: WEIGHT.bold }}>חדש</span>}
+            {r.syncStatus === 'REMOVED' && <span style={{ fontSize: '12px', color: C.danger, fontWeight: WEIGHT.bold }}>הוסר</span>}
+            {r.needsAttention && (
+              <span style={{ fontSize: '12px', color: C.warning, fontWeight: WEIGHT.bold }}>
+                ⚠ דורש תשומת לב · {expandedCr === r.crNumber ? 'הסתר פירוט ▲' : 'מה השתנה? ▾'}
+              </span>
+            )}
+          </div>
+          {expandedCr === r.crNumber && (
+            <div style={{ padding: '4px 12px 10px 12px', borderTop: `1px solid ${C.warning}44` }}>
+              {loadingDetail ? (
+                <div style={{ fontSize: '13px', color: C.textMuted }}>טוען...</div>
+              ) : (
+                (details ?? []).map((d, i) => (
+                  <div key={i} style={{ fontSize: '13px', color: C.textSecondary, marginTop: '4px' }}>
+                    <span style={{ fontWeight: WEIGHT.semibold, color: C.textPrimary }}>{d.teamName}:</span> {d.reason}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+      {rows.length === 0 && <div style={{ color: C.textMuted }}>אין CR-ים בתכולת הגרסה. יש לסנכרן מקובץ CR_LIST.</div>}
+    </div>
+  );
+};

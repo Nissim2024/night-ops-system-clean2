@@ -1,6 +1,18 @@
 import * as dotenv from 'dotenv';
 import * as path from 'path';
+import * as fs from 'fs';
 dotenv.config({ path: path.resolve(process.cwd(), `.env.${process.env.NODE_ENV || 'dev'}`), override: true });
+
+// Same single-source-of-truth fix as health.controller.ts's APP_VERSION — this
+// line was a hardcoded literal ('v2.8.1') that had already drifted two
+// versions stale by the time it was found (real app was on 2.8.3).
+const APP_VERSION: string = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf-8')).version ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+})();
 
 // ── Oracle Thick Mode must be initialized before any import that uses oracledb ──
 // This runs synchronously before NestJS boots so no connection can be opened in Thin mode.
@@ -151,7 +163,7 @@ async function bootstrap() {
   const port = process.env.PORT ?? '3000';
   const db   = (process.env.DATABASE_URL ?? '').replace(/:\/\/.*@/, '://***@');
 
-  console.log(`\nDeployCenter Backend v2.8.1`);
+  console.log(`\nDeployCenter Backend v${APP_VERSION}`);
   console.log(`   ENV           : ${env}`);
   console.log(`   PORT          : ${port}`);
   console.log(`   DB            : ${db}`);

@@ -10,8 +10,11 @@ interface TimelinePoint { releaseName: string; value: number | null; }
 interface TimelineData { metric: string; points: TimelinePoint[]; }
 interface TimelineSeries { kpiName: string; kpiOrder: number; points: TimelinePoint[]; }
 
-const CHART_HEIGHT = 220;
+const CHART_HEIGHT = 380;
 const POINT_GAP = 56;
+const CHART_PAD = 40; // left/right margin — first/last point sit exactly here, symmetric on both sides
+const TOP_PAD = 28; // room above a 100% bar for its value label
+const BOTTOM_PAD = 10;
 
 // Measures the container so the chart stretches to fill the full width when
 // there's room for every point, and only falls back to a fixed per-point gap
@@ -26,9 +29,15 @@ function useChartWidth(pointCount: number) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const naturalWidth = Math.max(400, pointCount * POINT_GAP);
+  const naturalWidth = Math.max(400, (pointCount - 1) * POINT_GAP + CHART_PAD * 2);
   const width = Math.max(naturalWidth, containerWidth);
-  const gap = pointCount > 1 ? (width - 40) / pointCount : width;
+  // Divide by (pointCount - 1), not pointCount — the first point anchors at
+  // CHART_PAD and the last at (width - CHART_PAD), spending the full width
+  // symmetrically. The previous /pointCount left roughly one full gap's
+  // worth of empty space trailing after the last point (nothing balancing
+  // it before the first) — the chart visually hugged one side of the card
+  // instead of centering across it. Found live in production 2026-08-05.
+  const gap = pointCount > 1 ? (width - CHART_PAD * 2) / (pointCount - 1) : 0;
   return { containerRef, width, gap };
 }
 
@@ -48,34 +57,37 @@ function BarChartWithOverlays({ bars, overlays }: { bars: TimelinePoint[]; overl
   }
 
   const barWidth = Math.max(14, Math.min(40, gap * 0.5));
-  const yFor = (v: number) => CHART_HEIGHT - (v / 100) * (CHART_HEIGHT - 20) - 10;
+  // TOP_PAD reserves room above a 100% bar for its value label (otherwise it
+  // sits right at the SVG's top edge and gets clipped) — matches the same
+  // pattern already used in ReleaseOverviewView's chart.
+  const yFor = (v: number) => (CHART_HEIGHT - BOTTOM_PAD) - (v / 100) * (CHART_HEIGHT - BOTTOM_PAD - TOP_PAD);
 
   return (
     <div ref={containerRef} style={{ overflowX: 'auto', width: '100%' }}>
       <svg width={width} height={CHART_HEIGHT + 40} style={{ display: 'block' }}>
         {[0, 25, 50, 75, 100].map(v => (
           <g key={v}>
-            <line x1={20} y1={yFor(v)} x2={width - 10} y2={yFor(v)} stroke={C.border} strokeWidth={1} />
-            <text x={2} y={yFor(v) + 4} fontSize={12} fill={C.textMuted}>{v}</text>
+            <line x1={CHART_PAD - 20} y1={yFor(v)} x2={width - CHART_PAD + 20} y2={yFor(v)} stroke={C.border} strokeWidth={1} />
+            <text x={2} y={yFor(v) + 4} fontSize={14} fill={C.textMuted}>{v}</text>
           </g>
         ))}
 
         {bars.map((b, i) => {
-          const x = 30 + i * gap;
+          const x = CHART_PAD + i * gap;
           if (b.value == null) {
             return (
-              <text key={i} x={x} y={CHART_HEIGHT + 20} fontSize={12} fill={C.textMuted} textAnchor="middle" transform={`rotate(-40 ${x} ${CHART_HEIGHT + 20})`}>
+              <text key={i} x={x} y={CHART_HEIGHT + 24} fontSize={14} fill={C.textMuted} textAnchor="middle">
                 {b.releaseName}
               </text>
             );
           }
           const y = yFor(b.value);
-          const h = CHART_HEIGHT - 10 - y;
+          const h = (CHART_HEIGHT - BOTTOM_PAD) - y;
           return (
             <g key={i}>
               <rect x={x - barWidth / 2} y={y} width={barWidth} height={h} rx={4} fill={C.textDisabled} opacity={0.9} />
-              <text x={x} y={y - 6} fontSize={12} fill={C.textPrimary} textAnchor="middle" fontWeight="bold">{b.value}%</text>
-              <text x={x} y={CHART_HEIGHT + 20} fontSize={12} fill={C.textMuted} textAnchor="middle" transform={`rotate(-40 ${x} ${CHART_HEIGHT + 20})`}>
+              <text x={x} y={y - 8} fontSize={14} fill={C.textPrimary} textAnchor="middle" fontWeight="bold">{b.value}%</text>
+              <text x={x} y={CHART_HEIGHT + 24} fontSize={14} fill={C.textMuted} textAnchor="middle">
                 {b.releaseName}
               </text>
             </g>
@@ -83,13 +95,19 @@ function BarChartWithOverlays({ bars, overlays }: { bars: TimelinePoint[]; overl
         })}
 
         {overlays.map(s => {
-          const coords = s.points.map((p, i) => ({ x: 30 + i * gap, y: p.value != null ? yFor(p.value) : null, v: p.value }));
+          const coords = s.points.map((p, i) => ({ x: CHART_PAD + i * gap, y: p.value != null ? yFor(p.value) : null, v: p.value }));
           const pathD = coords.filter(c => c.y != null).map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x} ${c.y}`).join(' ');
           return (
             <g key={s.kpiName}>
               <path d={pathD} fill="none" stroke={s.color} strokeWidth={2.5} />
               {coords.map((c, i) => c.y != null ? (
-                <circle key={i} cx={c.x} cy={c.y} r={4} fill={s.color} stroke={C.bgCard} strokeWidth={1.5} />
+                <g key={i}>
+                  <circle cx={c.x} cy={c.y} r={4} fill={s.color} stroke={C.bgCard} strokeWidth={1.5} />
+                  {/* Always below the point (never above, where the bar's own
+                      % label lives) — the two value sets never fight for the
+                      same space, whatever the line's shape does. */}
+                  <text x={c.x} y={c.y + 18} fontSize={13} fill={s.color} textAnchor="middle" fontWeight="bold">{c.v}%</text>
+                </g>
               ) : null)}
             </g>
           );
@@ -204,7 +222,15 @@ export const ReleaseQualityTimelineView: React.FC<Props> = ({ token }) => {
 
       <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[3] }}>
         <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: SP[2] }}>הצג מדד על גבי ציון הגרסה הכללי</div>
-        <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
+        {/* flex-wrap + justify-content:center, not a grid — a grid with
+            auto-fill locks in a fixed column count sized to the container,
+            so a short last row only fills some of those columns and leaves
+            visible empty space hanging on one side (looked like an
+            unintentional line-wrap). Centering the wrap means a partial last
+            row sits centered instead, which reads as intentional at any
+            item count; a fixed button width keeps every row's columns
+            aligned (order stays source/DOM order, unchanged). */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: SP[2] }}>
           {kpiDefs.map(k => {
             const active = selectedKpis.includes(k.kpiName);
             const color = kpiColor(k.kpiOrder);
@@ -213,10 +239,11 @@ export const ReleaseQualityTimelineView: React.FC<Props> = ({ token }) => {
                 key={k.kpiName}
                 onClick={() => toggleKpi(k.kpiName)}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 12px', borderRadius: RADIUS.md,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '5px 12px', borderRadius: RADIUS.md,
                   border: `1.5px solid ${active ? color : C.border}`, background: active ? `${color}22` : 'transparent',
                   color: active ? color : C.textSecondary, cursor: 'pointer', fontFamily: FONT, ...TEXT.sm,
                   fontWeight: active ? WEIGHT.bold : WEIGHT.normal,
+                  flex: '0 0 190px',
                 }}
               >
                 <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: color, flexShrink: 0 }} />

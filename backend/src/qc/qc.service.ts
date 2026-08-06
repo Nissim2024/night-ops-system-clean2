@@ -747,19 +747,29 @@ const MOCK_CR_ITEMS: CrItemDto[] = [
 // Compact defect definitions — expanded below into one row per (month it was
 // open), matching what OPEN_PROD_DEFECTS_HISTORY_SQL would return for real
 // Oracle data. `openMonths` = 'YYYY-MM' strings this defect was still open.
+// Every field below (id, severity, priority, responsibility, area — the
+// CR/Production/Regression-overloaded BG_USER_10 — bugType, fixType,
+// detectedDate) is copied verbatim from 8 real open/reopened defects in
+// backend/src/qc/seed-data/target-defects.local.json (a genuine Oracle
+// export, gitignored), picked for their real detection dates falling in
+// this mock's Sep 2025–Feb 2026 window — only `openMonths` (which months
+// each one is simulated as still-open) is synthesized, since a single
+// snapshot file has no month-by-month history to draw from. Previously
+// these fields were invented outright, including a defect-ID range no real
+// defect uses — fixed per explicit user request 2026-08-05.
 const MOCK_OPEN_PROD_DEFECTS_SOURCE: {
   id: string; severity: string; priority: string; responsibility: string;
   area: string; bugType: string; fixType: string; detectedDate: string;
   reopenYn: string; currentStatus: string; openMonths: string[];
 }[] = [
-  { id: '20411', severity: 'Show Stopper', priority: 'High',   responsibility: 'CRM Team',      area: 'CRM',      bugType: 'Functional', fixType: 'Code Fix', detectedDate: '2025-11-03', reopenYn: 'N', currentStatus: 'Open',     openMonths: ['2025-11', '2025-12', '2026-01', '2026-02'] },
-  { id: '20487', severity: 'Severe',       priority: 'High',   responsibility: 'NETC-DT team',  area: 'NETC',     bugType: 'Setup',      fixType: 'Config',   detectedDate: '2025-12-10', reopenYn: 'Y', currentStatus: 'Reopen',   openMonths: ['2025-12', '2026-01', '2026-02'] },
-  { id: '20502', severity: 'Medium',       priority: 'Medium', responsibility: 'ETL Team',      area: 'ETL',      bugType: 'DB Issue',   fixType: 'Code Fix', detectedDate: '2026-01-05', reopenYn: 'N', currentStatus: 'At Work',  openMonths: ['2026-01', '2026-02'] },
-  { id: '20518', severity: 'Low',          priority: 'Low',    responsibility: 'CRM Team',      area: 'Billing',  bugType: 'GUI',        fixType: 'Code Fix', detectedDate: '2025-10-18', reopenYn: 'N', currentStatus: 'Pending',  openMonths: ['2025-10', '2025-11', '2025-12', '2026-01', '2026-02'] },
-  { id: '20530', severity: 'Severe',       priority: 'High',   responsibility: 'NC Team',       area: 'NC',       bugType: 'Functional', fixType: 'Code Fix', detectedDate: '2026-02-01', reopenYn: 'N', currentStatus: 'New',      openMonths: ['2026-02'] },
-  { id: '20544', severity: 'Medium',       priority: 'Medium', responsibility: 'Web Dev Team',  area: 'Website',  bugType: 'Environment Issue', fixType: 'Config', detectedDate: '2025-11-20', reopenYn: 'N', currentStatus: 'Fixed_Dev', openMonths: ['2025-11', '2025-12', '2026-01'] },
-  { id: '20559', severity: 'Show Stopper', priority: 'High',   responsibility: 'CRM Team',      area: 'CRM',      bugType: 'Change Requests', fixType: 'Code Fix', detectedDate: '2025-09-15', reopenYn: 'Y', currentStatus: 'Reopen', openMonths: ['2025-09', '2025-10', '2025-11', '2025-12', '2026-01', '2026-02'] },
-  { id: '20573', severity: 'Low',          priority: 'Low',    responsibility: 'NETC-DT team',  area: 'NETC',     bugType: 'GUI',        fixType: 'Code Fix', detectedDate: '2026-01-25', reopenYn: 'N', currentStatus: 'At Work',  openMonths: ['2026-01', '2026-02'] },
+  { id: '61615', severity: 'Low',    priority: 'High',   responsibility: 'ofirt',                    area: 'Production',                                          bugType: 'Change Requests', fixType: '',           detectedDate: '2025-09-18', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2025-09', '2025-10', '2025-11', '2025-12', '2026-01', '2026-02'] },
+  { id: '61976', severity: 'Medium', priority: 'Medium', responsibility: 'HOT Design Team',           area: '12646 - חסימת ניתוק לפני הקפאת חיוב שלב ג',            bugType: 'Design',           fixType: '',           detectedDate: '2025-11-30', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2025-11', '2025-12', '2026-01', '2026-02'] },
+  { id: '62224', severity: 'Medium', priority: 'Low',    responsibility: 'HOT Design Team',           area: '12714 - החלפת מערכת אקווריום',                        bugType: 'Change Requests', fixType: '',           detectedDate: '2025-12-29', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2025-12', '2026-01', '2026-02'] },
+  { id: '62439', severity: 'Medium', priority: 'Medium', responsibility: 'OfficeTrack (3rd party)',   area: 'Regression',                                          bugType: 'Functional',       fixType: 'Root Cause', detectedDate: '2026-01-25', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2026-01', '2026-02'] },
+  { id: '62506', severity: 'Medium', priority: 'High',   responsibility: 'DWH Team;ETL Team',         area: '12736 - HBO   ממשקים ואתר HOT',                       bugType: 'Functional',       fixType: '',           detectedDate: '2026-02-05', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2026-02'] },
+  { id: '62537', severity: 'Medium', priority: 'High',   responsibility: 'Dalia (3rd party)',         area: 'Production',                                          bugType: 'Change Requests', fixType: 'Design',     detectedDate: '2026-02-10', reopenYn: 'Y', currentStatus: 'Reopen', openMonths: ['2026-02'] },
+  { id: '62595', severity: 'Severe', priority: 'High',   responsibility: 'HOT Design Team',           area: 'Production',                                          bugType: 'Functional',       fixType: '',           detectedDate: '2026-02-22', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2026-02'] },
+  { id: '62867', severity: 'Medium', priority: 'High',   responsibility: 'OSS Team',                  area: 'Production',                                          bugType: 'Functional',       fixType: 'Root Cause', detectedDate: '2026-02-25', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2026-02'] },
 ];
 
 function buildMockOpenProdDefectsHistory(): OpenProdDefectMonthDto[] {

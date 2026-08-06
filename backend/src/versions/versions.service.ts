@@ -928,6 +928,13 @@ async addTask(subPhaseId: string, data: {
     // CrDependency cascades automatically (onDelete: Cascade on crPlanId FK)
     await prisma.crPlan.deleteMany({ where: { versionId: id } });
     await prisma.versionCrAssignment.deleteMany({ where: { versionId: id } });
+    // These three have no DB-level FK to Version (versionId is a plain
+    // column, not a @relation) — found 2026-08-02 leaving orphans (281 rows
+    // across old already-deleted versions) since nothing else ever cleaned
+    // them up. TargetCrDefect cascades from TargetCrReview automatically.
+    await prisma.activityBoardEntry.deleteMany({ where: { versionId: id } });
+    await prisma.targetCrReview.deleteMany({ where: { versionId: id } });
+    await prisma.runbookEntry.deleteMany({ where: { versionId: id } });
     await prisma.version.delete({ where: { id } });
 
     return { message: 'הגרסה נמחקה בהצלחה' };

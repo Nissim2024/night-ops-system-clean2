@@ -214,11 +214,19 @@ const EDITABLE_CYCLES = new Set(['CYCLE_2', 'CYCLE_3', 'UAT', 'REHEARSAL', 'GO_L
 
 // Overflow issues only carry a tester's full name + crNumber (no task id), so
 // this composite key is how a problem message links back to its schedule row.
-function rowKey(fullName: string, crNumber: string): string {
-  return `${fullName}::${crNumber}`;
+// cycleType is part of the identity — the same tester+CR appears as its own
+// distinct row in every cycle it's active in (CYCLE_1/2/3 each carry their
+// own ratio-split task), so without it every occurrence collides onto one
+// key. Missing this caused two live bugs (2026-08-03): the "go to problem
+// row" navigation always landing on the CR's first cycle regardless of
+// which cycle the overflow issue was actually about, and the red
+// "problematic" highlight bleeding onto every cycle's row for that
+// tester+CR instead of just the one that's actually overflowing.
+function rowKey(fullName: string, crNumber: string, cycleType: string): string {
+  return `${fullName}::${crNumber}::${cycleType}`;
 }
-function rowElementId(fullName: string, crNumber: string): string {
-  return `wp-row-${rowKey(fullName, crNumber)}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+function rowElementId(fullName: string, crNumber: string, cycleType: string): string {
+  return `wp-row-${rowKey(fullName, crNumber, cycleType)}`.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
 function fmtDate(d: string | null | undefined): string {
@@ -242,8 +250,10 @@ function countTasks(cycle: Cycle) {
 }
 
 // Israeli work week (Sun–Thu) — mirrors backend/src/qa/qa.scheduler.ts's isWorkDay.
-// `holidayDays` (yyyy-mm-dd keys) mirrors the backend's approved-season holiday
-// set (Season.isActive), fetched from GET /leaves/seasons, so stats/axis math
+// `holidayDays` (yyyy-mm-dd keys) mirrors the backend's real-holiday set
+// (Season.forcesOff — NOT isActive, which just means "open for leave-request
+// submissions" and is unrelated — see qa-workplan.service.ts's
+// loadHolidayDays), fetched from GET /leaves/seasons, so stats/axis math
 // derived from already-scheduled dates doesn't count a holiday as a work day.
 function isWorkDay(d: Date, holidayDays?: Set<string>): boolean {
   const dow = d.getDay();
@@ -303,7 +313,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
   const [cycle2LengthDays, setCycle2LengthDays] = useState(6);
   const [cycle3LengthDays, setCycle3LengthDays] = useState(4);
   const [expandedCycles, setExpandedCycles] = useState<Set<string>>(new Set());
-  const [viewMode, setViewMode] = useState<'cycles' | 'employees'>('cycles');
+  const [viewMode, setViewMode] = useState<'cycles' | 'employees' | 'timeline'>('cycles');
   const [expandedMatrixCell, setExpandedMatrixCell] = useState<string | null>(null);
   const [onlyOverflowing, setOnlyOverflowing] = useState(false);
   const [editNotes, setEditNotes]         = useState<Record<string, string>>({});
@@ -339,8 +349,8 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
     ax.get(`${API}/leaves/seasons`)
       .then(r => {
         const keys = new Set<string>();
-        (r.data as { isActive: boolean; dates: { date: string }[] }[])
-          .filter(s => s.isActive)
+        (r.data as { forcesOff: boolean; dates: { date: string }[] }[])
+          .filter(s => s.forcesOff)
           .forEach(s => s.dates.forEach(d => keys.add(new Date(d.date).toISOString().slice(0, 10))));
         setHolidayDays(keys);
       })
@@ -376,7 +386,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
     Promise.all([
       ax.get(`${API}/qa/workplan?versionId=${versionId}`),
       ax.get(`${API}/qa/assignments?versionId=${versionId}`).catch(() => ({ data: [] })),
-      ax.get(`${API}/version-cr-assignments/version/${versionId}`).catch(() => ({ data: [] })),
+      ax.get(`${API}/version-cr-assignments/version/${versionId}?includeExempt=true`).catch(() => ({ data: [] })),
     ]).then(([wpRes, asgRes, vcaRes]) => {
       setWorkPlan(wpRes.data ?? null);
       const asgList = asgRes.data as QaAssignment[];
@@ -758,7 +768,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
   const problematicKeys = useMemo(() => {
     const keys = new Set<string>();
     (workPlan?.overflowIssues ?? []).forEach(i => {
-      if (i.userName && i.crNumber) keys.add(rowKey(i.userName, i.crNumber));
+      if (i.userName && i.crNumber && i.cycleType) keys.add(rowKey(i.userName, i.crNumber, i.cycleType));
     });
     return keys;
   }, [workPlan]);
@@ -845,17 +855,21 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           {!issuesCollapsed && (
             <div style={{ padding: `0 ${SP[4]} ${SP[4]}`, display: 'flex', flexDirection: 'column', gap: SP[3] }}>
               {workPlan.overflowIssues.map((issue, i) => {
-                const hasRow = !!(issue.userName && issue.crNumber);
+                const hasRow = !!(issue.userName && issue.crNumber && issue.cycleType);
                 const goToRow = () => {
                   if (!hasRow) return;
-                  // Make sure the owning cycle is expanded before scrolling to it.
+                  // Match on cycleType too — the same tester+CR has its own
+                  // row in every cycle it's active in, so without this the
+                  // first (usually CYCLE_1) occurrence always won regardless
+                  // of which cycle the issue is actually about.
                   const owningCycle = workPlan.cycles.find(c =>
+                    c.cycleType === issue.cycleType &&
                     c.tasks.some(t => t.taskType !== 'REGRESSION' && t.user.fullName === issue.userName && t.crNumber === issue.crNumber),
                   );
                   if (owningCycle && !expandedCycles.has(owningCycle.id)) toggleCycle(owningCycle.id);
                   requestAnimationFrame(() => {
                     setTimeout(() => {
-                      document.getElementById(rowElementId(issue.userName!, issue.crNumber!))
+                      document.getElementById(rowElementId(issue.userName!, issue.crNumber!, issue.cycleType!))
                         ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     }, owningCycle && !expandedCycles.has(owningCycle.id) ? 150 : 0);
                   });
@@ -1089,6 +1103,14 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
                 color: viewMode === 'employees' ? '#fff' : C.textSecondary,
               }}
             >👤 לפי עובד</button>
+            <button
+              onClick={() => setViewMode('timeline')}
+              style={{
+                padding: '6px 14px', border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: FONT,
+                fontWeight: WEIGHT.semibold, background: viewMode === 'timeline' ? C.brand : C.bgCard,
+                color: viewMode === 'timeline' ? '#fff' : C.textSecondary,
+              }}
+            >📈 ציר זמן אמיתי</button>
           </div>
           {viewMode === 'employees' && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, ...TEXT.sm, color: C.textSecondary, cursor: 'pointer' }}>
@@ -1147,15 +1169,40 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           onlyOverflowing={onlyOverflowing}
           expandedCell={expandedMatrixCell}
           onToggleCell={key => setExpandedMatrixCell(prev => prev === key ? null : key)}
-          onGoToRow={(userName, crNumber) => {
+          onGoToRow={(userName, crNumber, cycleType) => {
             const owningCycle = workPlan.cycles.find(c =>
+              c.cycleType === cycleType &&
               c.tasks.some(t => t.taskType !== 'REGRESSION' && t.user.fullName === userName && t.crNumber === crNumber),
             );
             setViewMode('cycles');
             if (owningCycle && !expandedCycles.has(owningCycle.id)) toggleCycle(owningCycle.id);
             requestAnimationFrame(() => {
               setTimeout(() => {
-                document.getElementById(rowElementId(userName, crNumber))
+                document.getElementById(rowElementId(userName, crNumber, cycleType))
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }, owningCycle && !expandedCycles.has(owningCycle.id) ? 150 : 0);
+            });
+          }}
+        />
+      )}
+
+      {/* ── All-testers real-calendar timeline ── */}
+      {viewMode === 'timeline' && workPlan && (
+        <AllTestersRealTimeline
+          workPlan={workPlan}
+          allPlanTesters={allPlanTesters}
+          urgentCrNumbers={urgentCrNumbers}
+          filterUserId={filterUserId}
+          onGoToRow={(userName, crNumber, cycleType) => {
+            const owningCycle = workPlan.cycles.find(c =>
+              c.cycleType === cycleType &&
+              c.tasks.some(t => t.taskType !== 'REGRESSION' && t.user.fullName === userName && t.crNumber === crNumber),
+            );
+            setViewMode('cycles');
+            if (owningCycle && !expandedCycles.has(owningCycle.id)) toggleCycle(owningCycle.id);
+            requestAnimationFrame(() => {
+              setTimeout(() => {
+                document.getElementById(rowElementId(userName, crNumber, cycleType))
                   ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
               }, owningCycle && !expandedCycles.has(owningCycle.id) ? 150 : 0);
             });
@@ -1300,7 +1347,7 @@ function GanttChart({ cycle, label, testerGroups, saGhostsByUser, urgentCrNumber
   const [hoveredSeg, setHoveredSeg] = useState<{ text: string; x: number; y: number } | null>(null);
   const cycleLengthDays = Math.max(1, countWorkDaysBetween(cycle.plannedStart, cycle.plannedEnd, holidayDays));
 
-  type Seg = { id: string; crNumber: string; label: string; startDay: number; durationDays: number; color: string | null; isTarget: boolean; isGhost: boolean; ghostLabel?: string; hasConflict?: boolean; isUrgent: boolean };
+  type Seg = { id: string; crNumber: string; label: string; startDay: number; durationDays: number; plannedStart: string; plannedEnd: string; color: string | null; isTarget: boolean; isGhost: boolean; ghostLabel?: string; hasConflict?: boolean; isUrgent: boolean };
   const rows = Array.from(testerGroups.entries())
     .map(([userId, group]) => {
       const active = group.tasks.filter(t => t.isActive).sort((a, b) => a.plannedStart.localeCompare(b.plannedStart));
@@ -1313,7 +1360,9 @@ function GanttChart({ cycle, label, testerGroups, saGhostsByUser, urgentCrNumber
         const color = isFiller ? null : isTarget ? GANTT_TARGET_COLOR : GANTT_TASK_COLORS[colorIdx++ % GANTT_TASK_COLORS.length];
         return {
           id: t.id, crNumber: isFiller ? 'רגרסיה' : t.crNumber, label: t.crLabel ?? t.crNumber,
-          startDay, durationDays: Math.max(1, endDay - startDay + 1), color, isTarget, isGhost: false,
+          startDay, durationDays: Math.max(1, endDay - startDay + 1),
+          plannedStart: t.plannedStart, plannedEnd: t.plannedEnd,
+          color, isTarget, isGhost: false,
           isUrgent: !isFiller && urgentCrNumbers.has(t.crNumber),
         };
       });
@@ -1329,7 +1378,9 @@ function GanttChart({ cycle, label, testerGroups, saGhostsByUser, urgentCrNumber
         const endDay   = ganttDayOf(cycle.plannedStart, t.plannedEnd, holidayDays);
         segs.push({
           id: `ghost-${t.id}`, crNumber: t.crNumber, label: t.crLabel ?? t.crNumber,
-          startDay, durationDays: Math.max(1, endDay - startDay + 1), color: null, isTarget: false, isGhost: true,
+          startDay, durationDays: Math.max(1, endDay - startDay + 1),
+          plannedStart: t.plannedStart, plannedEnd: t.plannedEnd,
+          color: null, isTarget: false, isGhost: true,
           ghostLabel: t.ghostLabel, hasConflict: t.hasConflict, isUrgent: false,
         });
       }
@@ -1409,7 +1460,7 @@ function GanttChart({ cycle, label, testerGroups, saGhostsByUser, urgentCrNumber
                   const titlePrefix = seg.isGhost
                     ? (seg.hasConflict ? `⚠ חפיפה בפועל! ↗ ${seg.ghostLabel} (סבב אחר) — ` : `↗ ${seg.ghostLabel} (סבב אחר, אין חפיפה בפועל) — `)
                     : seg.isTarget ? '🎯 TARGET — ' : '';
-                  const tooltipText = `${titlePrefix}${seg.crNumber} — ${seg.label} (${seg.durationDays} ${seg.durationDays === 1 ? 'יום' : 'ימים'})`;
+                  const tooltipText = `${titlePrefix}${seg.crNumber} — ${seg.label} · ${fmtDate(seg.plannedStart)}–${fmtDate(seg.plannedEnd)} (${seg.durationDays} ${seg.durationDays === 1 ? 'יום' : 'ימים'})`;
                   return (
                     <div
                       key={seg.id}
@@ -1514,7 +1565,7 @@ function EmployeeCycleMatrix({
   onlyOverflowing: boolean;
   expandedCell: string | null;
   onToggleCell: (key: string) => void;
-  onGoToRow: (userName: string, crNumber: string) => void;
+  onGoToRow: (userName: string, crNumber: string, cycleType: string) => void;
 }) {
   const cycles = MATRIX_CYCLES
     .map(ct => workPlan.cycles.find(c => c.cycleType === ct))
@@ -1619,14 +1670,16 @@ function EmployeeCycleMatrix({
                               {cell.tasks.map(t => (
                                 <div
                                   key={t.id}
-                                  onClick={() => onGoToRow(row.tester.fullName, t.crNumber)}
+                                  onClick={() => onGoToRow(row.tester.fullName, t.crNumber, cell.cycleType)}
                                   style={{ display: 'flex', justifyContent: 'space-between', gap: SP[2], padding: '3px 0', cursor: 'pointer', borderBottom: `1px solid ${C.border}` }}
                                 >
                                   <span style={{ ...TEXT.xs, color: C.textPrimary }}>
                                     {urgentCrNumbers.has(t.crNumber) && <span title="דחוף" style={{ color: C.danger, marginLeft: 4 }}>🔴</span>}
                                     {t.crNumber} — {t.crLabel ?? t.crNumber}
                                   </span>
-                                  <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap' }}>{t.effortDays}י׳</span>
+                                  <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap' }}>
+                                    {fmtDate(t.plannedStart)}–{fmtDate(t.plannedEnd)} · {t.effortDays}י׳
+                                  </span>
                                 </div>
                               ))}
                               {cell.issues.map((issue, i) => (
@@ -1653,6 +1706,195 @@ function EmployeeCycleMatrix({
             )}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+// ── AllTestersRealTimeline ───────────────────────────────────────────────────
+// "One bar per tester, real calendar dates" — every active task across every
+// cycle (CYCLE_1/2/3, Stand Alone, UAT, ...) on a single continuous axis
+// positioned by actual date, instead of each cycle's own work-day-relative
+// index (see GanttChart) or a day-count matrix (see EmployeeCycleMatrix).
+// Answers "what does this person's whole schedule actually look like" in one
+// glance — weekends/holidays show up as real gaps, not as compressed indices.
+// Uses calendar-day math (not work-day counting) for positioning, since the
+// whole point here is to show the real gaps. Dates from the server are
+// Israel-midnight ISO strings (e.g. "...T22:00:00.000Z" in winter) — reading
+// them with plain `new Date().getDate()` breaks on any non-Israel runtime
+// timezone (see the equivalent fix in QaAssignmentView.tsx, 2026-08-02); this
+// extracts the intended Israel calendar day explicitly instead.
+const TL_ISRAEL_DATE_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit' });
+function tlIsraelDay(iso: string): Date {
+  const parts = TL_ISRAEL_DATE_FMT.formatToParts(new Date(iso));
+  const get = (type: string) => Number(parts.find(p => p.type === type)!.value);
+  return new Date(Date.UTC(get('year'), get('month') - 1, get('day')));
+}
+function tlCalendarDays(fromIso: string, toIso: string): number {
+  return Math.round((tlIsraelDay(toIso).getTime() - tlIsraelDay(fromIso).getTime()) / 86400000);
+}
+
+function AllTestersRealTimeline({
+  workPlan, allPlanTesters, urgentCrNumbers, filterUserId, onGoToRow,
+}: {
+  workPlan: WorkPlan;
+  allPlanTesters: { userId: string; fullName: string }[];
+  urgentCrNumbers: Set<string>;
+  filterUserId: string;
+  onGoToRow: (userName: string, crNumber: string, cycleType: string) => void;
+}) {
+  const cycles = workPlan.cycles.filter(c => c.tasks.length > 0);
+
+  const { axisStartIso, axisDays } = useMemo(() => {
+    if (cycles.length === 0) return { axisStartIso: workPlan.cycle1Start, axisDays: 1 };
+    const starts = cycles.map(c => c.plannedStart);
+    const ends   = cycles.map(c => c.plannedEnd);
+    const start  = starts.reduce((a, b) => a < b ? a : b);
+    const end    = ends.reduce((a, b) => a > b ? a : b);
+    return { axisStartIso: start, axisDays: Math.max(1, tlCalendarDays(start, end) + 1) };
+  }, [cycles, workPlan.cycle1Start]);
+
+  const pctOf = (days: number) => (days / axisDays) * 100;
+
+  // Weekend shading — every Friday/Saturday across the axis (RTL: right = axis start)
+  const weekendBands = useMemo(() => {
+    const bands: { rightPct: number; widthPct: number }[] = [];
+    const start = tlIsraelDay(axisStartIso);
+    for (let i = 0; i < axisDays; i++) {
+      const d = new Date(start); d.setUTCDate(d.getUTCDate() + i);
+      const dow = d.getUTCDay();
+      if (dow === 5 || dow === 6) bands.push({ rightPct: pctOf(i), widthPct: pctOf(1) });
+    }
+    return bands;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [axisStartIso, axisDays]);
+
+  // Cycle bands — colored background strip per cycle across its own real date span
+  const cycleBands = cycles.map(c => ({
+    cycleType: c.cycleType,
+    rightPct:  pctOf(tlCalendarDays(axisStartIso, c.plannedStart)),
+    widthPct:  pctOf(tlCalendarDays(c.plannedStart, c.plannedEnd) + 1),
+  }));
+
+  // Month/date ticks — one per ~7 days, always including day 0
+  const tickStep = Math.max(1, Math.round(axisDays / 8));
+  const ticks = Array.from({ length: Math.floor(axisDays / tickStep) + 1 }, (_, i) => i * tickStep)
+    .filter(t => t <= axisDays - 1);
+  if (ticks[ticks.length - 1] !== axisDays - 1) ticks.push(axisDays - 1);
+
+  const rows = allPlanTesters
+    .filter(t => !filterUserId || t.userId === filterUserId)
+    .map(tester => {
+      const tasks = cycles
+        .flatMap(c => c.tasks.map(t => ({ ...t, cycleType: c.cycleType })))
+        .filter(t => t.isActive && t.taskType !== 'REGRESSION' && t.userId === tester.userId)
+        .sort((a, b) => a.plannedStart.localeCompare(b.plannedStart));
+      return { tester, tasks };
+    })
+    .filter(r => r.tasks.length > 0)
+    .sort((a, b) => a.tester.fullName.localeCompare(b.tester.fullName, 'he'));
+
+  const ROW_H = 30;
+  const LABEL_W = 156;
+
+  if (rows.length === 0) {
+    return (
+      <div style={{ ...cardStyle, textAlign: 'center', color: C.textMuted, padding: SP[5] }}>
+        אין בודקים עם משימות פעילות בתוכנית
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, marginBottom: SP[4], overflow: 'hidden' }}>
+      <div style={{ padding: SP[4], paddingBottom: SP[3], display: 'flex', alignItems: 'center', gap: SP[2], direction: 'rtl' }}>
+        <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          📊 ציר זמן אמיתי — כל הבודקים
+        </span>
+        <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap', marginRight: 'auto' }}>
+          {cycleBands.map(b => (
+            <span key={b.cycleType} style={{ display: 'flex', alignItems: 'center', gap: 4, ...TEXT.xs, color: C.textMuted }}>
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: CYCLE_BG[b.cycleType] ?? C.bgNested, border: `1px solid ${CYCLE_ACCENT[b.cycleType] ?? C.border}` }} />
+              {CYCLE_LABEL[b.cycleType] ?? b.cycleType}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ padding: `0 ${SP[4]} ${SP[4]}`, direction: 'rtl' }}>
+        {/* Date axis ticks */}
+        <div style={{ display: 'flex', alignItems: 'center', height: 18, marginBottom: SP[1] }}>
+          <div style={{ width: LABEL_W, flexShrink: 0 }} />
+          <div style={{ flex: 1, position: 'relative', height: '100%' }}>
+            {ticks.map(t => {
+              const d = new Date(tlIsraelDay(axisStartIso)); d.setUTCDate(d.getUTCDate() + t);
+              return (
+                <span key={t} style={{
+                  position: 'absolute', right: `${pctOf(t)}%`, transform: 'translateX(50%)',
+                  ...TEXT.xs, color: C.textDisabled, whiteSpace: 'nowrap',
+                }}>
+                  {d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Cycle-span row */}
+        <div style={{ display: 'flex', alignItems: 'center', height: 14, marginBottom: SP[2] }}>
+          <div style={{ width: LABEL_W, flexShrink: 0 }} />
+          <div style={{ flex: 1, position: 'relative', height: '100%' }}>
+            {cycleBands.map(b => (
+              <div key={b.cycleType} title={CYCLE_LABEL[b.cycleType] ?? b.cycleType} style={{
+                position: 'absolute', top: 0, height: '100%', borderRadius: RADIUS.sm,
+                right: `${b.rightPct}%`, width: `${b.widthPct}%`,
+                background: CYCLE_BG[b.cycleType] ?? C.bgNested, border: `1px solid ${CYCLE_ACCENT[b.cycleType] ?? C.border}55`,
+              }} />
+            ))}
+          </div>
+        </div>
+
+        {/* Tester rows */}
+        {rows.map(row => (
+          <div key={row.tester.userId} style={{ display: 'flex', alignItems: 'center', height: ROW_H }}>
+            <div title={row.tester.fullName} style={{
+              width: LABEL_W, flexShrink: 0, ...TEXT.xs, fontWeight: WEIGHT.medium, color: C.textPrimary,
+              paddingRight: SP[2], boxSizing: 'border-box', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {row.tester.fullName}
+            </div>
+            <div style={{ flex: 1, position: 'relative', height: 18, background: C.bgNested, borderRadius: RADIUS.sm, overflow: 'hidden' }}>
+              {weekendBands.map((b, i) => (
+                <div key={i} style={{ position: 'absolute', top: 0, bottom: 0, right: `${b.rightPct}%`, width: `${b.widthPct}%`, background: 'rgba(0,0,0,0.04)' }} />
+              ))}
+              {row.tasks.map((t, i) => {
+                const isTarget = TARGET_CR_PATTERN.test(t.crLabel ?? t.crNumber);
+                const color = isTarget ? GANTT_TARGET_COLOR : GANTT_TASK_COLORS[i % GANTT_TASK_COLORS.length];
+                const startOffset = tlCalendarDays(axisStartIso, t.plannedStart);
+                const spanDays    = tlCalendarDays(t.plannedStart, t.plannedEnd) + 1;
+                const rightPct = pctOf(startOffset);
+                const widthPct = pctOf(spanDays);
+                const wide = widthPct > 6;
+                return (
+                  <div
+                    key={t.id}
+                    onClick={() => onGoToRow(row.tester.fullName, t.crNumber, t.cycleType)}
+                    title={`${isTarget ? '🎯 TARGET — ' : ''}${t.crNumber} — ${t.crLabel ?? t.crNumber} · ${CYCLE_LABEL[t.cycleType] ?? t.cycleType} · ${fmtDate(t.plannedStart)}–${fmtDate(t.plannedEnd)}`}
+                    style={{
+                      position: 'absolute', top: 1, bottom: 1, right: `${rightPct}%`, width: `${widthPct}%`,
+                      background: color, borderRadius: RADIUS.sm, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                      border: `1px solid ${C.bgCard}`, minWidth: 3,
+                    }}
+                  >
+                    {urgentCrNumbers.has(t.crNumber) && <span style={{ position: 'absolute', right: 1, top: -1, color: '#fff', fontSize: 9 }}>🔴</span>}
+                    {wide && <span style={{ ...TEXT.xs, color: '#fff', fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{t.crNumber}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1913,6 +2155,7 @@ function CycleCard({
                   onReorderTask={onReorderTask}
                   reorderingTask={reorderingTask}
                   isCycle1={cycle.cycleType === 'CYCLE_1'}
+                  cycleType={cycle.cycleType}
                   problematicKeys={problematicKeys}
                   allTesters={allTesters}
                   swappingTask={swappingTask}
@@ -1949,6 +2192,7 @@ interface TesterSectionProps {
   onReorderTask:   (taskId: string, newSortOrder: number) => void;
   reorderingTask:  string | null;
   isCycle1:        boolean;
+  cycleType:       string;
   problematicKeys: Set<string>;
   allTesters:      { userId: string; fullName: string }[];
   swappingTask:    string | null;
@@ -1963,7 +2207,7 @@ interface TesterSectionProps {
 function TesterSection({
   testerName, tasks, ghostTasks, editable, onToggleTask, togglingTasks,
   editingEffort, onEditEffort, onSaveEffort,
-  assignmentMap, onOpenSecondary, onReorderTask, reorderingTask, isCycle1,
+  assignmentMap, onOpenSecondary, onReorderTask, reorderingTask, isCycle1, cycleType,
   problematicKeys, allTesters, swappingTask, onStartSwap, onReassignTester, reassigning,
   onDeleteTask, deletingTask,
   urgentCrNumbers,
@@ -1973,7 +2217,14 @@ function TesterSection({
   const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
   const sorted = [...tasks].sort((a, b) => a.sortOrder - b.sortOrder);
   const crTasks = sorted.filter(t => t.taskType !== 'REGRESSION' && t.isPrimary);
-  const totalDays = crTasks.filter(t => t.isActive).reduce((s, t) => s + t.effortDays, 0);
+  const activeCrTasks = crTasks.filter(t => t.isActive);
+  const totalDays = activeCrTasks.reduce((s, t) => s + t.effortDays, 0);
+  const dateRange = activeCrTasks.length > 0
+    ? {
+        start: activeCrTasks.reduce((min, t) => t.plannedStart < min ? t.plannedStart : min, activeCrTasks[0].plannedStart),
+        end:   activeCrTasks.reduce((max, t) => t.plannedEnd   > max ? t.plannedEnd   : max, activeCrTasks[0].plannedEnd),
+      }
+    : null;
 
   // Real rows (unchanged order/index logic) merged with read-only Stand Alone
   // "ghost" rows at their true chronological position, for display only — the
@@ -2024,6 +2275,7 @@ function TesterSection({
         </span>
         <span style={{ ...TEXT.xs, color: C.textMuted }}>
           סה"כ: {totalDays} ימים · {crTasks.length} CR
+          {dateRange && ` · ${fmtDate(dateRange.start)}–${fmtDate(dateRange.end)}`}
         </span>
         <span style={{ marginRight: 'auto', ...TEXT.xs, color: C.textMuted }}>{collapsed ? '▼' : '▲'}</span>
       </div>
@@ -2091,12 +2343,12 @@ function TesterSection({
                 ? (asg as any)?.secondaryUser?.fullName ?? `בודק שני (${asg.secondaryTesterId.slice(0,6)})`
                 : null;
 
-              const isProblematic = !isReg && problematicKeys.has(rowKey(testerName, task.crNumber));
+              const isProblematic = !isReg && problematicKeys.has(rowKey(testerName, task.crNumber, cycleType));
 
               return (
                 <tr
                   key={task.id}
-                  id={rowElementId(testerName, task.crNumber)}
+                  id={rowElementId(testerName, task.crNumber, cycleType)}
                   onDragOver={isCycle1 && orderNum != null ? e => { e.preventDefault(); if (dragTaskId && dragTaskId !== task.id) setDragOverTaskId(task.id); } : undefined}
                   onDragLeave={isCycle1 && orderNum != null ? () => setDragOverTaskId(prev => prev === task.id ? null : prev) : undefined}
                   onDrop={isCycle1 && orderNum != null ? e => { e.preventDefault(); handleDrop(task); } : undefined}
@@ -2208,9 +2460,9 @@ function TesterSection({
                     ) : (
                       <span
                         title="לחץ לעריכה"
-                        onClick={() => !isSecondary && onEditEffort(task.id)}
-                        style={{ cursor: isSecondary ? 'default' : 'pointer', ...TEXT.xs, color: C.textPrimary, fontWeight: WEIGHT.medium, padding: '1px 6px', borderRadius: RADIUS.sm, border: `1px solid transparent` }}
-                        onMouseEnter={e => { if (!isSecondary) (e.currentTarget as HTMLSpanElement).style.border = `1px solid ${C.border}`; }}
+                        onClick={() => onEditEffort(task.id)}
+                        style={{ cursor: 'pointer', ...TEXT.xs, color: C.textPrimary, fontWeight: WEIGHT.medium, padding: '1px 6px', borderRadius: RADIUS.sm, border: `1px solid transparent` }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLSpanElement).style.border = `1px solid ${C.border}`; }}
                         onMouseLeave={e => (e.currentTarget as HTMLSpanElement).style.border = '1px solid transparent'}
                       >
                         {task.effortDays}
@@ -2219,9 +2471,13 @@ function TesterSection({
                   </td>
                   {/* Archive — a corrective, recoverable action (see the "ארכיון"
                       panel), always available regardless of the cycle's
-                      editable/approval gate (unlike toggle/reassign below) */}
+                      editable/approval gate (unlike toggle/reassign below).
+                      Secondary rows are editable/archivable too (2026-08-03 —
+                      the backend's updateTaskEffort/deleteTask never
+                      distinguished primary/secondary; this was a frontend-only
+                      gate with no documented reason). ── */}
                   <td style={{ ...tdStyle, textAlign: 'center' }}>
-                    {!isReg && !isSecondary && (
+                    {!isReg && (
                       <button
                         title="העבר לארכיון (ניתן לשחזור)"
                         onClick={() => onDeleteTask(task)}

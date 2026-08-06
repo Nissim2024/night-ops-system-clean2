@@ -103,7 +103,20 @@ const MonthlyTrendChart: React.FC<{
 
   return (
     <div style={{ overflowX: 'auto' }}>
-      <svg width={width} height={height + 10} viewBox={`0 0 ${width} ${height + 10}`} style={{ overflow: 'visible', display: 'block' }}>
+      {/* CSS width:100% + minWidth (not the SVG width/height attributes) —
+          so a card much wider than the natural point-spacing stretches the
+          chart to fill it instead of leaving the fixed-pixel SVG flush
+          against one side (RTL: the right) with empty space on the other.
+          minWidth preserves the original "scroll instead of squeeze"
+          behavior once there are enough points to need it.
+          preserveAspectRatio="none" so the stretch is horizontal only —
+          height stays exactly as specified. Found live in production
+          2026-08-05. */}
+      <svg
+        viewBox={`0 0 ${width} ${height + 10}`}
+        preserveAspectRatio="none"
+        style={{ overflow: 'visible', display: 'block', width: '100%', minWidth: width, height: height + 10 }}
+      >
         <polyline points={polyline} fill="none" stroke={C.brand} strokeWidth={2} />
         {points.map((p, i) => {
           const isSelected = p.d.monthLabel === selectedMonth;

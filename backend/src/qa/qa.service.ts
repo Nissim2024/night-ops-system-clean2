@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, NotFoundException, ConflictException }
 import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import { scoreForCr, resolveSkillName, ScoringResult } from './qa.engine';
-import { addWorkDays, nextWorkDay, getFirstWorkDay } from './qa.scheduler';
+import { addWorkDays, nextWorkDay, getFirstWorkDay, dateKey } from './qa.scheduler';
 import { VersionCrAssignmentsService } from '../version-cr-assignments/version-cr-assignments.service';
 
 const prisma = new PrismaClient();
@@ -496,6 +496,18 @@ export class QaService {
     };
   }
 
+  // Same real-holiday source as qa-workplan.service.ts's loadHolidayDays —
+  // Season.forcesOff, not isActive (which only means "open for leave-request
+  // submissions," unrelated). Duplicated here rather than shared, matching
+  // this codebase's existing convention of self-contained services.
+  private async loadHolidayDays(): Promise<Set<string>> {
+    const dates = await (prisma as any).seasonDate.findMany({
+      where: { season: { forcesOff: true } },
+      select: { date: true },
+    });
+    return new Set(dates.map((d: any) => dateKey(d.date)));
+  }
+
   private async cascadeEffortToWorkPlan(
     versionId: string,
     crNumber:  string,
@@ -503,6 +515,11 @@ export class QaService {
   ) {
     const plan = await (prisma as any).qaWorkPlan.findUnique({ where: { versionId } });
     if (!plan) return;
+
+    // Holiday-blind before this fix — a task's cascaded date could land on
+    // (or a regression-fill window silently include) a real holiday. Found
+    // live in production 2026-08-03 alongside the isActive/forcesOff bug.
+    const holidayDays = await this.loadHolidayDays();
 
     const RATIO: Record<string, number> = {
       CYCLE_1: 1.0, CYCLE_2: 0.5, CYCLE_3: 0.30, STAND_ALONE: 1.0,
@@ -541,14 +558,14 @@ export class QaService {
             : task.effortDays;
 
           const taskStart = new Date(pointer);
-          const taskEnd   = addWorkDays(taskStart, effortDays - 1);
+          const taskEnd   = addWorkDays(taskStart, effortDays - 1, holidayDays);
 
           await (prisma as any).qaCycleTask.update({
             where: { id: task.id },
             data:  { effortDays, plannedStart: taskStart, plannedEnd: taskEnd },
           });
 
-          pointer = nextWorkDay(taskEnd);
+          pointer = nextWorkDay(taskEnd, holidayDays);
           if (taskEnd > maxEnd) maxEnd = taskEnd;
         }
       }
@@ -564,7 +581,7 @@ export class QaService {
         const updated = await (prisma as any).qaCycleTask.findUnique({ where: { id: lastTask.id } });
         const testerEnd = new Date(updated.plannedEnd);
         if (testerEnd < maxEnd) {
-          const fillStart = nextWorkDay(testerEnd);
+          const fillStart = nextWorkDay(testerEnd, holidayDays);
           let days = 0;
           const d = new Date(fillStart);
           d.setHours(0, 0, 0, 0);
@@ -572,7 +589,7 @@ export class QaService {
           const tmp = new Date(d);
           while (tmp <= e) {
             const dow = tmp.getDay();
-            if (dow !== 5 && dow !== 6) days++;
+            if (dow !== 5 && dow !== 6 && !holidayDays.has(dateKey(tmp))) days++;
             tmp.setDate(tmp.getDate() + 1);
           }
           if (days > 0) {
@@ -610,8 +627,8 @@ export class QaService {
       if (!cycle || RATIO[ct] == null) continue;
 
       const cycleStart = corePointer
-        ? nextWorkDay(corePointer)
-        : getFirstWorkDay(new Date(cycle.plannedStart));
+        ? nextWorkDay(corePointer, holidayDays)
+        : getFirstWorkDay(new Date(cycle.plannedStart), holidayDays);
 
       corePointer = await reschedule(cycle, cycleStart, RATIO[ct]!);
     }
@@ -620,7 +637,7 @@ export class QaService {
     const saCycle = cycleByType.get('STAND_ALONE');
     if (saCycle) {
       const cycle1 = cycleByType.get('CYCLE_1');
-      const saStart = getFirstWorkDay(cycle1 ? new Date(cycle1.plannedStart) : new Date(plan.cycle1Start));
+      const saStart = getFirstWorkDay(cycle1 ? new Date(cycle1.plannedStart) : new Date(plan.cycle1Start), holidayDays);
       await reschedule(saCycle, saStart, RATIO['STAND_ALONE']!);
     }
 
@@ -628,7 +645,7 @@ export class QaService {
     if (corePointer) {
       const uatCycle = cycleByType.get('UAT');
       if (uatCycle) {
-        const uatStart = nextWorkDay(corePointer);
+        const uatStart = nextWorkDay(corePointer, holidayDays);
         await (prisma as any).qaCycle.update({
           where: { id: uatCycle.id },
           data:  { plannedStart: uatStart, plannedEnd: uatStart },
@@ -636,7 +653,7 @@ export class QaService {
 
         const rehearsalCycle = cycleByType.get('REHEARSAL');
         if (rehearsalCycle) {
-          const rStart = nextWorkDay(uatStart);
+          const rStart = nextWorkDay(uatStart, holidayDays);
           await (prisma as any).qaCycle.update({
             where: { id: rehearsalCycle.id },
             data:  { plannedStart: rStart, plannedEnd: rStart },
@@ -644,7 +661,7 @@ export class QaService {
 
           const goLiveCycle = cycleByType.get('GO_LIVE');
           if (goLiveCycle) {
-            const glStart = nextWorkDay(rStart);
+            const glStart = nextWorkDay(rStart, holidayDays);
             await (prisma as any).qaCycle.update({
               where: { id: goLiveCycle.id },
               data:  { plannedStart: glStart, plannedEnd: glStart },

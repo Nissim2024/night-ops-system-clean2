@@ -24,7 +24,7 @@ export class LeavesController {
   getSeasons() { return this.svc.getSeasons(); }
 
   @Post('seasons')
-  createSeason(@Request() req: any, @Body() body: { name: string; dateRange: string; isActive?: boolean; sortOrder?: number }) {
+  createSeason(@Request() req: any, @Body() body: { name: string; dateRange: string; isActive?: boolean; forcesOff?: boolean; sortOrder?: number }) {
     this.requireAdmin(req);
     return this.svc.createSeason(body);
   }

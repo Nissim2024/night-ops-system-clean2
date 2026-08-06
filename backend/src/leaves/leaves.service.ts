@@ -84,11 +84,11 @@ export class LeavesService {
     });
   }
 
-  async createSeason(data: { name: string; dateRange: string; isActive?: boolean; sortOrder?: number }) {
+  async createSeason(data: { name: string; dateRange: string; isActive?: boolean; forcesOff?: boolean; sortOrder?: number }) {
     return prisma.season.create({ data, include: { dates: true } });
   }
 
-  async updateSeason(id: string, data: { name?: string; dateRange?: string; isActive?: boolean; sortOrder?: number }) {
+  async updateSeason(id: string, data: { name?: string; dateRange?: string; isActive?: boolean; forcesOff?: boolean; sortOrder?: number }) {
     return prisma.season.update({ where: { id }, data, include: { dates: true } });
   }
 
@@ -127,7 +127,16 @@ export class LeavesService {
     }
 
     // ── 2. Group Hebcal items by umbrella season name ─────────────────────────
+    // forcesOff distinguishes real holidays (mandatory — nobody works by
+    // default, a LeaveRequest(kind='work') is the exception) from optional
+    // leave-request windows like summer vacation (default is everyone
+    // works, a LeaveRequest(kind='leave') is the exception). Every group
+    // here defaults to a real holiday except חופשת קייץ (2026-08-03 product
+    // clarification — it was previously created with the same forcesOff
+    // as real holidays, incorrectly blocking company-wide scheduling on
+    // dates nobody was actually off).
     const groups = new Map<string, { date: Date; label: string }[]>();
+    const NON_HOLIDAY_GROUPS = new Set(['חופשת קייץ']);
 
     for (const item of hebcalItems) {
       const name = normalizeHolidayTitle(item.title);
@@ -170,12 +179,17 @@ export class LeavesService {
       const existing = await prisma.season.findFirst({ where: { name: seasonName } });
       if (existing) { skipped++; continue; }
 
+      const forcesOff = !NON_HOLIDAY_GROUPS.has(name);
       const season = await prisma.season.create({
-        data: { name: seasonName, dateRange, isActive: false, sortOrder: Math.floor(first.getTime() / 86400000) },
+        data: { name: seasonName, dateRange, isActive: false, forcesOff, sortOrder: Math.floor(first.getTime() / 86400000) },
       });
 
       for (const [i, d] of dates.entries()) {
         await prisma.seasonDate.create({
+          // type stays 'holiday' regardless — it's an unrelated per-date UI
+          // concept (EmployeeLeavesView's request-to-work button), not
+          // touched by this fix; forcesOff on the season is the only signal
+          // the scheduler now uses.
           data: { seasonId: season.id, date: d.date, label: d.label, type: 'holiday', orderIndex: i },
         });
       }

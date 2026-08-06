@@ -224,6 +224,9 @@ export function buildWorkPlan(
   // [cycle1Start, testingEnd] as the target window (2026-07-29 product
   // decision); see scheduleStandAlone for how overflow past it is handled.
   testingEnd?: Date,
+  // The version's real go-live date (Version.plannedStart), when already
+  // set — see below where REHEARSAL/GO_LIVE are placed.
+  goLiveDate?: Date | null,
 ): PlannedCycle[] {
   // Manual queue order (assignment screen) is the base ordering every cycle
   // and Stand Alone build their per-tester queues from — every downstream
@@ -378,9 +381,28 @@ export function buildWorkPlan(
   }
   planned.push({ cycleType: 'UAT', plannedStart: uatStart, plannedEnd: cycle1End, tasks: uatTasks });
 
-  // Rehearsal + Go-Live: no tasks generated — team lead fills content
-  const rehearsalStart = nextWorkDay(corePointer, holidayDays);
-  const goLiveStart    = nextWorkDay(rehearsalStart, holidayDays);
+  // Rehearsal + Go-Live: no tasks generated — team lead fills content.
+  // Anchored to the version's real go-live date when one is already set (an
+  // existing external commitment — see qa-workplan.service.ts's
+  // syncVersionDatesFromWorkPlan): Go-Live = that exact date; Dress
+  // Rehearsal = 2 work days before it. Core testing (and UAT) are allowed to
+  // run right up against or past Dress Rehearsal in real calendar time —
+  // surfaced as a warning (GO_LIVE_OVERFLOW / CORE_TESTING_END_OVERFLOW)
+  // rather than adjusted around, per explicit product decision 2026-08-03.
+  // Only when there's no real go-live date yet (brand-new version, still
+  // null) does this fall back to the old sequential chain after core
+  // testing — that computed date is what becomes the official plannedStart
+  // afterward (see syncVersionDatesFromWorkPlan), so subsequent
+  // regenerations then anchor to it instead.
+  let rehearsalStart: Date;
+  let goLiveStart: Date;
+  if (goLiveDate) {
+    goLiveStart    = goLiveDate;
+    rehearsalStart = subtractWorkDays(goLiveDate, 2, holidayDays);
+  } else {
+    rehearsalStart = nextWorkDay(corePointer, holidayDays);
+    goLiveStart    = nextWorkDay(rehearsalStart, holidayDays);
+  }
 
   planned.push({ cycleType: 'REHEARSAL', plannedStart: rehearsalStart, plannedEnd: rehearsalStart, tasks: [] });
   planned.push({ cycleType: 'GO_LIVE',   plannedStart: goLiveStart,    plannedEnd: goLiveStart,    tasks: [] });
@@ -395,21 +417,41 @@ export function buildWorkPlan(
 // earliest available free slot — but it still can't overlap the tester's own
 // core-cycle tasks, since a tester only works one thing at a time.
 
-/** Find the earliest workday run of `workDaysNeeded` days at/after `from` that doesn't overlap any interval in `busy`. */
+/** Find `workDaysNeeded` free workdays at/after `from`, skipping days that
+ * overlap `busy` (or weekends/leave) one at a time — not requiring one
+ * single uninterrupted block. The old version rejected the whole candidate
+ * window on ANY overlap and restarted the search entirely after that
+ * conflict ended, so a brief 1-day commitment landing mid-window (e.g. a
+ * TARGET CR broadcast to every tester, recurring once per cycle) bounced
+ * the WHOLE task past it, wasting every otherwise-free day in between —
+ * confirmed live against production data 2026-08-03: a tester's second
+ * Stand Alone task got pushed ~3 weeks later than necessary because two
+ * unrelated single-day CR commitments each fell inside what would
+ * otherwise have been one 10-day search window. Now it just skips that one
+ * day and keeps accumulating, same as computeIdleSegments (regression-fill)
+ * already does. */
 function findFreeSlot(
   from:            Date,
   workDaysNeeded:  number,
   busy:            { start: Date; end: Date }[],
   leaveDays?:      Set<string>,
 ): { taskStart: Date; taskEnd: Date } {
-  let candidate = getFirstWorkDay(from, leaveDays);
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const taskEnd  = addWorkDays(candidate, workDaysNeeded - 1, leaveDays);
-    const conflict = busy.find(b => candidate.getTime() <= b.end.getTime() && taskEnd.getTime() >= b.start.getTime());
-    if (!conflict) return { taskStart: candidate, taskEnd };
-    candidate = getFirstWorkDay(nextWorkDay(conflict.end, leaveDays), leaveDays);
+  const isBusy = (d: Date) => busy.some(b => d.getTime() >= b.start.getTime() && d.getTime() <= b.end.getTime());
+
+  let cursor = getFirstWorkDay(from, leaveDays);
+  while (isBusy(cursor)) cursor = getFirstWorkDay(nextWorkDay(cursor, leaveDays), leaveDays);
+
+  const taskStart = new Date(cursor);
+  let taskEnd = new Date(cursor);
+  let remaining = workDaysNeeded - 1;
+  while (remaining > 0) {
+    cursor = nextWorkDay(cursor, leaveDays);
+    if (!isBusy(cursor)) {
+      taskEnd = new Date(cursor);
+      remaining--;
+    }
   }
+  return { taskStart, taskEnd };
 }
 
 /** Find every free-workday run within [windowStart, windowEnd] not covered by `busy` (used for regression-fill, computed after CR + SA are both placed). */

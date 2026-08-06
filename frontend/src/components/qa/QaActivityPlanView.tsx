@@ -58,13 +58,21 @@ const CAT_LABELS: Record<Category | 'all', string> = {
 
 
 // ── Work-day helpers (ראשון–חמישי) ────────────────────────────────────────────
+// `holidayDays` (yyyy-mm-dd keys) mirrors the real-holiday set the other QA
+// screens use (Season.forcesOff, fetched from GET /leaves/seasons) — this
+// screen previously only skipped Fri/Sat and was completely holiday-blind,
+// generating meeting/refresh/deployment/go-live dates straight through real
+// holidays. Fixed 2026-08-03 alongside the same gap in qa-workplan.service.ts
+// and qa.service.ts.
 
-function isWorkDay(d: Date): boolean {
+function isWorkDay(d: Date, holidayDays?: Set<string>): boolean {
   const w = d.getDay();
-  return w !== 5 && w !== 6; // שישי=5, שבת=6
+  if (w === 5 || w === 6) return false; // שישי=5, שבת=6
+  if (holidayDays && holidayDays.has(d.toISOString().slice(0, 10))) return false;
+  return true;
 }
 
-function addWD(base: Date, n: number): Date {
+function addWDBase(base: Date, n: number, holidayDays?: Set<string>): Date {
   const d = new Date(base);
   d.setHours(12, 0, 0, 0);
   if (n === 0) return d;
@@ -72,17 +80,22 @@ function addWD(base: Date, n: number): Date {
   let remaining = Math.abs(n);
   while (remaining > 0) {
     d.setDate(d.getDate() + step);
-    if (isWorkDay(d)) remaining--;
+    if (isWorkDay(d, holidayDays)) remaining--;
   }
   return d;
 }
 
-function nextDow(from: Date, dow: number): Date {
+function nextDowBase(from: Date, dow: number, holidayDays?: Set<string>): Date {
   const d = new Date(from);
   d.setHours(12, 0, 0, 0);
-  do { d.setDate(d.getDate() + 1); } while (d.getDay() !== dow);
+  do { d.setDate(d.getDate() + 1); } while (d.getDay() !== dow || (holidayDays && holidayDays.has(d.toISOString().slice(0, 10))));
   return d;
 }
+
+// Holiday-agnostic aliases for call sites outside buildSchedule's local
+// shadowing (e.g. computeGoLive, called with an explicit holidayDays arg).
+const addWD   = addWDBase;
+const nextDow = nextDowBase;
 
 function fmtDate(d: Date): string {
   const DOW = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
@@ -124,9 +137,9 @@ function savedToItem(e: any): ActivityItem {
 
 const BLOCKED_DOW = [3, 4, 5, 6]; // רביעי, חמישי, שישי, שבת
 
-function computeGoLive(lastTestEnd: Date, manualDelay: number): Date {
-  let t = addWD(lastTestEnd, 1 + manualDelay);
-  while (BLOCKED_DOW.includes(t.getDay())) {
+function computeGoLive(lastTestEnd: Date, manualDelay: number, holidayDays?: Set<string>): Date {
+  let t = addWD(lastTestEnd, 1 + manualDelay, holidayDays);
+  while (BLOCKED_DOW.includes(t.getDay()) || (holidayDays && holidayDays.has(t.toISOString().slice(0, 10)))) {
     do { t.setDate(t.getDate() + 1); } while (t.getDay() !== 0); // קפוץ לראשון
   }
   return t;
@@ -149,9 +162,16 @@ function buildSchedule(
   envInt:           EnvName,
   envQA:            EnvName,
   envDry:           EnvName,
+  holidayDays?:     Set<string>,
 ): { activities: ActivityItem[]; warnings: string[] } {
 
-  const T      = computeGoLive(lastTestEnd, manualDelay);
+  // Shadow the module-level date helpers with holiday-bound versions for the
+  // rest of this function — every unqualified addWD/nextDow call below picks
+  // this up automatically without editing each of the ~20 call sites.
+  const addWD    = (base: Date, n: number) => addWDBase(base, n, holidayDays);
+  const nextDow  = (from: Date, dow: number) => nextDowBase(from, dow, holidayDays);
+
+  const T      = computeGoLive(lastTestEnd, manualDelay, holidayDays);
   const phaseC = addWD(T, 1);
 
   const eInt = envLabel(envInt);
@@ -494,6 +514,7 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
 
   const [workPlan,         setWorkPlan]         = useState<WorkPlan | null>(null);
   const [loadingPlan,      setLoadingPlan]      = useState(false);
+  const [holidayDays,      setHolidayDays]      = useState<Set<string>>(new Set());
   const [integrationStart, setIntegrationStart] = useState('');
   const [integrationEnd,   setIntegrationEnd]   = useState('');
   const [manualDelay,      setManualDelay]      = useState(0);
@@ -538,6 +559,21 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
   // ── Fetch teams (once) ───────────────────────────────────────────────────────
   useEffect(() => {
     axios.get(`${API}/teams`, { headers }).then(r => setTeams(r.data)).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Fetch real holidays (once) — same forcesOff-filtered set the other QA
+  // screens use, see qa-workplan.service.ts's loadHolidayDays ─────────────────
+  useEffect(() => {
+    axios.get(`${API}/leaves/seasons`, { headers })
+      .then(r => {
+        const keys = new Set<string>();
+        (r.data as { forcesOff: boolean; dates: { date: string }[] }[])
+          .filter(s => s.forcesOff)
+          .forEach(s => s.dates.forEach(d => keys.add(new Date(d.date).toISOString().slice(0, 10))));
+        setHolidayDays(keys);
+      })
+      .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -603,7 +639,7 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
     const intEnd   = parseDate(integrationEnd);
     const result   = buildSchedule(
       intStart, intEnd, test1Start!, cycle1End, cycle2Start, cycle2End!, lastTestEnd!,
-      manualDelay, envInt, envQA, envDry,
+      manualDelay, envInt, envQA, envDry, holidayDays,
     );
     setActivities(result.activities);
     setWarnings(result.warnings);

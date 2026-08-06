@@ -72,9 +72,18 @@ export class VersionCrAssignmentsService {
     this.logger.log('Scheduled nightly CR_LIST sync done.');
   }
 
-  async findForVersion(versionId: string, user: { sub: string; role: string }) {
+  // `includeExempt` bypasses the requiresPlan=false exclusion below — needed
+  // by callers that want the CR's real sync/removed status regardless of
+  // which team it's on (QA Assignment/Work Plan screens), as opposed to the
+  // CR-Plan submission-tracking callers this exclusion was built for.
+  // QA Team itself is requiresPlan=false (it has its own separate QaWorkPlan
+  // system instead of submitting a CrPlan), so without this, a CR whose only
+  // row is on QA Team can never be seen as REMOVED by those two screens —
+  // its row is silently stripped before syncStatus ever reaches them (found
+  // 2026-08-02: CRs removed from CR_LIST kept showing as active forever).
+  async findForVersion(versionId: string, user: { sub: string; role: string }, includeExempt = false) {
     // Exclude assignments from teams that don't require plan submission
-    const exemptRows: any[] = await prisma.$queryRawUnsafe(
+    const exemptRows: any[] = includeExempt ? [] : await prisma.$queryRawUnsafe(
       `SELECT id FROM "Team" WHERE "requiresPlan" = false`,
     );
     const exemptTeamIds = exemptRows.map((r: any) => String(r.id));
@@ -503,7 +512,20 @@ export class VersionCrAssignmentsService {
         detail.prevDays = prevDays;
         detail.currentDays = sameVersion.teamDays;
         if (sameVersion.status) detail.statusInSource = sameVersion.status;
-        reason = 'לא זוהה שינוי בימי המאמץ או בסטטוס בקובץ המקור מול הגרסה הנוכחית — ייתכן שנדרש סנכרון מחדש.';
+        // A row can carry needsAttention=true from the sync that first added it
+        // (syncStatus='NEW' at the time) and then settle back to 'ACTIVE' on a
+        // later sync that matches it again — needsAttention is never cleared by
+        // that update path, only by an explicit review. By the time someone
+        // opens this detail, syncStatus no longer says 'NEW', so the top branch
+        // never fires and the row looks like it has no history at all. Without
+        // this check the fallback below ("may need resync") is actively
+        // misleading here — there's nothing to resync, the file and DB already
+        // agree; what's missing is that nobody has acknowledged the addition.
+        if (row.needsAttention) {
+          reason = 'ה-CR/הצוות הזה נוסף לתכולת הגרסה לאחר אישור התכולה. מאז לא זוהה שינוי נוסף בימי המאמץ או בסטטוס — הנתונים תואמים כרגע בין המערכת לקובץ המקור, אך ההוספה המקורית עדיין מסומנת כטעונת בדיקה. לחצו "אשר שינויים" לאחר שוידאתם שזה תקין.';
+        } else {
+          reason = 'לא זוהה שינוי בימי המאמץ או בסטטוס בקובץ המקור מול הגרסה הנוכחית — ייתכן שנדרש סנכרון מחדש.';
+        }
       } else if (otherVersion) {
         detail.movedToVersion = otherVersion.versionName;
         reason = `ה-CR עבר לגרסה "${otherVersion.versionName}" בקובץ המקור.`;

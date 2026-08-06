@@ -176,8 +176,10 @@ interface ScoringResult {
 
 // ── Work-day helpers (Israeli: Sun–Thu work, Fri+Sat off) ────────────────────
 // `holidayDays` (yyyy-mm-dd keys, see dateKeyStr) mirrors backend/src/qa/qa.scheduler.ts's
-// holiday handling — approved-season holiday dates, fetched from GET /leaves/seasons
-// and filtered to isActive, are skipped like a weekend everywhere the backend skips them.
+// holiday handling — real-holiday dates (Season.forcesOff — NOT isActive,
+// which only means "open for leave-request submissions" and is unrelated,
+// see qa-workplan.service.ts's loadHolidayDays), fetched from GET
+// /leaves/seasons, are skipped like a weekend everywhere the backend skips them.
 //
 // The backend encodes dates as e.g. "2026-01-31T22:00:00.000Z", meaning
 // midnight Israel time (which lands on the *next* UTC calendar day in
@@ -501,11 +503,20 @@ function RealTesterGantt({ filterTesterId, planCycles, holidayDays, cycle1Length
     return <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[3] }}>אין עדיין משימות בתוכנית העבודה לבודק זה</div>;
   }
 
+  // Segment width/label comes from the task's own effortDays — the same
+  // authoritative value the assignment table shows (asg.qaEffort ?? CR's
+  // qaEffortDays) — not from re-deriving a day-count out of
+  // plannedStart→plannedEnd. That span doesn't necessarily equal the task's
+  // own effort (e.g. a queued task's window can be wider than its real
+  // effort while it waits its turn), so recomputing from dates could show a
+  // bigger number here than the table's real per-CR effort, and the two
+  // would silently disagree — found live in production 2026-08-03 (Gantt
+  // showed 7+7=14 for two tasks the table listed as 4+7=11).
   const segs = mainTasks.map(t => ({
     crNumber: t.crNumber, crLabel: t.crLabel, isSA: t.srcCycle === 'STAND_ALONE',
-    days: Math.max(1, countWorkDays(t.plannedStart, t.plannedEnd, holidayDays)),
+    days: Math.round(Math.max(0.5, t.effortDays) * 10) / 10,
   }));
-  const totalDays  = segs.reduce((s, x) => s + x.days, 0);
+  const totalDays  = Math.round(segs.reduce((s, x) => s + x.days, 0) * 10) / 10;
   const scaleBase  = Math.max(cycle1LengthDays, totalDays, 1);
   const pctOf      = (d: number) => (d / scaleBase) * 100;
   const over       = cycle1LengthDays > 0 && totalDays > cycle1LengthDays;
@@ -636,6 +647,7 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   // Season.isActive gate so cycle-date previews here match what
   // generate-workplan will actually produce.
   const [holidayDays, setHolidayDays]   = useState<Set<string>>(new Set());
+  const [holidayLabels, setHolidayLabels] = useState<Map<string, string>>(new Map()); // yyyy-mm-dd → "ראש השנה" etc, for the short in-range note
   // Deliberately NOT falling back to localStorage here — a version picked
   // manually below is meant to be a transient, in-session browse, not a
   // choice that outlives the session and silently diverges from whatever
@@ -786,10 +798,16 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
     axios.get(`${API}/leaves/seasons`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => {
         const keys = new Set<string>();
-        (r.data as { isActive: boolean; dates: { date: string }[] }[])
-          .filter(s => s.isActive)
-          .forEach(s => s.dates.forEach(d => keys.add(new Date(d.date).toISOString().slice(0, 10))));
+        const labels = new Map<string, string>();
+        (r.data as { forcesOff: boolean; dates: { date: string; label: string }[] }[])
+          .filter(s => s.forcesOff)
+          .forEach(s => s.dates.forEach(d => {
+            const key = new Date(d.date).toISOString().slice(0, 10);
+            keys.add(key);
+            if (d.label) labels.set(key, d.label);
+          }));
         setHolidayDays(keys);
+        setHolidayLabels(labels);
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -809,7 +827,7 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
         axios.get(`${API}/qa/assignments/recommend?versionId=${vId}`, { headers }),
         axios.get(`${API}/qa/assignments?versionId=${vId}`, { headers }),
         axios.get(`${API}/qa/workplan?versionId=${vId}`, { headers }).catch(() => null),
-        axios.get(`${API}/version-cr-assignments/version/${vId}`, { headers }).catch(() => null),
+        axios.get(`${API}/version-cr-assignments/version/${vId}?includeExempt=true`, { headers }).catch(() => null),
         axios.get(`${API}/qa/assignments/second-tester-suggestions?versionId=${vId}`, { headers }).catch(() => null),
       ]);
       setCrs(recRes.data);
@@ -1057,13 +1075,21 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
       if (asgId) {
         const res = await axios.patch(`${API}/qa/assignments/${asgId}`, { qaEffort: parsed }, { headers });
         setAssignments(prev => [...prev.filter(a => a.crNumber !== crNumber), res.data]);
+        // The server cascades this into the live work plan's task effort/dates
+        // (qa.service.ts's cascadeEffortToWorkPlan) when a plan exists — a local
+        // patch of `assignments` alone leaves planOverflowIssues/planCycles
+        // stale, so the overflow warning panel keeps showing the pre-edit
+        // numbers until the page is fully reloaded (reported live 2026-08-02).
+        if (planExists && selectedVId) await loadVersion(selectedVId);
       } else {
         await axios.patch(`${API}/version-cr-assignments/cr/${selectedVId}/${crNumber}`, { qaEffortOverride: parsed }, { headers });
         setCrs(prev => prev.map(c => c.crNumber === crNumber ? { ...c, qaEffortDays: parsed } : c));
       }
-    } catch (e) { console.error('effort save failed', e); }
+    } catch (e: any) {
+      dialog.alert(e?.response?.data?.message ?? 'שגיאה בשמירת ימי העבודה', 'שגיאה', 'danger');
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [headers, selectedVId]);
+  }, [headers, selectedVId, planExists]);
 
   // ── Patch assignment (isStandAlone / cycles / sortOrder) ───────────────────
 
@@ -1370,6 +1396,14 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
         : 'כל ה-CRים המשובצים נכללו בתוכנית.';
       dialog.alert(msg, 'תוכנית עבודה נוצרה', unassignedCrs.length > 0 ? 'warning' : 'success');
       setPlanExists(true);
+      // The generate call rebuilds the plan server-side, but this component's
+      // own planCycles/assignments/planOverflowIssues state was never
+      // refetched afterward — so every screen reading from it (the "missing
+      // from plan" warning, the real overflow panel, the Gantt) kept showing
+      // the plan from BEFORE this rebuild until a full page reload. Found
+      // live in production 2026-08-03: "בנה מחדש מאפס" appeared to do
+      // nothing because its own result was invisible without this.
+      await loadVersion(selectedVId);
     } catch (e: any) {
       dialog.alert(e?.response?.data?.message ?? 'שגיאה ביצירת תוכנית העבודה', 'שגיאה', 'danger');
     } finally {
@@ -1391,6 +1425,9 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
         { headers },
       );
       dialog.alert('השינויים נשמרו. שינוי בתאריך ההתחלה עדכן את מועדי הסבבים הקיימים; שינוי באורך סבב בלבד יילקח בחשבון רק ביצירת תוכנית מחדש.', 'נשמר', 'success');
+      // Same staleness gap as doGenerateWorkPlan above — a cycle1Start move
+      // reflows real task dates server-side, invisible here without a refetch.
+      await loadVersion(selectedVId);
     } catch (e: any) {
       dialog.alert(e?.response?.data?.message ?? 'שגיאה בשמירת השינויים', 'שגיאה', 'danger');
     } finally {
@@ -1444,7 +1481,15 @@ CRים אלה לא ייכללו בתוכנית העבודה.
     [crs],
   );
 
-  // tester load: userId → { fullName, totalDays }
+  const crByNumber = useMemo(() => new Map(crs.map(c => [c.crNumber, c])), [crs]);
+
+  // tester load: userId → { fullName, totalDays } — Cycle-1-relevant days
+  // only. A CR that's Stand-Alone-only (cycles = ['STAND_ALONE']) never runs
+  // in Cycle 1 at all, so its effort must not count toward Cycle 1 capacity
+  // — same eligibility check as testerLoadForView below, just fixed to
+  // CYCLE_1 instead of the view selector (found live 2026-08-02: SA-only CRs
+  // were being lumped into the CYCLE_1 overload alert's total, flagging
+  // testers whose actual Cycle 1 load was well within capacity).
   const testerLoad = useMemo(() => {
     const map = new Map<string, { fullName: string; totalDays: number }>();
     const bump = (userId: string, fullName: string, days: number) => {
@@ -1453,6 +1498,10 @@ CRים אלה לא ייכללו בתוכנית העבודה.
     };
     assignments.forEach(a => {
       if (archivedCrSet.has(a.crNumber)) return;
+      const crRec = crByNumber.get(a.crNumber);
+      const effSA = a.isStandAlone !== null ? a.isStandAlone : (crRec?.isStandAlone ?? false);
+      const cycles = a.cycles?.length > 0 ? a.cycles : (effSA ? ['STAND_ALONE'] : ['CYCLE_1', 'CYCLE_2', 'CYCLE_3']);
+      if (!cycles.includes('CYCLE_1')) return;
       const total = a.qaEffort != null ? a.qaEffort : (effortMap.get(a.crNumber) ?? 0);
       // A second tester carries their participation % of the effort — the
       // rest stays with primary, matching the actual scheduler split, so
@@ -1466,13 +1515,11 @@ CRים אלה לא ייכללו בתוכנית העבודה.
       }
     });
     return map;
-  }, [assignments, effortMap, archivedCrSet]);
-
-  const crByNumber = useMemo(() => new Map(crs.map(c => [c.crNumber, c])), [crs]);
+  }, [assignments, effortMap, archivedCrSet, crByNumber]);
 
   // Per-cycle tester load for the "עומס בודקים" panel below — unlike
-  // testerLoad above (a flat sum across every cycle a CR touches, used only
-  // for the CYCLE_1 overload alert), this scales each CR's effort by
+  // testerLoad above (raw per-CR effort, fixed to CYCLE_1, used only for the
+  // CYCLE_1 overload alert), this scales each CR's effort by
   // CYCLE_EFFORT_RATIO for the currently-selected cycle and only counts CRs
   // that actually participate in it, plus how many CRs ("פיתוחים") that is.
   const testerLoadForView = useMemo(() => {
@@ -1560,6 +1607,19 @@ CRים אלה לא ייכללו בתוכנית העבודה.
   }, [cycle1Start, cycle1LengthDays, cycle2LengthDays, cycle3LengthDays, holidayDays]);
   const fmtRange = (r: { start: Date; end: Date }) =>
     `${r.start.toLocaleDateString('he-IL')} – ${r.end.toLocaleDateString('he-IL')}`;
+  // Short note under a cycle's date range when a real holiday fell inside it
+  // and was skipped — e.g. "ראש השנה בטווח" — so the wider-than-expected
+  // range isn't mistaken for a miscalculation.
+  const holidayNoteFor = (r: { start: Date; end: Date }): string | null => {
+    const names = new Set<string>();
+    const d = new Date(r.start);
+    while (d.getTime() <= r.end.getTime()) {
+      const label = holidayLabels.get(dateKeyStr(d));
+      if (label) names.add(label);
+      d.setDate(d.getDate() + 1);
+    }
+    return names.size > 0 ? `${Array.from(names).join(', ')} בטווח` : null;
+  };
 
   // Full active-tester roster (any CR's scored list includes everyone, not
   // just the top matches) — used to find reassignment candidates who
@@ -1621,25 +1681,116 @@ CRים אלה לא ייכללו בתוכנית העבודה.
   // computeOverflowIssues — same data the Work Plan screen's matrix uses),
   // grouped by tester. Once a plan exists this replaces the estimate above —
   // the two must never show conflicting numbers for the same person.
+  // Live-recomputed CORE_OVERFLOW / CORE_TESTING_END_OVERFLOW — mirrors
+  // qa-workplan.service.ts's computeOverflowIssues() exactly for these two
+  // checks, computed client-side so it reacts immediately to whatever's in
+  // planCycles (itself kept fresh by loadVersion's refetch after every
+  // generate/save/toggle/etc.) instead of waiting for a server round-trip.
+  //
+  // Boundary source: each cycle's OWN real persisted plannedEnd — NOT a
+  // theoretical recompute from the current cycle1Start/cycle1-3LengthDays
+  // inputs. An earlier version of this used that theoretical boundary (to
+  // react to an unsaved length edit before rebuilding), but a cycle's real
+  // boundary after any task-level edit (toggle/reassign/effort/delete) is
+  // "floating" — whoever's real tasks finish last — which routinely
+  // disagrees with the fixed-length arithmetic once anything's been edited
+  // since the last full rebuild. That mismatch produced false "overflow"
+  // warnings here that the Work Plan screen (reading the same real data
+  // directly) correctly did not show — found live in production 2026-08-03,
+  // right after disabling tasks in a cycle. Using the real plannedEnd
+  // guarantees this panel can never disagree with the server's own
+  // computeOverflowIssues for the current saved state.
+  const liveCoreIssues = useMemo(() => {
+    const perTester = new Map<string, OverflowIssue[]>();
+    const structural: OverflowIssue[] = [];
+
+    const boundaries: { cycleType: string; label: string }[] = [
+      { cycleType: 'CYCLE_1', label: 'סבב 1' },
+      { cycleType: 'CYCLE_2', label: 'סבב 2' },
+      { cycleType: 'CYCLE_3', label: 'סבב 3' },
+    ];
+    const testingEndDate = testingEnd ? new Date(testingEnd) : null;
+
+    for (const { cycleType, label } of boundaries) {
+      const cycle = planCycles.find(c => c.cycleType === cycleType);
+      if (!cycle) continue;
+      const start = new Date(cycle.plannedStart);
+      const end = new Date(cycle.plannedEnd);
+
+      const realTasksByTester = new Map<string, PlanTask[]>();
+      cycle.tasks.forEach(t => {
+        if (t.taskType !== 'CR') return;
+        // A disabled task (cycle 2/3 toggle) keeps its last-scheduled dates
+        // frozen — the backend skips rescheduling it rather than updating
+        // it, since it no longer occupies real time. Counting it here
+        // reintroduces exactly the stale commitment toggling it off was
+        // meant to remove — same bug just fixed in computeOverflowIssues
+        // (qa-workplan.service.ts), mirrored here since this is a parallel
+        // client-side recomputation of the same check (2026-08-03).
+        if (!t.isActive) return;
+        if (!realTasksByTester.has(t.userId)) realTasksByTester.set(t.userId, []);
+        realTasksByTester.get(t.userId)!.push(t);
+      });
+
+      realTasksByTester.forEach((tasks, userId) => {
+        const lastEnd = tasks.reduce((max, t) => {
+          const d = new Date(t.plannedEnd);
+          return d.getTime() > max.getTime() ? d : max;
+        }, new Date(tasks[0].plannedEnd));
+        if (lastEnd.getTime() <= end.getTime()) return;
+
+        const daysOver = countWorkDays(nextWorkDay(end, holidayDays).toISOString(), lastEnd.toISOString(), holidayDays);
+        const fullName = allTestersRoster.get(userId) ?? userId;
+        const biggest = [...tasks].sort((a, b) => b.effortDays - a.effortDays)[0];
+
+        const issue: OverflowIssue = {
+          type: 'CORE_OVERFLOW', userName: fullName, userId, cycleType,
+          crNumber: biggest?.crNumber, daysOver,
+          message: `${fullName} לא מספיק לסיים את ${label} עד ${end.toLocaleDateString('he-IL')} — חורג ב-${daysOver} ימי עבודה. ${biggest ? `CR ${biggest.crNumber} (${biggest.effortDays} ימים) הוא המשמעותי ביותר בעומס שלו.` : ''} הסבב הבא יתחיל במועד הקבוע לכל שאר הצוות; מי שחורג צריך פתרון — ידני, בודק שני, או הארכת הסבב.`,
+          suggestions: [],
+        };
+        if (!perTester.has(userId)) perTester.set(userId, []);
+        perTester.get(userId)!.push(issue);
+      });
+
+      if (testingEndDate && end.getTime() > testingEndDate.getTime()) {
+        const daysOver = countWorkDays(nextWorkDay(testingEndDate, holidayDays).toISOString(), end.toISOString(), holidayDays);
+        structural.push({
+          type: 'CORE_TESTING_END_OVERFLOW', cycleType, daysOver,
+          message: `🚨 ${label} (${start.toLocaleDateString('he-IL')} – ${end.toLocaleDateString('he-IL')}) חורג מתאריך סיום הבדיקות של הגרסה (${testingEndDate.toLocaleDateString('he-IL')}) ב-${daysOver} ימי עבודה — סבבי ליבה אינם אמורים להימשך מעבר לחלון הבדיקות שהוגדר.`,
+          suggestions: [],
+        });
+      }
+    }
+
+    return { perTester, structural };
+  }, [planCycles, holidayDays, allTestersRoster, testingEnd]);
+
   const planIssuesByTester = useMemo(() => {
     const map = new Map<string, { fullName: string; issues: OverflowIssue[] }>();
+    liveCoreIssues.perTester.forEach((issues, userId) => {
+      map.set(userId, { fullName: issues[0]?.userName ?? userId, issues: [...issues] });
+    });
+    // GO_LIVE_OVERFLOW / SA_* still come from the last-generated snapshot —
+    // CORE_OVERFLOW is dropped here since the live version above supersedes it.
     planOverflowIssues.forEach(issue => {
-      if (!issue.userId) return;
+      if (!issue.userId || issue.type === 'CORE_OVERFLOW') return;
       const cur = map.get(issue.userId) ?? { fullName: issue.userName ?? issue.userId, issues: [] };
       cur.issues.push(issue);
       map.set(issue.userId, cur);
     });
     return Array.from(map.entries()).map(([userId, v]) => ({ userId, ...v }));
-  }, [planOverflowIssues]);
+  }, [planOverflowIssues, liveCoreIssues]);
 
   // Structural issues that aren't about any one tester (currently just
   // CORE_TESTING_END_OVERFLOW — a whole core cycle's own boundary sits past
   // the version's testing-end date). These have no userId, so they're
   // invisible to planIssuesByTester's per-tester grouping above; surfaced
-  // separately here instead of being silently dropped.
+  // separately here instead of being silently dropped. CORE_TESTING_END_OVERFLOW
+  // itself now comes from liveCoreIssues (see above) instead of the snapshot.
   const planStructuralIssues = useMemo(
-    () => planOverflowIssues.filter(i => !i.userId),
-    [planOverflowIssues],
+    () => [...liveCoreIssues.structural, ...planOverflowIssues.filter(i => !i.userId && i.type !== 'CORE_TESTING_END_OVERFLOW')],
+    [planOverflowIssues, liveCoreIssues],
   );
 
   // CRs currently assigned but absent from the generated plan — the plan is
@@ -1654,6 +1805,17 @@ CRים אלה לא ייכללו בתוכנית העבודה.
   const missingFromPlan = useMemo(
     () => (planExists ? assignments.filter(a => a.userId && !planCrNumbers.has(a.crNumber)) : []),
     [assignments, planCrNumbers, planExists],
+  );
+  // buildCrInputs (qa-workplan.service.ts) silently skips any CR whose
+  // resolved QA effort isn't a positive number, on every generation — so for
+  // those, "missing from plan" isn't a staleness problem a rebuild can fix.
+  const missingFromPlanNoEffort = useMemo(
+    () => missingFromPlan.filter(a => !((effortMap.get(a.crNumber) ?? 0) > 0)),
+    [missingFromPlan, effortMap],
+  );
+  const missingFromPlanRebuildable = useMemo(
+    () => missingFromPlan.filter(a => (effortMap.get(a.crNumber) ?? 0) > 0),
+    [missingFromPlan, effortMap],
   );
 
   // Per-tester precision the general check above can't give: a CR can exist
@@ -1883,6 +2045,9 @@ CRים אלה לא ייכללו בתוכנית העבודה.
             <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>
               {fmtRange(cycleRanges.cycle1)}
             </div>
+            {holidayNoteFor(cycleRanges.cycle1) && (
+              <span style={{ ...TEXT.xs, color: C.textMuted }}>{holidayNoteFor(cycleRanges.cycle1)}</span>
+            )}
           </div>
         )}
 
@@ -1903,6 +2068,9 @@ CRים אלה לא ייכללו בתוכנית העבודה.
             <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>
               {fmtRange(cycleRanges.cycle2)}
             </div>
+            {holidayNoteFor(cycleRanges.cycle2) && (
+              <span style={{ ...TEXT.xs, color: C.textMuted }}>{holidayNoteFor(cycleRanges.cycle2)}</span>
+            )}
           </div>
         )}
 
@@ -1923,6 +2091,9 @@ CRים אלה לא ייכללו בתוכנית העבודה.
             <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>
               {fmtRange(cycleRanges.cycle3)}
             </div>
+            {holidayNoteFor(cycleRanges.cycle3) && (
+              <span style={{ ...TEXT.xs, color: C.textMuted }}>{holidayNoteFor(cycleRanges.cycle3)}</span>
+            )}
           </div>
         )}
 
@@ -2034,16 +2205,37 @@ CRים אלה לא ייכללו בתוכנית העבודה.
         </div>
       )}
 
-      {/* ── Plan out of date — assigned CRs missing from the generated plan ── */}
+      {/* ── Plan out of date — assigned CRs missing from the generated plan ──
+           Two distinct causes, previously shown as one indistinguishable
+           message that told everyone to "just rebuild" — for a no-effort CR
+           that's actively wrong, since buildCrInputs (qa-workplan.service.ts)
+           silently skips any CR with no positive QA effort on every single
+           generation, so rebuilding can never make it appear (found live in
+           production 2026-08-03: CR 13219 stuck in this state). Split so the
+           message actually tells the user what will fix it. ── */}
       {missingFromPlan.length > 0 && (
         <div style={{ border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], borderRight: `4px solid ${C.warning}`, backgroundColor: C.warningBg, marginBottom: SP[4] }}>
-          <div style={{ display: 'flex', gap: SP[2], alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            <strong style={{ color: C.warning, ...TEXT.sm, whiteSpace: 'nowrap' }}>
-              ⚠ תוכנית העבודה לא מעודכנת:
-            </strong>
-            <span style={{ ...TEXT.sm, color: C.textSecondary }}>
-              {missingFromPlan.length} {missingFromPlan.length === 1 ? 'CR משובץ' : 'CRים משובצים'} שאינ{missingFromPlan.length === 1 ? 'ו' : 'ם'} בתוכנית הקיימת ({missingFromPlan.map(a => a.crNumber).join(', ')}) — ציר הזמן ומסך תוכנית העבודה עדיין מציגים את התוכנית הישנה. יש ליצור מחדש (🔁 בנה מחדש מאפס למעלה) כדי לראות נתונים עדכניים.
-            </span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+            {missingFromPlanRebuildable.length > 0 && (
+              <div style={{ display: 'flex', gap: SP[2], alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                <strong style={{ color: C.warning, ...TEXT.sm, whiteSpace: 'nowrap' }}>
+                  ⚠ תוכנית העבודה לא מעודכנת:
+                </strong>
+                <span style={{ ...TEXT.sm, color: C.textSecondary }}>
+                  {missingFromPlanRebuildable.length} {missingFromPlanRebuildable.length === 1 ? 'CR משובץ' : 'CRים משובצים'} שאינ{missingFromPlanRebuildable.length === 1 ? 'ו' : 'ם'} בתוכנית הקיימת ({missingFromPlanRebuildable.map(a => a.crNumber).join(', ')}) — ציר הזמן ומסך תוכנית העבודה עדיין מציגים את התוכנית הישנה. יש ליצור מחדש (🔁 בנה מחדש מאפס למעלה) כדי לראות נתונים עדכניים.
+                </span>
+              </div>
+            )}
+            {missingFromPlanNoEffort.length > 0 && (
+              <div style={{ display: 'flex', gap: SP[2], alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                <strong style={{ color: C.danger, ...TEXT.sm, whiteSpace: 'nowrap' }}>
+                  ⚠ ללא מאמץ QA:
+                </strong>
+                <span style={{ ...TEXT.sm, color: C.textSecondary }}>
+                  {missingFromPlanNoEffort.length} {missingFromPlanNoEffort.length === 1 ? 'CR משובץ' : 'CRים משובצים'} ({missingFromPlanNoEffort.map(a => a.crNumber).join(', ')}) ל{missingFromPlanNoEffort.length === 1 ? 'א' : 'לא'} נכלל{missingFromPlanNoEffort.length === 1 ? '' : 'ים'} בתוכנית — לבנייה מחדש לא תהיה השפעה: אין ל{missingFromPlanNoEffort.length === 1 ? 'ו' : 'הם'} מאמץ QA מוגדר (0 או ריק), ומשימה כזו לא נכנסת לתוכנית עבודה בשום בנייה. יש להגדיר מאמץ QA בטבלה למעלה ואז לבנות מחדש.
+                </span>
+              </div>
+            )}
           </div>
         </div>
       )}

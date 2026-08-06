@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import pkg from '../../package.json';
+const APP_VERSION: string = pkg.version;
 import { TeamView } from './TeamView';
 import { VersionProgressChain } from './VersionProgressChain';
 import { useSocket } from '../hooks/useSocket';
@@ -508,7 +510,7 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
             fontSize: '14px', color: 'rgba(255,255,255,0.35)',
           }}>
             <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: C.success, flexShrink: 0, boxShadow: `0 0 4px ${C.success}80` }} />
-            <span>DeployCenter v2</span>
+            <span>DeployCenter v{APP_VERSION}</span>
           </div>
         </div>
 

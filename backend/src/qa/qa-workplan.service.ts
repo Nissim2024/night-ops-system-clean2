@@ -12,6 +12,7 @@ import {
   countWorkDays,
   addWorkDays,
   nextWorkDay,
+  subtractWorkDays,
   dateKey,
   splitEffort,
 } from './qa.scheduler';
@@ -186,14 +187,21 @@ export class QaWorkPlanService {
   }
 
   // ── Holiday days (global, applies to every tester alike) ───────────────────
-  // Season.isActive is the single "approved for scheduling" gate for every
-  // date under it — Jewish holidays and non-Jewish ones (Silvester, Christmas)
-  // alike. A season stays isActive:false until someone explicitly approves it
-  // (see leaves.service.ts importHolidays), so an unapproved/stale season
-  // never blocks scheduling.
+  // Season.forcesOff — NOT isActive — is the real "does this date block
+  // scheduling" gate. isActive means "currently open for leave-request
+  // submissions," a completely unrelated concept (see QaSeasonsView.tsx's
+  // "פתח/סגור לבקשות" toggle) — using it here was a real bug, confirmed live
+  // in production 2026-08-03: a genuine holiday (Rosh Hashana, 13.9.2026)
+  // silently stopped blocking scheduling the moment its season's
+  // request-window closed (isActive flipped to false), while an unrelated,
+  // currently-open "summer vacation" leave-request season (not a holiday at
+  // all — 2026-08-03 product clarification) wrongly blocked the entire
+  // company's schedule just because its window happened to be open.
+  // forcesOff instead directly means "mandatory non-working day" regardless
+  // of the request-window's open/closed state.
   private async loadHolidayDays(): Promise<Set<string>> {
     const dates = await prisma.seasonDate.findMany({
-      where: { season: { isActive: true } },
+      where: { season: { forcesOff: true } },
       select: { date: true },
     });
     return new Set(dates.map(d => dateKey(d.date)));
@@ -288,7 +296,7 @@ export class QaWorkPlanService {
     const plannedCycles: PlannedCycle[] = buildWorkPlan(
       crInputs, cycle1Start, leaveDaysByTester,
       effectiveCycle1Length, effectiveCycle2Length, effectiveCycle3Length,
-      holidayDays, testingEnd,
+      holidayDays, testingEnd, version.plannedStart,
     );
 
     // Persist the actual applied lengths (including derived ones, when the
@@ -519,6 +527,16 @@ export class QaWorkPlanService {
       const realTasksByTester = new Map<string, any[]>();
       for (const task of cycle.tasks) {
         if (task.taskType !== 'CR') continue; // regression-fill is padding, not a commitment
+        // A disabled task (cycle 2/3 toggle) keeps its last-scheduled dates
+        // frozen in the DB — rescheduleFullCycle skips it rather than
+        // updating it, since it no longer occupies real schedule time (see
+        // its own "Deactivated tasks don't occupy schedule time" comment).
+        // Counting it here reintroduces exactly the stale commitment that
+        // toggling it off was meant to remove — found live in production
+        // 2026-08-03: a tester's overflow message kept blaming their one
+        // remaining ACTIVE task (the largest by effort) for a date overrun
+        // actually caused by an unrelated task they'd already disabled.
+        if (!task.isActive) continue;
         const list = realTasksByTester.get(task.userId) ?? [];
         list.push(task);
         realTasksByTester.set(task.userId, list);
@@ -589,6 +607,7 @@ export class QaWorkPlanService {
       const realTasksByTester = new Map<string, any[]>();
       for (const task of lastCoreCycle.tasks) {
         if (task.taskType !== 'CR') continue;
+        if (!task.isActive) continue; // see CORE_OVERFLOW above — stale frozen dates on a disabled task
         const list = realTasksByTester.get(task.userId) ?? [];
         list.push(task);
         realTasksByTester.set(task.userId, list);
@@ -663,7 +682,7 @@ export class QaWorkPlanService {
           cycleType: 'STAND_ALONE',
           crNumber: task.crNumber,
           daysOver,
-          message: `CR ${task.crNumber} (Stand Alone) חורג מתאריך סיום הבדיקות של הגרסה (${plan.testingEnd.toLocaleDateString('he-IL')}) — צפוי להסתיים ${daysOver} ימי עבודה אחרי כן, כי אין מספיק קיבולת בודקים פנויה בתוך חלון הגרסה.`,
+          message: `CR ${task.crNumber} (Stand Alone) חורג מתאריך סיום הבדיקות של הגרסה (${plan.testingEnd.toLocaleDateString('he-IL')}) — ${task.user?.fullName ?? 'הבודק'} צפוי/ה לסיים אותו ${daysOver} ימי עבודה אחרי כן, כי אין לו/ה מספיק קיבולת פנויה בתוך חלון הגרסה.`,
           suggestions: [
             'שקול לשבץ בודק שני למשימת ה-Stand Alone הזו',
             'שקול להקדים משימות אחרות של הבודק כדי לפנות לו זמן',
@@ -1111,6 +1130,7 @@ export class QaWorkPlanService {
   // reassign/reorder/delete) keep the original floating boundary, which
   // tracks whoever finishes last, since changing those was not asked for.
   private async rescheduleFullCycle(cycleId: string, cycleStart: Date, holidayDays: Set<string> = new Set(), fixedLengthDays?: number): Promise<Date> {
+    const cycleMeta = await (prisma as any).qaCycle.findUnique({ where: { id: cycleId }, select: { workPlanId: true } });
     const allTasks: any[] = await (prisma as any).qaCycleTask.findMany({
       where:   { cycleId, taskType: { not: 'REGRESSION' }, isArchived: false },
       orderBy: [{ userId: 'asc' }, { sortOrder: 'asc' }],
@@ -1146,6 +1166,36 @@ export class QaWorkPlanService {
       ? addWorkDays(cycleStart, Math.max(1, fixedLengthDays) - 1, holidayDays)
       : maxEnd;
 
+    // Stand Alone commitments outrank regression-fill — same ordering the
+    // initial full build uses (qa.scheduler.ts's buildWorkPlan: "CR
+    // commitments > SA commitments > regression-fill"). Unlike that initial
+    // build, this function only ever touches ONE cycle at a time (it's what
+    // every post-generation edit — toggle/reassign/effort-override/
+    // settings-save — runs), so it has no natural visibility into a
+    // tester's Stand Alone task in a different QaCycle under the same plan.
+    // Without this, rebuilding this cycle's regression-fill in isolation
+    // could claim time a tester's Stand Alone task actually needed — found
+    // live in production 2026-08-03. Only the EARLIEST upcoming SA start is
+    // used as a cap (not a full multi-gap carve-out around every SA task) —
+    // enough to stop regression from encroaching, without redesigning
+    // regression-fill into more than the single per-tester block it's
+    // always been.
+    const standAloneStartByTester = new Map<string, Date>();
+    if (cycleMeta?.workPlanId) {
+      const saTasks: any[] = await (prisma as any).qaCycleTask.findMany({
+        where: {
+          taskType: 'STAND_ALONE', isActive: true, isArchived: false,
+          userId: { in: [...testerMap.keys()] },
+          cycle: { workPlanId: cycleMeta.workPlanId, cycleType: 'STAND_ALONE' },
+        },
+        select: { userId: true, plannedStart: true },
+      });
+      saTasks.forEach((t: any) => {
+        const cur = standAloneStartByTester.get(t.userId);
+        if (!cur || t.plannedStart < cur) standAloneStartByTester.set(t.userId, t.plannedStart);
+      });
+    }
+
     // Rebuild regression fills
     await (prisma as any).qaCycleTask.deleteMany({ where: { cycleId, taskType: 'REGRESSION' } });
     for (const [userId, tasks] of testerMap) {
@@ -1153,19 +1203,27 @@ export class QaWorkPlanService {
       if (!lastTask) continue;
       const updated: any = await (prisma as any).qaCycleTask.findUnique({ where: { id: lastTask.id } });
       const testerEnd = new Date(updated.plannedEnd);
-      if (testerEnd < boundaryEnd) {
-        const fillStart = nextWorkDay(testerEnd, holidayDays);
-        const fillDays  = countWorkDays(fillStart, boundaryEnd, holidayDays);
-        if (fillDays > 0) {
-          await (prisma as any).qaCycleTask.create({
-            data: {
-              cycleId, crNumber: 'REGRESSION_FILL', crLabel: 'בדיקות רגרסיה',
-              taskType: 'REGRESSION', userId,
-              effortDays: fillDays, plannedStart: fillStart, plannedEnd: boundaryEnd,
-              isActive: true, isPrimary: true, sortOrder: 9999,
-            },
-          });
-        }
+      if (testerEnd >= boundaryEnd) continue;
+
+      const fillStart = nextWorkDay(testerEnd, holidayDays);
+      const saStart = standAloneStartByTester.get(userId);
+      let fillEnd = boundaryEnd;
+      if (saStart && saStart.getTime() > fillStart.getTime() && saStart.getTime() <= boundaryEnd.getTime()) {
+        fillEnd = new Date(saStart);
+        fillEnd.setUTCDate(fillEnd.getUTCDate() - 1);
+      }
+      if (fillEnd.getTime() < fillStart.getTime()) continue; // SA starts at/before fillStart — no gap left to fill
+
+      const fillDays = countWorkDays(fillStart, fillEnd, holidayDays);
+      if (fillDays > 0) {
+        await (prisma as any).qaCycleTask.create({
+          data: {
+            cycleId, crNumber: 'REGRESSION_FILL', crLabel: 'בדיקות רגרסיה',
+            taskType: 'REGRESSION', userId,
+            effortDays: fillDays, plannedStart: fillStart, plannedEnd: fillEnd,
+            isActive: true, isPrimary: true, sortOrder: 9999,
+          },
+        });
       }
     }
 
@@ -1202,23 +1260,44 @@ export class QaWorkPlanService {
       pointer = await this.rescheduleFullCycle(cycle.id, cycleStart, holidayDays, fixedLen);
     }
 
-    // Chain UAT → Rehearsal → GoLive
+    // UAT — parallel with CYCLE_1's last few work days (see buildWorkPlan's
+    // UAT_WINDOW_DAYS), NOT chained after core testing. Independent of
+    // `pointer`/`fromIdx` above: only CYCLE_1's own dates matter here, so
+    // this stays correct even when the cascade started from CYCLE_2/3.
+    const UAT_WINDOW_DAYS = 3;
+    const cycle1 = cycleMap.get('CYCLE_1');
     const uatCycle = cycleMap.get('UAT');
-    if (uatCycle) {
-      const uatStart = nextWorkDay(pointer, holidayDays);
-      await (prisma as any).qaCycle.update({ where: { id: uatCycle.id }, data: { plannedStart: uatStart, plannedEnd: uatStart } });
-      pointer = uatStart;
-      const rehCycle = cycleMap.get('REHEARSAL');
-      if (rehCycle) {
-        const rStart = nextWorkDay(pointer, holidayDays);
-        await (prisma as any).qaCycle.update({ where: { id: rehCycle.id }, data: { plannedStart: rStart, plannedEnd: rStart } });
-        pointer = rStart;
-        const glCycle = cycleMap.get('GO_LIVE');
-        if (glCycle) {
-          const glStart = nextWorkDay(pointer, holidayDays);
-          await (prisma as any).qaCycle.update({ where: { id: glCycle.id }, data: { plannedStart: glStart, plannedEnd: glStart } });
-        }
+    if (uatCycle && cycle1) {
+      const uatFloor = subtractWorkDays(cycle1.plannedEnd, UAT_WINDOW_DAYS - 1, holidayDays);
+      const uatStart = uatFloor < cycle1.plannedStart ? cycle1.plannedStart : uatFloor;
+      await (prisma as any).qaCycle.update({ where: { id: uatCycle.id }, data: { plannedStart: uatStart, plannedEnd: cycle1.plannedEnd } });
+    }
+
+    // Dress Rehearsal / Go-Live — anchored to the version's real go-live
+    // date when one is already set (see buildWorkPlan's matching comment;
+    // same "CR commitments can run right up against / past Dress Rehearsal,
+    // surfaced as a warning, not adjusted around" product decision
+    // 2026-08-03). Falls back to the old sequential chain after core
+    // testing only for the rare case plannedStart is still null here (a
+    // brand-new version whose first-ever generate somehow didn't set it).
+    const rehCycle = cycleMap.get('REHEARSAL');
+    const glCycle  = cycleMap.get('GO_LIVE');
+    if (rehCycle || glCycle) {
+      const plan = await (prisma as any).qaWorkPlan.findUnique({ where: { id: workPlanId }, select: { versionId: true } });
+      const version = plan ? await prisma.version.findUnique({ where: { id: plan.versionId }, select: { plannedStart: true } }) : null;
+      const goLiveDate = version?.plannedStart ?? null;
+
+      let rStart: Date;
+      let glStart: Date;
+      if (goLiveDate) {
+        glStart = goLiveDate;
+        rStart  = subtractWorkDays(goLiveDate, 2, holidayDays);
+      } else {
+        rStart  = nextWorkDay(pointer, holidayDays);
+        glStart = nextWorkDay(rStart, holidayDays);
       }
+      if (rehCycle) await (prisma as any).qaCycle.update({ where: { id: rehCycle.id }, data: { plannedStart: rStart, plannedEnd: rStart } });
+      if (glCycle)  await (prisma as any).qaCycle.update({ where: { id: glCycle.id },  data: { plannedStart: glStart, plannedEnd: glStart } });
     }
 
     // Every caller of cascadeFromCycle (settings save, toggle, effort edit,

@@ -688,7 +688,8 @@ model Season {
   id        String   @id @default(uuid())
   name      String
   dateRange String
-  isActive  Boolean  @default(false)
+  isActive  Boolean  @default(false) // open for leave-request submissions right now — NOT "this is a real holiday"; unrelated to forcesOff
+  forcesOff Boolean  @default(false) // true = mandatory non-working days (real holidays, e.g. imported via importHolidays) — default is nobody works, a LeaveRequest(kind='work') is the exception. false = optional leave-request window (e.g. summer vacation) — default is everyone works, a LeaveRequest(kind='leave') is the exception. Drives holiday exclusion in work-day scheduling (qa-workplan.service.ts's loadHolidayDays), independent of isActive.
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -1,10 +1,15 @@
 #!/bin/sh
-# DeployCenter 2.7.7 — Docker Entrypoint
+# DeployCenter — Docker Entrypoint
 set -e
+
+# Read from package.json (single source of truth — see health.controller.ts's
+# APP_VERSION for the same fix applied to the /health endpoint) instead of a
+# hardcoded literal here, which had drifted stale across releases before.
+VERSION=$(node -e "console.log(require('/app/package.json').version)")
 
 echo ""
 echo "=================================================="
-echo "  DeployCenter v2.7.7 — Starting"
+echo "  DeployCenter v${VERSION} — Starting"
 echo "=================================================="
 
 # ── Step 1: Run database migrations ────────────────────────────────────────

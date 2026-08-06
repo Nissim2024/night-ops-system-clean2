@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Request, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, UseGuards, ForbiddenException } from '@nestjs/common';
 import { VersionCrAssignmentsService } from './version-cr-assignments.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 
@@ -11,9 +11,13 @@ export class VersionCrAssignmentsController {
   constructor(private service: VersionCrAssignmentsService) {}
 
   @Get('version/:versionId')
-  findForVersion(@Param('versionId') versionId: string, @Request() req: any) {
+  findForVersion(
+    @Param('versionId') versionId: string,
+    @Query('includeExempt') includeExempt: string,
+    @Request() req: any,
+  ) {
     if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
-    return this.service.findForVersion(versionId, req.user);
+    return this.service.findForVersion(versionId, req.user, includeExempt === 'true');
   }
 
   // Silent auto-sync — called on mount by frontend, or manually. Same underlying

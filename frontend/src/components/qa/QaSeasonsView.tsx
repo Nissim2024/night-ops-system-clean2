@@ -20,6 +20,7 @@ interface Season {
   name: string;
   dateRange: string;
   isActive: boolean;
+  forcesOff: boolean; // true = real holiday (mandatory non-working day, blocks scheduling); false = optional leave-request window (e.g. summer vacation) — independent of isActive ("open for requests")
   sortOrder: number;
   dates: SeasonDate[];
 }
@@ -140,6 +141,7 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
   const [importYear, setImportYear] = useState(new Date().getFullYear());
   const [importResult, setImportResult] = useState<{ created: number; skipped: number } | null>(null);
   const [togglingActive, setTogglingActive] = useState(false);
+  const [togglingForcesOff, setTogglingForcesOff] = useState(false);
 
   const toggleSeasonActive = async () => {
     if (!season) return;
@@ -151,6 +153,26 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
       dialog.alert('שגיאה בעדכון סטטוס העונה', 'שגיאה', 'danger');
     } finally {
       setTogglingActive(false);
+    }
+  };
+
+  // forcesOff is independent of isActive — it decides whether this season's
+  // dates block scheduling everywhere (work plans, activity plans, cycle
+  // length) regardless of whether its leave-request window is open or
+  // closed. Added 2026-08-03 after a real holiday (Rosh Hashana) silently
+  // stopped blocking scheduling once its season's request window closed,
+  // while an unrelated open "summer vacation" window wrongly blocked
+  // everyone's schedule just because it happened to be open for requests.
+  const toggleSeasonForcesOff = async () => {
+    if (!season) return;
+    setTogglingForcesOff(true);
+    try {
+      await axios.patch(`${API}/leaves/seasons/${season.id}`, { forcesOff: !season.forcesOff }, { headers });
+      await loadSeasons();
+    } catch {
+      dialog.alert('שגיאה בעדכון האם העונה חוסמת שיבוץ', 'שגיאה', 'danger');
+    } finally {
+      setTogglingForcesOff(false);
     }
   };
 
@@ -329,6 +351,23 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
                   }}
                 >
                   {togglingActive ? '...' : season.isActive ? 'סגור לבקשות' : (isLocked ? '🔓 פתח מחדש לבקשות' : 'הפעל לבקשות')}
+                </button>
+
+                {/* forcesOff — independent of the request-window toggle above: does this
+                    season's dates actually block scheduling (real חג) or not (e.g. חופשת קיץ)? */}
+                <button
+                  onClick={toggleSeasonForcesOff}
+                  disabled={togglingForcesOff}
+                  title="חג = ברירת מחדל לא עובדים (אפשר לבקש חריגה לעבוד). חלון-בקשות = ברירת מחדל עובדים (אפשר לבקש חופש) — לא קשור לפתיחה/סגירה של הבקשות למעלה"
+                  style={{
+                    background: season.forcesOff ? C.dangerBg : C.bgNested,
+                    color: season.forcesOff ? C.danger : C.textSecondary,
+                    border: `1px solid ${season.forcesOff ? C.danger + '55' : C.border}`,
+                    borderRadius: RADIUS.lg, padding: '8px 16px', cursor: togglingForcesOff ? 'not-allowed' : 'pointer',
+                    ...TEXT.sm, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap',
+                  }}
+                >
+                  {togglingForcesOff ? '...' : season.forcesOff ? '🚫 חג — חוסם שיבוץ' : '📅 חלון-בקשות בלבד'}
                 </button>
 
                 {/* Days counter or lock badge */}

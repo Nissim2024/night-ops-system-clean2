@@ -25,8 +25,17 @@ function KpiCard({ value, label, valueColor }: { value: string; label: string; v
 }
 
 // Bar chart of score-by-release, matching the source deck's "annual average" slide.
-const CHART_HEIGHT = 240;
+const CHART_HEIGHT = 400;
 const BAR_GAP = 70;
+// "Close to target" band — within this many points below target still gets
+// the amber warning color instead of red; further below is a real miss.
+const NEAR_TARGET_MARGIN = 3;
+
+function barColorForScore(score: number, target: number): string {
+  if (score >= target) return C.success;
+  if (score >= target - NEAR_TARGET_MARGIN) return C.warning;
+  return C.danger;
+}
 
 // Measures the container so the chart stretches to fill the full width when
 // there's room for every bar, and only falls back to a fixed per-bar gap
@@ -63,7 +72,7 @@ function ScoreBarChart({ points, selected, targetScore, onSelectRelease }: { poi
           const barHeight = Math.max(2, (p.totalScore / 100) * (CHART_HEIGHT - 30));
           const y = CHART_HEIGHT - barHeight;
           const isSelected = p.releaseName === selected;
-          const color = p.totalScore >= targetScore ? C.textDisabled : C.danger;
+          const color = barColorForScore(p.totalScore, targetScore);
           return (
             <g
               key={p.releaseName}
