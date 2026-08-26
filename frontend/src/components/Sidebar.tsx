@@ -75,6 +75,7 @@ const RI_VIEWS = [
   { key: 'forecast-tracking', label: 'תחזית ומעקב', icon: '📈' },
   { key: 'alerts-intelligence', label: 'התראות ותובנות', icon: '🔔' },
   { key: 'go-no-go', label: 'Go / No-Go', icon: '🚦' },
+  { key: 'incidents', label: 'תקלות ו-RCA', icon: '🧯' },
 ];
 
 const QH_VIEWS = [

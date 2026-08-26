@@ -20,6 +20,15 @@ function fmt2(v: number | null): string {
   return v != null ? v.toFixed(2) : '—';
 }
 
+// "בפועל" (actual/achieved score) — 3 decimal places per explicit request.
+function fmt3(v: number | null): string {
+  return v != null ? v.toFixed(3) : '—';
+}
+
+function fmtPct(v: number | null): string {
+  return v != null ? `${v.toFixed(2)}%` : '—';
+}
+
 // Severity breakdown values are defect COUNTS — always whole, non-negative.
 function fmtCount(v: number | null): string {
   return v != null ? String(Math.round(Math.abs(v))) : '—';
@@ -192,12 +201,12 @@ export const KpiMatrixView: React.FC<Props> = ({ token, role, initialRelease }) 
                 >
                   <td style={{ padding: '10px 12px', ...TEXT.sm, color: C.textLink, fontWeight: WEIGHT.bold, border: `1px solid ${C.border}`, textDecoration: 'underline' }}>{r.kpiOrder}</td>
                   <td style={{ padding: '10px 12px', ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, border: `1px solid ${C.border}` }}>{r.kpiName}</td>
-                  <td style={{ padding: '10px 12px', ...TEXT.sm, color: C.textPrimary, border: `1px solid ${C.border}` }}>{fmt2(r.actual)}</td>
+                  <td style={{ padding: '10px 12px', ...TEXT.sm, color: C.textPrimary, border: `1px solid ${C.border}` }}>{fmt3(r.actual)}</td>
                   <td style={{ padding: '10px 12px', ...TEXT.sm, color: C.textMuted, border: `1px solid ${C.border}` }}>{r.target}</td>
-                  <td style={{ padding: '10px 12px', ...TEXT.sm, color: C.textMuted, border: `1px solid ${C.border}` }}>{(r.weight * 100).toFixed(1)}%</td>
-                  <td style={{ padding: '10px 12px', ...TEXT.sm, fontWeight: WEIGHT.semibold, color: scoreColor(r.relativeScorePct), border: `1px solid ${C.border}` }}>{r.relativeScorePct != null ? `${r.relativeScorePct}%` : '—'}</td>
-                  <td style={{ padding: '10px 12px', ...TEXT.sm, color: C.textPrimary, border: `1px solid ${C.border}` }}>{r.contributionPct != null ? `${r.contributionPct}%` : '—'}</td>
-                  <td style={{ padding: '10px 12px', ...TEXT.sm, fontWeight: WEIGHT.semibold, color: r.scoreLostPct != null && r.scoreLostPct < 0 ? C.danger : C.success, border: `1px solid ${C.border}` }}>{r.scoreLostPct != null ? `${r.scoreLostPct}%` : '—'}</td>
+                  <td style={{ padding: '10px 12px', ...TEXT.sm, color: C.textMuted, border: `1px solid ${C.border}` }}>{(r.weight * 100).toFixed(2)}%</td>
+                  <td style={{ padding: '10px 12px', ...TEXT.sm, fontWeight: WEIGHT.semibold, color: scoreColor(r.relativeScorePct), border: `1px solid ${C.border}` }}>{fmtPct(r.relativeScorePct)}</td>
+                  <td style={{ padding: '10px 12px', ...TEXT.sm, color: C.textPrimary, border: `1px solid ${C.border}` }}>{fmtPct(r.contributionPct)}</td>
+                  <td style={{ padding: '10px 12px', ...TEXT.sm, fontWeight: WEIGHT.semibold, color: r.scoreLostPct != null && r.scoreLostPct < 0 ? C.danger : C.success, border: `1px solid ${C.border}` }}>{fmtPct(r.scoreLostPct)}</td>
                   <td style={{ padding: '10px 12px', ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, border: `1px solid ${C.border}` }}>{totalDefects(r.severity)}</td>
                   <td style={{ padding: '10px 12px', ...TEXT.xs, color: C.textMuted, border: `1px solid ${C.border}` }}>
                     {fmtCount(r.severity.showStopper)} / {fmtCount(r.severity.severe)} / {fmtCount(r.severity.medium)} / {fmtCount(r.severity.low)}

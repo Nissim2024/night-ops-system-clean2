@@ -77,10 +77,10 @@ export class TargetCrController {
   @Patch('defect/:id')
   updateDefect(
     @Param('id') id: string,
-    @Body() body: { requiresSpecialImplementation?: boolean; implementationReason?: string | null; importantToManagement?: boolean },
+    @Body() body: { requiresSpecialImplementation?: boolean; importantToManagement?: boolean },
     @Request() req: any,
   ) {
     if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
-    return this.service.updateDefect(id, body, req.user);
+    return this.service.updateDefect(id, body);
   }
 }

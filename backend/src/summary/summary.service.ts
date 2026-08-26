@@ -144,6 +144,16 @@ export class SummaryService {
     return this.generateSummary(versionId, headline, morningNotes, true, tasks);
   }
 
+  // Same report, built from a frozen RehearsalRunArchive row instead of the
+  // version's own (single-slot, always-latest) lastRehearsalSnapshot — the
+  // one way to get back the first rehearsal's report after a second run.
+  async generateArchivedRehearsalSummary(archiveId: string) {
+    const archive = await (prisma as any).rehearsalRunArchive.findUnique({ where: { id: archiveId } });
+    if (!archive) throw new Error('Archive not found');
+    const tasks: any[] = archive.tasksSnapshot ?? [];
+    return this.generateSummary(archive.versionId, archive.headline || '', archive.morningNotes || '', true, tasks);
+  }
+
   async findByVersion(versionId: string) {
     return prisma.nightSummary.findUnique({ where: { versionId } });
   }

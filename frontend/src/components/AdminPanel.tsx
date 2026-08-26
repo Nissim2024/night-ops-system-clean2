@@ -39,7 +39,15 @@ const ROLE_BG: Record<string, string> = {
   VIEWER:          C.bgRollback,
 };
 
-interface Props { token: string; }
+interface Props {
+  token: string;
+  // ManagerDashboard's own `versions` list (feeding Home, the sidebar, the
+  // version selector everywhere else) is a separate fetch from this panel's
+  // local adminVersions — without this, deleting/archiving/restoring here
+  // only ever updated adminVersions, leaving every other screen showing the
+  // stale list until a full page reload re-mounted the whole app.
+  onVersionsChanged?: () => void;
+}
 
 const emptyUser = { fullName: '', email: '', password: '', phone: '', role: 'EMPLOYEE', teamId: '' };
 
@@ -83,7 +91,7 @@ interface QcRelease {
   lastSyncAt?: string;
 }
 
-export const AdminPanel: React.FC<Props> = ({ token }) => {
+export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
   const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'versions' | 'ldap' | 'oracle' | 'email' | 'notifications' | 'quality-hub'>('users');
   const { allPermissions, updateRole, saving: permSaving } = usePermissions();
   const [users, setUsers]     = useState<any[]>([]);
@@ -232,6 +240,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
         try {
           await axios.delete(`${API}/versions/${id}`, { headers });
           await fetchAdminVersions();
+          onVersionsChanged?.();
         } catch (err: any) {
           setVersionActionError(`שגיאת מחיקה: ${err?.response?.data?.message || err?.message || 'שגיאה'}`);
         } finally { setDeletingVersionId(null); }
@@ -252,6 +261,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
         try {
           await axios.patch(`${API}/versions/${id}/archive`, {}, { headers });
           await fetchAdminVersions();
+          onVersionsChanged?.();
         } catch (err: any) {
           setVersionActionError(`שגיאת ארכיון: ${err?.response?.data?.message || err?.message || 'שגיאה'}`);
         }
@@ -272,6 +282,7 @@ export const AdminPanel: React.FC<Props> = ({ token }) => {
         try {
           await axios.patch(`${API}/versions/${id}/restore`, {}, { headers });
           await fetchAdminVersions();
+          onVersionsChanged?.();
         } catch (err: any) {
           setVersionActionError(`שגיאת שחזור: ${err?.response?.data?.message || err?.message || 'שגיאה'}`);
         }

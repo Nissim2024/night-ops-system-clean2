@@ -4,6 +4,7 @@ import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
 import { useDialog } from '../context/DialogContext';
 import { Card, Badge, StatCard, ProgressBar, SectionHeader, Alert, TextArea, Button } from './ui';
 import { NightStatsDashboard } from './NightStatsDashboard';
+import { RehearsalArchivePanel } from './shared/RehearsalArchivePanel';
 import { cleanHtmlText } from '../utils/textSanitize';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -137,9 +138,13 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
   const fetchQcData = useCallback(async () => {
     setQcLoading(true);
     try {
+      // Rehearsal report → Dress Rehearsal cycle's own defects/coverage;
+      // production report → Go Live's — otherwise both reports show
+      // identical, always-Go-Live data regardless of which one this is.
+      const cycle = isRehearsal ? 'REHEARSAL' : 'GO_LIVE';
       const [defectsRes, coverageRes, statusRes] = await Promise.all([
-        axios.get(`${API}/qc/defects?versionId=${versionId}`, { headers }),
-        axios.get(`${API}/qc/test-coverage?versionId=${versionId}`, { headers }),
+        axios.get(`${API}/qc/defects?versionId=${versionId}&cycle=${cycle}`, { headers }),
+        axios.get(`${API}/qc/test-coverage?versionId=${versionId}&cycle=${cycle}`, { headers }),
         axios.get(`${API}/qc/status`, { headers }).catch(() => ({ data: { enabled: false } })),
       ]);
       setDefects(defectsRes.data);
@@ -855,6 +860,8 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
           style={{ cursor: onGoToHub ? 'pointer' : 'default', textDecoration: onGoToHub ? 'underline dotted' : 'none' }}
         >{versionName}</bdi>)
       </h2>
+
+      {isRehearsal && <RehearsalArchivePanel token={token} versionId={versionId} />}
 
       {/* ── Tab switcher ── */}
       {!isRehearsal && (

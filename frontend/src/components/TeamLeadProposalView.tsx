@@ -120,6 +120,10 @@ interface CrPlanAction {
   dependsOnTaskId?: string;
   dependencyNote?: string;
   ownerName?: string;
+  // TargetCrDefect.id — set when this action was derived from a TARGET
+  // defect's "requires special implementation" checkbox, so the defect row
+  // that created it can be found again. Absent on a manually-added action.
+  sourceDefectId?: string;
 }
 interface CrPlanMonitoringPoint {
   id?: string;
@@ -650,7 +654,6 @@ interface TargetDefectRow {
   severity: string;
   assignedTo: string;
   requiresSpecialImplementation: boolean;
-  implementationReason: string | null;
   importantToManagement: boolean;
 }
 interface TargetReviewData {
@@ -662,156 +665,14 @@ interface TargetReviewData {
   defects: TargetDefectRow[];
 }
 
-const TargetCrGateView: React.FC<{
-  crNumber: string; crLabel: string; versionId: string; token: string; teamId: string;
-}> = ({ crNumber, crLabel, versionId, token, teamId }) => {
-  const headers = { Authorization: `Bearer ${token}` };
-  const [data, setData] = useState<TargetReviewData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [approving, setApproving] = useState(false);
-  // Local drafts for the free-text implementation-reason note, keyed by defect
-  // id — only patched to the server on blur, not on every keystroke.
-  const [reasonDrafts, setReasonDrafts] = useState<Record<string, string>>({});
-
-  const load = useCallback(() => {
-    setLoading(true);
-    axios.get(`${API}/target-cr/version/${versionId}/cr/${crNumber}`, { headers, params: { teamId } })
-      .then(r => setData(r.data))
-      .catch(e => setError(e.response?.data?.message ?? 'שגיאה בטעינת תכולת ה-TARGET'))
-      .finally(() => setLoading(false));
-  }, [versionId, crNumber, teamId]); // eslint-disable-line
-
-  useEffect(() => { load(); }, [load]);
-
-  const patchGate = async (patch: Partial<{ gateChecklist1: boolean; gateChecklist2: boolean; gateChecklist3: boolean }>) => {
-    if (!data) return;
-    setData({ ...data, review: { ...data.review, ...patch } });
-    await axios.patch(`${API}/target-cr/${data.review.id}/gate`, patch, { headers });
-  };
-
-  const approve = async () => {
-    if (!data) return;
-    setApproving(true);
-    try {
-      await axios.patch(`${API}/target-cr/${data.review.id}/approve`, {}, { headers });
-      load();
-    } catch (e: any) {
-      setError(e.response?.data?.message ?? 'שגיאה באישור');
-    } finally { setApproving(false); }
-  };
-
-  const patchDefect = async (row: TargetDefectRow, patch: Partial<TargetDefectRow>) => {
-    if (!row.id || !data) return;
-    setData({ ...data, defects: data.defects.map(d => d.id === row.id ? { ...d, ...patch } : d) });
-    await axios.patch(`${API}/target-cr/defect/${row.id}`, patch, { headers });
-    load();
-  };
-
-  if (loading) return <div style={{ textAlign: 'center', padding: '40px', color: C.textMuted, fontSize: '15px' }}>⏳ טוען תכולת TARGET...</div>;
-  if (error || !data) return <div style={{ padding: '16px', background: C.dangerBg, color: C.danger, borderRadius: RADIUS.md, fontSize: '14px' }}>{error || 'שגיאה'}</div>;
-
-  const { review, teamName, defects } = data;
-  const gateReady = review.gateChecklist1 && review.gateChecklist2 && review.gateChecklist3;
-  const specialCount = defects.filter(d => d.requiresSpecialImplementation).length;
-  const managementCount = defects.filter(d => d.importantToManagement).length;
-
-  return (
-    <div style={{ fontFamily: FONT }}>
-      <div style={{ background: `${GOLIVE}12`, border: `1px solid ${GOLIVE}40`, borderRadius: RADIUS.lg, padding: '18px 22px', marginBottom: '18px' }}>
-        <div style={{ fontSize: '19px', fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '6px' }}>תכולת TARGET לצוות {teamName}</div>
-        <div style={{ fontSize: '14px', color: C.textSecondary, lineHeight: 1.5 }}>
-          נמצאו {defects.length} תקלות TARGET המשויכות לצוות {teamName} ונכללות ב-{crLabel || crNumber}
-        </div>
-      </div>
-
-      {review.approved && (
-        <div style={{ background: C.successBg, border: `1px solid ${C.success}40`, borderRadius: RADIUS.md, padding: '12px 18px', marginBottom: '16px', fontSize: '14px', color: C.success, fontWeight: WEIGHT.semibold, lineHeight: 1.5 }}>
-          ✓ CR TARGET אושר ע"י {review.approvedByName} {review.approvedAt && `· ${new Date(review.approvedAt).toLocaleString('he-IL')}`}
-          {specialCount > 0 && ` · ${specialCount} תקלות דורשות הטמעה מיוחדת`}
-          {managementCount > 0 && ` · ${managementCount} תקלות סומנו כחשובות`}
-        </div>
-      )}
-
-      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'hidden', marginBottom: '18px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '11px 16px', background: C.bgNested, fontSize: '12.5px', fontWeight: WEIGHT.bold, color: C.textSecondary, textTransform: 'uppercase', letterSpacing: '.03em' }}>
-          <span style={{ width: '20px', flexShrink: 0 }}>✓</span>
-          <span style={{ width: '100px', flexShrink: 0 }}>תקלה</span>
-          <span style={{ flex: 1 }}>תיאור</span>
-          <span style={{ width: '280px', flexShrink: 0 }}>סימון מיוחד</span>
-        </div>
-        {defects.map(d => (
-          <div key={d.defectId} style={{ borderTop: `1px solid ${C.bgNested}` }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 16px' }}>
-              <span style={{ width: '20px', flexShrink: 0, color: C.success, fontWeight: WEIGHT.bold, fontSize: '15px' }}>✓</span>
-              <span style={{ width: '100px', flexShrink: 0, fontFamily: FONT_MONO, fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.brand }}>DEF-{d.defectId}</span>
-              <span style={{ flex: 1, fontSize: '14.5px', color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.title}>{d.title}</span>
-              <div style={{ width: '280px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '13.5px', color: C.textPrimary, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={d.requiresSpecialImplementation} style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                    onChange={e => patchDefect(d, { requiresSpecialImplementation: e.target.checked, ...(e.target.checked ? {} : { implementationReason: null }) })} />
-                  דורשת הטמעה מיוחדת
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '13.5px', color: C.textPrimary, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={d.importantToManagement} style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                    onChange={e => patchDefect(d, { importantToManagement: e.target.checked })} />
-                  תקלה חשובה
-                </label>
-              </div>
-            </div>
-            {d.requiresSpecialImplementation && (
-              <div style={{ padding: '10px 16px 14px 46px', background: C.bgNested }}>
-                <div style={{ fontSize: '12.5px', fontWeight: WEIGHT.semibold, color: C.textMuted, marginBottom: '6px' }}>הערה על ההטמעה המיוחדת:</div>
-                <textarea
-                  value={reasonDrafts[d.defectId] ?? d.implementationReason ?? ''}
-                  onChange={e => setReasonDrafts(prev => ({ ...prev, [d.defectId]: e.target.value }))}
-                  onBlur={e => {
-                    if (e.target.value !== (d.implementationReason ?? '')) {
-                      patchDefect(d, { implementationReason: e.target.value || null });
-                    }
-                  }}
-                  placeholder="לדוגמה: דורש הרצת סקריפט הסבת נתונים לפני עליית הקוד..."
-                  style={{
-                    width: '100%', boxSizing: 'border-box', fontFamily: FONT, fontSize: '13.5px',
-                    padding: '9px 12px', borderRadius: RADIUS.sm, border: `1px solid ${C.borderEm}`,
-                    background: C.bgCard, color: C.textPrimary, resize: 'vertical', minHeight: '44px',
-                  }}
-                />
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {!review.approved && (
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '18px 20px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '9px', fontSize: '14.5px', color: C.textPrimary, cursor: 'pointer' }}>
-              <input type="checkbox" checked={review.gateChecklist1} style={{ width: '17px', height: '17px', cursor: 'pointer' }} onChange={e => patchGate({ gateChecklist1: e.target.checked })} />
-              בדקתי את רשימת התקלות
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '9px', fontSize: '14.5px', color: C.textPrimary, cursor: 'pointer' }}>
-              <input type="checkbox" checked={review.gateChecklist2} style={{ width: '17px', height: '17px', cursor: 'pointer' }} onChange={e => patchGate({ gateChecklist2: e.target.checked })} />
-              לא חסרה תקלה שאמורה להיכלל
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '9px', fontSize: '14.5px', color: C.textPrimary, cursor: 'pointer' }}>
-              <input type="checkbox" checked={review.gateChecklist3} style={{ width: '17px', height: '17px', cursor: 'pointer' }} onChange={e => patchGate({ gateChecklist3: e.target.checked })} />
-              לא מופיעות תקלות שאינן מוכרות לי
-            </label>
-          </div>
-          <button onClick={approve} disabled={!gateReady || approving}
-            style={{
-              width: '100%', padding: '13px', border: 'none', borderRadius: RADIUS.md,
-              fontSize: '15px', fontWeight: WEIGHT.bold, fontFamily: FONT,
-              background: gateReady ? GOLIVE : C.bgNested, color: gateReady ? '#fff' : C.textDisabled,
-              cursor: gateReady && !approving ? 'pointer' : 'not-allowed',
-            }}>
-            {approving ? 'מאשר…' : '✓ אשר CR TARGET'}
-          </button>
-        </div>
-      )}
-    </div>
-  );
+// QC defect status is free text (Closed/Fixed_Test/Canceled/Open/...) — only
+// canceled and closed get an explicit color, everything else (open, fixed,
+// in-progress, etc.) is "still needs attention" red.
+const targetDefectStatusColor = (status: string): string => {
+  const s = (status || '').toLowerCase();
+  if (s.includes('cancel')) return '#000000';
+  if (s.includes('closed')) return C.success;
+  return C.danger;
 };
 
 export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versionName, teamIdOverride, teamNameOverride, reviewMeetingTime, isManager }) => {
@@ -862,6 +723,15 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   // Collapsible dependency picker — which action's picker is open, and which phase
   // groups within it are expanded. Only one can be open at a time.
   const [depPicker, setDepPicker] = useState<{ actionIdx: number; openPhases: Set<number> } | null>(null);
+
+  // TARGET CR defect data (from Oracle via /target-cr) — keyed by crNumber,
+  // separate from crPlans/crPlanForms since it's a different data source
+  // (QC defect rows, not CrPlan fields), even though the linked action each
+  // defect drives lives in the very same crPlanForms[crNumber].actions.
+  const [targetReviewByCr, setTargetReviewByCr] = useState<Record<string, TargetReviewData>>({});
+  const [targetReviewLoading, setTargetReviewLoading] = useState<Record<string, boolean>>({});
+  const [targetReviewError, setTargetReviewError] = useState<Record<string, string>>({});
+  const [targetApproving, setTargetApproving] = useState<string | null>(null);
   // Visual grouping only (Timeline Planning) — collapses/expands an
   // actionType container within a phase bucket; key = `${phase}-${actionType}`.
   // Defaults to all-expanded so nothing regresses for existing plans.
@@ -1199,9 +1069,17 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     return acc;
   }, {} as Record<string, Proposal[]>);
 
+  // crScope (fetched from version-cr-assignments' cross-team endpoint) is the
+  // authoritative "which CRs actually touch my team" source — grouped/crPlans
+  // only cover CRs that already have a proposal or CrPlan row, so a CR the
+  // lead hasn't opened yet (syncCrItems hasn't run, or hasn't caught up) was
+  // previously invisible to crGroups entirely: the denominator undercounted,
+  // letting "X/Y done" read 100% while assigned CRs sat untouched.
+  const myTeamLabel = teamNameOverride || myTeamName;
   const allCrKeys = new Set([
     ...Object.keys(grouped).filter(k => k !== FREE_KEY),
     ...Object.keys(crPlans),
+    ...Object.entries(crScope).filter(([, s]) => s.teamNames.includes(myTeamLabel)).map(([cr]) => cr),
   ]);
   const crGroups: [string, Proposal[]][] = Array.from(allCrKeys)
     .sort()
@@ -1623,7 +1501,12 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     } finally { setSubmitting(false); }
   };
 
-  const totalReady = proposals.filter(p => p.status === 'READY').length;
+  // Matches isCrDone's own per-task check above — a proposal already converted
+  // into a real scheduled Task (usedInTaskId set) is done even if its own
+  // status field was never flipped to READY, same as everywhere else in this
+  // file. Omitting that check here (as this used to) undercounts "ready"
+  // relative to every other progress indicator on this screen.
+  const totalReady = proposals.filter(p => p.status === 'READY' || p.usedInTaskId).length;
   const doneCrCount = crGroups.filter(([cr]) => isCrDone(cr)).length;
   const canSubmit = crGroups.length > 0 && doneCrCount === crGroups.length;
 
@@ -1968,6 +1851,366 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     </div>
   );
 
+  // ── Shared per-action editor card ────────────────────────────────────────────
+  // Used by Section 2 (regular CRs) and by TARGET CR defect rows — a TARGET
+  // defect's linked action is just another entry in the same CrPlan.actions
+  // array (tagged via sourceDefectId instead of added by hand), so both get
+  // the exact same rich editor rather than two different UIs for "an action".
+  const depTaskTitle = (taskId: string) => frameworkTasks.find(t => t.id === taskId)?.title;
+  const toggleDepPhase = (ph: number) => setDepPicker(prev => {
+    if (!prev) return prev;
+    const next = new Set(prev.openPhases);
+    if (next.has(ph)) next.delete(ph); else next.add(ph);
+    return { ...prev, openPhases: next };
+  });
+  const actionCardMiniSel: React.CSSProperties = { fontFamily: FONT, fontSize: '12px', padding: '6px 10px', borderRadius: RADIUS.sm, border: `1px solid ${C.borderEm}`, background: C.bgCard, color: C.textPrimary };
+  const actionCardMiniTa: React.CSSProperties = { width: '100%', fontFamily: FONT, fontSize: '13px', padding: '8px 10px', borderRadius: RADIUS.sm, border: `1px solid ${C.borderEm}`, background: C.bgCard, color: C.textPrimary, resize: 'none', minHeight: '42px', boxSizing: 'border-box', overflow: 'hidden' };
+  const autoGrowAction = (e: React.FormEvent<HTMLTextAreaElement>) => {
+    const el = e.currentTarget;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
+  const renderActionCard = (a: CrPlanAction, idx: number, onChange: (patch: Partial<CrPlanAction>) => void, onRemove: () => void) => (
+    <div key={a.id ?? `new-${idx}`} style={{ background: C.bgNested, borderRadius: RADIUS.md, padding: '12px 14px', marginBottom: '10px' }}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+        <select value={a.actionType} onChange={e => onChange({ actionType: e.target.value })} style={actionCardMiniSel}>
+          {ACTION_TYPE_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <div style={{ flex: 1 }} />
+        <button onClick={onRemove} style={{ background: 'none', border: 'none', color: C.danger, cursor: 'pointer', fontSize: '13px' }}>הסר</button>
+      </div>
+      <textarea value={a.description} onInput={autoGrowAction} onChange={e => onChange({ description: e.target.value })}
+        style={{ ...actionCardMiniTa, marginBottom: '8px' }} placeholder="תאר את הפעולה שיש לבצע..." />
+      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+        {phaseOptions.map(ph => {
+          const fullLabel = phaseLabels[ph] || PHASE_LABELS[ph] || `שלב ${ph}`;
+          const shortLabel = fullLabel.split(' — ')[1] || fullLabel;
+          const sel = a.phase === ph;
+          return (
+            <span key={ph} title={fullLabel}
+              onClick={() => onChange({ phase: ph, subPhaseId: '' })}
+              style={{
+                fontSize: '11px', fontWeight: WEIGHT.bold, padding: '3px 10px', borderRadius: RADIUS.full, cursor: 'pointer',
+                background: sel ? GOLIVE : C.bgCard,
+                border: `1px solid ${sel ? GOLIVE : C.borderEm}`,
+                color: sel ? '#fff' : C.textMuted,
+              }}>
+              {shortLabel}
+            </span>
+          );
+        })}
+      </div>
+      {subPhaseOpts.filter(sp => sp.phaseOrderIndex === a.phase).length > 0 && (
+        <select value={a.subPhaseId || ''} onChange={e => onChange({ subPhaseId: e.target.value })}
+          style={{ ...actionCardMiniSel, width: '100%', boxSizing: 'border-box', marginBottom: '8px' }}>
+          <option value="">תת-שלב מדוייק — לא נבחר (ישובץ בתחילת השלב)</option>
+          {subPhaseOpts.filter(sp => sp.phaseOrderIndex === a.phase).map(sp => (
+            <option key={sp.id} value={sp.id}>{sp.name}</option>
+          ))}
+        </select>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+        <select value={a.system || ''} onChange={e => onChange({ system: e.target.value || undefined })} style={actionCardMiniSel}>
+          <option value="">מערכת — ללא</option>
+          {teamAppList.map((app: string) => <option key={app} value={app}>{app}</option>)}
+        </select>
+        <input type="number" min={1} value={a.estimatedMins ?? ''} onChange={e => onChange({ estimatedMins: e.target.value ? parseInt(e.target.value) : undefined })}
+          placeholder="משך זמן משוער (דק')" style={{ ...actionCardMiniSel, width: '100%', boxSizing: 'border-box' }} />
+        <select value={a.ownerName || ''} onChange={e => onChange({ ownerName: e.target.value })} style={actionCardMiniSel}>
+          <option value="">אחראי — ללא</option>
+          {teamUsers.map((u: any) => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
+        </select>
+      </div>
+
+      {/* תלות לוגית — בורר מתקפל שלב ← תת-שלב ← משימה. תלות = "חייבת להסתיים קודם". */}
+      <div style={{ marginBottom: '6px' }}>
+        <div onClick={() => setDepPicker(p => p?.actionIdx === idx ? null : { actionIdx: idx, openPhases: new Set() })}
+          style={{ ...actionCardMiniSel, width: '100%', boxSizing: 'border-box', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ color: a.dependsOnTaskId ? C.textPrimary : C.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {a.dependsOnTaskId ? `תלות: ${depTaskTitle(a.dependsOnTaskId) || '—'}` : 'תלות לוגית — לחץ לבחירת משימה מהתוכנית'}
+          </span>
+          <span style={{ flexShrink: 0, color: C.textMuted, marginRight: '6px' }}>{depPicker?.actionIdx === idx ? '▴' : '▾'}</span>
+        </div>
+        {depPicker?.actionIdx === idx && (
+          <div style={{ border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.sm, marginTop: '4px', maxHeight: '220px', overflowY: 'auto', background: C.bgCard }}>
+            <div onClick={() => { onChange({ dependsOnTaskId: undefined }); setDepPicker(null); }}
+              style={{ padding: '7px 10px', fontSize: '12px', color: C.textMuted, cursor: 'pointer', borderBottom: `1px solid ${C.bgNested}` }}>
+              ✕ ללא תלות במשימה קיימת
+            </div>
+            {frameworkTasksByPhase.map(([phaseOrderIndex, { phaseLabel, bySubPhase }]) => {
+              const isOpen = depPicker.openPhases.has(phaseOrderIndex);
+              const taskCount = Array.from(bySubPhase.values()).reduce((n, s) => n + s.tasks.length, 0);
+              return (
+                <div key={phaseOrderIndex}>
+                  <div onClick={() => toggleDepPhase(phaseOrderIndex)} style={{ padding: '7px 10px', fontSize: '12px', fontWeight: WEIGHT.semibold, color: C.textSecondary, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', background: C.bgNested }}>
+                    <span>{phaseLabel} ({taskCount})</span>
+                    <span>{isOpen ? '▴' : '▾'}</span>
+                  </div>
+                  {isOpen && Array.from(bySubPhase.entries()).map(([subKey, sub]) => (
+                    <div key={subKey}>
+                      <div style={{ padding: '5px 12px 2px', fontSize: '10.5px', color: C.textDisabled, textTransform: 'uppercase' }}>{sub.subPhaseName}</div>
+                      {sub.tasks.map((t, ti) => (
+                        <div key={`${t.id}-${ti}`} onClick={() => { onChange({ dependsOnTaskId: t.id }); setDepPicker(null); }}
+                          style={{
+                            padding: '5px 16px', fontSize: '12px', cursor: 'pointer',
+                            color: a.dependsOnTaskId === t.id ? GOLIVE : C.textPrimary,
+                            fontWeight: a.dependsOnTaskId === t.id ? WEIGHT.semibold : WEIGHT.normal,
+                            background: a.dependsOnTaskId === t.id ? `${GOLIVE}14` : 'transparent',
+                          }}>
+                          {t.title}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <input value={a.dependencyNote || ''} onChange={e => onChange({ dependencyNote: e.target.value })}
+        placeholder="הערת תלות נוספת / תלות שאינה משימה בתוכנית..." style={{ ...actionCardMiniSel, width: '100%', boxSizing: 'border-box' }} />
+    </div>
+  );
+
+  // ── TARGET CR — dedicated defect-approval gate, replaces the regular
+  // impact/actions/monitoring/rollback form entirely for CRs whose label/type
+  // contains "TARGET" (an umbrella CR wrapping a batch of QC defects for a
+  // team, not a real development CR). A defect marked "requires special
+  // implementation" gets a real entry in this same CR's own Section-2 actions
+  // array (tagged via sourceDefectId) — same editor (renderActionCard above),
+  // same save/derive path as any other action, just triggered per-defect
+  // instead of by hand. See backend/src/target-cr for the data model. ──
+  const loadTargetReview = useCallback((crNumber: string, teamId: string) => {
+    setTargetReviewLoading(prev => ({ ...prev, [crNumber]: true }));
+    axios.get(`${API}/target-cr/version/${versionId}/cr/${crNumber}`, { headers, params: { teamId } })
+      .then(r => {
+        setTargetReviewByCr(prev => ({ ...prev, [crNumber]: r.data }));
+        setTargetReviewError(prev => { const next = { ...prev }; delete next[crNumber]; return next; });
+      })
+      .catch(e => setTargetReviewError(prev => ({ ...prev, [crNumber]: e.response?.data?.message ?? 'שגיאה בטעינת תכולת ה-TARGET' })))
+      .finally(() => setTargetReviewLoading(prev => ({ ...prev, [crNumber]: false })));
+  }, [versionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch the TARGET defect list the moment a TARGET CR becomes selected —
+  // renderTargetCrGate itself stays a pure render (no side effects), so this
+  // is the one place that kicks the fetch off.
+  useEffect(() => {
+    if (!selectedCr) return;
+    const plan = crPlans[selectedCr];
+    const label = getCrLabel(selectedCr) || plan?.crLabel || '';
+    const isTarget = /target/i.test(label) || /target/i.test(plan?.crType || '');
+    if (!isTarget) return;
+    if (targetReviewByCr[selectedCr] || targetReviewLoading[selectedCr]) return;
+    loadTargetReview(selectedCr, teamIdOverride || myTeamId);
+  }, [selectedCr, crPlans, myTeamId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const patchTargetDefect = (crNumber: string, row: TargetDefectRow, patch: Partial<TargetDefectRow>, teamId: string) => {
+    const current = targetReviewByCr[crNumber];
+    if (!row.id || !current) return;
+    setTargetReviewByCr(prev => ({ ...prev, [crNumber]: { ...current, defects: current.defects.map(d => d.id === row.id ? { ...d, ...patch } : d) } }));
+    axios.patch(`${API}/target-cr/defect/${row.id}`, patch, { headers }).catch(() => loadTargetReview(crNumber, teamId));
+
+    // Keep the linked action in the very same crPlanForms[crNumber].actions
+    // array this defect's checkbox controls — added the moment it's checked,
+    // removed the moment it's unchecked. Only persisted to the server (and
+    // turned into a real derived TaskProposal) on save/approve, exactly like
+    // any other Section-2 action — nothing here talks to the server directly.
+    if ('requiresSpecialImplementation' in patch) {
+      const f = crPlanForms[crNumber] || emptyCrPlanForm();
+      if (patch.requiresSpecialImplementation) {
+        if (!f.actions.some(a => a.sourceDefectId === row.id)) {
+          setCrPlanForms(prev => ({
+            ...prev,
+            [crNumber]: {
+              ...(prev[crNumber] || emptyCrPlanForm()), crType: 'TARGET',
+              actions: [...f.actions, {
+                actionType: ACTION_TYPE_OPTIONS[0],
+                description: `DEF-${row.defectId}${row.title ? `: ${row.title}` : ''}`,
+                phase: 2, sourceDefectId: row.id ?? undefined,
+              }],
+            },
+          }));
+        }
+      } else {
+        setCrPlanForms(prev => ({
+          ...prev,
+          [crNumber]: { ...(prev[crNumber] || emptyCrPlanForm()), actions: f.actions.filter(a => a.sourceDefectId !== row.id) },
+        }));
+      }
+      setDirtyCrs(prev => new Set(prev).add(crNumber));
+    }
+  };
+
+  const approveTargetCr = async (crNumber: string, reviewId: string, teamId: string) => {
+    setTargetApproving(crNumber);
+    try {
+      // Persist whatever Section-2 actions were built up for this CR's
+      // defects first — approve() on the server materializes real
+      // TaskProposals from whatever's already saved, so an edit made a
+      // second ago but never saved would otherwise be silently skipped.
+      await saveCrPlan(crNumber, { crType: 'TARGET' });
+      await axios.patch(`${API}/target-cr/${reviewId}/approve`, {}, { headers });
+      loadTargetReview(crNumber, teamId);
+      await fetchProposals();
+    } catch (e: any) {
+      setTargetReviewError(prev => ({ ...prev, [crNumber]: e.response?.data?.message ?? 'שגיאה באישור' }));
+    } finally {
+      setTargetApproving(null);
+    }
+  };
+
+  const renderTargetCrGate = (crNumber: string, crLabel: string, teamId: string) => {
+    const data = targetReviewByCr[crNumber];
+    const error = targetReviewError[crNumber];
+    if (!data) {
+      return error
+        ? <div style={{ padding: '16px', background: C.dangerBg, color: C.danger, borderRadius: RADIUS.md, fontSize: '14px' }}>{error}</div>
+        : <div style={{ textAlign: 'center', padding: '40px', color: C.textMuted, fontSize: '15px' }}>⏳ טוען תכולת TARGET...</div>;
+    }
+
+    const { review, teamName, defects } = data;
+    const gateReady = review.gateChecklist1 && review.gateChecklist2 && review.gateChecklist3;
+    const specialCount = defects.filter(d => d.requiresSpecialImplementation).length;
+    const managementCount = defects.filter(d => d.importantToManagement).length;
+    // Same lock semantics as the regular CR-plan's manager-unlock: approval
+    // itself never flips back to false — unlocking only re-enables the
+    // inputs, with an explicit "finish editing" to re-lock.
+    const lockedForEdit = review.approved && !unlockedForEdit.has(crNumber);
+    const f = crPlanForms[crNumber] || emptyCrPlanForm();
+    const approving = targetApproving === crNumber;
+
+    const patchGate = (patch: Partial<{ gateChecklist1: boolean; gateChecklist2: boolean; gateChecklist3: boolean }>) => {
+      setTargetReviewByCr(prev => ({ ...prev, [crNumber]: { ...data, review: { ...data.review, ...patch } } }));
+      axios.patch(`${API}/target-cr/${review.id}/gate`, patch, { headers }).catch(() => loadTargetReview(crNumber, teamId));
+    };
+
+    return (
+      <div style={{ fontFamily: FONT }}>
+        <div style={{ background: `${GOLIVE}12`, border: `1px solid ${GOLIVE}40`, borderRadius: RADIUS.lg, padding: '18px 22px', marginBottom: '18px' }}>
+          <div style={{ fontSize: '19px', fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '6px' }}>תכולת TARGET לצוות {teamName}</div>
+          <div style={{ fontSize: '14px', color: C.textSecondary, lineHeight: 1.5 }}>
+            נמצאו {defects.length} תקלות TARGET המשויכות לצוות {teamName} ונכללות ב-{crLabel || crNumber}
+          </div>
+        </div>
+
+        {review.approved && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: C.successBg, border: `1px solid ${C.success}40`, borderRadius: RADIUS.md, padding: '12px 18px', marginBottom: '16px' }}>
+            <div style={{ flex: 1, fontSize: '14px', color: C.success, fontWeight: WEIGHT.semibold, lineHeight: 1.5 }}>
+              ✓ CR TARGET אושר ע"י {review.approvedByName} {review.approvedAt && `· ${new Date(review.approvedAt).toLocaleString('he-IL')}`}
+              {specialCount > 0 && ` · ${specialCount} תקלות דורשות הטמעה מיוחדת`}
+              {managementCount > 0 && ` · ${managementCount} תקלות סומנו כחשובות`}
+            </div>
+            {lockedForEdit ? (
+              <button onClick={() => setUnlockedForEdit(prev => new Set(prev).add(crNumber))} style={{
+                flexShrink: 0, padding: '7px 14px', background: 'transparent', border: `1px solid ${C.success}`,
+                borderRadius: RADIUS.sm, color: C.success, fontSize: '13px', fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT,
+              }}>
+                ✏️ פתח לעריכה
+              </button>
+            ) : (
+              <button onClick={() => setUnlockedForEdit(prev => { const next = new Set(prev); next.delete(crNumber); return next; })} style={{
+                flexShrink: 0, padding: '7px 14px', background: C.success, border: 'none',
+                borderRadius: RADIUS.sm, color: '#fff', fontSize: '13px', fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT,
+              }}>
+                🔒 סיים עריכה
+              </button>
+            )}
+          </div>
+        )}
+
+        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'hidden', marginBottom: '18px', pointerEvents: lockedForEdit ? 'none' : undefined, opacity: lockedForEdit ? 0.6 : 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '11px 16px', background: C.bgNested, fontSize: '12.5px', fontWeight: WEIGHT.bold, color: C.textSecondary, textTransform: 'uppercase', letterSpacing: '.03em' }}>
+            <span style={{ width: '20px', flexShrink: 0 }}>✓</span>
+            <span style={{ width: '100px', flexShrink: 0 }}>תקלה</span>
+            <span style={{ flex: 1 }}>תיאור</span>
+            <span style={{ width: '280px', flexShrink: 0 }}>סימון מיוחד</span>
+          </div>
+          {defects.map(d => {
+            const actionIdx = f.actions.findIndex(a => a.sourceDefectId === d.id);
+            return (
+              <div key={d.defectId} style={{ borderTop: `1px solid ${C.bgNested}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 16px' }}>
+                  <span style={{ width: '20px', flexShrink: 0, color: C.success, fontWeight: WEIGHT.bold, fontSize: '15px' }}>✓</span>
+                  <span style={{ width: '100px', flexShrink: 0, fontFamily: FONT_MONO, fontSize: '13px', fontWeight: WEIGHT.semibold, color: targetDefectStatusColor(d.status) }}>DEF-{d.defectId}</span>
+                  <span style={{ flex: 1, fontSize: '14.5px', color: targetDefectStatusColor(d.status), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${d.title} (${d.status})`}>{d.title}</span>
+                  <div style={{ width: '280px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '13.5px', color: C.textPrimary, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={d.requiresSpecialImplementation} style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                        onChange={e => patchTargetDefect(crNumber, d, { requiresSpecialImplementation: e.target.checked }, teamId)} />
+                      דורשת הטמעה מיוחדת
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '13.5px', color: C.textPrimary, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={d.importantToManagement} style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                        onChange={e => patchTargetDefect(crNumber, d, { importantToManagement: e.target.checked }, teamId)} />
+                      תקלה חשובה
+                    </label>
+                  </div>
+                </div>
+                {d.requiresSpecialImplementation && actionIdx >= 0 && (
+                  <div style={{ padding: '0 16px 14px 46px', background: C.bgNested }}>
+                    {renderActionCard(
+                      f.actions[actionIdx], actionIdx,
+                      patch => setCrPlanForms(prev => {
+                        const pf = prev[crNumber] || emptyCrPlanForm();
+                        return { ...prev, [crNumber]: { ...pf, actions: pf.actions.map((a, i) => i === actionIdx ? { ...a, ...patch } : a) } };
+                      }),
+                      () => patchTargetDefect(crNumber, d, { requiresSpecialImplementation: false }, teamId),
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '18px 20px' }}>
+          {!lockedForEdit && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '9px', fontSize: '14.5px', color: C.textPrimary, cursor: 'pointer' }}>
+                <input type="checkbox" checked={review.gateChecklist1} style={{ width: '17px', height: '17px', cursor: 'pointer' }} onChange={e => patchGate({ gateChecklist1: e.target.checked })} />
+                בדקתי את רשימת התקלות
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '9px', fontSize: '14.5px', color: C.textPrimary, cursor: 'pointer' }}>
+                <input type="checkbox" checked={review.gateChecklist2} style={{ width: '17px', height: '17px', cursor: 'pointer' }} onChange={e => patchGate({ gateChecklist2: e.target.checked })} />
+                לא חסרה תקלה שאמורה להיכלל
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '9px', fontSize: '14.5px', color: C.textPrimary, cursor: 'pointer' }}>
+                <input type="checkbox" checked={review.gateChecklist3} style={{ width: '17px', height: '17px', cursor: 'pointer' }} onChange={e => patchGate({ gateChecklist3: e.target.checked })} />
+                לא מופיעות תקלות שאינן מוכרות לי
+              </label>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '9px' }}>
+            {!lockedForEdit && (
+              <button onClick={() => saveCrPlan(crNumber, { crType: 'TARGET' })} disabled={savingPlan === crNumber}
+                style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, padding: '10px 18px', borderRadius: RADIUS.md, background: savingPlan === crNumber ? C.textDisabled : C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, cursor: savingPlan === crNumber ? 'not-allowed' : 'pointer' }}>
+                {savingPlan === crNumber ? 'שומר...' : '💾 שמור טיוטה'}
+              </button>
+            )}
+            {/* Not just "!review.approved" — an already-approved CR reopened via
+                "✏️ פתח לעריכה" needs this too, otherwise a newly-added/edited
+                action after unlock has no way back into syncDerivedProposals
+                (only this button's click ever triggers it) and just sits saved
+                with no derived task, which is exactly the bug this fixes. */}
+            {!lockedForEdit && (
+              <button onClick={() => approveTargetCr(crNumber, review.id, teamId)} disabled={!gateReady || approving}
+                style={{
+                  flex: 1, padding: '13px', border: 'none', borderRadius: RADIUS.md,
+                  fontSize: '15px', fontWeight: WEIGHT.bold, fontFamily: FONT,
+                  background: gateReady ? GOLIVE : C.bgNested, color: gateReady ? '#fff' : C.textDisabled,
+                  cursor: gateReady && !approving ? 'pointer' : 'not-allowed',
+                }}>
+                {approving ? 'מאשר…' : review.approved ? '🔄 עדכן משימות ואשר מחדש' : '✓ אשר CR TARGET'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // ── CrPlan form content ──────────────────────────────────────────────────────
   // ── Section-1 gate — "האם קיימת השפעה תפעולית מיוחדת ל-CR זה?" ──────────────
   const renderGate = (crNumber: string) => (
@@ -2021,12 +2264,6 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
       }
     };
 
-    const autoGrow = (e: React.FormEvent<HTMLTextAreaElement>) => {
-      const el = e.currentTarget;
-      el.style.height = 'auto';
-      el.style.height = `${el.scrollHeight}px`;
-    };
-
     const updateAction = (idx: number, patch: Partial<CrPlanAction>) =>
       update({ actions: f.actions.map((a, i) => i === idx ? { ...a, ...patch } : a) });
     const removeAction = (idx: number) => {
@@ -2049,14 +2286,6 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     // work will actually touch. So this list is derived only from the "מערכת"
     // tagged on each of this team's own actions (Section 2), not the CR-wide scope.
     const involvedSystems = Array.from(new Set(f.actions.map(a => a.system).filter((s): s is string => !!s)));
-
-    const depTaskTitle = (taskId: string) => frameworkTasks.find(t => t.id === taskId)?.title;
-    const toggleDepPhase = (ph: number) => setDepPicker(prev => {
-      if (!prev) return prev;
-      const next = new Set(prev.openPhases);
-      if (next.has(ph)) next.delete(ph); else next.add(ph);
-      return { ...prev, openPhases: next };
-    });
 
     const secHdr: React.CSSProperties = {
       padding: '10px 16px', background: C.bgNested, borderBottom: `1px solid ${C.border}`, fontSize: '12.5px', fontWeight: '700',
@@ -2184,108 +2413,9 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                             </div>
                             {!collapsed && (
                               <div style={{ borderTop: `1px solid ${C.border}`, padding: '10px 14px' }}>
-                                {items.map(({ a, idx }) => (
-              <div key={idx} style={{ background: C.bgNested, borderRadius: RADIUS.md, padding: '12px 14px', marginBottom: '10px' }}>
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                  <select value={a.actionType} onChange={e => updateAction(idx, { actionType: e.target.value })} style={miniSel}>
-                    {ACTION_TYPE_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                  <div style={{ flex: 1 }} />
-                  <button onClick={() => removeAction(idx)} style={{ background: 'none', border: 'none', color: C.danger, cursor: 'pointer', fontSize: '13px' }}>הסר</button>
-                </div>
-                <textarea value={a.description} onInput={autoGrow} onChange={e => updateAction(idx, { description: e.target.value })}
-                  style={{ ...miniTa, marginBottom: '8px' }} placeholder="תאר את הפעולה שיש לבצע..." />
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                  {phaseOptions.map(ph => {
-                    const fullLabel = phaseLabels[ph] || PHASE_LABELS[ph] || `שלב ${ph}`;
-                    const shortLabel = fullLabel.split(' — ')[1] || fullLabel;
-                    const sel = a.phase === ph;
-                    return (
-                      <span key={ph} title={fullLabel}
-                        onClick={() => updateAction(idx, { phase: ph, subPhaseId: '' })}
-                        style={{
-                          fontSize: '11px', fontWeight: WEIGHT.bold, padding: '3px 10px', borderRadius: RADIUS.full, cursor: 'pointer',
-                          background: sel ? GOLIVE : C.bgCard,
-                          border: `1px solid ${sel ? GOLIVE : C.borderEm}`,
-                          color: sel ? '#fff' : C.textMuted,
-                        }}>
-                        {shortLabel}
-                      </span>
-                    );
-                  })}
-                </div>
-                {subPhaseOpts.filter(sp => sp.phaseOrderIndex === a.phase).length > 0 && (
-                  <select value={a.subPhaseId || ''} onChange={e => updateAction(idx, { subPhaseId: e.target.value })}
-                    style={{ ...miniSel, width: '100%', boxSizing: 'border-box', marginBottom: '8px' }}>
-                    <option value="">תת-שלב מדוייק — לא נבחר (ישובץ בתחילת השלב)</option>
-                    {subPhaseOpts.filter(sp => sp.phaseOrderIndex === a.phase).map(sp => (
-                      <option key={sp.id} value={sp.id}>{sp.name}</option>
-                    ))}
-                  </select>
-                )}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                  <select value={a.system || ''} onChange={e => updateAction(idx, { system: e.target.value || undefined })} style={miniSel}>
-                    <option value="">מערכת — ללא</option>
-                    {teamAppList.map((app: string) => <option key={app} value={app}>{app}</option>)}
-                  </select>
-                  <input type="number" min={1} value={a.estimatedMins ?? ''} onChange={e => updateAction(idx, { estimatedMins: e.target.value ? parseInt(e.target.value) : undefined })}
-                    placeholder="משך זמן משוער (דק')" style={{ ...miniSel, width: '100%', boxSizing: 'border-box' }} />
-                  <select value={a.ownerName || ''} onChange={e => updateAction(idx, { ownerName: e.target.value })} style={miniSel}>
-                    <option value="">אחראי — ללא</option>
-                    {teamUsers.map((u: any) => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
-                  </select>
-                </div>
-
-                {/* תלות לוגית — בורר מתקפל שלב ← תת-שלב ← משימה. תלות = "חייבת להסתיים קודם". */}
-                <div style={{ marginBottom: '6px' }}>
-                  <div onClick={() => setDepPicker(p => p?.actionIdx === idx ? null : { actionIdx: idx, openPhases: new Set() })}
-                    style={{ ...miniSel, width: '100%', boxSizing: 'border-box', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ color: a.dependsOnTaskId ? C.textPrimary : C.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {a.dependsOnTaskId ? `תלות: ${depTaskTitle(a.dependsOnTaskId) || '—'}` : 'תלות לוגית — לחץ לבחירת משימה מהתוכנית'}
-                    </span>
-                    <span style={{ flexShrink: 0, color: C.textMuted, marginRight: '6px' }}>{depPicker?.actionIdx === idx ? '▴' : '▾'}</span>
-                  </div>
-                  {depPicker?.actionIdx === idx && (
-                    <div style={{ border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.sm, marginTop: '4px', maxHeight: '220px', overflowY: 'auto', background: C.bgCard }}>
-                      <div onClick={() => { updateAction(idx, { dependsOnTaskId: undefined }); setDepPicker(null); }}
-                        style={{ padding: '7px 10px', fontSize: '12px', color: C.textMuted, cursor: 'pointer', borderBottom: `1px solid ${C.bgNested}` }}>
-                        ✕ ללא תלות במשימה קיימת
-                      </div>
-                      {frameworkTasksByPhase.map(([phaseOrderIndex, { phaseLabel, bySubPhase }]) => {
-                        const isOpen = depPicker.openPhases.has(phaseOrderIndex);
-                        const taskCount = Array.from(bySubPhase.values()).reduce((n, s) => n + s.tasks.length, 0);
-                        return (
-                          <div key={phaseOrderIndex}>
-                            <div onClick={() => toggleDepPhase(phaseOrderIndex)} style={{ padding: '7px 10px', fontSize: '12px', fontWeight: WEIGHT.semibold, color: C.textSecondary, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', background: C.bgNested }}>
-                              <span>{phaseLabel} ({taskCount})</span>
-                              <span>{isOpen ? '▴' : '▾'}</span>
-                            </div>
-                            {isOpen && Array.from(bySubPhase.entries()).map(([subKey, sub]) => (
-                              <div key={subKey}>
-                                <div style={{ padding: '5px 12px 2px', fontSize: '10.5px', color: C.textDisabled, textTransform: 'uppercase' }}>{sub.subPhaseName}</div>
-                                {sub.tasks.map((t, ti) => (
-                                  <div key={`${t.id}-${ti}`} onClick={() => { updateAction(idx, { dependsOnTaskId: t.id }); setDepPicker(null); }}
-                                    style={{
-                                      padding: '5px 16px', fontSize: '12px', cursor: 'pointer',
-                                      color: a.dependsOnTaskId === t.id ? GOLIVE : C.textPrimary,
-                                      fontWeight: a.dependsOnTaskId === t.id ? WEIGHT.semibold : WEIGHT.normal,
-                                      background: a.dependsOnTaskId === t.id ? `${GOLIVE}14` : 'transparent',
-                                    }}>
-                                    {t.title}
-                                  </div>
-                                ))}
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-                <input value={a.dependencyNote || ''} onChange={e => updateAction(idx, { dependencyNote: e.target.value })}
-                  placeholder="הערת תלות נוספת / תלות שאינה משימה בתוכנית..." style={{ ...miniSel, width: '100%', boxSizing: 'border-box' }} />
-              </div>
-                                ))}
+                                {items.map(({ a, idx }) =>
+                                  renderActionCard(a, idx, patch => updateAction(idx, patch), () => removeAction(idx))
+                                )}
                               </div>
                             )}
                           </div>
@@ -2753,7 +2883,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         {selectedTab === 'plan' ? (
           <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px' }}>
             {isTargetCr ? (
-              <TargetCrGateView crNumber={crNumber} crLabel={label} versionId={versionId} token={token} teamId={teamIdOverride || myTeamId} />
+              renderTargetCrGate(crNumber, label, teamIdOverride || myTeamId)
             ) : isNotNeeded ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '48px 0', textAlign: 'center' }}>
                 <div style={{ background: C.successBg, border: '1px solid rgba(22,163,74,.25)', borderRadius: RADIUS.md, padding: '14px 18px', fontSize: '13px', color: '#0F5A2A', lineHeight: 1.6, maxWidth: '440px' }}>

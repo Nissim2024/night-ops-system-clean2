@@ -162,8 +162,17 @@ export class TasksService {
     const before = await prisma.task.findUnique({ where: { id } });
     if (!before) throw new NotFoundException('Task not found');
 
-    // Phase-gate: only in ACTIVE mode (not REHEARSAL — planned times are for the real night, not the drill)
-    if (status === 'OPEN' && before.status === 'WAITING' && before.subPhaseId) {
+    // Phase-gate — blocks a task from actually starting (OPEN or straight to
+    // IN_PROGRESS) while an earlier phase still has incomplete tasks. Applies
+    // in both ACTIVE and REHEARSAL: a rehearsal exists specifically to drill
+    // the real phase order, so skipping it there defeats the point. Only the
+    // time-based early-unlock below (phaseStartArrived) is ACTIVE-only — a
+    // rehearsal doesn't run against the real night's clock, so completion is
+    // the only signal that makes sense for it.
+    const isActivating =
+      (status === 'OPEN' && before.status === 'WAITING') ||
+      (status === 'IN_PROGRESS' && ['WAITING', 'OPEN'].includes(before.status));
+    if (isActivating && before.subPhaseId) {
       const subPhase = await prisma.subPhase.findUnique({
         where: { id: before.subPhaseId },
         select: { phase: { select: { orderIndex: true, versionId: true, plannedStart: true } } },
@@ -171,8 +180,8 @@ export class TasksService {
       if (subPhase) {
         const { orderIndex, versionId, plannedStart } = subPhase.phase;
         const version = await prisma.version.findUnique({ where: { id: versionId }, select: { status: true } });
-        if (version?.status === 'ACTIVE') {
-          const phaseStartArrived = plannedStart != null && new Date(plannedStart) <= new Date();
+        if (version?.status === 'ACTIVE' || version?.status === 'REHEARSAL') {
+          const phaseStartArrived = version.status === 'ACTIVE' && plannedStart != null && new Date(plannedStart) <= new Date();
           if (!phaseStartArrived) {
             const prevPhases = await prisma.phase.findMany({
               where: { versionId, orderIndex: { lt: orderIndex } },
@@ -187,8 +196,9 @@ export class TasksService {
               });
               if (incomplete > 0) {
                 const lastPhase = prevPhases.sort((a, b) => b.orderIndex - a.orderIndex)[0];
+                const verb = status === 'IN_PROGRESS' ? 'להתחיל' : 'לפתוח';
                 throw new ForbiddenException(
-                  `לא ניתן לפתוח משימה — ${incomplete} משימות בשלב "${lastPhase.name}" טרם הסתיימו`,
+                  `לא ניתן ${verb} משימה — ${incomplete} משימות בשלב "${lastPhase.name}" טרם הסתיימו`,
                 );
               }
             }

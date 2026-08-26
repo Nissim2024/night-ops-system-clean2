@@ -142,7 +142,7 @@ export class CrPlansService {
       actions?: {
         id?: string; actionType: string; description: string; phase: number; subPhaseId?: string; system?: string;
         estimatedMins?: number; dependsOnTaskId?: string; dependencyNote?: string;
-        ownerName?: string;
+        ownerName?: string; sourceDefectId?: string;
       }[];
       monitoringPoints?: { id?: string; type: string; name: string; note?: string; phase?: number; assignedTeamId?: string; assignedUserName?: string }[];
     },
@@ -204,7 +204,7 @@ export class CrPlansService {
       });
     }
 
-    return prisma.crPlan.create({
+    const created = await prisma.crPlan.create({
       data: {
         versionId,
         teamId: resolvedTeamId,
@@ -218,6 +218,7 @@ export class CrPlansService {
               subPhaseId: a.subPhaseId || null, system: a.system || null, estimatedMins: a.estimatedMins ?? null,
               dependsOnTaskId: a.dependsOnTaskId || null,
               dependencyNote: a.dependencyNote || null, ownerName: a.ownerName || null, orderIndex: i,
+              sourceDefectId: a.sourceDefectId || null,
             })) } }
           : {}),
         ...(monitoringPoints !== undefined
@@ -230,6 +231,16 @@ export class CrPlansService {
       },
       include,
     });
+    // A brand-new plan's first save (e.g. a TARGET CR's very first defect
+    // marked "requires special implementation") — write each new action's real
+    // id back onto the TargetCrDefect it came from, same as reconcileActions
+    // does for an existing plan.
+    for (const a of created.actions) {
+      if ((a as any).sourceDefectId) {
+        await prisma.targetCrDefect.updateMany({ where: { id: (a as any).sourceDefectId }, data: { derivedActionId: a.id } });
+      }
+    }
+    return created;
   }
 
   // Reconciles CrPlanAction rows by id (update existing / create new / delete removed)
@@ -240,7 +251,7 @@ export class CrPlansService {
     incoming: {
       id?: string; actionType: string; description: string; phase: number; subPhaseId?: string; system?: string;
       estimatedMins?: number; dependsOnTaskId?: string; dependencyNote?: string;
-      ownerName?: string;
+      ownerName?: string; sourceDefectId?: string;
     }[],
   ) {
     const existingRows = await prisma.crPlanAction.findMany({ where: { crPlanId: planId } });
@@ -252,6 +263,12 @@ export class CrPlansService {
       // Only clean up the derived proposal if it hasn't already become a real Task.
       if (row.derivedProposalId) {
         await prisma.taskProposal.deleteMany({ where: { id: row.derivedProposalId, usedInTaskId: null } });
+      }
+      // A removed action derived from a TARGET defect (Section 2 row deleted, or
+      // the defect's "requires special implementation" was unchecked before this
+      // save) leaves the defect's own link dangling otherwise.
+      if ((row as any).sourceDefectId) {
+        await prisma.targetCrDefect.updateMany({ where: { id: (row as any).sourceDefectId }, data: { derivedActionId: null } });
       }
     }
     if (removed.length) {
@@ -265,11 +282,15 @@ export class CrPlansService {
         subPhaseId: a.subPhaseId || null, system: a.system || null, estimatedMins: a.estimatedMins ?? null,
         dependsOnTaskId: a.dependsOnTaskId || null,
         dependencyNote: a.dependencyNote || null, ownerName: a.ownerName || null, orderIndex: i,
+        sourceDefectId: a.sourceDefectId || null,
       };
-      if (a.id && existingIds.has(a.id)) {
-        await prisma.crPlanAction.update({ where: { id: a.id }, data });
-      } else {
-        await prisma.crPlanAction.create({ data: { crPlanId: planId, ...data } });
+      const saved = a.id && existingIds.has(a.id)
+        ? await prisma.crPlanAction.update({ where: { id: a.id }, data })
+        : await prisma.crPlanAction.create({ data: { crPlanId: planId, ...data } });
+      // Keep the defect's own pointer in sync — e.g. the very first save after
+      // checking "requires special implementation" (no id yet, action just created).
+      if (a.sourceDefectId) {
+        await prisma.targetCrDefect.updateMany({ where: { id: a.sourceDefectId }, data: { derivedActionId: saved.id } });
       }
     }
   }
@@ -425,7 +446,11 @@ export class CrPlansService {
   // 'updated' if an existing (not-yet-converted-to-Task) proposal was refreshed, 'created'
   // is never returned directly — instead the newly-created proposal object is returned so
   // the caller can write its id back onto the owning CrPlanAction/CrPlanMonitoringPoint row.
-  private async upsertDerivedProposal(
+  // Not private: TargetCrService reuses this directly to materialize a TaskProposal the
+  // moment a TARGET defect is marked "requires special implementation" — that CrPlan
+  // never goes through submitPlan (TARGET CRs have no such submit step), so it needs
+  // the same upsert this method gives submitPlan, just triggered per-defect instead.
+  async upsertDerivedProposal(
     derivedProposalId: string | null,
     fields: {
       versionId: string; teamId: string; submittedBy: string; title: string; phase: number;

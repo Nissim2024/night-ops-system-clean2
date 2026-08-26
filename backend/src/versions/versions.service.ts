@@ -436,6 +436,80 @@ async addTask(subPhaseId: string, data: {
     });
   }
 
+  // Re-enters REHEARSAL for a version that already completed one (APPROVED
+  // status machine transition already allows this — see updateStatus's
+  // ALLOWED map — the only reason it wasn't reachable before was that no UI
+  // ever offered it once lastRehearsalAt was set). Before re-entering, freezes
+  // the previous run's task snapshot + summary into RehearsalRunArchive —
+  // Version.lastRehearsalSnapshot and RehearsalSummary are both single-slot
+  // per version and would otherwise be silently overwritten by the next
+  // endRehearsal() with no way back to the first run's report.
+  async restartRehearsal(id: string) {
+    const version = await prisma.version.findUnique({ where: { id } });
+    if (!version) throw new NotFoundException('Version not found');
+    if (version.status !== VersionStatus.APPROVED || !version.lastRehearsalAt) {
+      throw new BadRequestException('אין חזרה גנרלית קודמת שהושלמה — אין מה לארכב לפני התחלה מחדש');
+    }
+
+    // Idempotent against a cancelled second run: cancelRehearsal() reverts to
+    // APPROVED without touching lastRehearsalAt/lastRehearsalSnapshot, so an
+    // RM who starts a second rehearsal and cancels it (instead of ending it)
+    // would otherwise hit this guard again and archive the exact same
+    // already-archived snapshot a second time under an inflated runNumber.
+    // ranAt is only ever advanced by a real endRehearsal() completing, so
+    // matching on it is a reliable "already archived this run" check.
+    const alreadyArchived = await (prisma as any).rehearsalRunArchive.findFirst({
+      where: { versionId: id, ranAt: version.lastRehearsalAt },
+    });
+
+    if (!alreadyArchived) {
+      const existingSummary = await (prisma as any).rehearsalSummary.findUnique({ where: { versionId: id } });
+      const archiveCount = await (prisma as any).rehearsalRunArchive.count({ where: { versionId: id } });
+
+      await (prisma as any).rehearsalRunArchive.create({
+        data: {
+          versionId: id,
+          runNumber: archiveCount + 1,
+          ranAt: version.lastRehearsalAt,
+          tasksSnapshot: version.lastRehearsalSnapshot ?? undefined,
+          headline: existingSummary?.headline ?? null,
+          morningNotes: existingSummary?.morningNotes ?? null,
+          crData: existingSummary?.crData ?? undefined,
+          sentAt: existingSummary?.sentAt ?? null,
+          sentBy: existingSummary?.sentBy ?? null,
+        },
+      });
+
+      // Clear the live summary so the RM builds a fresh one for the new run —
+      // the just-archived copy above already preserves the old one in full.
+      if (existingSummary) {
+        await (prisma as any).rehearsalSummary.delete({ where: { versionId: id } });
+      }
+    }
+
+    return prisma.version.update({
+      where: { id },
+      data: { status: VersionStatus.REHEARSAL, actualStart: new Date() },
+    });
+  }
+
+  async listRehearsalArchive(versionId: string) {
+    return (prisma as any).rehearsalRunArchive.findMany({
+      where: { versionId },
+      orderBy: { runNumber: 'asc' },
+      select: { id: true, runNumber: true, ranAt: true, headline: true, sentAt: true, archivedAt: true },
+    });
+  }
+
+  // Full record (headline/notes/CR data/task snapshot) for one archived run —
+  // the list endpoint above deliberately omits tasksSnapshot/crData (can be
+  // large) since most callers only need it to render the picker.
+  async getRehearsalArchiveDetail(archiveId: string) {
+    const archive = await (prisma as any).rehearsalRunArchive.findUnique({ where: { id: archiveId } });
+    if (!archive) throw new NotFoundException('ארכיון חזרה לא נמצא');
+    return archive;
+  }
+
   async setNotRequiredForApproval(versionId: string, teamId: string, notRequiredForApproval: boolean) {
     return prisma.teamSubmission.upsert({
       where: { versionId_teamId: { versionId, teamId } },

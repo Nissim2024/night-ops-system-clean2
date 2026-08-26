@@ -487,6 +487,25 @@ const VersionDetail: React.FC<{
   const [statusLoading, setStatusLoading] = useState(false);
   const [forceDialog, setForceDialog] = useState<{ details: string; targetStatus: string } | null>(null);
 
+  // Separate from handleStatusChange — this isn't a plain status PATCH, it
+  // also archives the previous rehearsal's snapshot+summary server-side
+  // (RehearsalRunArchive) before flipping back to REHEARSAL, so the first
+  // run's report survives being overwritten by the new one.
+  const [restartingRehearsal, setRestartingRehearsal] = useState(false);
+  const handleRestartRehearsal = async () => {
+    setStatusError(null);
+    setRestartingRehearsal(true);
+    try {
+      await axios.post(`${API}/versions/${version.id}/restart-rehearsal`, {}, { headers });
+      onRefresh();
+      if (onGoLive) onGoLive(version.id, version.name, true);
+    } catch (err: any) {
+      setStatusError(err?.response?.data?.message || err?.message || 'שגיאה בהתחלת חזרה גנרלית מחדש');
+    } finally {
+      setRestartingRehearsal(false);
+    }
+  };
+
   const handleStatusChange = async (s: string, force?: boolean) => {
     setStatusError(null);
     setStatusLoading(true);
@@ -1648,6 +1667,19 @@ const VersionDetail: React.FC<{
                   cursor: statusLoading || (false) ? 'not-allowed' : 'pointer',
                 }}>
                 {statusLoading ? '...' : `${nextLabel} →`}
+              </button>
+            )}
+            {version.status === 'APPROVED' && version.lastRehearsalAt && (
+              <button
+                onClick={handleRestartRehearsal}
+                disabled={restartingRehearsal || statusLoading}
+                title="הרצת החזרה הקודמת נשמרת ונגישה בדוח סיכום החזרה"
+                style={{
+                  padding: '10px 20px', background: 'transparent', color: '#8b5cf6', border: '1px solid #8b5cf6',
+                  borderRadius: '8px', cursor: restartingRehearsal || statusLoading ? 'not-allowed' : 'pointer',
+                  fontWeight: 'bold', fontSize: '15px', opacity: restartingRehearsal || statusLoading ? 0.6 : 1,
+                }}>
+                {restartingRehearsal ? '...' : '🔁 הרץ חזרה גנרלית שוב'}
               </button>
             )}
             {statusError && (

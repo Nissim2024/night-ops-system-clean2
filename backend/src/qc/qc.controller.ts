@@ -13,13 +13,13 @@ export class QcController {
   }
 
   @Get('test-coverage')
-  getTestCoverage(@Query('versionId') versionId: string) {
-    return this.qcService.getTestCoverage(versionId);
+  getTestCoverage(@Query('versionId') versionId: string, @Query('cycle') cycle?: 'REHEARSAL' | 'GO_LIVE') {
+    return this.qcService.getTestCoverage(versionId, cycle);
   }
 
   @Get('defects')
-  getDefects(@Query('versionId') versionId: string) {
-    return this.qcService.getDefects(versionId);
+  getDefects(@Query('versionId') versionId: string, @Query('cycle') cycle?: 'REHEARSAL' | 'GO_LIVE') {
+    return this.qcService.getDefects(versionId, cycle);
   }
 
   @Get('bug-dashboard')

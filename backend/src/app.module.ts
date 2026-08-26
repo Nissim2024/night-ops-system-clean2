@@ -32,6 +32,7 @@ import { HealthModule } from './health/health.module';
 import { ReleaseIntelligenceModule } from './release-intelligence/release-intelligence.module';
 import { QualityHubModule } from './quality-hub/quality-hub.module';
 import { TargetCrModule } from './target-cr/target-cr.module';
+import { IncidentsModule } from './incidents/incidents.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { TargetCrModule } from './target-cr/target-cr.module';
     ReleaseIntelligenceModule,
     QualityHubModule,
     TargetCrModule,
+    IncidentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

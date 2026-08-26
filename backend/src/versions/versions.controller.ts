@@ -188,6 +188,22 @@ export class VersionsController {
     return this.versionsService.cancelRehearsal(id);
   }
 
+  @Post(':id/restart-rehearsal')
+  restartRehearsal(@Param('id') id: string, @Request() req: any) {
+    requireRole(req, MANAGERS, 'רק מנהל לילה יכול להתחיל חזרה גנרלית מחדש');
+    return this.versionsService.restartRehearsal(id);
+  }
+
+  @Get(':id/rehearsal-archive')
+  listRehearsalArchive(@Param('id') id: string) {
+    return this.versionsService.listRehearsalArchive(id);
+  }
+
+  @Get(':id/rehearsal-archive/:archiveId')
+  getRehearsalArchiveDetail(@Param('archiveId') archiveId: string) {
+    return this.versionsService.getRehearsalArchiveDetail(archiveId);
+  }
+
   @Post(':id/submit/:teamId')
   submitTeamTasks(
     @Param('id') versionId: string,

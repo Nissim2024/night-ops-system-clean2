@@ -87,10 +87,14 @@ export function getDeploymentsTabForStatus(status: string, role: string): string
 // Module status card — used by the home-page module grid, one per
 // top-level module, showing the 1-3 lines most relevant to a manager.
 // ────────────────────────────────────────────────────────────────
-function KpiTile({ icon, accent, value, label, sub, subTone, footer, onClick, moduleLabel }: {
+function KpiTile({ icon, accent, value, label, sub, subTone, footer, onClick, moduleLabel, sideStat }: {
   icon: string; accent: string; value: string; label: string;
   sub?: string | null; subTone?: 'ok' | 'warn' | 'muted'; footer?: string | null; onClick?: () => void;
   moduleLabel?: string;
+  // Secondary metric shown beside the main value — same visual weight as the
+  // main stat (not squeezed into the footer text), for a number that deserves
+  // its own read at a glance instead of being buried mid-sentence.
+  sideStat?: { icon: string; value: string; label: string } | null;
 }) {
   const subColor = subTone === 'ok' ? C.success : subTone === 'warn' ? C.warning : C.textMuted;
   return (
@@ -111,9 +115,17 @@ function KpiTile({ icon, accent, value, label, sub, subTone, footer, onClick, mo
         </div>
         <span style={{ fontSize: '13px', color: C.textMuted, flexShrink: 0 }}>←</span>
       </div>
-      <div>
-        <div style={{ fontSize: '26px', fontWeight: WEIGHT.bold, color: C.textPrimary, lineHeight: 1, fontVariantNumeric: 'tabular-nums' as const }}>{value}</div>
-        <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textSecondary, marginTop: '4px' }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '10px' }}>
+        <div>
+          <div style={{ fontSize: '26px', fontWeight: WEIGHT.bold, color: C.textPrimary, lineHeight: 1, fontVariantNumeric: 'tabular-nums' as const }}>{value}</div>
+          <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textSecondary, marginTop: '4px' }}>{label}</div>
+        </div>
+        {sideStat && (
+          <div style={{ textAlign: 'left' as const, flexShrink: 0 }}>
+            <div style={{ fontSize: '17px', fontWeight: WEIGHT.bold, color: C.textPrimary, lineHeight: 1, fontVariantNumeric: 'tabular-nums' as const }}>{sideStat.icon} {sideStat.value}</div>
+            <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '4px', whiteSpace: 'nowrap' as const }}>{sideStat.label}</div>
+          </div>
+        )}
       </div>
       {sub && <div style={{ ...TEXT.xs, color: subColor, fontWeight: subTone === 'warn' ? WEIGHT.semibold : WEIGHT.normal }}>{sub}</div>}
       {footer && <div style={{ ...TEXT.xs, color: C.textMuted, paddingTop: '8px', borderTop: `1px solid ${C.border}` }}>{footer}</div>}
@@ -136,8 +148,9 @@ function StatCard({ value, label, delta, deltaColor }: { value: string; label: s
 
 interface QaSummary {
   totalCrs: number; assignedCrs: number; hasWorkPlan: boolean; priorityCount: number;
-  goLiveSoonCount: number; qaArrivalOverdueCount: number;
+  goLiveSoonCount: number; qaArrivalOverdueCount: number; qaArrivalOverdueCrs: string[];
   cycles: { cycleType: string; plannedStart: string; plannedEnd: string }[];
+  unassignedBreakdown: { alreadyInProduction: number; archived: number; noQaEffort: number; pending: number; pendingCrs: string[] };
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -227,10 +240,18 @@ function RiskRow({ icon, title, desc, urgent, module, onClick, detail, expanded,
         </span>
       </div>
       {hasDetail && expanded && (
-        <div style={{ padding: '0 0 10px 19px', display: 'flex', flexWrap: 'wrap' as const, gap: '6px' }}>
+        <div style={{ padding: '0 0 10px 19px', display: 'flex', flexWrap: 'wrap' as const, alignItems: 'center', gap: '6px' }}>
           {detail!.map((d, i) => (
             <span key={i} style={{ ...TEXT.xs, color: C.textSecondary, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '3px 9px' }}>{d}</span>
           ))}
+          {onClick && (
+            <span
+              onClick={e => { e.stopPropagation(); onClick(); }}
+              style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: meta.color, cursor: 'pointer', padding: '3px 4px' }}
+            >
+              עבור למסך ←
+            </span>
+          )}
         </div>
       )}
     </div>
@@ -292,6 +313,8 @@ export const HomeDashboard: React.FC<Props> = ({
   const [estimateStats, setEstimateStats] = useState<{
     totalEstimateDays: number;
     qaFilteredEstimateDays: number;
+    crsWithTasksCount?: number;
+    crsWithoutTasks?: { crNumber: string; crLabel: string; reason: string }[];
     byTeam: { teamId: string; teamName: string; totalDays: number; qaFilteredDays: number; crs: { crNumber: string; crLabel: string; teamDays: number; hasQa: boolean }[] }[];
   } | null>(null);
   // TARGET-defect fixed/total count for the version-management KPI tile's
@@ -370,6 +393,7 @@ export const HomeDashboard: React.FC<Props> = ({
 
   const deleteNotice = async (id: string) => {
     if (!primary) return;
+    if (!window.confirm('למחוק את ההודעה? לא ניתן לשחזר לאחר המחיקה.')) return;
     setSavingNotice(true);
     try {
       await axios.delete(`${API}/versions/${primary.id}/notices/${id}`, { headers: { Authorization: `Bearer ${token}` } });
@@ -447,9 +471,14 @@ export const HomeDashboard: React.FC<Props> = ({
         if (primary.status === 'COLLECTING') {
           setMyTeamSummary({ ...r.data, allDone: r.data.total > 0 && r.data.ready === r.data.total });
         } else {
-          // cr-plans endpoint returns array; take first row (team lead's own team)
+          // cr-plans endpoint returns array; take first row (team lead's own team).
+          // "ready" must include already-APPROVED plans, not just SUBMITTED ones —
+          // an approved plan has nothing left outstanding for the team either,
+          // and getTeamStatus's own allDone already treats it that way (only
+          // draft/returned count against "done"); leaving approved out here just
+          // undercounts against every other progress indicator on this screen.
           const row = (r.data as any[])[0];
-          setMyTeamSummary(row ? { total: row.total, ready: row.submitted, draft: row.draft, allDone: row.allDone } : null);
+          setMyTeamSummary(row ? { total: row.total, ready: row.submitted + row.approved, draft: row.draft, allDone: row.allDone } : null);
         }
       })
       .catch(() => setMyTeamSummary(null));
@@ -463,13 +492,18 @@ export const HomeDashboard: React.FC<Props> = ({
       .catch(() => setPendingLeaveCount(0));
   }, [canManageLeaves, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch QA summary for primary version — gated to whoever should actually see QA-planning info on Home
+  // Fetched for everyone with a primary version, not just homeShowQa roles —
+  // the hero's VersionMilestoneTimeline reads qaSummary?.cycles for the round
+  // dates (Cycle 1/2/3, UAT, Stand Alone, rehearsal), and every team lead
+  // needs those dates regardless of whether they personally do QA work.
+  // homeShowQa still gates the QA-specific notifications/tile that also read
+  // this same state further down — only the fetch itself is unrestricted now.
   useEffect(() => {
-    if (!homeShowQa || !primary) { setQaSummary(null); return; }
+    if (!primary) { setQaSummary(null); return; }
     axios.get(`${API}/qa-stats/summary?versionId=${primary.id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setQaSummary(r.data))
       .catch(() => setQaSummary(null));
-  }, [homeShowQa, primary?.id, token]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [primary?.id, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Lightweight per-module summaries for the module-status card grid below —
   // release-intelligence's defect KPIs and quality-hub's release score.
@@ -595,12 +629,15 @@ export const HomeDashboard: React.FC<Props> = ({
 
   // CRs whose scope changed after the version's scope was already approved —
   // "ניהול גרסה" module's own ongoing-change signal, surfaced here too.
-  const [scopeAttentionCount, setScopeAttentionCount] = useState(0);
+  const [scopeAttentionCrs, setScopeAttentionCrs] = useState<string[]>([]);
+  const scopeAttentionCount = scopeAttentionCrs.length;
   useEffect(() => {
-    if (!canAccessVersionManagement || !primary?.scopeApprovedAt) { setScopeAttentionCount(0); return; }
+    if (!canAccessVersionManagement || !primary?.scopeApprovedAt) { setScopeAttentionCrs([]); return; }
     axios.get(`${API}/version-cr-assignments/version/${primary.id}`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => setScopeAttentionCount((r.data || []).filter((a: any) => a.needsAttention).length))
-      .catch(() => setScopeAttentionCount(0));
+      .then(r => setScopeAttentionCrs(
+        Array.from(new Set((r.data || []).filter((a: any) => a.needsAttention).map((a: any) => a.crLabel || a.crNumber)))
+      ))
+      .catch(() => setScopeAttentionCrs([]));
   }, [canAccessVersionManagement, primary?.id, primary?.scopeApprovedAt, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch CR investment estimate stats; if empty, auto-sync from Excel then re-fetch
@@ -753,18 +790,22 @@ export const HomeDashboard: React.FC<Props> = ({
       list.push({
         icon: '📥', title: `${qaSummary.qaArrivalOverdueCount} CR-ים לא סומנו כהתקבלו ב-QA`,
         desc: 'תאריך ההגעה הצפוי ל-QA חלף ואף אחד מהם לא סומן כ"התקבל"', urgent: true,
-        onClick: onSwitchToQa, module: 'qa',
+        detail: qaSummary.qaArrivalOverdueCrs, module: 'qa',
       });
     }
 
     if (canAccessVersionManagement && scopeAttentionCount > 0) {
       list.push({
         icon: '🧭', title: `${scopeAttentionCount} CR-ים נוספו/הוסרו מהתכולה אחרי אישורה`,
-        desc: 'דורשים סקירה ואישור תכולה מחדש', urgent: true,
+        desc: 'דורשים סקירה ואישור תכולה מחדש — לחצו לפירוט, או עברו למסך לאישור', urgent: true,
+        detail: scopeAttentionCrs,
         // 'changes' → VIEW_TO_STEP['changes'] = 'manage' step, where the
         // attention-rows list + "✓ אשר שינויים" button actually live
         // (VersionOpeningModule.tsx:330) — and select primary explicitly so
         // this doesn't land on whatever version was last picked in that module.
+        // Kept alongside `detail`: RiskRow expands the list inline on click,
+        // but there's no inline path to the approval screen itself, so the
+        // action still needs somewhere to send the user to actually act on it.
         onClick: () => { onSelectVersion(primary.id); onSwitchToModule?.('version-management', 'changes'); },
         module: 'version-management',
       });
@@ -803,20 +844,12 @@ export const HomeDashboard: React.FC<Props> = ({
         list.push({ icon: '📋', title: 'בנה תוכנית הטמעה', desc: 'החל תבנית על הגרסה ובנה את לוח הזמנים', tab: 'version-detail' });
       }
     }
-    // Both submit-reminder cards below only make sense while the team lead's own
-    // submission is genuinely incomplete — previously they were pushed purely off
-    // the version's status, so a team lead who already finished (myTeamSummary.allDone)
-    // kept seeing "הגש תוכניות" on their home page with nothing left to actually submit.
-    if (st === 'COLLECTING' && tl && !myTeamSummary?.allDone)
-      list.push({ icon: '📝', title: 'הגש תוכניות', desc: 'הגש את הצעות המשימות לאישור', urgent: true, tab: 'proposals' });
+    // The team lead's own submit-reminder no longer duplicates here — it's the
+    // dedicated banner below (near "סיכונים ופעילויות"), which has room to show
+    // the real state (nothing started / draft / partial / all done) and the
+    // review-meeting deadline, instead of this one-line generic nudge repeating
+    // the exact same destination right next to it.
     if (st === 'COLLECTING' && rm)      list.push({ icon: '👥', title: 'מעקב הגשת תוכניות', desc: 'בדוק שכל הצוותים הגישו את תוכניות ה-CR', tab: 'proposals' });
-    if (st === 'CR_REVIEW' && tl && !myTeamSummary?.allDone) {
-      const deadline = (primary as any).submissionDeadline;
-      const deadlineDesc = deadline
-        ? ` — מועד הגשה: ${new Date(deadline).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${new Date(deadline) < new Date() ? ' ⚠ עבר' : ''}`
-        : '';
-      list.push({ icon: '📋', title: 'הגש תוכנית CR', desc: `הגדר תוכנית עלייה לאוויר לצוות שלך${deadlineDesc}`, urgent: true, tab: 'implementation-plans' });
-    }
     if (st === 'CR_REVIEW' && rm)       list.push({ icon: '🔍', title: 'סקור תוכניות CR', desc: 'אשר או החזר הערות על תוכניות הצוותים', tab: 'list' });
     if (st === 'REFINING' && rm)        list.push({ icon: '✏️', title: 'ודא עדכוני תוכניות', desc: 'צוותים מעדכנים לפי הערות', tab: 'list' });
     if (st === 'REVIEW' && rm)          list.push({ icon: '👥', title: 'קיים ישיבת מעבר', desc: 'ישיבה עם כלל המשתתפים לאישור סופי', tab: 'list' });
@@ -897,13 +930,11 @@ export const HomeDashboard: React.FC<Props> = ({
     }
 
     return list;
-  }, [primary, role, canManageLeaves, pendingLeaveCount, onGoToLeaves, nextPhaseInfo, firstPhaseInfo, upcomingRunbookSteps, myUserId, onSwitchToQa, todayOrTomorrowActivities, homeShowQa, qaSummary, canAccessVersionManagement, scopeAttentionCount, onSwitchToModule, onSelectVersion, canAccessReleaseIntelligence, criticalDefectsCount, canAccessQualityHub, qualityScore, showTeamStatus, teamStatus, isCollecting, reviewIsApproaching, myTeamSummary]);
+  }, [primary, role, canManageLeaves, pendingLeaveCount, onGoToLeaves, nextPhaseInfo, firstPhaseInfo, upcomingRunbookSteps, myUserId, onSwitchToQa, todayOrTomorrowActivities, homeShowQa, qaSummary, canAccessVersionManagement, scopeAttentionCount, scopeAttentionCrs, onSwitchToModule, onSelectVersion, canAccessReleaseIntelligence, criticalDefectsCount, canAccessQualityHub, qualityScore, showTeamStatus, teamStatus, isCollecting, reviewIsApproaching, myTeamSummary]);
 
   // Stats — only count non-terminal versions as "in progress"
   const totalVersions  = inProgressVersions.length;
   const liveCount      = inProgressVersions.filter(v => ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(v.status)).length;
-  const planningCount  = inProgressVersions.filter(v => !['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(v.status)).length;
-  const endedCount     = activeVersions.filter(v => ['COMPLETED', 'ROLLED_BACK'].includes(v.status)).length + versions.filter(v => v.isArchived).length;
 
   // ── Render ──
   return (
@@ -933,16 +964,6 @@ export const HomeDashboard: React.FC<Props> = ({
               <span style={{ fontSize: '14px' }}>🌅</span>
               <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: '#F0883E' }}>בוקר שלאחר</span>
             </div>
-          )}
-          {canCreate && onNewVersion && (
-            <button
-              onClick={onNewVersion}
-              style={{ background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, padding: '7px 16px', ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT, transition: EASE.fast }}
-              onMouseEnter={e => (e.currentTarget.style.background = '#E05555')}
-              onMouseLeave={e => (e.currentTarget.style.background = C.brand)}
-            >
-              + יצירת תוכנית הטמעה
-            </button>
           )}
         </div>
       </div>
@@ -1069,20 +1090,35 @@ export const HomeDashboard: React.FC<Props> = ({
           <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: '4px 0 -4px' }}>תמונת מצב לפי מודול</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '12px' }}>
 
-            {canAccessVersionManagement && (
-              <KpiTile
-                icon="🧭" accent={C.moduleRelease} moduleLabel={MODULE_META['version-management'].label}
-                value={estimateStats && (estimateStats as any).crCount != null ? String((estimateStats as any).crCount) : '—'}
-                label="CR-ים בתכולה"
-                sub={primary?.scopeApprovedAt ? '✓ תכולה אושרה' : scopeAttentionCount > 0 ? `⚠ ${scopeAttentionCount} דורשים אישור מחדש` : 'ממתין לאישור תכולה'}
-                subTone={primary?.scopeApprovedAt && scopeAttentionCount === 0 ? 'ok' : 'warn'}
-                footer={
-                  (estimateStats ? `📊 ${estimateStats.totalEstimateDays} ימ״ע השקעה כוללת · ${planningCount} גרסאות בתכנון` : `${planningCount} גרסאות בתכנון · ${endedCount} הסתיימו`)
-                  + (targetDefectStats && targetDefectStats.total > 0 ? ` · 🎯 ${targetDefectStats.fixedCount}/${targetDefectStats.total} תקלות TARGET תוקנו` : '')
-                }
-                onClick={() => onSwitchToModule?.('version-management')}
-              />
-            )}
+            {canAccessVersionManagement && (() => {
+              // How many of the CRs in scope still have no Task in the plan yet,
+              // grouped by why — mirrors the QA tile's unassigned-reason
+              // breakdown just below, so both cards explain a "count is lower
+              // than scope" number the same way instead of leaving it opaque.
+              const crsWithoutTasks = estimateStats?.crsWithoutTasks ?? [];
+              const taskGapText = (() => {
+                if (crsWithoutTasks.length === 0) return null;
+                const byReason = new Map<string, number>();
+                for (const c of crsWithoutTasks) byReason.set(c.reason, (byReason.get(c.reason) ?? 0) + 1);
+                return `⚠ ${crsWithoutTasks.length} ללא משימה עדיין: ` + Array.from(byReason.entries()).map(([r, n]) => `${n} ${r}`).join(', ');
+              })();
+              return (
+                <KpiTile
+                  icon="🧭" accent={C.moduleRelease} moduleLabel={MODULE_META['version-management'].label}
+                  value={estimateStats && (estimateStats as any).crCount != null ? String((estimateStats as any).crCount) : '—'}
+                  label="CR-ים בתכולה"
+                  sub={primary?.scopeApprovedAt ? '✓ תכולה אושרה' : scopeAttentionCount > 0 ? `⚠ ${scopeAttentionCount} דורשים אישור מחדש` : 'ממתין לאישור תכולה'}
+                  subTone={primary?.scopeApprovedAt && scopeAttentionCount === 0 ? 'ok' : 'warn'}
+                  sideStat={targetDefectStats && targetDefectStats.total > 0 ? { icon: '🎯', value: `${targetDefectStats.fixedCount}/${targetDefectStats.total}`, label: 'תקלות TARGET תוקנו' } : null}
+                  footer={
+                    estimateStats
+                      ? `📊 ${estimateStats.totalEstimateDays} ימ״ע השקעה כוללת` + (taskGapText ? ` · ${taskGapText}` : '')
+                      : taskGapText
+                  }
+                  onClick={() => onSwitchToModule?.('version-management')}
+                />
+              );
+            })()}
 
             {homeShowQa && (() => {
               // qaSummary.totalCrs counts raw VersionCrAssignment rows (one per
@@ -1094,6 +1130,19 @@ export const HomeDashboard: React.FC<Props> = ({
               // like it means.
               const assignmentStarted = !!qaSummary && qaSummary.assignedCrs > 0;
               const hasClassification = !assignmentStarted && !!classificationStats && classificationStats.totalCrs > 0;
+              // Why the assigned count is lower than the CRs in scope — a CR
+              // sits in exactly one bucket: already deployed separately,
+              // archived out of QA scope, genuinely has no QA effort estimated
+              // (so it was never expected to get a tester), or is real,
+              // pending work still waiting on assignment.
+              const ub = qaSummary?.unassignedBreakdown;
+              const unassignedReason = ub
+                ? [
+                    ub.pending > 0 ? `${ub.pending} ממתינים לשיבוץ בודק` : null,
+                    ub.noQaEffort > 0 ? `${ub.noQaEffort} ללא צורך בבדיקה` : null,
+                    (ub.archived + ub.alreadyInProduction) > 0 ? `${ub.archived + ub.alreadyInProduction} בארכיון/כבר בייצור` : null,
+                  ].filter(Boolean).join(' · ') || null
+                : null;
               return (
                 <KpiTile
                   icon="🧪" accent={C.moduleTestPlan} moduleLabel={MODULE_META['qa'].label}
@@ -1105,11 +1154,14 @@ export const HomeDashboard: React.FC<Props> = ({
                   label={assignmentStarted ? 'משימות משובצות לבדיקות' : 'CR-ים סווגו (core/עדיפות)'}
                   sub={
                     assignmentStarted
-                      ? (qaSummary!.priorityCount > 0 ? `⚠ ${qaSummary!.priorityCount} בעדיפות דחופה` : qaSummary!.hasWorkPlan ? '✓ לוח פעילויות מוכן' : 'לוח פעילויות טרם נבנה')
+                      ? [
+                          qaSummary!.priorityCount > 0 ? `⚠ ${qaSummary!.priorityCount} בעדיפות דחופה` : (qaSummary!.hasWorkPlan ? '✓ לוח פעילויות מוכן' : 'לוח פעילויות טרם נבנה'),
+                          unassignedReason,
+                        ].filter(Boolean).join(' · ')
                       : hasClassification ? 'שיבוץ לבודקים טרם החל' : 'ממתין לתכולה'
                   }
                   subTone={assignmentStarted ? (qaSummary!.priorityCount > 0 ? 'warn' : qaSummary!.hasWorkPlan ? 'ok' : 'muted') : 'muted'}
-                  footer={estimateStats ? `📊 ${estimateStats.qaFilteredEstimateDays} ימ״ע ב-CR-ים עם QA` : null}
+                  footer={estimateStats ? `📊 נפח הגרסה ${estimateStats.qaFilteredEstimateDays} ימים` : null}
                   onClick={onSwitchToQa}
                 />
               );
@@ -1120,6 +1172,21 @@ export const HomeDashboard: React.FC<Props> = ({
               value={taskSchedule ? String(taskSchedule.total) : '—'}
               label="משימות בתוכנית העלייה"
               sub={(() => {
+                // No phases built yet for this version — the one case worth a
+                // direct call to action here (only for whoever can actually
+                // act on it; a team lead/employee can't build the framework
+                // plan, so telling them to isn't useful). Takes priority over
+                // the team-submission status below, which doesn't mean much
+                // before there's even a plan to submit against.
+                const planBuilt = (primary._count?.phases ?? 0) > 0;
+                if (!planBuilt) return isRm(role) ? '+ טרם נבנתה תוכנית — לחץ לבנייה' : 'טרם נבנתה תוכנית הטמעה';
+                // PHASE_META['APPROVED'] always reads "תוכנית מאושרת" (plan
+                // approved) — accurate before the first rehearsal, but stale
+                // once one already ran: nothing about the plan itself changed,
+                // the version is just sitting there waiting for the real
+                // night now, same distinction ManagerDashboard's own
+                // post-rehearsal banner already makes.
+                if (primary.status === 'APPROVED' && primary.lastRehearsalAt) return 'ממתין לריצת לילה';
                 if (teamStatus.length === 0) return (PHASE_META[primary.status] ?? PHASE_META['DRAFT']).label;
                 const missing = teamStatus.filter(t => !t.allDone);
                 if (missing.length === 0) return `✓ ${teamStatus.length}/${teamStatus.length} צוותים השלימו הגשה`;
@@ -1127,7 +1194,7 @@ export const HomeDashboard: React.FC<Props> = ({
                   ? `⚠ ממתין ל: ${missing.map(t => t.teamName).join(', ')}`
                   : `⚠ ${missing.length} צוותים טרם השלימו הגשה`;
               })()}
-              subTone={teamStatus.length > 0 && teamStatus.every(t => t.allDone) ? 'ok' : 'warn'}
+              subTone={(primary._count?.phases ?? 0) === 0 ? 'warn' : (teamStatus.length > 0 && teamStatus.every(t => t.allDone) ? 'ok' : 'warn')}
               footer={(() => {
                 if (primary.status === 'MORNING_AFTER' && taskSchedule && taskSchedule.morningFollowup > 0) {
                   return `☀️ ${taskSchedule.morningFollowup} משימות דורשות מעקב בוקר`;
@@ -1355,30 +1422,58 @@ export const HomeDashboard: React.FC<Props> = ({
                 );
               })()}
 
-              {/* Team lead warning: not submitted yet (null = fetch failed/pending = treat as
-                  not submitted) — shown as soon as there's nothing ready, not just when the
-                  review meeting is close, so the deadline date is visible well in advance. */}
-              {isTl && showMyTeamWarning && (myTeamSummary === null || myTeamSummary.ready === 0) && (
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', background: 'rgba(240,106,106,0.08)', border: `1px solid rgba(240,106,106,0.3)`, borderRadius: RADIUS.md, padding: '10px 14px', marginBottom: '12px' }}>
-                  <span style={{ fontSize: '18px', flexShrink: 0 }}>⚠️</span>
-                  <div>
-                    <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.danger }}>
-                      {primary.status === 'COLLECTING' ? 'לא הגשת הצעות משימות עדיין' : 'לא הגשת תוכנית CR עדיין'}
+              {/* Team lead warning: everything short of "all done" lands here — this is
+                  now the ONLY submit-reminder surface for the team lead's own version
+                  (the duplicate list item above was removed), so it distinguishes
+                  nothing-started / draft-only / partially-submitted instead of a single
+                  flat "not submitted" line, and calls out a review meeting that's
+                  already passed instead of only ones still ahead. */}
+              {isTl && showMyTeamWarning && !myTeamSummary?.allDone && (() => {
+                const kind = primary.status === 'COLLECTING' ? 'הצעות המשימות' : 'תוכנית ה-CR';
+                const kindFem = primary.status === 'COLLECTING' ? 'ההצעות' : 'התוכנית';
+                const total = myTeamSummary?.total ?? 0;
+                const ready = myTeamSummary?.ready ?? 0;
+                const draft = myTeamSummary?.draft ?? 0;
+                const title = ready > 0 && ready < total
+                  ? `הגשת ${ready} מתוך ${total} — נותר להשלים את השאר`
+                  : draft > 0
+                    ? `יש ${kindFem} בטיוטה — טרם הוגשו`
+                    : `לא הגשת את ${kind} עדיין`;
+
+                const reviewMeetingPassed = hoursUntilReview !== null && hoursUntilReview <= 0;
+                const deadlineText = !reviewMeetingTime
+                  ? 'מועד ישיבת המעבר טרם נקבע — יש להגיש בהקדם האפשרי'
+                  : reviewMeetingPassed
+                    ? `⚠ מועד ישיבת המעבר כבר עבר (${reviewMeetingTime.toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'short' })}, ${reviewMeetingTime.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}) — יש להגיש בדחיפות`
+                    : `יש להגיש עד למועד ישיבת המעבר: ${reviewMeetingTime.toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'short' })}, ${reviewMeetingTime.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}${reviewIsApproaching ? ` (בעוד ${reviewHoursLabel})` : ''}`;
+
+                // submissionDeadline is a separate field from the review meeting itself
+                // (used elsewhere for CR_REVIEW submissions specifically) — kept here so
+                // removing the old list item doesn't lose this overdue signal.
+                const submissionDeadline = primary.status === 'CR_REVIEW' ? (primary as any).submissionDeadline : null;
+                const submissionDeadlinePassed = submissionDeadline && new Date(submissionDeadline) < new Date();
+
+                return (
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', background: reviewMeetingPassed ? 'rgba(240,106,106,0.15)' : 'rgba(240,106,106,0.08)', border: `1px solid rgba(240,106,106,${reviewMeetingPassed ? 0.5 : 0.3})`, borderRadius: RADIUS.md, padding: '10px 14px', marginBottom: '12px' }}>
+                    <span style={{ fontSize: '18px', flexShrink: 0 }}>{reviewMeetingPassed ? '⏰' : '⚠️'}</span>
+                    <div>
+                      <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.danger }}>{title}</div>
+                      <div style={{ ...TEXT.xs, color: C.textSecondary, marginTop: '2px' }}>
+                        {deadlineText}
+                        {submissionDeadline && (
+                          <> · מועד הגשת CR: {new Date(submissionDeadline).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}{submissionDeadlinePassed ? ' ⚠ עבר' : ''}</>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ ...TEXT.xs, color: C.textSecondary, marginTop: '2px' }}>
-                      {reviewMeetingTime
-                        ? `יש להגיש עד למועד ישיבת המעבר: ${reviewMeetingTime.toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'short' })}, ${reviewMeetingTime.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}${reviewIsApproaching ? ` (בעוד ${reviewHoursLabel})` : ''}`
-                        : 'מועד ישיבת המעבר טרם נקבע — יש להגיש בהקדם האפשרי'}
-                    </div>
+                    <button
+                      onClick={() => onSelectVersion(primary.id, primary.status === 'COLLECTING' ? 'proposals' : 'implementation-plans')}
+                      style={{ marginRight: 'auto', flexShrink: 0, background: C.danger, color: 'white', border: 'none', borderRadius: RADIUS.sm, padding: '5px 12px', ...TEXT.xs, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' as const }}
+                    >
+                      הגש עכשיו ←
+                    </button>
                   </div>
-                  <button
-                    onClick={() => onSelectVersion(primary.id, primary.status === 'COLLECTING' ? 'proposals' : 'implementation-plans')}
-                    style={{ marginRight: 'auto', flexShrink: 0, background: C.danger, color: 'white', border: 'none', borderRadius: RADIUS.sm, padding: '5px 12px', ...TEXT.xs, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' as const }}
-                  >
-                    הגש עכשיו ←
-                  </button>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Team lead success: submitted every CR's plan for this version */}
               {isTl && showMyTeamWarning && myTeamSummary?.allDone && (() => {

@@ -1,24 +1,15 @@
 import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { QcService, TargetDefectDto } from '../qc/qc.service';
+import { CrPlansService } from '../cr-plans/cr-plans.service';
 import { TARGET_CR_PATTERN } from '../common/team-columns';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
 
-// Reason a defect was marked "requires special implementation" → which kind
-// of derived plan item it becomes, and a sensible default phase for it.
-const REASON_TO_ACTION: Record<string, { actionType: string; phase: number } | 'MONITORING'> = {
-  'Script':            { actionType: 'הרצת סקריפט', phase: 2 },
-  'Data Migration':    { actionType: 'הסבת נתונים', phase: 2 },
-  'בדיקת לקוח ראשון':  { actionType: 'בדיקה ידנית', phase: 4 },
-  'ניטור מיוחד':       'MONITORING',
-  'אחר':               { actionType: 'אחר', phase: 2 },
-};
-
 @Injectable()
 export class TargetCrService {
-  constructor(private qcService: QcService) {}
+  constructor(private qcService: QcService, private crPlansService: CrPlansService) {}
 
   private async resolveTeamId(crNumber: string, teamId: string | undefined, user: { sub: string; role: string }): Promise<string> {
     if (MANAGERS.includes(user.role) && teamId) return teamId;
@@ -72,7 +63,6 @@ export class TargetCrService {
         assignedTo: od.assignedTo,
         qaTester: od.qaTester,
         requiresSpecialImplementation: local?.requiresSpecialImplementation ?? false,
-        implementationReason: local?.implementationReason ?? null,
         importantToManagement: local?.importantToManagement ?? false,
       };
     });
@@ -289,12 +279,21 @@ export class TargetCrService {
     return prisma.targetCrReview.update({ where: { id: reviewId }, data: patch });
   }
 
-  async approve(reviewId: string, user: { sub: string; fullName?: string }) {
+  async approve(reviewId: string, user: { sub: string; role: string; fullName?: string }) {
     const review = await prisma.targetCrReview.findUnique({ where: { id: reviewId } });
     if (!review) throw new NotFoundException('לא נמצאה סקירת TARGET CR');
     if (!review.gateChecklist1 || !review.gateChecklist2 || !review.gateChecklist3) {
       throw new BadRequestException('יש לאשר את כל שלושת התנאים לפני אישור ה-CR');
     }
+
+    // Materialize real TaskProposals from whatever Section-2 actions the lead
+    // built up for this CR's defects — same submitPlan a regular CR's own
+    // "✓ אשר תוכנית CR" runs, since TARGET has no separate submit step of its
+    // own; approving the review IS the commit point. Skipped entirely when no
+    // defect was ever marked "requires special implementation" (no plan to submit).
+    const plan = await prisma.crPlan.findFirst({ where: { versionId: review.versionId, crNumber: review.crNumber, teamId: review.teamId } });
+    if (plan) await this.crPlansService.submitPlan(plan.id, user);
+
     const approver = await prisma.user.findUnique({ where: { id: user.sub }, select: { fullName: true } });
     return prisma.targetCrReview.update({
       where: { id: reviewId },
@@ -304,85 +303,25 @@ export class TargetCrService {
 
   async updateDefect(
     defectRowId: string,
-    patch: { requiresSpecialImplementation?: boolean; implementationReason?: string | null; importantToManagement?: boolean },
-    user: { sub: string; fullName?: string },
+    patch: { requiresSpecialImplementation?: boolean; importantToManagement?: boolean },
   ) {
-    const row = await prisma.targetCrDefect.findUnique({ where: { id: defectRowId }, include: { review: true } });
+    const row = await prisma.targetCrDefect.findUnique({ where: { id: defectRowId } });
     if (!row) throw new NotFoundException('תקלה לא נמצאה');
 
+    // The linked CrPlanAction itself (type/description/phase/owner/etc.) is
+    // created and edited entirely through the regular CR-plan save flow
+    // (POST /cr-plans/version/:id, Section 2 of that CR's own plan) — this
+    // endpoint only tracks the checkbox. Unchecking clears derivedActionId
+    // defensively; the actual row gets deleted server-side the next time the
+    // plan is saved without it in the actions array (reconcileActions).
     const nextRequires = patch.requiresSpecialImplementation ?? row.requiresSpecialImplementation;
-    const nextReason = patch.implementationReason !== undefined ? patch.implementationReason : row.implementationReason;
-
-    // Turning the flag off (or clearing the reason) — remove whatever was derived.
-    if (!nextRequires || !nextReason) {
-      if (row.derivedActionId) {
-        const action = await prisma.crPlanAction.findUnique({ where: { id: row.derivedActionId } });
-        if (action?.derivedProposalId) {
-          await prisma.taskProposal.deleteMany({ where: { id: action.derivedProposalId, usedInTaskId: null } });
-        }
-        await prisma.crPlanAction.deleteMany({ where: { id: row.derivedActionId } });
-      }
-      if (row.derivedMonitoringPointId) {
-        const point = await prisma.crPlanMonitoringPoint.findUnique({ where: { id: row.derivedMonitoringPointId } });
-        if (point?.derivedProposalId) {
-          await prisma.taskProposal.deleteMany({ where: { id: point.derivedProposalId, usedInTaskId: null } });
-        }
-        await prisma.crPlanMonitoringPoint.deleteMany({ where: { id: row.derivedMonitoringPointId } });
-      }
-      return prisma.targetCrDefect.update({
-        where: { id: defectRowId },
-        data: {
-          requiresSpecialImplementation: nextRequires,
-          implementationReason: nextReason ?? null,
-          importantToManagement: patch.importantToManagement ?? row.importantToManagement,
-          derivedActionId: null,
-          derivedMonitoringPointId: null,
-        },
-      });
-    }
-
-    // Turning the flag on with a reason — derive (or refresh) the plan item.
-    if (nextRequires && nextReason && !row.derivedActionId && !row.derivedMonitoringPointId) {
-      const crPlan = await this.findOrCreateCrPlan(row.review.versionId, row.review.crNumber, row.review.teamId);
-      const mapping = REASON_TO_ACTION[nextReason] ?? REASON_TO_ACTION['אחר'];
-      const description = `${nextReason} בעקבות DEF-${row.defectId}${row.description ? `: ${row.description}` : ''}`;
-
-      if (mapping === 'MONITORING') {
-        const point = await prisma.crPlanMonitoringPoint.create({
-          data: { crPlanId: crPlan.id, type: 'Other', name: `DEF-${row.defectId}`, note: description, phase: 4 },
-        });
-        return prisma.targetCrDefect.update({
-          where: { id: defectRowId },
-          data: {
-            requiresSpecialImplementation: true, implementationReason: nextReason,
-            importantToManagement: patch.importantToManagement ?? row.importantToManagement,
-            derivedMonitoringPointId: point.id,
-          },
-        });
-      }
-      const action = await prisma.crPlanAction.create({
-        data: { crPlanId: crPlan.id, actionType: mapping.actionType, description, phase: mapping.phase },
-      });
-      return prisma.targetCrDefect.update({
-        where: { id: defectRowId },
-        data: {
-          requiresSpecialImplementation: true, implementationReason: nextReason,
-          importantToManagement: patch.importantToManagement ?? row.importantToManagement,
-          derivedActionId: action.id,
-        },
-      });
-    }
-
-    // Only importantToManagement changed — no derivation to touch.
     return prisma.targetCrDefect.update({
       where: { id: defectRowId },
-      data: { importantToManagement: patch.importantToManagement ?? row.importantToManagement },
+      data: {
+        requiresSpecialImplementation: nextRequires,
+        importantToManagement: patch.importantToManagement ?? row.importantToManagement,
+        ...(nextRequires ? {} : { derivedActionId: null }),
+      },
     });
-  }
-
-  private async findOrCreateCrPlan(versionId: string, crNumber: string, teamId: string) {
-    const existing = await prisma.crPlan.findFirst({ where: { versionId, crNumber, teamId } });
-    if (existing) return existing;
-    return prisma.crPlan.create({ data: { versionId, crNumber, teamId, crType: 'TARGET' } });
   }
 }

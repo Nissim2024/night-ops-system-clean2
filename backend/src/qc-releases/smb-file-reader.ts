@@ -40,6 +40,18 @@ export class SmbAccessError extends Error {
   }
 }
 
+// True when this process is running directly on Windows (dev machines, or a
+// Windows-hosted backend) rather than the Linux+Docker+CIFS-mount topology
+// this module was originally written for. Both are real deployment shapes
+// for this app — confirmed 2026-08-11 after readQcFile's blanket Windows/UNC
+// rejection broke Quality Hub's server-path import on this Windows dev box
+// even though the exact same folder is read successfully elsewhere (CR_LIST's
+// own loader in version-cr-assignments.service.ts uses plain fs with no such
+// guard). On Windows, a drive path (C:\...) or UNC path (\\server\share\...)
+// is read directly by Node's fs — no mount step needed — so the guidance
+// below only applies when actually running on Linux.
+const isWindows = process.platform === 'win32';
+
 function classifyFsError(err: NodeJS.ErrnoException, filePath: string): SmbAccessError {
   const code = err.code ?? 'UNKNOWN';
 
@@ -48,9 +60,13 @@ function classifyFsError(err: NodeJS.ErrnoException, filePath: string): SmbAcces
       return new SmbAccessError(
         `QC Releases file not found: ${filePath}\n` +
         'Verify:\n' +
-        '  1. SMB share is mounted\n' +
-        '  2. File cr_list.xls exists in the share\n' +
-        '  3. QC_RELEASES_FILE path matches the actual mount point',
+        (isWindows
+          ? '  1. The path is correct and accessible from this machine (try opening it in Explorer)\n' +
+            '  2. The file exists at that exact path\n' +
+            '  3. If it is a network path (\\\\server\\share\\...), this account has access to the share'
+          : '  1. SMB share is mounted\n' +
+            '  2. File cr_list.xls exists in the share\n' +
+            '  3. QC_RELEASES_FILE path matches the actual mount point'),
         code, filePath,
       );
 
@@ -58,13 +74,17 @@ function classifyFsError(err: NodeJS.ErrnoException, filePath: string): SmbAcces
     case 'EPERM':
       return new SmbAccessError(
         `Unable to access QC Releases file: ${filePath}\n` +
-        'Reason: Access denied (NT_STATUS_ACCESS_DENIED)\n' +
+        'Reason: Access denied\n' +
         'Verify:\n' +
-        '  1. SMB credentials are correct (SMB_USERNAME / SMB_PASSWORD)\n' +
-        '  2. Mount includes correct uid/gid options\n' +
-        '  3. Share permissions allow read access\n' +
-        '  CIFS mount command: mount -t cifs "//SERVER/SHARE" /mnt/qc-releases \\\n' +
-        '    -o username=USER,password=PASS,domain=HOT,uid=1000,gid=1000,file_mode=0444',
+        (isWindows
+          ? '  1. The Windows account running this process has read access to the file/share\n' +
+            '  2. If it is a network path, the share permissions allow read access\n' +
+            '  3. The file is not exclusively locked open by another program'
+          : '  1. SMB credentials are correct (SMB_USERNAME / SMB_PASSWORD)\n' +
+            '  2. Mount includes correct uid/gid options\n' +
+            '  3. Share permissions allow read access\n' +
+            '  CIFS mount command: mount -t cifs "//SERVER/SHARE" /mnt/qc-releases \\\n' +
+            '    -o username=USER,password=PASS,domain=HOT,uid=1000,gid=1000,file_mode=0444'),
         code, filePath,
       );
 
@@ -74,12 +94,15 @@ function classifyFsError(err: NodeJS.ErrnoException, filePath: string): SmbAcces
     case 'ECONNREFUSED':
     case 'ETIMEDOUT':
       return new SmbAccessError(
-        `Cannot reach SMB server for QC Releases file: ${filePath}\n` +
+        `Cannot reach the file server for: ${filePath}\n` +
         'Reason: Network/connection failure\n' +
         'Verify:\n' +
-        '  1. SMB server (hot-public-01) is reachable from this host\n' +
-        '  2. CIFS share is still mounted (mount | grep qc-releases)\n' +
-        '  3. Re-mount if needed: mount -a',
+        (isWindows
+          ? '  1. The file server is reachable from this machine\n' +
+            '  2. The network path/drive is still connected'
+          : '  1. SMB server (hot-public-01) is reachable from this host\n' +
+            '  2. CIFS share is still mounted (mount | grep qc-releases)\n' +
+            '  3. Re-mount if needed: mount -a'),
         code, filePath,
       );
 
@@ -95,13 +118,13 @@ function classifyFsError(err: NodeJS.ErrnoException, filePath: string): SmbAcces
     case 'EISDIR':
       return new SmbAccessError(
         `Path is a directory, not a file: ${filePath}\n` +
-        'Verify QC_RELEASES_FILE points to the actual .xls file, not a directory.',
+        'Verify the configured path points to the actual file, not a directory.',
         code, filePath,
       );
 
     default:
       return new SmbAccessError(
-        `Failed to read QC Releases file: ${filePath}\n` +
+        `Failed to read file: ${filePath}\n` +
         `Error code: ${code}\n` +
         `Details: ${err.message}`,
         code, filePath,
@@ -110,8 +133,11 @@ function classifyFsError(err: NodeJS.ErrnoException, filePath: string): SmbAcces
 }
 
 export function readQcFile(filePath: string): SmbReadResult {
-  // Detect Windows paths and provide clear guidance
-  if (/^[A-Za-z]:\\/.test(filePath)) {
+  // Windows drive paths (C:\...) and UNC paths (\\server\share\...) are read
+  // directly by Node's fs when this process itself is running on Windows —
+  // only reject them on Linux, where they can't work without a prior CIFS
+  // mount (see isWindows's comment above for why this distinction matters).
+  if (!isWindows && /^[A-Za-z]:\\/.test(filePath)) {
     throw new SmbAccessError(
       `Invalid path on Linux: ${filePath}\n` +
       'Windows drive paths (X:\\...) cannot be used on Linux.\n' +
@@ -121,7 +147,7 @@ export function readQcFile(filePath: string): SmbReadResult {
     );
   }
 
-  if (filePath.startsWith('\\\\')) {
+  if (!isWindows && filePath.startsWith('\\\\')) {
     throw new SmbAccessError(
       `UNC path not directly supported on Linux: ${filePath}\n` +
       'Mount the SMB share via CIFS and use the mount point:\n' +

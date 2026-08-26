@@ -13,6 +13,7 @@ import { DefectsView } from './release-intelligence/DefectsView';
 import { ReopenAnalysisView } from './release-intelligence/ReopenAnalysisView';
 import { AlertsIntelligenceView } from './release-intelligence/AlertsIntelligenceView';
 import { GoNoGoView } from './release-intelligence/GoNoGoView';
+import { IncidentsView } from './release-intelligence/IncidentsView';
 import { OpenProdDefectsView } from './quality-hub/OpenProdDefectsView';
 import { NewVsTargetDefectsView } from './quality-hub/NewVsTargetDefectsView';
 import { ReleaseOverviewView } from './quality-hub/ReleaseOverviewView';
@@ -90,6 +91,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [endNightPending, setEndNightPending]       = useState<number>(0);
   const [rehearsalEndLoading, setRehearsalEndLoading] = useState(false);
   const [startNightLoading, setStartNightLoading]     = useState(false);
+  const [restartRehearsalLoading, setRestartRehearsalLoading] = useState(false);
   const [summaryReady, setSummaryReady]             = useState(false);
   const [currentPhaseName, setCurrentPhaseName] = useState<string | null>(null);
   const [archiveLoading, setArchiveLoading]     = useState(false);
@@ -829,6 +831,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           {activeModule === 'release-intelligence' && activeRiView === 'go-no-go' && (
             <GoNoGoView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
           )}
+          {activeModule === 'release-intelligence' && activeRiView === 'incidents' && (
+            <IncidentsView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+          )}
 
           {/* ── Module: Quality Hub ── */}
           {activeModule === 'quality-hub' && activeQhView === 'overview' && (
@@ -1301,10 +1306,41 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 </div>
                 <div style={{ display: 'flex', gap: '10px', flexShrink: 0 }}>
                   <button
+                    onClick={() => setActiveTab('list')}
+                    title="דף הנחיתה של מודול ההטמעות לגרסה זו"
+                    style={{ padding: '10px 20px', background: 'rgba(255,255,255,0.12)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '10px', cursor: 'pointer', fontSize: '15px', whiteSpace: 'nowrap' }}
+                  >
+                    📄 פרטי גרסה
+                  </button>
+                  <button
                     onClick={() => setActiveTab('summary-rehearsal')}
                     style={{ padding: '10px 20px', background: 'rgba(255,255,255,0.12)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '10px', cursor: 'pointer', fontSize: '15px', whiteSpace: 'nowrap' }}
                   >
                     📋 סיכום חזרה
+                  </button>
+                  <button
+                    disabled={restartRehearsalLoading || startNightLoading}
+                    title="הרצת החזרה הקודמת נשמרת ונגישה בדוח סיכום החזרה"
+                    onClick={async () => {
+                      const ok = await appDialog.confirm(
+                        `להריץ שוב את החזרה הגנרלית של "${selectedVersion.name}"?\nכל המשימות יאופסו למצב התחלתי. דוח החזרה הקודמת יישמר ויישאר נגיש.`,
+                        '🔁 חזרה גנרלית — הרצה נוספת',
+                        'warning',
+                      );
+                      if (!ok) return;
+                      setRestartRehearsalLoading(true);
+                      try {
+                        await axios.post(`${API}/versions/${selectedVersionId}/restart-rehearsal`, {}, { headers });
+                        setVersionFilter('active');
+                        await fetchVersions();
+                        setActiveTab('board');
+                      } catch (err: any) {
+                        appDialog.alert(err?.response?.data?.message || 'לא ניתן להתחיל חזרה גנרלית מחדש', 'שגיאה', 'danger');
+                      } finally { setRestartRehearsalLoading(false); }
+                    }}
+                    style={{ padding: '10px 20px', background: 'transparent', color: '#c4b5fd', border: '1px solid #8b5cf6', borderRadius: '10px', cursor: restartRehearsalLoading || startNightLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '15px', whiteSpace: 'nowrap' }}
+                  >
+                    {restartRehearsalLoading ? '...' : '🔁 הרץ חזרה שוב'}
                   </button>
                   <button
                     disabled={startNightLoading}
@@ -1383,7 +1419,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
 
           {/* ── Tab: ניהול ── */}
           {activeTab === 'admin' && (
-            <AdminPanel token={token} />
+            <AdminPanel token={token} onVersionsChanged={fetchVersions} />
           )}
 
           {/* ── Tab: סיכום חזרה גנרלית ── */}

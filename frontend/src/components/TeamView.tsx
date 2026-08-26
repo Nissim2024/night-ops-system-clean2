@@ -484,12 +484,24 @@ const TaskRow: React.FC<{ task: any } & TaskRowSharedProps> = ({
                     </button>
                   );
                 })()}
-                {task.status === 'OPEN' && (
-                  <button onClick={() => onUpdateStatus(task.id, 'IN_PROGRESS')} disabled={updatingId === task.id}
-                    style={{ fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold, padding: '6px 8px', background: `linear-gradient(135deg,${C.statusInProgress},#b07d1e)`, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', boxShadow: `0 2px 6px rgba(227,179,65,0.25)` }}>
-                    ▶ התחל
-                  </button>
-                )}
+                {task.status === 'OPEN' && (() => {
+                  const phaseBlocked = blockedPhaseTaskIds.has(task.id);
+                  return (
+                    <button onClick={() => !phaseBlocked && onUpdateStatus(task.id, 'IN_PROGRESS')}
+                      disabled={updatingId === task.id || phaseBlocked}
+                      title={phaseBlocked ? 'השלב הקודם טרם הסתיים' : undefined}
+                      style={{
+                        fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold, padding: '6px 8px',
+                        background: phaseBlocked ? C.bgActive : `linear-gradient(135deg,${C.statusInProgress},#b07d1e)`,
+                        color: phaseBlocked ? C.textDisabled : 'white',
+                        border: 'none', borderRadius: RADIUS.md,
+                        cursor: phaseBlocked ? 'not-allowed' : 'pointer',
+                        boxShadow: phaseBlocked ? 'none' : `0 2px 6px rgba(227,179,65,0.25)`,
+                      }}>
+                      {phaseBlocked ? '⏳ ממתין' : '▶ התחל'}
+                    </button>
+                  );
+                })()}
                 {task.status === 'IN_PROGRESS' && (
                   <button onClick={() => onUpdateStatus(task.id, 'DONE')} disabled={updatingId === task.id}
                     style={{ fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold, padding: '6px 8px', background: `linear-gradient(135deg,${C.statusDone},#2ea043)`, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', boxShadow: `0 2px 6px rgba(86,211,100,0.22)` }}>
@@ -1293,14 +1305,17 @@ export const TeamView: React.FC<Props> = ({ token, teamId, teamName, versionId, 
   const blockedPhaseTaskIds = useMemo((): Set<string> => {
     const result = new Set<string>();
     const versionStatus = versionData?.status;
-    // Phase gate applies only in ACTIVE — in REHEARSAL the planned times are for the real night
-    if (versionStatus !== 'ACTIVE' || !versionData?.phases?.length) return result;
+    // Applies in both ACTIVE and REHEARSAL — a rehearsal exists to drill the
+    // real phase order, so skipping the gate there defeats the point. Only
+    // the time-based early-unlock below is ACTIVE-only (a rehearsal doesn't
+    // run against the real night's clock).
+    if (!['ACTIVE', 'REHEARSAL'].includes(versionStatus) || !versionData?.phases?.length) return result;
     const DONE_STATUSES = ['DONE', 'FAILED', 'ROLLED_BACK'];
     const taskStatusMap = new Map(tasks.map((t: any) => [t.id, t.status]));
     const now = Date.now();
     const phases = [...versionData.phases].sort((a: any, b: any) => a.orderIndex - b.orderIndex);
     for (let i = 1; i < phases.length; i++) {
-      const phaseStartArrived = phases[i].plannedStart != null && new Date(phases[i].plannedStart).getTime() <= now;
+      const phaseStartArrived = versionStatus === 'ACTIVE' && phases[i].plannedStart != null && new Date(phases[i].plannedStart).getTime() <= now;
       if (phaseStartArrived) continue; // time-based unlock — allow regardless
       const prevIncomplete = phases.slice(0, i).some((p: any) =>
         p.subPhases.some((sp: any) =>

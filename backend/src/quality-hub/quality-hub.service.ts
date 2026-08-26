@@ -44,7 +44,7 @@ function toNum(v: any): number | null {
 }
 
 function pct(fraction: number | null | undefined): number | null {
-  return fraction == null ? null : Math.round(fraction * 1000) / 10;
+  return fraction == null ? null : Math.round(fraction * 10000) / 100;
 }
 
 async function chunkedUpsert<T>(items: T[], size: number, fn: (item: T) => Promise<any>) {
@@ -106,10 +106,24 @@ export class QualityHubService {
     return { setup, scores };
   }
 
-  // Runs once a day (03:00) so the day's fresh export is always picked up
-  // without anyone needing to remember to click import.
-  @Cron(CronExpression.EVERY_DAY_AT_3AM)
-  async scheduledImport() {
+  // Guards against firing twice within the same target minute — same pattern
+  // as version-cr-assignments.service.ts's CR_LIST nightly sync.
+  private lastScheduledImportDate: string | null = null;
+
+  // Checked every minute against the admin-configurable QUALITY_KPI_SYNC_TIME
+  // system param (HH:mm, default 06:00) rather than a fixed @Cron expression
+  // — mirrors CR_LIST_SYNC_TIME's polling pattern exactly (2026-08-11,
+  // explicit product decision) so the sync time is editable from AdminPanel
+  // without a code change or restart, consistent with how CR_LIST already works.
+  @Cron(CronExpression.EVERY_MINUTE)
+  async checkScheduledImportTime() {
+    const param = await prisma.systemParam.findUnique({ where: { key: 'QUALITY_KPI_SYNC_TIME' } });
+    const target = (param?.value ?? '06:00').trim();
+    const now = new Date();
+    const current = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const today = now.toISOString().slice(0, 10);
+    if (current !== target || this.lastScheduledImportDate === today) return;
+    this.lastScheduledImportDate = today;
     this.logger.log('Running scheduled Quality Hub import from server path...');
     const result = await this.importFromServerPath();
     this.logger.log(`Scheduled Quality Hub import done: ${JSON.stringify(result)}`);
@@ -255,7 +269,7 @@ export class QualityHubService {
       const weight = s?.weight ?? def.weight;
       const contributionPct = pct(s?.calcScore);
       // Score Lost = Contribution - Weight (both as %) — matches the deck's "Score Lost" column.
-      const scoreLostPct = contributionPct != null ? Math.round((contributionPct - weight * 100) * 10) / 10 : null;
+      const scoreLostPct = contributionPct != null ? Math.round((contributionPct - weight * 100) * 100) / 100 : null;
       return {
         kpiName: def.kpiName,
         kpiOrder: def.kpiOrder,
@@ -409,7 +423,7 @@ export class QualityHubService {
     }
 
     const contributionPct = pct(scoreRow.calcScore);
-    const scoreLostPct = contributionPct != null ? Math.round((contributionPct - scoreRow.weight * 100) * 10) / 10 : null;
+    const scoreLostPct = contributionPct != null ? Math.round((contributionPct - scoreRow.weight * 100) * 100) / 100 : null;
     const trend = await this.getTimeline({ ...timelineOpts, kpiName, valueField: 'grade' });
 
     return {

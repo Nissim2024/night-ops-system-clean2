@@ -108,6 +108,18 @@ const DEFAULT_PARAMS = [
     label: 'שעת סינכרון לילי של קובץ CR_LIST (HH:mm)',
     type: 'text',
   },
+  {
+    key: 'QUALITY_KPI_SYNC_TIME',
+    value: '06:00',
+    label: 'Quality Hub: שעת סינכרון יומי של קובץ RELEASES_KPI_SCORES (HH:mm)',
+    type: 'text',
+  },
+  {
+    key: 'QUALITY_KPI_SCORES_FILE',
+    value: '',
+    label: 'Quality Hub: נתיב לקובץ RELEASES_KPI_SCORES.xlsx (ריק = אותה תיקייה כמו EXCEL_FILE_PATH)',
+    type: 'text',
+  },
 ];
 
 @Injectable()

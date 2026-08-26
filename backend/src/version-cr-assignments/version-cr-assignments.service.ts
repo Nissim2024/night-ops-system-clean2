@@ -697,6 +697,8 @@ export class VersionCrAssignmentsService {
     totalEstimateDays: number;
     qaFilteredEstimateDays: number;
     actualsCount: number;
+    crsWithTasksCount: number;
+    crsWithoutTasks: { crNumber: string; crLabel: string; reason: string }[];
     byTeam: {
       teamId: string;
       teamName: string;
@@ -838,12 +840,59 @@ export class VersionCrAssignmentsService {
 
     const distinctCrCount = new Set(rows.map(r => r.crNumber)).size;
 
+    // How many of the in-scope CRs actually made it into the execution plan
+    // as real Task rows yet, and — for the ones that haven't — why: no CR
+    // ever converts to a Task on its own, that happens when a team's CrPlan
+    // is approved and its tasks scheduled, so "no task yet" almost always
+    // traces back to a specific step in that pipeline (plan not submitted /
+    // not approved / approved but not yet scheduled), not a data bug.
+    const crLabelByNumber: Record<string, string> = {};
+    for (const r of rows) if (!(r.crNumber in crLabelByNumber)) crLabelByNumber[r.crNumber] = r.crLabel ?? r.crNumber;
+
+    const [taskCrRows, crPlanRows] = await Promise.all([
+      prisma.task.findMany({
+        where: { versionId, crNumber: { not: null } },
+        select: { crNumber: true },
+        distinct: ['crNumber'],
+      }),
+      prisma.crPlan.findMany({
+        where: { versionId },
+        select: { crNumber: true, notNeededForPlan: true, removedByTeam: true, planApproved: true },
+      }),
+    ]);
+    const crsWithTasks = new Set(taskCrRows.map(t => t.crNumber as string));
+
+    const crPlansByCr = new Map<string, typeof crPlanRows>();
+    for (const p of crPlanRows) {
+      if (!crPlansByCr.has(p.crNumber)) crPlansByCr.set(p.crNumber, []);
+      crPlansByCr.get(p.crNumber)!.push(p);
+    }
+
+    const crsWithoutTasks: { crNumber: string; crLabel: string; reason: string }[] = [];
+    for (const crNumber of Array.from(new Set(rows.map(r => r.crNumber)))) {
+      if (crsWithTasks.has(crNumber)) continue;
+      const plans = crPlansByCr.get(crNumber) ?? [];
+      let reason: string;
+      if (plans.length === 0) {
+        reason = 'הצוות טרם הגיש תוכנית CR';
+      } else if (plans.every(p => p.notNeededForPlan || p.removedByTeam)) {
+        reason = 'סומן כלא נדרש למשימה';
+      } else if (plans.some(p => p.planApproved)) {
+        reason = 'התוכנית אושרה — טרם שובצה לתוכנית העלייה';
+      } else {
+        reason = 'תוכנית הצוות טרם אושרה';
+      }
+      crsWithoutTasks.push({ crNumber, crLabel: crLabelByNumber[crNumber] ?? crNumber, reason });
+    }
+
     return {
       qaTaskCount:            qaTaskCrSet.size,
       crCount:                distinctCrCount,
       totalEstimateDays:      Math.round(totalEstimateDays * 10) / 10,
       qaFilteredEstimateDays: Math.round(qaFilteredEstimateDays * 10) / 10,
       actualsCount:           actualsCrSet.size,
+      crsWithTasksCount:      distinctCrCount - crsWithoutTasks.length,
+      crsWithoutTasks,
       byTeam,
     };
   }

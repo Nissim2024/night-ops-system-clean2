@@ -23,8 +23,13 @@ interface KpiDetail {
 
 const NOTE_EDITOR_ROLES = ['ADMIN', 'RELEASE_MANAGER'];
 
-function fmt2(v: number | null): string {
-  return v != null ? v.toFixed(2) : '—';
+// Grade values ("בפועל"/ממוצע שנתי) — 3 decimal places, matching KpiMatrixView.
+function fmt3(v: number | null): string {
+  return v != null ? v.toFixed(3) : '—';
+}
+
+function fmtPct(v: number | null): string {
+  return v != null ? `${v.toFixed(2)}%` : '—';
 }
 
 // Severity breakdown fields are defect COUNTS — always whole, non-negative.
@@ -209,12 +214,12 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
 
           <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
             <KpiCard value={String(data.target)} label="יעד" />
-            <KpiCard value={fmt2(data.grade)} label="בפועל (Grade)" />
-            <KpiCard value={`${(data.weight * 100).toFixed(1)}%`} label="משקל" />
-            <KpiCard value={data.relativeScorePct != null ? `${data.relativeScorePct}%` : '—'} label="ציון יחסי" valueColor={scoreColor(data.relativeScorePct)} />
-            <KpiCard value={data.contributionPct != null ? `${data.contributionPct}%` : '—'} label="תרומה לציון" />
-            <KpiCard value={data.scoreLostPct != null ? `${data.scoreLostPct}%` : '—'} label="Score Lost" valueColor={data.scoreLostPct != null && data.scoreLostPct < 0 ? C.danger : C.success} />
-            <KpiCard value={fmt2(data.yearAverageGrade)} label="ממוצע שנתי (Grade)" />
+            <KpiCard value={fmt3(data.grade)} label="בפועל (Grade)" />
+            <KpiCard value={`${(data.weight * 100).toFixed(2)}%`} label="משקל" />
+            <KpiCard value={fmtPct(data.relativeScorePct)} label="ציון יחסי" valueColor={scoreColor(data.relativeScorePct)} />
+            <KpiCard value={fmtPct(data.contributionPct)} label="תרומה לציון" />
+            <KpiCard value={fmtPct(data.scoreLostPct)} label="Score Lost" valueColor={data.scoreLostPct != null && data.scoreLostPct < 0 ? C.danger : C.success} />
+            <KpiCard value={fmt3(data.yearAverageGrade)} label="ממוצע שנתי (Grade)" />
           </div>
 
           <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>

@@ -217,6 +217,31 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
   // Active phase: first phase that still has non-terminal tasks
   const TERMINAL = ['DONE', 'FAILED', 'ROLLED_BACK'];
 
+  // Same phase-gate rule as tasks.service.ts/TeamView — a task in a later
+  // phase can't be opened/started while an earlier phase still has
+  // incomplete work. The status <select> below has no gate at all otherwise
+  // (unlike TeamView's dedicated buttons), so a manager could freely jump
+  // straight to a later phase from here even with the server-side fix.
+  const blockedPhaseTaskIds = useMemo((): Set<string> => {
+    const result = new Set<string>();
+    if (!['ACTIVE', 'REHEARSAL'].includes(version?.status) || !version?.phases?.length) return result;
+    const now = Date.now();
+    const phases = [...version.phases].sort((a: any, b: any) => a.orderIndex - b.orderIndex);
+    for (let i = 1; i < phases.length; i++) {
+      const phaseStartArrived = version.status === 'ACTIVE' && phases[i].plannedStart != null && new Date(phases[i].plannedStart).getTime() <= now;
+      if (phaseStartArrived) continue;
+      const prevIncomplete = phases.slice(0, i).some((p: any) =>
+        (p.subPhases ?? []).some((sp: any) => (sp.tasks ?? []).some((t: any) => !TERMINAL.includes(t.status)))
+      );
+      if (prevIncomplete) {
+        for (const sp of phases[i].subPhases ?? []) {
+          for (const t of sp.tasks ?? []) result.add(t.id);
+        }
+      }
+    }
+    return result;
+  }, [version]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const { focusTasks, focusAllPhaseTasks, focusActivePhaseName, focusNextPhaseInfo } = useMemo(() => {
     if (!allTasks.length) return { focusTasks: [], focusAllPhaseTasks: [], focusActivePhaseName: '', focusNextPhaseInfo: null as { name: string; startTime: string | null } | null };
 
@@ -262,7 +287,10 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
         { status, ...(reason !== undefined && { blockedReason: reason }) },
         { headers });
       await fetchData(true);
-    } catch (err) { console.error(err); }
+    } catch (err: any) {
+      console.error(err);
+      window.alert(err?.response?.data?.message || 'שגיאה בעדכון סטטוס המשימה');
+    }
     finally { setUpdatingTaskId(null); }
   };
 
@@ -455,7 +483,14 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
     try {
       await axios.patch(`${API}/tasks/${taskId}/status`, { status, ...(blockedReason !== undefined && { blockedReason, blockedSeverity }) }, { headers });
       await fetchData();
-    } catch (err) { console.error(err); }
+    } catch (err: any) {
+      console.error(err);
+      // Phase-gate rejections (and any other server-side validation) were
+      // silently swallowed here before — the dropdown just snapped back with
+      // no explanation, which is how a blocked phase-4 task looked like it
+      // "didn't work" instead of "isn't allowed yet."
+      window.alert(err?.response?.data?.message || 'שגיאה בעדכון סטטוס המשימה');
+    }
     finally { setUpdatingTaskId(null); }
   };
 
@@ -755,6 +790,7 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                             <select
                               value={task.status}
                               disabled={updatingTaskId === task.id}
+                              title={blockedPhaseTaskIds.has(task.id) ? 'השלב הקודם טרם הסתיים — פתיחה/התחלה חסומות' : undefined}
                               onChange={e => updateTaskStatus(task.id, e.target.value)}
                               style={{
                                 padding: '4px 8px', borderRadius: '6px', border: `2px solid ${statusDef.color}`,
@@ -762,7 +798,13 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                                 background: statusDef.color + '22', cursor: 'pointer', minWidth: '90px',
                                 fontFamily: FONT,
                               }}>
-                              {TASK_STATUSES.map(s => <option key={s.value} value={s.value} style={{ background: C.bgNested, color: C.textPrimary }}>{s.label}</option>)}
+                              {TASK_STATUSES.map(s => (
+                                <option key={s.value} value={s.value}
+                                  disabled={['OPEN', 'IN_PROGRESS'].includes(s.value) && blockedPhaseTaskIds.has(task.id)}
+                                  style={{ background: C.bgNested, color: C.textPrimary }}>
+                                  {s.label}
+                                </option>
+                              ))}
                             </select>
                             {isManager && ROLLBACK_MAP[task.status] && (
                               <button

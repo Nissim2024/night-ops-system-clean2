@@ -201,6 +201,7 @@ model Version {
   submissions          TeamSubmission[]
   nightSummary         NightSummary?
   rehearsalSummary     RehearsalSummary?
+  rehearsalArchives    RehearsalRunArchive[]
   taskProposals        TaskProposal[]
   crPlans              CrPlan[]
   qaAssignments        QaAssignment[]
@@ -212,6 +213,7 @@ model Version {
   releaseForecast      ReleaseForecast?
   goNoGoDecision       GoNoGoDecision?
   notices              VersionNotice[]
+  incidents            Incident[]
 }
 
 model Phase {
@@ -362,6 +364,29 @@ model RehearsalSummary {
   updatedAt    DateTime  @updatedAt
 
   version Version @relation(fields: [versionId], references: [id])
+}
+
+// A frozen copy of one completed rehearsal run's task snapshot + summary,
+// captured right before a version re-enters REHEARSAL for another run.
+// Version.lastRehearsalSnapshot and RehearsalSummary are both single/@unique
+// per version — a second rehearsal would silently overwrite the first run's
+// report with no way back to it without this.
+model RehearsalRunArchive {
+  id            String    @id @default(uuid())
+  versionId     String
+  runNumber     Int // 1, 2, 3... sequential per version
+  ranAt         DateTime? // the lastRehearsalAt being archived
+  tasksSnapshot Json? // copy of lastRehearsalSnapshot at archive time
+  headline      String?
+  morningNotes  String?
+  crData        Json?
+  sentAt        DateTime?
+  sentBy        String?
+  archivedAt    DateTime  @default(now())
+
+  version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, runNumber])
 }
 
 model EmailRecipient {
@@ -534,6 +559,7 @@ model CrPlanAction {
   dependencyNote    String? // הערה חופשית — משמש כאשר אין משימה תואמת בתוכנית
   ownerName         String?
   derivedProposalId String? // TaskProposal שנוצר/מסונכרן אוטומטית מפעולה זו
+  sourceDefectId    String? // TargetCrDefect.id — כאשר פעולה זו נוצרה מסימון "דורשת הטמעה מיוחדת" על תקלת TARGET (null לפעולה שנוספה ידנית)
   orderIndex        Int      @default(0)
   createdAt         DateTime @default(now())
 
@@ -588,10 +614,8 @@ model TargetCrDefect {
   defectId                      String // מזהה תקלה מ-Oracle (BG_BUG_ID)
   description                   String?
   requiresSpecialImplementation Boolean  @default(false)
-  implementationReason          String? // Script / Data Migration / בדיקת לקוח ראשון / ניטור מיוחד / אחר
   importantToManagement         Boolean  @default(false)
-  derivedActionId               String? // CrPlanAction.id שנוצר מתקלה זו
-  derivedMonitoringPointId      String? // CrPlanMonitoringPoint.id — כאשר הסיבה היא "ניטור מיוחד"
+  derivedActionId               String? // CrPlanAction.id שנוצר מתקלה זו — אותה פעולה עצמה נערכת בסעיף 2 של תוכנית ה-CR (Section 2 — פעולות מיוחדות), לא כאן
   createdAt                     DateTime @default(now())
   updatedAt                     DateTime @updatedAt
 
@@ -652,7 +676,7 @@ model VersionCrAssignment {
   estimateDays          Float? // from "סך כל הערכות" column in CR_LIST (CR total, all teams)
   teamEstimateDays      Float? // this team's individual estimate days from their column in CR_LIST
   hasActual             Boolean? // true when "Actuals" column has a V mark
-  actualEffortDays       Float? // numeric value of the "Actuals" column itself (0 for a checkbox-style V/X cell, a real number when the source file has one) — used for the plan-vs-actual ratio on the version-management overview
+  actualEffortDays      Float? // numeric value of the "Actuals" column itself (0 for a checkbox-style V/X cell, a real number when the source file has one) — used for the plan-vs-actual ratio on the version-management overview
   syncedAt              DateTime  @default(now())
   syncStatus            String    @default("ACTIVE") // "ACTIVE" | "NEW" | "REMOVED"
   reviewed              Boolean   @default(false) // set during the version-opening validation step
@@ -710,14 +734,14 @@ model SeasonDate {
 }
 
 model LeaveRequest {
-  id        String      @id @default(uuid())
-  userId    String
-  seasonId  String?
-  date      DateTime
-  kind      String // "leave" | "work"
-  reason    String?
-  status    LeaveStatus @default(PENDING)
-  groupId   String? // shares one id across every day of a range submitted together — lets the UI display/approve the whole range as one unit while storage stays one-row-per-day (qa-workplan.service.ts's per-day lookup keeps working unchanged)
+  id       String      @id @default(uuid())
+  userId   String
+  seasonId String?
+  date     DateTime
+  kind     String // "leave" | "work"
+  reason   String?
+  status   LeaveStatus @default(PENDING)
+  groupId  String? // shares one id across every day of a range submitted together — lets the UI display/approve the whole range as one unit while storage stays one-row-per-day (qa-workplan.service.ts's per-day lookup keeps working unchanged)
 
   decidedByName   String? // who approved/declined (denormalized name, no FK — same convention as QaWorkPlan.approvedBy)
   decidedAt       DateTime?
@@ -725,8 +749,8 @@ model LeaveRequest {
   cancelledAt     DateTime?
   cancelReason    String? // optional free-text reason for cancellation
 
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   season Season? @relation(fields: [seasonId], references: [id])
@@ -1083,4 +1107,254 @@ model ReleaseKpiScore {
   @@unique([releaseName, kpiName])
   @@index([releaseName])
   @@index([kpiName])
+}
+
+// ── Incidents / RCA Wizard ───────────────────────────────────────────────────
+// Root-cause-analysis workflow for Go-Live incidents. "Go-Live" here IS a
+// Version (ACTIVE/MORNING_AFTER/COMPLETED) — this module doesn't introduce a
+// separate GoLive concept. "QC incidents" are sourced from the existing
+// Oracle/QC defect integration (qc.service.ts's getDefects/getBugDashboard),
+// not a new external incident system — importing pulls real defect rows for
+// the version and creates one Incident row per selected defect.
+
+enum IncidentStatus {
+  NEW // imported, RCA not started
+  ANALYZING // RCA in progress (5-Why/Fishbone/AI)
+  RCA_DONE // RCA submitted, action items may still be open
+  CLOSED // approved and closed (RELEASE_MANAGER)
+}
+
+enum RcaMethod {
+  FIVE_WHY
+  FISHBONE
+  AI
+  GUIDED // structured facts-first decision-tree investigation — see guided-investigation-tree.ts. Product spec from the user 2026-08-09: stop users jumping straight to "root cause" before facts are actually collected.
+}
+
+enum ActionStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  OVERDUE
+}
+
+// Corrective (fixes this occurrence) vs Preventive (stops recurrence) — only
+// set on the two ActionItems the GUIDED method auto-creates from its decision
+// tree's leaf; null for actions added the ordinary way (manual/AI/Fishbone),
+// which don't carry this classification.
+enum ActionItemKind {
+  CORRECTIVE
+  PREVENTIVE
+}
+
+// Root Cause Status — tracks whether the root cause's own remediation was
+// ever actually carried through, separate from Incident.status (which just
+// tracks the incident's workflow up to CLOSED) and ActionStatus (which
+// tracks individual action items). Values from the user 2026-08-09.
+enum RcaStatus {
+  OPEN
+  INVESTIGATION
+  COMPLETED
+  CANCELLED
+}
+
+model IncidentGroup {
+  id        String   @id @default(uuid())
+  versionId String
+  reason    String // why these incidents were clustered together (AI-suggested or manual)
+  createdAt DateTime @default(now())
+
+  incidents Incident[]
+}
+
+model Incident {
+  id              String         @id @default(uuid())
+  versionId       String
+  qcDefectId      String // source BUG_ID from Oracle/QC — see TargetDefectDto.id
+  title           String
+  description     String?
+  expectedVersion String?
+  actualVersion   String?
+  severity        Priority?
+  status          IncidentStatus @default(NEW)
+  assignedToName  String? // denormalized — same convention as CrPlan.crManagerApprovedBy
+  groupId         String?
+
+  // ── Real QC fields, pulled at import time (BG_USER_58/16/14/55/47/44/46)
+  // — see GO_LIVE_INCIDENTS_SQL. crReferenceNumber is what lets evidence
+  // collection correlate this incident to the actual CrPlan/Task rows for
+  // the same CR+version, not just the bare defect record.
+  defectType          String? // BG_USER_06 — from DefectDto, not previously stored on Incident
+  crReferenceNumber   String?
+  mainModule          String? // BG_USER_16 — suspected component
+  subModule           String? // BG_USER_14
+  systemComponent     String? // BG_USER_55
+  impact              String? // BG_USER_47 — business impact, free text from QC
+  businessProcess     String? // BG_USER_44
+  mainBusinessProcess String? // BG_USER_46
+
+  // ── Manual triage fields — NOT available anywhere in QC's real schema
+  // (verified against a live AllBugs export 2026-08-08: no affected-user
+  // count, no customer-facing flag, no downtime-duration field exists there
+  // at all). Filled by hand during the investigation instead of invented —
+  // per explicit product decision, these are part of the "evidence dossier"
+  // a human fills in, not sourced from any system.
+  affectedUsersCount Int?
+  customerFacing     Boolean?
+  downtimeMinutes    Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  version      Version               @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  group        IncidentGroup?        @relation(fields: [groupId], references: [id])
+  evidence     IncidentEvidence[]
+  rca          Rca?
+  actions      ActionItem[]
+  chatMessages IncidentChatMessage[]
+
+  @@unique([versionId, qcDefectId])
+  @@index([versionId])
+}
+
+// The AI-driven conversational RCA flow — replaces manually filling separate
+// Evidence/RCA-method tabs: the whole incident walkthrough (evidence review,
+// root-cause questioning, lessons, proposed actions) happens as one chat.
+// concluded=true once the AI has emitted its structured RCA conclusion (which
+// is what actually populates Rca/RcaAnswer/ActionItem — see
+// incidents.service.ts's replyChat) — the frontend uses this to know when to
+// stop showing a reply box and start showing the review/close panel.
+model IncidentChatMessage {
+  id         String   @id @default(uuid())
+  incidentId String
+  role       String // 'AI' | 'USER'
+  content    String
+  concluded  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId])
+}
+
+// Auto-collected (docker image, migration status, health-check snapshot,
+// linked defect log) or manually-attached evidence. `content` is a short
+// human-readable summary; `meta` carries the full structured payload for the
+// AI-analyze prompt without bloating the list view.
+model IncidentEvidence {
+  id         String   @id @default(uuid())
+  incidentId String
+  type       String // 'DOCKER_IMAGE' | 'DB_MIGRATION_STATUS' | 'HEALTH_CHECK' | 'QC_DEFECT_LOG' | 'MANUAL'
+  content    String
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+}
+
+model Rca {
+  id              String    @id @default(uuid())
+  incidentId      String    @unique
+  method          RcaMethod
+  category        String? // Root Cause Category — fixed taxonomy (see incidents/root-cause-taxonomy.ts). NOT Fishbone's People/Process/Technology/Environment buckets — those stay per-cause in RcaAnswer.question.
+  rootCauseReason String? // Root Cause (RCA) — specific reason from the taxonomy, scoped under `category`
+  rootCause       String? // short root-cause summary (free text)
+  description     String? // RCA Description — detailed narrative: context/conditions that led to the fault, distinct from the short `rootCause` summary
+  directCause     String? // GUIDED method only — the immediate/direct cause found at the decision-tree leaf, distinct from `rootCause` (the underlying process gap). Stages 5-6 of guided-investigation-tree.ts.
+  status          RcaStatus @default(OPEN) // Root Cause Status — tracks lesson-implementation follow-through, updated independently of Incident.status
+  aiConfidence    Float? // 0..1, AI method only
+  aiRawResponse   Json? // full AI response, kept for audit/debugging
+  createdByName   String
+  approvedBy      String? // RELEASE_MANAGER who closed the incident
+  approvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // ── GUIDED method only (facts-first structured investigation) ──
+  // Stage 2 — facts-only collection, deliberately separate free-text fields
+  // (not RcaAnswer rows) so the UI can render/require them as a fixed form
+  // and gate stage 3 behind them ("don't let the user jump to root cause").
+  factsActionTaken      String? // מה הפעולה שבוצעה
+  factsExpectedResult   String? // מה היה אמור לקרות
+  factsActualResult     String? // מה קרה בפועל
+  factsTiming           String? // מתי התחילה: AFTER_RELEASE | AFTER_INFRA_CHANGE | AFTER_CONFIG_CHANGE | UNKNOWN
+  factsReproducibility  String? // האם משתחזרת: ALWAYS | PARTIAL | RANDOM
+  factsLocked           Boolean @default(false) // set once all facts above are filled — gates the tree-investigation stage in the UI
+  // Stage 3 — the path actually walked through guided-investigation-tree.ts:
+  // [{ nodeId, question, answerValue, answerLabel }, ...]. Stage 5's 5-Why is
+  // deterministically derived from this same path (see buildAutoFiveWhy) and
+  // stored as ordinary RcaAnswer rows, not duplicated here.
+  treePath   Json?
+  treeLeafId String? // which leaf the path terminated at — drives stage 4's inferred category/reason and stage 6's corrective/preventive action templates
+
+  incident Incident    @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  answers  RcaAnswer[]
+  lessons  RcaLesson[]
+}
+
+// One row per team's lesson — replaces the previous 5 fixed lessonsReq/Spec/
+// Dev/Qa/Ops columns. Which teams are even relevant is now dynamic (see
+// incidents.service.ts's getRelevantTeams: real teams from the CrPlan rows
+// for the incident's linked CR, or the full active Team list as a fallback
+// when no CR is linked) — a fixed 5-column shape can't represent that.
+// teamId is nullable/soft — the team could be deleted later, or the lesson
+// could predate any CR link; teamName is always kept so the lesson stays
+// readable either way (same denormalized-name convention as
+// CrPlan.crManagerApprovedBy elsewhere in this schema).
+model RcaLesson {
+  id       String  @id @default(uuid())
+  rcaId    String
+  teamId   String?
+  teamName String
+  text     String
+
+  rca Rca @relation(fields: [rcaId], references: [id], onDelete: Cascade)
+
+  @@index([rcaId])
+}
+
+// One row per 5-Why/Fishbone question-answer round.
+// Doubles as the 5-Why question/answer round AND the Fishbone cause list —
+// for Fishbone, `question` holds the category name (People/Process/
+// Technology/Environment) and `answer` holds the candidate cause text;
+// `isRootCause` marks which one the user identified as the actual root
+// (5-Why rows never set it). Reused rather than a dedicated Fishbone model
+// since both are just "step → labeled text", and only the label's meaning
+// differs.
+model RcaAnswer {
+  id          String   @id @default(uuid())
+  rcaId       String
+  step        Int
+  question    String
+  answer      String
+  isRootCause Boolean  @default(false)
+  evidenceIds String[] @default([])
+  createdAt   DateTime @default(now())
+
+  rca Rca @relation(fields: [rcaId], references: [id], onDelete: Cascade)
+}
+
+model ActionItem {
+  id         String       @id @default(uuid())
+  incidentId String
+  title      String
+  // Denormalized team name — was a fixed 5-value enum (Requirements/Spec/
+  // Dev/QA/Ops), replaced with a real team name (see getRelevantTeams) so an
+  // action can be assigned to the actual team that worked the CR, not a
+  // generic SDLC-stage bucket. Same denormalized-string convention as
+  // CrPlan.crManagerApprovedBy — no FK, since the team list a given action
+  // was chosen from is dynamic per-incident, not a fixed enum.
+  team       String
+  ownerName  String?
+  dueAt      DateTime?
+  notes      String?
+  priority   Priority        @default(MEDIUM)
+  status     ActionStatus    @default(OPEN)
+  kind       ActionItemKind? // set only for the two actions the GUIDED method auto-creates (corrective/preventive) — null for actions added the ordinary way
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId])
 }
