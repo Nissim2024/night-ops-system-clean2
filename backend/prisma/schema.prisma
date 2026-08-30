@@ -1109,6 +1109,44 @@ model ReleaseKpiScore {
   @@index([kpiName])
 }
 
+// Structured, multi-row replacement for ReleaseKpiScore.qualitativeNote (kept
+// as a legacy column, no longer written/read from the UI). Split into two
+// models 2026-08-29 (was one combined KpiImprovementItem): a problem
+// observation is a point-in-time fact about one release+KPI, while an
+// improvement task is longer-lived and tracked across releases via status —
+// bundling them forced every status update to also carry a (soon stale)
+// problem description, and repeated the same description across tasks
+// derived from one root cause. No FK between them — both just tag the same
+// releaseName+kpiName, kept deliberately simple.
+model KpiProblemNote {
+  id                     String   @id @default(uuid())
+  releaseName            String
+  kpiName                String
+  problemCharacteristics String? // מאפייני הבעיות
+  defectCount            Int? // סה"כ תקלות
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([releaseName, kpiName])
+}
+
+// Feeds the cross-release "Improvement Tracking" screen, which lists every
+// task from every KPI/release together (spec confirmed 2026-08-29).
+model KpiImprovementTask {
+  id                  String   @id @default(uuid())
+  releaseName         String
+  kpiName             String
+  requiredImprovement String? // שיפורים נדרשים
+  mainDevelopments    String? // פיתוחים עיקריים
+  responsibility      String? // אחריות
+  status              String   @default("OPEN") // OPEN | IN_PROGRESS | DONE
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([releaseName, kpiName])
+  @@index([status])
+}
+
 // ── Incidents / RCA Wizard ───────────────────────────────────────────────────
 // Root-cause-analysis workflow for Go-Live incidents. "Go-Live" here IS a
 // Version (ACTIVE/MORNING_AFTER/COMPLETED) — this module doesn't introduce a

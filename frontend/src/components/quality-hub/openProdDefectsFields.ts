@@ -1,0 +1,116 @@
+// Field pools for the open-production-defects screen's admin-configurable
+// table columns and detail-screen fields. Two separate pools because they
+// come from two different backend queries with different field breadth —
+// see OpenProdDefectsView.tsx and qc.service.ts's DEFECT_BY_ID_SQL.
+
+export interface FieldDef { key: string; label: string; }
+
+// Matches OpenProdDefectMonthDto (backend qc.service.ts) — the ~15 fields
+// already returned by the monthly-history query. monthDate/monthLabel are
+// the grouping key (the screen's own month selector), not row fields, so
+// they're excluded from the choosable pool.
+export const TABLE_COLUMN_FIELDS: FieldDef[] = [
+  { key: 'defectId',      label: 'תקלה' },
+  { key: 'title',         label: 'כותרת התקלה' },
+  { key: 'severity',      label: 'חומרה' },
+  { key: 'priority',      label: 'עדיפות' },
+  { key: 'responsibility',label: 'צוות' },
+  { key: 'assignedTo',    label: 'אחראי' },
+  { key: 'qaTester',      label: 'בודק QA' },
+  { key: 'area',          label: 'CR' },
+  { key: 'crReferenceNumber', label: 'מספר CR מקושר' },
+  { key: 'bugType',       label: 'סוג תקלה' },
+  { key: 'fixType',       label: 'סוג תיקון' },
+  { key: 'statusAtMonth', label: 'סטטוס (בחודש שנבחר)' },
+  { key: 'currentStatus', label: 'סטטוס נוכחי' },
+  { key: 'testPhase',     label: 'שלב בדיקה' },
+  { key: 'detectedBy',    label: 'התגלה ע״י' },
+  { key: 'detectedDate',  label: 'תאריך גילוי' },
+  { key: 'closedBy',      label: 'נסגר ע״י' },
+  { key: 'reopenYn',      label: 'Reopen' },
+  { key: 'releaseId',     label: 'מזהה גרסה' },
+  { key: 'environment',   label: 'סביבה' },
+  { key: 'subModule',     label: 'תת-מודול' },
+  { key: 'mainModule',    label: 'מודול ראשי' },
+  { key: 'platform',      label: 'פלטפורמה' },
+  { key: 'estimatedFixTime', label: 'זמן תיקון משוער' },
+  { key: 'actualFixTime',   label: 'זמן תיקון בפועל' },
+  { key: 'deploymentReason', label: 'סיבת פריסה' },
+];
+
+// Matches TargetDefectDto (backend qc.service.ts) — the full real BUG-table
+// field set, same shape already used by the TARGET-CR and Incidents/RCA
+// screens (mapRowToTargetDefect).
+export const DETAIL_FIELDS: FieldDef[] = [
+  { key: 'id',                      label: 'מזהה תקלה' },
+  { key: 'title',                   label: 'כותרת' },
+  { key: 'subject',                 label: 'נושא' },
+  { key: 'summary',                 label: 'תקציר' },
+  { key: 'description',             label: 'תיאור' },
+  { key: 'notes',                   label: 'הערות מפתח' },
+  { key: 'status',                  label: 'סטטוס' },
+  { key: 'severity',                label: 'חומרה' },
+  { key: 'priority',                label: 'עדיפות' },
+  { key: 'secondaryPriority',       label: 'עדיפות משנית' },
+  { key: 'reproducible',            label: 'ניתן לשחזור' },
+  { key: 'assignedTo',              label: 'אחראי' },
+  { key: 'qaTester',                label: 'בודק QA' },
+  { key: 'detectedBy',              label: 'התגלה ע״י' },
+  { key: 'detectedOnDate',          label: 'תאריך גילוי' },
+  { key: 'closedBy',                label: 'נסגר ע״י' },
+  { key: 'system',                  label: 'מערכת / פרויקט' },
+  { key: 'environment',             label: 'סביבה' },
+  { key: 'environmentComponent',    label: 'רכיב סביבה' },
+  { key: 'responsibility',          label: 'צוות אחראי' },
+  { key: 'defectResponsible',       label: 'אחראי תקלה' },
+  { key: 'escDefectResponsible',    label: 'אחראי הסלמה' },
+  { key: 'testPhase',               label: 'שלב בדיקה' },
+  { key: 'defectType',              label: 'סוג תקלה' },
+  { key: 'fixType',                 label: 'סוג תיקון' },
+  { key: 'estimatedFixTime',        label: 'זמן תיקון משוער' },
+  { key: 'actualFixTime',           label: 'זמן תיקון בפועל' },
+  { key: 'estimateFixTime',         label: 'הערכת זמן תיקון (2)' },
+  { key: 'fixedUntil',              label: 'תוקן עד' },
+  { key: 'fixedInProd',             label: 'תוקן בייצור' },
+  { key: 'deploymentReason',        label: 'סיבת פריסה' },
+  { key: 'deploymentCategory',      label: 'קטגוריית פריסה' },
+  { key: 'deploymentDateProd',      label: 'תאריך פריסה לייצור' },
+  { key: 'crHbrNumberReference',    label: 'אסמכתת CR (HBR)' },
+  { key: 'crReferenceNumber',       label: 'מספר CR מקושר' },
+  { key: 'crStatus',                label: 'סטטוס CR' },
+  { key: 'vendorStatus',            label: 'סטטוס ספק' },
+  { key: 'vendorAssignTo',          label: 'שויך לספק' },
+  { key: 'responseDate',            label: 'תאריך תגובה' },
+  { key: 'supportReferenceNumber',  label: 'מספר פניית תמיכה' },
+  { key: 'supportStatus',           label: 'סטטוס תמיכה' },
+  { key: 'subModule',               label: 'תת-מודול' },
+  { key: 'mainModule',              label: 'מודול ראשי' },
+  { key: 'systemComponent',         label: 'רכיב מערכת' },
+  { key: 'reason',                  label: 'סיבה' },
+  { key: 'category',                label: 'קטגוריה' },
+  { key: 'itemType',                label: 'סוג פריט' },
+  { key: 'platform',                label: 'פלטפורמה' },
+  { key: 'modified',                label: 'עודכן לאחרונה' },
+  { key: 'detectedInRelease',       label: 'התגלה בגרסה' },
+  { key: 'detectedInCycle',         label: 'התגלה בסבב' },
+  { key: 'targetRelease',           label: 'גרסת יעד' },
+  { key: 'targetCycle',             label: 'סבב יעד' },
+  { key: 'targetType',              label: 'סוג יעד' },
+  { key: 'targetReleaseReason',     label: 'סיבת גרסת יעד' },
+  { key: 'targetScopeApproved',     label: 'תכולת יעד אושרה' },
+  { key: 'dropNumber',              label: 'מספר Drop' },
+  { key: 'reopenYn',                label: 'Reopen' },
+  { key: 'influence',               label: 'השפעה' },
+  { key: 'impact',                  label: 'עוצמת השפעה' },
+  { key: 'releaseDefect',           label: 'תקלת גרסה' },
+  { key: 'businessProcess',         label: 'תהליך עסקי' },
+  { key: 'mainBusinessProcess',     label: 'תהליך עסקי ראשי' },
+  { key: 'foundByAutomation',       label: 'התגלה באוטומציה' },
+  { key: 'forRegressionTest',       label: 'לבדיקת רגרסיה' },
+  { key: 'productionReason',        label: 'סיבת ייצור' },
+  { key: 'willBeTestAtGoLive',      label: 'ייבדק בעליה לאוויר' },
+  { key: 'toBeTestedOnProd',        label: 'להיבדק בייצור' },
+];
+
+export const TABLE_FIELD_LABEL: Record<string, string> = Object.fromEntries(TABLE_COLUMN_FIELDS.map(f => [f.key, f.label]));
+export const DETAIL_FIELD_LABEL: Record<string, string> = Object.fromEntries(DETAIL_FIELDS.map(f => [f.key, f.label]));

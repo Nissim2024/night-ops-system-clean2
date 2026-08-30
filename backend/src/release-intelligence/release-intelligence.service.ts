@@ -9,6 +9,21 @@ const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE
 // documented current defaults until that config surface is built.
 const QG_DEFAULTS = { SHOW_STOPPER: 1, SEVERE: 5, MEDIUM: 10, LOW: 20 };
 
+// Status Board "aging" tile — same "documented default until a real config
+// surface exists" reasoning as QG_DEFAULTS above. discoveryDate on DefectDto
+// comes back as Oracle's DD/MM/YYYY string, parsed below (never via
+// Date.parse, which reads DD/MM/YYYY as MM/DD/YYYY and silently misdates).
+const AGING_DEFECT_THRESHOLD_DAYS = 10;
+
+function parseOracleDateAgeDays(ddMmYyyy: string, nowMs: number): number | null {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(ddMmYyyy?.trim() ?? '');
+  if (!m) return null;
+  const [, d, mo, y] = m;
+  const discovered = new Date(Number(y), Number(mo) - 1, Number(d)).getTime();
+  if (Number.isNaN(discovered)) return null;
+  return Math.floor((nowMs - discovered) / 86400000);
+}
+
 const CLOSED_DEFECT_STATUSES = ['Closed', 'Canceled', 'Rejected', 'Fixed'];
 const CRITICAL_SEVERITIES = ['Show Stopper', 'Severe'];
 
@@ -410,6 +425,65 @@ export class ReleaseIntelligenceService {
     };
   }
 
+  // ── Status Board — dense at-a-glance view for the release-intelligence
+  // module home. Deliberately built entirely out of existing aggregations
+  // (getCycleProgress, computeQgSummary, listRisks, getAlerts) rather than
+  // new queries — this screen doesn't compute anything the app didn't
+  // already track, it just puts the three "did we hit the target" reads
+  // (coverage / open severe+ defects / aging defects) next to each other.
+  async getStatusBoard(versionId: string) {
+    const [cycleProgress, defects, risks, alerts] = await Promise.all([
+      this.getCycleProgress(versionId),
+      this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
+      this.listRisks(versionId),
+      this.getAlerts(versionId),
+    ]);
+
+    const activeCycle = cycleProgress.timeline.find(t => t.state === 'active') ?? null;
+    const openDefects = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
+    const { qgSummary } = this.computeQgSummary(openDefects);
+
+    const now = Date.now();
+    const agingDefects = openDefects.filter(d => {
+      const age = parseOracleDateAgeDays(d.discoveryDate, now);
+      return age != null && age > AGING_DEFECT_THRESHOLD_DAYS;
+    });
+    const avgAgingDays = agingDefects.length > 0
+      ? Math.round(agingDefects.reduce((s, d) => s + (parseOracleDateAgeDays(d.discoveryDate, now) ?? 0), 0) / agingDefects.length)
+      : 0;
+
+    const severeOrWorseActual = qgSummary.showStopper.count + qgSummary.severe.count;
+    const severeOrWorseTarget = qgSummary.showStopper.threshold + qgSummary.severe.threshold;
+
+    return {
+      activeCycle: activeCycle ? { cycleType: activeCycle.cycleType, state: activeCycle.state } : null,
+      coverage: {
+        actualPct: activeCycle?.coveragePct ?? null,
+        targetPct: activeCycle?.qgTargetPct ?? null,
+        met: activeCycle?.coveragePct != null && activeCycle?.qgTargetPct != null
+          ? activeCycle.coveragePct >= activeCycle.qgTargetPct
+          : null,
+      },
+      openDefects: {
+        total: openDefects.length,
+        severeOrWorseActual,
+        severeOrWorseTarget,
+        met: severeOrWorseActual <= severeOrWorseTarget,
+      },
+      aging: {
+        thresholdDays: AGING_DEFECT_THRESHOLD_DAYS,
+        count: agingDefects.length,
+        avgAgingDays,
+        met: agingDefects.length === 0,
+      },
+      timeline: cycleProgress.timeline,
+      risks: risks.filter((r: any) => r.status !== 'CLOSED').slice(0, 8),
+      notices: [...alerts.manual, ...alerts.auto]
+        .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 8),
+    };
+  }
+
   // ── Timeline & Activities — spec section 18 ─────────────────────────────────
   // "Critical Milestones" = activities in the 'golive' category — the only
   // category value in this app's data with a clear "milestone" meaning
@@ -607,6 +681,70 @@ export class ReleaseIntelligenceService {
       byTeam,
       trend,
     };
+  }
+
+  // ── Defect drill-down — every summary card/bar across this module that
+  // shows a defect COUNT should be clickable into the exact list behind it
+  // (spec confirmed 2026-08-29). Re-derives the same filter each aggregate
+  // method above already computes, from the same real defect list, instead
+  // of a second query — so a drill-down list can never disagree with the
+  // number the user clicked. `screen` picks which aggregate's filters apply;
+  // `filter`/`value` pick which specific bucket within that screen.
+  //
+  // Not covered: Reopen Analysis's "byCr" bars — those come from
+  // getBugDashboard's aggregate rows (BugRawRow-based), not DefectDto, so
+  // there's no defect-level list to hand back without a new Oracle query.
+  async getDefectsDrilldown(versionId: string, screen: string, filter: string, value?: string): Promise<DefectDto[]> {
+    const defects = await this.qcService.getDefects(versionId).catch((): DefectDto[] => []);
+    const open = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
+
+    switch (screen) {
+      case 'defects': {
+        if (filter === 'kpi') {
+          if (value === 'open') return open;
+          if (value === 'fixed') return defects.filter(d => ['Fixed_Dev', 'Fixed_Test', 'Fixed'].includes(d.status));
+          if (value === 'closed') return defects.filter(d => d.status === 'Closed');
+          if (value === 'rejected') return defects.filter(d => d.status === 'Canceled');
+          if (value === 'reopen') return defects.filter(d => d.status === 'Reopen');
+          return [];
+        }
+        if (filter === 'severity') return open.filter(d => (d.severity || 'ללא סיווג') === value);
+        if (filter === 'status') return defects.filter(d => (d.status || 'ללא סיווג') === value);
+        if (filter === 'team') return open.filter(d => (d.assignedTo || 'ללא סיווג') === value);
+        if (filter === 'project') return open.filter(d => (d.system || 'ללא סיווג') === value);
+        return [];
+      }
+      case 'status-board': {
+        if (filter === 'openTotal') return open;
+        if (filter === 'openSevereOrWorse') return open.filter(d => CRITICAL_SEVERITIES.includes(d.severity));
+        if (filter === 'aging') {
+          const now = Date.now();
+          return open.filter(d => {
+            const age = parseOracleDateAgeDays(d.discoveryDate, now);
+            return age != null && age > AGING_DEFECT_THRESHOLD_DAYS;
+          });
+        }
+        return [];
+      }
+      case 'cycle-progress': {
+        if (filter === 'cycleDefects' && value) {
+          const defectsByCycle = await this.qcService.getDefectsByCycle(versionId).catch((): DefectByCycleDto[] => []);
+          const idsInCycle = new Set(defectsByCycle.filter(d => cycleNameMatches(value, d.detectedInCycle)).map(d => d.id));
+          return defects.filter(d => idsInCycle.has(d.id));
+        }
+        return [];
+      }
+      case 'reopen-analysis': {
+        const reopen = defects.filter(d => d.status === 'Reopen');
+        if (filter === 'reopenAll') return reopen;
+        if (filter === 'reopenCritical') return reopen.filter(d => CRITICAL_SEVERITIES.includes(d.severity));
+        if (filter === 'reopenProduction') return reopen.filter(d => (d.environment || '').toLowerCase().includes('prod'));
+        if (filter === 'reopenTeam') return reopen.filter(d => (d.assignedTo || 'ללא סיווג') === value);
+        return [];
+      }
+      default:
+        return [];
+    }
   }
 
   // ── Risk CRUD — spec section 23 ─────────────────────────────────────────────

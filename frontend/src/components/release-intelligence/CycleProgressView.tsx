@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
+import { DefectDrilldownModal } from './DefectDrilldownModal';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -25,6 +26,13 @@ const STATE_LABEL: Record<CycleTimelineItem['state'], string> = { done: 'הוש�
 const CYCLE_LABEL: Record<string, string> = {
   CYCLE_1: 'סבב 1', CYCLE_2: 'סבב 2', CYCLE_3: 'סבב 3',
   STAND_ALONE: 'Stand Alone', UAT: 'UAT', REHEARSAL: 'חזרה גנרלית', GO_LIVE: 'עליה לאוויר',
+};
+// Maps computeQgSummary's keys (release-intelligence.service.ts) to the real
+// DefectDto.severity string — same open-defects-by-severity filter the
+// "באגים" screen's bySeverity bars already use, so this reuses screen:
+// 'defects', filter: 'severity' rather than inventing a QG-specific filter.
+const QG_SEVERITY_LABEL: Record<string, string> = {
+  showStopper: 'Show Stopper', severe: 'Severe', medium: 'Medium', low: 'Low',
 };
 
 // "Closing in Xd Yh Zm" — live countdown to plannedEnd, ticking every second
@@ -64,7 +72,7 @@ function BackButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-function CycleCard({ c, onShowDetail }: { c: CycleTimelineItem; onShowDetail: (cycleType: string) => void }) {
+function CycleCard({ c, onShowDetail, onShowDefects }: { c: CycleTimelineItem; onShowDetail: (cycleType: string) => void; onShowDefects: (cycleType: string) => void }) {
   const countdown = useCountdown(c.plannedEnd);
   const color = STATE_COLOR[c.state];
   const hasCoverage = c.coveragePct != null;
@@ -83,7 +91,10 @@ function CycleCard({ c, onShowDetail }: { c: CycleTimelineItem; onShowDetail: (c
           <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{c.crCount}</div>
           <div style={{ ...TEXT.xs, color: C.textMuted }}>CR-ים</div>
         </div>
-        <div style={{ textAlign: 'center', flex: 1, borderRight: `1px solid ${C.border}` }}>
+        <div
+          onClick={() => c.defectCount > 0 && onShowDefects(c.cycleType)}
+          style={{ textAlign: 'center', flex: 1, borderRight: `1px solid ${C.border}`, cursor: c.defectCount > 0 ? 'pointer' : 'default' }}
+        >
           <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{c.defectCount}</div>
           <div style={{ ...TEXT.xs, color: C.textMuted }}>תקלות שדווחו</div>
         </div>
@@ -203,6 +214,7 @@ export const CycleProgressView: React.FC<Props> = ({ token, versionId }) => {
   const [data, setData] = useState<CycleProgress | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedCycleType, setSelectedCycleType] = useState<string | null>(null);
+  const [drilldown, setDrilldown] = useState<{ screen: string; filter: string; value?: string; title: string } | null>(null);
 
   const load = useCallback(() => {
     if (!versionId) { setData(null); return; }
@@ -245,7 +257,12 @@ export const CycleProgressView: React.FC<Props> = ({ token, versionId }) => {
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: SP[3] }}>
-            {data.timeline.map(c => <CycleCard key={c.cycleType} c={c} onShowDetail={setSelectedCycleType} />)}
+            {data.timeline.map(c => (
+              <CycleCard
+                key={c.cycleType} c={c} onShowDetail={setSelectedCycleType}
+                onShowDefects={cycleType => setDrilldown({ screen: 'cycle-progress', filter: 'cycleDefects', value: cycleType, title: `תקלות שדווחו — ${CYCLE_LABEL[cycleType] ?? cycleType}` })}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -253,7 +270,11 @@ export const CycleProgressView: React.FC<Props> = ({ token, versionId }) => {
       <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], maxWidth: '400px' }}>
         <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: SP[3] }}>QG Summary</div>
         {Object.entries(data.qgSummary).map(([key, v]) => (
-          <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: `${SP[1]} 0`, borderBottom: `1px solid ${C.border}` }}>
+          <div
+            key={key}
+            onClick={() => v.count > 0 && setDrilldown({ screen: 'defects', filter: 'severity', value: QG_SEVERITY_LABEL[key] ?? key, title: `תקלות פתוחות — חומרה: ${QG_SEVERITY_LABEL[key] ?? key}` })}
+            style={{ display: 'flex', justifyContent: 'space-between', padding: `${SP[1]} 0`, borderBottom: `1px solid ${C.border}`, cursor: v.count > 0 ? 'pointer' : 'default' }}
+          >
             <span style={{ ...TEXT.sm, color: C.textPrimary }}>{key}</span>
             <span style={{ ...TEXT.sm, color: v.count > v.threshold ? C.danger : C.textMuted, fontWeight: v.count > v.threshold ? WEIGHT.bold : WEIGHT.normal }}>
               {v.count} / {v.threshold}
@@ -261,6 +282,18 @@ export const CycleProgressView: React.FC<Props> = ({ token, versionId }) => {
           </div>
         ))}
       </div>
+
+      {drilldown && (
+        <DefectDrilldownModal
+          token={token}
+          versionId={versionId}
+          screen={drilldown.screen}
+          filter={drilldown.filter}
+          value={drilldown.value}
+          title={drilldown.title}
+          onClose={() => setDrilldown(null)}
+        />
+      )}
     </div>
   );
 };

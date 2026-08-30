@@ -70,6 +70,7 @@ const RI_VIEWS = [
   { key: 'defects', label: 'באגים', icon: '🐞' },
   { key: 'reopen-analysis', label: 'ניתוח Reopen', icon: '♻️' },
   { key: 'cycle-progress', label: 'התקדמות סבבים', icon: '🔄' },
+  { key: 'status-board', label: 'לוח מצב', icon: '📟' },
   { key: 'timeline-activities', label: 'ציר זמן ופעילויות', icon: '🗓️' },
   { key: 'capacity', label: 'קיבולת', icon: '⚙️' },
   { key: 'forecast-tracking', label: 'תחזית ומעקב', icon: '📈' },
@@ -84,6 +85,7 @@ const QH_VIEWS = [
   { key: 'comparison', label: 'השוואת גרסאות', icon: '⚖️' },
   { key: 'timeline', label: 'ציר זמן איכות', icon: '📈' },
   { key: 'kpi-config', label: 'הגדרות KPI', icon: '⚙️' },
+  { key: 'improvement-tracking', label: 'משימות שיפור', icon: '✅' },
   { key: 'open-prod-defects', label: 'תקלות ייצור פתוחות', icon: '📆' },
   { key: 'new-vs-target-defects', label: 'יחס תקלות חדשות ביצור', icon: '📈' },
 ];
@@ -382,6 +384,29 @@ export const Sidebar: React.FC<Props> = ({
           <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em', textTransform: 'uppercase' as const, padding: `6px ${SP[2]} 4px` }}>
             ניהול גרסה
           </div>
+          {/* Previously wired (onNewVersionClick prop existed, handler
+              worked) but never actually rendered anywhere — the only ways to
+              reach the create form were burying it behind an already-selected
+              version's progress-chain first stage, or the fully-empty-state
+              screen. Fixed 2026-08-27 per direct user report: couldn't find
+              it in production at all. Placed under this module specifically
+              per follow-up request (not as a global always-visible button). */}
+          {onNewVersionClick && (
+            <button
+              onClick={onNewVersionClick}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
+                padding: '9px', marginBottom: '6px', borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT,
+                background: 'rgba(56,139,253,0.15)', border: `1px solid rgba(56,139,253,0.35)`,
+                color: '#6ba8ff', fontSize: '14px', fontWeight: WEIGHT.semibold, transition: EASE.fast,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(56,139,253,0.25)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(56,139,253,0.15)'; }}
+            >
+              <span style={{ fontSize: '15px', lineHeight: 1 }}>+</span>
+              גרסה חדשה
+            </button>
+          )}
           {VM_VIEWS.map(view => {
             const isActive = activeVmView === view.key;
             const isHov    = hoveredItem === view.key;

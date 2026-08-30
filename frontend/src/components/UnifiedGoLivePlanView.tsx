@@ -60,10 +60,21 @@ function fmtDate(d: Date): string {
   return d.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' });
 }
 
+type DefectBucket = 'fixed' | 'open' | 'openApproved';
+interface CrDefectIndicators { fixed: any[]; open: any[]; openApproved: any[]; }
+const defectBuckets = (): { key: DefectBucket; label: string; color: string }[] => [
+  { key: 'fixed', label: 'תוקנו', color: C.success },
+  { key: 'open', label: 'פתוחות', color: C.danger },
+  { key: 'openApproved', label: 'פתוחות ומאושרות לעלייה', color: C.warning },
+];
+
 export const UnifiedGoLivePlanView: React.FC<Props> = ({ token, versionId, versionName }) => {
   const [entries, setEntries] = useState<CrEntry[]>([]);
   const [plannedStart, setPlannedStart] = useState<string | null>(null);
   const [loading, setLoading] = useState(!!versionId);
+  const [crDefects, setCrDefects] = useState<Record<string, CrDefectIndicators>>({});
+  const [crDefectsLoading, setCrDefectsLoading] = useState<Record<string, boolean>>({});
+  const [expandedBucket, setExpandedBucket] = useState<Record<string, DefectBucket | null>>({});
   const headers = { Authorization: `Bearer ${token}` };
 
   const load = useCallback(() => {
@@ -79,6 +90,21 @@ export const UnifiedGoLivePlanView: React.FC<Props> = ({ token, versionId, versi
   }, [versionId]); // eslint-disable-line
 
   useEffect(() => { load(); }, [load]);
+
+  // Merged plan is release-manager-facing, so unlike the per-team CR-plan
+  // screen this intentionally does NOT pass teamName — counts every team's
+  // defects on the CR together (spec confirmed 2026-08-29).
+  useEffect(() => {
+    if (!versionId || entries.length === 0) return;
+    for (const e of entries) {
+      if (crDefects[e.crNumber] || crDefectsLoading[e.crNumber]) continue;
+      setCrDefectsLoading(prev => ({ ...prev, [e.crNumber]: true }));
+      axios.get(`${API}/qc/cr-defect-indicators`, { headers, params: { versionId, crNumber: e.crNumber } })
+        .then(r => setCrDefects(prev => ({ ...prev, [e.crNumber]: r.data })))
+        .catch(() => setCrDefects(prev => ({ ...prev, [e.crNumber]: { fixed: [], open: [], openApproved: [] } })))
+        .finally(() => setCrDefectsLoading(prev => ({ ...prev, [e.crNumber]: false })));
+    }
+  }, [versionId, entries]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return (
     <div style={{ textAlign: 'center', padding: '80px', color: C.textMuted, direction: 'rtl', fontFamily: FONT }}>
@@ -154,6 +180,57 @@ export const UnifiedGoLivePlanView: React.FC<Props> = ({ token, versionId, versi
           </div>
         ))}
       </div>
+
+      {/* ── Per-CR defect indicators — counted across all teams (spec 2026-08-29) ── */}
+      {entries.length > 0 && (
+        <div style={{ marginBottom: '32px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textMuted }}>🐛 תקלות מול כל CR — כלל הצוותים</div>
+          {entries.map(e => {
+            const ind = crDefects[e.crNumber];
+            const indLoading = crDefectsLoading[e.crNumber];
+            const expanded = expandedBucket[e.crNumber] ?? null;
+            const list = expanded && ind ? ind[expanded] : [];
+            return (
+              <div key={e.crNumber} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '10px 14px', boxShadow: SHADOW.xs }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap', fontSize: '12px' }}>
+                  <span style={{ color: C.textPrimary, fontWeight: WEIGHT.semibold, fontFamily: 'monospace' }}>{e.crLabel || e.crNumber}</span>
+                  {indLoading && !ind ? (
+                    <span style={{ color: C.textMuted }}>טוען...</span>
+                  ) : ind && defectBuckets().map(b => (
+                    <button
+                      key={b.key}
+                      onClick={() => setExpandedBucket(prev => ({ ...prev, [e.crNumber]: prev[e.crNumber] === b.key ? null : b.key }))}
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: FONT,
+                        display: 'flex', alignItems: 'center', gap: '5px',
+                        fontWeight: expanded === b.key ? WEIGHT.bold : WEIGHT.normal,
+                        color: expanded === b.key ? b.color : C.textSecondary,
+                        textDecoration: expanded === b.key ? 'underline' : 'none',
+                      }}
+                    >
+                      {b.label}: <span style={{ fontWeight: WEIGHT.bold, color: b.color }}>{ind[b.key].length}</span>
+                    </button>
+                  ))}
+                </div>
+                {expanded && (
+                  <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '220px', overflowY: 'auto' }}>
+                    {list.length === 0 ? (
+                      <div style={{ fontSize: '12px', color: C.textMuted }}>אין תקלות ברשימה זו.</div>
+                    ) : list.map((d: any) => (
+                      <div key={d.id} style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '12px', padding: '5px 8px', background: C.bgNested, borderRadius: RADIUS.sm, border: `1px solid ${C.border}` }}>
+                        <span style={{ fontWeight: WEIGHT.bold, color: C.textLink, flexShrink: 0 }}>{d.id}</span>
+                        <span style={{ color: C.textPrimary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title || d.subject}</span>
+                        <span style={{ color: C.textMuted, flexShrink: 0 }}>{d.status}</span>
+                        <span style={{ color: C.textMuted, flexShrink: 0, direction: 'ltr' }}>{d.detectedInRelease} → {d.targetRelease || '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {dayParts.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px', color: C.textMuted, ...TEXT.base }}>

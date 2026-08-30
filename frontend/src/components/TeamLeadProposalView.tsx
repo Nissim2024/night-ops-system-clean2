@@ -732,6 +732,15 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   const [targetReviewLoading, setTargetReviewLoading] = useState<Record<string, boolean>>({});
   const [targetReviewError, setTargetReviewError] = useState<Record<string, string>>({});
   const [targetApproving, setTargetApproving] = useState<string | null>(null);
+  // "תוקנו / פתוחות / פתוחות ומאושרות לעלייה" — real-CR defect indicators
+  // (not TARGET — a different QC mechanism, see getCrDefectIndicators) shown
+  // at the top of each CR's plan form. Keyed by crNumber, fetched once per CR
+  // the first time its plan form renders. Which bucket (if any) is currently
+  // expanded inline is separate per-CR state so opening one CR's list doesn't
+  // affect another's.
+  const [crDefectIndicatorsByCr, setCrDefectIndicatorsByCr] = useState<Record<string, { fixed: any[]; open: any[]; openApproved: any[] }>>({});
+  const [crDefectIndicatorsLoading, setCrDefectIndicatorsLoading] = useState<Record<string, boolean>>({});
+  const [expandedDefectBucket, setExpandedDefectBucket] = useState<Record<string, 'fixed' | 'open' | 'openApproved' | null>>({});
   // Visual grouping only (Timeline Planning) — collapses/expands an
   // actionType container within a phase bucket; key = `${phase}-${actionType}`.
   // Defaults to all-expanded so nothing regresses for existing plans.
@@ -2006,6 +2015,18 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     loadTargetReview(selectedCr, teamIdOverride || myTeamId);
   }, [selectedCr, crPlans, myTeamId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // "תוקנו / פתוחות / פתוחות ומאושרות לעלייה" — every CR gets this (not just
+  // TARGET ones), fetched once per CR the first time its plan form is opened.
+  useEffect(() => {
+    if (!selectedCr || !myTeamLabel) return;
+    if (crDefectIndicatorsByCr[selectedCr] || crDefectIndicatorsLoading[selectedCr]) return;
+    setCrDefectIndicatorsLoading(prev => ({ ...prev, [selectedCr]: true }));
+    axios.get(`${API}/qc/cr-defect-indicators`, { headers, params: { versionId, crNumber: selectedCr, teamName: myTeamLabel } })
+      .then(r => setCrDefectIndicatorsByCr(prev => ({ ...prev, [selectedCr]: r.data })))
+      .catch(() => setCrDefectIndicatorsByCr(prev => ({ ...prev, [selectedCr]: { fixed: [], open: [], openApproved: [] } })))
+      .finally(() => setCrDefectIndicatorsLoading(prev => ({ ...prev, [selectedCr]: false })));
+  }, [selectedCr, myTeamLabel]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const patchTargetDefect = (crNumber: string, row: TargetDefectRow, patch: Partial<TargetDefectRow>, teamId: string) => {
     const current = targetReviewByCr[crNumber];
     if (!row.id || !current) return;
@@ -2332,6 +2353,57 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             )}
           </div>
         )}
+
+        {(() => {
+          const ind = crDefectIndicatorsByCr[crNumber];
+          const indLoading = crDefectIndicatorsLoading[crNumber];
+          if (!ind && !indLoading) return null;
+          const expanded = expandedDefectBucket[crNumber] ?? null;
+          const buckets: { key: 'fixed' | 'open' | 'openApproved'; label: string; color: string }[] = [
+            { key: 'fixed', label: 'תוקנו', color: C.success },
+            { key: 'open', label: 'פתוחות', color: C.danger },
+            { key: 'openApproved', label: 'פתוחות ומאושרות לעלייה', color: C.warning },
+          ];
+          const list = expanded && ind ? ind[expanded] : [];
+          return (
+            <div style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '10px 14px', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap', fontSize: '12px' }}>
+                <span style={{ color: C.textMuted, fontWeight: WEIGHT.semibold }}>🐛 תקלות מול CR זה:</span>
+                {indLoading && !ind ? (
+                  <span style={{ color: C.textMuted }}>טוען...</span>
+                ) : ind && buckets.map(b => (
+                  <button
+                    key={b.key}
+                    onClick={() => setExpandedDefectBucket(prev => ({ ...prev, [crNumber]: prev[crNumber] === b.key ? null : b.key }))}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: FONT,
+                      display: 'flex', alignItems: 'center', gap: '5px',
+                      fontWeight: expanded === b.key ? WEIGHT.bold : WEIGHT.normal,
+                      color: expanded === b.key ? b.color : C.textSecondary,
+                      textDecoration: expanded === b.key ? 'underline' : 'none',
+                    }}
+                  >
+                    {b.label}: <span style={{ fontWeight: WEIGHT.bold, color: b.color }}>{ind[b.key].length}</span>
+                  </button>
+                ))}
+              </div>
+              {expanded && (
+                <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '220px', overflowY: 'auto' }}>
+                  {list.length === 0 ? (
+                    <div style={{ fontSize: '12px', color: C.textMuted }}>אין תקלות ברשימה זו.</div>
+                  ) : list.map((d: any) => (
+                    <div key={d.id} style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '12px', padding: '5px 8px', background: C.bgCard, borderRadius: RADIUS.sm, border: `1px solid ${C.border}` }}>
+                      <span style={{ fontWeight: WEIGHT.bold, color: C.textLink, flexShrink: 0 }}>{d.id}</span>
+                      <span style={{ color: C.textPrimary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title || d.subject}</span>
+                      <span style={{ color: C.textMuted, flexShrink: 0 }}>{d.status}</span>
+                      <span style={{ color: C.textMuted, flexShrink: 0, direction: 'ltr' }}>{d.detectedInRelease} → {d.targetRelease || '—'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {lockedForEdit && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: C.successBg, border: '1px solid rgba(22,163,74,.3)', borderRadius: RADIUS.md, padding: '10px 14px', marginBottom: '12px' }}>

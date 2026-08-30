@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { MulterModule } from '@nestjs/platform-express';
+import { QcModule } from '../qc/qc.module';
 import { QualityHubService } from './quality-hub.service';
 import { QualityHubController } from './quality-hub.controller';
 
@@ -13,6 +14,7 @@ import { QualityHubController } from './quality-hub.controller';
     MulterModule.register({
       limits: { fileSize: 10 * 1024 * 1024 },
     }),
+    QcModule,
   ],
   controllers: [QualityHubController],
   providers: [QualityHubService],

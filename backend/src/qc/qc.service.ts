@@ -57,6 +57,13 @@ export interface DefectDto {
   testPhase: string;
   defectType: string;
   notes: string;
+  // Added for KPI-filtered defect drill-down (Quality Hub) — see
+  // KPI_DEFECT_FILTERS below. Not previously selected by DEFECTS_SQL.
+  responsibility: string;
+  crHbrNumberReference: string;
+  fixType: string;
+  reason: string;
+  reopenYn: string;
 }
 
 export interface CrItemDto {
@@ -144,6 +151,19 @@ export interface TargetDefectDto {
   targetScopeApproved: string;   // BG_USER_61
 }
 
+// getCrDefectIndicators' three CR-plan-submission buckets — see that
+// method's comment for the exact rule behind each list.
+export interface CrDefectIndicatorsDto {
+  fixed: TargetDefectDto[];
+  open: TargetDefectDto[];
+  openApproved: TargetDefectDto[];
+}
+
+// "Fixed" bucket only counts a real resolution, not a closure-for-other-
+// reasons (Canceled/Rejected/Duplicate) — those wouldn't honestly represent
+// "this CR's defect got fixed".
+const CR_INDICATOR_FIXED_STATUSES = ['Closed', 'Fixed'];
+
 // Go-Live/production incidents are just TargetDefectDto rows filtered to
 // BG_USER_05='Production' (see GO_LIVE_INCIDENTS_SQL) instead of BG_TARGET_REL
 // — same BUG table, same full real column set, so the Incidents/RCA module's
@@ -200,6 +220,18 @@ export interface OpenProdDefectMonthDto {
   area: string | null;     // category ("Production"/"Regression") or linked CR/task number (BG_USER_10) — see interface comment above
   bugType: string | null;
   fixType: string | null;
+  title: string | null;
+  assignedTo: string | null;
+  qaTester: string | null;
+  environment: string | null;
+  subModule: string | null;
+  mainModule: string | null;
+  crReferenceNumber: string | null;
+  platform: string | null;
+  closedBy: string | null;
+  estimatedFixTime: string | null;
+  actualFixTime: string | null;
+  deploymentReason: string | null;
 }
 
 export interface DefectStatusHistoryDto {
@@ -395,6 +427,14 @@ const DEFECTS_SQL_SELECT = `
     BG_USER_04                                                                         AS DEFECT_STATUS,
     BG_USER_05                                                                         AS TEST_PHASE,
     BG_USER_06                                                                         AS DEFECT_TYPE,
+    -- Added for KPI-filtered drill-down (Quality Hub) — same BG_USER_XX slots
+    -- already used elsewhere in this file (TARGET_CR_DEFECTS_SQL etc.), kept
+    -- consistent rather than re-derived.
+    BG_USER_03                                                                         AS RESPONSIBILITY,
+    BG_USER_10                                                                         AS CR_HBR_NUMBER_REFERENCE,
+    BG_USER_33                                                                         AS FIX_TYPE,
+    BG_USER_17                                                                         AS REASON,
+    BG_USER_29                                                                         AS REOPEN_YN,
     REGEXP_REPLACE(
       REGEXP_REPLACE(
         REGEXP_REPLACE(
@@ -668,6 +708,216 @@ const TARGET_CR_DEFECTS_SQL = `
   WHERE BG_TARGET_REL = :releaseId
 `;
 
+// Same SELECT list as TARGET_CR_DEFECTS_SQL, but scoped by BOTH directions
+// (detected in this release OR targeted at this release) plus one specific
+// CR — backs the "תוקנו / פתוחות / פתוחות ומאושרות לעלייה" indicators on the
+// team-lead CR-plan submission screen (spec confirmed 2026-08-29):
+//   - detectedInRelease≠this AND targetRelease=this AND status closed → fixed
+//     (an older defect whose fix arrived in this release for retest)
+//   - targetRelease empty (never scheduled) → open
+//   - detectedInRelease=this AND targetRelease set to a DIFFERENT release
+//     (not empty, not this one) → open but explicitly deferred/approved to
+//     ship without a fix now
+// Single query covers all three since each needs to see defects from both
+// the detected and target side of this release.
+const CR_DEFECT_INDICATORS_SQL = `
+  SELECT
+    BG_BUG_ID AS Defect_ID,
+    BG_RESPONSIBLE AS Assigned_To,
+    BG_PROJECT AS PROJECT,
+    BG_SUBJECT AS SUBJECT,
+    BG_SUMMARY AS SUMMARY,
+    REGEXP_REPLACE(DBMS_LOB.SUBSTR(BUG.BG_DESCRIPTION, 4000, 1), '<[^>]*>', '') AS Defect_Description,
+    REGEXP_REPLACE(
+      REGEXP_REPLACE(
+        REGEXP_REPLACE(
+          REGEXP_REPLACE(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(
+                TRIM(REGEXP_REPLACE(DBMS_LOB.SUBSTR(BUG.BG_DEV_COMMENTS, 4000, 1), '<[^>]*>', '')),
+                '&gt;', '>'
+              ),
+              '&lt;', '<'
+            ),
+            '&nbsp;', ' '
+          ),
+          '&amp;', '&'
+        ),
+        '&quot;', ''
+      ),
+      '[ ]{2,}', ' '
+    ) AS Defect_Comments,
+    BG_REPRODUCIBLE AS REPRODUCIBLE_Y_N,
+    BG_SEVERITY AS Severity,
+    BG_PRIORITY AS PRIORITY,
+    BG_DETECTED_BY AS Detected_By,
+    BG_DETECTION_DATE AS Detected_on_Date,
+    BG_ESTIMATED_FIX_TIME AS Estimated_Fix_Time,
+    BG_ACTUAL_FIX_TIME AS FIX_TIME,
+    BG_USER_02 AS Environment,
+    BG_USER_03 AS Responsibility,
+    BG_USER_04 AS DEFECT_STATUS,
+    BG_USER_05 AS Test_Phase,
+    BG_USER_06 AS DEFECT_TYPE,
+    BG_USER_07 AS Closed_By,
+    BG_USER_08 AS Deployment_Reason,
+    BG_USER_09 AS FIxed_Until,
+    BG_USER_10 AS CR_HBR_Number_reference,
+    BG_USER_11 AS Vendor_Status,
+    BG_USER_12 AS Response_Date,
+    BG_USER_13 AS Support_Reference_Number,
+    BG_USER_14 AS Sub_Module,
+    BG_USER_15 AS FIxed_in_Prod,
+    BG_USER_16 AS Main_Module,
+    BG_USER_17 AS Reason,
+    BG_USER_18 AS Support_Status,
+    BG_USER_19 AS Vendor_assign_to,
+    BG_USER_20 AS Category,
+    BG_USER_22 AS Item_Type,
+    BG_USER_23 AS Estimate_fix_time,
+    BG_USER_24 AS Platform,
+    BG_VTS AS Modified,
+    detected_rel.REL_NAME AS Detected_in_Release,
+    detected_rcyc.RCYC_NAME AS Detected_in_Cycle,
+    target_rel.REL_NAME AS Target_Release,
+    target_rcyc.RCYC_NAME AS Target_Cycle,
+    BG_USER_27 AS CR_Status,
+    BG_USER_28 AS "Drop#",
+    BG_USER_29 AS Reopen_Y_N,
+    BG_USER_31 AS Influence,
+    BG_USER_33 AS Fix_Type,
+    BG_USER_37 AS QA_Tester,
+    BG_USER_39 AS Secondary_Priority,
+    BG_USER_43 AS Release_Defect,
+    BG_USER_44 AS Business_Processe,
+    BG_USER_45 AS Found_By_Automation,
+    BG_USER_46 AS Main_Business_Processe,
+    BG_USER_47 AS Impact,
+    BG_USER_48 AS Poduction_Reason,
+    BG_USER_49 AS Environment_Componnent,
+    BG_USER_50 AS Will_Be_Test_At_Go_Live,
+    BG_USER_51 AS Deployment_Category,
+    BG_USER_52 AS Defect_Responsible,
+    BG_USER_53 AS Target_Release_Reason,
+    BG_USER_54 AS Target_Type,
+    BG_USER_55 AS System_Component,
+    BG_USER_56 AS For_Regression_Test,
+    BG_USER_57 AS Esc_Defect_Responsible,
+    BG_USER_58 AS CR_Reference_Number,
+    BG_USER_59 AS To_be_tested_on_prod,
+    BG_USER_60 AS Deployment_Date_Prod,
+    BG_USER_61 AS Target_Scope_Approved
+  FROM BUG
+  LEFT JOIN RELEASES detected_rel ON detected_rel.REL_ID = BUG.BG_DETECTED_IN_REL
+  LEFT JOIN RELEASES target_rel ON target_rel.REL_ID = BUG.BG_TARGET_REL
+  LEFT JOIN RELEASE_CYCLES detected_rcyc ON detected_rcyc.RCYC_ID = BUG.BG_DETECTED_IN_RCYC
+  LEFT JOIN RELEASE_CYCLES target_rcyc ON target_rcyc.RCYC_ID = BUG.BG_TARGET_RCYC
+  WHERE (BG_DETECTED_IN_REL = :releaseId OR BG_TARGET_REL = :releaseId)
+    AND BG_USER_10 LIKE :crNumber || ' %'
+`;
+
+// Single-defect full-record lookup — same SELECT list as TARGET_CR_DEFECTS_SQL
+// (identical column aliases, reuses mapRowToTargetDefect), scoped to one
+// BG_BUG_ID instead of a release. Backs the "click a defect → full detail
+// screen" flow off the open-production-defects table, which otherwise only
+// has the ~15-field monthly-history projection (OPEN_PROD_DEFECTS_HISTORY_SQL)
+// available — that query is a multi-CTE audit-log join and isn't a sensible
+// place to also select the other ~35 BUG columns.
+const DEFECT_BY_ID_SQL = `
+  SELECT
+    BG_BUG_ID AS Defect_ID,
+    BG_RESPONSIBLE AS Assigned_To,
+    BG_PROJECT AS PROJECT,
+    BG_SUBJECT AS SUBJECT,
+    BG_SUMMARY AS SUMMARY,
+    REGEXP_REPLACE(DBMS_LOB.SUBSTR(BUG.BG_DESCRIPTION, 4000, 1), '<[^>]*>', '') AS Defect_Description,
+    REGEXP_REPLACE(
+      REGEXP_REPLACE(
+        REGEXP_REPLACE(
+          REGEXP_REPLACE(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(
+                TRIM(REGEXP_REPLACE(DBMS_LOB.SUBSTR(BUG.BG_DEV_COMMENTS, 4000, 1), '<[^>]*>', '')),
+                '&gt;', '>'
+              ),
+              '&lt;', '<'
+            ),
+            '&nbsp;', ' '
+          ),
+          '&amp;', '&'
+        ),
+        '&quot;', ''
+      ),
+      '[ ]{2,}', ' '
+    ) AS Defect_Comments,
+    BG_REPRODUCIBLE AS REPRODUCIBLE_Y_N,
+    BG_SEVERITY AS Severity,
+    BG_PRIORITY AS PRIORITY,
+    BG_DETECTED_BY AS Detected_By,
+    BG_DETECTION_DATE AS Detected_on_Date,
+    BG_ESTIMATED_FIX_TIME AS Estimated_Fix_Time,
+    BG_ACTUAL_FIX_TIME AS FIX_TIME,
+    BG_USER_02 AS Environment,
+    BG_USER_03 AS Responsibility,
+    BG_USER_04 AS DEFECT_STATUS,
+    BG_USER_05 AS Test_Phase,
+    BG_USER_06 AS DEFECT_TYPE,
+    BG_USER_07 AS Closed_By,
+    BG_USER_08 AS Deployment_Reason,
+    BG_USER_09 AS FIxed_Until,
+    BG_USER_10 AS CR_HBR_Number_reference,
+    BG_USER_11 AS Vendor_Status,
+    BG_USER_12 AS Response_Date,
+    BG_USER_13 AS Support_Reference_Number,
+    BG_USER_14 AS Sub_Module,
+    BG_USER_15 AS FIxed_in_Prod,
+    BG_USER_16 AS Main_Module,
+    BG_USER_17 AS Reason,
+    BG_USER_18 AS Support_Status,
+    BG_USER_19 AS Vendor_assign_to,
+    BG_USER_20 AS Category,
+    BG_USER_22 AS Item_Type,
+    BG_USER_23 AS Estimate_fix_time,
+    BG_USER_24 AS Platform,
+    BG_VTS AS Modified,
+    detected_rel.REL_NAME AS Detected_in_Release,
+    detected_rcyc.RCYC_NAME AS Detected_in_Cycle,
+    target_rel.REL_NAME AS Target_Release,
+    target_rcyc.RCYC_NAME AS Target_Cycle,
+    BG_USER_27 AS CR_Status,
+    BG_USER_28 AS "Drop#",
+    BG_USER_29 AS Reopen_Y_N,
+    BG_USER_31 AS Influence,
+    BG_USER_33 AS Fix_Type,
+    BG_USER_37 AS QA_Tester,
+    BG_USER_39 AS Secondary_Priority,
+    BG_USER_43 AS Release_Defect,
+    BG_USER_44 AS Business_Processe,
+    BG_USER_45 AS Found_By_Automation,
+    BG_USER_46 AS Main_Business_Processe,
+    BG_USER_47 AS Impact,
+    BG_USER_48 AS Poduction_Reason,
+    BG_USER_49 AS Environment_Componnent,
+    BG_USER_50 AS Will_Be_Test_At_Go_Live,
+    BG_USER_51 AS Deployment_Category,
+    BG_USER_52 AS Defect_Responsible,
+    BG_USER_53 AS Target_Release_Reason,
+    BG_USER_54 AS Target_Type,
+    BG_USER_55 AS System_Component,
+    BG_USER_56 AS For_Regression_Test,
+    BG_USER_57 AS Esc_Defect_Responsible,
+    BG_USER_58 AS CR_Reference_Number,
+    BG_USER_59 AS To_be_tested_on_prod,
+    BG_USER_60 AS Deployment_Date_Prod,
+    BG_USER_61 AS Target_Scope_Approved
+  FROM BUG
+  LEFT JOIN RELEASES detected_rel ON detected_rel.REL_ID = BUG.BG_DETECTED_IN_REL
+  LEFT JOIN RELEASES target_rel ON target_rel.REL_ID = BUG.BG_TARGET_REL
+  LEFT JOIN RELEASE_CYCLES detected_rcyc ON detected_rcyc.RCYC_ID = BUG.BG_DETECTED_IN_RCYC
+  LEFT JOIN RELEASE_CYCLES target_rcyc ON target_rcyc.RCYC_ID = BUG.BG_TARGET_RCYC
+  WHERE BG_BUG_ID = :defectId
+`;
+
 // Shared row-mapper for both TARGET_CR_DEFECTS_SQL and GO_LIVE_INCIDENTS_SQL —
 // identical column aliases (GO_LIVE_INCIDENTS_SQL mirrors this SELECT list
 // 1:1, just with a different WHERE), so one mapper covers both real-Oracle
@@ -789,6 +1039,19 @@ const BUG_DASHBOARD_SQL = `
 // Not scoped by release: this is a cross-release, all-history report (matches
 // the reference Power BI page, which has no release filter, only
 // Responsibility/Status/Year/FixType/Type).
+// Defaults for the admin-configurable open-prod-defects screen (table columns
+// pool = OpenProdDefectMonthDto's fields; detail-screen pool = TargetDefectDto's
+// full ~50 fields). Matches the table's original hardcoded 8-column layout and
+// a sane detail-screen starting point, used until an admin saves a real config.
+const DEFAULT_OPEN_PROD_DEFECTS_TABLE_COLUMNS = [
+  'defectId', 'severity', 'responsibility', 'area', 'bugType', 'statusAtMonth', 'detectedDate', 'reopenYn',
+];
+const DEFAULT_OPEN_PROD_DEFECTS_DETAIL_FIELDS = [
+  'id', 'title', 'status', 'severity', 'priority', 'assignedTo', 'qaTester', 'system', 'responsibility',
+  'testPhase', 'detectedBy', 'detectedOnDate', 'description', 'notes', 'reproducible', 'environment',
+  'fixType', 'crReferenceNumber', 'detectedInRelease', 'detectedInCycle',
+];
+
 const OPEN_PROD_DEFECTS_HISTORY_SQL = `
 WITH qc_defects_history AS (
     SELECT
@@ -805,6 +1068,22 @@ WITH qc_defects_history AS (
         defect.BG_USER_10           AS area,
         defect.BG_USER_06           AS bug_type,
         defect.BG_USER_33           AS fix_type,
+        -- Additional identity/ownership fields — same real BUG columns already
+        -- used for the detail screen (DEFECT_BY_ID_SQL), added here so the
+        -- table's admin-configurable column pool isn't limited to the ~14
+        -- fields this snapshot query originally selected.
+        NVL(defect.BG_SUMMARY, defect.BG_SUBJECT) AS title,
+        defect.BG_RESPONSIBLE       AS assigned_to,
+        defect.BG_USER_37           AS qa_tester,
+        defect.BG_USER_02           AS environment,
+        defect.BG_USER_14           AS sub_module,
+        defect.BG_USER_16           AS main_module,
+        defect.BG_USER_58           AS cr_reference_number,
+        defect.BG_USER_24           AS platform,
+        defect.BG_USER_07           AS closed_by,
+        defect.BG_ESTIMATED_FIX_TIME AS estimated_fix_time,
+        defect.BG_ACTUAL_FIX_TIME   AS actual_fix_time,
+        defect.BG_USER_08           AS deployment_reason,
         audit_property.AP_NEW_VALUE AS status,
         audit_log.AU_TIME           AS change_time
     FROM BUG defect
@@ -828,7 +1107,19 @@ bug_attributes AS (
         MAX(reopen_yn)      KEEP (DENSE_RANK FIRST ORDER BY change_time) AS reopen_yn,
         MAX(area)           KEEP (DENSE_RANK FIRST ORDER BY change_time) AS area,
         MAX(bug_type)       KEEP (DENSE_RANK FIRST ORDER BY change_time) AS bug_type,
-        MAX(fix_type)       KEEP (DENSE_RANK FIRST ORDER BY change_time) AS fix_type
+        MAX(fix_type)       KEEP (DENSE_RANK FIRST ORDER BY change_time) AS fix_type,
+        MAX(title)              KEEP (DENSE_RANK FIRST ORDER BY change_time) AS title,
+        MAX(assigned_to)        KEEP (DENSE_RANK FIRST ORDER BY change_time) AS assigned_to,
+        MAX(qa_tester)          KEEP (DENSE_RANK FIRST ORDER BY change_time) AS qa_tester,
+        MAX(environment)        KEEP (DENSE_RANK FIRST ORDER BY change_time) AS environment,
+        MAX(sub_module)         KEEP (DENSE_RANK FIRST ORDER BY change_time) AS sub_module,
+        MAX(main_module)        KEEP (DENSE_RANK FIRST ORDER BY change_time) AS main_module,
+        MAX(cr_reference_number) KEEP (DENSE_RANK FIRST ORDER BY change_time) AS cr_reference_number,
+        MAX(platform)           KEEP (DENSE_RANK FIRST ORDER BY change_time) AS platform,
+        MAX(closed_by)          KEEP (DENSE_RANK FIRST ORDER BY change_time) AS closed_by,
+        MAX(estimated_fix_time) KEEP (DENSE_RANK FIRST ORDER BY change_time) AS estimated_fix_time,
+        MAX(actual_fix_time)    KEEP (DENSE_RANK FIRST ORDER BY change_time) AS actual_fix_time,
+        MAX(deployment_reason)  KEEP (DENSE_RANK FIRST ORDER BY change_time) AS deployment_reason
     FROM qc_defects_history
     GROUP BY defect
 ),
@@ -852,7 +1143,9 @@ open_with_history AS (
     SELECT
         s.month_start, s.defect, s.last_status,
         a.release_id, a.severity, a.priority, a.responsibility, a.current_status,
-        a.test_phase, a.detected_by, a.detected_date, a.reopen_yn, a.area, a.bug_type, a.fix_type
+        a.test_phase, a.detected_by, a.detected_date, a.reopen_yn, a.area, a.bug_type, a.fix_type,
+        a.title, a.assigned_to, a.qa_tester, a.environment, a.sub_module, a.main_module,
+        a.cr_reference_number, a.platform, a.closed_by, a.estimated_fix_time, a.actual_fix_time, a.deployment_reason
     FROM status_snapshot s
     JOIN bug_attributes a ON s.defect = a.defect
     WHERE s.last_status NOT IN ('Closed', 'Canceled')
@@ -863,7 +1156,12 @@ open_without_history AS (
         b.BG_DETECTED_IN_REL AS release_id, b.BG_SEVERITY AS severity, b.BG_PRIORITY AS priority,
         b.BG_USER_03 AS responsibility, b.BG_USER_04 AS current_status, b.BG_USER_05 AS test_phase,
         b.BG_DETECTED_BY AS detected_by, b.BG_DETECTION_DATE AS detected_date,
-        b.BG_USER_29 AS reopen_yn, b.BG_USER_10 AS area, b.BG_USER_06 AS bug_type, b.BG_USER_33 AS fix_type
+        b.BG_USER_29 AS reopen_yn, b.BG_USER_10 AS area, b.BG_USER_06 AS bug_type, b.BG_USER_33 AS fix_type,
+        NVL(b.BG_SUMMARY, b.BG_SUBJECT) AS title, b.BG_RESPONSIBLE AS assigned_to, b.BG_USER_37 AS qa_tester,
+        b.BG_USER_02 AS environment, b.BG_USER_14 AS sub_module, b.BG_USER_16 AS main_module,
+        b.BG_USER_58 AS cr_reference_number, b.BG_USER_24 AS platform, b.BG_USER_07 AS closed_by,
+        b.BG_ESTIMATED_FIX_TIME AS estimated_fix_time, b.BG_ACTUAL_FIX_TIME AS actual_fix_time,
+        b.BG_USER_08 AS deployment_reason
     FROM BUG b
     JOIN months m ON m.month_start >= TRUNC(b.BG_DETECTION_DATE, 'MM')
     WHERE b.BG_USER_04 NOT IN ('Closed', 'Canceled')
@@ -874,12 +1172,18 @@ SELECT month_start AS MONTH_DATE, TO_CHAR(month_start, 'YYYY-MM') AS MONTH_LABEL
     defect AS DEFECT_ID, last_status AS STATUS_AT_MONTH, current_status AS CURRENT_STATUS,
     release_id AS RELEASE_ID, severity AS SEVERITY, priority AS PRIORITY, responsibility AS RESPONSIBILITY,
     test_phase AS TEST_PHASE, detected_by AS DETECTED_BY, detected_date AS DETECTED_DATE,
-    reopen_yn AS REOPEN_YN, area AS AREA, bug_type AS BUG_TYPE, fix_type AS FIX_TYPE
+    reopen_yn AS REOPEN_YN, area AS AREA, bug_type AS BUG_TYPE, fix_type AS FIX_TYPE,
+    title AS TITLE, assigned_to AS ASSIGNED_TO, qa_tester AS QA_TESTER, environment AS ENVIRONMENT,
+    sub_module AS SUB_MODULE, main_module AS MAIN_MODULE, cr_reference_number AS CR_REFERENCE_NUMBER,
+    platform AS PLATFORM, closed_by AS CLOSED_BY, estimated_fix_time AS ESTIMATED_FIX_TIME,
+    actual_fix_time AS ACTUAL_FIX_TIME, deployment_reason AS DEPLOYMENT_REASON
 FROM open_with_history
 UNION ALL
 SELECT month_start, TO_CHAR(month_start, 'YYYY-MM'), defect, last_status, current_status,
     release_id, severity, priority, responsibility, test_phase, detected_by, detected_date,
-    reopen_yn, area, bug_type, fix_type
+    reopen_yn, area, bug_type, fix_type,
+    title, assigned_to, qa_tester, environment, sub_module, main_module,
+    cr_reference_number, platform, closed_by, estimated_fix_time, actual_fix_time, deployment_reason
 FROM open_without_history
 `;
 
@@ -891,6 +1195,25 @@ const DEFECT_STATUS_HISTORY_SQL = `
     AND audit_property.AP_PROPERTY_NAME = 'Bug Status'
     AND audit_log.AU_ENTITY_ID = :defectId
   ORDER BY audit_log.AU_TIME ASC
+`;
+
+// Distinct defects with a real audit-log transition to 'Reopen' — backs
+// "Reopened Defects KPI" (see getReopenedDefectIds). Transcribed from the
+// real QC "Reopen KPI" Favorite filter (2026-08-27); NVL(...,'Y')='Y' is
+// intentional — it excludes only rows where reopenYn is explicitly not 'Y',
+// same permissive-null treatment as the original.
+const REOPENED_DEFECT_IDS_SQL = `
+  SELECT DISTINCT defect.BG_BUG_ID AS DEFECT_ID
+  FROM BUG defect
+  INNER JOIN AUDIT_LOG audit_log ON defect.BG_BUG_ID = audit_log.AU_ENTITY_ID
+  INNER JOIN AUDIT_PROPERTIES audit_property ON audit_log.AU_ACTION_ID = audit_property.AP_ACTION_ID
+  WHERE audit_log.AU_ENTITY_TYPE = 'BUG'
+    AND audit_property.AP_PROPERTY_NAME = 'Bug Status'
+    AND audit_property.AP_NEW_VALUE = 'Reopen'
+    AND NVL(defect.BG_USER_29, 'Y') = 'Y'
+    AND defect.BG_DETECTED_IN_REL = :releaseId
+    AND defect.BG_USER_04 != 'Canceled'
+    AND defect.BG_USER_05 = 'System Test'
 `;
 
 // ── Mock data (used when ORACLE_ENABLED=false) ────────────────────────────────
@@ -916,8 +1239,9 @@ const MOCK_DEFECTS: DefectDto[] = [
     id: '7727', assignedTo: 'NC Team', system: 'NC', title: 'רשומות כפולות בממשק בנקים',
     description: 'בממשק הבנקים נוצרו רשומות כפולות עבור אותו לקוח.',
     reproducible: 'Y', severity: 'Severe', priority: 'High', reporter: 'innad',
-    discoveryDate: '22/02/2011', environment: 'NC-Prod', status: 'Closed',
-    testPhase: 'Sanity Test', defectType: 'Functional', notes: 'תקלה נסגרה לאחר טיפול.',
+    discoveryDate: '22/02/2011', environment: 'NC-Prod', status: 'Open',
+    testPhase: 'System Test', defectType: 'Design', notes: 'תקלה נסגרה לאחר טיפול.',
+    responsibility: 'NC Team', crHbrNumberReference: '', fixType: 'Root Cause', reason: '', reopenYn: 'N',
   },
   {
     id: '8247', assignedTo: 'CRM Team', system: 'NC', title: 'רישום כפול של אירוע אישור הוראת קבע ב-CRM',
@@ -925,20 +1249,23 @@ const MOCK_DEFECTS: DefectDto[] = [
     reproducible: 'Y', severity: 'Low', priority: 'Medium', reporter: 'avia',
     discoveryDate: '05/04/2011', environment: 'Crm Prod', status: 'Canceled',
     testPhase: 'Sanity Test', defectType: 'Functional', notes: 'ממשקי EAI היו לא זמינים בזמן הבדיקה.',
+    responsibility: 'CRM Team', crHbrNumberReference: '', fixType: '', reason: 'Duplicate', reopenYn: 'N',
   },
   {
     id: '7884', assignedTo: 'NC Team', system: 'ISPIT', title: 'קובץ רענונים של HotNet נוצר ריק',
     description: 'תהליך יצירת קובץ הרענונים הסתיים בהצלחה אך הקובץ שנוצר היה ריק.',
     reproducible: 'Y', severity: 'Show Stopper', priority: 'Low', reporter: 'avia',
-    discoveryDate: '08/03/2011', environment: 'NC-Mig', status: 'Canceled',
-    testPhase: 'Sanity Test', defectType: 'Functional', notes: 'מקור התקלה — בעיית Setup בטבלאות Billing.',
+    discoveryDate: '08/03/2011', environment: 'NC-Mig-Prod', status: 'Open',
+    testPhase: 'System Test', defectType: 'Installation', notes: 'מקור התקלה — בעיית Setup בטבלאות Billing.',
+    responsibility: 'NC Team', crHbrNumberReference: '', fixType: 'Instance', reason: '', reopenYn: 'N',
   },
   {
     id: '12697', assignedTo: 'SSO Team', system: 'SSO', title: 'לא נשלח מייל לאחר הסרה מרשימת דיוור',
     description: 'משתמש לא קיבל מייל אישור לאחר סימון הסרה מרשימת הדיוור.',
     reproducible: 'Y', severity: 'Severe', priority: 'High', reporter: 'vladimirs',
-    discoveryDate: '22/05/2012', environment: 'MY HOT Test', status: 'Canceled',
-    testPhase: 'Sanity Test', defectType: 'Functional', notes: 'המייל נשלח — הייתה טעות בכתובת.',
+    discoveryDate: '22/05/2012', environment: 'MY HOT Test', status: 'Open',
+    testPhase: 'System Test', defectType: 'Functional', notes: 'המייל נשלח — הייתה טעות בכתובת.',
+    responsibility: 'SSO Team', crHbrNumberReference: '13040-reg', fixType: 'Root Cause', reason: '', reopenYn: 'Y',
   },
 ];
 
@@ -972,15 +1299,26 @@ const MOCK_OPEN_PROD_DEFECTS_SOURCE: {
   id: string; severity: string; priority: string; responsibility: string;
   area: string; bugType: string; fixType: string; detectedDate: string;
   reopenYn: string; currentStatus: string; openMonths: string[];
+  title: string; assignedTo: string; qaTester: string; environment: string;
+  subModule: string; mainModule: string; crReferenceNumber: string; platform: string;
+  closedBy: string; estimatedFixTime: string; actualFixTime: string; deploymentReason: string;
 }[] = [
-  { id: '61615', severity: 'Low',    priority: 'High',   responsibility: 'ofirt',                    area: 'Production',                                          bugType: 'Change Requests', fixType: '',           detectedDate: '2025-09-18', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2025-09', '2025-10', '2025-11', '2025-12', '2026-01', '2026-02'] },
-  { id: '61976', severity: 'Medium', priority: 'Medium', responsibility: 'HOT Design Team',           area: '12646 - חסימת ניתוק לפני הקפאת חיוב שלב ג',            bugType: 'Design',           fixType: '',           detectedDate: '2025-11-30', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2025-11', '2025-12', '2026-01', '2026-02'] },
-  { id: '62224', severity: 'Medium', priority: 'Low',    responsibility: 'HOT Design Team',           area: '12714 - החלפת מערכת אקווריום',                        bugType: 'Change Requests', fixType: '',           detectedDate: '2025-12-29', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2025-12', '2026-01', '2026-02'] },
-  { id: '62439', severity: 'Medium', priority: 'Medium', responsibility: 'OfficeTrack (3rd party)',   area: 'Regression',                                          bugType: 'Functional',       fixType: 'Root Cause', detectedDate: '2026-01-25', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2026-01', '2026-02'] },
-  { id: '62506', severity: 'Medium', priority: 'High',   responsibility: 'DWH Team;ETL Team',         area: '12736 - HBO   ממשקים ואתר HOT',                       bugType: 'Functional',       fixType: '',           detectedDate: '2026-02-05', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2026-02'] },
-  { id: '62537', severity: 'Medium', priority: 'High',   responsibility: 'Dalia (3rd party)',         area: 'Production',                                          bugType: 'Change Requests', fixType: 'Design',     detectedDate: '2026-02-10', reopenYn: 'Y', currentStatus: 'Reopen', openMonths: ['2026-02'] },
-  { id: '62595', severity: 'Severe', priority: 'High',   responsibility: 'HOT Design Team',           area: 'Production',                                          bugType: 'Functional',       fixType: '',           detectedDate: '2026-02-22', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2026-02'] },
-  { id: '62867', severity: 'Medium', priority: 'High',   responsibility: 'OSS Team',                  area: 'Production',                                          bugType: 'Functional',       fixType: 'Root Cause', detectedDate: '2026-02-25', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2026-02'] },
+  { id: '61615', severity: 'Low',    priority: 'High',   responsibility: 'ofirt',                    area: 'Production',                                          bugType: 'Change Requests', fixType: '',           detectedDate: '2025-09-18', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2025-09', '2025-10', '2025-11', '2025-12', '2026-01', '2026-02'],
+    title: 'תיקון סיווגי תנועות',                          assignedTo: 'ofirt',          qaTester: 'Odelya Ezra',  environment: 'NC-Prod',  subModule: 'Billing',       mainModule: 'Wizard',    crReferenceNumber: '',      platform: 'Web',     closedBy: '',        estimatedFixTime: '4',  actualFixTime: '',   deploymentReason: 'Bug Fix' },
+  { id: '61976', severity: 'Medium', priority: 'Medium', responsibility: 'HOT Design Team',           area: '12646 - חסימת ניתוק לפני הקפאת חיוב שלב ג',            bugType: 'Design',           fixType: '',           detectedDate: '2025-11-30', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2025-11', '2025-12', '2026-01', '2026-02'],
+    title: 'חסימת ניתוק לפני הקפאת חיוב שלב ג',             assignedTo: 'Anna Leshem',     qaTester: 'Irina Klebansky', environment: 'CRM-Prod', subModule: 'Collections',  mainModule: 'CRM',       crReferenceNumber: '12646', platform: 'Web',     closedBy: '',        estimatedFixTime: '8',  actualFixTime: '',   deploymentReason: 'CR' },
+  { id: '62224', severity: 'Medium', priority: 'Low',    responsibility: 'HOT Design Team',           area: '12714 - החלפת מערכת אקווריום',                        bugType: 'Change Requests', fixType: '',           detectedDate: '2025-12-29', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2025-12', '2026-01', '2026-02'],
+    title: 'החלפת מערכת אקווריום',                          assignedTo: 'Yakov Chekol',    qaTester: 'Limor Pinhas', environment: 'CRM-Prod', subModule: 'Provisioning', mainModule: 'CRM',       crReferenceNumber: '12714', platform: 'Web',     closedBy: '',        estimatedFixTime: '16', actualFixTime: '',   deploymentReason: 'CR' },
+  { id: '62439', severity: 'Medium', priority: 'Medium', responsibility: 'OfficeTrack (3rd party)',   area: 'Regression',                                          bugType: 'Functional',       fixType: 'Root Cause', detectedDate: '2026-01-25', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2026-01', '2026-02'],
+    title: 'תקלת רגרסיה במודול OfficeTrack',                 assignedTo: 'Stanislav Abramyan', qaTester: 'roi vahab', environment: 'OT-Prod',  subModule: 'Scheduling',   mainModule: 'OfficeTrack', crReferenceNumber: '',    platform: 'Mobile',  closedBy: '',        estimatedFixTime: '6',  actualFixTime: '',   deploymentReason: 'Bug Fix' },
+  { id: '62506', severity: 'Medium', priority: 'High',   responsibility: 'DWH Team;ETL Team',         area: '12736 - HBO   ממשקים ואתר HOT',                       bugType: 'Functional',       fixType: '',           detectedDate: '2026-02-05', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2026-02'],
+    title: 'ממשקים HBO ואתר HOT לא מסונכרנים',               assignedTo: 'Joseph Abdallah', qaTester: 'Evana Raed',  environment: 'DWH-Prod', subModule: 'Interfaces',   mainModule: 'DWH',       crReferenceNumber: '12736', platform: 'Web',     closedBy: '',        estimatedFixTime: '12', actualFixTime: '',   deploymentReason: 'CR' },
+  { id: '62537', severity: 'Medium', priority: 'High',   responsibility: 'Dalia (3rd party)',         area: 'Production',                                          bugType: 'Change Requests', fixType: 'Design',     detectedDate: '2026-02-10', reopenYn: 'Y', currentStatus: 'Reopen', openMonths: ['2026-02'],
+    title: 'תקלה חוזרת בממשק Dalia',                        assignedTo: 'Maamon Alwan',    qaTester: 'Anna Leshem',  environment: 'NC-Prod',  subModule: 'Billing',      mainModule: 'Dalia',     crReferenceNumber: '',      platform: 'Web',     closedBy: '',        estimatedFixTime: '4',  actualFixTime: '',   deploymentReason: 'Bug Fix' },
+  { id: '62595', severity: 'Severe', priority: 'High',   responsibility: 'HOT Design Team',           area: 'Production',                                          bugType: 'Functional',       fixType: '',           detectedDate: '2026-02-22', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2026-02'],
+    title: 'קריסת מסך בעת פתיחת הזמנה',                     assignedTo: 'Irina Klebansky', qaTester: 'Limor Pinhas', environment: 'CRM-Prod', subModule: 'Orders',       mainModule: 'CRM',       crReferenceNumber: '',      platform: 'Web',     closedBy: '',        estimatedFixTime: '2',  actualFixTime: '',   deploymentReason: 'Bug Fix' },
+  { id: '62867', severity: 'Medium', priority: 'High',   responsibility: 'OSS Team',                  area: 'Production',                                          bugType: 'Functional',       fixType: 'Root Cause', detectedDate: '2026-02-25', reopenYn: 'N', currentStatus: 'Open',   openMonths: ['2026-02'],
+    title: 'תקלת ביצועים במערכת OSS',                       assignedTo: 'roi vahab',       qaTester: 'Stanislav Abramyan', environment: 'OSS-Prod', subModule: 'Network',   mainModule: 'OSS',       crReferenceNumber: '',      platform: 'Web',     closedBy: '',        estimatedFixTime: '10', actualFixTime: '',   deploymentReason: 'Bug Fix' },
 ];
 
 function buildMockOpenProdDefectsHistory(): OpenProdDefectMonthDto[] {
@@ -1005,6 +1343,18 @@ function buildMockOpenProdDefectsHistory(): OpenProdDefectMonthDto[] {
         area: d.area,
         bugType: d.bugType,
         fixType: d.fixType,
+        title: d.title,
+        assignedTo: d.assignedTo,
+        qaTester: d.qaTester,
+        environment: d.environment,
+        subModule: d.subModule,
+        mainModule: d.mainModule,
+        crReferenceNumber: d.crReferenceNumber,
+        platform: d.platform,
+        closedBy: d.closedBy,
+        estimatedFixTime: d.estimatedFixTime,
+        actualFixTime: d.actualFixTime,
+        deploymentReason: d.deploymentReason,
       });
     }
   }
@@ -1657,6 +2007,11 @@ export class QcService {
         testPhase:     r.TEST_PHASE      ?? '',
         defectType:    r.DEFECT_TYPE     ?? '',
         notes:         r.DEFECT_COMMENTS ?? '',
+        responsibility:        r.RESPONSIBILITY           ?? '',
+        crHbrNumberReference:  r.CR_HBR_NUMBER_REFERENCE  ?? '',
+        fixType:               r.FIX_TYPE                 ?? '',
+        reason:                r.REASON                   ?? '',
+        reopenYn:              r.REOPEN_YN                ?? '',
       }));
     } catch (err: any) {
       this.logger.error(`Oracle getDefects: ${err.message}`);
@@ -1664,6 +2019,105 @@ export class QcService {
     } finally {
       if (conn) await conn.close().catch(() => {});
     }
+  }
+
+  // ── KPI-filtered defect drill-down (Quality Hub "צפה בתקלות") ──────────────
+  // Each predicate below was transcribed directly from the real QC "Favorite"
+  // filter definitions for that KPI (provided 2026-08-27) — not derived or
+  // guessed. "Detected in Release" is every filter's own release-scoping
+  // condition; that's already handled by getDefects(versionId) itself, so it's
+  // deliberately not repeated here. Two KPIs (Average Time Resolved Defect,
+  // Defect Resolution Time) are time-average metrics with no meaningful
+  // per-defect list — intentionally absent from this map; see
+  // KPI_WITHOUT_DEFECT_LIST. "Reopened Defects KPI" also isn't here — its real
+  // QC definition needs an audit-log event, not a static field, and is handled
+  // separately in getDefectsForKpi.
+  private static readonly ESCAPED_EXCLUDED_TYPES = [
+    'Design', 'Change Requests', 'Environment issue', 'Information', 'Installation',
+    'Setup', 'DB Issue', 'Configuration', 'Implementaion',
+  ];
+
+  private get kpiDefectFilters(): Record<string, (d: DefectDto) => boolean> {
+    const isProd = (env: string) => env.toLowerCase().includes('prod');
+    return {
+      'Design Defects': d =>
+        d.status !== 'Canceled' && d.defectType === 'Design' &&
+        !isProd(d.environment) && d.testPhase === 'System Test',
+      'Defects Quantity': d =>
+        !['Canceled', 'New'].includes(d.status) &&
+        !['ANDROID_DEV', 'NATC-support'].includes(d.responsibility) &&
+        d.testPhase === 'System Test',
+      'installation Defects KPI': d =>
+        d.status !== 'Canceled' && ['Configuration', 'Installation', 'Setup'].includes(d.defectType) &&
+        !isProd(d.environment) && d.testPhase === 'System Test',
+      // Missing a severity restriction until 2026-08-29: cross-checked against
+      // the real AllBugs export across 35 releases and the imported KPI score's
+      // severity breakdown was, without exception, exactly the release's
+      // Show-Stopper-severity count with severe/medium/low at zero — this KPI
+      // is specifically about Show-Stopper defects, not every severity.
+      'Critical Defects KPI': d =>
+        d.status !== 'Canceled' && !isProd(d.environment) && d.testPhase === 'System Test' &&
+        d.severity === 'Show Stopper',
+      'Rejected Defects KPI': d =>
+        d.status === 'Canceled' && !isProd(d.environment) &&
+        ['Duplicate', 'Not A Problem'].includes(d.reason) && d.responsibility !== 'ANDROID_DEV' &&
+        d.testPhase === 'System Test',
+      'Regression': d =>
+        d.status !== 'Canceled' && d.crHbrNumberReference.toLowerCase().includes('reg') &&
+        d.responsibility !== 'ANDROID_DEV' && d.testPhase === 'System Test',
+      'Implementation': d =>
+        d.status !== 'Canceled' && d.defectType === 'Implementaion' && d.testPhase === 'Sanity Test',
+      'Number of Escaped Defects KPI': d =>
+        d.status !== 'Canceled' &&
+        !QcService.ESCAPED_EXCLUDED_TYPES.includes(d.defectType) &&
+        isProd(d.environment) &&
+        d.fixType === 'Root Cause' &&
+        !['Duplicate', 'Environment Issue', 'Not in scope'].includes(d.reason),
+      'Production Impact KPI': d =>
+        d.status !== 'Canceled' && isProd(d.environment) &&
+        !['Instance', 'Single Row DB Fix'].includes(d.fixType),
+    };
+  }
+
+  readonly KPI_WITHOUT_DEFECT_LIST = new Set(['Average Time Resolved Defect KPI', 'Defect Resolution Time KPI']);
+
+  // Distinct defect IDs with a real audit-log transition to 'Reopen' status —
+  // matches the exact real QC query for "Reopened Defects KPI" (provided
+  // 2026-08-27). A static reopenYn flag alone isn't what QC's own definition
+  // checks, so this can't reuse the plain field-filter map above.
+  private async getReopenedDefectIds(relId: number): Promise<Set<string>> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) {
+      return new Set(MOCK_DEFECTS.filter(d => d.reopenYn === 'Y').map(d => d.id));
+    }
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const result = await conn.execute(REOPENED_DEFECT_IDS_SQL, { releaseId: relId });
+      return new Set((result.rows ?? []).map((r: any) => String(r.DEFECT_ID)));
+    } catch (err: any) {
+      this.logger.error(`Oracle getReopenedDefectIds: ${err.message}`);
+      throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
+  }
+
+  async getDefectsForKpi(versionId: string, kpiName: string): Promise<DefectDto[]> {
+    if (this.KPI_WITHOUT_DEFECT_LIST.has(kpiName)) return [];
+
+    const defects = await this.getDefects(versionId);
+
+    if (kpiName === 'Reopened Defects KPI') {
+      const relId = await this.getRelId(versionId);
+      const reopenedIds = relId ? await this.getReopenedDefectIds(relId) : new Set<string>();
+      return defects.filter(d => reopenedIds.has(d.id));
+    }
+
+    const filter = this.kpiDefectFilters[kpiName];
+    // Unknown KPI name (not yet mapped) — fail open with the unfiltered list
+    // rather than silently hiding real data behind a filter that doesn't exist.
+    return filter ? defects.filter(filter) : defects;
   }
 
   // Real Go-Live/production incidents for a release — used by the Incidents/
@@ -1708,6 +2162,31 @@ export class QcService {
     return [];
   }
 
+  // Full ~50-field BUG record for one defect, regardless of release/version —
+  // backs the open-production-defects table's "click a row" detail screen.
+  // Not release-scoped (unlike getTargetCrDefects/getGoLiveIncidents) since a
+  // defect clicked from that table can belong to any historical release.
+  async getDefectFullDetail(defectId: string): Promise<TargetDefectDto | null> {
+    const { enabled } = await getOracleConfig();
+    if (enabled) {
+      let conn: any;
+      try {
+        conn = await oracleConnect();
+        const result = await conn.execute(DEFECT_BY_ID_SQL, { defectId });
+        const rows = (result.rows ?? []).map(mapRowToTargetDefect);
+        return rows[0] ?? null;
+      } catch (err: any) {
+        this.logger.error(`Oracle getDefectFullDetail: ${err.message}`);
+        throw err;
+      } finally {
+        if (conn) await conn.close().catch(() => {});
+      }
+    }
+
+    const real = loadRealTargetDefects();
+    return real?.find(d => d.id === defectId) ?? null;
+  }
+
   // All of a team's defects for the release (not scoped to one CR number —
   // see TARGET_CR_DEFECTS_SQL), optionally narrowed to one team (fuzzy name
   // match — see normalizeTeamName). Used by the TARGET-CR gate screen.
@@ -1740,6 +2219,69 @@ export class QcService {
       const normResponsibility = normalizeTeamName(d.responsibility);
       return normResponsibility.includes(normTeam) || normTeam.includes(normResponsibility);
     });
+  }
+
+  // "תוקנו / פתוחות / פתוחות ומאושרות לעלייה" — CR-plan submission indicators
+  // (spec confirmed 2026-08-29). See CR_DEFECT_INDICATORS_SQL's comment for
+  // the exact bucket rules. A defect targeted at this release but not yet
+  // closed fits none of the three requested buckets and is intentionally
+  // omitted — this screen isn't meant to be a complete defect-status report.
+  //
+  // teamName: omit for the release-manager-facing unified plan (counts every
+  // team's defects on the CR together); pass the submitting team's name from
+  // a team lead's own CR-plan screen so each team only sees its own defects —
+  // same optional fuzzy-match-by-responsibility convention as getTargetCrDefects
+  // (spec confirmed 2026-08-29).
+  async getCrDefectIndicators(versionId: string, crNumber: string, teamName?: string): Promise<CrDefectIndicatorsDto> {
+    const version = await prisma.version.findUnique({ where: { id: versionId }, include: { qcRelease: true } });
+    const releaseName = (version as any)?.qcRelease?.relName ?? version?.name ?? '';
+
+    const { enabled } = await getOracleConfig();
+    let all: TargetDefectDto[];
+    if (enabled) {
+      const relId = (version as any)?.qcRelease?.relId ?? null;
+      if (!relId) return { fixed: [], open: [], openApproved: [] };
+      let conn: any;
+      try {
+        conn = await oracleConnect();
+        const result = await conn.execute(CR_DEFECT_INDICATORS_SQL, { releaseId: relId, crNumber });
+        all = (result.rows ?? []).map(mapRowToTargetDefect);
+      } catch (err: any) {
+        this.logger.error(`Oracle getCrDefectIndicators: ${err.message}`);
+        throw err;
+      } finally {
+        if (conn) await conn.close().catch(() => {});
+      }
+    } else {
+      const real = loadRealTargetDefects();
+      all = (real ?? []).filter(d =>
+        d.crHbrNumberReference.startsWith(`${crNumber} `) &&
+        (d.detectedInRelease === releaseName || d.targetRelease === releaseName),
+      );
+    }
+
+    if (teamName) {
+      const normTeam = normalizeTeamName(teamName);
+      all = all.filter(d => {
+        const normResponsibility = normalizeTeamName(d.responsibility);
+        return normResponsibility.includes(normTeam) || normTeam.includes(normResponsibility);
+      });
+    }
+
+    const fixed: TargetDefectDto[] = [];
+    const open: TargetDefectDto[] = [];
+    const openApproved: TargetDefectDto[] = [];
+    for (const d of all) {
+      const target = (d.targetRelease || '').trim();
+      if (!target) {
+        open.push(d);
+      } else if (target === releaseName && d.detectedInRelease !== releaseName && CR_INDICATOR_FIXED_STATUSES.includes(d.status)) {
+        fixed.push(d);
+      } else if (target !== releaseName && d.detectedInRelease === releaseName) {
+        openApproved.push(d);
+      }
+    }
+    return { fixed, open, openApproved };
   }
 
   private async fetchTargetCrDefectsFromOracle(versionId: string): Promise<TargetDefectDto[]> {
@@ -1901,6 +2443,18 @@ export class QcService {
         area:           r.AREA ?? null,
         bugType:        r.BUG_TYPE ?? null,
         fixType:        r.FIX_TYPE ?? null,
+        title:              r.TITLE ?? null,
+        assignedTo:         r.ASSIGNED_TO ?? null,
+        qaTester:           r.QA_TESTER ?? null,
+        environment:        r.ENVIRONMENT ?? null,
+        subModule:          r.SUB_MODULE ?? null,
+        mainModule:         r.MAIN_MODULE ?? null,
+        crReferenceNumber:  r.CR_REFERENCE_NUMBER ?? null,
+        platform:           r.PLATFORM ?? null,
+        closedBy:           r.CLOSED_BY ?? null,
+        estimatedFixTime:   r.ESTIMATED_FIX_TIME ?? null,
+        actualFixTime:      r.ACTUAL_FIX_TIME ?? null,
+        deploymentReason:   r.DEPLOYMENT_REASON ?? null,
       }));
     } catch (err: any) {
       this.logger.error(`Oracle getOpenProductionDefectsHistory: ${err.message}`);
@@ -1949,5 +2503,38 @@ export class QcService {
       return items;
     }
     return MOCK_CR_ITEMS;
+  }
+
+  // ── Open-production-defects screen config — admin-managed column/field
+  // selection + order for the table and its per-defect detail screen. Stored
+  // as SystemParam JSON (same mechanism as LDAP/Email settings), not a new
+  // table — this is a single global config object, not a list of records.
+  async getOpenProdDefectsConfig(): Promise<{ tableColumns: string[]; detailFields: string[] }> {
+    const [tableRow, detailRow] = await Promise.all([
+      prisma.systemParam.findUnique({ where: { key: 'OPEN_PROD_DEFECTS_TABLE_COLUMNS' } }),
+      prisma.systemParam.findUnique({ where: { key: 'OPEN_PROD_DEFECTS_DETAIL_FIELDS' } }),
+    ]);
+    return {
+      tableColumns: tableRow ? JSON.parse(tableRow.value) : DEFAULT_OPEN_PROD_DEFECTS_TABLE_COLUMNS,
+      detailFields: detailRow ? JSON.parse(detailRow.value) : DEFAULT_OPEN_PROD_DEFECTS_DETAIL_FIELDS,
+    };
+  }
+
+  async setOpenProdDefectsConfig(patch: { tableColumns?: string[]; detailFields?: string[] }) {
+    if (patch.tableColumns) {
+      await prisma.systemParam.upsert({
+        where: { key: 'OPEN_PROD_DEFECTS_TABLE_COLUMNS' },
+        create: { key: 'OPEN_PROD_DEFECTS_TABLE_COLUMNS', label: 'עמודות טבלת תקלות ייצור פתוחות', value: JSON.stringify(patch.tableColumns) },
+        update: { value: JSON.stringify(patch.tableColumns) },
+      });
+    }
+    if (patch.detailFields) {
+      await prisma.systemParam.upsert({
+        where: { key: 'OPEN_PROD_DEFECTS_DETAIL_FIELDS' },
+        create: { key: 'OPEN_PROD_DEFECTS_DETAIL_FIELDS', label: 'שדות מסך פרטי תקלת ייצור', value: JSON.stringify(patch.detailFields) },
+        update: { value: JSON.stringify(patch.detailFields) },
+      });
+    }
+    return this.getOpenProdDefectsConfig();
   }
 }

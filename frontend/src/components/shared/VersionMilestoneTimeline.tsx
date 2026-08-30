@@ -34,8 +34,6 @@ export const VersionMilestoneTimeline: React.FC<Props> = ({ version, cycles }) =
     return () => clearInterval(id);
   }, []);
 
-  if (['ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(version.status)) return null;
-
   type Stage = { label: string; start: Date; end: Date };
   const stages: Stage[] = [];
   if (version.integrationStart && version.integrationEnd) {

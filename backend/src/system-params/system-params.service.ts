@@ -120,6 +120,42 @@ const DEFAULT_PARAMS = [
     label: 'Quality Hub: נתיב לקובץ RELEASES_KPI_SCORES.xlsx (ריק = אותה תיקייה כמו EXCEL_FILE_PATH)',
     type: 'text',
   },
+  // QC REST write-back — separate integration channel from the existing
+  // read-only Oracle connection above (direct SQL against QC's schema is
+  // unsafe for writes: bypasses QC's own workflow/validation/audit-history
+  // layer). Test tool only for now (2026-08-30) — comment-append field, not
+  // a general defect editor. Values seeded directly (not via source commit)
+  // once the user provided them in chat, same as ORACLE_*/ANTHROPIC_API_KEY.
+  {
+    key: 'QC_REST_BASE_URL',
+    value: '',
+    label: 'QC REST API: Base URL (למשל http://host:8080/qcbin)',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_DOMAIN',
+    value: '',
+    label: 'QC REST API: Domain',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_PROJECT',
+    value: '',
+    label: 'QC REST API: Project',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_USERNAME',
+    value: '',
+    label: 'QC REST API: שם משתמש (הרשאת כתיבה — לא אותו משתמש קריאה של Oracle)',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_PASSWORD',
+    value: '',
+    label: 'QC REST API: סיסמה',
+    type: 'password',
+  },
 ];
 
 @Injectable()

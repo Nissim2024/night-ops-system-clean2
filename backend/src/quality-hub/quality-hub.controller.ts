@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Param, Query, Body,
+  Controller, Get, Post, Patch, Delete, Param, Query, Body,
   UploadedFile, UseInterceptors, Request, UseGuards,
   ForbiddenException, BadRequestException,
 } from '@nestjs/common';
@@ -171,5 +171,70 @@ export class QualityHubController {
   @Get('qc-link/:releaseName')
   getQcLinkForRelease(@Param('releaseName') releaseName: string) {
     return this.service.getQcLinkForRelease(decodeURIComponent(releaseName));
+  }
+
+  @Post('kpi-detail/:kpiName/:releaseName/ai-suggest')
+  suggestImprovementAnalysis(
+    @Request() req: any,
+    @Param('kpiName') kpiName: string,
+    @Param('releaseName') releaseName: string,
+  ) {
+    requireRole(req, IMPORTERS, 'רק מנהל גרסה או אדמין יכולים להריץ ניתוח AI');
+    return this.service.suggestImprovementAnalysis(decodeURIComponent(kpiName), decodeURIComponent(releaseName));
+  }
+
+  // ── KpiProblemNote ────────────────────────────────────────────────────────
+  @Get('problem-notes')
+  listProblemNotes(@Query('releaseName') releaseName?: string, @Query('kpiName') kpiName?: string) {
+    return this.service.listProblemNotes(
+      releaseName ? decodeURIComponent(releaseName) : undefined,
+      kpiName ? decodeURIComponent(kpiName) : undefined,
+    );
+  }
+
+  @Post('problem-notes')
+  createProblemNote(@Request() req: any, @Body() body: any) {
+    requireRole(req, IMPORTERS, 'רק מנהל גרסה או אדמין יכולים להוסיף אבחון בעיה');
+    return this.service.createProblemNote(body);
+  }
+
+  @Patch('problem-notes/:id')
+  updateProblemNote(@Request() req: any, @Param('id') id: string, @Body() body: any) {
+    requireRole(req, IMPORTERS, 'רק מנהל גרסה או אדמין יכולים לערוך אבחון בעיה');
+    return this.service.updateProblemNote(id, body);
+  }
+
+  @Delete('problem-notes/:id')
+  deleteProblemNote(@Request() req: any, @Param('id') id: string) {
+    requireRole(req, IMPORTERS, 'רק מנהל גרסה או אדמין יכולים למחוק אבחון בעיה');
+    return this.service.deleteProblemNote(id);
+  }
+
+  // ── KpiImprovementTask ──────────────────────────────────────────────────
+  // Omit both query params for the cross-release Improvement Tracking screen.
+  @Get('improvement-tasks')
+  listImprovementTasks(@Query('releaseName') releaseName?: string, @Query('kpiName') kpiName?: string) {
+    return this.service.listImprovementTasks(
+      releaseName ? decodeURIComponent(releaseName) : undefined,
+      kpiName ? decodeURIComponent(kpiName) : undefined,
+    );
+  }
+
+  @Post('improvement-tasks')
+  createImprovementTask(@Request() req: any, @Body() body: any) {
+    requireRole(req, IMPORTERS, 'רק מנהל גרסה או אדמין יכולים להוסיף משימות שיפור');
+    return this.service.createImprovementTask(body);
+  }
+
+  @Patch('improvement-tasks/:id')
+  updateImprovementTask(@Request() req: any, @Param('id') id: string, @Body() body: any) {
+    requireRole(req, IMPORTERS, 'רק מנהל גרסה או אדמין יכולים לערוך משימות שיפור');
+    return this.service.updateImprovementTask(id, body);
+  }
+
+  @Delete('improvement-tasks/:id')
+  deleteImprovementTask(@Request() req: any, @Param('id') id: string) {
+    requireRole(req, IMPORTERS, 'רק מנהל גרסה או אדמין יכולים למחוק משימות שיפור');
+    return this.service.deleteImprovementTask(id);
   }
 }

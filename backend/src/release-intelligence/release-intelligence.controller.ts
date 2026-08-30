@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Request, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, UseGuards, ForbiddenException } from '@nestjs/common';
 import { ReleaseIntelligenceService } from './release-intelligence.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 
@@ -41,6 +41,11 @@ export class ReleaseIntelligenceController {
     return this.service.getCycleProgress(versionId);
   }
 
+  @Get('status-board/:versionId')
+  getStatusBoard(@Param('versionId') versionId: string) {
+    return this.service.getStatusBoard(versionId);
+  }
+
   @Get('timeline-activities/:versionId')
   getTimelineActivities(@Param('versionId') versionId: string) {
     return this.service.getTimelineActivities(versionId);
@@ -64,6 +69,16 @@ export class ReleaseIntelligenceController {
   @Get('reopen-analysis/:versionId')
   getReopenAnalysis(@Param('versionId') versionId: string) {
     return this.service.getReopenAnalysis(versionId);
+  }
+
+  @Get('defects-drilldown/:versionId')
+  getDefectsDrilldown(
+    @Param('versionId') versionId: string,
+    @Query('screen') screen: string,
+    @Query('filter') filter: string,
+    @Query('value') value?: string,
+  ) {
+    return this.service.getDefectsDrilldown(versionId, screen, filter, value);
   }
 
   @Get('risks/:versionId')

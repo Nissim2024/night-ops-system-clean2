@@ -1,9 +1,10 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import * as path from 'path';
 import { readQcFile, resolveQcFilePath, SmbAccessError } from '../qc-releases/smb-file-reader';
+import { QcService, DefectDto } from '../qc/qc.service';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
@@ -59,9 +60,38 @@ export interface ReleaseSummary {
   year: number | null;
 }
 
+// Same prompt-construction style as incidents.service.ts's buildAnalyzePrompt
+// (Hebrew system framing, explicit "return ONLY JSON" instruction, exact
+// output schema spelled out) — kept as a plain module-level function for the
+// same reason: no per-request state, easy to unit-test independently later.
+function buildImprovementAnalysisPrompt(kpiName: string, releaseName: string, kpiPurpose: string | null, defects: DefectDto[]): string {
+  const defectsText = defects.map(d =>
+    `- [${d.id}] (${d.severity}, ${d.status}, CR: ${d.crHbrNumberReference || '—'}, אחראי: ${d.responsibility || '—'}) ${d.title}${d.description ? ' — ' + d.description.slice(0, 300) : ''}`
+  ).join('\n');
+
+  return `אתה אנליסט איכות תוכנה בכיר שמנתח תקלות מתוך גרסת תוכנה, במטרה לזהות דפוסים חוזרים ולהציע שיפורים קונקרטיים לתהליך.
+
+KPI: ${kpiName}${kpiPurpose ? ` — ${kpiPurpose}` : ''}
+גרסה: ${releaseName}
+מספר תקלות: ${defects.length}
+
+רשימת התקלות:
+${defectsText}
+
+נתח את התקלות וזהה דפוסים חוזרים (למשל: ריכוז סביב CR מסוים, סוג שגיאה חוזר, שלב תהליך בעייתי). החזר אך ורק JSON תקין (ללא טקסט נוסף) במבנה הבא:
+{
+  "problemNotes": [ { "problemCharacteristics": "תיאור דפוס/מאפיין חוזר, כולל אזכור ה-CR-ים הרלוונטיים אם יש", "defectCount": <כמות התקלות שתומכות בדפוס הזה> } ],
+  "improvementTasks": [ { "requiredImprovement": "שיפור תהליכי קונקרטי הנובע מהדפוס", "mainDevelopments": "מה נדרש לפתח/לעדכן בפועל", "responsibility": "צוות/תפקיד מוצע לאחריות" } ]
+}
+
+הנחיות: אל תמציא CR-ים או שמות תקלות שלא מופיעים ברשימה. problemNotes צריך לשקף דפוסים אמיתיים שנתמכים על ידי כמה תקלות, לא תקלה בודדת. improvementTasks צריך להיות קונקרטי וישים, לא כללי ("לשפר תהליכים"). אל תחזיר יותר מ-6 problemNotes או 6 improvementTasks.`;
+}
+
 @Injectable()
 export class QualityHubService {
   private readonly logger = new Logger(QualityHubService.name);
+
+  constructor(private readonly qcService: QcService) {}
 
   // ── Server-path import — same directory as cr_list.xls, refreshed daily
   // (and on-demand) instead of a one-off manual upload. File names match the
@@ -425,6 +455,7 @@ export class QualityHubService {
     const contributionPct = pct(scoreRow.calcScore);
     const scoreLostPct = contributionPct != null ? Math.round((contributionPct - scoreRow.weight * 100) * 100) / 100 : null;
     const trend = await this.getTimeline({ ...timelineOpts, kpiName, valueField: 'grade' });
+    const liveSeverity = await this.computeLiveSeverity(kpiName, releaseName);
 
     return {
       kpiName,
@@ -443,14 +474,44 @@ export class QualityHubService {
         medium: scoreRow.medium,
         low: scoreRow.low,
       },
+      // Computed live from the real, current QC defect list (same filter the
+      // "🐛 צפה בתקלות" drill-down uses) — shown alongside `severity` (the
+      // as-imported RELEASES_KPI_SCORES.xlsx columns) so the two can be
+      // compared release-by-release before deciding to retire the imported
+      // one. See kpiDefectFilters' investigation notes (2026-08-29): the
+      // imported columns were found to be an even 4-way split of some total
+      // for several KPIs, unrelated to the real per-severity breakdown.
+      liveSeverity,
       trend: trend.points,
       qualitativeNote: scoreRow.qualitativeNote,
     };
   }
 
+  // null when there's no real QC data to compute from (most of the 124
+  // historical releases predate this app entirely) or the KPI has no
+  // defect-list concept at all (the two time-based KPIs — see
+  // QcService.KPI_WITHOUT_DEFECT_LIST).
+  private async computeLiveSeverity(kpiName: string, releaseName: string): Promise<{ showStopper: number; severe: number; medium: number; low: number } | null> {
+    if (this.qcService.KPI_WITHOUT_DEFECT_LIST.has(kpiName)) return null;
+    const link = await this.getQcLinkForRelease(releaseName);
+    if (!link || !link.hasQcData) return null;
+
+    const defects = await this.qcService.getDefectsForKpi(link.versionId, kpiName);
+    const out = { showStopper: 0, severe: 0, medium: 0, low: 0 };
+    for (const d of defects) {
+      if (d.severity === 'Show Stopper') out.showStopper++;
+      else if (d.severity === 'Severe') out.severe++;
+      else if (d.severity === 'Medium') out.medium++;
+      else if (d.severity === 'Low') out.low++;
+    }
+    return out;
+  }
+
   // Manually-entered per-release analysis (אחריות / שיפורים נדרשים / מאפייני
   // הבעיות) — unlike KpiDefinition's purpose/description, this is specific to
   // one release's instance of the KPI, not the KPI in general.
+  // Superseded 2026-08-29 by KpiImprovementItem (multi-row, structured) — kept
+  // as a legacy column/method, no longer written or read from the UI.
   async updateQualitativeNote(releaseName: string, kpiName: string, note: string | null) {
     const row = await prisma.releaseKpiScore.findUnique({ where: { releaseName_kpiName: { releaseName, kpiName } } });
     if (!row) throw new NotFoundException(`אין נתוני ציון עבור "${kpiName}" בגרסה "${releaseName}"`);
@@ -458,6 +519,175 @@ export class QualityHubService {
       where: { releaseName_kpiName: { releaseName, kpiName } },
       data: { qualitativeNote: note?.trim() || null },
     });
+  }
+
+  // ── KpiProblemNote — point-in-time problem observation for one release+KPI ─
+  // (replaces the single qualitativeNote free-text field). Split from the
+  // improvement task 2026-08-29 — a problem characterization is a fact about
+  // one release, not a long-lived, status-tracked thing.
+  async listProblemNotes(releaseName?: string, kpiName?: string) {
+    return prisma.kpiProblemNote.findMany({
+      where: { ...(releaseName ? { releaseName } : {}), ...(kpiName ? { kpiName } : {}) },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async createProblemNote(data: {
+    releaseName: string; kpiName: string;
+    problemCharacteristics?: string | null; defectCount?: number | null;
+  }) {
+    if (!data.releaseName?.trim() || !data.kpiName?.trim()) {
+      throw new BadRequestException('חובה לציין גרסה ו-KPI');
+    }
+    return prisma.kpiProblemNote.create({
+      data: {
+        releaseName: data.releaseName.trim(),
+        kpiName: data.kpiName.trim(),
+        problemCharacteristics: data.problemCharacteristics?.trim() || null,
+        defectCount: data.defectCount ?? null,
+      },
+    });
+  }
+
+  async updateProblemNote(id: string, patch: { problemCharacteristics?: string | null; defectCount?: number | null }) {
+    const row = await prisma.kpiProblemNote.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('רשומת האבחון לא נמצאה');
+    return prisma.kpiProblemNote.update({
+      where: { id },
+      data: {
+        ...(patch.problemCharacteristics !== undefined ? { problemCharacteristics: patch.problemCharacteristics?.trim() || null } : {}),
+        ...(patch.defectCount !== undefined ? { defectCount: patch.defectCount } : {}),
+      },
+    });
+  }
+
+  async deleteProblemNote(id: string) {
+    const row = await prisma.kpiProblemNote.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('רשומת האבחון לא נמצאה');
+    await prisma.kpiProblemNote.delete({ where: { id } });
+    return { success: true };
+  }
+
+  // ── KpiImprovementTask — longer-lived, status-tracked action item ──────────
+  // per release+KPI; feeds the cross-release Improvement Tracking screen (spec
+  // confirmed 2026-08-29). No FK to KpiProblemNote — tagged by the same
+  // releaseName+kpiName only, kept deliberately simple.
+  async listImprovementTasks(releaseName?: string, kpiName?: string) {
+    return prisma.kpiImprovementTask.findMany({
+      where: { ...(releaseName ? { releaseName } : {}), ...(kpiName ? { kpiName } : {}) },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async createImprovementTask(data: {
+    releaseName: string; kpiName: string;
+    responsibility?: string | null; requiredImprovement?: string | null;
+    mainDevelopments?: string | null; status?: string;
+  }) {
+    if (!data.releaseName?.trim() || !data.kpiName?.trim()) {
+      throw new BadRequestException('חובה לציין גרסה ו-KPI');
+    }
+    return prisma.kpiImprovementTask.create({
+      data: {
+        releaseName: data.releaseName.trim(),
+        kpiName: data.kpiName.trim(),
+        responsibility: data.responsibility?.trim() || null,
+        requiredImprovement: data.requiredImprovement?.trim() || null,
+        mainDevelopments: data.mainDevelopments?.trim() || null,
+        status: data.status ?? 'OPEN',
+      },
+    });
+  }
+
+  async updateImprovementTask(id: string, patch: {
+    responsibility?: string | null; requiredImprovement?: string | null;
+    mainDevelopments?: string | null; status?: string;
+  }) {
+    const row = await prisma.kpiImprovementTask.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('משימת השיפור לא נמצאה');
+    return prisma.kpiImprovementTask.update({
+      where: { id },
+      data: {
+        ...(patch.responsibility !== undefined ? { responsibility: patch.responsibility?.trim() || null } : {}),
+        ...(patch.requiredImprovement !== undefined ? { requiredImprovement: patch.requiredImprovement?.trim() || null } : {}),
+        ...(patch.mainDevelopments !== undefined ? { mainDevelopments: patch.mainDevelopments?.trim() || null } : {}),
+        ...(patch.status !== undefined ? { status: patch.status } : {}),
+      },
+    });
+  }
+
+  async deleteImprovementTask(id: string) {
+    const row = await prisma.kpiImprovementTask.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('משימת השיפור לא נמצאה');
+    await prisma.kpiImprovementTask.delete({ where: { id } });
+    return { success: true };
+  }
+
+  // Same SystemParam-lookup + env-var-fallback pattern as incidents.service.ts
+  // (getAnthropicClient) / versions.service.ts (generateUnifiedCrSummary).
+  private async getAnthropicClient() {
+    const apiKeyParam = await prisma.systemParam.findUnique({ where: { key: 'ANTHROPIC_API_KEY' } });
+    const apiKey = apiKeyParam?.value?.trim() || process.env.ANTHROPIC_API_KEY || '';
+    if (!apiKey) throw new BadRequestException('מפתח ANTHROPIC_API_KEY לא מוגדר בפרמטרי המערכת');
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    return new Anthropic({ apiKey });
+  }
+
+  // Returns suggested problem notes / improvement tasks WITHOUT writing them
+  // — the caller (UI) shows them for review and creates only the ones the
+  // user accepts via the existing createProblemNote/createImprovementTask
+  // endpoints (2026-08-29 product decision: suggest, don't auto-commit,
+  // unlike RCA's aiAnalyze which writes directly — this table is newer and
+  // less battle-tested).
+  async suggestImprovementAnalysis(kpiName: string, releaseName: string): Promise<{
+    problemNotes: { problemCharacteristics: string; defectCount: number | null }[];
+    improvementTasks: { requiredImprovement: string; mainDevelopments: string | null; responsibility: string | null }[];
+  }> {
+    const link = await this.getQcLinkForRelease(releaseName);
+    if (!link || !link.hasQcData) throw new BadRequestException('אין נתוני תקלות אמיתיים לגרסה זו — לא ניתן לנתח');
+
+    const defects = await this.qcService.getDefectsForKpi(link.versionId, kpiName);
+    if (defects.length === 0) throw new BadRequestException('אין תקלות התואמות KPI זה בגרסה זו');
+
+    const def = await prisma.kpiDefinition.findUnique({ where: { kpiName } });
+    const client = await this.getAnthropicClient();
+    const prompt = buildImprovementAnalysisPrompt(kpiName, releaseName, def?.purpose ?? null, defects);
+    const message = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 2000,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const raw = (message.content[0] as any).text ?? '{}';
+
+    let parsed: any;
+    try {
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+    } catch {
+      throw new BadRequestException('תשובת ה-AI לא הייתה JSON תקין — נסה שוב');
+    }
+
+    // Not trusted blindly — same spirit as incidents.service.ts's
+    // applyRcaConclusion: malformed entries are dropped rather than stored.
+    const problemNotes = Array.isArray(parsed.problemNotes)
+      ? parsed.problemNotes
+          .filter((n: any) => typeof n?.problemCharacteristics === 'string' && n.problemCharacteristics.trim())
+          .map((n: any) => ({
+            problemCharacteristics: n.problemCharacteristics.trim(),
+            defectCount: typeof n.defectCount === 'number' ? n.defectCount : null,
+          }))
+      : [];
+    const improvementTasks = Array.isArray(parsed.improvementTasks)
+      ? parsed.improvementTasks
+          .filter((t: any) => typeof t?.requiredImprovement === 'string' && t.requiredImprovement.trim())
+          .map((t: any) => ({
+            requiredImprovement: t.requiredImprovement.trim(),
+            mainDevelopments: typeof t.mainDevelopments === 'string' ? t.mainDevelopments.trim() : null,
+            responsibility: typeof t.responsibility === 'string' ? t.responsibility.trim() : null,
+          }))
+      : [];
+
+    return { problemNotes, improvementTasks };
   }
 
   // Defect-level drill-down is only possible for releases that have a real

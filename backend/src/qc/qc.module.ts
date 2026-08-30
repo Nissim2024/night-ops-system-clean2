@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { QcController } from './qc.controller';
 import { QcService } from './qc.service';
+import { QcRestService } from './qc-rest.service';
 
 @Module({
   imports: [
@@ -11,7 +12,7 @@ import { QcService } from './qc.service';
     }),
   ],
   controllers: [QcController],
-  providers: [QcService],
+  providers: [QcService, QcRestService],
   exports: [QcService],
 })
 export class QcModule {}

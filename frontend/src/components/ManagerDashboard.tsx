@@ -6,6 +6,7 @@ import { DailyQaManagementView } from './release-intelligence/DailyQaManagementV
 import { CrHealthView } from './release-intelligence/CrHealthView';
 import { CoverageReadinessView } from './release-intelligence/CoverageReadinessView';
 import { CycleProgressView } from './release-intelligence/CycleProgressView';
+import { StatusBoardView } from './release-intelligence/StatusBoardView';
 import { TimelineActivitiesView } from './release-intelligence/TimelineActivitiesView';
 import { CapacityView } from './release-intelligence/CapacityView';
 import { ForecastTrackingView } from './release-intelligence/ForecastTrackingView';
@@ -18,6 +19,7 @@ import { OpenProdDefectsView } from './quality-hub/OpenProdDefectsView';
 import { NewVsTargetDefectsView } from './quality-hub/NewVsTargetDefectsView';
 import { ReleaseOverviewView } from './quality-hub/ReleaseOverviewView';
 import { KpiMatrixView } from './quality-hub/KpiMatrixView';
+import { ImprovementTrackingView } from './quality-hub/ImprovementTrackingView';
 import { ReleaseComparisonView } from './quality-hub/ReleaseComparisonView';
 import { ReleaseQualityTimelineView } from './quality-hub/ReleaseQualityTimelineView';
 import { KpiConfigView } from './quality-hub/KpiConfigView';
@@ -562,7 +564,11 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
         {/* ── Right side: Logo + current version indicator ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
           <DeployCenterLogo variant="nav" />
-          {selectedVersion && (
+          {/* Quality Hub browses its own independent, name-only "releases" (some
+              with no real Version/lifecycle at all) via its own in-module
+              selectors — echoing the globally-selected Version here would
+              suggest a relationship between the two that doesn't exist. */}
+          {selectedVersion && activeModule !== 'quality-hub' && (
             <>
               <div style={{ width: '1px', height: '20px', background: C.border }} />
               <span
@@ -738,7 +744,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           showAdmin={payload.role === 'ADMIN'}
           onAdminClick={() => { setActiveModule('deployments'); setActiveTab('admin'); }}
           activeTab={activeTab}
-          onNewVersionClick={['ADMIN', 'RELEASE_MANAGER'].includes(payload.role) ? () => { setSelectedVersionId(''); setVersionFilter('inactive'); setActiveTab('list'); setOpenNewVersionForm(true); } : undefined}
+          onNewVersionClick={['ADMIN', 'RELEASE_MANAGER'].includes(payload.role) ? () => { setSelectedVersionId(''); setVersionFilter('inactive'); setActiveModule('deployments'); setActiveTab('list'); setOpenNewVersionForm(true); } : undefined}
           activeModule={activeModule}
           onModuleChange={m => {
             if (m === 'version-management' && !canAccessVersionManagement) return;
@@ -810,6 +816,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           {activeModule === 'release-intelligence' && activeRiView === 'cycle-progress' && (
             <CycleProgressView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
           )}
+          {activeModule === 'release-intelligence' && activeRiView === 'status-board' && (
+            <StatusBoardView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+          )}
           {activeModule === 'release-intelligence' && activeRiView === 'timeline-activities' && (
             <TimelineActivitiesView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
           )}
@@ -854,6 +863,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           )}
           {activeModule === 'quality-hub' && activeQhView === 'kpi-config' && (
             <KpiConfigView token={token} role={payload.role} />
+          )}
+          {activeModule === 'quality-hub' && activeQhView === 'improvement-tracking' && (
+            <ImprovementTrackingView token={token} role={payload.role} />
           )}
           {activeModule === 'quality-hub' && activeQhView === 'open-prod-defects' && (
             <OpenProdDefectsView token={token} />

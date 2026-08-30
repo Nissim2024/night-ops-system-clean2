@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
+import { DefectDrilldownModal } from './DefectDrilldownModal';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -11,16 +12,21 @@ interface ReopenAnalysis {
   byCr: Bucket[]; byTeam: Bucket[]; trend: TrendPoint[];
 }
 
-function KpiCard({ value, label, valueColor }: { value: string; label: string; valueColor?: string }) {
+function KpiCard({ value, label, valueColor, onClick }: { value: string; label: string; valueColor?: string; onClick?: () => void }) {
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '16px 20px', flex: 1, minWidth: '140px' }}>
+    <div onClick={onClick} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '16px 20px', flex: 1, minWidth: '140px', cursor: onClick ? 'pointer' : 'default' }}>
       <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: valueColor ?? C.textPrimary, lineHeight: 1.2 }}>{value}</div>
       <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>{label}</div>
     </div>
   );
 }
 
-const BreakdownPanel: React.FC<{ title: string; rows: Bucket[] }> = ({ title, rows }) => {
+// byCr bars are NOT wired to a drill-down: they come from getBugDashboard's
+// aggregate rows (BugRawRow-based), not DefectDto — there's no defect-level
+// list behind them without a new Oracle query (see release-intelligence.
+// service.ts's getDefectsDrilldown comment). byTeam IS wired — it's grouped
+// straight from the same reopen: DefectDto[] the KPIs above are computed from.
+const BreakdownPanel: React.FC<{ title: string; rows: Bucket[]; onBarClick?: (label: string) => void }> = ({ title, rows, onBarClick }) => {
   const max = Math.max(1, ...rows.map(r => r.count));
   return (
     <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], flex: 1, minWidth: '280px' }}>
@@ -31,7 +37,7 @@ const BreakdownPanel: React.FC<{ title: string; rows: Bucket[] }> = ({ title, ro
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '240px', overflowY: 'auto' }}>
         {rows.length === 0 && <div style={{ ...TEXT.xs, color: C.textMuted }}>אין נתונים</div>}
         {rows.map(r => (
-          <div key={r.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div key={r.label} onClick={() => onBarClick?.(r.label)} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: onBarClick ? 'pointer' : 'default' }}>
             <div style={{ ...TEXT.xs, color: C.textSecondary, width: '160px', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.label}>{r.label}</div>
             <div style={{ flex: 1, height: '14px', background: C.bgNested, borderRadius: RADIUS.sm, overflow: 'hidden' }}>
               <div style={{ width: `${(r.count / max) * 100}%`, height: '100%', background: '#e8af00', borderRadius: RADIUS.sm }} />
@@ -50,6 +56,7 @@ export const ReopenAnalysisView: React.FC<Props> = ({ token, versionId }) => {
   const headers = { Authorization: `Bearer ${token}` };
   const [data, setData] = useState<ReopenAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
+  const [drilldown, setDrilldown] = useState<{ filter: string; value?: string; title: string } | null>(null);
 
   const load = useCallback(() => {
     if (!versionId) { setData(null); return; }
@@ -74,14 +81,14 @@ export const ReopenAnalysisView: React.FC<Props> = ({ token, versionId }) => {
       <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>♻️ ניתוח Reopen</div>
 
       <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
-        <KpiCard value={`${data.kpis.reopenRate}%`} label="Reopen Rate" valueColor={data.kpis.reopenRate > 0 ? '#e8af00' : C.success} />
-        <KpiCard value={String(data.kpis.criticalReopen)} label="Critical Reopen" valueColor={data.kpis.criticalReopen > 0 ? C.danger : C.success} />
-        <KpiCard value={String(data.kpis.productionReopen)} label="Production Reopen" valueColor={data.kpis.productionReopen > 0 ? C.danger : C.success} />
+        <KpiCard value={`${data.kpis.reopenRate}%`} label="Reopen Rate" valueColor={data.kpis.reopenRate > 0 ? '#e8af00' : C.success} onClick={() => setDrilldown({ filter: 'reopenAll', title: 'תקלות שנפתחו מחדש (Reopen)' })} />
+        <KpiCard value={String(data.kpis.criticalReopen)} label="Critical Reopen" valueColor={data.kpis.criticalReopen > 0 ? C.danger : C.success} onClick={() => setDrilldown({ filter: 'reopenCritical', title: 'תקלות Reopen — קריטיות' })} />
+        <KpiCard value={String(data.kpis.productionReopen)} label="Production Reopen" valueColor={data.kpis.productionReopen > 0 ? C.danger : C.success} onClick={() => setDrilldown({ filter: 'reopenProduction', title: 'תקלות Reopen — פרודקשן' })} />
       </div>
 
       <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
         <BreakdownPanel title="לפי CR" rows={data.byCr} />
-        <BreakdownPanel title="לפי צוות" rows={data.byTeam} />
+        <BreakdownPanel title="לפי צוות" rows={data.byTeam} onBarClick={label => setDrilldown({ filter: 'reopenTeam', value: label, title: `תקלות Reopen — צוות: ${label}` })} />
       </div>
 
       <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4] }}>
@@ -102,6 +109,18 @@ export const ReopenAnalysisView: React.FC<Props> = ({ token, versionId }) => {
           </div>
         )}
       </div>
+
+      {drilldown && (
+        <DefectDrilldownModal
+          token={token}
+          versionId={versionId}
+          screen="reopen-analysis"
+          filter={drilldown.filter}
+          value={drilldown.value}
+          title={drilldown.title}
+          onClose={() => setDrilldown(null)}
+        />
+      )}
     </div>
   );
 };

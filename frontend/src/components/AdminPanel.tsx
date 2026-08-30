@@ -6,6 +6,8 @@ import { C, FONT, FONT_MONO, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../t
 import { Card, Badge, Button, TextField, Select, Toggle, SectionHeader, Avatar, TabBar, EmptyState, Divider, Alert } from './ui';
 import { cleanHtmlText } from '../utils/textSanitize';
 import { VersionCard } from './VersionsView';
+import { OpenProdDefectsConfigPanel } from './quality-hub/OpenProdDefectsConfigPanel';
+import { QcWriteTestPanel } from './QcWriteTestPanel';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -92,7 +94,7 @@ interface QcRelease {
 }
 
 export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
-  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'versions' | 'ldap' | 'oracle' | 'email' | 'notifications' | 'quality-hub'>('users');
+  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'versions' | 'ldap' | 'oracle' | 'email' | 'notifications' | 'quality-hub' | 'open-prod-defects-config' | 'qc-write-test'>('users');
   const { allPermissions, updateRole, saving: permSaving } = usePermissions();
   const [users, setUsers]     = useState<any[]>([]);
   const [teams, setTeams]     = useState<any[]>([]);
@@ -650,6 +652,8 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
     { key: 'email',         label: 'מייל',          icon: '📧' },
     { key: 'notifications', label: 'התראות',        icon: '🔔' },
     { key: 'quality-hub',   label: 'איכות גרסה',    icon: '🏆' },
+    { key: 'open-prod-defects-config', label: 'עמודות תקלות ייצור', icon: '📆' },
+    { key: 'qc-write-test', label: 'בדיקת כתיבה ל-QC', icon: '✍️' },
   ] as const;
 
   return (
@@ -2410,6 +2414,16 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
               </div>
             );
           })()}
+
+          {/* ── OPEN PRODUCTION DEFECTS CONFIG TAB ── */}
+          {tab === 'open-prod-defects-config' && (
+            <OpenProdDefectsConfigPanel token={token} />
+          )}
+
+          {/* ── QC REST WRITE-BACK TEST TAB ── */}
+          {tab === 'qc-write-test' && (
+            <QcWriteTestPanel token={token} />
+          )}
 
           {/* ── SYSTEM PARAMS TAB ── */}
           {tab === 'params' && (

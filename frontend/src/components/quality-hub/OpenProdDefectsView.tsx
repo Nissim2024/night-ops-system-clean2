@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, RADIUS } from '../../theme';
 import { Card, Badge } from '../ui';
+import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL } from './openProdDefectsFields';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -30,7 +31,154 @@ interface OpenProdDefectMonthRow {
 
 interface DefectStatusHistoryRow { status: string; changeTime: string; }
 
+interface OpenProdDefectsConfig { tableColumns: string[]; detailFields: string[]; }
+
+// Full ~50-field record — matches backend's TargetDefectDto (see
+// qc.service.ts's DEFECT_BY_ID_SQL / mapRowToTargetDefect). Only the fields
+// this screen actually renders are typed strictly; the rest come through as
+// whatever DETAIL_FIELDS keys resolve to on the object.
+interface DefectFullDetail { id: string; [key: string]: any; }
+
 interface Props { token: string; }
+
+// Full-screen drill-down for one defect — replaces the table view entirely
+// (back button, same pattern as CycleProgressView's CycleDetailScreen)
+// rather than an inline expand, per the explicit "מסך חדש" requirement.
+// Renders whichever fields + order the admin configured (detailFields),
+// falling back to every field with a value if the admin never configured one.
+// Exported — also reused by release-intelligence/DefectDrilldownModal so
+// every "click a defect ID, see full details" path in the app opens the same
+// screen instead of a second, drifting copy (spec confirmed 2026-08-29).
+export const DefectDetailScreen: React.FC<{
+  defectId: string; detailFields: string[]; token: string; onBack: () => void;
+}> = ({ defectId, detailFields, token, onBack }) => {
+  const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+  const [detail, setDetail] = useState<DefectFullDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(true);
+  const [history, setHistory] = useState<DefectStatusHistoryRow[] | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(true);
+
+  useEffect(() => {
+    setDetail(null);
+    setDetailLoading(true);
+    axios.get(`${API}/qc/open-prod-defect-detail/${encodeURIComponent(defectId)}`, { headers })
+      .then(r => setDetail(r.data ?? null))
+      .catch(() => setDetail(null))
+      .finally(() => setDetailLoading(false));
+
+    setHistory(null);
+    setHistoryLoading(true);
+    axios.get(`${API}/qc/defect-status-history?defectId=${encodeURIComponent(defectId)}`, { headers })
+      .then(r => setHistory(r.data ?? []))
+      .catch(() => setHistory([]))
+      .finally(() => setHistoryLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defectId, token]);
+
+  const fieldsToShow = detailFields.length > 0 ? detailFields : DETAIL_FIELDS.map(f => f.key);
+  const LONG_TEXT_KEYS = ['description', 'notes'];
+  const titleShown = fieldsToShow.includes('title');
+  const gridFields = fieldsToShow.filter(k => k !== 'title' && !LONG_TEXT_KEYS.includes(k));
+  const longTextFields = fieldsToShow.filter(k => LONG_TEXT_KEYS.includes(k));
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px 28px', fontFamily: FONT }}>
+      <button
+        onClick={onBack}
+        style={{
+          alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '6px', background: C.bgNested,
+          color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer',
+          fontSize: '13px', fontWeight: WEIGHT.semibold, padding: '6px 14px', fontFamily: FONT,
+        }}
+      >
+        → חזרה לטבלה
+      </button>
+
+      {detailLoading && <Card><div style={{ textAlign: 'center', padding: '20px', color: C.textMuted }}>טוען...</div></Card>}
+      {!detailLoading && !detail && (
+        <Card><div style={{ textAlign: 'center', padding: '20px', color: C.textMuted }}>לא נמצא מידע מלא עבור תקלה זו</div></Card>
+      )}
+
+      {!detailLoading && detail && (
+          <>
+            {/* ── כותרת התקלה — בולטת, בראש המסך ── */}
+            <Card>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                <span style={{ fontSize: '28px', flexShrink: 0 }}>🐛</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '22px', fontWeight: WEIGHT.bold, color: C.textPrimary, lineHeight: 1.35, wordBreak: 'break-word' }}>
+                    {titleShown ? (detail.title || 'ללא כותרת') : `תקלה ${defectId}`}
+                  </div>
+                  <div style={{ ...TEXT.sm, color: C.textMuted, marginTop: '4px' }}>תקלה {defectId}</div>
+                </div>
+              </div>
+            </Card>
+
+            {/* ── שאר השדות שנבחרו — רשת ── */}
+            {gridFields.length > 0 && (
+              <Card>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '14px' }}>
+                  {gridFields.map(key => {
+                    const value = detail[key];
+                    if (value === undefined) return null;
+                    return (
+                      <div key={key}>
+                        <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '2px' }}>{DETAIL_FIELD_LABEL[key] ?? key}</div>
+                        <div style={{ ...TEXT.sm, color: C.textPrimary, fontWeight: WEIGHT.semibold, wordBreak: 'break-word' }}>
+                          {value === null || value === '' ? '—' : String(value)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            )}
+
+          </>
+      )}
+
+      <Card>
+        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, marginBottom: '10px' }}>היסטוריית סטטוסים</div>
+        {historyLoading && <div style={{ color: C.textMuted, ...TEXT.xs }}>טוען...</div>}
+        {!historyLoading && history && history.length === 0 && (
+          <div style={{ color: C.textMuted, ...TEXT.xs }}>אין היסטוריית סטטוסים זמינה לתקלה זו</div>
+        )}
+        {!historyLoading && history && history.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {history.map((h, i) => (
+              <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'center', ...TEXT.xs }}>
+                <span style={{ color: C.textMuted, width: '160px', flexShrink: 0 }}>{new Date(h.changeTime).toLocaleString('he-IL')}</span>
+                <span style={{ fontWeight: WEIGHT.semibold, color: C.textPrimary }}>{h.status}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* ── תיאור והערות — שדות מלל ארוכים, זה לצד זה בתחתית המסך ── */}
+      {!detailLoading && detail && longTextFields.length > 0 && (
+        <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
+          {longTextFields.map(key => {
+            const value = detail[key];
+            return (
+              <Card key={key} style={{ flex: '1 1 320px', minWidth: '320px' }}>
+                <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '8px' }}>{DETAIL_FIELD_LABEL[key] ?? key}</div>
+                <div style={{
+                  ...TEXT.sm, color: C.textPrimary, direction: 'rtl', textAlign: 'right',
+                  whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.6,
+                  minHeight: '120px', maxHeight: '360px', overflowY: 'auto',
+                  background: C.bgNested, borderRadius: RADIUS.md, padding: '12px 14px',
+                }}>
+                  {value === null || value === undefined || value === '' ? '—' : String(value)}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const SEVERITY_COLOR: Record<string, string> = {
   'Show Stopper': C.danger,
@@ -78,18 +226,45 @@ const MonthlyTrendChart: React.FC<{
   onSelectMonth: (m: string) => void;
 }> = ({ data, selectedMonth, onSelectMonth }) => {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(760);
+
+  // Measures the actual rendered width so the viewBox can match it exactly —
+  // with few points (worst case: a single filtered month), the old fixed
+  // 760px-minimum viewBox got stretched non-uniformly (preserveAspectRatio=
+  // none) to fill a much wider real container, smearing text/circles
+  // horizontally. Matching viewBox width to the real container keeps the
+  // stretch factor at ~1 (no distortion) whenever there's room to.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect.width;
+      if (w) setContainerWidth(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   if (data.length === 0) {
     return <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, padding: '20px', textAlign: 'center' }}>אין נתוני מגמה</div>;
   }
 
-  const height = 180, padX = 36, padY = 24;
-  const width = Math.max(760, padX * 2 + (data.length - 1) * MIN_POINT_GAP);
+  // padTop reserves room for the two-line tooltip above the highest point —
+  // the wrapping div needs overflowX:auto for wide charts to scroll instead
+  // of squeeze, and per the CSS overflow spec that silently forces overflowY
+  // to 'auto' too (setting it to 'visible' explicitly does NOT override this
+  // — confirmed live: the browser still clips), so anything drawn above y=0
+  // gets cut off no matter what. Reserving enough top margin that even the
+  // max-value point's tooltip box never goes negative is what actually fixes
+  // it, not fighting the overflow computation.
+  const height = 180, padX = 36, padTop = 50, padBottom = 24;
+  const width = Math.max(containerWidth, padX * 2 + (data.length - 1) * MIN_POINT_GAP);
   const max = Math.max(1, ...data.map(d => d.count));
   const stepX = data.length > 1 ? (width - padX * 2) / (data.length - 1) : 0;
   const points = data.map((d, i) => {
     const x = padX + i * stepX;
-    const y = height - padY - (d.count / max) * (height - padY * 2);
+    const y = height - padBottom - (d.count / max) * (height - padTop - padBottom);
     return { x, y, d };
   });
   const polyline = points.map(p => `${p.x},${p.y}`).join(' ');
@@ -102,16 +277,16 @@ const MonthlyTrendChart: React.FC<{
   const activePoint = activeIdx >= 0 ? points[activeIdx] : null;
 
   return (
-    <div style={{ overflowX: 'auto' }}>
-      {/* CSS width:100% + minWidth (not the SVG width/height attributes) —
-          so a card much wider than the natural point-spacing stretches the
-          chart to fill it instead of leaving the fixed-pixel SVG flush
-          against one side (RTL: the right) with empty space on the other.
-          minWidth preserves the original "scroll instead of squeeze"
-          behavior once there are enough points to need it.
-          preserveAspectRatio="none" so the stretch is horizontal only —
-          height stays exactly as specified. Found live in production
-          2026-08-05. */}
+    <div ref={wrapRef} style={{ overflowX: 'auto' }}>
+      {/* viewBox width now tracks the real measured container width (see
+          ResizeObserver above), so preserveAspectRatio="none" below only
+          ever stretches when there are more points than fit naturally —
+          scroll (via minWidth) kicks in there instead of squeezing.
+          With few points (viewBox width == container width), the stretch
+          factor is ~1 and text/circles render undistorted — this is what
+          fixes the "smeared" single-point chart (2026-08-27). Original
+          "fill the card instead of sitting flush to one side" fix: found
+          live in production 2026-08-05. */}
       <svg
         viewBox={`0 0 ${width} ${height + 10}`}
         preserveAspectRatio="none"
@@ -139,12 +314,17 @@ const MonthlyTrendChart: React.FC<{
             </g>
           );
         })}
-        {/* Value shown only for the hovered/selected point — never all of them at once */}
+        {/* Tooltip shown only for the hovered/selected point — never all of them
+            at once. Shows both the month and the count together (not just the
+            count) so hovering answers "which month, how many" in one glance. */}
         {activePoint && (
           <g pointerEvents="none">
-            <rect x={activePoint.x - 16} y={activePoint.y - 26} width={32} height={18} rx={4} fill={C.textPrimary} />
-            <text x={activePoint.x} y={activePoint.y - 13} fontSize="12" fill={C.bgCard} textAnchor="middle" fontFamily={FONT} fontWeight="bold">
-              {activePoint.d.count}
+            <rect x={activePoint.x - 34} y={activePoint.y - 42} width={68} height={32} rx={5} fill={C.textPrimary} />
+            <text x={activePoint.x} y={activePoint.y - 27} fontSize="11" fill={C.bgCard} textAnchor="middle" fontFamily={FONT}>
+              {activePoint.d.monthLabel}
+            </text>
+            <text x={activePoint.x} y={activePoint.y - 13} fontSize="13" fill={C.bgCard} textAnchor="middle" fontFamily={FONT} fontWeight="bold">
+              {activePoint.d.count} תקלות
             </text>
           </g>
         )}
@@ -173,9 +353,11 @@ const MultiSelectFilter: React.FC<{
     onChange(selected.includes(opt) ? selected.filter(o => o !== opt) : [...selected, opt]);
   };
 
+  const allSelected = options.length > 0 && selected.length === options.length;
+
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button onClick={() => setOpen(o => !o)} style={{ ...selectStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', cursor: 'pointer' }}>
+    <div ref={ref} style={{ position: 'relative', flex: '1 1 0', minWidth: '150px' }}>
+      <button onClick={() => setOpen(o => !o)} style={{ ...selectStyle, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', cursor: 'pointer' }}>
         <span>{label} — {selected.length === 0 ? 'הכל' : `נבחרו ${selected.length}`}</span>
         <span style={{ fontSize: '11px', color: C.textMuted }}>{open ? '▲' : '▼'}</span>
       </button>
@@ -183,14 +365,23 @@ const MultiSelectFilter: React.FC<{
         <div style={{
           position: 'absolute', top: '100%', right: 0, zIndex: 20, marginTop: '2px',
           background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.md,
-          minWidth: '200px', maxHeight: '260px', overflowY: 'auto', boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+          minWidth: '200px', maxHeight: '300px', overflowY: 'auto', boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
           padding: '6px',
         }}>
-          {selected.length > 0 && (
-            <div onClick={() => onChange([])} style={{ ...TEXT.xs, color: C.brand, cursor: 'pointer', padding: '5px 8px', fontFamily: FONT }}>
-              ✕ נקה בחירה
-            </div>
-          )}
+          <div style={{ display: 'flex', gap: '10px', padding: '5px 8px', borderBottom: `1px solid ${C.border}`, marginBottom: '4px' }}>
+            <span
+              onClick={() => options.length > 0 && onChange(options)}
+              style={{ ...TEXT.xs, color: allSelected ? C.textMuted : C.brand, cursor: options.length > 0 ? 'pointer' : 'default', fontFamily: FONT, fontWeight: WEIGHT.semibold }}
+            >
+              ✓ בחר הכל
+            </span>
+            <span
+              onClick={() => selected.length > 0 && onChange([])}
+              style={{ ...TEXT.xs, color: selected.length === 0 ? C.textMuted : C.brand, cursor: selected.length > 0 ? 'pointer' : 'default', fontFamily: FONT, fontWeight: WEIGHT.semibold }}
+            >
+              ✕ נקה הכל
+            </span>
+          </div>
           {options.map(o => (
             <label key={o} style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '5px 8px', cursor: 'pointer', fontFamily: FONT, ...TEXT.sm, color: C.textPrimary }}>
               <input type="checkbox" checked={selected.includes(o)} onChange={() => toggle(o)} />
@@ -229,14 +420,21 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
   const [fBugType, setFBugType] = useState<string[]>([]);
 
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
-  const [selectedDefect, setSelectedDefect] = useState<string | null>(null);
-  const [history, setHistory] = useState<DefectStatusHistoryRow[] | null>(null);
-  const [historyLoading, setHistoryLoading] = useState(false);
+  const [detailDefectId, setDetailDefectId] = useState<string | null>(null);
+  const [config, setConfig] = useState<OpenProdDefectsConfig | null>(null);
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   useEffect(() => {
     axios.get(`${API}/qc/status`, { headers })
       .then(r => setQcMock(!r.data?.enabled))
       .catch(() => setQcMock(true));
+  }, [headers]);
+
+  useEffect(() => {
+    axios.get(`${API}/qc/open-prod-defects-config`, { headers })
+      .then(r => setConfig(r.data))
+      .catch(() => setConfig(null));
   }, [headers]);
 
   useEffect(() => {
@@ -282,15 +480,33 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
     return m;
   }, [monthRows]);
 
-  const openStatusHistory = useCallback((defectId: string) => {
-    setSelectedDefect(defectId);
-    setHistory(null);
-    setHistoryLoading(true);
-    axios.get(`${API}/qc/defect-status-history?defectId=${encodeURIComponent(defectId)}`, { headers })
-      .then(r => setHistory(r.data ?? []))
-      .catch(() => setHistory([]))
-      .finally(() => setHistoryLoading(false));
-  }, [headers]);
+  const toggleSort = useCallback((key: string) => {
+    setSortDir(prevDir => (sortKey === key ? (prevDir === 'asc' ? 'desc' : 'asc') : 'asc'));
+    setSortKey(key);
+  }, [sortKey]);
+
+  const tableColumns = config?.tableColumns && config.tableColumns.length > 0 ? config.tableColumns : ['defectId', 'severity', 'responsibility', 'area', 'bugType', 'statusAtMonth', 'detectedDate', 'reopenYn'];
+
+  const sortedMonthRows = useMemo(() => {
+    if (!sortKey) return monthRows;
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...monthRows].sort((a, b) => {
+      const av = String((a as any)[sortKey] ?? '');
+      const bv = String((b as any)[sortKey] ?? '');
+      return av.localeCompare(bv, 'he') * dir;
+    });
+  }, [monthRows, sortKey, sortDir]);
+
+  if (detailDefectId) {
+    return (
+      <DefectDetailScreen
+        defectId={detailDefectId}
+        detailFields={config?.detailFields ?? []}
+        token={token}
+        onBack={() => setDetailDefectId(null)}
+      />
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px 28px', fontFamily: FONT }}>
@@ -332,71 +548,66 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
 
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
             <BreakdownPanel title="לפי חומרה" total={monthRows.length} rows={groupCount(monthRows, r => r.severity)} />
-            <BreakdownPanel title="לפי קטגוריה / CR מקושר" total={monthRows.length} rows={groupCount(monthRows, r => r.area)} />
+            <BreakdownPanel title="לפי CR מקושר" total={monthRows.length} rows={groupCount(monthRows, r => r.area)} />
             <BreakdownPanel title="לפי צוות" total={monthRows.length} rows={groupCount(monthRows, r => r.responsibility)} />
             <BreakdownPanel title="לפי סוג תקלה" total={monthRows.length} rows={groupCount(monthRows, r => r.bugType)} />
           </div>
 
           <Card>
             <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, marginBottom: '10px' }}>
-              תקלות פתוחות — {activeMonth ?? '—'} ({monthRows.length})
+              תקלות פתוחות — {activeMonth ?? '—'} ({monthRows.length}) — לחץ על כותרת עמודה למיון, לחץ על שורה לפרטים מלאים
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', ...TEXT.xs, fontFamily: FONT }}>
                 <thead>
                   <tr style={{ background: C.bgNested }}>
-                    {['תקלה', 'חומרה', 'צוות', 'קטגוריה/CR', 'סוג', 'סטטוס', 'תאריך גילוי', 'Reopen'].map(h => (
-                      <th key={h} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: WEIGHT.semibold, color: C.textSecondary, borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                    {tableColumns.map(key => (
+                      <th
+                        key={key}
+                        onClick={() => toggleSort(key)}
+                        style={{ padding: '6px 8px', textAlign: 'right', fontWeight: WEIGHT.semibold, color: C.textSecondary, borderBottom: `1px solid ${C.border}`, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+                      >
+                        {TABLE_FIELD_LABEL[key] ?? key}
+                        {sortKey === key && <span style={{ marginRight: '4px', color: C.brand }}>{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                      </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {monthRows.map(r => (
+                  {sortedMonthRows.map(r => (
                     <tr
                       key={r.defectId}
-                      onClick={() => openStatusHistory(r.defectId)}
-                      style={{ cursor: 'pointer', background: selectedDefect === r.defectId ? C.bgActive : 'transparent' }}
+                      onClick={() => setDetailDefectId(r.defectId)}
+                      style={{ cursor: 'pointer' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = C.bgHover)}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                     >
-                      <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}`, color: C.textLink, fontWeight: WEIGHT.semibold }}>{r.defectId}</td>
-                      <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}`, color: SEVERITY_COLOR[r.severity ?? ''] ?? C.textPrimary }}>{r.severity}</td>
-                      <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>{r.responsibility}</td>
-                      <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>{r.area}</td>
-                      <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>{r.bugType}</td>
-                      <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>{r.statusAtMonth}</td>
-                      <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>{r.detectedDate}</td>
-                      <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>{r.reopenYn}</td>
+                      {tableColumns.map(key => {
+                        const value = (r as any)[key];
+                        const isDefectCol = key === 'defectId';
+                        const isSeverityCol = key === 'severity';
+                        return (
+                          <td
+                            key={key}
+                            style={{
+                              padding: '6px 8px', borderBottom: `1px solid ${C.border}`,
+                              color: isDefectCol ? C.textLink : isSeverityCol ? (SEVERITY_COLOR[value ?? ''] ?? C.textPrimary) : C.textPrimary,
+                              fontWeight: isDefectCol ? WEIGHT.semibold : WEIGHT.normal,
+                            }}
+                          >
+                            {value ?? '—'}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                   {monthRows.length === 0 && (
-                    <tr><td colSpan={8} style={{ padding: '14px', textAlign: 'center', color: C.textMuted }}>אין תקלות פתוחות בחודש זה</td></tr>
+                    <tr><td colSpan={tableColumns.length} style={{ padding: '14px', textAlign: 'center', color: C.textMuted }}>אין תקלות פתוחות בחודש זה</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
           </Card>
-
-          {selectedDefect && (
-            <Card>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>היסטוריית סטטוסים — תקלה {selectedDefect}</div>
-                <button onClick={() => setSelectedDefect(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '17px' }}>✕</button>
-              </div>
-              {historyLoading && <div style={{ color: C.textMuted, ...TEXT.xs }}>טוען...</div>}
-              {!historyLoading && history && history.length === 0 && (
-                <div style={{ color: C.textMuted, ...TEXT.xs }}>אין היסטוריית סטטוסים זמינה לתקלה זו</div>
-              )}
-              {!historyLoading && history && history.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {history.map((h, i) => (
-                    <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'center', ...TEXT.xs }}>
-                      <span style={{ color: C.textMuted, width: '160px', flexShrink: 0 }}>{new Date(h.changeTime).toLocaleString('he-IL')}</span>
-                      <span style={{ fontWeight: WEIGHT.semibold, color: C.textPrimary }}>{h.status}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Card>
-          )}
         </>
       )}
     </div>
