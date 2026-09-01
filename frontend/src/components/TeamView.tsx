@@ -4,6 +4,7 @@ import { usePermissions } from '../context/PermissionsContext';
 import { FEATURES } from '../featureFlags';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, statusColor, statusBg, statusLabel, severityColor, severityBg, severityLabel } from '../theme';
 import { StatusChip, Badge, Avatar, Button, Spinner } from './ui';
+import { formatTime } from '../utils/dateFormat';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { useDialog } from '../context/DialogContext';
 import { FocusModeModal } from './FocusModeModal';
@@ -200,8 +201,7 @@ const isDelayed = (task: any): boolean => {
   return !!(p && a && a >= p * DELAY_THRESHOLD);
 };
 
-const fmtTime = (iso: string) =>
-  iso ? new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '';
+const fmtTime = (iso: string) => iso ? formatTime(iso) : '';
 
 // Task hasn't started yet but planned start has already passed
 const isOverdue = (task: any): boolean => {

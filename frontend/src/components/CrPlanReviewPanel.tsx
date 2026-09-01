@@ -3,6 +3,7 @@ import axios from 'axios';
 import { C, FONT, RADIUS, SHADOW } from '../theme';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { cleanHtmlText } from '../utils/textSanitize';
+import { formatDate } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -438,7 +439,7 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                   <span style={{ fontSize: '12px', fontWeight: 700, color: C.info, background: C.infoBg, padding: '1px 8px', borderRadius: RADIUS.full, border: `1px solid ${C.info}40` }}>📶 עלייה מדורגת</span>
                   {gradualPlan.gradualDetails && <span>{gradualPlan.gradualDetails}</span>}
                   {gradualPlan.activationDate && (
-                    <span>· תאריך הפעלה: <bdi style={{ fontWeight: 600, color: C.textPrimary }}>{new Date(gradualPlan.activationDate).toLocaleDateString('he-IL')}</bdi></span>
+                    <span>· תאריך הפעלה: <bdi style={{ fontWeight: 600, color: C.textPrimary }}>{formatDate(gradualPlan.activationDate)}</bdi></span>
                   )}
                 </span>
               ) : (

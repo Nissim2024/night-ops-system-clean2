@@ -82,9 +82,12 @@ function fmtCount(v: number | null): string {
   return v != null ? String(Math.round(Math.abs(v))) : '—';
 }
 
-function KpiCard({ value, label, valueColor }: { value: string; label: string; valueColor?: string }) {
+function KpiCard({ value, label, valueColor, onClick }: { value: string; label: string; valueColor?: string; onClick?: () => void }) {
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '14px 16px', flex: 1, minWidth: '140px' }}>
+    <div
+      onClick={onClick}
+      style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '14px 16px', flex: 1, minWidth: '140px', cursor: onClick ? 'pointer' : undefined }}
+    >
       <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: valueColor ?? C.textPrimary, lineHeight: 1.2 }}>{value}</div>
       <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>{label}</div>
     </div>
@@ -501,6 +504,7 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
                     data.liveSeverity.showStopper + data.liveSeverity.severe + data.liveSeverity.medium + data.liveSeverity.low
                   )}
                   label='סה"כ תקלות (חי)'
+                  onClick={qcLink?.hasQcData && hasDefectDrillDown ? toggleDefects : undefined}
                 />
                 <KpiCard value={fmtCount(data.liveSeverity.showStopper)} label="Show Stopper (חי)" valueColor={C.danger} />
                 <KpiCard value={fmtCount(data.liveSeverity.severe)} label="Severe (חי)" valueColor="#e8af00" />

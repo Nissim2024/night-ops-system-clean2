@@ -27,6 +27,21 @@ function parseOracleDateAgeDays(ddMmYyyy: string, nowMs: number): number | null 
 const CLOSED_DEFECT_STATUSES = ['Closed', 'Canceled', 'Rejected', 'Fixed'];
 const CRITICAL_SEVERITIES = ['Show Stopper', 'Severe'];
 
+// Per-CR quality score — release-intelligence Home page's "CR-ים לא עומדים
+// ביעד איכות" card. score = Σ(defectCount × severityWeight) / actualEffortDays;
+// a CR "meets the target" when score <= CR_QUALITY_TARGET. Defects counted:
+// everything reported against the CR in this version EXCEPT Canceled status
+// and Production-environment defects (spec confirmed 2026-09-01).
+const CR_QUALITY_TARGET = 0.15;
+const CR_QUALITY_SEVERITY_WEIGHT: Record<string, number> = {
+  'Show Stopper': 1, 'Severe': 0.8, 'Medium': 0.5, 'Low': 0.05,
+};
+function isCrQualityDefect(d: DefectDto, crNumber: string): boolean {
+  return d.crReferenceNumber === crNumber
+    && d.status !== 'Canceled'
+    && !(d.environment || '').toUpperCase().includes('PROD');
+}
+
 const SEVERITY_RANK: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
 
 // Maps our internal QaCycle.cycleType to the real QC RELEASE_CYCLES.RCYC_NAME
@@ -373,7 +388,6 @@ export class ReleaseIntelligenceService {
       const total = c.plannedEnd.getTime() - c.plannedStart.getTime();
       const elapsed = Math.min(Math.max(now - c.plannedStart.getTime(), 0), Math.max(total, 0));
       const progressPct = total > 0 ? Math.round((elapsed / total) * 100) : (now > c.plannedEnd.getTime() ? 100 : 0);
-      const state: 'done' | 'active' | 'upcoming' = now > c.plannedEnd.getTime() ? 'done' : now < c.plannedStart.getTime() ? 'upcoming' : 'active';
 
       // testerCount/testers still reflect OUR OWN work-plan staffing for this
       // cycle (a legitimate, separate stat) — only the CR list + coverage
@@ -399,18 +413,43 @@ export class ReleaseIntelligenceService {
       const crs = crCoverage.map(cc => ({ crNumber: cc.crNumber, crLabel: cc.crLabel }));
       const totalTests = crCoverage.reduce((s, cc) => s + cc.total, 0);
       const executedTests = crCoverage.reduce((s, cc) => s + cc.passed + cc.failed + cc.blocked + cc.notCompleted, 0);
+      const passedTests = crCoverage.reduce((s, cc) => s + cc.passed, 0);
+      // Coverage = how much of the plan ran (executed/total); Success = how
+      // much of the plan actually passed (passed/total) — same denominator as
+      // coverage so both sit on the same 0-100% scale as the QG target marker.
+      // Kept as two separate numbers per the user's explicit request — they'd
+      // been conflated (the target was compared against coverage, i.e. against
+      // "did it run" rather than "did it pass") (spec confirmed 2026-08-31).
       const coveragePct = totalTests > 0 ? Math.round((executedTests / totalTests) * 100) : null;
+      const successPct = totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : null;
 
       // Real QG target for this cycle (RELEASE_CYCLES.QG_HIGH) — shown as a
-      // marker on the coverage bar, not baked into the bar's own fill color,
+      // marker on the success bar, not baked into the bar's own fill color,
       // per the user's explicit choice (2026-07-28: "קו מסומן עם סימון יעד").
       const qgTarget = qgTargets.find(t => t.releaseName === releaseName && cycleNameMatches(c.cycleType, t.cycleName));
+      const qgTargetPct = qgTarget?.qgHigh ?? null;
+
+      // "הושלם" requires the end date to have passed AND the quality target to
+      // have actually been reached (successPct >= qgTargetPct) — previously
+      // this was purely time-based, so a cycle whose end date passed without
+      // meeting its quality target still showed as "done". When the target
+      // can't be evaluated (no QG target defined, or no test data yet for this
+      // cycle) falls back to the old time-only rule — there's nothing to
+      // compare against. A cycle past its end date that hasn't met the target
+      // stays "active" (no new status) until it does (spec confirmed 2026-08-31).
+      const pastEnd = now > c.plannedEnd.getTime();
+      const canEvaluateQg = qgTargetPct != null && successPct != null;
+      const qgReached = canEvaluateQg && (successPct as number) >= (qgTargetPct as number);
+      const state: 'done' | 'active' | 'upcoming' =
+        now < c.plannedStart.getTime() ? 'upcoming'
+        : pastEnd && (canEvaluateQg ? qgReached : true) ? 'done'
+        : 'active';
 
       return {
         cycleType: c.cycleType, plannedStart: c.plannedStart, plannedEnd: c.plannedEnd, progressPct, state,
         crCount: crs.length, testerCount: testerIds.size, defectCount, crs,
         testers: [...testerIds].map(id => nameById.get(id) ?? id),
-        coveragePct, crCoverage, qgTargetPct: qgTarget?.qgHigh ?? null,
+        coveragePct, successPct, crCoverage, qgTargetPct,
       };
     });
     const currentCycle = timeline.find(t => t.state === 'active') ?? null;
@@ -457,11 +496,15 @@ export class ReleaseIntelligenceService {
 
     return {
       activeCycle: activeCycle ? { cycleType: activeCycle.cycleType, state: activeCycle.state } : null,
+      // "met" compares against successPct (passed/total), not coveragePct
+      // (executed/total) — same fix as getCycleProgress's own state/done
+      // logic: the QG target is a quality bar, not an execution bar (spec
+      // confirmed 2026-08-31).
       coverage: {
-        actualPct: activeCycle?.coveragePct ?? null,
+        actualPct: activeCycle?.successPct ?? null,
         targetPct: activeCycle?.qgTargetPct ?? null,
-        met: activeCycle?.coveragePct != null && activeCycle?.qgTargetPct != null
-          ? activeCycle.coveragePct >= activeCycle.qgTargetPct
+        met: activeCycle?.successPct != null && activeCycle?.qgTargetPct != null
+          ? activeCycle.successPct >= activeCycle.qgTargetPct
           : null,
       },
       openDefects: {
@@ -742,9 +785,50 @@ export class ReleaseIntelligenceService {
         if (filter === 'reopenTeam') return reopen.filter(d => (d.assignedTo || 'ללא סיווג') === value);
         return [];
       }
+      case 'home': {
+        if (filter === 'crQuality' && value) return defects.filter(d => isCrQualityDefect(d, value));
+        return [];
+      }
       default:
         return [];
     }
+  }
+
+  // release-intelligence Home page's "CR-ים לא עומדים ביעד איכות" card — see
+  // CR_QUALITY_TARGET/CR_QUALITY_SEVERITY_WEIGHT above for the formula.
+  // actualEffortDays comes from VersionCrAssignment (denormalized per team
+  // row from CR_LIST's "Actuals" column); a CR with no effort data can't be
+  // scored and is left out of the result entirely, not counted as pass or fail.
+  async getCrQualityScores(versionId: string): Promise<{
+    crNumber: string; crLabel: string; defectCount: number; actualEffortDays: number; score: number; meetsTarget: boolean;
+  }[]> {
+    const [defects, vcaRows] = await Promise.all([
+      this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
+      prisma.versionCrAssignment.findMany({ where: { versionId, syncStatus: { not: 'REMOVED' } } }),
+    ]);
+
+    // One row per CR — VersionCrAssignment has one row per (CR, team), so
+    // dedupe and keep the largest actualEffortDays seen for that CR.
+    const byCr = new Map<string, { crNumber: string; crLabel: string; actualEffortDays: number | null }>();
+    for (const r of vcaRows as any[]) {
+      const existing = byCr.get(r.crNumber);
+      const days = r.actualEffortDays ?? null;
+      if (!existing || (days ?? 0) > (existing.actualEffortDays ?? 0)) {
+        byCr.set(r.crNumber, { crNumber: r.crNumber, crLabel: r.crLabel ?? '', actualEffortDays: days });
+      }
+    }
+
+    return Array.from(byCr.values())
+      .filter(cr => cr.actualEffortDays != null && cr.actualEffortDays > 0)
+      .map(cr => {
+        const crDefects = defects.filter(d => isCrQualityDefect(d, cr.crNumber));
+        const weightedSum = crDefects.reduce((s, d) => s + (CR_QUALITY_SEVERITY_WEIGHT[d.severity] ?? 0), 0);
+        const score = weightedSum / (cr.actualEffortDays as number);
+        return {
+          crNumber: cr.crNumber, crLabel: cr.crLabel, defectCount: crDefects.length,
+          actualEffortDays: cr.actualEffortDays as number, score, meetsTarget: score <= CR_QUALITY_TARGET,
+        };
+      });
   }
 
   // ── Risk CRUD — spec section 23 ─────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C, TEXT, WEIGHT, SP, RADIUS, SHADOW, FONT } from '../../theme';
+import { formatDate } from '../../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -68,7 +69,7 @@ const CAT_LABELS: Record<string, string> = {
   testing: 'בדיקות', golive: 'עלייה לאוויר', billing: 'בילינג', other: 'אחר',
 };
 
-const fmtDate = (d: string) => new Date(d).toLocaleDateString('he-IL');
+const fmtDate = (d: string) => formatDate(d);
 
 // A CR's label often already starts with its own number as plain text (e.g.
 // "13085 - העברת לקוח..."), pulled verbatim from the Excel source — prefixing

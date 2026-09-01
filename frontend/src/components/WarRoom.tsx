@@ -3,6 +3,7 @@ import axios from 'axios';
 import { io } from 'socket.io-client';
 import { usePermissions } from '../context/PermissionsContext';
 import { C, FONT, SHADOW, statusColor, statusBg, severityColor, severityBg, severityLabel } from '../theme';
+import { formatDateTime, formatTime } from '../utils/dateFormat';
 import { FocusModeModal } from './FocusModeModal';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -147,7 +148,7 @@ const GoNoGoPanel: React.FC<GoNoPanelProps> = ({ env, label, status, details, en
                           <div key={h.id} style={{ fontSize: '13px', color: C.textSecondary, marginBottom: '4px' }}>
                             <div>
                               <strong>{h.action === 'GO_NOGO_WAIVED' ? '✓ אושר דילוג' : '↩ בוטל דילוג'}</strong>
-                              {' '}ע"י {h.user?.fullName ?? '?'} · {new Date(h.createdAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              {' '}ע"י {h.user?.fullName ?? '?'} · {formatDateTime(h.createdAt)}
                             </div>
                             {h.afterData?.reason && <div style={{ color: C.textMuted }}>סיבה: {h.afterData.reason}</div>}
                           </div>
@@ -544,7 +545,7 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
             </p>
             {version?.reviewMeetingTime && (
               <p style={{ margin: '4px 0 0', color: isRehearsal ? 'rgba(255,255,255,0.90)' : C.info, fontSize: '15px', fontWeight: '600' }}>
-                🗓 ישיבת מעבר: {new Date(version.reviewMeetingTime).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                🗓 ישיבת מעבר: {formatDateTime(version.reviewMeetingTime)}
               </p>
             )}
           </div>
@@ -1121,8 +1122,8 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                             {task.assignedUserName && <div style={{ fontSize: '13px', color: C.textMuted }}>👤 {task.assignedUserName}</div>}
                             {task.plannedStart && (
                               <div style={{ fontSize: '13px', color: C.statusInProgress }}>
-                                {new Date(task.plannedStart).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
-                                {task.plannedEnd && ` — ${new Date(task.plannedEnd).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`}
+                                {formatTime(task.plannedStart)}
+                                {task.plannedEnd && ` — ${formatTime(task.plannedEnd)}`}
                               </div>
                             )}
                             {task.blockedReason && <div style={{ fontSize: '13px', color: C.statusFailed, marginTop: '2px' }}>סיבה: {task.blockedReason}</div>}

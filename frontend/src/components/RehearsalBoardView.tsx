@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { C, TEXT, WEIGHT, RADIUS, FONT } from '../theme';
 import { Card, SectionHeader, StatusChip, Badge } from './ui';
+import { formatTime, formatDateTime } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:3000';
 
@@ -10,8 +11,7 @@ interface Props {
   versionId: string;
 }
 
-const fmtTime = (d?: string | Date | null) =>
-  d ? new Date(d).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '—';
+const fmtTime = (d?: string | Date | null) => d ? formatTime(d) : '—';
 
 // Fixed column widths shared by every sub-phase table on this screen — each
 // sub-phase renders its own <table>, so without a shared layout the browser
@@ -119,7 +119,7 @@ export const RehearsalBoardView: React.FC<Props> = ({ token, versionId }) => {
           }} style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '15px', fontFamily: FONT }}>► סגור הכל</button>
         </div>
         <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>
-          תמונת מצב קפואה מרגע סיום החזרה{lastRehearsalAt ? ` (${new Date(lastRehearsalAt).toLocaleString('he-IL')})` : ''}. מציג את מצב המשימות כפי שהיה בחזרה — לא ניתן לערוך.
+          תמונת מצב קפואה מרגע סיום החזרה{lastRehearsalAt ? ` (${formatDateTime(lastRehearsalAt)})` : ''}. מציג את מצב המשימות כפי שהיה בחזרה — לא ניתן לערוך.
         </div>
       </Card>
 

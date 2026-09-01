@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
+import { formatDate } from '../../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -34,7 +35,7 @@ const STATE_COLOR: Record<string, string> = { done: C.success, active: C.brand, 
 const SEVERITY_COLOR: Record<string, string> = { CRITICAL: C.danger, HIGH: '#f0883e', MEDIUM: '#e8af00', LOW: C.textMuted };
 const RISK_STATUS_LABEL: Record<string, string> = { OPEN: 'פתוח', MITIGATED: 'מטופל', CLOSED: 'סגור' };
 
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' });
+const fmtDate = (iso: string) => formatDate(iso);
 
 function StatusTile({ met, title, actual, target, detail, onClick }: { met: boolean | null; title: string; actual: string; target: string; detail: string; onClick?: () => void }) {
   const bg = met === null ? C.bgNested : met ? C.successBg : C.dangerBg;
@@ -91,7 +92,7 @@ export const StatusBoardView: React.FC<Props> = ({ token, versionId }) => {
       <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
         <StatusTile
           met={data.coverage.met}
-          title="יעד כיסוי תרחישים"
+          title="יעד הצלחת תרחישים"
           actual={data.coverage.actualPct != null ? `${data.coverage.actualPct}%` : 'אין נתונים'}
           target={data.coverage.targetPct != null ? `${data.coverage.targetPct}%` : '—'}
           detail={data.coverage.met === false ? 'טרם עמדו ביעד הסבב' : ''}

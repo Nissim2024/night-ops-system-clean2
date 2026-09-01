@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { formatDate as fmtDateShared, formatDateTime as fmtDateTimeShared, formatTime as fmtTimeShared } from '../utils/dateFormat';
 import { usePermissions } from '../context/PermissionsContext';
 import { TeamView } from './TeamView';
 import { TeamLeadProposalView } from './TeamLeadProposalView';
@@ -272,11 +273,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
   );
 };
 
-const fmtDateTime = (iso: string) => {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return `${d.toLocaleDateString('he-IL')} ${d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`;
-};
+const fmtDateTime = (iso: string) => iso ? fmtDateTimeShared(iso) : '';
 
 // Exported for reuse in AdminPanel's "ניהול גרסאות" section — the only place
 // delete/archive/restore still live (see product decision: this list, used
@@ -370,7 +367,7 @@ export const VersionCard: React.FC<{
             <Badge color={C.statusOpen} bg={C.bgOpen}>{v.taskCount} משימות</Badge>
           )}
           <span style={{ ...TEXT.xs, color: C.textDisabled }}>
-            {v.creator?.fullName} · {new Date(v.createdAt).toLocaleDateString('he-IL')}
+            {v.creator?.fullName} · {fmtDateShared(v.createdAt)}
           </span>
           {v.lastRehearsalAt && (
             <Badge color={C.warning} bg={C.bgInProgress}>🎭 {fmtDateTime(v.lastRehearsalAt)}</Badge>
@@ -913,13 +910,9 @@ const VersionDetail: React.FC<{
     }
   };
 
-  const formatTime = (iso: string) => iso ? new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '';
-  const formatDate = (iso: string) => iso ? new Date(iso).toLocaleDateString('he-IL') : '';
-  const formatDateTimeShort = (iso: string) => {
-    if (!iso) return '';
-    const d = new Date(iso);
-    return `${d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })} ${d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`;
-  };
+  const formatTime = (iso: string) => iso ? fmtTimeShared(iso) : '';
+  const formatDate = (iso: string) => iso ? fmtDateShared(iso) : '';
+  const formatDateTimeShort = (iso: string) => iso ? fmtDateTimeShared(iso) : '';
 
   const calcDuration = (start: string, end: string) => {
     if (!start || !end) return null;
@@ -1839,16 +1832,16 @@ const VersionDetail: React.FC<{
           )}
           {version.creator && <span>👤 {version.creator.fullName}</span>}
           {version.approvedAt && version.approver && (
-            <span style={{ color: C.success }}>✅ אושר: {new Date(version.approvedAt).toLocaleDateString('he-IL')} ע"י {version.approver.fullName}</span>
+            <span style={{ color: C.success }}>✅ אושר: {fmtDateShared(version.approvedAt)} ע"י {version.approver.fullName}</span>
           )}
           {version.lastRehearsalAt && (
             <span style={{ background: C.warningBg, color: C.warning, padding: '3px 10px', borderRadius: RADIUS.full, fontWeight: 'bold', fontSize: '14px' }}>
-              🎭 חזרה גנרלית: {new Date(version.lastRehearsalAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              🎭 חזרה גנרלית: {fmtDateTimeShared(version.lastRehearsalAt)}
             </span>
           )}
           {version.lastNightAt && (
             <span style={{ background: '#e8f4fd', color: '#1a5276', padding: '3px 10px', borderRadius: '12px', fontWeight: 'bold', fontSize: '14px' }}>
-              🌙 ביצוע הטמעה: {new Date(version.lastNightAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              🌙 ביצוע הטמעה: {fmtDateTimeShared(version.lastNightAt)}
             </span>
           )}
         </div>
@@ -1882,10 +1875,10 @@ const VersionDetail: React.FC<{
             ) : (
               <>
                 {version.integrationStart && (
-                  <span style={{ color: C.textSecondary }}>🔧 {new Date(version.integrationStart).toLocaleDateString('he-IL')} → {version.integrationEnd ? new Date(version.integrationEnd).toLocaleDateString('he-IL') : '—'}</span>
+                  <span style={{ color: C.textSecondary }}>🔧 {fmtDateShared(version.integrationStart)} → {version.integrationEnd ? fmtDateShared(version.integrationEnd) : '—'}</span>
                 )}
                 {version.qaStart && (
-                  <span style={{ color: C.textSecondary }}>🧪 {new Date(version.qaStart).toLocaleDateString('he-IL')} → {version.qaEnd ? new Date(version.qaEnd).toLocaleDateString('he-IL') : '—'}</span>
+                  <span style={{ color: C.textSecondary }}>🧪 {fmtDateShared(version.qaStart)} → {version.qaEnd ? fmtDateShared(version.qaEnd) : '—'}</span>
                 )}
                 {!version.integrationStart && !version.qaStart && (
                   <span style={{ color: C.textDisabled, fontStyle: 'italic' }}>לא הוגדרו תאריכים</span>
@@ -2511,7 +2504,7 @@ const VersionDetail: React.FC<{
                                     }
                                   }
                                   const previewTime = previewEnd
-                                    ? new Date(previewEnd).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
+                                    ? fmtTimeShared(previewEnd)
                                     : null;
                                   return (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -3308,7 +3301,7 @@ const VersionDetail: React.FC<{
                             style={{ padding: '6px 8px', border: `1.5px solid ${hasOverlap ? '#e74c3c' : '#ddd'}`, borderRadius: '7px', fontSize: '14px', width: '100%', boxSizing: 'border-box' as any }} />
                           {hasOverlap && prevEnd && (
                             <div style={{ color: '#e74c3c', fontSize: '12px', marginTop: '2px' }}>
-                              ⚠️ מתחיל לפני סיום השלב הקודם ({prevEnd.toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })})
+                              ⚠️ מתחיל לפני סיום השלב הקודם ({fmtDateTimeShared(prevEnd)})
                             </div>
                           )}
                         </div>

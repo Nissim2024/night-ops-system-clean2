@@ -2,6 +2,7 @@
 import axios from 'axios';
 import { DateField, DateTimeField } from './DatePicker';
 import { C, FONT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
+import { formatTime } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -517,10 +518,10 @@ function Step4Content({ anomalies, versionId, token, onRedetect }: {
                       </div>
                     </td>
                     <td style={{ padding: '8px 10px', textAlign: 'center', color: C.danger, direction: 'ltr', fontWeight: '600' }}>
-                      {new Date(a.taskEnd).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+                      {formatTime(a.taskEnd)}
                     </td>
                     <td style={{ padding: '8px 10px', textAlign: 'center', color: C.textSecondary, direction: 'ltr' }}>
-                      {new Date(a.phaseEnd).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+                      {formatTime(a.phaseEnd)}
                     </td>
                     <td style={{ padding: '8px 10px', textAlign: 'center', color: C.danger, fontWeight: 'bold' }}>
                       +{a.overrunMins}ד'
@@ -622,7 +623,7 @@ function Step5Content({ sortResult, version }: { sortResult: { reordered: number
                   <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '4px 0', fontSize: '15px', color: C.textSecondary }}>
                     <span style={{ color: C.textMuted, minWidth: '20px' }}>{ti + 1}.</span>
                     <span style={{ color: C.info, minWidth: '50px', direction: 'ltr', fontFamily: 'monospace' }}>
-                      {new Date(t.plannedStart).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+                      {formatTime(t.plannedStart)}
                     </span>
                     <span>{t.title}</span>
                   </div>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../theme';
+import { formatDateTime } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -123,7 +124,7 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
             <div style={{ background: C.warningBg, border: `1px solid ${C.warning}40`, borderRadius: RADIUS.md, padding: SP[3], display: 'flex', flexDirection: 'column', gap: SP[2] }}>
               <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>הערך שיישלח בפועל ל-QC (הערות פיתוח, אחרי הוספה):</div>
               <div style={{ background: C.bgCard, borderRadius: RADIUS.sm, padding: SP[3], ...TEXT.xs, color: C.textPrimary, whiteSpace: 'pre-wrap', maxHeight: '200px', overflow: 'auto' }}>
-                {preview.comments ? `${preview.comments}\n---\n[DeployCenter · ... · ${new Date().toLocaleString('he-IL')}]\n${note.trim()}` : `[DeployCenter · ... · ${new Date().toLocaleString('he-IL')}]\n${note.trim()}`}
+                {preview.comments ? `${preview.comments}\n---\n[DeployCenter · ... · ${formatDateTime(new Date())}]\n${note.trim()}` : `[DeployCenter · ... · ${formatDateTime(new Date())}]\n${note.trim()}`}
               </div>
               <div style={{ display: 'flex', gap: SP[2] }}>
                 <button

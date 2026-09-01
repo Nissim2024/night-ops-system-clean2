@@ -46,6 +46,11 @@ export class ReleaseIntelligenceController {
     return this.service.getStatusBoard(versionId);
   }
 
+  @Get('cr-quality/:versionId')
+  getCrQualityScores(@Param('versionId') versionId: string) {
+    return this.service.getCrQualityScores(versionId);
+  }
+
   @Get('timeline-activities/:versionId')
   getTimelineActivities(@Param('versionId') versionId: string) {
     return this.service.getTimelineActivities(versionId);

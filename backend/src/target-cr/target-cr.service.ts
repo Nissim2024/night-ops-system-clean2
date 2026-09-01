@@ -272,7 +272,38 @@ export class TargetCrService {
         .map(([area, count]) => ({ area, count }))
         .sort((a, b) => b.count - a.count),
       defects: defectList,
+      qcUserNames: await this.resolveQcUserNames(defectList),
     };
+  }
+
+  // TARGET-defect person fields (assignedTo, qaTester, detectedBy, etc.) hold
+  // raw QC login strings (BG_RESPONSIBLE/BG_USER_37/BG_DETECTED_BY — e.g.
+  // "guyp"), not "First Last" names — QC.USERS.USER_NAME synced into
+  // User.qcLogin by syncQcUsers(). Lowercased-login → fullName map so the
+  // frontend can render a real name/avatar instead of the raw login, falling
+  // back to the login itself when no User has that qcLogin synced (spec
+  // confirmed 2026-08-30).
+  private async resolveQcUserNames(defects: TargetDefectDto[]): Promise<Record<string, string>> {
+    const PERSON_FIELDS: (keyof TargetDefectDto)[] = [
+      'assignedTo', 'qaTester', 'detectedBy', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo',
+    ];
+    const logins = new Set<string>();
+    for (const d of defects) {
+      for (const f of PERSON_FIELDS) {
+        const v = (d[f] as string | undefined)?.trim();
+        if (v) logins.add(v.toLowerCase());
+      }
+    }
+    if (logins.size === 0) return {};
+    const users = await prisma.user.findMany({
+      where: { qcLogin: { in: Array.from(logins), mode: 'insensitive' } },
+      select: { qcLogin: true, fullName: true },
+    });
+    const map: Record<string, string> = {};
+    for (const u of users) {
+      if (u.qcLogin) map[u.qcLogin.toLowerCase()] = u.fullName;
+    }
+    return map;
   }
 
   async updateGate(reviewId: string, patch: { gateChecklist1?: boolean; gateChecklist2?: boolean; gateChecklist3?: boolean }) {

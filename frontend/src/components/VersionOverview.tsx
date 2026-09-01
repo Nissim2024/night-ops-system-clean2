@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { C, FONT, WEIGHT, RADIUS, SHADOW } from '../theme';
 import { VersionStatusChip } from './ui';
+import { hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroupsDialog, DetailGroup, FieldChangeHistorySection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow } from './shared/defectFieldDisplay';
+import { formatDateTime } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -9,6 +11,11 @@ interface Props {
   version: any;
   token: string;
   onJumpToStep: (view: string) => void;
+  // Lets the module shell (VersionManagementModuleView) hide its own version
+  // picker row while the TARGET-defect list/detail screens are open — those
+  // already show their own contextual header, so the picker is redundant
+  // clutter once drilled in that far (feedback confirmed 2026-08-30).
+  onDrilledInChange?: (drilledIn: boolean) => void;
 }
 
 interface ScopeCr {
@@ -129,12 +136,43 @@ const DEFAULT_TARGET_DEFECT_COLUMNS: (keyof TargetDefect)[] = [
 
 const TARGET_DEFECT_COLUMNS_STORAGE_KEY = 'deploycenter_target_defect_columns';
 
+// Person-owner fields resolve their raw QC login (e.g. "guyp") to a real
+// name via qcUserNames and render as an avatar; `responsibility` is the team
+// field and keeps the flat color-badge treatment (spec confirmed 2026-08-30).
+const PERSON_BADGE_FIELDS = new Set<keyof TargetDefect>([
+  'assignedTo', 'qaTester', 'detectedBy', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo',
+]);
+const TEAM_BADGE_FIELDS = new Set<keyof TargetDefect>(['responsibility']);
+// Same severity palette as DefectDrilldownModal's SEVERITY_COLOR (release-intelligence
+// module) — duplicated per this file's own established convention rather than a
+// cross-file import, so severity always reads the same color everywhere it appears.
+const SEVERITY_COLOR: Record<string, string> = {
+  'Show Stopper': C.danger, Severe: C.danger, Medium: '#e8af00', Low: C.textMuted,
+};
+function renderTargetDefectValue(key: keyof TargetDefect, value: unknown, qcUserNames?: Record<string, string>) {
+  const s = String(value ?? '');
+  if (!s) return '—';
+  if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={qcUserNames?.[s.toLowerCase()] ?? s} />;
+  if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
+  if (key === 'severity') return <span style={{ color: SEVERITY_COLOR[s] ?? C.textPrimary, fontWeight: WEIGHT.semibold }}>{s}</span>;
+  return s;
+}
+
 // Field-detail form grouping for the defect-detail screen — logical reading
 // order (identification → description/notes → detection → ownership → fix →
 // target/release → business impact), not the flat column-picker order.
 // description/notes are handled separately as large free-text blocks, not
 // part of any group's grid.
-const TARGET_DEFECT_DETAIL_GROUPS: { title: string; fields: (keyof TargetDefect)[] }[] = [
+const TARGET_DETAIL_GROUPS_STORAGE_KEY = 'deploycenter_target_defect_detail_groups';
+
+// summary/description/notes always render in their own fixed spots (title
+// line, and the side-by-side boxes) — never offered in the category picker,
+// so they can't be reassigned/hidden like the other fields (spec confirmed
+// 2026-08-30).
+const DETAIL_GROUPS_FIXED_FIELDS = new Set<keyof TargetDefect>(['summary', 'description', 'notes']);
+const DETAIL_GROUPS_ASSIGNABLE_COLUMNS = TARGET_DEFECT_COLUMNS.filter(c => !DETAIL_GROUPS_FIXED_FIELDS.has(c.key));
+
+const DEFAULT_TARGET_DEFECT_DETAIL_GROUPS: DetailGroup[] = [
   {
     title: 'זיהוי',
     fields: ['id', 'status', 'severity', 'priority', 'defectType', 'category', 'itemType'],
@@ -182,16 +220,11 @@ interface TargetSummary {
   total: number;
   byArea: { area: string; count: number }[];
   defects: TargetDefect[];
-}
-
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' });
-}
-function fmtDateTime(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  return `${d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })} ${d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`;
+  // Lowercased QC-login → real full name (only for logins that matched a
+  // synced User.qcLogin — see resolveQcUserNames in target-cr.service.ts).
+  // Raw QC logins (e.g. "guyp") have no space to derive initials/first name
+  // from, so unresolved ones fall back to showing the login itself.
+  qcUserNames?: Record<string, string>;
 }
 
 // Fixed-order categorical palette — same validated set already used by the QA
@@ -422,7 +455,7 @@ type Screen =
   | { type: 'cr-detail'; crNumber: string }
   | { type: 'history'; crNumber: string; teamId: string };
 
-export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep }) => {
+export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep, onDrilledInChange }) => {
   const headers = { Authorization: `Bearer ${token}` };
   const [scope, setScope] = useState<ScopeOverview | null>(null);
   const [targetSummary, setTargetSummary] = useState<TargetSummary | null>(null);
@@ -449,6 +482,38 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep 
     localStorage.setItem(TARGET_DEFECT_COLUMNS_STORAGE_KEY, JSON.stringify(keys));
     setShowColumnPicker(false);
   };
+
+  const [detailGroups, setDetailGroups] = useState<DetailGroup[]>(() => {
+    try {
+      const saved = localStorage.getItem(TARGET_DETAIL_GROUPS_STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch { /* ignore malformed storage */ }
+    return DEFAULT_TARGET_DEFECT_DETAIL_GROUPS;
+  });
+  const [showDetailGroupsPicker, setShowDetailGroupsPicker] = useState(false);
+  const applyDetailGroups = (groups: DetailGroup[]) => {
+    setDetailGroups(groups);
+    localStorage.setItem(TARGET_DETAIL_GROUPS_STORAGE_KEY, JSON.stringify(groups));
+    setShowDetailGroupsPicker(false);
+  };
+
+  const [targetDefectSort, setTargetDefectSort] = useState<{ key: keyof TargetDefect; dir: 'asc' | 'desc' } | null>(null);
+  const toggleTargetDefectSort = (key: keyof TargetDefect) => {
+    setTargetDefectSort(prev => prev?.key === key ? (prev.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' });
+  };
+  const { getWidth: getTargetColWidth, startResize: startTargetColResize } = useColumnWidths('deploycenter_target_defect_column_widths');
+  const targetFilters = useColumnFilters(targetSummary?.defects as any, targetDefectColumns);
+
+  const sortedTargetDefects = React.useMemo(() => {
+    const defects = (targetSummary?.defects ?? []).filter(d => targetFilters.matches(d as any));
+    if (!targetDefectSort) return defects;
+    const { key, dir } = targetDefectSort;
+    return [...defects].sort((a, b) => {
+      const av = String(a[key] ?? ''); const bv = String(b[key] ?? '');
+      const cmp = av.localeCompare(bv, 'he');
+      return dir === 'asc' ? cmp : -cmp;
+    });
+  }, [targetSummary, targetDefectSort, targetFilters.matches]);
 
   useEffect(() => {
     setScreenStack([{ type: 'overview' }]);
@@ -485,6 +550,12 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep 
       .catch(() => setHistoryDetail(null));
   };
 
+  useEffect(() => {
+    onDrilledInChange?.(screen.type === 'target-list' || screen.type === 'target-defect-detail');
+    return () => onDrilledInChange?.(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen.type]);
+
   const goLive = version.plannedStart ? new Date(version.plannedStart) : null;
   const daysToGoLive = goLive ? Math.ceil((goLive.getTime() - Date.now()) / 86400000) : null;
   const goLiveLabel = !goLive ? null
@@ -498,27 +569,32 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep 
 
   return (
     <div style={{ fontFamily: FONT, direction: 'rtl' }}>
-      {/* ── Header ── */}
-      <div style={{ background: C.bgCard, borderRadius: RADIUS.xl, boxShadow: SHADOW.sm, border: `1px solid ${C.border}`, padding: '18px 24px', marginBottom: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '18px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>{version.name}</span>
-          <VersionStatusChip status={version.status} size="md" />
-          {goLiveLabel && (
-            <span style={{
-              fontSize: '13px', fontWeight: WEIGHT.bold, color: daysToGoLive! < 0 ? C.danger : C.brand,
-              background: daysToGoLive! < 0 ? C.dangerBg : C.brandDim, borderRadius: RADIUS.full, padding: '3px 12px',
-            }}>
-              {goLiveLabel}
+      {/* ── Header — hidden on the TARGET-defect screens (list + detail),
+          since both already show their own contextual title and this row
+          (version name/status/go-live warning) is just redundant clutter
+          once drilled in that far (feedback confirmed 2026-08-30). ── */}
+      {screen.type !== 'target-list' && screen.type !== 'target-defect-detail' && (
+        <div style={{ background: C.bgCard, borderRadius: RADIUS.xl, boxShadow: SHADOW.sm, border: `1px solid ${C.border}`, padding: '18px 24px', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '18px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>{version.name}</span>
+            <VersionStatusChip status={version.status} size="md" />
+            {goLiveLabel && (
+              <span style={{
+                fontSize: '13px', fontWeight: WEIGHT.bold, color: daysToGoLive! < 0 ? C.danger : C.brand,
+                background: daysToGoLive! < 0 ? C.dangerBg : C.brandDim, borderRadius: RADIUS.full, padding: '3px 12px',
+              }}>
+                {goLiveLabel}
+              </span>
+            )}
+            <span
+              onClick={() => onJumpToStep('open')}
+              style={{ marginRight: 'auto', fontSize: '13px', color: C.brand, fontWeight: WEIGHT.semibold, cursor: 'pointer' }}
+            >
+              🗓 ניהול תאריכים ›
             </span>
-          )}
-          <span
-            onClick={() => onJumpToStep('open')}
-            style={{ marginRight: 'auto', fontSize: '13px', color: C.brand, fontWeight: WEIGHT.semibold, cursor: 'pointer' }}
-          >
-            🗓 ניהול תאריכים ›
-          </span>
+          </div>
         </div>
-      </div>
+      )}
 
       {screen.type === 'overview' && (
         <>
@@ -614,34 +690,55 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep 
               <div style={{ textAlign: 'center', padding: '30px', color: C.textMuted }}>אין תקלות TARGET בגרסה זו</div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', direction: 'rtl' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', fontSize: '13px', direction: 'rtl' }}>
                   <thead>
                     <tr>
                       {targetDefectColumns.map(key => (
                         <th
                           key={key}
+                          onClick={() => toggleTargetDefectSort(key)}
                           style={{
-                            textAlign: 'right', padding: '8px 10px', color: C.textMuted, fontWeight: WEIGHT.bold,
-                            borderBottom: `2px solid ${C.border}`, whiteSpace: 'nowrap', position: 'sticky', top: 0, background: C.bgCard,
+                            position: 'sticky', top: 0, textAlign: 'right', padding: '8px 10px', color: C.textMuted, fontWeight: WEIGHT.bold,
+                            borderBottom: `2px solid ${C.border}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                            background: C.bgCard, width: getTargetColWidth(key),
+                            cursor: 'pointer', userSelect: 'none',
                           }}
                         >
                           {TARGET_DEFECT_COLUMNS.find(c => c.key === key)?.label ?? key}
+                          {targetDefectSort?.key === key ? (targetDefectSort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
+                          <ColumnResizeHandle onMouseDown={e => startTargetColResize(key, e)} />
                         </th>
                       ))}
                     </tr>
+                    <ColumnFilterRow
+                      columns={targetDefectColumns.map(key => ({ key, label: TARGET_DEFECT_COLUMNS.find(c => c.key === key)?.label ?? key }))}
+                      getWidth={getTargetColWidth}
+                      filters={targetFilters}
+                    />
                   </thead>
                   <tbody>
-                    {targetSummary.defects.map(d => (
+                    {sortedTargetDefects.map(d => (
                       <tr
                         key={d.id}
                         onClick={() => pushScreen({ type: 'target-defect-detail', defectId: d.id })}
                         style={{ borderBottom: `1px solid ${C.border}`, cursor: 'pointer' }}
                       >
-                        {targetDefectColumns.map(key => (
-                          <td key={key} style={{ padding: '7px 10px', color: C.textSecondary, whiteSpace: 'nowrap', maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'right' }}>
-                            {String(d[key] ?? '') || '—'}
-                          </td>
-                        ))}
+                        {targetDefectColumns.map(key => {
+                          const raw = String(d[key] ?? '');
+                          const rtl = hasHebrew(raw);
+                          return (
+                            <td
+                              key={key}
+                              style={{
+                                padding: '7px 10px', color: C.textSecondary, whiteSpace: 'nowrap',
+                                overflow: 'hidden', textOverflow: 'ellipsis', width: getTargetColWidth(key),
+                                direction: rtl ? 'rtl' : 'ltr', textAlign: rtl ? 'right' : 'left',
+                              }}
+                            >
+                              {renderTargetDefectValue(key, d[key], targetSummary.qcUserNames)}
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>
@@ -661,6 +758,16 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep 
         />
       )}
 
+      {showDetailGroupsPicker && (
+        <DetailGroupsDialog
+          allColumns={DETAIL_GROUPS_ASSIGNABLE_COLUMNS}
+          groups={detailGroups}
+          defaultGroups={DEFAULT_TARGET_DEFECT_DETAIL_GROUPS}
+          onApply={applyDetailGroups}
+          onClose={() => setShowDetailGroupsPicker(false)}
+        />
+      )}
+
       {/* ── TARGET defect detail screen — logical field groups, description/ ──
           notes get large RTL-preserved free-text boxes (both may contain
           long Hebrew text with residual entities from the source system). */}
@@ -668,55 +775,90 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep 
         const d = (targetSummary?.defects ?? []).find(x => x.id === screen.defectId);
         return (
           <div>
-            <BackButton onClick={goBack} />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <BackButton onClick={goBack} />
+              <button
+                onClick={() => setShowDetailGroupsPicker(true)}
+                style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontFamily: FONT, marginBottom: '16px' }}
+              >
+                ⚙ התאמת שדות וקטגוריות
+              </button>
+            </div>
             <div style={{ background: C.bgCard, borderRadius: RADIUS.xl, boxShadow: SHADOW.sm, border: `1px solid ${C.border}`, padding: '20px' }}>
               {!d ? (
                 <div style={{ textAlign: 'center', padding: '30px', color: C.textMuted }}>תקלה לא נמצאה</div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ fontSize: '16px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+                  <div style={{ fontSize: '17px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>
                     🎯 תקלה {d.id} — {d.summary || d.subject || d.title || '—'}
                   </div>
 
-                  {/* Description — large, RTL, preserves line breaks */}
-                  <div>
-                    <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '6px' }}>תיאור</div>
-                    <div style={{
-                      direction: 'rtl', textAlign: 'right', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                      minHeight: '110px', maxHeight: '320px', overflowY: 'auto', lineHeight: 1.7, fontSize: '14px',
-                      color: C.textPrimary, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md,
-                      padding: '12px 14px',
-                    }}>
-                      {d.description || '—'}
-                    </div>
-                  </div>
-
-                  {/* Notes / dev comments — same treatment as description */}
-                  <div>
-                    <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '6px' }}>הערות</div>
-                    <div style={{
-                      direction: 'rtl', textAlign: 'right', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                      minHeight: '110px', maxHeight: '320px', overflowY: 'auto', lineHeight: 1.7, fontSize: '14px',
-                      color: C.textPrimary, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md,
-                      padding: '12px 14px',
-                    }}>
-                      {d.notes || '—'}
-                    </div>
-                  </div>
-
-                  {TARGET_DEFECT_DETAIL_GROUPS.map(group => (
+                  {/* Category groups — moved right under the title (spec 2026-08-30):
+                      order is now title → categories → description+notes.
+                      Filter out summary/description/notes defensively: they're excluded
+                      from the picker going forward, but a group saved to localStorage
+                      before that exclusion existed could still list them, which would
+                      render them a second time inline here on top of their fixed
+                      side-by-side box below (bug reported 2026-08-30). */}
+                  {detailGroups
+                    .map(group => ({ ...group, fields: group.fields.filter(k => !DETAIL_GROUPS_FIXED_FIELDS.has(k as keyof TargetDefect)) }))
+                    .filter(group => group.fields.length > 0)
+                    .map(group => (
                     <div key={group.title} style={{ borderTop: `1px solid ${C.border}`, paddingTop: '12px' }}>
-                      <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '8px' }}>{group.title}</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '8px 16px', fontSize: '13px' }}>
-                        {group.fields.map(key => (
-                          <div key={key}>
+                      <div style={{ fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '8px' }}>{group.title}</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '8px 16px', fontSize: '14px' }}>
+                        {(group.fields as (keyof TargetDefect)[]).map(key => (
+                          // direction:ltr (not just inherited rtl) — label and value are two
+                          // separate spans, and the page's rtl base direction lets the Unicode
+                          // bidi algorithm flip their order whenever the value is a neutral/atomic
+                          // run (empty "—", a colored badge, a date with an embedded Hebrew month
+                          // name) — plain single-language text happened to stay glued together by
+                          // luck. Forcing ltr keeps "Label: value" order stable for every value
+                          // shape, since these labels are always English. textAlign:left per
+                          // spec (bug fixed / alignment changed 2026-08-30).
+                          <div key={key} style={{ direction: 'ltr', textAlign: 'left' }}>
                             <span style={{ color: C.textMuted }}>{targetDefectFieldLabel(key)}: </span>
-                            <span style={{ color: C.textSecondary }}>{String(d[key] ?? '') || '—'}</span>
+                            <span style={{ color: C.textSecondary }}>{renderTargetDefectValue(key, d[key], targetSummary?.qcUserNames)}</span>
                           </div>
                         ))}
                       </div>
                     </div>
                   ))}
+
+                  {/* Description + Notes — side by side (each wraps to its own row
+                      below ~380px so they don't get squeezed on a narrow window). */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', borderTop: `1px solid ${C.border}`, paddingTop: '12px' }}>
+                    <div style={{ flex: '1 1 380px', minWidth: '280px' }}>
+                      <div style={{ fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '6px' }}>תיאור</div>
+                      <div style={{
+                        direction: 'rtl', textAlign: 'right', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                        minHeight: '110px', maxHeight: '320px', overflowY: 'auto', lineHeight: 1.7, fontSize: '15px',
+                        color: C.textPrimary, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md,
+                        padding: '12px 14px',
+                      }}>
+                        {d.description || '—'}
+                      </div>
+                    </div>
+
+                    <div style={{ flex: '1 1 380px', minWidth: '280px' }}>
+                      <div style={{ fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '6px' }}>הערות</div>
+                      <div style={{
+                        minHeight: '110px', maxHeight: '320px', overflowY: 'auto', lineHeight: 1.7, fontSize: '15px',
+                        color: C.textPrimary, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md,
+                        padding: '12px 14px',
+                      }}>
+                        {renderNotesField(d.notes)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Change history — end of form, filterable by which field changed
+                      (spec confirmed 2026-08-30). Shared with every other defect-detail
+                      screen via FieldChangeHistorySection. Data source: QC's AUDIT_LOG/
+                      AUDIT_PROPERTIES tables (see DEFECT_FIELD_HISTORY_SQL) — real
+                      Oracle query untested against this live instance; mock fallback
+                      only covers defect 62034. */}
+                  <FieldChangeHistorySection defectId={d.id} token={token} />
                 </div>
               )}
             </div>
@@ -763,7 +905,7 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep 
                     {crDetail.archiveHistory.map((h: any) => (
                       <div key={h.id} style={{ fontSize: '13px', color: C.textSecondary, marginBottom: '4px' }}>
                         {h.action === 'TASK_ARCHIVED' ? '📦 הועבר לארכיון' : '↺ שוחזר מהארכיון'}
-                        {h.reason ? ` — ${h.reason}` : ''} · {new Date(h.createdAt).toLocaleString('he-IL')}
+                        {h.reason ? ` — ${h.reason}` : ''} · {formatDateTime(h.createdAt)}
                       </div>
                     ))}
                   </div>

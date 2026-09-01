@@ -9,6 +9,7 @@ import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, statusColor } from '..
 import { useDialog } from '../context/DialogContext';
 import { Avatar, StatusChip, Spinner, VersionStatusChip } from './ui';
 import { TaskDetailPanel } from './TaskDetailPanel';
+import { formatDate as fmtDateShared, formatTime as fmtTimeShared } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -29,10 +30,8 @@ const C_W = {
 const INDENT = 18;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const fmtTime = (iso: string) =>
-  iso ? new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '';
-const fmtDate = (iso: string) =>
-  iso ? new Date(iso).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' }) : '';
+const fmtTime = (iso: string) => iso ? fmtTimeShared(iso) : '';
+const fmtDate = (iso: string) => iso ? fmtDateShared(iso) : '';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Props {

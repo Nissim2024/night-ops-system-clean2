@@ -3,6 +3,7 @@ import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, RADIUS } from '../../theme';
 import { Card, Badge } from '../ui';
 import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL } from './openProdDefectsFields';
+import { hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroupsDialog, DetailGroup, FieldChangeHistorySection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow } from '../shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -41,6 +42,42 @@ interface DefectFullDetail { id: string; [key: string]: any; }
 
 interface Props { token: string; }
 
+// Person-owner fields render as an avatar (resolved name if a login happens
+// to match a synced User.qcLogin, else the raw login degrades to a single
+// letter + itself); `responsibility` is the team field and gets the flat
+// color badge instead. Same convention as VersionOverview's TARGET-defect
+// screen (spec confirmed 2026-08-30).
+const PERSON_BADGE_FIELDS = new Set(['assignedTo', 'qaTester', 'detectedBy', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo']);
+const TEAM_BADGE_FIELDS = new Set(['responsibility']);
+
+// title/description/notes always render in their own fixed spots (the big
+// title line and the side-by-side text boxes) — never offered in the
+// category picker.
+const DETAIL_GROUPS_FIXED_FIELDS = new Set(['title', 'description', 'notes']);
+const DETAIL_GROUPS_STORAGE_KEY = 'deploycenter_openprod_defect_detail_groups';
+
+// Same 6-category layout as VersionOverview's TARGET-defect detail screen —
+// DETAIL_FIELDS' key set overlaps almost entirely with TargetDefect's, so
+// the same grouping logic (identification → detection → ownership → fix →
+// target/release → business impact) applies here too (spec 2026-08-30).
+const DEFAULT_OPEN_PROD_DETAIL_GROUPS: DetailGroup[] = [
+  { title: 'זיהוי', fields: ['id', 'status', 'severity', 'priority', 'secondaryPriority', 'defectType', 'category', 'itemType'] },
+  { title: 'גילוי', fields: ['detectedBy', 'detectedOnDate', 'detectedInRelease', 'detectedInCycle', 'reproducible', 'environment', 'environmentComponent', 'system', 'platform', 'subModule', 'mainModule', 'systemComponent'] },
+  { title: 'אחריות', fields: ['assignedTo', 'qaTester', 'responsibility', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo', 'vendorStatus'] },
+  { title: 'טיפול ותיקון', fields: ['fixType', 'estimatedFixTime', 'actualFixTime', 'estimateFixTime', 'fixedUntil', 'fixedInProd', 'closedBy', 'reopenYn', 'supportStatus', 'supportReferenceNumber', 'responseDate'] },
+  { title: 'יעד וגרסה', fields: ['targetRelease', 'targetCycle', 'targetType', 'targetReleaseReason', 'targetScopeApproved', 'crStatus', 'crReferenceNumber', 'crHbrNumberReference', 'dropNumber', 'releaseDefect'] },
+  { title: 'השפעה עסקית', fields: ['impact', 'influence', 'businessProcess', 'mainBusinessProcess', 'deploymentCategory', 'deploymentReason', 'productionReason', 'toBeTestedOnProd', 'deploymentDateProd', 'willBeTestAtGoLive', 'forRegressionTest', 'foundByAutomation', 'modified'] },
+];
+
+function renderFieldValue(key: string, value: unknown) {
+  const s = value === null || value === undefined ? '' : String(value);
+  if (!s) return '—';
+  if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={s} />;
+  if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
+  if (key === 'severity') return <span style={{ color: SEVERITY_COLOR[s] ?? C.textPrimary, fontWeight: WEIGHT.semibold }}>{s}</span>;
+  return s;
+}
+
 // Full-screen drill-down for one defect — replaces the table view entirely
 // (back button, same pattern as CycleProgressView's CycleDetailScreen)
 // rather than an inline expand, per the explicit "מסך חדש" requirement.
@@ -55,8 +92,6 @@ export const DefectDetailScreen: React.FC<{
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const [detail, setDetail] = useState<DefectFullDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(true);
-  const [history, setHistory] = useState<DefectStatusHistoryRow[] | null>(null);
-  const [historyLoading, setHistoryLoading] = useState(true);
 
   useEffect(() => {
     setDetail(null);
@@ -65,34 +100,65 @@ export const DefectDetailScreen: React.FC<{
       .then(r => setDetail(r.data ?? null))
       .catch(() => setDetail(null))
       .finally(() => setDetailLoading(false));
-
-    setHistory(null);
-    setHistoryLoading(true);
-    axios.get(`${API}/qc/defect-status-history?defectId=${encodeURIComponent(defectId)}`, { headers })
-      .then(r => setHistory(r.data ?? []))
-      .catch(() => setHistory([]))
-      .finally(() => setHistoryLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defectId, token]);
 
+  // The admin-configured field pool (AdminPanel's "עמודות תקלות ייצור" panel)
+  // decides which fields are even available; the per-user category picker
+  // below (independent, localStorage-persisted like VersionOverview's) only
+  // decides how to show/group whichever of those are available — same
+  // separation of concerns as the TARGET-defect screen's two independent
+  // pickers (spec confirmed 2026-08-30).
   const fieldsToShow = detailFields.length > 0 ? detailFields : DETAIL_FIELDS.map(f => f.key);
-  const LONG_TEXT_KEYS = ['description', 'notes'];
   const titleShown = fieldsToShow.includes('title');
-  const gridFields = fieldsToShow.filter(k => k !== 'title' && !LONG_TEXT_KEYS.includes(k));
-  const longTextFields = fieldsToShow.filter(k => LONG_TEXT_KEYS.includes(k));
+  const allColumns = useMemo(
+    () => fieldsToShow.filter(k => !DETAIL_GROUPS_FIXED_FIELDS.has(k)).map(k => ({ key: k, label: DETAIL_FIELD_LABEL[k] ?? k })),
+    [fieldsToShow],
+  );
+  const defaultGroups = useMemo(() => {
+    const allowed = new Set(allColumns.map(c => c.key));
+    return DEFAULT_OPEN_PROD_DETAIL_GROUPS
+      .map(g => ({ ...g, fields: g.fields.filter(k => allowed.has(k)) }))
+      .filter(g => g.fields.length > 0);
+  }, [allColumns]);
+
+  const [detailGroups, setDetailGroups] = useState<DetailGroup[]>(() => {
+    try {
+      const saved = localStorage.getItem(DETAIL_GROUPS_STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch { /* ignore malformed storage */ }
+    return defaultGroups;
+  });
+  const [showGroupsPicker, setShowGroupsPicker] = useState(false);
+  const applyDetailGroups = (groups: DetailGroup[]) => {
+    setDetailGroups(groups);
+    localStorage.setItem(DETAIL_GROUPS_STORAGE_KEY, JSON.stringify(groups));
+    setShowGroupsPicker(false);
+  };
+
+  const showDescription = fieldsToShow.includes('description');
+  const showNotes = fieldsToShow.includes('notes');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px 28px', fontFamily: FONT }}>
-      <button
-        onClick={onBack}
-        style={{
-          alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '6px', background: C.bgNested,
-          color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer',
-          fontSize: '13px', fontWeight: WEIGHT.semibold, padding: '6px 14px', fontFamily: FONT,
-        }}
-      >
-        → חזרה לטבלה
-      </button>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <button
+          onClick={onBack}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '6px', background: C.bgNested,
+            color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer',
+            fontSize: '13px', fontWeight: WEIGHT.semibold, padding: '6px 14px', fontFamily: FONT,
+          }}
+        >
+          → חזרה לטבלה
+        </button>
+        <button
+          onClick={() => setShowGroupsPicker(true)}
+          style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontFamily: FONT }}
+        >
+          ⚙ התאמת שדות וקטגוריות
+        </button>
+      </div>
 
       {detailLoading && <Card><div style={{ textAlign: 'center', padding: '20px', color: C.textMuted }}>טוען...</div></Card>}
       {!detailLoading && !detail && (
@@ -114,67 +180,74 @@ export const DefectDetailScreen: React.FC<{
               </div>
             </Card>
 
-            {/* ── שאר השדות שנבחרו — רשת ── */}
-            {gridFields.length > 0 && (
-              <Card>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '14px' }}>
-                  {gridFields.map(key => {
-                    const value = detail[key];
-                    if (value === undefined) return null;
-                    return (
-                      <div key={key}>
-                        <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '2px' }}>{DETAIL_FIELD_LABEL[key] ?? key}</div>
-                        <div style={{ ...TEXT.sm, color: C.textPrimary, fontWeight: WEIGHT.semibold, wordBreak: 'break-word' }}>
-                          {value === null || value === '' ? '—' : String(value)}
-                        </div>
+            {/* ── קטגוריות שדות — אותו עיצוב כמו טופס פרטי תקלת TARGET ── */}
+            {detailGroups
+              .map(group => ({ ...group, fields: group.fields.filter(k => detail[k] !== undefined) }))
+              .filter(group => group.fields.length > 0)
+              .map(group => (
+                <Card key={group.title}>
+                  <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '10px' }}>{group.title}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px 16px', fontSize: '14px' }}>
+                    {group.fields.map(key => (
+                      // direction:ltr — same bidi-safety fix as VersionOverview's TARGET
+                      // form: label+value are two spans, and without forcing ltr the
+                      // Unicode bidi algorithm flips their order for neutral/atomic
+                      // values (empty "—", a colored badge) inside this RTL page.
+                      <div key={key} style={{ direction: 'ltr', textAlign: 'left' }}>
+                        <span style={{ color: C.textMuted }}>{DETAIL_FIELD_LABEL[key] ?? key}: </span>
+                        <span style={{ color: C.textSecondary, fontWeight: WEIGHT.semibold }}>{renderFieldValue(key, detail[key])}</span>
                       </div>
-                    );
-                  })}
-                </div>
-              </Card>
+                    ))}
+                  </div>
+                </Card>
+              ))}
+
+            {/* ── תיאור והערות — זה לצד זה; הערות מפורקות לכותרת+גוף (renderNotesField) ── */}
+            {(showDescription || showNotes) && (
+              <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
+                {showDescription && (
+                  <Card style={{ flex: '1 1 320px', minWidth: '320px' }}>
+                    <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '8px' }}>{DETAIL_FIELD_LABEL.description ?? 'תיאור'}</div>
+                    <div style={{
+                      fontSize: '15px', color: C.textPrimary, direction: 'rtl', textAlign: 'right',
+                      whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.6,
+                      minHeight: '120px', maxHeight: '360px', overflowY: 'auto',
+                      background: C.bgNested, borderRadius: RADIUS.md, padding: '12px 14px',
+                    }}>
+                      {detail.description === null || detail.description === undefined || detail.description === '' ? '—' : String(detail.description)}
+                    </div>
+                  </Card>
+                )}
+                {showNotes && (
+                  <Card style={{ flex: '1 1 320px', minWidth: '320px' }}>
+                    <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '8px' }}>{DETAIL_FIELD_LABEL.notes ?? 'הערות'}</div>
+                    <div style={{
+                      fontSize: '15px', lineHeight: 1.6,
+                      minHeight: '120px', maxHeight: '360px', overflowY: 'auto',
+                      background: C.bgNested, borderRadius: RADIUS.md, padding: '12px 14px',
+                    }}>
+                      {renderNotesField(detail.notes)}
+                    </div>
+                  </Card>
+                )}
+              </div>
             )}
 
+            {/* ── היסטוריית שינויים — אותו רכיב משותף כמו טופס TARGET ── */}
+            <Card>
+              <FieldChangeHistorySection defectId={defectId} token={token} />
+            </Card>
           </>
       )}
 
-      <Card>
-        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, marginBottom: '10px' }}>היסטוריית סטטוסים</div>
-        {historyLoading && <div style={{ color: C.textMuted, ...TEXT.xs }}>טוען...</div>}
-        {!historyLoading && history && history.length === 0 && (
-          <div style={{ color: C.textMuted, ...TEXT.xs }}>אין היסטוריית סטטוסים זמינה לתקלה זו</div>
-        )}
-        {!historyLoading && history && history.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {history.map((h, i) => (
-              <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'center', ...TEXT.xs }}>
-                <span style={{ color: C.textMuted, width: '160px', flexShrink: 0 }}>{new Date(h.changeTime).toLocaleString('he-IL')}</span>
-                <span style={{ fontWeight: WEIGHT.semibold, color: C.textPrimary }}>{h.status}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      {/* ── תיאור והערות — שדות מלל ארוכים, זה לצד זה בתחתית המסך ── */}
-      {!detailLoading && detail && longTextFields.length > 0 && (
-        <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
-          {longTextFields.map(key => {
-            const value = detail[key];
-            return (
-              <Card key={key} style={{ flex: '1 1 320px', minWidth: '320px' }}>
-                <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '8px' }}>{DETAIL_FIELD_LABEL[key] ?? key}</div>
-                <div style={{
-                  ...TEXT.sm, color: C.textPrimary, direction: 'rtl', textAlign: 'right',
-                  whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.6,
-                  minHeight: '120px', maxHeight: '360px', overflowY: 'auto',
-                  background: C.bgNested, borderRadius: RADIUS.md, padding: '12px 14px',
-                }}>
-                  {value === null || value === undefined || value === '' ? '—' : String(value)}
-                </div>
-              </Card>
-            );
-          })}
-        </div>
+      {showGroupsPicker && (
+        <DetailGroupsDialog
+          allColumns={allColumns}
+          groups={detailGroups}
+          defaultGroups={defaultGroups}
+          onApply={applyDetailGroups}
+          onClose={() => setShowGroupsPicker(false)}
+        />
       )}
     </div>
   );
@@ -187,8 +260,8 @@ const SEVERITY_COLOR: Record<string, string> = {
   'Low':          C.textMuted,
 };
 
-const KpiCard: React.FC<{ label: string; value: string; color: string }> = ({ label, value, color }) => (
-  <Card padding={4} style={{ flex: 1, minWidth: '110px', textAlign: 'center' }}>
+const KpiCard: React.FC<{ label: string; value: string; color: string; onClick?: () => void }> = ({ label, value, color, onClick }) => (
+  <Card padding={4} onClick={onClick} style={{ flex: 1, minWidth: '110px', textAlign: 'center' }}>
     <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, marginBottom: '4px', whiteSpace: 'nowrap' }}>{label}</div>
     <div style={{ fontSize: '32px', fontWeight: WEIGHT.bold, color, fontFamily: FONT, lineHeight: 1.1 }}>{value}</div>
   </Card>
@@ -202,7 +275,7 @@ const BreakdownPanel: React.FC<{ title: string; total: number; rows: { label: st
         <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, fontFamily: FONT }}>{title}</div>
         <Badge color={C.textMuted} bg={C.bgHover}>{total}</Badge>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '220px', overflowY: 'auto' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '340px', overflowY: 'auto' }}>
         {rows.length === 0 && <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>אין נתונים</div>}
         {rows.map(r => (
           <div key={r.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -258,7 +331,7 @@ const MonthlyTrendChart: React.FC<{
   // gets cut off no matter what. Reserving enough top margin that even the
   // max-value point's tooltip box never goes negative is what actually fixes
   // it, not fighting the overflow computation.
-  const height = 180, padX = 36, padTop = 50, padBottom = 24;
+  const height = 340, padX = 36, padTop = 50, padBottom = 24;
   const width = Math.max(containerWidth, padX * 2 + (data.length - 1) * MIN_POINT_GAP);
   const max = Math.max(1, ...data.map(d => d.count));
   const stepX = data.length > 1 ? (width - padX * 2) / (data.length - 1) : 0;
@@ -421,6 +494,12 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
 
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [detailDefectId, setDetailDefectId] = useState<string | null>(null);
+  // Drill-down navigation: overview (KPI cards + chart + breakdown panels) →
+  // click a KPI card → separate table page, optionally pre-filtered to that
+  // card's severity (null = the "סה"כ" card, i.e. no severity restriction).
+  const [tableOpen, setTableOpen] = useState(false);
+  const [presetSeverity, setPresetSeverity] = useState<string | null>(null);
+  const openTable = (severity: string | null) => { setPresetSeverity(severity); setTableOpen(true); };
   const [config, setConfig] = useState<OpenProdDefectsConfig | null>(null);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -487,15 +566,26 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
 
   const tableColumns = config?.tableColumns && config.tableColumns.length > 0 ? config.tableColumns : ['defectId', 'severity', 'responsibility', 'area', 'bugType', 'statusAtMonth', 'detectedDate', 'reopenYn'];
 
+  // The table page's dataset — monthRows further narrowed by whichever
+  // severity KPI card the user clicked to get here (null = "סה"כ", no restriction).
+  const baseRows = useMemo(
+    () => presetSeverity ? monthRows.filter(r => r.severity === presetSeverity) : monthRows,
+    [monthRows, presetSeverity],
+  );
+
+  const { getWidth: getMonthColWidth, startResize: startMonthColResize } = useColumnWidths('deploycenter_openprod_defect_column_widths');
+  const monthFilters = useColumnFilters(baseRows as any, tableColumns);
+
   const sortedMonthRows = useMemo(() => {
-    if (!sortKey) return monthRows;
+    const filtered = baseRows.filter(r => monthFilters.matches(r as any));
+    if (!sortKey) return filtered;
     const dir = sortDir === 'asc' ? 1 : -1;
-    return [...monthRows].sort((a, b) => {
+    return [...filtered].sort((a, b) => {
       const av = String((a as any)[sortKey] ?? '');
       const bv = String((b as any)[sortKey] ?? '');
       return av.localeCompare(bv, 'he') * dir;
     });
-  }, [monthRows, sortKey, sortDir]);
+  }, [baseRows, sortKey, sortDir, monthFilters.matches]);
 
   if (detailDefectId) {
     return (
@@ -505,6 +595,87 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
         token={token}
         onBack={() => setDetailDefectId(null)}
       />
+    );
+  }
+
+  // ── Table page — reached by clicking a KPI card on the overview below.
+  // Same table as before, just on its own screen instead of always inline. ──
+  if (tableOpen) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px 28px', fontFamily: FONT }}>
+        <button
+          onClick={() => setTableOpen(false)}
+          style={{
+            alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '6px', background: C.bgNested,
+            color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer',
+            fontSize: '13px', fontWeight: WEIGHT.semibold, padding: '6px 14px', fontFamily: FONT,
+          }}
+        >
+          → חזרה לסקירה
+        </button>
+        <Card>
+          <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, marginBottom: '10px' }}>
+            תקלות פתוחות — {activeMonth ?? '—'}{presetSeverity ? ` — חומרה: ${presetSeverity}` : ''} ({baseRows.length}) — לחץ על כותרת עמודה למיון, לחץ על שורה לפרטים מלאים
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', ...TEXT.xs, fontFamily: FONT }}>
+              <thead>
+                <tr style={{ background: C.bgNested }}>
+                  {tableColumns.map(key => (
+                    <th
+                      key={key}
+                      onClick={() => toggleSort(key)}
+                      style={{ position: 'relative', padding: '6px 8px', textAlign: 'right', fontWeight: WEIGHT.semibold, color: C.textSecondary, borderBottom: `1px solid ${C.border}`, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: getMonthColWidth(key) }}
+                    >
+                      {TABLE_FIELD_LABEL[key] ?? key}
+                      {sortKey === key && <span style={{ marginRight: '4px', color: C.brand }}>{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                      <ColumnResizeHandle onMouseDown={e => startMonthColResize(key, e)} />
+                    </th>
+                  ))}
+                </tr>
+                <ColumnFilterRow
+                  columns={tableColumns.map(key => ({ key, label: TABLE_FIELD_LABEL[key] ?? key }))}
+                  getWidth={getMonthColWidth}
+                  filters={monthFilters}
+                />
+              </thead>
+              <tbody>
+                {sortedMonthRows.map(r => (
+                  <tr
+                    key={r.defectId}
+                    onClick={() => setDetailDefectId(r.defectId)}
+                    style={{ cursor: 'pointer' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = C.bgHover)}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    {tableColumns.map(key => {
+                      const value = (r as any)[key];
+                      const isDefectCol = key === 'defectId';
+                      const isSeverityCol = key === 'severity';
+                      return (
+                        <td
+                          key={key}
+                          style={{
+                            padding: '6px 8px', borderBottom: `1px solid ${C.border}`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            width: getMonthColWidth(key),
+                            color: isDefectCol ? C.textLink : isSeverityCol ? (SEVERITY_COLOR[value ?? ''] ?? C.textPrimary) : C.textPrimary,
+                            fontWeight: isDefectCol ? WEIGHT.semibold : WEIGHT.normal,
+                          }}
+                        >
+                          {value ?? '—'}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+                {sortedMonthRows.length === 0 && (
+                  <tr><td colSpan={tableColumns.length} style={{ padding: '14px', textAlign: 'center', color: C.textMuted }}>אין תקלות פתוחות בחודש זה</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
     );
   }
 
@@ -533,9 +704,9 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
       {!loading && !error && (
         <>
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            <KpiCard label={`סה"כ (${activeMonth ?? '—'})`} value={String(monthRows.length)} color={C.textPrimary} />
+            <KpiCard label={`סה"כ (${activeMonth ?? '—'})`} value={String(monthRows.length)} color={C.textPrimary} onClick={() => openTable(null)} />
             {(['Show Stopper', 'Severe', 'Medium', 'Low'] as const).map(s => (
-              <KpiCard key={s} label={s} value={String(severityCounts.get(s) ?? 0)} color={SEVERITY_COLOR[s]} />
+              <KpiCard key={s} label={s} value={String(severityCounts.get(s) ?? 0)} color={SEVERITY_COLOR[s]} onClick={() => openTable(s)} />
             ))}
           </div>
 
@@ -547,67 +718,10 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
           </Card>
 
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-            <BreakdownPanel title="לפי חומרה" total={monthRows.length} rows={groupCount(monthRows, r => r.severity)} />
-            <BreakdownPanel title="לפי CR מקושר" total={monthRows.length} rows={groupCount(monthRows, r => r.area)} />
+            <BreakdownPanel title="לפי אזור" total={monthRows.length} rows={groupCount(monthRows, r => r.area)} />
             <BreakdownPanel title="לפי צוות" total={monthRows.length} rows={groupCount(monthRows, r => r.responsibility)} />
             <BreakdownPanel title="לפי סוג תקלה" total={monthRows.length} rows={groupCount(monthRows, r => r.bugType)} />
           </div>
-
-          <Card>
-            <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, marginBottom: '10px' }}>
-              תקלות פתוחות — {activeMonth ?? '—'} ({monthRows.length}) — לחץ על כותרת עמודה למיון, לחץ על שורה לפרטים מלאים
-            </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', ...TEXT.xs, fontFamily: FONT }}>
-                <thead>
-                  <tr style={{ background: C.bgNested }}>
-                    {tableColumns.map(key => (
-                      <th
-                        key={key}
-                        onClick={() => toggleSort(key)}
-                        style={{ padding: '6px 8px', textAlign: 'right', fontWeight: WEIGHT.semibold, color: C.textSecondary, borderBottom: `1px solid ${C.border}`, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
-                      >
-                        {TABLE_FIELD_LABEL[key] ?? key}
-                        {sortKey === key && <span style={{ marginRight: '4px', color: C.brand }}>{sortDir === 'asc' ? '▲' : '▼'}</span>}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedMonthRows.map(r => (
-                    <tr
-                      key={r.defectId}
-                      onClick={() => setDetailDefectId(r.defectId)}
-                      style={{ cursor: 'pointer' }}
-                      onMouseEnter={e => (e.currentTarget.style.background = C.bgHover)}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                    >
-                      {tableColumns.map(key => {
-                        const value = (r as any)[key];
-                        const isDefectCol = key === 'defectId';
-                        const isSeverityCol = key === 'severity';
-                        return (
-                          <td
-                            key={key}
-                            style={{
-                              padding: '6px 8px', borderBottom: `1px solid ${C.border}`,
-                              color: isDefectCol ? C.textLink : isSeverityCol ? (SEVERITY_COLOR[value ?? ''] ?? C.textPrimary) : C.textPrimary,
-                              fontWeight: isDefectCol ? WEIGHT.semibold : WEIGHT.normal,
-                            }}
-                          >
-                            {value ?? '—'}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                  {monthRows.length === 0 && (
-                    <tr><td colSpan={tableColumns.length} style={{ padding: '14px', textAlign: 'center', color: C.textMuted }}>אין תקלות פתוחות בחודש זה</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
         </>
       )}
     </div>

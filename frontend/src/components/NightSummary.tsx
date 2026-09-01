@@ -6,6 +6,7 @@ import { Card, Badge, StatCard, ProgressBar, SectionHeader, Alert, TextArea, But
 import { NightStatsDashboard } from './NightStatsDashboard';
 import { RehearsalArchivePanel } from './shared/RehearsalArchivePanel';
 import { cleanHtmlText } from '../utils/textSanitize';
+import { formatDateTime as fmtDateTimeShared, formatTime as fmtTimeShared } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -56,8 +57,8 @@ const SEVERITY_COLORS: Record<string, string> = {
   'Show Stopper': '#6c0000', Severe: '#c0392b', High: '#e67e22', Medium: '#f39c12', Low: '#3498db',
 };
 
-const fmtTime     = (iso: string) => iso ? new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '—';
-const fmtDateTime = (iso: string) => iso ? new Date(iso).toLocaleString('he-IL',     { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+const fmtTime     = (iso: string) => iso ? fmtTimeShared(iso) : '—';
+const fmtDateTime = (iso: string) => iso ? fmtDateTimeShared(iso) : '';
 const fmtMins     = (m: number)   => m >= 60 ? `${Math.floor(m / 60)}ש' ${m % 60}דק'` : `${m}דק'`;
 
 const SIGNIFICANT_MINS = 15;
@@ -384,7 +385,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
     lines.push('━'.repeat(40));
     lines.push('');
     if (summaryRecord?.sentAt) {
-      lines.push(`תאריך: ${new Date(summaryRecord.sentAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`);
+      lines.push(`תאריך: ${fmtDateTimeShared(summaryRecord.sentAt)}`);
     }
     lines.push(`סטטוס: ${effectiveGo ? '✅ GO' : '❌ NO GO'}`);
     lines.push(`התקדמות: ${doneTasks.length}/${tasks.length} משימות הושלמו (${progressPercent}%)`);
@@ -561,8 +562,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
     const titlePlain = `${titleText} (${versionName})`;
     const headlineText = summaryRecord?.headline || headline;
     const notesText    = summaryRecord?.morningNotes || morningNotes;
-    const dateStr = (summaryRecord?.sentAt ? new Date(summaryRecord.sentAt) : new Date())
-      .toLocaleString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const dateStr = fmtDateTimeShared(summaryRecord?.sentAt ? new Date(summaryRecord.sentAt) : new Date());
 
     // Wraps a time range in dir=ltr so digits don't flip in RTL context
     const ltr = (s: string) => `<span dir="ltr" style="unicode-bidi:embed;">${s}</span>`;
@@ -1299,14 +1299,14 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                 <div>
                   <div style={{ fontWeight: 'bold', color: C.statusDone, fontSize: '16px' }}>הסיכום אושר ונשמר במערכת</div>
                   <div style={{ fontSize: '15px', color: C.textMuted, marginTop: '2px' }}>
-                    {new Date(summaryRecord.sentAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    {fmtDateTimeShared(summaryRecord.sentAt)}
                   </div>
                   {summaryRecord.forceApprovedBy && (
                     <div style={{ fontSize: '14px', color: C.statusInProgress, marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span>⚠️</span>
                       <span>
                         אושר בעקיפת GO על-ידי {summaryRecord.forceApprovedBy}
-                        {summaryRecord.forceApprovedAt && ` ב-${new Date(summaryRecord.forceApprovedAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`}
+                        {summaryRecord.forceApprovedAt && ` ב-${fmtDateTimeShared(summaryRecord.forceApprovedAt)}`}
                       </span>
                     </div>
                   )}
@@ -1458,7 +1458,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
               </div>
               {isRehearsal && <div style={{ color: '#c0392b', fontSize: '15px', marginTop: '6px', fontWeight: 'bold' }}>⚠ מסמך זה הופק מחזרה גנרלית ואינו משקף לילה אמיתי</div>}
               <div style={{ color: '#888', fontSize: '15px', marginTop: '6px' }}>
-                הופק: {new Date(summaryRecord.sentAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                הופק: {fmtDateTimeShared(summaryRecord.sentAt)}
               </div>
             </div>
 

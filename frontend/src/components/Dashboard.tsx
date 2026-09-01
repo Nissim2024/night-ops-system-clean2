@@ -4,6 +4,7 @@ import { VersionsView } from './VersionsView';
 import { TeamView } from './TeamView';
 import { WarRoom } from './WarRoom';
 import { ImportView } from './ImportView';
+import { formatDate } from '../utils/dateFormat';
 import { NightSummary } from './NightSummary';
 import { DeployCenterLogo } from './DeployCenterLogo';
 import { CrReviewView } from './CrReviewView';
@@ -33,7 +34,7 @@ const SummaryVersionPicker: React.FC<{ token: string }> = ({ token }) => {
                 onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)')}>
                 <div>
                   <div style={{ fontWeight: 'bold', fontSize: '17px', color: '#1a2332' }}>{v.name}</div>
-                  <div style={{ fontSize: '15px', color: '#666', marginTop: '4px' }}>{new Date(v.createdAt).toLocaleDateString('he-IL')}</div>
+                  <div style={{ fontSize: '15px', color: '#666', marginTop: '4px' }}>{formatDate(v.createdAt)}</div>
                 </div>
                 <span style={{ background: '#1a2332', color: 'white', padding: '4px 12px', borderRadius: '12px', fontSize: '14px' }}>{v.status}</span>
               </div>

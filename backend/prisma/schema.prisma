@@ -92,6 +92,12 @@ model User {
   password  String
   role      Role     @default(EMPLOYEE)
   active    Boolean  @default(true)
+  // QC's own USERS.USER_NAME (the raw login string that shows up in BUG-table
+  // free-text columns like BG_RESPONSIBLE/BG_DETECTED_BY, e.g. "guyp") — lets
+  // TARGET-defect person fields resolve to a real display name instead of
+  // showing the raw QC login. Nullable: only populated when synced via Oracle
+  // (syncQcUsers) — the HARDCODED_QC_USERS fallback has no login data.
+  qcLogin   String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

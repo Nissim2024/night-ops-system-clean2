@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
+import { formatDate } from '../../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -1403,7 +1404,7 @@ const ActionsPanel: React.FC<{
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             {a.ownerName && <span style={{ ...TEXT.xs, color: C.textMuted }}>{a.ownerName}</span>}
-            {a.dueAt && <span style={{ ...TEXT.xs, color: C.textMuted }}>{new Date(a.dueAt).toLocaleDateString('he-IL')}</span>}
+            {a.dueAt && <span style={{ ...TEXT.xs, color: C.textMuted }}>{formatDate(a.dueAt)}</span>}
             <select value={a.status} onChange={e => onUpdateStatus(a.id, e.target.value)} disabled={busy} style={{ ...TEXT.xs, padding: '2px 4px', borderRadius: RADIUS.sm, border: `1px solid ${C.border}`, color: ACTION_STATUS_COLOR[a.status], fontWeight: WEIGHT.bold, fontFamily: FONT, marginRight: 'auto' }}>
               {Object.entries(ACTION_STATUS_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { VersionOpeningModule, StepKey } from './VersionOpeningModule';
 import { VersionOverview } from './VersionOverview';
@@ -36,6 +36,10 @@ export const VersionManagementModuleView: React.FC<Props> = ({
   const headers = { Authorization: `Bearer ${token}` };
   const openVersions = versions.filter(v => !v.isArchived && OPEN_STATUSES.includes(v.status));
   const selectedVersion = versions.find(v => v.id === selectedVersionId) ?? null;
+  // Hidden while VersionOverview's TARGET-defect list/detail screens are
+  // open — they already show their own contextual header, so this picker
+  // row is redundant clutter once drilled in that far (2026-08-30).
+  const [hideVersionPicker, setHideVersionPicker] = useState(false);
 
   useEffect(() => {
     if (!selectedVersion && openVersions.length > 0) {
@@ -51,17 +55,19 @@ export const VersionManagementModuleView: React.FC<Props> = ({
   return (
     <div style={{ fontFamily: FONT, direction: 'rtl' }}>
       {/* ── Version picker ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-        <select
-          value={selectedVersionId}
-          onChange={e => onSelectVersion(e.target.value)}
-          style={{ padding: '8px 12px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, fontSize: '15px', fontFamily: FONT, background: C.bgCard, minWidth: '220px' }}
-        >
-          <option value="">בחר גרסה...</option>
-          {openVersions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-        </select>
-        {selectedVersion && <VersionStatusChip status={selectedVersion.status} size="md" />}
-      </div>
+      {!hideVersionPicker && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <select
+            value={selectedVersionId}
+            onChange={e => onSelectVersion(e.target.value)}
+            style={{ padding: '8px 12px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, fontSize: '15px', fontFamily: FONT, background: C.bgCard, minWidth: '220px' }}
+          >
+            <option value="">בחר גרסה...</option>
+            {openVersions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+          {selectedVersion && <VersionStatusChip status={selectedVersion.status} size="md" />}
+        </div>
+      )}
 
       {!selectedVersion ? (
         <div style={{ color: C.textMuted, padding: '40px', textAlign: 'center' }}>
@@ -72,6 +78,7 @@ export const VersionManagementModuleView: React.FC<Props> = ({
           version={selectedVersion}
           token={token}
           onJumpToStep={onViewChange}
+          onDrilledInChange={setHideVersionPicker}
         />
       ) : (
         <VersionOpeningModule

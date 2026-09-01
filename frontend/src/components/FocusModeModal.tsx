@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { C, FONT, WEIGHT, RADIUS, SHADOW, statusColor } from '../theme';
+import { formatTime } from '../utils/dateFormat';
 
 const TERMINAL = ['DONE', 'FAILED', 'ROLLED_BACK'];
 const STATUS_LABEL: Record<string, string> = {
   DONE: 'הושלם', IN_PROGRESS: 'בביצוע', OPEN: 'פתוח', WAITING: 'ממתין', BLOCKED: 'חסום', FAILED: 'נכשל', ROLLED_BACK: 'Rollback',
 };
 
-const fmtTime = (d?: string | Date | null) =>
-  d ? new Date(d).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : null;
+const fmtTime = (d?: string | Date | null) => d ? formatTime(d) : null;
 
 const TaskRow: React.FC<{
   task: any;

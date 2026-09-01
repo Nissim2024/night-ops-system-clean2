@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, RADIUS, SHADOW } from '../../theme';
+import { formatDateTime } from '../../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -50,7 +51,7 @@ export const RehearsalArchivePanel: React.FC<{ token: string; versionId: string 
 
   if (rows.length === 0) return null;
 
-  const fmt = (iso: string | null) => iso ? new Date(iso).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+  const fmt = (iso: string | null) => iso ? formatDateTime(iso) : '—';
 
   return (
     <div style={{ marginBottom: '16px' }}>

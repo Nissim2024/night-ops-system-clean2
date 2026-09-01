@@ -1,6 +1,7 @@
 ﻿import React, { useState } from 'react';
 import axios from 'axios';
 import { DateField } from './DatePicker';
+import { formatDate } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -83,7 +84,7 @@ export const ImportView: React.FC<Props> = ({ token, onImportSuccess }) => {
           />
           {plannedStart && (
             <div style={{ marginTop: '6px', fontSize: '15px', color: '#2980b9', background: '#e8f4fd', padding: '8px 12px', borderRadius: '6px' }}>
-              📅 תאריך הגרסה <strong>{new Date(plannedStart + 'T12:00:00').toLocaleDateString('he-IL')}</strong> יוחל על כל שעות הקובץ — שעת הסיום תחושב מהמשך
+              📅 תאריך הגרסה <strong>{formatDate(plannedStart + 'T12:00:00')}</strong> יוחל על כל שעות הקובץ — שעת הסיום תחושב מהמשך
             </div>
           )}
         </div>

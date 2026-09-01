@@ -3,6 +3,7 @@ import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, versionStatusLabel, versionStatusColor } from '../theme';
 import { useDialog } from '../context/DialogContext';
 import { VersionStatusChip } from './ui';
+import { formatDate as fmtDateShared, formatDateTime as fmtDateTimeShared } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -25,8 +26,7 @@ interface Card {
   badgeColor?: string;
 }
 
-const fmt = (d: string | null | undefined) =>
-  d ? new Date(d).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : null;
+const fmt = (d: string | null | undefined) => d ? fmtDateTimeShared(d) : null;
 
 export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, token, onVersionUpdated }) => {
   const dialog = useDialog();
@@ -513,7 +513,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                   />
                 ) : (
                   <span style={{ fontSize: '15px', color: value ? C.textPrimary : C.textDisabled, padding: '6px 0' }}>
-                    {value ? (dateOnly ? new Date(value).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : fmt(value)) : '—'}
+                    {value ? (dateOnly ? fmtDateShared(value) : fmt(value)) : '—'}
                   </span>
                 )}
               </div>

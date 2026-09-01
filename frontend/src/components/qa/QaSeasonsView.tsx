@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../../theme';
 import { useDialog } from '../../context/DialogContext';
+import { formatDate } from '../../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -49,8 +50,7 @@ interface Props {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const fmtShort = (d: string) =>
-  new Date(d).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' });
+const fmtShort = (d: string) => formatDate(d);
 
 const daysUntil = (dateStr: string): number => {
   const target = new Date(dateStr);

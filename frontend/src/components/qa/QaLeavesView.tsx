@@ -3,6 +3,7 @@ import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../../theme';
 import { QaSeasonsView } from './QaSeasonsView';
 import { DateField } from '../DatePicker';
+import { formatDate } from '../../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -95,8 +96,11 @@ interface Props {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const fmt = (d: string) =>
-  new Date(d).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric', weekday: 'short' });
+const LEAVE_DOW = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
+// Unified DD/MM/YYYY date (2026-08-31 spec) — weekday kept: knowing which
+// day of week a leave request falls on is genuinely useful scheduling
+// context, not just a stylistic date-format difference.
+const fmt = (d: string) => `יום ${LEAVE_DOW[new Date(d).getDay()]}, ${formatDate(d)}`;
 
 const STATUS_META: Record<ApprovalStatus, { label: string; color: string; bg: string; border: string }> = {
   PENDING:   { label: 'ממתין לאישור', color: C.warning,   bg: C.warningBg, border: `${C.warning}33` },

@@ -2,6 +2,7 @@
 import axios from 'axios';
 import { HomeDashboard, getDeploymentsTabForStatus } from './HomeDashboard';
 import { ReleaseIntelligenceOverview } from './release-intelligence/ReleaseIntelligenceOverview';
+import { ReleaseIntelligenceHomeView } from './release-intelligence/ReleaseIntelligenceHomeView';
 import { DailyQaManagementView } from './release-intelligence/DailyQaManagementView';
 import { CrHealthView } from './release-intelligence/CrHealthView';
 import { CoverageReadinessView } from './release-intelligence/CoverageReadinessView';
@@ -58,6 +59,7 @@ import QaWorkPlanView from './qa/QaWorkPlanView';
 import { FEATURES } from '../featureFlags';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, versionStatusColor, versionStatusLabel } from '../theme';
+import { formatDateTime } from '../utils/dateFormat';
 import { useDialog } from '../context/DialogContext';
 import { Avatar, Badge, VersionStatusChip } from './ui';
 
@@ -110,6 +112,10 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [activeVmView, setActiveVmView]  = useState('overview');
   const [activeQaView, setActiveQaView]  = useState('assignment');
   const [activeRiView, setActiveRiView]  = useState('overview');
+  // One-shot drilldown intent carried from Home's "תקלות פתוחות" tile into
+  // DefectsView, so it opens straight into the filtered list instead of
+  // landing on the KPI overview (spec confirmed 2026-08-31).
+  const [riDefectsAutoOpen, setRiDefectsAutoOpen] = useState<{ filter: string; value?: string; title: string } | null>(null);
   const [activeQhView, setActiveQhView]  = useState('overview');
   const [qhKpiMatrixRelease, setQhKpiMatrixRelease] = useState<string | undefined>(undefined);
   const [isQaTeamMember, setIsQaTeamMember] = useState(false);
@@ -801,6 +807,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           {activeModule === 'qa' && <QaModulePlaceholder view={activeQaView} token={token} role={payload.role} isQaMember={canAccessQa} isQaTeamMember={isQaTeamMember} isQaTeamLead={isQaTeamLead} initialVersionId={selectedVersionId || undefined} />}
 
           {/* ── Module: Release Intelligence ── */}
+          {activeModule === 'release-intelligence' && activeRiView === 'home' && (
+            <ReleaseIntelligenceHomeView token={token} versionId={selectedVersionId || undefined} role={payload.role} fullName={fullName} onNavigate={setActiveRiView} />
+          )}
           {activeModule === 'release-intelligence' && activeRiView === 'overview' && (
             <ReleaseIntelligenceOverview token={token} versionId={selectedVersionId || undefined} role={payload.role} />
           )}
@@ -829,7 +838,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
             <ForecastTrackingView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'defects' && (
-            <DefectsView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+            <DefectsView token={token} versionId={selectedVersionId || undefined} role={payload.role} autoOpenDrilldown={riDefectsAutoOpen} />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'reopen-analysis' && (
             <ReopenAnalysisView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
@@ -905,7 +914,15 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 setActiveModule(m);
                 if (m === 'version-management' && vmView) setActiveVmView(vmView);
                 if (m === 'qa') setActiveQaView('assignment');
-                if (m === 'release-intelligence') setActiveRiView('overview');
+                if (m === 'release-intelligence') {
+                  if (vmView === 'defects-open') {
+                    setActiveRiView('defects');
+                    setRiDefectsAutoOpen({ filter: 'kpi', value: 'open', title: 'תקלות פתוחות (Open)' });
+                  } else {
+                    setActiveRiView('overview');
+                    setRiDefectsAutoOpen(null);
+                  }
+                }
                 if (m === 'quality-hub') setActiveQhView('overview');
               }}
             />
@@ -1445,7 +1462,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                     <div style={{ fontWeight: 'bold', color: 'white', fontSize: '16px' }}>סיכום חזרה גנרלית — {selectedVersion.name}</div>
                     <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.8)', marginTop: '2px' }}>
                       {selectedVersion.lastRehearsalAt
-                        ? `הורצה ב-${new Date(selectedVersion.lastRehearsalAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+                        ? `הורצה ב-${formatDateTime(selectedVersion.lastRehearsalAt)}`
                         : 'חזרה גנרלית פעילה'}
                     </div>
                   </div>
@@ -1510,7 +1527,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                     <div style={{ fontWeight: 'bold', color: 'white', fontSize: '16px' }}>סיכום ליל ההטמעה — {selectedVersion.name}</div>
                     <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.65)', marginTop: '2px' }}>
                       {selectedVersion.actualStart
-                        ? `הרצה התחילה: ${new Date(selectedVersion.actualStart).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+                        ? `הרצה התחילה: ${formatDateTime(selectedVersion.actualStart)}`
                         : 'הפק ואשר את דוח הסיכום'}
                     </div>
                   </div>

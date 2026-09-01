@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { WEIGHT } from '../../theme';
+import { formatDate } from '../../utils/dateFormat';
 
 interface Cycle {
   cycleType: string;
@@ -79,7 +80,7 @@ export const VersionMilestoneTimeline: React.FC<Props> = ({ version, cycles }) =
   // validated default) — assigned by stage position, never re-cycled per
   // render, so a given stage keeps a stable identity color.
   const STAGE_COLORS = ['#3987e5', '#199e70', '#d55181', '#c98500', '#9085e9', '#d95926', '#e66767', '#008300'];
-  const fmt = (d: Date) => d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const fmt = (d: Date) => formatDate(d);
 
   return (
     <div style={{ position: 'relative', display: 'flex', marginTop: '16px', gap: '2px' }}>

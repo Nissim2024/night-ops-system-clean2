@@ -61,6 +61,7 @@ export interface DefectDto {
   // KPI_DEFECT_FILTERS below. Not previously selected by DEFECTS_SQL.
   responsibility: string;
   crHbrNumberReference: string;
+  crReferenceNumber: string;     // BG_USER_58 — real CR linkage, distinct from crHbrNumberReference above
   fixType: string;
   reason: string;
   reopenYn: string;
@@ -237,6 +238,14 @@ export interface OpenProdDefectMonthDto {
 export interface DefectStatusHistoryDto {
   status: string;
   changeTime: string;
+}
+
+export interface DefectFieldChangeDto {
+  changeTime: string;
+  changedBy: string;
+  propertyName: string;
+  oldValue: string;
+  newValue: string;
 }
 
 // "יחס תקלות חדשות ביצור" — Target = defects whose TARGET_REL is that release
@@ -432,6 +441,11 @@ const DEFECTS_SQL_SELECT = `
     -- consistent rather than re-derived.
     BG_USER_03                                                                         AS RESPONSIBILITY,
     BG_USER_10                                                                         AS CR_HBR_NUMBER_REFERENCE,
+    -- Same BG_USER_58 already used everywhere else in this file for real
+    -- defect↔CR linkage (TARGET_CR_DEFECTS_SQL etc.) — CR_HBR_NUMBER_REFERENCE
+    -- above is a different, separate field (a combined CR/HBR display string),
+    -- not a substitute for this one (spec confirmed 2026-09-01).
+    BG_USER_58                                                                         AS CR_REFERENCE_NUMBER,
     BG_USER_33                                                                         AS FIX_TYPE,
     BG_USER_17                                                                         AS REASON,
     BG_USER_29                                                                         AS REOPEN_YN,
@@ -576,6 +590,13 @@ const GO_LIVE_INCIDENTS_SQL = `
 // "יחס תקלות חדשות ביצור" — cross-release, all-history (no releaseId param,
 // same pattern as OPEN_PROD_DEFECTS_HISTORY_SQL below). REL_NAME resolved via
 // a self-join to RELEASES so the frontend never has to map numeric IDs itself.
+// The screen's own name ("...ביצור" — "...in production") implies a
+// Production-only scope, but this query originally had no WHERE clause at
+// all — it pulled every BUG row ever recorded (any environment, any status),
+// inflating both Target and New counts far beyond what the chart is supposed
+// to show. Added the same BG_USER_02 environment filter already used by
+// OPEN_PROD_DEFECTS_HISTORY_SQL (found 2026-08-31: user reported the chart
+// showing way too much data).
 const NEW_VS_TARGET_DEFECTS_SQL = `
   SELECT
     BG.BG_BUG_ID          AS DEFECT_ID,
@@ -589,6 +610,7 @@ const NEW_VS_TARGET_DEFECTS_SQL = `
   FROM BUG BG
   LEFT JOIN RELEASES RT ON RT.REL_ID = BG.BG_TARGET_REL
   LEFT JOIN RELEASES RD ON RD.REL_ID = BG.BG_DETECTED_IN_REL
+  WHERE UPPER(BG.BG_USER_02) LIKE '%PROD%'
 `;
 
 // Raw rows feeding the bug dashboard (PBIRS-equivalent) — scoped only by
@@ -1140,15 +1162,25 @@ status_snapshot AS (
     GROUP BY m.month_start, h.defect
 ),
 open_with_history AS (
+    -- For the current month, trust the live BG_USER_04 field over the audit-derived
+    -- last_status: a defect whose most recent status change wasn't logged under the
+    -- 'Bug Status' audit property (bulk update, migration, automation) would otherwise
+    -- look stuck on a stale audited status (e.g. 'Closed') and be wrongly excluded even
+    -- though it's actually open right now (found 2026-08-31: our count undercounted a
+    -- live QC comparison by 44 defects). Past months keep the audit-derived status since
+    -- the live field can't tell us what it was back then.
     SELECT
-        s.month_start, s.defect, s.last_status,
+        s.month_start, s.defect,
+        CASE WHEN s.month_start = TRUNC(SYSDATE, 'MM') THEN a.current_status ELSE s.last_status END AS last_status,
         a.release_id, a.severity, a.priority, a.responsibility, a.current_status,
         a.test_phase, a.detected_by, a.detected_date, a.reopen_yn, a.area, a.bug_type, a.fix_type,
         a.title, a.assigned_to, a.qa_tester, a.environment, a.sub_module, a.main_module,
         a.cr_reference_number, a.platform, a.closed_by, a.estimated_fix_time, a.actual_fix_time, a.deployment_reason
     FROM status_snapshot s
     JOIN bug_attributes a ON s.defect = a.defect
-    WHERE s.last_status NOT IN ('Closed', 'Canceled')
+    WHERE
+        CASE WHEN s.month_start = TRUNC(SYSDATE, 'MM') THEN a.current_status ELSE s.last_status END
+        NOT IN ('Closed', 'Canceled')
 ),
 open_without_history AS (
     SELECT
@@ -1197,6 +1229,29 @@ const DEFECT_STATUS_HISTORY_SQL = `
   ORDER BY audit_log.AU_TIME ASC
 `;
 
+// Same AUDIT_LOG/AUDIT_PROPERTIES tables as DEFECT_STATUS_HISTORY_SQL above,
+// but without the 'Bug Status'-only filter — every field-level change for
+// the defect, for the TARGET-defect detail form's change-history section.
+// AU_USER (who) and AP_OLD_VALUE (old value) are the standard HP QC/ALM 11
+// audit-schema column names, but — unlike every other column referenced in
+// this file — NEITHER has been exercised against this real instance yet
+// (the existing status-history query never needed them). Verify against
+// live Oracle before trusting this beyond the mock fallback (spec confirmed
+// 2026-08-30).
+const DEFECT_FIELD_HISTORY_SQL = `
+  SELECT
+    audit_log.AU_TIME             AS CHANGE_TIME,
+    audit_log.AU_USER             AS CHANGED_BY,
+    audit_property.AP_PROPERTY_NAME AS PROPERTY_NAME,
+    audit_property.AP_OLD_VALUE   AS OLD_VALUE,
+    audit_property.AP_NEW_VALUE   AS NEW_VALUE
+  FROM AUDIT_LOG audit_log
+  JOIN AUDIT_PROPERTIES audit_property ON audit_log.AU_ACTION_ID = audit_property.AP_ACTION_ID
+  WHERE audit_log.AU_ENTITY_TYPE = 'BUG'
+    AND audit_log.AU_ENTITY_ID = :defectId
+  ORDER BY audit_log.AU_TIME ASC
+`;
+
 // Distinct defects with a real audit-log transition to 'Reopen' — backs
 // "Reopened Defects KPI" (see getReopenedDefectIds). Transcribed from the
 // real QC "Reopen KPI" Favorite filter (2026-08-27); NVL(...,'Y')='Y' is
@@ -1241,7 +1296,7 @@ const MOCK_DEFECTS: DefectDto[] = [
     reproducible: 'Y', severity: 'Severe', priority: 'High', reporter: 'innad',
     discoveryDate: '22/02/2011', environment: 'NC-Prod', status: 'Open',
     testPhase: 'System Test', defectType: 'Design', notes: 'תקלה נסגרה לאחר טיפול.',
-    responsibility: 'NC Team', crHbrNumberReference: '', fixType: 'Root Cause', reason: '', reopenYn: 'N',
+    responsibility: 'NC Team', crHbrNumberReference: '', crReferenceNumber: '', fixType: 'Root Cause', reason: '', reopenYn: 'N',
   },
   {
     id: '8247', assignedTo: 'CRM Team', system: 'NC', title: 'רישום כפול של אירוע אישור הוראת קבע ב-CRM',
@@ -1249,7 +1304,7 @@ const MOCK_DEFECTS: DefectDto[] = [
     reproducible: 'Y', severity: 'Low', priority: 'Medium', reporter: 'avia',
     discoveryDate: '05/04/2011', environment: 'Crm Prod', status: 'Canceled',
     testPhase: 'Sanity Test', defectType: 'Functional', notes: 'ממשקי EAI היו לא זמינים בזמן הבדיקה.',
-    responsibility: 'CRM Team', crHbrNumberReference: '', fixType: '', reason: 'Duplicate', reopenYn: 'N',
+    responsibility: 'CRM Team', crHbrNumberReference: '', crReferenceNumber: '', fixType: '', reason: 'Duplicate', reopenYn: 'N',
   },
   {
     id: '7884', assignedTo: 'NC Team', system: 'ISPIT', title: 'קובץ רענונים של HotNet נוצר ריק',
@@ -1257,7 +1312,7 @@ const MOCK_DEFECTS: DefectDto[] = [
     reproducible: 'Y', severity: 'Show Stopper', priority: 'Low', reporter: 'avia',
     discoveryDate: '08/03/2011', environment: 'NC-Mig-Prod', status: 'Open',
     testPhase: 'System Test', defectType: 'Installation', notes: 'מקור התקלה — בעיית Setup בטבלאות Billing.',
-    responsibility: 'NC Team', crHbrNumberReference: '', fixType: 'Instance', reason: '', reopenYn: 'N',
+    responsibility: 'NC Team', crHbrNumberReference: '', crReferenceNumber: '', fixType: 'Instance', reason: '', reopenYn: 'N',
   },
   {
     id: '12697', assignedTo: 'SSO Team', system: 'SSO', title: 'לא נשלח מייל לאחר הסרה מרשימת דיוור',
@@ -1265,7 +1320,7 @@ const MOCK_DEFECTS: DefectDto[] = [
     reproducible: 'Y', severity: 'Severe', priority: 'High', reporter: 'vladimirs',
     discoveryDate: '22/05/2012', environment: 'MY HOT Test', status: 'Open',
     testPhase: 'System Test', defectType: 'Functional', notes: 'המייל נשלח — הייתה טעות בכתובת.',
-    responsibility: 'SSO Team', crHbrNumberReference: '13040-reg', fixType: 'Root Cause', reason: '', reopenYn: 'Y',
+    responsibility: 'SSO Team', crHbrNumberReference: '13040-reg', crReferenceNumber: '', fixType: 'Root Cause', reason: '', reopenYn: 'Y',
   },
 ];
 
@@ -1590,6 +1645,20 @@ const MOCK_DEFECT_STATUS_HISTORY: Record<string, DefectStatusHistoryDto[]> = {
     { status: 'Fixed_Dev', changeTime: '2025-10-10T09:00:00' },
     { status: 'Closed', changeTime: '2025-10-25T09:00:00' },
     { status: 'Reopen', changeTime: '2025-11-02T09:00:00' },
+  ],
+};
+
+// Illustrative only (same honest-mock convention as MOCK_DEFECT_STATUS_HISTORY
+// above) — real per-field audit data isn't in any local seed file, so this is
+// synthesized just to exercise the change-history UI end to end in this
+// sandbox. Keyed by a real TARGET-defect ID from the local mock TARGET data
+// (62034, ITv01-2026) so it's reachable from the actual detail screen.
+const MOCK_DEFECT_FIELD_HISTORY: Record<string, DefectFieldChangeDto[]> = {
+  '62034': [
+    { changeTime: '2025-12-07T09:12:00', changedBy: 'bat-7', propertyName: 'Bug Status', oldValue: 'New', newValue: 'Open' },
+    { changeTime: '2025-12-22T14:05:00', changedBy: 'limork', propertyName: 'Assigned To', oldValue: 'hsupport', newValue: 'limork' },
+    { changeTime: '2026-01-21T11:40:00', changedBy: 'roiv', propertyName: 'Bug Status', oldValue: 'Open', newValue: 'Fixed_Dev' },
+    { changeTime: '2026-02-04T15:41:00', changedBy: 'roiv', propertyName: 'Bug Status', oldValue: 'Fixed_Dev', newValue: 'Closed' },
   ],
 };
 
@@ -2009,6 +2078,7 @@ export class QcService {
         notes:         r.DEFECT_COMMENTS ?? '',
         responsibility:        r.RESPONSIBILITY           ?? '',
         crHbrNumberReference:  r.CR_HBR_NUMBER_REFERENCE  ?? '',
+        crReferenceNumber:     r.CR_REFERENCE_NUMBER      ?? '',
         fixType:               r.FIX_TYPE                 ?? '',
         reason:                r.REASON                   ?? '',
         reopenYn:              r.REOPEN_YN                ?? '',
@@ -2478,6 +2548,32 @@ export class QcService {
       }));
     } catch (err: any) {
       this.logger.error(`Oracle getDefectStatusHistory: ${err.message}`);
+      throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
+  }
+
+  // Backs the TARGET-defect detail form's change-history section. AU_USER/
+  // AP_OLD_VALUE are unverified against this real instance — see the note on
+  // DEFECT_FIELD_HISTORY_SQL above.
+  async getDefectFieldHistory(defectId: string): Promise<DefectFieldChangeDto[]> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) return MOCK_DEFECT_FIELD_HISTORY[defectId] ?? [];
+
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const result = await conn.execute(DEFECT_FIELD_HISTORY_SQL, { defectId });
+      return (result.rows ?? []).map((r: any): DefectFieldChangeDto => ({
+        changeTime:   r.CHANGE_TIME ? new Date(r.CHANGE_TIME).toISOString() : '',
+        changedBy:    r.CHANGED_BY ?? '',
+        propertyName: r.PROPERTY_NAME ?? '',
+        oldValue:     r.OLD_VALUE ?? '',
+        newValue:     r.NEW_VALUE ?? '',
+      }));
+    } catch (err: any) {
+      this.logger.error(`Oracle getDefectFieldHistory: ${err.message}`);
       throw err;
     } finally {
       if (conn) await conn.close().catch(() => {});

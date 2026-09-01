@@ -5,6 +5,7 @@ import { Avatar, StatusChip, Divider } from './ui';
 import { FEATURES } from '../featureFlags';
 import { useDialog } from '../context/DialogContext';
 import { DateTimeField } from './DatePicker';
+import { formatDateTime as fmtDateTimeShared } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -42,8 +43,7 @@ const parseMins = (dur: string): number => {
   if (col) return parseInt(col[1])*60 + parseInt(col[2]);
   return parseInt(dur) || 0;
 };
-const fmtDT = (iso: string) =>
-  iso ? new Date(iso).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+const fmtDT = (iso: string) => iso ? fmtDateTimeShared(iso) : '—';
 
 const DateInput: React.FC<{
   value: string;
@@ -179,7 +179,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
     const phE = phaseEnd   ? new Date(phaseEnd).getTime()   : null;
     const tS  = startVal   ? new Date(startVal).getTime()   : null;
     const tE  = endVal     ? new Date(endVal).getTime()     : null;
-    const fmt = (iso: string) => new Date(iso).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const fmt = (iso: string) => fmtDateTimeShared(iso);
     const warns: string[] = [];
     if (tS !== null && phS !== null && tS < phS) warns.push(`התחלה ${fmt(startVal)} לפני תחילת השלב ${fmt(phaseStart!)}`);
     if (tS !== null && phE !== null && tS > phE) warns.push(`התחלה ${fmt(startVal)} אחרי סיום השלב ${fmt(phaseEnd!)}`);

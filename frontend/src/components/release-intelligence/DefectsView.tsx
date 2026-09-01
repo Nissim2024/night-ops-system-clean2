@@ -47,13 +47,20 @@ const BreakdownPanel: React.FC<{ title: string; rows: Bucket[]; onBarClick: (lab
   );
 };
 
-interface Props { token: string; versionId?: string; role: string; }
+interface Props {
+  token: string; versionId?: string; role: string;
+  // Set when navigation into this screen already carries intent (e.g. the
+  // Home page's "תקלות פתוחות" tile) — opens straight into the filtered list
+  // instead of landing on the KPI overview and requiring a second click
+  // (spec confirmed 2026-08-31).
+  autoOpenDrilldown?: { filter: string; value?: string; title: string } | null;
+}
 
-export const DefectsView: React.FC<Props> = ({ token, versionId }) => {
+export const DefectsView: React.FC<Props> = ({ token, versionId, autoOpenDrilldown }) => {
   const headers = { Authorization: `Bearer ${token}` };
   const [data, setData] = useState<Defects | null>(null);
   const [loading, setLoading] = useState(false);
-  const [drilldown, setDrilldown] = useState<{ filter: string; value?: string; title: string } | null>(null);
+  const [drilldown, setDrilldown] = useState<{ filter: string; value?: string; title: string } | null>(autoOpenDrilldown ?? null);
 
   const load = useCallback(() => {
     if (!versionId) { setData(null); return; }

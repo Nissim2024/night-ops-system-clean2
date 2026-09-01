@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { DefectDetailScreen } from '../quality-hub/OpenProdDefectsView';
+import { hasHebrew, PersonAvatar, NameBadge, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow } from '../shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -160,6 +161,20 @@ const SEVERITY_COLOR: Record<string, string> = {
   'Show Stopper': C.danger, Severe: C.danger, Medium: '#e8af00', Low: C.textMuted,
 };
 
+// Same badge treatment as the TARGET-defect table (VersionOverview.tsx) —
+// person fields resolve to an avatar, `responsibility` is the team field and
+// gets the flat color badge (spec confirmed 2026-08-30).
+const PERSON_BADGE_FIELDS = new Set<ColumnKey>(['assignedTo', 'reporter']);
+const TEAM_BADGE_FIELDS = new Set<ColumnKey>(['responsibility']);
+function renderCellValue(key: ColumnKey, value: unknown, severity: string) {
+  const s = String(value ?? '');
+  if (!s) return '—';
+  if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={s} />;
+  if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
+  if (key === 'severity') return <span style={{ color: SEVERITY_COLOR[severity] ?? C.textPrimary, fontWeight: WEIGHT.semibold }}>{s}</span>;
+  return s;
+}
+
 // Shared drill-down for every defect-count card/bar across the release-
 // intelligence module (spec confirmed 2026-08-29) — one modal, fed by
 // /release-intelligence/defects-drilldown, which re-derives the exact same
@@ -212,15 +227,20 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [versionId, screen, filter, value, token]);
 
+  const { getWidth: getColWidth, startResize: startColResize } = useColumnWidths('deploycenter_defect_drilldown_column_widths');
+  const filters = useColumnFilters(defects as any, columns);
+
   const sorted = useMemo(() => {
-    if (!defects || !sort) return defects;
+    if (!defects) return defects;
+    const filtered = defects.filter(d => filters.matches(d as any));
+    if (!sort) return filtered;
     const { key, dir } = sort;
-    return [...defects].sort((a, b) => {
+    return [...filtered].sort((a, b) => {
       const av = String(a[key] ?? ''); const bv = String(b[key] ?? '');
       const cmp = av.localeCompare(bv, 'he');
       return dir === 'asc' ? cmp : -cmp;
     });
-  }, [defects, sort]);
+  }, [defects, sort, filters.matches]);
 
   const toggleSort = (key: ColumnKey) => {
     setSort(prev => prev?.key === key ? (prev.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' });
@@ -277,36 +297,45 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
           ) : !sorted || sorted.length === 0 ? (
             <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[6] }}>אין תקלות ברשימה זו</div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', ...TEXT.sm }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', ...TEXT.sm }}>
               <thead>
                 <tr style={{ background: C.bgNested }}>
                   {visibleColumns.map(c => (
                     <th
                       key={c.key}
                       onClick={() => toggleSort(c.key)}
-                      style={{ padding: '8px 10px', textAlign: 'right', fontWeight: WEIGHT.semibold, color: C.textSecondary, borderBottom: `1px solid ${C.border}`, cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none' }}
+                      style={{ position: 'relative', padding: '8px 10px', textAlign: 'right', fontWeight: WEIGHT.semibold, color: C.textSecondary, borderBottom: `1px solid ${C.border}`, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', userSelect: 'none', width: getColWidth(c.key) }}
                     >
                       {c.label}{sort?.key === c.key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
+                      <ColumnResizeHandle onMouseDown={e => startColResize(c.key, e)} />
                     </th>
                   ))}
                 </tr>
+                <ColumnFilterRow columns={visibleColumns} getWidth={getColWidth} filters={filters} />
               </thead>
               <tbody>
                 {sorted.map(d => (
                   <tr key={d.id} onClick={() => setSelectedDefectId(d.id)} style={{ cursor: 'pointer' }}>
-                    {visibleColumns.map(c => (
-                      <td
-                        key={c.key}
-                        style={{
-                          padding: '7px 10px', borderBottom: `1px solid ${C.border}`, maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          color: c.key === 'id' ? C.textLink : c.key === 'severity' ? (SEVERITY_COLOR[d.severity] ?? C.textPrimary) : C.textSecondary,
-                          fontWeight: c.key === 'id' || c.key === 'severity' ? WEIGHT.semibold : WEIGHT.normal,
-                          fontFamily: c.key === 'id' ? 'monospace' : FONT,
-                        }}
-                      >
-                        {String(d[c.key] ?? '') || '—'}
-                      </td>
-                    ))}
+                    {visibleColumns.map(c => {
+                      const isBadge = PERSON_BADGE_FIELDS.has(c.key) || TEAM_BADGE_FIELDS.has(c.key);
+                      const raw = String(d[c.key] ?? '');
+                      const rtl = isBadge || c.key === 'id' ? false : hasHebrew(raw);
+                      return (
+                        <td
+                          key={c.key}
+                          style={{
+                            padding: '7px 10px', borderBottom: `1px solid ${C.border}`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            width: getColWidth(c.key),
+                            color: c.key === 'id' ? C.textLink : isBadge || c.key === 'severity' ? undefined : C.textSecondary,
+                            fontWeight: c.key === 'id' ? WEIGHT.semibold : WEIGHT.normal,
+                            fontFamily: c.key === 'id' ? 'monospace' : FONT,
+                            direction: rtl ? 'rtl' : 'ltr', textAlign: rtl ? 'right' : 'left',
+                          }}
+                        >
+                          {renderCellValue(c.key, d[c.key], d.severity)}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>

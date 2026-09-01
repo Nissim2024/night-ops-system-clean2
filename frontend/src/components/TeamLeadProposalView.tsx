@@ -4,6 +4,7 @@ import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { DateField } from './DatePicker';
 import { C, FONT, FONT_MONO, RADIUS, SHADOW, WEIGHT } from '../theme';
 import { cleanHtmlText } from '../utils/textSanitize';
+import { formatDateTime } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -2119,7 +2120,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         {review.approved && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: C.successBg, border: `1px solid ${C.success}40`, borderRadius: RADIUS.md, padding: '12px 18px', marginBottom: '16px' }}>
             <div style={{ flex: 1, fontSize: '14px', color: C.success, fontWeight: WEIGHT.semibold, lineHeight: 1.5 }}>
-              ✓ CR TARGET אושר ע"י {review.approvedByName} {review.approvedAt && `· ${new Date(review.approvedAt).toLocaleString('he-IL')}`}
+              ✓ CR TARGET אושר ע"י {review.approvedByName} {review.approvedAt && `· ${formatDateTime(review.approvedAt)}`}
               {specialCount > 0 && ` · ${specialCount} תקלות דורשות הטמעה מיוחדת`}
               {managementCount > 0 && ` · ${managementCount} תקלות סומנו כחשובות`}
             </div>
@@ -3045,7 +3046,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                   {teamPreview.data.submittedByName && (
                     <div style={{ fontSize: '13px', color: C.textMuted }}>
                       הוגש ע"י {teamPreview.data.submittedByName}
-                      {teamPreview.data.submittedAt && ` · ${new Date(teamPreview.data.submittedAt).toLocaleString('he-IL')}`}
+                      {teamPreview.data.submittedAt && ` · ${formatDateTime(teamPreview.data.submittedAt)}`}
                     </div>
                   )}
 
@@ -3284,7 +3285,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           <div style={{ fontSize: '12.5px', color: C.textMuted }}>
             {versionName}
             {reviewMeetingTime && (
-              <> · יש להגיש את כל התוכניות לפני פגישת הסקירה · {new Date(reviewMeetingTime).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} 🗓</>
+              <> · יש להגיש את כל התוכניות לפני פגישת הסקירה · {formatDateTime(reviewMeetingTime)} 🗓</>
             )}
           </div>
         </div>

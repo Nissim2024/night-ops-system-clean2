@@ -4,6 +4,7 @@ import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { useDialog } from '../context/DialogContext';
 import { C, FONT, FONT_MONO, RADIUS, SHADOW } from '../theme';
 import { cleanHtmlText } from '../utils/textSanitize';
+import { formatDate } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -586,7 +587,7 @@ const CrCard: React.FC<{
     const rollbackItems = entry.teams.filter(t => t.crPlan.rollbackPlan).map(t => ({ teamId: t.teamId, teamName: t.teamName, text: t.crPlan.rollbackPlan! }));
     const gradualItems  = entry.teams.filter(t => t.crPlan.gradualRollout && t.crPlan.gradualDetails).map(t => ({
       teamId: t.teamId, teamName: t.teamName,
-      text: t.crPlan.gradualDetails! + (t.crPlan.activationDate ? ` · תאריך הפעלה: ${new Date(t.crPlan.activationDate).toLocaleDateString('he-IL')}` : ''),
+      text: t.crPlan.gradualDetails! + (t.crPlan.activationDate ? ` · תאריך הפעלה: ${formatDate(t.crPlan.activationDate)}` : ''),
     }));
 
     const crMgr  = entry.teams.map(t => t.crPlan.crManager).find(v => v);

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, RADIUS, SHADOW } from '../theme';
+import { formatDate } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -56,9 +57,6 @@ function narrativeSentence(item: Proposal): string {
   return `${who} יבצע ${item.actionType || 'פעולה'}${sys}${desc ? ` — ${desc}` : ''}.${dur}`;
 }
 
-function fmtDate(d: Date): string {
-  return d.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' });
-}
 
 type DefectBucket = 'fixed' | 'open' | 'openApproved';
 interface CrDefectIndicators { fixed: any[]; open: any[]; openApproved: any[]; }
@@ -127,12 +125,12 @@ export const UnifiedGoLivePlanView: React.FC<Props> = ({ token, versionId, versi
   const dayParts: DayPart[] = [
     {
       key: 'pre', icon: '☀️', title: 'בוקר לפני הגרסה',
-      meta: dayBefore ? `יום לפני חלון השינוי · ${fmtDate(dayBefore)}` : 'לפני חלון השינוי',
+      meta: dayBefore ? `יום לפני חלון השינוי · ${formatDate(dayBefore)}` : 'לפני חלון השינוי',
       items: allProposals.filter(p => p.phase === 1),
     },
     {
       key: 'night', icon: '🌙', title: 'ליל הגרסה',
-      meta: goLive ? `חלון השינוי — לפני עליית הגרסה לאוויר · ${fmtDate(goLive)}` : 'חלון השינוי — לפני עליית הגרסה לאוויר',
+      meta: goLive ? `חלון השינוי — לפני עליית הגרסה לאוויר · ${formatDate(goLive)}` : 'חלון השינוי — לפני עליית הגרסה לאוויר',
       items: allProposals.filter(p => p.phase === 2 || p.phase === 3),
     },
     {

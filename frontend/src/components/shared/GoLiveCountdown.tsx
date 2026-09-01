@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { TEXT, WEIGHT } from '../../theme';
+import { formatDateTime } from '../../utils/dateFormat';
 
 interface Props {
   plannedStart?: string | null;
@@ -20,7 +21,7 @@ export const GoLiveCountdown: React.FC<Props> = ({ plannedStart, status }) => {
 
   const goLive = new Date(plannedStart);
   const msLeft = goLive.getTime() - nowTick;
-  const dateLabel = `${goLive.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', year: 'numeric' })} · ${goLive.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`;
+  const dateLabel = formatDateTime(goLive);
   const overdue = msLeft <= 0;
   const totalSeconds = Math.max(0, Math.floor(msLeft / 1000));
   const days    = Math.floor(totalSeconds / 86400);

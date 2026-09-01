@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
+import { formatDate } from '../../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -21,7 +22,7 @@ function KpiCard({ value, label, valueColor }: { value: string; label: string; v
 
 const thStyle: React.CSSProperties = { padding: '10px 12px', ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textMuted, textAlign: 'right', borderBottom: `2px solid ${C.border}` };
 const tdStyle: React.CSSProperties = { padding: '9px 12px', ...TEXT.sm, color: C.textPrimary, borderBottom: `1px solid ${C.border}` };
-const fmtDate = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+const fmtDate = (iso: string | null) => iso ? formatDate(iso) : '—';
 
 interface Props { token: string; versionId?: string; role: string; }
 

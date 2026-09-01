@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { DateField, DateTimeField } from './DatePicker';
 import { C, FONT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
+import { formatDate } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -49,8 +50,7 @@ function toDateOnly(iso: string | null | undefined): string {
   return new Date(iso).toISOString().slice(0, 10);
 }
 function fmtDateOnly(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('he-IL');
+  return iso ? formatDate(iso) : '—';
 }
 
 function btnStyle(bg: string, disabled: boolean): React.CSSProperties {

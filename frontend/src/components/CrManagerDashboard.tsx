@@ -3,6 +3,7 @@ import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, versionStatusColor, versionStatusBg, versionStatusLabel } from '../theme';
 import { DeployCenterLogo } from './DeployCenterLogo';
 import { useDialog } from '../context/DialogContext';
+import { formatDateTime } from '../utils/dateFormat';
 import { cleanHtmlText } from '../utils/textSanitize';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -314,11 +315,7 @@ const VersionCard: React.FC<VersionCardProps> = ({ version, expanded, onToggle, 
   const statusBg    = versionStatusBg[version.status]    ?? 'transparent';
   const statusText  = versionStatusLabel[version.status] ?? version.status;
 
-  const formatDate = (d: string | null) => {
-    if (!d) return '';
-    const dt = new Date(d);
-    return dt.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
-  };
+  const formatDate = (d: string | null) => d ? formatDateTime(d) : '';
 
   return (
     <div style={{ background: C.bgCard, borderRadius: RADIUS['2xl'], border: `1px solid ${C.border}`, boxShadow: SHADOW.sm, overflow: 'hidden' }}>

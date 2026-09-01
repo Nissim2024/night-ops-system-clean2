@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C, TEXT, WEIGHT, SP, RADIUS, SHADOW, FONT } from '../../theme';
+import { formatDate } from '../../utils/dateFormat';
 
 const API  = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 const BLUE = '#4573D2';
@@ -200,10 +201,11 @@ export function getRunbookTrigger(activityId: string): RunbookTrigger | null {
 function fmtDate(iso: string): string {
   if (!iso) return '';
   const d = new Date(iso);
-  const dd  = String(d.getDate()).padStart(2, '0');
-  const mm  = String(d.getMonth() + 1).padStart(2, '0');
   const DOW = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
-  return `${dd}/${mm} (יום ${DOW[d.getDay()]})`;
+  // Unified DD/MM/YYYY date (2026-08-31 spec) — weekday name kept as
+  // supplementary context specific to the runbook's operational schedule,
+  // not just a stylistic date-format difference.
+  return `${formatDate(d)} (יום ${DOW[d.getDay()]})`;
 }
 
 // Combines the runbook run's calendar date (dateStartISO) with a step's "HH:MM"

@@ -4,6 +4,7 @@ import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW } from '../../theme';
 import { useDialog } from '../../context/DialogContext';
 import { ConfirmDialog, DialogConfig } from '../ConfirmDialog';
 import { DateField } from '../DatePicker';
+import { formatDate as fmtDateShared, formatDateTime as fmtDateTimeShared } from '../../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -230,9 +231,7 @@ function rowElementId(fullName: string, crNumber: string, cycleType: string): st
 }
 
 function fmtDate(d: string | null | undefined): string {
-  if (!d) return '—';
-  const dt = new Date(d);
-  return dt.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return d ? fmtDateShared(d) : '—';
 }
 
 function toInputDate(d: string | null | undefined): string {
@@ -1247,7 +1246,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
                         {describeChangeLogEntry(entry)}
                       </span>
                       <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap' }}>
-                        {new Date(entry.createdAt).toLocaleString('he-IL')}
+                        {fmtDateTimeShared(entry.createdAt)}
                       </span>
                     </div>
                     {entry.userEmail && (
@@ -1282,7 +1281,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
                         CR {task.crNumber} {task.crLabel ? `— ${task.crLabel}` : ''}
                       </div>
                       <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: 2 }}>
-                        {task.user.fullName} · {CYCLE_LABEL[task.cycle.cycleType] ?? task.cycle.cycleType} · {task.effortDays} ימים · הועבר לארכיון {new Date(task.updatedAt).toLocaleString('he-IL')}
+                        {task.user.fullName} · {CYCLE_LABEL[task.cycle.cycleType] ?? task.cycle.cycleType} · {task.effortDays} ימים · הועבר לארכיון {fmtDateTimeShared(task.updatedAt)}
                       </div>
                     </div>
                     <button

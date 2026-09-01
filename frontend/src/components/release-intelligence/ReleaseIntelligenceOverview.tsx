@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW } from '../../theme';
+import { DefectDrilldownModal } from './DefectDrilldownModal';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -33,9 +34,12 @@ const FORECAST_LABEL: Record<string, { label: string; color: string }> = {
   BEHIND_PLAN: { label: 'בחריגה', color: C.danger },
 };
 
-function KpiCard({ value, label, valueColor }: { value: string; label: string; valueColor?: string }) {
+function KpiCard({ value, label, valueColor, onClick }: { value: string; label: string; valueColor?: string; onClick?: () => void }) {
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '16px 20px', flex: 1, minWidth: '140px' }}>
+    <div
+      onClick={onClick}
+      style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '16px 20px', flex: 1, minWidth: '140px', cursor: onClick ? 'pointer' : undefined }}
+    >
       <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: valueColor ?? C.textPrimary, lineHeight: 1.2 }}>{value}</div>
       <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>{label}</div>
     </div>
@@ -63,6 +67,7 @@ export const ReleaseIntelligenceOverview: React.FC<Props> = ({ token, versionId,
   const [newRiskTitle, setNewRiskTitle] = useState('');
   const [newRiskSeverity, setNewRiskSeverity] = useState('MEDIUM');
   const [saving, setSaving] = useState(false);
+  const [showDefectDrilldown, setShowDefectDrilldown] = useState(false);
 
   const canWriteRisks = RISK_WRITERS.includes(role);
 
@@ -122,7 +127,12 @@ export const ReleaseIntelligenceOverview: React.FC<Props> = ({ token, versionId,
       <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
         <KpiCard value={String(overview.healthScore)} label="Release Health" valueColor={overview.healthScore >= 70 ? C.success : overview.healthScore >= 40 ? '#e8af00' : C.danger} />
         <KpiCard value={`${overview.coveragePct}%`} label="Coverage" />
-        <KpiCard value={String(overview.criticalDefects)} label="Critical Defects" valueColor={overview.criticalDefects > 0 ? C.danger : C.success} />
+        <KpiCard
+          value={String(overview.criticalDefects)}
+          label="Critical Defects"
+          valueColor={overview.criticalDefects > 0 ? C.danger : C.success}
+          onClick={() => setShowDefectDrilldown(true)}
+        />
         <KpiCard value={String(overview.openRisksCount)} label="Open Risks" valueColor={overview.openRisksCount > 0 ? '#e8af00' : C.success} />
         <KpiCard value={overview.daysToGoLive !== null ? String(overview.daysToGoLive) : '—'} label="Days To Go Live" />
         <KpiCard value={forecast.label} label="Forecast Status" valueColor={forecast.color} />
@@ -207,6 +217,17 @@ export const ReleaseIntelligenceOverview: React.FC<Props> = ({ token, versionId,
             ))}
         </Widget>
       </div>
+
+      {showDefectDrilldown && (
+        <DefectDrilldownModal
+          token={token}
+          versionId={versionId}
+          screen="status-board"
+          filter="openSevereOrWorse"
+          title="Critical Defects"
+          onClose={() => setShowDefectDrilldown(false)}
+        />
+      )}
     </div>
   );
 };

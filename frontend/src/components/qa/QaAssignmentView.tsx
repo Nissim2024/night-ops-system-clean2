@@ -6,6 +6,7 @@ import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../../theme';
 import { ConfirmDialog, DialogConfig } from '../ConfirmDialog';
 import { useDialog } from '../../context/DialogContext';
 import { DateField } from '../DatePicker';
+import { formatDate as fmtDateShared, formatDateTime as fmtDateTimeShared } from '../../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -574,7 +575,7 @@ function RealTesterGantt({ filterTesterId, planCycles, holidayDays, cycle1Length
 }
 
 function fmtDateIso(iso: string): string {
-  return new Date(iso).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' });
+  return fmtDateShared(iso);
 }
 
 // ── CR detail modal field ───────────────────────────────────────────────────────
@@ -1606,7 +1607,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
     };
   }, [cycle1Start, cycle1LengthDays, cycle2LengthDays, cycle3LengthDays, holidayDays]);
   const fmtRange = (r: { start: Date; end: Date }) =>
-    `${r.start.toLocaleDateString('he-IL')} – ${r.end.toLocaleDateString('he-IL')}`;
+    `${fmtDateShared(r.start)} – ${fmtDateShared(r.end)}`;
   // Short note under a cycle's date range when a real holiday fell inside it
   // and was skipped — e.g. "ראש השנה בטווח" — so the wider-than-expected
   // range isn't mistaken for a miscalculation.
@@ -1746,7 +1747,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
         const issue: OverflowIssue = {
           type: 'CORE_OVERFLOW', userName: fullName, userId, cycleType,
           crNumber: biggest?.crNumber, daysOver,
-          message: `${fullName} לא מספיק לסיים את ${label} עד ${end.toLocaleDateString('he-IL')} — חורג ב-${daysOver} ימי עבודה. ${biggest ? `CR ${biggest.crNumber} (${biggest.effortDays} ימים) הוא המשמעותי ביותר בעומס שלו.` : ''} הסבב הבא יתחיל במועד הקבוע לכל שאר הצוות; מי שחורג צריך פתרון — ידני, בודק שני, או הארכת הסבב.`,
+          message: `${fullName} לא מספיק לסיים את ${label} עד ${fmtDateShared(end)} — חורג ב-${daysOver} ימי עבודה. ${biggest ? `CR ${biggest.crNumber} (${biggest.effortDays} ימים) הוא המשמעותי ביותר בעומס שלו.` : ''} הסבב הבא יתחיל במועד הקבוע לכל שאר הצוות; מי שחורג צריך פתרון — ידני, בודק שני, או הארכת הסבב.`,
           suggestions: [],
         };
         if (!perTester.has(userId)) perTester.set(userId, []);
@@ -1757,7 +1758,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
         const daysOver = countWorkDays(nextWorkDay(testingEndDate, holidayDays).toISOString(), end.toISOString(), holidayDays);
         structural.push({
           type: 'CORE_TESTING_END_OVERFLOW', cycleType, daysOver,
-          message: `🚨 ${label} (${start.toLocaleDateString('he-IL')} – ${end.toLocaleDateString('he-IL')}) חורג מתאריך סיום הבדיקות של הגרסה (${testingEndDate.toLocaleDateString('he-IL')}) ב-${daysOver} ימי עבודה — סבבי ליבה אינם אמורים להימשך מעבר לחלון הבדיקות שהוגדר.`,
+          message: `🚨 ${label} (${fmtDateShared(start)} – ${fmtDateShared(end)}) חורג מתאריך סיום הבדיקות של הגרסה (${fmtDateShared(testingEndDate)}) ב-${daysOver} ימי עבודה — סבבי ליבה אינם אמורים להימשך מעבר לחלון הבדיקות שהוגדר.`,
           suggestions: [],
         });
       }
@@ -2121,7 +2122,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }} title="נקבע בשלב יצירת הגרסה — משימות ליבה לא יכולות להימשך מעברו">
             <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>🚀 מועד עלייה לאוויר</span>
             <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold }}>
-              {new Date(selectedVersion.plannedStart).toLocaleDateString('he-IL')}
+              {fmtDateShared(selectedVersion.plannedStart)}
             </div>
           </div>
         )}
@@ -2697,8 +2698,8 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                             const qaOverdue = !!cr.qaArrivalDate && !cr.qaReceived && new Date(cr.qaArrivalDate) < new Date();
                             const tooltipParts: string[] = [];
                             if (cr.urgent) tooltipParts.push('דחוף');
-                            if (cr.priorityTestDate) tooltipParts.push(`תאריך עליה לאוויר: ${new Date(cr.priorityTestDate).toLocaleDateString('he-IL')}`);
-                            if (cr.qaArrivalDate) tooltipParts.push(`הגעה ל-QA: ${new Date(cr.qaArrivalDate).toLocaleDateString('he-IL')}${cr.qaReceived ? ' ✓ התקבל' : qaOverdue ? ' ⚠ טרם התקבל' : ''}`);
+                            if (cr.priorityTestDate) tooltipParts.push(`תאריך עליה לאוויר: ${fmtDateShared(cr.priorityTestDate)}`);
+                            if (cr.qaArrivalDate) tooltipParts.push(`הגעה ל-QA: ${fmtDateShared(cr.qaArrivalDate)}${cr.qaReceived ? ' ✓ התקבל' : qaOverdue ? ' ⚠ טרם התקבל' : ''}`);
                             if (cr.notes) tooltipParts.push(`הערה: ${cr.notes}`);
                             const title = tooltipParts.length > 0 ? `${tooltipParts.join(' | ')} — לחץ לפרטים` : 'עדיפות בדיקה / דחיפות / הערות / הגעה ל-QA';
 
@@ -3349,7 +3350,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                                 {entry.cycleType ? ` — ${CYCLE_LABEL[entry.cycleType] ?? entry.cycleType}` : ''}
                               </span>
                               <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap' }}>
-                                {new Date(entry.createdAt).toLocaleString('he-IL')}
+                                {fmtDateTimeShared(entry.createdAt)}
                               </span>
                             </div>
                             {entry.reason && (

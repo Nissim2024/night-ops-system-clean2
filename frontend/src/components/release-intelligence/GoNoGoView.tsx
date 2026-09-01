@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
+import { formatDateTime } from '../../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -98,7 +99,7 @@ export const GoNoGoView: React.FC<Props> = ({ token, versionId, role }) => {
               <div style={{ ...TEXT.base, fontWeight: WEIGHT.semibold, color: STATUS_COLOR[status] }}>{STATUS_LABEL[status] ?? status}</div>
               {by && at && (
                 <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: SP[1] }}>
-                  {by} · {new Date(at).toLocaleString('he-IL')}
+                  {by} · {formatDateTime(at)}
                 </div>
               )}
               {canAct && (

@@ -5,6 +5,7 @@ import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { C, FONT, FONT_MONO, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
 import { Card, Badge, Button, TextField, Select, Toggle, SectionHeader, Avatar, TabBar, EmptyState, Divider, Alert } from './ui';
 import { cleanHtmlText } from '../utils/textSanitize';
+import { formatDate } from '../utils/dateFormat';
 import { VersionCard } from './VersionsView';
 import { OpenProdDefectsConfigPanel } from './quality-hub/OpenProdDefectsConfigPanel';
 import { QcWriteTestPanel } from './QcWriteTestPanel';
@@ -1250,15 +1251,15 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
                               <td style={{ padding: '8px 12px', fontSize: '15px', fontWeight: 'bold', color: C.textPrimary }}>{r.relName}</td>
                               <td style={{ padding: '8px 12px', fontSize: '14px', color: C.textSecondary }}>{r.relTeam || '—'}</td>
                               <td style={{ padding: '8px 12px', fontSize: '14px', color: C.textSecondary }}>
-                                {r.goLiveDate ? new Date(r.goLiveDate).toLocaleDateString('he-IL') : '—'}
+                                {r.goLiveDate ? formatDate(r.goLiveDate) : '—'}
                               </td>
                               <td style={{ padding: '8px 12px', fontSize: '14px', color: C.textSecondary }}>
-                                {r.rehearsalDate ? new Date(r.rehearsalDate).toLocaleDateString('he-IL') : '—'}
+                                {r.rehearsalDate ? formatDate(r.rehearsalDate) : '—'}
                               </td>
                               <td style={{ padding: '8px 12px', fontSize: '14px' }}>
                                 {filterDate ? (
                                   <span style={{ color: isVisible ? C.statusDone : C.statusFailed, fontWeight: 'bold' }}>
-                                    {filterDate.toLocaleDateString('he-IL')} {isVisible ? '✓' : '(עבר)'}
+                                    {formatDate(filterDate)} {isVisible ? '✓' : '(עבר)'}
                                   </span>
                                 ) : <span style={{ color: C.statusFailed }}>ריק — לא יוצג</span>}
                               </td>
@@ -1425,7 +1426,7 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
                           <div style={{ fontWeight: 'bold', fontSize: '16px', color: C.textPrimary }}>{t.name}</div>
                           {t.description && <div style={{ fontSize: '14px', color: C.textMuted, marginTop: '2px' }}>{cleanHtmlText(t.description)}</div>}
                           <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '4px' }}>
-                            נוצר ע"י {t.creator?.fullName ?? '—'} · {t.createdAt ? new Date(t.createdAt).toLocaleDateString('he-IL') : ''}
+                            נוצר ע"י {t.creator?.fullName ?? '—'} · {t.createdAt ? formatDate(t.createdAt) : ''}
                           </div>
                         </div>
                         <button

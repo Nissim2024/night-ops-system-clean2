@@ -3,8 +3,10 @@ import axios from 'axios';
 import { C, FONT, FONT_MONO, TEXT, WEIGHT, RADIUS, SHADOW, EASE, severityColor, severityBg, severityLabel } from '../theme';
 import { VersionStatusChip } from './ui';
 import RunbookModal, { RUNBOOKS, getRunbookTrigger, RunbookTrigger } from './qa/RunbookModal';
+import { DefectDetailScreen } from './quality-hub/OpenProdDefectsView';
 import { VersionMilestoneTimeline } from './shared/VersionMilestoneTimeline';
 import { GoLiveCountdown } from './shared/GoLiveCountdown';
+import { formatDate, formatDateTime, formatTime } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL ?? 'http://localhost:3000';
 
@@ -19,7 +21,7 @@ interface TeamStatusRow {
   allDone: boolean;
 }
 
-type ModuleKey = 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub';
+export type ModuleKey = 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub';
 
 interface Props {
   versions: any[];
@@ -87,9 +89,12 @@ export function getDeploymentsTabForStatus(status: string, role: string): string
 // Module status card — used by the home-page module grid, one per
 // top-level module, showing the 1-3 lines most relevant to a manager.
 // ────────────────────────────────────────────────────────────────
-function KpiTile({ icon, accent, value, label, sub, subTone, footer, onClick, moduleLabel, sideStat }: {
+// Exported — the release-intelligence Home page reuses this exact card
+// (not a lookalike) for its own "תמונת מצב" row, so the two Home pages stay
+// visually identical as this component evolves (spec confirmed 2026-08-31).
+export function KpiTile({ icon, accent, value, label, sub, subTone, footer, onClick, moduleLabel, sideStat }: {
   icon: string; accent: string; value: string; label: string;
-  sub?: string | null; subTone?: 'ok' | 'warn' | 'muted'; footer?: string | null; onClick?: () => void;
+  sub?: string | null; subTone?: 'ok' | 'warn' | 'muted'; footer?: React.ReactNode; onClick?: () => void;
   moduleLabel?: string;
   // Secondary metric shown beside the main value — same visual weight as the
   // main stat (not squeezed into the footer text), for a number that deserves
@@ -212,7 +217,9 @@ const MODULE_META: Record<ModuleKey, { label: string; color: string }> = {
 // point of a drill-down is showing the specific list (which teams, which
 // CRs) right where you clicked, not sending the user off to re-find it on
 // a whole-module screen.
-function RiskRow({ icon, title, desc, urgent, module, onClick, detail, expanded, onToggle }: {
+// Exported — the release-intelligence Home page reuses this exact row for
+// its own alert strip instead of a lookalike (spec confirmed 2026-08-31).
+export function RiskRow({ icon, title, desc, urgent, module, onClick, detail, expanded, onToggle }: {
   icon: string; title: string; desc: string; urgent?: boolean; module?: ModuleKey; onClick?: () => void;
   detail?: string[]; expanded?: boolean; onToggle?: () => void;
 }) {
@@ -627,6 +634,19 @@ export const HomeDashboard: React.FC<Props> = ({
     [openDefects]
   );
 
+  // "תקלות שדורשות תשומת לב" row click → straight to that defect's detail
+  // screen, same shared component + admin-configured field set every other
+  // entry point uses (DefectDrilldownModal fetches this same config for the
+  // same reason — spec confirmed 2026-08-29).
+  const [homeDefectDetailId, setHomeDefectDetailId] = useState<string | null>(null);
+  const [homeDefectDetailFields, setHomeDefectDetailFields] = useState<string[]>([]);
+  useEffect(() => {
+    if (!canAccessReleaseIntelligence) return;
+    axios.get(`${API}/qc/open-prod-defects-config`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setHomeDefectDetailFields(r.data?.detailFields ?? []))
+      .catch(() => setHomeDefectDetailFields([]));
+  }, [canAccessReleaseIntelligence, token]);
+
   // CRs whose scope changed after the version's scope was already approved —
   // "ניהול גרסה" module's own ongoing-change signal, surfaced here too.
   const [scopeAttentionCrs, setScopeAttentionCrs] = useState<string[]>([]);
@@ -855,15 +875,11 @@ export const HomeDashboard: React.FC<Props> = ({
     if (st === 'REVIEW' && rm)          list.push({ icon: '👥', title: 'קיים ישיבת מעבר', desc: 'ישיבה עם כלל המשתתפים לאישור סופי', tab: 'list' });
     if (st === 'APPROVED' && rm) {
       if (primary.rehearsalSummary) {
-        const dateStr = primary.plannedStart
-          ? new Date(primary.plannedStart).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
-          : null;
-        const timeStr = primary.plannedStart
-          ? new Date(primary.plannedStart).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
-          : null;
+        const dateStr = primary.plannedStart ? formatDate(primary.plannedStart) : null;
+        const timeStr = primary.plannedStart ? formatTime(primary.plannedStart) : null;
         const dateTimeDesc = dateStr && timeStr ? ` — מתוכנן ל-${dateStr}, ${timeStr}` : '';
         const firstPhaseDesc = firstPhaseInfo
-          ? ` · שלב ראשון: ${firstPhaseInfo.name}${firstPhaseInfo.startTime ? ` (${new Date(firstPhaseInfo.startTime).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })})` : ''}`
+          ? ` · שלב ראשון: ${firstPhaseInfo.name}${firstPhaseInfo.startTime ? ` (${formatTime(firstPhaseInfo.startTime)})` : ''}`
           : '';
         list.push({ icon: '🚀', title: 'פתח לילה פעיל', desc: `החזרה הגנרלית הושלמה — מוכן להתחיל את הלילה הפעיל${dateTimeDesc}${firstPhaseDesc}`, tab: 'list' });
       } else {
@@ -876,7 +892,7 @@ export const HomeDashboard: React.FC<Props> = ({
 
     if (['REHEARSAL', 'ACTIVE'].includes(st) && !allPhasesDone) {
       const nextDesc = nextPhaseInfo
-        ? `שלב הבא: ${nextPhaseInfo.name}${nextPhaseInfo.startTime ? ` יחל בשעה ${new Date(nextPhaseInfo.startTime).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}` : ''}`
+        ? `שלב הבא: ${nextPhaseInfo.name}${nextPhaseInfo.startTime ? ` יחל בשעה ${formatTime(nextPhaseInfo.startTime)}` : ''}`
         : 'עקב אחר ביצוע המשימות בזמן אמת';
       list.push({ icon: '⚡', title: 'War Room', desc: nextDesc, urgent: true, tab: 'dashboard' });
     }
@@ -918,7 +934,7 @@ export const HomeDashboard: React.FC<Props> = ({
       for (const a of todayOrTomorrowActivities) {
         const trigger = getRunbookTrigger(a.activityKey);
         const dayLabel = new Date(a.dateStart!).toDateString() === new Date().toDateString() ? 'היום' : 'מחר';
-        const timeLabel = new Date(a.dateStart!).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+        const timeLabel = formatTime(a.dateStart!);
         list.push({
           icon: trigger ? '▶' : '🗓',
           title: `${a.label} — ${dayLabel} ${timeLabel}`,
@@ -1206,7 +1222,7 @@ export const HomeDashboard: React.FC<Props> = ({
                 }
                 if (livePhases.length > 0) return `${livePhases.filter(p => p.state === 'done').length}/${livePhases.length} שלבים הושלמו`;
                 if (reviewMeetingTime && reviewMeetingTime.getTime() > Date.now()) {
-                  return `🗓 תוכנית מסגרת נבנתה · ישיבת סקירה: ${reviewMeetingTime.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })} ${reviewMeetingTime.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`;
+                  return `🗓 תוכנית מסגרת נבנתה · ישיבת סקירה: ${formatDateTime(reviewMeetingTime)}`;
                 }
                 if (taskSchedule && taskSchedule.unscheduled > 0) return `⏳ ${taskSchedule.unscheduled} משימות ללא תאריך מתוכנן`;
                 return null;
@@ -1222,7 +1238,7 @@ export const HomeDashboard: React.FC<Props> = ({
                 sub={criticalDefectsCount > 0 ? `⚠ ${criticalDefectsCount} קריטיות` : defectsSummary ? '✓ אין תקלות קריטיות' : null}
                 subTone={criticalDefectsCount > 0 ? 'warn' : 'ok'}
                 footer={testCoveragePct !== null ? `📊 ${testCoveragePct}% מהבדיקות המתוכננות בוצעו` : null}
-                onClick={() => onSwitchToModule?.('release-intelligence')}
+                onClick={() => onSwitchToModule?.('release-intelligence', 'defects-open')}
               />
             )}
 
@@ -1256,8 +1272,8 @@ export const HomeDashboard: React.FC<Props> = ({
               </div>
               {reviewMeetingTime && (
                 <div style={{ flexShrink: 0, textAlign: 'center' as const, ...TEXT.xs, color: '#C97A00', fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap' as const }}>
-                  {reviewMeetingTime.toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'short' })}
-                  <br />{reviewMeetingTime.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+                  {formatDate(reviewMeetingTime)}
+                  <br />{formatTime(reviewMeetingTime)}
                 </div>
               )}
             </div>
@@ -1444,8 +1460,8 @@ export const HomeDashboard: React.FC<Props> = ({
                 const deadlineText = !reviewMeetingTime
                   ? 'מועד ישיבת המעבר טרם נקבע — יש להגיש בהקדם האפשרי'
                   : reviewMeetingPassed
-                    ? `⚠ מועד ישיבת המעבר כבר עבר (${reviewMeetingTime.toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'short' })}, ${reviewMeetingTime.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}) — יש להגיש בדחיפות`
-                    : `יש להגיש עד למועד ישיבת המעבר: ${reviewMeetingTime.toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'short' })}, ${reviewMeetingTime.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}${reviewIsApproaching ? ` (בעוד ${reviewHoursLabel})` : ''}`;
+                    ? `⚠ מועד ישיבת המעבר כבר עבר (${formatDateTime(reviewMeetingTime)}) — יש להגיש בדחיפות`
+                    : `יש להגיש עד למועד ישיבת המעבר: ${formatDateTime(reviewMeetingTime)}${reviewIsApproaching ? ` (בעוד ${reviewHoursLabel})` : ''}`;
 
                 // submissionDeadline is a separate field from the review meeting itself
                 // (used elsewhere for CR_REVIEW submissions specifically) — kept here so
@@ -1461,7 +1477,7 @@ export const HomeDashboard: React.FC<Props> = ({
                       <div style={{ ...TEXT.xs, color: C.textSecondary, marginTop: '2px' }}>
                         {deadlineText}
                         {submissionDeadline && (
-                          <> · מועד הגשת CR: {new Date(submissionDeadline).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}{submissionDeadlinePassed ? ' ⚠ עבר' : ''}</>
+                          <> · מועד הגשת CR: {formatDateTime(submissionDeadline)}{submissionDeadlinePassed ? ' ⚠ עבר' : ''}</>
                         )}
                       </div>
                     </div>
@@ -1534,7 +1550,7 @@ export const HomeDashboard: React.FC<Props> = ({
                       .slice(0, 5).map(d => {
                       const sevColor = ['Show Stopper', 'Severe'].includes(d.severity) ? C.danger : d.severity === 'Medium' ? C.warning : C.textMuted;
                       return (
-                        <div key={d.id} onClick={() => onSwitchToModule?.('release-intelligence')} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 0', borderBottom: `1px solid ${C.border}`, cursor: 'pointer' }}>
+                        <div key={d.id} onClick={() => setHomeDefectDetailId(d.id)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 0', borderBottom: `1px solid ${C.border}`, cursor: 'pointer' }}>
                           <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: sevColor, flexShrink: 0 }} />
                           <span style={{ ...TEXT.xs, fontFamily: FONT_MONO, fontWeight: WEIGHT.bold, color: C.textSecondary, background: C.bgNested, borderRadius: RADIUS.sm, padding: '1px 6px', flexShrink: 0 }}>{d.id}</span>
                           <span style={{ ...TEXT.xs, color: C.textPrimary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{d.title}</span>
@@ -1592,6 +1608,17 @@ export const HomeDashboard: React.FC<Props> = ({
           startInRunMode
           onClose={() => setRunbookItem(null)}
         />
+      )}
+
+      {homeDefectDetailId && (
+        <div style={{ position: 'fixed', inset: 0, background: C.bgApp, zIndex: 1001, overflow: 'auto' }}>
+          <DefectDetailScreen
+            defectId={homeDefectDetailId}
+            detailFields={homeDefectDetailFields}
+            token={token}
+            onBack={() => setHomeDefectDetailId(null)}
+          />
+        </div>
       )}
     </div>
   );

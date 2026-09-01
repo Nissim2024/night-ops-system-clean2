@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
+import { XMLParser } from 'fast-xml-parser';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
@@ -108,11 +109,11 @@ export class QcRestService {
     const cookie = await this.login(config);
     try {
       const res = await axios.get(this.entityUrl(config, defectId), {
-        headers: { Cookie: cookie, Accept: 'application/json' },
+        headers: { Cookie: cookie, Accept: 'application/xml' },
         validateStatus: () => true,
       });
       if (res.status === 404) throw new BadRequestException(`תקלה ${defectId} לא נמצאה ב-QC`);
-      if (res.status !== 200) throw new BadRequestException(`שגיאה בקריאת תקלה מ-QC (status ${res.status}): ${JSON.stringify(res.data).slice(0, 300)}`);
+      if (res.status !== 200) throw new BadRequestException(`שגיאה בקריאת תקלה מ-QC (status ${res.status}): ${String(res.data).slice(0, 300)}`);
       const fields = parseFields(res.data);
       return {
         id: defectId,
@@ -133,7 +134,7 @@ export class QcRestService {
     const cookie = await this.login(config);
     try {
       const getRes = await axios.get(this.entityUrl(config, defectId), {
-        headers: { Cookie: cookie, Accept: 'application/json' },
+        headers: { Cookie: cookie, Accept: 'application/xml' },
         validateStatus: () => true,
       });
       if (getRes.status === 404) throw new BadRequestException(`תקלה ${defectId} לא נמצאה ב-QC`);
@@ -146,10 +147,10 @@ export class QcRestService {
       const putRes = await axios.put(
         this.entityUrl(config, defectId),
         buildFieldsPayload({ [COMMENT_FIELD]: newValue }),
-        { headers: { Cookie: cookie, 'Content-Type': 'application/json', Accept: 'application/json' }, validateStatus: () => true },
+        { headers: { Cookie: cookie, 'Content-Type': 'application/xml', Accept: 'application/xml' }, validateStatus: () => true },
       );
       if (putRes.status >= 300) {
-        throw new BadRequestException(`עדכון התקלה ב-QC נכשל (status ${putRes.status}): ${JSON.stringify(putRes.data).slice(0, 500)}`);
+        throw new BadRequestException(`עדכון התקלה ב-QC נכשל (status ${putRes.status}): ${String(putRes.data).slice(0, 500)}`);
       }
       return { newValue };
     } finally {
@@ -167,27 +168,39 @@ function mergeCookies(a: string, b: string): string {
   return [a, b].filter(Boolean).join('; ');
 }
 
-// QC REST returns { Fields: { Field: [{ Name, Value: [v] }, ...] } } (JSON
-// mirror of its native XML shape) — flattens to a plain { NAME: value } map.
-function parseFields(body: any): Record<string, string> {
-  const list = body?.Entity?.Fields?.Field ?? body?.Fields?.Field ?? [];
+// QC 11's REST API only reliably produces XML for this resource — asking for
+// JSON (the original implementation) hit a 406 "Not Acceptable" from QC's
+// own Wink dispatcher on real production QC (found 2026-09-01). Native shape:
+// <Entity Type="defect"><Fields><Field Name="BG_SUMMARY"><Value>...</Value>
+// </Field>...</Fields></Entity> — flattens to a plain { NAME: value } map.
+const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+
+function parseFields(xml: string): Record<string, string> {
+  const parsed = xmlParser.parse(xml);
+  const list = parsed?.Entity?.Fields?.Field ?? [];
   const arr = Array.isArray(list) ? list : [list];
   const out: Record<string, string> = {};
   for (const f of arr) {
-    if (!f?.Name) continue;
+    const name = f?.['@_Name'];
+    if (!name) continue;
     const value = Array.isArray(f.Value) ? f.Value[0] : f.Value;
-    out[f.Name] = value ?? '';
+    out[name] = value != null ? String(value) : '';
   }
   return out;
 }
 
-function buildFieldsPayload(fields: Record<string, string>) {
-  return {
-    Entity: {
-      Type: 'defect',
-      Fields: {
-        Field: Object.entries(fields).map(([Name, v]) => ({ Name, Value: [v] })),
-      },
-    },
-  };
+function xmlEscape(s: string): string {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function buildFieldsPayload(fields: Record<string, string>): string {
+  const fieldsXml = Object.entries(fields)
+    .map(([name, value]) => `<Field Name="${xmlEscape(name)}"><Value>${xmlEscape(value)}</Value></Field>`)
+    .join('');
+  return `<?xml version="1.0" encoding="UTF-8"?><Entity Type="defect"><Fields>${fieldsXml}</Fields></Entity>`;
 }

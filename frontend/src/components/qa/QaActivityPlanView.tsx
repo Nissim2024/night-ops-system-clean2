@@ -4,6 +4,7 @@ import { C, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, FONT } from '../../theme';
 import RunbookModal, { getRunbookTrigger, RunbookTrigger } from './RunbookModal';
 import { InviteDialog, InviteTeamOption } from './InviteDialog';
 import { DateField } from '../DatePicker';
+import { formatDate } from '../../utils/dateFormat';
 import { useDialog } from '../../context/DialogContext';
 
 const API  = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -99,9 +100,10 @@ const nextDow = nextDowBase;
 
 function fmtDate(d: Date): string {
   const DOW = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  return `${dd}/${mm} ${DOW[d.getDay()]}`;
+  // Unified DD/MM/YYYY date (2026-08-31 spec) — single-letter weekday kept:
+  // this is a compact per-day column header in a calendar/Gantt view, where
+  // the weekday letter is the primary at-a-glance context, not decoration.
+  return `${formatDate(d)} ${DOW[d.getDay()]}`;
 }
 
 function parseDate(s: string): Date {

@@ -60,6 +60,11 @@ export class QcController {
     return this.qcService.getDefectStatusHistory(defectId);
   }
 
+  @Get('defect-field-history')
+  getDefectFieldHistory(@Query('defectId') defectId: string) {
+    return this.qcService.getDefectFieldHistory(defectId);
+  }
+
   @Get('open-prod-defect-detail/:defectId')
   getOpenProdDefectDetail(@Param('defectId') defectId: string) {
     return this.qcService.getDefectFullDetail(defectId);

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { C, TEXT, WEIGHT, SP, RADIUS, SHADOW, FONT } from '../../theme';
+import { formatDateTime, formatTime } from '../../utils/dateFormat';
 
 export type InviteTeamMember = { id: string; fullName: string; email: string };
 export type InviteTeamOption = { id: string; name: string; members: InviteTeamMember[] };
@@ -103,9 +104,9 @@ export function InviteDialog({ title, subtitle, startISO, endISO, teams, preSele
           </div>
           {startISO && endISO && (
             <div style={{ ...TEXT.xs, marginTop: 2, opacity: 0.85 }}>
-              {new Date(startISO).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              {formatDateTime(startISO)}
               {' – '}
-              {new Date(endISO).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+              {formatTime(endISO)}
             </div>
           )}
         </div>

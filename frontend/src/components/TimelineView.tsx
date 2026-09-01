@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { statusColor } from '../theme';
+import { formatTime } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -61,8 +62,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
   const toggle = (id: string) =>
     setCollapsed(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
 
-  const fmt = (d: Date) =>
-    `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  const fmt = (d: Date) => formatTime(d);
 
   // ── Collect all timed tasks ──────────────────────────────────────────
   const allTasks: any[] = (version?.phases ?? []).flatMap((p: any) =>

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
 import { DateField, DateRangeField } from './DatePicker';
+import { formatDate } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -76,8 +77,8 @@ interface Props {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const fmt = (d: string) =>
-  new Date(d).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', weekday: 'short' });
+const LEAVE_DOW = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
+const fmt = (d: string) => `יום ${LEAVE_DOW[new Date(d).getDay()]}, ${formatDate(d)}`;
 
 // Returns true if today >= firstHolidayDate - 3 days
 const isSeasonLocked = (dates: SeasonDate[]): boolean => {

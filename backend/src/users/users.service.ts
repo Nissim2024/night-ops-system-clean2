@@ -20,7 +20,7 @@ const QC_USERS_SQL = `
   ORDER BY U.USER_NAME
 `;
 
-interface QcUser { fullName: string; email: string; }
+interface QcUser { fullName: string; email: string; userName?: string; }
 
 // SECURITY / PRIVACY NOTE:
 // This list contains real employee PII (names and emails).
@@ -294,7 +294,7 @@ export class UsersService {
         await conn.close();
         qcUsers = (result.rows as any[]).map((r: any) => {
           const emails: string[] = (r.EMAIL as string).split(';').map((e: string) => e.trim()).filter(Boolean);
-          return { fullName: r.FULL_NAME as string, email: emails[0] };
+          return { fullName: r.FULL_NAME as string, email: emails[0], userName: r.USER_NAME as string | undefined };
         }).filter((u: QcUser) => u.email);
         logger.log(`Fetched ${qcUsers.length} users from Oracle`);
       } catch (err: any) {
@@ -320,12 +320,19 @@ export class UsersService {
       if (existing) {
         await prisma.user.update({
           where: { id: existing.id },
-          data: { fullName: qcUser.email.toLowerCase() === existing.email.toLowerCase() ? qcUser.fullName : existing.fullName, active: true },
+          data: {
+            fullName: qcUser.email.toLowerCase() === existing.email.toLowerCase() ? qcUser.fullName : existing.fullName,
+            active: true,
+            // Only overwrite when this sync run actually has a login (live Oracle) —
+            // a hardcoded-fallback run has none and must not blank out a previously
+            // synced value.
+            ...(qcUser.userName ? { qcLogin: qcUser.userName } : {}),
+          },
         });
         updated++;
       } else {
         await prisma.user.create({
-          data: { fullName: qcUser.fullName, email: qcUser.email, password: defaultPassword, role: 'EMPLOYEE', active: true },
+          data: { fullName: qcUser.fullName, email: qcUser.email, password: defaultPassword, role: 'EMPLOYEE', active: true, qcLogin: qcUser.userName ?? null },
         });
         created++;
       }

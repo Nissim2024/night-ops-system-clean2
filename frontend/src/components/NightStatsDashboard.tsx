@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../theme';
+import { formatTime } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 interface Props { token: string; versionId: string; versionName: string; }
 
-const fmtTime = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '—';
+const fmtTime = (iso: string | null) => iso ? formatTime(iso) : '—';
 
 const fmtDur = (mins: number | null) => {
   if (mins === null) return '—';

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C } from '../theme';
+import { formatDateTime } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -312,7 +313,7 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
 
             {plan.submittedAt && (
               <div style={{ marginTop: '8px', fontSize: '13px', color: C.textMuted }}>
-                {sm.icon} הוגש ב-{new Date(plan.submittedAt).toLocaleString('he-IL')}
+                {sm.icon} הוגש ב-{formatDateTime(plan.submittedAt)}
                 {plan.submittedByName && ` ע"י ${plan.submittedByName}`}
               </div>
             )}
@@ -355,7 +356,7 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
           )}
           {plan.submissionStatus === 'SUBMITTED' && (
             <div style={{ fontSize: '13px', color: C.textMuted }}>
-              📤 הוגש {plan.submittedAt ? new Date(plan.submittedAt).toLocaleString('he-IL') : ''}{plan.submittedByName ? ` ע"י ${plan.submittedByName}` : ''}
+              📤 הוגש {plan.submittedAt ? formatDateTime(plan.submittedAt) : ''}{plan.submittedByName ? ` ע"י ${plan.submittedByName}` : ''}
             </div>
           )}
           {plan.reviewNote && <div style={{ fontSize: '13px', color: '#2980b9', marginTop: '2px' }}>💬 {plan.reviewNote}</div>}
@@ -431,7 +432,7 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
               border: `1px solid ${isPast ? 'rgba(248,81,73,0.30)' : 'rgba(210,153,34,0.30)'}`,
               color: isPast ? '#f85149' : '#d29922',
             }}>
-              ⏰ <strong>מועד הגשה: {new Date(submissionDeadline).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</strong>
+              ⏰ <strong>מועד הגשה: {formatDateTime(submissionDeadline)}</strong>
               {isPast && <span>— ⚠ המועד עבר</span>}
             </div>
           );
