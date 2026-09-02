@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException, ConflictException, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { getOracleConfig } from '../qc/qc.service';
 
 const prisma = new PrismaClient();
 
@@ -281,14 +282,22 @@ export class UsersService {
     const logger = new Logger('syncQcUsers');
     let qcUsers: QcUser[] = HARDCODED_QC_USERS;
 
-    if (process.env.ORACLE_ENABLED === 'true') {
+    // Same SystemParam-driven config every other Oracle call in this app
+    // uses (qc.service.ts's getOracleConfig) — NOT process.env, which is
+    // never set here since Oracle is configured via the Admin Panel at
+    // runtime, not deployment env vars (bug found 2026-09-02: this method
+    // used to check process.env.ORACLE_ENABLED directly, so it silently
+    // fell back to HARDCODED_QC_USERS — which has no userName field — on
+    // every real run, meaning no admin's qcLogin could ever get populated).
+    const oracleConfig = await getOracleConfig();
+    if (oracleConfig.enabled) {
       try {
         const oracledb = await import('oracledb');
         oracledb.default.outFormat = oracledb.default.OUT_FORMAT_OBJECT;
         const conn = await oracledb.default.getConnection({
-          user: process.env.ORACLE_USER,
-          password: process.env.ORACLE_PASSWORD,
-          connectString: process.env.ORACLE_CONNECT_STRING,
+          user: oracleConfig.user,
+          password: oracleConfig.password,
+          connectString: oracleConfig.connectString,
         });
         const result = await conn.execute(QC_USERS_SQL);
         await conn.close();

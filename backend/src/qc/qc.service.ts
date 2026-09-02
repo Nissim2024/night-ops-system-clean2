@@ -7,7 +7,15 @@ const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
 });
 
-async function getOracleConfig() {
+// Exported for users.service.ts's syncQcUsers() — it used to read
+// process.env.ORACLE_ENABLED/ORACLE_USER/etc. directly, which is NEVER set
+// in production (this app configures Oracle via SystemParam, admin-editable
+// at runtime, not env vars) — so syncQcUsers() silently fell back to
+// HARDCODED_QC_USERS on every real run, and that fallback list has no
+// `userName` field at all, meaning qcLogin could never be populated by sync
+// no matter how many times an admin ran it. Found 2026-09-02 diagnosing a
+// real user's persistent "no linked QC user" block after a successful sync.
+export async function getOracleConfig() {
   const keys = ['ORACLE_ENABLED', 'ORACLE_USER', 'ORACLE_PASSWORD', 'ORACLE_CONNECT_STRING'];
   const rows = await prisma.systemParam.findMany({ where: { key: { in: keys } } });
   const map = Object.fromEntries(rows.map(r => [r.key, r.value]));
