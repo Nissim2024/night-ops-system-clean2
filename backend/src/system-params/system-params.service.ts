@@ -123,9 +123,10 @@ const DEFAULT_PARAMS = [
   // QC REST write-back — separate integration channel from the existing
   // read-only Oracle connection above (direct SQL against QC's schema is
   // unsafe for writes: bypasses QC's own workflow/validation/audit-history
-  // layer). Test tool only for now (2026-08-30) — comment-append field, not
-  // a general defect editor. Values seeded directly (not via source commit)
-  // once the user provided them in chat, same as ORACLE_*/ANTHROPIC_API_KEY.
+  // layer). Connection-only config — no credentials here: every write-back
+  // call authenticates as the ACTING USER's own QC identity (qcLogin + empty
+  // password), not a shared account (spec confirmed 2026-09-02). See
+  // qc-rest.service.ts.
   {
     key: 'QC_REST_BASE_URL',
     value: '',
@@ -144,16 +145,23 @@ const DEFAULT_PARAMS = [
     label: 'QC REST API: Project',
     type: 'text',
   },
+  // Separate from the write-back connection above — a real QC Admin
+  // credential, held for future QC-side administrative operations (e.g.
+  // account provisioning/configuration via QC's own admin API), NOT used
+  // anywhere in the defect write-back flow, which deliberately never
+  // authenticates as a shared account (spec confirmed 2026-09-02). No
+  // consuming code yet — storage only, until a specific admin operation is
+  // built against it.
   {
-    key: 'QC_REST_USERNAME',
+    key: 'QC_ADMIN_USERNAME',
     value: '',
-    label: 'QC REST API: שם משתמש (הרשאת כתיבה — לא אותו משתמש קריאה של Oracle)',
+    label: 'QC Admin: שם משתמש (לפעולות ניהול עתידיות מול QC — לא בשימוש כיום בכתיבת תקלות)',
     type: 'text',
   },
   {
-    key: 'QC_REST_PASSWORD',
+    key: 'QC_ADMIN_PASSWORD',
     value: '',
-    label: 'QC REST API: סיסמה',
+    label: 'QC Admin: סיסמה',
     type: 'password',
   },
 ];

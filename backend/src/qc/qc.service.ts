@@ -1229,6 +1229,27 @@ const DEFECT_STATUS_HISTORY_SQL = `
   ORDER BY audit_log.AU_TIME ASC
 `;
 
+// Historical defect-fix throughput for one release's testing-phase window —
+// backs the Forecast card's defect-rate check (release-intelligence's
+// getHistoricalDefectFixRate). Counts distinct defects (of that release)
+// with a real audit-log transition to 'Fixed Test' inside [startDate,
+// endDate]. The 'Fixed Test' literal is the user's own stated status name
+// (2026-09-02) but, like AU_USER/AP_OLD_VALUE on DEFECT_FIELD_HISTORY_SQL
+// above, has NOT been verified against this real instance's actual distinct
+// AP_NEW_VALUE spelling yet — verify against live Oracle before trusting
+// this beyond a rough estimate.
+const DEFECT_FIX_RATE_SQL = `
+  SELECT COUNT(DISTINCT audit_log.AU_ENTITY_ID) AS FIXED_COUNT
+  FROM BUG defect
+  INNER JOIN AUDIT_LOG audit_log ON defect.BG_BUG_ID = audit_log.AU_ENTITY_ID
+  INNER JOIN AUDIT_PROPERTIES audit_property ON audit_log.AU_ACTION_ID = audit_property.AP_ACTION_ID
+  WHERE audit_log.AU_ENTITY_TYPE = 'BUG'
+    AND audit_property.AP_PROPERTY_NAME = 'Bug Status'
+    AND audit_property.AP_NEW_VALUE = 'Fixed Test'
+    AND defect.BG_DETECTED_IN_REL = :releaseId
+    AND audit_log.AU_TIME BETWEEN :startDate AND :endDate
+`;
+
 // Same AUDIT_LOG/AUDIT_PROPERTIES tables as DEFECT_STATUS_HISTORY_SQL above,
 // but without the 'Bug Status'-only filter — every field-level change for
 // the defect, for the TARGET-defect detail form's change-history section.
@@ -2529,6 +2550,30 @@ export class QcService {
     } catch (err: any) {
       this.logger.error(`Oracle getOpenProductionDefectsHistory: ${err.message}`);
       throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
+  }
+
+  // No mock fallback (returns null when Oracle is disabled) — inventing a
+  // fake historical fix-rate would be worse than just not showing that half
+  // of the Forecast card (spec confirmed 2026-09-02, "אם אפשר" — this is a
+  // best-effort metric, not a guaranteed one).
+  async getDefectFixRate(versionId: string, startDate: Date, endDate: Date): Promise<number | null> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) return null;
+    const relId = await this.getRelId(versionId);
+    if (!relId) return null;
+
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const result = await conn.execute(DEFECT_FIX_RATE_SQL, { releaseId: relId, startDate, endDate });
+      const row = (result.rows ?? [])[0] as any;
+      return row ? Number(row.FIXED_COUNT ?? 0) : 0;
+    } catch (err: any) {
+      this.logger.error(`Oracle getDefectFixRate: ${err.message}`);
+      return null;
     } finally {
       if (conn) await conn.close().catch(() => {});
     }

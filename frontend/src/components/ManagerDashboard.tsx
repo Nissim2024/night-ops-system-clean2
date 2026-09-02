@@ -2,6 +2,7 @@
 import axios from 'axios';
 import { HomeDashboard, getDeploymentsTabForStatus } from './HomeDashboard';
 import { ReleaseIntelligenceOverview } from './release-intelligence/ReleaseIntelligenceOverview';
+import { RiskManagementView } from './release-intelligence/RiskManagementView';
 import { ReleaseIntelligenceHomeView } from './release-intelligence/ReleaseIntelligenceHomeView';
 import { DailyQaManagementView } from './release-intelligence/DailyQaManagementView';
 import { CrHealthView } from './release-intelligence/CrHealthView';
@@ -812,6 +813,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'overview' && (
             <ReleaseIntelligenceOverview token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+          )}
+          {activeModule === 'release-intelligence' && activeRiView === 'risks' && (
+            <RiskManagementView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'daily-qa' && (
             <DailyQaManagementView token={token} versionId={selectedVersionId || undefined} role={payload.role} />

@@ -10,7 +10,7 @@ export const ALL_PERMISSIONS = [
   'screen:night', 'screen:summary', 'screen:admin', 'screen:qa', 'screen:release-intelligence', 'screen:quality-hub',
   'action:import', 'action:gonogo', 'action:task_status', 'action:open_task_for_execution',
   'action:user_manage', 'action:override_version_edit', 'action:select_all_tasks', 'action:template_delete',
-  'action:qa_leave_request', 'action:qa_manage',
+  'action:qa_leave_request', 'action:qa_manage', 'action:qc_write',
 ];
 
 const DEFAULTS: Record<string, string[]> = {
@@ -35,6 +35,17 @@ export class PermissionsService {
       acc[row.role] = row.permissions as string[];
       return acc;
     }, {} as Record<string, string[]>);
+  }
+
+  // ADMIN always passes regardless of its stored row (matches DEFAULTS.ADMIN
+  // spreading ALL_PERMISSIONS) — a role-level check other controllers can
+  // reuse instead of a hardcoded requireRole(['ADMIN']) allowlist (spec
+  // confirmed 2026-09-02, first consumer: QC REST write-back).
+  async hasPermission(role: Role, key: string): Promise<boolean> {
+    if (role === 'ADMIN') return true;
+    await this.ensureDefaults();
+    const row = await prisma.rolePermissions.findUnique({ where: { role } });
+    return (row?.permissions as string[] | undefined)?.includes(key) ?? false;
   }
 
   async updateRole(role: Role, permissions: string[]) {

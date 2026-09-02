@@ -65,6 +65,7 @@ const VM_VIEWS = [
 const RI_VIEWS = [
   { key: 'home', label: 'דף הבית', icon: '🏠' },
   { key: 'overview', label: 'סקירה כללית', icon: '📊' },
+  { key: 'risks', label: 'ניהול סיכונים', icon: '⚠️' },
   { key: 'daily-qa', label: 'ניהול QA יומי', icon: '📋' },
   { key: 'cr-health', label: 'בריאות CR', icon: '🩺' },
   { key: 'coverage-readiness', label: 'כיסוי ומוכנות', icon: '✅' },

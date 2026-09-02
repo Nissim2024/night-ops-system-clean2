@@ -5,16 +5,24 @@ import { XMLParser } from 'fast-xml-parser';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
-// The internal "Dev Comments" field on QC's BUG entity — same DB column
-// (BG_DEV_COMMENTS) DEFECTS_SQL_SELECT already reads in qc.service.ts.
+// QC REST field names — NOT the same as the Oracle physical column names
+// used everywhere else in this app (qc.service.ts's raw SQL). REST addresses
+// fields by their "Name" (a REST-specific identifier from Project
+// Customization), not their PhysicalName — confirmed against this QC
+// instance's real field list (user-supplied 2026-09-01), e.g. physical
+// column BG_DEV_COMMENTS is REST field "dev-comments", BG_SUMMARY is "name",
+// BG_STATUS is "status". Getting this wrong doesn't 404 — QC either 406s
+// (wrong Accept format, unrelated) or 500s with qccore.unknown-field-name,
+// or for GET silently returns nothing under the wrong key.
+const REST_FIELD = { id: 'id', title: 'name', status: 'status', comments: 'dev-comments' } as const;
 // Kept as a single named constant (not user-configurable yet) since this
 // tool intentionally only supports one, low-risk field for now (spec
 // confirmed 2026-08-29: comment-append only, not a general defect editor —
 // a bad write to a workflow-sensitive field like status could visibly break
 // a real defect other teams depend on).
-const COMMENT_FIELD = 'BG_DEV_COMMENTS';
+const COMMENT_FIELD = REST_FIELD.comments;
 
-interface QcRestConfig { baseUrl: string; domain: string; project: string; username: string; password: string; }
+interface QcRestConfig { baseUrl: string; domain: string; project: string; }
 
 // Standalone REST integration — deliberately NOT sharing anything with
 // qc.service.ts's Oracle connection. That connection is a direct read-only
@@ -28,36 +36,51 @@ export class QcRestService {
   private readonly logger = new Logger(QcRestService.name);
 
   private async getConfig(): Promise<QcRestConfig> {
-    const keys = ['QC_REST_BASE_URL', 'QC_REST_DOMAIN', 'QC_REST_PROJECT', 'QC_REST_USERNAME', 'QC_REST_PASSWORD'];
+    const keys = ['QC_REST_BASE_URL', 'QC_REST_DOMAIN', 'QC_REST_PROJECT'];
     const rows = await prisma.systemParam.findMany({ where: { key: { in: keys } } });
     const byKey = new Map(rows.map(r => [r.key, r.value?.trim() ?? '']));
     const baseUrl = byKey.get('QC_REST_BASE_URL') ?? '';
     const domain = byKey.get('QC_REST_DOMAIN') ?? '';
     const project = byKey.get('QC_REST_PROJECT') ?? '';
-    const username = byKey.get('QC_REST_USERNAME') ?? '';
-    const password = byKey.get('QC_REST_PASSWORD') ?? '';
-    if (!baseUrl || !domain || !project || !username || !password) {
-      throw new BadRequestException('חיבור QC REST לא מוגדר במלואו בפרמטרי המערכת (Base URL / Domain / Project / משתמש / סיסמה)');
+    if (!baseUrl || !domain || !project) {
+      throw new BadRequestException('חיבור QC REST לא מוגדר במלואו בפרמטרי המערכת (Base URL / Domain / Project)');
     }
-    return { baseUrl: baseUrl.replace(/\/+$/, ''), domain, project, username, password };
+    return { baseUrl: baseUrl.replace(/\/+$/, ''), domain, project };
   }
 
-  // QC 11 REST session bootstrap: Basic-auth login sets an SSO cookie, then a
-  // separate site-session call upgrades it to a QCSession cookie that
-  // domain/project-scoped calls require. Both cookies are forwarded together
-  // on every later request. Logs out at the end of every call site (finally
-  // block in the public methods below) so a test session is never left open
-  // against production QC.
-  private async login(config: QcRestConfig): Promise<string> {
+  // Every write-back action authenticates as the ACTING USER's own QC
+  // identity — no shared service account, nothing stored (spec confirmed
+  // 2026-09-02, verified against real production QC: QC accepts Basic auth
+  // with an empty password for some accounts, e.g. "roiv", but not others,
+  // e.g. "nissimp" who gets a real 401). By explicit user decision there is
+  // NO fallback to a shared account for users whose QC account isn't set up
+  // this way — the action is blocked with a message telling them who to ask,
+  // never silently attributed to someone else.
+  private async resolveQcLogin(userId: string): Promise<string> {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { qcLogin: true, fullName: true } });
+    if (!user?.qcLogin) {
+      throw new BadRequestException('למשתמש שלך אין משתמש QC מקושר (qcLogin) — פנה למנהל המערכת כדי לסנכרן זאת מול QC.');
+    }
+    return user.qcLogin;
+  }
+
+  // QC 11 REST session bootstrap: Basic-auth login (empty password — the
+  // acting user's real QC password is never known to or stored by
+  // DeployCenter) sets an SSO cookie, then a separate site-session call
+  // upgrades it to a QCSession cookie that domain/project-scoped calls
+  // require. Both cookies are forwarded together on every later request.
+  // Logs out at the end of every call site (finally block in the public
+  // methods below) so a session is never left open against production QC.
+  private async loginAsUser(config: QcRestConfig, qcLogin: string): Promise<string> {
     const authRes = await this.safeRequest(
       () => axios.get(`${config.baseUrl}/authentication-point/authenticate`, {
-        auth: { username: config.username, password: config.password },
+        auth: { username: qcLogin, password: '' },
         validateStatus: () => true,
       }),
       config.baseUrl,
     );
     if (authRes.status !== 200) {
-      throw new BadRequestException(`התחברות ל-QC נכשלה (status ${authRes.status}) — בדוק שם משתמש/סיסמה`);
+      throw new BadRequestException(`המשתמש שלך ב-QC (${qcLogin}) אינו מוגדר להתחברות ללא סיסמה (status ${authRes.status}). פנה למנהל QC כדי להפעיל זאת עבור המשתמש שלך.`);
     }
     const ssoCookies = extractCookies(authRes);
 
@@ -102,11 +125,38 @@ export class QcRestService {
     return `${config.baseUrl}/rest/domains/${encodeURIComponent(config.domain)}/projects/${encodeURIComponent(config.project)}/defects/${encodeURIComponent(defectId)}`;
   }
 
+  // Diagnostic — every field REST actually returns for this defect, real
+  // REST field names (not DB column names). Exists because BG_DEV_COMMENTS
+  // (the real Oracle column) turned out not to be the REST field name QC
+  // recognizes for writes (406→XML fix got us past auth, then a real
+  // qccore.unknown-field-name on PUT, then confirmed on GET too — defect
+  // 47000's real comments came back empty via previewDefect, meaning the
+  // GET side has the exact same wrong-key problem). Lets a human find the
+  // right field name by inspecting a defect with known real data, instead
+  // of guessing again (spec confirmed 2026-09-01).
+  async listAllFields(defectId: string, userId: string): Promise<Record<string, string>> {
+    const config = await this.getConfig();
+    const qcLogin = await this.resolveQcLogin(userId);
+    const cookie = await this.loginAsUser(config, qcLogin);
+    try {
+      const res = await axios.get(this.entityUrl(config, defectId), {
+        headers: { Cookie: cookie, Accept: 'application/xml' },
+        validateStatus: () => true,
+      });
+      if (res.status === 404) throw new BadRequestException(`תקלה ${defectId} לא נמצאה ב-QC`);
+      if (res.status !== 200) throw new BadRequestException(`שגיאה בקריאת תקלה מ-QC (status ${res.status}): ${String(res.data).slice(0, 300)}`);
+      return parseFields(res.data);
+    } finally {
+      await this.logout(config, cookie);
+    }
+  }
+
   // Read-only preview — title/status/current comment value, for the test
   // page to show "here's what's there today" before anyone appends anything.
-  async previewDefect(defectId: string): Promise<{ id: string; title: string; status: string; comments: string }> {
+  async previewDefect(defectId: string, userId: string): Promise<{ id: string; title: string; status: string; comments: string }> {
     const config = await this.getConfig();
-    const cookie = await this.login(config);
+    const qcLogin = await this.resolveQcLogin(userId);
+    const cookie = await this.loginAsUser(config, qcLogin);
     try {
       const res = await axios.get(this.entityUrl(config, defectId), {
         headers: { Cookie: cookie, Accept: 'application/xml' },
@@ -117,8 +167,8 @@ export class QcRestService {
       const fields = parseFields(res.data);
       return {
         id: defectId,
-        title: fields['BG_SUMMARY'] ?? '',
-        status: fields['BG_USER_04'] ?? fields['BG_STATUS'] ?? '',
+        title: fields[REST_FIELD.title] ?? '',
+        status: fields[REST_FIELD.status] ?? '',
         comments: fields[COMMENT_FIELD] ?? '',
       };
     } finally {
@@ -128,10 +178,11 @@ export class QcRestService {
 
   // Appends (never overwrites) — reads the current value first so a real
   // tester's existing comments are never destroyed by this tool.
-  async appendComment(defectId: string, note: string, authorLabel: string): Promise<{ newValue: string }> {
+  async appendComment(defectId: string, note: string, authorLabel: string, userId: string): Promise<{ newValue: string }> {
     if (!note?.trim()) throw new BadRequestException('יש להזין טקסט להוספה');
     const config = await this.getConfig();
-    const cookie = await this.login(config);
+    const qcLogin = await this.resolveQcLogin(userId);
+    const cookie = await this.loginAsUser(config, qcLogin);
     try {
       const getRes = await axios.get(this.entityUrl(config, defectId), {
         headers: { Cookie: cookie, Accept: 'application/xml' },

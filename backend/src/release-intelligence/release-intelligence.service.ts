@@ -7,7 +7,10 @@ const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE
 // QG thresholds — spec section 25: should come from QC Cycle Configuration,
 // not be hardcoded. No such configuration exists yet, so these are the
 // documented current defaults until that config surface is built.
-const QG_DEFAULTS = { SHOW_STOPPER: 1, SEVERE: 5, MEDIUM: 10, LOW: 20 };
+// SHOW_STOPPER is 0, not a typo — zero tolerance (user-confirmed 2026-09-01:
+// a single open Show Stopper must fail the gate, unlike the other
+// severities which tolerate a threshold count before failing).
+const QG_DEFAULTS = { SHOW_STOPPER: 0, SEVERE: 5, MEDIUM: 10, LOW: 20 };
 
 // Status Board "aging" tile — same "documented default until a real config
 // surface exists" reasoning as QG_DEFAULTS above. discoveryDate on DefectDto
@@ -26,6 +29,24 @@ function parseOracleDateAgeDays(ddMmYyyy: string, nowMs: number): number | null 
 
 const CLOSED_DEFECT_STATUSES = ['Closed', 'Canceled', 'Rejected', 'Fixed'];
 const CRITICAL_SEVERITIES = ['Show Stopper', 'Severe'];
+
+// "Core" cycles for the Home page's version-wide coverage % and the forecast
+// pace check — UAT/REHEARSAL/STAND_ALONE/GO_LIVE deliberately excluded (spec
+// confirmed 2026-09-02: coverage should reflect the 3 real testing cycles,
+// not rehearsal/UAT noise).
+const CORE_CYCLE_TYPES = ['CYCLE_1', 'CYCLE_2', 'CYCLE_3'];
+// Real QC priority value for a script-blocking defect (spec confirmed
+// 2026-09-02) — usually opened alongside a test script marked "Blocked",
+// used here to supply the human-readable "why is this CR blocked" reason.
+const TEST_BLOCKER_PRIORITY = 'Test Blocker';
+
+// Same Hebrew cycle labels as the frontend's own CYCLE_LABEL (CycleProgressView.tsx
+// / ReleaseIntelligenceHomeView.tsx) — needed here only for forecastWarnings'
+// human-readable message text, not duplicated logic.
+const CYCLE_LABEL: Record<string, string> = {
+  CYCLE_1: 'סבב 1', CYCLE_2: 'סבב 2', CYCLE_3: 'סבב 3',
+  STAND_ALONE: 'Stand Alone', UAT: 'UAT', REHEARSAL: 'חזרה גנרלית', GO_LIVE: 'עליה לאוויר',
+};
 
 // Per-CR quality score — release-intelligence Home page's "CR-ים לא עומדים
 // ביעד איכות" card. score = Σ(defectCount × severityWeight) / actualEffortDays;
@@ -73,25 +94,44 @@ export class ReleaseIntelligenceService {
     const version = await prisma.version.findUnique({ where: { id: versionId } });
     if (!version) throw new BadRequestException('גרסה לא נמצאה');
 
-    const [coverage, defects, openRisks, crPlans, params] = await Promise.all([
-      this.qcService.getTestCoverage(versionId).catch((): TestCoverageDto[] => []),
+    const [defects, openRisks, crPlans, params, cycleProgress] = await Promise.all([
       this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
       prisma.releaseRisk.findMany({ where: { versionId, status: 'OPEN' } }),
       prisma.crPlan.findMany({ where: { versionId }, select: { riskLevel: true } }),
-      prisma.systemParam.findMany({ where: { key: { in: ['DEFAULT_TEST_DURATION_MINUTES', 'FORECAST_ALERT_DAYS'] } } }),
+      prisma.systemParam.findMany({ where: { key: { in: ['FORECAST_ALERT_DAYS'] } } }),
+      this.getCycleProgress(versionId).catch(() => null),
     ]);
 
     const paramMap = Object.fromEntries(params.map(p => [p.key, p.value]));
-    const testDurationMin = Number(paramMap['DEFAULT_TEST_DURATION_MINUTES'] ?? 15);
     const alertDays = Number(paramMap['FORECAST_ALERT_DAYS'] ?? 5);
 
-    // Coverage %
-    const totalPlanned = coverage.reduce((s, c) => s + (c.planned || 0), 0);
-    const totalPassed = coverage.reduce((s, c) => s + (c.passed || 0), 0);
-    const coveragePct = totalPlanned > 0 ? Math.round((totalPassed / totalPlanned) * 100) : 0;
+    // Version-wide coverage % — real per-CR script counts (Passed+Failed only,
+    // NOT blocked/notRun/notCompleted/notReady/N/A), summed across the 3 core
+    // cycles only. Replaces the old subject/folder-level getTestCoverage calc
+    // (spec confirmed 2026-09-02).
+    const coreCrCoverage = (cycleProgress?.timeline ?? [])
+      .filter(t => CORE_CYCLE_TYPES.includes(t.cycleType))
+      .flatMap(t => t.crCoverage.map(cc => ({ ...cc, cycleType: t.cycleType })));
+    const coreTotal = coreCrCoverage.reduce((s, cc) => s + cc.total, 0);
+    const corePassedFailed = coreCrCoverage.reduce((s, cc) => s + cc.passed + cc.failed, 0);
+    const coveragePct = coreTotal > 0 ? Math.round((corePassedFailed / coreTotal) * 100) : 0;
 
     // Critical defects — open, severity Show Stopper/Severe
     const openDefects = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
+
+    // Blocked CRs — any CR with blocked scripts in a core cycle; "reason" is
+    // whichever open Test Blocker-priority defects are reported against it
+    // (usually opened alongside the blocked script — spec confirmed
+    // 2026-09-02, no guaranteed 1:1 link, so this is a best-effort match by
+    // CR number, not a hard reference).
+    const blockedCrs = coreCrCoverage
+      .filter(cc => cc.blocked > 0)
+      .map(cc => ({
+        crNumber: cc.crNumber, crLabel: cc.crLabel, cycleType: cc.cycleType, blockedCount: cc.blocked,
+        reasonDefects: openDefects
+          .filter(d => d.crReferenceNumber === cc.crNumber && d.priority === TEST_BLOCKER_PRIORITY)
+          .map(d => ({ id: d.id, title: d.title })),
+      }));
     const criticalDefects = openDefects.filter(d => CRITICAL_SEVERITIES.includes(d.severity)).length;
 
     // QG summary — open defect counts by severity vs thresholds
@@ -102,15 +142,65 @@ export class ReleaseIntelligenceService {
       ? Math.ceil((new Date(version.plannedStart).getTime() - Date.now()) / 86400000)
       : null;
 
-    // Remaining tests / forecast — v1 heuristic (see plan notes: not a fixed
-    // formula in the spec, tune once real data is observed)
-    const remainingTests = coverage.reduce((s, c) => s + (c.notRun || 0) + (c.blocked || 0) + (c.notCompleted || 0), 0);
-    const remainingEffortDays = (remainingTests * testDurationMin) / (60 * 8); // 8h workday
-    let forecastStatus: 'ON_TRACK' | 'AT_RISK' | 'BEHIND_PLAN' = 'ON_TRACK';
-    if (daysToGoLive !== null) {
-      if (remainingEffortDays > daysToGoLive) forecastStatus = 'BEHIND_PLAN';
-      else if (remainingEffortDays > daysToGoLive - alertDays) forecastStatus = 'AT_RISK';
+    // ── Forecast — two independent checks, shown as two separate indicators
+    // on the same card (spec confirmed 2026-09-02), replacing the old single
+    // remainingTests/testDurationMin heuristic:
+
+    // 1) Pace: scenarios remaining in the CURRENT core cycle (CYCLE_1/2/3),
+    // at a fixed 1 hour/scenario, against time remaining to that cycle's own
+    // end — EXCEPT when it's the last core cycle (CYCLE_3), where the
+    // deadline is the version's own go-live (plannedStart) instead, since
+    // there's no next cycle left to absorb overflow into.
+    const coreCycles = (cycleProgress?.timeline ?? []).filter(t => CORE_CYCLE_TYPES.includes(t.cycleType));
+    const activeCoreCycle = coreCycles.find(t => t.state === 'active') ?? null;
+    let forecastPace: {
+      status: 'ON_TRACK' | 'AT_RISK' | 'BEHIND_PLAN'; cycleType: string; isLastCycle: boolean;
+      remainingScenarios: number; hoursRequired: number; hoursRemaining: number;
+    } | null = null;
+    if (activeCoreCycle) {
+      const remainingScenarios = activeCoreCycle.crCoverage.reduce((s, cc) => s + Math.max(0, cc.total - cc.passed - cc.failed), 0);
+      const isLastCycle = activeCoreCycle.cycleType === CORE_CYCLE_TYPES[CORE_CYCLE_TYPES.length - 1];
+      const deadline = isLastCycle ? version.plannedStart : activeCoreCycle.plannedEnd;
+      if (deadline) {
+        const hoursRequired = remainingScenarios * 1; // 1 hour/scenario, fixed (spec confirmed 2026-09-02)
+        const hoursRemaining = (new Date(deadline).getTime() - Date.now()) / 3600000;
+        const bufferHours = alertDays * 8; // reuse FORECAST_ALERT_DAYS as an 8h-workday buffer, same param the old heuristic used
+        const status: 'ON_TRACK' | 'AT_RISK' | 'BEHIND_PLAN' =
+          hoursRemaining < hoursRequired ? 'BEHIND_PLAN'
+          : hoursRemaining < hoursRequired + bufferHours ? 'AT_RISK'
+          : 'ON_TRACK';
+        forecastPace = { status, cycleType: activeCoreCycle.cycleType, isLastCycle, remainingScenarios, hoursRequired, hoursRemaining: Math.round(hoursRemaining) };
+      }
     }
+
+    // 2) Defect-rate: current open-defect count against how many defects the
+    // team could realistically fix by go-live, projected from the historical
+    // defect-fix throughput of the last 3 completed versions' own testing-
+    // phase windows (qaStart→qaEnd). Best-effort — null (and simply not
+    // shown) when there isn't enough historical data or Oracle is disabled,
+    // per the user's own "if possible" framing (spec confirmed 2026-09-02).
+    const historicalRate = await this.getHistoricalDefectFixRate(versionId).catch(() => null);
+    let forecastDefectRate: {
+      status: 'ON_TRACK' | 'AT_RISK' | 'BEHIND_PLAN'; openDefects: number; expectedFixable: number;
+      avgFixesPerDay: number; sampleVersions: number;
+    } | null = null;
+    if (historicalRate && daysToGoLive != null && daysToGoLive > 0) {
+      const expectedFixable = historicalRate.avgFixesPerDay * daysToGoLive;
+      const ratio = expectedFixable > 0 ? openDefects.length / expectedFixable : (openDefects.length > 0 ? Infinity : 0);
+      const status: 'ON_TRACK' | 'AT_RISK' | 'BEHIND_PLAN' = ratio > 1 ? 'BEHIND_PLAN' : ratio > 0.8 ? 'AT_RISK' : 'ON_TRACK';
+      forecastDefectRate = {
+        status, openDefects: openDefects.length, expectedFixable: Math.round(expectedFixable),
+        avgFixesPerDay: Math.round(historicalRate.avgFixesPerDay * 10) / 10, sampleVersions: historicalRate.sampleVersions,
+      };
+    }
+
+    // Overall forecastStatus — worst of the two checks that actually have
+    // data, kept for healthScore and any existing single-status consumers;
+    // ON_TRACK when neither check has data (nothing to flag).
+    const STATUS_RANK = { ON_TRACK: 0, AT_RISK: 1, BEHIND_PLAN: 2 } as const;
+    const forecastStatus: 'ON_TRACK' | 'AT_RISK' | 'BEHIND_PLAN' = [forecastPace?.status, forecastDefectRate?.status]
+      .filter((s): s is 'ON_TRACK' | 'AT_RISK' | 'BEHIND_PLAN' => !!s)
+      .reduce((worst, s) => (STATUS_RANK[s] > STATUS_RANK[worst] ? s : worst), 'ON_TRACK' as 'ON_TRACK' | 'AT_RISK' | 'BEHIND_PLAN');
 
     // Risk score from CrPlan.riskLevel + ReleaseRisk table
     const highRiskCrs = crPlans.filter(p => p.riskLevel === 'HIGH').length;
@@ -131,8 +221,8 @@ export class ReleaseIntelligenceService {
       }),
       prisma.releaseForecast.upsert({
         where: { versionId },
-        create: { versionId, remainingTests, velocity: 0, status: forecastStatus },
-        update: { remainingTests, status: forecastStatus, calculatedDate: new Date() },
+        create: { versionId, remainingTests: forecastPace?.remainingScenarios ?? 0, velocity: 0, status: forecastStatus },
+        update: { remainingTests: forecastPace?.remainingScenarios ?? 0, status: forecastStatus, calculatedDate: new Date() },
       }),
     ]);
 
@@ -154,21 +244,63 @@ export class ReleaseIntelligenceService {
       });
     }
 
+    const forecastWarnings: string[] = [];
+    if (forecastPace && forecastPace.status !== 'ON_TRACK') {
+      const cycleLabel = CYCLE_LABEL[forecastPace.cycleType] ?? forecastPace.cycleType;
+      forecastWarnings.push(`נותרו ${forecastPace.remainingScenarios} תרחישים ב${cycleLabel} (${forecastPace.hoursRequired} שעות נדרשות) מול ${Math.max(0, forecastPace.hoursRemaining)} שעות שנותרו${forecastPace.isLastCycle ? ' עד לעלייה לאוויר' : ' עד לסיום הסבב'}`);
+    }
+    if (forecastDefectRate && forecastDefectRate.status !== 'ON_TRACK') {
+      forecastWarnings.push(`${forecastDefectRate.openDefects} תקלות פתוחות מול יכולת תיקון משוערת של ${forecastDefectRate.expectedFixable} עד לעלייה לאוויר (קצב היסטורי: ${forecastDefectRate.avgFixesPerDay}/יום, ${forecastDefectRate.sampleVersions} גרסאות)`);
+    }
+
     return {
       healthScore,
       coveragePct,
+      blockedCrs,
       criticalDefects,
       openRisksCount,
       daysToGoLive,
       forecastStatus,
+      forecastPace,
+      forecastDefectRate,
       qgSummary,
       qgPass,
       topRisks,
       criticalAlerts,
-      forecastWarnings: forecastStatus !== 'ON_TRACK'
-        ? [`נותרו ${remainingTests} בדיקות (${remainingEffortDays.toFixed(1)} ימי עבודה משוערים) מול ${daysToGoLive ?? '—'} ימים לעלייה לאוויר`]
-        : [],
+      forecastWarnings,
     };
+  }
+
+  // Blended historical defect-fix throughput (fixes/day) from the last 3
+  // COMPLETED versions' own testing-phase windows (qaStart→qaEnd), excluding
+  // the version being forecast. Feeds the Forecast card's defect-rate check
+  // (spec confirmed 2026-09-02: "אם אפשר לחשב 3 גרסאות אחרונות רק בשלב
+  // הבדיקות"). Returns null when there's no usable history — Oracle
+  // disabled, no completed versions with both QA dates set, or every
+  // per-version Oracle call failed — rather than fabricate a rate.
+  private async getHistoricalDefectFixRate(excludeVersionId: string): Promise<{ avgFixesPerDay: number; sampleVersions: number } | null> {
+    const pastVersions = await prisma.version.findMany({
+      where: { status: 'COMPLETED', id: { not: excludeVersionId }, qaStart: { not: null }, qaEnd: { not: null } },
+      orderBy: { qaEnd: 'desc' },
+      take: 3,
+      select: { id: true, qaStart: true, qaEnd: true },
+    });
+    if (pastVersions.length === 0) return null;
+
+    let totalFixed = 0;
+    let totalDays = 0;
+    let sampled = 0;
+    for (const v of pastVersions) {
+      if (!v.qaStart || !v.qaEnd) continue;
+      const fixed = await this.qcService.getDefectFixRate(v.id, v.qaStart, v.qaEnd).catch(() => null);
+      if (fixed == null) continue;
+      const days = Math.max(1, (v.qaEnd.getTime() - v.qaStart.getTime()) / 86400000);
+      totalFixed += fixed;
+      totalDays += days;
+      sampled++;
+    }
+    if (sampled === 0 || totalDays === 0) return null;
+    return { avgFixesPerDay: totalFixed / totalDays, sampleVersions: sampled };
   }
 
   // ── Shared QG helper — reused by Overview and Cycle Progress ────────────────
@@ -368,9 +500,39 @@ export class ReleaseIntelligenceService {
     // cycle a CR was actually tested in historically.
     const vcaRows = await prisma.versionCrAssignment.findMany({
       where: { versionId, syncStatus: { not: 'REMOVED' } },
-      select: { crNumber: true },
+      select: { crNumber: true, project: true, priorityTestDate: true },
     });
     const versionCrNumbers = [...new Set(vcaRows.map(r => r.crNumber))];
+    // Project name per CR — a CR can have one VersionCrAssignment row per
+    // team, occasionally with different `project` values per team; joined
+    // with " / " when they actually differ rather than picking one
+    // arbitrarily (spec confirmed 2026-09-02, added alongside tester name
+    // for the cycle-detail CR breakdown).
+    const projectByCr = new Map<string, string>();
+    // Earliest priorityTestDate across this CR's team rows — an explicit
+    // early deadline (go-live before this version's own scope, must be
+    // tested first) takes precedence over the cycle's own end date as "days
+    // remaining for the task" below (spec confirmed 2026-09-02).
+    const priorityDateByCr = new Map<string, Date>();
+    for (const row of vcaRows) {
+      if (row.project) {
+        const existing = projectByCr.get(row.crNumber);
+        if (!existing) projectByCr.set(row.crNumber, row.project);
+        else if (!existing.split(' / ').includes(row.project)) projectByCr.set(row.crNumber, `${existing} / ${row.project}`);
+      }
+      if (row.priorityTestDate) {
+        const existing = priorityDateByCr.get(row.crNumber);
+        if (!existing || row.priorityTestDate < existing) priorityDateByCr.set(row.crNumber, row.priorityTestDate);
+      }
+    }
+    // Tester name per (CR, cycle) — from our own QaAssignment table (the
+    // person actually assigned to test this CR in this cycle), not an Oracle
+    // field. secondaryTesterId is appended when present (spec confirmed
+    // 2026-09-02).
+    const qaAssignments = await prisma.qaAssignment.findMany({
+      where: { versionId },
+      select: { crNumber: true, userId: true, secondaryTesterId: true, cycles: true },
+    });
     // Each Oracle-backed call is caught independently — a failure in any one
     // of them (e.g. a real-Oracle query that behaves differently in prod
     // than in the mock/offline path — see qc.service.ts's own error logging
@@ -404,12 +566,46 @@ export class ReleaseIntelligenceService {
 
       const crCoverage = coverageRows
         .filter(row => row.releaseName === releaseName && cycleNameMatches(c.cycleType, row.cycleName))
-        .map(row => ({
-          crNumber: row.crNumber, crLabel: `${row.crNumber} - ${row.crTitle}`,
-          passed: row.passed, failed: row.failed, notRun: row.notRun,
-          blocked: row.blocked, notCompleted: row.notCompleted, notReady: row.notReady,
-          total: row.total, coveragePct: row.coveragePct,
-        }));
+        .map(row => {
+          const assignment = qaAssignments.find(a => a.crNumber === row.crNumber && a.cycles.includes(c.cycleType));
+          const testerNames = assignment
+            ? [assignment.userId, assignment.secondaryTesterId].filter((id): id is string => !!id).map(id => nameById.get(id) ?? id)
+            : [];
+          // Deadline for this CR's testing task — its own explicit priority
+          // date when one was set (must be tested before the version's own
+          // scope), else the cycle's own end date (spec confirmed 2026-09-02).
+          const deadline = priorityDateByCr.get(row.crNumber) ?? c.plannedEnd;
+          const daysRemaining = Math.ceil((deadline.getTime() - now) / 86400000);
+          // Open defects reported against this CR, by severity — same
+          // crReferenceNumber match as isCrQualityDefect but WITHOUT its
+          // Canceled/Production exclusions (those are specific to the CR
+          // Quality Score metric, not a general "what's open right now"
+          // count) — reuses openDefects/CLOSED_DEFECT_STATUSES already
+          // computed above for the cycle's own qgSummary (spec confirmed
+          // 2026-09-02).
+          const crDefects = openDefects.filter(d => d.crReferenceNumber === row.crNumber);
+          const defectsBySeverity = {
+            showStopper: crDefects.filter(d => d.severity === 'Show Stopper').length,
+            severe: crDefects.filter(d => d.severity === 'Severe').length,
+            medium: crDefects.filter(d => d.severity === 'Medium').length,
+            low: crDefects.filter(d => d.severity === 'Low').length,
+          };
+          return {
+            crNumber: row.crNumber, crLabel: `${row.crNumber} - ${row.crTitle}`,
+            passed: row.passed, failed: row.failed, notRun: row.notRun,
+            blocked: row.blocked, notCompleted: row.notCompleted, notReady: row.notReady,
+            // notApplicable/notRelevant were previously dropped here while still
+            // counted in `total` (from Oracle's TS_EXEC_STATUS breakdown) — the
+            // segmented bar's colored segments silently fell short of the bar's
+            // own 100% whenever a script had one of these statuses (found
+            // 2026-09-02 investigating a user-reported script-count mismatch).
+            notApplicable: row.notApplicable, notRelevant: row.notRelevant,
+            total: row.total, coveragePct: row.coveragePct,
+            project: projectByCr.get(row.crNumber) ?? null,
+            tester: testerNames.length > 0 ? testerNames.join(' + ') : null,
+            daysRemaining, defectsBySeverity,
+          };
+        });
       const crs = crCoverage.map(cc => ({ crNumber: cc.crNumber, crLabel: cc.crLabel }));
       const totalTests = crCoverage.reduce((s, cc) => s + cc.total, 0);
       const executedTests = crCoverage.reduce((s, cc) => s + cc.passed + cc.failed + cc.blocked + cc.notCompleted, 0);
@@ -490,6 +686,13 @@ export class ReleaseIntelligenceService {
     const avgAgingDays = agingDefects.length > 0
       ? Math.round(agingDefects.reduce((s, d) => s + (parseOracleDateAgeDays(d.discoveryDate, now) ?? 0), 0) / agingDefects.length)
       : 0;
+    // Overage = how far PAST the threshold each defect is (age - threshold),
+    // distinct from avgAgingDays above (raw age since discovery). "ממוצע
+    // חריגה" (average overage) on the Home page notice must show this, not
+    // the raw age (spec confirmed 2026-09-01).
+    const avgOverageDays = agingDefects.length > 0
+      ? Math.round(agingDefects.reduce((s, d) => s + Math.max(0, (parseOracleDateAgeDays(d.discoveryDate, now) ?? 0) - AGING_DEFECT_THRESHOLD_DAYS), 0) / agingDefects.length)
+      : 0;
 
     const severeOrWorseActual = qgSummary.showStopper.count + qgSummary.severe.count;
     const severeOrWorseTarget = qgSummary.showStopper.threshold + qgSummary.severe.threshold;
@@ -517,6 +720,7 @@ export class ReleaseIntelligenceService {
         thresholdDays: AGING_DEFECT_THRESHOLD_DAYS,
         count: agingDefects.length,
         avgAgingDays,
+        avgOverageDays,
         met: agingDefects.length === 0,
       },
       timeline: cycleProgress.timeline,
@@ -595,9 +799,12 @@ export class ReleaseIntelligenceService {
   }
 
   // ── Forecast & Tracking — spec section 20 ───────────────────────────────────
-  // Same formula as getOverview's forecast block, recomputed fresh here rather
-  // than reading the ReleaseHealth/ReleaseForecast snapshot rows — this screen
-  // works even for a version whose Overview was never opened first.
+  // NOTE 2026-09-02: getOverview's own forecast block was reworked (1h/scenario
+  // pace check on core cycles + historical defect-fix-rate check) and this
+  // screen's formula was NOT updated to match — it still uses the old single
+  // remainingTests/testDurationMin heuristic, so this screen and the Home
+  // page's Forecast card can now show different statuses for the same
+  // version. Flagged, not fixed, since only the Home card was in scope.
   async getForecastTracking(versionId: string) {
     const [coverage, workPlan, version, params, users] = await Promise.all([
       this.qcService.getTestCoverage(versionId).catch((): TestCoverageDto[] => []),

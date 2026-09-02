@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Query, Param, Body, Request, UseGuards, F
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 import { QcService } from './qc.service';
 import { QcRestService } from './qc-rest.service';
+import { PermissionsService } from '../permissions/permissions.service';
 
 function requireRole(req: any, roles: string[], msg = 'אין הרשאה לבצע פעולה זו') {
   if (!roles.includes(req.user.role)) throw new ForbiddenException(msg);
@@ -13,7 +14,17 @@ export class QcController {
   constructor(
     private readonly qcService: QcService,
     private readonly qcRestService: QcRestService,
+    private readonly permissionsService: PermissionsService,
   ) {}
+
+  // Gates the QC REST write-back tool — ADMIN always passes; any other role
+  // needs the runtime-grantable 'action:qc_write' permission (Admin Panel >
+  // permissions), replacing the earlier hardcoded ADMIN-only check (spec
+  // confirmed 2026-09-02).
+  private async requireQcWrite(req: any) {
+    const allowed = await this.permissionsService.hasPermission(req.user.role, 'action:qc_write');
+    if (!allowed) throw new ForbiddenException('אין לך הרשאה להשתמש בכלי הכתיבה ל-QC — פנה למנהל מערכת');
+  }
 
   @Get('status')
   getStatus() {
@@ -89,18 +100,27 @@ export class QcController {
     return this.qcService.getCrItems(releaseId, versionId);
   }
 
-  // ── QC REST write-back test tool — ADMIN only (spec confirmed 2026-08-30):
-  // this writes to real production QC, not the read-only Oracle connection
-  // every other endpoint in this controller uses.
+  // ── QC REST write-back tool (spec confirmed 2026-08-30, per-user auth
+  // 2026-09-02): writes to real production QC, not the read-only Oracle
+  // connection every other endpoint in this controller uses. Every call
+  // authenticates as the CALLING USER's own QC identity (qcLogin + empty
+  // password) — see qc-rest.service.ts for why, and why there's no fallback
+  // to a shared account.
   @Get('rest-test/defect/:id')
-  previewRestDefect(@Request() req: any, @Param('id') id: string) {
-    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול להשתמש בכלי בדיקת הכתיבה ל-QC');
-    return this.qcRestService.previewDefect(id);
+  async previewRestDefect(@Request() req: any, @Param('id') id: string) {
+    await this.requireQcWrite(req);
+    return this.qcRestService.previewDefect(id, req.user.sub);
+  }
+
+  @Get('rest-test/defect/:id/fields')
+  async listAllRestFields(@Request() req: any, @Param('id') id: string) {
+    await this.requireQcWrite(req);
+    return this.qcRestService.listAllFields(id, req.user.sub);
   }
 
   @Post('rest-test/defect/:id/append-note')
-  appendRestNote(@Request() req: any, @Param('id') id: string, @Body('note') note: string) {
-    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול להשתמש בכלי בדיקת הכתיבה ל-QC');
-    return this.qcRestService.appendComment(id, note, req.user.email ?? req.user.sub ?? 'DeployCenter');
+  async appendRestNote(@Request() req: any, @Param('id') id: string, @Body('note') note: string) {
+    await this.requireQcWrite(req);
+    return this.qcRestService.appendComment(id, note, req.user.email ?? req.user.sub ?? 'DeployCenter', req.user.sub);
   }
 }

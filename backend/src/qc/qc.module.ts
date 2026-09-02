@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { QcController } from './qc.controller';
 import { QcService } from './qc.service';
 import { QcRestService } from './qc-rest.service';
+import { PermissionsModule } from '../permissions/permissions.module';
 
 @Module({
   imports: [
@@ -10,6 +11,7 @@ import { QcRestService } from './qc-rest.service';
       secret: process.env.JWT_SECRET || 'fallback-secret',
       signOptions: { expiresIn: '8h' },
     }),
+    PermissionsModule,
   ],
   controllers: [QcController],
   providers: [QcService, QcRestService],

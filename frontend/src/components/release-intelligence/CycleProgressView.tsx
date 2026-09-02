@@ -12,7 +12,11 @@ const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${win
 export interface CrCoverageRow {
   crNumber: string; crLabel: string;
   passed: number; failed: number; notRun: number; blocked: number; notCompleted: number; notReady: number;
+  notApplicable: number; notRelevant: number;
   total: number; coveragePct: number | null;
+  project: string | null; tester: string | null;
+  daysRemaining: number;
+  defectsBySeverity: { showStopper: number; severe: number; medium: number; low: number };
 }
 export interface CycleTimelineItem {
   cycleType: string; plannedStart: string; plannedEnd: string; progressPct: number; state: 'done' | 'active' | 'upcoming';
@@ -47,14 +51,46 @@ const QG_SEVERITY_LABEL: Record<string, string> = {
 const STATUS_SEGMENT_COLOR: Record<string, string> = {
   passed: C.success, failed: C.danger, blocked: C.warning,
   notCompleted: C.statusWaiting, notRun: C.statusOpen, notReady: C.textMuted,
+  notApplicable: C.statusRollback, notRelevant: C.statusSkipped,
 };
 const STATUS_SEGMENT_LABEL: Record<string, string> = {
   passed: 'עברו', failed: 'נכשלו', blocked: 'חסומים',
   notCompleted: 'לא הושלמו', notRun: 'לא רצו', notReady: 'לא מוכנים ל-QA',
+  notApplicable: 'לא רלוונטי (N/A)', notRelevant: 'לא רלוונטי',
 };
 
-function SegmentedProgressBar({ passed, failed, blocked, notCompleted, notRun, notReady, total, targetPct }: {
+// Same 4 severity buckets/colors as ReleaseIntelligenceHomeView's own
+// QG_SEVERITY_META — kept as a separate local copy rather than a shared
+// import since that file imports FROM this one (spec confirmed 2026-09-02,
+// per-CR open-defects-by-severity chips on the cycle-detail CR cards).
+const CR_DEFECT_SEVERITY_META: Record<string, { label: string; color: string }> = {
+  showStopper: { label: 'Show Stopper', color: C.danger },
+  severe: { label: 'Severe', color: C.warning },
+  medium: { label: 'Medium', color: '#e8af00' },
+  low: { label: 'Low', color: C.textMuted },
+};
+
+// Days-remaining badge — urgency-colored (red ≤1 day, amber ≤3, neutral
+// otherwise), "הסתיים" once the deadline has passed. Deadline is the CR's
+// own priority test date when set, else the cycle's end date (spec
+// confirmed 2026-09-02).
+function DaysRemainingBadge({ days }: { days: number }) {
+  const color = days <= 0 ? C.textMuted : days <= 1 ? C.danger : days <= 3 ? C.warning : C.textSecondary;
+  const label = days <= 0 ? 'הסתיים' : days === 1 ? 'יום אחד נותר' : `${days} ימים נותרו`;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: '4px', ...TEXT.xs, fontWeight: WEIGHT.semibold,
+      color, background: `${color}14`, border: `1px solid ${color}40`, borderRadius: RADIUS.full,
+      padding: '2px 9px', whiteSpace: 'nowrap' as const,
+    }}>
+      ⏳ {label}
+    </span>
+  );
+}
+
+function SegmentedProgressBar({ passed, failed, blocked, notCompleted, notRun, notReady, notApplicable, notRelevant, total, targetPct }: {
   passed: number; failed: number; blocked: number; notCompleted: number; notRun: number; notReady: number;
+  notApplicable: number; notRelevant: number;
   total: number; targetPct: number | null;
 }) {
   if (total === 0) {
@@ -67,6 +103,8 @@ function SegmentedProgressBar({ passed, failed, blocked, notCompleted, notRun, n
     { key: 'notCompleted', count: notCompleted },
     { key: 'notRun', count: notRun },
     { key: 'notReady', count: notReady },
+    { key: 'notApplicable', count: notApplicable },
+    { key: 'notRelevant', count: notRelevant },
   ].filter(s => s.count > 0);
   return (
     // The marker lives in its own non-clipping wrapper, outside the bar's own
@@ -143,8 +181,9 @@ function CycleCard({ c, onShowDetail, onShowDefects }: { c: CycleTimelineItem; o
   const agg = c.crCoverage.reduce((acc, cr) => ({
     passed: acc.passed + cr.passed, failed: acc.failed + cr.failed, blocked: acc.blocked + cr.blocked,
     notCompleted: acc.notCompleted + cr.notCompleted, notRun: acc.notRun + cr.notRun, notReady: acc.notReady + cr.notReady,
+    notApplicable: acc.notApplicable + cr.notApplicable, notRelevant: acc.notRelevant + cr.notRelevant,
     total: acc.total + cr.total,
-  }), { passed: 0, failed: 0, blocked: 0, notCompleted: 0, notRun: 0, notReady: 0, total: 0 });
+  }), { passed: 0, failed: 0, blocked: 0, notCompleted: 0, notRun: 0, notReady: 0, notApplicable: 0, notRelevant: 0, total: 0 });
   return (
     <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderTop: `3px solid ${color}`, borderRadius: RADIUS.lg, padding: SP[4], display: 'flex', flexDirection: 'column', gap: SP[3], minWidth: 0 }}>
       <div>
@@ -212,6 +251,17 @@ function KpiCard({ value, label, valueColor }: { value: string; label: string; v
 // inline expand-in-card behavior per the user's explicit instruction to
 // navigate to a new screen instead (2026-07-28).
 function CycleDetailScreen({ cycle, onBack }: { cycle: CycleTimelineItem; onBack: () => void }) {
+  const [projectFilter, setProjectFilter] = useState('');
+  const [testerFilter, setTesterFilter] = useState('');
+  const projectOptions = Array.from(new Set(cycle.crCoverage.map(cr => cr.project).filter((p): p is string => !!p))).sort();
+  const testerOptions = Array.from(new Set(cycle.crCoverage.map(cr => cr.tester).filter((t): t is string => !!t))).sort();
+  const filteredCrCoverage = cycle.crCoverage.filter(cr =>
+    (!projectFilter || cr.project === projectFilter) && (!testerFilter || cr.tester === testerFilter)
+  );
+  const selectStyle: React.CSSProperties = {
+    padding: '6px 10px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`,
+    background: C.bgCard, color: C.textPrimary, fontFamily: FONT, ...TEXT.xs,
+  };
   return (
     <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[3] }}>
       <BackButton onClick={onBack} />
@@ -220,33 +270,63 @@ function CycleDetailScreen({ cycle, onBack }: { cycle: CycleTimelineItem; onBack
       </div>
       <div style={{ ...TEXT.xs, color: C.textMuted, direction: 'ltr', textAlign: 'right' }}>{fmtDate(cycle.plannedStart)} — {fmtDate(cycle.plannedEnd)}</div>
 
-      {cycle.crCoverage.length === 0 ? (
+      {(projectOptions.length > 0 || testerOptions.length > 0) && (
+        <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap', alignItems: 'center' }}>
+          {projectOptions.length > 0 && (
+            <select value={projectFilter} onChange={e => setProjectFilter(e.target.value)} style={selectStyle}>
+              <option value="">כל הפרויקטים</option>
+              {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          )}
+          {testerOptions.length > 0 && (
+            <select value={testerFilter} onChange={e => setTesterFilter(e.target.value)} style={selectStyle}>
+              <option value="">כל הבודקים</option>
+              {testerOptions.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          )}
+          {(projectFilter || testerFilter) && (
+            <span style={{ ...TEXT.xs, color: C.textMuted }}>{filteredCrCoverage.length} מתוך {cycle.crCoverage.length} CR-ים</span>
+          )}
+        </div>
+      )}
+
+      {filteredCrCoverage.length === 0 ? (
         <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], ...TEXT.sm, color: C.textMuted }}>
-          אין CR-ים בסבב זה.
+          {cycle.crCoverage.length === 0 ? 'אין CR-ים בסבב זה.' : 'אין CR-ים התואמים את הסינון.'}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-          {cycle.crCoverage.map(cr => {
+          {filteredCrCoverage.map(cr => {
             const hasData = cr.total > 0;
             const successPct = hasData ? Math.round((cr.passed / cr.total) * 100) : null;
             const qgReached = successPct != null && cycle.qgTargetPct != null && successPct >= cycle.qgTargetPct;
             const color = successPct == null ? C.textMuted : cycle.qgTargetPct == null ? C.textPrimary : qgReached ? C.success : C.danger;
             return (
               <div key={cr.crNumber} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[3] }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: SP[2], marginBottom: '6px' }}>
+                  <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, minWidth: 0 }}>
                     <span style={{ fontWeight: WEIGHT.bold }}>{cr.crNumber}</span>
                     {' — '}
                     {cr.crLabel.replace(/^\d+\s*-\s*/, '')}
                   </div>
-                  <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color }}>
-                    {successPct != null ? `${successPct}% הצלחה${cycle.qgTargetPct != null ? ` (יעד: ${cycle.qgTargetPct}%)` : ''}` : 'אין נתונים'}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexShrink: 0 }}>
+                    <DaysRemainingBadge days={cr.daysRemaining} />
+                    <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color, whiteSpace: 'nowrap' as const }}>
+                      {successPct != null ? `${successPct}% הצלחה${cycle.qgTargetPct != null ? ` (יעד: ${cycle.qgTargetPct}%)` : ''}` : 'אין נתונים'}
+                    </span>
+                  </div>
                 </div>
+                {(cr.project || cr.tester) && (
+                  <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap', ...TEXT.xs, color: C.textMuted, marginBottom: '6px' }}>
+                    {cr.project && <span>📁 פרויקט: {cr.project}</span>}
+                    {cr.tester && <span>👤 בודק: {cr.tester}</span>}
+                  </div>
+                )}
                 <div style={{ marginBottom: '8px' }}>
                   <SegmentedProgressBar
                     passed={cr.passed} failed={cr.failed} blocked={cr.blocked}
                     notCompleted={cr.notCompleted} notRun={cr.notRun} notReady={cr.notReady}
+                    notApplicable={cr.notApplicable} notRelevant={cr.notRelevant}
                     total={cr.total} targetPct={cycle.qgTargetPct}
                   />
                 </div>
@@ -259,8 +339,31 @@ function CycleDetailScreen({ cycle, onBack }: { cycle: CycleTimelineItem; onBack
                     {cr.notCompleted > 0 && <span>לא הושלמו: {cr.notCompleted}</span>}
                     {cr.notRun > 0 && <span>לא רצו: {cr.notRun}</span>}
                     {cr.notReady > 0 && <span>לא מוכנים ל-QA: {cr.notReady}</span>}
+                    {cr.notApplicable > 0 && <span>N/A: {cr.notApplicable}</span>}
+                    {cr.notRelevant > 0 && <span>לא רלוונטי: {cr.notRelevant}</span>}
                   </div>
                 )}
+                {(() => {
+                  const openDefectsTotal = Object.values(cr.defectsBySeverity).reduce((s, n) => s + n, 0);
+                  if (openDefectsTotal === 0) return null;
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap', marginTop: '8px', paddingTop: '8px', borderTop: `1px solid ${C.border}` }}>
+                      <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.semibold }}>🐞 תקלות פתוחות ({openDefectsTotal}):</span>
+                      {Object.entries(cr.defectsBySeverity).filter(([, n]) => n > 0).map(([key, n]) => {
+                        const meta = CR_DEFECT_SEVERITY_META[key];
+                        return (
+                          <span key={key} style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '4px', ...TEXT.xs, fontWeight: WEIGHT.semibold,
+                            color: meta.color, background: `${meta.color}14`, border: `1px solid ${meta.color}40`,
+                            borderRadius: RADIUS.full, padding: '2px 9px', whiteSpace: 'nowrap' as const,
+                          }}>
+                            {meta.label}: {n}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
