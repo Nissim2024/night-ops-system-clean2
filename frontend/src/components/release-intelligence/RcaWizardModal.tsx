@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { formatDate } from '../../utils/dateFormat';
+import { DefectIdBadge } from '../shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -211,7 +212,7 @@ export const RcaWizardModal: React.FC<Props> = ({ token, role, incidentId, onClo
           → חזרה
         </button>
         <div>
-          <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>#{incident.qcDefectId} — {incident.title}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}><DefectIdBadge id={incident.qcDefectId} /> {incident.title}</div>
           {incident.description && <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '4px' }}>{incident.description}</div>}
         </div>
       </div>

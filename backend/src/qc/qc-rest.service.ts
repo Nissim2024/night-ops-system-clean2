@@ -208,6 +208,59 @@ export class QcRestService {
       await this.logout(config, cookie);
     }
   }
+
+  // ── Attachments — spec confirmed 2026-09-03 ──────────────────────────────
+  // UNVERIFIED against this real QC instance — built to ship now and correct
+  // once real behavior is observed, per explicit instruction, rather than
+  // block on a diagnostic first (unlike the field-name/406 issues above,
+  // which WERE verified before shipping). The endpoint shape and XML tag
+  // names below follow the standard HP ALM/QC 11 REST convention (attachment
+  // content addressed by NAME under the parent entity's /attachments
+  // collection, not by a numeric ID) — if this instance's real API differs,
+  // the fix is localized to entityUrl()+attachments and parseAttachmentsXml
+  // below, same pattern as REST_FIELD was for field names.
+  async listAttachments(defectId: string, userId: string): Promise<AttachmentMeta[]> {
+    const config = await this.getConfig();
+    const qcLogin = await this.resolveQcLogin(userId);
+    const cookie = await this.loginAsUser(config, qcLogin);
+    try {
+      const res = await axios.get(`${this.entityUrl(config, defectId)}/attachments`, {
+        headers: { Cookie: cookie, Accept: 'application/xml' },
+        validateStatus: () => true,
+      });
+      if (res.status === 404) return [];
+      if (res.status !== 200) throw new BadRequestException(`שגיאה בקריאת קבצים מצורפים מ-QC (status ${res.status}): ${String(res.data).slice(0, 300)}`);
+      return parseAttachmentsXml(res.data);
+    } finally {
+      await this.logout(config, cookie);
+    }
+  }
+
+  // Streams the raw file content back — the caller (controller) relays it to
+  // the browser. Attachment content is never persisted locally (spec: "לא
+  // ישמור עותק מקומי של הקבצים").
+  async downloadAttachment(defectId: string, fileName: string, userId: string): Promise<{ data: Buffer; contentType: string }> {
+    const config = await this.getConfig();
+    const qcLogin = await this.resolveQcLogin(userId);
+    const cookie = await this.loginAsUser(config, qcLogin);
+    try {
+      const res = await axios.get(`${this.entityUrl(config, defectId)}/attachments/${encodeURIComponent(fileName)}`, {
+        headers: { Cookie: cookie },
+        responseType: 'arraybuffer',
+        validateStatus: () => true,
+      });
+      if (res.status === 404) throw new BadRequestException(`הקובץ "${fileName}" לא נמצא ב-QC`);
+      if (res.status !== 200) throw new BadRequestException(`שגיאה בהורדת הקובץ מ-QC (status ${res.status})`);
+      const contentType = (res.headers?.['content-type'] as string) || 'application/octet-stream';
+      return { data: Buffer.from(res.data), contentType };
+    } finally {
+      await this.logout(config, cookie);
+    }
+  }
+}
+
+export interface AttachmentMeta {
+  name: string; fileSize: number; owner: string; uploadDate: string; description: string;
 }
 
 function extractCookies(res: any): string {
@@ -238,6 +291,33 @@ function parseFields(xml: string): Record<string, string> {
     out[name] = value != null ? String(value) : '';
   }
   return out;
+}
+
+// Standard HP ALM/QC 11 attachments-list shape:
+// <Attachments><Attachment><Name>.</Name><FileSize>.</FileSize>
+// <Owner>.</Owner><CreationTime>.</CreationTime><Description>.</Description>
+// </Attachment>...</Attachments> — UNVERIFIED against this real instance
+// (see listAttachments' own comment). Reads several plausible tag-name
+// variants per field defensively, since we don't yet know which this
+// instance actually uses — same "don't trust a single guessed name" lesson
+// as REST_FIELD, applied preemptively here instead of after a failure.
+function firstDefined(obj: any, keys: string[]): string {
+  for (const k of keys) {
+    if (obj?.[k] != null) return String(Array.isArray(obj[k]) ? obj[k][0] : obj[k]);
+  }
+  return '';
+}
+function parseAttachmentsXml(xml: string): AttachmentMeta[] {
+  const parsed = xmlParser.parse(xml);
+  const list = parsed?.Attachments?.Attachment ?? parsed?.Entities?.Entity ?? [];
+  const arr = Array.isArray(list) ? list : [list];
+  return arr.filter(Boolean).map((a: any) => ({
+    name: firstDefined(a, ['Name', 'FileName', 'name']),
+    fileSize: Number(firstDefined(a, ['FileSize', 'Size', 'size']) || 0),
+    owner: firstDefined(a, ['Owner', 'CreatedBy', 'owner']),
+    uploadDate: firstDefined(a, ['CreationTime', 'UploadDate', 'creation-time']),
+    description: firstDefined(a, ['Description', 'description']),
+  })).filter(a => a.name);
 }
 
 function xmlEscape(s: string): string {

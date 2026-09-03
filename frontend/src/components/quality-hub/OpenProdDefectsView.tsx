@@ -3,7 +3,8 @@ import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, RADIUS } from '../../theme';
 import { Card, Badge } from '../ui';
 import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL } from './openProdDefectsFields';
-import { hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroupsDialog, DetailGroup, FieldChangeHistorySection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow } from '../shared/defectFieldDisplay';
+import { hasHebrew, NameBadge, PersonAvatar, DefectIdBadge, contrastTextColor, renderNotesField, DetailGroupsDialog, DetailGroup, FieldChangeHistorySection, AttachmentsSection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow } from '../shared/defectFieldDisplay';
+import { formatDate, formatDateTime } from '../../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -69,12 +70,42 @@ const DEFAULT_OPEN_PROD_DETAIL_GROUPS: DetailGroup[] = [
   { title: 'השפעה עסקית', fields: ['impact', 'influence', 'businessProcess', 'mainBusinessProcess', 'deploymentCategory', 'deploymentReason', 'productionReason', 'toBeTestedOnProd', 'deploymentDateProd', 'willBeTestAtGoLive', 'forRegressionTest', 'foundByAutomation', 'modified'] },
 ];
 
+// Real calendar date/timestamp fields among DETAIL_FIELDS — everything else
+// with "time" in its label (estimatedFixTime/actualFixTime/estimateFixTime)
+// is actually a duration in HOURS (see qc.service.ts's BG_ESTIMATED_FIX_TIME
+// mock values: '4', '8', '16'), not a date, and must never be run through
+// formatDate. Standardizing on the app-wide formatDate/formatDateTime
+// (utils/dateFormat) instead of raw String(value) — found 2026-09-03: this
+// screen was one of the places the date-format standard wasn't applied yet.
+const DATE_ONLY_FIELDS = new Set(['detectedOnDate', 'deploymentDateProd', 'responseDate', 'fixedUntil']);
+const DATETIME_FIELDS = new Set(['modified']); // BG_VTS — QC's own last-modified timestamp
+
 function renderFieldValue(key: string, value: unknown) {
   const s = value === null || value === undefined ? '' : String(value);
   if (!s) return '—';
   if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={s} />;
   if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
+  if (key === 'id') return <DefectIdBadge id={s} />;
+  if (key === 'status') {
+    const statusBg = STATUS_COLOR[s] ?? DEFAULT_STATUS_COLOR;
+    return (
+      // No fontSize — inherits the ambient size like every other badge in
+      // defectFieldDisplay.tsx (spec confirmed 2026-09-03, "uniform field
+      // font size"); contrastTextColor keeps it readable against amber/light
+      // status colors instead of a fixed white ("clear fonts regardless of
+      // the field's background color").
+      <span style={{
+        fontWeight: WEIGHT.semibold, color: contrastTextColor(statusBg),
+        background: statusBg, borderRadius: RADIUS.sm, padding: '2px 8px',
+        whiteSpace: 'nowrap', display: 'inline-block',
+      }}>
+        {s}
+      </span>
+    );
+  }
   if (key === 'severity') return <span style={{ color: SEVERITY_COLOR[s] ?? C.textPrimary, fontWeight: WEIGHT.semibold }}>{s}</span>;
+  if (DATE_ONLY_FIELDS.has(key)) return formatDate(s);
+  if (DATETIME_FIELDS.has(key)) return formatDateTime(s);
   return s;
 }
 
@@ -173,9 +204,9 @@ export const DefectDetailScreen: React.FC<{
                 <span style={{ fontSize: '28px', flexShrink: 0 }}>🐛</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: '22px', fontWeight: WEIGHT.bold, color: C.textPrimary, lineHeight: 1.35, wordBreak: 'break-word' }}>
-                    {titleShown ? (detail.title || 'ללא כותרת') : `תקלה ${defectId}`}
+                    {titleShown ? (detail.title || 'ללא כותרת') : <>תקלה <DefectIdBadge id={defectId} /></>}
                   </div>
-                  <div style={{ ...TEXT.sm, color: C.textMuted, marginTop: '4px' }}>תקלה {defectId}</div>
+                  <div style={{ ...TEXT.sm, color: C.textMuted, marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>תקלה <DefectIdBadge id={defectId} /></div>
                 </div>
               </div>
             </Card>
@@ -187,17 +218,31 @@ export const DefectDetailScreen: React.FC<{
               .map(group => (
                 <Card key={group.title}>
                   <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '10px' }}>{group.title}</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px 16px', fontSize: '14px' }}>
-                    {group.fields.map(key => (
-                      // direction:ltr — same bidi-safety fix as VersionOverview's TARGET
-                      // form: label+value are two spans, and without forcing ltr the
-                      // Unicode bidi algorithm flips their order for neutral/atomic
-                      // values (empty "—", a colored badge) inside this RTL page.
-                      <div key={key} style={{ direction: 'ltr', textAlign: 'left' }}>
-                        <span style={{ color: C.textMuted }}>{DETAIL_FIELD_LABEL[key] ?? key}: </span>
-                        <span style={{ color: C.textSecondary, fontWeight: WEIGHT.semibold }}>{renderFieldValue(key, detail[key])}</span>
-                      </div>
-                    ))}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px 16px', fontSize: '15px' }}>
+                    {group.fields.map(key => {
+                      // Per-field direction (same hasHebrew-based rule the
+                      // defects table body cells and the history table's old/
+                      // new-value columns already use) — replaces a blanket
+                      // direction:'ltr' that fixed a real bidi glitch on
+                      // neutral/atomic values (a badge, an empty "—") but as a
+                      // side effect left every Hebrew field left-aligned on
+                      // this RTL page (found 2026-09-03).
+                      const raw = String(detail[key] ?? '');
+                      const isBadgeField = PERSON_BADGE_FIELDS.has(key) || TEAM_BADGE_FIELDS.has(key);
+                      const rtl = !isBadgeField && (!raw || hasHebrew(raw));
+                      return (
+                        <div key={key} style={{ direction: rtl ? 'rtl' : 'ltr', textAlign: rtl ? 'right' : 'left' }}>
+                          {/* Label deliberately smaller than the 15px value
+                              (was TEXT.xs = 16px, actually LARGER than the
+                              value — this app's TEXT scale starts at 16px,
+                              not the usual 11-12px "extra small" — found
+                              2026-09-03 chasing the same uniform-font-size
+                              request). */}
+                          <span style={{ fontSize: '13px', color: C.textMuted }}>{DETAIL_FIELD_LABEL[key] ?? key}: </span>
+                          <span style={{ color: C.textPrimary, fontWeight: WEIGHT.semibold }}>{renderFieldValue(key, detail[key])}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </Card>
               ))}
@@ -233,6 +278,11 @@ export const DefectDetailScreen: React.FC<{
               </div>
             )}
 
+            {/* ── קבצים מצורפים — נשלף מ-QC בזמן אמת, לא נשמר עותק מקומי ── */}
+            <Card>
+              <AttachmentsSection defectId={defectId} token={token} />
+            </Card>
+
             {/* ── היסטוריית שינויים — אותו רכיב משותף כמו טופס TARGET ── */}
             <Card>
               <FieldChangeHistorySection defectId={defectId} token={token} />
@@ -259,6 +309,27 @@ const SEVERITY_COLOR: Record<string, string> = {
   'Medium':       C.statusInProgress,
   'Low':          C.textMuted,
 };
+
+// Best-effort semantic mapping over QC's real BG_STATUS values (only a
+// handful confirmed against real data — 'Open'/'At Work'/'Fixed_Dev'/
+// 'Pending'/'New'/'Canceled'/'Reopen', see this file's own mock rows) —
+// unrecognized statuses fall back to a neutral gray rather than guessing a
+// meaning for a value never seen (spec confirmed 2026-09-03: color the
+// status field like the team badge, matched to the status' own meaning).
+const STATUS_COLOR: Record<string, string> = {
+  'New':        C.statusOpen,
+  'Open':       C.statusOpen,
+  'Pending':    C.statusInProgress,
+  'At Work':    C.statusInProgress,
+  'Fixed_Dev':  C.warning,
+  'Fixed_Test': C.success,
+  'Fixed':      C.success,
+  'Closed':     C.success,
+  'Reopen':     C.danger,
+  'Rejected':   C.textMuted,
+  'Canceled':   C.textMuted,
+};
+const DEFAULT_STATUS_COLOR = C.textMuted;
 
 const KpiCard: React.FC<{ label: string; value: string; color: string; onClick?: () => void }> = ({ label, value, color, onClick }) => (
   <Card padding={4} onClick={onClick} style={{ flex: 1, minWidth: '110px', textAlign: 'center' }}>
@@ -658,11 +729,12 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
                           style={{
                             padding: '6px 8px', borderBottom: `1px solid ${C.border}`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                             width: getMonthColWidth(key),
-                            color: isDefectCol ? C.textLink : isSeverityCol ? (SEVERITY_COLOR[value ?? ''] ?? C.textPrimary) : C.textPrimary,
+                            textAlign: isDefectCol ? 'center' : undefined,
+                            color: isDefectCol ? undefined : isSeverityCol ? (SEVERITY_COLOR[value ?? ''] ?? C.textPrimary) : C.textPrimary,
                             fontWeight: isDefectCol ? WEIGHT.semibold : WEIGHT.normal,
                           }}
                         >
-                          {value ?? '—'}
+                          {isDefectCol ? (value ? <DefectIdBadge id={value} /> : '—') : (value ?? '—')}
                         </td>
                       );
                     })}

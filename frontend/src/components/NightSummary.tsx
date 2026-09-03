@@ -7,6 +7,7 @@ import { NightStatsDashboard } from './NightStatsDashboard';
 import { RehearsalArchivePanel } from './shared/RehearsalArchivePanel';
 import { cleanHtmlText } from '../utils/textSanitize';
 import { formatDateTime as fmtDateTimeShared, formatTime as fmtTimeShared } from '../utils/dateFormat';
+import { DefectIdBadge } from './shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -1203,7 +1204,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                     <tbody>
                       {defects.map((d, i) => (
                         <tr key={d.id} style={{ background: i % 2 === 0 ? 'transparent' : C.bgNested }}>
-                          <td style={{ ...tdBase, color: C.statusOpen, fontWeight: 'bold', whiteSpace: 'nowrap' }}>{d.id}</td>
+                          <td style={{ ...tdBase, textAlign: 'center', whiteSpace: 'nowrap' }}><DefectIdBadge id={d.id} /></td>
                           <td style={{ ...tdBase, maxWidth: '160px', fontWeight: 'bold', color: C.textPrimary }}>{d.title}</td>
                           <td style={{ ...tdBase, maxWidth: '220px' }}>{cleanHtmlText(d.description)}</td>
                           <td style={{ ...tdBase }}>
@@ -1627,7 +1628,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                         <tbody>
                           {defects.map((d, i) => (
                             <tr key={d.id} style={{ background: i % 2 === 0 ? 'white' : '#fdf5ff' }}>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', color: '#2980b9', fontWeight: 'bold', whiteSpace: 'nowrap' }}>{d.id}</td>
+                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', textAlign: 'center', whiteSpace: 'nowrap' }}><DefectIdBadge id={d.id} /></td>
                               <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', fontWeight: 'bold', maxWidth: '140px', color: '#1a2332' }}>{d.title}</td>
                               <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', maxWidth: '200px', color: '#555' }}>{cleanHtmlText(d.description)}</td>
                               <td style={{ padding: '6px 8px', border: '1px solid #ead9f5' }}>

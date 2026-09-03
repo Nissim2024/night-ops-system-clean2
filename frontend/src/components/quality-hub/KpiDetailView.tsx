@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { useReleaseCount } from './releaseCountSetting';
+import { DefectIdBadge } from '../shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -545,7 +546,7 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
                       <tbody>
                         {defects.map(d => (
                           <tr key={d.id}>
-                            <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}`, color: C.textLink, fontWeight: WEIGHT.semibold }}>{d.id}</td>
+                            <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}`, textAlign: 'center' }}><DefectIdBadge id={d.id} /></td>
                             <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>{d.title}</td>
                             <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>{d.severity}</td>
                             <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>{d.status}</td>

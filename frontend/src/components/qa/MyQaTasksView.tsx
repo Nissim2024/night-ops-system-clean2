@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C, TEXT, WEIGHT, SP, RADIUS, SHADOW, FONT } from '../../theme';
 import { formatDate } from '../../utils/dateFormat';
+import { DefectIdBadge } from '../shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -256,7 +257,7 @@ export const MyQaTasksView: React.FC<Props> = ({ tasks, versionName, versionId, 
                     <div style={{ minWidth: 0 }}>
                       <div style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: C.textPrimary, display: 'flex', alignItems: 'center', gap: SP[1] }}>
                         {d.isMine && <span title="תקלה משויכת אליי אישית" style={{ color: C.brand }}>★</span>}
-                        DEF-{d.defectId} — {d.title}
+                        <DefectIdBadge id={d.defectId} /> — {d.title}
                       </div>
                       <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>
                         {d.status}{d.severity && ` · ${d.severity}`}{d.assignedTo && ` · צוות: ${d.assignedTo}`}{d.qaTester && ` · בודק QA: ${d.qaTester}`}

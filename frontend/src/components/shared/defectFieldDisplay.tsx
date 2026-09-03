@@ -35,14 +35,56 @@ export function teamColor(name: string): string {
   return TEAM_PALETTE[hash % TEAM_PALETTE.length];
 }
 
+// Picks black or white text for a given badge background so every colored
+// badge stays readable regardless of which color it ends up using — plain
+// white text on a light/bright color (amber #E8AF00 in particular, used by
+// both TEAM_PALETTE and STATUS_COLOR's "Pending"/"At Work") reads as barely
+// legible (spec confirmed 2026-09-03: "פונטים ברורים גם אם רקע השדה בצבע
+// אחר"). Simplified WCAG relative-luminance check, good enough for the small
+// fixed palettes this app uses — not a full color-management system.
+export function contrastTextColor(bgHex: string): string {
+  const hex = bgHex.replace('#', '');
+  if (hex.length !== 6) return '#fff';
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6 ? C.textPrimary : '#fff';
+}
+
+// No fontSize set on any of these badges/labels — they deliberately INHERIT
+// the ambient font-size from whichever context renders them (a table cell,
+// a detail-screen field grid, a home-dashboard row, ...), each of which
+// already sets its own consistent size. Badges used to hardcode 12-13px
+// regardless of context, so a row's plain-text values and its badge values
+// visibly differed in size within the same table/screen (spec confirmed
+// 2026-09-03: "הערכים בשדות צריכים להיות בפונט עם גודל אחיד").
 export function NameBadge({ name }: { name: string }) {
+  const bg = teamColor(name);
   return (
     <span style={{
-      fontSize: '12px', fontWeight: WEIGHT.semibold, color: '#fff',
-      background: teamColor(name), borderRadius: RADIUS.sm, padding: '2px 8px',
+      fontWeight: WEIGHT.semibold, color: contrastTextColor(bg),
+      background: bg, borderRadius: RADIUS.sm, padding: '2px 8px',
       whiteSpace: 'nowrap', display: 'inline-block',
     }}>
       {name}
+    </span>
+  );
+}
+
+// One fixed color for every defect ID everywhere in the app (not a
+// per-value/semantic mapping like NameBadge/status badges — the whole point
+// is that a defect number always looks the same regardless of which module
+// shows it), so the same visual identity carries across every screen that
+// mentions a defect number (spec confirmed 2026-09-03).
+export function DefectIdBadge({ id }: { id: string | number }) {
+  return (
+    <span style={{
+      fontWeight: WEIGHT.semibold, color: contrastTextColor(C.brand),
+      background: C.brand, borderRadius: RADIUS.sm, padding: '2px 8px',
+      whiteSpace: 'nowrap', display: 'inline-block', fontFamily: 'monospace',
+    }}>
+      {id}
     </span>
   );
 }
@@ -55,7 +97,7 @@ export function PersonAvatar({ name }: { name: string }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', direction: 'ltr' }}>
       <Avatar name={name} size={20} />
-      <span style={{ fontSize: '13px', color: C.textSecondary }}>{name.split(' ')[0]}</span>
+      <span style={{ color: C.textSecondary }}>{name.split(' ')[0]}</span>
     </span>
   );
 }
@@ -252,24 +294,41 @@ interface DefectFieldChange {
 // DEFECT_FIELD_HISTORY_SQL in qc.service.ts) — AU_USER/AP_OLD_VALUE are
 // unverified against any real instance beyond the mock fallback.
 export function FieldChangeHistorySection({ defectId, token }: { defectId: string; token: string }) {
+  // Collapsed by default, and the fetch is deferred until first expand — this
+  // section used to always fetch + render fully open, taking real screen
+  // space and an API call most viewers never look at (spec confirmed
+  // 2026-09-03: "את אזור ההיסטוריה יש לקפל").
+  const [expanded, setExpanded] = useState(false);
   const [fieldHistory, setFieldHistory] = useState<DefectFieldChange[] | null>(null);
   const [historyFieldFilter, setHistoryFieldFilter] = useState('');
 
   useEffect(() => {
     setFieldHistory(null);
     setHistoryFieldFilter('');
+    setExpanded(false);
+  }, [defectId, token]);
+
+  useEffect(() => {
+    if (!expanded || fieldHistory !== null) return;
     axios.get(`${API}/qc/defect-field-history`, { headers: { Authorization: `Bearer ${token}` }, params: { defectId } })
       .then(r => setFieldHistory(r.data))
       .catch(() => setFieldHistory([]));
-  }, [defectId, token]);
+  }, [expanded, fieldHistory, defectId, token]);
 
   return (
     <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: '12px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-        <div style={{ fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textMuted }}>היסטוריית שינויים</div>
-        {fieldHistory && fieldHistory.length > 0 && (
+      <div
+        onClick={() => setExpanded(v => !v)}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: expanded ? '8px' : 0, cursor: 'pointer', userSelect: 'none' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textMuted }}>
+          <span style={{ display: 'inline-block', transition: 'transform 0.15s', transform: expanded ? 'rotate(90deg)' : 'none' }}>▶</span>
+          היסטוריית שינויים
+        </div>
+        {expanded && fieldHistory && fieldHistory.length > 0 && (
           <select
             value={historyFieldFilter}
+            onClick={e => e.stopPropagation()}
             onChange={e => setHistoryFieldFilter(e.target.value)}
             style={{ fontSize: '13px', padding: '4px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, fontFamily: FONT }}
           >
@@ -280,39 +339,186 @@ export function FieldChangeHistorySection({ defectId, token }: { defectId: strin
           </select>
         )}
       </div>
-      {!fieldHistory ? (
-        <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted, fontSize: '13px' }}>טוען...</div>
-      ) : fieldHistory.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted, fontSize: '13px' }}>אין היסטוריית שינויים זמינה לתקלה זו</div>
-      ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-            <thead>
-              <tr style={{ background: C.bgNested }}>
-                {['מתי השתנה', 'מי שינה', 'שדה', 'ערך ישן', 'ערך חדש'].map(h => (
-                  <th key={h} style={{ padding: '6px 10px', textAlign: 'right', color: C.textMuted, fontWeight: WEIGHT.semibold, borderBottom: `1px solid ${C.border}`, whiteSpace: 'nowrap' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {fieldHistory
-                .filter(h => !historyFieldFilter || h.propertyName === historyFieldFilter)
-                .map((h, i) => {
-                  const oldRtl = hasHebrew(h.oldValue);
-                  const newRtl = hasHebrew(h.newValue);
-                  return (
-                    <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                      <td style={{ padding: '6px 10px', color: C.textSecondary, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'left' }}>{formatDateTime(h.changeTime)}</td>
-                      <td style={{ padding: '6px 10px', color: C.textSecondary, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'left' }}>{h.changedBy || '—'}</td>
-                      <td style={{ padding: '6px 10px', color: C.textPrimary, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'left' }}>{h.propertyName || '—'}</td>
-                      <td style={{ padding: '6px 10px', color: C.textSecondary, direction: oldRtl ? 'rtl' : 'ltr', textAlign: oldRtl ? 'right' : 'left' }}>{h.oldValue || '—'}</td>
-                      <td style={{ padding: '6px 10px', color: C.textSecondary, direction: newRtl ? 'rtl' : 'ltr', textAlign: newRtl ? 'right' : 'left' }}>{h.newValue || '—'}</td>
-                    </tr>
-                  );
-                })}
-            </tbody>
-          </table>
+      {expanded && (
+        !fieldHistory ? (
+          <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted, fontSize: '13px' }}>טוען...</div>
+        ) : fieldHistory.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted, fontSize: '13px' }}>אין היסטוריית שינויים זמינה לתקלה זו</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ background: C.bgNested }}>
+                  {['מתי השתנה', 'מי שינה', 'שדה', 'ערך ישן', 'ערך חדש'].map(h => (
+                    <th key={h} style={{ padding: '6px 10px', textAlign: 'right', color: C.textMuted, fontWeight: WEIGHT.semibold, borderBottom: `1px solid ${C.border}`, whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {fieldHistory
+                  .filter(h => !historyFieldFilter || h.propertyName === historyFieldFilter)
+                  .map((h, i) => {
+                    const oldRtl = hasHebrew(h.oldValue);
+                    const newRtl = hasHebrew(h.newValue);
+                    return (
+                      <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
+                        <td style={{ padding: '6px 10px', color: C.textSecondary, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'left' }}>{formatDateTime(h.changeTime)}</td>
+                        <td style={{ padding: '6px 10px', color: C.textSecondary, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'left' }}>{h.changedBy || '—'}</td>
+                        <td style={{ padding: '6px 10px', color: C.textPrimary, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'left' }}>{h.propertyName || '—'}</td>
+                        <td style={{ padding: '6px 10px', color: C.textSecondary, direction: oldRtl ? 'rtl' : 'ltr', textAlign: oldRtl ? 'right' : 'left' }}>{h.oldValue || '—'}</td>
+                        <td style={{ padding: '6px 10px', color: C.textSecondary, direction: newRtl ? 'rtl' : 'ltr', textAlign: newRtl ? 'right' : 'left' }}>{h.newValue || '—'}</td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+// ── Attachments ──────────────────────────────────────────────────────────
+// Defect-detail "Attachments" section (spec confirmed 2026-09-03) — pulls
+// the file list from QC via the per-user REST session (qc-rest.service.ts),
+// never stores a local copy. Preview/Download both fetch the file as a blob
+// through our own backend (which relays it from QC) rather than linking
+// directly to QC, since QC's session cookie can't be handed to the browser.
+// The backend endpoint/XML-tag-name assumptions here are UNVERIFIED against
+// this real QC instance — shipped now per explicit instruction to correct
+// after seeing real behavior, not before.
+interface DefectAttachment {
+  name: string; fileSize: number; owner: string; uploadDate: string; description: string;
+}
+
+const PREVIEWABLE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'pdf', 'txt', 'log', 'csv']);
+const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif']);
+const TEXT_EXT = new Set(['txt', 'log', 'csv']);
+
+function fileExt(name: string): string {
+  const i = name.lastIndexOf('.');
+  return i === -1 ? '' : name.slice(i + 1).toLowerCase();
+}
+
+function formatFileSize(bytes: number): string {
+  if (!bytes || bytes <= 0) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function AttachmentPreviewModal({ defectId, fileName, token, onClose }: { defectId: string; fileName: string; token: string; onClose: () => void }) {
+  const [content, setContent] = useState<{ kind: 'image' | 'pdf' | 'text'; url?: string; text?: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    const ext = fileExt(fileName);
+    const isText = TEXT_EXT.has(ext);
+    axios.get(`${API}/qc/defect/${encodeURIComponent(defectId)}/attachments/${encodeURIComponent(fileName)}/download`, {
+      headers: { Authorization: `Bearer ${token}` },
+      responseType: isText ? 'text' : 'blob',
+    }).then(res => {
+      if (isText) {
+        setContent({ kind: 'text', text: String(res.data) });
+      } else {
+        objectUrl = URL.createObjectURL(res.data as Blob);
+        setContent({ kind: IMAGE_EXT.has(ext) ? 'image' : 'pdf', url: objectUrl });
+      }
+    }).catch(() => setError('שגיאה בטעינת הקובץ מ-QC'));
+    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [defectId, fileName, token]);
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 6000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: C.bgCard, borderRadius: RADIUS.lg, padding: '16px', width: '90vw', maxWidth: '900px', height: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 48px rgba(0,0,0,.3)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+          <div style={{ fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textPrimary, direction: 'ltr', textAlign: 'left' }}>{fileName}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: C.textMuted }}>✕</button>
         </div>
+        <div style={{ flex: 1, overflow: 'auto', background: C.bgNested, borderRadius: RADIUS.md, display: 'flex', alignItems: content?.kind === 'text' ? 'stretch' : 'center', justifyContent: 'center' }}>
+          {error && <div style={{ color: C.danger, fontSize: '13px', padding: '20px' }}>{error}</div>}
+          {!error && !content && <div style={{ color: C.textMuted, fontSize: '13px', padding: '20px' }}>טוען...</div>}
+          {content?.kind === 'image' && <img src={content.url} alt={fileName} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />}
+          {content?.kind === 'pdf' && <iframe src={content.url} title={fileName} style={{ width: '100%', height: '100%', border: 'none' }} />}
+          {content?.kind === 'text' && (
+            <pre style={{ width: '100%', margin: 0, padding: '14px', fontSize: '12px', color: C.textPrimary, whiteSpace: 'pre-wrap', wordBreak: 'break-word', direction: 'ltr', textAlign: 'left' }}>
+              {content.text}
+            </pre>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function AttachmentsSection({ defectId, token }: { defectId: string; token: string }) {
+  const [attachments, setAttachments] = useState<DefectAttachment[] | null>(null);
+  const [previewFile, setPreviewFile] = useState<string | null>(null);
+
+  useEffect(() => {
+    setAttachments(null);
+    axios.get(`${API}/qc/defect/${encodeURIComponent(defectId)}/attachments`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setAttachments(r.data ?? []))
+      .catch(() => setAttachments([]));
+  }, [defectId, token]);
+
+  const download = async (fileName: string) => {
+    try {
+      const res = await axios.get(`${API}/qc/defect/${encodeURIComponent(defectId)}/attachments/${encodeURIComponent(fileName)}/download`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob',
+      });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      window.alert('שגיאה בהורדת הקובץ מ-QC');
+    }
+  };
+
+  return (
+    <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: '12px' }}>
+      <div style={{ fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '8px' }}>
+        Attachments{attachments && attachments.length > 0 ? ` (${attachments.length})` : ''}
+      </div>
+      {attachments === null ? (
+        <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted, fontSize: '13px' }}>טוען...</div>
+      ) : attachments.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted, fontSize: '13px' }}>No Attachments Found</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          {attachments.map(a => {
+            const ext = fileExt(a.name);
+            const canPreview = PREVIEWABLE_EXT.has(ext);
+            return (
+              <div key={a.name} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 10px', background: C.bgNested, borderRadius: RADIUS.md }}>
+                <span style={{ fontSize: '16px', flexShrink: 0 }}>📎</span>
+                <div style={{ flex: 1, minWidth: 0, direction: 'ltr', textAlign: 'left' }}>
+                  <div style={{ fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
+                  <div style={{ fontSize: '11px', color: C.textMuted, marginTop: '2px' }}>
+                    {ext.toUpperCase() || '—'} · {formatFileSize(a.fileSize)}{a.uploadDate ? ` · ${formatDateTime(a.uploadDate)}` : ''}{a.owner ? ` · ${a.owner}` : ''}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                  {canPreview && (
+                    <button onClick={() => setPreviewFile(a.name)} title="צפייה ישירה" style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer', padding: '4px 8px', fontSize: '13px' }}>👁️</button>
+                  )}
+                  <button onClick={() => download(a.name)} title="הורדה" style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer', padding: '4px 8px', fontSize: '13px' }}>⬇️</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {previewFile && (
+        <AttachmentPreviewModal defectId={defectId} fileName={previewFile} token={token} onClose={() => setPreviewFile(null)} />
       )}
     </div>
   );
@@ -520,9 +726,10 @@ function EnumFilterButton({ label, options, selected, onToggle }: {
       <button
         onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
         style={{
-          width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '3px 6px', textAlign: 'right',
+          width: '100%', minWidth: 0, boxSizing: 'border-box', fontSize: '12px', padding: '3px 6px', textAlign: 'right',
           border: `1px solid ${selected.size > 0 ? C.brand : C.border}`, borderRadius: RADIUS.sm, fontFamily: FONT,
           color: selected.size > 0 ? C.brand : C.textSecondary, background: C.bgApp, cursor: 'pointer',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}
       >
         {buttonLabel} ▾
@@ -574,7 +781,13 @@ export function ColumnFilterRow({
               onClick={e => e.stopPropagation()}
               placeholder="חיפוש..."
               style={{
-                width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '3px 6px',
+                // minWidth: 0 — <input> elements default to an intrinsic
+                // min-width (~150-190px in Chrome) that ignores width:100%
+                // and a narrower parent <th>; without overriding it, this
+                // search box silently became the real floor on how far a
+                // column could shrink, regardless of the resize handle's own
+                // (much smaller) MIN_COLUMN_WIDTH (found 2026-09-03).
+                width: '100%', minWidth: 0, boxSizing: 'border-box', fontSize: '12px', padding: '3px 6px',
                 border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, fontFamily: FONT,
                 color: C.textPrimary, background: C.bgApp,
               }}

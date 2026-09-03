@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { DefectDetailScreen } from '../quality-hub/OpenProdDefectsView';
-import { hasHebrew, PersonAvatar, NameBadge, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow } from '../shared/defectFieldDisplay';
+import { hasHebrew, PersonAvatar, NameBadge, DefectIdBadge, contrastTextColor, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow } from '../shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -161,16 +161,50 @@ const SEVERITY_COLOR: Record<string, string> = {
   'Show Stopper': C.danger, Severe: C.danger, Medium: '#e8af00', Low: C.textMuted,
 };
 
+// Same mapping as OpenProdDefectsView.tsx's STATUS_COLOR (kept as a separate
+// local copy, matching this file's existing SEVERITY_COLOR duplication
+// pattern rather than a shared-module refactor) — colored-background badge
+// for the status column, matching the defect-detail screen (spec confirmed
+// 2026-09-03).
+const STATUS_COLOR: Record<string, string> = {
+  New: C.statusOpen, Open: C.statusOpen,
+  Pending: C.statusInProgress, 'At Work': C.statusInProgress,
+  Fixed_Dev: C.warning, Fixed_Test: C.success, Fixed: C.success, Closed: C.success,
+  Reopen: C.danger, Rejected: C.textMuted, Canceled: C.textMuted,
+};
+const DEFAULT_STATUS_COLOR = C.textMuted;
+
 // Same badge treatment as the TARGET-defect table (VersionOverview.tsx) —
 // person fields resolve to an avatar, `responsibility` is the team field and
 // gets the flat color badge (spec confirmed 2026-08-30).
 const PERSON_BADGE_FIELDS = new Set<ColumnKey>(['assignedTo', 'reporter']);
 const TEAM_BADGE_FIELDS = new Set<ColumnKey>(['responsibility']);
+// Fixed-vocabulary/status-like columns — centered rather than L/R-aligned by
+// language, since they're short enum values, not prose (spec confirmed
+// 2026-09-03).
+const STATUS_LIKE_FIELDS = new Set<ColumnKey>(['severity', 'status', 'priority', 'reopenYn']);
 function renderCellValue(key: ColumnKey, value: unknown, severity: string) {
   const s = String(value ?? '');
   if (!s) return '—';
   if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={s} />;
   if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
+  if (key === 'id') return <DefectIdBadge id={s} />;
+  if (key === 'status') {
+    const statusBg = STATUS_COLOR[s] ?? DEFAULT_STATUS_COLOR;
+    return (
+      // No fontSize (inherits the table's own ...TEXT.sm, same as every
+      // other cell) + contrastTextColor instead of a fixed white — same
+      // uniform-size/readable-contrast fix as OpenProdDefectsView's status
+      // badge (spec confirmed 2026-09-03).
+      <span style={{
+        fontWeight: WEIGHT.semibold, color: contrastTextColor(statusBg),
+        background: statusBg, borderRadius: RADIUS.sm, padding: '2px 8px',
+        whiteSpace: 'nowrap', display: 'inline-block',
+      }}>
+        {s}
+      </span>
+    );
+  }
   if (key === 'severity') return <span style={{ color: SEVERITY_COLOR[severity] ?? C.textPrimary, fontWeight: WEIGHT.semibold }}>{s}</span>;
   return s;
 }
@@ -246,7 +280,15 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
     setSort(prev => prev?.key === key ? (prev.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' });
   };
 
-  const visibleColumns = ALL_COLUMNS.filter(c => columns.includes(c.key));
+  // Must map over `columns` itself (the user's persisted, reorderable
+  // order), not filter the fixed ALL_COLUMNS master list — filtering only
+  // preserves ALL_COLUMNS' own declaration order, so no reorder the picker
+  // makes ever has any visible effect (found 2026-09-03: whichever column
+  // sits last in ALL_COLUMNS, e.g. "notes", could never be moved out of the
+  // last position no matter how many times the user reordered it).
+  const visibleColumns = columns
+    .map(key => ALL_COLUMNS.find(c => c.key === key))
+    .filter((c): c is { key: ColumnKey; label: string } => !!c);
 
   if (selectedDefectId) {
     // DefectDetailScreen has no fixed positioning of its own — in
@@ -318,18 +360,28 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
                   <tr key={d.id} onClick={() => setSelectedDefectId(d.id)} style={{ cursor: 'pointer' }}>
                     {visibleColumns.map(c => {
                       const isBadge = PERSON_BADGE_FIELDS.has(c.key) || TEAM_BADGE_FIELDS.has(c.key);
+                      // 'id' centers alongside the status-like columns (spec
+                      // confirmed 2026-09-03: defect number too) even though
+                      // it isn't a fixed-vocabulary enum — same short,
+                      // non-prose visual treatment applies.
+                      const isCentered = STATUS_LIKE_FIELDS.has(c.key) || c.key === 'id';
                       const raw = String(d[c.key] ?? '');
-                      const rtl = isBadge || c.key === 'id' ? false : hasHebrew(raw);
+                      // hasHebrew flags true on ANY Hebrew character, so
+                      // mixed-language text already stays RTL/right here —
+                      // no separate "mixed" case needed (spec confirmed
+                      // 2026-09-03).
+                      const rtl = isBadge || isCentered ? false : hasHebrew(raw);
                       return (
                         <td
                           key={c.key}
                           style={{
                             padding: '7px 10px', borderBottom: `1px solid ${C.border}`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                             width: getColWidth(c.key),
-                            color: c.key === 'id' ? C.textLink : isBadge || c.key === 'severity' ? undefined : C.textSecondary,
+                            color: isBadge || c.key === 'severity' || c.key === 'id' ? undefined : C.textSecondary,
                             fontWeight: c.key === 'id' ? WEIGHT.semibold : WEIGHT.normal,
-                            fontFamily: c.key === 'id' ? 'monospace' : FONT,
-                            direction: rtl ? 'rtl' : 'ltr', textAlign: rtl ? 'right' : 'left',
+                            fontFamily: FONT,
+                            direction: isCentered ? undefined : (rtl ? 'rtl' : 'ltr'),
+                            textAlign: isCentered ? 'center' : (rtl ? 'right' : 'left'),
                           }}
                         >
                           {renderCellValue(c.key, d[c.key], d.severity)}

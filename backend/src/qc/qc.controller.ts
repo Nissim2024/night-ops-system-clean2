@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Query, Param, Body, Request, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Query, Param, Body, Request, Res, UseGuards, ForbiddenException } from '@nestjs/common';
+import type { Response } from 'express';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 import { QcService } from './qc.service';
 import { QcRestService } from './qc-rest.service';
@@ -122,5 +123,31 @@ export class QcController {
   async appendRestNote(@Request() req: any, @Param('id') id: string, @Body('note') note: string) {
     await this.requireQcWrite(req);
     return this.qcRestService.appendComment(id, note, req.user.email ?? req.user.sub ?? 'DeployCenter', req.user.sub);
+  }
+
+  // ── Defect attachments (spec confirmed 2026-09-03) — read-only, so no
+  // action:qc_write gate: any authenticated user with a linked qcLogin can
+  // view/download whatever their own QC account is allowed to see (access
+  // control lives in QC itself, same principle as the write-back tool).
+  @Get('defect/:id/attachments')
+  listAttachments(@Request() req: any, @Param('id') id: string) {
+    return this.qcRestService.listAttachments(id, req.user.sub);
+  }
+
+  @Get('defect/:id/attachments/:fileName/download')
+  async downloadAttachment(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Param('fileName') fileName: string,
+    @Res() res: Response,
+  ) {
+    const { data, contentType } = await this.qcRestService.downloadAttachment(id, fileName, req.user.sub);
+    const ascii = fileName.replace(/[^\x20-\x7E]/g, '_');
+    const encoded = encodeURIComponent(fileName);
+    res.set({
+      'Content-Type': contentType,
+      'Content-Disposition': `inline; filename="${ascii}"; filename*=UTF-8''${encoded}`,
+    });
+    res.send(data);
   }
 }

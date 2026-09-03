@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { C, FONT, WEIGHT, RADIUS, SHADOW } from '../theme';
 import { VersionStatusChip } from './ui';
-import { hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroupsDialog, DetailGroup, FieldChangeHistorySection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow } from './shared/defectFieldDisplay';
+import { hasHebrew, NameBadge, PersonAvatar, DefectIdBadge, renderNotesField, DetailGroupsDialog, DetailGroup, FieldChangeHistorySection, AttachmentsSection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow } from './shared/defectFieldDisplay';
 import { formatDateTime } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -154,6 +154,7 @@ function renderTargetDefectValue(key: keyof TargetDefect, value: unknown, qcUser
   if (!s) return '—';
   if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={qcUserNames?.[s.toLowerCase()] ?? s} />;
   if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
+  if (key === 'id') return <DefectIdBadge id={s} />;
   if (key === 'severity') return <span style={{ color: SEVERITY_COLOR[s] ?? C.textPrimary, fontWeight: WEIGHT.semibold }}>{s}</span>;
   return s;
 }
@@ -789,8 +790,8 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
                 <div style={{ textAlign: 'center', padding: '30px', color: C.textMuted }}>תקלה לא נמצאה</div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ fontSize: '17px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>
-                    🎯 תקלה {d.id} — {d.summary || d.subject || d.title || '—'}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '17px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+                    🎯 תקלה <DefectIdBadge id={d.id} /> — {d.summary || d.subject || d.title || '—'}
                   </div>
 
                   {/* Category groups — moved right under the title (spec 2026-08-30):
@@ -851,6 +852,10 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
                       </div>
                     </div>
                   </div>
+
+                  {/* Attachments — same shared section as OpenProdDefectsView's
+                      defect-detail screen (spec confirmed 2026-09-03). */}
+                  <AttachmentsSection defectId={d.id} token={token} />
 
                   {/* Change history — end of form, filterable by which field changed
                       (spec confirmed 2026-08-30). Shared with every other defect-detail

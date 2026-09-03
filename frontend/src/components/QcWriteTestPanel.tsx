@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../theme';
 import { formatDateTime } from '../utils/dateFormat';
+import { DefectIdBadge } from './shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -115,8 +116,8 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
 
       {allFields && (
         <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-          <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
-            כל שמות השדות שהוחזרו מ-QC עבור תקלה {defectId} ({Object.keys(allFields).length})
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+            כל שמות השדות שהוחזרו מ-QC עבור תקלה <DefectIdBadge id={defectId} /> ({Object.keys(allFields).length})
           </div>
           <input
             value={fieldsFilter}
@@ -156,7 +157,7 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
       {preview && (
         <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], display: 'flex', flexDirection: 'column', gap: SP[3] }}>
           <div>
-            <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>תקלה {preview.id} — {preview.title || '(ללא כותרת)'}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>תקלה <DefectIdBadge id={preview.id} /> — {preview.title || '(ללא כותרת)'}</div>
             <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>סטטוס: {preview.status || '—'}</div>
           </div>
 

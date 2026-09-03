@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, RADIUS, SHADOW } from '../theme';
 import { formatDate } from '../utils/dateFormat';
+import { DefectIdBadge } from './shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -216,7 +217,7 @@ export const UnifiedGoLivePlanView: React.FC<Props> = ({ token, versionId, versi
                       <div style={{ fontSize: '12px', color: C.textMuted }}>אין תקלות ברשימה זו.</div>
                     ) : list.map((d: any) => (
                       <div key={d.id} style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '12px', padding: '5px 8px', background: C.bgNested, borderRadius: RADIUS.sm, border: `1px solid ${C.border}` }}>
-                        <span style={{ fontWeight: WEIGHT.bold, color: C.textLink, flexShrink: 0 }}>{d.id}</span>
+                        <DefectIdBadge id={d.id} />
                         <span style={{ color: C.textPrimary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title || d.subject}</span>
                         <span style={{ color: C.textMuted, flexShrink: 0 }}>{d.status}</span>
                         <span style={{ color: C.textMuted, flexShrink: 0, direction: 'ltr' }}>{d.detectedInRelease} → {d.targetRelease || '—'}</span>

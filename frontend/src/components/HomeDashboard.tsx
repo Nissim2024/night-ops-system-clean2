@@ -7,6 +7,7 @@ import { DefectDetailScreen } from './quality-hub/OpenProdDefectsView';
 import { VersionMilestoneTimeline } from './shared/VersionMilestoneTimeline';
 import { GoLiveCountdown } from './shared/GoLiveCountdown';
 import { formatDate, formatDateTime, formatTime } from '../utils/dateFormat';
+import { DefectIdBadge } from './shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL ?? 'http://localhost:3000';
 
@@ -1552,7 +1553,7 @@ export const HomeDashboard: React.FC<Props> = ({
                       return (
                         <div key={d.id} onClick={() => setHomeDefectDetailId(d.id)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 0', borderBottom: `1px solid ${C.border}`, cursor: 'pointer' }}>
                           <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: sevColor, flexShrink: 0 }} />
-                          <span style={{ ...TEXT.xs, fontFamily: FONT_MONO, fontWeight: WEIGHT.bold, color: C.textSecondary, background: C.bgNested, borderRadius: RADIUS.sm, padding: '1px 6px', flexShrink: 0 }}>{d.id}</span>
+                          <DefectIdBadge id={d.id} />
                           <span style={{ ...TEXT.xs, color: C.textPrimary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{d.title}</span>
                         </div>
                       );

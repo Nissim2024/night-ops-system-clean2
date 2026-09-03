@@ -4,6 +4,7 @@ import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, severityColor, severit
 import { CyclesPanel, CycleProgress, CycleTimelineItem } from './CycleProgressView';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
 import { KpiTile, RiskRow } from '../HomeDashboard';
+import { DefectIdBadge } from '../shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -163,7 +164,7 @@ function BlockedCrsList({ rows }: { rows: { crNumber: string; crLabel: string; c
           </div>
           {r.reasonDefects.length > 0 ? (
             r.reasonDefects.map(d => (
-              <div key={d.id} style={{ ...TEXT.xs, color: C.textMuted, paddingRight: '4px' }}>↳ #{d.id} {d.title}</div>
+              <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', ...TEXT.xs, color: C.textMuted, paddingRight: '4px' }}>↳ <DefectIdBadge id={d.id} /> {d.title}</div>
             ))
           ) : (
             <div style={{ ...TEXT.xs, color: C.textMuted, paddingRight: '4px' }}>↳ לא נמצאה תקלת Test Blocker מקושרת</div>

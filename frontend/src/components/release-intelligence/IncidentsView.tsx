@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { RcaWizardModal } from './RcaWizardModal';
+import { DefectIdBadge } from '../shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -354,7 +355,7 @@ const CategoryBreakdownView: React.FC<{
                           style={{ display: 'flex', alignItems: 'center', gap: SP[3], padding: '8px 16px 8px 40px', cursor: 'pointer', borderTop: `1px solid ${C.border}` }}
                         >
                           <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: inc.severity ? SEVERITY_COLOR[inc.severity] : C.textMuted, flexShrink: 0 }} />
-                          <span style={{ ...TEXT.xs, color: C.textMuted, minWidth: '56px' }}>#{inc.qcDefectId}</span>
+                          <span style={{ minWidth: '56px' }}><DefectIdBadge id={inc.qcDefectId} /></span>
                           <span style={{ ...TEXT.sm, color: C.textPrimary, flex: 1 }}>{inc.title}</span>
                           {inc.rootCauseReason && <span style={{ ...TEXT.xs, color: C.textSecondary, background: C.bgNested, borderRadius: RADIUS.sm, padding: '2px 8px' }}>{inc.rootCauseReason}</span>}
                           {scope === 'all' && <span style={{ ...TEXT.xs, color: C.textMuted, minWidth: '90px' }}>{inc.versionName}</span>}
@@ -545,7 +546,7 @@ export const IncidentsView: React.FC<Props> = ({ token, versionId, role }) => {
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
                   <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: inc.severity ? SEVERITY_COLOR[inc.severity] : C.textMuted, flexShrink: 0 }} />
-                  <span style={{ ...TEXT.xs, color: C.textMuted, minWidth: '60px' }}>#{inc.qcDefectId}</span>
+                  <span style={{ minWidth: '60px' }}><DefectIdBadge id={inc.qcDefectId} /></span>
                   <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, flex: 1 }}>{inc.title}</span>
                   {inc.defectType && <span style={{ ...TEXT.xs, color: C.textSecondary, background: C.bgNested, borderRadius: RADIUS.sm, padding: '2px 8px' }}>{inc.defectType}</span>}
                   {inc.group && <span style={{ ...TEXT.xs, color: C.brand, background: C.brandDim, borderRadius: RADIUS.full, padding: '2px 8px' }}>🔗 {inc.group.reason}</span>}
@@ -619,8 +620,8 @@ export const IncidentsView: React.FC<Props> = ({ token, versionId, role }) => {
                           <input type="checkbox" checked={checked} onChange={toggle} />
                         </td>
                         {importColumns.map(key => (
-                          <td key={key} style={{ padding: '7px 10px', color: C.textSecondary, whiteSpace: 'nowrap', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'right' }}>
-                            {String(c[key] ?? '') || '—'}
+                          <td key={key} style={{ padding: '7px 10px', color: C.textSecondary, whiteSpace: 'nowrap', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: key === 'qcDefectId' ? 'center' : 'right' }}>
+                            {key === 'qcDefectId' ? (c.qcDefectId ? <DefectIdBadge id={c.qcDefectId} /> : '—') : (String(c[key] ?? '') || '—')}
                           </td>
                         ))}
                       </tr>
