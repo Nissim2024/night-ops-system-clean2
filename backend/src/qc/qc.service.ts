@@ -362,27 +362,35 @@ const TEST_COVERAGE_SQL = `
     RQ.RQ_REQ_ID, RQ.RQ_FATHER_ID, RQ.RQ_USER_29, RQ.RQ_USER_05
 `;
 
-// Same TEST/REQ_COVER/REQ join as TEST_COVERAGE_SQL, but grouped by the
-// requirement itself (RQ_REQ_ID/RQ_FATHER_ID) across every cycle of the
-// release, instead of by RQ_USER_05/RQ_USER_29 for one specific cycle. The
-// leaf requirement actually linked to a TEST rarely carries CR_NUMBER
+// Same TEST/REQ_COVER/REQ join as TEST_COVERAGE_SQL, across every cycle of
+// the release instead of one specific cycle — but deliberately NOT grouped/
+// aggregated in SQL. One row per (test × requirement-it-covers) link.
+//
+// REQ_COVER is many-to-many between TEST and REQ: the same physical test can
+// cover multiple requirements. The old version of this query grouped by
+// RQ_REQ_ID and did COUNT(*)/SUM(...) per requirement, then getCrCoverage
+// summed those per-requirement rows into a per-CR total — so a test
+// satisfying two requirements under the SAME CR was counted twice in the
+// final total. Confirmed against real production data (2026-09-03, user's
+// own audit): QC's own "Requirements Coverage" screen counts
+// COUNT(DISTINCT TS_TEST_ID), not COUNT(*) — matching that raw
+// COUNT(DISTINCT TS_TEST_ID) closely (441 vs the screen's 440) while a naive
+// COUNT(*) came back at 452. Deduplication now happens in getCrCoverage using
+// a Map<testId, status> per (CR, cycle) — a Map key naturally collapses the
+// same test appearing under multiple requirements into one entry, however
+// many rows it contributes here.
+//
+// The leaf requirement actually linked to a TEST rarely carries CR_NUMBER
 // itself — that lives on an ancestor folder (see REQ_HIERARCHY_SQL) — so
 // this only resolves ID/parent-ID; the CR walk happens in getCrCoverage.
 const TEST_COVERAGE_BY_REQ_SQL = `
   SELECT
-    RQ.RQ_REQ_ID                                                                        AS REQ_ID,
-    RQ.RQ_FATHER_ID                                                                     AS FATHER_ID,
-    RCYC.RCYC_NAME                                                                      AS CYCLE_NAME,
-    RR.REL_NAME                                                                         AS RELEASE_NAME,
-    COUNT(*)                                                                            AS TOTAL,
-    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Passed'          THEN 1 ELSE 0 END)             AS PASSED,
-    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Failed'          THEN 1 ELSE 0 END)             AS FAILED,
-    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'No Run'          THEN 1 ELSE 0 END)             AS NOT_RUN,
-    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Blocked'         THEN 1 ELSE 0 END)             AS BLOCKED,
-    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Not Completed'   THEN 1 ELSE 0 END)             AS NOT_COMPLETED,
-    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Not Ready for QA' THEN 1 ELSE 0 END)            AS NOT_READY,
-    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'N/A'             THEN 1 ELSE 0 END)             AS NOT_APPLICABLE,
-    SUM(CASE WHEN TS.TS_EXEC_STATUS = 'Not Relevant'    THEN 1 ELSE 0 END)             AS NOT_RELEVANT
+    RQ.RQ_REQ_ID      AS REQ_ID,
+    RQ.RQ_FATHER_ID   AS FATHER_ID,
+    RCYC.RCYC_NAME    AS CYCLE_NAME,
+    RR.REL_NAME       AS RELEASE_NAME,
+    TS.TS_TEST_ID     AS TEST_ID,
+    TS.TS_EXEC_STATUS AS EXEC_STATUS
   FROM
     TEST TS, REQ_COVER RC, REQ RQ, REQ_RELEASES RQR, REQ_CYCLES RQC, RELEASE_CYCLES RCYC, RELEASES RR
   WHERE
@@ -394,8 +402,6 @@ const TEST_COVERAGE_BY_REQ_SQL = `
     RQR.RQRL_RELEASE_ID = RR.REL_ID        AND
     RQC.RQC_CYCLE_ID    = RCYC.RCYC_ID     AND
     RR.REL_ID           = :releaseId
-  GROUP BY
-    RQ.RQ_REQ_ID, RQ.RQ_FATHER_ID, RCYC.RCYC_NAME, RR.REL_NAME
 `;
 
 // Full requirement parent-chain + CR link, unscoped by release — a leaf
@@ -1935,12 +1941,13 @@ export class QcService {
       };
 
       const wanted = crNumbers.length > 0 ? new Set(crNumbers) : null;
-      type Agg = {
+      type Bucket = {
         crNumber: string; crTitle: string; releaseName: string; cycleName: string;
-        passed: number; failed: number; notRun: number; blocked: number; notCompleted: number; notReady: number;
-        notApplicable: number; notRelevant: number; total: number;
+        tests: Map<string, string>; // testId -> exec status; a Map key dedupes
+        // a test that satisfies multiple requirements under the same CR into
+        // one entry, however many raw rows it contributed above.
       };
-      const byKey = new Map<string, Agg>();
+      const byKey = new Map<string, Bucket>();
 
       for (const r of (covResult.rows ?? []) as any[]) {
         const resolved = resolveCr(String(r.REQ_ID));
@@ -1948,31 +1955,44 @@ export class QcService {
 
         const cycleName = r.CYCLE_NAME ?? '';
         const key = `${resolved.crNumber}::${cycleName}`;
-        const existing = byKey.get(key) ?? {
-          crNumber: resolved.crNumber,
-          crTitle: resolved.reqName.replace(new RegExp(`^${resolved.crNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`), ''),
-          releaseName: r.RELEASE_NAME ?? '', cycleName,
-          passed: 0, failed: 0, notRun: 0, blocked: 0, notCompleted: 0, notReady: 0,
-          notApplicable: 0, notRelevant: 0, total: 0,
-        };
-        existing.passed        += Number(r.PASSED ?? 0);
-        existing.failed        += Number(r.FAILED ?? 0);
-        existing.notRun        += Number(r.NOT_RUN ?? 0);
-        existing.blocked       += Number(r.BLOCKED ?? 0);
-        existing.notCompleted  += Number(r.NOT_COMPLETED ?? 0);
-        existing.notReady      += Number(r.NOT_READY ?? 0);
-        existing.notApplicable += Number(r.NOT_APPLICABLE ?? 0);
-        existing.notRelevant   += Number(r.NOT_RELEVANT ?? 0);
-        existing.total         += Number(r.TOTAL ?? 0);
-        byKey.set(key, existing);
+        let existing = byKey.get(key);
+        if (!existing) {
+          existing = {
+            crNumber: resolved.crNumber,
+            crTitle: resolved.reqName.replace(new RegExp(`^${resolved.crNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`), ''),
+            releaseName: r.RELEASE_NAME ?? '', cycleName, tests: new Map(),
+          };
+          byKey.set(key, existing);
+        }
+        existing.tests.set(String(r.TEST_ID), r.EXEC_STATUS ?? '');
       }
 
       // N/A and Not Relevant count toward "executed" (2026-08-03 product
       // decision) — a test the team deliberately marked out-of-scope for
       // this cycle shouldn't drag coverage % down like a genuine not-run gap.
       return Array.from(byKey.values()).map(v => {
-        const executed = v.passed + v.failed + v.blocked + v.notCompleted + v.notApplicable + v.notRelevant;
-        return { ...v, coveragePct: v.total > 0 ? Math.round((executed / v.total) * 100) : 0 };
+        const counts = {
+          passed: 0, failed: 0, notRun: 0, blocked: 0, notCompleted: 0, notReady: 0,
+          notApplicable: 0, notRelevant: 0,
+        };
+        for (const status of v.tests.values()) {
+          switch (status) {
+            case 'Passed':           counts.passed++; break;
+            case 'Failed':           counts.failed++; break;
+            case 'No Run':           counts.notRun++; break;
+            case 'Blocked':          counts.blocked++; break;
+            case 'Not Completed':    counts.notCompleted++; break;
+            case 'Not Ready for QA': counts.notReady++; break;
+            case 'N/A':              counts.notApplicable++; break;
+            case 'Not Relevant':     counts.notRelevant++; break;
+          }
+        }
+        const total = v.tests.size;
+        const executed = counts.passed + counts.failed + counts.blocked + counts.notCompleted + counts.notApplicable + counts.notRelevant;
+        return {
+          crNumber: v.crNumber, crTitle: v.crTitle, releaseName: v.releaseName, cycleName: v.cycleName,
+          ...counts, total, coveragePct: total > 0 ? Math.round((executed / total) * 100) : 0,
+        };
       });
     } catch (err: any) {
       this.logger.error(`Oracle getCrCoverage: ${err.message}`);
