@@ -26,6 +26,11 @@ export class ReleaseIntelligenceController {
     return this.service.getDailyQaManagement(versionId);
   }
 
+  @Get('daily-qa/:versionId/yesterday-diff')
+  getYesterdayDiff(@Param('versionId') versionId: string) {
+    return this.service.getYesterdayDiff(versionId);
+  }
+
   @Get('cr-health/:versionId')
   getCrHealth(@Param('versionId') versionId: string) {
     return this.service.getCrHealth(versionId);
@@ -107,6 +112,52 @@ export class ReleaseIntelligenceController {
   closeRisk(@Param('id') id: string, @Request() req: any) {
     requireRole(req, RISK_CLOSERS);
     return this.service.closeRisk(id);
+  }
+
+  @Get('blockers/:versionId')
+  listBlockers(@Param('versionId') versionId: string) {
+    return this.service.listBlockers(versionId);
+  }
+
+  @Post('blockers')
+  createBlocker(@Body() body: any, @Request() req: any) {
+    requireRole(req, RISK_WRITERS);
+    return this.service.createBlocker({ ...body, createdBy: req.user.sub });
+  }
+
+  @Patch('blockers/:id')
+  updateBlocker(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    requireRole(req, RISK_WRITERS);
+    return this.service.updateBlocker(id, body);
+  }
+
+  @Patch('blockers/:id/resolve')
+  resolveBlocker(@Param('id') id: string, @Request() req: any) {
+    requireRole(req, RISK_CLOSERS);
+    return this.service.resolveBlocker(id);
+  }
+
+  @Patch('blockers/:id/reopen')
+  reopenBlocker(@Param('id') id: string, @Request() req: any) {
+    requireRole(req, RISK_CLOSERS);
+    return this.service.reopenBlocker(id);
+  }
+
+  @Get('action-items/:versionId')
+  listActionItems(@Param('versionId') versionId: string) {
+    return this.service.listActionItems(versionId);
+  }
+
+  @Post('action-items')
+  createActionItem(@Body() body: any, @Request() req: any) {
+    requireRole(req, RISK_WRITERS);
+    return this.service.createActionItem({ ...body, createdBy: req.user.sub });
+  }
+
+  @Patch('action-items/:id')
+  updateActionItem(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    requireRole(req, RISK_WRITERS);
+    return this.service.updateActionItem(id, body);
   }
 
   @Get('alerts/:versionId')

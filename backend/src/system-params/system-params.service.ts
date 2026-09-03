@@ -115,6 +115,12 @@ const DEFAULT_PARAMS = [
     type: 'text',
   },
   {
+    key: 'DAILY_QA_SNAPSHOT_TIME',
+    value: '23:00',
+    label: 'Daily QA: שעת צילום יומי לנתוני "מה השתנה מאתמול" (HH:mm)',
+    type: 'text',
+  },
+  {
     key: 'QUALITY_KPI_SCORES_FILE',
     value: '',
     label: 'Quality Hub: נתיב לקובץ RELEASES_KPI_SCORES.xlsx (ריק = אותה תיקייה כמו EXCEL_FILE_PATH)',

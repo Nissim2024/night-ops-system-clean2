@@ -117,6 +117,8 @@ model User {
   qaCycleTasks           QaCycleTask[]
   createdReleaseRisks    ReleaseRisk[]
   createdVersionNotices  VersionNotice[]
+  createdDailyBlockers   DailyBlocker[]
+  createdDailyActions    DailyActionItem[]
 }
 
 model Team {
@@ -214,6 +216,9 @@ model Version {
   versionCrAssignments VersionCrAssignment[]
   qaWorkPlan           QaWorkPlan?
   releaseRisks         ReleaseRisk[]
+  dailyBlockers        DailyBlocker[]
+  dailyActionItems     DailyActionItem[]
+  dailyQaSnapshots     DailyQaSnapshot[]
   releaseInsights      ReleaseInsight[]
   releaseHealth        ReleaseHealth?
   releaseForecast      ReleaseForecast?
@@ -993,6 +998,121 @@ model ReleaseRisk {
   creator User    @relation(fields: [createdBy], references: [id])
 }
 
+// Fixed type catalog from the Daily QA spec's "Blockers Center" (area 4) —
+// explicitly requested as a structured catalog, not free text. Deliberately
+// separate from the heuristic "blocked" signal used elsewhere (QC script
+// status = Blocked, matched best-effort to a Test-Blocker-priority defect
+// for getDailyQaManagement's CR-risk formula) — that's an execution-level
+// signal auto-derived from QC; this is a manually-logged real-world
+// impediment (environment down, missing data, waiting on a 3rd party, etc.)
+// with a real owner and a real createdAt, so "days open" here is exact, not
+// approximated. The two are not reconciled, same as the other
+// already-overlapping risk indicators in this app (see getDailyQaManagement
+// comments) — they answer different questions.
+enum BlockerType {
+  ENVIRONMENT // סביבה
+  DATA // נתונים
+  DEVELOPMENT // פיתוח
+  INTEGRATION // אינטגרציה
+  INFRASTRUCTURE // תשתיות
+  PERMISSIONS // הרשאות
+  THIRD_PARTY // צד ג'
+  BUSINESS_REQUIREMENT // דרישה עסקית
+  EQUIPMENT // ציוד
+  OTHER // אחר
+}
+
+enum BlockerStatus {
+  OPEN
+  RESOLVED
+}
+
+model DailyBlocker {
+  id         String        @id @default(uuid())
+  versionId  String
+  title      String
+  type       BlockerType
+  crNumber   String? // free string, same convention as Incident.crReferenceNumber — no CR entity table exists
+  ownerName  String? // denormalized, same convention as ReleaseRisk.owner / CrPlan.crManagerApprovedBy
+  status     BlockerStatus @default(OPEN)
+  resolvedAt DateTime?
+  createdBy  String
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  creator User    @relation(fields: [createdBy], references: [id])
+
+  @@index([versionId])
+}
+
+// Daily QA spec area 5 ("Action Items — נגזר מישיבת ה-Daily"). Deliberately
+// its own model rather than reusing the existing ActionItem table: that one
+// is scoped to `incidentId` (required, non-nullable) as part of the
+// Incidents/RCA remediation flow — a different lifecycle (corrective/
+// preventive actions tied to a root-cause investigation) from a lightweight
+// follow-up jotted down in a daily standup. Status values match the spec's
+// fixed list exactly (Open/In Progress/Waiting/Done/Canceled) — distinct
+// from ActionStatus (Incidents) and BlockerStatus (DailyBlocker above).
+enum DailyActionStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING
+  DONE
+  CANCELED
+}
+
+model DailyActionItem {
+  id        String            @id @default(uuid())
+  versionId String
+  title     String
+  ownerName String? // denormalized, same convention as DailyBlocker.ownerName
+  dueAt     DateTime?
+  status    DailyActionStatus @default(OPEN)
+  createdBy String
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  creator User    @relation(fields: [createdBy], references: [id])
+
+  @@index([versionId])
+}
+
+// Daily QA spec's "What Changed Since Yesterday" — the one feature that
+// can't be built as a live rollup, since diffing needs a point-in-time
+// snapshot of yesterday's numbers to compare against. Written once/day by
+// DailyQaSnapshotService's cron (release-intelligence module) at an
+// admin-configurable time (DAILY_QA_SNAPSHOT_TIME SystemParam, same
+// polling-cron pattern as QUALITY_KPI_SYNC_TIME/CR_LIST_SYNC_TIME — see
+// quality-hub.service.ts's checkScheduledImportTime). crRisk/testerProgress
+// are compact maps (crNumber→risk, testerName→progressPct) rather than full
+// row copies — enough to detect "CR moved to High Risk" and "tester X no
+// updates for N days" without duplicating the whole crs/testers payload
+// every day.
+model DailyQaSnapshot {
+  id                String   @id @default(uuid())
+  versionId         String
+  snapshotDate      DateTime // normalized to local midnight — one row per version per calendar day
+  testProgressPct   Int
+  passed            Int
+  failed            Int
+  blocked           Int
+  openDefects       Int
+  criticalDefects   Int
+  openBlockers      Int
+  crsAtRisk         Int
+  testersNoProgress Int
+  crRisk            Json // { [crNumber]: 'HIGH' | 'MEDIUM' | 'LOW' }
+  testerProgress    Json // { [testerName]: number (progressPct) }
+  createdAt         DateTime @default(now())
+
+  version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, snapshotDate])
+  @@index([versionId])
+}
+
 // Manual, RM/ADMIN-authored notices pinned atop the Home risks/activities
 // feed — supersedes the old single Version.homeNotice text field, allowing
 // several concurrent notices each with their own urgency level.
@@ -1318,18 +1438,18 @@ model Rca {
   // Stage 2 — facts-only collection, deliberately separate free-text fields
   // (not RcaAnswer rows) so the UI can render/require them as a fixed form
   // and gate stage 3 behind them ("don't let the user jump to root cause").
-  factsActionTaken      String? // מה הפעולה שבוצעה
-  factsExpectedResult   String? // מה היה אמור לקרות
-  factsActualResult     String? // מה קרה בפועל
-  factsTiming           String? // מתי התחילה: AFTER_RELEASE | AFTER_INFRA_CHANGE | AFTER_CONFIG_CHANGE | UNKNOWN
-  factsReproducibility  String? // האם משתחזרת: ALWAYS | PARTIAL | RANDOM
-  factsLocked           Boolean @default(false) // set once all facts above are filled — gates the tree-investigation stage in the UI
+  factsActionTaken     String? // מה הפעולה שבוצעה
+  factsExpectedResult  String? // מה היה אמור לקרות
+  factsActualResult    String? // מה קרה בפועל
+  factsTiming          String? // מתי התחילה: AFTER_RELEASE | AFTER_INFRA_CHANGE | AFTER_CONFIG_CHANGE | UNKNOWN
+  factsReproducibility String? // האם משתחזרת: ALWAYS | PARTIAL | RANDOM
+  factsLocked          Boolean @default(false) // set once all facts above are filled — gates the tree-investigation stage in the UI
   // Stage 3 — the path actually walked through guided-investigation-tree.ts:
   // [{ nodeId, question, answerValue, answerLabel }, ...]. Stage 5's 5-Why is
   // deterministically derived from this same path (see buildAutoFiveWhy) and
   // stored as ordinary RcaAnswer rows, not duplicated here.
-  treePath   Json?
-  treeLeafId String? // which leaf the path terminated at — drives stage 4's inferred category/reason and stage 6's corrective/preventive action templates
+  treePath             Json?
+  treeLeafId           String? // which leaf the path terminated at — drives stage 4's inferred category/reason and stage 6's corrective/preventive action templates
 
   incident Incident    @relation(fields: [incidentId], references: [id], onDelete: Cascade)
   answers  RcaAnswer[]
@@ -1379,7 +1499,7 @@ model RcaAnswer {
 }
 
 model ActionItem {
-  id         String       @id @default(uuid())
+  id         String          @id @default(uuid())
   incidentId String
   title      String
   // Denormalized team name — was a fixed 5-value enum (Requirements/Spec/

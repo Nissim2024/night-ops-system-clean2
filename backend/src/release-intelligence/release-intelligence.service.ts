@@ -1,4 +1,5 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaClient } from '@prisma/client';
 import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDto, CrCoverageDto, CycleQgTargetDto } from '../qc/qc.service';
 
@@ -88,6 +89,7 @@ function cycleNameMatches(cycleType: string, realCycleName: string): boolean {
 @Injectable()
 export class ReleaseIntelligenceService {
   private qcService = new QcService();
+  private readonly logger = new Logger(ReleaseIntelligenceService.name);
 
   // ── Overview aggregator — spec section 11 ──────────────────────────────────
   async getOverview(versionId: string) {
@@ -119,19 +121,24 @@ export class ReleaseIntelligenceService {
     // Critical defects — open, severity Show Stopper/Severe
     const openDefects = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
 
-    // Blocked CRs — any CR with blocked scripts in a core cycle; "reason" is
-    // whichever open Test Blocker-priority defects are reported against it
-    // (usually opened alongside the blocked script — spec confirmed
-    // 2026-09-02, no guaranteed 1:1 link, so this is a best-effort match by
-    // CR number, not a hard reference).
+    // Blocked CRs — a CR only appears here if it BOTH has blocked scripts in
+    // a core cycle AND has a still-genuinely-open Test Blocker-priority
+    // defect reported against it (usually opened alongside the blocked
+    // script — no guaranteed 1:1 link, so this is a best-effort match by CR
+    // number, not a hard reference). "Still open" is stricter than the
+    // general openDefects filter above: it also excludes Fixed_Test — once
+    // QA has verified the fix, the CR shouldn't keep nagging as blocked here
+    // even if the script's own exec status in QC hasn't been re-run yet
+    // (spec confirmed 2026-09-03).
     const blockedCrs = coreCrCoverage
       .filter(cc => cc.blocked > 0)
       .map(cc => ({
         crNumber: cc.crNumber, crLabel: cc.crLabel, cycleType: cc.cycleType, blockedCount: cc.blocked,
         reasonDefects: openDefects
-          .filter(d => d.crReferenceNumber === cc.crNumber && d.priority === TEST_BLOCKER_PRIORITY)
+          .filter(d => d.crReferenceNumber === cc.crNumber && d.priority === TEST_BLOCKER_PRIORITY && d.status !== 'Fixed_Test')
           .map(d => ({ id: d.id, title: d.title })),
-      }));
+      }))
+      .filter(cr => cr.reasonDefects.length > 0);
     const criticalDefects = openDefects.filter(d => CRITICAL_SEVERITIES.includes(d.severity)).length;
 
     // QG summary — open defect counts by severity vs thresholds
@@ -396,26 +403,280 @@ export class ReleaseIntelligenceService {
     return { rows, bugDashboard };
   }
 
-  // ── Daily QA Management — spec section 12 ───────────────────────────────────
+  // ── Daily QA Meeting — redesigned 2026-09-03 (was a flat per-CR table with
+  // a simple health flag). New structure: exec summary, per-tester heat map,
+  // per-CR risk list, and auto-alerts — built for the actual daily standup
+  // use case ("30 seconds to know if the release is at risk, who's stuck,
+  // what needs escalation"). Deliberately a SEPARATE risk metric from
+  // Quality Gate PASS/FAIL, CR Quality Score, and the coverage card's
+  // blocked-CR list — those answer different questions, not something this
+  // screen reconciles with (spec confirmed 2026-09-03). Reuses
+  // getCycleProgress as its data foundation instead of re-deriving per-CR
+  // data a second time — crCoverage rows already carry
+  // tester/project/defectsBySeverity per CR (added 2026-09-02/03).
   async getDailyQaManagement(versionId: string) {
-    const { rows: baseRows, bugDashboard } = await this.buildCrRows(versionId);
+    const [cycleProgress, defects, crAssignments] = await Promise.all([
+      this.getCycleProgress(versionId),
+      this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
+      prisma.versionCrAssignment.findMany({
+        where: { versionId, syncStatus: { not: 'REMOVED' } },
+        select: { crNumber: true, teamId: true, team: { select: { name: true } } },
+      }),
+    ]);
+    const openDefects = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
+    const now = Date.now();
 
-    const rows = baseRows.map(r => {
-      let health: 'GOOD' | 'WARNING' | 'CRITICAL' = 'GOOD';
-      if (r.isDelayed || r.openDefects > 3) health = 'CRITICAL';
-      else if (r.openDefects > 0) health = 'WARNING';
-      return { ...r, passRatePct: r.coveragePct, health };
+    // CR → team(s) — spec area's Release/Team view toggle. A CR can be
+    // assigned to more than one team (VersionCrAssignment's unique key is
+    // versionId+crNumber+teamId, not just versionId+crNumber), so it can
+    // legitimately show up under more than one team in Team View.
+    const teamsByCr = new Map<string, { id: string; name: string }[]>();
+    for (const a of crAssignments) {
+      const list = teamsByCr.get(a.crNumber) ?? [];
+      if (!list.some(t => t.id === a.teamId)) list.push({ id: a.teamId, name: a.team.name });
+      teamsByCr.set(a.crNumber, list);
+    }
+
+    const coreCrCoverage = cycleProgress.timeline
+      .filter(t => CORE_CYCLE_TYPES.includes(t.cycleType))
+      .flatMap(t => t.crCoverage);
+
+    // One row per CR — a CR can appear in more than one core cycle; script
+    // execution counts are genuinely additive across cycles, but
+    // tester/project/defect breakdown are identical on every cycle-row for
+    // the same CR (assignment and defects aren't cycle-scoped, only script
+    // execution is) — keep the first-seen value for those, don't sum them.
+    interface DailyCrAgg {
+      crNumber: string; crLabel: string; tester: string | null;
+      passed: number; total: number; blocked: number;
+      defectsBySeverity: { showStopper: number; severe: number; medium: number; low: number };
+    }
+    const byCr = new Map<string, DailyCrAgg>();
+    for (const cc of coreCrCoverage) {
+      const existing = byCr.get(cc.crNumber);
+      if (!existing) {
+        byCr.set(cc.crNumber, {
+          crNumber: cc.crNumber, crLabel: cc.crLabel, tester: cc.tester,
+          passed: cc.passed, total: cc.total, blocked: cc.blocked,
+          defectsBySeverity: { ...cc.defectsBySeverity },
+        });
+      } else {
+        existing.passed += cc.passed;
+        existing.total += cc.total;
+        existing.blocked += cc.blocked;
+      }
+    }
+
+    // Blocker "days open" — approximated from the age of a linked open Test
+    // Blocker-priority defect (same best-effort CR-number match as the
+    // coverage card's blocked-CR list), since there's no real Blocker entity
+    // with its own open-date yet (a "Blockers Center" catalog is a separate,
+    // larger follow-up, not built here). A CR with blocked>0 but no linked
+    // defect still counts as blocked, just without an age to compare against
+    // the 2-day threshold — treated as over-threshold rather than under,
+    // since an unknown age shouldn't silently hide a real blocker.
+    const blockerAgeByCr = new Map<string, number>();
+    for (const d of openDefects) {
+      if (d.priority !== TEST_BLOCKER_PRIORITY || !d.crReferenceNumber) continue;
+      const age = parseOracleDateAgeDays(d.discoveryDate, now);
+      if (age == null) continue;
+      const existing = blockerAgeByCr.get(d.crReferenceNumber);
+      if (existing == null || age > existing) blockerAgeByCr.set(d.crReferenceNumber, age);
+    }
+
+    const RISK_RANK = { HIGH: 2, MEDIUM: 1, LOW: 0 } as const;
+    const crRows = Array.from(byCr.values()).map(cr => {
+      const progressPct = cr.total > 0 ? Math.round((cr.passed / cr.total) * 100) : 0;
+      const defectCount = cr.defectsBySeverity.showStopper + cr.defectsBySeverity.severe + cr.defectsBySeverity.medium + cr.defectsBySeverity.low;
+      const hasCriticalDefect = cr.defectsBySeverity.showStopper > 0;
+      const hasHighDefect = cr.defectsBySeverity.severe > 0;
+      const blockerCount = cr.blocked;
+      const blockerAge = blockerAgeByCr.get(cr.crNumber) ?? null;
+      const blockerOver2Days = blockerCount > 0 && (blockerAge == null || blockerAge > 2);
+
+      // Risk formula — spec confirmed 2026-09-03. "No progress in 3 days"
+      // isn't evaluated — it needs day-over-day history this app doesn't
+      // capture yet (a future daily-snapshot job), so it's left out rather
+      // than guessed at with a proxy signal.
+      const reasons: string[] = [];
+      if (progressPct < 50) reasons.push('התקדמות מתחת ל-50%');
+      if (hasCriticalDefect) reasons.push('תקלה קריטית פתוחה');
+      if (blockerOver2Days) reasons.push('חסם פתוח מעל יומיים');
+      let risk: 'HIGH' | 'MEDIUM' | 'LOW';
+      if (reasons.length > 0) {
+        risk = 'HIGH';
+      } else if (progressPct >= 50 && progressPct <= 80) {
+        risk = 'MEDIUM'; reasons.push('התקדמות בין 50%-80%');
+      } else if (hasHighDefect) {
+        risk = 'MEDIUM'; reasons.push('תקלת Severe פתוחה');
+      } else {
+        risk = 'LOW';
+      }
+
+      return {
+        crNumber: cr.crNumber, crLabel: cr.crLabel, tester: cr.tester, progressPct, defectCount, blockerCount, risk, reasons,
+        teams: teamsByCr.get(cr.crNumber) ?? [],
+      };
     });
 
-    const kpis = {
-      openTargets: rows.filter(r => r.progressPct < 100).length,
-      openDefects: bugDashboard?.open ?? 0,
-      waitingForQa: rows.filter(r => r.isWaiting).length,
-      reopenDefects: bugDashboard?.reopen ?? 0,
-      delayedTargets: rows.filter(r => r.isDelayed).length,
-    };
+    // Per-tester heat map — same crRows, grouped by tester.
+    interface DailyTesterAgg {
+      tester: string; defectCount: number; blockerCount: number;
+      crs: { crNumber: string; crLabel: string; progressPct: number }[];
+    }
+    const byTester = new Map<string, DailyTesterAgg>();
+    for (const cr of crRows) {
+      const name = cr.tester ?? 'לא משויך';
+      const existing = byTester.get(name) ?? { tester: name, defectCount: 0, blockerCount: 0, crs: [] };
+      existing.defectCount += cr.defectCount;
+      existing.blockerCount += cr.blockerCount;
+      existing.crs.push({ crNumber: cr.crNumber, crLabel: cr.crLabel, progressPct: cr.progressPct });
+      byTester.set(name, existing);
+    }
+    const testerRows = Array.from(byTester.values()).map(t => {
+      const progressPct = t.crs.length > 0 ? Math.round(t.crs.reduce((s, c) => s + c.progressPct, 0) / t.crs.length) : 0;
+      const status: 'GOOD' | 'WARNING' | 'CRITICAL' =
+        t.blockerCount > 0 || progressPct === 0 ? 'CRITICAL' : (t.defectCount > 0 || progressPct < 80) ? 'WARNING' : 'GOOD';
+      return { tester: t.tester, progressPct, crCount: t.crs.length, defectCount: t.defectCount, blockerCount: t.blockerCount, status, crs: t.crs };
+    }).sort((a, b) => a.progressPct - b.progressPct);
 
-    return { kpis, rows };
+    // Executive summary
+    const totalPassed = coreCrCoverage.reduce((s, cc) => s + cc.passed, 0);
+    const totalFailed = coreCrCoverage.reduce((s, cc) => s + cc.failed, 0);
+    const totalBlockedScripts = coreCrCoverage.reduce((s, cc) => s + cc.blocked, 0);
+    const totalScripts = coreCrCoverage.reduce((s, cc) => s + cc.total, 0);
+    const testProgressPct = totalScripts > 0 ? Math.round((totalPassed / totalScripts) * 100) : 0;
+
+    const criticalDefectsCount = openDefects.filter(d => d.severity === 'Show Stopper').length;
+    const openBlockersCount = crRows.filter(c => c.blockerCount > 0).length;
+    const crsAtRiskCount = crRows.filter(c => c.risk === 'HIGH').length;
+    const testersNoProgressCount = testerRows.filter(t => t.progressPct === 0).length;
+    const blockersOver2DaysCount = crRows.filter(c => c.blockerCount > 0 && c.reasons.includes('חסם פתוח מעל יומיים')).length;
+
+    const alerts: string[] = [];
+    if (testersNoProgressCount > 0) alerts.push(`⚠️ ${testersNoProgressCount} בודקים ללא התקדמות`);
+    if (crsAtRiskCount > 0) alerts.push(`⚠️ ${crsAtRiskCount} CR-ים בסיכון גבוה`);
+    if (blockersOver2DaysCount > 0) alerts.push(`⚠️ ${blockersOver2DaysCount} חסמים פתוחים מעל יומיים`);
+    if (criticalDefectsCount > 0) alerts.push(`⚠️ ${criticalDefectsCount} תקלות קריטיות פתוחות`);
+
+    return {
+      summary: {
+        testProgressPct, passed: totalPassed, failed: totalFailed, blocked: totalBlockedScripts,
+        openDefects: openDefects.length, criticalDefects: criticalDefectsCount,
+        openBlockers: openBlockersCount, crsAtRisk: crsAtRiskCount, testersNoProgress: testersNoProgressCount,
+      },
+      testers: testerRows,
+      crs: crRows.sort((a, b) => RISK_RANK[b.risk] - RISK_RANK[a.risk] || a.progressPct - b.progressPct),
+      alerts,
+    };
+  }
+
+  // ── "What Changed Since Yesterday" — Daily QA spec's headline feature.
+  // Live rollups can't diff against a point they never stored, so a daily
+  // snapshot job (below) writes a compact DailyQaSnapshot once/day; this
+  // compares the latest one against today's live getDailyQaManagement
+  // result. Deltas are net-count comparisons (e.g. openDefects today minus
+  // openDefects at the snapshot), not a real opened/closed event log — same
+  // "documented approximation, not invented precision" convention as the
+  // blocker-age heuristic above.
+  private normalizeToMidnight(d: Date): Date {
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+
+  async captureDailyQaSnapshot(versionId: string) {
+    const live = await this.getDailyQaManagement(versionId);
+    const crRisk: Record<string, string> = {};
+    for (const cr of live.crs) crRisk[cr.crNumber] = cr.risk;
+    const testerProgress: Record<string, number> = {};
+    for (const t of live.testers) testerProgress[t.tester] = t.progressPct;
+
+    const snapshotDate = this.normalizeToMidnight(new Date());
+    await prisma.dailyQaSnapshot.upsert({
+      where: { versionId_snapshotDate: { versionId, snapshotDate } },
+      create: {
+        versionId, snapshotDate,
+        testProgressPct: live.summary.testProgressPct, passed: live.summary.passed, failed: live.summary.failed, blocked: live.summary.blocked,
+        openDefects: live.summary.openDefects, criticalDefects: live.summary.criticalDefects, openBlockers: live.summary.openBlockers,
+        crsAtRisk: live.summary.crsAtRisk, testersNoProgress: live.summary.testersNoProgress,
+        crRisk, testerProgress,
+      },
+      update: {
+        testProgressPct: live.summary.testProgressPct, passed: live.summary.passed, failed: live.summary.failed, blocked: live.summary.blocked,
+        openDefects: live.summary.openDefects, criticalDefects: live.summary.criticalDefects, openBlockers: live.summary.openBlockers,
+        crsAtRisk: live.summary.crsAtRisk, testersNoProgress: live.summary.testersNoProgress,
+        crRisk, testerProgress,
+      },
+    });
+  }
+
+  // Checked every minute against admin-configurable DAILY_QA_SNAPSHOT_TIME —
+  // same polling-cron pattern as QUALITY_KPI_SYNC_TIME/CR_LIST_SYNC_TIME (see
+  // quality-hub.service.ts's checkScheduledImportTime). Snapshots every
+  // version still in an active QA lifecycle — not DRAFT (nothing to
+  // snapshot yet), not COMPLETED/ROLLED_BACK (frozen), not archived.
+  private lastScheduledSnapshotDate: string | null = null;
+
+  @Cron(CronExpression.EVERY_MINUTE)
+  async checkScheduledSnapshotTime() {
+    const param = await prisma.systemParam.findUnique({ where: { key: 'DAILY_QA_SNAPSHOT_TIME' } });
+    const target = (param?.value ?? '23:00').trim();
+    const now = new Date();
+    const current = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const today = now.toISOString().slice(0, 10);
+    if (current !== target || this.lastScheduledSnapshotDate === today) return;
+    this.lastScheduledSnapshotDate = today;
+
+    const versions = await prisma.version.findMany({
+      where: { isArchived: false, status: { notIn: ['DRAFT', 'COMPLETED', 'ROLLED_BACK'] } },
+      select: { id: true },
+    });
+    this.logger.log(`Capturing Daily QA snapshots for ${versions.length} version(s)...`);
+    for (const v of versions) {
+      try {
+        await this.captureDailyQaSnapshot(v.id);
+      } catch (err: any) {
+        this.logger.error(`Daily QA snapshot failed for version ${v.id}: ${err?.message ?? err}`);
+      }
+    }
+  }
+
+  async getYesterdayDiff(versionId: string) {
+    const [live, snapshots] = await Promise.all([
+      this.getDailyQaManagement(versionId),
+      prisma.dailyQaSnapshot.findMany({ where: { versionId }, orderBy: { snapshotDate: 'desc' }, take: 6 }),
+    ]);
+    if (snapshots.length === 0) return { hasData: false as const };
+
+    const [yesterday] = snapshots;
+    const testsPassedDelta = live.summary.passed - yesterday.passed;
+    const openDefectsDelta = live.summary.openDefects - yesterday.openDefects;
+    const openBlockersDelta = live.summary.openBlockers - yesterday.openBlockers;
+
+    const yesterdayRisk = yesterday.crRisk as Record<string, string>;
+    const crsMovedToHighRisk = live.crs
+      .filter(cr => cr.risk === 'HIGH' && yesterdayRisk[cr.crNumber] && yesterdayRisk[cr.crNumber] !== 'HIGH')
+      .map(cr => cr.crNumber);
+
+    // Streak of unchanged progress, walking back through consecutive stored
+    // snapshots (newest first) while the value matches today's live value.
+    const testersNoUpdates = live.testers
+      .map(t => {
+        let days = 0;
+        for (const snap of snapshots) {
+          const val = (snap.testerProgress as Record<string, number>)[t.tester];
+          if (val === undefined || val !== t.progressPct) break;
+          days++;
+        }
+        return { tester: t.tester, days };
+      })
+      .filter(t => t.days >= 2);
+
+    return {
+      hasData: true as const,
+      sinceDate: yesterday.snapshotDate,
+      testsPassedDelta, openDefectsDelta, openBlockersDelta,
+      crsMovedToHighRisk, testersNoUpdates,
+    };
   }
 
   // ── CR Health — spec section 13 ─────────────────────────────────────────────
@@ -996,6 +1257,24 @@ export class ReleaseIntelligenceService {
         if (filter === 'crQuality' && value) return defects.filter(d => isCrQualityDefect(d, value));
         return [];
       }
+      case 'daily-qa': {
+        // Same crReferenceNumber match (and same `open` set) getDailyQaManagement
+        // uses to build each CR's defectCount, so the drilled-down list can
+        // never disagree with the number that was clicked.
+        if (filter === 'cr' && value) return open.filter(d => d.crReferenceNumber === value);
+        if (filter === 'tester' && value) {
+          const cycleProgress = await this.getCycleProgress(versionId);
+          const crNumbers = new Set(
+            cycleProgress.timeline
+              .filter(t => CORE_CYCLE_TYPES.includes(t.cycleType))
+              .flatMap(t => t.crCoverage)
+              .filter(cc => (cc.tester ?? '').split(' + ').includes(value))
+              .map(cc => cc.crNumber),
+          );
+          return open.filter(d => d.crReferenceNumber && crNumbers.has(d.crReferenceNumber));
+        }
+        return [];
+      }
       default:
         return [];
     }
@@ -1060,6 +1339,68 @@ export class ReleaseIntelligenceService {
 
   closeRisk(id: string) {
     return prisma.releaseRisk.update({ where: { id }, data: { status: 'CLOSED' } });
+  }
+
+  // ── Blockers Center CRUD — Daily QA spec area 4 (structured catalog, not
+  // free text; see the DailyBlocker model comment for why it's kept separate
+  // from the QC-script-status "blocked" heuristic used in getDailyQaManagement) ──
+  listBlockers(versionId: string) {
+    return prisma.dailyBlocker.findMany({
+      where: { versionId },
+      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+    });
+  }
+
+  createBlocker(data: {
+    versionId: string; title: string; type: string; crNumber?: string; ownerName?: string; createdBy: string;
+  }) {
+    if (!data.title?.trim()) throw new BadRequestException('כותרת חסם היא שדה חובה');
+    return prisma.dailyBlocker.create({ data: data as any });
+  }
+
+  updateBlocker(id: string, data: Partial<{
+    title: string; type: string; crNumber: string; ownerName: string;
+  }>) {
+    return prisma.dailyBlocker.update({ where: { id }, data: data as any });
+  }
+
+  resolveBlocker(id: string) {
+    return prisma.dailyBlocker.update({ where: { id }, data: { status: 'RESOLVED', resolvedAt: new Date() } });
+  }
+
+  reopenBlocker(id: string) {
+    return prisma.dailyBlocker.update({ where: { id }, data: { status: 'OPEN', resolvedAt: null } });
+  }
+
+  // ── Action Items CRUD — Daily QA spec area 5 ("נגזר מישיבת ה-Daily"). Own
+  // model, not the Incidents/RCA ActionItem table — see DailyActionItem's
+  // schema comment for why. No separate "closer" role split like Risk/
+  // Blocker: these are lightweight day-to-day follow-ups owned by whoever's
+  // assigned, not risk-governance items requiring RM sign-off to close.
+  listActionItems(versionId: string) {
+    return prisma.dailyActionItem.findMany({
+      where: { versionId },
+      orderBy: [{ status: 'asc' }, { dueAt: 'asc' }],
+    });
+  }
+
+  createActionItem(data: {
+    versionId: string; title: string; ownerName?: string; dueAt?: string; createdBy: string;
+  }) {
+    if (!data.title?.trim()) throw new BadRequestException('כותרת משימה היא שדה חובה');
+    return prisma.dailyActionItem.create({
+      data: { ...data, dueAt: data.dueAt ? new Date(data.dueAt) : null } as any,
+    });
+  }
+
+  updateActionItem(id: string, data: Partial<{
+    title: string; ownerName: string; dueAt: string | null; status: string;
+  }>) {
+    const { dueAt, ...rest } = data;
+    return prisma.dailyActionItem.update({
+      where: { id },
+      data: { ...rest, ...(dueAt !== undefined ? { dueAt: dueAt ? new Date(dueAt) : null } : {}) } as any,
+    });
   }
 
   // ── Alerts & Intelligence — spec section 22 ─────────────────────────────────
