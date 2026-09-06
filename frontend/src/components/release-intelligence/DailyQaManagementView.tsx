@@ -25,13 +25,31 @@ interface DailyCrRow {
   progressPct: number; defectCount: number; blockerCount: number;
   risk: 'HIGH' | 'MEDIUM' | 'LOW'; reasons: string[];
   teams: { id: string; name: string }[];
+  passed: number; failed: number; total: number; remaining: number;
+  passedDelta: number | null; dailyTarget: number | null; mustFinishNow: boolean;
 }
 interface DailyTesterRow {
   tester: string; progressPct: number; crCount: number; defectCount: number; blockerCount: number;
   status: 'GOOD' | 'WARNING' | 'CRITICAL'; crs: { crNumber: string; crLabel: string; progressPct: number }[];
+  doneToday: number | null; dailyTarget: number;
+}
+interface DailyTargetsMeta {
+  targetDay: 'today' | 'tomorrow'; standupCutoff: string; workDaysLeft: number | null;
+  deadline: string | null; deadlineCycle: string | null; deadlineIsGoLive: boolean;
+  hasSnapshot: boolean; snapshotDate: string | null;
+}
+type HealthRecommendation = 'GO' | 'CONDITIONAL_GO' | 'NO_GO';
+interface ReleaseHealthInfo {
+  score: number; recommendation: HealthRecommendation;
+  breakdown: { coverageScore: number; qualityScore: number; riskScore: number; forecastScore: number };
+  calculatedAt: string;
 }
 interface DailyQaMeeting {
   summary: DailySummary; testers: DailyTesterRow[]; crs: DailyCrRow[]; alerts: string[];
+  // Persisted RI-Home Release Health snapshot; null until the Overview screen
+  // has computed it once for this version.
+  health: ReleaseHealthInfo | null;
+  dailyTargets: DailyTargetsMeta;
 }
 
 // "What Changed Since Yesterday" — hasData is false until the nightly
@@ -138,11 +156,107 @@ function StatusDot({ color }: { color: string }) {
   return <span style={{ display: 'inline-block', width: '9px', height: '9px', borderRadius: '50%', background: color, flexShrink: 0 }} />;
 }
 
-function KpiCard({ value, label, color }: { value: string; label: string; color?: string }) {
+function KpiCard({ value, label, color, onClick }: { value: string; label: string; color?: string; onClick?: () => void }) {
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderTop: color ? `3px solid ${color}` : undefined, borderRadius: RADIUS.lg, padding: '14px 18px', flex: '1 1 130px', minWidth: '130px' }}>
+    <div
+      onClick={onClick}
+      style={{
+        position: 'relative', background: C.bgCard, border: `1px solid ${C.border}`, borderTop: color ? `3px solid ${color}` : undefined,
+        borderRadius: RADIUS.lg, padding: '14px 18px', flex: '1 1 130px', minWidth: '130px',
+        cursor: onClick ? 'pointer' : 'default',
+      }}
+      onMouseEnter={onClick ? e => { (e.currentTarget as HTMLElement).style.borderColor = C.brand; } : undefined}
+      onMouseLeave={onClick ? e => { (e.currentTarget as HTMLElement).style.borderColor = C.border; } : undefined}
+    >
+      {onClick && <span style={{ position: 'absolute', top: '10px', insetInlineEnd: '12px', ...TEXT.xs, color: C.textDisabled }}>←</span>}
       <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: color ?? C.textPrimary, lineHeight: 1.2 }}>{value}</div>
       <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>{label}</div>
+    </div>
+  );
+}
+
+// Release Health = simple average of 4 equal-weighted 0-100 sub-scores
+// (release-intelligence.service.ts). ≥70 GO, 40-69 CONDITIONAL_GO, <40 NO_GO.
+const HEALTH_REC_META: Record<HealthRecommendation, { label: string; color: string }> = {
+  GO: { label: 'GO — מוכן', color: C.success },
+  CONDITIONAL_GO: { label: 'GO בתנאים', color: '#e8af00' },
+  NO_GO: { label: 'NO-GO', color: C.danger },
+};
+const HEALTH_PARTS: [keyof ReleaseHealthInfo['breakdown'], string][] = [
+  ['coverageScore', 'כיסוי'], ['qualityScore', 'תקלות'], ['riskScore', 'סיכונים'], ['forecastScore', 'תחזית'],
+];
+
+// Same snapshot the RI Home shows. Kept as a strip (not a bare KpiCard number)
+// so the 4 sub-scores are always visible next to the blended figure.
+function HealthBanner({ health }: { health: ReleaseHealthInfo | null }) {
+  if (!health) {
+    return (
+      <div style={{ ...TEXT.xs, color: C.textMuted, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '10px 14px' }}>
+        🩺 מדד מוכנות הגרסה — טרם חושב. ייחשב לאחר כניסה לדף הבית של ניהול הבדיקות.
+      </div>
+    );
+  }
+  const meta = HEALTH_REC_META[health.recommendation];
+  return (
+    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderTop: `3px solid ${meta.color}`, borderRadius: RADIUS.lg, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: SP[4], flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+        <span style={{ fontSize: '15px' }}>🩺</span>
+        <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.semibold }}>מוכנות הגרסה</span>
+        <span style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: meta.color, fontVariantNumeric: 'tabular-nums' }}>{health.score}</span>
+        <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: meta.color }}>{meta.label}</span>
+      </div>
+      <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
+        {HEALTH_PARTS.map(([k, label]) => {
+          const v = health.breakdown[k];
+          return (
+            <span key={k} style={{ ...TEXT.xs, color: C.textMuted }}>
+              {label} <span style={{ fontWeight: WEIGHT.semibold, fontVariantNumeric: 'tabular-nums', color: v < 50 ? C.danger : v < 80 ? '#e8af00' : C.textSecondary }}>{v}</span>
+            </span>
+          );
+        })}
+      </div>
+      <span style={{ ...TEXT.xs, color: C.textDisabled, marginInlineStart: 'auto' }}>
+        עודכן {new Date(health.calculatedAt).toLocaleString('he-IL', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}
+      </span>
+    </div>
+  );
+}
+
+const CYCLE_LABEL_SHORT: Record<string, string> = { CYCLE_1: 'סבב 1', CYCLE_2: 'סבב 2', CYCLE_3: 'סבב 3' };
+
+// Explains which day the per-CR targets are framed for, and lets the QA manager
+// flip it (a morning standup targets today; an afternoon one targets tomorrow —
+// auto-decided by the DAILY_QA_STANDUP_CUTOFF hour, overridable here).
+function TargetDayBar({ meta, override, onOverride }: {
+  meta: DailyTargetsMeta;
+  override: 'today' | 'tomorrow' | null;
+  onOverride: (v: 'today' | 'tomorrow' | null) => void;
+}) {
+  const deadlineText = meta.deadline
+    ? `${meta.deadlineIsGoLive ? 'עד עלייה לאוויר' : `סוף ${CYCLE_LABEL_SHORT[meta.deadlineCycle ?? ''] ?? 'הסבב'}`} ${new Date(meta.deadline).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}`
+    : 'אין סבב ליבה פעיל — לא ניתן לחשב יעדים';
+  const btn = (v: 'today' | 'tomorrow', label: string) => {
+    const active = meta.targetDay === v;
+    return (
+      <button onClick={() => onOverride(override === v ? null : v)} style={{
+        padding: '3px 12px', borderRadius: RADIUS.sm, border: 'none', cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold,
+        background: active ? C.bgCard : 'transparent', color: active ? C.textPrimary : C.textMuted,
+      }}>{label}</button>
+    );
+  };
+  return (
+    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: SP[3], flexWrap: 'wrap', ...TEXT.xs, color: C.textMuted }}>
+      <span>🎯 יעדים יומיים מחושבים ל<strong style={{ color: C.textPrimary }}>{meta.targetDay === 'today' ? 'היום' : 'מחר'}</strong></span>
+      <div style={{ display: 'flex', gap: '2px', background: C.bgNested, borderRadius: RADIUS.md, padding: '2px' }}>
+        {btn('today', 'היום')}
+        {btn('tomorrow', 'מחר')}
+      </div>
+      {override && <span style={{ color: '#e8af00' }}>(נבחר ידנית · <button onClick={() => onOverride(null)} style={{ background: 'none', border: 'none', color: C.brand, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, padding: 0, textDecoration: 'underline' }}>אוטומטי לפי שעת {meta.standupCutoff}</button>)</span>}
+      <span style={{ marginInlineStart: 'auto' }}>
+        {deadlineText}
+        {meta.workDaysLeft != null && ` · ${meta.workDaysLeft} ימי עבודה נותרו`}
+        {!meta.hasSnapshot && ' · "בוצע היום" יופיע אחרי הצילום הלילי הראשון'}
+      </span>
     </div>
   );
 }
@@ -167,8 +281,15 @@ const inputStyle: React.CSSProperties = {
 // itself, since that's a QC script-status tally with no underlying listable
 // record). Click the Defects count specifically (stopPropagation, so it
 // doesn't also toggle the row) to open the shared DefectDrilldownModal.
-function CrRiskTable({ rows, blockers, emptyMessage, onShowDefects }: {
+function DeltaCell({ delta }: { delta: number | null }) {
+  if (delta == null) return <span style={{ color: C.textDisabled }}>—</span>;
+  const color = delta > 0 ? C.success : delta < 0 ? C.danger : C.textMuted;
+  return <span style={{ color, fontWeight: delta !== 0 ? WEIGHT.semibold : WEIGHT.normal, fontVariantNumeric: 'tabular-nums' }}>{delta > 0 ? `+${delta}` : delta}</span>;
+}
+
+function CrRiskTable({ rows, blockers, emptyMessage, onShowDefects, targetDay }: {
   rows: DailyCrRow[]; blockers: Blocker[]; emptyMessage: string; onShowDefects: (crNumber: string, crLabel: string) => void;
+  targetDay: 'today' | 'tomorrow';
 }) {
   const [expandedCr, setExpandedCr] = useState<string | null>(null);
   if (rows.length === 0) {
@@ -181,6 +302,8 @@ function CrRiskTable({ rows, blockers, emptyMessage, onShowDefects }: {
           <th style={thStyle}>CR</th>
           <th style={thStyle}>בודק</th>
           <th style={thStyle}>Progress</th>
+          <th style={thStyle}>בוצע היום</th>
+          <th style={thStyle}>יעד {targetDay === 'today' ? 'להיום' : 'למחר'}</th>
           <th style={thStyle}>Defects</th>
           <th style={thStyle}>Blockers</th>
           <th style={thStyle}>Risk</th>
@@ -196,6 +319,12 @@ function CrRiskTable({ rows, blockers, emptyMessage, onShowDefects }: {
                 <td style={{ ...tdStyle, fontWeight: WEIGHT.semibold }}>{cr.crNumber}{cr.crLabel ? ` — ${cr.crLabel.replace(/^\d+\s*-\s*/, '')}` : ''}</td>
                 <td style={{ ...tdStyle, color: cr.tester ? C.textPrimary : C.textMuted }}>{cr.tester ?? '—'}</td>
                 <td style={tdStyle}>{cr.progressPct}%</td>
+                <td style={tdStyle}><DeltaCell delta={cr.passedDelta} /></td>
+                <td style={tdStyle} title={`נותרו ${cr.remaining} תרחישים${cr.mustFinishNow ? ' — עבר יעד הסבב, יש לסיים בהקדם' : ''}`}>
+                  {cr.dailyTarget == null
+                    ? <span style={{ color: C.textDisabled }}>—</span>
+                    : <span style={{ fontWeight: WEIGHT.semibold, fontVariantNumeric: 'tabular-nums', color: cr.mustFinishNow ? C.danger : C.textPrimary }}>{cr.dailyTarget}{cr.mustFinishNow ? ' ⚠' : ''}</span>}
+                </td>
                 <td style={tdStyle}>
                   {cr.defectCount > 0 ? (
                     <span onClick={e => { e.stopPropagation(); onShowDefects(cr.crNumber, cr.crLabel); }} style={{ color: C.danger, textDecoration: 'underline', cursor: 'pointer' }}>
@@ -213,7 +342,7 @@ function CrRiskTable({ rows, blockers, emptyMessage, onShowDefects }: {
               </tr>
               {expanded && (
                 <tr>
-                  <td colSpan={6} style={{ padding: '4px 10px 12px', borderBottom: `1px solid ${C.border}`, background: C.bgNested }}>
+                  <td colSpan={8} style={{ padding: '4px 10px 12px', borderBottom: `1px solid ${C.border}`, background: C.bgNested }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', ...TEXT.xs }}>
                       <div style={{ color: C.textSecondary }}>
                         צוותים: {cr.teams.length > 0 ? cr.teams.map(t => t.name).join(', ') : 'ללא שיוך צוות'}
@@ -254,6 +383,8 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
   const [loading, setLoading] = useState(false);
   const [expandedTester, setExpandedTester] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'RELEASE' | 'TEAM'>('RELEASE');
+  // null = let the backend decide by standup-cutoff hour; 'today'/'tomorrow' = manual override
+  const [targetDayOverride, setTargetDayOverride] = useState<'today' | 'tomorrow' | null>(null);
 
   const [blockers, setBlockers] = useState<Blocker[]>([]);
   const [addingBlocker, setAddingBlocker] = useState(false);
@@ -277,11 +408,13 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
     setDrilldown({ screen: 'daily-qa', filter: 'cr', value: crNumber, title: `תקלות פתוחות — ${crNumber}${crLabel ? ` — ${crLabel.replace(/^\d+\s*-\s*/, '')}` : ''}` });
   const showTesterDefects = (tester: string) =>
     setDrilldown({ screen: 'daily-qa', filter: 'tester', value: tester, title: `תקלות פתוחות — בודק: ${tester}` });
+  const scrollToSection = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   const load = useCallback(() => {
     if (!versionId) { setData(null); setBlockers([]); setActions([]); setDiff(null); return; }
     setLoading(true);
-    axios.get(`${API}/release-intelligence/daily-qa/${versionId}`, { headers })
+    const targetQ = targetDayOverride ? `?targetDay=${targetDayOverride}` : '';
+    axios.get(`${API}/release-intelligence/daily-qa/${versionId}${targetQ}`, { headers })
       .then(res => setData(res.data))
       .catch(() => setData(null))
       .finally(() => setLoading(false));
@@ -295,7 +428,7 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
       .then(res => setDiff(res.data))
       .catch(() => setDiff(null));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [versionId, token]);
+  }, [versionId, token, targetDayOverride]);
 
   useEffect(() => { load(); setExpandedTester(null); }, [load]);
 
@@ -384,7 +517,7 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
     return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>לא ניתן לטעון נתונים עבור גרסה זו.</div>;
   }
 
-  const { summary, testers, crs, alerts } = data;
+  const { summary, testers, crs, alerts, dailyTargets } = data;
 
   // Team View grouping — a CR with no team assignment falls into a "ללא
   // צוות" bucket rather than being silently dropped, and a CR assigned to
@@ -415,6 +548,12 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
           ))}
         </div>
       </div>
+
+      {/* ── מדד בריאות גרסה — אותו snapshot של דף הבית, כהקשר-על לישיבה ── */}
+      <HealthBanner health={data.health} />
+
+      {/* ── יעדים יומיים: להיום/למחר לפי שעת הישיבה ── */}
+      <TargetDayBar meta={dailyTargets} override={targetDayOverride} onOverride={setTargetDayOverride} />
 
       {/* ── "מה השתנה מאתמול" — הדבר הראשון שמוצג, כדי שהישיבה תתחיל מהחריגים בלבד ── */}
       {diff && (diff.hasData ? (
@@ -457,21 +596,23 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
         </div>
       )}
 
-      {/* ── אזור 1: Executive Summary ── */}
+      {/* ── אזור 1: Executive Summary — כל כרטיס עם דריל לרשומות/לסקציה הרלוונטית ── */}
       <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
-        <KpiCard value={`${summary.testProgressPct}%`} label="Test Progress" color={summary.testProgressPct >= 80 ? C.success : summary.testProgressPct >= 50 ? '#e8af00' : C.danger} />
-        <KpiCard value={String(summary.passed)} label="Passed" color={C.success} />
-        <KpiCard value={String(summary.failed)} label="Failed" color={summary.failed > 0 ? C.danger : undefined} />
-        <KpiCard value={String(summary.blocked)} label="Blocked" color={summary.blocked > 0 ? '#e8af00' : undefined} />
-        <KpiCard value={String(summary.openDefects)} label="Open Defects" color={summary.openDefects > 0 ? '#e8af00' : C.success} />
-        <KpiCard value={String(summary.criticalDefects)} label="Critical Defects" color={summary.criticalDefects > 0 ? C.danger : C.success} />
-        <KpiCard value={String(summary.openBlockers)} label="Open Blockers" color={summary.openBlockers > 0 ? C.danger : C.success} />
-        <KpiCard value={String(summary.crsAtRisk)} label="CRs At Risk" color={summary.crsAtRisk > 0 ? C.danger : C.success} />
-        <KpiCard value={String(summary.testersNoProgress)} label="Testers No Progress" color={summary.testersNoProgress > 0 ? C.danger : C.success} />
+        <KpiCard value={`${summary.testProgressPct}%`} label="Test Progress" color={summary.testProgressPct >= 80 ? C.success : summary.testProgressPct >= 50 ? '#e8af00' : C.danger} onClick={() => scrollToSection('daily-crs')} />
+        <KpiCard value={String(summary.passed)} label="Passed" color={C.success} onClick={() => scrollToSection('daily-crs')} />
+        <KpiCard value={String(summary.failed)} label="Failed" color={summary.failed > 0 ? C.danger : undefined} onClick={() => scrollToSection('daily-crs')} />
+        <KpiCard value={String(summary.blocked)} label="Blocked" color={summary.blocked > 0 ? '#e8af00' : undefined} onClick={() => scrollToSection('daily-crs')} />
+        <KpiCard value={String(summary.openDefects)} label="Open Defects" color={summary.openDefects > 0 ? '#e8af00' : C.success}
+          onClick={summary.openDefects > 0 ? () => setDrilldown({ screen: 'daily-qa', filter: 'openAll', title: 'תקלות פתוחות — כל הגרסה' }) : undefined} />
+        <KpiCard value={String(summary.criticalDefects)} label="Critical Defects" color={summary.criticalDefects > 0 ? C.danger : C.success}
+          onClick={summary.criticalDefects > 0 ? () => setDrilldown({ screen: 'daily-qa', filter: 'critical', title: 'תקלות קריטיות פתוחות (Show Stopper)' }) : undefined} />
+        <KpiCard value={String(summary.openBlockers)} label="Open Blockers" color={summary.openBlockers > 0 ? C.danger : C.success} onClick={() => scrollToSection('daily-blockers')} />
+        <KpiCard value={String(summary.crsAtRisk)} label="CRs At Risk" color={summary.crsAtRisk > 0 ? C.danger : C.success} onClick={() => scrollToSection('daily-crs')} />
+        <KpiCard value={String(summary.testersNoProgress)} label="Testers No Progress" color={summary.testersNoProgress > 0 ? C.danger : C.success} onClick={() => scrollToSection('daily-heatmap')} />
       </div>
 
       {/* ── אזור 2: Heat Map לבודקים ── */}
-      <div>
+      <div id="daily-heatmap">
         <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: '4px 0 8px' }}>Heat Map — בודקים</h2>
         <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflowX: 'auto' }}>
           {testers.length === 0 ? (
@@ -483,6 +624,8 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
                   <th style={thStyle}>בודק</th>
                   <th style={thStyle}>התקדמות</th>
                   <th style={thStyle}>CR</th>
+                  <th style={thStyle}>בוצע היום</th>
+                  <th style={thStyle}>יעד {dailyTargets.targetDay === 'today' ? 'להיום' : 'למחר'}</th>
                   <th style={thStyle}>Defects</th>
                   <th style={thStyle}>Blockers</th>
                   <th style={thStyle}>סטטוס</th>
@@ -495,6 +638,8 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
                       <td style={{ ...tdStyle, fontWeight: WEIGHT.semibold }}>{t.tester}</td>
                       <td style={tdStyle}>{t.progressPct}%</td>
                       <td style={tdStyle}>{t.crCount}</td>
+                      <td style={tdStyle}><DeltaCell delta={t.doneToday} /></td>
+                      <td style={{ ...tdStyle, fontWeight: WEIGHT.semibold, fontVariantNumeric: 'tabular-nums' }}>{t.dailyTarget > 0 ? t.dailyTarget : <span style={{ color: C.textDisabled, fontWeight: WEIGHT.normal }}>—</span>}</td>
                       <td style={tdStyle}>
                         {t.defectCount > 0 ? (
                           <span onClick={e => { e.stopPropagation(); showTesterDefects(t.tester); }} style={{ color: C.danger, textDecoration: 'underline', cursor: 'pointer' }}>
@@ -507,7 +652,7 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
                     </tr>
                     {expandedTester === t.tester && (
                       <tr>
-                        <td colSpan={6} style={{ padding: '4px 10px 12px', borderBottom: `1px solid ${C.border}`, background: C.bgNested }}>
+                        <td colSpan={8} style={{ padding: '4px 10px 12px', borderBottom: `1px solid ${C.border}`, background: C.bgNested }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                             {t.crs.map(cr => (
                               <div key={cr.crNumber} style={{ display: 'flex', justifyContent: 'space-between', ...TEXT.xs, color: C.textSecondary, padding: '3px 6px' }}>
@@ -529,11 +674,12 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
 
       {/* ── אזור 3: CRs בסיכון — Release View: רשימה שטוחה. Team View: אותה
            טבלה בדיוק, מפוצלת לסקציה לכל צוות ── */}
+      <div id="daily-crs" />
       {viewMode === 'RELEASE' ? (
         <div>
           <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: '4px 0 8px' }}>CR-ים בסיכון</h2>
           <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflowX: 'auto' }}>
-            <CrRiskTable rows={crs} blockers={blockers} emptyMessage="אין CR-ים משובצים לגרסה זו." onShowDefects={showCrDefects} />
+            <CrRiskTable rows={crs} blockers={blockers} emptyMessage="אין CR-ים משובצים לגרסה זו." onShowDefects={showCrDefects} targetDay={dailyTargets.targetDay} />
           </div>
         </div>
       ) : teamSections.length === 0 ? (
@@ -551,7 +697,7 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
                 {teamName} <span style={{ color: C.textMuted, fontWeight: WEIGHT.normal }}>({rows.length})</span>
               </h2>
               <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflowX: 'auto' }}>
-                <CrRiskTable rows={rows} blockers={blockers} emptyMessage="אין CR-ים משובצים לצוות זה." onShowDefects={showCrDefects} />
+                <CrRiskTable rows={rows} blockers={blockers} emptyMessage="אין CR-ים משובצים לצוות זה." onShowDefects={showCrDefects} targetDay={dailyTargets.targetDay} />
               </div>
             </div>
           ))}
@@ -559,7 +705,7 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
       )}
 
       {/* ── אזור 4: מרכז חסמים ── */}
-      <div>
+      <div id="daily-blockers">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '4px 0 8px' }}>
           <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: 0 }}>מרכז חסמים</h2>
           {canWriteBlockers && !addingBlocker && (

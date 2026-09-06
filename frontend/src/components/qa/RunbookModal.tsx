@@ -196,6 +196,17 @@ export function getRunbookTrigger(activityId: string): RunbookTrigger | null {
   return null;
 }
 
+// Same trigger→planId mapping as this component's own `defaultPlan()` —
+// exported so callers that need to check a runbook's saved/completion state
+// from the outside (e.g. HomeDashboard's activity reminders) address the
+// exact same RunbookEntry rows this modal reads/writes, without duplicating
+// the isInt/isQa special-casing.
+export function getRunbookPlanId(trigger: RunbookTrigger): string {
+  if (trigger === 'int') return 'REFRESH_INT_FULL';
+  if (trigger === 'qa')  return 'REFRESH_QA_PREP';
+  return trigger;
+}
+
 // ── Utils ──────────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string): string {
@@ -283,11 +294,7 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
   const isInt = trigger === 'int';
   const isQa  = trigger === 'qa';
 
-  const defaultPlan = (): string => {
-    if (isInt) return 'REFRESH_INT_FULL';
-    if (isQa)  return 'REFRESH_QA_PREP';
-    return trigger;
-  };
+  const defaultPlan = (): string => getRunbookPlanId(trigger);
 
   const [planId,      setPlanId]      = useState<string>(defaultPlan());
   const [steps,       setSteps]       = useState<EditableStep[]>([]);

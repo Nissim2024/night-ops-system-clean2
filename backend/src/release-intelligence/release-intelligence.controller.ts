@@ -22,8 +22,9 @@ export class ReleaseIntelligenceController {
   }
 
   @Get('daily-qa/:versionId')
-  getDailyQaManagement(@Param('versionId') versionId: string) {
-    return this.service.getDailyQaManagement(versionId);
+  getDailyQaManagement(@Param('versionId') versionId: string, @Query('targetDay') targetDay?: string) {
+    const override = targetDay === 'today' || targetDay === 'tomorrow' ? targetDay : undefined;
+    return this.service.getDailyQaManagement(versionId, override);
   }
 
   @Get('daily-qa/:versionId/yesterday-diff')

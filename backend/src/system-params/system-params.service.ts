@@ -121,6 +121,18 @@ const DEFAULT_PARAMS = [
     type: 'text',
   },
   {
+    key: 'DAILY_QA_STANDUP_CUTOFF',
+    value: '12:00',
+    label: 'Daily QA: שעת חתך לישיבת הבוקר — לפניה יעדי ה-CR מחושבים להיום, אחריה למחר (HH:mm)',
+    type: 'text',
+  },
+  {
+    key: 'APP_PUBLIC_URL',
+    value: '',
+    label: 'כתובת בסיס ציבורית של המערכת לקישורים במיילים (ריק = כתובת הדפדפן הנוכחית)',
+    type: 'text',
+  },
+  {
     key: 'QUALITY_KPI_SCORES_FILE',
     value: '',
     label: 'Quality Hub: נתיב לקובץ RELEASES_KPI_SCORES.xlsx (ריק = אותה תיקייה כמו EXCEL_FILE_PATH)',

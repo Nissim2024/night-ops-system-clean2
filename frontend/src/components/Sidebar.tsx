@@ -53,7 +53,6 @@ const QA_VIEWS = [
   { key: 'testers',    label: 'בודקים',              icon: '👥' },
   { key: 'skills',     label: 'מטריצת סקילים',        icon: '🧠' },
   { key: 'leaves',     label: 'חופשות',               icon: '📅' },
-  { key: 'bugs',       label: 'לוח באגים (QC)',       icon: '🐛' },
 ];
 
 const VM_VIEWS = [
@@ -66,10 +65,12 @@ const RI_VIEWS = [
   { key: 'home', label: 'דף הבית', icon: '🏠' },
   { key: 'overview', label: 'סקירה כללית', icon: '📊' },
   { key: 'risks', label: 'ניהול סיכונים', icon: '⚠️' },
+  { key: 'suggested-risks', label: 'הצעות סיכונים (AI)', icon: '💡' },
   { key: 'daily-qa', label: 'ניהול QA יומי', icon: '📋' },
   { key: 'cr-health', label: 'בריאות CR', icon: '🩺' },
   { key: 'coverage-readiness', label: 'כיסוי ומוכנות', icon: '✅' },
   { key: 'defects', label: 'באגים', icon: '🐞' },
+  { key: 'bug-dashboard', label: 'לוח באגים (QC)', icon: '🐛' },
   { key: 'reopen-analysis', label: 'ניתוח Reopen', icon: '♻️' },
   { key: 'cycle-progress', label: 'התקדמות סבבים', icon: '🔄' },
   { key: 'status-board', label: 'לוח מצב', icon: '📟' },

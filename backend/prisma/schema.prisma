@@ -998,6 +998,43 @@ model ReleaseRisk {
   creator User    @relation(fields: [createdBy], references: [id])
 }
 
+enum SuggestedRiskStatus {
+  PENDING
+  PROMOTED
+  REJECTED
+}
+
+// AI-identified candidate risks, for review — a staging table distinct from
+// ReleaseRisk ("the main table" the user refers to), which is per-version and
+// drives the Home risk feed + health score. These are generic,
+// version-independent risk PATTERNS derived from signals the app already
+// computes elsewhere (Release Health, Activity Board, CR Plans, Daily QA,
+// Cycle Progress, Quality Hub sync, QC Bug Dashboard) — not yet auto-detected
+// against any specific version's live data, just a fixed list for a human to
+// browse and cherry-pick from (spec confirmed 2026-09-05, see project memory
+// "deferred AI risk suggestions"). Seeded once on startup via upsert-by-`key`
+// (SuggestedRisksService), so the list can be edited in code and re-seeded
+// without duplicating rows. `promotedRiskId` is a plain reference (not a
+// Prisma relation) to the real ReleaseRisk created when a user promotes one —
+// deliberately not a foreign key, since ReleaseRisk rows are scoped to
+// whichever version the user picked at promotion time, unrelated to this
+// table's own lifecycle.
+model SuggestedRisk {
+  id             String              @id @default(uuid())
+  key            String              @unique
+  title          String
+  sourceArea     String
+  signal         String
+  severity       Priority            @default(MEDIUM)
+  probability    String?
+  impact         String?
+  mitigation     String?
+  status         SuggestedRiskStatus @default(PENDING)
+  promotedRiskId String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+}
+
 // Fixed type catalog from the Daily QA spec's "Blockers Center" (area 4) —
 // explicitly requested as a structured catalog, not free text. Deliberately
 // separate from the heuristic "blocked" signal used elsewhere (QC script
@@ -1105,6 +1142,7 @@ model DailyQaSnapshot {
   testersNoProgress Int
   crRisk            Json // { [crNumber]: 'HIGH' | 'MEDIUM' | 'LOW' }
   testerProgress    Json // { [testerName]: number (progressPct) }
+  crProgress        Json? // { [crNumber]: { passed, failed, total } } — per-CR execution counts, for the next day's per-CR "done today" delta. Nullable: snapshots written before this field existed have none.
   createdAt         DateTime @default(now())
 
   version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)

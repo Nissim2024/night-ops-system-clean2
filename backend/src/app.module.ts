@@ -33,6 +33,7 @@ import { ReleaseIntelligenceModule } from './release-intelligence/release-intell
 import { QualityHubModule } from './quality-hub/quality-hub.module';
 import { TargetCrModule } from './target-cr/target-cr.module';
 import { IncidentsModule } from './incidents/incidents.module';
+import { SuggestedRisksModule } from './suggested-risks/suggested-risks.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { IncidentsModule } from './incidents/incidents.module';
     QualityHubModule,
     TargetCrModule,
     IncidentsModule,
+    SuggestedRisksModule,
   ],
   controllers: [AppController],
   providers: [AppService],

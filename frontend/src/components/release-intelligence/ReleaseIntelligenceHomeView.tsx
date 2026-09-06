@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, severityColor, severityBg, severityLabel } from '../../theme';
 import { CyclesPanel, CycleProgress, CycleTimelineItem } from './CycleProgressView';
@@ -9,6 +10,413 @@ import { DefectIdBadge } from '../shared/defectFieldDisplay';
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 function isRm(r: string) { return ['RELEASE_MANAGER', 'ADMIN'].includes(r); }
+
+// Email clients (Outlook's Word engine especially) don't render flexbox or
+// CSS grid — a straight DOM clone of a flex/grid-based page collapses to one
+// column. These two rebuild every such container as an HTML <table> (the one
+// layout mechanism every client actually supports), preserving row/column
+// arrangement, gap-as-padding, and alignment, so the pasted copy keeps the
+// same side-by-side structure as the live page.
+// 2, not 4 like the live screen: the table's row grouping (how many <td>s per
+// <tr>) is baked into the HTML at copy time and can't reflow per-viewer like
+// a real page — there's no JS running for someone reading the pasted email,
+// and a `<style>` media query to shrink it on mobile wouldn't survive anyway
+// (Gmail/Outlook's paste-into-compose sanitizer strips <style> blocks, which
+// is the same reason this whole file rebuilds flex/grid as literal <table>s
+// instead of relying on CSS). A fixed 2-column grid is the one layout that's
+// legible on both a phone and a desktop reading pane without needing either.
+const EMAIL_GRID_COLS = 2;
+// The live FONT stack leads with 'Rubik' then system-ui/-apple-system — Outlook's
+// Word engine can't resolve those tokens and falls back to Times New Roman, so
+// the email came out serif. This stack is all real, widely-installed families.
+const EMAIL_FONT = "'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+// Light page ground behind the white cards — without it (a plain white email)
+// the cards' thin borders don't read as cards, which is how the dashboard's
+// grey app background reads in the real UI.
+const EMAIL_PAGE_BG = '#f4f5f7';
+
+// The flex/grid container itself often carries real decoration too — card
+// background, border, border-radius, padding, position:relative (the anchor
+// for an absolutely-positioned corner badge). Replacing it outright with a
+// bare <table> silently drops all of that (and un-anchors any absolutely
+// positioned child, which then floats relative to some ancestor further up
+// and overlaps unrelated content). Strip only the flex/grid-specific
+// properties and keep the rest on a wrapping <div> around the new table.
+function nonLayoutStyle(style: string): string {
+  return style
+    .replace(/display:\s*(flex|grid);?/g, '')
+    .replace(/flex-direction:\s*[\w-]+;?/g, '')
+    .replace(/flex-wrap:\s*[\w-]+;?/g, '')
+    .replace(/justify-content:\s*[\w-]+;?/g, '')
+    .replace(/align-items:\s*[\w-]+;?/g, '')
+    .replace(/grid-template-columns:[^;]+;?/g, '')
+    .replace(/gap:\s*[\d.]+px;?/g, '');
+}
+
+// A "flex container with zero element children" isn't necessarily empty — a
+// KpiTile icon chip (display:flex purely to self-center a single emoji) or
+// CyclesPanel's countdown line (display:flex around a template-literal string)
+// hold their entire content as bare TEXT nodes, which Array.from(el.children)
+// never sees (.children is element-only). Discarding "childless" elements
+// outright silently ate that text — every KpiTile icon and the countdown
+// label were vanishing. Move every child NODE (text included) into the
+// wrapper instead, and approximate flex's centering for a small fixed-size
+// box (line-height == its own height) since display:flex itself is gone.
+function preserveEmptyFlexLeaf(el: HTMLElement, wrapper: HTMLElement, style: string) {
+  while (el.firstChild) wrapper.appendChild(el.firstChild);
+  const centered = /justify-content:\s*center/.test(style) && /align-items:\s*center/.test(style);
+  const heightM = style.match(/height:\s*(\d+)px/);
+  if (centered && heightM) {
+    wrapper.setAttribute('style', (wrapper.getAttribute('style') || '') + `;text-align:center;line-height:${heightM[1]}px;`);
+  }
+  el.replaceWith(wrapper);
+}
+
+function convertGridToTable(el: HTMLElement, _cols: number) {
+  const children = Array.from(el.children) as HTMLElement[];
+  const wrapper = document.createElement('div');
+  wrapper.setAttribute('style', nonLayoutStyle(el.getAttribute('style') || ''));
+  if (children.length === 0) { preserveEmptyFlexLeaf(el, wrapper, el.getAttribute('style') || ''); return; }
+  const table = document.createElement('table');
+  table.setAttribute('dir', 'rtl');
+  table.setAttribute('role', 'presentation');
+  table.setAttribute('width', '100%');
+  table.setAttribute('cellpadding', '0');
+  table.setAttribute('cellspacing', '0');
+  table.setAttribute('border', '0');
+  // One flat row, one <td> per card — the single structure Outlook's Word
+  // engine renders reliably (spec 2026-09-06: "כל כרטיסיות הסבבים בשורה
+  // אחת... כרטיסיות הסטטוס בשורה שנייה"). No row-chunking, no wrap. On a
+  // wide desktop/Outlook pane the cards share the width evenly; on a phone
+  // min-width keeps each card legible and the mail just scrolls sideways
+  // (media-query stacking wouldn't survive Gmail's paste or Word anyway).
+  table.style.cssText = 'border-collapse:collapse;width:100%;';
+  const tr = document.createElement('tr');
+  const w = Math.max(1, Math.round(100 / children.length));
+  for (const child of children) {
+    const td = document.createElement('td');
+    td.style.cssText = `width:${w}%;min-width:150px;vertical-align:top;padding:6px;`;
+    td.appendChild(child);
+    tr.appendChild(td);
+  }
+  table.appendChild(tr);
+  wrapper.appendChild(table);
+  el.replaceWith(wrapper);
+}
+
+function convertFlexToTable(el: HTMLElement) {
+  const style = el.getAttribute('style') || '';
+  const children = Array.from(el.children) as HTMLElement[];
+  const wrapStyle = nonLayoutStyle(style);
+  // A flex container that carries a border or background IS a card — wrap it
+  // in a <table><td> (not a <div>) so Outlook's Word engine actually paints
+  // the fill + border. `mount` is what we drop the built inner table into and
+  // then put back in place of the original element; `wrapper` is that outer
+  // node.
+  const isCard = /border|background/.test(wrapStyle);
+  let wrapper: HTMLElement;
+  let mount: HTMLElement;
+  if (isCard) {
+    const wt = document.createElement('table');
+    wt.setAttribute('role', 'presentation');
+    wt.setAttribute('width', '100%');
+    wt.setAttribute('dir', 'rtl');
+    wt.setAttribute('cellpadding', '0');
+    wt.setAttribute('cellspacing', '0');
+    wt.setAttribute('border', '0');
+    wt.style.cssText = 'border-collapse:separate;width:100%';
+    const wtr = document.createElement('tr');
+    mount = document.createElement('td');
+    mount.setAttribute('style', wrapStyle);
+    wtr.appendChild(mount);
+    wt.appendChild(wtr);
+    wrapper = wt;
+  } else {
+    wrapper = document.createElement('div');
+    wrapper.setAttribute('style', wrapStyle);
+    mount = wrapper;
+  }
+  if (children.length === 0) {
+    // empty leaf (icon chip etc.) — always a plain div, never a card
+    const dv = document.createElement('div');
+    dv.setAttribute('style', wrapStyle);
+    preserveEmptyFlexLeaf(el, dv, style);
+    return;
+  }
+  const isColumn = /flex-direction:\s*column/.test(style);
+  const gapM = style.match(/gap:\s*([\d.]+)px/);
+  const gap = gapM ? parseFloat(gapM[1]) : 0;
+  const alignM = (style.match(/align-items:\s*([\w-]+)/) || [])[1];
+  const valign = alignM === 'flex-end' ? 'bottom' : alignM === 'center' ? 'middle' : 'top';
+  const spaceBetween = /justify-content:\s*space-between/.test(style);
+  // A row is only a compact, shrink-to-fit-and-center cluster (KpiTile's own
+  // internal icon+label / value rows) when it explicitly says so via
+  // justify-content:center. Everything else — including a plain content row
+  // with no justify-content at all, e.g. RiskRow's icon+text+badge line — is
+  // meant to fill its parent, same as an ordinary flex row defaults to; giving
+  // it the same shrink+center treatment is what made it read as "centered".
+  const centered = /justify-content:\s*center/.test(style);
+
+  const table = document.createElement('table');
+  table.setAttribute('dir', 'rtl');
+  table.setAttribute('role', 'presentation');
+  table.setAttribute('cellpadding', '0');
+  table.setAttribute('cellspacing', '0');
+  table.setAttribute('border', '0');
+  // max-width:100% on the shrink-wrap (margin:0 auto) branch matters once a
+  // column gets narrow (2-col mobile grid): without it the table renders at
+  // its natural content width and overflows past the card edge instead of
+  // being capped — which is what a nowrap+ellipsis label inside it (e.g.
+  // KpiTile's icon+moduleLabel row) actually needs in order to ellipsize at
+  // all, since text-overflow only fires once something bounds the box.
+  //
+  // isColumn additionally gets table-layout:fixed — found live at the 2-col
+  // mobile width: a KpiTile's vertical row-stack is exactly one column, but
+  // with table-layout:auto a *width:100%* table is still only a floor, not a
+  // ceiling — per the auto-table-layout algorithm, if any single row's own
+  // min-content (e.g. the severity-bar row's nowrap labels/badges) exceeds
+  // that 100%, the whole table grows to fit it, dragging every OTHER row in
+  // the same card along — a card's whole "sub" text line ended up overflowing
+  // past its own card's edge into the neighboring card even though nothing
+  // about that particular line was too wide on its own. table-layout:fixed
+  // makes width:100% a hard cap instead: an overlong nested row can still
+  // overflow, but only itself, locally — it no longer stretches the card.
+  // A short "label ↔ value" space-between row (the health-score breakdown,
+  // the per-cycle QG targets) reads as one paired unit. In a wide card
+  // (~630px) a full-width row flings the value to the far edge, ~500px from
+  // its label — aligned in columns but detached. Cap those so the value
+  // stays near its label; a header row (longer title … badge/arrow) keeps
+  // full width so the title isn't squeezed. The cap hugs the RTL start (no
+  // margin:auto) so the pair sits against the card's right edge.
+  const isCompactPair = spaceBetween && children.length === 2
+    && (children[0].textContent || '').trim().length <= 22
+    && (children[children.length - 1].textContent || '').trim().length <= 22;
+  table.style.cssText = 'border-collapse:collapse;' + (
+    isColumn ? 'width:100%;table-layout:fixed;' :
+    isCompactPair ? 'width:100%;max-width:300px;' :
+    (spaceBetween || !centered) ? 'width:100%;' :
+    'margin:0 auto;max-width:100%;'
+  );
+
+  if (isColumn) {
+    children.forEach((child, i) => {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      if (i > 0 && gap) td.style.paddingTop = `${gap}px`;
+      td.appendChild(child);
+      tr.appendChild(td);
+      table.appendChild(tr);
+    });
+  } else {
+    const tr = document.createElement('tr');
+    // A child the source page marked flex:1 (e.g. RiskRow's/a manual notice's
+    // growing text column next to a fixed-size icon; or two equal-width stat
+    // blocks like "CR-ים" / "תקלות שדווחו") is meant to absorb the width its
+    // fixed-size siblings don't need. When every child in the row shares that
+    // marker (an even split, not "one grows, the rest are fixed"), giving
+    // each of them width:100% is invalid HTML — multiple 100%-width columns
+    // in the same row — and browsers resolve it inconsistently; split the
+    // 100% evenly across them instead.
+    const growFlags = children.map(c => /\bflex:\s*1\b/.test(c.getAttribute('style') || ''));
+    const growCount = growFlags.filter(Boolean).length;
+    const evenSplit = growCount > 1;
+    children.forEach((child, i) => {
+      // space-between with a first + rest pattern (header rows: label …
+      // arrow/button) — a full-width spacer cell pushes everything after it
+      // to the far side. No explicit width on it: an empty cell with no
+      // content already has zero min-content-width, so on a width:100% table
+      // the layout engine gives it whatever's left AFTER the real (non-empty)
+      // columns get their natural size — asking for width:100% on the cell
+      // itself over-constrains the row and squeezes the real columns instead.
+      if (i === 1 && spaceBetween) tr.appendChild(document.createElement('td'));
+      const td = document.createElement('td');
+      const widthStyle = !growFlags[i] ? '' : evenSplit ? `width:${Math.round(100 / growCount)}%;` : 'width:100%;';
+      // Pin the two ends of a space-between row to their outer edges. The
+      // whole KpiTile inherits text-align:center, and auto table-layout, when
+      // the row is wider than its content, widens the label/value cells
+      // rather than the (max-content:0) empty spacer between them — so a
+      // centered label/value then floats mid-cell instead of hugging the card
+      // edge, and consecutive rows with different-width values stop lining up
+      // (QG's per-cycle target list, found live 2026-09-05). right = RTL
+      // start, left = RTL end; physical values, not start/end, for old-client
+      // safety — every one of these tables is dir="rtl".
+      const alignStyle = spaceBetween
+        ? (i === 0 ? 'text-align:right;' : i === children.length - 1 ? 'text-align:left;' : '')
+        : '';
+      // No blanket white-space:nowrap here — it's an inherited CSS property, so
+      // it would force every descendant span/div to stop wrapping too (e.g. a
+      // KpiTile's own multi-line label text), not just this cell's direct
+      // content. Elements that actually need nowrap (short labels) already
+      // carry it in their own inline style from the live page.
+      td.style.cssText = `vertical-align:${valign};${widthStyle}${alignStyle}` + (i > 0 && !spaceBetween && gap ? `padding-inline-start:${gap}px;` : '');
+      td.appendChild(child);
+      tr.appendChild(td);
+    });
+    table.appendChild(tr);
+  }
+  mount.appendChild(table);
+  el.replaceWith(wrapper);
+}
+
+// Runs the grid pass then the flex pass over a static snapshot of the tree —
+// nodes are moved (not copied) into the new tables, so a later pass still
+// finds them via root.contains(). NOT el.isConnected: `root` (the clone) is
+// never attached to `document`, so isConnected is false for every node in it
+// from the start, regardless of any conversion — it only tracks attachment to
+// a Document, not membership in this detached working tree.
+function layoutToTables(root: HTMLElement) {
+  const all = Array.from(root.querySelectorAll<HTMLElement>('*'));
+  for (const el of all) {
+    if (!root.contains(el)) continue;
+    if (/display:\s*grid/.test(el.getAttribute('style') || '')) convertGridToTable(el, EMAIL_GRID_COLS);
+  }
+  for (const el of all) {
+    if (!root.contains(el)) continue;
+    if (/display:\s*flex/.test(el.getAttribute('style') || '')) convertFlexToTable(el);
+  }
+}
+
+// oklch(L C H) → #rrggbb. Done by hand rather than via getComputedStyle
+// because not every browser build resolves oklch in computed styles (some
+// hand it back verbatim), and the whole point is to emit something Word can
+// read. Standard Oklab→linear-sRGB matrix + sRGB gamma. Cached per string.
+const _colorCache = new Map<string, string>();
+function resolveModernColor(fn: string): string {
+  const cached = _colorCache.get(fn);
+  if (cached) return cached;
+  let out = '#4b5563';
+  const m = /^oklch\(\s*([\d.]+%?)\s+([\d.]+)\s+([\d.]+)/i.exec(fn);
+  if (m) {
+    const L = m[1].endsWith('%') ? parseFloat(m[1]) / 100 : parseFloat(m[1]);
+    const C = parseFloat(m[2]);
+    const H = (parseFloat(m[3]) * Math.PI) / 180;
+    const a = C * Math.cos(H), b = C * Math.sin(H);
+    const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+    const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+    const s_ = L - 0.0894841775 * a - 1.291485548 * b;
+    const l = l_ ** 3, mm = m_ ** 3, s = s_ ** 3;
+    const lin = [
+      4.0767416621 * l - 3.3077115913 * mm + 0.2309699292 * s,
+      -1.2684380046 * l + 2.6097574011 * mm - 0.3413193965 * s,
+      -0.0041960863 * l - 0.7034186147 * mm + 1.707614701 * s,
+    ];
+    const hex = lin.map(c => {
+      const g = c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+      return Math.max(0, Math.min(255, Math.round(g * 255))).toString(16).padStart(2, '0');
+    }).join('');
+    out = `#${hex}`;
+  }
+  _colorCache.set(fn, out);
+  return out;
+}
+
+// Every colour Outlook's Word engine can't parse — oklch/lab/lch (the
+// theme's module colour is oklch), color-mix(), and functional-alpha
+// rgba() — flattened to a plain hex/rgb. Word silently drops an
+// unrecognised colour, which is a big part of why the card accents, tints
+// and muted greys vanish there and it collapses to "plain text".
+function flattenColor(raw: string): string {
+  return raw
+    .replace(/\b(?:oklch|oklab|lch|lab)\([^)]*\)/g, resolveModernColor)
+    .replace(/color-mix\([^)]*\)/g, '#f4f4f5')
+    .replace(/rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)/g, (_m, r, g, b, a) => {
+      const A = Math.max(0, Math.min(1, parseFloat(a)));
+      const mix = (c: string) => Math.round(parseInt(c, 10) * A + 255 * (1 - A));
+      const hex = (n: number) => n.toString(16).padStart(2, '0');
+      return `#${hex(mix(r))}${hex(mix(g))}${hex(mix(b))}`;
+    });
+}
+
+// Serialize a live DOM subtree into email-paste-safe HTML: drop [data-noemail]
+// nodes (the greeting bar, notice composer, edit/delete, the copy button
+// itself), rebuild every flex/grid container as a <table> (Outlook's Word
+// renderer ignores flex/grid → without this everything just stacks), flatten
+// alpha/color-mix colours to opaque hex, and wrap the whole block in a
+// presentation <table> (Word doesn't block-render a bare <a>, so the old
+// whole-body link left the frame/padding off there). Only "פתח במערכת →" is
+// a link now.
+function buildEmailHtml(sourceEl: HTMLElement, opts: { href: string; title: string; subtitle?: string }): string {
+  const clone = sourceEl.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('[data-noemail]').forEach(n => n.remove());
+  layoutToTables(clone);
+  clone.querySelectorAll<HTMLElement>('[style]').forEach(el => {
+    let s = el.getAttribute('style') || '';
+    s = flattenColor(s)
+      .replace(/cursor:\s*pointer/g, 'cursor:default')
+      // any font-family (they all lead with 'Rubk',system-ui,… → Times in Word)
+      .replace(/font-family\s*:[^;]+/gi, `font-family:${EMAIL_FONT}`);
+    // A nowrap+ellipsis label (e.g. KpiTile's moduleLabel) only actually
+    // truncates in the live page because its flex parent carries min-width:0,
+    // letting the flex item shrink below its own content size — flexbox-only
+    // behavior with no table equivalent. In the table rebuild the same nowrap
+    // instead makes the cell's min-content un-shrinkable, so at the 2-column
+    // mobile width it overflows the card rather than ellipsizing (confirmed
+    // live: table max-width doesn't help — table-layout:auto still grows past
+    // it to fit an unbreakable nowrap run). Only in the email copy, let this
+    // specific combination wrap onto a second line instead — plain overflow
+    // (not ellipsis) is what a table can actually guarantee here, and a
+    // wrapped label beats one bleeding past its card.
+    if (/overflow:\s*hidden/.test(s) && /text-overflow:\s*ellipsis/.test(s)) {
+      s = s.replace(/white-space:\s*nowrap;?/g, 'white-space:normal;');
+    }
+    el.setAttribute('style', s);
+  });
+  Array.from(clone.children).forEach(c => {
+    const el = c as HTMLElement;
+    el.setAttribute('style', (el.getAttribute('style') || '') + ';margin-bottom:16px');
+  });
+  const stamp = new Date().toLocaleString('he-IL', { dateStyle: 'medium', timeStyle: 'short' });
+  // Full width — fills the mail reading pane, no max-width/centering (user
+  // 2026-09-06: capping it just left "המון שטח פנוי משני צידי התוכן" on a
+  // wide desktop). The internal grids are width:100% too, and the
+  // label↔value rows that used to spread in a wide card are now capped
+  // locally (convertFlexToTable's isCompactPair) — so full-width no longer
+  // means "flung apart".
+  // Presentation table wrapper — not a bare <a>. Word renders <a> inline, so
+  // padding/border/width on it were being dropped in Outlook. width as an
+  // attribute AND in CSS (Word prefers the attribute).
+  return `<table role="presentation" dir="rtl" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;width:100%;font-family:${EMAIL_FONT};direction:rtl;background:${EMAIL_PAGE_BG}">`
+    + `<tr><td style="padding:16px;font-family:${EMAIL_FONT};color:#1f2937">`
+    + `<table role="presentation" dir="rtl" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;width:100%;padding-bottom:12px;margin-bottom:16px;border-bottom:1px solid #e5e7eb;font-family:${EMAIL_FONT}"><tr>`
+    + `<td style="vertical-align:baseline"><div style="font-size:16px;font-weight:700;color:#1f2937">${opts.title}</div>`
+    + `<div style="font-size:12px;color:#6b7280;margin-top:2px">${opts.subtitle ? `${opts.subtitle} · ` : ''}${stamp}</div></td>`
+    + `<td style="vertical-align:baseline;text-align:left;font-size:13px;font-weight:600;white-space:nowrap"><a href="${opts.href}" style="color:#2563eb;text-decoration:none">פתח במערכת →</a></td>`
+    + `</tr></table>`
+    + clone.innerHTML
+    + `<div style="margin-top:20px;padding-top:12px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;text-align:center">הופק על ידי DeployCenter</div>`
+    + `</td></tr></table>`;
+}
+
+// Rich-HTML clipboard copy that also works where navigator.clipboard.write is
+// blocked (some managed browsers, headless): select a hidden contenteditable
+// node and answer the 'copy' event with both text/html and text/plain.
+function copyRichHtml(html: string, plain: string): boolean {
+  const box = document.createElement('div');
+  box.setAttribute('contenteditable', 'true');
+  box.style.cssText = 'position:fixed;left:-99999px;top:0;opacity:0';
+  box.innerHTML = html;
+  document.body.appendChild(box);
+  const sel = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(box);
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+  let ok = false;
+  const onCopy = (e: ClipboardEvent) => {
+    e.clipboardData?.setData('text/html', html);
+    e.clipboardData?.setData('text/plain', plain);
+    e.preventDefault();
+  };
+  try {
+    document.addEventListener('copy', onCopy);
+    ok = document.execCommand('copy');
+  } finally {
+    document.removeEventListener('copy', onCopy);
+    sel?.removeAllRanges();
+    document.body.removeChild(box);
+  }
+  return ok;
+}
 
 const CLOSED_DEFECT_STATUSES = ['Closed', 'Canceled', 'Rejected', 'Fixed'];
 
@@ -31,6 +439,7 @@ interface BlockedCr {
   crNumber: string; crLabel: string; cycleType: string; blockedCount: number;
   reasonDefects: { id: string; title: string }[];
 }
+interface OverdueUnstartedCr { crNumber: string; crLabel: string; plannedStart: string; }
 type ForecastStatusValue = 'ON_TRACK' | 'AT_RISK' | 'BEHIND_PLAN';
 interface ForecastPace {
   status: ForecastStatusValue; cycleType: string; isLastCycle: boolean;
@@ -40,16 +449,24 @@ interface ForecastDefectRate {
   status: ForecastStatusValue; openDefects: number; expectedFixable: number;
   avgFixesPerDay: number; sampleVersions: number;
 }
+type HealthRecommendation = 'GO' | 'CONDITIONAL_GO' | 'NO_GO';
+interface HealthBreakdown { coverageScore: number; qualityScore: number; riskScore: number; forecastScore: number; }
 interface Overview {
-  healthScore: number; coveragePct: number; criticalDefects: number; openRisksCount: number;
+  healthScore: number; healthBreakdown: HealthBreakdown; healthRecommendation: HealthRecommendation;
+  coveragePct: number; criticalDefects: number; openRisksCount: number;
   daysToGoLive: number | null; forecastStatus: ForecastStatusValue;
   forecastPace: ForecastPace | null; forecastDefectRate: ForecastDefectRate | null;
   qgSummary: Record<string, { count: number; threshold: number }>; qgPass: boolean;
   topRisks: { id: string; title: string; severity: string }[];
   blockedCrs: BlockedCr[];
+  overdueUnstartedCrs: OverdueUnstartedCr[];
+  worstCr: { crNumber: string; count: number } | null;
+  oldestCriticalDefectAgeDays: number | null;
+  reviewMeetingTime: string | null;
 }
 interface DefectRow { id: string; title: string; severity: string; status: string; discoveryDate: string; }
 interface CrAssignmentRow { id: string; crNumber: string; crLabel: string | null; qaArrivalDate: string | null; qaReceived: boolean; }
+interface TeamPlanStatusRow { teamId: string; teamName: string; total: number; draft: number; submitted: number; returned: number; approved: number; allDone: boolean; }
 interface CrQualityRow { crNumber: string; crLabel: string; defectCount: number; actualEffortDays: number; score: number; meetsTarget: boolean; }
 
 // score = Σ(defectCount × severityWeight) / actualEffortDays; a CR "meets the
@@ -66,10 +483,58 @@ const FORECAST_LABEL: Record<string, { label: string; color: string }> = {
   AT_RISK: { label: 'בסיכון', color: '#e8af00' },
   BEHIND_PLAN: { label: 'בחריגה', color: C.danger },
 };
+
+// Coverage KpiTile's sub-line — was a flat "≥80% good / else partial"
+// threshold, which says nothing about whether that number is actually enough
+// time-wise. Reuses forecastPace (already computed for the separate Forecast
+// tile, no extra fetch) so the same % reads differently with 2 days left vs
+// 2 hours left. Priority: blocked CRs (most actionable) > overdue-unstarted
+// CRs > pace-aware explanation > flat threshold fallback (no active cycle to
+// pace against).
+function coverageExplanation(o: Overview): { text: string; tone: 'ok' | 'warn' } {
+  if (o.blockedCrs.length > 0) return { text: `⛔ חסימה ב-${o.blockedCrs.length} CR-ים`, tone: 'warn' };
+  if (o.overdueUnstartedCrs.length > 0) return { text: `⚠ ${o.overdueUnstartedCrs.length} CR-ים בפיגור התחלה`, tone: 'warn' };
+  const pace = o.forecastPace;
+  if (pace) {
+    const label = FORECAST_LABEL[pace.status]?.label ?? pace.status;
+    if (pace.status === 'ON_TRACK') return { text: `✓ ${label} — ${o.coveragePct}% כיסוי`, tone: 'ok' };
+    if (pace.status === 'AT_RISK') return { text: `⚠ ${label} — נותרו ${pace.remainingScenarios} תרחישים`, tone: 'warn' };
+    return { text: `⛔ ${label} — לא צפוי להספיק ${pace.isLastCycle ? 'עד עלייה לאוויר' : 'עד סוף הסבב'}`, tone: 'warn' };
+  }
+  return o.coveragePct >= 80 ? { text: '✓ כיסוי תקין', tone: 'ok' } : { text: '⚠ כיסוי חלקי', tone: 'warn' };
+}
 const CYCLE_LABEL: Record<string, string> = {
   CYCLE_1: 'סבב 1', CYCLE_2: 'סבב 2', CYCLE_3: 'סבב 3',
   STAND_ALONE: 'Stand Alone', UAT: 'UAT', REHEARSAL: 'חזרה גנרלית', GO_LIVE: 'עליה לאוויר',
 };
+
+// Release Health = simple average of 4 equal-weighted 0-100 sub-scores
+// (release-intelligence.service.ts). Same thresholds recommendationFromHealth
+// uses: ≥70 GO, 40-69 CONDITIONAL_GO, <40 NO_GO.
+const HEALTH_REC: Record<HealthRecommendation, { label: string; color: string }> = {
+  GO: { label: 'GO — מוכן', color: C.success },
+  CONDITIONAL_GO: { label: 'GO בתנאים', color: '#e8af00' },
+  NO_GO: { label: 'NO-GO', color: C.danger },
+};
+const HEALTH_PART_LABEL: Record<keyof HealthBreakdown, string> = {
+  coverageScore: 'כיסוי', qualityScore: 'תקלות', riskScore: 'סיכונים', forecastScore: 'תחזית',
+};
+
+// Always shown under the health number — a blended average hides which axis is
+// low, so the 4 parts travel with it.
+function HealthBreakdownList({ b }: { b: HealthBreakdown }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+      <div style={{ fontWeight: WEIGHT.semibold, color: C.textSecondary }}>מרכיבי המדד (ממוצע פשוט של 4):</div>
+      {(Object.keys(HEALTH_PART_LABEL) as (keyof HealthBreakdown)[]).map(k => (
+        <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+          <span>{HEALTH_PART_LABEL[k]}</span>
+          <span style={{ fontVariantNumeric: 'tabular-nums' as const, fontWeight: WEIGHT.semibold, color: b[k] < 50 ? C.danger : b[k] < 80 ? C.warning : C.textMuted }}>{b[k]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // qgSummary's keys (computeQgSummary, release-intelligence.service.ts) →
 // display label + severity color, for the Quality Gate card's open-defects-
@@ -175,6 +640,31 @@ function BlockedCrsList({ rows }: { rows: { crNumber: string; crLabel: string; c
   );
 }
 
+// Overdue-unstarted CRs — lives in the Coverage KpiTile's footer slot, same
+// toggle pattern as BlockedCrsList. Each row shows how long it's been overdue
+// (today minus its tester's own planned slot), since "overdue" without a
+// magnitude is hard to prioritize at a glance.
+function OverdueUnstartedCrsList({ rows }: { rows: OverdueUnstartedCr[] }) {
+  const now = Date.now();
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }} onClick={e => e.stopPropagation()}>
+      {rows.map(r => {
+        const overdueDays = Math.max(0, Math.floor((now - new Date(r.plannedStart).getTime()) / 86400000));
+        return (
+          <div key={r.crNumber} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+            <span style={{ ...TEXT.xs, color: C.textPrimary, fontWeight: WEIGHT.semibold, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+              {r.crNumber}{r.crLabel ? ` — ${r.crLabel.replace(/^\d+\s*-\s*/, '')}` : ''}
+            </span>
+            <span style={{ ...TEXT.xs, color: C.danger, fontWeight: WEIGHT.bold, flexShrink: 0 }}>
+              {overdueDays > 0 ? `${overdueDays} ימי איחור` : 'התור הגיע היום'}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 const FORECAST_STATUS_ICON: Record<ForecastStatusValue, string> = { ON_TRACK: '✓', AT_RISK: '⚠', BEHIND_PLAN: '⛔' };
 const FORECAST_STATUS_COLOR: Record<ForecastStatusValue, string> = { ON_TRACK: C.success, AT_RISK: C.warning, BEHIND_PLAN: C.danger };
 
@@ -230,14 +720,14 @@ function CrQualityList({ rows, onSelectCr }: { rows: CrQualityRow[]; onSelectCr:
   );
 }
 
-interface Props { token: string; versionId?: string; role: string; fullName: string; onNavigate?: (view: string) => void; }
+interface Props { token: string; versionId?: string; versionName?: string; role: string; fullName: string; onNavigate?: (view: string) => void; }
 
 // Module home page for "ניהול בדיקות" — same structure as the general Home
 // page: greeting → hero (here: the cycles panel with its countdown, reused
 // unchanged) → rich per-area status cards → notice/alert strip. Every card
 // and alert is backed by data the module already computes elsewhere — no new
 // backend endpoints (spec confirmed 2026-08-31).
-export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId, role, fullName, onNavigate }) => {
+export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId, versionName, role, fullName, onNavigate }) => {
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const firstName = fullName.split(' ')[0] || fullName;
   const hour = new Date().getHours();
@@ -249,13 +739,17 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
   const [aging, setAging] = useState<{ count: number; avgAgingDays: number; avgOverageDays: number; thresholdDays: number } | null>(null);
   const [crAssignments, setCrAssignments] = useState<CrAssignmentRow[]>([]);
   const [crQuality, setCrQuality] = useState<CrQualityRow[]>([]);
+  const [teamPlanStatus, setTeamPlanStatus] = useState<TeamPlanStatusRow[]>([]);
   const [notices, setNotices] = useState<VersionNotice[]>([]);
   const [loading, setLoading] = useState(false);
   const [agingDrilldown, setAgingDrilldown] = useState(false);
   const [showStopperDrilldown, setShowStopperDrilldown] = useState(false);
   const [notReceivedExpanded, setNotReceivedExpanded] = useState(false);
+  const [teamPlansExpanded, setTeamPlansExpanded] = useState(false);
   const [crQualityExpanded, setCrQualityExpanded] = useState(false);
   const [blockedCrsExpanded, setBlockedCrsExpanded] = useState(false);
+  const [overdueUnstartedExpanded, setOverdueUnstartedExpanded] = useState(false);
+  const [healthExpanded, setHealthExpanded] = useState(false);
   const [crQualityDrilldown, setCrQualityDrilldown] = useState<CrQualityRow | null>(null);
 
   const [addingNotice, setAddingNotice] = useState(false);
@@ -265,8 +759,79 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
   const [savingNotice, setSavingNotice] = useState(false);
   const canEditNotice = isRm(role);
 
+  // "העתק דף הבית למייל" — RM/ADMIN only. Serializes this whole view (minus the
+  // data-noemail bits) to the clipboard as rich HTML wrapped in a deep link.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [appUrl, setAppUrl] = useState('');
+  const [copyState, setCopyState] = useState<'idle' | 'done' | 'error'>('idle');
   useEffect(() => {
-    if (!versionId) { setOverview(null); setCycleData(null); setDefects([]); setAging(null); setCrAssignments([]); setCrQuality([]); return; }
+    if (!isRm(role)) return;
+    axios.get(`${API}/system-params`, { headers })
+      .then(r => setAppUrl((r.data ?? []).find((p: any) => p.key === 'APP_PUBLIC_URL')?.value || ''))
+      .catch(() => {});
+  }, [role, headers]);
+
+  const handleCopyToEmail = async () => {
+    if (!rootRef.current || !versionId) return;
+    const wasExpanded = healthExpanded;
+    try {
+      flushSync(() => setHealthExpanded(true)); // force the 4-part breakdown into the DOM before cloning
+      const base = (appUrl || window.location.origin).replace(/\/+$/, '');
+      const href = `${base}/?go=ri-home&versionId=${encodeURIComponent(versionId)}`;
+      const reportTitle = versionName ? `סטטוס בדיקות גרסה ${versionName}` : 'סטטוס בדיקות גרסה';
+      const html = buildEmailHtml(rootRef.current, {
+        href,
+        title: reportTitle,
+        subtitle: '',
+      });
+      // Plain-text fallback for clients that don't render the HTML — a
+      // standalone summary, not just 3 numbers. Mirrors the HTML's headline
+      // KPIs + the "סיכונים ופעילויות" strip; each line is dropped when its
+      // data isn't relevant (no alert, nothing overdue, no meeting set).
+      const rmt = overview?.reviewMeetingTime ? new Date(overview.reviewMeetingTime) : null;
+      const alertLines = [
+        aging && aging.count > 0
+          ? `• ${aging.count} תקלות חורגות מזמן הטיפול (ממוצע חריגה: ${aging.avgOverageDays} ימים)` : '',
+        ...cyclesEndingSoonUnmet.map(c =>
+          `• ${CYCLE_LABEL[c.cycleType] ?? c.cycleType} עומד להסתיים וטרם עומד ביעד (${c.successPct}% מתוך ${c.qgTargetPct}%)`),
+        overdueArrivalCrs.length > 0 ? `• ${overdueArrivalCrs.length} CR-ים חורגים ממועד הקבלה ל-QA` : '',
+        teamsNotSubmitted.length > 0 ? `• ${teamsNotSubmitted.length} צוותים טרם השלימו הגשת תוכניות CR` : '',
+        rmt ? `• ישיבת סקירה: ${rmt.toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : '',
+      ].filter(Boolean);
+      const text = [
+        reportTitle,
+        new Date().toLocaleString('he-IL', { dateStyle: 'medium', timeStyle: 'short' }),
+        '',
+        overview ? `מדד מוכנות הגרסה: ${overview.healthScore} (${HEALTH_REC[overview.healthRecommendation].label})` : '',
+        overview ? `שער איכות: ${overview.qgPass ? 'PASS' : 'FAIL'}` : '',
+        overview ? `כיסוי בדיקות: ${overview.coveragePct}%` : '',
+        `תקלות פתוחות: ${openDefectsCount}${overview && overview.criticalDefects > 0 ? ` (מתוכן ${overview.criticalDefects} קריטיות)` : ''}`,
+        overview && overview.daysToGoLive != null ? `ימים לעלייה לאוויר: ${overview.daysToGoLive}` : '',
+        alertLines.length > 0 ? `\n— סיכונים ופעילויות —\n${alertLines.join('\n')}` : '',
+        `\nפתח במערכת: ${href}`,
+      ].filter(Boolean).join('\n');
+      let ok = false;
+      try {
+        await navigator.clipboard.write([new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([text], { type: 'text/plain' }),
+        })]);
+        ok = true;
+      } catch {
+        ok = copyRichHtml(html, text); // fallback for browsers that block clipboard.write
+      }
+      setCopyState(ok ? 'done' : 'error');
+    } catch (e) {
+      console.error('Failed to copy Home to email', e);
+      setCopyState('error');
+    } finally {
+      if (!wasExpanded) setHealthExpanded(false);
+      window.setTimeout(() => setCopyState('idle'), 3000);
+    }
+  };
+
+  useEffect(() => {
+    if (!versionId) { setOverview(null); setCycleData(null); setDefects([]); setAging(null); setCrAssignments([]); setCrQuality([]); setTeamPlanStatus([]); return; }
     setLoading(true);
     Promise.all([
       axios.get(`${API}/release-intelligence/overview/${versionId}`, { headers }).then(r => r.data).catch(() => null),
@@ -275,13 +840,20 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
       axios.get(`${API}/release-intelligence/status-board/${versionId}`, { headers }).then(r => r.data).catch(() => null),
       axios.get(`${API}/version-cr-assignments/version/${versionId}`, { headers }).then(r => r.data ?? []).catch(() => []),
       axios.get(`${API}/release-intelligence/cr-quality/${versionId}`, { headers }).then(r => r.data ?? []).catch(() => []),
-    ]).then(([ov, cp, defs, sb, vca, crq]) => {
+      // CR-plan submission status — the canonical per-team rollup (target-CR
+      // reviews, exempt teams, unopened-screen seeding are all handled there),
+      // reused rather than re-derived. RM/ADMIN see every team; a non-manager
+      // gets only their own team back, which is fine — the strip just shows
+      // "your team's" status then.
+      axios.get(`${API}/cr-plans/version/${versionId}/team-status`, { headers }).then(r => r.data ?? []).catch(() => []),
+    ]).then(([ov, cp, defs, sb, vca, crq, tps]) => {
       setOverview(ov);
       setCycleData(cp);
       setDefects(defs);
       setAging(sb?.aging ?? null);
       setCrAssignments(vca);
       setCrQuality(crq);
+      setTeamPlanStatus(tps);
     }).finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [versionId, token]);
@@ -340,10 +912,17 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
       && c.successPct != null && c.qgTargetPct != null && c.successPct < c.qgTargetPct
     );
   }, [cycleData]);
-  const notReceivedCrs = useMemo(
-    () => crAssignments.filter(a => !a.qaReceived && a.qaArrivalDate && new Date(a.qaArrivalDate).getTime() < Date.now()),
+  // CRs already past their planned QA-arrival date and still not received —
+  // each carries how many days it's overdue, so the strip can lead with the
+  // lateness, not just "not here yet".
+  const overdueArrivalCrs = useMemo(
+    () => crAssignments
+      .filter(a => !a.qaReceived && a.qaArrivalDate && new Date(a.qaArrivalDate).getTime() < Date.now())
+      .map(a => ({ ...a, daysLate: Math.floor((Date.now() - new Date(a.qaArrivalDate!).getTime()) / 86400000) }))
+      .sort((x, y) => y.daysLate - x.daysLate),
     [crAssignments],
   );
+  const teamsNotSubmitted = useMemo(() => teamPlanStatus.filter(t => !t.allDone), [teamPlanStatus]);
   const failingCrs = useMemo(() => crQuality.filter(r => !r.meetsTarget), [crQuality]);
 
   if (!versionId) {
@@ -359,18 +938,36 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
     : null;
 
   const openDefectsCount = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status)).length;
+  const reviewMeeting = overview?.reviewMeetingTime ? new Date(overview.reviewMeetingTime) : null;
+  const hoursToReview = reviewMeeting ? (reviewMeeting.getTime() - Date.now()) / 3_600_000 : null;
   const alertCount = (aging && aging.count > 0 ? 1 : 0) + cyclesEndingSoonUnmet.length
-    + (showStoppersToday.length > 0 ? 1 : 0) + (notReceivedCrs.length > 0 ? 1 : 0);
+    + (showStoppersToday.length > 0 ? 1 : 0) + (overdueArrivalCrs.length > 0 ? 1 : 0)
+    + (teamsNotSubmitted.length > 0 ? 1 : 0) + (reviewMeeting ? 1 : 0);
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      {/* ── Greeting bar — same content/style as the general Home page's own
-          local topbar (spec confirmed 2026-08-31). ── */}
-      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '14px 20px', boxShadow: SHADOW.xs }}>
-        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{greeting}, {firstName} 👋</div>
-        <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '1px' }}>
-          {new Date().toLocaleDateString('he-IL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+    <div ref={rootRef} style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+      {/* ── Greeting bar — excluded from the email copy (data-noemail); it also
+          hosts the copy button, so the button never lands in the copy. ── */}
+      <div data-noemail style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '14px 20px', boxShadow: SHADOW.xs, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+        <div>
+          <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{greeting}, {firstName} 👋</div>
+          <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '1px' }}>
+            {new Date().toLocaleDateString('he-IL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          </div>
         </div>
+        {isRm(role) && (
+          <button
+            onClick={handleCopyToEmail}
+            title="מעתיק את דף הבית ללוח כתוכן עשיר להדבקה במייל, עם קישור חוזר למערכת"
+            style={{
+              flexShrink: 0, background: copyState === 'done' ? C.success : copyState === 'error' ? C.danger : C.brand,
+              color: '#fff', border: 'none', borderRadius: RADIUS.md, padding: '8px 16px', cursor: 'pointer',
+              fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold,
+            }}
+          >
+            {copyState === 'done' ? '✓ הועתק — הדבק במייל' : copyState === 'error' ? '✕ ההעתקה נכשלה' : '📧 העתק דף הבית למייל'}
+          </button>
+        )}
       </div>
 
       {/* ── Hero area — the cycles panel, reused as-is with its countdown clock ── */}
@@ -384,22 +981,60 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
           <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: '4px 0 -4px' }}>תמונת מצב</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '12px', marginTop: '12px' }}>
             <KpiTile
+              icon="🩺" accent={HEALTH_REC[overview.healthRecommendation].color} moduleLabel="מדד מוכנות הגרסה"
+              moduleLabelColor={C.moduleTracking}
+              value={String(overview.healthScore)} label={HEALTH_REC[overview.healthRecommendation].label}
+              footer={healthExpanded ? <HealthBreakdownList b={overview.healthBreakdown} /> : null}
+              onClick={() => setHealthExpanded(v => !v)}
+            />
+            <KpiTile
               icon="✅" accent={C.moduleTracking} moduleLabel="כיסוי בדיקות"
               value={`${overview.coveragePct}%`} label={`עברו+נכשלו מסך התרחישים (סבבים 1-3)`}
-              sub={overview.blockedCrs.length > 0
-                ? `⛔ חסימה ב-${overview.blockedCrs.length} CR-ים`
-                : (overview.coveragePct >= 80 ? '✓ כיסוי תקין' : '⚠ כיסוי חלקי')}
-              subTone={overview.blockedCrs.length > 0 ? 'warn' : (overview.coveragePct >= 80 ? 'ok' : 'warn')}
-              onClick={() => overview.blockedCrs.length > 0 ? setBlockedCrsExpanded(v => !v) : onNavigate?.('coverage-readiness')}
-              footer={blockedCrsExpanded && overview.blockedCrs.length > 0 ? <BlockedCrsList rows={overview.blockedCrs} /> : null}
+              sub={coverageExplanation(overview).text}
+              subTone={coverageExplanation(overview).tone}
+              onClick={() => {
+                if (overview.blockedCrs.length > 0) return setBlockedCrsExpanded(v => !v);
+                if (overview.overdueUnstartedCrs.length > 0) return setOverdueUnstartedExpanded(v => !v);
+                onNavigate?.('coverage-readiness');
+              }}
+              footer={
+                (blockedCrsExpanded && overview.blockedCrs.length > 0) || (overdueUnstartedExpanded && overview.overdueUnstartedCrs.length > 0) ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {blockedCrsExpanded && overview.blockedCrs.length > 0 && <BlockedCrsList rows={overview.blockedCrs} />}
+                    {overdueUnstartedExpanded && overview.overdueUnstartedCrs.length > 0 && <OverdueUnstartedCrsList rows={overview.overdueUnstartedCrs} />}
+                    {/* Escape hatch to the full requirement-level breakdown — the
+                        triage lists above only cover CRs with a problem, this
+                        is the whole picture (spec confirmed 2026-09-04). Same
+                        "עבור למסך ←" idiom RiskRow already uses on this page. */}
+                    <span
+                      onClick={e => { e.stopPropagation(); onNavigate?.('coverage-readiness'); }}
+                      style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.brand, cursor: 'pointer', paddingTop: '2px' }}
+                    >
+                      כל נתוני הכיסוי ←
+                    </span>
+                  </div>
+                ) : null
+              }
             />
             <KpiTile
               icon="🐞" accent={C.moduleTracking} moduleLabel="תקלות"
               value={String(openDefectsCount)} label="תקלות פתוחות"
               sub={overview.criticalDefects > 0 ? `⚠ ${overview.criticalDefects} קריטיות` : '✓ אין תקלות קריטיות'}
               subTone={overview.criticalDefects > 0 ? 'warn' : 'ok'}
-              footer={<SeverityMiniChart qgSummary={overview.qgSummary} onClick={() => onNavigate?.('defects')} />}
-              onClick={() => onNavigate?.('defects')}
+              // Leads to the Bug Dashboard (QC) — moved into this module
+              // earlier — not the older DefectsView (spec confirmed 2026-09-04).
+              footer={
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {(overview.worstCr || overview.oldestCriticalDefectAgeDays != null) && (
+                    <div style={{ ...TEXT.xs, color: C.textMuted }}>
+                      {overview.worstCr && <>CR מוביל: <strong style={{ color: C.textPrimary }}>{overview.worstCr.crNumber}</strong> ({overview.worstCr.count} תקלות){overview.oldestCriticalDefectAgeDays != null ? ' · ' : ''}</>}
+                      {overview.oldestCriticalDefectAgeDays != null && <>קריטית ותיקה: {overview.oldestCriticalDefectAgeDays} ימים</>}
+                    </div>
+                  )}
+                  <SeverityMiniChart qgSummary={overview.qgSummary} onClick={() => onNavigate?.('bug-dashboard')} />
+                </div>
+              }
+              onClick={() => onNavigate?.('bug-dashboard')}
             />
             <KpiTile
               icon="⚠️" accent={C.moduleTracking} moduleLabel="סיכונים"
@@ -408,6 +1043,10 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
               subTone={overview.openRisksCount > 0 ? 'warn' : 'ok'}
               onClick={() => onNavigate?.('risks')}
             />
+            {/* QG + Forecast tiles carry their full story in their own footers
+                (per-cycle targets, severity split, the two forecast checks) —
+                they deliberately don't navigate anywhere, and with no onClick
+                the card also drops its "←" affordance (spec 2026-09-05). */}
             <KpiTile
               icon="🚦" accent={C.moduleTracking} moduleLabel="Quality Gate"
               value={overview.qgPass ? 'PASS' : 'FAIL'} label="סטטוס יעד איכות"
@@ -417,14 +1056,13 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {cycleData && cycleData.timeline.length > 0 && (
                     <>
-                      <CycleSuccessMiniList timeline={cycleData.timeline} onClick={() => onNavigate?.('cycle-progress')} />
+                      <CycleSuccessMiniList timeline={cycleData.timeline} />
                       <div style={{ height: '1px', background: C.border }} />
                     </>
                   )}
-                  <SeverityMiniChart qgSummary={overview.qgSummary} onClick={() => onNavigate?.('defects')} />
+                  <SeverityMiniChart qgSummary={overview.qgSummary} />
                 </div>
               }
-              onClick={() => onNavigate?.('cycle-progress')}
             />
             <KpiTile
               icon="📈" accent={C.moduleTracking} moduleLabel="תחזית"
@@ -432,7 +1070,6 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
               sub={forecast ? `${overview.forecastStatus === 'ON_TRACK' ? '✓' : '⚠'} ${forecast.label}` : null}
               subTone={overview.forecastStatus === 'ON_TRACK' ? 'ok' : 'warn'}
               footer={<ForecastChecksList pace={overview.forecastPace} defectRate={overview.forecastDefectRate} />}
-              onClick={() => onNavigate?.('forecast-tracking')}
             />
             {/* score = Σ(defectCount × severityWeight) / actualEffortDays;
                 target ≤ 0.15 (spec confirmed 2026-09-01). Click toggles the
@@ -466,13 +1103,17 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
           <div key={n.id} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', background: severityBg(n.urgency), border: `1px solid ${severityColor(n.urgency)}40`, borderRadius: RADIUS.md, padding: '10px 14px', marginBottom: '8px' }}>
             <span style={{ fontSize: '16px', flexShrink: 0 }}>📌</span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: 'inline-block', ...TEXT.xs, fontWeight: WEIGHT.bold, color: severityColor(n.urgency), background: C.bgCard, border: `1px solid ${severityColor(n.urgency)}`, borderRadius: RADIUS.full, padding: '1px 8px', marginBottom: '4px' }}>
+              {/* data-noemail: the emailed report keeps the urgency *colour*
+                  (card tint + border, above) but drops the "נמוכה/בינונית/..."
+                  pill — the wording adds noise there, the tint already says it
+                  (spec 2026-09-05). Still shown on the live screen. */}
+              <span data-noemail style={{ display: 'inline-block', ...TEXT.xs, fontWeight: WEIGHT.bold, color: severityColor(n.urgency), background: C.bgCard, border: `1px solid ${severityColor(n.urgency)}`, borderRadius: RADIUS.full, padding: '1px 8px', marginBottom: '4px' }}>
                 {severityLabel(n.urgency)}
               </span>
               <div style={{ ...TEXT.sm, color: C.textPrimary, whiteSpace: 'pre-wrap' as const }}>{n.text}</div>
             </div>
             {canEditNotice && (
-              <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+              <div data-noemail style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                 <button onClick={() => startEditNotice(n)} style={{ background: 'transparent', border: 'none', ...TEXT.xs, color: C.brand, cursor: 'pointer', fontFamily: FONT, fontWeight: WEIGHT.semibold }}>✏️ ערוך</button>
                 <button onClick={() => deleteNotice(n.id)} disabled={savingNotice} style={{ background: 'transparent', border: 'none', ...TEXT.xs, color: C.danger, cursor: 'pointer', fontFamily: FONT, fontWeight: WEIGHT.semibold }}>🗑 מחק</button>
               </div>
@@ -480,6 +1121,7 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
           </div>
         ))}
 
+        <div data-noemail>
         {(addingNotice || editingNoticeId) ? (
           <div style={{ background: C.bgHover, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.md, padding: '10px 12px', marginBottom: '14px' }}>
             <textarea
@@ -516,6 +1158,7 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
             📌 + הוסף הודעה ידנית לצוותים
           </button>
         ) : null}
+        </div>
 
         {/* Computed alerts — aging defects, cycles about to close without
             meeting target, Show Stopper defects opened today, CRs not yet
@@ -549,12 +1192,45 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
           />
         )}
 
-        {notReceivedCrs.length > 0 && (
+        {/* Review meeting — a schedule fact, not a defect: shown whenever
+            it's set, urgent only inside the last 48h. */}
+        {reviewMeeting && (
+          <RiskRow
+            icon="🗓" module="release-intelligence"
+            urgent={hoursToReview != null && hoursToReview >= 0 && hoursToReview < 48}
+            title={
+              hoursToReview != null && hoursToReview < 0
+                ? `ישיבת הסקירה התקיימה — ${reviewMeeting.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })}`
+                : `ישיבת סקירה: ${reviewMeeting.toLocaleString('he-IL', { weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+            }
+            desc={
+              hoursToReview != null && hoursToReview >= 0 && hoursToReview < 48
+                ? 'בתוך 48 השעות הקרובות — לוודא זמינות כלל המעורבים'
+                : 'מעבר על תוכניות ה-CR והיערכות הגרסה'
+            }
+          />
+        )}
+
+        {teamsNotSubmitted.length > 0 && (
+          <RiskRow
+            icon="👥" urgent module="release-intelligence"
+            title={`${teamsNotSubmitted.length} צוותים טרם השלימו הגשת תוכניות CR`}
+            desc="תוכנית ה-CR של הצוות עדיין בטיוטה או הוחזרה לתיקון"
+            detail={teamsNotSubmitted.map(t => {
+              const pending = t.draft + t.returned;
+              return `${t.teamName}${t.total > 0 ? ` — ${pending}/${t.total} ממתינות` : ' — טרם נפתחה תוכנית'}`;
+            })}
+            expanded={teamPlansExpanded}
+            onToggle={() => setTeamPlansExpanded(v => !v)}
+          />
+        )}
+
+        {overdueArrivalCrs.length > 0 && (
           <RiskRow
             icon="📦" urgent module="release-intelligence"
-            title={`${notReceivedCrs.length} CR-ים טרם התקבלו לבדיקות`}
-            desc="פיתוח טרם נמסר לצוות הבדיקות"
-            detail={notReceivedCrs.map(a => `${a.crNumber}${a.crLabel ? ' — ' + a.crLabel : ''}`)}
+            title={`${overdueArrivalCrs.length} CR-ים חורגים ממועד הקבלה ל-QA`}
+            desc="מועד המסירה המתוכנן מפיתוח חלף והפיתוח טרם נמסר לצוות הבדיקות"
+            detail={overdueArrivalCrs.map(a => `${a.crNumber}${a.crLabel ? ' — ' + a.crLabel : ''} · באיחור ${a.daysLate} ${a.daysLate === 1 ? 'יום' : 'ימים'}`)}
             expanded={notReceivedExpanded}
             onToggle={() => setNotReceivedExpanded(v => !v)}
           />

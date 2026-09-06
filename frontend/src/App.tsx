@@ -6,10 +6,27 @@ import { PermissionsProvider } from './context/PermissionsContext';
 import { DialogProvider } from './context/DialogContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
+// Deep link (e.g. from a "copy Home to email" link): ?go=ri-home&versionId=<id>.
+// Read once at load, then strip from the URL so a refresh doesn't re-fire it.
+// Survives the login screen because it lives in App state, not the URL.
+const initialDeepLink: { go: string; versionId?: string } | null = (() => {
+  try {
+    const p = new URLSearchParams(window.location.search);
+    const go = p.get('go');
+    if (!go) return null;
+    return { go, versionId: p.get('versionId') || undefined };
+  } catch { return null; }
+})();
+
 function App() {
   const [token, setToken] = useState<string | null>(
     localStorage.getItem('deploycenter_token')
   );
+  const [deepLink, setDeepLink] = useState(initialDeepLink);
+
+  useEffect(() => {
+    if (initialDeepLink) window.history.replaceState({}, '', window.location.pathname);
+  }, []);
 
   const handleLogin = (newToken: string) => {
     localStorage.setItem('deploycenter_token', newToken);
@@ -48,7 +65,7 @@ function App() {
       <DialogProvider>
         <PermissionsProvider token={token} role={payload.role}>
           {isManager
-            ? <ManagerDashboard token={token} onLogout={handleLogout} />
+            ? <ManagerDashboard token={token} onLogout={handleLogout} deepLink={deepLink} onDeepLinkConsumed={() => setDeepLink(null)} />
             : <EmployeeDashboard token={token} onLogout={handleLogout} />
           }
         </PermissionsProvider>

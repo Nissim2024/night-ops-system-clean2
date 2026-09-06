@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import axios from 'axios';
 import { C, FONT, FONT_MONO, TEXT, WEIGHT, RADIUS, SHADOW, EASE, severityColor, severityBg, severityLabel } from '../theme';
 import { VersionStatusChip } from './ui';
-import RunbookModal, { RUNBOOKS, getRunbookTrigger, RunbookTrigger } from './qa/RunbookModal';
+import RunbookModal, { RUNBOOKS, getRunbookTrigger, getRunbookPlanId, RunbookTrigger } from './qa/RunbookModal';
 import { DefectDetailScreen } from './quality-hub/OpenProdDefectsView';
 import { VersionMilestoneTimeline } from './shared/VersionMilestoneTimeline';
 import { GoLiveCountdown } from './shared/GoLiveCountdown';
@@ -10,6 +10,121 @@ import { formatDate, formatDateTime, formatTime } from '../utils/dateFormat';
 import { DefectIdBadge } from './shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL ?? 'http://localhost:3000';
+
+// ── Activity-board reminders (spec confirmed 2026-09-04) ────────────────────
+// Most activityKeys (see QaActivityPlanView.tsx's buildSchedule) only need a
+// day-before/day-of heads-up — but a few (environment refresh, dress
+// rehearsal) genuinely need more advance notice than that, since they require
+// coordinating other people's availability days ahead. Per-key override, not
+// per-category: 'testing'/'refresh' etc. group activities of very different
+// urgency (e.g. dry_run vs plain integration_testing), so the category itself
+// isn't a reliable enough signal for how far ahead to warn.
+const ACTIVITY_LEAD_DAYS: Record<string, number> = {
+  env_refresh: 3,
+  dry_run: 3,
+};
+const DEFAULT_ACTIVITY_LEAD_DAYS = 1; // matches the old fixed today/tomorrow window
+// After this local hour on the activity's own last day, "מתקיים היום" (still
+// ongoing) flips to "התקיים היום" (already took place) — a fixed cutoff used
+// only when there's no real completion signal to check instead (see
+// runbookDone below, for the activities that actually have one).
+const ACTIVITY_TODAY_DONE_HOUR = 17;
+
+// Category-specific wording (spec confirmed 2026-09-05). 'meeting' activities
+// read badly through the generic "{label} יתקיים/מתקיים" template — a
+// meeting's own label is usually a short noun phrase ("היערכות מנהלים —
+// סיכום בדיקות + UAT") that doesn't stand on its own as a sentence subject,
+// and "יתקיים" (masculine) is grammatically wrong for a feminine "פגישה"/
+// "ישיבה" anyway. Curated per activityKey rather than a generic "פגישת
+// {label}" template — asked the user which they wanted, they preferred
+// hand-written phrasing per meeting over a mechanical prefix. New
+// meeting-category activityKeys added later fall back to the generic
+// "פגישת {label}" template rather than silently keeping the old wording.
+const MEETING_PHRASES: Record<string, string> = {
+  team_readiness:  'פגישת מוכנות צוותי הבדיקות',
+  cycle2_prep:     'פגישת היערכות לסבב הבדיקות השני',
+  cr_review:       'פגישת סקירת תוכניות ה-CR-ים',
+  runbook:         'פגישת מעבר על ה-Runbook של ליל ההטמעה',
+  runbook_backup:  'פגישת המשך למעבר על תוכנית העלייה לאוויר',
+  handoff:         'פגישת העברת מקל לתפעול',
+  mgmt_prep:       'פגישת מנהלים לפני היערכות לעלייה לאוויר',
+  go_nogo:         'פגישת Go/No-Go מול ההנהלה הבכירה',
+  lessons_learned: 'ישיבת הפקת לקחים',
+};
+
+function normalizeToDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+function daysBetween(a: Date, b: Date): number {
+  return Math.round((a.getTime() - b.getTime()) / 86400000);
+}
+
+interface ActivityReminder {
+  text: string; urgent: boolean; done: boolean;
+  // The activity's own date has arrived (today or already started) — the
+  // runbook-launch link only makes sense once this is true; showing it days
+  // ahead (during env_refresh/dry_run's longer lead window) would offer to
+  // run something that isn't due yet.
+  dueNow: boolean;
+}
+
+// Returns null when the activity is outside its reminder window entirely
+// (too far ahead, or more than a day past completion) — the caller drops it.
+// `runbookDone`: real completion status from the activity's own RunbookEntry
+// rows (HomeDashboard fetches this per activityKey that has a trigger) —
+// when true, overrides whatever the calendar-based wording would otherwise
+// say, since someone actually finishing the work is more trustworthy than
+// the 17:00/next-day heuristic this function otherwise falls back on.
+function describeActivityReminder(
+  a: { activityKey: string; label: string; category?: string; dateStart: string | null; dateEnd: string | null },
+  now: Date,
+  runbookDone?: boolean,
+): ActivityReminder | null {
+  if (!a.dateStart) return null;
+  const startDay = normalizeToDay(new Date(a.dateStart));
+  const endDay = normalizeToDay(new Date(a.dateEnd || a.dateStart));
+  const today = normalizeToDay(now);
+  const lead = ACTIVITY_LEAD_DAYS[a.activityKey] ?? DEFAULT_ACTIVITY_LEAD_DAYS;
+  const daysUntilStart = daysBetween(startDay, today);
+  const daysSinceEnd = daysBetween(today, endDay);
+  const dueNow = daysUntilStart <= 0 && daysSinceEnd <= 0;
+
+  const isMeeting = a.category === 'meeting';
+  const phrase = isMeeting ? (MEETING_PHRASES[a.activityKey] ?? `פגישת ${a.label}`) : a.label;
+  const doneText = isMeeting ? `${phrase} הסתיימה בהצלחה` : `${a.label} הסתיים בהצלחה`;
+
+  // One full day of "הסתיים/ה בהצלחה" after the activity's own last day, then
+  // gone — unless a real runbookDone signal already forced this state early
+  // (see below), this branch is purely calendar-driven.
+  if (daysSinceEnd === 1) return { text: doneText, urgent: false, done: true, dueNow };
+  if (daysSinceEnd > 1) return null;
+  if (daysUntilStart > lead) return null;
+
+  if (runbookDone) return { text: doneText, urgent: false, done: true, dueNow };
+
+  // Today falls within [startDay, endDay] (covers both single-day and
+  // multi-day activities — the day-of split only applies on the last day).
+  if (dueNow) {
+    if (today.getTime() === endDay.getTime() && now.getHours() >= ACTIVITY_TODAY_DONE_HOUR) {
+      return { text: isMeeting ? `${phrase} התקיימה היום` : `${a.label} התקיים היום`, urgent: false, done: true, dueNow };
+    }
+    return {
+      text: isMeeting ? `${phrase} מתקיימת היום` : `${a.label} מתקיים היום, מבקשים זמינות של כלל המעורבים`,
+      urgent: true, done: false, dueNow,
+    };
+  }
+  if (daysUntilStart === 1) {
+    return {
+      text: isMeeting ? `מחר תתקיים ${phrase}` : `${a.label} יתקיים מחר, מבקשים זמינות של כלל המעורבים`,
+      urgent: true, done: false, dueNow,
+    };
+  }
+  // 'he-IL' weekday:'long' already returns "יום שני" etc. — strip its own
+  // "יום " so "ביום ${weekday}" below doesn't double up into "ביום יום שני"
+  // (found live-testing: 2026-09-04).
+  const weekday = new Date(a.dateStart).toLocaleDateString('he-IL', { weekday: 'long' }).replace(/^יום\s+/, '');
+  return { text: isMeeting ? `${phrase} תתקיים ביום ${weekday}` : `${a.label} יתקיים ביום ${weekday}`, urgent: false, done: false, dueNow };
+}
 
 interface TeamStatusRow {
   teamId: string;
@@ -93,10 +208,15 @@ export function getDeploymentsTabForStatus(status: string, role: string): string
 // Exported — the release-intelligence Home page reuses this exact card
 // (not a lookalike) for its own "תמונת מצב" row, so the two Home pages stay
 // visually identical as this component evolves (spec confirmed 2026-08-31).
-export function KpiTile({ icon, accent, value, label, sub, subTone, footer, onClick, moduleLabel, sideStat }: {
+export function KpiTile({ icon, accent, value, label, sub, subTone, footer, onClick, moduleLabel, moduleLabelColor, sideStat }: {
   icon: string; accent: string; value: string; label: string;
   sub?: string | null; subTone?: 'ok' | 'warn' | 'muted'; footer?: React.ReactNode; onClick?: () => void;
   moduleLabel?: string;
+  // Override for the moduleLabel's text color. Defaults to `accent` — but a
+  // tile whose accent is a status color (e.g. the readiness tile: red on
+  // NO-GO) wants its name to stay the shared module color like every other
+  // tile's, and only carry the status on the top border / icon chip.
+  moduleLabelColor?: string;
   // Secondary metric shown beside the main value — same visual weight as the
   // main stat (not squeezed into the footer text), for a number that deserves
   // its own read at a glance instead of being buried mid-sentence.
@@ -107,34 +227,33 @@ export function KpiTile({ icon, accent, value, label, sub, subTone, footer, onCl
     <div
       onClick={onClick}
       style={{
-        background: C.bgCard, border: `1px solid ${C.border}`, borderTop: `3px solid ${accent}`,
+        position: 'relative', background: C.bgCard, border: `1px solid ${C.border}`, borderTop: `3px solid ${accent}`,
         borderRadius: RADIUS.lg, padding: '16px 18px', cursor: onClick ? 'pointer' : 'default',
-        transition: EASE.fast, display: 'flex', flexDirection: 'column', gap: '10px',
+        transition: EASE.fast, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
+        textAlign: 'center' as const,
       }}
       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(-3px)'; (e.currentTarget as HTMLElement).style.boxShadow = SHADOW.md; }}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'none'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-          <div style={{ width: '30px', height: '30px', flexShrink: 0, borderRadius: RADIUS.md, background: `color-mix(in oklch, ${accent} 14%, transparent)`, color: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px' }}>{icon}</div>
-          {moduleLabel && <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: accent, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>{moduleLabel}</span>}
-        </div>
-        <span style={{ fontSize: '13px', color: C.textMuted, flexShrink: 0 }}>←</span>
+      {onClick && <span style={{ position: 'absolute', top: '14px', insetInlineEnd: '16px', fontSize: '13px', color: C.textMuted }}>←</span>}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', minWidth: 0, maxWidth: '100%' }}>
+        <div style={{ width: '30px', height: '30px', flexShrink: 0, borderRadius: RADIUS.md, background: `color-mix(in oklch, ${accent} 14%, transparent)`, color: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px' }}>{icon}</div>
+        {moduleLabel && <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: moduleLabelColor ?? accent, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>{moduleLabel}</span>}
       </div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: '10px' }}>
         <div>
           <div style={{ fontSize: '26px', fontWeight: WEIGHT.bold, color: C.textPrimary, lineHeight: 1, fontVariantNumeric: 'tabular-nums' as const }}>{value}</div>
           <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textSecondary, marginTop: '4px' }}>{label}</div>
         </div>
         {sideStat && (
-          <div style={{ textAlign: 'left' as const, flexShrink: 0 }}>
+          <div style={{ textAlign: 'center' as const, flexShrink: 0 }}>
             <div style={{ fontSize: '17px', fontWeight: WEIGHT.bold, color: C.textPrimary, lineHeight: 1, fontVariantNumeric: 'tabular-nums' as const }}>{sideStat.icon} {sideStat.value}</div>
             <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '4px', whiteSpace: 'nowrap' as const }}>{sideStat.label}</div>
           </div>
         )}
       </div>
       {sub && <div style={{ ...TEXT.xs, color: subColor, fontWeight: subTone === 'warn' ? WEIGHT.semibold : WEIGHT.normal }}>{sub}</div>}
-      {footer && <div style={{ ...TEXT.xs, color: C.textMuted, paddingTop: '8px', borderTop: `1px solid ${C.border}` }}>{footer}</div>}
+      {footer && <div style={{ ...TEXT.xs, color: C.textMuted, paddingTop: '8px', borderTop: `1px solid ${C.border}`, width: '100%' }}>{footer}</div>}
     </div>
   );
 }
@@ -243,7 +362,11 @@ export function RiskRow({ icon, title, desc, urgent, module, onClick, detail, ex
           <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>{desc}</div>
         </div>
         {hasDetail && <span style={{ ...TEXT.xs, color: C.textMuted, flexShrink: 0, marginTop: '2px' }}>{expanded ? '▲' : '▼'}</span>}
-        <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: meta.color, background: `color-mix(in oklch, ${meta.color} 14%, transparent)`, borderRadius: RADIUS.full, padding: '2px 9px', flexShrink: 0, whiteSpace: 'nowrap' as const }}>
+        {/* data-noemail: redundant in a single-module feed (e.g. RI Home's
+            "— ניהול בדיקות" section already names the module once in its own
+            header) — stripped from the "copy to email" snapshot there, still
+            shown normally on a multi-module feed like the general Home page. */}
+        <span data-noemail style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: meta.color, background: `color-mix(in oklch, ${meta.color} 14%, transparent)`, borderRadius: RADIUS.full, padding: '2px 9px', flexShrink: 0, whiteSpace: 'nowrap' as const }}>
           {meta.label}
         </span>
       </div>
@@ -430,10 +553,15 @@ export const HomeDashboard: React.FC<Props> = ({
   // also map to a runbook (refresh/version-transfer activities) get a direct
   // "launch" link that opens straight into run mode.
   const [activityBoard, setActivityBoard] = useState<{
-    activityKey: string; label: string; owner: string; ownerEmployee: string;
+    activityKey: string; label: string; category: string; owner: string; ownerEmployee: string;
     dateStart: string | null; dateEnd: string | null;
   }[]>([]);
   const [runbookItem, setRunbookItem] = useState<{ trigger: RunbookTrigger; dateStartISO: string } | null>(null);
+  // Real completion status per activityKey, for the subset that has a runbook
+  // — keyed off the same RunbookEntry rows RunbookModal itself reads/writes
+  // (see getRunbookPlanId), not the calendar heuristic describeActivityReminder
+  // otherwise falls back on.
+  const [runbookCompletion, setRunbookCompletion] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!primary?.id || !isRm(role)) { setActivityBoard([]); return; }
@@ -442,13 +570,38 @@ export const HomeDashboard: React.FC<Props> = ({
       .catch(() => setActivityBoard([]));
   }, [primary?.id, role, token]);
 
-  const todayOrTomorrowActivities = activityBoard.filter(a => {
-    if (!a.dateStart) return false;
-    const d = new Date(a.dateStart).toDateString();
-    const todayStr = new Date().toDateString();
-    const tomorrowStr = new Date(Date.now() + 86400000).toDateString();
-    return d === todayStr || d === tomorrowStr;
-  });
+  // Only checked for activities that actually have a runbook (getRunbookTrigger
+  // non-null) — everything else keeps relying purely on the calendar heuristic.
+  useEffect(() => {
+    if (!primary?.id) return;
+    const withTrigger = activityBoard
+      .map(a => ({ activityKey: a.activityKey, trigger: getRunbookTrigger(a.activityKey) }))
+      .filter((x): x is { activityKey: string; trigger: RunbookTrigger } => x.trigger !== null);
+    if (withTrigger.length === 0) { setRunbookCompletion({}); return; }
+    let cancelled = false;
+    Promise.all(withTrigger.map(({ activityKey, trigger }) => {
+      const planId = getRunbookPlanId(trigger);
+      const totalSteps = RUNBOOKS[planId]?.steps.length ?? 0;
+      return axios.get(`${API}/runbook/${primary.id}/${planId}`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(res => {
+          const entries: { status: string }[] = res.data ?? [];
+          const done = totalSteps > 0 && entries.filter(e => e.status === 'done').length >= totalSteps;
+          return [activityKey, done] as const;
+        })
+        .catch(() => [activityKey, false] as const);
+    })).then(results => { if (!cancelled) setRunbookCompletion(Object.fromEntries(results)); });
+    return () => { cancelled = true; };
+  }, [activityBoard, primary?.id, token]);
+
+  // Per-activity reminder window (env_refresh/dry_run get advance notice,
+  // everything else defaults to the old today/tomorrow behavior) — see
+  // describeActivityReminder above.
+  const activityReminders = useMemo(() => {
+    const now = new Date();
+    return activityBoard
+      .map(a => ({ a, reminder: describeActivityReminder(a, now, runbookCompletion[a.activityKey]) }))
+      .filter((x): x is { a: typeof activityBoard[number]; reminder: ActivityReminder } => x.reminder !== null);
+  }, [activityBoard, runbookCompletion]);
 
   const TEAM_STATUS_STAGES = ['COLLECTING', ...CR_REVIEW_STAGES];
   const showTeamStatus = isRm(role) && primary && TEAM_STATUS_STAGES.includes(primary.status);
@@ -928,26 +1081,30 @@ export const HomeDashboard: React.FC<Props> = ({
       });
     }
 
-    // Every activity-board entry scheduled today/tomorrow — release manager/
-    // admin only (activity board access is otherwise QA-module gated). Ones
-    // that map to a runbook get a direct "launch" link into run mode.
+    // Every activity-board entry inside its own reminder window (see
+    // describeActivityReminder — most are today/tomorrow only, a few like
+    // env_refresh/dry_run surface several days ahead) — release manager/admin
+    // only (activity board access is otherwise QA-module gated). Ones that
+    // map to a runbook get a direct "launch" link only once the activity is
+    // actually due (dueNow — not during env_refresh/dry_run's longer advance
+    // window, when there's nothing to run yet) and not already done —
+    // reminder.done now reflects real runbook completion when available (see
+    // runbookCompletion above), not just the calendar cutoff.
     if (rm) {
-      for (const a of todayOrTomorrowActivities) {
-        const trigger = getRunbookTrigger(a.activityKey);
-        const dayLabel = new Date(a.dateStart!).toDateString() === new Date().toDateString() ? 'היום' : 'מחר';
-        const timeLabel = formatTime(a.dateStart!);
+      for (const { a, reminder } of activityReminders) {
+        const trigger = (!reminder.done && reminder.dueNow) ? getRunbookTrigger(a.activityKey) : null;
         list.push({
-          icon: trigger ? '▶' : '🗓',
-          title: `${a.label} — ${dayLabel} ${timeLabel}`,
+          icon: reminder.done ? '✅' : trigger ? '▶' : '🗓',
+          title: reminder.text,
           desc: [a.owner, a.ownerEmployee].filter(Boolean).join(' · ') + (trigger ? ' · לחץ להפעלת Runbook' : ''),
-          urgent: dayLabel === 'היום',
+          urgent: reminder.urgent,
           onClick: trigger ? (() => setRunbookItem({ trigger, dateStartISO: a.dateStart! })) : undefined,
         });
       }
     }
 
     return list;
-  }, [primary, role, canManageLeaves, pendingLeaveCount, onGoToLeaves, nextPhaseInfo, firstPhaseInfo, upcomingRunbookSteps, myUserId, onSwitchToQa, todayOrTomorrowActivities, homeShowQa, qaSummary, canAccessVersionManagement, scopeAttentionCount, scopeAttentionCrs, onSwitchToModule, onSelectVersion, canAccessReleaseIntelligence, criticalDefectsCount, canAccessQualityHub, qualityScore, showTeamStatus, teamStatus, isCollecting, reviewIsApproaching, myTeamSummary]);
+  }, [primary, role, canManageLeaves, pendingLeaveCount, onGoToLeaves, nextPhaseInfo, firstPhaseInfo, upcomingRunbookSteps, myUserId, onSwitchToQa, activityReminders, homeShowQa, qaSummary, canAccessVersionManagement, scopeAttentionCount, scopeAttentionCrs, onSwitchToModule, onSelectVersion, canAccessReleaseIntelligence, criticalDefectsCount, canAccessQualityHub, qualityScore, showTeamStatus, teamStatus, isCollecting, reviewIsApproaching, myTeamSummary]);
 
   // Stats — only count non-terminal versions as "in progress"
   const totalVersions  = inProgressVersions.length;

@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaClient } from '@prisma/client';
 import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDto, CrCoverageDto, CycleQgTargetDto } from '../qc/qc.service';
+import { countWorkDays, nextWorkDay, isWorkDay, dateKey } from '../qa/qa.scheduler';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
@@ -36,6 +37,11 @@ const CRITICAL_SEVERITIES = ['Show Stopper', 'Severe'];
 // confirmed 2026-09-02: coverage should reflect the 3 real testing cycles,
 // not rehearsal/UAT noise).
 const CORE_CYCLE_TYPES = ['CYCLE_1', 'CYCLE_2', 'CYCLE_3'];
+// Daily QA standup cutoff — if the meeting runs before this local hour the
+// per-CR daily targets are framed for TODAY (today's work day still counts);
+// at or after it, they're framed for TOMORROW. Overridable per request and
+// admin-configurable via the DAILY_QA_STANDUP_CUTOFF SystemParam.
+const DAILY_QA_STANDUP_CUTOFF_DEFAULT = '12:00';
 // Real QC priority value for a script-blocking defect (spec confirmed
 // 2026-09-02) — usually opened alongside a test script marked "Blocked",
 // used here to supply the human-readable "why is this CR blocked" reason.
@@ -96,12 +102,21 @@ export class ReleaseIntelligenceService {
     const version = await prisma.version.findUnique({ where: { id: versionId } });
     if (!version) throw new BadRequestException('גרסה לא נמצאה');
 
-    const [defects, openRisks, crPlans, params, cycleProgress] = await Promise.all([
+    const [defects, openRisks, crPlans, params, cycleProgress, crAssignments, workPlan] = await Promise.all([
       this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
       prisma.releaseRisk.findMany({ where: { versionId, status: 'OPEN' } }),
       prisma.crPlan.findMany({ where: { versionId }, select: { riskLevel: true } }),
       prisma.systemParam.findMany({ where: { key: { in: ['FORECAST_ALERT_DAYS'] } } }),
       this.getCycleProgress(versionId).catch(() => null),
+      // For overdueUnstartedCrs below — needs qaReceived (don't re-flag a CR
+      // dev simply hasn't delivered yet, already its own separate alert) and
+      // the tester's actual planned slot for the CR (don't flag a CR that's
+      // just legitimately still queued behind other work).
+      prisma.versionCrAssignment.findMany({
+        where: { versionId, syncStatus: { not: 'REMOVED' } },
+        select: { crNumber: true, qaReceived: true, qaArrivalDate: true },
+      }),
+      prisma.qaWorkPlan.findUnique({ where: { versionId }, include: { cycles: { include: { tasks: true } } } }),
     ]);
 
     const paramMap = Object.fromEntries(params.map(p => [p.key, p.value]));
@@ -139,7 +154,64 @@ export class ReleaseIntelligenceService {
           .map(d => ({ id: d.id, title: d.title })),
       }))
       .filter(cr => cr.reasonDefects.length > 0);
-    const criticalDefects = openDefects.filter(d => CRITICAL_SEVERITIES.includes(d.severity)).length;
+
+    // Overdue-unstarted CRs — deliberately NOT just "0% executed": that alone
+    // is noisy (a CR legitimately queued behind other work for the same
+    // tester, or one dev hasn't delivered yet, both show 0% and aren't a QA
+    // problem). Flagged only when ALL of: has scenarios planned, genuinely
+    // 0 executed and not blocked (blocked CRs already surface via blockedCrs
+    // above — don't double-flag), QA actually received it (qaReceived —
+    // otherwise it's the existing "not yet received" alert's job, not this
+    // one's), AND the tester's own planned slot for it (QaCycleTask.plannedStart,
+    // core cycles only, earliest if more than one) has already passed — a CR
+    // with no matching task at all is left out rather than guessed at (user
+    // confirmed 2026-09-04).
+    const crTotals = new Map<string, { crLabel: string; total: number; passed: number; failed: number; blocked: number }>();
+    for (const cc of coreCrCoverage) {
+      const existing = crTotals.get(cc.crNumber) ?? { crLabel: cc.crLabel, total: 0, passed: 0, failed: 0, blocked: 0 };
+      existing.total += cc.total; existing.passed += cc.passed; existing.failed += cc.failed; existing.blocked += cc.blocked;
+      crTotals.set(cc.crNumber, existing);
+    }
+    const qaReceivedByCr = new Map(crAssignments.map(a => [a.crNumber, a.qaReceived]));
+    const plannedStartByCr = new Map<string, Date>();
+    for (const cycle of workPlan?.cycles ?? []) {
+      if (!CORE_CYCLE_TYPES.includes(cycle.cycleType)) continue;
+      for (const task of cycle.tasks) {
+        if (task.taskType !== 'CR' || task.isArchived || !task.isActive) continue;
+        const existing = plannedStartByCr.get(task.crNumber);
+        if (!existing || task.plannedStart < existing) plannedStartByCr.set(task.crNumber, task.plannedStart);
+      }
+    }
+    const nowMs = Date.now();
+    const overdueUnstartedCrs = Array.from(crTotals.entries())
+      .filter(([, t]) => t.total > 0 && t.passed === 0 && t.failed === 0 && t.blocked === 0)
+      .filter(([crNumber]) => qaReceivedByCr.get(crNumber) === true)
+      .map(([crNumber, t]) => {
+        const plannedStart = plannedStartByCr.get(crNumber);
+        return plannedStart && plannedStart.getTime() <= nowMs ? { crNumber, crLabel: t.crLabel, plannedStart } : null;
+      })
+      .filter((x): x is { crNumber: string; crLabel: string; plannedStart: Date } => x !== null);
+
+    // Worst-offending CR by open defect count — openDefects already excludes
+    // Canceled (CLOSED_DEFECT_STATUSES), so no separate exclusion needed.
+    // Surfaced on the Home defects tile so "N תקלות פתוחות" isn't just a flat
+    // count with no sense of concentration (spec confirmed 2026-09-04).
+    const openDefectsByCrCount = new Map<string, number>();
+    for (const d of openDefects) {
+      if (!d.crReferenceNumber) continue;
+      openDefectsByCrCount.set(d.crReferenceNumber, (openDefectsByCrCount.get(d.crReferenceNumber) ?? 0) + 1);
+    }
+    let worstCr: { crNumber: string; count: number } | null = null;
+    for (const [crNumber, count] of openDefectsByCrCount) {
+      if (!worstCr || count > worstCr.count) worstCr = { crNumber, count };
+    }
+
+    const criticalOpenDefects = openDefects.filter(d => CRITICAL_SEVERITIES.includes(d.severity));
+    const criticalDefects = criticalOpenDefects.length;
+    // Oldest still-open critical defect's age — a bare count doesn't say
+    // whether the criticals are fresh or have been sitting for weeks.
+    const criticalAges = criticalOpenDefects.map(d => parseOracleDateAgeDays(d.discoveryDate, nowMs)).filter((a): a is number => a != null);
+    const oldestCriticalDefectAgeDays = criticalAges.length > 0 ? Math.max(...criticalAges) : null;
 
     // QG summary — open defect counts by severity vs thresholds
     const { qgSummary, qgPass } = this.computeQgSummary(openDefects);
@@ -262,9 +334,18 @@ export class ReleaseIntelligenceService {
 
     return {
       healthScore,
+      // Sub-scores + GO/NO-GO reading, so a consumer showing healthScore as a
+      // headline number can always expand it into its 4 equal-weighted parts
+      // (a blended average hides which axis is dragging — see the formula
+      // comment above line ~217).
+      healthBreakdown: { coverageScore: coveragePct, qualityScore, riskScore, forecastScore },
+      healthRecommendation: this.recommendationFromHealth(healthScore),
       coveragePct,
       blockedCrs,
+      overdueUnstartedCrs,
       criticalDefects,
+      worstCr,
+      oldestCriticalDefectAgeDays,
       openRisksCount,
       daysToGoLive,
       forecastStatus,
@@ -275,6 +356,12 @@ export class ReleaseIntelligenceService {
       topRisks,
       criticalAlerts,
       forecastWarnings,
+      // Cross-module readiness context surfaced on the RI Home strip + the
+      // emailed report (spec confirmed 2026-09-05). reviewMeetingTime is the
+      // version's own field (already loaded above); the CR-plan submission
+      // status and QA-arrival lateness are computed client-side from the
+      // team-status / cr-assignments endpoints the Home already calls.
+      reviewMeetingTime: version.reviewMeetingTime,
     };
   }
 
@@ -414,17 +501,58 @@ export class ReleaseIntelligenceService {
   // getCycleProgress as its data foundation instead of re-deriving per-CR
   // data a second time — crCoverage rows already carry
   // tester/project/defectsBySeverity per CR (added 2026-09-02/03).
-  async getDailyQaManagement(versionId: string) {
-    const [cycleProgress, defects, crAssignments] = await Promise.all([
+  async getDailyQaManagement(versionId: string, targetDayOverride?: 'today' | 'tomorrow') {
+    const [version, cycleProgress, defects, crAssignments, releaseHealth, prevSnapshot, holidayDates, cutoffParam] = await Promise.all([
+      prisma.version.findUnique({ where: { id: versionId }, select: { plannedStart: true } }),
       this.getCycleProgress(versionId),
       this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
       prisma.versionCrAssignment.findMany({
         where: { versionId, syncStatus: { not: 'REMOVED' } },
         select: { crNumber: true, teamId: true, team: { select: { name: true } } },
       }),
+      // Read the persisted Overview snapshot rather than recompute the whole
+      // health formula here (it needs every input getOverview gathers). Same
+      // read-the-snapshot pattern getGoNoGo uses. null until getOverview has
+      // run once for this version — the UI shows a "not computed yet" state.
+      prisma.releaseHealth.findUnique({ where: { versionId } }),
+      // Yesterday's DailyQaSnapshot — for the per-CR "done today" delta.
+      prisma.dailyQaSnapshot.findFirst({ where: { versionId }, orderBy: { snapshotDate: 'desc' } }),
+      prisma.seasonDate.findMany({ where: { season: { forcesOff: true } }, select: { date: true } }),
+      prisma.systemParam.findUnique({ where: { key: 'DAILY_QA_STANDUP_CUTOFF' } }),
     ]);
     const openDefects = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
     const now = Date.now();
+    const holidayDays = new Set(holidayDates.map(d => dateKey(d.date)));
+
+    // ── Per-CR daily targets — "how many scenarios each CR needs to clear
+    // today/tomorrow to still finish its cycle on time". Frame for today vs
+    // tomorrow by the standup-cutoff hour (overridable per request).
+    const cutoff = (cutoffParam?.value ?? DAILY_QA_STANDUP_CUTOFF_DEFAULT).trim();
+    const cutoffHour = Number(cutoff.split(':')[0]) || 12;
+    const nowDate = new Date(now);
+    const targetDay: 'today' | 'tomorrow' = targetDayOverride ?? (nowDate.getHours() < cutoffHour ? 'today' : 'tomorrow');
+    // The work day the target is counted from: today if it's a work day and
+    // we're framing for "today", otherwise the next work day.
+    const targetStart = (targetDay === 'today' && isWorkDay(nowDate, holidayDays))
+      ? (() => { const d = new Date(nowDate); d.setHours(0, 0, 0, 0); return d; })()
+      : nextWorkDay(nowDate, holidayDays);
+    const activeCoreForTarget = cycleProgress.timeline.filter(t => CORE_CYCLE_TYPES.includes(t.cycleType)).find(t => t.state === 'active') ?? null;
+    const isLastCore = activeCoreForTarget?.cycleType === CORE_CYCLE_TYPES[CORE_CYCLE_TYPES.length - 1];
+    const targetDeadline: Date | null = activeCoreForTarget
+      ? (isLastCore ? (version?.plannedStart ?? activeCoreForTarget.plannedEnd) : activeCoreForTarget.plannedEnd)
+      : null;
+    const workDaysLeft = targetDeadline ? countWorkDays(targetStart, targetDeadline, holidayDays) : null;
+    const prevCrProgress = (prevSnapshot?.crProgress ?? null) as Record<string, { passed: number; failed: number; total: number }> | null;
+
+    // Per CR: remaining scenarios ÷ work days left (rounded up). No active
+    // core cycle → no target. Past the deadline (workDaysLeft ≤ 0) → the whole
+    // remainder is "due now".
+    const dailyTargetForCr = (remaining: number): { target: number | null; mustFinishNow: boolean } => {
+      if (remaining <= 0) return { target: 0, mustFinishNow: false };
+      if (workDaysLeft == null) return { target: null, mustFinishNow: false };
+      if (workDaysLeft <= 0) return { target: remaining, mustFinishNow: true };
+      return { target: Math.ceil(remaining / workDaysLeft), mustFinishNow: false };
+    };
 
     // CR → team(s) — spec area's Release/Team view toggle. A CR can be
     // assigned to more than one team (VersionCrAssignment's unique key is
@@ -448,7 +576,7 @@ export class ReleaseIntelligenceService {
     // execution is) — keep the first-seen value for those, don't sum them.
     interface DailyCrAgg {
       crNumber: string; crLabel: string; tester: string | null;
-      passed: number; total: number; blocked: number;
+      passed: number; failed: number; total: number; blocked: number;
       defectsBySeverity: { showStopper: number; severe: number; medium: number; low: number };
     }
     const byCr = new Map<string, DailyCrAgg>();
@@ -457,11 +585,12 @@ export class ReleaseIntelligenceService {
       if (!existing) {
         byCr.set(cc.crNumber, {
           crNumber: cc.crNumber, crLabel: cc.crLabel, tester: cc.tester,
-          passed: cc.passed, total: cc.total, blocked: cc.blocked,
+          passed: cc.passed, failed: cc.failed, total: cc.total, blocked: cc.blocked,
           defectsBySeverity: { ...cc.defectsBySeverity },
         });
       } else {
         existing.passed += cc.passed;
+        existing.failed += cc.failed;
         existing.total += cc.total;
         existing.blocked += cc.blocked;
       }
@@ -513,23 +642,37 @@ export class ReleaseIntelligenceService {
         risk = 'LOW';
       }
 
+      // ── Daily progress tracking (per CR) ──
+      // "Done since yesterday": passed now minus passed at the last snapshot.
+      // null when there's no snapshot yet (first run) or the CR wasn't in it.
+      const prev = prevCrProgress?.[cr.crNumber];
+      const passedDelta = prev ? cr.passed - prev.passed : null;
+      // "Target for today/tomorrow": remaining scenarios spread evenly over the
+      // work days left until this cycle's deadline.
+      const remaining = Math.max(0, cr.total - cr.passed - cr.failed);
+      const { target: dailyTarget, mustFinishNow } = dailyTargetForCr(remaining);
+
       return {
         crNumber: cr.crNumber, crLabel: cr.crLabel, tester: cr.tester, progressPct, defectCount, blockerCount, risk, reasons,
         teams: teamsByCr.get(cr.crNumber) ?? [],
+        passed: cr.passed, failed: cr.failed, total: cr.total, remaining, passedDelta, dailyTarget, mustFinishNow,
       };
     });
 
     // Per-tester heat map — same crRows, grouped by tester.
     interface DailyTesterAgg {
       tester: string; defectCount: number; blockerCount: number;
+      doneToday: number; hasAnyDelta: boolean; dailyTarget: number;
       crs: { crNumber: string; crLabel: string; progressPct: number }[];
     }
     const byTester = new Map<string, DailyTesterAgg>();
     for (const cr of crRows) {
       const name = cr.tester ?? 'לא משויך';
-      const existing = byTester.get(name) ?? { tester: name, defectCount: 0, blockerCount: 0, crs: [] };
+      const existing = byTester.get(name) ?? { tester: name, defectCount: 0, blockerCount: 0, doneToday: 0, hasAnyDelta: false, dailyTarget: 0, crs: [] };
       existing.defectCount += cr.defectCount;
       existing.blockerCount += cr.blockerCount;
+      if (cr.passedDelta != null) { existing.doneToday += cr.passedDelta; existing.hasAnyDelta = true; }
+      if (cr.dailyTarget != null) existing.dailyTarget += cr.dailyTarget;
       existing.crs.push({ crNumber: cr.crNumber, crLabel: cr.crLabel, progressPct: cr.progressPct });
       byTester.set(name, existing);
     }
@@ -537,7 +680,10 @@ export class ReleaseIntelligenceService {
       const progressPct = t.crs.length > 0 ? Math.round(t.crs.reduce((s, c) => s + c.progressPct, 0) / t.crs.length) : 0;
       const status: 'GOOD' | 'WARNING' | 'CRITICAL' =
         t.blockerCount > 0 || progressPct === 0 ? 'CRITICAL' : (t.defectCount > 0 || progressPct < 80) ? 'WARNING' : 'GOOD';
-      return { tester: t.tester, progressPct, crCount: t.crs.length, defectCount: t.defectCount, blockerCount: t.blockerCount, status, crs: t.crs };
+      return {
+        tester: t.tester, progressPct, crCount: t.crs.length, defectCount: t.defectCount, blockerCount: t.blockerCount, status, crs: t.crs,
+        doneToday: t.hasAnyDelta ? t.doneToday : null, dailyTarget: t.dailyTarget,
+      };
     }).sort((a, b) => a.progressPct - b.progressPct);
 
     // Executive summary
@@ -565,6 +711,31 @@ export class ReleaseIntelligenceService {
         openDefects: openDefects.length, criticalDefects: criticalDefectsCount,
         openBlockers: openBlockersCount, crsAtRisk: crsAtRiskCount, testersNoProgress: testersNoProgressCount,
       },
+      // Same Release Health snapshot shown on the RI Home — surfaced here so a
+      // QA manager tracking it doesn't have to leave the standup screen. Blended
+      // 4-axis average; breakdown carried so it's never a bare number.
+      health: releaseHealth ? {
+        score: releaseHealth.healthScore,
+        recommendation: this.recommendationFromHealth(releaseHealth.healthScore),
+        breakdown: {
+          coverageScore: releaseHealth.coverageScore, qualityScore: releaseHealth.qualityScore,
+          riskScore: releaseHealth.riskScore, forecastScore: releaseHealth.forecastScore,
+        },
+        calculatedAt: releaseHealth.calculatedAt,
+      } : null,
+      // Per-CR daily targets context — what "day" the targets are framed for,
+      // the deadline they're counted against, and whether a yesterday snapshot
+      // exists yet for the "done today" deltas.
+      dailyTargets: {
+        targetDay,
+        standupCutoff: cutoff,
+        workDaysLeft,
+        deadline: targetDeadline,
+        deadlineCycle: activeCoreForTarget?.cycleType ?? null,
+        deadlineIsGoLive: !!isLastCore,
+        hasSnapshot: !!prevSnapshot,
+        snapshotDate: prevSnapshot?.snapshotDate ?? null,
+      },
       testers: testerRows,
       crs: crRows.sort((a, b) => RISK_RANK[b.risk] - RISK_RANK[a.risk] || a.progressPct - b.progressPct),
       alerts,
@@ -586,7 +757,11 @@ export class ReleaseIntelligenceService {
   async captureDailyQaSnapshot(versionId: string) {
     const live = await this.getDailyQaManagement(versionId);
     const crRisk: Record<string, string> = {};
-    for (const cr of live.crs) crRisk[cr.crNumber] = cr.risk;
+    const crProgress: Record<string, { passed: number; failed: number; total: number }> = {};
+    for (const cr of live.crs) {
+      crRisk[cr.crNumber] = cr.risk;
+      crProgress[cr.crNumber] = { passed: cr.passed, failed: cr.failed, total: cr.total };
+    }
     const testerProgress: Record<string, number> = {};
     for (const t of live.testers) testerProgress[t.tester] = t.progressPct;
 
@@ -598,13 +773,13 @@ export class ReleaseIntelligenceService {
         testProgressPct: live.summary.testProgressPct, passed: live.summary.passed, failed: live.summary.failed, blocked: live.summary.blocked,
         openDefects: live.summary.openDefects, criticalDefects: live.summary.criticalDefects, openBlockers: live.summary.openBlockers,
         crsAtRisk: live.summary.crsAtRisk, testersNoProgress: live.summary.testersNoProgress,
-        crRisk, testerProgress,
+        crRisk, testerProgress, crProgress,
       },
       update: {
         testProgressPct: live.summary.testProgressPct, passed: live.summary.passed, failed: live.summary.failed, blocked: live.summary.blocked,
         openDefects: live.summary.openDefects, criticalDefects: live.summary.criticalDefects, openBlockers: live.summary.openBlockers,
         crsAtRisk: live.summary.crsAtRisk, testersNoProgress: live.summary.testersNoProgress,
-        crRisk, testerProgress,
+        crRisk, testerProgress, crProgress,
       },
     });
   }
@@ -715,7 +890,10 @@ export class ReleaseIntelligenceService {
 
   // ── Coverage & Readiness — spec section 14 ──────────────────────────────────
   async getCoverageReadiness(versionId: string) {
-    const coverage = await this.qcService.getTestCoverage(versionId).catch((): TestCoverageDto[] => []);
+    const [coverage, defects] = await Promise.all([
+      this.qcService.getTestCoverage(versionId).catch((): TestCoverageDto[] => []),
+      this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
+    ]);
     const sum = (key: keyof TestCoverageDto) => coverage.reduce((s, c) => s + (Number(c[key]) || 0), 0);
     const planned = sum('planned');
     const failed = sum('failed');
@@ -725,12 +903,44 @@ export class ReleaseIntelligenceService {
     const covered = Math.max(0, planned - notRun - notReady);
     const coveragePct = planned > 0 ? Math.round((covered / planned) * 100) : 0;
 
+    // Per-CR defect counts (spec confirmed 2026-09-05), same reported/open/
+    // critical definitions used everywhere else (CLOSED_DEFECT_STATUSES,
+    // CRITICAL_SEVERITIES) — grouped once here rather than per-row below.
+    const defectsByCr = new Map<string, { reported: number; open: number; critical: number }>();
+    for (const d of defects) {
+      const cr = d.crReferenceNumber?.trim();
+      if (!cr) continue;
+      const bucket = defectsByCr.get(cr) ?? { reported: 0, open: 0, critical: 0 };
+      bucket.reported++;
+      const isOpen = !CLOSED_DEFECT_STATUSES.includes(d.status);
+      if (isOpen) {
+        bucket.open++;
+        if (CRITICAL_SEVERITIES.includes(d.severity)) bucket.critical++;
+      }
+      defectsByCr.set(cr, bucket);
+    }
+    // A requirement row's `title` is the QC requirement name (RQ_REQ_NAME) —
+    // for a CR-linked requirement this is conventionally "<crNumber> - ..."
+    // (matches what QC itself displays); module/subject folders with no CR
+    // behind them (e.g. "HOT WEB") have no such prefix and simply get no
+    // defect stats. Not a guess: this is the same "<crNumber> - description"
+    // shape already visible in the real screen's own titles.
+    const crNumberFromTitle = (title: string): string | null => {
+      const m = /^(\d{4,7})\b/.exec(title?.trim() ?? '');
+      return m ? m[1] : null;
+    };
+
     return {
       kpis: { covered, failed, blocked, notReady, coveragePct },
-      byRequirement: coverage.map(c => ({
-        title: c.title, subject: c.subject, planned: c.planned, passed: c.passed,
-        failed: c.failed, blocked: c.blocked, notReady: c.notReady, notRun: c.notRun,
-      })),
+      byRequirement: coverage.map(c => {
+        const crNumber = crNumberFromTitle(c.title);
+        const crDefects = crNumber ? defectsByCr.get(crNumber) ?? { reported: 0, open: 0, critical: 0 } : null;
+        return {
+          title: c.title, subject: c.subject, planned: c.planned, passed: c.passed,
+          failed: c.failed, blocked: c.blocked, notReady: c.notReady, notRun: c.notRun,
+          crNumber, crDefects,
+        };
+      }),
     };
   }
 
@@ -1261,6 +1471,10 @@ export class ReleaseIntelligenceService {
         // Same crReferenceNumber match (and same `open` set) getDailyQaManagement
         // uses to build each CR's defectCount, so the drilled-down list can
         // never disagree with the number that was clicked.
+        if (filter === 'openAll') return open;
+        // Executive-summary "Critical Defects" card counts Show Stopper only
+        // (getDailyQaManagement's criticalDefectsCount) — match it exactly.
+        if (filter === 'critical') return open.filter(d => d.severity === 'Show Stopper');
         if (filter === 'cr' && value) return open.filter(d => d.crReferenceNumber === value);
         if (filter === 'tester' && value) {
           const cycleProgress = await this.getCycleProgress(versionId);
@@ -1273,6 +1487,40 @@ export class ReleaseIntelligenceService {
           );
           return open.filter(d => d.crReferenceNumber && crNumbers.has(d.crReferenceNumber));
         }
+        return [];
+      }
+      case 'bug-dashboard': {
+        // Bug Dashboard's own SQL (BUG_DASHBOARD_SQL) is a separate Oracle
+        // query from this method's own `defects` (DEFECTS_SQL) — but both
+        // select BG_BUG_ID for the same release, so an id-based reopen match
+        // is exact, not best-effort. Bucket predicates below are copied
+        // verbatim from computeBugDashboard (qc.service.ts) wherever the
+        // underlying field also exists on DefectDto, so a drilled-down list
+        // can never disagree with the KPI number that was clicked.
+        //
+        // "Open" here excludes only Closed/Canceled (computeBugDashboard's
+        // own isOpen()) — narrower than this method's generic `open` above
+        // (which also drops Rejected/Fixed) — reusing that one would silently
+        // disagree with the Bug Dashboard's own Open Bugs count.
+        const bdOpen = defects.filter(d => !['Closed', 'Canceled'].includes(d.status));
+        if (filter === 'reported') return defects;
+        if (filter === 'open') return bdOpen;
+        if (filter === 'rejected') return defects.filter(d => d.status === 'Canceled');
+        if (filter === 'changes') return defects.filter(d => d.defectType === 'Change Requests');
+        if (filter === 'reopen') {
+          const reopenedIds = await this.qcService.getReopenedDefectIdsForVersion(versionId);
+          return defects.filter(d => reopenedIds.has(d.id));
+        }
+        if (filter === 'type' && value) return bdOpen.filter(d => (d.defectType || 'ללא סיווג') === value);
+        if (filter === 'responsibility' && value) return bdOpen.filter(d => (d.assignedTo || 'ללא סיווג') === value);
+        if (filter === 'cr' && value) return bdOpen.filter(d => (d.crReferenceNumber || 'ללא סיווג') === value);
+        if (filter === 'severity' && value) return bdOpen.filter(d => (d.severity || 'ללא סיווג') === value);
+        // Production/Regression/Target Left deliberately NOT covered: their
+        // BUG_DASHBOARD_SQL bucket fields (BG_USER_10 category flag,
+        // TARGET_REL) either aren't selected by DEFECTS_SQL or mean something
+        // else there (DEFECTS_SQL's own BG_USER_10 is a different field — a
+        // CR/HBR reference string, see its own comment) — left non-drillable
+        // rather than guessed at.
         return [];
       }
       default:

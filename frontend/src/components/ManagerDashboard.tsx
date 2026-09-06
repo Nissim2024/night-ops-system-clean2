@@ -1,8 +1,9 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { HomeDashboard, getDeploymentsTabForStatus } from './HomeDashboard';
 import { ReleaseIntelligenceOverview } from './release-intelligence/ReleaseIntelligenceOverview';
 import { RiskManagementView } from './release-intelligence/RiskManagementView';
+import { SuggestedRisksView } from './release-intelligence/SuggestedRisksView';
 import { ReleaseIntelligenceHomeView } from './release-intelligence/ReleaseIntelligenceHomeView';
 import { DailyQaManagementView } from './release-intelligence/DailyQaManagementView';
 import { CrHealthView } from './release-intelligence/CrHealthView';
@@ -55,7 +56,7 @@ import { QaLeavesView } from './qa/QaLeavesView';
 import { QaSkillsView } from './qa/QaSkillsView';
 import { QaTestersView } from './qa/QaTestersView';
 import QaAssignmentView from './qa/QaAssignmentView';
-import QcBugDashboardView from './qa/QcBugDashboardView';
+import QcBugDashboardView from './release-intelligence/QcBugDashboardView';
 import QaWorkPlanView from './qa/QaWorkPlanView';
 import { FEATURES } from '../featureFlags';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
@@ -69,6 +70,8 @@ const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${win
 interface Props {
   token: string;
   onLogout: () => void;
+  deepLink?: { go: string; versionId?: string } | null;
+  onDeepLinkConsumed?: () => void;
 }
 
 interface ToastItem {
@@ -78,7 +81,7 @@ interface ToastItem {
   body?: string;
 }
 
-export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
+export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, onDeepLinkConsumed }) => {
   const appDialog = useDialog();
   type Tab = 'home' | 'list' | 'version-detail' | 'proposals' | 'cr-review' | 'release-assignment' | 'unified-plan' | 'board' | 'overview' | 'timeline' | 'dashboard' | 'summary-rehearsal' | 'summary-night' | 'rehearsal-board' | 'admin' | 'implementation-plans' | 'cr-manager';
   const [activeTab, setActiveTab]               = useState<Tab>(() => {
@@ -112,7 +115,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [activeModule, setActiveModule] = useState<'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub'>('deployments');
   const [activeVmView, setActiveVmView]  = useState('overview');
   const [activeQaView, setActiveQaView]  = useState('assignment');
-  const [activeRiView, setActiveRiView]  = useState('overview');
+  const [activeRiView, setActiveRiView]  = useState('home');
   // One-shot drilldown intent carried from Home's "תקלות פתוחות" tile into
   // DefectsView, so it opens straight into the filtered list instead of
   // landing on the KPI overview (spec confirmed 2026-08-31).
@@ -455,6 +458,21 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
     return 'inactive'; // כולל COMPLETED ו-ROLLED_BACK שטרם עברו לארכיון
   };
 
+  // Apply a deep link (?go=ri-home&versionId=…) once, after versions load — jump
+  // straight to the Release Intelligence Home for that version.
+  const deepLinkApplied = useRef(false);
+  useEffect(() => {
+    if (deepLinkApplied.current || !deepLink || !versions.length) return;
+    if (deepLink.go === 'ri-home') {
+      deepLinkApplied.current = true;
+      setActiveModule('release-intelligence');
+      setActiveRiView('home');
+      const v = deepLink.versionId ? versions.find((x: any) => x.id === deepLink.versionId) : null;
+      if (v) { setVersionFilter(versionCategory(v)); setSelectedVersionId(v.id); }
+      onDeepLinkConsumed?.();
+    }
+  }, [deepLink, versions]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const filteredVersions = versions.filter(v => versionCategory(v) === versionFilter);
 
   const handleVersionFocus = (versionId: string) => {
@@ -694,7 +712,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
             setActiveTab(getDeploymentsTabForStatus(selectedVersion?.status ?? 'DRAFT', payload.role) as Tab);
           }
           if (m === 'qa') setActiveQaView('assignment');
-          if (m === 'release-intelligence') setActiveRiView('overview');
+          if (m === 'release-intelligence') setActiveRiView('home');
           if (m === 'quality-hub') setActiveQhView('overview');
         }}
         canAccessVersionManagement={canAccessVersionManagement}
@@ -767,7 +785,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
             }
             if (m === 'version-management') setActiveVmView('overview');
             if (m === 'qa') setActiveQaView('assignment');
-            if (m === 'release-intelligence') setActiveRiView('overview');
+            if (m === 'release-intelligence') setActiveRiView('home');
             if (m === 'quality-hub') setActiveQhView('overview');
           }}
           activeVmView={activeVmView}
@@ -808,14 +826,34 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           {activeModule === 'qa' && <QaModulePlaceholder view={activeQaView} token={token} role={payload.role} isQaMember={canAccessQa} isQaTeamMember={isQaTeamMember} isQaTeamLead={isQaTeamLead} initialVersionId={selectedVersionId || undefined} />}
 
           {/* ── Module: Release Intelligence ── */}
+          {/* Fixed "back to Home" bar — every RI screen is one click away from
+              Home via a KpiTile, but had no way back except the sidebar (spec
+              confirmed 2026-09-04). One shared bar here covers every current
+              and future activeRiView, instead of a back button per screen file. */}
+          {activeModule === 'release-intelligence' && activeRiView !== 'home' && (
+            <button
+              onClick={() => setActiveRiView('home')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px', alignSelf: 'flex-start',
+                background: C.bgCard, color: C.textSecondary, border: `1px solid ${C.border}`,
+                borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontWeight: WEIGHT.semibold,
+                padding: '6px 14px', marginBottom: SP[3], fontFamily: FONT,
+              }}
+            >
+              → חזרה לדף הבית
+            </button>
+          )}
           {activeModule === 'release-intelligence' && activeRiView === 'home' && (
-            <ReleaseIntelligenceHomeView token={token} versionId={selectedVersionId || undefined} role={payload.role} fullName={fullName} onNavigate={setActiveRiView} />
+            <ReleaseIntelligenceHomeView token={token} versionId={selectedVersionId || undefined} versionName={selectedVersion?.name} role={payload.role} fullName={fullName} onNavigate={setActiveRiView} />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'overview' && (
             <ReleaseIntelligenceOverview token={token} versionId={selectedVersionId || undefined} role={payload.role} />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'risks' && (
             <RiskManagementView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+          )}
+          {activeModule === 'release-intelligence' && activeRiView === 'suggested-risks' && (
+            <SuggestedRisksView token={token} versionId={selectedVersionId || undefined} versionName={selectedVersion?.name} role={payload.role} />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'daily-qa' && (
             <DailyQaManagementView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
@@ -843,6 +881,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'defects' && (
             <DefectsView token={token} versionId={selectedVersionId || undefined} role={payload.role} autoOpenDrilldown={riDefectsAutoOpen} />
+          )}
+          {activeModule === 'release-intelligence' && activeRiView === 'bug-dashboard' && (
+            <QcBugDashboardView token={token} initialVersionId={selectedVersionId || undefined} />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'reopen-analysis' && (
             <ReopenAnalysisView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
@@ -923,7 +964,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
                     setActiveRiView('defects');
                     setRiDefectsAutoOpen({ filter: 'kpi', value: 'open', title: 'תקלות פתוחות (Open)' });
                   } else {
-                    setActiveRiView('overview');
+                    setActiveRiView('home');
                     setRiDefectsAutoOpen(null);
                   }
                 }
@@ -1679,7 +1720,6 @@ const QA_VIEW_META: Record<string, { icon: string; title: string; sub: string }>
   skills:     { icon: '🧠', title: 'מטריצת סקילים',   sub: 'הגדרת סקילים ורמות מיומנות לכל בודק' },
   leaves:     { icon: '📅', title: 'חופשות',           sub: '' },
   assignment: { icon: '🎯', title: 'תכנון ושיבוץ',    sub: 'שיבוץ בודקים ותכנון סבבי בדיקות' },
-  bugs:       { icon: '🐛', title: 'לוח באגים (QC)',  sub: 'מדדי תקלות מ-QC לפי גרסה' },
 };
 
 const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string; isQaMember?: boolean; isQaTeamMember?: boolean; isQaTeamLead?: boolean; initialVersionId?: string }> = ({ view, token, role, isQaMember, isQaTeamMember, isQaTeamLead, initialVersionId }) => {
@@ -1709,7 +1749,6 @@ const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string;
   if (view === 'testers')    return <QaTestersView token={token} />;
   if (view === 'skills')     return <QaSkillsView token={token} />;
   if (view === 'assignment') return <QaAssignmentView token={token} initialVersionId={initialVersionId} />;
-  if (view === 'bugs')       return <QcBugDashboardView token={token} initialVersionId={initialVersionId} />;
 
   const meta = QA_VIEW_META[view] ?? { icon: '👥', title: 'ניהול QA', sub: '' };
   return (

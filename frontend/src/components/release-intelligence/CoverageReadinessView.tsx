@@ -6,6 +6,14 @@ const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${win
 
 interface Req {
   title: string; subject: string; planned: number; passed: number; failed: number; blocked: number; notReady: number; notRun: number;
+  // CR-linked defect counts (spec confirmed 2026-09-05) — only present when
+  // this requirement's own title resolves to a real CR number (see backend's
+  // crNumberFromTitle); a module/subject folder row (no CR behind it) has
+  // both null, same as a CR that genuinely has zero reported defects has
+  // crDefects with all-zero counts — the two aren't the same thing, hence
+  // null vs a real (zeroed) object rather than one "no data" state.
+  crNumber: string | null;
+  crDefects: { reported: number; open: number; critical: number } | null;
 }
 interface CoverageReadiness {
   kpis: { covered: number; failed: number; blocked: number; notReady: number; coveragePct: number };
@@ -21,8 +29,80 @@ function KpiCard({ value, label, valueColor }: { value: string; label: string; v
   );
 }
 
-const thStyle: React.CSSProperties = { padding: '10px 12px', ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textMuted, textAlign: 'right', borderBottom: `2px solid ${C.border}` };
-const tdStyle: React.CSSProperties = { padding: '9px 12px', ...TEXT.sm, color: C.textPrimary, borderBottom: `1px solid ${C.border}` };
+// Same segmented-bar idiom CyclesPanel already uses for per-cycle status
+// breakdown (CycleProgressView's SegmentedProgressBar) — reused here instead
+// of inventing a second visual language, just adapted to Req's own field set
+// (no notCompleted/notApplicable/notRelevant at this granularity).
+const REQ_SEGMENT_COLOR: Record<string, string> = {
+  passed: C.success, failed: C.danger, blocked: C.warning, notReady: C.textMuted, notRun: C.statusOpen,
+};
+const REQ_SEGMENT_LABEL: Record<string, string> = {
+  passed: 'עברו', failed: 'נכשלו', blocked: 'חסומים', notReady: 'לא מוכנים ל-QA', notRun: 'לא רצו',
+};
+const REQ_SEGMENT_KEYS = ['passed', 'failed', 'blocked', 'notReady', 'notRun'] as const;
+
+function ReqLegend() {
+  return (
+    <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap', padding: '10px 14px', borderBottom: `1px solid ${C.border}`, ...TEXT.xs, color: C.textMuted }}>
+      {REQ_SEGMENT_KEYS.map(k => (
+        <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ width: '9px', height: '9px', borderRadius: '2px', background: REQ_SEGMENT_COLOR[k], display: 'inline-block' }} />
+          {REQ_SEGMENT_LABEL[k]}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ReqBar({ r }: { r: Req }) {
+  const total = r.passed + r.failed + r.blocked + r.notReady + r.notRun;
+  if (total === 0) return <div style={{ height: '8px', background: C.bgNested, borderRadius: RADIUS.sm, flex: 1, minWidth: '80px' }} />;
+  const segments = REQ_SEGMENT_KEYS.map(key => ({ key, count: r[key] })).filter(s => s.count > 0);
+  return (
+    <div style={{ height: '8px', background: C.bgNested, borderRadius: RADIUS.sm, overflow: 'hidden', display: 'flex', flex: 1, minWidth: '80px' }}>
+      {segments.map(s => (
+        <div key={s.key} title={`${REQ_SEGMENT_LABEL[s.key]}: ${s.count}`} style={{ width: `${(s.count / total) * 100}%`, height: '100%', background: REQ_SEGMENT_COLOR[s.key] }} />
+      ))}
+    </div>
+  );
+}
+
+// Per-CR defect counts (spec confirmed 2026-09-05) — reported (all statuses),
+// open, and how many of the open ones are critical (Show Stopper/Severe,
+// same definition used everywhere else in this app). Only rendered when the
+// row actually resolved to a CR number (see backend's crNumberFromTitle) —
+// a module/subject folder row with no CR behind it (crDefects === null)
+// gets a blank spacer instead, so the column still aligns.
+function CrDefectStats({ d }: { d: Req['crDefects'] }) {
+  if (!d) return <div style={{ width: '150px', flexShrink: 0 }} />;
+  return (
+    <div style={{ width: '150px', flexShrink: 0, display: 'flex', gap: '9px', ...TEXT.xs, whiteSpace: 'nowrap' as const }}>
+      <span title="תקלות שדווחו בסה״כ ב-CR זה" style={{ color: C.textMuted }}>🐞 {d.reported}</span>
+      <span title="תקלות פתוחות" style={{ color: d.open > 0 ? C.warning : C.textMuted, fontWeight: d.open > 0 ? WEIGHT.semibold : WEIGHT.normal }}>פתוחות {d.open}</span>
+      <span title="מתוכן קריטיות (Show Stopper / Severe)" style={{ color: d.critical > 0 ? C.danger : C.textMuted, fontWeight: d.critical > 0 ? WEIGHT.bold : WEIGHT.normal }}>קריטיות {d.critical}</span>
+    </div>
+  );
+}
+
+// One row per requirement: title+subject (fixed-width, truncated) → the bar
+// (fills the rest of the row) → per-CR defect counts → coverage% (compact,
+// colored). Replaces the old 8-numeric-column table — same data, scanned by
+// shape/color instead of read column by column (spec confirmed 2026-09-04).
+function ReqRow({ r }: { r: Req }) {
+  const pct = r.planned > 0 ? Math.round((r.passed / r.planned) * 100) : 0;
+  const pctColor = r.failed > 0 || r.blocked > 0 ? C.danger : pct >= 80 ? C.success : C.textMuted;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], padding: '10px 14px', borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ width: '260px', flexShrink: 0, minWidth: 0 }}>
+        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }} title={r.title}>{r.title || '—'}</div>
+        {r.subject && <div style={{ ...TEXT.xs, color: C.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{r.subject}</div>}
+      </div>
+      <ReqBar r={r} />
+      <CrDefectStats d={r.crDefects} />
+      <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: pctColor, width: '44px', textAlign: 'left' as const, flexShrink: 0, fontVariantNumeric: 'tabular-nums' as const }}>{pct}%</div>
+    </div>
+  );
+}
 
 interface Props { token: string; versionId?: string; role: string; }
 
@@ -61,38 +141,26 @@ export const CoverageReadinessView: React.FC<Props> = ({ token, versionId }) => 
         <KpiCard value={`${data.kpis.coveragePct}%`} label="Coverage %" valueColor={C.brand} />
       </div>
 
-      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflowX: 'auto' }}>
+      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'hidden' }}>
         {data.byRequirement.length === 0 ? (
           <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6], textAlign: 'center' }}>אין נתוני כיסוי לגרסה זו.</div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={thStyle}>נושא</th>
-                <th style={thStyle}>כותרת</th>
-                <th style={thStyle}>מתוכנן</th>
-                <th style={thStyle}>עבר</th>
-                <th style={thStyle}>נכשל</th>
-                <th style={thStyle}>חסום</th>
-                <th style={thStyle}>לא מוכן</th>
-                <th style={thStyle}>לא הורץ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.byRequirement.map((r, i) => (
-                <tr key={i}>
-                  <td style={tdStyle}>{r.subject || '—'}</td>
-                  <td style={{ ...tdStyle, maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.title}>{r.title}</td>
-                  <td style={tdStyle}>{r.planned}</td>
-                  <td style={{ ...tdStyle, color: C.success }}>{r.passed}</td>
-                  <td style={{ ...tdStyle, color: r.failed > 0 ? C.danger : C.textPrimary }}>{r.failed}</td>
-                  <td style={{ ...tdStyle, color: r.blocked > 0 ? '#e8af00' : C.textPrimary }}>{r.blocked}</td>
-                  <td style={tdStyle}>{r.notReady}</td>
-                  <td style={tdStyle}>{r.notRun}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <>
+            <ReqLegend />
+            {/* Worst-first: any failed/blocked pushes a requirement to the top,
+                then lowest pass-rate — same instinct as the coverage tile's own
+                sorted CR lists (the eye should land on what needs attention). */}
+            {[...data.byRequirement]
+              .sort((a, b) => {
+                const riskA = a.failed > 0 || a.blocked > 0 ? 1 : 0;
+                const riskB = b.failed > 0 || b.blocked > 0 ? 1 : 0;
+                if (riskA !== riskB) return riskB - riskA;
+                const pctA = a.planned > 0 ? a.passed / a.planned : 1;
+                const pctB = b.planned > 0 ? b.passed / b.planned : 1;
+                return pctA - pctB;
+              })
+              .map((r, i) => <ReqRow key={i} r={r} />)}
+          </>
         )}
       </div>
     </div>

@@ -282,9 +282,12 @@ export interface BugDashboardDto {
   targetTotal: number;
   targetOpen: number;
   dailyReported: { date: string; count: number }[];
-  openByType: { label: string; count: number }[];
-  openByResponsibility: { label: string; count: number }[];
-  openByCr: { label: string; count: number }[];
+  // Each row's own severity split — backs the segmented bars on the Bug
+  // Dashboard (spec confirmed 2026-09-04).
+  openByType: { label: string; count: number; bySeverity: { severity: string; count: number }[] }[];
+  openByResponsibility: { label: string; count: number; bySeverity: { severity: string; count: number }[] }[];
+  openByCr: { label: string; count: number; bySeverity: { severity: string; count: number }[] }[];
+  openBySeverity: { label: string; count: number }[];
   reopenByCr: { label: string; count: number }[];
   criticalByCr: { label: string; count: number }[];
 }
@@ -1759,18 +1762,26 @@ async function oracleConnect(): Promise<any> {
 //                still counts as open in this org's workflow until Canceled.
 //   Rejected   = status = Canceled (the dashboard's "Rejected" label, NOT the
 //                DB's literal "Rejected" status, which is a different, still-open state)
-//   Reopen     = status = Reopen
+//   Reopen     = a real audit-log transition to 'Reopen' at some point, NOT
+//                "current status = Reopen" (a bug that reopened and was since
+//                re-fixed still counts — this is a history question, not a
+//                snapshot) — see reopenedIds (getReopenedDefectIds, same
+//                query "Reopened Defects KPI" already uses: real QC "Reopen
+//                KPI" Favorite filter, provided 2026-08-27). That query also
+//                excludes defects explicitly flagged BG_USER_29='N' (reopen
+//                Y/N), same as here (user-confirmed 2026-09-04) — NVL(...,'Y')
+//                treats a blank flag as countable, only an explicit 'N' drops it.
 //   Changes    = DEFECT_TYPE = 'Change Requests'
 //   Production/Regression = CATEGORY_REF (BG_USER_10) = 'Production'/'Regression'
 //                AND status NOT IN (New, Canceled)
 //   Target     = TARGET_REL is not null; "left" = of those, status != Closed
-function computeBugDashboard(rows: BugRawRow[]): BugDashboardDto {
+function computeBugDashboard(rows: BugRawRow[], reopenedIds: Set<string>): BugDashboardDto {
   const isOpen = (status: string | null) => !['Closed', 'Canceled'].includes(status ?? '');
   const notNewOrCanceled = (status: string | null) => !['New', 'Canceled'].includes(status ?? '');
 
   const open = rows.filter(r => isOpen(r.DEFECT_STATUS));
   const rejected = rows.filter(r => r.DEFECT_STATUS === 'Canceled');
-  const reopen = rows.filter(r => r.DEFECT_STATUS === 'Reopen');
+  const reopen = rows.filter(r => reopenedIds.has(String(r.DEFECT_ID)));
   const changes = rows.filter(r => r.DEFECT_TYPE === 'Change Requests');
   const production = rows.filter(r => r.CATEGORY_REF === 'Production' && notNewOrCanceled(r.DEFECT_STATUS));
   const regression = rows.filter(r => r.CATEGORY_REF === 'Regression' && notNewOrCanceled(r.DEFECT_STATUS));
@@ -1785,6 +1796,28 @@ function computeBugDashboard(rows: BugRawRow[]): BugDashboardDto {
     }
     return Array.from(counts.entries())
       .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count);
+  };
+
+  // Same grouping as groupCount, but each bucket also carries its own
+  // severity split — backs the Bug Dashboard's segmented bars (each bar
+  // colored by how many Show Stopper/Severe/Medium/Low make up that
+  // category), not just a flat per-category total (spec confirmed 2026-09-04).
+  const groupCountBySeverity = (items: BugRawRow[], keyFn: (r: BugRawRow) => string | null) => {
+    const buckets = new Map<string, Map<string, number>>();
+    for (const item of items) {
+      const key = keyFn(item) || 'ללא סיווג';
+      const severity = item.SEVERITY || 'ללא סיווג';
+      const sevCounts = buckets.get(key) ?? new Map<string, number>();
+      sevCounts.set(severity, (sevCounts.get(severity) ?? 0) + 1);
+      buckets.set(key, sevCounts);
+    }
+    return Array.from(buckets.entries())
+      .map(([label, sevCounts]) => ({
+        label,
+        count: Array.from(sevCounts.values()).reduce((s, c) => s + c, 0),
+        bySeverity: Array.from(sevCounts.entries()).map(([severity, count]) => ({ severity, count })),
+      }))
       .sort((a, b) => b.count - a.count);
   };
 
@@ -1811,15 +1844,21 @@ function computeBugDashboard(rows: BugRawRow[]): BugDashboardDto {
     targetTotal: targeted.length,
     targetOpen:  targetOpen.length,
     dailyReported,
-    openByType:           groupCount(open, r => r.DEFECT_TYPE),
-    openByResponsibility: groupCount(open, r => r.ASSIGNED_TO),
-    openByCr:             groupCount(open, r => r.CR_REFERENCE_NUMBER),
+    openByType:           groupCountBySeverity(open, r => r.DEFECT_TYPE),
+    openByResponsibility: groupCountBySeverity(open, r => r.ASSIGNED_TO),
+    openByCr:             groupCountBySeverity(open, r => r.CR_REFERENCE_NUMBER),
+    openBySeverity:       groupCount(open, r => r.SEVERITY),
     reopenByCr:           groupCount(reopen, r => r.CR_REFERENCE_NUMBER),
     criticalByCr:         groupCount(open.filter(r => ['Show Stopper', 'Severe'].includes(r.SEVERITY ?? '')), r => r.CR_REFERENCE_NUMBER),
   };
 }
 
-const MOCK_BUG_DASHBOARD: BugDashboardDto = computeBugDashboard(MOCK_BUG_ROWS);
+// No separate mock audit-log dataset exists for MOCK_BUG_ROWS, so the mock
+// reopen set falls back to "current status = Reopen" as a stand-in — a
+// documented approximation for demo/dev only; real Oracle mode uses the real
+// audit-log query via getReopenedDefectIds.
+const MOCK_REOPENED_BUG_IDS = new Set(MOCK_BUG_ROWS.filter(r => r.DEFECT_STATUS === 'Reopen').map(r => String(r.DEFECT_ID)));
+const MOCK_BUG_DASHBOARD: BugDashboardDto = computeBugDashboard(MOCK_BUG_ROWS, MOCK_REOPENED_BUG_IDS);
 
 // ── Service ───────────────────────────────────────────────────────────────────
 
@@ -2222,6 +2261,17 @@ export class QcService {
     }
   }
 
+  // Public wrapper — getReopenedDefectIds/getRelId are both private (used
+  // internally by getBugDashboard), but release-intelligence.service.ts's
+  // drill-down dispatcher needs the same real audit-log reopen set to filter
+  // its own DefectDto list, so it never disagrees with the Bug Dashboard's
+  // own Reopen KPI number.
+  async getReopenedDefectIdsForVersion(versionId: string): Promise<Set<string>> {
+    const relId = await this.getRelId(versionId);
+    if (!relId) return new Set();
+    return this.getReopenedDefectIds(relId);
+  }
+
   async getDefectsForKpi(versionId: string, kpiName: string): Promise<DefectDto[]> {
     if (this.KPI_WITHOUT_DEFECT_LIST.has(kpiName)) return [];
 
@@ -2490,14 +2540,17 @@ export class QcService {
     const relId = await this.getRelId(versionId);
     if (!relId) {
       this.logger.warn(`No QC release linked to version ${versionId}`);
-      return computeBugDashboard([]);
+      return computeBugDashboard([], new Set());
     }
 
     let conn: any;
     try {
       conn = await oracleConnect();
-      const result = await conn.execute(BUG_DASHBOARD_SQL, { releaseId: relId });
-      return computeBugDashboard((result.rows ?? []) as BugRawRow[]);
+      const [result, reopenedIds] = await Promise.all([
+        conn.execute(BUG_DASHBOARD_SQL, { releaseId: relId }),
+        this.getReopenedDefectIds(relId),
+      ]);
+      return computeBugDashboard((result.rows ?? []) as BugRawRow[], reopenedIds);
     } catch (err: any) {
       this.logger.error(`Oracle getBugDashboard: ${err.message}`);
       throw err;

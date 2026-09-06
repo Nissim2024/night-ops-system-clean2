@@ -59,6 +59,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { SystemParamsService } from './system-params/system-params.service';
+import { SuggestedRisksService } from './suggested-risks/suggested-risks.service';
 import { PrismaClient } from '@prisma/client';
 import helmet from 'helmet';
 
@@ -195,6 +196,9 @@ async function bootstrap() {
 
   const systemParams = app.get(SystemParamsService);
   await systemParams.seed();
+
+  const suggestedRisks = app.get(SuggestedRisksService);
+  await suggestedRisks.seed();
 
   await app.listen(port);
   console.log(`\n   READY on port ${port}\n`);
