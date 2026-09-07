@@ -61,23 +61,21 @@ const VM_VIEWS = [
   { key: 'changes',  label: 'ניהול שינויים',    icon: '🔄' },
 ];
 
+// Trimmed 2026-09-07: removed סקירה כללית / באגים / לוח מצב (duplicated by the
+// Home page & bug-dashboard) and בריאות CR / קיבולת / תחזית ומעקב / התראות ותובנות
+// (thin readouts covered by cycle-progress / QA work-plan / the Home strip).
+// The backing endpoints (overview, status-board, …) are still used by the Home
+// view; only the standalone screens were dropped.
 const RI_VIEWS = [
   { key: 'home', label: 'דף הבית', icon: '🏠' },
-  { key: 'overview', label: 'סקירה כללית', icon: '📊' },
   { key: 'risks', label: 'ניהול סיכונים', icon: '⚠️' },
   { key: 'suggested-risks', label: 'הצעות סיכונים (AI)', icon: '💡' },
   { key: 'daily-qa', label: 'ניהול QA יומי', icon: '📋' },
-  { key: 'cr-health', label: 'בריאות CR', icon: '🩺' },
   { key: 'coverage-readiness', label: 'כיסוי ומוכנות', icon: '✅' },
-  { key: 'defects', label: 'באגים', icon: '🐞' },
-  { key: 'bug-dashboard', label: 'לוח באגים (QC)', icon: '🐛' },
+  { key: 'bug-dashboard', label: 'לוח באגים (QC)', icon: '🪲' },
   { key: 'reopen-analysis', label: 'ניתוח Reopen', icon: '♻️' },
   { key: 'cycle-progress', label: 'התקדמות סבבים', icon: '🔄' },
-  { key: 'status-board', label: 'לוח מצב', icon: '📟' },
   { key: 'timeline-activities', label: 'ציר זמן ופעילויות', icon: '🗓️' },
-  { key: 'capacity', label: 'קיבולת', icon: '⚙️' },
-  { key: 'forecast-tracking', label: 'תחזית ומעקב', icon: '📈' },
-  { key: 'alerts-intelligence', label: 'התראות ותובנות', icon: '🔔' },
   { key: 'go-no-go', label: 'Go / No-Go', icon: '🚦' },
   { key: 'incidents', label: 'תקלות ו-RCA', icon: '🧯' },
 ];
@@ -114,7 +112,7 @@ export const Sidebar: React.FC<Props> = ({
   activeQaView = 'testers',
   onQaViewChange,
   canAccessQa = false,
-  activeRiView = 'overview',
+  activeRiView = 'home',
   onRiViewChange,
   canAccessReleaseIntelligence = false,
   activeQhView = 'overview',
@@ -189,6 +187,35 @@ export const Sidebar: React.FC<Props> = ({
               <span style={{ fontSize: '13px', fontWeight: m.active ? WEIGHT.semibold : WEIGHT.medium, color: m.active ? C.sidebarText : 'rgba(255,255,255,0.55)', lineHeight: 1 }}>{m.label}</span>
             </button>
           ))}
+        </div>
+      )}
+
+      {/* ── Quick version picker — switch versions from any screen in one
+           click, no round-trip to Home (spec 2026-09-07, section 4) ── */}
+      {onVersionChange && versions.length > 0 && (
+        <div style={{ padding: `${SP[3]} ${SP[3]} 0` }}>
+          <select
+            value={selectedVersionId ?? ''}
+            onChange={e => e.target.value && onVersionChange(e.target.value)}
+            style={{
+              width: '100%', boxSizing: 'border-box', padding: '8px 10px',
+              background: C.sidebarBgActive, color: C.sidebarText,
+              border: `1px solid ${C.sidebarBorder}`, borderRadius: RADIUS.md,
+              fontFamily: FONT, fontSize: '13px', fontWeight: WEIGHT.semibold, cursor: 'pointer',
+              direction: 'rtl',
+            }}
+          >
+            {!selectedVersionId && <option value="">— בחר גרסה —</option>}
+            {GROUPS.map(g => {
+              const items = versions.filter(v => versionGroup(v) === g.id);
+              if (items.length === 0) return null;
+              return (
+                <optgroup key={g.id} label={`${g.icon} ${g.label}`}>
+                  {items.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </optgroup>
+              );
+            })}
+          </select>
         </div>
       )}
 

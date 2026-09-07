@@ -35,7 +35,7 @@ export class UsersController {
   @Patch(':id')
   update(
     @Param('id') id: string,
-    @Body() body: { fullName?: string; role?: string; active?: boolean; phone?: string },
+    @Body() body: { fullName?: string; role?: string; active?: boolean; phone?: string; qcLogin?: string | null },
     @Request() req: any,
   ) {
     requireRole(req, ADMINS, 'רק מנהל מערכת יכול לעדכן פרטי משתמש');

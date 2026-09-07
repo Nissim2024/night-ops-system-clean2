@@ -2370,7 +2370,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           return (
             <div style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '10px 14px', marginBottom: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap', fontSize: '12px' }}>
-                <span style={{ color: C.textMuted, fontWeight: WEIGHT.semibold }}>🐛 תקלות מול CR זה:</span>
+                <span style={{ color: C.textMuted, fontWeight: WEIGHT.semibold }}>🪲 תקלות מול CR זה:</span>
                 {indLoading && !ind ? (
                   <span style={{ color: C.textMuted }}>טוען...</span>
                 ) : ind && buckets.map(b => (

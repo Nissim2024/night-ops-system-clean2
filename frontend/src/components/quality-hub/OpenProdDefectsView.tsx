@@ -3,7 +3,7 @@ import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, RADIUS } from '../../theme';
 import { Card, Badge } from '../ui';
 import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL } from './openProdDefectsFields';
-import { hasHebrew, NameBadge, PersonAvatar, DefectIdBadge, contrastTextColor, renderNotesField, DetailGroupsDialog, DetailGroup, FieldChangeHistorySection, AttachmentsSection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow } from '../shared/defectFieldDisplay';
+import { hasHebrew, NameBadge, PersonAvatar, DefectIdBadge, renderNotesField, DetailGroupsDialog, DetailGroup, FieldChangeHistorySection, AttachmentsSection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow } from '../shared/defectFieldDisplay';
 import { formatDate, formatDateTime } from '../../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -45,11 +45,13 @@ interface Props { token: string; }
 
 // Person-owner fields render as an avatar (resolved name if a login happens
 // to match a synced User.qcLogin, else the raw login degrades to a single
-// letter + itself); `responsibility` is the team field and gets the flat
-// color badge instead. Same convention as VersionOverview's TARGET-defect
-// screen (spec confirmed 2026-08-30).
-const PERSON_BADGE_FIELDS = new Set(['assignedTo', 'qaTester', 'detectedBy', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo']);
-const TEAM_BADGE_FIELDS = new Set(['responsibility']);
+// letter + itself); team/queue fields get the flat NameBadge instead.
+// `assignedTo` = BG_RESPONSIBLE holds a TEAM/queue name in this QC instance
+// ("HOT Design Team", "NETC-DT team"…), NOT a person — user-confirmed
+// 2026-09-07, matches the DTO comment on qaTester (BG_USER_37 is "distinct
+// from assignedTo/BG_RESPONSIBLE, which is a team/queue, not a person").
+const PERSON_BADGE_FIELDS = new Set(['qaTester', 'detectedBy', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo']);
+const TEAM_BADGE_FIELDS = new Set(['assignedTo', 'responsibility']);
 
 // title/description/notes always render in their own fixed spots (the big
 // title line and the side-by-side text boxes) — never offered in the
@@ -80,34 +82,178 @@ const DEFAULT_OPEN_PROD_DETAIL_GROUPS: DetailGroup[] = [
 const DATE_ONLY_FIELDS = new Set(['detectedOnDate', 'deploymentDateProd', 'responseDate', 'fixedUntil']);
 const DATETIME_FIELDS = new Set(['modified']); // BG_VTS — QC's own last-modified timestamp
 
+// QC descriptions come back as HTML fragments (<p>/<br>, entities like
+// &nbsp;/&lt;) — decode to plain readable text with real line breaks instead
+// of rendering the raw escaped markup (UX spec 2026-09-06).
+function decodeDefectText(raw: string): string {
+  let t = raw
+    .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+    .replace(/<\s*\/\s*(p|div|li|tr|h[1-6])\s*>/gi, '\n')
+    .replace(/<[^>]+>/g, '');
+  if (typeof document !== 'undefined') {
+    const el = document.createElement('textarea');
+    el.innerHTML = t;
+    t = el.value;
+  } else {
+    t = t.replace(/&nbsp;/gi, ' ').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+         .replace(/&quot;/gi, '"').replace(/&#39;/gi, "'").replace(/&amp;/gi, '&');
+  }
+  return t.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
+}
+
+// Soft tinted chip (label keeps its own colour, background is a 12%-alpha
+// wash of it) — used for severity & priority per the "צבע מעודן" spec.
+function hexTint(hex: string, alpha = 0.12): string {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim());
+  if (!m) return C.bgNested;
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+// Soft pill — identical treatment to DefectDrilldownModal.tsx's SoftBadge so
+// status / severity / priority look the same in the detail form and the
+// drill-down table (user-flagged 2026-09-07: "נראות שדה הסטטוס שונה בין הטבלה
+// לטופס").
+const softChipStyle = (col: string): React.CSSProperties => ({
+  fontSize: '12px', fontWeight: WEIGHT.semibold, color: col, background: hexTint(col, 0.14),
+  borderRadius: '999px', padding: '2px 10px', display: 'inline-block', whiteSpace: 'nowrap',
+});
+function priorityColor(s: string): string {
+  const n = s.toLowerCase();
+  if (/urgent|critical|show ?stopper|highest|דחוף/.test(n)) return C.severityCritical;
+  if (/high|גבוה/.test(n)) return C.severityHigh;
+  if (/medium|normal|בינונ/.test(n)) return C.severityMedium;
+  if (/low|minor|נמוכ/.test(n)) return C.severityLow;
+  return C.textSecondary;
+}
+
 function renderFieldValue(key: string, value: unknown) {
   const s = value === null || value === undefined ? '' : String(value);
   if (!s) return '—';
-  if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={s} />;
+  if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={s} full />;
   if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
   if (key === 'id') return <DefectIdBadge id={s} />;
-  if (key === 'status') {
-    const statusBg = STATUS_COLOR[s] ?? DEFAULT_STATUS_COLOR;
-    return (
-      // No fontSize — inherits the ambient size like every other badge in
-      // defectFieldDisplay.tsx (spec confirmed 2026-09-03, "uniform field
-      // font size"); contrastTextColor keeps it readable against amber/light
-      // status colors instead of a fixed white ("clear fonts regardless of
-      // the field's background color").
-      <span style={{
-        fontWeight: WEIGHT.semibold, color: contrastTextColor(statusBg),
-        background: statusBg, borderRadius: RADIUS.sm, padding: '2px 8px',
-        whiteSpace: 'nowrap', display: 'inline-block',
-      }}>
-        {s}
-      </span>
-    );
-  }
-  if (key === 'severity') return <span style={{ color: SEVERITY_COLOR[s] ?? C.textPrimary, fontWeight: WEIGHT.semibold }}>{s}</span>;
+  // status / severity / priority — same soft pill as the drill-down table.
+  if (key === 'status') return <span style={softChipStyle(STATUS_COLOR[s] ?? DEFAULT_STATUS_COLOR)}>{s}</span>;
+  if (key === 'severity') return <span style={softChipStyle(SEVERITY_COLOR[s] ?? C.textSecondary)}>{s}</span>;
+  if (key === 'priority' || key === 'secondaryPriority') return <span style={softChipStyle(priorityColor(s))}>{s}</span>;
   if (DATE_ONLY_FIELDS.has(key)) return formatDate(s);
   if (DATETIME_FIELDS.has(key)) return formatDateTime(s);
   return s;
 }
+
+const DETAIL_TOP_BTN: React.CSSProperties = {
+  padding: '6px 14px', background: C.bgNested, color: C.textSecondary,
+  border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer',
+  fontSize: '13px', fontFamily: FONT,
+};
+const DETAIL_SECTION_HEADING: React.CSSProperties = {
+  fontSize: '13px', fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '8px',
+};
+
+// Common BG_STATUS values in this QC instance — a `datalist` (not a hard
+// `<select>`) so a real status the list doesn't yet know still typeable.
+const QC_STATUS_OPTIONS = ['New', 'Open', 'At Work', 'Fixed_Dev', 'Fixed_Test', 'Pending', 'Reopen', 'Rejected', 'Closed', 'Canceled'];
+
+// Direct write-back to QC — status + a dev-comment append — shown expanded by
+// default inside the defect detail screen (spec 2026-09-07). Every call goes
+// through /qc/rest-test/* which authenticates as the acting user's own QC
+// identity; a 403 (no action:qc_write permission or no linked qcLogin) is
+// rendered as a quiet inline note instead of an input form.
+const QcWriteBackPanel: React.FC<{ defectId: string; token: string; currentStatus: string }> = ({ defectId, token, currentStatus }) => {
+  const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+  const [status, setStatus] = useState(currentStatus);
+  const [note, setNote] = useState('');
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [savingNote, setSavingNote] = useState(false);
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [blocked, setBlocked] = useState<string | null>(null);
+
+  useEffect(() => { setStatus(currentStatus); }, [currentStatus]);
+
+  // Probe write permission once so we don't render a form the user can't use.
+  useEffect(() => {
+    let alive = true;
+    axios.get(`${API}/qc/rest-test/defect/${encodeURIComponent(defectId)}`, { headers })
+      .then(() => { if (alive) setBlocked(null); })
+      .catch(err => {
+        if (!alive) return;
+        const code = err?.response?.status;
+        if (code === 403 || code === 400) setBlocked(err?.response?.data?.message || 'אין הרשאת כתיבה ל-QC');
+        // other errors (500/timeout) — leave the form visible, the action itself will report
+      });
+    return () => { alive = false; };
+  }, [defectId, headers]);
+
+  const saveStatus = async () => {
+    if (!status.trim() || status.trim() === currentStatus.trim()) return;
+    setSavingStatus(true); setMsg(null);
+    try {
+      const r = await axios.patch(`${API}/qc/rest-test/defect/${encodeURIComponent(defectId)}/status`, { status: status.trim() }, { headers });
+      setMsg({ kind: 'ok', text: `הסטטוס עודכן ב-QC: "${r.data?.oldStatus ?? currentStatus}" ← "${r.data?.newStatus ?? status}"` });
+    } catch (err: any) {
+      setMsg({ kind: 'err', text: err?.response?.data?.message || 'עדכון הסטטוס נכשל' });
+    } finally { setSavingStatus(false); }
+  };
+
+  const saveNote = async () => {
+    if (!note.trim()) return;
+    setSavingNote(true); setMsg(null);
+    try {
+      await axios.post(`${API}/qc/rest-test/defect/${encodeURIComponent(defectId)}/append-note`, { note: note.trim() }, { headers });
+      setMsg({ kind: 'ok', text: 'ההערה נוספה ל-QC' });
+      setNote('');
+    } catch (err: any) {
+      setMsg({ kind: 'err', text: err?.response?.data?.message || 'הוספת ההערה נכשלה' });
+    } finally { setSavingNote(false); }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: RADIUS.sm,
+    border: `1px solid ${C.border}`, fontFamily: FONT, fontSize: '14px', background: C.bgCard, color: C.textPrimary,
+  };
+  const btnStyle: React.CSSProperties = {
+    padding: '7px 16px', background: C.brand, color: '#fff', border: 'none', borderRadius: RADIUS.sm,
+    cursor: 'pointer', fontFamily: FONT, fontSize: '13px', fontWeight: WEIGHT.semibold,
+  };
+
+  return (
+    <section style={{ marginTop: '24px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, background: C.bgNested, padding: '16px 18px' }}>
+      <div style={DETAIL_SECTION_HEADING}>✏️ עדכון ישיר ל-QC</div>
+      {blocked ? (
+        <div style={{ fontSize: '13px', color: C.textMuted, lineHeight: 1.5 }}>{blocked}</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div>
+            <label style={{ fontSize: '13px', color: C.textMuted, display: 'block', marginBottom: '5px' }}>סטטוס תקלה</label>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input list="qc-status-options" value={status} onChange={e => setStatus(e.target.value)} style={{ ...inputStyle, flex: 1, minWidth: '160px', direction: 'ltr' }} />
+              <datalist id="qc-status-options">
+                {QC_STATUS_OPTIONS.map(s => <option key={s} value={s} />)}
+              </datalist>
+              <button onClick={saveStatus} disabled={savingStatus || !status.trim() || status.trim() === currentStatus.trim()} style={{ ...btnStyle, opacity: (savingStatus || status.trim() === currentStatus.trim()) ? 0.5 : 1 }}>
+                {savingStatus ? 'מעדכן…' : 'עדכן סטטוס'}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: '13px', color: C.textMuted, display: 'block', marginBottom: '5px' }}>הוספת הערה (Dev Comments)</label>
+            <textarea value={note} onChange={e => setNote(e.target.value)} rows={3} placeholder="הטקסט יתווסף לסוף שדה ההערות ב-QC, ולא ידרוס אותו" style={{ ...inputStyle, resize: 'vertical' }} />
+            <div style={{ marginTop: '6px', textAlign: 'left' }}>
+              <button onClick={saveNote} disabled={savingNote || !note.trim()} style={{ ...btnStyle, opacity: (savingNote || !note.trim()) ? 0.5 : 1 }}>
+                {savingNote ? 'מוסיף…' : 'הוסף הערה ל-QC'}
+              </button>
+            </div>
+          </div>
+          {msg && (
+            <div style={{ fontSize: '13px', fontWeight: WEIGHT.semibold, color: msg.kind === 'ok' ? C.success : C.danger }}>
+              {msg.text}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+};
 
 // Full-screen drill-down for one defect — replaces the table view entirely
 // (back button, same pattern as CycleProgressView's CycleDetailScreen)
@@ -142,16 +288,24 @@ export const DefectDetailScreen: React.FC<{
   // pickers (spec confirmed 2026-08-30).
   const fieldsToShow = detailFields.length > 0 ? detailFields : DETAIL_FIELDS.map(f => f.key);
   const titleShown = fieldsToShow.includes('title');
+  // The "התאמת שדות" dialog offers the FULL field vocabulary (every
+  // TargetDefectDto column), not just the admin-configured `detailFields`
+  // subset — user-flagged 2026-09-07 ("לא כל השדות מופיעים ברשימה"). Empty
+  // fields are still auto-hidden from the actual panel (detail[k] !== undefined),
+  // so surfacing them all in the picker is safe.
   const allColumns = useMemo(
-    () => fieldsToShow.filter(k => !DETAIL_GROUPS_FIXED_FIELDS.has(k)).map(k => ({ key: k, label: DETAIL_FIELD_LABEL[k] ?? k })),
-    [fieldsToShow],
+    () => DETAIL_FIELDS.filter(f => !DETAIL_GROUPS_FIXED_FIELDS.has(f.key)).map(f => ({ key: f.key, label: DETAIL_FIELD_LABEL[f.key] ?? f.key })),
+    [],
   );
+  // Default groups stay lean — only the admin-configured / default field set,
+  // NOT the full picker vocabulary (which would fill the panel with empty
+  // "—" rows). The "התאמת שדות" dialog is where the rest live.
   const defaultGroups = useMemo(() => {
-    const allowed = new Set(allColumns.map(c => c.key));
+    const allowed = new Set(fieldsToShow);
     return DEFAULT_OPEN_PROD_DETAIL_GROUPS
       .map(g => ({ ...g, fields: g.fields.filter(k => allowed.has(k)) }))
       .filter(g => g.fields.length > 0);
-  }, [allColumns]);
+  }, [fieldsToShow]);
 
   const [detailGroups, setDetailGroups] = useState<DetailGroup[]>(() => {
     try {
@@ -161,6 +315,7 @@ export const DefectDetailScreen: React.FC<{
     return defaultGroups;
   });
   const [showGroupsPicker, setShowGroupsPicker] = useState(false);
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const applyDetailGroups = (groups: DetailGroup[]) => {
     setDetailGroups(groups);
     localStorage.setItem(DETAIL_GROUPS_STORAGE_KEY, JSON.stringify(groups));
@@ -171,123 +326,154 @@ export const DefectDetailScreen: React.FC<{
   const showNotes = fieldsToShow.includes('notes');
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px 28px', fontFamily: FONT }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <button
-          onClick={onBack}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '6px', background: C.bgNested,
-            color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer',
-            fontSize: '13px', fontWeight: WEIGHT.semibold, padding: '6px 14px', fontFamily: FONT,
-          }}
-        >
-          → חזרה לטבלה
-        </button>
-        <button
-          onClick={() => setShowGroupsPicker(true)}
-          style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontFamily: FONT }}
-        >
-          ⚙ התאמת שדות וקטגוריות
-        </button>
+    <div style={{ padding: '20px 28px', fontFamily: FONT, direction: 'rtl' }}>
+      {/* ── סרגל פעולות עליון — כפתורי משנה קומפקטיים ── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
+        <button onClick={onBack} style={DETAIL_TOP_BTN}>→ חזרה לטבלה</button>
+        <button onClick={() => setShowGroupsPicker(true)} style={DETAIL_TOP_BTN}>⚙ התאמת שדות</button>
       </div>
 
-      {detailLoading && <Card><div style={{ textAlign: 'center', padding: '20px', color: C.textMuted }}>טוען...</div></Card>}
+      {detailLoading && <div style={{ textAlign: 'center', padding: '40px', color: C.textMuted }}>טוען...</div>}
       {!detailLoading && !detail && (
-        <Card><div style={{ textAlign: 'center', padding: '20px', color: C.textMuted }}>לא נמצא מידע מלא עבור תקלה זו</div></Card>
+        <div style={{ textAlign: 'center', padding: '40px', color: C.textMuted }}>לא נמצא מידע מלא עבור תקלה זו</div>
       )}
 
       {!detailLoading && detail && (
-          <>
-            {/* ── כותרת התקלה — בולטת, בראש המסך ── */}
-            <Card>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-                <span style={{ fontSize: '28px', flexShrink: 0 }}>🐛</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '22px', fontWeight: WEIGHT.bold, color: C.textPrimary, lineHeight: 1.35, wordBreak: 'break-word' }}>
-                    {titleShown ? (detail.title || 'ללא כותרת') : <>תקלה <DefectIdBadge id={defectId} /></>}
-                  </div>
-                  <div style={{ ...TEXT.sm, color: C.textMuted, marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>תקלה <DefectIdBadge id={defectId} /></div>
-                </div>
-              </div>
-            </Card>
+        // row-reverse under RTL: 1st child (main) → left, 2nd child (aside) → right;
+        // on wrap, main stays on top and the panel drops below it.
+        <div style={{ display: 'flex', flexDirection: 'row-reverse', flexWrap: 'wrap', alignItems: 'flex-start', gap: '28px' }}>
+          {/* ══ תוכן מרכזי (≈70%) — צד שמאל ב-RTL (row-reverse) ══ */}
+          <div style={{ flex: '1 1 560px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
-            {/* ── קטגוריות שדות — אותו עיצוב כמו טופס פרטי תקלת TARGET ── */}
-            {detailGroups
-              .map(group => ({ ...group, fields: group.fields.filter(k => detail[k] !== undefined) }))
-              .filter(group => group.fields.length > 0)
-              .map(group => (
-                <Card key={group.title}>
-                  <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '10px' }}>{group.title}</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px 16px', fontSize: '15px' }}>
+            {/* כותרת — ללא כרטיס, יושבת ישירות על רקע הדף */}
+            <div>
+              <div style={{ fontSize: '23px', fontWeight: WEIGHT.bold, color: C.textPrimary, lineHeight: 1.3, wordBreak: 'break-word' }}>
+                {titleShown ? (detail.title || 'ללא כותרת') : 'פרטי תקלה'}
+              </div>
+              <div style={{ marginTop: '8px' }}><DefectIdBadge id={defectId} /></div>
+            </div>
+
+            {/* תיאור — בלוק נקי, מרווח שורות 1.5, טקסט עשיר מפוענח */}
+            {showDescription && (
+              <section>
+                <div style={DETAIL_SECTION_HEADING}>{DETAIL_FIELD_LABEL.description ?? 'תיאור'}</div>
+                <div style={{
+                  fontSize: '15px', color: C.textPrimary, lineHeight: 1.5,
+                  direction: 'rtl', textAlign: 'right', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                  background: C.bgNested, borderRadius: RADIUS.md, padding: '16px 18px',
+                  maxHeight: '260px', overflowY: 'auto',
+                }}>
+                  {detail.description ? decodeDefectText(String(detail.description)) : '—'}
+                </div>
+              </section>
+            )}
+
+            {/* הערות מפתח — פיד כרונולוגי, גובה חסום עם גלילה פנימית כדי שהדף
+                עצמו לא יתארך (כותב + תאריך מודגשים, ואז הגוף) */}
+            {showNotes && (() => {
+              const noteCount = String(detail.notes ?? '').split(/_{5,}/).map(s => s.trim()).filter(Boolean).length;
+              return (
+                <section>
+                  <div style={DETAIL_SECTION_HEADING}>
+                    {DETAIL_FIELD_LABEL.notes ?? 'הערות מפתח'}{noteCount > 1 ? ` · ${noteCount}` : ''}
+                  </div>
+                  <div style={{
+                    lineHeight: 1.5, maxHeight: '440px', overflowY: 'auto',
+                    background: C.bgNested, borderRadius: RADIUS.md, padding: '14px 16px',
+                  }}>
+                    {renderNotesField(detail.notes)}
+                  </div>
+                </section>
+              );
+            })()}
+
+            {/* עדכון ישיר ל-QC — פתוח כברירת מחדל (spec 2026-09-07) */}
+            <QcWriteBackPanel
+              defectId={defectId}
+              token={token}
+              currentStatus={String(detail.status ?? '')}
+            />
+          </div>
+
+          {/* ══ סרגל צד — צד ימין ב-RTL (row-reverse) — פאנל צר, שורות תווית↔ערך צמודות ══ */}
+          <aside style={{
+            flex: '0 0 300px', maxWidth: '300px', alignSelf: 'flex-start',
+            background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'hidden',
+          }}>
+            {(() => {
+              const groups = detailGroups
+                .map(g => ({ ...g, fields: g.fields.filter(k => detail[k] !== undefined) }))
+                .filter(g => g.fields.length > 0);
+              return groups.map((group, gi) => (
+                <div key={group.title} style={{ padding: '11px 14px', borderBottom: gi < groups.length - 1 ? `1px solid ${C.border}` : 'none' }}>
+                  <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: C.textSecondary, marginBottom: '8px' }}>
+                    {group.title}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
                     {group.fields.map(key => {
-                      // Per-field direction (same hasHebrew-based rule the
-                      // defects table body cells and the history table's old/
-                      // new-value columns already use) — replaces a blanket
-                      // direction:'ltr' that fixed a real bidi glitch on
-                      // neutral/atomic values (a badge, an empty "—") but as a
-                      // side effect left every Hebrew field left-aligned on
-                      // this RTL page (found 2026-09-03).
                       const raw = String(detail[key] ?? '');
-                      const isBadgeField = PERSON_BADGE_FIELDS.has(key) || TEAM_BADGE_FIELDS.has(key);
-                      const rtl = !isBadgeField && (!raw || hasHebrew(raw));
+                      const isAtomic = PERSON_BADGE_FIELDS.has(key) || TEAM_BADGE_FIELDS.has(key)
+                        || key === 'id' || key === 'status' || key === 'severity' || key === 'priority' || key === 'secondaryPriority';
+                      const valRtl = !isAtomic && (!raw || hasHebrew(raw));
                       return (
-                        <div key={key} style={{ direction: rtl ? 'rtl' : 'ltr', textAlign: rtl ? 'right' : 'left' }}>
-                          {/* Label deliberately smaller than the 15px value
-                              (was TEXT.xs = 16px, actually LARGER than the
-                              value — this app's TEXT scale starts at 16px,
-                              not the usual 11-12px "extra small" — found
-                              2026-09-03 chasing the same uniform-font-size
-                              request). */}
-                          <span style={{ fontSize: '13px', color: C.textMuted }}>{DETAIL_FIELD_LABEL[key] ?? key}: </span>
-                          <span style={{ color: C.textPrimary, fontWeight: WEIGHT.semibold }}>{renderFieldValue(key, detail[key])}</span>
+                        <div key={key} style={{ display: 'grid', gridTemplateColumns: 'minmax(58px, 36%) 1fr', gap: '8px', alignItems: 'start' }}>
+                          <span style={{ fontSize: '13px', color: C.textMuted, textAlign: 'right', paddingTop: '2px' }}>
+                            {DETAIL_FIELD_LABEL[key] ?? key}
+                          </span>
+                          <span style={{
+                            fontSize: '15px', color: C.textPrimary, fontWeight: WEIGHT.semibold, minWidth: 0,
+                            display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', gap: '4px',
+                            direction: valRtl ? 'rtl' : 'ltr', textAlign: 'right', wordBreak: 'break-word',
+                          }}>
+                            {renderFieldValue(key, detail[key])}
+                          </span>
                         </div>
                       );
                     })}
                   </div>
-                </Card>
-              ))}
+                </div>
+              ));
+            })()}
 
-            {/* ── תיאור והערות — זה לצד זה; הערות מפורקות לכותרת+גוף (renderNotesField) ── */}
-            {(showDescription || showNotes) && (
-              <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
-                {showDescription && (
-                  <Card style={{ flex: '1 1 320px', minWidth: '320px' }}>
-                    <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '8px' }}>{DETAIL_FIELD_LABEL.description ?? 'תיאור'}</div>
-                    <div style={{
-                      fontSize: '15px', color: C.textPrimary, direction: 'rtl', textAlign: 'right',
-                      whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.6,
-                      minHeight: '120px', maxHeight: '360px', overflowY: 'auto',
-                      background: C.bgNested, borderRadius: RADIUS.md, padding: '12px 14px',
-                    }}>
-                      {detail.description === null || detail.description === undefined || detail.description === '' ? '—' : String(detail.description)}
-                    </div>
-                  </Card>
-                )}
-                {showNotes && (
-                  <Card style={{ flex: '1 1 320px', minWidth: '320px' }}>
-                    <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '8px' }}>{DETAIL_FIELD_LABEL.notes ?? 'הערות'}</div>
-                    <div style={{
-                      fontSize: '15px', lineHeight: 1.6,
-                      minHeight: '120px', maxHeight: '360px', overflowY: 'auto',
-                      background: C.bgNested, borderRadius: RADIUS.md, padding: '12px 14px',
-                    }}>
-                      {renderNotesField(detail.notes)}
-                    </div>
-                  </Card>
-                )}
-              </div>
-            )}
-
-            {/* ── קבצים מצורפים — נשלף מ-QC בזמן אמת, לא נשמר עותק מקומי ── */}
-            <Card>
+            {/* קבצים מצורפים — האינדיקציה + הרשימה בתוך החלונית */}
+            <div style={{ padding: '0 14px 12px' }}>
               <AttachmentsSection defectId={defectId} token={token} />
-            </Card>
+            </div>
 
-            {/* ── היסטוריית שינויים — אותו רכיב משותף כמו טופס TARGET ── */}
-            <Card>
-              <FieldChangeHistorySection defectId={defectId} token={token} />
-            </Card>
-          </>
+            {/* היסטוריית שינויים — כפתור שפותח את הטבלה בחלון מודאלי */}
+            <div style={{ padding: '11px 14px', borderTop: `1px solid ${C.border}` }}>
+              <button
+                onClick={() => setHistoryModalOpen(true)}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONT, padding: 0,
+                  fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textSecondary,
+                }}
+              >
+                <span>🕘 היסטוריית שינויים</span>
+                <span aria-hidden style={{ color: C.textMuted }}>←</span>
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {historyModalOpen && (
+        <div
+          onClick={() => setHistoryModalOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: C.bgCard, borderRadius: RADIUS.lg, padding: '18px 20px', width: '760px', maxWidth: '96vw', maxHeight: '86vh', overflowY: 'auto', boxShadow: '0 20px 48px rgba(0,0,0,.25)', fontFamily: FONT, direction: 'rtl' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+              <div style={{ fontSize: '15px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>היסטוריית שינויים — תקלה {defectId}</div>
+              <button onClick={() => setHistoryModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: C.textMuted, lineHeight: 1 }}>✕</button>
+            </div>
+            <FieldChangeHistorySection defectId={defectId} token={token} defaultOpen />
+          </div>
+        </div>
       )}
 
       {showGroupsPicker && (

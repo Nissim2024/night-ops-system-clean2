@@ -475,7 +475,7 @@ export class QualityHubService {
         low: scoreRow.low,
       },
       // Computed live from the real, current QC defect list (same filter the
-      // "🐛 צפה בתקלות" drill-down uses) — shown alongside `severity` (the
+      // "🪲 צפה בתקלות" drill-down uses) — shown alongside `severity` (the
       // as-imported RELEASES_KPI_SCORES.xlsx columns) so the two can be
       // compared release-by-release before deciding to retire the imported
       // one. See kpiDefectFilters' investigation notes (2026-08-29): the

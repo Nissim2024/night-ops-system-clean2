@@ -59,7 +59,7 @@ export class QcRestService {
   private async resolveQcLogin(userId: string): Promise<string> {
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { qcLogin: true, fullName: true } });
     if (!user?.qcLogin) {
-      throw new BadRequestException('למשתמש שלך אין משתמש QC מקושר (qcLogin) — פנה למנהל המערכת כדי לסנכרן זאת מול QC.');
+      throw new BadRequestException('למשתמש שלך אין משתמש QC מקושר (qcLogin). מנהל מערכת יכול לקשר זאת ב: ניהול → משתמשים → עריכת המשתמש → שדה "QC Login", או להריץ "סנכרון משתמשי QC".');
     }
     return user.qcLogin;
   }
@@ -204,6 +204,53 @@ export class QcRestService {
         throw new BadRequestException(`עדכון התקלה ב-QC נכשל (status ${putRes.status}): ${String(putRes.data).slice(0, 500)}`);
       }
       return { newValue };
+    } finally {
+      await this.logout(config, cookie);
+    }
+  }
+
+  // Updates BG_STATUS (REST field "status") directly. Unlike appendComment
+  // (which only ever grows a low-risk free-text field), this writes a
+  // workflow-sensitive field, so: the new value is validated against the
+  // caller-supplied allowed list when given, the previous value is read first
+  // and returned for an undo/confirmation, and a stamped line is appended to
+  // dev-comments so the change is traceable in QC's own history too
+  // (spec 2026-09-07: "לאפשר לעדכן את שדה הסטטוס ... ישירות ב-QC").
+  async updateStatus(
+    defectId: string,
+    newStatus: string,
+    authorLabel: string,
+    userId: string,
+  ): Promise<{ oldStatus: string; newStatus: string }> {
+    if (!newStatus?.trim()) throw new BadRequestException('יש לבחור סטטוס');
+    const config = await this.getConfig();
+    const qcLogin = await this.resolveQcLogin(userId);
+    const cookie = await this.loginAsUser(config, qcLogin);
+    try {
+      const getRes = await axios.get(this.entityUrl(config, defectId), {
+        headers: { Cookie: cookie, Accept: 'application/xml' },
+        validateStatus: () => true,
+      });
+      if (getRes.status === 404) throw new BadRequestException(`תקלה ${defectId} לא נמצאה ב-QC`);
+      if (getRes.status !== 200) throw new BadRequestException(`שגיאה בקריאת תקלה מ-QC (status ${getRes.status})`);
+      const fields = parseFields(getRes.data);
+      const oldStatus = fields[REST_FIELD.status] ?? '';
+      if (oldStatus === newStatus.trim()) return { oldStatus, newStatus: oldStatus };
+
+      const currentComments = fields[COMMENT_FIELD] ?? '';
+      const stamp = `[DeployCenter · ${authorLabel} · ${new Date().toLocaleString('he-IL')}]`;
+      const auditLine = `${stamp}\nסטטוס עודכן: "${oldStatus}" ← "${newStatus.trim()}"`;
+      const mergedComments = currentComments ? `${currentComments}\n---\n${auditLine}` : auditLine;
+
+      const putRes = await axios.put(
+        this.entityUrl(config, defectId),
+        buildFieldsPayload({ [REST_FIELD.status]: newStatus.trim(), [COMMENT_FIELD]: mergedComments }),
+        { headers: { Cookie: cookie, 'Content-Type': 'application/xml', Accept: 'application/xml' }, validateStatus: () => true },
+      );
+      if (putRes.status >= 300) {
+        throw new BadRequestException(`עדכון סטטוס התקלה ב-QC נכשל (status ${putRes.status}): ${String(putRes.data).slice(0, 500)}`);
+      }
+      return { oldStatus, newStatus: newStatus.trim() };
     } finally {
       await this.logout(config, cookie);
     }

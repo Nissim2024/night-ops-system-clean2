@@ -1172,7 +1172,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         {(
           <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ margin: 0, color: C.textPrimary, fontSize: '16px' }}>🐛 תקלות שדווחו (QC)</h3>
+              <h3 style={{ margin: 0, color: C.textPrimary, fontSize: '16px' }}>🪲 תקלות שדווחו (QC)</h3>
               {qcMock ? (
                 <span style={{ fontSize: '13px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
               ) : (
@@ -1604,7 +1604,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
             {(
               <div style={{ marginBottom: '20px' }}>
                 <h3 style={{ color: '#1a2332', margin: '0 0 12px', fontSize: '17px', borderRight: '4px solid #9b59b6', paddingRight: '10px' }}>
-                  🐛 תקלות שדווחו (QC)
+                  🪲 תקלות שדווחו (QC)
                   {qcMock && <span style={{ fontSize: '13px', color: '#e67e22', marginRight: '8px', fontWeight: 'normal' }}>נתוני Mock</span>}
                 </h3>
                 {defects.length === 0 ? (

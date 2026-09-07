@@ -125,6 +125,12 @@ export class QcController {
     return this.qcRestService.appendComment(id, note, req.user.email ?? req.user.sub ?? 'DeployCenter', req.user.sub);
   }
 
+  @Patch('rest-test/defect/:id/status')
+  async updateRestStatus(@Request() req: any, @Param('id') id: string, @Body('status') status: string) {
+    await this.requireQcWrite(req);
+    return this.qcRestService.updateStatus(id, status, req.user.email ?? req.user.sub ?? 'DeployCenter', req.user.sub);
+  }
+
   // ── Defect attachments (spec confirmed 2026-09-03) — read-only, so no
   // action:qc_write gate: any authenticated user with a linked qcLogin can
   // view/download whatever their own QC account is allowed to see (access

@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { flushSync } from 'react-dom';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, severityColor, severityBg, severityLabel } from '../../theme';
-import { CyclesPanel, CycleProgress, CycleTimelineItem } from './CycleProgressView';
+import { CyclesPanel, CycleProgress } from './CycleProgressView';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
 import { KpiTile, RiskRow } from '../HomeDashboard';
 import { DefectIdBadge } from '../shared/defectFieldDisplay';
@@ -457,14 +456,14 @@ interface Overview {
   daysToGoLive: number | null; forecastStatus: ForecastStatusValue;
   forecastPace: ForecastPace | null; forecastDefectRate: ForecastDefectRate | null;
   qgSummary: Record<string, { count: number; threshold: number }>; qgPass: boolean;
-  topRisks: { id: string; title: string; severity: string }[];
+  topRisks: { id: string; title: string; severity: string; status: string; mitigation: string | null }[];
   blockedCrs: BlockedCr[];
   overdueUnstartedCrs: OverdueUnstartedCr[];
   worstCr: { crNumber: string; count: number } | null;
   oldestCriticalDefectAgeDays: number | null;
   reviewMeetingTime: string | null;
 }
-interface DefectRow { id: string; title: string; severity: string; status: string; discoveryDate: string; }
+interface DefectRow { id: string; title: string; severity: string; status: string; discoveryDate: string; targetRelease?: string; }
 interface CrAssignmentRow { id: string; crNumber: string; crLabel: string | null; qaArrivalDate: string | null; qaReceived: boolean; }
 interface TeamPlanStatusRow { teamId: string; teamName: string; total: number; draft: number; submitted: number; returned: number; approved: number; allDone: boolean; }
 interface CrQualityRow { crNumber: string; crLabel: string; defectCount: number; actualEffortDays: number; score: number; meetsTarget: boolean; }
@@ -473,7 +472,6 @@ interface CrQualityRow { crNumber: string; crLabel: string; defectCount: number;
 // target" when score <= CR_QUALITY_TARGET — same constant and formula as
 // release-intelligence.service.ts's getCrQualityScores (spec confirmed
 // 2026-09-01).
-const CR_QUALITY_TARGET = 0.15;
 
 type Urgency = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 interface VersionNotice { id: string; text: string; urgency: Urgency; createdAt: string; creator?: { fullName: string } }
@@ -484,24 +482,19 @@ const FORECAST_LABEL: Record<string, { label: string; color: string }> = {
   BEHIND_PLAN: { label: 'בחריגה', color: C.danger },
 };
 
-// Coverage KpiTile's sub-line — was a flat "≥80% good / else partial"
-// threshold, which says nothing about whether that number is actually enough
-// time-wise. Reuses forecastPace (already computed for the separate Forecast
-// tile, no extra fetch) so the same % reads differently with 2 days left vs
-// 2 hours left. Priority: blocked CRs (most actionable) > overdue-unstarted
-// CRs > pace-aware explanation > flat threshold fallback (no active cycle to
-// pace against).
-function coverageExplanation(o: Overview): { text: string; tone: 'ok' | 'warn' } {
-  if (o.blockedCrs.length > 0) return { text: `⛔ חסימה ב-${o.blockedCrs.length} CR-ים`, tone: 'warn' };
+
+// Terse pace chip for the Coverage KpiTile sub-line (spec section 2, 2026-09-07):
+// just "✓ בקצב" / "⚠ …". The detailed pace text + blocked/overdue CR triage
+// stay reachable via the card's click-to-expand footer.
+function coverageShort(o: Overview): { text: string; tone: 'ok' | 'warn' } {
+  if (o.blockedCrs.length > 0) return { text: `⛔ ${o.blockedCrs.length} CR-ים חסומים`, tone: 'warn' };
   if (o.overdueUnstartedCrs.length > 0) return { text: `⚠ ${o.overdueUnstartedCrs.length} CR-ים בפיגור התחלה`, tone: 'warn' };
-  const pace = o.forecastPace;
-  if (pace) {
-    const label = FORECAST_LABEL[pace.status]?.label ?? pace.status;
-    if (pace.status === 'ON_TRACK') return { text: `✓ ${label} — ${o.coveragePct}% כיסוי`, tone: 'ok' };
-    if (pace.status === 'AT_RISK') return { text: `⚠ ${label} — נותרו ${pace.remainingScenarios} תרחישים`, tone: 'warn' };
-    return { text: `⛔ ${label} — לא צפוי להספיק ${pace.isLastCycle ? 'עד עלייה לאוויר' : 'עד סוף הסבב'}`, tone: 'warn' };
+  if (!o.forecastPace) return o.coveragePct >= 80 ? { text: '✓ כיסוי תקין', tone: 'ok' } : { text: '⚠ כיסוי חלקי', tone: 'warn' };
+  switch (o.forecastStatus) {
+    case 'ON_TRACK': return { text: '✓ בקצב', tone: 'ok' };
+    case 'AT_RISK': return { text: '⚠ בסיכון לעמידה ביעד', tone: 'warn' };
+    default: return { text: '⚠ בפיגור מול הקצב', tone: 'warn' };
   }
-  return o.coveragePct >= 80 ? { text: '✓ כיסוי תקין', tone: 'ok' } : { text: '⚠ כיסוי חלקי', tone: 'warn' };
 }
 const CYCLE_LABEL: Record<string, string> = {
   CYCLE_1: 'סבב 1', CYCLE_2: 'סבב 2', CYCLE_3: 'סבב 3',
@@ -516,25 +509,7 @@ const HEALTH_REC: Record<HealthRecommendation, { label: string; color: string }>
   CONDITIONAL_GO: { label: 'GO בתנאים', color: '#e8af00' },
   NO_GO: { label: 'NO-GO', color: C.danger },
 };
-const HEALTH_PART_LABEL: Record<keyof HealthBreakdown, string> = {
-  coverageScore: 'כיסוי', qualityScore: 'תקלות', riskScore: 'סיכונים', forecastScore: 'תחזית',
-};
 
-// Always shown under the health number — a blended average hides which axis is
-// low, so the 4 parts travel with it.
-function HealthBreakdownList({ b }: { b: HealthBreakdown }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-      <div style={{ fontWeight: WEIGHT.semibold, color: C.textSecondary }}>מרכיבי המדד (ממוצע פשוט של 4):</div>
-      {(Object.keys(HEALTH_PART_LABEL) as (keyof HealthBreakdown)[]).map(k => (
-        <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
-          <span>{HEALTH_PART_LABEL[k]}</span>
-          <span style={{ fontVariantNumeric: 'tabular-nums' as const, fontWeight: WEIGHT.semibold, color: b[k] < 50 ? C.danger : b[k] < 80 ? C.warning : C.textMuted }}>{b[k]}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // qgSummary's keys (computeQgSummary, release-intelligence.service.ts) →
 // display label + severity color, for the Quality Gate card's open-defects-
@@ -546,179 +521,37 @@ const QG_SEVERITY_META: Record<string, { label: string; color: string }> = {
   low: { label: 'Low', color: C.textMuted },
 };
 
-// Small horizontal bar per severity — open-defects count vs its QG
-// threshold, red when over threshold. Lives in the Quality Gate KpiTile's
-// footer slot.
-function SeverityMiniChart({ qgSummary, onClick }: { qgSummary: Record<string, { count: number; threshold: number }>; onClick?: () => void }) {
-  const entries = Object.entries(qgSummary).filter(([key]) => QG_SEVERITY_META[key]);
-  const max = Math.max(1, ...entries.map(([, v]) => v.count));
-  // stopPropagation — this chart sits inside the Quality Gate KpiTile, which
-  // has its own onClick (navigates to cycle-progress); without this, a click
-  // on the chart would fire both handlers and the card's own onClick would
-  // win, silently overriding the chart's own destination.
+
+// One compact line of open-defects-by-severity counts for the תקלות KpiTile —
+// "Show Stopper 1 · Severe 3 · Medium 11 · Low 6", no thresholds (the
+// count-vs-threshold view isn't shown anywhere else anymore; PASS/FAIL on the
+// readiness card carries the gate verdict). Non-zero Show Stopper/Severe go
+// red+bold (spec 2026-09-07).
+function SeverityCountLine({ qgSummary }: { qgSummary: Record<string, { count: number; threshold: number }> }) {
+  // Only the non-zero severities — keeps it to one short line in a ~180px card
+  // (spec example: "3 Severe · 11 Medium · 6 Low").
+  const entries = Object.entries(qgSummary).filter(([k, v]) => QG_SEVERITY_META[k] && v.count > 0);
+  if (entries.length === 0) return <span style={{ ...TEXT.xs, color: C.textMuted }}>אין תקלות פתוחות</span>;
   return (
-    <div
-      onClick={e => { if (onClick) { e.stopPropagation(); onClick(); } }}
-      style={{ display: 'flex', flexDirection: 'column', gap: '4px', cursor: onClick ? 'pointer' : 'default' }}
-    >
-      {entries.map(([key, v]) => {
-        const meta = QG_SEVERITY_META[key];
-        const over = v.count > v.threshold;
+    <div style={{ ...TEXT.xs, color: C.textMuted, display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '4px 8px' }}>
+      {entries.map(([k, v]) => {
+        const strong = k === 'showStopper' || k === 'severe';
         return (
-          <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            {/* No fixed width here (was 72px, silently squeezed "Show
-                Stopper" in a narrow card — found 2026-09-02) — the label
-                sizes to its own content and never shrinks; the bar next to
-                it absorbs whatever space is left instead. */}
-            <span style={{ ...TEXT.xs, color: C.textMuted, flexShrink: 0, whiteSpace: 'nowrap' as const }}>{meta.label}</span>
-            <div style={{ flex: 1, minWidth: '24px', height: '8px', background: C.bgNested, borderRadius: RADIUS.sm, overflow: 'hidden' }}>
-              <div style={{ width: `${(v.count / max) * 100}%`, height: '100%', background: meta.color, borderRadius: RADIUS.sm }} />
-            </div>
-            <span style={{ ...TEXT.xs, fontWeight: over ? WEIGHT.bold : WEIGHT.normal, color: over ? C.danger : C.textPrimary, minWidth: '36px', textAlign: 'left' as const, flexShrink: 0, whiteSpace: 'nowrap' as const }}>{v.count}/{v.threshold}</span>
-          </div>
+          <span key={k} style={{ whiteSpace: 'nowrap' as const }}>
+            <span style={{ fontWeight: strong ? WEIGHT.bold : WEIGHT.semibold, color: strong ? C.danger : C.textPrimary }}>{v.count}</span>
+            {' '}{QG_SEVERITY_META[k].label}
+          </span>
         );
       })}
     </div>
   );
 }
 
-// Per-cycle success% vs its own QG target — lives in the Quality Gate
-// KpiTile's footer, above the severity mini chart. Answers "בכל סבב" (every
-// cycle) literally: one row per cycle in the timeline, including cycles with
-// no data yet, so the card reads the same list CyclesPanel shows above it
-// but reduced to just the pass/fail number (spec confirmed 2026-09-01).
-function CycleSuccessMiniList({ timeline, onClick }: { timeline: CycleTimelineItem[]; onClick?: () => void }) {
-  return (
-    <div
-      onClick={e => { if (onClick) { e.stopPropagation(); onClick(); } }}
-      style={{ display: 'flex', flexDirection: 'column', gap: '3px', cursor: onClick ? 'pointer' : 'default' }}
-    >
-      {timeline.map(c => {
-        const hasData = c.successPct != null && c.qgTargetPct != null;
-        const met = hasData && (c.successPct as number) >= (c.qgTargetPct as number);
-        const color = !hasData ? C.textMuted : met ? C.success : C.danger;
-        return (
-          <div key={c.cycleType} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
-            <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap' as const }}>{CYCLE_LABEL[c.cycleType] ?? c.cycleType}</span>
-            <span style={{ ...TEXT.xs, fontWeight: hasData ? WEIGHT.semibold : WEIGHT.normal, color, whiteSpace: 'nowrap' as const }}>
-              {hasData ? `${c.successPct}% / יעד ${c.qgTargetPct}%` : 'אין נתונים'}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
-// Blocked-CR list — lives in the Coverage KpiTile's footer slot, toggled by
-// clicking the card itself (spec confirmed 2026-09-02). Each CR shows how
-// many scripts are blocked in which core cycle, plus any open Test
-// Blocker-priority defect titles found for it as the "why" — a best-effort
-// match, not a guaranteed link, so a CR can legitimately show 0 reason
-// defects even while blocked.
-function BlockedCrsList({ rows }: { rows: { crNumber: string; crLabel: string; cycleType: string; blockedCount: number; reasonDefects: { id: string; title: string }[] }[] }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }} onClick={e => e.stopPropagation()}>
-      {rows.map(r => (
-        <div key={`${r.crNumber}-${r.cycleType}`} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-            <span style={{ ...TEXT.xs, color: C.textPrimary, fontWeight: WEIGHT.semibold, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
-              {r.crNumber}{r.crLabel ? ` — ${r.crLabel.replace(/^\d+\s*-\s*/, '')}` : ''}
-            </span>
-            <span style={{ ...TEXT.xs, color: C.danger, fontWeight: WEIGHT.bold, flexShrink: 0 }}>{r.blockedCount} חסומים · {CYCLE_LABEL[r.cycleType] ?? r.cycleType}</span>
-          </div>
-          {r.reasonDefects.length > 0 ? (
-            r.reasonDefects.map(d => (
-              <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', ...TEXT.xs, color: C.textMuted, paddingRight: '4px' }}>↳ <DefectIdBadge id={d.id} /> {d.title}</div>
-            ))
-          ) : (
-            <div style={{ ...TEXT.xs, color: C.textMuted, paddingRight: '4px' }}>↳ לא נמצאה תקלת Test Blocker מקושרת</div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
 
-// Overdue-unstarted CRs — lives in the Coverage KpiTile's footer slot, same
-// toggle pattern as BlockedCrsList. Each row shows how long it's been overdue
-// (today minus its tester's own planned slot), since "overdue" without a
-// magnitude is hard to prioritize at a glance.
-function OverdueUnstartedCrsList({ rows }: { rows: OverdueUnstartedCr[] }) {
-  const now = Date.now();
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }} onClick={e => e.stopPropagation()}>
-      {rows.map(r => {
-        const overdueDays = Math.max(0, Math.floor((now - new Date(r.plannedStart).getTime()) / 86400000));
-        return (
-          <div key={r.crNumber} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-            <span style={{ ...TEXT.xs, color: C.textPrimary, fontWeight: WEIGHT.semibold, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
-              {r.crNumber}{r.crLabel ? ` — ${r.crLabel.replace(/^\d+\s*-\s*/, '')}` : ''}
-            </span>
-            <span style={{ ...TEXT.xs, color: C.danger, fontWeight: WEIGHT.bold, flexShrink: 0 }}>
-              {overdueDays > 0 ? `${overdueDays} ימי איחור` : 'התור הגיע היום'}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
-const FORECAST_STATUS_ICON: Record<ForecastStatusValue, string> = { ON_TRACK: '✓', AT_RISK: '⚠', BEHIND_PLAN: '⛔' };
-const FORECAST_STATUS_COLOR: Record<ForecastStatusValue, string> = { ON_TRACK: C.success, AT_RISK: C.warning, BEHIND_PLAN: C.danger };
 
-// Two independent forecast checks shown as two separate lines in the
-// Forecast KpiTile's footer (spec confirmed 2026-09-02) — deliberately not
-// merged into one status, since a healthy pace and an unhealthy defect
-// trend (or vice versa) are two different problems needing two different
-// reactions.
-function ForecastChecksList({ pace, defectRate }: { pace: ForecastPace | null; defectRate: ForecastDefectRate | null }) {
-  if (!pace && !defectRate) return null;
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-      {pace && (
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-          <span style={{ color: FORECAST_STATUS_COLOR[pace.status] }}>{FORECAST_STATUS_ICON[pace.status]}</span>
-          <span style={{ ...TEXT.xs, color: C.textMuted }}>
-            קצב {CYCLE_LABEL[pace.cycleType] ?? pace.cycleType}: {pace.remainingScenarios} תרחישים נותרו (~{pace.hoursRequired} ש׳) מול {Math.max(0, pace.hoursRemaining)} ש׳ עד {pace.isLastCycle ? 'לעלייה לאוויר' : 'לסיום הסבב'}
-          </span>
-        </div>
-      )}
-      {defectRate && (
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-          <span style={{ color: FORECAST_STATUS_COLOR[defectRate.status] }}>{FORECAST_STATUS_ICON[defectRate.status]}</span>
-          <span style={{ ...TEXT.xs, color: C.textMuted }}>
-            קצב תיקון תקלות: {defectRate.openDefects} פתוחות מול יכולת משוערת {defectRate.expectedFixable} (קצב היסטורי {defectRate.avgFixesPerDay}/יום, {defectRate.sampleVersions} גרסאות)
-          </span>
-        </div>
-      )}
-    </div>
-  );
-}
 
-// Failing-CR list — lives in the CR-quality KpiTile's footer slot, toggled by
-// clicking the card itself. Each row is its own click target (opens that
-// CR's defect list), separate from the card's own onClick (spec confirmed
-// 2026-09-01).
-function CrQualityList({ rows, onSelectCr }: { rows: CrQualityRow[]; onSelectCr: (crNumber: string) => void }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-      {rows.map(r => (
-        <div
-          key={r.crNumber}
-          onClick={e => { e.stopPropagation(); onSelectCr(r.crNumber); }}
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', cursor: 'pointer', padding: '3px 0' }}
-        >
-          <span style={{ ...TEXT.xs, color: C.brand, fontWeight: WEIGHT.semibold, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
-            {r.crNumber}{r.crLabel ? ` — ${r.crLabel}` : ''}
-          </span>
-          <span style={{ ...TEXT.xs, color: C.danger, fontWeight: WEIGHT.bold, flexShrink: 0 }}>{r.score.toFixed(2)}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 interface Props { token: string; versionId?: string; versionName?: string; role: string; fullName: string; onNavigate?: (view: string) => void; }
 
@@ -744,13 +577,10 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
   const [loading, setLoading] = useState(false);
   const [agingDrilldown, setAgingDrilldown] = useState(false);
   const [showStopperDrilldown, setShowStopperDrilldown] = useState(false);
+  const [movedDrilldown, setMovedDrilldown] = useState(false);
   const [notReceivedExpanded, setNotReceivedExpanded] = useState(false);
   const [teamPlansExpanded, setTeamPlansExpanded] = useState(false);
   const [crQualityExpanded, setCrQualityExpanded] = useState(false);
-  const [blockedCrsExpanded, setBlockedCrsExpanded] = useState(false);
-  const [overdueUnstartedExpanded, setOverdueUnstartedExpanded] = useState(false);
-  const [healthExpanded, setHealthExpanded] = useState(false);
-  const [crQualityDrilldown, setCrQualityDrilldown] = useState<CrQualityRow | null>(null);
 
   const [addingNotice, setAddingNotice] = useState(false);
   const [editingNoticeId, setEditingNoticeId] = useState<string | null>(null);
@@ -773,9 +603,7 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
 
   const handleCopyToEmail = async () => {
     if (!rootRef.current || !versionId) return;
-    const wasExpanded = healthExpanded;
     try {
-      flushSync(() => setHealthExpanded(true)); // force the 4-part breakdown into the DOM before cloning
       const base = (appUrl || window.location.origin).replace(/\/+$/, '');
       const href = `${base}/?go=ri-home&versionId=${encodeURIComponent(versionId)}`;
       const reportTitle = versionName ? `סטטוס בדיקות גרסה ${versionName}` : 'סטטוס בדיקות גרסה';
@@ -789,14 +617,26 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
       // KPIs + the "סיכונים ופעילויות" strip; each line is dropped when its
       // data isn't relevant (no alert, nothing overdue, no meeting set).
       const rmt = overview?.reviewMeetingTime ? new Date(overview.reviewMeetingTime) : null;
+      const RISK_SEV_HE: Record<string, string> = { CRITICAL: 'קריטי', HIGH: 'גבוה', MEDIUM: 'בינוני', LOW: 'נמוך' };
       const alertLines = [
+        ...(overview?.topRisks ?? []).map(r =>
+          `• [סיכון ${RISK_SEV_HE[r.severity] ?? r.severity}${r.status === 'MITIGATED' ? ', בטיפול' : ''}] ${r.title}`),
         aging && aging.count > 0
           ? `• ${aging.count} תקלות חורגות מזמן הטיפול (ממוצע חריגה: ${aging.avgOverageDays} ימים)` : '',
         ...cyclesEndingSoonUnmet.map(c =>
           `• ${CYCLE_LABEL[c.cycleType] ?? c.cycleType} עומד להסתיים וטרם עומד ביעד (${c.successPct}% מתוך ${c.qgTargetPct}%)`),
         overdueArrivalCrs.length > 0 ? `• ${overdueArrivalCrs.length} CR-ים חורגים ממועד הקבלה ל-QA` : '',
-        teamsNotSubmitted.length > 0 ? `• ${teamsNotSubmitted.length} צוותים טרם השלימו הגשת תוכניות CR` : '',
-        rmt ? `• ישיבת סקירה: ${rmt.toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : '',
+        (() => {
+          const parts: string[] = [];
+          if (rmt) {
+            const a = new Date(); a.setHours(0, 0, 0, 0);
+            const b = new Date(rmt); b.setHours(0, 0, 0, 0);
+            const off = Math.round((b.getTime() - a.getTime()) / 86_400_000);
+            if (Math.abs(off) <= 1) parts.push(off === 1 ? 'מחר תתקיים ישיבת סקירה' : off === 0 ? 'היום מתקיימת ישיבת סקירה' : 'אתמול התקיימה ישיבת סקירה');
+          }
+          if (teamsNotSubmitted.length > 0) parts.push(`${teamsNotSubmitted.length} צוותים טרם הגישו תוכנית CR`);
+          return parts.length ? `• ${parts.join(' · ')}` : '';
+        })(),
       ].filter(Boolean);
       const text = [
         reportTitle,
@@ -825,7 +665,6 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
       console.error('Failed to copy Home to email', e);
       setCopyState('error');
     } finally {
-      if (!wasExpanded) setHealthExpanded(false);
       window.setTimeout(() => setCopyState('idle'), 3000);
     }
   };
@@ -933,16 +772,30 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
   }
 
   const forecast = overview ? FORECAST_LABEL[overview.forecastStatus] : null;
-  const worstQgBucket = overview
-    ? Object.entries(overview.qgSummary).sort((a, b) => (b[1].count - b[1].threshold) - (a[1].count - a[1].threshold))[0]
-    : null;
 
-  const openDefectsCount = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status)).length;
+  // Defects deferred to a later release (Target set) were analysed and pushed
+  // out — they aren't a risk to this version, so they're kept out of the
+  // headline count and surfaced separately (spec 2026-09-07 §1).
+  const openDefects = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
+  const movedToNextCount = openDefects.filter(d => !!(d.targetRelease || '').trim()).length;
+  const openDefectsCount = openDefects.length - movedToNextCount;
   const reviewMeeting = overview?.reviewMeetingTime ? new Date(overview.reviewMeetingTime) : null;
-  const hoursToReview = reviewMeeting ? (reviewMeeting.getTime() - Date.now()) / 3_600_000 : null;
+  // Calendar-day offset of the review meeting (-1 = yesterday, 0 = today,
+  // 1 = tomorrow). Scheduled notices only show in the [day before .. day
+  // after] window; past-event text disappears after +1 day (spec 2026-09-07
+  // §3a/§3c).
+  const reviewDayOffset = reviewMeeting ? (() => {
+    const a = new Date(); a.setHours(0, 0, 0, 0);
+    const b = new Date(reviewMeeting); b.setHours(0, 0, 0, 0);
+    return Math.round((b.getTime() - a.getTime()) / 86_400_000);
+  })() : null;
+  const reviewInWindow = reviewDayOffset != null && Math.abs(reviewDayOffset) <= 1;
+  // §3b — one row unifies "review-meeting status" + "teams that still owe a CR plan".
+  const showReviewSubmitRow = reviewInWindow || teamsNotSubmitted.length > 0;
   const alertCount = (aging && aging.count > 0 ? 1 : 0) + cyclesEndingSoonUnmet.length
     + (showStoppersToday.length > 0 ? 1 : 0) + (overdueArrivalCrs.length > 0 ? 1 : 0)
-    + (teamsNotSubmitted.length > 0 ? 1 : 0) + (reviewMeeting ? 1 : 0);
+    + (showReviewSubmitRow ? 1 : 0)
+    + (overview?.topRisks.length ?? 0);
 
   return (
     <div ref={rootRef} style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
@@ -970,122 +823,83 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
         )}
       </div>
 
-      {/* ── Hero area — the cycles panel, reused as-is with its countdown clock ── */}
-      {cycleData && <CyclesPanel data={cycleData} token={token} versionId={versionId} />}
-
-      {/* ── תמונת מצב — the exact same KpiTile card used on the general Home
-          page, one per area of this module instead of one per app module
-          (spec confirmed 2026-08-31). ── */}
+      {/* ── תמונת מצב — 5-card ribbon, above the cycles panel (spec 2026-09-07).
+          Each card is a pure at-a-glance indicator; drill-downs live on the
+          dedicated screens. ── */}
       {overview && (
         <div>
           <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: '4px 0 -4px' }}>תמונת מצב</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '12px', marginTop: '12px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(178px, 1fr))', gap: '12px', marginTop: '12px' }}>
+            {/* מוכנות + Quality Gate PASS/FAIL as its sub-line (no 4-part breakdown) */}
             <KpiTile
-              icon="🩺" accent={HEALTH_REC[overview.healthRecommendation].color} moduleLabel="מדד מוכנות הגרסה"
+              icon="🩺" accent={HEALTH_REC[overview.healthRecommendation].color} moduleLabel="מדד מוכנות"
               moduleLabelColor={C.moduleTracking}
               value={String(overview.healthScore)} label={HEALTH_REC[overview.healthRecommendation].label}
-              footer={healthExpanded ? <HealthBreakdownList b={overview.healthBreakdown} /> : null}
-              onClick={() => setHealthExpanded(v => !v)}
+              sub={overview.qgPass ? '✓ Quality Gate: PASS' : '✗ Quality Gate: FAIL'}
+              subTone={overview.qgPass ? 'ok' : 'warn'}
             />
+            {/* כיסוי — % + progress bar, no parenthetical label */}
             <KpiTile
               icon="✅" accent={C.moduleTracking} moduleLabel="כיסוי בדיקות"
-              value={`${overview.coveragePct}%`} label={`עברו+נכשלו מסך התרחישים (סבבים 1-3)`}
-              sub={coverageExplanation(overview).text}
-              subTone={coverageExplanation(overview).tone}
-              onClick={() => {
-                if (overview.blockedCrs.length > 0) return setBlockedCrsExpanded(v => !v);
-                if (overview.overdueUnstartedCrs.length > 0) return setOverdueUnstartedExpanded(v => !v);
-                onNavigate?.('coverage-readiness');
-              }}
+              value={`${overview.coveragePct}%`} label=""
+              sub={coverageShort(overview).text}
+              subTone={coverageShort(overview).tone}
+              onClick={() => onNavigate?.('coverage-readiness')}
               footer={
-                (blockedCrsExpanded && overview.blockedCrs.length > 0) || (overdueUnstartedExpanded && overview.overdueUnstartedCrs.length > 0) ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {blockedCrsExpanded && overview.blockedCrs.length > 0 && <BlockedCrsList rows={overview.blockedCrs} />}
-                    {overdueUnstartedExpanded && overview.overdueUnstartedCrs.length > 0 && <OverdueUnstartedCrsList rows={overview.overdueUnstartedCrs} />}
-                    {/* Escape hatch to the full requirement-level breakdown — the
-                        triage lists above only cover CRs with a problem, this
-                        is the whole picture (spec confirmed 2026-09-04). Same
-                        "עבור למסך ←" idiom RiskRow already uses on this page. */}
-                    <span
-                      onClick={e => { e.stopPropagation(); onNavigate?.('coverage-readiness'); }}
-                      style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.brand, cursor: 'pointer', paddingTop: '2px' }}
-                    >
-                      כל נתוני הכיסוי ←
-                    </span>
-                  </div>
-                ) : null
+                <div style={{ height: '6px', width: '100%', background: C.bgNested, borderRadius: RADIUS.sm, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${Math.max(0, Math.min(100, overview.coveragePct))}%`, background: overview.coveragePct >= 80 ? C.success : C.warning, borderRadius: RADIUS.sm }} />
+                </div>
               }
             />
+            {/* תקלות — total + critical + one compact severity line */}
             <KpiTile
               icon="🐞" accent={C.moduleTracking} moduleLabel="תקלות"
               value={String(openDefectsCount)} label="תקלות פתוחות"
               sub={overview.criticalDefects > 0 ? `⚠ ${overview.criticalDefects} קריטיות` : '✓ אין תקלות קריטיות'}
               subTone={overview.criticalDefects > 0 ? 'warn' : 'ok'}
-              // Leads to the Bug Dashboard (QC) — moved into this module
-              // earlier — not the older DefectsView (spec confirmed 2026-09-04).
               footer={
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {(overview.worstCr || overview.oldestCriticalDefectAgeDays != null) && (
-                    <div style={{ ...TEXT.xs, color: C.textMuted }}>
-                      {overview.worstCr && <>CR מוביל: <strong style={{ color: C.textPrimary }}>{overview.worstCr.crNumber}</strong> ({overview.worstCr.count} תקלות){overview.oldestCriticalDefectAgeDays != null ? ' · ' : ''}</>}
-                      {overview.oldestCriticalDefectAgeDays != null && <>קריטית ותיקה: {overview.oldestCriticalDefectAgeDays} ימים</>}
-                    </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                  <SeverityCountLine qgSummary={overview.qgSummary} />
+                  {movedToNextCount > 0 && (
+                    <span
+                      onClick={e => { e.stopPropagation(); setMovedDrilldown(true); }}
+                      style={{ ...TEXT.xs, color: C.brand, fontWeight: WEIGHT.semibold, cursor: 'pointer' }}
+                    >
+                      🔀 {movedToNextCount} תקלות הועברו לגרסה הבאה ←
+                    </span>
                   )}
-                  <SeverityMiniChart qgSummary={overview.qgSummary} onClick={() => onNavigate?.('bug-dashboard')} />
                 </div>
               }
               onClick={() => onNavigate?.('bug-dashboard')}
             />
-            <KpiTile
-              icon="⚠️" accent={C.moduleTracking} moduleLabel="סיכונים"
-              value={String(overview.openRisksCount)} label="סיכונים פתוחים"
-              sub={overview.topRisks[0] ? `⚠ ${overview.topRisks[0].title}` : '✓ אין סיכונים פתוחים'}
-              subTone={overview.openRisksCount > 0 ? 'warn' : 'ok'}
-              onClick={() => onNavigate?.('risks')}
-            />
-            {/* QG + Forecast tiles carry their full story in their own footers
-                (per-cycle targets, severity split, the two forecast checks) —
-                they deliberately don't navigate anywhere, and with no onClick
-                the card also drops its "←" affordance (spec 2026-09-05). */}
-            <KpiTile
-              icon="🚦" accent={C.moduleTracking} moduleLabel="Quality Gate"
-              value={overview.qgPass ? 'PASS' : 'FAIL'} label="סטטוס יעד איכות"
-              sub={worstQgBucket ? `${worstQgBucket[1].count > worstQgBucket[1].threshold ? '⚠' : '✓'} ${worstQgBucket[0]}: ${worstQgBucket[1].count}/${worstQgBucket[1].threshold}` : null}
-              subTone={overview.qgPass ? 'ok' : 'warn'}
-              footer={
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {cycleData && cycleData.timeline.length > 0 && (
-                    <>
-                      <CycleSuccessMiniList timeline={cycleData.timeline} />
-                      <div style={{ height: '1px', background: C.border }} />
-                    </>
-                  )}
-                  <SeverityMiniChart qgSummary={overview.qgSummary} />
-                </div>
-              }
-            />
+            {/* תחזית — days + terse pace chip only (calc text removed) */}
             <KpiTile
               icon="📈" accent={C.moduleTracking} moduleLabel="תחזית"
               value={overview.daysToGoLive != null ? String(overview.daysToGoLive) : '—'} label="ימים לעלייה לאוויר"
               sub={forecast ? `${overview.forecastStatus === 'ON_TRACK' ? '✓' : '⚠'} ${forecast.label}` : null}
               subTone={overview.forecastStatus === 'ON_TRACK' ? 'ok' : 'warn'}
-              footer={<ForecastChecksList pace={overview.forecastPace} defectRate={overview.forecastDefectRate} />}
             />
-            {/* score = Σ(defectCount × severityWeight) / actualEffortDays;
-                target ≤ 0.15 (spec confirmed 2026-09-01). Click toggles the
-                failing-CR list in the footer; each CR in that list is its own
-                click target that opens its defect list. */}
+            {/* סיכוני איכות — merged risks + CR-quality (both are release-risk mgmt) */}
             <KpiTile
-              icon="🎯" accent={C.moduleTracking} moduleLabel="איכות CR"
-              value={String(failingCrs.length)} label={`מתוך ${crQuality.length} CR-ים`}
-              sub={`יעד: ציון ≤ ${CR_QUALITY_TARGET}`}
-              subTone={failingCrs.length > 0 ? 'warn' : 'ok'}
-              onClick={() => setCrQualityExpanded(v => !v)}
-              footer={crQualityExpanded && failingCrs.length > 0 ? <CrQualityList rows={failingCrs} onSelectCr={crNumber => setCrQualityDrilldown(failingCrs.find(r => r.crNumber === crNumber) ?? null)} /> : null}
+              icon="⚠️"
+              accent={failingCrs.length > 0 ? C.danger : C.moduleTracking}
+              moduleLabel="סיכוני איכות" moduleLabelColor={C.moduleTracking}
+              value={String(overview.openRisksCount)} label="סיכונים פתוחים"
+              sideStat={{ icon: '🎯', value: `${failingCrs.length}/${crQuality.length}`, label: 'CR חורגים מיעד' }}
+              sub={
+                failingCrs.length > 0
+                  ? `⚠ ${failingCrs.length} CR-ים חורגים מיעד האיכות`
+                  : (overview.topRisks[0] ? `⚠ ${overview.topRisks[0].title}` : '✓ אין סיכונים פתוחים')
+              }
+              subTone={(overview.openRisksCount > 0 || failingCrs.length > 0) ? 'warn' : 'ok'}
+              onClick={() => onNavigate?.('risks')}
             />
           </div>
         </div>
       )}
+
+      {/* ── Hero area — the cycles panel, reused as-is with its countdown clock ── */}
+      {cycleData && <CyclesPanel data={cycleData} token={token} versionId={versionId} />}
 
       {/* ── רצועת הודעות והתראות — אותו רכיב בדיוק (RiskRow) ואותה עטיפה
           שדף הבית הכללי משתמש בהם לפיד הסיכונים/פעילויות שלו, לא חיקוי
@@ -1160,6 +974,25 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
         ) : null}
         </div>
 
+        {/* Non-closed ReleaseRisk rows — the actual risk register, worst
+            severity first. Was only surfaced as the tile's top-1 title teaser
+            before; now every open/mitigating one is listed (spec 2026-09-06). */}
+        {(overview?.topRisks ?? []).map(r => {
+          const sevLabel = { CRITICAL: 'קריטי', HIGH: 'גבוה', MEDIUM: 'בינוני', LOW: 'נמוך' }[r.severity] ?? r.severity;
+          const sevIcon = r.severity === 'CRITICAL' || r.severity === 'HIGH' ? '🔴' : r.severity === 'MEDIUM' ? '🟠' : '🟡';
+          return (
+            <RiskRow
+              key={r.id}
+              icon={sevIcon}
+              urgent={r.severity === 'CRITICAL' || r.severity === 'HIGH'}
+              module="release-intelligence"
+              title={r.title}
+              desc={`חומרה: ${sevLabel} · ${r.status === 'MITIGATED' ? 'בטיפול' : 'פתוח'}${r.mitigation ? ' · ' + r.mitigation : ' · טרם הוגדרה מיטיגציה'}`}
+              onClick={() => onNavigate?.('risks')}
+            />
+          );
+        })}
+
         {/* Computed alerts — aging defects, cycles about to close without
             meeting target, Show Stopper defects opened today, CRs not yet
             received for testing — same RiskRow every alert on the general
@@ -1192,38 +1025,38 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
           />
         )}
 
-        {/* Review meeting — a schedule fact, not a defect: shown whenever
-            it's set, urgent only inside the last 48h. */}
-        {reviewMeeting && (
-          <RiskRow
-            icon="🗓" module="release-intelligence"
-            urgent={hoursToReview != null && hoursToReview >= 0 && hoursToReview < 48}
-            title={
-              hoursToReview != null && hoursToReview < 0
-                ? `ישיבת הסקירה התקיימה — ${reviewMeeting.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })}`
-                : `ישיבת סקירה: ${reviewMeeting.toLocaleString('he-IL', { weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
-            }
-            desc={
-              hoursToReview != null && hoursToReview >= 0 && hoursToReview < 48
-                ? 'בתוך 48 השעות הקרובות — לוודא זמינות כלל המעורבים'
-                : 'מעבר על תוכניות ה-CR והיערכות הגרסה'
-            }
-          />
-        )}
-
-        {teamsNotSubmitted.length > 0 && (
-          <RiskRow
-            icon="👥" urgent module="release-intelligence"
-            title={`${teamsNotSubmitted.length} צוותים טרם השלימו הגשת תוכניות CR`}
-            desc="תוכנית ה-CR של הצוות עדיין בטיוטה או הוחזרה לתיקון"
-            detail={teamsNotSubmitted.map(t => {
-              const pending = t.draft + t.returned;
-              return `${t.teamName}${t.total > 0 ? ` — ${pending}/${t.total} ממתינות` : ' — טרם נפתחה תוכנית'}`;
-            })}
-            expanded={teamPlansExpanded}
-            onToggle={() => setTeamPlansExpanded(v => !v)}
-          />
-        )}
+        {/* §3b — review meeting + CR-plan submissions in one row. The meeting
+            part shows only within [yesterday .. tomorrow] (§3a/§3c), with
+            relative phrasing; the submissions part persists until every team
+            is done. */}
+        {showReviewSubmitRow && (() => {
+          const rd = reviewInWindow ? reviewDayOffset! : null;
+          const timeStr = reviewMeeting ? reviewMeeting.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '';
+          const meetingTitle =
+            rd === 1 ? `מחר (${timeStr}) תתקיים ישיבת סקירת הגרסה`
+            : rd === 0 ? `היום (${timeStr}) מתקיימת ישיבת סקירת הגרסה`
+            : rd === -1 ? 'אתמול התקיימה ישיבת סקירת הגרסה'
+            : null;
+          const nSub = teamsNotSubmitted.length;
+          const title = meetingTitle ?? `${nSub} צוותים טרם השלימו הגשת תוכניות CR`;
+          const descParts: string[] = [];
+          if (meetingTitle) descParts.push('מעבר על תוכניות ה-CR והיערכות הגרסה');
+          if (nSub > 0) descParts.push(`${nSub} צוותים טרם הגישו תוכנית CR${meetingTitle && rd !== -1 ? ' עד למועד הסקירה' : ''}`);
+          return (
+            <RiskRow
+              icon="🗓" module="release-intelligence"
+              urgent={rd === 0 || rd === 1 || nSub > 0}
+              title={title}
+              desc={descParts.join(' · ')}
+              detail={nSub > 0 ? teamsNotSubmitted.map(t => {
+                const pending = t.draft + t.returned;
+                return `${t.teamName}${t.total > 0 ? ` — ${pending}/${t.total} ממתינות` : ' — טרם נפתחה תוכנית'}`;
+              }) : undefined}
+              expanded={teamPlansExpanded}
+              onToggle={nSub > 0 ? () => setTeamPlansExpanded(v => !v) : undefined}
+            />
+          );
+        })()}
 
         {overdueArrivalCrs.length > 0 && (
           <RiskRow
@@ -1265,11 +1098,10 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
           title="תקלות Show Stopper פתוחות" onClose={() => setShowStopperDrilldown(false)}
         />
       )}
-      {crQualityDrilldown && (
+      {movedDrilldown && (
         <DefectDrilldownModal
-          token={token} versionId={versionId} screen="home" filter="crQuality" value={crQualityDrilldown.crNumber}
-          title={`תקלות CR ${crQualityDrilldown.crNumber}${crQualityDrilldown.crLabel ? ' — ' + crQualityDrilldown.crLabel : ''} (ציון: ${crQualityDrilldown.score.toFixed(2)})`}
-          onClose={() => setCrQualityDrilldown(null)}
+          token={token} versionId={versionId} screen="defects" filter="target-moved"
+          title="תקלות שהועברו לטיפול בגרסה הבאה" onClose={() => setMovedDrilldown(false)}
         />
       )}
     </div>

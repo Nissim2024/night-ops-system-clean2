@@ -1,21 +1,14 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { HomeDashboard, getDeploymentsTabForStatus } from './HomeDashboard';
-import { ReleaseIntelligenceOverview } from './release-intelligence/ReleaseIntelligenceOverview';
 import { RiskManagementView } from './release-intelligence/RiskManagementView';
 import { SuggestedRisksView } from './release-intelligence/SuggestedRisksView';
 import { ReleaseIntelligenceHomeView } from './release-intelligence/ReleaseIntelligenceHomeView';
 import { DailyQaManagementView } from './release-intelligence/DailyQaManagementView';
-import { CrHealthView } from './release-intelligence/CrHealthView';
 import { CoverageReadinessView } from './release-intelligence/CoverageReadinessView';
 import { CycleProgressView } from './release-intelligence/CycleProgressView';
-import { StatusBoardView } from './release-intelligence/StatusBoardView';
 import { TimelineActivitiesView } from './release-intelligence/TimelineActivitiesView';
-import { CapacityView } from './release-intelligence/CapacityView';
-import { ForecastTrackingView } from './release-intelligence/ForecastTrackingView';
-import { DefectsView } from './release-intelligence/DefectsView';
 import { ReopenAnalysisView } from './release-intelligence/ReopenAnalysisView';
-import { AlertsIntelligenceView } from './release-intelligence/AlertsIntelligenceView';
 import { GoNoGoView } from './release-intelligence/GoNoGoView';
 import { IncidentsView } from './release-intelligence/IncidentsView';
 import { OpenProdDefectsView } from './quality-hub/OpenProdDefectsView';
@@ -34,7 +27,6 @@ import { NightSummary } from './NightSummary';
 import { RehearsalBoardView } from './RehearsalBoardView';
 import { TeamView } from './TeamView';
 import { Sidebar } from './Sidebar';
-import { ModuleFlowStrip } from './ModuleFlowStrip';
 import { useSocket } from '../hooks/useSocket';
 import { TimelineView } from './TimelineView';
 import { AdminPanel } from './AdminPanel';
@@ -119,7 +111,6 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
   // One-shot drilldown intent carried from Home's "תקלות פתוחות" tile into
   // DefectsView, so it opens straight into the filtered list instead of
   // landing on the KPI overview (spec confirmed 2026-08-31).
-  const [riDefectsAutoOpen, setRiDefectsAutoOpen] = useState<{ filter: string; value?: string; title: string } | null>(null);
   const [activeQhView, setActiveQhView]  = useState('overview');
   const [qhKpiMatrixRelease, setQhKpiMatrixRelease] = useState<string | undefined>(undefined);
   const [isQaTeamMember, setIsQaTeamMember] = useState(false);
@@ -699,27 +690,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
         </div>
       </div>
 
-      {/* ─── Module flow strip — chronological relationship between the 4 top-level modules ─── */}
-      <ModuleFlowStrip
-        activeModule={activeTab === 'home' ? null : activeModule}
-        onModuleChange={m => {
-          if (m === 'version-management' && !canAccessVersionManagement) return;
-          if (m === 'qa' && !canAccessQa) return;
-          if (m === 'release-intelligence' && !canAccessReleaseIntelligence) return;
-          if (m === 'quality-hub' && !canAccessQualityHub) return;
-          setActiveModule(m);
-          if (m === 'deployments' && activeTab === 'home') {
-            setActiveTab(getDeploymentsTabForStatus(selectedVersion?.status ?? 'DRAFT', payload.role) as Tab);
-          }
-          if (m === 'qa') setActiveQaView('assignment');
-          if (m === 'release-intelligence') setActiveRiView('home');
-          if (m === 'quality-hub') setActiveQhView('overview');
-        }}
-        canAccessVersionManagement={canAccessVersionManagement}
-        canAccessQa={canAccessQa}
-        canAccessReleaseIntelligence={canAccessReleaseIntelligence}
-        canAccessQualityHub={canAccessQualityHub}
-      />
+      {/* Module switching lives solely in the dark Sidebar now — the old
+          transparent top "ModuleFlowStrip" tab bar was a duplicate of it
+          (UX spec 2026-09-06, section 1a). */}
 
       {/* ─── Progress Chain — only when a specific version is in focus (not on home tab) ─── */}
       {activeModule === 'deployments' && activeTab !== 'home' && selectedVersion && versionFilter !== 'archived' && filteredVersions.some(v => v.id === selectedVersionId) && (
@@ -846,9 +819,6 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           {activeModule === 'release-intelligence' && activeRiView === 'home' && (
             <ReleaseIntelligenceHomeView token={token} versionId={selectedVersionId || undefined} versionName={selectedVersion?.name} role={payload.role} fullName={fullName} onNavigate={setActiveRiView} />
           )}
-          {activeModule === 'release-intelligence' && activeRiView === 'overview' && (
-            <ReleaseIntelligenceOverview token={token} versionId={selectedVersionId || undefined} role={payload.role} />
-          )}
           {activeModule === 'release-intelligence' && activeRiView === 'risks' && (
             <RiskManagementView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
           )}
@@ -858,38 +828,20 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           {activeModule === 'release-intelligence' && activeRiView === 'daily-qa' && (
             <DailyQaManagementView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
           )}
-          {activeModule === 'release-intelligence' && activeRiView === 'cr-health' && (
-            <CrHealthView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
-          )}
           {activeModule === 'release-intelligence' && activeRiView === 'coverage-readiness' && (
             <CoverageReadinessView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'cycle-progress' && (
             <CycleProgressView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
           )}
-          {activeModule === 'release-intelligence' && activeRiView === 'status-board' && (
-            <StatusBoardView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
-          )}
           {activeModule === 'release-intelligence' && activeRiView === 'timeline-activities' && (
             <TimelineActivitiesView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
-          )}
-          {activeModule === 'release-intelligence' && activeRiView === 'capacity' && (
-            <CapacityView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
-          )}
-          {activeModule === 'release-intelligence' && activeRiView === 'forecast-tracking' && (
-            <ForecastTrackingView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
-          )}
-          {activeModule === 'release-intelligence' && activeRiView === 'defects' && (
-            <DefectsView token={token} versionId={selectedVersionId || undefined} role={payload.role} autoOpenDrilldown={riDefectsAutoOpen} />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'bug-dashboard' && (
             <QcBugDashboardView token={token} initialVersionId={selectedVersionId || undefined} />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'reopen-analysis' && (
             <ReopenAnalysisView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
-          )}
-          {activeModule === 'release-intelligence' && activeRiView === 'alerts-intelligence' && (
-            <AlertsIntelligenceView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'go-no-go' && (
             <GoNoGoView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
@@ -960,13 +912,10 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
                 if (m === 'version-management' && vmView) setActiveVmView(vmView);
                 if (m === 'qa') setActiveQaView('assignment');
                 if (m === 'release-intelligence') {
-                  if (vmView === 'defects-open') {
-                    setActiveRiView('defects');
-                    setRiDefectsAutoOpen({ filter: 'kpi', value: 'open', title: 'תקלות פתוחות (Open)' });
-                  } else {
-                    setActiveRiView('home');
-                    setRiDefectsAutoOpen(null);
-                  }
+                  // 'defects-open' used to open the (now removed) DefectsView
+                  // list with its drilldown pre-opened; routes to the richer
+                  // QC Bug Dashboard instead (2026-09-07).
+                  setActiveRiView(vmView === 'defects-open' ? 'bug-dashboard' : 'home');
                 }
                 if (m === 'quality-hub') setActiveQhView('overview');
               }}

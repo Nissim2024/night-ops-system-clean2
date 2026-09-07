@@ -635,7 +635,7 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
 
   const canCompute = !!test1Start && !!lastTestEnd && !!cycle2End && !!integrationEnd;
 
-  const handleCompute = () => {
+  const handleCompute = async () => {
     if (!canCompute) return;
     const intStart = integrationStart ? parseDate(integrationStart) : null;
     const intEnd   = parseDate(integrationEnd);
@@ -646,14 +646,19 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
     setActivities(result.activities);
     setWarnings(result.warnings);
     setComputed(true);
-    setBoardSaved(false);
+    // Persist immediately so the board survives a screen switch / refresh —
+    // recompute stays manual (this button), but its result no longer
+    // evaporates the moment you navigate away (spec 2026-09-07, section 5).
+    await persistBoard(result.activities);
   };
 
-  const handleSaveBoard = async () => {
-    if (!versionId || activities.length === 0) return;
+  const handleSaveBoard = () => persistBoard(activities);
+
+  const persistBoard = async (list: ActivityItem[]) => {
+    if (!versionId || list.length === 0) return;
     setSaving(true);
     try {
-      const entries = activities.map((a, i) => ({
+      const entries = list.map((a, i) => ({
         activityKey:   a.id,
         label:         a.label,
         owner:         a.owner,
@@ -672,8 +677,8 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
       setBoardSaved(true);
 
       // Sync dates back to the version automatically
-      const crReview = activities.find(a => a.id === 'cr_review');
-      const runbook  = activities.find(a => a.id === 'runbook');
+      const crReview = list.find(a => a.id === 'cr_review');
+      const runbook  = list.find(a => a.id === 'runbook');
       const versionPatch: Record<string, string | null> = {};
       if (crReview?.dateStartISO) versionPatch.reviewMeetingTime   = crReview.dateStartISO;
       if (runbook?.dateStartISO)  versionPatch.workPlanMeetingTime = runbook.dateStartISO;

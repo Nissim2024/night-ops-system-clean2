@@ -6,8 +6,6 @@ import { DefectDrilldownModal } from './DefectDrilldownModal';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
-interface Version { id: string; name: string; status: string; isArchived: boolean; }
-
 interface SeverityCount { severity: string; count: number; }
 interface BreakdownRow { label: string; count: number; bySeverity: SeverityCount[]; }
 interface BugDashboardDto {
@@ -24,6 +22,7 @@ interface BugDashboardDto {
   openByType: BreakdownRow[];
   openByResponsibility: BreakdownRow[];
   openByCr: BreakdownRow[];
+  openByStatus: BreakdownRow[];
 }
 
 interface Props { token: string; initialVersionId?: string; }
@@ -89,7 +88,7 @@ const BreakdownPanel: React.FC<{ title: string; total: number; rows: BreakdownRo
   );
 };
 
-const DailyTrendChart: React.FC<{ data: { date: string; count: number }[] }> = ({ data }) => {
+const DailyTrendChart: React.FC<{ data: { date: string; count: number }[]; onPointClick?: (date: string) => void }> = ({ data, onPointClick }) => {
   if (data.length === 0) {
     return <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, padding: '20px', textAlign: 'center' }}>אין נתוני מגמה</div>;
   }
@@ -103,13 +102,16 @@ const DailyTrendChart: React.FC<{ data: { date: string; count: number }[] }> = (
   });
   const polyline = points.map(p => `${p.x},${p.y}`).join(' ');
   const labelEvery = Math.max(1, Math.ceil(data.length / 8));
+  const hitW = Math.max(8, stepX || 12);
 
   return (
     <svg width="100%" viewBox={`0 0 ${width} ${height}`} style={{ overflow: 'visible' }}>
       <polyline points={polyline} fill="none" stroke={C.brand} strokeWidth={2} />
       {points.map((p, i) => (
-        <g key={i}>
-          <circle cx={p.x} cy={p.y} r={3} fill={C.brand} />
+        <g key={i} onClick={onPointClick ? () => onPointClick(p.d.date) : undefined} style={{ cursor: onPointClick ? 'pointer' : 'default' }}>
+          {/* full-height invisible hit target so the whole column is clickable */}
+          <rect x={p.x - hitW / 2} y={0} width={hitW} height={height} fill="transparent" />
+          <circle cx={p.x} cy={p.y} r={onPointClick ? 4 : 3} fill={C.brand} />
           <text x={p.x} y={p.y - 8} fontSize="11" fill={C.textPrimary} textAnchor="middle" fontFamily={FONT}>{p.d.count}</text>
           {i % labelEvery === 0 && (
             <text x={p.x} y={height - 4} fontSize="10" fill={C.textMuted} textAnchor="middle" fontFamily={FONT}>
@@ -124,26 +126,14 @@ const DailyTrendChart: React.FC<{ data: { date: string; count: number }[] }> = (
 
 export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId }) => {
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
-  const [versions, setVersions] = useState<Version[]>([]);
-  // Deliberately NOT falling back to localStorage — a manually-browsed
-  // version shouldn't outlive the session and silently diverge from
-  // whatever the global header shows on the next visit.
-  const [selectedVId, setSelectedVId] = useState(() => initialVersionId ?? '');
+  // The version is driven entirely by the sidebar picker (BRD 2026-09-07 §4) —
+  // no in-page selector anymore (spec 2026-09-07: "הסר את בורר הגרסאות מדף לוח הבאגים").
+  const selectedVId = initialVersionId ?? '';
   const [dashboard, setDashboard] = useState<BugDashboardDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [qcMock, setQcMock] = useState(true);
   const [drilldown, setDrilldown] = useState<{ filter: string; value?: string; title: string } | null>(null);
-
-  useEffect(() => {
-    if (initialVersionId) setSelectedVId(initialVersionId);
-  }, [initialVersionId]);
-
-  useEffect(() => {
-    axios.get(`${API}/versions`, { headers })
-      .then(r => setVersions((r.data as Version[]).filter(v => !v.isArchived)))
-      .catch(() => {});
-  }, [headers]);
 
   useEffect(() => {
     axios.get(`${API}/qc/status`, { headers })
@@ -168,75 +158,68 @@ export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId })
 
   useEffect(() => { loadDashboard(selectedVId); }, [selectedVId, loadDashboard]);
 
-  const handleVersionChange = (vId: string) => {
-    setSelectedVId(vId);
-  };
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px 28px', fontFamily: FONT }}>
       <Card>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '22px' }}>🐛</span>
-            <div style={{ fontSize: '18px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>לוח באגים (QC)</div>
-            {qcMock && (
-              <span style={{ fontSize: '13px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
-            )}
-          </div>
-          <select
-            value={selectedVId}
-            onChange={e => handleVersionChange(e.target.value)}
-            style={{ padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, fontSize: '15px', background: C.bgCard, color: C.textPrimary, fontFamily: FONT, minWidth: '220px' }}
-          >
-            <option value="">— בחר גרסה —</option>
-            {versions.map(v => (
-              <option key={v.id} value={v.id}>{v.name}</option>
-            ))}
-          </select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '22px' }}>🪲</span>
+          <div style={{ fontSize: '18px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>לוח באגים (QC)</div>
+          {qcMock && (
+            <span style={{ fontSize: '13px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
+          )}
         </div>
       </Card>
 
       {loading && <div style={{ textAlign: 'center', padding: '24px', color: C.textMuted }}>טוען...</div>}
       {error && <div style={{ textAlign: 'center', padding: '24px', color: C.danger }}>{error}</div>}
       {!loading && !error && !selectedVId && (
-        <div style={{ textAlign: 'center', padding: '24px', color: C.textMuted }}>בחר גרסה כדי להציג נתוני באגים</div>
+        <div style={{ textAlign: 'center', padding: '24px', color: C.textMuted }}>בחר גרסה מהתפריט הצדדי כדי להציג נתוני באגים</div>
       )}
 
       {!loading && !error && dashboard && (
         <>
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            <KpiCard label="Reported Bugs" value={String(dashboard.reported)} color={C.textPrimary}
+            <KpiCard label="תקלות שדווחו" value={String(dashboard.reported)} color={C.textPrimary}
               onClick={() => setDrilldown({ filter: 'reported', title: 'כל התקלות שדווחו' })} />
-            <KpiCard label="Open Bugs" value={String(dashboard.open)} sub={pct(dashboard.open, dashboard.reported)} color={C.statusInProgress}
+            <KpiCard label="תקלות פתוחות" value={String(dashboard.open)} sub={pct(dashboard.open, dashboard.reported)} color={C.statusInProgress}
               onClick={() => setDrilldown({ filter: 'open', title: 'תקלות פתוחות' })} />
-            <KpiCard label="Rejected Bugs" value={String(dashboard.rejected)} sub={pct(dashboard.rejected, dashboard.reported)} color={C.textMuted}
+            <KpiCard label="תקלות שנדחו" value={String(dashboard.rejected)} sub={pct(dashboard.rejected, dashboard.reported)} color={C.textMuted}
               onClick={() => setDrilldown({ filter: 'rejected', title: 'תקלות שנדחו' })} />
-            {/* Production/Regression: not drillable — their bucket field
-                (BG_USER_10) means something different in the general defects
-                query this modal reads from (see the backend dispatcher's own
-                comment); left non-interactive rather than showing a possibly-
-                wrong list. */}
-            <KpiCard label="Production Bugs" value={String(dashboard.production)} sub={pct(dashboard.production, dashboard.reported)} color={C.danger} />
-            <KpiCard label="Regression Bugs" value={String(dashboard.regression)} sub={pct(dashboard.regression, dashboard.reported)} color={C.danger} />
-            <KpiCard label="Changes" value={String(dashboard.changes)} sub={pct(dashboard.changes, dashboard.reported)} color={C.brand}
+            {/* Production/Regression drill by BG_USER_10 = 'Production'/'Regression'
+                (spec 2026-09-07). */}
+            <KpiCard label="תקלות ייצור" value={String(dashboard.production)} sub={pct(dashboard.production, dashboard.reported)} color={C.danger}
+              onClick={() => setDrilldown({ filter: 'production', title: 'תקלות ייצור (BG_USER_10 = Production)' })} />
+            <KpiCard label="תקלות רגרסיה" value={String(dashboard.regression)} sub={pct(dashboard.regression, dashboard.reported)} color={C.danger}
+              onClick={() => setDrilldown({ filter: 'regression', title: 'תקלות רגרסיה (BG_USER_10 = Regression)' })} />
+            <KpiCard label="שינויים (CR)" value={String(dashboard.changes)} sub={pct(dashboard.changes, dashboard.reported)} color={C.brand}
               onClick={() => setDrilldown({ filter: 'changes', title: 'תקלות מסוג Change Requests' })} />
-            <KpiCard label="Reopen Bugs" value={String(dashboard.reopen)} sub={pct(dashboard.reopen, dashboard.reported)} color={C.statusFailed}
+            <KpiCard label="נפתחו מחדש" value={String(dashboard.reopen)} sub={pct(dashboard.reopen, dashboard.reported)} color={C.statusFailed}
               onClick={() => setDrilldown({ filter: 'reopen', title: 'תקלות שנפתחו מחדש (Reopen) — לפי היסטוריה' })} />
-            <KpiCard label="Target Left" value={`${dashboard.targetOpen}/${dashboard.targetTotal}`} color={C.statusDone} />
+            <KpiCard label="נותרו ליעד" value={`${dashboard.targetOpen}/${dashboard.targetTotal}`} color={C.statusDone}
+              onClick={() => setDrilldown({ filter: 'target', title: 'תקלות מגרסאות קודמות שהיעד שלהן הוא גרסה זו' })} />
           </div>
 
           <Card>
-            <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, marginBottom: '8px' }}>Daily Reported</div>
-            <DailyTrendChart data={dashboard.dailyReported} />
+            <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, marginBottom: '8px' }}>דיווח יומי <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.normal }}>· לחיצה על נקודה = התקלות שדווחו באותו יום</span></div>
+            <DailyTrendChart
+              data={dashboard.dailyReported}
+              onPointClick={date => setDrilldown({
+                filter: 'day',
+                value: date,
+                title: `תקלות שדווחו בתאריך ${new Date(date).toLocaleDateString('he-IL')}`,
+              })}
+            />
           </Card>
 
           <SeverityLegend />
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-            <BreakdownPanel title="Open By Type" total={dashboard.open} rows={dashboard.openByType}
+            <BreakdownPanel title="פתוחות לפי סטטוס" total={dashboard.open} rows={dashboard.openByStatus}
+              onSelect={label => setDrilldown({ filter: 'status', value: label, title: `תקלות פתוחות — סטטוס: ${label}` })} />
+            <BreakdownPanel title="פתוחות לפי סוג" total={dashboard.open} rows={dashboard.openByType}
               onSelect={label => setDrilldown({ filter: 'type', value: label, title: `תקלות פתוחות — סוג: ${label}` })} />
-            <BreakdownPanel title="Open By Responsibility" total={dashboard.open} rows={dashboard.openByResponsibility}
+            <BreakdownPanel title="פתוחות לפי אחראי" total={dashboard.open} rows={dashboard.openByResponsibility}
               onSelect={label => setDrilldown({ filter: 'responsibility', value: label, title: `תקלות פתוחות — אחראי: ${label}` })} />
-            <BreakdownPanel title="Open By CR Name" total={dashboard.open} rows={dashboard.openByCr}
+            <BreakdownPanel title="פתוחות לפי CR" total={dashboard.open} rows={dashboard.openByCr}
               onSelect={label => setDrilldown({ filter: 'cr', value: label, title: `תקלות פתוחות — CR: ${label}` })} />
           </div>
         </>

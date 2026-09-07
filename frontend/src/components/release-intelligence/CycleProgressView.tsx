@@ -3,6 +3,7 @@ import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
 import { formatDate } from '../../utils/dateFormat';
+import { PersonAvatar } from '../shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -33,7 +34,7 @@ const STATE_COLOR: Record<CycleTimelineItem['state'], string> = { done: C.succes
 const STATE_LABEL: Record<CycleTimelineItem['state'], string> = { done: 'הושלם', active: 'פעיל', upcoming: 'עתידי' };
 const CYCLE_LABEL: Record<string, string> = {
   CYCLE_1: 'סבב 1', CYCLE_2: 'סבב 2', CYCLE_3: 'סבב 3',
-  STAND_ALONE: 'Stand Alone', UAT: 'UAT', REHEARSAL: 'חזרה גנרלית', GO_LIVE: 'עליה לאוויר',
+  STAND_ALONE: 'בדיקות עצמאיות', UAT: 'UAT', REHEARSAL: 'חזרה גנרלית', GO_LIVE: 'עליה לאוויר',
 };
 // Maps computeQgSummary's keys (release-intelligence.service.ts) to the real
 // DefectDto.severity string — same open-defects-by-severity filter the
@@ -319,7 +320,7 @@ function CycleDetailScreen({ cycle, onBack }: { cycle: CycleTimelineItem; onBack
                 {(cr.project || cr.tester) && (
                   <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap', ...TEXT.xs, color: C.textMuted, marginBottom: '6px' }}>
                     {cr.project && <span>📁 פרויקט: {cr.project}</span>}
-                    {cr.tester && <span>👤 בודק: {cr.tester}</span>}
+                    {cr.tester && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>בודק: <PersonAvatar name={cr.tester} full /></span>}
                   </div>
                 )}
                 <div style={{ marginBottom: '8px' }}>
@@ -468,15 +469,15 @@ export const CycleProgressView: React.FC<Props> = ({ token, versionId }) => {
       <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>🔄 התקדמות סבבים ו-QG</div>
 
       <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
-        <KpiCard value={data.kpis.currentCycle} label="Current Cycle" />
-        <KpiCard value={data.kpis.qgStatus === 'PASS' ? '✓ PASS' : '✗ FAIL'} label="QG Status" valueColor={data.kpis.qgStatus === 'PASS' ? C.success : C.danger} />
-        <KpiCard value={`${data.kpis.progressPct}%`} label="Progress %" valueColor={C.brand} />
+        <KpiCard value={CYCLE_LABEL[data.kpis.currentCycle] ?? data.kpis.currentCycle} label="סבב נוכחי" />
+        <KpiCard value={data.kpis.qgStatus === 'PASS' ? '✓ PASS' : '✗ FAIL'} label="סטטוס QG" valueColor={data.kpis.qgStatus === 'PASS' ? C.success : C.danger} />
+        <KpiCard value={`${data.kpis.progressPct}%`} label="אחוז התקדמות" valueColor={C.brand} />
       </div>
 
       <CyclesPanel data={data} token={token} versionId={versionId} />
 
       <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], maxWidth: '400px' }}>
-        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: SP[3] }}>QG Summary</div>
+        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: SP[3] }}>סיכום QG</div>
         {Object.entries(data.qgSummary).map(([key, v]) => (
           <div
             key={key}

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { formatDate } from '../../utils/dateFormat';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
+import { PersonAvatar } from '../shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -179,7 +180,7 @@ function KpiCard({ value, label, color, onClick }: { value: string; label: strin
 // (release-intelligence.service.ts). ≥70 GO, 40-69 CONDITIONAL_GO, <40 NO_GO.
 const HEALTH_REC_META: Record<HealthRecommendation, { label: string; color: string }> = {
   GO: { label: 'GO — מוכן', color: C.success },
-  CONDITIONAL_GO: { label: 'GO בתנאים', color: '#e8af00' },
+  CONDITIONAL_GO: { label: 'GO בתנאים', color: C.warning },
   NO_GO: { label: 'NO-GO', color: C.danger },
 };
 const HEALTH_PARTS: [keyof ReleaseHealthInfo['breakdown'], string][] = [
@@ -210,7 +211,7 @@ function HealthBanner({ health }: { health: ReleaseHealthInfo | null }) {
           const v = health.breakdown[k];
           return (
             <span key={k} style={{ ...TEXT.xs, color: C.textMuted }}>
-              {label} <span style={{ fontWeight: WEIGHT.semibold, fontVariantNumeric: 'tabular-nums', color: v < 50 ? C.danger : v < 80 ? '#e8af00' : C.textSecondary }}>{v}</span>
+              {label} <span style={{ fontWeight: WEIGHT.semibold, fontVariantNumeric: 'tabular-nums', color: v < 50 ? C.danger : v < 80 ? C.warning : C.textSecondary }}>{v}</span>
             </span>
           );
         })}
@@ -301,12 +302,12 @@ function CrRiskTable({ rows, blockers, emptyMessage, onShowDefects, targetDay }:
         <tr>
           <th style={thStyle}>CR</th>
           <th style={thStyle}>בודק</th>
-          <th style={thStyle}>Progress</th>
+          <th style={thStyle}>התקדמות</th>
           <th style={thStyle}>בוצע היום</th>
           <th style={thStyle}>יעד {targetDay === 'today' ? 'להיום' : 'למחר'}</th>
-          <th style={thStyle}>Defects</th>
-          <th style={thStyle}>Blockers</th>
-          <th style={thStyle}>Risk</th>
+          <th style={thStyle}>תקלות</th>
+          <th style={thStyle}>חסמים</th>
+          <th style={thStyle}>סיכון</th>
         </tr>
       </thead>
       <tbody>
@@ -317,7 +318,7 @@ function CrRiskTable({ rows, blockers, emptyMessage, onShowDefects, targetDay }:
             <React.Fragment key={cr.crNumber}>
               <tr title={cr.reasons.join(' · ')} onClick={() => setExpandedCr(v => v === cr.crNumber ? null : cr.crNumber)} style={{ cursor: 'pointer' }}>
                 <td style={{ ...tdStyle, fontWeight: WEIGHT.semibold }}>{cr.crNumber}{cr.crLabel ? ` — ${cr.crLabel.replace(/^\d+\s*-\s*/, '')}` : ''}</td>
-                <td style={{ ...tdStyle, color: cr.tester ? C.textPrimary : C.textMuted }}>{cr.tester ?? '—'}</td>
+                <td style={{ ...tdStyle, color: cr.tester ? C.textPrimary : C.textMuted }}>{cr.tester ? <PersonAvatar name={cr.tester} full /> : '—'}</td>
                 <td style={tdStyle}>{cr.progressPct}%</td>
                 <td style={tdStyle}><DeltaCell delta={cr.passedDelta} /></td>
                 <td style={tdStyle} title={`נותרו ${cr.remaining} תרחישים${cr.mustFinishNow ? ' — עבר יעד הסבב, יש לסיים בהקדם' : ''}`}>
@@ -536,14 +537,14 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
   return (
     <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>📋 Daily QA</div>
+        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>📋 ניהול QA יומי</div>
         <div style={{ display: 'flex', gap: '2px', background: C.bgNested, borderRadius: RADIUS.md, padding: '2px' }}>
           {(['RELEASE', 'TEAM'] as const).map(m => (
             <button key={m} onClick={() => setViewMode(m)} style={{
               padding: '5px 14px', borderRadius: RADIUS.sm, border: 'none', cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold,
               background: viewMode === m ? C.bgCard : 'transparent', color: viewMode === m ? C.textPrimary : C.textMuted,
             }}>
-              {m === 'RELEASE' ? 'Release View' : 'Team View'}
+              {m === 'RELEASE' ? 'תצוגת גרסה' : 'תצוגת צוותים'}
             </button>
           ))}
         </div>
@@ -559,26 +560,26 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
       {diff && (diff.hasData ? (
         <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[3], display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
-            Yesterday ({formatDate(diff.sinceDate)}) → Today
+            מאתמול ({formatDate(diff.sinceDate)}) → היום
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[4] }}>
             <span style={{ ...TEXT.sm, color: diff.testsPassedDelta >= 0 ? C.success : C.danger, fontWeight: WEIGHT.semibold }}>
-              {diff.testsPassedDelta >= 0 ? '+' : ''}{diff.testsPassedDelta} Tests Passed
+              {diff.testsPassedDelta >= 0 ? '+' : ''}{diff.testsPassedDelta} תרחישים עברו
             </span>
             <span style={{ ...TEXT.sm, color: diff.openDefectsDelta > 0 ? C.danger : C.textMuted, fontWeight: WEIGHT.semibold }}>
-              {diff.openDefectsDelta >= 0 ? '+' : ''}{diff.openDefectsDelta} Open Defects
+              {diff.openDefectsDelta >= 0 ? '+' : ''}{diff.openDefectsDelta} תקלות פתוחות
             </span>
             <span style={{ ...TEXT.sm, color: diff.openBlockersDelta < 0 ? C.success : diff.openBlockersDelta > 0 ? C.danger : C.textMuted, fontWeight: WEIGHT.semibold }}>
-              {diff.openBlockersDelta > 0 ? '+' : ''}{diff.openBlockersDelta} Open Blockers
+              {diff.openBlockersDelta > 0 ? '+' : ''}{diff.openBlockersDelta} חסמים פתוחים
             </span>
           </div>
           {(diff.crsMovedToHighRisk.length > 0 || diff.testersNoUpdates.length > 0) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '4px', borderTop: `1px solid ${C.border}` }}>
               {diff.crsMovedToHighRisk.map(cr => (
-                <div key={cr} style={{ ...TEXT.sm, color: C.danger, fontWeight: WEIGHT.semibold }}>⚠️ {cr} moved to High Risk</div>
+                <div key={cr} style={{ ...TEXT.sm, color: C.danger, fontWeight: WEIGHT.semibold }}>⚠️ {cr} עבר לסיכון גבוה</div>
               ))}
               {diff.testersNoUpdates.map(t => (
-                <div key={t.tester} style={{ ...TEXT.sm, color: C.danger, fontWeight: WEIGHT.semibold }}>⚠️ {t.tester} no updates for {t.days} days</div>
+                <div key={t.tester} style={{ ...TEXT.sm, color: C.danger, fontWeight: WEIGHT.semibold }}>⚠️ {t.tester} — ללא עדכון {t.days} ימים</div>
               ))}
             </div>
           )}
@@ -598,22 +599,22 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
 
       {/* ── אזור 1: Executive Summary — כל כרטיס עם דריל לרשומות/לסקציה הרלוונטית ── */}
       <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
-        <KpiCard value={`${summary.testProgressPct}%`} label="Test Progress" color={summary.testProgressPct >= 80 ? C.success : summary.testProgressPct >= 50 ? '#e8af00' : C.danger} onClick={() => scrollToSection('daily-crs')} />
-        <KpiCard value={String(summary.passed)} label="Passed" color={C.success} onClick={() => scrollToSection('daily-crs')} />
-        <KpiCard value={String(summary.failed)} label="Failed" color={summary.failed > 0 ? C.danger : undefined} onClick={() => scrollToSection('daily-crs')} />
-        <KpiCard value={String(summary.blocked)} label="Blocked" color={summary.blocked > 0 ? '#e8af00' : undefined} onClick={() => scrollToSection('daily-crs')} />
-        <KpiCard value={String(summary.openDefects)} label="Open Defects" color={summary.openDefects > 0 ? '#e8af00' : C.success}
+        <KpiCard value={`${summary.testProgressPct}%`} label="התקדמות בדיקות" color={summary.testProgressPct >= 80 ? C.success : summary.testProgressPct >= 50 ? C.warning : C.danger} onClick={() => scrollToSection('daily-crs')} />
+        <KpiCard value={String(summary.passed)} label="עברו" color={C.success} onClick={() => scrollToSection('daily-crs')} />
+        <KpiCard value={String(summary.failed)} label="נכשלו" color={summary.failed > 0 ? C.danger : undefined} onClick={() => scrollToSection('daily-crs')} />
+        <KpiCard value={String(summary.blocked)} label="חסומים" color={summary.blocked > 0 ? C.warning : undefined} onClick={() => scrollToSection('daily-crs')} />
+        <KpiCard value={String(summary.openDefects)} label="תקלות פתוחות" color={summary.openDefects > 0 ? C.warning : C.success}
           onClick={summary.openDefects > 0 ? () => setDrilldown({ screen: 'daily-qa', filter: 'openAll', title: 'תקלות פתוחות — כל הגרסה' }) : undefined} />
-        <KpiCard value={String(summary.criticalDefects)} label="Critical Defects" color={summary.criticalDefects > 0 ? C.danger : C.success}
+        <KpiCard value={String(summary.criticalDefects)} label="תקלות קריטיות" color={summary.criticalDefects > 0 ? C.danger : C.success}
           onClick={summary.criticalDefects > 0 ? () => setDrilldown({ screen: 'daily-qa', filter: 'critical', title: 'תקלות קריטיות פתוחות (Show Stopper)' }) : undefined} />
-        <KpiCard value={String(summary.openBlockers)} label="Open Blockers" color={summary.openBlockers > 0 ? C.danger : C.success} onClick={() => scrollToSection('daily-blockers')} />
-        <KpiCard value={String(summary.crsAtRisk)} label="CRs At Risk" color={summary.crsAtRisk > 0 ? C.danger : C.success} onClick={() => scrollToSection('daily-crs')} />
-        <KpiCard value={String(summary.testersNoProgress)} label="Testers No Progress" color={summary.testersNoProgress > 0 ? C.danger : C.success} onClick={() => scrollToSection('daily-heatmap')} />
+        <KpiCard value={String(summary.openBlockers)} label="חסמים פתוחים" color={summary.openBlockers > 0 ? C.danger : C.success} onClick={() => scrollToSection('daily-blockers')} />
+        <KpiCard value={String(summary.crsAtRisk)} label="CR-ים בסיכון" color={summary.crsAtRisk > 0 ? C.danger : C.success} onClick={() => scrollToSection('daily-crs')} />
+        <KpiCard value={String(summary.testersNoProgress)} label="בודקים ללא התקדמות" color={summary.testersNoProgress > 0 ? C.danger : C.success} onClick={() => scrollToSection('daily-heatmap')} />
       </div>
 
       {/* ── אזור 2: Heat Map לבודקים ── */}
       <div id="daily-heatmap">
-        <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: '4px 0 8px' }}>Heat Map — בודקים</h2>
+        <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: '4px 0 8px' }}>מפת חום — בודקים</h2>
         <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflowX: 'auto' }}>
           {testers.length === 0 ? (
             <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6], textAlign: 'center' }}>אין בודקים משובצים לגרסה זו.</div>
@@ -626,8 +627,8 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
                   <th style={thStyle}>CR</th>
                   <th style={thStyle}>בוצע היום</th>
                   <th style={thStyle}>יעד {dailyTargets.targetDay === 'today' ? 'להיום' : 'למחר'}</th>
-                  <th style={thStyle}>Defects</th>
-                  <th style={thStyle}>Blockers</th>
+                  <th style={thStyle}>תקלות</th>
+                  <th style={thStyle}>חסמים</th>
                   <th style={thStyle}>סטטוס</th>
                 </tr>
               </thead>
@@ -635,7 +636,7 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
                 {testers.map(t => (
                   <React.Fragment key={t.tester}>
                     <tr onClick={() => setExpandedTester(v => v === t.tester ? null : t.tester)} style={{ cursor: 'pointer' }}>
-                      <td style={{ ...tdStyle, fontWeight: WEIGHT.semibold }}>{t.tester}</td>
+                      <td style={{ ...tdStyle, fontWeight: WEIGHT.semibold }}>{t.tester && t.tester !== 'לא משויך' ? <PersonAvatar name={t.tester} full /> : t.tester}</td>
                       <td style={tdStyle}>{t.progressPct}%</td>
                       <td style={tdStyle}>{t.crCount}</td>
                       <td style={tdStyle}><DeltaCell delta={t.doneToday} /></td>
@@ -810,7 +811,7 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
       {/* ── אזור 5: Action Items ── */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '4px 0 8px' }}>
-          <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: 0 }}>Action Items</h2>
+          <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: 0 }}>משימות לביצוע</h2>
           {canWriteActions && !addingAction && (
             <button onClick={startAddAction} style={{ padding: '5px 14px', background: C.brand, color: '#fff', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold }}>
               + משימה חדשה

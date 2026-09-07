@@ -93,11 +93,11 @@ export function DefectIdBadge({ id }: { id: string | number }) {
 // pattern (ui.tsx's Avatar). Only reads well when `name` is a real "First
 // Last" string — a raw QC login (no space) degrades gracefully to a single
 // letter + the login itself.
-export function PersonAvatar({ name }: { name: string }) {
+export function PersonAvatar({ name, full = false }: { name: string; full?: boolean }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', direction: 'ltr' }}>
       <Avatar name={name} size={20} />
-      <span style={{ color: C.textSecondary }}>{name.split(' ')[0]}</span>
+      <span style={{ color: C.textSecondary }}>{full ? name : name.split(' ')[0]}</span>
     </span>
   );
 }
@@ -293,20 +293,22 @@ interface DefectFieldChange {
 // ערך ישן | ערך חדש). Backed by QC's AUDIT_LOG/AUDIT_PROPERTIES tables (see
 // DEFECT_FIELD_HISTORY_SQL in qc.service.ts) — AU_USER/AP_OLD_VALUE are
 // unverified against any real instance beyond the mock fallback.
-export function FieldChangeHistorySection({ defectId, token }: { defectId: string; token: string }) {
+export function FieldChangeHistorySection({ defectId, token, defaultOpen = false }: { defectId: string; token: string; defaultOpen?: boolean }) {
   // Collapsed by default, and the fetch is deferred until first expand — this
   // section used to always fetch + render fully open, taking real screen
   // space and an API call most viewers never look at (spec confirmed
-  // 2026-09-03: "את אזור ההיסטוריה יש לקפל").
-  const [expanded, setExpanded] = useState(false);
+  // 2026-09-03: "את אזור ההיסטוריה יש לקפל"). `defaultOpen` is for when it's
+  // rendered inside its own modal (2026-09-06) — there's nothing to collapse
+  // into there, so it opens and fetches immediately.
+  const [expanded, setExpanded] = useState(defaultOpen);
   const [fieldHistory, setFieldHistory] = useState<DefectFieldChange[] | null>(null);
   const [historyFieldFilter, setHistoryFieldFilter] = useState('');
 
   useEffect(() => {
     setFieldHistory(null);
     setHistoryFieldFilter('');
-    setExpanded(false);
-  }, [defectId, token]);
+    setExpanded(defaultOpen);
+  }, [defectId, token, defaultOpen]);
 
   useEffect(() => {
     if (!expanded || fieldHistory !== null) return;
@@ -486,12 +488,12 @@ export function AttachmentsSection({ defectId, token }: { defectId: string; toke
   return (
     <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: '12px' }}>
       <div style={{ fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '8px' }}>
-        Attachments{attachments && attachments.length > 0 ? ` (${attachments.length})` : ''}
+        קבצים מצורפים{attachments && attachments.length > 0 ? ` (${attachments.length})` : ''}
       </div>
       {attachments === null ? (
         <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted, fontSize: '13px' }}>טוען...</div>
       ) : attachments.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted, fontSize: '13px' }}>No Attachments Found</div>
+        <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted, fontSize: '13px' }}>אין קבצים מצורפים</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           {attachments.map(a => {
@@ -705,7 +707,7 @@ export function useColumnFilters(allRows: Record<string, unknown>[] | null | und
 
 export type ColumnFiltersApi = ReturnType<typeof useColumnFilters>;
 
-function EnumFilterButton({ label, options, selected, onToggle }: {
+export function EnumFilterButton({ label, options, selected, onToggle }: {
   label: string; options: string[]; selected: Set<string>; onToggle: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);

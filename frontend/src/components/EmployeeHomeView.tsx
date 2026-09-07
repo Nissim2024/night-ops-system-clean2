@@ -313,7 +313,7 @@ export const EmployeeHomeView: React.FC<Props> = ({
               const targetOpen = targetAll.filter(d => !['Closed', 'Canceled'].includes(d.status)).length;
               return (
                 <div style={{ marginTop: '14px', borderTop: `1px solid ${C.border}`, paddingTop: '14px' }}>
-                  <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textSecondary, marginBottom: '10px' }}>🐛 התקלות שלי</div>
+                  <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textSecondary, marginBottom: '10px' }}>🪲 התקלות שלי</div>
                   {defectStats && (
                     <>
                       {defectStats.tooFew && (

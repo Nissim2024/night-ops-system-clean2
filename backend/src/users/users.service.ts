@@ -189,6 +189,7 @@ export class UsersService {
         phone: true,
         role: true,
         active: true,
+        qcLogin: true,
         createdAt: true,
         teamMemberships: {
           include: {
@@ -219,13 +220,16 @@ export class UsersService {
     });
   }
 
-  async update(id: string, data: { fullName?: string; role?: string; active?: boolean; phone?: string }) {
+  async update(id: string, data: { fullName?: string; role?: string; active?: boolean; phone?: string; qcLogin?: string | null }) {
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
+    // qcLogin: '' from the admin form means "unlink" → store null.
+    const patch: any = { ...data };
+    if ('qcLogin' in patch) patch.qcLogin = patch.qcLogin?.trim() || null;
     return prisma.user.update({
       where: { id },
-      data: data as any,
-      select: { id: true, fullName: true, email: true, role: true, active: true, phone: true },
+      data: patch,
+      select: { id: true, fullName: true, email: true, role: true, active: true, phone: true, qcLogin: true },
     });
   }
 

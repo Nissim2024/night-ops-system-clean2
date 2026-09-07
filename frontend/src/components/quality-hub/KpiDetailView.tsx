@@ -523,7 +523,7 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
                   onClick={toggleDefects}
                   style={{ padding: '6px 14px', background: C.brand, color: '#fff', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold }}
                 >
-                  {showDefects ? 'הסתר' : '🐛 צפה בתקלות'}
+                  {showDefects ? 'הסתר' : '🪲 צפה בתקלות'}
                 </button>
               </div>
               {showDefects && (

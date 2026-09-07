@@ -52,7 +52,7 @@ interface Props {
   onVersionsChanged?: () => void;
 }
 
-const emptyUser = { fullName: '', email: '', password: '', phone: '', role: 'EMPLOYEE', teamId: '' };
+const emptyUser = { fullName: '', email: '', password: '', phone: '', role: 'EMPLOYEE', teamId: '', qcLogin: '' };
 
 const PERMISSION_DEFS = [
   // Screens
@@ -469,6 +469,7 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
       phone: u.phone || '',
       role: u.role,
       teamId: u.teamMemberships?.[0]?.team?.id || '',
+      qcLogin: u.qcLogin || '',
     });
     setShowUserForm(true);
     setError(null);
@@ -484,6 +485,7 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
           fullName: userForm.fullName,
           phone: userForm.phone || undefined,
           role: userForm.role,
+          qcLogin: userForm.qcLogin,
         }, { headers });
         await axios.patch(`${API}/users/${editingUser.id}/team`, {
           teamId: userForm.teamId || null,
@@ -777,6 +779,12 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
                           onChange={e => setUserForm(f => ({ ...f, phone: e.target.value }))} />
                       </div>
                       <div>
+                        <label style={labelStyle}>QC Login</label>
+                        <input style={{ ...inputStyle, direction: 'ltr', textAlign: 'left' }} value={userForm.qcLogin}
+                          placeholder="שם המשתמש ב-QC (לכתיבה חזרה ל-ALM)"
+                          onChange={e => setUserForm(f => ({ ...f, qcLogin: e.target.value }))} />
+                      </div>
+                      <div>
                         <label style={labelStyle}>תפקיד</label>
                         <select style={inputStyle} value={userForm.role}
                           onChange={e => setUserForm(f => ({ ...f, role: e.target.value }))}>
@@ -947,7 +955,10 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
                           </div>
                         </td>
                         <td style={{ padding: `${SP[3]} ${SP[3]}`, ...TEXT.xs, color: C.textMuted, fontFamily: FONT_MONO }}>
-                          {u.email}
+                          <div>{u.email}</div>
+                          <div style={{ marginTop: '3px', color: u.qcLogin ? C.textSecondary : C.textDisabled }}>
+                            {u.qcLogin ? `QC: ${u.qcLogin}` : 'QC: לא מקושר'}
+                          </div>
                         </td>
                         <td style={{ padding: `${SP[3]} ${SP[3]}` }}>
                           <Badge color={ROLE_COLORS[u.role] ?? C.textMuted} bg={ROLE_BG[u.role] ?? C.bgActive}>

@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaClient } from '@prisma/client';
-import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDto, CrCoverageDto, CycleQgTargetDto } from '../qc/qc.service';
+import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDto, CrCoverageDto, CycleQgTargetDto, resolveDefectPersonNames, bugStatusBucket } from '../qc/qc.service';
 import { countWorkDays, nextWorkDay, isWorkDay, dateKey } from '../qa/qa.scheduler';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
@@ -71,6 +71,11 @@ function isCrQualityDefect(d: DefectDto, crNumber: string): boolean {
 }
 
 const SEVERITY_RANK: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+// Points a single open/mitigating ReleaseRisk costs the 0-100 riskScore,
+// severity-weighted instead of a flat 15 each (spec 2026-09-06). A HIGH-risk
+// CrPlan weighs the same as a HIGH-severity risk.
+const RISK_SEVERITY_WEIGHT: Record<string, number> = { CRITICAL: 15, HIGH: 10, MEDIUM: 6, LOW: 3 };
+const HIGH_RISK_CR_WEIGHT = 10;
 
 // Maps our internal QaCycle.cycleType to the real QC RELEASE_CYCLES.RCYC_NAME
 // values it corresponds to — normalized (lowercase/trim) since the real data
@@ -104,7 +109,9 @@ export class ReleaseIntelligenceService {
 
     const [defects, openRisks, crPlans, params, cycleProgress, crAssignments, workPlan] = await Promise.all([
       this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
-      prisma.releaseRisk.findMany({ where: { versionId, status: 'OPEN' } }),
+      // A risk stays "open" until it's CLOSED — MITIGATED ("בטיפול") still
+      // counts against readiness (spec 2026-09-06).
+      prisma.releaseRisk.findMany({ where: { versionId, status: { not: 'CLOSED' } } }),
       prisma.crPlan.findMany({ where: { versionId }, select: { riskLevel: true } }),
       prisma.systemParam.findMany({ where: { key: { in: ['FORECAST_ALERT_DAYS'] } } }),
       this.getCycleProgress(versionId).catch(() => null),
@@ -287,7 +294,9 @@ export class ReleaseIntelligenceService {
 
     // Health score (0-100) — v1 weighted average, documented as tunable
     const qualityScore = Math.max(0, 100 - criticalDefects * 10);
-    const riskScore = Math.max(0, 100 - (openRisksCount + highRiskCrs) * 15);
+    const riskWeight = openRisks.reduce((s, r) => s + (RISK_SEVERITY_WEIGHT[r.severity] ?? RISK_SEVERITY_WEIGHT.MEDIUM), 0)
+      + highRiskCrs * HIGH_RISK_CR_WEIGHT;
+    const riskScore = Math.max(0, 100 - riskWeight);
     const forecastScore = forecastStatus === 'ON_TRACK' ? 100 : forecastStatus === 'AT_RISK' ? 60 : 20;
     const healthScore = Math.round((coveragePct + qualityScore + riskScore + forecastScore) / 4);
 
@@ -305,9 +314,11 @@ export class ReleaseIntelligenceService {
       }),
     ]);
 
+    // Every non-closed risk, worst severity first — the Home strip lists them
+    // all now, not just the top-1 teaser the tile shows (spec 2026-09-06).
     const topRisks = [...openRisks]
       .sort((a, b) => (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9))
-      .slice(0, 5);
+      .map(r => ({ id: r.id, title: r.title, severity: r.severity, status: r.status, mitigation: r.mitigation ?? null }));
 
     const criticalAlerts: { category: string; message: string }[] = [];
     if (!qgPass) criticalAlerts.push({ category: 'COVERAGE', message: 'כמות הבאגים החוסמים חורגת מסף ה-QG' });
@@ -1416,6 +1427,12 @@ export class ReleaseIntelligenceService {
   // getBugDashboard's aggregate rows (BugRawRow-based), not DefectDto, so
   // there's no defect-level list to hand back without a new Oracle query.
   async getDefectsDrilldown(versionId: string, screen: string, filter: string, value?: string): Promise<DefectDto[]> {
+    // Translate QC login strings on person-fields (assignedTo/reporter/…) to
+    // real names for the whole drilldown list at once (spec 2026-09-06).
+    return resolveDefectPersonNames(await this.getDefectsDrilldownRaw(versionId, screen, filter, value));
+  }
+
+  private async getDefectsDrilldownRaw(versionId: string, screen: string, filter: string, value?: string): Promise<DefectDto[]> {
     const defects = await this.qcService.getDefects(versionId).catch((): DefectDto[] => []);
     const open = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
 
@@ -1433,6 +1450,9 @@ export class ReleaseIntelligenceService {
         if (filter === 'status') return defects.filter(d => (d.status || 'ללא סיווג') === value);
         if (filter === 'team') return open.filter(d => (d.assignedTo || 'ללא סיווג') === value);
         if (filter === 'project') return open.filter(d => (d.system || 'ללא סיווג') === value);
+        // Open defects deferred to a later release (BG_TARGET_REL set) — excluded
+        // from the Home open-defects count, listed here (spec 2026-09-07 §1).
+        if (filter === 'target-moved') return open.filter(d => !!(d.targetRelease || '').trim());
         return [];
       }
       case 'status-board': {
@@ -1503,6 +1523,7 @@ export class ReleaseIntelligenceService {
         // (which also drops Rejected/Fixed) — reusing that one would silently
         // disagree with the Bug Dashboard's own Open Bugs count.
         const bdOpen = defects.filter(d => !['Closed', 'Canceled'].includes(d.status));
+        const notNewOrCanceled = (s: string) => !['New', 'Canceled'].includes(s);
         if (filter === 'reported') return defects;
         if (filter === 'open') return bdOpen;
         if (filter === 'rejected') return defects.filter(d => d.status === 'Canceled');
@@ -1512,15 +1533,33 @@ export class ReleaseIntelligenceService {
           return defects.filter(d => reopenedIds.has(d.id));
         }
         if (filter === 'type' && value) return bdOpen.filter(d => (d.defectType || 'ללא סיווג') === value);
-        if (filter === 'responsibility' && value) return bdOpen.filter(d => (d.assignedTo || 'ללא סיווג') === value);
-        if (filter === 'cr' && value) return bdOpen.filter(d => (d.crReferenceNumber || 'ללא סיווג') === value);
         if (filter === 'severity' && value) return bdOpen.filter(d => (d.severity || 'ללא סיווג') === value);
-        // Production/Regression/Target Left deliberately NOT covered: their
-        // BUG_DASHBOARD_SQL bucket fields (BG_USER_10 category flag,
-        // TARGET_REL) either aren't selected by DEFECTS_SQL or mean something
-        // else there (DEFECTS_SQL's own BG_USER_10 is a different field — a
-        // CR/HBR reference string, see its own comment) — left non-drillable
-        // rather than guessed at.
+        // The breakdowns/cards below key on BUG_DASHBOARD_SQL-specific columns
+        // (BG_USER_03 responsibility, BG_USER_10 category, status buckets,
+        // Production/Regression). DEFECTS_SQL exposes some of these on a
+        // DIFFERENT column and, in dev, from a disjoint mock set — so pull the
+        // Bug Dashboard's own row set here, exactly what the KPI numbers were
+        // computed from (spec 2026-09-07).
+        if (['responsibility', 'cr', 'status', 'production', 'regression', 'day'].includes(filter)) {
+          const bdDefects = await this.qcService.getBugDashboardDefects(versionId).catch((): DefectDto[] => []);
+          const bdOpenRows = bdDefects.filter(d => !['Closed', 'Canceled'].includes(d.status));
+          if (filter === 'responsibility' && value) return bdOpenRows.filter(d => (d.responsibility || 'ללא סיווג') === value);
+          if (filter === 'cr' && value) return bdOpenRows.filter(d => (d.crHbrNumberReference || 'ללא סיווג') === value);
+          if (filter === 'status' && value) return bdOpenRows.filter(d => bugStatusBucket(d.status) === value);
+          if (filter === 'production') return bdDefects.filter(d => d.crHbrNumberReference === 'Production' && notNewOrCanceled(d.status));
+          if (filter === 'regression') return bdDefects.filter(d => d.crHbrNumberReference === 'Regression' && notNewOrCanceled(d.status));
+          // "דיווח יומי" chart — every defect REPORTED on that calendar day
+          // (matches the chart's own per-day tally, which counts all rows).
+          if (filter === 'day' && value) return bdDefects.filter(d => (d.discoveryDate || '').slice(0, 10) === value);
+          return [];
+        }
+        // TARGET card — defects detected in an earlier release, targeted at this one.
+        if (filter === 'target' || filter === 'target-open') {
+          const targetDefects = await this.qcService.getBugDashboardTargetDefects(versionId).catch((): DefectDto[] => []);
+          return filter === 'target-open'
+            ? targetDefects.filter(d => !['Closed', 'Canceled'].includes(d.status))
+            : targetDefects;
+        }
         return [];
       }
       default:

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { DefectDetailScreen } from '../quality-hub/OpenProdDefectsView';
-import { hasHebrew, PersonAvatar, NameBadge, DefectIdBadge, contrastTextColor, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow } from '../shared/defectFieldDisplay';
+import { hasHebrew, PersonAvatar, NameBadge, useColumnFilters, EnumFilterButton } from '../shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -10,7 +10,7 @@ interface Defect {
   id: string; title: string; severity: string; status: string; assignedTo: string; discoveryDate: string;
   priority: string; reporter: string; environment: string; testPhase: string; defectType: string;
   system: string; responsibility: string; crHbrNumberReference: string; fixType: string; reason: string;
-  reopenYn: string; description: string; notes: string;
+  reopenYn: string; description: string; notes: string; targetRelease: string;
 }
 
 type ColumnKey = keyof Defect;
@@ -34,6 +34,7 @@ const ALL_COLUMNS: { key: ColumnKey; label: string }[] = [
   { key: 'reopenYn', label: 'נפתח מחדש' },
   { key: 'description', label: 'תיאור' },
   { key: 'notes', label: 'הערות' },
+  { key: 'targetRelease', label: 'יעד (גרסה הבאה)' },
 ];
 const DEFAULT_COLUMNS: ColumnKey[] = ['id', 'title', 'severity', 'status', 'assignedTo', 'discoveryDate'];
 const COLUMNS_STORAGE_KEY = 'deploycenter_defect_drilldown_columns_v1';
@@ -139,8 +140,8 @@ function SelectColumnsDialog({ visibleKeys, onApply, onClose }: {
           </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-          <button onClick={onClose} style={{ padding: '8px 20px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontFamily: FONT }}>Cancel</button>
-          <button onClick={() => onApply(visible.map(c => c.key))} style={{ padding: '8px 20px', background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontWeight: WEIGHT.semibold, fontFamily: FONT }}>OK</button>
+          <button onClick={onClose} style={{ padding: '8px 20px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontFamily: FONT }}>ביטול</button>
+          <button onClick={() => onApply(visible.map(c => c.key))} style={{ padding: '8px 20px', background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontWeight: WEIGHT.semibold, fontFamily: FONT }}>אישור</button>
         </div>
       </div>
     </div>
@@ -158,7 +159,35 @@ interface Props {
 }
 
 const SEVERITY_COLOR: Record<string, string> = {
-  'Show Stopper': C.danger, Severe: C.danger, Medium: '#e8af00', Low: C.textMuted,
+  'Show Stopper': C.danger, Severe: C.danger, Medium: '#D97706', Low: C.textMuted,
+};
+
+// Local — matches this file's existing "duplicate small helpers rather than a
+// shared refactor" convention (see SEVERITY_COLOR/STATUS_COLOR). Soft pill
+// badge: the field's own colour as text over a 14%-alpha wash of it.
+function hexTint(hex: string, alpha = 0.14): string {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim());
+  if (!m) return C.bgNested;
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+function SoftBadge({ text, color }: { text: string; color: string }) {
+  return (
+    <span style={{
+      fontSize: '12px', fontWeight: WEIGHT.semibold, color, background: hexTint(color),
+      borderRadius: '999px', padding: '2px 10px', display: 'inline-block', whiteSpace: 'nowrap',
+    }}>
+      {text}
+    </span>
+  );
+}
+
+// Per-column display widths — Title has none (absorbs the slack under auto
+// table-layout); everything else is compact and nowrap so the 6 default
+// columns fit a desktop modal with no horizontal scroll (UX spec 2026-09-06).
+const COL_WIDTH: Partial<Record<ColumnKey, string>> = {
+  id: '78px', severity: '104px', status: '116px', priority: '96px', reopenYn: '96px',
+  assignedTo: '164px', reporter: '164px', discoveryDate: '112px', responsibility: '150px',
 };
 
 // Same mapping as OpenProdDefectsView.tsx's STATUS_COLOR (kept as a separate
@@ -174,11 +203,12 @@ const STATUS_COLOR: Record<string, string> = {
 };
 const DEFAULT_STATUS_COLOR = C.textMuted;
 
-// Same badge treatment as the TARGET-defect table (VersionOverview.tsx) —
-// person fields resolve to an avatar, `responsibility` is the team field and
-// gets the flat color badge (spec confirmed 2026-08-30).
-const PERSON_BADGE_FIELDS = new Set<ColumnKey>(['assignedTo', 'reporter']);
-const TEAM_BADGE_FIELDS = new Set<ColumnKey>(['responsibility']);
+// Person fields resolve to an avatar; team/queue fields get the flat NameBadge.
+// `assignedTo` = BG_RESPONSIBLE is a TEAM/queue name in this QC instance
+// ("HOT Design Team"…), not a person — user-confirmed 2026-09-07; kept in sync
+// with OpenProdDefectsView.tsx's identical sets.
+const PERSON_BADGE_FIELDS = new Set<ColumnKey>(['reporter']);
+const TEAM_BADGE_FIELDS = new Set<ColumnKey>(['assignedTo', 'responsibility']);
 // Fixed-vocabulary/status-like columns — centered rather than L/R-aligned by
 // language, since they're short enum values, not prose (spec confirmed
 // 2026-09-03).
@@ -186,26 +216,12 @@ const STATUS_LIKE_FIELDS = new Set<ColumnKey>(['severity', 'status', 'priority',
 function renderCellValue(key: ColumnKey, value: unknown, severity: string) {
   const s = String(value ?? '');
   if (!s) return '—';
-  if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={s} />;
+  if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={s} full />;
   if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
-  if (key === 'id') return <DefectIdBadge id={s} />;
-  if (key === 'status') {
-    const statusBg = STATUS_COLOR[s] ?? DEFAULT_STATUS_COLOR;
-    return (
-      // No fontSize (inherits the table's own ...TEXT.sm, same as every
-      // other cell) + contrastTextColor instead of a fixed white — same
-      // uniform-size/readable-contrast fix as OpenProdDefectsView's status
-      // badge (spec confirmed 2026-09-03).
-      <span style={{
-        fontWeight: WEIGHT.semibold, color: contrastTextColor(statusBg),
-        background: statusBg, borderRadius: RADIUS.sm, padding: '2px 8px',
-        whiteSpace: 'nowrap', display: 'inline-block',
-      }}>
-        {s}
-      </span>
-    );
-  }
-  if (key === 'severity') return <span style={{ color: SEVERITY_COLOR[severity] ?? C.textPrimary, fontWeight: WEIGHT.semibold }}>{s}</span>;
+  // Subtle text identifier, not a filled blue block (UX spec 2026-09-06).
+  if (key === 'id') return <span style={{ color: C.brand, fontWeight: WEIGHT.semibold, direction: 'ltr' }}>#{s}</span>;
+  if (key === 'status') return <SoftBadge text={s} color={STATUS_COLOR[s] ?? DEFAULT_STATUS_COLOR} />;
+  if (key === 'severity') return <SoftBadge text={s} color={SEVERITY_COLOR[severity] ?? C.textSecondary} />;
   return s;
 }
 
@@ -261,12 +277,17 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [versionId, screen, filter, value, token]);
 
-  const { getWidth: getColWidth, startResize: startColResize } = useColumnWidths('deploycenter_defect_drilldown_column_widths');
   const filters = useColumnFilters(defects as any, columns);
+  const [q, setQ] = useState('');
+  const [hoverRow, setHoverRow] = useState<string | null>(null);
 
   const sorted = useMemo(() => {
     if (!defects) return defects;
-    const filtered = defects.filter(d => filters.matches(d as any));
+    const needle = q.trim().toLowerCase();
+    const filtered = defects.filter(d =>
+      filters.matches(d as any) &&
+      (!needle || `${d.id} ${d.title} ${d.assignedTo} ${d.reporter} ${d.responsibility}`.toLowerCase().includes(needle)),
+    );
     if (!sort) return filtered;
     const { key, dir } = sort;
     return [...filtered].sort((a, b) => {
@@ -274,7 +295,7 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
       const cmp = av.localeCompare(bv, 'he');
       return dir === 'asc' ? cmp : -cmp;
     });
-  }, [defects, sort, filters.matches]);
+  }, [defects, sort, filters.matches, q]);
 
   const toggleSort = (key: ColumnKey) => {
     setSort(prev => prev?.key === key ? (prev.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' });
@@ -322,13 +343,47 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
         <button onClick={onClose} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', padding: '6px 12px', color: C.textSecondary, fontFamily: FONT, ...TEXT.sm }}>
           → חזרה
         </button>
-        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary, flex: 1 }}>🐛 {title}</div>
+        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary, flex: 1 }}>🪲 {title}</div>
         <button
           onClick={() => setShowColumnPicker(true)}
           style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold }}
         >
           ⚙ בחירת עמודות
         </button>
+      </div>
+
+      {/* ── סרגל סינון מאוחד — מחוץ למבנה הטבלה (UX spec 2026-09-06) ── */}
+      <div style={{ background: C.bgCard, borderBottom: `1px solid ${C.border}`, padding: `10px ${SP[5]}`, display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flexShrink: 0 }}>
+        <input
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="חיפוש חופשי (כותרת, מזהה, אחראי, מדווח)…"
+          style={{
+            flex: '1 1 280px', minWidth: 0, boxSizing: 'border-box', fontSize: '13px', padding: '6px 10px',
+            border: `1px solid ${C.border}`, borderRadius: RADIUS.md, fontFamily: FONT, color: C.textPrimary, background: C.bgApp,
+          }}
+        />
+        {visibleColumns.filter(c => c.key !== 'title' && filters.isEnum(c.key)).map(c => (
+          <div key={c.key} style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+            <span style={{ fontSize: '12px', color: C.textMuted, whiteSpace: 'nowrap' }}>{c.label}</span>
+            <div style={{ minWidth: '96px' }}>
+              <EnumFilterButton
+                label={c.label}
+                options={filters.distinctValues(c.key)}
+                selected={filters.enumSelected(c.key)}
+                onToggle={v => filters.toggleEnumValue(c.key, v)}
+              />
+            </div>
+          </div>
+        ))}
+        {(q || visibleColumns.some(c => filters.enumSelected(c.key).size > 0)) && (
+          <button
+            onClick={() => { setQ(''); visibleColumns.forEach(c => filters.enumSelected(c.key).forEach(v => filters.toggleEnumValue(c.key, v))); }}
+            style={{ fontSize: '12px', padding: '5px 10px', background: 'none', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer', color: C.textSecondary, fontFamily: FONT, flexShrink: 0 }}
+          >
+            נקה סינון
+          </button>
+        )}
       </div>
 
       <div style={{ flex: 1, overflow: 'auto', padding: SP[5] }}>
@@ -339,47 +394,53 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
           ) : !sorted || sorted.length === 0 ? (
             <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[6] }}>אין תקלות ברשימה זו</div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', ...TEXT.sm }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'auto', ...TEXT.sm }}>
               <thead>
                 <tr style={{ background: C.bgNested }}>
                   {visibleColumns.map(c => (
                     <th
                       key={c.key}
                       onClick={() => toggleSort(c.key)}
-                      style={{ position: 'relative', padding: '8px 10px', textAlign: 'right', fontWeight: WEIGHT.semibold, color: C.textSecondary, borderBottom: `1px solid ${C.border}`, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', userSelect: 'none', width: getColWidth(c.key) }}
+                      style={{
+                        padding: '10px', textAlign: 'right', fontWeight: WEIGHT.semibold, color: C.textSecondary,
+                        borderBottom: `1px solid ${C.border}`, cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none',
+                        width: COL_WIDTH[c.key], minWidth: c.key === 'title' ? '300px' : undefined,
+                      }}
                     >
                       {c.label}{sort?.key === c.key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
-                      <ColumnResizeHandle onMouseDown={e => startColResize(c.key, e)} />
                     </th>
                   ))}
                 </tr>
-                <ColumnFilterRow columns={visibleColumns} getWidth={getColWidth} filters={filters} />
               </thead>
               <tbody>
                 {sorted.map(d => (
-                  <tr key={d.id} onClick={() => setSelectedDefectId(d.id)} style={{ cursor: 'pointer' }}>
+                  <tr
+                    key={d.id}
+                    onClick={() => setSelectedDefectId(d.id)}
+                    onMouseEnter={() => setHoverRow(d.id)}
+                    onMouseLeave={() => setHoverRow(r => (r === d.id ? null : r))}
+                    style={{ cursor: 'pointer', background: hoverRow === d.id ? C.bgNested : undefined }}
+                  >
                     {visibleColumns.map(c => {
                       const isBadge = PERSON_BADGE_FIELDS.has(c.key) || TEAM_BADGE_FIELDS.has(c.key);
-                      // 'id' centers alongside the status-like columns (spec
-                      // confirmed 2026-09-03: defect number too) even though
-                      // it isn't a fixed-vocabulary enum — same short,
-                      // non-prose visual treatment applies.
                       const isCentered = STATUS_LIKE_FIELDS.has(c.key) || c.key === 'id';
+                      const isTitle = c.key === 'title';
                       const raw = String(d[c.key] ?? '');
-                      // hasHebrew flags true on ANY Hebrew character, so
-                      // mixed-language text already stays RTL/right here —
-                      // no separate "mixed" case needed (spec confirmed
-                      // 2026-09-03).
                       const rtl = isBadge || isCentered ? false : hasHebrew(raw);
                       return (
                         <td
                           key={c.key}
+                          title={isTitle ? raw : undefined}
                           style={{
-                            padding: '7px 10px', borderBottom: `1px solid ${C.border}`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                            width: getColWidth(c.key),
-                            color: isBadge || c.key === 'severity' || c.key === 'id' ? undefined : C.textSecondary,
-                            fontWeight: c.key === 'id' ? WEIGHT.semibold : WEIGHT.normal,
-                            fontFamily: FONT,
+                            padding: '12px 10px', borderBottom: `1px solid ${C.border}`, fontFamily: FONT,
+                            width: COL_WIDTH[c.key], minWidth: isTitle ? '300px' : undefined,
+                            // Title wraps (2-line clamp + native tooltip for the rest);
+                            // every other column stays a single compact line.
+                            ...(isTitle
+                              ? { whiteSpace: 'normal', wordBreak: 'break-word', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.4 }
+                              : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
+                            color: isBadge || c.key === 'severity' || c.key === 'id' ? undefined : (isTitle ? C.textPrimary : C.textSecondary),
+                            fontWeight: isTitle ? WEIGHT.semibold : WEIGHT.normal,
                             direction: isCentered ? undefined : (rtl ? 'rtl' : 'ltr'),
                             textAlign: isCentered ? 'center' : (rtl ? 'right' : 'left'),
                           }}
