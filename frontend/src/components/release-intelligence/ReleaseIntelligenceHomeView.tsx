@@ -452,7 +452,8 @@ type HealthRecommendation = 'GO' | 'CONDITIONAL_GO' | 'NO_GO';
 interface HealthBreakdown { coverageScore: number; qualityScore: number; riskScore: number; forecastScore: number; }
 interface Overview {
   healthScore: number; healthBreakdown: HealthBreakdown; healthRecommendation: HealthRecommendation;
-  coveragePct: number; criticalDefects: number; openRisksCount: number;
+  readinessReasons?: string[]; softScore?: number;
+  coveragePct: number; passedPct?: number; criticalDefects: number; openRisksCount: number;
   daysToGoLive: number | null; forecastStatus: ForecastStatusValue;
   forecastPace: ForecastPace | null; forecastDefectRate: ForecastDefectRate | null;
   qgSummary: Record<string, { count: number; threshold: number }>; qgPass: boolean;
@@ -501,9 +502,10 @@ const CYCLE_LABEL: Record<string, string> = {
   STAND_ALONE: 'Stand Alone', UAT: 'UAT', REHEARSAL: 'חזרה גנרלית', GO_LIVE: 'עליה לאוויר',
 };
 
-// Release Health = simple average of 4 equal-weighted 0-100 sub-scores
-// (release-intelligence.service.ts). Same thresholds recommendationFromHealth
-// uses: ≥70 GO, 40-69 CONDITIONAL_GO, <40 NO_GO.
+// Readiness = GATED model (release-intelligence.service.ts, spec 2026-09-09):
+// weighted 4-axis soft score, then capped by every triggered hard blocker's
+// ceiling. Bands: ≥75 GO, 50-74 CONDITIONAL_GO, <50 NO_GO. readinessReasons
+// carries the "why".
 const HEALTH_REC: Record<HealthRecommendation, { label: string; color: string }> = {
   GO: { label: 'GO — מוכן', color: C.success },
   CONDITIONAL_GO: { label: 'GO בתנאים', color: '#e8af00' },
@@ -830,13 +832,22 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
         <div>
           <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: '4px 0 -4px' }}>תמונת מצב</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(178px, 1fr))', gap: '12px', marginTop: '12px' }}>
-            {/* מוכנות + Quality Gate PASS/FAIL as its sub-line (no 4-part breakdown) */}
+            {/* מוכנות — הציון המגודר + QG + הסיבות שהוא נמצא איפה שהוא */}
             <KpiTile
               icon="🩺" accent={HEALTH_REC[overview.healthRecommendation].color} moduleLabel="מדד מוכנות"
               moduleLabelColor={C.moduleTracking}
               value={String(overview.healthScore)} label={HEALTH_REC[overview.healthRecommendation].label}
               sub={overview.qgPass ? '✓ Quality Gate: PASS' : '✗ Quality Gate: FAIL'}
               subTone={overview.qgPass ? 'ok' : 'warn'}
+              footer={
+                (overview.readinessReasons && overview.readinessReasons.length > 0) ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                    {overview.readinessReasons.map((r, i) => (
+                      <span key={i} style={{ ...TEXT.xs, color: r.startsWith('⛔') ? C.danger : C.textMuted, lineHeight: 1.35 }}>{r}</span>
+                    ))}
+                  </div>
+                ) : undefined
+              }
             />
             {/* כיסוי — % + progress bar, no parenthetical label */}
             <KpiTile

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { formatDate } from '../../utils/dateFormat';
 import { DefectIdBadge } from '../shared/defectFieldDisplay';
+import { BackLink } from '../ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -208,9 +209,7 @@ export const RcaWizardModal: React.FC<Props> = ({ token, role, incidentId, onClo
   return (
     <div style={{ position: 'fixed', inset: 0, background: C.bgApp, zIndex: 1001, display: 'flex', flexDirection: 'column', fontFamily: FONT, direction: 'rtl' }}>
       <div style={{ background: C.bgCard, borderBottom: `1px solid ${C.border}`, padding: `${SP[3]} ${SP[5]}`, display: 'flex', alignItems: 'flex-start', gap: SP[3], flexShrink: 0 }}>
-        <button onClick={onClose} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', padding: '6px 12px', color: C.textSecondary, fontFamily: FONT, ...TEXT.sm }}>
-          → חזרה
-        </button>
+        <BackLink onClick={onClose} style={{ marginTop: '3px' }} />
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}><DefectIdBadge id={incident.qcDefectId} /> {incident.title}</div>
           {incident.description && <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '4px' }}>{incident.description}</div>}

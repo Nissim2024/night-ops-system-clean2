@@ -128,6 +128,22 @@ export const C = {
   moduleAccess:      'oklch(0.45 0.02 260)', // Access/SSO — muted slate
 } as const;
 
+// ── Atlassian / Jira tokens ──────────────────────────────────────────────────
+// Used only by the defect table + defect-detail screen so they read as a
+// Jira "Issues table + issue panel" (spec 2026-09-08). Deliberately raw
+// Atlassian hex — matching Jira's exact look is the whole point.
+export const JIRA = {
+  blue:       '#0052CC', // links, issue keys, primary actions
+  blueHover:  '#0747A6',
+  blueBg:     '#DEEBFF',
+  greyN20:    '#F4F5F7', // sidebar / subtle surface
+  greyN30:    '#EBECF0',
+  greyN40:    '#DFE1E6', // borders / dividers
+  textSubtle: '#6B778C', // small grey labels, column headers
+  text:       '#172B4D',
+  rowHover:   '#F4F5F7',
+} as const;
+
 // ── Typography ────────────────────────────────────────────────────────────────
 
 export const FONT      = "'Rubik', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif";
@@ -256,4 +272,36 @@ export const versionStatusLabel: Record<string, string> = {
   MORNING_AFTER: 'בוקר לאחר גרסה',
   COMPLETED:     'הושלם',
   ROLLED_BACK:   'Rollback',
+};
+
+// ── Cross-module chronological lifecycle phase (backend: version-lifecycle.ts).
+// A version-wide phase derived from every module's own state — distinct from
+// the deployment-night `VersionStatus` above (spec 2026-09-08).
+export const lifecyclePhaseLabel: Record<string, string> = {
+  SCOPE_PLANNING: 'תכנון תכולה',
+  TEST_PLANNING:  'תכנון בדיקות',
+  TESTING:        'בדיקות',
+  GO_LIVE_READY:  'מוכנות לעלייה',
+  GO_LIVE_NIGHT:  'ליל העלייה',
+  DONE:           'הסתיים',
+  ROLLED_BACK:    'בוטל',
+};
+export const lifecyclePhaseColor: Record<string, string> = {
+  SCOPE_PLANNING: C.textMuted,
+  TEST_PLANNING:  '#4573D2',
+  TESTING:        '#E8AF00',
+  GO_LIVE_READY:  '#F0883E',
+  GO_LIVE_NIGHT:  '#F06A6A',
+  DONE:           '#0A7A47',
+  ROLLED_BACK:    C.textMuted,
+};
+// phase → sidebar picker group
+export const lifecyclePhaseGroup: Record<string, 'active' | 'planning' | 'closed'> = {
+  SCOPE_PLANNING: 'planning',
+  TEST_PLANNING:  'planning',
+  TESTING:        'active',
+  GO_LIVE_READY:  'active',
+  GO_LIVE_NIGHT:  'active',
+  DONE:           'closed',
+  ROLLED_BACK:    'closed',
 };

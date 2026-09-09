@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, ForbiddenException 
 import { PrismaClient, VersionStatus, Priority } from '@prisma/client';
 import { EmailService } from '../email/email.service';
 import { EventsGateway } from '../events/events.gateway';
+import { LIFECYCLE_INCLUDE, lifecycleFromVersionRow } from './version-lifecycle';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
@@ -23,6 +24,7 @@ export class VersionsService {
           _count: { select: { phases: true } },
           nightSummary:     { select: { sentAt: true, forceApprovedBy: true } },
           rehearsalSummary: { select: { sentAt: true } },
+          ...LIFECYCLE_INCLUDE,
         },
         orderBy: { createdAt: 'desc' },
       }),
@@ -38,7 +40,21 @@ export class VersionsService {
       if (tc.versionId) countMap[tc.versionId] = tc._count.id;
     }
 
-    return versions.map(v => ({ ...v, taskCount: countMap[v.id] ?? 0 }));
+    // Cross-module chronological lifecycle — derived, never stored (spec
+    // 2026-09-08). One batched KPI-scores lookup covers the Quality-Hub layer.
+    const kpiScoreRows = await prisma.releaseKpiScore.findMany({
+      where: { releaseName: { in: versions.map(v => v.name) } },
+      select: { releaseName: true },
+      distinct: ['releaseName'],
+    });
+    const kpiScoreNames = new Set(kpiScoreRows.map(r => r.releaseName));
+    const now = new Date();
+
+    return versions.map(({ qaWorkPlan, goNoGoDecision, ...v }) => ({
+      ...v,
+      taskCount: countMap[v.id] ?? 0,
+      lifecycle: lifecycleFromVersionRow({ ...v, qaWorkPlan, goNoGoDecision }, kpiScoreNames, now),
+    }));
   }
 
   async findOne(id: string) {

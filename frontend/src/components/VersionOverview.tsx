@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { C, FONT, WEIGHT, RADIUS, SHADOW } from '../theme';
-import { VersionStatusChip } from './ui';
+import { VersionStatusChip, BackLink } from './ui';
 import { hasHebrew, NameBadge, PersonAvatar, DefectIdBadge, renderNotesField, DetailGroupsDialog, DetailGroup, FieldChangeHistorySection, AttachmentsSection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow } from './shared/defectFieldDisplay';
 import { formatDateTime } from '../utils/dateFormat';
 
@@ -236,18 +236,7 @@ const OTHER_COLOR = '#8b93a7'; // muted gray — "Other" never takes a generated
 const MAX_SLICES = 8;
 
 function BackButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: 'flex', alignItems: 'center', gap: '6px', background: C.bgNested, color: C.textSecondary,
-        border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px',
-        fontWeight: WEIGHT.semibold, padding: '6px 14px', marginBottom: '16px', fontFamily: FONT,
-      }}
-    >
-      → חזרה
-    </button>
-  );
+  return <BackLink onClick={onClick} style={{ marginBottom: '16px' }} />;
 }
 
 function StatTile({ label, value, sub, accent }: { label: string; value: React.ReactNode; sub?: React.ReactNode; accent?: string }) {

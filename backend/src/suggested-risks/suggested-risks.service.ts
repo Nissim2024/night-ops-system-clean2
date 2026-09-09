@@ -36,7 +36,7 @@ const SEED_DATA = [
   },
   {
     key: 'critical-defect-aging',
-    title: 'תקלה קריטית (Show Stopper/Severe) פתוחה זמן רב ללא טיפול',
+    title: 'תקלה קריטית (Show Stopper) פתוחה זמן רב ללא טיפול',
     sourceArea: 'Release Intelligence — כרטיס תקלות / Bug Dashboard',
     signal: 'oldestCriticalDefectAgeDays חורג מסף (למשל 5+ ימים)',
     severity: 'HIGH',

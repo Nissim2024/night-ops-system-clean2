@@ -55,7 +55,7 @@ import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, versionStatusColor, versionStatusLabel } from '../theme';
 import { formatDateTime } from '../utils/dateFormat';
 import { useDialog } from '../context/DialogContext';
-import { Avatar, Badge, VersionStatusChip } from './ui';
+import { Avatar, Badge, VersionStatusChip, BackLink } from './ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -804,17 +804,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
               confirmed 2026-09-04). One shared bar here covers every current
               and future activeRiView, instead of a back button per screen file. */}
           {activeModule === 'release-intelligence' && activeRiView !== 'home' && (
-            <button
-              onClick={() => setActiveRiView('home')}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '6px', alignSelf: 'flex-start',
-                background: C.bgCard, color: C.textSecondary, border: `1px solid ${C.border}`,
-                borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontWeight: WEIGHT.semibold,
-                padding: '6px 14px', marginBottom: SP[3], fontFamily: FONT,
-              }}
-            >
-              → חזרה לדף הבית
-            </button>
+            <BackLink onClick={() => setActiveRiView('home')} label="חזרה לדף הבית" style={{ marginBottom: SP[3] }} />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'home' && (
             <ReleaseIntelligenceHomeView token={token} versionId={selectedVersionId || undefined} versionName={selectedVersion?.name} role={payload.role} fullName={fullName} onNavigate={setActiveRiView} />

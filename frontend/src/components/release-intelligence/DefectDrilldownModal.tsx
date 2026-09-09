@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
+import { C, FONT, TEXT, WEIGHT, SP, RADIUS, JIRA } from '../../theme';
 import { DefectDetailScreen } from '../quality-hub/OpenProdDefectsView';
 import { hasHebrew, PersonAvatar, NameBadge, useColumnFilters, EnumFilterButton } from '../shared/defectFieldDisplay';
+import { BackLink } from '../ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -171,13 +172,34 @@ function hexTint(hex: string, alpha = 0.14): string {
   const n = parseInt(m[1], 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
-function SoftBadge({ text, color }: { text: string; color: string }) {
+// Jira "lozenge" — uppercase, tracked, fully rounded, colour over a light wash.
+function SoftBadge({ text, color, plain }: { text: string; color: string; plain?: boolean }) {
   return (
     <span style={{
-      fontSize: '12px', fontWeight: WEIGHT.semibold, color, background: hexTint(color),
-      borderRadius: '999px', padding: '2px 10px', display: 'inline-block', whiteSpace: 'nowrap',
+      fontSize: '11px', fontWeight: WEIGHT.bold, color, background: hexTint(color),
+      borderRadius: '999px', padding: '2px 8px', display: 'inline-block', whiteSpace: 'nowrap',
+      textTransform: plain ? 'none' : 'uppercase', letterSpacing: plain ? 0 : '0.03em',
     }}>
       {text}
+    </span>
+  );
+}
+
+// Jira-style priority arrows — a coloured glyph + the raw label.
+const PRIORITY_META: { test: RegExp; glyph: string; color: string }[] = [
+  { test: /highest|urgent|critical|show ?stopper|blocker|דחוף|קריטי/i, glyph: '⏫', color: C.danger },
+  { test: /high|גבוה/i,                                                glyph: '▲',  color: '#D04437' },
+  { test: /medium|normal|בינונ/i,                                      glyph: '▲',  color: '#E8930A' },
+  { test: /low|minor|נמוכ/i,                                           glyph: '▼',  color: '#2A8735' },
+  { test: /lowest|trivial/i,                                           glyph: '⏬', color: JIRA.textSubtle },
+];
+function PriorityCell({ value }: { value: string }) {
+  if (!value) return <span style={{ color: JIRA.textSubtle }}>—</span>;
+  const m = PRIORITY_META.find(p => p.test.test(value));
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', direction: 'ltr', fontSize: '12px', color: JIRA.text }}>
+      <span aria-hidden style={{ color: m?.color ?? JIRA.textSubtle, fontSize: '11px', lineHeight: 1 }}>{m?.glyph ?? '■'}</span>
+      {value}
     </span>
   );
 }
@@ -215,13 +237,19 @@ const TEAM_BADGE_FIELDS = new Set<ColumnKey>(['assignedTo', 'responsibility']);
 const STATUS_LIKE_FIELDS = new Set<ColumnKey>(['severity', 'status', 'priority', 'reopenYn']);
 function renderCellValue(key: ColumnKey, value: unknown, severity: string) {
   const s = String(value ?? '');
-  if (!s) return '—';
+  if (!s) return key === 'priority' ? <PriorityCell value="" /> : '—';
   if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={s} full />;
   if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
-  // Subtle text identifier, not a filled blue block (UX spec 2026-09-06).
-  if (key === 'id') return <span style={{ color: C.brand, fontWeight: WEIGHT.semibold, direction: 'ltr' }}>#{s}</span>;
+  // Jira issue key — a small coloured type marker + the id as a blue link.
+  if (key === 'id') return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', direction: 'ltr' }}>
+      <span aria-hidden style={{ width: '12px', height: '12px', borderRadius: '3px', background: SEVERITY_COLOR[severity] ?? JIRA.textSubtle, flexShrink: 0, display: 'inline-block' }} />
+      <span style={{ color: JIRA.blue, fontWeight: WEIGHT.semibold }}>#{s}</span>
+    </span>
+  );
   if (key === 'status') return <SoftBadge text={s} color={STATUS_COLOR[s] ?? DEFAULT_STATUS_COLOR} />;
   if (key === 'severity') return <SoftBadge text={s} color={SEVERITY_COLOR[severity] ?? C.textSecondary} />;
+  if (key === 'priority') return <PriorityCell value={s} />;
   return s;
 }
 
@@ -340,9 +368,7 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
   return (
     <div style={{ position: 'fixed', inset: 0, background: C.bgApp, zIndex: 1001, display: 'flex', flexDirection: 'column', fontFamily: FONT, direction: 'rtl' }}>
       <div style={{ background: C.bgCard, borderBottom: `1px solid ${C.border}`, padding: `${SP[3]} ${SP[5]}`, display: 'flex', alignItems: 'center', gap: SP[3], flexShrink: 0 }}>
-        <button onClick={onClose} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', padding: '6px 12px', color: C.textSecondary, fontFamily: FONT, ...TEXT.sm }}>
-          → חזרה
-        </button>
+        <BackLink onClick={onClose} />
         <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary, flex: 1 }}>🪲 {title}</div>
         <button
           onClick={() => setShowColumnPicker(true)}
@@ -394,16 +420,17 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
           ) : !sorted || sorted.length === 0 ? (
             <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[6] }}>אין תקלות ברשימה זו</div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'auto', ...TEXT.sm }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'auto', fontSize: '13px', color: JIRA.text }}>
               <thead>
-                <tr style={{ background: C.bgNested }}>
+                <tr>
                   {visibleColumns.map(c => (
                     <th
                       key={c.key}
                       onClick={() => toggleSort(c.key)}
                       style={{
-                        padding: '10px', textAlign: 'right', fontWeight: WEIGHT.semibold, color: C.textSecondary,
-                        borderBottom: `1px solid ${C.border}`, cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none',
+                        padding: '6px 10px', textAlign: 'right', fontWeight: WEIGHT.bold, color: JIRA.textSubtle,
+                        fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em',
+                        borderBottom: `2px solid ${JIRA.greyN40}`, cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none',
                         width: COL_WIDTH[c.key], minWidth: c.key === 'title' ? '300px' : undefined,
                       }}
                     >
@@ -419,7 +446,7 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
                     onClick={() => setSelectedDefectId(d.id)}
                     onMouseEnter={() => setHoverRow(d.id)}
                     onMouseLeave={() => setHoverRow(r => (r === d.id ? null : r))}
-                    style={{ cursor: 'pointer', background: hoverRow === d.id ? C.bgNested : undefined }}
+                    style={{ cursor: 'pointer', background: hoverRow === d.id ? JIRA.rowHover : undefined }}
                   >
                     {visibleColumns.map(c => {
                       const isBadge = PERSON_BADGE_FIELDS.has(c.key) || TEAM_BADGE_FIELDS.has(c.key);
@@ -432,14 +459,14 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
                           key={c.key}
                           title={isTitle ? raw : undefined}
                           style={{
-                            padding: '12px 10px', borderBottom: `1px solid ${C.border}`, fontFamily: FONT,
+                            padding: '8px 10px', borderBottom: `1px solid ${JIRA.greyN40}`, fontFamily: FONT,
                             width: COL_WIDTH[c.key], minWidth: isTitle ? '300px' : undefined,
                             // Title wraps (2-line clamp + native tooltip for the rest);
                             // every other column stays a single compact line.
                             ...(isTitle
                               ? { whiteSpace: 'normal', wordBreak: 'break-word', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.4 }
                               : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
-                            color: isBadge || c.key === 'severity' || c.key === 'id' ? undefined : (isTitle ? C.textPrimary : C.textSecondary),
+                            color: isBadge || c.key === 'severity' || c.key === 'id' || c.key === 'priority' ? undefined : JIRA.text,
                             fontWeight: isTitle ? WEIGHT.semibold : WEIGHT.normal,
                             direction: isCentered ? undefined : (rtl ? 'rtl' : 'ltr'),
                             textAlign: isCentered ? 'center' : (rtl ? 'right' : 'left'),

@@ -2,7 +2,7 @@
  * DeployCenter UI Kit v3 — Asana-Inspired Light Theme
  */
 import React, { useState } from 'react';
-import { C, FONT, FONT_MONO, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE,
+import { C, FONT, FONT_MONO, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, JIRA,
          statusColor, statusBg, statusLabel,
          versionStatusColor, versionStatusBg, versionStatusLabel } from '../theme';
 
@@ -85,6 +85,30 @@ export const Button: React.FC<ButtonProps> = ({
     </button>
   );
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BackLink — the app-wide "back" affordance: a plain blue text link, no border
+// or background, sitting at the start (right, in RTL) of its container. Every
+// drill-in / sub-screen "→ חזרה…" should use this (spec 2026-09-08).
+// ─────────────────────────────────────────────────────────────────────────────
+export const BackLink: React.FC<{ onClick: () => void; label?: string; style?: React.CSSProperties }> = ({
+  onClick, label = 'חזרה', style,
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    style={{
+      background: 'none', border: 'none', padding: 0, margin: 0, cursor: 'pointer',
+      fontFamily: FONT, fontSize: '13px', fontWeight: WEIGHT.semibold, color: JIRA.blue,
+      display: 'inline-flex', alignItems: 'center', gap: '4px', alignSelf: 'flex-start',
+      lineHeight: 1.4, ...style,
+    }}
+    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.textDecoration = 'underline'; }}
+    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.textDecoration = 'none'; }}
+  >
+    <span aria-hidden>→</span>{label}
+  </button>
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Card

@@ -4,6 +4,7 @@ import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
 import { formatDate } from '../../utils/dateFormat';
 import { PersonAvatar } from '../shared/defectFieldDisplay';
+import { BackLink } from '../ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -159,18 +160,7 @@ function useCountdown(targetIso: string): string {
 }
 
 function BackButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: 'flex', alignItems: 'center', gap: '6px', background: C.bgNested, color: C.textSecondary,
-        border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px',
-        fontWeight: WEIGHT.semibold, padding: '6px 14px', marginBottom: SP[3], fontFamily: FONT,
-      }}
-    >
-      → חזרה
-    </button>
-  );
+  return <BackLink onClick={onClick} style={{ marginBottom: SP[3] }} />;
 }
 
 function CycleCard({ c, onShowDetail, onShowDefects }: { c: CycleTimelineItem; onShowDetail: (cycleType: string) => void; onShowDefects: (cycleType: string) => void }) {

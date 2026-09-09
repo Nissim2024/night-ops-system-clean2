@@ -285,6 +285,9 @@ export interface BugDashboardDto {
   reopen: number;
   targetTotal: number;
   targetOpen: number;
+  // Defects opened in THIS release with a non-empty BG_TARGET_REL — i.e.
+  // deferred to a later release (spec 2026-09-09).
+  movedToNext: number;
   dailyReported: { date: string; count: number }[];
   // Each row's own severity split — backs the segmented bars on the Bug
   // Dashboard (spec confirmed 2026-09-04).
@@ -1873,7 +1876,7 @@ function bugRawRowToDefectDto(r: BugRawRow): DefectDto {
     fixType: '',
     reason: '',
     reopenYn: '',
-    targetRelease: '',
+    targetRelease: r.TARGET_REL != null && String(r.TARGET_REL).trim() !== '' ? String(r.TARGET_REL) : '',
   };
 }
 
@@ -1891,6 +1894,11 @@ function computeBugDashboard(rows: BugRawRow[], reopenedIds: Set<string>, target
   // "left" = of those, still not resolved.
   const targeted = targetRows;
   const targetOpen = targeted.filter(r => !['Closed', 'Canceled'].includes(r.DEFECT_STATUS ?? ''));
+  // "עוברות לגרסה הבאה" — the mirror of TARGET: defects opened in THIS release
+  // (rows are already BG_DETECTED_IN_REL-scoped) whose BG_TARGET_REL is set,
+  // i.e. deferred to a later release (spec 2026-09-09). Status-agnostic.
+  const hasTarget = (r: BugRawRow) => r.TARGET_REL != null && String(r.TARGET_REL).trim() !== '';
+  const movedToNext = rows.filter(hasTarget);
 
   const groupCount = (items: BugRawRow[], keyFn: (r: BugRawRow) => string | null) => {
     const counts = new Map<string, number>();
@@ -1947,6 +1955,7 @@ function computeBugDashboard(rows: BugRawRow[], reopenedIds: Set<string>, target
     reopen:     reopen.length,
     targetTotal: targeted.length,
     targetOpen:  targetOpen.length,
+    movedToNext: movedToNext.length,
     dailyReported,
     openByType:           groupCountBySeverity(open, r => r.DEFECT_TYPE),
     // BG_USER_03 (RESPONSIBILITY_U3), NOT BG_RESPONSIBLE — spec 2026-09-07
@@ -1956,7 +1965,8 @@ function computeBugDashboard(rows: BugRawRow[], reopenedIds: Set<string>, target
     openByStatus:         groupCountBySeverity(open, r => bugStatusBucket(r.DEFECT_STATUS)),
     openBySeverity:       groupCount(open, r => r.SEVERITY),
     reopenByCr:           groupCount(reopen, r => r.CR_REFERENCE_NUMBER),
-    criticalByCr:         groupCount(open.filter(r => ['Show Stopper', 'Severe'].includes(r.SEVERITY ?? '')), r => r.CR_REFERENCE_NUMBER),
+    // "קריטי" = Show Stopper only (user-confirmed 2026-09-09)
+    criticalByCr:         groupCount(open.filter(r => (r.SEVERITY ?? '') === 'Show Stopper'), r => r.CR_REFERENCE_NUMBER),
   };
 }
 

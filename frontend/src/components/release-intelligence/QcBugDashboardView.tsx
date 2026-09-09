@@ -18,6 +18,7 @@ interface BugDashboardDto {
   reopen: number;
   targetTotal: number;
   targetOpen: number;
+  movedToNext: number;
   dailyReported: { date: string; count: number }[];
   openByType: BreakdownRow[];
   openByResponsibility: BreakdownRow[];
@@ -197,6 +198,10 @@ export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId })
               onClick={() => setDrilldown({ filter: 'reopen', title: 'תקלות שנפתחו מחדש (Reopen) — לפי היסטוריה' })} />
             <KpiCard label="נותרו ליעד" value={`${dashboard.targetOpen}/${dashboard.targetTotal}`} color={C.statusDone}
               onClick={() => setDrilldown({ filter: 'target', title: 'תקלות מגרסאות קודמות שהיעד שלהן הוא גרסה זו' })} />
+            {/* Mirror of "נותרו ליעד": defects opened in THIS release whose
+                BG_TARGET_REL is set — i.e. deferred forward (spec 2026-09-09). */}
+            <KpiCard label="עוברות לגרסה הבאה" value={String(dashboard.movedToNext)} sub={pct(dashboard.movedToNext, dashboard.reported)} color={C.brand}
+              onClick={() => setDrilldown({ filter: 'moved-to-next', title: 'תקלות שנפתחו בגרסה זו ומועברות לגרסה הבאה (שדה TARGET מאוכלס)' })} />
           </div>
 
           <Card>

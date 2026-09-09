@@ -3,6 +3,7 @@ import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { RcaWizardModal } from './RcaWizardModal';
 import { DefectIdBadge } from '../shared/defectFieldDisplay';
+import { BackLink } from '../ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -310,9 +311,7 @@ const CategoryBreakdownView: React.FC<{
   return (
     <div style={{ position: 'fixed', inset: 0, background: C.bgApp, zIndex: 1001, display: 'flex', flexDirection: 'column', fontFamily: FONT, direction: 'rtl' }}>
       <div style={{ background: C.bgCard, borderBottom: `1px solid ${C.border}`, padding: `${SP[3]} ${SP[5]}`, display: 'flex', alignItems: 'center', gap: SP[3], flexShrink: 0 }}>
-        <button onClick={onClose} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', padding: '6px 12px', color: C.textSecondary, fontFamily: FONT, ...TEXT.sm }}>
-          → חזרה
-        </button>
+        <BackLink onClick={onClose} />
         <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary, flex: 1 }}>📊 פילוח לפי קטגוריית גורם שורש</div>
         <div style={{ display: 'flex', gap: '4px', background: C.bgNested, borderRadius: RADIUS.md, padding: '3px' }}>
           {(['all', 'version'] as const).map(s => (
@@ -567,9 +566,7 @@ export const IncidentsView: React.FC<Props> = ({ token, versionId, role }) => {
       {showImport && (
         <div style={{ position: 'fixed', inset: 0, background: C.bgApp, zIndex: 1001, display: 'flex', flexDirection: 'column', fontFamily: FONT, direction: 'rtl' }}>
           <div style={{ background: C.bgCard, borderBottom: `1px solid ${C.border}`, padding: `${SP[3]} ${SP[5]}`, display: 'flex', alignItems: 'center', gap: SP[3], flexShrink: 0 }}>
-            <button onClick={() => setShowImport(false)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', padding: '6px 12px', color: C.textSecondary, fontFamily: FONT, ...TEXT.sm }}>
-              → חזרה
-            </button>
+            <BackLink onClick={() => setShowImport(false)} />
             <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary, flex: 1 }}>בחר תקלות לתחקור</div>
             <button
               onClick={() => setShowColumnPicker(true)}

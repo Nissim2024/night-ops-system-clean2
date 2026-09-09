@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, RADIUS } from '../../theme';
-import { Card, Badge } from '../ui';
+import { C, FONT, TEXT, WEIGHT, RADIUS, JIRA } from '../../theme';
+import { Card, Badge, BackLink } from '../ui';
 import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL } from './openProdDefectsFields';
 import { hasHebrew, NameBadge, PersonAvatar, DefectIdBadge, renderNotesField, DetailGroupsDialog, DetailGroup, FieldChangeHistorySection, AttachmentsSection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow } from '../shared/defectFieldDisplay';
 import { formatDate, formatDateTime } from '../../utils/dateFormat';
@@ -114,8 +114,9 @@ function hexTint(hex: string, alpha = 0.12): string {
 // drill-down table (user-flagged 2026-09-07: "נראות שדה הסטטוס שונה בין הטבלה
 // לטופס").
 const softChipStyle = (col: string): React.CSSProperties => ({
-  fontSize: '12px', fontWeight: WEIGHT.semibold, color: col, background: hexTint(col, 0.14),
-  borderRadius: '999px', padding: '2px 10px', display: 'inline-block', whiteSpace: 'nowrap',
+  fontSize: '11px', fontWeight: WEIGHT.bold, color: col, background: hexTint(col, 0.14),
+  borderRadius: '999px', padding: '2px 8px', display: 'inline-block', whiteSpace: 'nowrap',
+  textTransform: 'uppercase', letterSpacing: '0.03em',
 });
 function priorityColor(s: string): string {
   const n = s.toLowerCase();
@@ -131,7 +132,7 @@ function renderFieldValue(key: string, value: unknown) {
   if (!s) return '—';
   if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={s} full />;
   if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
-  if (key === 'id') return <DefectIdBadge id={s} />;
+  if (key === 'id') return <span style={{ color: JIRA.blue, fontWeight: WEIGHT.semibold, direction: 'ltr' }}>#{s}</span>;
   // status / severity / priority — same soft pill as the drill-down table.
   if (key === 'status') return <span style={softChipStyle(STATUS_COLOR[s] ?? DEFAULT_STATUS_COLOR)}>{s}</span>;
   if (key === 'severity') return <span style={softChipStyle(SEVERITY_COLOR[s] ?? C.textSecondary)}>{s}</span>;
@@ -147,7 +148,8 @@ const DETAIL_TOP_BTN: React.CSSProperties = {
   fontSize: '13px', fontFamily: FONT,
 };
 const DETAIL_SECTION_HEADING: React.CSSProperties = {
-  fontSize: '13px', fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '8px',
+  fontSize: '12px', fontWeight: WEIGHT.bold, color: JIRA.textSubtle, marginBottom: '8px',
+  textTransform: 'uppercase', letterSpacing: '0.05em',
 };
 
 // Common BG_STATUS values in this QC instance — a `datalist` (not a hard
@@ -329,7 +331,7 @@ export const DefectDetailScreen: React.FC<{
     <div style={{ padding: '20px 28px', fontFamily: FONT, direction: 'rtl' }}>
       {/* ── סרגל פעולות עליון — כפתורי משנה קומפקטיים ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
-        <button onClick={onBack} style={DETAIL_TOP_BTN}>→ חזרה לטבלה</button>
+        <BackLink onClick={onBack} label="חזרה לטבלה" />
         <button onClick={() => setShowGroupsPicker(true)} style={DETAIL_TOP_BTN}>⚙ התאמת שדות</button>
       </div>
 
@@ -347,21 +349,23 @@ export const DefectDetailScreen: React.FC<{
 
             {/* כותרת — ללא כרטיס, יושבת ישירות על רקע הדף */}
             <div>
-              <div style={{ fontSize: '23px', fontWeight: WEIGHT.bold, color: C.textPrimary, lineHeight: 1.3, wordBreak: 'break-word' }}>
+              <div style={{ fontSize: '24px', fontWeight: WEIGHT.semibold, color: JIRA.text, lineHeight: 1.3, wordBreak: 'break-word' }}>
                 {titleShown ? (detail.title || 'ללא כותרת') : 'פרטי תקלה'}
               </div>
-              <div style={{ marginTop: '8px' }}><DefectIdBadge id={defectId} /></div>
+              <div style={{ marginTop: '8px' }}>
+                <span style={{ color: JIRA.blue, fontWeight: WEIGHT.semibold, direction: 'ltr', display: 'inline-block' }}>#{defectId}</span>
+              </div>
             </div>
 
-            {/* תיאור — בלוק נקי, מרווח שורות 1.5, טקסט עשיר מפוענח */}
+            {/* תיאור — תיבה לבנה עם מסגרת ומרווח נדיב, טקסט עשיר מפוענח */}
             {showDescription && (
               <section>
                 <div style={DETAIL_SECTION_HEADING}>{DETAIL_FIELD_LABEL.description ?? 'תיאור'}</div>
                 <div style={{
-                  fontSize: '15px', color: C.textPrimary, lineHeight: 1.5,
+                  fontSize: '15px', color: JIRA.text, lineHeight: 1.6,
                   direction: 'rtl', textAlign: 'right', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                  background: C.bgNested, borderRadius: RADIUS.md, padding: '16px 18px',
-                  maxHeight: '260px', overflowY: 'auto',
+                  background: '#fff', border: `1px solid ${JIRA.greyN40}`, borderRadius: RADIUS.md, padding: '16px 20px',
+                  maxHeight: '280px', overflowY: 'auto',
                 }}>
                   {detail.description ? decodeDefectText(String(detail.description)) : '—'}
                 </div>
@@ -378,8 +382,8 @@ export const DefectDetailScreen: React.FC<{
                     {DETAIL_FIELD_LABEL.notes ?? 'הערות מפתח'}{noteCount > 1 ? ` · ${noteCount}` : ''}
                   </div>
                   <div style={{
-                    lineHeight: 1.5, maxHeight: '440px', overflowY: 'auto',
-                    background: C.bgNested, borderRadius: RADIUS.md, padding: '14px 16px',
+                    lineHeight: 1.6, maxHeight: '440px', overflowY: 'auto',
+                    background: '#fff', border: `1px solid ${JIRA.greyN40}`, borderRadius: RADIUS.md, padding: '16px 20px',
                   }}>
                     {renderNotesField(detail.notes)}
                   </div>
@@ -395,35 +399,38 @@ export const DefectDetailScreen: React.FC<{
             />
           </div>
 
-          {/* ══ סרגל צד — צד ימין ב-RTL (row-reverse) — פאנל צר, שורות תווית↔ערך צמודות ══ */}
+          {/* ══ סרגל צד (Issue panel) — רקע אפור Atlassian, תווית קטנה מעל הערך ══ */}
           <aside style={{
             flex: '0 0 300px', maxWidth: '300px', alignSelf: 'flex-start',
-            background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'hidden',
+            background: JIRA.greyN20, border: `1px solid ${JIRA.greyN40}`, borderRadius: RADIUS.lg, overflow: 'hidden',
           }}>
             {(() => {
               const groups = detailGroups
                 .map(g => ({ ...g, fields: g.fields.filter(k => detail[k] !== undefined) }))
                 .filter(g => g.fields.length > 0);
               return groups.map((group, gi) => (
-                <div key={group.title} style={{ padding: '11px 14px', borderBottom: gi < groups.length - 1 ? `1px solid ${C.border}` : 'none' }}>
-                  <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: C.textSecondary, marginBottom: '8px' }}>
+                <div key={group.title} style={{ padding: '12px 16px', borderBottom: gi < groups.length - 1 ? `1px solid ${JIRA.greyN40}` : 'none' }}>
+                  <div style={{ fontSize: '11px', fontWeight: WEIGHT.bold, color: JIRA.textSubtle, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px' }}>
                     {group.title}
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {group.fields.map(key => {
                       const raw = String(detail[key] ?? '');
                       const isAtomic = PERSON_BADGE_FIELDS.has(key) || TEAM_BADGE_FIELDS.has(key)
                         || key === 'id' || key === 'status' || key === 'severity' || key === 'priority' || key === 'secondaryPriority';
                       const valRtl = !isAtomic && (!raw || hasHebrew(raw));
+                      // Side-by-side (label ⟷ value) to keep the panel short — user
+                      // pref 2026-09-08; the Jira brief allowed "מעליה/לצידה".
                       return (
-                        <div key={key} style={{ display: 'grid', gridTemplateColumns: 'minmax(58px, 36%) 1fr', gap: '8px', alignItems: 'start' }}>
-                          <span style={{ fontSize: '13px', color: C.textMuted, textAlign: 'right', paddingTop: '2px' }}>
+                        <div key={key} style={{ display: 'grid', gridTemplateColumns: 'minmax(64px, 40%) 1fr', gap: '8px', alignItems: 'start' }}>
+                          <span style={{ fontSize: '11px', color: JIRA.textSubtle, fontWeight: WEIGHT.semibold, textTransform: 'uppercase', letterSpacing: '0.03em', textAlign: 'right', paddingTop: '2px' }}>
                             {DETAIL_FIELD_LABEL[key] ?? key}
                           </span>
                           <span style={{
-                            fontSize: '15px', color: C.textPrimary, fontWeight: WEIGHT.semibold, minWidth: 0,
-                            display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', gap: '4px',
-                            direction: valRtl ? 'rtl' : 'ltr', textAlign: 'right', wordBreak: 'break-word',
+                            fontSize: '13px', color: JIRA.text, fontWeight: WEIGHT.medium, minWidth: 0,
+                            display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px',
+                            justifyContent: 'flex-end', direction: 'rtl',
+                            unicodeBidi: valRtl ? 'normal' : 'plaintext', wordBreak: 'break-word',
                           }}>
                             {renderFieldValue(key, detail[key])}
                           </span>
@@ -436,22 +443,22 @@ export const DefectDetailScreen: React.FC<{
             })()}
 
             {/* קבצים מצורפים — האינדיקציה + הרשימה בתוך החלונית */}
-            <div style={{ padding: '0 14px 12px' }}>
+            <div style={{ padding: '12px 16px', borderBottom: `1px solid ${JIRA.greyN40}` }}>
               <AttachmentsSection defectId={defectId} token={token} />
             </div>
 
             {/* היסטוריית שינויים — כפתור שפותח את הטבלה בחלון מודאלי */}
-            <div style={{ padding: '11px 14px', borderTop: `1px solid ${C.border}` }}>
+            <div style={{ padding: '12px 16px' }}>
               <button
                 onClick={() => setHistoryModalOpen(true)}
                 style={{
                   width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONT, padding: 0,
-                  fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textSecondary,
+                  fontSize: '13px', fontWeight: WEIGHT.bold, color: JIRA.blue,
                 }}
               >
                 <span>🕘 היסטוריית שינויים</span>
-                <span aria-hidden style={{ color: C.textMuted }}>←</span>
+                <span aria-hidden>←</span>
               </button>
             </div>
           </aside>
@@ -860,16 +867,7 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
   if (tableOpen) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px 28px', fontFamily: FONT }}>
-        <button
-          onClick={() => setTableOpen(false)}
-          style={{
-            alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '6px', background: C.bgNested,
-            color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer',
-            fontSize: '13px', fontWeight: WEIGHT.semibold, padding: '6px 14px', fontFamily: FONT,
-          }}
-        >
-          → חזרה לסקירה
-        </button>
+        <BackLink onClick={() => setTableOpen(false)} label="חזרה לסקירה" />
         <Card>
           <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, marginBottom: '10px' }}>
             תקלות פתוחות — {activeMonth ?? '—'}{presetSeverity ? ` — חומרה: ${presetSeverity}` : ''} ({baseRows.length}) — לחץ על כותרת עמודה למיון, לחץ על שורה לפרטים מלאים

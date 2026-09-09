@@ -779,12 +779,13 @@ export const HomeDashboard: React.FC<Props> = ({
 
   // Same definitions as release-intelligence.service.ts (CLOSED_DEFECT_STATUSES / CRITICAL_SEVERITIES) —
   // must stay in sync so this panel's count agrees with the "תקלות פתוחות" KPI tile above it.
+  // "קריטי" = Show Stopper only (user-confirmed 2026-09-09).
   const openDefects = useMemo(
     () => defectsList.filter(d => !['Closed', 'Canceled', 'Rejected', 'Fixed'].includes(d.status)),
     [defectsList]
   );
   const criticalDefectsCount = useMemo(
-    () => openDefects.filter(d => ['Show Stopper', 'Severe'].includes(d.severity)).length,
+    () => openDefects.filter(d => d.severity === 'Show Stopper').length,
     [openDefects]
   );
 

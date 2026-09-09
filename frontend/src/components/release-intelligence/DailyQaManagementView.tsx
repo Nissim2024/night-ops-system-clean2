@@ -176,8 +176,9 @@ function KpiCard({ value, label, color, onClick }: { value: string; label: strin
   );
 }
 
-// Release Health = simple average of 4 equal-weighted 0-100 sub-scores
-// (release-intelligence.service.ts). ≥70 GO, 40-69 CONDITIONAL_GO, <40 NO_GO.
+// Readiness = gated model (release-intelligence.service.ts, spec 2026-09-09):
+// weighted 4-axis soft score capped by hard blockers. ≥75 GO, 50-74
+// CONDITIONAL_GO, <50 NO_GO.
 const HEALTH_REC_META: Record<HealthRecommendation, { label: string; color: string }> = {
   GO: { label: 'GO — מוכן', color: C.success },
   CONDITIONAL_GO: { label: 'GO בתנאים', color: C.warning },

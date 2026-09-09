@@ -3,6 +3,7 @@ import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { useReleaseCount } from './releaseCountSetting';
 import { DefectIdBadge } from '../shared/defectFieldDisplay';
+import { BackLink } from '../ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -442,14 +443,9 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
 
   return (
     <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <BackLink onClick={onBack} label="חזרה למטריצה" />
         <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>🔍 {kpiName} — {releaseName}</div>
-        <button
-          onClick={onBack}
-          style={{ padding: '8px 16px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', color: C.textSecondary, ...TEXT.sm, fontWeight: WEIGHT.semibold }}
-        >
-          → חזרה למטריצה
-        </button>
       </div>
 
       {loading ? (

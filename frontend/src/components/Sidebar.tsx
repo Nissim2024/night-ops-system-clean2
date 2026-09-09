@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { C, FONT, WEIGHT, SP, RADIUS, EASE, versionStatusColor, versionStatusLabel } from '../theme';
+import React, { useState, useEffect, useMemo } from 'react';
+import { C, FONT, WEIGHT, SP, RADIUS, EASE, versionStatusColor, versionStatusLabel, lifecyclePhaseLabel, lifecyclePhaseColor, lifecyclePhaseGroup } from '../theme';
 import pkg from '../../package.json';
 const APP_VERSION: string = pkg.version;
 
@@ -93,10 +93,123 @@ const QH_VIEWS = [
 
 function versionGroup(v: any): string {
   if (v.isArchived) return 'archived';
+  // Prefer the cross-module lifecycle phase (backend: version-lifecycle.ts);
+  // fall back to the deployment-night status when it isn't present.
+  if (v.lifecycle?.phase && lifecyclePhaseGroup[v.lifecycle.phase]) return lifecyclePhaseGroup[v.lifecycle.phase];
   if (['REHEARSAL', 'ACTIVE', 'MORNING_AFTER'].includes(v.status)) return 'active';
   if (['COMPLETED', 'ROLLED_BACK'].includes(v.status)) return 'closed';
   return 'planning';
 }
+
+// Version-wide chronological label + colour for the quick picker — the
+// lifecycle phase when available, else the deployment-night status.
+function versionPhaseLabel(v: any): string {
+  if (v.lifecycle?.phaseLabel) return v.lifecycle.phaseLabel;
+  if (v.lifecycle?.phase && lifecyclePhaseLabel[v.lifecycle.phase]) return lifecyclePhaseLabel[v.lifecycle.phase];
+  return versionStatusLabel[v.status] ?? v.status;
+}
+function versionPhaseColor(v: any): string {
+  if (v.lifecycle?.phase && lifecyclePhaseColor[v.lifecycle.phase]) return lifecyclePhaseColor[v.lifecycle.phase];
+  return versionStatusColor[v.status] ?? C.sidebarTextMuted;
+}
+
+// ── Quick version switcher (button → small modal) — replaces the native
+//    <select> that clashed with the dark sidebar (spec 2026-09-08). Groups by
+//    status (בפעילות / בתכנון / סגורות / ארכיון), click a row to switch.
+const VersionPickerModal: React.FC<{
+  versions: any[];
+  selectedVersionId?: string;
+  onPick: (id: string) => void;
+  onClose: () => void;
+}> = ({ versions, selectedVersionId, onPick, onClose }) => {
+  const [q, setQ] = useState('');
+  const showSearch = versions.length > 6;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const needle = q.trim().toLowerCase();
+  const groupsWithItems = useMemo(() => GROUPS.map(g => ({
+    group: g,
+    items: versions
+      .filter(v => versionGroup(v) === g.id)
+      .filter(v => !needle || String(v.name).toLowerCase().includes(needle))
+      .sort((a, b) => String(b.name).localeCompare(String(a.name), 'he')),
+  })).filter(x => x.items.length > 0), [versions, needle]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(10,11,26,0.55)', zIndex: 4000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '10vh 16px 16px', direction: 'rtl' }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ background: C.bgCard, borderRadius: RADIUS.lg, width: '360px', maxWidth: '92vw', maxHeight: '68vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(0,0,0,0.35)', fontFamily: FONT, overflow: 'hidden' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px', borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: '15px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>בחירת גרסה</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '17px', color: C.textMuted, lineHeight: 1, padding: '2px 6px' }}>✕</button>
+        </div>
+
+        {showSearch && (
+          <div style={{ padding: '10px 16px 4px' }}>
+            <input
+              autoFocus
+              value={q}
+              onChange={e => setQ(e.target.value)}
+              placeholder="חיפוש גרסה..."
+              style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, fontFamily: FONT, fontSize: '13px', background: C.bgApp, color: C.textPrimary, direction: 'rtl' }}
+            />
+          </div>
+        )}
+
+        <div style={{ overflowY: 'auto', padding: '6px 8px 10px' }}>
+          {groupsWithItems.length === 0 && (
+            <div style={{ fontSize: '13px', color: C.textMuted, textAlign: 'center', padding: '24px' }}>לא נמצאו גרסאות</div>
+          )}
+          {groupsWithItems.map(({ group, items }) => (
+            <div key={group.id} style={{ marginBottom: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 10px 4px', fontSize: '11px', fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
+                <span style={{ fontSize: '13px' }}>{group.icon}</span><span>{group.label}</span>
+                <span style={{ color: C.textDisabled, fontWeight: WEIGHT.normal }}>· {items.length}</span>
+              </div>
+              {items.map(v => {
+                const isSel = v.id === selectedVersionId;
+                const sColor = versionPhaseColor(v);
+                const sLabel = versionPhaseLabel(v);
+                return (
+                  <button
+                    key={v.id}
+                    onClick={() => { onPick(v.id); onClose(); }}
+                    style={{
+                      width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
+                      padding: '9px 10px', borderRadius: RADIUS.md, cursor: 'pointer',
+                      background: isSel ? C.bgHover : 'transparent',
+                      border: `1px solid ${isSel ? C.border : 'transparent'}`,
+                      textAlign: 'right' as const, direction: 'rtl', fontFamily: FONT, marginBottom: '2px',
+                    }}
+                    onMouseEnter={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = C.bgNested; }}
+                    onMouseLeave={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                  >
+                    <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: sColor, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '14px', fontWeight: isSel ? WEIGHT.bold : WEIGHT.medium, color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.name}</div>
+                      <div style={{ fontSize: '12px', color: sColor }}>{sLabel}</div>
+                    </div>
+                    {isSel && <span style={{ fontSize: '13px', color: C.brand, fontWeight: WEIGHT.bold }}>✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export const Sidebar: React.FC<Props> = ({
   versions = [], selectedVersionId, onVersionChange,
@@ -128,6 +241,7 @@ export const Sidebar: React.FC<Props> = ({
   const [versionsOpen, setVersionsOpen] = useState(true);
   const [hoveredVer, setHoveredVer] = useState<string | null>(null);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
+  const [verPickerOpen, setVerPickerOpen] = useState(false);
 
   const grouped: Record<string, any[]> = { active: [], planning: [], closed: [], archived: [] };
   for (const v of versions) grouped[versionGroup(v)].push(v);
@@ -190,33 +304,47 @@ export const Sidebar: React.FC<Props> = ({
         </div>
       )}
 
-      {/* ── Quick version picker — switch versions from any screen in one
-           click, no round-trip to Home (spec 2026-09-07, section 4) ── */}
-      {onVersionChange && versions.length > 0 && (
-        <div style={{ padding: `${SP[3]} ${SP[3]} 0` }}>
-          <select
-            value={selectedVersionId ?? ''}
-            onChange={e => e.target.value && onVersionChange(e.target.value)}
-            style={{
-              width: '100%', boxSizing: 'border-box', padding: '8px 10px',
-              background: C.sidebarBgActive, color: C.sidebarText,
-              border: `1px solid ${C.sidebarBorder}`, borderRadius: RADIUS.md,
-              fontFamily: FONT, fontSize: '13px', fontWeight: WEIGHT.semibold, cursor: 'pointer',
-              direction: 'rtl',
-            }}
-          >
-            {!selectedVersionId && <option value="">— בחר גרסה —</option>}
-            {GROUPS.map(g => {
-              const items = versions.filter(v => versionGroup(v) === g.id);
-              if (items.length === 0) return null;
-              return (
-                <optgroup key={g.id} label={`${g.icon} ${g.label}`}>
-                  {items.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                </optgroup>
-              );
-            })}
-          </select>
-        </div>
+      {/* ── Quick version switcher — button opens a small modal picker; switch
+           versions from any screen in one click, no round-trip to Home
+           (spec 2026-09-07 §4; button+modal redesign 2026-09-08) ── */}
+      {onVersionChange && versions.length > 0 && (() => {
+        const cur = versions.find(v => v.id === selectedVersionId);
+        const curColor = cur ? versionPhaseColor(cur) : C.sidebarTextMuted;
+        const curLabel = cur ? versionPhaseLabel(cur) : '';
+        return (
+          <div style={{ padding: `${SP[3]} ${SP[3]} 0` }}>
+            <button
+              onClick={() => setVerPickerOpen(true)}
+              style={{
+                width: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: '9px',
+                padding: '9px 11px', background: C.sidebarBgActive, color: C.sidebarText,
+                border: `1px solid ${C.sidebarBorder}`, borderRadius: RADIUS.md,
+                fontFamily: FONT, cursor: 'pointer', textAlign: 'right' as const, direction: 'rtl',
+                transition: EASE.fast,
+              }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = C.sidebarBgHover}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = C.sidebarBgActive}
+            >
+              <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: curColor, flexShrink: 0 }} />
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {cur ? cur.name : 'בחר גרסה'}
+                </span>
+                {curLabel && <span style={{ display: 'block', fontSize: '11px', color: 'rgba(255,255,255,0.55)' }}>{curLabel}</span>}
+              </span>
+              <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.45)', flexShrink: 0 }}>▾</span>
+            </button>
+          </div>
+        );
+      })()}
+
+      {verPickerOpen && onVersionChange && (
+        <VersionPickerModal
+          versions={versions}
+          selectedVersionId={selectedVersionId}
+          onPick={onVersionChange}
+          onClose={() => setVerPickerOpen(false)}
+        />
       )}
 
       {/* ── Home button — always visible ── */}

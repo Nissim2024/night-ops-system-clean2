@@ -30,7 +30,12 @@ function parseOracleDateAgeDays(ddMmYyyy: string, nowMs: number): number | null 
 }
 
 const CLOSED_DEFECT_STATUSES = ['Closed', 'Canceled', 'Rejected', 'Fixed'];
-const CRITICAL_SEVERITIES = ['Show Stopper', 'Severe'];
+// "תקלה קריטית" = Show Stopper ONLY (user-confirmed 2026-09-09 — Severe is
+// serious but NOT "critical"). SEVERE_OR_WORSE stays the two-severity set for
+// the places that genuinely mean "חמור ומעלה" (the QG severe-or-worse target,
+// its drill-down), never labelled "critical" to the user.
+const CRITICAL_SEVERITIES = ['Show Stopper'];
+const SEVERE_OR_WORSE = ['Show Stopper', 'Severe'];
 
 // "Core" cycles for the Home page's version-wide coverage % and the forecast
 // pace check — UAT/REHEARSAL/STAND_ALONE/GO_LIVE deliberately excluded (spec
@@ -76,6 +81,34 @@ const SEVERITY_RANK: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2,
 // CrPlan weighs the same as a HIGH-severity risk.
 const RISK_SEVERITY_WEIGHT: Record<string, number> = { CRITICAL: 15, HIGH: 10, MEDIUM: 6, LOW: 3 };
 const HIGH_RISK_CR_WEIGHT = 10;
+
+// ── Release readiness model (spec 2026-09-09) ──────────────────────────────
+// A GATED model, not a flat average: hard blockers cap the final score, the
+// soft weighted score fills in "how much polish is left" when nothing blocks.
+//   readiness = min(softScore, min(ceiling of every triggered blocker))
+// Time-agnostic in v1 (no proximity-to-go-live weighting — user decision).
+const READINESS_WEIGHTS = { defects: 0.35, coverage: 0.35, forecast: 0.20, risk: 0.10 };
+// Defect axis — weighted penalty per OPEN defect, anchored to QG_DEFAULTS
+// ("sitting exactly at a severity's gate limit" costs roughly its share of
+// the axis). Show Stopper is also a hard blocker below, so its weight only
+// matters for the pre-ceiling number.
+const DEFECT_QUALITY_PENALTY: Record<string, number> = { 'Show Stopper': 45, Severe: 4, Medium: 1.5, Low: 0.5 };
+// executed% / passed% below these (once there IS core-cycle data) are blockers.
+const READINESS_COVERAGE_FLOOR_PCT = 50;
+const READINESS_PASSRATE_FLOOR_PCT = 60;
+// Ceiling each blocker imposes on the final readiness score.
+const READINESS_CEILING = {
+  showStopperOpen:         25,
+  severeOverQg:            40,
+  coverageCriticallyLow:   40,
+  passRateCriticallyLow:   40,
+  forecastBehind:          45,
+  unmitigatedCriticalRisk: 45,
+};
+// readiness → recommendation (also the Overview KPI colour bands).
+function readinessRecommendation(score: number): string {
+  return score >= 75 ? 'GO' : score >= 50 ? 'CONDITIONAL_GO' : 'NO_GO';
+}
 
 // Maps our internal QaCycle.cycleType to the real QC RELEASE_CYCLES.RCYC_NAME
 // values it corresponds to — normalized (lowercase/trim) since the real data
@@ -138,9 +171,12 @@ export class ReleaseIntelligenceService {
       .flatMap(t => t.crCoverage.map(cc => ({ ...cc, cycleType: t.cycleType })));
     const coreTotal = coreCrCoverage.reduce((s, cc) => s + cc.total, 0);
     const corePassedFailed = coreCrCoverage.reduce((s, cc) => s + cc.passed + cc.failed, 0);
+    const corePassed = coreCrCoverage.reduce((s, cc) => s + cc.passed, 0);
+    // executed% (ran) and passed% (ran AND passed) across the 3 core cycles.
     const coveragePct = coreTotal > 0 ? Math.round((corePassedFailed / coreTotal) * 100) : 0;
+    const passedPct = coreTotal > 0 ? Math.round((corePassed / coreTotal) * 100) : 0;
 
-    // Critical defects — open, severity Show Stopper/Severe
+    // Critical defects — open, severity Show Stopper (see CRITICAL_SEVERITIES)
     const openDefects = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
 
     // Blocked CRs — a CR only appears here if it BOTH has blocked scripts in
@@ -292,20 +328,97 @@ export class ReleaseIntelligenceService {
     const highRiskCrs = crPlans.filter(p => p.riskLevel === 'HIGH').length;
     const openRisksCount = openRisks.length;
 
-    // Health score (0-100) — v1 weighted average, documented as tunable
-    const qualityScore = Math.max(0, 100 - criticalDefects * 10);
+    // ── Readiness score (0-100) — GATED model (spec 2026-09-09) ─────────────
+    // Four soft axes, unequal weights (READINESS_WEIGHTS), then hard blockers
+    // cap the result: readiness = min(softScore, min(triggered ceilings)).
+
+    // Axis 1 — defects: severity-weighted penalty from the QG summary (one
+    // model, so this can't disagree with qgPass the way the old flat
+    // "100 − criticalDefects*10" did). qgSummary keys: showStopper/severe/medium/low.
+    const defectPenalty =
+        qgSummary.showStopper.count * DEFECT_QUALITY_PENALTY['Show Stopper']
+      + qgSummary.severe.count      * DEFECT_QUALITY_PENALTY.Severe
+      + qgSummary.medium.count      * DEFECT_QUALITY_PENALTY.Medium
+      + qgSummary.low.count         * DEFECT_QUALITY_PENALTY.Low;
+    const defectsAxis = Math.max(0, Math.round(100 - defectPenalty));
+
+    // Axis 2 — coverage: blend of executed% and pass% (0.4/0.6). Neutral 50
+    // when there's no core-cycle data yet (Oracle off / testing not started) —
+    // not 100, so an untested version doesn't read as "ready".
+    const coverageAxis = coreTotal > 0 ? Math.round(0.4 * coveragePct + 0.6 * passedPct) : 50;
+
+    // Axis 3 — forecast.
+    const forecastAxis = forecastStatus === 'ON_TRACK' ? 100 : forecastStatus === 'AT_RISK' ? 60 : 20;
+
+    // Axis 4 — risk (unchanged weighting).
     const riskWeight = openRisks.reduce((s, r) => s + (RISK_SEVERITY_WEIGHT[r.severity] ?? RISK_SEVERITY_WEIGHT.MEDIUM), 0)
       + highRiskCrs * HIGH_RISK_CR_WEIGHT;
-    const riskScore = Math.max(0, 100 - riskWeight);
-    const forecastScore = forecastStatus === 'ON_TRACK' ? 100 : forecastStatus === 'AT_RISK' ? 60 : 20;
-    const healthScore = Math.round((coveragePct + qualityScore + riskScore + forecastScore) / 4);
+    const riskAxis = Math.max(0, 100 - riskWeight);
+
+    const softScore = Math.round(
+        READINESS_WEIGHTS.defects  * defectsAxis
+      + READINESS_WEIGHTS.coverage * coverageAxis
+      + READINESS_WEIGHTS.forecast * forecastAxis
+      + READINESS_WEIGHTS.risk     * riskAxis,
+    );
+
+    // Hard blockers — each caps the final score; the score also carries the
+    // human-readable reason(s) it landed where it did.
+    const ceilings: number[] = [];
+    const readinessBlockers: string[] = [];
+    if (qgSummary.showStopper.count > 0) {
+      ceilings.push(READINESS_CEILING.showStopperOpen);
+      readinessBlockers.push(`${qgSummary.showStopper.count} תקלות Show Stopper פתוחות`);
+    }
+    if (qgSummary.severe.count > qgSummary.severe.threshold) {
+      ceilings.push(READINESS_CEILING.severeOverQg);
+      readinessBlockers.push(`${qgSummary.severe.count} תקלות Severe פתוחות (סף QG: ${qgSummary.severe.threshold})`);
+    }
+    if (coreTotal > 0 && coveragePct < READINESS_COVERAGE_FLOOR_PCT) {
+      ceilings.push(READINESS_CEILING.coverageCriticallyLow);
+      readinessBlockers.push(`כיסוי ביצוע ${coveragePct}% (מתחת ל-${READINESS_COVERAGE_FLOOR_PCT}%)`);
+    }
+    if (coreTotal > 0 && passedPct < READINESS_PASSRATE_FLOOR_PCT) {
+      ceilings.push(READINESS_CEILING.passRateCriticallyLow);
+      readinessBlockers.push(`אחוז הצלחה ${passedPct}% (מתחת ל-${READINESS_PASSRATE_FLOOR_PCT}%)`);
+    }
+    if (forecastStatus === 'BEHIND_PLAN') {
+      ceilings.push(READINESS_CEILING.forecastBehind);
+      readinessBlockers.push('התחזית מצביעה על חריגה מלוח הזמנים');
+    }
+    const unmitigatedCriticalRisks = openRisks.filter(r => r.severity === 'CRITICAL' && r.status !== 'MITIGATED');
+    if (unmitigatedCriticalRisks.length > 0) {
+      ceilings.push(READINESS_CEILING.unmitigatedCriticalRisk);
+      readinessBlockers.push(`${unmitigatedCriticalRisks.length} סיכון קריטי לא ממותן`);
+    }
+    const ceiling = ceilings.length > 0 ? Math.min(...ceilings) : 100;
+    const healthScore = Math.min(softScore, ceiling);
+
+    // "Why the score is here" — every blocker that fired, plus the single
+    // lowest soft axis when there are 0-1 blockers (so the reason list is
+    // never empty and never just repeats one thing).
+    const AXIS_LABEL: Record<string, string> = { defects: 'תקלות', coverage: 'כיסוי והצלחה', forecast: 'תחזית', risk: 'סיכון' };
+    const axesSorted = ([
+      ['defects', defectsAxis], ['coverage', coverageAxis], ['forecast', forecastAxis], ['risk', riskAxis],
+    ] as [string, number][]).sort((a, b) => a[1] - b[1]);
+    const readinessReasons = [
+      ...readinessBlockers.map(b => `⛔ ${b}`),
+      ...(readinessBlockers.length < 2 && axesSorted[0][1] < 70 ? [`ציר נמוך — ${AXIS_LABEL[axesSorted[0][0]]}: ${axesSorted[0][1]}`] : []),
+    ].slice(0, 3);
+
+    // Kept names for the persisted ReleaseHealth columns + the frontend
+    // breakdown: qualityScore = the defects axis, coverageScore = coverage axis.
+    const qualityScore = defectsAxis;
+    const riskScore = riskAxis;
+    const forecastScore = forecastAxis;
+    const coverageScoreForSnapshot = coverageAxis;
 
     // Persist snapshot rows (ReleaseHealth/ReleaseForecast — spec section 8)
     await Promise.all([
       prisma.releaseHealth.upsert({
         where: { versionId },
-        create: { versionId, healthScore, coverageScore: coveragePct, qualityScore, riskScore, forecastScore },
-        update: { healthScore, coverageScore: coveragePct, qualityScore, riskScore, forecastScore, calculatedAt: new Date() },
+        create: { versionId, healthScore, coverageScore: coverageScoreForSnapshot, qualityScore, riskScore, forecastScore },
+        update: { healthScore, coverageScore: coverageScoreForSnapshot, qualityScore, riskScore, forecastScore, calculatedAt: new Date() },
       }),
       prisma.releaseForecast.upsert({
         where: { versionId },
@@ -345,13 +458,16 @@ export class ReleaseIntelligenceService {
 
     return {
       healthScore,
-      // Sub-scores + GO/NO-GO reading, so a consumer showing healthScore as a
-      // headline number can always expand it into its 4 equal-weighted parts
-      // (a blended average hides which axis is dragging — see the formula
-      // comment above line ~217).
-      healthBreakdown: { coverageScore: coveragePct, qualityScore, riskScore, forecastScore },
-      healthRecommendation: this.recommendationFromHealth(healthScore),
+      // Sub-scores + GO/NO-GO reading + the "why". healthScore is the GATED
+      // result (min of the weighted soft score and every triggered blocker's
+      // ceiling), so a headline number can always be expanded into its 4
+      // weighted axes AND the reason(s) it's capped where it is.
+      healthBreakdown: { coverageScore: coverageAxis, qualityScore, riskScore, forecastScore },
+      healthRecommendation: readinessRecommendation(healthScore),
+      readinessReasons,
+      softScore,
       coveragePct,
+      passedPct,
       blockedCrs,
       overdueUnstartedCrs,
       criticalDefects,
@@ -1457,7 +1573,7 @@ export class ReleaseIntelligenceService {
       }
       case 'status-board': {
         if (filter === 'openTotal') return open;
-        if (filter === 'openSevereOrWorse') return open.filter(d => CRITICAL_SEVERITIES.includes(d.severity));
+        if (filter === 'openSevereOrWorse') return open.filter(d => SEVERE_OR_WORSE.includes(d.severity));
         if (filter === 'aging') {
           const now = Date.now();
           return open.filter(d => {
@@ -1540,7 +1656,7 @@ export class ReleaseIntelligenceService {
         // DIFFERENT column and, in dev, from a disjoint mock set — so pull the
         // Bug Dashboard's own row set here, exactly what the KPI numbers were
         // computed from (spec 2026-09-07).
-        if (['responsibility', 'cr', 'status', 'production', 'regression', 'day'].includes(filter)) {
+        if (['responsibility', 'cr', 'status', 'production', 'regression', 'day', 'moved-to-next'].includes(filter)) {
           const bdDefects = await this.qcService.getBugDashboardDefects(versionId).catch((): DefectDto[] => []);
           const bdOpenRows = bdDefects.filter(d => !['Closed', 'Canceled'].includes(d.status));
           if (filter === 'responsibility' && value) return bdOpenRows.filter(d => (d.responsibility || 'ללא סיווג') === value);
@@ -1548,6 +1664,10 @@ export class ReleaseIntelligenceService {
           if (filter === 'status' && value) return bdOpenRows.filter(d => bugStatusBucket(d.status) === value);
           if (filter === 'production') return bdDefects.filter(d => d.crHbrNumberReference === 'Production' && notNewOrCanceled(d.status));
           if (filter === 'regression') return bdDefects.filter(d => d.crHbrNumberReference === 'Regression' && notNewOrCanceled(d.status));
+          // "עוברות לגרסה הבאה" — opened in this release (BUG_DASHBOARD_SQL scope)
+          // with a non-empty BG_TARGET_REL. Status-agnostic, mirrors the KPI
+          // count in computeBugDashboard (spec 2026-09-09).
+          if (filter === 'moved-to-next') return bdDefects.filter(d => !!(d.targetRelease || '').trim());
           // "דיווח יומי" chart — every defect REPORTED on that calendar day
           // (matches the chart's own per-day tally, which counts all rows).
           if (filter === 'day' && value) return bdDefects.filter(d => (d.discoveryDate || '').slice(0, 10) === value);
@@ -1717,10 +1837,11 @@ export class ReleaseIntelligenceService {
 
   // ── Go / No-Go — spec section 26 ────────────────────────────────────────────
   // Advisory/record-only — see model comment in schema.prisma. systemRecommendation
-  // is derived from the already-persisted ReleaseHealth.healthScore (same
-  // thresholds used for the Overview KPI color: ≥70 GO, 40-69 CONDITIONAL_GO, <40 NO_GO).
+  // is derived from the already-persisted ReleaseHealth.healthScore. Bands
+  // updated with the gated readiness model (spec 2026-09-09): ≥75 GO,
+  // 50-74 CONDITIONAL_GO, <50 NO_GO — same as readinessRecommendation().
   private recommendationFromHealth(healthScore: number): string {
-    return healthScore >= 70 ? 'GO' : healthScore >= 40 ? 'CONDITIONAL_GO' : 'NO_GO';
+    return readinessRecommendation(healthScore);
   }
 
   // Approver fields store raw user IDs (audit-correct); resolve to display
