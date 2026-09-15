@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { VersionOpeningModule, StepKey } from './VersionOpeningModule';
 import { VersionOverview } from './VersionOverview';
-import { C, FONT, WEIGHT, RADIUS } from '../theme';
 import { VersionStatusChip } from './ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -53,14 +52,14 @@ export const VersionManagementModuleView: React.FC<Props> = ({
   };
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl' }}>
+    <div className="[direction:rtl]">
       {/* ── Version picker ── */}
       {!hideVersionPicker && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <div className="mb-4 flex flex-wrap items-center gap-3">
           <select
             value={selectedVersionId}
             onChange={e => onSelectVersion(e.target.value)}
-            style={{ padding: '8px 12px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, fontSize: '15px', fontFamily: FONT, background: C.bgCard, minWidth: '220px' }}
+            className="min-w-[220px] rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground"
           >
             <option value="">בחר גרסה...</option>
             {openVersions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
@@ -70,7 +69,7 @@ export const VersionManagementModuleView: React.FC<Props> = ({
       )}
 
       {!selectedVersion ? (
-        <div style={{ color: C.textMuted, padding: '40px', textAlign: 'center' }}>
+        <div className="p-10 text-center text-subtle-foreground">
           {openVersions.length === 0 ? 'אין גרסאות פתוחות — ניתן ליצור תוכנית הטמעה חדשה במודול הטמעות.' : 'בחר גרסה מהרשימה.'}
         </div>
       ) : activeView === 'overview' ? (

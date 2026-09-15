@@ -1,0 +1,68 @@
+/* New Linear-inspired UI kit — scoped, additive stylesheet.
+ * Imported alongside (not instead of) index.css/App.css. Tailwind's
+ * `preflight` reset is disabled (see tailwind.config.js) specifically so
+ * this file cannot change how any existing screen looks — it only supplies
+ * CSS variables + utility classes that src/components/ui/* opts into.
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 225 33% 98%;
+    --foreground: 237 35% 12%;
+    --card: 0 0% 100%;
+    --popover: 0 0% 100%;
+    --muted: 230 27% 96%;
+    --muted-foreground: 233 12% 39%;
+    --subtle-foreground: 233 13% 63%;
+    --border: 227 21% 92%;
+    --input: 227 21% 92%;
+    --ring: 234 56% 60%;
+
+    --success: 142 76% 36%;
+    --success-bg: 141 68% 95%;
+    --warning: 32 95% 44%;
+    --warning-bg: 39 92% 95%;
+    --danger: 0 72% 51%;
+    --danger-bg: 0 81% 96%;
+    --info: 192 91% 36%;
+    --info-bg: 190 64% 95%;
+
+    --shadow-xs: 0 1px 2px rgba(20,21,42,.05);
+    --shadow-sm: 0 2px 8px rgba(20,21,42,.08);
+    --shadow-md: 0 6px 20px rgba(20,21,42,.10);
+    --shadow-lg: 0 10px 32px rgba(20,21,42,.12);
+    --shadow-xl: 0 20px 48px rgba(20,21,42,.14);
+    --shadow-focus: 0 0 0 3px rgb(94 106 210 / 0.25);
+  }
+
+  /* Not applied anywhere yet — ready for a future theme toggle (`html.dark`). */
+  .dark {
+    --background: 237 35% 12%;
+    --foreground: 240 38% 95%;
+    --card: 238 33% 16%;
+    --popover: 236 35% 19%;
+    --muted: 236 35% 19%;
+    --muted-foreground: 234 14% 60%;
+    --subtle-foreground: 235 15% 50%;
+    --border: 237 32% 24%;
+    --input: 237 32% 24%;
+    --ring: 237 67% 73%;
+
+    --shadow-xs: 0 1px 2px rgba(0,0,0,.30);
+    --shadow-sm: 0 2px 8px rgba(0,0,0,.35);
+    --shadow-md: 0 6px 20px rgba(0,0,0,.40);
+    --shadow-lg: 0 10px 32px rgba(0,0,0,.45);
+    --shadow-xl: 0 20px 48px rgba(0,0,0,.50);
+    --shadow-focus: 0 0 0 3px rgb(139 143 232 / 0.30);
+  }
+}
+
+@layer utilities {
+  /* Shared focus-visible ring for every ui/* component — keyboard-only, never on mouse click. */
+  .focus-ring {
+    @apply outline-none focus-visible:shadow-focus;
+  }
+}

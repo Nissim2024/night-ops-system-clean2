@@ -1,10 +1,15 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, RADIUS, JIRA } from '../../theme';
+import { C, FONT, JIRA } from '../../theme';
 import { Card, Badge, BackLink } from '../ui';
 import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL } from './openProdDefectsFields';
-import { hasHebrew, NameBadge, PersonAvatar, DefectIdBadge, renderNotesField, DetailGroupsDialog, DetailGroup, FieldChangeHistorySection, AttachmentsSection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow } from '../shared/defectFieldDisplay';
+import {
+  hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroupsDialog, DetailGroup,
+  FieldChangeHistorySection, AttachmentsSection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
+  IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, SEVERITY_COLOR, SelectColumnsDialog,
+} from '../shared/defectFieldDisplay';
 import { formatDate, formatDateTime } from '../../utils/dateFormat';
+import { cn } from '../../lib/utils';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -58,6 +63,7 @@ const TEAM_BADGE_FIELDS = new Set(['assignedTo', 'responsibility']);
 // category picker.
 const DETAIL_GROUPS_FIXED_FIELDS = new Set(['title', 'description', 'notes']);
 const DETAIL_GROUPS_STORAGE_KEY = 'deploycenter_openprod_defect_detail_groups';
+const OPENPROD_TABLE_COLUMNS_STORAGE_KEY = 'deploycenter_openprod_defect_table_columns_v1';
 
 // Same 6-category layout as VersionOverview's TARGET-defect detail screen —
 // DETAIL_FIELDS' key set overlaps almost entirely with TargetDefect's, so
@@ -101,56 +107,24 @@ function decodeDefectText(raw: string): string {
   return t.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
 }
 
-// Soft tinted chip (label keeps its own colour, background is a 12%-alpha
-// wash of it) — used for severity & priority per the "צבע מעודן" spec.
-function hexTint(hex: string, alpha = 0.12): string {
-  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim());
-  if (!m) return C.bgNested;
-  const n = parseInt(m[1], 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
-}
-// Soft pill — identical treatment to DefectDrilldownModal.tsx's SoftBadge so
-// status / severity / priority look the same in the detail form and the
-// drill-down table (user-flagged 2026-09-07: "נראות שדה הסטטוס שונה בין הטבלה
-// לטופס").
-const softChipStyle = (col: string): React.CSSProperties => ({
-  fontSize: '11px', fontWeight: WEIGHT.bold, color: col, background: hexTint(col, 0.14),
-  borderRadius: '999px', padding: '2px 8px', display: 'inline-block', whiteSpace: 'nowrap',
-  textTransform: 'uppercase', letterSpacing: '0.03em',
-});
-function priorityColor(s: string): string {
-  const n = s.toLowerCase();
-  if (/urgent|critical|show ?stopper|highest|דחוף/.test(n)) return C.severityCritical;
-  if (/high|גבוה/.test(n)) return C.severityHigh;
-  if (/medium|normal|בינונ/.test(n)) return C.severityMedium;
-  if (/low|minor|נמוכ/.test(n)) return C.severityLow;
-  return C.textSecondary;
-}
-
+// id/status/severity/priority — shared Jira treatment with every other
+// defect table/detail screen in the app (feedback 2026-09-10).
 function renderFieldValue(key: string, value: unknown) {
   const s = value === null || value === undefined ? '' : String(value);
   if (!s) return '—';
   if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={s} full />;
   if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
-  if (key === 'id') return <span style={{ color: JIRA.blue, fontWeight: WEIGHT.semibold, direction: 'ltr' }}>#{s}</span>;
-  // status / severity / priority — same soft pill as the drill-down table.
-  if (key === 'status') return <span style={softChipStyle(STATUS_COLOR[s] ?? DEFAULT_STATUS_COLOR)}>{s}</span>;
-  if (key === 'severity') return <span style={softChipStyle(SEVERITY_COLOR[s] ?? C.textSecondary)}>{s}</span>;
-  if (key === 'priority' || key === 'secondaryPriority') return <span style={softChipStyle(priorityColor(s))}>{s}</span>;
+  if (key === 'id') return <IssueKeyLink id={s} />;
+  if (key === 'status') return <StatusBadge status={s} />;
+  if (key === 'severity') return <SeverityBadge severity={s} />;
+  if (key === 'priority' || key === 'secondaryPriority') return <PriorityCell value={s} />;
   if (DATE_ONLY_FIELDS.has(key)) return formatDate(s);
   if (DATETIME_FIELDS.has(key)) return formatDateTime(s);
   return s;
 }
 
-const DETAIL_TOP_BTN: React.CSSProperties = {
-  padding: '6px 14px', background: C.bgNested, color: C.textSecondary,
-  border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer',
-  fontSize: '13px', fontFamily: FONT,
-};
-const DETAIL_SECTION_HEADING: React.CSSProperties = {
-  fontSize: '12px', fontWeight: WEIGHT.bold, color: JIRA.textSubtle, marginBottom: '8px',
-  textTransform: 'uppercase', letterSpacing: '0.05em',
-};
+const DETAIL_TOP_BTN_CLASS = 'px-3.5 py-1.5 bg-muted text-muted-foreground border border-border rounded-md cursor-pointer text-[13px]';
+const DETAIL_SECTION_HEADING_CLASS = 'text-xs font-bold mb-2 tracking-wide';
 
 // Common BG_STATUS values in this QC instance — a `datalist` (not a hard
 // `<select>`) so a real status the list doesn't yet know still typeable.
@@ -209,45 +183,44 @@ const QcWriteBackPanel: React.FC<{ defectId: string; token: string; currentStatu
     } finally { setSavingNote(false); }
   };
 
-  const inputStyle: React.CSSProperties = {
-    width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: RADIUS.sm,
-    border: `1px solid ${C.border}`, fontFamily: FONT, fontSize: '14px', background: C.bgCard, color: C.textPrimary,
-  };
-  const btnStyle: React.CSSProperties = {
-    padding: '7px 16px', background: C.brand, color: '#fff', border: 'none', borderRadius: RADIUS.sm,
-    cursor: 'pointer', fontFamily: FONT, fontSize: '13px', fontWeight: WEIGHT.semibold,
-  };
+  const inputClass = 'w-full box-border px-2.5 py-2 rounded-sm border border-border text-sm bg-card text-foreground';
+  const btnClass = 'px-4 py-[7px] bg-primary text-white border-none rounded-sm cursor-pointer text-[13px] font-semibold';
 
   return (
-    <section style={{ marginTop: '24px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, background: C.bgNested, padding: '16px 18px' }}>
-      <div style={DETAIL_SECTION_HEADING}>✏️ עדכון ישיר ל-QC</div>
+    // Explicit dir="rtl" — this whole panel is Hebrew UI text with no other
+    // per-element direction marking, so it must not depend on whatever
+    // ambient direction its container happens to use (the parent screen now
+    // forces dir="ltr" on itself for its own macro layout — see
+    // DefectDetailScreen).
+    <section dir="rtl" className="mt-6 border border-border rounded-md bg-muted px-[18px] py-4">
+      <div className={`${DETAIL_SECTION_HEADING_CLASS} text-subtle-foreground`}>✏️ עדכון ישיר ל-QC</div>
       {blocked ? (
-        <div style={{ fontSize: '13px', color: C.textMuted, lineHeight: 1.5 }}>{blocked}</div>
+        <div className="text-[13px] text-subtle-foreground leading-relaxed">{blocked}</div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div className="flex flex-col gap-4">
           <div>
-            <label style={{ fontSize: '13px', color: C.textMuted, display: 'block', marginBottom: '5px' }}>סטטוס תקלה</label>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <input list="qc-status-options" value={status} onChange={e => setStatus(e.target.value)} style={{ ...inputStyle, flex: 1, minWidth: '160px', direction: 'ltr' }} />
+            <label className="text-[13px] text-subtle-foreground block mb-1.5">סטטוס תקלה</label>
+            <div className="flex gap-2 items-center flex-wrap">
+              <input list="qc-status-options" value={status} onChange={e => setStatus(e.target.value)} className={`${inputClass} flex-1 min-w-[160px]`} dir="ltr" />
               <datalist id="qc-status-options">
                 {QC_STATUS_OPTIONS.map(s => <option key={s} value={s} />)}
               </datalist>
-              <button onClick={saveStatus} disabled={savingStatus || !status.trim() || status.trim() === currentStatus.trim()} style={{ ...btnStyle, opacity: (savingStatus || status.trim() === currentStatus.trim()) ? 0.5 : 1 }}>
+              <button onClick={saveStatus} disabled={savingStatus || !status.trim() || status.trim() === currentStatus.trim()} className={`${btnClass} ${(savingStatus || status.trim() === currentStatus.trim()) ? 'opacity-50' : 'opacity-100'}`}>
                 {savingStatus ? 'מעדכן…' : 'עדכן סטטוס'}
               </button>
             </div>
           </div>
           <div>
-            <label style={{ fontSize: '13px', color: C.textMuted, display: 'block', marginBottom: '5px' }}>הוספת הערה (Dev Comments)</label>
-            <textarea value={note} onChange={e => setNote(e.target.value)} rows={3} placeholder="הטקסט יתווסף לסוף שדה ההערות ב-QC, ולא ידרוס אותו" style={{ ...inputStyle, resize: 'vertical' }} />
-            <div style={{ marginTop: '6px', textAlign: 'left' }}>
-              <button onClick={saveNote} disabled={savingNote || !note.trim()} style={{ ...btnStyle, opacity: (savingNote || !note.trim()) ? 0.5 : 1 }}>
+            <label className="text-[13px] text-subtle-foreground block mb-1.5">הוספת הערה (Dev Comments)</label>
+            <textarea value={note} onChange={e => setNote(e.target.value)} rows={3} placeholder="הטקסט יתווסף לסוף שדה ההערות ב-QC, ולא ידרוס אותו" className={`${inputClass} resize-y`} />
+            <div className="mt-1.5 text-left">
+              <button onClick={saveNote} disabled={savingNote || !note.trim()} className={`${btnClass} ${(savingNote || !note.trim()) ? 'opacity-50' : 'opacity-100'}`}>
                 {savingNote ? 'מוסיף…' : 'הוסף הערה ל-QC'}
               </button>
             </div>
           </div>
           {msg && (
-            <div style={{ fontSize: '13px', fontWeight: WEIGHT.semibold, color: msg.kind === 'ok' ? C.success : C.danger }}>
+            <div className={`text-[13px] font-semibold ${msg.kind === 'ok' ? 'text-success' : 'text-danger'}`}>
               {msg.text}
             </div>
           )}
@@ -265,6 +238,11 @@ const QcWriteBackPanel: React.FC<{ defectId: string; token: string; currentStatu
 // Exported — also reused by release-intelligence/DefectDrilldownModal so
 // every "click a defect ID, see full details" path in the app opens the same
 // screen instead of a second, drifting copy (spec confirmed 2026-08-29).
+//
+// NOTE: this whole screen intentionally renders in the "Jira issue" look
+// (JIRA.* raw Atlassian hex from theme.ts) rather than the app's own design
+// tokens — per theme.ts's comment, that's deliberate for this exact screen,
+// so JIRA.* colors below are kept as literal inline style on purpose.
 export const DefectDetailScreen: React.FC<{
   defectId: string; detailFields: string[]; token: string; onBack: () => void;
 }> = ({ defectId, detailFields, token, onBack }) => {
@@ -328,45 +306,129 @@ export const DefectDetailScreen: React.FC<{
   const showNotes = fieldsToShow.includes('notes');
 
   return (
-    <div style={{ padding: '20px 28px', fontFamily: FONT, direction: 'rtl' }}>
+    <div className="px-7 py-5">
       {/* ── סרגל פעולות עליון — כפתורי משנה קומפקטיים ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
+      <div className="flex items-center justify-between mb-[18px]">
         <BackLink onClick={onBack} label="חזרה לטבלה" />
-        <button onClick={() => setShowGroupsPicker(true)} style={DETAIL_TOP_BTN}>⚙ התאמת שדות</button>
+        <button onClick={() => setShowGroupsPicker(true)} className={DETAIL_TOP_BTN_CLASS}>⚙ התאמת שדות</button>
       </div>
 
-      {detailLoading && <div style={{ textAlign: 'center', padding: '40px', color: C.textMuted }}>טוען...</div>}
+      {detailLoading && <div className="text-center p-10 text-subtle-foreground">טוען...</div>}
       {!detailLoading && !detail && (
-        <div style={{ textAlign: 'center', padding: '40px', color: C.textMuted }}>לא נמצא מידע מלא עבור תקלה זו</div>
+        <div className="text-center p-10 text-subtle-foreground">לא נמצא מידע מלא עבור תקלה זו</div>
       )}
 
       {!detailLoading && detail && (
-        // row-reverse under RTL: 1st child (main) → left, 2nd child (aside) → right;
-        // on wrap, main stays on top and the panel drops below it.
-        <div style={{ display: 'flex', flexDirection: 'row-reverse', flexWrap: 'wrap', alignItems: 'flex-start', gap: '28px' }}>
-          {/* ══ תוכן מרכזי (≈70%) — צד שמאל ב-RTL (row-reverse) ══ */}
-          <div style={{ flex: '1 1 560px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        // Explicit dir="ltr" + aside listed FIRST so the layout order is
+        // deterministic: the field panel (1st child) on the left, main
+        // content (2nd child) on the right (feedback 2026-09-14: the panel
+        // should be on the left, not the right — corrected from an earlier
+        // pass that had this backwards). On wrap, main stays on top and the
+        // panel drops below it.
+        <div className="flex flex-wrap items-start gap-7" dir="ltr">
+          {/* ══ סרגל צד (Issue panel) — רקע אפור Atlassian, תווית קטנה מעל הערך ══ */}
+          {/* dir="rtl" — the panel's own chrome (group titles, attachments
+              heading, history button) is untranslated Hebrew UI text with no
+              per-element direction marking of its own. Combined with an RTL
+              grid, listing the value span before the label span in each row
+              below places the label on the left and the value on the right
+              (feedback 2026-09-14: "כל התוויות משמאל הערכים מימין לתווית"). */}
+          <aside
+            dir="rtl"
+            className="flex-[0_0_300px] max-w-[300px] self-start rounded-lg overflow-hidden"
+            style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}` }}
+          >
+            {(() => {
+              const groups = detailGroups
+                .map(g => ({ ...g, fields: g.fields.filter(k => detail[k] !== undefined) }))
+                .filter(g => g.fields.length > 0);
+              return groups.map((group, gi) => (
+                <div key={group.title} className="px-4 py-3" style={{ borderBottom: gi < groups.length - 1 ? `1px solid ${JIRA.greyN40}` : 'none' }}>
+                  <div className="text-[11px] font-bold tracking-wide mb-2.5" style={{ color: JIRA.textSubtle }}>
+                    {group.title}
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {group.fields.map(key => {
+                      const raw = String(detail[key] ?? '');
+                      const isAtomic = PERSON_BADGE_FIELDS.has(key) || TEAM_BADGE_FIELDS.has(key)
+                        || key === 'id' || key === 'status' || key === 'severity' || key === 'priority' || key === 'secondaryPriority';
+                      const valRtl = !isAtomic && (!raw || hasHebrew(raw));
+                      // Side-by-side (label ⟷ value) to keep the panel short — user
+                      // pref 2026-09-08; the Jira brief allowed "מעליה/לצידה".
+                      return (
+                        <div key={key} className="grid gap-2 items-start" style={{ gridTemplateColumns: '1fr minmax(64px, 40%)' }}>
+                          <span
+                            className="text-[13px] font-medium min-w-0 flex items-center flex-wrap gap-1 justify-end break-words"
+                            style={{ color: JIRA.text, direction: 'rtl', unicodeBidi: valRtl ? 'normal' : 'plaintext' }}
+                          >
+                            {renderFieldValue(key, detail[key])}
+                          </span>
+                          <span className="text-[11px] font-semibold tracking-wide text-left pt-0.5" style={{ color: JIRA.textSubtle }}>
+                            {DETAIL_FIELD_LABEL[key] ?? key}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ));
+            })()}
 
-            {/* כותרת — ללא כרטיס, יושבת ישירות על רקע הדף */}
-            <div>
-              <div style={{ fontSize: '24px', fontWeight: WEIGHT.semibold, color: JIRA.text, lineHeight: 1.3, wordBreak: 'break-word' }}>
-                {titleShown ? (detail.title || 'ללא כותרת') : 'פרטי תקלה'}
-              </div>
-              <div style={{ marginTop: '8px' }}>
-                <span style={{ color: JIRA.blue, fontWeight: WEIGHT.semibold, direction: 'ltr', display: 'inline-block' }}>#{defectId}</span>
-              </div>
+            {/* קבצים מצורפים — האינדיקציה + הרשימה בתוך החלונית */}
+            <div className="px-4 py-3" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}>
+              <AttachmentsSection defectId={defectId} token={token} />
             </div>
 
-            {/* תיאור — תיבה לבנה עם מסגרת ומרווח נדיב, טקסט עשיר מפוענח */}
+            {/* היסטוריית שינויים — כפתור שפותח את הטבלה בחלון מודאלי */}
+            <div className="px-4 py-3">
+              <button
+                onClick={() => setHistoryModalOpen(true)}
+                className="w-full flex items-center justify-between bg-transparent border-none cursor-pointer p-0 text-[13px] font-bold"
+                style={{ color: JIRA.blue }}
+              >
+                <span>🕘 היסטוריית שינויים</span>
+                <span aria-hidden>←</span>
+              </button>
+            </div>
+          </aside>
+
+          {/* ══ תוכן מרכזי (≈70%) — צד ימין ══ */}
+          {/* מסגרת לבנה אחידה לכל האזור (feedback 2026-09-14) — תואמת את
+              המסגרת הלבנה של החלונית משמאל, כך ששני הצדדים נראים כזוג
+              כרטיסים תואמים. תיאור/הערות כבר לא צריכים תיבה לבנה משלהם
+              (הייתה יוצרת תיבה בתוך תיבה) — רק המרווח הפנימי נשאר. */}
+          <div
+            className="flex-[1_1_560px] min-w-0 flex flex-col gap-6 rounded-lg px-6 py-5"
+            style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}` }}
+          >
+
+            {/* כותרת */}
+            {(() => {
+              const titleText = titleShown ? (detail.title || 'ללא כותרת') : 'פרטי תקלה';
+              const titleRtl = hasHebrew(titleText);
+              return (
+                <div>
+                  <div
+                    className={cn('text-xl font-semibold leading-snug break-words', titleRtl ? 'text-right [direction:rtl]' : 'text-left [direction:ltr]')}
+                    style={{ color: JIRA.text }}
+                  >
+                    {titleText}
+                  </div>
+                  <div className="mt-2">
+                    <span className="font-semibold inline-block" style={{ color: JIRA.blue, direction: 'ltr' }}>#{defectId}</span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* תיאור — טקסט עשיר מפוענח */}
             {showDescription && (
               <section>
-                <div style={DETAIL_SECTION_HEADING}>{DETAIL_FIELD_LABEL.description ?? 'תיאור'}</div>
-                <div style={{
-                  fontSize: '15px', color: JIRA.text, lineHeight: 1.6,
-                  direction: 'rtl', textAlign: 'right', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                  background: '#fff', border: `1px solid ${JIRA.greyN40}`, borderRadius: RADIUS.md, padding: '16px 20px',
-                  maxHeight: '280px', overflowY: 'auto',
-                }}>
+                <div className={DETAIL_SECTION_HEADING_CLASS} style={{ color: JIRA.textSubtle }}>{DETAIL_FIELD_LABEL.description ?? 'תיאור'}</div>
+                <div
+                  className="text-[15px] leading-relaxed text-right whitespace-pre-wrap break-words max-h-[280px] overflow-y-auto"
+                  style={{ color: JIRA.text }}
+                >
                   {detail.description ? decodeDefectText(String(detail.description)) : '—'}
                 </div>
               </section>
@@ -378,13 +440,10 @@ export const DefectDetailScreen: React.FC<{
               const noteCount = String(detail.notes ?? '').split(/_{5,}/).map(s => s.trim()).filter(Boolean).length;
               return (
                 <section>
-                  <div style={DETAIL_SECTION_HEADING}>
+                  <div className={DETAIL_SECTION_HEADING_CLASS} style={{ color: JIRA.textSubtle }}>
                     {DETAIL_FIELD_LABEL.notes ?? 'הערות מפתח'}{noteCount > 1 ? ` · ${noteCount}` : ''}
                   </div>
-                  <div style={{
-                    lineHeight: 1.6, maxHeight: '440px', overflowY: 'auto',
-                    background: '#fff', border: `1px solid ${JIRA.greyN40}`, borderRadius: RADIUS.md, padding: '16px 20px',
-                  }}>
+                  <div className="leading-relaxed max-h-[440px] overflow-y-auto">
                     {renderNotesField(detail.notes)}
                   </div>
                 </section>
@@ -398,85 +457,21 @@ export const DefectDetailScreen: React.FC<{
               currentStatus={String(detail.status ?? '')}
             />
           </div>
-
-          {/* ══ סרגל צד (Issue panel) — רקע אפור Atlassian, תווית קטנה מעל הערך ══ */}
-          <aside style={{
-            flex: '0 0 300px', maxWidth: '300px', alignSelf: 'flex-start',
-            background: JIRA.greyN20, border: `1px solid ${JIRA.greyN40}`, borderRadius: RADIUS.lg, overflow: 'hidden',
-          }}>
-            {(() => {
-              const groups = detailGroups
-                .map(g => ({ ...g, fields: g.fields.filter(k => detail[k] !== undefined) }))
-                .filter(g => g.fields.length > 0);
-              return groups.map((group, gi) => (
-                <div key={group.title} style={{ padding: '12px 16px', borderBottom: gi < groups.length - 1 ? `1px solid ${JIRA.greyN40}` : 'none' }}>
-                  <div style={{ fontSize: '11px', fontWeight: WEIGHT.bold, color: JIRA.textSubtle, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px' }}>
-                    {group.title}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {group.fields.map(key => {
-                      const raw = String(detail[key] ?? '');
-                      const isAtomic = PERSON_BADGE_FIELDS.has(key) || TEAM_BADGE_FIELDS.has(key)
-                        || key === 'id' || key === 'status' || key === 'severity' || key === 'priority' || key === 'secondaryPriority';
-                      const valRtl = !isAtomic && (!raw || hasHebrew(raw));
-                      // Side-by-side (label ⟷ value) to keep the panel short — user
-                      // pref 2026-09-08; the Jira brief allowed "מעליה/לצידה".
-                      return (
-                        <div key={key} style={{ display: 'grid', gridTemplateColumns: 'minmax(64px, 40%) 1fr', gap: '8px', alignItems: 'start' }}>
-                          <span style={{ fontSize: '11px', color: JIRA.textSubtle, fontWeight: WEIGHT.semibold, textTransform: 'uppercase', letterSpacing: '0.03em', textAlign: 'right', paddingTop: '2px' }}>
-                            {DETAIL_FIELD_LABEL[key] ?? key}
-                          </span>
-                          <span style={{
-                            fontSize: '13px', color: JIRA.text, fontWeight: WEIGHT.medium, minWidth: 0,
-                            display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px',
-                            justifyContent: 'flex-end', direction: 'rtl',
-                            unicodeBidi: valRtl ? 'normal' : 'plaintext', wordBreak: 'break-word',
-                          }}>
-                            {renderFieldValue(key, detail[key])}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ));
-            })()}
-
-            {/* קבצים מצורפים — האינדיקציה + הרשימה בתוך החלונית */}
-            <div style={{ padding: '12px 16px', borderBottom: `1px solid ${JIRA.greyN40}` }}>
-              <AttachmentsSection defectId={defectId} token={token} />
-            </div>
-
-            {/* היסטוריית שינויים — כפתור שפותח את הטבלה בחלון מודאלי */}
-            <div style={{ padding: '12px 16px' }}>
-              <button
-                onClick={() => setHistoryModalOpen(true)}
-                style={{
-                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONT, padding: 0,
-                  fontSize: '13px', fontWeight: WEIGHT.bold, color: JIRA.blue,
-                }}
-              >
-                <span>🕘 היסטוריית שינויים</span>
-                <span aria-hidden>←</span>
-              </button>
-            </div>
-          </aside>
         </div>
       )}
 
       {historyModalOpen && (
         <div
           onClick={() => setHistoryModalOpen(false)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}
+          className="fixed inset-0 bg-black/50 z-[5000] flex items-center justify-center p-6"
         >
           <div
             onClick={e => e.stopPropagation()}
-            style={{ background: C.bgCard, borderRadius: RADIUS.lg, padding: '18px 20px', width: '760px', maxWidth: '96vw', maxHeight: '86vh', overflowY: 'auto', boxShadow: '0 20px 48px rgba(0,0,0,.25)', fontFamily: FONT, direction: 'rtl' }}
+            className="bg-card rounded-lg px-5 py-[18px] w-[760px] max-w-[96vw] max-h-[86vh] overflow-y-auto shadow-xl"
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-              <div style={{ fontSize: '15px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>היסטוריית שינויים — תקלה {defectId}</div>
-              <button onClick={() => setHistoryModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: C.textMuted, lineHeight: 1 }}>✕</button>
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="text-[15px] font-bold text-foreground">היסטוריית שינויים — תקלה {defectId}</div>
+              <button onClick={() => setHistoryModalOpen(false)} className="bg-transparent border-none cursor-pointer text-lg text-subtle-foreground leading-none">✕</button>
             </div>
             <FieldChangeHistorySection defectId={defectId} token={token} defaultOpen />
           </div>
@@ -496,38 +491,10 @@ export const DefectDetailScreen: React.FC<{
   );
 };
 
-const SEVERITY_COLOR: Record<string, string> = {
-  'Show Stopper': C.danger,
-  'Severe':       C.statusFailed,
-  'Medium':       C.statusInProgress,
-  'Low':          C.textMuted,
-};
-
-// Best-effort semantic mapping over QC's real BG_STATUS values (only a
-// handful confirmed against real data — 'Open'/'At Work'/'Fixed_Dev'/
-// 'Pending'/'New'/'Canceled'/'Reopen', see this file's own mock rows) —
-// unrecognized statuses fall back to a neutral gray rather than guessing a
-// meaning for a value never seen (spec confirmed 2026-09-03: color the
-// status field like the team badge, matched to the status' own meaning).
-const STATUS_COLOR: Record<string, string> = {
-  'New':        C.statusOpen,
-  'Open':       C.statusOpen,
-  'Pending':    C.statusInProgress,
-  'At Work':    C.statusInProgress,
-  'Fixed_Dev':  C.warning,
-  'Fixed_Test': C.success,
-  'Fixed':      C.success,
-  'Closed':     C.success,
-  'Reopen':     C.danger,
-  'Rejected':   C.textMuted,
-  'Canceled':   C.textMuted,
-};
-const DEFAULT_STATUS_COLOR = C.textMuted;
-
 const KpiCard: React.FC<{ label: string; value: string; color: string; onClick?: () => void }> = ({ label, value, color, onClick }) => (
   <Card padding={4} onClick={onClick} style={{ flex: 1, minWidth: '110px', textAlign: 'center' }}>
-    <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, marginBottom: '4px', whiteSpace: 'nowrap' }}>{label}</div>
-    <div style={{ fontSize: '32px', fontWeight: WEIGHT.bold, color, fontFamily: FONT, lineHeight: 1.1 }}>{value}</div>
+    <div className="text-xs text-subtle-foreground mb-1 whitespace-nowrap">{label}</div>
+    <div className="text-[32px] font-bold leading-tight" style={{ color }}>{value}</div>
   </Card>
 );
 
@@ -535,19 +502,19 @@ const BreakdownPanel: React.FC<{ title: string; total: number; rows: { label: st
   const max = Math.max(1, ...rows.map(r => r.count));
   return (
     <Card padding={4} style={{ flex: 1, minWidth: '260px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, fontFamily: FONT }}>{title}</div>
+      <div className="flex justify-between items-center mb-2.5">
+        <div className="text-sm font-semibold text-foreground">{title}</div>
         <Badge color={C.textMuted} bg={C.bgHover}>{total}</Badge>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '340px', overflowY: 'auto' }}>
-        {rows.length === 0 && <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>אין נתונים</div>}
+      <div className="flex flex-col gap-1.5 max-h-[340px] overflow-y-auto">
+        {rows.length === 0 && <div className="text-xs text-subtle-foreground">אין נתונים</div>}
         {rows.map(r => (
-          <div key={r.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{ ...TEXT.xs, color: C.textSecondary, fontFamily: FONT, width: '140px', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.label}>{r.label}</div>
-            <div style={{ flex: 1, height: '14px', background: C.bgNested, borderRadius: RADIUS.sm, overflow: 'hidden' }}>
-              <div style={{ width: `${(r.count / max) * 100}%`, height: '100%', background: C.brand, borderRadius: RADIUS.sm }} />
+          <div key={r.label} className="flex items-center gap-2">
+            <div className="text-xs text-muted-foreground w-[140px] shrink-0 overflow-hidden text-ellipsis whitespace-nowrap" title={r.label}>{r.label}</div>
+            <div className="flex-1 h-3.5 bg-muted rounded-sm overflow-hidden">
+              <div className="h-full bg-primary rounded-sm" style={{ width: `${(r.count / max) * 100}%` }} />
             </div>
-            <div style={{ ...TEXT.xs, color: C.textPrimary, fontFamily: FONT, width: '24px', textAlign: 'left' }}>{r.count}</div>
+            <div className="text-xs text-foreground w-6 text-left">{r.count}</div>
           </div>
         ))}
       </div>
@@ -557,6 +524,11 @@ const BreakdownPanel: React.FC<{ title: string; total: number; rows: { label: st
 
 const MIN_POINT_GAP = 26; // px between points before the chart starts scrolling instead of squeezing
 
+// NOT migrated — left exactly as-is (byte-for-byte, only pre-existing
+// formatting). Every position in this chart (point x/y, tooltip placement,
+// polyline, label spacing) is computed from pixel/percentage math tied
+// directly to the data's months/counts, which the migration brief says to
+// leave untouched rather than guess at converting safely.
 const MonthlyTrendChart: React.FC<{
   data: { monthLabel: string; count: number }[];
   selectedMonth: string | null;
@@ -584,7 +556,7 @@ const MonthlyTrendChart: React.FC<{
   }, []);
 
   if (data.length === 0) {
-    return <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, padding: '20px', textAlign: 'center' }}>אין נתוני מגמה</div>;
+    return <div style={{ ...{ fontSize: '16px', lineHeight: '23px' }, color: C.textMuted, fontFamily: FONT, padding: '20px', textAlign: 'center' }}>אין נתוני מגמה</div>;
   }
 
   // padTop reserves room for the two-line tooltip above the highest point —
@@ -693,39 +665,34 @@ const MultiSelectFilter: React.FC<{
   const allSelected = options.length > 0 && selected.length === options.length;
 
   return (
-    <div ref={ref} style={{ position: 'relative', flex: '1 1 0', minWidth: '150px' }}>
-      <button onClick={() => setOpen(o => !o)} style={{ ...selectStyle, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', cursor: 'pointer' }}>
+    <div ref={ref} className="relative flex-1 min-w-[150px]">
+      <button onClick={() => setOpen(o => !o)} className={`${selectClass} w-full flex items-center justify-between gap-2 cursor-pointer`}>
         <span>{label} — {selected.length === 0 ? 'הכל' : `נבחרו ${selected.length}`}</span>
-        <span style={{ fontSize: '11px', color: C.textMuted }}>{open ? '▲' : '▼'}</span>
+        <span className="text-[11px] text-subtle-foreground">{open ? '▲' : '▼'}</span>
       </button>
       {open && (
-        <div style={{
-          position: 'absolute', top: '100%', right: 0, zIndex: 20, marginTop: '2px',
-          background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.md,
-          minWidth: '200px', maxHeight: '300px', overflowY: 'auto', boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-          padding: '6px',
-        }}>
-          <div style={{ display: 'flex', gap: '10px', padding: '5px 8px', borderBottom: `1px solid ${C.border}`, marginBottom: '4px' }}>
+        <div className="absolute top-full end-0 z-20 mt-0.5 bg-card border border-border rounded-md min-w-[200px] max-h-[300px] overflow-y-auto shadow-md p-1.5">
+          <div className="flex gap-2.5 px-2 py-1.5 border-b border-border mb-1">
             <span
               onClick={() => options.length > 0 && onChange(options)}
-              style={{ ...TEXT.xs, color: allSelected ? C.textMuted : C.brand, cursor: options.length > 0 ? 'pointer' : 'default', fontFamily: FONT, fontWeight: WEIGHT.semibold }}
+              className={`text-xs font-semibold ${allSelected ? 'text-subtle-foreground cursor-default' : 'text-primary cursor-pointer'}`}
             >
               ✓ בחר הכל
             </span>
             <span
               onClick={() => selected.length > 0 && onChange([])}
-              style={{ ...TEXT.xs, color: selected.length === 0 ? C.textMuted : C.brand, cursor: selected.length > 0 ? 'pointer' : 'default', fontFamily: FONT, fontWeight: WEIGHT.semibold }}
+              className={`text-xs font-semibold ${selected.length === 0 ? 'text-subtle-foreground cursor-default' : 'text-primary cursor-pointer'}`}
             >
               ✕ נקה הכל
             </span>
           </div>
           {options.map(o => (
-            <label key={o} style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '5px 8px', cursor: 'pointer', fontFamily: FONT, ...TEXT.sm, color: C.textPrimary }}>
+            <label key={o} className="flex items-center gap-1.5 px-2 py-1.5 cursor-pointer text-sm text-foreground">
               <input type="checkbox" checked={selected.includes(o)} onChange={() => toggle(o)} />
               {o}
             </label>
           ))}
-          {options.length === 0 && <div style={{ ...TEXT.xs, color: C.textMuted, padding: '5px 8px' }}>אין אפשרויות</div>}
+          {options.length === 0 && <div className="text-xs text-subtle-foreground px-2 py-1.5">אין אפשרויות</div>}
         </div>
       )}
     </div>
@@ -828,7 +795,24 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
     setSortKey(key);
   }, [sortKey]);
 
-  const tableColumns = config?.tableColumns && config.tableColumns.length > 0 ? config.tableColumns : ['defectId', 'severity', 'responsibility', 'area', 'bugType', 'statusAtMonth', 'detectedDate', 'reopenYn'];
+  // Admin sets the default column set (config.tableColumns); an end user can
+  // override it for themselves via the "⚙ בחירת עמודות" picker below — same
+  // per-user-over-admin-default convention as the field-category pickers
+  // elsewhere in this module. null = no personal override yet.
+  const [userTableColumns, setUserTableColumns] = useState<string[] | null>(() => {
+    try {
+      const saved = localStorage.getItem(OPENPROD_TABLE_COLUMNS_STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch { /* ignore malformed storage */ }
+    return null;
+  });
+  const [showTableColumnPicker, setShowTableColumnPicker] = useState(false);
+  const applyTableColumns = (keys: string[]) => {
+    setUserTableColumns(keys);
+    try { localStorage.setItem(OPENPROD_TABLE_COLUMNS_STORAGE_KEY, JSON.stringify(keys)); } catch { /* ignore quota errors */ }
+    setShowTableColumnPicker(false);
+  };
+  const tableColumns = userTableColumns ?? (config?.tableColumns && config.tableColumns.length > 0 ? config.tableColumns : ['defectId', 'severity', 'responsibility', 'area', 'bugType', 'statusAtMonth', 'detectedDate', 'reopenYn']);
 
   // The table page's dataset — monthRows further narrowed by whichever
   // severity KPI card the user clicked to get here (null = "סה"כ", no restriction).
@@ -866,86 +850,107 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
   // Same table as before, just on its own screen instead of always inline. ──
   if (tableOpen) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px 28px', fontFamily: FONT }}>
-        <BackLink onClick={() => setTableOpen(false)} label="חזרה לסקירה" />
+      <div className="flex flex-col gap-4 px-7 py-5">
+        <div className="flex items-center justify-between">
+          <BackLink onClick={() => setTableOpen(false)} label="חזרה לסקירה" />
+          <button onClick={() => setShowTableColumnPicker(true)} className={DETAIL_TOP_BTN_CLASS}>⚙ בחירת עמודות</button>
+        </div>
         <Card>
-          <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, marginBottom: '10px' }}>
+          <div className="text-sm font-semibold text-foreground mb-2.5">
             תקלות פתוחות — {activeMonth ?? '—'}{presetSeverity ? ` — חומרה: ${presetSeverity}` : ''} ({baseRows.length}) — לחץ על כותרת עמודה למיון, לחץ על שורה לפרטים מלאים
           </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', ...TEXT.xs, fontFamily: FONT }}>
-              <thead>
-                <tr style={{ background: C.bgNested }}>
-                  {tableColumns.map(key => (
-                    <th
-                      key={key}
-                      onClick={() => toggleSort(key)}
-                      style={{ position: 'relative', padding: '6px 8px', textAlign: 'right', fontWeight: WEIGHT.semibold, color: C.textSecondary, borderBottom: `1px solid ${C.border}`, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: getMonthColWidth(key) }}
-                    >
-                      {TABLE_FIELD_LABEL[key] ?? key}
-                      {sortKey === key && <span style={{ marginRight: '4px', color: C.brand }}>{sortDir === 'asc' ? '▲' : '▼'}</span>}
-                      <ColumnResizeHandle onMouseDown={e => startMonthColResize(key, e)} />
-                    </th>
-                  ))}
-                </tr>
-                <ColumnFilterRow
-                  columns={tableColumns.map(key => ({ key, label: TABLE_FIELD_LABEL[key] ?? key }))}
-                  getWidth={getMonthColWidth}
-                  filters={monthFilters}
-                />
-              </thead>
-              <tbody>
-                {sortedMonthRows.map(r => (
-                  <tr
-                    key={r.defectId}
-                    onClick={() => setDetailDefectId(r.defectId)}
-                    style={{ cursor: 'pointer' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = C.bgHover)}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    {tableColumns.map(key => {
-                      const value = (r as any)[key];
-                      const isDefectCol = key === 'defectId';
-                      const isSeverityCol = key === 'severity';
-                      return (
-                        <td
-                          key={key}
-                          style={{
-                            padding: '6px 8px', borderBottom: `1px solid ${C.border}`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                            width: getMonthColWidth(key),
-                            textAlign: isDefectCol ? 'center' : undefined,
-                            color: isDefectCol ? undefined : isSeverityCol ? (SEVERITY_COLOR[value ?? ''] ?? C.textPrimary) : C.textPrimary,
-                            fontWeight: isDefectCol ? WEIGHT.semibold : WEIGHT.normal,
-                          }}
-                        >
-                          {isDefectCol ? (value ? <DefectIdBadge id={value} /> : '—') : (value ?? '—')}
-                        </td>
-                      );
-                    })}
+          <div className="bg-card rounded-lg overflow-hidden" style={{ border: `1px solid ${JIRA.greyN40}` }}>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-xs" style={{ tableLayout: 'fixed' }}>
+                <thead>
+                  <tr>
+                    {tableColumns.map(key => (
+                      <th
+                        key={key}
+                        onClick={() => toggleSort(key)}
+                        className="relative px-2 py-2 text-right font-bold text-[11px] tracking-wide cursor-pointer select-none whitespace-nowrap overflow-hidden text-ellipsis"
+                        style={{ color: JIRA.textSubtle, borderBottom: `2px solid ${JIRA.greyN40}`, width: getMonthColWidth(key) }}
+                      >
+                        {TABLE_FIELD_LABEL[key] ?? key}
+                        {sortKey === key && <span className="me-1 text-primary">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                        <ColumnResizeHandle onMouseDown={e => startMonthColResize(key, e)} />
+                      </th>
+                    ))}
                   </tr>
-                ))}
-                {sortedMonthRows.length === 0 && (
-                  <tr><td colSpan={tableColumns.length} style={{ padding: '14px', textAlign: 'center', color: C.textMuted }}>אין תקלות פתוחות בחודש זה</td></tr>
-                )}
-              </tbody>
-            </table>
+                  <ColumnFilterRow
+                    columns={tableColumns.map(key => ({ key, label: TABLE_FIELD_LABEL[key] ?? key }))}
+                    getWidth={getMonthColWidth}
+                    filters={monthFilters}
+                  />
+                </thead>
+                <tbody>
+                  {sortedMonthRows.map(r => (
+                    // Row hover kept as imperative onMouseEnter/onMouseLeave — the
+                    // Jira row-hover color (JIRA.rowHover) is a raw Atlassian
+                    // token, not a Tailwind hover: class, and this mirrors the
+                    // same technique used elsewhere for that exact tint.
+                    <tr
+                      key={r.defectId}
+                      onClick={() => setDetailDefectId(r.defectId)}
+                      style={{ cursor: 'pointer' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = JIRA.rowHover)}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      {tableColumns.map(key => {
+                        const value = (r as any)[key];
+                        const isDefectCol = key === 'defectId';
+                        const isSeverityCol = key === 'severity';
+                        const isStatusCol = key === 'statusAtMonth' || key === 'currentStatus';
+                        return (
+                          <td
+                            key={key}
+                            className={`px-2 py-[7px] overflow-hidden text-ellipsis whitespace-nowrap ${isDefectCol || isSeverityCol || isStatusCol ? 'text-center' : ''} ${isDefectCol ? 'font-semibold' : 'font-normal'}`}
+                            style={{
+                              borderBottom: `1px solid ${JIRA.greyN40}`,
+                              width: getMonthColWidth(key),
+                              color: isDefectCol || isSeverityCol || isStatusCol ? undefined : JIRA.text,
+                            }}
+                          >
+                            {isDefectCol ? (value ? <IssueKeyLink id={value} /> : '—')
+                              : isSeverityCol ? <SeverityBadge severity={value ?? ''} />
+                              : isStatusCol ? <StatusBadge status={value ?? ''} />
+                              : (value ?? '—')}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                  {sortedMonthRows.length === 0 && (
+                    <tr><td colSpan={tableColumns.length} className="p-3.5 text-center text-subtle-foreground">אין תקלות פתוחות בחודש זה</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </Card>
+        {showTableColumnPicker && (
+          <SelectColumnsDialog
+            allColumns={TABLE_COLUMN_FIELDS.map(f => ({ key: f.key, label: TABLE_FIELD_LABEL[f.key] ?? f.label }))}
+            visibleKeys={tableColumns}
+            onApply={applyTableColumns}
+            onClose={() => setShowTableColumnPicker(false)}
+          />
+        )}
       </div>
     );
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px 28px', fontFamily: FONT }}>
+    <div className="flex flex-col gap-4 px-7 py-5">
       <Card>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '27px' }}>📆</span>
-          <div style={{ fontSize: '22px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>תקלות ייצור פתוחות בכל חודש</div>
+        <div className="flex items-center gap-2.5 mb-3.5 flex-wrap">
+          <span className="text-[27px]">📆</span>
+          <div className="text-xl font-bold text-foreground">תקלות ייצור פתוחות בכל חודש</div>
           {qcMock && (
-            <span style={{ fontSize: '16px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
+            <span className="text-base bg-warning-bg text-warning px-2.5 py-[3px] rounded-[10px] border border-warning/30">Mock — ממתין לחיבור QC</span>
           )}
         </div>
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        <div className="flex gap-2.5 flex-wrap">
           <MultiSelectFilter label="Responsibility" options={responsibilityOptions} selected={fResponsibility} onChange={setFResponsibility} />
           <MultiSelectFilter label="Status" options={statusOptions} selected={fStatus} onChange={setFStatus} />
           <MultiSelectFilter label="Year" options={yearOptions} selected={fYear} onChange={setFYear} />
@@ -954,12 +959,12 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
         </div>
       </Card>
 
-      {loading && <div style={{ textAlign: 'center', padding: '24px', color: C.textMuted }}>טוען...</div>}
-      {error && <div style={{ textAlign: 'center', padding: '24px', color: C.danger }}>{error}</div>}
+      {loading && <div className="text-center p-6 text-subtle-foreground">טוען...</div>}
+      {error && <div className="text-center p-6 text-danger">{error}</div>}
 
       {!loading && !error && (
         <>
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <div className="flex gap-2.5 flex-wrap">
             <KpiCard label={`סה"כ (${activeMonth ?? '—'})`} value={String(monthRows.length)} color={C.textPrimary} onClick={() => openTable(null)} />
             {(['Show Stopper', 'Severe', 'Medium', 'Low'] as const).map(s => (
               <KpiCard key={s} label={s} value={String(severityCounts.get(s) ?? 0)} color={SEVERITY_COLOR[s]} onClick={() => openTable(s)} />
@@ -967,13 +972,13 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
           </div>
 
           <Card>
-            <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, marginBottom: '8px' }}>
+            <div className="text-sm font-semibold text-foreground mb-2">
               מגמה חודשית — לחץ על נקודה כדי לראות את התקלות של אותו חודש
             </div>
             <MonthlyTrendChart data={monthlyTrend} selectedMonth={activeMonth} onSelectMonth={setSelectedMonth} />
           </Card>
 
-          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          <div className="flex gap-3 flex-wrap">
             <BreakdownPanel title="לפי אזור" total={monthRows.length} rows={groupCount(monthRows, r => r.area)} />
             <BreakdownPanel title="לפי צוות" total={monthRows.length} rows={groupCount(monthRows, r => r.responsibility)} />
             <BreakdownPanel title="לפי סוג תקלה" total={monthRows.length} rows={groupCount(monthRows, r => r.bugType)} />
@@ -984,9 +989,6 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
   );
 };
 
-const selectStyle: React.CSSProperties = {
-  padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md,
-  fontSize: '17px', background: C.bgCard, color: C.textPrimary, fontFamily: FONT, minWidth: '150px',
-};
+const selectClass = 'px-2.5 py-[7px] border border-border rounded-md text-[17px] bg-card text-foreground min-w-[150px]';
 
 export default OpenProdDefectsView;

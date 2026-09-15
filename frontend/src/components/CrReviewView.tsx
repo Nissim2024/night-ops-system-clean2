@@ -2,50 +2,43 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { useDialog } from '../context/DialogContext';
-import { C, FONT, FONT_MONO, RADIUS, SHADOW } from '../theme';
+import { C } from '../theme';
 import { cleanHtmlText } from '../utils/textSanitize';
 import { formatDate } from '../utils/dateFormat';
+import { teamColor } from './shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 const PHASE_LABELS: Record<number, string> = {
   1: 'בוקר לפני גרסה', 2: 'הטמעה בהוטנט', 3: 'הטמעה בהוט', 4: 'בוקר שלאחר גרסה',
 };
-const PHASE_BADGE: Record<number, { bg: string; color: string }> = {
-  1: { bg: C.infoBg,    color: C.info },
-  2: { bg: C.successBg, color: C.success },
-  3: { bg: C.warningBg, color: C.warning },
-  4: { bg: C.bgWaiting, color: C.statusWaiting },
+// Fixed 4-value phase enum → literal Tailwind class strings (bg + text).
+const PHASE_BADGE_CLASS: Record<number, string> = {
+  1: 'bg-info-bg text-info',
+  2: 'bg-success-bg text-success',
+  3: 'bg-warning-bg text-warning',
+  4: 'bg-[#9C6ADE1a] text-[#9C6ADE]',
 };
-const SUBMISSION_META: Record<string, { label: string; dot: string }> = {
-  NOT_STARTED: { label: 'אין התייחסות', dot: C.textDisabled },
-  DRAFT:       { label: 'טיוטה',         dot: C.warning },
-  RETURNED:    { label: 'הוחזר',         dot: C.danger },
-  SUBMITTED:   { label: 'הוגש',          dot: C.success },
-  APPROVED:    { label: 'אושר',          dot: C.success },
+const SUBMISSION_META: Record<string, { label: string; dotClass: string }> = {
+  NOT_STARTED: { label: 'אין התייחסות', dotClass: 'bg-subtle-foreground' },
+  DRAFT:       { label: 'טיוטה',         dotClass: 'bg-warning' },
+  RETURNED:    { label: 'הוחזר',         dotClass: 'bg-danger' },
+  SUBMITTED:   { label: 'הוגש',          dotClass: 'bg-success' },
+  APPROVED:    { label: 'אושר',          dotClass: 'bg-success' },
 };
-const REVIEW_META: Record<string, { label: string; bg: string; color: string; border: string }> = {
-  PENDING:        { label: 'ממתין',    bg: C.bgNested,  color: C.textMuted,     border: C.border },
-  APPROVED:       { label: 'אושר ✓',  bg: C.bgDone,    color: C.statusDone,    border: C.statusDone },
-  REJECTED:       { label: 'נדחה ✗',  bg: C.dangerBg,  color: C.statusFailed,  border: C.danger },
-  NEEDS_REVISION: { label: 'לתיקון', bg: C.warningBg, color: C.warning,       border: C.warning },
+const REVIEW_META: Record<string, { label: string; borderColor: string; colorClass: string }> = {
+  PENDING:        { label: 'ממתין',    borderColor: C.border,      colorClass: 'text-subtle-foreground' },
+  APPROVED:       { label: 'אושר ✓',  borderColor: C.statusDone,  colorClass: 'text-success' },
+  REJECTED:       { label: 'נדחה ✗',  borderColor: C.danger,      colorClass: 'text-danger' },
+  NEEDS_REVISION: { label: 'לתיקון', borderColor: C.warning,     colorClass: 'text-warning' },
 };
-const RISK_COLORS: Record<string, { bg: string; color: string }> = {
-  LOW:    { bg: C.bgDone,    color: C.statusDone },
-  MEDIUM: { bg: C.warningBg, color: C.warning },
-  HIGH:   { bg: C.dangerBg,  color: C.statusFailed },
+const RISK_COLOR_CLASS: Record<string, string> = {
+  LOW:    'bg-success-bg text-success',
+  MEDIUM: 'bg-warning-bg text-warning',
+  HIGH:   'bg-danger-bg text-danger',
 };
 const RISK_LABELS: Record<string, string> = { LOW: 'נמוך', MEDIUM: 'בינוני', HIGH: 'גבוה' };
 
-// Merging several teams' proposals into one shared phase-timeline only reads as
-// a coherent story if you can tell at a glance who owns each step — a stable
-// color per team name (not per-row-random) makes that possible.
-const TEAM_PALETTE = ['#4573D2', '#9C6ADE', '#37C47A', '#E8AF00', '#F0883E', '#14B8A6', '#EC6BAD', '#6366F1'];
-function teamColor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  return TEAM_PALETTE[hash % TEAM_PALETTE.length];
-}
 // A note that starts with "תלות" is a dependency call-out, not a generic
 // comment — worth its own visual treatment so the causal thread between merged
 // tasks (from potentially different teams) is visible, not just their order.
@@ -101,13 +94,8 @@ interface TeamPlanPreview {
 interface Props { token: string; versionId?: string; versionName?: string; }
 interface SubPhaseOpt { id: string; name: string; phaseName: string; phaseOrderIndex: number; }
 
-const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '7px 10px', border: '1px solid #ddd',
-  borderRadius: '6px', fontSize: '15px', boxSizing: 'border-box', direction: 'rtl',
-};
-const labelStyle: React.CSSProperties = {
-  fontSize: '14px', color: '#555', display: 'block', marginBottom: '4px', fontWeight: 'bold',
-};
+const inputClass = 'w-full px-2.5 py-[7px] border border-neutral-300 rounded-md text-[15px] box-border';
+const labelClass = 'text-sm text-neutral-600 block mb-1 font-bold';
 
 // ── Inline edit/add form ──────────────────────────────────────────────────────
 const ProposalForm: React.FC<{
@@ -173,93 +161,93 @@ const ProposalForm: React.FC<{
   };
 
   return (
-    <div style={{ background: '#fffdf0', border: '2px solid #f39c12', borderRadius: '10px', padding: '16px', margin: '6px 0' }}>
-      <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '14px', color: '#1a2332' }}>
+    <div className="bg-warning-bg border-2 border-warning rounded-[10px] p-4 my-1.5">
+      <div className="font-bold text-[15px] mb-3.5 text-foreground">
         {initial?.id ? 'עריכת משימה' : 'הוספת משימה חדשה'}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-        <div style={{ gridColumn: '1 / -1' }}>
-          <label style={labelStyle}>CR מקושר</label>
-          <div style={{ padding: '8px 12px', background: '#e8f4fd', border: '1px solid #aed6f1', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ background: '#1a2332', color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '14px', fontWeight: 'bold', fontFamily: 'monospace', flexShrink: 0 }}>{crNumber}</span>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="col-span-2">
+          <label className={labelClass}>CR מקושר</label>
+          <div className="px-3 py-2 bg-primary-50 border border-primary-200 rounded-md flex items-center gap-2">
+            <span className="bg-foreground text-white px-2 py-0.5 rounded text-sm font-bold font-mono shrink-0">{crNumber}</span>
           </div>
         </div>
-        <div style={{ gridColumn: '1 / -1' }}>
-          <label style={labelStyle}>תיאור המשימה <span style={{ color: '#e74c3c' }}>*</span></label>
+        <div className="col-span-2">
+          <label className={labelClass}>תיאור המשימה <span className="text-danger">*</span></label>
           <input autoFocus value={title} onChange={e => setTitle(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && save()}
-            style={{ ...inputStyle, borderColor: !title.trim() ? '#e74c3c' : undefined }}
+            className={`${inputClass} ${!title.trim() ? 'border-danger' : ''}`}
             placeholder="תאר את הצעד שיש לבצע..." />
         </div>
         <div>
-          <label style={labelStyle}>שלב <span style={{ color: '#e74c3c' }}>*</span></label>
-          <select value={phase} onChange={e => { setPhase(parseInt(e.target.value)); setSubPhaseId(''); }} style={inputStyle}>
+          <label className={labelClass}>שלב <span className="text-danger">*</span></label>
+          <select value={phase} onChange={e => { setPhase(parseInt(e.target.value)); setSubPhaseId(''); }} className={inputClass}>
             {[1,2,3,4].map(ph => <option key={ph} value={ph}>{phaseLabels[ph] || PHASE_LABELS[ph]}</option>)}
           </select>
         </div>
         <div>
-          <label style={{ ...labelStyle, color: '#2d4a7a' }}>תת-שלב (אופציונלי)</label>
+          <label className={`${labelClass} text-primary`}>תת-שלב (אופציונלי)</label>
           {filteredSubPhases.length > 0 ? (
             <select value={subPhaseId} onChange={e => setSubPhaseId(e.target.value)}
-              style={{ ...inputStyle, background: subPhaseId ? '#e8f4fd' : undefined }}>
+              className={`${inputClass} ${subPhaseId ? 'bg-primary-50' : ''}`}>
               <option value="">-- בחר תת-שלב --</option>
               {filteredSubPhases.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
             </select>
           ) : (
-            <div style={{ padding: '8px 12px', background: '#f8f8f8', borderRadius: '6px', fontSize: '14px', color: '#aaa' }}>אין תת-שלבים לשלב זה</div>
+            <div className="px-3 py-2 bg-muted rounded-md text-sm text-subtle-foreground">אין תת-שלבים לשלב זה</div>
           )}
         </div>
         <div>
-          <label style={labelStyle}>סוג פעולה <span style={{ color: '#e74c3c' }}>*</span></label>
+          <label className={labelClass}>סוג פעולה <span className="text-danger">*</span></label>
           <select value={actionType} onChange={e => { const v = e.target.value; setActionType(v); if (!title) setTitle(v); }}
-            style={{ ...inputStyle, borderColor: !actionType ? '#e74c3c' : undefined }}>
+            className={`${inputClass} ${!actionType ? 'border-danger' : ''}`}>
             <option value="">-- בחר --</option>
             {ACTION_TYPES.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
         </div>
         <div>
-          <label style={labelStyle}>מערכת <span style={{ color: '#e74c3c' }}>*</span></label>
+          <label className={labelClass}>מערכת <span className="text-danger">*</span></label>
           <select value={app} onChange={e => setApp(e.target.value)}
-            style={{ ...inputStyle, borderColor: !app ? '#e74c3c' : undefined }}>
+            className={`${inputClass} ${!app ? 'border-danger' : ''}`}>
             <option value="">-- בחר --</option>
             {APPS.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
         </div>
         <div>
-          <label style={labelStyle}>צוות אחראי</label>
-          <select value={teamId} onChange={e => { setTeamId(e.target.value); setAssignedUserName(''); }} style={inputStyle}>
+          <label className={labelClass}>צוות אחראי</label>
+          <select value={teamId} onChange={e => { setTeamId(e.target.value); setAssignedUserName(''); }} className={inputClass}>
             <option value="">-- בחר צוות --</option>
             {teams.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </div>
         <div>
-          <label style={labelStyle}>עובד אחראי <span style={{ color: '#e74c3c' }}>*</span></label>
+          <label className={labelClass}>עובד אחראי <span className="text-danger">*</span></label>
           <select value={assignedUserName} onChange={e => setAssignedUserName(e.target.value)}
-            style={{ ...inputStyle, borderColor: !assignedUserName ? '#e74c3c' : undefined }}>
+            className={`${inputClass} ${!assignedUserName ? 'border-danger' : ''}`}>
             <option value="">-- בחר עובד --</option>
             {teamMembers.map(u => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
           </select>
         </div>
         <div>
-          <label style={labelStyle}>משך משוער (דקות) <span style={{ color: '#e74c3c' }}>*</span></label>
+          <label className={labelClass}>משך משוער (דקות) <span className="text-danger">*</span></label>
           <input type="number" min={1} value={estimatedMins} onChange={e => setEstimatedMins(e.target.value)}
-            style={{ ...inputStyle, borderColor: !estimatedMins ? '#e74c3c' : undefined }} placeholder="למשל 30" />
+            className={`${inputClass} ${!estimatedMins ? 'border-danger' : ''}`} placeholder="למשל 30" />
         </div>
-        <div style={{ gridColumn: '1 / -1' }}>
-          <label style={labelStyle}>הערות</label>
+        <div className="col-span-2">
+          <label className={labelClass}>הערות</label>
           <textarea value={notes} onChange={e => setNotes(e.target.value)}
-            style={{ ...inputStyle, height: '60px', resize: 'vertical' }}
+            className={`${inputClass} h-[60px] resize-y`}
             placeholder="פרמטרים, הוראות מיוחדות, תלויות..." />
         </div>
       </div>
-      {error && <div style={{ color: '#e74c3c', fontSize: '15px', marginTop: '8px' }}>{error}</div>}
-      <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
+      {error && <div className="text-danger text-[15px] mt-2">{error}</div>}
+      <div className="flex gap-2 mt-3.5">
         <button onClick={save} disabled={saving}
-          style={{ padding: '8px 20px', background: saving ? '#aaa' : '#27ae60', color: 'white', border: 'none', borderRadius: '8px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
+          className={`px-5 py-2 text-white border-none rounded-lg font-bold text-[15px] ${saving ? 'bg-neutral-400 cursor-not-allowed' : 'bg-success cursor-pointer'}`}>
           {saving ? 'שומר...' : initial?.id ? 'שמור שינויים' : 'הוסף'}
         </button>
         <button onClick={onCancel}
-          style={{ padding: '8px 16px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '15px' }}>
+          className="px-4 py-2 bg-muted text-foreground border-none rounded-lg cursor-pointer text-[15px]">
           ביטול
         </button>
       </div>
@@ -303,93 +291,83 @@ const NarrativeProposalRow: React.FC<{
       onSaved={() => { setEditing(false); onUpdated(); }} onCancel={() => setEditing(false)} />;
   }
 
-  const btnBase: React.CSSProperties = {
-    padding: '3px 8px', border: `1px solid ${C.border}`, borderRadius: '6px',
-    cursor: saving ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 600, background: C.bgNested, color: C.textMuted,
-  };
+  const btnBaseClass = `px-2 py-[3px] border border-border rounded-md text-sm font-semibold bg-muted text-subtle-foreground ${saving ? 'cursor-not-allowed' : 'cursor-pointer'}`;
 
   const tColor = teamColor(proposal.teamName);
   const depNote = proposal.notes && isDependencyNote(proposal.notes);
 
   return (
-    <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', gap: '11px', paddingBottom: isLast ? 0 : '10px' }}>
+    <div className="relative flex items-start gap-[11px]" style={{ paddingBottom: isLast ? 0 : '10px' }}>
       {/* Connecting thread — visually links merged tasks (possibly from
           different teams) into one sequential story within the phase. */}
       {!isLast && (
-        <div style={{ position: 'absolute', top: '26px', bottom: '-2px', right: '13px', width: '2px', background: C.border }} />
+        <div className="absolute top-[26px] bottom-[-2px] end-[13px] w-0.5 bg-border" />
       )}
-      <div style={{
-        width: '26px', height: '26px', borderRadius: '50%', flexShrink: 0, zIndex: 1,
-        background: meta.color === C.textMuted ? C.bgNested : `${meta.color}18`,
-        border: `1.5px solid ${meta.color}`, color: meta.color,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: '12px', fontWeight: 800,
-      }}>
+      <div
+        className="w-[26px] h-[26px] rounded-full shrink-0 z-[1] flex items-center justify-center text-xs font-extrabold"
+        style={{
+          background: meta.borderColor === C.border ? C.bgNested : `${meta.borderColor}18`,
+          border: `1.5px solid ${meta.borderColor}`, color: meta.borderColor,
+        }}
+      >
         {proposal.reviewStatus === 'APPROVED' ? '✓' : stepIndex}
       </div>
 
-      <div style={{
-        flex: 1, minWidth: 0, display: 'flex', alignItems: 'flex-start', gap: '9px',
-        padding: '9px 12px', borderRadius: '8px',
-        background: C.bgApp, border: `1px solid ${C.border}`,
-        borderRight: `3px solid ${meta.border}`,
-      }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: '15px', color: C.textPrimary, lineHeight: 1.5 }}>
+      <div
+        className="flex-1 min-w-0 flex items-start gap-[9px] px-3 py-2.5 rounded-lg bg-background border border-border"
+        style={{ borderInlineEnd: `3px solid ${meta.borderColor}` }}
+      >
+      <div className="flex-1 min-w-0">
+        <div className="text-[15px] text-foreground leading-relaxed">
           <strong>{proposal.actionType || proposal.title}</strong>
-          {proposal.app && <span style={{ color: C.textSecondary }}> — {proposal.app}</span>}
+          {proposal.app && <span className="text-muted-foreground"> — {proposal.app}</span>}
         </div>
-        <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '3px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: '4px',
-            background: `${tColor}16`, color: tColor, border: `1px solid ${tColor}40`,
-            borderRadius: '999px', padding: '1px 8px', fontWeight: 700, fontSize: '12px',
-          }}>
-            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: tColor }} />
+        <div className="text-[13px] text-subtle-foreground mt-[3px] flex gap-2 flex-wrap items-center">
+          <span
+            className="inline-flex items-center gap-1 rounded-full py-px px-2 font-bold text-xs"
+            style={{ background: tColor.bg, color: tColor.color, border: `1px solid ${tColor.color}40` }}
+          >
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: tColor.color }} />
             {proposal.teamName}
           </span>
           {proposal.assignedUserName && <span>👤 {proposal.assignedUserName}</span>}
           {proposal.estimatedMins && <span>⏱ כ-{proposal.estimatedMins} דק'</span>}
         </div>
         {proposal.title !== proposal.actionType && proposal.title && proposal.actionType && (
-          <div style={{ fontSize: '13px', color: C.textSecondary, marginTop: '2px', fontStyle: 'italic' }}>{proposal.title}</div>
+          <div className="text-[13px] text-muted-foreground mt-0.5 italic">{proposal.title}</div>
         )}
         {proposal.notes && (
-          <div style={{
-            fontSize: '13px', marginTop: '3px',
-            color: depNote ? C.info : C.textMuted,
-            fontWeight: depNote ? 600 : 400,
-          }}>
+          <div className={`text-[13px] mt-[3px] ${depNote ? 'text-info font-semibold' : 'text-subtle-foreground font-normal'}`}>
             {depNote ? '↳' : '💬'} {cleanHtmlText(proposal.notes)}
           </div>
         )}
         {proposal.reviewNote && !showNote && (
-          <div style={{ fontSize: '13px', color: C.warning, marginTop: '3px', background: C.warningBg, padding: '3px 7px', borderRadius: '5px', display: 'inline-block' }}>
+          <div className="text-[13px] text-warning mt-[3px] bg-warning-bg px-1.5 py-0.5 rounded-[5px] inline-block">
             ⚠ {proposal.reviewNote}
           </div>
         )}
         {showNote && (
-          <div style={{ display: 'flex', gap: '5px', marginTop: '6px' }}>
+          <div className="flex gap-1.5 mt-1.5">
             <input type="text" value={note} onChange={e => setNote(e.target.value)}
               placeholder="הערה לצוות..." autoFocus
-              style={{ flex: 1, padding: '5px 9px', borderRadius: '6px', border: `1px solid ${C.warning}`, fontSize: '14px', direction: 'rtl', outline: 'none', fontFamily: FONT }} />
+              className="flex-1 px-2.5 py-1.5 rounded-md border border-warning text-sm outline-none" />
             <button onClick={() => setReview('NEEDS_REVISION', note)} disabled={saving}
-              style={{ padding: '5px 12px', borderRadius: '6px', border: 'none', background: C.warning, color: 'white', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>שלח</button>
+              className="px-3 py-1.5 rounded-md border-none bg-warning text-white cursor-pointer text-[13px] font-semibold">שלח</button>
             <button onClick={() => setShowNote(false)}
-              style={{ padding: '5px 9px', borderRadius: '6px', border: `1px solid ${C.border}`, background: 'white', cursor: 'pointer', fontSize: '13px' }}>ביטול</button>
+              className="px-2.5 py-1.5 rounded-md border border-border bg-white cursor-pointer text-[13px]">ביטול</button>
           </div>
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: '3px', flexShrink: 0, marginTop: '1px' }}>
+      <div className="flex gap-[3px] shrink-0 mt-px">
         <button onClick={() => proposal.reviewStatus !== 'APPROVED' && setReview('APPROVED')} disabled={saving} title="אשר"
-          style={{ ...btnBase, background: proposal.reviewStatus === 'APPROVED' ? C.success : C.bgNested, color: proposal.reviewStatus === 'APPROVED' ? 'white' : C.textMuted, borderColor: proposal.reviewStatus === 'APPROVED' ? C.success : C.border }}>✓</button>
+          className={`${btnBaseClass} ${proposal.reviewStatus === 'APPROVED' ? '!bg-success !text-white !border-success' : ''}`}>✓</button>
         <button onClick={() => setShowNote(v => !v)} disabled={saving} title="לתיקון"
-          style={{ ...btnBase, background: proposal.reviewStatus === 'NEEDS_REVISION' ? C.warning : C.bgNested, color: proposal.reviewStatus === 'NEEDS_REVISION' ? 'white' : C.textMuted, borderColor: proposal.reviewStatus === 'NEEDS_REVISION' ? C.warning : C.border }}>✎</button>
+          className={`${btnBaseClass} ${proposal.reviewStatus === 'NEEDS_REVISION' ? '!bg-warning !text-white !border-warning' : ''}`}>✎</button>
         <button onClick={() => proposal.reviewStatus !== 'REJECTED' && setReview('REJECTED')} disabled={saving} title="דחה"
-          style={{ ...btnBase, background: proposal.reviewStatus === 'REJECTED' ? C.danger : C.bgNested, color: proposal.reviewStatus === 'REJECTED' ? 'white' : C.textMuted, borderColor: proposal.reviewStatus === 'REJECTED' ? C.danger : C.border }}>✗</button>
-        <button onClick={() => setEditing(true)} title="ערוך" style={{ ...btnBase, fontSize: '13px' }}>⚙</button>
-        <button onClick={remove} title="מחק" style={{ ...btnBase, color: C.danger, fontSize: '13px' }}>🗑</button>
+          className={`${btnBaseClass} ${proposal.reviewStatus === 'REJECTED' ? '!bg-danger !text-white !border-danger' : ''}`}>✗</button>
+        <button onClick={() => setEditing(true)} title="ערוך" className={`${btnBaseClass} text-[13px]`}>⚙</button>
+        <button onClick={remove} title="מחק" className={`${btnBaseClass} text-danger text-[13px]`}>🗑</button>
       </div>
       </div>
     </div>
@@ -551,9 +529,9 @@ const CrCard: React.FC<{
   const PlanSection = ({ title, icon, items, accent, defaultPhase }: { title: string; icon: string; items: PlanItem[]; accent: string; defaultPhase: number }) => {
     if (!items.length) return null;
     return (
-      <div style={{ marginBottom: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-          <div style={{ fontWeight: 700, fontSize: '15px', color: accent }}>{icon} {title}</div>
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <div className="font-bold text-[15px]" style={{ color: accent }}>{icon} {title}</div>
           <button onClick={() => {
             const allText = items.map(i => `${i.teamName}:\n${i.text}`).join('\n\n');
             const lines = allText.split(/\n/).map(l => l.replace(/^[-*•·\s]+/, '').trim()).filter(l => l.length > 2 && !l.endsWith(':'));
@@ -564,14 +542,15 @@ const CrCard: React.FC<{
               return { text: t, checked: true, phase: defaultPhase, estimatedMins: '', teamId: items[0].teamId, duplicateId: dup?.id };
             }) });
           }}
-            style={{ fontSize: '13px', padding: '3px 10px', background: `${accent}15`, color: accent, border: `1px solid ${accent}40`, borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap', fontWeight: 600 }}>
+            className="text-[13px] px-2.5 py-1 rounded-md cursor-pointer whitespace-nowrap font-semibold"
+            style={{ background: `${accent}15`, color: accent, border: `1px solid ${accent}40` }}>
             ⚡ הפק משימות
           </button>
         </div>
         {items.map((item, i) => (
-          <div key={i} style={{ background: 'white', borderRadius: '8px', padding: '12px 16px', marginBottom: '8px', borderRight: `4px solid ${accent}`, border: `1px solid ${accent}25`, borderRightWidth: '4px' }}>
-            <div style={{ fontSize: '14px', fontWeight: 700, color: '#2d4a7a', marginBottom: '6px' }}>{item.teamName}</div>
-            <div style={{ fontSize: '15px', color: '#1a2332', lineHeight: '1.65', whiteSpace: 'pre-wrap' }}>{item.text}</div>
+          <div key={i} className="bg-white rounded-lg px-4 py-3 mb-2" style={{ borderInlineEnd: `4px solid ${accent}`, border: `1px solid ${accent}25`, borderInlineEndWidth: '4px' }}>
+            <div className="text-sm font-bold text-primary mb-1.5">{item.teamName}</div>
+            <div className="text-[15px] text-foreground leading-[1.65] whitespace-pre-wrap">{item.text}</div>
           </div>
         ))}
       </div>
@@ -597,8 +576,8 @@ const CrCard: React.FC<{
     return (
       <div>
         {/* AI Summary header — indigo brand accent, matching the design system's .ai-card */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-          <div style={{ fontSize: '13px', fontWeight: 800, color: C.brand }}>✨ סיכום AI — התוכנית המאוחדת</div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-[13px] font-extrabold text-primary">✨ סיכום AI — התוכנית המאוחדת</div>
           <button disabled={summarizing}
             onClick={async () => {
               setSummarizing(true);
@@ -609,15 +588,15 @@ const CrCard: React.FC<{
                 setSummary(`שגיאה: ${e?.response?.data?.message || e.message}`);
               } finally { setSummarizing(false); }
             }}
-            style={{ fontSize: '11px', fontWeight: 700, padding: '5px 12px', background: C.bgCard, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.full, cursor: summarizing ? 'not-allowed' : 'pointer', opacity: summarizing ? 0.6 : 1 }}>
+            className={`text-[11px] font-bold px-3 py-1.5 bg-card text-muted-foreground border border-neutral-300 rounded-full ${summarizing ? 'cursor-not-allowed opacity-60' : 'cursor-pointer opacity-100'}`}>
             {summarizing ? '⏳ מסכם...' : summary ? '🔄 עדכן' : '✨ סכם תוכנית'}
           </button>
         </div>
         {summary && (
-          <div style={{ background: C.bgCard, border: `1px solid ${C.brand}38`, borderRadius: RADIUS.lg, padding: '14px 18px', marginBottom: '16px' }}>
-            <div style={{ fontSize: '12.5px', color: C.textPrimary, lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>{summary}</div>
+          <div className="bg-card border border-primary/[.22] rounded-lg px-[18px] py-3.5 mb-4">
+            <div className="text-[12.5px] text-foreground leading-[1.8] whitespace-pre-wrap">{summary}</div>
             <button onClick={() => setSummary('')}
-              style={{ marginTop: '8px', fontSize: '13px', padding: '2px 10px', background: 'none', border: `1px solid ${C.brand}40`, borderRadius: RADIUS.sm, color: C.brand, cursor: 'pointer' }}>
+              className="mt-2 text-[13px] px-2.5 py-0.5 bg-transparent border border-primary/25 rounded-sm text-primary cursor-pointer">
               ✕ סגור
             </button>
           </div>
@@ -625,25 +604,25 @@ const CrCard: React.FC<{
 
         {/* CR file meta */}
         {(crMgr || crDesc) && (
-          <div style={{ marginBottom: '14px', paddingBottom: '12px', borderBottom: `1px solid ${C.border}` }}>
-            <div style={{ display: 'grid', gridTemplateColumns: crMgr ? '1fr 1fr' : '1fr', gap: '8px', marginBottom: crDesc ? '8px' : 0 }}>
+          <div className="mb-3.5 pb-3 border-b border-border">
+            <div className={`grid gap-2 ${crDesc ? 'mb-2' : 'mb-0'}`} style={{ gridTemplateColumns: crMgr ? '1fr 1fr' : '1fr' }}>
               <div>
-                <div style={{ fontSize: '13px', color: C.textMuted, fontWeight: 700, marginBottom: '3px' }}>שם ה-CR</div>
-                <div style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '8px 12px', fontSize: '15px', color: C.textPrimary }}>
+                <div className="text-[13px] text-subtle-foreground font-bold mb-1">שם ה-CR</div>
+                <div className="bg-muted border border-border rounded-md px-3 py-2 text-[15px] text-foreground">
                   {entry.crLabel !== entry.crNumber ? entry.crLabel.replace(/^\S+\s*-\s*/, '') : '—'}
                 </div>
               </div>
               {crMgr && (
                 <div>
-                  <div style={{ fontSize: '13px', color: C.textMuted, fontWeight: 700, marginBottom: '3px' }}>מנהל CR</div>
-                  <div style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '8px 12px', fontSize: '15px', color: C.textPrimary }}>{crMgr}</div>
+                  <div className="text-[13px] text-subtle-foreground font-bold mb-1">מנהל CR</div>
+                  <div className="bg-muted border border-border rounded-md px-3 py-2 text-[15px] text-foreground">{crMgr}</div>
                 </div>
               )}
             </div>
             {crDesc && (
               <div>
-                <div style={{ fontSize: '13px', color: C.textMuted, fontWeight: 700, marginBottom: '3px' }}>פרטים</div>
-                <div style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '8px 12px', fontSize: '15px', color: C.textPrimary, whiteSpace: 'pre-wrap' }}>{crDesc}</div>
+                <div className="text-[13px] text-subtle-foreground font-bold mb-1">פרטים</div>
+                <div className="bg-muted border border-border rounded-md px-3 py-2 text-[15px] text-foreground whitespace-pre-wrap">{crDesc}</div>
               </div>
             )}
           </div>
@@ -651,18 +630,18 @@ const CrCard: React.FC<{
 
         {/* Team chips */}
         {entry.teams.length > 0 && (
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '16px', paddingBottom: '12px', borderBottom: `1px solid ${C.border}` }}>
+          <div className="flex gap-1.5 flex-wrap mb-4 pb-3 border-b border-border">
             {entry.teams.map(t => (
-              <div key={t.teamId} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '5px 11px', fontSize: '14px' }}>
-                <span style={{ fontWeight: 700, color: C.textPrimary }}>{t.teamName}</span>
-                {t.teamLead && <span style={{ color: C.textMuted, marginRight: '5px' }}>· {t.teamLead}</span>}
+              <div key={t.teamId} className="bg-card border border-border rounded-md px-[11px] py-1.5 text-sm">
+                <span className="font-bold text-foreground">{t.teamName}</span>
+                {t.teamLead && <span className="text-subtle-foreground me-1.5">· {t.teamLead}</span>}
               </div>
             ))}
           </div>
         )}
 
         {!hasAnyPlan && (
-          <div style={{ textAlign: 'center', padding: '30px', color: C.textDisabled, fontSize: '15px', fontStyle: 'italic' }}>לא הוזנו פרטי תכנית</div>
+          <div className="text-center p-[30px] text-subtle-foreground text-[15px] italic">לא הוזנו פרטי תכנית</div>
         )}
 
         <PlanSection title="תוכנית עבודה"            icon="📝" items={workPlanItems}  accent="#27ae60" defaultPhase={2} />
@@ -677,45 +656,41 @@ const CrCard: React.FC<{
   };
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+    <div className="flex-1 flex flex-col overflow-hidden min-w-0">
       <ConfirmDialog config={dialog} onClose={() => setDialog(null)} />
 
       {/* ── Topbar ── */}
-      <div style={{
-        padding: '12px 16px', borderBottom: `1px solid ${C.border}`,
-        display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap',
-        background: C.bgCard, flexShrink: 0,
-      }}>
-        <span style={{ background: C.textPrimary, color: 'white', padding: '3px 10px', borderRadius: '6px', fontFamily: FONT_MONO, fontWeight: 700, fontSize: '15px', flexShrink: 0 }}>
+      <div className="px-4 py-3 border-b border-border flex gap-2.5 items-center flex-wrap bg-card shrink-0">
+        <span className="bg-foreground text-white px-2.5 py-[3px] rounded-md font-mono font-bold text-[15px] shrink-0">
           {entry.crNumber}
         </span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: '16px', color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div className="flex-1 min-w-0">
+          <div className="font-bold text-base text-foreground overflow-hidden text-ellipsis whitespace-nowrap">
             {entry.crLabel !== entry.crNumber ? entry.crLabel.replace(/^\S+\s*-\s*/, '') : ''}
           </div>
-          <div style={{ fontSize: '14px', color: C.textMuted, marginTop: '1px' }}>
+          <div className="text-sm text-subtle-foreground mt-px">
             {entry.managers.length > 0 && `מנהל: ${entry.managers.join(', ')} · `}
             {entry.teams.length} צוותים · {allProposals.length} הצעות
           </div>
         </div>
         {riskLevel && (
-          <span style={{ fontSize: '13px', fontWeight: 700, padding: '3px 9px', borderRadius: '6px', flexShrink: 0, ...RISK_COLORS[riskLevel] }}>
+          <span className={`text-[13px] font-bold px-2.5 py-[3px] rounded-md shrink-0 ${RISK_COLOR_CLASS[riskLevel]}`}>
             סיכון {RISK_LABELS[riskLevel]}
           </span>
         )}
         {crType && (
-          <span style={{ fontSize: '13px', background: C.bgNested, color: C.textSecondary, padding: '2px 8px', borderRadius: '6px', flexShrink: 0 }}>{crType}</span>
+          <span className="text-[13px] bg-muted text-muted-foreground px-2 py-0.5 rounded-md shrink-0">{crType}</span>
         )}
         {/* Approval status / action */}
         {crApproved ? (
           <>
-            <span style={{ fontSize: '14px', fontWeight: 700, color: C.success, background: C.bgDone, padding: '3px 10px', borderRadius: '99px', border: `1px solid ${C.success}40`, flexShrink: 0 }}>
+            <span className="text-sm font-bold text-success bg-success-bg px-2.5 py-[3px] rounded-full border border-success/25 shrink-0">
               ✓ CR אושר
             </span>
             <button onClick={async () => {
               await axios.patch(`${API}/cr-plans/version/${versionId}/unapprove-cr`, { crNumber: entry.crNumber }, { headers });
               onReload();
-            }} style={{ padding: '4px 10px', background: 'white', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: '7px', cursor: 'pointer', fontSize: '13px', flexShrink: 0 }}>
+            }} className="px-2.5 py-1 bg-white text-subtle-foreground border border-border rounded-md cursor-pointer text-[13px] shrink-0">
               בטל אישור
             </button>
           </>
@@ -727,15 +702,16 @@ const CrCard: React.FC<{
               onReload();
             } finally { setApproving(false); }
           }} disabled={approving}
-            style={{ padding: '10px 20px', background: C.moduleGoLive, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: approving ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 700, flexShrink: 0, boxShadow: SHADOW.sm }}>
+            className={`px-5 py-2.5 text-white border-none rounded-md text-[13px] font-bold shrink-0 shadow-sm ${approving ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+            style={{ background: C.moduleGoLive }}>
             {approving ? 'שומר…' : '✓ אשר תוכנית מאוחדת'}
           </button>
         ) : !allTeamsSubmitted ? (
-          <span style={{ fontSize: '13px', color: C.warning, background: C.warningBg, padding: '3px 9px', borderRadius: '6px', border: `1px solid ${C.warning}40`, flexShrink: 0 }}>
+          <span className="text-[13px] text-warning bg-warning-bg px-2.5 py-[3px] rounded-md border border-warning/25 shrink-0">
             ⚠ ממתין להגשה מ-{teamsWithoutSubmission.length} צוותים
           </span>
         ) : pendingCount > 0 ? (
-          <span style={{ fontSize: '13px', color: C.textMuted, background: C.bgNested, padding: '3px 9px', borderRadius: '6px', border: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <span className="text-[13px] text-subtle-foreground bg-muted px-2.5 py-[3px] rounded-md border border-border shrink-0">
             {pendingCount} ממתינות לסקירה
           </span>
         ) : null}
@@ -744,61 +720,54 @@ const CrCard: React.FC<{
       {/* ── TARGET CR summary — replaces the normal per-team status meaning for
           umbrella CRs wrapping a batch of QC defects, not real development ── */}
       {isTargetCr && targetSummary && (
-        <div style={{ padding: '12px 16px', borderBottom: `1px solid ${C.border}`, background: `${C.moduleGoLive}0d`, flexShrink: 0 }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: C.moduleGoLive, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: '8px' }}>
+        <div className="px-4 py-3 border-b border-border shrink-0" style={{ background: `${C.moduleGoLive}0d` }}>
+          <div className="text-[11px] font-bold uppercase tracking-wide mb-2" style={{ color: C.moduleGoLive }}>
             🎯 TARGET CR — תקלות QC
           </div>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+          <div className="flex gap-2 flex-wrap mb-2.5">
             {targetSummary.teams.map(t => (
-              <span key={t.teamId} style={{
-                display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 12px', borderRadius: '999px',
-                border: `1px solid ${C.borderEm}`, background: C.bgCard, fontSize: '12px', fontWeight: 700,
-              }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: t.approved ? C.success : C.warning }} />
+              <span key={t.teamId} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-neutral-300 bg-card text-xs font-bold">
+                <span className={`w-2 h-2 rounded-full ${t.approved ? 'bg-success' : 'bg-warning'}`} />
                 {t.teamName} · {t.defectCount} תקלות{t.approved ? ' · אושר' : ''}
               </span>
             ))}
           </div>
-          <div style={{ fontSize: '13px', color: C.textSecondary }}>
-            <strong style={{ color: C.textPrimary }}>{targetSummary.totalDefects}</strong> תקלות TARGET סה"כ ·{' '}
-            <strong style={{ color: C.textPrimary }}>{targetSummary.totalSpecial}</strong> דורשות הטמעה מיוחדת ·{' '}
-            <strong style={{ color: C.textPrimary }}>{targetSummary.totalManagement}</strong> סומנו כחשובות להנהלה
+          <div className="text-[13px] text-muted-foreground">
+            <strong className="text-foreground">{targetSummary.totalDefects}</strong> תקלות TARGET סה"כ ·{' '}
+            <strong className="text-foreground">{targetSummary.totalSpecial}</strong> דורשות הטמעה מיוחדת ·{' '}
+            <strong className="text-foreground">{targetSummary.totalManagement}</strong> סומנו כחשובות להנהלה
           </div>
         </div>
       )}
 
       {/* ── Teams status strip + KPI row ── */}
-      <div style={{ padding: '12px 16px', borderBottom: `1px solid ${C.border}`, background: C.bgApp, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.05em' }}>
+      <div className="px-4 py-3 border-b border-border bg-background shrink-0">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[11px] font-bold text-subtle-foreground uppercase tracking-wide">
             סטטוס הגשה לפי צוות
           </div>
           <button onClick={toggleNarrate}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: C.moduleGoLive, background: `${C.moduleGoLive}18`, border: `1px solid ${C.moduleGoLive}4d`, padding: '4px 12px', borderRadius: RADIUS.full, cursor: 'pointer' }}>
+            className="flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full cursor-pointer"
+            style={{ color: C.moduleGoLive, background: `${C.moduleGoLive}18`, border: `1px solid ${C.moduleGoLive}4d` }}>
             {speaking ? '⏹ עצור הקראה' : '🔊 מצב הקראה'}
           </button>
         </div>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
+        <div className="flex gap-2 flex-wrap mb-3.5">
           {entry.teams.map(t => {
             const meta = SUBMISSION_META[t.crPlan.submissionStatus ?? 'NOT_STARTED'] ?? SUBMISSION_META.NOT_STARTED;
             const canPreview = ['SUBMITTED', 'APPROVED'].includes(t.crPlan.submissionStatus ?? '') && !t.crPlan.notNeededForPlan;
             const canApproveTeam = canPreview;
             const isBusy = approvingTeam === t.teamId;
             return (
-              <span key={t.teamId}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '7px', padding: '5px 12px',
-                  borderRadius: RADIUS.full, border: `1px solid ${C.borderEm}`, background: C.bgCard,
-                  fontSize: '12.5px', fontWeight: 700,
-                }}>
+              <span key={t.teamId} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-neutral-300 bg-card text-[12.5px] font-bold">
                 <span onClick={() => canPreview && openTeamPreview(t.teamId, t.teamName)}
-                  style={{ display: 'flex', alignItems: 'center', gap: '7px', cursor: canPreview ? 'pointer' : 'default' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: meta.dot, flexShrink: 0 }} />
+                  className={`flex items-center gap-1.5 ${canPreview ? 'cursor-pointer' : 'cursor-default'}`}>
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${meta.dotClass}`} />
                   {t.teamName} · {t.crPlan.notNeededForPlan ? 'אין פעילות מיוחדת' : meta.label}
                 </span>
                 {canApproveTeam && (
                   <button onClick={() => approveTeamPlan(t.teamId, !t.crPlan.planApproved)} disabled={isBusy}
-                    style={{ fontSize: '11px', fontWeight: 700, color: t.crPlan.planApproved ? C.textMuted : C.success, background: 'transparent', border: 'none', cursor: isBusy ? 'not-allowed' : 'pointer', padding: 0 }}>
+                    className={`text-[11px] font-bold bg-transparent border-none p-0 ${t.crPlan.planApproved ? 'text-subtle-foreground' : 'text-success'} ${isBusy ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                     {isBusy ? '…' : t.crPlan.planApproved ? '↩ בטל' : '✓ Approve Team'}
                   </button>
                 )}
@@ -808,38 +777,34 @@ const CrCard: React.FC<{
         </div>
 
         {!allTeamsSubmitted && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '8px', background: C.warningBg,
-            border: `1px solid ${C.warning}40`, borderRadius: RADIUS.md, padding: '9px 14px',
-            fontSize: '12.5px', color: C.warning, fontWeight: 600, marginBottom: '14px',
-          }}>
+          <div className="flex items-center gap-2 bg-warning-bg border border-warning/25 rounded-md px-3.5 py-2.5 text-[12.5px] text-warning font-semibold mb-3.5">
             ⚠ לא ניתן לאשר את ה-CR — ממתין להתייחסות {teamsWithoutSubmission.map(t => t.teamName).join(', ')}
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
+        <div className="grid grid-cols-4 gap-2.5">
           {[
             { label: 'צוותים מעורבים', val: entry.teams.length },
             { label: 'משימות בתוכנית המאוחדת', val: allProposals.length },
             { label: 'נקודות בקרה',   val: entry.monitoringPointsTotal ?? 0 },
             { label: 'מוכן לאישור?',   val: crApproved ? '✓ אושר' : allReviewed ? 'מוכן' : !allTeamsSubmitted ? `ממתין ל-${teamsWithoutSubmission.length}` : `${pendingCount} לסקירה`, warn: !crApproved && !allReviewed },
           ].map((kpi, i) => (
-            <div key={i} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '10px 14px', boxShadow: SHADOW.xs }}>
-              <div style={{ fontSize: '10.5px', fontWeight: 600, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.04em' }}>{kpi.label}</div>
-              <div style={{ fontSize: typeof kpi.val === 'string' && kpi.val.length > 6 ? '15px' : '22px', fontWeight: 800, marginTop: '4px', color: kpi.warn ? C.warning : C.textPrimary }}>{kpi.val}</div>
+            <div key={i} className="bg-card border border-border rounded-lg px-3.5 py-2.5 shadow-xs">
+              <div className="text-[10.5px] font-semibold text-subtle-foreground uppercase tracking-wide">{kpi.label}</div>
+              <div className={`font-extrabold mt-1 ${typeof kpi.val === 'string' && kpi.val.length > 6 ? 'text-[15px]' : 'text-xl'} ${kpi.warn ? 'text-warning' : 'text-foreground'}`}>{kpi.val}</div>
             </div>
           ))}
         </div>
       </div>
 
       {/* ── Tabs ── */}
-      <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, background: C.bgCard, flexShrink: 0 }}>
+      <div className="flex border-b border-border bg-card shrink-0">
         {(['tasks', 'plan'] as const).map(tab => {
           const label = tab === 'tasks' ? `משימות (${allProposals.length})` : 'תוכנית CR';
           const active = selectedTab === tab;
           return (
             <button key={tab} onClick={() => setSelectedTab(tab)}
-              style={{ padding: '9px 18px', border: 'none', borderBottom: `2px solid ${active ? C.brand : 'transparent'}`, background: 'transparent', color: active ? C.brand : C.textMuted, cursor: 'pointer', fontWeight: active ? 700 : 400, fontSize: '15px', fontFamily: FONT, transition: 'color 0.15s', flexShrink: 0 }}>
+              className={`px-[18px] py-2.5 border-none bg-transparent cursor-pointer text-[15px] shrink-0 border-b-2 transition-colors duration-fast ease-out ${active ? 'font-bold text-primary border-primary' : 'font-normal text-subtle-foreground border-transparent'}`}>
               {label}
             </button>
           );
@@ -847,15 +812,15 @@ const CrCard: React.FC<{
       </div>
 
       {/* ── Tab content ── */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px' }}>
+      <div className="flex-1 overflow-y-auto px-4 py-3.5">
         {selectedTab === 'tasks' ? (
           <>
             {/* Approve-all bar */}
             {pendingCount > 0 && (
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px', padding: '8px 12px', background: C.infoBg, borderRadius: '8px', border: `1px solid ${C.info}25` }}>
-                <span style={{ fontSize: '14px', color: C.info, flex: 1 }}>{pendingCount} הצעות ממתינות לסקירה</span>
+              <div className="flex gap-2 items-center mb-3 px-3 py-2 bg-info-bg rounded-lg border border-info/[.15]">
+                <span className="text-sm text-info flex-1">{pendingCount} הצעות ממתינות לסקירה</span>
                 <button onClick={approveAll} disabled={approvingAll}
-                  style={{ padding: '5px 14px', background: C.info, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>
+                  className="px-3.5 py-1.5 bg-info text-white border-none rounded-md cursor-pointer text-sm font-semibold">
                   {approvingAll ? 'מאשר...' : 'אשר הכל ✓'}
                 </button>
               </div>
@@ -872,17 +837,17 @@ const CrCard: React.FC<{
             {[1, 2, 3, 4].map(phase => {
               const phaseProposals = entry.proposalsByPhase[phase] ?? [];
               if (!phaseProposals.length) return null;
-              const pb = PHASE_BADGE[phase];
+              const pbClass = PHASE_BADGE_CLASS[phase];
               const phaseName = subPhaseOpts.find(sp => sp.phaseOrderIndex === phase)?.phaseName || PHASE_LABELS[phase];
               const phasePending = phaseProposals.filter(p => p.reviewStatus === 'PENDING').length;
               return (
-                <div key={phase} style={{ marginBottom: '18px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', padding: '6px 12px', background: pb.bg, borderRadius: '7px', border: `1px solid ${pb.color}25` }}>
-                    <span style={{ fontSize: '14px', fontWeight: 800, color: pb.color }}>{phaseName}</span>
-                    <span style={{ fontSize: '13px', color: pb.color, background: 'white', padding: '1px 7px', borderRadius: '8px', border: `1px solid ${pb.color}30` }}>{phaseProposals.length}</span>
+                <div key={phase} className="mb-[18px]">
+                  <div className={`flex items-center gap-2 mb-2.5 px-3 py-1.5 rounded-md ${pbClass}`}>
+                    <span className="text-sm font-extrabold">{phaseName}</span>
+                    <span className="text-[13px] bg-white px-1.5 py-px rounded-lg border border-current/30">{phaseProposals.length}</span>
                     {phasePending > 0 && (
                       <button onClick={() => approvePhase(phase)} disabled={approvingPhase === phase}
-                        style={{ marginRight: 'auto', fontSize: '11.5px', fontWeight: 700, color: pb.color, background: 'white', border: `1px solid ${pb.color}40`, borderRadius: RADIUS.full, padding: '3px 10px', cursor: 'pointer', flexShrink: 0 }}>
+                        className="ms-auto text-[11.5px] font-bold bg-white border border-current/40 rounded-full px-2.5 py-1 cursor-pointer shrink-0">
                         {approvingPhase === phase ? 'מאשר…' : `✓ אשר שלב (${phasePending})`}
                       </button>
                     )}
@@ -898,16 +863,16 @@ const CrCard: React.FC<{
 
             {/* Consolidated rollback — one team, one line each */}
             {entry.teams.some(t => t.crPlan.rollbackPlan || t.crPlan.rollbackType) && (
-              <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.xs, padding: '14px 16px', marginBottom: '16px' }}>
-                <div style={{ fontSize: '13.5px', fontWeight: 800, color: C.textPrimary, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div className="bg-card border border-border rounded-lg shadow-xs px-4 py-3.5 mb-4">
+                <div className="text-[13.5px] font-extrabold text-foreground mb-2.5 flex items-center gap-2">
                   ↩ Rollback מרוכז
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div className="flex flex-col gap-2">
                   {entry.teams.filter(t => t.crPlan.rollbackPlan || t.crPlan.rollbackType).map(t => {
                     const tColor = teamColor(t.teamName);
                     return (
-                      <div key={t.teamId} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12.5px', color: C.textSecondary }}>
-                        <span style={{ fontSize: '10px', fontWeight: 700, padding: '3px 9px', borderRadius: RADIUS.full, color: 'white', background: tColor, flexShrink: 0 }}>{t.teamName}</span>
+                      <div key={t.teamId} className="flex items-center gap-2.5 text-[12.5px] text-muted-foreground">
+                        <span className="text-[10px] font-bold px-2.5 py-[3px] rounded-full shrink-0" style={{ background: tColor.bg, color: tColor.color }}>{t.teamName}</span>
                         <span>{t.crPlan.rollbackType ? `${t.crPlan.rollbackType} — ` : ''}{t.crPlan.rollbackPlan || 'אין פירוט נוסף'}</span>
                       </div>
                     );
@@ -917,15 +882,15 @@ const CrCard: React.FC<{
             )}
 
             {allProposals.length === 0 && !addOpen && (
-              <div style={{ textAlign: 'center', padding: '40px 20px', color: C.textDisabled }}>
-                <div style={{ fontSize: '28px', marginBottom: '10px' }}>📋</div>
-                <div style={{ fontSize: '15px' }}>אין הצעות משימות לCR זה</div>
+              <div className="text-center px-5 py-10 text-subtle-foreground">
+                <div className="text-[28px] mb-2.5">📋</div>
+                <div className="text-[15px]">אין הצעות משימות לCR זה</div>
               </div>
             )}
 
             {!addOpen && (
               <button onClick={() => setAddOpen(true)}
-                style={{ width: '100%', padding: '9px', background: C.bgNested, color: C.textSecondary, border: `1px dashed ${C.border}`, borderRadius: '8px', cursor: 'pointer', fontSize: '15px', marginTop: '8px', fontFamily: FONT }}>
+                className="w-full py-2.5 bg-muted text-muted-foreground border border-dashed border-border rounded-lg cursor-pointer text-[15px] mt-2">
                 + הוסף משימה לביצוע
               </button>
             )}
@@ -935,41 +900,41 @@ const CrCard: React.FC<{
 
       {/* ── Extract modal ── */}
       {extractModalCr && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center', direction: 'rtl' }}>
-          <div style={{ background: 'white', borderRadius: '14px', padding: '24px 28px', maxWidth: '560px', width: '95vw', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,0.25)' }}>
-            <div style={{ fontWeight: 700, fontSize: '17px', color: '#1a2332', marginBottom: '4px' }}>⚡ הפק משימות מ{extractModalCr.sourceLabel}</div>
-            <div style={{ fontSize: '14px', color: '#888', marginBottom: '16px' }}>CR {extractModalCr.crNumber} — בחר שורות להפוך למשימות</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+        <div className="fixed inset-0 bg-black/50 z-[5000] flex items-center justify-center">
+          <div className="bg-white rounded-2xl px-7 py-6 max-w-[560px] w-[95vw] max-h-[85vh] overflow-y-auto shadow-2xl">
+            <div className="font-bold text-[17px] text-foreground mb-1">⚡ הפק משימות מ{extractModalCr.sourceLabel}</div>
+            <div className="text-sm text-subtle-foreground mb-4">CR {extractModalCr.crNumber} — בחר שורות להפוך למשימות</div>
+            <div className="flex flex-col gap-2 mb-4">
               {extractModalCr.items.map((item, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px', borderRadius: '8px', background: item.checked ? '#f0f7ff' : '#fafafa', border: `1px solid ${item.checked ? '#aed6f1' : '#e0e0e0'}` }}>
+                <div key={i} className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg border ${item.checked ? 'bg-primary-50 border-primary-200' : 'bg-neutral-50 border-neutral-200'}`}>
                   <input type="checkbox" checked={item.checked}
                     onChange={e => setExtractModalCr(m => m ? { ...m, items: m.items.map((it, j) => j === i ? { ...it, checked: e.target.checked } : it) } : null)}
-                    style={{ marginTop: '3px', flexShrink: 0, cursor: 'pointer' }} />
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    className="mt-[3px] shrink-0 cursor-pointer" />
+                  <div className="flex-1 flex flex-col gap-0.5">
                     <input value={item.text} disabled={!item.checked}
                       onChange={e => setExtractModalCr(m => m ? { ...m, items: m.items.map((it, j) => j === i ? { ...it, text: e.target.value } : it) } : null)}
-                      style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '15px', color: C.textPrimary, outline: 'none', fontFamily: FONT, boxSizing: 'border-box' as const }} />
-                    {item.duplicateId && <span style={{ fontSize: '12px', color: '#e67e22', fontWeight: 600 }}>⚠ כבר קיימת — תישאל אם להחליף</span>}
+                      className="w-full border-none bg-transparent text-[15px] text-foreground outline-none box-border" />
+                    {item.duplicateId && <span className="text-xs text-warning font-semibold">⚠ כבר קיימת — תישאל אם להחליף</span>}
                   </div>
                   <input type="number" min={1} value={item.estimatedMins} disabled={!item.checked}
                     onChange={e => setExtractModalCr(m => m ? { ...m, items: m.items.map((it, j) => j === i ? { ...it, estimatedMins: e.target.value } : it) } : null)}
-                    placeholder="דק'" style={{ width: '54px', fontSize: '13px', border: '1px solid #ddd', borderRadius: '5px', padding: '2px 4px', textAlign: 'center' as const, flexShrink: 0 }} />
+                    placeholder="דק'" className="w-[54px] text-[13px] border border-neutral-300 rounded-[5px] px-1 py-0.5 text-center shrink-0" />
                   <select value={item.phase} disabled={!item.checked}
                     onChange={e => setExtractModalCr(m => m ? { ...m, items: m.items.map((it, j) => j === i ? { ...it, phase: parseInt(e.target.value) } : it) } : null)}
-                    style={{ fontSize: '13px', border: '1px solid #ddd', borderRadius: '5px', padding: '2px 4px', flexShrink: 0 }}>
+                    className="text-[13px] border border-neutral-300 rounded-[5px] px-1 py-0.5 shrink-0">
                     {[1,2,3,4].map(ph => <option key={ph} value={ph}>{PHASE_LABELS[ph]}</option>)}
                   </select>
                 </div>
               ))}
             </div>
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
-              <button onClick={() => setExtractModalCr(m => m ? { ...m, items: m.items.map(it => ({ ...it, checked: true })) } : null)} style={{ fontSize: '14px', padding: '4px 10px', border: '1px solid #ddd', borderRadius: '6px', background: 'white', cursor: 'pointer' }}>בחר הכל</button>
-              <button onClick={() => setExtractModalCr(m => m ? { ...m, items: m.items.map(it => ({ ...it, checked: false })) } : null)} style={{ fontSize: '14px', padding: '4px 10px', border: '1px solid #ddd', borderRadius: '6px', background: 'white', cursor: 'pointer' }}>בטל הכל</button>
+            <div className="flex gap-2 mb-3.5">
+              <button onClick={() => setExtractModalCr(m => m ? { ...m, items: m.items.map(it => ({ ...it, checked: true })) } : null)} className="text-sm px-2.5 py-1 border border-neutral-300 rounded-md bg-white cursor-pointer">בחר הכל</button>
+              <button onClick={() => setExtractModalCr(m => m ? { ...m, items: m.items.map(it => ({ ...it, checked: false })) } : null)} className="text-sm px-2.5 py-1 border border-neutral-300 rounded-md bg-white cursor-pointer">בטל הכל</button>
             </div>
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setExtractModalCr(null)} style={{ padding: '8px 18px', border: '1px solid #ddd', borderRadius: '8px', background: 'white', cursor: 'pointer', fontSize: '15px' }}>ביטול</button>
+            <div className="flex gap-2.5 justify-end">
+              <button onClick={() => setExtractModalCr(null)} className="px-4.5 py-2 border border-neutral-300 rounded-lg bg-white cursor-pointer text-[15px]">ביטול</button>
               <button onClick={createExtractedCr} disabled={extractingCr || extractModalCr.items.filter(i => i.checked).length === 0}
-                style={{ padding: '8px 22px', border: 'none', borderRadius: '8px', background: extractModalCr.items.filter(i => i.checked).length === 0 ? '#ddd' : '#1a2332', color: extractModalCr.items.filter(i => i.checked).length === 0 ? '#aaa' : 'white', cursor: 'pointer', fontSize: '15px', fontWeight: 700 }}>
+                className={`px-5.5 py-2 border-none rounded-lg text-[15px] font-bold ${extractModalCr.items.filter(i => i.checked).length === 0 ? 'bg-neutral-200 text-subtle-foreground cursor-not-allowed' : 'bg-foreground text-white cursor-pointer'}`}>
                 {extractingCr ? 'יוצר…' : `צור ${extractModalCr.items.filter(i => i.checked).length} משימות`}
               </button>
             </div>
@@ -979,47 +944,47 @@ const CrCard: React.FC<{
 
       {/* ── Team plan preview modal ── */}
       {teamPreview && (
-        <div style={{ position: 'fixed', inset: 0, background: C.bgOverlay, zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        <div className="fixed inset-0 bg-foreground/45 z-[5000] flex items-center justify-center"
           onClick={() => setTeamPreview(null)}>
           <div onClick={e => e.stopPropagation()}
-            style={{ background: C.bgCard, borderRadius: RADIUS.xl, padding: '22px 24px', maxWidth: '540px', width: '92vw', maxHeight: '82vh', overflowY: 'auto', boxShadow: SHADOW.floating }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-              <div style={{ fontSize: '16px', fontWeight: 800, color: C.textPrimary }}>תקציר תוכנית — {teamPreview.teamName}</div>
-              <button onClick={() => setTeamPreview(null)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '18px', color: C.textMuted }}>✕</button>
+            className="bg-card rounded-xl px-6 py-[22px] max-w-[540px] w-[92vw] max-h-[82vh] overflow-y-auto shadow-xl">
+            <div className="flex items-center justify-between mb-3.5">
+              <div className="text-base font-extrabold text-foreground">תקציר תוכנית — {teamPreview.teamName}</div>
+              <button onClick={() => setTeamPreview(null)} className="border-none bg-transparent cursor-pointer text-lg text-subtle-foreground">✕</button>
             </div>
             {teamPreview.loading ? (
-              <div style={{ textAlign: 'center', padding: '30px', color: C.textMuted }}>⏳ טוען…</div>
+              <div className="text-center p-[30px] text-subtle-foreground">⏳ טוען…</div>
             ) : teamPreview.error ? (
-              <div style={{ textAlign: 'center', padding: '30px', color: C.danger }}>{teamPreview.error}</div>
+              <div className="text-center p-[30px] text-danger">{teamPreview.error}</div>
             ) : teamPreview.data?.notNeededForPlan ? (
-              <div style={{ padding: '14px 16px', background: C.infoBg, border: `1px solid ${C.info}30`, borderRadius: RADIUS.md, fontSize: '13px', color: C.info }}>
+              <div className="px-4 py-3.5 bg-info-bg border border-info/[.19] rounded-md text-[13px] text-info">
                 הצוות אישר שאין לו פעילות מיוחדת ב-CR זה.
               </div>
             ) : teamPreview.data ? (
               <>
                 {teamPreview.data.actions.length > 0 && (
-                  <div style={{ marginBottom: '14px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', marginBottom: '6px' }}>פעילויות ({teamPreview.data.actions.length})</div>
+                  <div className="mb-3.5">
+                    <div className="text-[11px] font-bold text-subtle-foreground uppercase mb-1.5">פעילויות ({teamPreview.data.actions.length})</div>
                     {teamPreview.data.actions.map((a, i) => (
-                      <div key={i} style={{ padding: '8px 12px', background: C.bgNested, borderRadius: RADIUS.md, marginBottom: '6px', fontSize: '12.5px', color: C.textPrimary }}>
+                      <div key={i} className="px-3 py-2 bg-muted rounded-md mb-1.5 text-[12.5px] text-foreground">
                         <strong>{a.actionType}</strong>{a.system ? ` — ${a.system}` : ''}
-                        <div style={{ color: C.textSecondary, marginTop: '2px' }}>{a.description}</div>
+                        <div className="text-muted-foreground mt-0.5">{a.description}</div>
                       </div>
                     ))}
                   </div>
                 )}
                 {teamPreview.data.monitoringPoints.length > 0 && (
-                  <div style={{ marginBottom: '14px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', marginBottom: '6px' }}>נקודות בקרה ({teamPreview.data.monitoringPoints.length})</div>
+                  <div className="mb-3.5">
+                    <div className="text-[11px] font-bold text-subtle-foreground uppercase mb-1.5">נקודות בקרה ({teamPreview.data.monitoringPoints.length})</div>
                     {teamPreview.data.monitoringPoints.map((m, i) => (
-                      <div key={i} style={{ padding: '8px 12px', background: C.bgNested, borderRadius: RADIUS.md, marginBottom: '6px', fontSize: '12.5px', color: C.textPrimary }}>
-                        <strong>{m.name}</strong> — {m.type}{m.note ? <div style={{ color: C.textSecondary, marginTop: '2px' }}>{m.note}</div> : null}
+                      <div key={i} className="px-3 py-2 bg-muted rounded-md mb-1.5 text-[12.5px] text-foreground">
+                        <strong>{m.name}</strong> — {m.type}{m.note ? <div className="text-muted-foreground mt-0.5">{m.note}</div> : null}
                       </div>
                     ))}
                   </div>
                 )}
                 {(teamPreview.data.rollbackPlan || teamPreview.data.rollbackType) && (
-                  <div style={{ fontSize: '12.5px', color: C.textSecondary }}>
+                  <div className="text-[12.5px] text-muted-foreground">
                     <strong>Rollback:</strong> {teamPreview.data.rollbackType ? `${teamPreview.data.rollbackType} — ` : ''}{teamPreview.data.rollbackPlan}
                   </div>
                 )}
@@ -1059,12 +1024,12 @@ const ConvertButton: React.FC<{ token: string; versionId: string; onReload: () =
     <>
       <ConfirmDialog config={dialog} onClose={() => setDialog(null)} />
       {done ? (
-        <div style={{ padding: '8px 14px', background: 'rgba(46,204,113,0.2)', color: '#2ecc71', borderRadius: '8px', fontSize: '15px', fontWeight: 700, border: '1px solid #2ecc71' }}>
+        <div className="px-3.5 py-2 bg-success/20 text-success rounded-lg text-[15px] font-bold border border-success">
           ✓ הומר לתוכנית הגרסה
         </div>
       ) : (
         <button onClick={convert} disabled={converting}
-          style={{ width: '100%', padding: '9px', background: '#2ecc71', color: '#1a2332', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '15px', fontWeight: 800 }}>
+          className="w-full py-2.5 bg-success text-foreground border-none rounded-lg cursor-pointer text-[15px] font-extrabold">
           {converting ? 'ממיר…' : '🚀 המר לתוכנית גרסה'}
         </button>
       )}
@@ -1113,8 +1078,8 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
   }, [data, selectedCr]);
 
   if (loading) return (
-    <div style={{ textAlign: 'center', padding: '80px', color: C.textMuted, direction: 'rtl', fontFamily: FONT }}>
-      <div style={{ fontSize: '36px', marginBottom: '14px' }}>⏳</div>טוען נתוני CR-ים...
+    <div className="text-center p-20 text-subtle-foreground">
+      <div className="text-4xl mb-3.5">⏳</div>טוען נתוני CR-ים...
     </div>
   );
 
@@ -1132,26 +1097,22 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
   const selectedEntry = data.find(e => e.crNumber === selectedCr) ?? null;
 
   return (
-    <div style={{ direction: 'rtl', fontFamily: FONT }}>
+    <div>
       {/* ── Header ── */}
-      <div style={{
-        background: C.bgCard, border: `1px solid ${C.border}`, boxShadow: SHADOW.xs,
-        borderRadius: RADIUS.lg, padding: '16px 24px', marginBottom: '18px',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px',
-      }}>
+      <div className="bg-card border border-border shadow-xs rounded-lg px-6 py-4 mb-[18px] flex items-center justify-between flex-wrap gap-3">
         <div>
-          <div style={{ fontSize: '18px', fontWeight: 800, color: C.textPrimary }}>Consolidated CR Review — ישיבת מעבר</div>
-          <div style={{ fontSize: '13.5px', color: C.textMuted, marginTop: '2px' }}>{propVersionName}</div>
+          <div className="text-lg font-extrabold text-foreground">Consolidated CR Review — ישיבת מעבר</div>
+          <div className="text-[13.5px] text-subtle-foreground mt-0.5">{propVersionName}</div>
         </div>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+        <div className="flex gap-2.5 items-center">
           {[
-            { val: data.length, lbl: 'CR-ים', color: C.textPrimary },
-            { val: approvedCrCount, lbl: 'CR אושרו', color: C.success },
-            { val: totalPending, lbl: 'ממתינות לסקירה', color: C.warning },
+            { val: data.length, lbl: 'CR-ים', colorClass: 'text-foreground' },
+            { val: approvedCrCount, lbl: 'CR אושרו', colorClass: 'text-success' },
+            { val: totalPending, lbl: 'ממתינות לסקירה', colorClass: 'text-warning' },
           ].map((s, i) => (
-            <div key={i} style={{ textAlign: 'center', background: C.bgNested, borderRadius: RADIUS.md, padding: '8px 16px' }}>
-              <div style={{ fontSize: '20px', fontWeight: 800, color: s.color }}>{s.val}</div>
-              <div style={{ fontSize: '11px', color: C.textMuted }}>{s.lbl}</div>
+            <div key={i} className="text-center bg-muted rounded-md px-4 py-2">
+              <div className={`text-xl font-extrabold ${s.colorClass}`}>{s.val}</div>
+              <div className="text-[11px] text-subtle-foreground">{s.lbl}</div>
             </div>
           ))}
         </div>
@@ -1159,37 +1120,31 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
 
       {/* ── Empty state ── */}
       {data.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '60px', background: C.bgCard, borderRadius: '12px', color: C.textMuted }}>
-          <div style={{ fontSize: '32px', marginBottom: '12px' }}>📋</div>
+        <div className="text-center p-[60px] bg-card rounded-xl text-subtle-foreground">
+          <div className="text-[32px] mb-3">📋</div>
           אין CR-ים מוגדרים לגרסה זו
         </div>
       )}
 
       {/* ── Split panel ── */}
       {data.length > 0 && (
-        <div style={{
-          display: 'flex', border: `1px solid ${C.border}`, borderRadius: '12px',
-          overflow: 'hidden', minHeight: '68vh', background: C.bgApp,
-        }}>
+        <div className="flex border border-border rounded-xl overflow-hidden bg-background" style={{ minHeight: '68vh' }}>
           {/* LEFT: CR list (RTL start = visual right) */}
-          <div style={{
-            width: '252px', flexShrink: 0, borderLeft: `1px solid ${C.border}`,
-            display: 'flex', flexDirection: 'column', background: C.bgCard,
-          }}>
+          <div className="w-[252px] shrink-0 border-e border-border flex flex-col bg-card">
             {/* Filter bar */}
-            <div style={{ padding: '10px 12px', borderBottom: `1px solid ${C.border}`, display: 'flex', gap: '5px', alignItems: 'center', flexShrink: 0 }}>
+            <div className="px-3 py-2.5 border-b border-border flex gap-1.5 items-center shrink-0">
               {(['all', 'pending', 'approved'] as const).map(f => (
                 <button key={f} onClick={() => setReviewFilter(f)}
-                  style={{ padding: '3px 9px', border: 'none', borderRadius: '99px', cursor: 'pointer', fontSize: '13px', fontWeight: 600, background: reviewFilter === f ? C.textPrimary : C.bgNested, color: reviewFilter === f ? 'white' : C.textMuted, transition: 'all 0.15s' }}>
+                  className={`px-2.5 py-[3px] border-none rounded-full cursor-pointer text-[13px] font-semibold transition-colors duration-fast ease-out ${reviewFilter === f ? 'bg-foreground text-white' : 'bg-muted text-subtle-foreground'}`}>
                   {f === 'all' ? 'הכל' : f === 'pending' ? 'ממתין' : 'אושר'}
                 </button>
               ))}
-              <div style={{ flex: 1 }} />
-              <span style={{ fontSize: '13px', color: C.textDisabled, fontWeight: 600 }}>{approvedCrCount}/{data.length}</span>
+              <div className="flex-1" />
+              <span className="text-[13px] text-subtle-foreground font-semibold">{approvedCrCount}/{data.length}</span>
             </div>
 
             {/* CR list items */}
-            <div style={{ flex: 1, overflowY: 'auto' }}>
+            <div className="flex-1 overflow-y-auto">
               {filteredData.map(entry => {
                 const all = Object.values(entry.proposalsByPhase).flat();
                 const approved = all.filter(p => p.reviewStatus === 'APPROVED').length;
@@ -1199,30 +1154,26 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
                 const dotColor = entry.crApproved ? C.success : pct === 100 ? C.warning : pct > 0 ? C.info : C.borderEm;
 
                 return (
+                  // Hover kept as a plain conditional class (not JS-driven): when
+                  // selected the row always stays tinted; otherwise a Tailwind
+                  // hover: class applies the exact same muted tint the original
+                  // onMouseEnter/onMouseLeave pair set imperatively.
                   <div key={entry.crNumber} onClick={() => setSelectedCr(entry.crNumber)}
-                    style={{
-                      display: 'flex', alignItems: 'flex-start', gap: '9px',
-                      padding: '9px 14px', cursor: 'pointer',
-                      borderBottom: `1px solid ${C.bgNested}`,
-                      borderRight: `3px solid ${isSelected ? C.brand : 'transparent'}`,
-                      background: isSelected ? C.infoBg : 'transparent',
-                      transition: 'background 0.1s',
-                    }}
-                    onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = C.bgHover; }}
-                    onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+                    className={`flex items-start gap-2.5 px-3.5 py-2.5 cursor-pointer border-b border-muted transition-colors duration-fast ease-out ${isSelected ? 'bg-info-bg' : 'bg-transparent hover:bg-muted'}`}
+                    style={{ borderInlineEnd: `3px solid ${isSelected ? C.brand : 'transparent'}` }}
                   >
-                    <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: dotColor, flexShrink: 0, marginTop: '5px' }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '14px', fontWeight: 700, color: C.textPrimary, fontFamily: 'monospace' }}>{entry.crNumber}</div>
-                      <div style={{ fontSize: '13px', color: C.textMuted, lineHeight: 1.35, marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    <div className="w-[7px] h-[7px] rounded-full shrink-0 mt-1.5" style={{ background: dotColor }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-bold text-foreground font-mono">{entry.crNumber}</div>
+                      <div className="text-[13px] text-subtle-foreground leading-snug mt-px overflow-hidden text-ellipsis whitespace-nowrap"
                         title={entry.crLabel !== entry.crNumber ? entry.crLabel.replace(/^\S+\s*-\s*/, '') : ''}>
                         {entry.crLabel !== entry.crNumber ? entry.crLabel.replace(/^\S+\s*-\s*/, '') : '—'}
                       </div>
-                      <div style={{ fontSize: '12px', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
+                      <div className="text-xs mt-[3px] flex items-center gap-1.5 flex-wrap">
                         {riskLvl && (
-                          <span style={{ padding: '1px 5px', borderRadius: '4px', fontWeight: 600, fontSize: '12px', ...RISK_COLORS[riskLvl] }}>{RISK_LABELS[riskLvl]}</span>
+                          <span className={`px-1.5 py-px rounded font-semibold text-xs ${RISK_COLOR_CLASS[riskLvl]}`}>{RISK_LABELS[riskLvl]}</span>
                         )}
-                        <span style={{ color: entry.crApproved ? C.success : C.textDisabled }}>
+                        <span className={entry.crApproved ? 'text-success' : 'text-subtle-foreground'}>
                           {entry.crApproved ? '✓ אושר' : all.length === 0 ? 'לא נדרש' : `${approved}/${all.length}`}
                         </span>
                       </div>
@@ -1232,13 +1183,13 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
               })}
 
               {filteredData.length === 0 && (
-                <div style={{ padding: '30px 14px', textAlign: 'center', color: C.textDisabled, fontSize: '14px' }}>אין תוצאות</div>
+                <div className="px-3.5 py-[30px] text-center text-subtle-foreground text-sm">אין תוצאות</div>
               )}
             </div>
 
             {/* Convert button at bottom */}
             {allCrsApproved && (
-              <div style={{ padding: '10px 12px', borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
+              <div className="px-3 py-2.5 border-t border-border shrink-0">
                 <ConvertButton token={token} versionId={propVersionId!} onReload={load} />
               </div>
             )}
@@ -1252,8 +1203,8 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
               teams={teams} users={users} subPhaseOpts={subPhaseOpts} onReload={load}
             />
           ) : (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textDisabled, fontSize: '15px', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ fontSize: '32px' }}>📋</div>
+            <div className="flex-1 flex items-center justify-center text-subtle-foreground text-[15px] flex-col gap-2.5">
+              <div className="text-[32px]">📋</div>
               בחר CR מהרשימה לצפייה
             </div>
           )}

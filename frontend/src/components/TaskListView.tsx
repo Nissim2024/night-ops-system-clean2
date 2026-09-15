@@ -5,7 +5,8 @@
  */
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, statusColor } from '../theme';
+import { C, statusColor } from '../theme';
+import { cn } from '../lib/utils';
 import { useDialog } from '../context/DialogContext';
 import { Avatar, StatusChip, Spinner, VersionStatusChip } from './ui';
 import { TaskDetailPanel } from './TaskDetailPanel';
@@ -75,14 +76,14 @@ interface FlatRow {
 
 // ── Column header ─────────────────────────────────────────────────────────────
 const ColH: React.FC<{ label: string; width?: number; flex?: boolean; center?: boolean }> = ({ label, width, flex, center }) => (
-  <div style={{
-    width: width ? `${width}px` : undefined,
-    flex: flex ? 1 : undefined, flexShrink: flex ? undefined : 0,
-    padding: `0 ${SP[2]}`,
-    ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textMuted, fontFamily: FONT,
-    textAlign: (center ? 'center' : 'right') as any,
-    textTransform: 'uppercase' as any, letterSpacing: '0.04em', whiteSpace: 'nowrap' as any,
-  }}>
+  <div
+    className={cn(
+      'px-2 text-xs font-semibold text-subtle-foreground uppercase tracking-[0.04em] whitespace-nowrap',
+      flex ? 'flex-1' : 'shrink-0',
+      center ? 'text-center' : 'text-right'
+    )}
+    style={width ? { width: `${width}px` } : undefined}
+  >
     {label}
   </div>
 );
@@ -96,33 +97,29 @@ const PhaseRow: React.FC<{ phase: any; isCollapsed: boolean; onToggle: () => voi
   const ENV_COLOR: Record<string, string> = { HOT: C.statusBlocked, HOTNET: C.statusOpen, BOTH: C.textSecondary };
   const envColor = ENV_COLOR[phase.environment] ?? C.textSecondary;
   return (
-    <div onClick={onToggle} style={{
-      display: 'flex', alignItems: 'center',
-      padding: `${SP[2]} 0`,
-      background: C.bgNested,
-      borderTop: `2px solid ${C.border}`, borderBottom: `1px solid ${C.border}`,
-      cursor: 'pointer', userSelect: 'none' as any, marginTop: SP[1],
-    }}>
-      <div style={{ width: `${C_W.expand}px`, flexShrink: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-        <span style={{ fontSize: '12px', color: C.textDisabled, display: 'inline-block', transition: EASE.fast, transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
+    <div onClick={onToggle} className="flex items-center py-2 bg-muted border-t-2 border-b border-border cursor-pointer select-none mt-1">
+      <div style={{ width: `${C_W.expand}px` }} className="shrink-0 flex justify-center items-center">
+        <span className={cn('text-xs text-subtle-foreground inline-block transition-transform duration-fast ease-out', isCollapsed ? '-rotate-90' : 'rotate-0')}>▼</span>
       </div>
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: SP[2], minWidth: 0 }}>
-        <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, fontFamily: FONT }}>{phase.name}</span>
+      <div className="flex-1 flex items-center gap-2 min-w-0">
+        <span className="text-sm font-bold text-foreground">{phase.name}</span>
         {phase.environment && (
-          <span style={{ ...TEXT.xs, color: envColor, background: envColor + '18', padding: '1px 7px', borderRadius: RADIUS.sm, fontFamily: FONT, flexShrink: 0 }}>
+          <span className="text-xs rounded-sm px-[7px] py-px shrink-0" style={{ color: envColor, background: envColor + '18' }}>
             {phase.environment}
           </span>
         )}
-        <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>{done}/{tasks.length}</span>
-        <div style={{ width: '48px', height: '4px', background: C.bgHover, borderRadius: RADIUS.full, overflow: 'hidden', flexShrink: 0 }}>
-          <div style={{
-            width: tasks.length > 0 ? `${Math.round((done / tasks.length) * 100)}%` : '0%',
-            height: '100%', background: done === tasks.length && tasks.length > 0 ? C.success : C.brand,
-            borderRadius: RADIUS.full, transition: 'width 0.3s',
-          }} />
+        <span className="text-xs text-subtle-foreground">{done}/{tasks.length}</span>
+        <div className="w-12 h-1 bg-muted rounded-full overflow-hidden shrink-0">
+          <div
+            className="h-full rounded-full transition-[width] duration-300"
+            style={{
+              width: tasks.length > 0 ? `${Math.round((done / tasks.length) * 100)}%` : '0%',
+              background: done === tasks.length && tasks.length > 0 ? C.success : C.brand,
+            }}
+          />
         </div>
       </div>
-      {editable && <div style={{ width: `${C_W.actions}px`, flexShrink: 0 }} />}
+      {editable && <div style={{ width: `${C_W.actions}px` }} className="shrink-0" />}
     </div>
   );
 };
@@ -134,20 +131,15 @@ const SubPhaseRow: React.FC<{ sub: any; isCollapsed: boolean; onToggle: () => vo
   const tasks = sub.tasks || [];
   const done  = tasks.filter((t: any) => t.status === 'DONE').length;
   return (
-    <div onClick={onToggle} style={{
-      display: 'flex', alignItems: 'center',
-      paddingRight: `${INDENT}px`, paddingTop: SP[1], paddingBottom: SP[1],
-      borderBottom: `1px solid ${C.border}`, background: C.bgCard,
-      cursor: 'pointer', userSelect: 'none' as any,
-    }}>
-      <div style={{ width: `${C_W.expand}px`, flexShrink: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-        <span style={{ fontSize: '11px', color: C.textDisabled, display: 'inline-block', transition: EASE.fast, transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
+    <div onClick={onToggle} className="flex items-center ps-[18px] pt-1 pb-1 border-b border-border bg-card cursor-pointer select-none">
+      <div style={{ width: `${C_W.expand}px` }} className="shrink-0 flex justify-center items-center">
+        <span className={cn('text-[11px] text-subtle-foreground inline-block transition-transform duration-fast ease-out', isCollapsed ? '-rotate-90' : 'rotate-0')}>▼</span>
       </div>
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: SP[2] }}>
-        <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textSecondary, fontFamily: FONT }}>{sub.name}</span>
-        <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>{done}/{tasks.length}</span>
+      <div className="flex-1 flex items-center gap-2">
+        <span className="text-sm font-semibold text-muted-foreground">{sub.name}</span>
+        <span className="text-xs text-subtle-foreground">{done}/{tasks.length}</span>
       </div>
-      {editable && <div style={{ width: `${C_W.actions}px`, flexShrink: 0 }} />}
+      {editable && <div style={{ width: `${C_W.actions}px` }} className="shrink-0" />}
     </div>
   );
 };
@@ -170,24 +162,18 @@ const TaskRow: React.FC<{
       onClick={onClick}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
+      className="flex items-center min-h-[38px] border-b border-border cursor-pointer transition-colors duration-fast ease-out"
       style={{
-        display: 'flex', alignItems: 'center', minHeight: '38px',
         background: isSelected ? C.bgActive : hov ? C.bgHover : C.bgCard,
-        borderBottom: `1px solid ${C.border}`,
-        borderRight: `3px solid ${sColor}`,
-        cursor: 'pointer', transition: EASE.fast,
-        paddingRight: `${INDENT * depth}px`,
+        borderInlineStart: `3px solid ${sColor}`,
+        paddingInlineStart: `${INDENT * depth}px`,
       }}
     >
       {/* Circle checkbox */}
-      <div style={{ width: `${C_W.expand}px`, flexShrink: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-        <div style={{
-          width: '18px', height: '18px', borderRadius: '50%', flexShrink: 0,
-          border: `1.5px solid ${sColor}55`,
-          background: isDone ? sColor + '20' : 'transparent',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: EASE.fast,
-        }}>
+      <div style={{ width: `${C_W.expand}px` }} className="shrink-0 flex justify-center items-center">
+        <div
+          className="w-[18px] h-[18px] rounded-full shrink-0 flex items-center justify-center transition-colors duration-fast ease-out"
+          style={{ border: `1.5px solid ${sColor}55`, background: isDone ? sColor + '20' : 'transparent' }}>
           {isDone && (
             <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
               <path d="M1 3.5L3.5 6L8 1" stroke={sColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
@@ -197,90 +183,85 @@ const TaskRow: React.FC<{
       </div>
 
       {/* Name */}
-      <div style={{ flex: 1, minWidth: 0, padding: `0 ${SP[2]}`, display: 'flex', alignItems: 'center', gap: SP[2] }}>
-        <span style={{
-          ...TEXT.sm, fontWeight: WEIGHT.medium, fontFamily: FONT,
-          color: isDone ? C.textDisabled : C.textPrimary,
-          textDecoration: isDone ? 'line-through' : 'none',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
-        }}>
-          {task.isCritical && <span style={{ color: C.statusBlocked, marginLeft: '4px', fontSize: '11px' }}>●</span>}
+      <div className="flex-1 min-w-0 px-2 flex items-center gap-2">
+        <span className={cn('text-sm font-medium overflow-hidden text-ellipsis whitespace-nowrap flex-1', isDone ? 'text-subtle-foreground line-through' : 'text-foreground no-underline')}>
+          {task.isCritical && <span className="me-1 text-[11px]" style={{ color: C.statusBlocked }}>●</span>}
           {task.title}
         </span>
         {task.crNumber && (
-          <span style={{ ...TEXT.xs, color: C.info, background: C.infoBg, fontFamily: FONT, padding: '1px 6px', borderRadius: RADIUS.sm, whiteSpace: 'nowrap', flexShrink: 0 }}>
+          <span className="text-xs text-info bg-info-bg px-1.5 py-px rounded-sm whitespace-nowrap shrink-0">
             {task.crNumber}
           </span>
         )}
         {task.dependencies?.length > 0 && (
-          <span style={{ ...TEXT.xs, color: C.textDisabled, flexShrink: 0 }} title={`${task.dependencies.length} תלויות`}>🔗</span>
+          <span className="text-xs text-subtle-foreground shrink-0" title={`${task.dependencies.length} תלויות`}>🔗</span>
         )}
       </div>
 
       {/* Duration */}
-      <div style={{ width: `${C_W.duration}px`, flexShrink: 0, padding: `0 ${SP[2]}`, textAlign: 'center' }}>
-        <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>{task.duration || '—'}</span>
+      <div style={{ width: `${C_W.duration}px` }} className="shrink-0 px-2 text-center">
+        <span className="text-xs text-subtle-foreground">{task.duration || '—'}</span>
       </div>
 
       {/* Start */}
-      <div style={{ width: `${C_W.start}px`, flexShrink: 0, padding: `0 ${SP[2]}` }}>
-        <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, display: 'block' }}>
+      <div style={{ width: `${C_W.start}px` }} className="shrink-0 px-2">
+        <span className="text-xs text-subtle-foreground block">
           {task.plannedStart ? fmtTime(task.plannedStart) : '—'}
         </span>
         {task.actualStart && (
-          <span style={{ ...TEXT.xs, color: C.statusDone, fontFamily: FONT, display: 'block' }}>▶ {fmtTime(task.actualStart)}</span>
+          <span className="text-xs block" style={{ color: C.statusDone }}>▶ {fmtTime(task.actualStart)}</span>
         )}
       </div>
 
       {/* End */}
-      <div style={{ width: `${C_W.end}px`, flexShrink: 0, padding: `0 ${SP[2]}` }}>
-        <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, display: 'block' }}>
+      <div style={{ width: `${C_W.end}px` }} className="shrink-0 px-2">
+        <span className="text-xs text-subtle-foreground block">
           {task.plannedEnd ? fmtTime(task.plannedEnd) : '—'}
         </span>
         {task.actualFinish && (
-          <span style={{ ...TEXT.xs, color: C.statusDone, fontFamily: FONT, display: 'block' }}>■ {fmtTime(task.actualFinish)}</span>
+          <span className="text-xs block" style={{ color: C.statusDone }}>■ {fmtTime(task.actualFinish)}</span>
         )}
       </div>
 
       {/* Due */}
-      <div style={{ width: `${C_W.due}px`, flexShrink: 0, padding: `0 ${SP[2]}` }}>
-        <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>
+      <div style={{ width: `${C_W.due}px` }} className="shrink-0 px-2">
+        <span className="text-xs text-subtle-foreground">
           {task.plannedEnd ? fmtDate(task.plannedEnd) : '—'}
         </span>
       </div>
 
       {/* Team */}
-      <div style={{ width: `${C_W.team}px`, flexShrink: 0, padding: `0 ${SP[2]}`, overflow: 'hidden' }}>
+      <div style={{ width: `${C_W.team}px` }} className="shrink-0 px-2 overflow-hidden">
         {task.assignedTeam?.name ? (
-          <span style={{ ...TEXT.xs, color: C.brand, background: C.brandDim, fontFamily: FONT, padding: '2px 7px', borderRadius: RADIUS.sm, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+          <span className="text-xs text-primary py-0.5 px-[7px] rounded-sm overflow-hidden text-ellipsis whitespace-nowrap block" style={{ background: C.brandDim }}>
             {task.assignedTeam.name}
           </span>
-        ) : <span style={{ ...TEXT.xs, color: C.textDisabled }}>—</span>}
+        ) : <span className="text-xs text-subtle-foreground">—</span>}
       </div>
 
       {/* Assignee */}
-      <div style={{ width: `${C_W.assignee}px`, flexShrink: 0, padding: `0 ${SP[2]}`, display: 'flex', alignItems: 'center', gap: '5px', overflow: 'hidden', direction: 'ltr' }}>
+      <div style={{ width: `${C_W.assignee}px` }} className="shrink-0 px-2 flex items-center gap-[5px] overflow-hidden" dir="ltr">
         {task.assignedUserName ? (
           <>
             <Avatar name={task.assignedUserName} size={20} />
-            <span style={{ ...TEXT.xs, color: C.textSecondary, fontFamily: FONT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+            <span className="text-xs text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap flex-1">
               {task.assignedUserName}
             </span>
           </>
-        ) : <span style={{ ...TEXT.xs, color: C.textDisabled }}>—</span>}
+        ) : <span className="text-xs text-subtle-foreground">—</span>}
       </div>
 
       {/* Application */}
-      <div style={{ width: `${C_W.app}px`, flexShrink: 0, padding: `0 ${SP[2]}`, overflow: 'hidden' }}>
+      <div style={{ width: `${C_W.app}px` }} className="shrink-0 px-2 overflow-hidden">
         {task.application ? (
-          <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+          <span className="text-xs text-subtle-foreground overflow-hidden text-ellipsis whitespace-nowrap block">
             {task.application}
           </span>
-        ) : <span style={{ ...TEXT.xs, color: C.textDisabled }}>—</span>}
+        ) : <span className="text-xs text-subtle-foreground">—</span>}
       </div>
 
       {/* Dependencies */}
-      <div style={{ width: `${C_W.deps}px`, flexShrink: 0, padding: `0 ${SP[2]}`, display: 'flex', flexWrap: 'wrap', gap: '3px', alignItems: 'center' }}>
+      <div style={{ width: `${C_W.deps}px` }} className="shrink-0 px-2 flex flex-wrap gap-[3px] items-center">
         {task.dependencies?.length > 0 ? (
           task.dependencies.slice(0, 2).map((d: any) => {
             const dep = d.dependsOn;
@@ -288,44 +269,38 @@ const TaskRow: React.FC<{
             return (
               <span key={d.dependsOnTaskId}
                 title={dep?.title || d.dependsOnTaskId}
+                className="text-xs whitespace-nowrap overflow-hidden text-ellipsis max-w-[44px] inline-block py-px px-[5px] rounded-sm"
                 style={{
-                  ...TEXT.xs, fontFamily: FONT,
                   color: isDone ? C.statusDone : C.statusBlocked,
                   background: isDone ? C.bgDone : C.bgBlocked,
                   border: `1px solid ${isDone ? C.statusDone + '44' : C.statusBlocked + '44'}`,
-                  padding: '1px 5px', borderRadius: RADIUS.sm,
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                  maxWidth: '44px', display: 'inline-block',
                 }}>
                 {isDone ? '✓' : '⏳'} {dep?.title?.slice(0, 6) || '?'}
               </span>
             );
           })
         ) : (
-          <span style={{ ...TEXT.xs, color: C.textDisabled }}>—</span>
+          <span className="text-xs text-subtle-foreground">—</span>
         )}
         {task.dependencies?.length > 2 && (
-          <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>+{task.dependencies.length - 2}</span>
+          <span className="text-xs text-subtle-foreground">+{task.dependencies.length - 2}</span>
         )}
       </div>
 
       {/* Status */}
-      <div style={{ width: `${C_W.status}px`, flexShrink: 0, padding: `0 ${SP[2]}` }}>
+      <div style={{ width: `${C_W.status}px` }} className="shrink-0 px-2">
         <StatusChip status={task.status} size="xs" dot />
       </div>
 
       {/* Delete (editable + hover) */}
       {editable && (
-        <div style={{ width: `${C_W.actions}px`, flexShrink: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+        <div style={{ width: `${C_W.actions}px` }} className="shrink-0 flex justify-center items-center">
           {hov && onDelete && (
             <button
               onClick={e => { e.stopPropagation(); onDelete(); }}
               title="מחק משימה"
-              style={{
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: C.textDisabled, fontSize: '16px', lineHeight: 1, padding: '2px',
-                borderRadius: RADIUS.sm, transition: EASE.fast,
-              }}
+              className="bg-transparent border-none cursor-pointer text-base leading-none p-0.5 rounded-sm transition-colors duration-fast ease-out"
+              style={{ color: C.textDisabled }}
               onMouseEnter={e => (e.currentTarget.style.color = C.danger)}
               onMouseLeave={e => (e.currentTarget.style.color = C.textDisabled)}
             >✕</button>
@@ -359,32 +334,20 @@ const AddTaskRow: React.FC<{
   if (!open) return (
     <div
       onClick={() => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 50); }}
-      style={{
-        display: 'flex', alignItems: 'center', gap: SP[2],
-        paddingRight: `${INDENT * depth + C_W.expand}px`,
-        paddingTop: '5px', paddingBottom: '5px',
-        cursor: 'pointer', color: C.textMuted, fontFamily: FONT,
-        borderBottom: `1px solid ${C.border}`,
-        background: C.bgCard,
-        transition: EASE.fast,
-      }}
+      className="flex items-center gap-2 pt-[5px] pb-[5px] cursor-pointer border-b border-border bg-card transition-colors duration-fast ease-out"
+      style={{ paddingInlineStart: `${INDENT * depth + C_W.expand}px`, color: C.textMuted }}
       onMouseEnter={e => (e.currentTarget.style.color = C.brand)}
       onMouseLeave={e => (e.currentTarget.style.color = C.textMuted)}
     >
-      <span style={{ fontSize: '15px' }}>+</span>
-      <span style={{ ...TEXT.sm }}>הוסף משימה</span>
+      <span className="text-[15px]">+</span>
+      <span className="text-sm">הוסף משימה</span>
     </div>
   );
 
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: SP[2],
-      paddingRight: `${INDENT * depth + C_W.expand}px`,
-      paddingTop: SP[1], paddingBottom: SP[1],
-      borderBottom: `1px solid ${C.border}`,
-      background: C.bgActive,
-      borderRight: `3px solid ${C.brand}`,
-    }}>
+    <div
+      className="flex items-center gap-2 py-1 border-b border-border"
+      style={{ paddingInlineStart: `${INDENT * depth + C_W.expand}px`, background: C.bgActive, borderInlineStart: `3px solid ${C.brand}` }}>
       <input
         ref={inputRef}
         value={title}
@@ -394,23 +357,16 @@ const AddTaskRow: React.FC<{
           if (e.key === 'Escape') { setOpen(false); setTitle(''); }
         }}
         placeholder="שם המשימה..."
-        style={{
-          flex: 1, fontFamily: FONT, ...TEXT.sm, color: C.textPrimary,
-          background: C.bgCard, border: `1px solid ${C.borderFocus}`,
-          borderRadius: RADIUS.md, padding: `${SP[1]} ${SP[3]}`, outline: 'none',
-        }}
+        className="flex-1 text-sm text-foreground bg-card rounded-md py-1 px-3 outline-none"
+        style={{ border: `1px solid ${C.borderFocus}` }}
       />
       <button onClick={submit} disabled={!title.trim() || saving}
-        style={{
-          fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold,
-          padding: '5px 12px', background: title.trim() ? C.brand : C.textDisabled,
-          color: 'white', border: 'none', borderRadius: RADIUS.md,
-          cursor: title.trim() ? 'pointer' : 'not-allowed', flexShrink: 0,
-        }}>
+        className={cn('text-xs font-semibold py-[5px] px-3 text-white border-none rounded-md shrink-0', title.trim() ? 'cursor-pointer' : 'cursor-not-allowed')}
+        style={{ background: title.trim() ? C.brand : C.textDisabled }}>
         {saving ? '...' : 'הוסף'}
       </button>
       <button onClick={() => { setOpen(false); setTitle(''); }}
-        style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '17px', padding: '2px 4px', flexShrink: 0 }}>
+        className="bg-transparent border-none cursor-pointer text-subtle-foreground text-[17px] py-0.5 px-1 shrink-0">
         ✕
       </button>
     </div>
@@ -563,50 +519,42 @@ export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, v
   };
 
   if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '300px', gap: SP[3], color: C.textMuted, fontFamily: FONT }}>
+    <div className="flex items-center justify-center h-[300px] gap-3 text-subtle-foreground">
       <Spinner size={24} /> טוען...
     </div>
   );
   if (!version) return null;
 
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: C.bgApp }}>
+    <div className="flex h-full overflow-hidden bg-background">
 
       {/* ── Main list ── */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
         {/* Version header */}
-        <div style={{
-          background: C.bgCard, borderBottom: `1px solid ${C.border}`,
-          padding: `${SP[3]} ${SP[4]}`,
-          display: 'flex', alignItems: 'center', gap: SP[3],
-          flexShrink: 0, flexWrap: 'wrap',
-        }}>
-          <h2 style={{ margin: 0, ...TEXT.xl, fontWeight: WEIGHT.bold, color: C.textPrimary, fontFamily: FONT }}>
+        <div className="bg-card border-b border-border py-3 px-4 flex items-center gap-3 shrink-0 flex-wrap">
+          <h2 className="m-0 text-xl font-bold text-foreground">
             {versionName}
           </h2>
           <VersionStatusChip status={version?.status || versionStatus} size="sm" />
 
           {/* ── Status progression ── */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginRight: 'auto' }}>
+          <div className="flex items-center gap-2 ms-auto">
             {/* Back button */}
             {BACK_STATUS[version?.status] && editable && (
               <button
                 onClick={() => changeVersionStatus(BACK_STATUS[version.status])}
                 disabled={statusLoading}
-                style={{
-                  fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.medium,
-                  padding: '5px 12px', borderRadius: RADIUS.md, cursor: statusLoading ? 'not-allowed' : 'pointer',
-                  background: C.bgNested, color: C.textMuted,
-                  border: `1px solid ${C.borderEm}`,
-                  transition: EASE.fast, opacity: statusLoading ? 0.5 : 1,
-                }}>
+                className={cn(
+                  'text-xs font-medium py-1.5 px-3 rounded-md bg-muted text-subtle-foreground border border-border transition-opacity duration-fast ease-out',
+                  statusLoading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer opacity-100'
+                )}>
                 {BACK_LABEL[version.status]}
               </button>
             )}
 
             {/* Progress indicator */}
-            <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>
+            <span className="text-xs text-subtle-foreground">
               {doneTasks}/{allTasks.length} הושלמו
             </span>
 
@@ -615,15 +563,11 @@ export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, v
               <button
                 onClick={() => changeVersionStatus(NEXT_STATUS[version.status])}
                 disabled={statusLoading}
-                style={{
-                  fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.semibold,
-                  padding: '7px 16px', borderRadius: RADIUS.md,
-                  cursor: statusLoading ? 'not-allowed' : 'pointer',
-                  background: statusLoading ? C.textDisabled : C.brand,
-                  color: 'white', border: 'none',
-                  boxShadow: statusLoading ? 'none' : SHADOW.sm,
-                  transition: EASE.fast, whiteSpace: 'nowrap' as any,
-                }}>
+                className={cn(
+                  'text-sm font-semibold py-1.5 px-4 rounded-md text-white border-none whitespace-nowrap transition-[background-color,box-shadow] duration-fast ease-out',
+                  statusLoading ? 'cursor-not-allowed shadow-none' : 'cursor-pointer shadow-sm'
+                )}
+                style={{ background: statusLoading ? C.textDisabled : C.brand }}>
                 {statusLoading ? '...' : NEXT_LABEL[version.status]}
               </button>
             )}
@@ -633,73 +577,55 @@ export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, v
           <button onClick={() => setCollapsed(new Set([
             ...(version?.phases || []).map((p: any) => p.id),
             ...(version?.phases || []).flatMap((p: any) => (p.subPhases || []).map((s: any) => s.id)),
-          ]))} style={{ ...TEXT.xs, fontFamily: FONT, padding: '4px 10px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer' }}>
+          ]))} className="text-xs py-1 px-2.5 bg-muted text-muted-foreground border border-border rounded-md cursor-pointer">
             ▶ קפל הכל
           </button>
           <button onClick={() => setCollapsed(new Set())}
-            style={{ ...TEXT.xs, fontFamily: FONT, padding: '4px 10px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer' }}>
+            className="text-xs py-1 px-2.5 bg-muted text-muted-foreground border border-border rounded-md cursor-pointer">
             ▼ פתח הכל
           </button>
         </div>
 
         {/* Status error */}
         {statusError && (
-          <div style={{
-            background: C.dangerBg, border: `1px solid ${C.danger}44`,
-            padding: `${SP[2]} ${SP[4]}`, flexShrink: 0,
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            fontFamily: FONT, ...TEXT.sm, color: C.danger,
-          }}>
+          <div className="bg-danger-bg border border-danger/[26.7%] py-2 px-4 shrink-0 flex justify-between items-center text-sm text-danger">
             ⚠️ {statusError}
             <button onClick={() => setStatusError(null)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.danger, fontWeight: 'bold' }}>✕</button>
+              className="bg-transparent border-none cursor-pointer text-danger font-bold">✕</button>
           </div>
         )}
 
         {/* Toolbar */}
-        <div style={{
-          background: C.bgCard, borderBottom: `1px solid ${C.border}`,
-          padding: `${SP[2]} ${SP[4]}`,
-          display: 'flex', alignItems: 'center', gap: SP[3],
-          flexShrink: 0,
-        }}>
+        <div className="bg-card border-b border-border py-2 px-4 flex items-center gap-3 shrink-0">
           {/* Search */}
-          <div style={{ position: 'relative', flexShrink: 0 }}>
-            <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: C.textMuted, pointerEvents: 'none', fontSize: '15px' }}>🔍</span>
+          <div className="relative shrink-0">
+            <span className="absolute start-2.5 top-1/2 -translate-y-1/2 text-subtle-foreground pointer-events-none text-[15px]">🔍</span>
             <input value={search} onChange={e => setSearch(e.target.value)}
               placeholder="חיפוש משימה..."
-              style={{
-                fontFamily: FONT, ...TEXT.sm, color: C.textPrimary,
-                background: C.bgNested, border: `1px solid ${C.borderEm}`,
-                borderRadius: RADIUS.md, padding: `${SP[1]} ${SP[3]} ${SP[1]} ${SP[8]}`,
-                outline: 'none', width: '200px',
-              }}
+              className="text-sm text-foreground bg-muted rounded-md outline-none w-[200px] py-1 ps-3 pe-8"
+              style={{ border: `1px solid ${C.borderEm}` }}
             />
           </div>
 
           {/* Status pills */}
-          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, flexShrink: 0 }}>סטטוס:</span>
-            <button onClick={() => setFilterStatus(null)} style={{
-              ...TEXT.xs, fontFamily: FONT, padding: '3px 9px', borderRadius: RADIUS.full,
-              background: !filterStatus ? C.bgActive : 'transparent',
-              color: !filterStatus ? C.brand : C.textMuted,
-              border: `1px solid ${!filterStatus ? C.brand + '50' : C.border}`,
-              cursor: 'pointer',
-            }}>
+          <div className="flex gap-1 flex-wrap items-center">
+            <span className="text-xs text-subtle-foreground shrink-0">סטטוס:</span>
+            <button onClick={() => setFilterStatus(null)}
+              className={cn('text-xs py-[3px] px-2.5 rounded-full cursor-pointer border', !filterStatus ? 'text-primary' : 'text-subtle-foreground bg-transparent')}
+              style={{ background: !filterStatus ? C.bgActive : undefined, borderColor: !filterStatus ? `${C.brand}50` : C.border }}>
               הכל ({allTasks.length})
             </button>
             {Object.entries(taskStatusCounts).map(([s, count]) => {
               const sc = statusColor(s);
               const isF = filterStatus === s;
               return (
-                <button key={s} onClick={() => setFilterStatus(isF ? null : s)} style={{
-                  ...TEXT.xs, fontFamily: FONT, padding: '3px 9px', borderRadius: RADIUS.full,
-                  background: isF ? sc + '20' : 'transparent',
-                  color: isF ? sc : C.textMuted,
-                  border: `1px solid ${isF ? sc + '60' : C.border}`,
-                  cursor: 'pointer',
-                }}>
+                <button key={s} onClick={() => setFilterStatus(isF ? null : s)}
+                  className="text-xs py-[3px] px-2.5 rounded-full cursor-pointer border"
+                  style={{
+                    background: isF ? sc + '20' : 'transparent',
+                    color: isF ? sc : C.textMuted,
+                    borderColor: isF ? sc + '60' : C.border,
+                  }}>
                   {STATUS_LABELS[s] || s} ({count as number})
                 </button>
               );
@@ -711,37 +637,21 @@ export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, v
             <button
               onClick={handleConvertProposals}
               disabled={converting}
-              style={{
-                marginRight: 'auto',
-                fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold,
-                padding: '5px 12px', borderRadius: RADIUS.md,
-                background: converting ? C.textDisabled : '#4573D2',
-                color: 'white', border: 'none',
-                cursor: converting ? 'not-allowed' : 'pointer',
-                display: 'flex', alignItems: 'center', gap: '6px',
-                flexShrink: 0, whiteSpace: 'nowrap' as any,
-              }}
+              className={cn(
+                'ms-auto text-xs font-semibold py-1.5 px-3 rounded-md text-white border-none flex items-center gap-1.5 shrink-0 whitespace-nowrap',
+                converting ? 'cursor-not-allowed' : 'cursor-pointer'
+              )}
+              style={{ background: converting ? C.textDisabled : '#4573D2' }}
             >
               {converting ? '⏳ משבץ...' : `📥 שבץ הצעות מאושרות`}
-              <span style={{
-                background: 'rgba(255,255,255,0.25)',
-                borderRadius: RADIUS.full,
-                padding: '0px 7px',
-                fontSize: '13px',
-                fontWeight: WEIGHT.bold,
-              }}>{proposalCount}</span>
+              <span className="rounded-full py-0 px-[7px] text-[13px] font-bold" style={{ background: 'rgba(255,255,255,0.25)' }}>{proposalCount}</span>
             </button>
           )}
         </div>
 
         {/* Table header */}
-        <div style={{
-          display: 'flex', alignItems: 'center',
-          background: C.bgCard, borderBottom: `2px solid ${C.border}`,
-          padding: `${SP[1]} 0`,
-          flexShrink: 0, position: 'sticky', top: 0, zIndex: 5,
-        }}>
-          <div style={{ width: `${C_W.expand}px`, flexShrink: 0 }} />
+        <div className="flex items-center bg-card border-b-2 border-border py-1 shrink-0 sticky top-0 z-[5]">
+          <div style={{ width: `${C_W.expand}px` }} className="shrink-0" />
           <ColH label="שם משימה" flex />
           <ColH label="משך"       width={C_W.duration} center />
           <ColH label="התחלה"    width={C_W.start} />
@@ -752,15 +662,15 @@ export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, v
           <ColH label="אפליקציה" width={C_W.app} />
           <ColH label="תלויות"   width={C_W.deps} />
           <ColH label="סטטוס"    width={C_W.status} />
-          {editable && <div style={{ width: `${C_W.actions}px`, flexShrink: 0 }} />}
+          {editable && <div style={{ width: `${C_W.actions}px` }} className="shrink-0" />}
         </div>
 
         {/* Rows */}
-        <div style={{ flex: 1, overflowY: 'auto' }}>
+        <div className="flex-1 overflow-y-auto">
           {flatRows.length === 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '200px', color: C.textMuted, fontFamily: FONT, gap: SP[3] }}>
-              <span style={{ fontSize: '40px', opacity: 0.4 }}>📋</span>
-              <span style={{ ...TEXT.md }}>
+            <div className="flex flex-col items-center justify-center h-[200px] text-subtle-foreground gap-3">
+              <span className="text-4xl opacity-40">📋</span>
+              <span className="text-lg">
                 {search || filterStatus ? 'לא נמצאו משימות תואמות' : 'אין משימות בגרסה זו'}
               </span>
             </div>
@@ -810,46 +720,27 @@ export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, v
 
       {/* ── Convert proposals result dialog ── */}
       {convertResult && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200,
-        }} onClick={() => setConvertResult(null)}>
-          <div onClick={e => e.stopPropagation()} style={{
-            background: C.bgCard, borderRadius: RADIUS.lg, padding: SP[6],
-            minWidth: '340px', maxWidth: '480px', width: '90%',
-            boxShadow: SHADOW.lg, direction: 'rtl', fontFamily: FONT,
-          }}>
-            <h3 style={{ margin: `0 0 ${SP[4]} 0`, ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+        <div className="fixed inset-0 flex items-center justify-center z-[200]" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={() => setConvertResult(null)}>
+          <div onClick={e => e.stopPropagation()} className="bg-card rounded-lg p-6 min-w-[340px] max-w-[480px] w-[90%] shadow-lg">
+            <h3 className="mb-4 mt-0 text-lg font-bold text-foreground">
               תוצאות שיבוץ הצעות
             </h3>
 
             {/* Created */}
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: SP[2],
-              padding: `${SP[2]} ${SP[3]}`, borderRadius: convertResult.tasks.length > 0 ? `${RADIUS.md} ${RADIUS.md} 0 0` : RADIUS.md,
-              background: 'rgba(40,167,69,0.1)', marginBottom: convertResult.tasks.length > 0 ? 0 : SP[3],
-            }}>
-              <span style={{ fontSize: '18px' }}>✅</span>
-              <span style={{ ...TEXT.sm, color: '#28a745', fontWeight: WEIGHT.semibold }}>
+            <div
+              className={cn('flex items-center gap-2 py-2 px-3', convertResult.tasks.length > 0 ? 'rounded-t-md' : 'rounded-md mb-3')}
+              style={{ background: 'rgba(40,167,69,0.1)' }}>
+              <span className="text-lg">✅</span>
+              <span className="text-sm font-semibold" style={{ color: '#28a745' }}>
                 {convertResult.created > 0 ? `שובצו ${convertResult.created} משימות` : 'לא שובצו משימות חדשות'}
               </span>
             </div>
             {convertResult.tasks.length > 0 && (
-              <div style={{
-                border: '1px solid rgba(40,167,69,0.25)', borderTop: 'none',
-                borderRadius: `0 0 ${RADIUS.md} ${RADIUS.md}`,
-                background: 'rgba(40,167,69,0.04)',
-                maxHeight: '200px', overflowY: 'auto',
-                marginBottom: SP[3],
-              }}>
+              <div className="border border-t-0 rounded-b-md max-h-[200px] overflow-y-auto mb-3" style={{ borderColor: 'rgba(40,167,69,0.25)', background: 'rgba(40,167,69,0.04)' }}>
                 {convertResult.tasks.map((t, i) => (
-                  <div key={i} style={{
-                    padding: `${SP[2]} ${SP[3]}`,
-                    borderBottom: i < convertResult.tasks.length - 1 ? '1px solid rgba(40,167,69,0.12)' : 'none',
-                    display: 'flex', flexDirection: 'column', gap: '2px',
-                  }}>
-                    <span style={{ ...TEXT.sm, color: C.textPrimary, fontWeight: WEIGHT.medium }}>{t.title}</span>
-                    <span style={{ ...TEXT.xs, color: C.textMuted }}>
+                  <div key={i} className={cn('py-2 px-3 flex flex-col gap-0.5', i < convertResult.tasks.length - 1 && 'border-b')} style={{ borderColor: i < convertResult.tasks.length - 1 ? 'rgba(40,167,69,0.12)' : undefined }}>
+                    <span className="text-sm text-foreground font-medium">{t.title}</span>
+                    <span className="text-xs text-subtle-foreground">
                       {t.phaseName}{t.subPhaseName ? ` › ${t.subPhaseName}` : ''}
                     </span>
                   </div>
@@ -859,31 +750,18 @@ export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, v
 
             {/* Skipped */}
             {convertResult.skipped.length > 0 && (
-              <div style={{ marginBottom: SP[4] }}>
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: SP[2],
-                  padding: `${SP[2]} ${SP[3]}`, borderRadius: `${RADIUS.md} ${RADIUS.md} 0 0`,
-                  background: 'rgba(255,193,7,0.12)',
-                }}>
-                  <span style={{ fontSize: '17px' }}>⚠️</span>
-                  <span style={{ ...TEXT.sm, color: '#856404', fontWeight: WEIGHT.semibold }}>
+              <div className="mb-4">
+                <div className="flex items-center gap-2 py-2 px-3 rounded-t-md" style={{ background: 'rgba(255,193,7,0.12)' }}>
+                  <span className="text-[17px]">⚠️</span>
+                  <span className="text-sm font-semibold" style={{ color: '#856404' }}>
                     דולגו {convertResult.skipped.length} הצעות:
                   </span>
                 </div>
-                <div style={{
-                  border: `1px solid rgba(255,193,7,0.3)`, borderTop: 'none',
-                  borderRadius: `0 0 ${RADIUS.md} ${RADIUS.md}`,
-                  background: 'rgba(255,193,7,0.05)',
-                  maxHeight: '180px', overflowY: 'auto',
-                }}>
+                <div className="border border-t-0 rounded-b-md max-h-[180px] overflow-y-auto" style={{ borderColor: 'rgba(255,193,7,0.3)', background: 'rgba(255,193,7,0.05)' }}>
                   {convertResult.skipped.map((s, i) => (
-                    <div key={i} style={{
-                      padding: `${SP[2]} ${SP[3]}`,
-                      borderBottom: i < convertResult.skipped.length - 1 ? `1px solid rgba(255,193,7,0.2)` : 'none',
-                      display: 'flex', gap: SP[2], alignItems: 'flex-start',
-                    }}>
-                      <span style={{ ...TEXT.xs, color: C.textPrimary, fontWeight: WEIGHT.medium, flex: 1 }}>{s.title}</span>
-                      <span style={{ ...TEXT.xs, color: C.textMuted, flexShrink: 0 }}>{s.reason}</span>
+                    <div key={i} className={cn('py-2 px-3 flex gap-2 items-start', i < convertResult.skipped.length - 1 && 'border-b')} style={{ borderColor: i < convertResult.skipped.length - 1 ? 'rgba(255,193,7,0.2)' : undefined }}>
+                      <span className="text-xs text-foreground font-medium flex-1">{s.title}</span>
+                      <span className="text-xs text-subtle-foreground shrink-0">{s.reason}</span>
                     </div>
                   ))}
                 </div>
@@ -892,12 +770,7 @@ export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, v
 
             <button
               onClick={() => setConvertResult(null)}
-              style={{
-                width: '100%', padding: `${SP[2]} 0`,
-                background: C.bgNested, border: `1px solid ${C.border}`,
-                borderRadius: RADIUS.md, color: C.textPrimary,
-                fontFamily: FONT, ...TEXT.sm, cursor: 'pointer',
-              }}
+              className="w-full py-2 bg-muted border border-border rounded-md text-foreground text-sm cursor-pointer"
             >
               סגור
             </button>

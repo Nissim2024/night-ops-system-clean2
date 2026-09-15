@@ -9,7 +9,7 @@
  */
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
+import { cn } from '../lib/utils';
 
 const DAY_LETTERS = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש']; // Sunday → Saturday
 const MONTH_NAMES = [
@@ -44,17 +44,9 @@ function firstWeekday(y: number, m: number): number {
   return new Date(y, m, 1).getDay();
 }
 
-const inputBase: React.CSSProperties = {
-  fontFamily: FONT, ...TEXT.sm, padding: '7px 10px',
-  border: `1px solid ${C.border}`, borderRadius: RADIUS.md,
-  background: C.bgCard, color: C.textPrimary, direction: 'ltr', textAlign: 'right',
-};
+const inputBaseClass = 'rounded-md border border-border bg-card px-2.5 py-[7px] text-right text-sm text-foreground [direction:ltr]';
 
-const popoverBase: React.CSSProperties = {
-  position: 'fixed', zIndex: 3000,
-  background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg,
-  boxShadow: SHADOW.lg, padding: SP[3], fontFamily: FONT,
-};
+const popoverBaseClass = 'fixed z-[3000] rounded-lg border border-border bg-card p-3 shadow-lg';
 
 function useOutsideClose(ref: React.RefObject<HTMLElement | null>, onClose: () => void) {
   useEffect(() => {
@@ -106,7 +98,7 @@ const PopoverPortal: React.FC<{ anchorRef: React.RefObject<HTMLElement | null>; 
 
   if (!open) return null;
   return createPortal(
-    <div ref={popRef} data-datepicker-popover style={{ ...popoverBase, top: pos?.top ?? -9999, left: pos?.left ?? -9999, visibility: pos ? 'visible' : 'hidden' }}>
+    <div ref={popRef} data-datepicker-popover className={popoverBaseClass} style={{ top: pos?.top ?? -9999, left: pos?.left ?? -9999, visibility: pos ? 'visible' : 'hidden' }}>
       {children}
     </div>,
     document.body,
@@ -129,12 +121,12 @@ const MonthGrid: React.FC<MonthGridProps> = ({ year, month, isSelected, isInRang
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', marginBottom: '4px' }}>
+      <div className="mb-1 grid grid-cols-7 gap-0.5">
         {DAY_LETTERS.map(d => (
-          <div key={d} style={{ ...TEXT.xs, textAlign: 'center', color: C.textMuted, fontWeight: WEIGHT.semibold, padding: '4px 0' }}>{d}</div>
+          <div key={d} className="py-1 text-center text-xs font-semibold text-subtle-foreground">{d}</div>
         ))}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px' }}>
+      <div className="grid grid-cols-7 gap-0.5">
         {cells.map((d, i) => {
           if (d === null) return <div key={`empty-${i}`} />;
           const disabled = !!minP && new Date(year, month, d) < new Date(minP.y, minP.m, minP.d);
@@ -146,14 +138,13 @@ const MonthGrid: React.FC<MonthGridProps> = ({ year, month, isSelected, isInRang
               type="button"
               disabled={disabled}
               onClick={() => onPick(year, month, d)}
-              style={{
-                ...TEXT.sm, padding: '6px 0', borderRadius: RADIUS.sm, border: 'none',
-                cursor: disabled ? 'not-allowed' : 'pointer',
-                background: selected ? C.brand : inRange ? C.brand + '22' : 'transparent',
-                color: disabled ? C.textDisabled : selected ? '#fff' : C.textPrimary,
-                fontWeight: selected ? WEIGHT.bold : WEIGHT.normal,
-                transition: EASE.fast,
-              }}
+              className={cn(
+                'rounded-sm border-none py-1.5 text-sm transition-[background,color] duration-fast ease-out',
+                disabled ? 'cursor-not-allowed' : 'cursor-pointer',
+                selected ? 'bg-primary' : inRange ? 'bg-primary/[0.13]' : 'bg-transparent',
+                disabled ? 'text-subtle-foreground' : selected ? 'text-white' : 'text-foreground',
+                selected ? 'font-bold' : 'font-normal'
+              )}
             >
               {d}
             </button>
@@ -165,10 +156,10 @@ const MonthGrid: React.FC<MonthGridProps> = ({ year, month, isSelected, isInRang
 };
 
 const MonthNav: React.FC<{ year: number; month: number; onPrev: () => void; onNext: () => void }> = ({ year, month, onPrev, onNext }) => (
-  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[2] }}>
-    <button type="button" onClick={onPrev} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: C.textSecondary, padding: '2px 6px' }}>‹</button>
-    <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>{MONTH_NAMES[month]} {year}</span>
-    <button type="button" onClick={onNext} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: C.textSecondary, padding: '2px 6px' }}>›</button>
+  <div className="mb-2 flex items-center justify-between">
+    <button type="button" onClick={onPrev} className="cursor-pointer border-none bg-transparent px-1.5 py-0.5 text-base text-muted-foreground">‹</button>
+    <span className="text-sm font-semibold text-foreground">{MONTH_NAMES[month]} {year}</span>
+    <button type="button" onClick={onNext} className="cursor-pointer border-none bg-transparent px-1.5 py-0.5 text-base text-muted-foreground">›</button>
   </div>
 );
 
@@ -193,17 +184,18 @@ export const DateField: React.FC<DateFieldProps> = ({ value, onChange, placehold
   useOutsideClose(ref, () => setOpen(false));
 
   return (
-    <div ref={ref} style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
+    <div ref={ref} className="relative inline-block w-full">
       <input
         readOnly
         value={formatDMY(value)}
         placeholder={placeholder ?? 'dd/mm/yyyy'}
         disabled={disabled}
         onClick={() => !disabled && setOpen(o => !o)}
-        style={{ ...inputBase, width: '100%', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1, ...style }}
+        className={cn(inputBaseClass, 'w-full', disabled ? 'cursor-default opacity-60' : 'cursor-pointer')}
+        style={style}
       />
       <PopoverPortal anchorRef={ref} open={open} align="start">
-        <div style={{ minWidth: '260px' }}>
+        <div className="min-w-[260px]">
           <MonthNav
             year={viewY} month={viewM}
             onPrev={() => { const d = new Date(viewY, viewM - 1, 1); setViewY(d.getFullYear()); setViewM(d.getMonth()); }}
@@ -266,55 +258,55 @@ export const DateRangeField: React.FC<DateRangeFieldProps> = ({ startIso, endIso
   const nights = sp && ep ? Math.round((dateOf(ep.y, ep.m, ep.d) - dateOf(sp.y, sp.m, sp.d)) / 86400000) : null;
 
   return (
-    <div ref={ref} style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
-      <div style={{ display: 'flex', gap: SP[2], width: '100%' }}>
+    <div ref={ref} className="relative inline-block w-full">
+      <div className="flex w-full gap-2">
         <input readOnly value={formatDMY(startIso)} placeholder="מתאריך" disabled={disabled}
           onClick={() => !disabled && setOpen(o => !o)}
-          style={{ ...inputBase, flex: 1, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1, ...style }} />
+          className={cn(inputBaseClass, 'flex-1', disabled ? 'cursor-default opacity-60' : 'cursor-pointer')} style={style} />
         <input readOnly value={formatDMY(endIso)} placeholder="עד תאריך" disabled={disabled}
           onClick={() => !disabled && setOpen(o => !o)}
-          style={{ ...inputBase, flex: 1, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1, ...style }} />
+          className={cn(inputBaseClass, 'flex-1', disabled ? 'cursor-default opacity-60' : 'cursor-pointer')} style={style} />
         {!disabled && (startIso || endIso) && (
           <button type="button" title="נקה תאריכים" onClick={() => { onChange('', ''); setOpen(false); }}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '15px', color: C.textMuted, padding: '0 4px', flexShrink: 0 }}>
+            className="shrink-0 cursor-pointer border-none bg-transparent px-1 text-sm text-subtle-foreground">
             ✕
           </button>
         )}
       </div>
       <PopoverPortal anchorRef={ref} open={open} align="end">
-        <div style={{ minWidth: '560px' }}>
+        <div className="min-w-[560px]">
           {nights !== null && (
-            <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: SP[2], textAlign: 'center' }}>
+            <div className="mb-2 text-center text-xs text-subtle-foreground">
               {nights} {nights === 1 ? 'לילה' : 'לילות'}
             </div>
           )}
-          <div style={{ display: 'flex', gap: SP[4] }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[2] }}>
+          <div className="flex gap-4">
+            <div className="flex-1">
+              <div className="mb-2 flex items-center justify-between">
                 <button type="button" onClick={() => { const d = new Date(viewY, viewM - 1, 1); setViewY(d.getFullYear()); setViewM(d.getMonth()); }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: C.textSecondary, padding: '2px 6px' }}>‹</button>
-                <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>{MONTH_NAMES[viewM]} {viewY}</span>
-                <span style={{ width: '22px' }} />
+                  className="cursor-pointer border-none bg-transparent px-1.5 py-0.5 text-base text-muted-foreground">‹</button>
+                <span className="text-sm font-semibold text-foreground">{MONTH_NAMES[viewM]} {viewY}</span>
+                <span className="w-[22px]" />
               </div>
               <MonthGrid year={viewY} month={viewM} isSelected={isSelected} isInRange={inRange} onPick={pick} />
             </div>
-            <div style={{ width: '1px', background: C.border }} />
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[2] }}>
-                <span style={{ width: '22px' }} />
-                <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>
+            <div className="w-px bg-border" />
+            <div className="flex-1">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="w-[22px]" />
+                <span className="text-sm font-semibold text-foreground">
                   {MONTH_NAMES[nextMonthDate.getMonth()]} {nextMonthDate.getFullYear()}
                 </span>
                 <button type="button" onClick={() => { setViewY(nextMonthDate.getFullYear()); setViewM(nextMonthDate.getMonth()); }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: C.textSecondary, padding: '2px 6px' }}>›</button>
+                  className="cursor-pointer border-none bg-transparent px-1.5 py-0.5 text-base text-muted-foreground">›</button>
               </div>
               <MonthGrid year={nextMonthDate.getFullYear()} month={nextMonthDate.getMonth()} isSelected={isSelected} isInRange={inRange} onPick={pick} />
             </div>
           </div>
           {sp && ep && (
-            <div style={{ marginTop: SP[3], display: 'flex', justifyContent: 'flex-end' }}>
+            <div className="mt-3 flex justify-end">
               <button type="button" onClick={() => setOpen(false)}
-                style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, background: C.brand, color: '#fff', border: 'none', borderRadius: RADIUS.md, padding: '7px 16px', cursor: 'pointer' }}>
+                className="cursor-pointer rounded-md border-none bg-primary px-4 py-[7px] text-sm font-semibold text-white">
                 המשך
               </button>
             </div>
@@ -365,7 +357,8 @@ export const TimeField: React.FC<TimeFieldProps> = ({ value, onChange, disabled,
       onChange={e => setDraft(e.target.value)}
       onBlur={e => commit(e.target.value)}
       onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-      style={{ ...inputBase, width: '76px', textAlign: 'center', direction: 'ltr', cursor: disabled ? 'default' : 'text', opacity: disabled ? 0.6 : 1, ...style }}
+      className={cn(inputBaseClass, 'w-[76px] text-center', disabled ? 'cursor-default opacity-60' : 'cursor-text')}
+      style={style}
     />
   );
 };
@@ -384,8 +377,8 @@ export const DateTimeField: React.FC<DateTimeFieldProps> = ({ value, onChange, d
   const [datePart, timePart] = value ? value.split('T') : ['', ''];
 
   return (
-    <div style={{ display: 'flex', gap: SP[2] }}>
-      <div style={{ flex: 1 }}>
+    <div className="flex gap-2">
+      <div className="flex-1">
         <DateField
           value={datePart}
           disabled={disabled}

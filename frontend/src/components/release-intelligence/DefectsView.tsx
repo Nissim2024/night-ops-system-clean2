@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -11,14 +10,14 @@ interface Defects {
   bySeverity: Bucket[]; byStatus: Bucket[]; byTeam: Bucket[]; byProject: Bucket[];
 }
 
-function KpiCard({ value, label, valueColor, onClick }: { value: string; label: string; valueColor?: string; onClick?: () => void }) {
+function KpiCard({ value, label, valueClassName, onClick }: { value: string; label: string; valueClassName?: string; onClick?: () => void }) {
   return (
     <div
       onClick={onClick}
-      style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '16px 20px', flex: 1, minWidth: '140px', cursor: onClick ? 'pointer' : 'default' }}
+      className={`bg-card border border-border rounded-lg px-5 py-4 flex-1 min-w-[140px] ${onClick ? 'cursor-pointer' : 'cursor-default'}`}
     >
-      <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: valueColor ?? C.textPrimary, lineHeight: 1.2 }}>{value}</div>
-      <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>{label}</div>
+      <div className={`text-xl font-bold leading-tight ${valueClassName ?? 'text-foreground'}`}>{value}</div>
+      <div className="text-xs text-subtle-foreground mt-[3px]">{label}</div>
     </div>
   );
 }
@@ -26,20 +25,20 @@ function KpiCard({ value, label, valueColor, onClick }: { value: string; label: 
 const BreakdownPanel: React.FC<{ title: string; rows: Bucket[]; onBarClick: (label: string) => void }> = ({ title, rows, onBarClick }) => {
   const max = Math.max(1, ...rows.map(r => r.count));
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], flex: 1, minWidth: '280px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: SP[3] }}>
-        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{title}</div>
-        <span style={{ ...TEXT.xs, color: C.textMuted, background: C.bgNested, borderRadius: RADIUS.full, padding: '2px 8px' }}>{rows.reduce((s, r) => s + r.count, 0)}</span>
+    <div className="bg-card border border-border rounded-lg p-4 flex-1 min-w-[280px]">
+      <div className="flex justify-between items-center mb-3">
+        <div className="text-sm font-bold text-foreground">{title}</div>
+        <span className="text-xs text-subtle-foreground bg-muted rounded-full px-2 py-0.5">{rows.reduce((s, r) => s + r.count, 0)}</span>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '240px', overflowY: 'auto' }}>
-        {rows.length === 0 && <div style={{ ...TEXT.xs, color: C.textMuted }}>אין נתונים</div>}
+      <div className="flex flex-col gap-1.5 max-h-[240px] overflow-y-auto">
+        {rows.length === 0 && <div className="text-xs text-subtle-foreground">אין נתונים</div>}
         {rows.map(r => (
-          <div key={r.label} onClick={() => onBarClick(r.label)} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-            <div style={{ ...TEXT.xs, color: C.textSecondary, width: '140px', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.label}>{r.label}</div>
-            <div style={{ flex: 1, height: '14px', background: C.bgNested, borderRadius: RADIUS.sm, overflow: 'hidden' }}>
-              <div style={{ width: `${(r.count / max) * 100}%`, height: '100%', background: C.brand, borderRadius: RADIUS.sm }} />
+          <div key={r.label} onClick={() => onBarClick(r.label)} className="flex items-center gap-2 cursor-pointer">
+            <div className="text-xs text-muted-foreground w-[140px] shrink-0 overflow-hidden text-ellipsis whitespace-nowrap" title={r.label}>{r.label}</div>
+            <div className="flex-1 h-3.5 bg-muted rounded-sm overflow-hidden">
+              <div className="h-full bg-primary rounded-sm" style={{ width: `${(r.count / max) * 100}%` }} />
             </div>
-            <div style={{ ...TEXT.xs, color: C.textPrimary, width: '24px', textAlign: 'left' }}>{r.count}</div>
+            <div className="text-xs text-foreground w-6 text-left">{r.count}</div>
           </div>
         ))}
       </div>
@@ -75,24 +74,24 @@ export const DefectsView: React.FC<Props> = ({ token, versionId, autoOpenDrilldo
   useEffect(() => { load(); }, [load]);
 
   if (!versionId) {
-    return <div style={{ fontFamily: FONT, direction: 'rtl', textAlign: 'center', padding: SP[8], color: C.textMuted }}>בחר גרסה מתפריט הצד.</div>;
+    return <div className="text-center p-8 text-subtle-foreground">בחר גרסה מתפריט הצד.</div>;
   }
-  if (loading && !data) return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>טוען...</div>;
-  if (!data) return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>לא ניתן לטעון נתונים עבור גרסה זו.</div>;
+  if (loading && !data) return <div className="p-6 text-subtle-foreground">טוען...</div>;
+  if (!data) return <div className="p-6 text-subtle-foreground">לא ניתן לטעון נתונים עבור גרסה זו.</div>;
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>🐞 באגים</div>
+    <div className="flex flex-col gap-4">
+      <div className="text-lg font-bold text-foreground">🐞 באגים</div>
 
-      <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
-        <KpiCard value={String(data.kpis.open)} label="Open" valueColor={data.kpis.open > 0 ? C.danger : C.success} onClick={() => setDrilldown({ filter: 'kpi', value: 'open', title: 'תקלות פתוחות (Open)' })} />
-        <KpiCard value={String(data.kpis.fixed)} label="Fixed" valueColor={C.success} onClick={() => setDrilldown({ filter: 'kpi', value: 'fixed', title: 'תקלות שתוקנו (Fixed)' })} />
+      <div className="flex gap-3 flex-wrap">
+        <KpiCard value={String(data.kpis.open)} label="Open" valueClassName={data.kpis.open > 0 ? 'text-danger' : 'text-success'} onClick={() => setDrilldown({ filter: 'kpi', value: 'open', title: 'תקלות פתוחות (Open)' })} />
+        <KpiCard value={String(data.kpis.fixed)} label="Fixed" valueClassName="text-success" onClick={() => setDrilldown({ filter: 'kpi', value: 'fixed', title: 'תקלות שתוקנו (Fixed)' })} />
         <KpiCard value={String(data.kpis.closed)} label="Closed" onClick={() => setDrilldown({ filter: 'kpi', value: 'closed', title: 'תקלות סגורות (Closed)' })} />
         <KpiCard value={String(data.kpis.rejected)} label="Rejected" onClick={() => setDrilldown({ filter: 'kpi', value: 'rejected', title: 'תקלות שנדחו (Rejected)' })} />
-        <KpiCard value={String(data.kpis.reopen)} label="Reopen" valueColor={data.kpis.reopen > 0 ? '#e8af00' : C.success} onClick={() => setDrilldown({ filter: 'kpi', value: 'reopen', title: 'תקלות שנפתחו מחדש (Reopen)' })} />
+        <KpiCard value={String(data.kpis.reopen)} label="Reopen" valueClassName={data.kpis.reopen > 0 ? 'text-warning' : 'text-success'} onClick={() => setDrilldown({ filter: 'kpi', value: 'reopen', title: 'תקלות שנפתחו מחדש (Reopen)' })} />
       </div>
 
-      <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
+      <div className="flex gap-3 flex-wrap">
         <BreakdownPanel title="לפי חומרה" rows={data.bySeverity} onBarClick={label => setDrilldown({ filter: 'severity', value: label, title: `תקלות פתוחות — חומרה: ${label}` })} />
         <BreakdownPanel title="לפי סטטוס" rows={data.byStatus} onBarClick={label => setDrilldown({ filter: 'status', value: label, title: `תקלות — סטטוס: ${label}` })} />
         <BreakdownPanel title="לפי צוות" rows={data.byTeam} onBarClick={label => setDrilldown({ filter: 'team', value: label, title: `תקלות פתוחות — צוות: ${label}` })} />

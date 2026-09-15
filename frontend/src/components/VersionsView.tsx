@@ -11,11 +11,13 @@ import { useVersionCreation } from '../hooks/useVersionCreation';
 import { CrPlanReviewPanel } from './CrPlanReviewPanel';
 import { DateField, DateTimeField } from './DatePicker';
 import { FEATURES } from '../featureFlags';
+import { cn } from '../lib/utils';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE,
          versionStatusColor, versionStatusBg, versionStatusLabel, statusColor } from '../theme';
 import { Button, Card, VersionStatusChip, Badge, SectionHeader, EmptyState, Divider, Alert, Avatar, StatusChip } from './ui';
 import { TaskDetailPanel } from './TaskDetailPanel';
 import { cleanHtmlText } from '../utils/textSanitize';
+import { teamColor } from './shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -164,7 +166,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
           onNavigateTab={onNavigateTab}
         />
         {depToastOuter && depToastOuter.length > 0 && (
-          <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 99999, display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '340px', pointerEvents: 'auto' }}>
+          <div className="fixed bottom-6 end-6 z-[99999] flex max-w-[340px] flex-col gap-2 pointer-events-auto">
             {depToastOuter.map((item: any, i: number) => {
               const noTiming = item.deltaMinutes === 0;
               const shortened = item.deltaMinutes < 0;
@@ -175,17 +177,17 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
               const textColor = noTiming ? '#0c5460' : shortened ? '#155724' : '#856404';
               const icon = noTiming ? '🔗' : shortened ? '⏫' : '⏬';
               return (
-                <div key={i} style={{ background: bg, border: `1px solid ${border}`, borderRadius: '10px', padding: '10px 14px', fontSize: '15px', color: textColor, boxShadow: '0 4px 16px rgba(0,0,0,0.2)', display: 'flex', alignItems: 'flex-start', gap: '8px', direction: 'rtl' }}>
-                  <span style={{ fontSize: '17px', lineHeight: 1 }}>{icon}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 'bold', marginBottom: '2px' }}>
+                <div key={i} dir="rtl" className="flex items-start gap-2 rounded-[10px] p-[10px_14px] text-[15px] shadow-[0_4px_16px_rgba(0,0,0,0.2)]" style={{ background: bg, border: `1px solid ${border}`, color: textColor }}>
+                  <span className="text-[17px] leading-none">{icon}</span>
+                  <div className="flex-1">
+                    <div className="mb-0.5 font-bold">
                       {noTiming ? (item.action === 'הסרה' ? 'תלות הוסרה' : 'תלות נוספה') : 'עדכון לוחות זמנים'}
                     </div>
                     {!noTiming && label && <div>תת-שלב {label} <strong>{shortened ? 'קוצר' : 'הוארך'} ב-{absMins} דק'</strong></div>}
-                    {!noTiming && item.phaseName && item.subPhaseName && <div style={{ fontSize: '13px', opacity: 0.8, marginTop: '2px' }}>שלב: {item.phaseName}</div>}
-                    {noTiming && <div style={{ fontSize: '14px', opacity: 0.8 }}>אין משימות עם לוח זמנים מוגדר</div>}
+                    {!noTiming && item.phaseName && item.subPhaseName && <div className="mt-0.5 text-[13px] opacity-80">שלב: {item.phaseName}</div>}
+                    {noTiming && <div className="text-sm opacity-80">אין משימות עם לוח זמנים מוגדר</div>}
                   </div>
-                  <button onClick={() => setDepToastOuter(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: textColor, fontSize: '17px', padding: 0, lineHeight: 1, opacity: 0.6 }}>✕</button>
+                  <button onClick={() => setDepToastOuter(null)} className="cursor-pointer border-none bg-transparent p-0 text-[17px] leading-none opacity-60" style={{ color: textColor }}>✕</button>
                 </div>
               );
             })}
@@ -196,11 +198,11 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
   }
 
   return (
-    <div style={{ fontFamily: FONT }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
-            <h2 style={{ ...TEXT['2xl'], fontWeight: WEIGHT.bold, color: C.textPrimary, margin: 0, fontFamily: FONT }}>
+    <div>
+      <div className="mb-6 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3">
+            <h2 className="m-0 text-2xl font-bold text-foreground">
               גרסאות
             </h2>
             <Badge color={C.textMuted} bg={C.bgActive}>
@@ -208,7 +210,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
             </Badge>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: SP[2] }}>
+        <div className="flex gap-2">
           {isManager && (
           <Button
             variant="primary"
@@ -250,14 +252,14 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
       )}
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '60px', color: C.textMuted }}>טוען...</div>
+        <div className="p-[60px] text-center text-muted-foreground">טוען...</div>
       ) : versions.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px', color: C.textMuted }}>
-          <div style={{ fontSize: '48px' }}>📋</div>
+        <div className="p-[60px] text-center text-muted-foreground">
+          <div className="text-5xl">📋</div>
           <p>אין גרסאות עדיין — צור את הראשונה!</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div className="flex flex-col gap-3">
           {versions
             .filter(v => !v.isArchived)
             .map(v => (
@@ -296,33 +298,25 @@ export const VersionCard: React.FC<{
       onClick={onOpen}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{
-        background: hovered ? C.bgHover : C.bgElevated,
-        borderRadius: RADIUS.xl,
-        padding: `${SP[4]} ${SP[5]}`,
-        border: `1px solid ${hovered ? C.borderEm : C.border}`,
-        borderRight: `3px solid ${statusColor}`,
-        cursor: 'pointer',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        fontFamily: FONT, gap: SP[4],
-        transition: EASE.fast,
-        boxShadow: hovered ? SHADOW.md : SHADOW.sm,
-        position: 'relative', overflow: 'hidden',
-      }}
+      className={cn(
+        'relative flex items-center justify-between gap-4 overflow-hidden rounded-xl border border-border py-4 px-5 cursor-pointer transition-[background-color,box-shadow] duration-fast ease-out',
+        hovered ? 'bg-muted shadow-md' : 'bg-card shadow-sm',
+      )}
+      style={{ borderInlineStart: `3px solid ${statusColor}` }}
     >
       {/* Glow for active versions */}
       {isActive && (
-        <div style={{
-          position: 'absolute', top: 0, right: 0, bottom: 0, width: '120px', pointerEvents: 'none',
-          background: `linear-gradient(to left, ${statusColor}08, transparent)`,
-        }} />
+        <div
+          className="pointer-events-none absolute inset-y-0 start-0 w-[120px]"
+          style={{ background: `linear-gradient(to left, ${statusColor}08, transparent)` }}
+        />
       )}
 
       {/* Left: metadata */}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="min-w-0 flex-1">
         {/* Row 1: Name + chips */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: SP[2], flexWrap: 'wrap' }}>
-          <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{v.name}</span>
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <span className="text-lg font-bold text-foreground">{v.name}</span>
           <VersionStatusChip status={v.status} size="sm" />
           {v.status === 'APPROVED' && v.lastRehearsalAt && (
             <Badge color={C.brand} bg={C.brandDim}>🚀 ממתין לייצור</Badge>
@@ -336,37 +330,37 @@ export const VersionCard: React.FC<{
         </div>
 
         {/* Row 2: Meta info */}
-        <div style={{ display: 'flex', gap: SP[4], flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="flex flex-wrap items-center gap-4">
           {v.description && (
-            <span style={{ ...TEXT.sm, color: C.textMuted }}>{cleanHtmlText(v.description)}</span>
+            <span className="text-sm text-muted-foreground">{cleanHtmlText(v.description)}</span>
           )}
           {v.importedFileName && (
-            <span style={{ ...TEXT.xs, color: C.textLink, display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span className="flex items-center gap-1 text-xs text-cyan-600">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
               {v.importedFileName}
             </span>
           )}
           {v.plannedStart && (
-            <span style={{ ...TEXT.xs, color: C.textMuted, display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
               {fmtDateTime(v.plannedStart)}
             </span>
           )}
           {v.plannedEnd && (
-            <span style={{ ...TEXT.xs, color: C.warning, display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span className="flex items-center gap-1 text-xs text-warning">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
               {fmtDateTime(v.plannedEnd)}
             </span>
           )}
           {v.reviewMeetingTime && (
-            <span style={{ ...TEXT.xs, color: C.brand, display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span className="flex items-center gap-1 text-xs text-primary">
               🗓 סקירת CR-ים: {fmtDateTime(v.reviewMeetingTime)}
             </span>
           )}
           {v.taskCount !== undefined && (
             <Badge color={C.statusOpen} bg={C.bgOpen}>{v.taskCount} משימות</Badge>
           )}
-          <span style={{ ...TEXT.xs, color: C.textDisabled }}>
+          <span className="text-xs text-subtle-foreground">
             {v.creator?.fullName} · {fmtDateShared(v.createdAt)}
           </span>
           {v.lastRehearsalAt && (
@@ -377,7 +371,7 @@ export const VersionCard: React.FC<{
 
       {/* Right: actions */}
       <div
-        style={{ display: 'flex', gap: SP[2], alignItems: 'center', flexShrink: 0 }}
+        className="flex shrink-0 items-center gap-2"
         onClick={e => e.stopPropagation()}
       >
         {onRestore && (
@@ -396,7 +390,7 @@ export const VersionCard: React.FC<{
             {isDeleting ? 'מוחק...' : '🗑'}
           </Button>
         )}
-        <span style={{ color: C.brand, fontSize: '17px', marginRight: SP[1] }}>←</span>
+        <span className="ms-1 text-[17px] text-primary">←</span>
       </div>
     </div>
   );
@@ -406,19 +400,6 @@ export const VersionCard: React.FC<{
 // Fixed-width columns (px). name + deps are flex (see VersionTaskHeader / task row).
 const TV = { num: 36, dur: 88, start: 118, end: 118, team: 128, assignee: 148, app: 110, env: 96, status: 116, actions: 96 };
 
-// Team color palette — consistent per team name via hash
-const TEAM_PALETTE = [
-  { bg: '#dbeafe', color: '#1e40af' }, { bg: '#dcfce7', color: '#166534' },
-  { bg: '#fef3c7', color: '#92400e' }, { bg: '#fce7f3', color: '#9d174d' },
-  { bg: '#ede9fe', color: '#5b21b6' }, { bg: '#ffedd5', color: '#9a3412' },
-  { bg: '#cffafe', color: '#164e63' }, { bg: '#f0fdf4', color: '#14532d' },
-  { bg: '#fdf4ff', color: '#7e22ce' }, { bg: '#fff1f2', color: '#9f1239' },
-];
-const teamColorFor = (name: string) => {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  return TEAM_PALETTE[h % TEAM_PALETTE.length];
-};
 const isNextDay = (startIso: string, endIso: string) => {
   if (!startIso || !endIso) return false;
   return new Date(endIso).setHours(0,0,0,0) > new Date(startIso).setHours(0,0,0,0);
@@ -1513,21 +1494,21 @@ const VersionDetail: React.FC<{
     <div>
       {/* ── Force-advance confirmation dialog ── */}
       {forceDialog && (
-        <div style={{ position: 'fixed', inset: 0, background: C.bgOverlay, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: C.bgCard, borderRadius: RADIUS['2xl'], padding: '28px 32px', maxWidth: '480px', width: '90%', boxShadow: SHADOW.floating, border: `1px solid ${C.border}` }}>
-            <div style={{ fontSize: '22px', marginBottom: '10px' }}>⚠️</div>
-            <div style={{ fontWeight: 'bold', fontSize: '17px', color: C.textPrimary, marginBottom: '10px' }}>קיימות חסימות לפני המעבר</div>
-            <div style={{ background: C.warningBg, border: `1px solid ${C.warning}44`, borderRadius: RADIUS.lg, padding: '10px 14px', fontSize: '15px', fontWeight: 'bold', color: C.warning, marginBottom: '18px' }}>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ background: C.bgOverlay }}>
+          <div className="w-[90%] max-w-[480px] rounded-2xl border border-border bg-card p-[28px_32px] shadow-[0_28px_72px_rgba(20,21,42,.18)]">
+            <div className="mb-2.5 text-[22px]">⚠️</div>
+            <div className="mb-2.5 text-[17px] font-bold text-foreground">קיימות חסימות לפני המעבר</div>
+            <div className="mb-[18px] rounded-lg border border-warning/27 bg-warning-bg p-[10px_14px] text-[15px] font-bold text-warning">
               {forceDialog.details}
             </div>
-            <div style={{ fontSize: '15px', color: C.textMuted, marginBottom: '20px' }}>
+            <div className="mb-5 text-[15px] text-muted-foreground">
               כמנהל לילה, ביכולתך לאשר ולהמשיך בכל זאת.
             </div>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setForceDialog(null)} style={{ padding: '9px 20px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '15px' }}>ביטול</button>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setForceDialog(null)} className="cursor-pointer rounded-lg border border-border bg-muted px-5 py-[9px] text-[15px] text-muted-foreground">ביטול</button>
               <button
                 onClick={async () => { const s = forceDialog.targetStatus; setForceDialog(null); await handleStatusChange(s, true); }}
-                style={{ padding: '9px 20px', background: C.warning, color: 'white', border: 'none', borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '15px', fontWeight: 'bold' }}
+                className="cursor-pointer rounded-lg border-none bg-warning px-5 py-[9px] text-[15px] font-bold text-white"
               >
                 אשר ודחוף קדימה בכל זאת
               </button>
@@ -1537,13 +1518,13 @@ const VersionDetail: React.FC<{
       )}
 
       {/* ── Version header ── */}
-      <div style={{ background: C.bgCard, borderRadius: RADIUS.xl, padding: '20px', marginBottom: '20px', boxShadow: SHADOW.sm, border: `1px solid ${C.border}` }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <button onClick={onBack} style={{ padding: '8px 16px', background: C.bgNested, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '15px', color: C.textSecondary }}>→ חזור</button>
+      <div className="mb-5 rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <button onClick={onBack} className="cursor-pointer rounded-lg border border-border bg-muted px-4 py-2 text-[15px] text-muted-foreground">→ חזור</button>
             <div>
-              <h2 style={{ margin: 0, color: C.textPrimary }}>{version.name}</h2>
-              {version.description && <p style={{ margin: '4px 0 0', color: C.textMuted, fontSize: '15px' }}>{version.description}</p>}
+              <h2 className="m-0 text-foreground">{version.name}</h2>
+              {version.description && <p className="mt-1 mb-0 text-[15px] text-muted-foreground">{version.description}</p>}
             </div>
             <VersionStatusChip status={version.status} size="md" />
             {/* Total task count badge — updates live on add/remove */}
@@ -1552,7 +1533,7 @@ const VersionDetail: React.FC<{
               if (total === 0) return null;
               const done = (version.phases ?? []).flatMap((p: any) => (p.subPhases ?? []).flatMap((s: any) => (s.tasks ?? []).filter((t: any) => t.status === 'DONE'))).length;
               return (
-                <span title="סה״כ משימות בתוכנית" style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: '12px', padding: '3px 10px', fontSize: '14px', color: C.textSecondary, fontWeight: '600', whiteSpace: 'nowrap' }}>
+                <span title="סה״כ משימות בתוכנית" className="whitespace-nowrap rounded-xl border border-border bg-muted px-2.5 py-0.5 text-sm font-semibold text-muted-foreground">
                   📋 {done > 0 ? `${done}/${total}` : total} משימות
                 </span>
               );
@@ -1563,26 +1544,22 @@ const VersionDetail: React.FC<{
                 onClick={openAssignPreview}
                 disabled={converting}
                 title="פתח תצוגה מקדימה לשיבוץ הצעות"
-                style={{
-                  background: converting ? '#b7763a' : '#e67e22', color: 'white',
-                  padding: '4px 14px', borderRadius: '12px',
-                  fontSize: '15px', fontWeight: 'bold', border: 'none',
-                  cursor: converting ? 'not-allowed' : 'pointer',
-                  animation: converting ? 'none' : 'pulse 2s infinite',
-                  whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px',
-                }}
+                className={cn(
+                  'flex items-center gap-1.5 whitespace-nowrap rounded-xl border-none px-3.5 py-1 text-[15px] font-bold text-white',
+                  converting ? 'cursor-not-allowed bg-[#b7763a]' : 'cursor-pointer bg-[#e67e22] animate-pulse',
+                )}
               >
                 {converting ? '⏳ משבץ...' : `📥 שבץ הצעות`}
-                <span style={{ background: 'rgba(255,255,255,0.25)', borderRadius: '10px', padding: '0 7px', fontSize: '14px' }}>
+                <span className="rounded-[10px] bg-white/25 px-[7px] text-sm">
                   {proposals.filter(p => !p.usedInTaskId).length}
                 </span>
               </button>
             )}
           </div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="flex flex-wrap items-center gap-2">
             {/* UI utilities */}
-            {version.status !== 'CR_REVIEW' && <button onClick={() => setCollapsedPhases(new Set(version.phases?.map((p: any) => p.id)))} style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '15px' }}>▶ קפל הכל</button>}
-            {version.status !== 'CR_REVIEW' && <button onClick={() => { setCollapsedPhases(new Set()); setCollapsedSubPhases(new Set()); }} style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '15px' }}>▼ פתח הכל</button>}
+            {version.status !== 'CR_REVIEW' && <button onClick={() => setCollapsedPhases(new Set(version.phases?.map((p: any) => p.id)))} className="cursor-pointer rounded-md border border-border bg-muted px-3.5 py-1.5 text-[15px] text-muted-foreground">▶ קפל הכל</button>}
+            {version.status !== 'CR_REVIEW' && <button onClick={() => { setCollapsedPhases(new Set()); setCollapsedSubPhases(new Set()); }} className="cursor-pointer rounded-md border border-border bg-muted px-3.5 py-1.5 text-[15px] text-muted-foreground">▼ פתח הכל</button>}
 
             {/* Manager tools — הכן ותזמן והחלף עובד הועברו לאשף הכנת תוכנית */}
             {isManager && version.status !== 'CR_REVIEW' && (() => {
@@ -1593,7 +1570,7 @@ const VersionDetail: React.FC<{
               return (
                 <button
                   onClick={() => setWizardOpen(true)}
-                  style={{ padding: '6px 14px', background: allDone ? C.success : C.statusWaiting, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '15px', fontWeight: 'bold' }}
+                  className={cn('cursor-pointer rounded-md border-none px-3.5 py-1.5 text-[15px] font-bold text-white', allDone ? 'bg-success' : 'bg-warning')}
                 >
                   {allDone ? '✅ תוכנית מוכנה — ערוך' : `🔧 הכן תוכנית${ws ? ` ${doneCount}/5` : ''}`}
                 </button>
@@ -1607,29 +1584,29 @@ const VersionDetail: React.FC<{
                   setSaveTemplateName('');
                   setSaveTemplateOpen(true);
                 }}
-                style={{ padding: '6px 14px', background: C.success, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '15px', fontWeight: 'bold' }}>
+                className="cursor-pointer rounded-md border-none bg-success px-3.5 py-1.5 text-[15px] font-bold text-white">
                 💾 שמור כתבנית
               </button>
             )}
 
             {/* Status progression — back buttons (new order: DRAFT→COLLECTING→CR_REVIEW→REFINING) */}
             {isManager && version.status === 'COLLECTING' && (
-              <button onClick={() => handleStatusChange('DRAFT')} disabled={statusLoading} style={{ padding: '8px 16px', background: C.bgNested, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '15px' }}>← חזור לטיוטה</button>
+              <button onClick={() => handleStatusChange('DRAFT')} disabled={statusLoading} className="cursor-pointer rounded-lg border border-border bg-muted px-4 py-2 text-[15px] text-subtle-foreground">← חזור לטיוטה</button>
             )}
             {isManager && version.status === 'CR_REVIEW' && (
-              <button onClick={() => handleStatusChange('COLLECTING')} disabled={statusLoading} style={{ padding: '8px 16px', background: C.bgNested, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '15px' }}>← חזור לאיסוף</button>
+              <button onClick={() => handleStatusChange('COLLECTING')} disabled={statusLoading} className="cursor-pointer rounded-lg border border-border bg-muted px-4 py-2 text-[15px] text-subtle-foreground">← חזור לאיסוף</button>
             )}
             {isManager && version.status === 'REFINING' && (
-              <button onClick={() => handleStatusChange('CR_REVIEW')} disabled={statusLoading} style={{ padding: '8px 16px', background: C.bgNested, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '15px' }}>← חזור לסקירת CR</button>
+              <button onClick={() => handleStatusChange('CR_REVIEW')} disabled={statusLoading} className="cursor-pointer rounded-lg border border-border bg-muted px-4 py-2 text-[15px] text-subtle-foreground">← חזור לסקירת CR</button>
             )}
             {isManager && version.status === 'REVIEW' && (
-              <button onClick={() => handleStatusChange('REFINING')} disabled={statusLoading} style={{ padding: '8px 16px', background: C.bgNested, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '15px' }}>← חזור לטיוב</button>
+              <button onClick={() => handleStatusChange('REFINING')} disabled={statusLoading} className="cursor-pointer rounded-lg border border-border bg-muted px-4 py-2 text-[15px] text-subtle-foreground">← חזור לטיוב</button>
             )}
             {version.status === 'APPROVED' && (
-              <button onClick={() => handleStatusChange('DRAFT')} disabled={statusLoading} style={{ padding: '8px 16px', background: C.bgNested, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '15px' }}>← איפוס לטיוטה</button>
+              <button onClick={() => handleStatusChange('DRAFT')} disabled={statusLoading} className="cursor-pointer rounded-lg border border-border bg-muted px-4 py-2 text-[15px] text-subtle-foreground">← איפוס לטיוטה</button>
             )}
             {version.status === 'APPROVED' && !version.lastRehearsalAt && (
-              <button onClick={() => handleStatusChange('ACTIVE')} disabled={statusLoading} style={{ padding: '10px 20px', background: statusLoading ? C.textDisabled : C.textMuted, color: 'white', border: 'none', borderRadius: RADIUS.lg, cursor: statusLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
+              <button onClick={() => handleStatusChange('ACTIVE')} disabled={statusLoading} className={cn('rounded-lg border-none px-5 py-2.5 text-[15px] font-bold text-white', statusLoading ? 'cursor-not-allowed bg-subtle-foreground' : 'cursor-pointer bg-muted-foreground')}>
                 {statusLoading ? '...' : 'הפעל ללא חזרה →'}
               </button>
             )}
@@ -1654,11 +1631,8 @@ const VersionDetail: React.FC<{
                 }}
                 disabled={statusLoading || (false)}
                 title={false ? 'יש לאשר את כל תוכניות ה-CR תחילה' : undefined}
-                style={{
-                  padding: '10px 20px', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '15px',
-                  background: statusLoading || (false) ? '#aaa' : STATUS_COLORS[nextStatus],
-                  cursor: statusLoading || (false) ? 'not-allowed' : 'pointer',
-                }}>
+                className={cn('rounded-lg border-none px-5 py-2.5 text-[15px] font-bold text-white', statusLoading ? 'cursor-not-allowed' : 'cursor-pointer')}
+                style={{ background: statusLoading || (false) ? '#aaa' : STATUS_COLORS[nextStatus] }}>
                 {statusLoading ? '...' : `${nextLabel} →`}
               </button>
             )}
@@ -1667,18 +1641,17 @@ const VersionDetail: React.FC<{
                 onClick={handleRestartRehearsal}
                 disabled={restartingRehearsal || statusLoading}
                 title="הרצת החזרה הקודמת נשמרת ונגישה בדוח סיכום החזרה"
-                style={{
-                  padding: '10px 20px', background: 'transparent', color: '#8b5cf6', border: '1px solid #8b5cf6',
-                  borderRadius: '8px', cursor: restartingRehearsal || statusLoading ? 'not-allowed' : 'pointer',
-                  fontWeight: 'bold', fontSize: '15px', opacity: restartingRehearsal || statusLoading ? 0.6 : 1,
-                }}>
+                className={cn(
+                  'rounded-lg border border-[#8b5cf6] bg-transparent px-5 py-2.5 text-[15px] font-bold text-[#8b5cf6]',
+                  restartingRehearsal || statusLoading ? 'cursor-not-allowed opacity-60' : 'cursor-pointer opacity-100',
+                )}>
                 {restartingRehearsal ? '...' : '🔁 הרץ חזרה גנרלית שוב'}
               </button>
             )}
             {statusError && (
-              <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}44`, borderRadius: RADIUS.lg, padding: '8px 14px', fontSize: '15px', color: C.danger, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div className="flex items-center gap-2 rounded-lg border border-danger/27 bg-danger-bg px-3.5 py-2 text-[15px] text-danger">
                 ⚠️ {statusError}
-                <button onClick={() => setStatusError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.danger, fontWeight: 'bold' }}>×</button>
+                <button onClick={() => setStatusError(null)} className="cursor-pointer border-none bg-transparent font-bold text-danger">×</button>
               </div>
             )}
           </div>
@@ -1705,10 +1678,10 @@ const VersionDetail: React.FC<{
               📅 <strong>התחלה מתוכננת:</strong> {fmtDateTime(version.plannedStart)}
             </span>
           ) : null}
-          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span className="flex items-center gap-1.5">
             🏁 <strong>סיום מתוכנן:</strong>
             {phaseC?.plannedEnd ? (
-              <span style={{ color: C.warning }} title={`שעת סיום של "${phaseC.name}"`}>
+              <span className="text-warning" title={`שעת סיום של "${phaseC.name}"`}>
                 {fmtDateTime(phaseC.plannedEnd)}
               </span>
             ) : editingPlannedEnd ? (
@@ -1718,21 +1691,21 @@ const VersionDetail: React.FC<{
                   onChange={v => setPlannedEndValue(v)}
                   style={{ padding: '4px 8px', border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.md, fontSize: '15px' }}
                 />
-                <button onClick={savePlannedEnd} style={{ padding: '4px 10px', background: C.success, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px' }}>שמור</button>
-                <button onClick={() => setEditingPlannedEnd(false)} style={{ padding: '4px 10px', background: C.bgNested, color: C.textSecondary, border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px' }}>ביטול</button>
+                <button onClick={savePlannedEnd} className="cursor-pointer rounded-md border-none bg-success px-2.5 py-1 text-sm text-white">שמור</button>
+                <button onClick={() => setEditingPlannedEnd(false)} className="cursor-pointer rounded-md border-none bg-muted px-2.5 py-1 text-sm text-muted-foreground">ביטול</button>
               </>
             ) : (
               <>
-                <span style={{ color: version.plannedEnd ? C.warning : C.textDisabled }}>
+                <span className={version.plannedEnd ? 'text-warning' : 'text-subtle-foreground'}>
                   {version.plannedEnd ? fmtDateTime(version.plannedEnd) : 'לא הוגדר (ברירת מחדל: 04:00)'}
                 </span>
                 {isManager && (
-                  <button onClick={() => setEditingPlannedEnd(true)} style={{ padding: '2px 8px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}44`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px' }}>עריכה</button>
+                  <button onClick={() => setEditingPlannedEnd(true)} className="cursor-pointer rounded-md border border-warning/27 bg-warning-bg px-2 py-0.5 text-xs text-warning">עריכה</button>
                 )}
               </>
             )}
           </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span className="flex items-center gap-1.5">
             🗓 <strong>ישיבת סקירת CR-ים:</strong>
             {editingReviewMeeting ? (
               <>
@@ -1741,21 +1714,21 @@ const VersionDetail: React.FC<{
                   onChange={v => setReviewMeetingValue(v)}
                   style={{ padding: '4px 8px', border: `1px solid ${C.borderFocus}`, borderRadius: RADIUS.md, fontSize: '15px' }}
                 />
-                <button onClick={saveReviewMeetingTime} style={{ padding: '4px 10px', background: C.info, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px' }}>שמור</button>
-                <button onClick={() => setEditingReviewMeeting(false)} style={{ padding: '4px 10px', background: C.bgNested, color: C.textSecondary, border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px' }}>ביטול</button>
+                <button onClick={saveReviewMeetingTime} className="cursor-pointer rounded-md border-none bg-info px-2.5 py-1 text-sm text-white">שמור</button>
+                <button onClick={() => setEditingReviewMeeting(false)} className="cursor-pointer rounded-md border-none bg-muted px-2.5 py-1 text-sm text-muted-foreground">ביטול</button>
               </>
             ) : (
               <>
-                <span style={{ color: version.reviewMeetingTime ? C.info : C.textDisabled, fontWeight: version.reviewMeetingTime ? '600' : 'normal' }}>
+                <span className={cn(version.reviewMeetingTime ? 'font-semibold text-info' : 'font-normal text-subtle-foreground')}>
                   {version.reviewMeetingTime ? fmtDateTime(version.reviewMeetingTime) : 'לא נקבע'}
                 </span>
                 {isManager && (
-                  <button onClick={() => setEditingReviewMeeting(true)} style={{ padding: '2px 8px', background: C.infoBg, color: C.info, border: `1px solid ${C.borderFocus}44`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px' }}>עריכה</button>
+                  <button onClick={() => setEditingReviewMeeting(true)} className="cursor-pointer rounded-md border border-info/27 bg-info-bg px-2 py-0.5 text-xs text-info">עריכה</button>
                 )}
               </>
             )}
           </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span className="flex items-center gap-1.5">
             📋 <strong>ישיבת הצגת תוכנית עליה לאוויר:</strong>
             {editingWorkPlanMeeting ? (
               <>
@@ -1764,41 +1737,41 @@ const VersionDetail: React.FC<{
                   onChange={v => setWorkPlanMeetingValue(v)}
                   style={{ padding: '4px 8px', border: `1px solid ${C.borderFocus}`, borderRadius: RADIUS.md, fontSize: '15px' }}
                 />
-                <button onClick={saveWorkPlanMeetingTime} style={{ padding: '4px 10px', background: C.info, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px' }}>שמור</button>
-                <button onClick={() => setEditingWorkPlanMeeting(false)} style={{ padding: '4px 10px', background: C.bgNested, color: C.textSecondary, border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px' }}>ביטול</button>
+                <button onClick={saveWorkPlanMeetingTime} className="cursor-pointer rounded-md border-none bg-info px-2.5 py-1 text-sm text-white">שמור</button>
+                <button onClick={() => setEditingWorkPlanMeeting(false)} className="cursor-pointer rounded-md border-none bg-muted px-2.5 py-1 text-sm text-muted-foreground">ביטול</button>
               </>
             ) : (
               <>
-                <span style={{ color: version.workPlanMeetingTime ? C.info : C.textDisabled, fontWeight: version.workPlanMeetingTime ? '600' : 'normal' }}>
+                <span className={cn(version.workPlanMeetingTime ? 'font-semibold text-info' : 'font-normal text-subtle-foreground')}>
                   {version.workPlanMeetingTime ? fmtDateTime(version.workPlanMeetingTime) : 'לא נקבע'}
                 </span>
                 {isManager && (
-                  <button onClick={() => setEditingWorkPlanMeeting(true)} style={{ padding: '2px 8px', background: C.infoBg, color: C.info, border: `1px solid ${C.borderFocus}44`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px' }}>עריכה</button>
+                  <button onClick={() => setEditingWorkPlanMeeting(true)} className="cursor-pointer rounded-md border border-info/27 bg-info-bg px-2 py-0.5 text-xs text-info">עריכה</button>
                 )}
               </>
             )}
           </span>
           {/* Submission deadline */}
           {(version.status === 'CR_REVIEW' || (version as any).submissionDeadline) && isManager && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span className="flex items-center gap-1.5">
               ⏰ <strong>מועד הגשה:</strong>
               {editingSubmissionDeadline ? (
                 <>
                   <DateTimeField value={submissionDeadlineValue} onChange={v => setSubmissionDeadlineValue(v)}
                     style={{ padding: '4px 8px', border: `1px solid ${C.borderFocus}`, borderRadius: RADIUS.md, fontSize: '15px' }} />
-                  <button onClick={saveSubmissionDeadline} style={{ padding: '4px 10px', background: C.statusBlocked, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px' }}>שמור</button>
-                  <button onClick={() => setEditingSubmissionDeadline(false)} style={{ padding: '4px 10px', background: C.bgNested, color: C.textSecondary, border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px' }}>ביטול</button>
+                  <button onClick={saveSubmissionDeadline} className="cursor-pointer rounded-md border-none bg-danger px-2.5 py-1 text-sm text-white">שמור</button>
+                  <button onClick={() => setEditingSubmissionDeadline(false)} className="cursor-pointer rounded-md border-none bg-muted px-2.5 py-1 text-sm text-muted-foreground">ביטול</button>
                 </>
               ) : (() => {
                 const dl = (version as any).submissionDeadline;
                 const isPast = dl && new Date(dl) < new Date();
                 return (
                   <>
-                    <span style={{ color: !dl ? C.textDisabled : isPast ? C.statusBlocked : C.statusWaiting, fontWeight: dl ? '600' : 'normal' }}>
+                    <span className={cn(!dl ? 'text-subtle-foreground' : isPast ? 'text-danger' : 'text-warning', dl && 'font-semibold')}>
                       {dl ? fmtDateTime(dl) : 'לא נקבע'}
-                      {isPast && dl && <span style={{ marginRight: '4px', fontSize: '13px', color: C.statusBlocked }}>⚠ עבר</span>}
+                      {isPast && dl && <span className="ms-1 text-xs text-danger">⚠ עבר</span>}
                     </span>
-                    <button onClick={() => setEditingSubmissionDeadline(true)} style={{ padding: '2px 8px', background: C.bgBlocked, color: C.statusBlocked, border: `1px solid ${C.statusBlocked}44`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px' }}>עריכה</button>
+                    <button onClick={() => setEditingSubmissionDeadline(true)} className="cursor-pointer rounded-md border border-danger/27 bg-danger-bg px-2 py-0.5 text-xs text-danger">עריכה</button>
                   </>
                 );
               })()}
@@ -1806,25 +1779,25 @@ const VersionDetail: React.FC<{
           )}
           {/* Approval deadline */}
           {(version.status === 'CR_REVIEW' || (version as any).approvalDeadline) && isManager && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span className="flex items-center gap-1.5">
               ✅ <strong>מועד אישור:</strong>
               {editingApprovalDeadline ? (
                 <>
                   <DateTimeField value={approvalDeadlineValue} onChange={v => setApprovalDeadlineValue(v)}
                     style={{ padding: '4px 8px', border: `1px solid ${C.borderFocus}`, borderRadius: RADIUS.md, fontSize: '15px' }} />
-                  <button onClick={saveApprovalDeadline} style={{ padding: '4px 10px', background: '#2e7d32', color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px' }}>שמור</button>
-                  <button onClick={() => setEditingApprovalDeadline(false)} style={{ padding: '4px 10px', background: C.bgNested, color: C.textSecondary, border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px' }}>ביטול</button>
+                  <button onClick={saveApprovalDeadline} className="cursor-pointer rounded-md border-none bg-[#2e7d32] px-2.5 py-1 text-sm text-white">שמור</button>
+                  <button onClick={() => setEditingApprovalDeadline(false)} className="cursor-pointer rounded-md border-none bg-muted px-2.5 py-1 text-sm text-muted-foreground">ביטול</button>
                 </>
               ) : (() => {
                 const dl = (version as any).approvalDeadline;
                 const isPast = dl && new Date(dl) < new Date();
                 return (
                   <>
-                    <span style={{ color: !dl ? C.textDisabled : isPast ? C.statusBlocked : '#2e7d32', fontWeight: dl ? '600' : 'normal' }}>
+                    <span className={cn(!dl ? 'text-subtle-foreground' : isPast ? 'text-danger' : 'text-[#2e7d32]', dl && 'font-semibold')}>
                       {dl ? fmtDateTime(dl) : 'לא נקבע'}
-                      {isPast && dl && <span style={{ marginRight: '4px', fontSize: '13px', color: C.statusBlocked }}>⚠ עבר</span>}
+                      {isPast && dl && <span className="ms-1 text-xs text-danger">⚠ עבר</span>}
                     </span>
-                    <button onClick={() => setEditingApprovalDeadline(true)} style={{ padding: '2px 8px', background: 'rgba(46,125,50,0.10)', color: '#2e7d32', border: '1px solid rgba(46,125,50,0.30)', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px' }}>עריכה</button>
+                    <button onClick={() => setEditingApprovalDeadline(true)} className="cursor-pointer rounded-md border border-[#2e7d32]/30 bg-[#2e7d32]/10 px-2 py-0.5 text-xs text-[#2e7d32]">עריכה</button>
                   </>
                 );
               })()}
@@ -1832,15 +1805,15 @@ const VersionDetail: React.FC<{
           )}
           {version.creator && <span>👤 {version.creator.fullName}</span>}
           {version.approvedAt && version.approver && (
-            <span style={{ color: C.success }}>✅ אושר: {fmtDateShared(version.approvedAt)} ע"י {version.approver.fullName}</span>
+            <span className="text-success">✅ אושר: {fmtDateShared(version.approvedAt)} ע"י {version.approver.fullName}</span>
           )}
           {version.lastRehearsalAt && (
-            <span style={{ background: C.warningBg, color: C.warning, padding: '3px 10px', borderRadius: RADIUS.full, fontWeight: 'bold', fontSize: '14px' }}>
+            <span className="rounded-full bg-warning-bg px-2.5 py-0.5 text-sm font-bold text-warning">
               🎭 חזרה גנרלית: {fmtDateTimeShared(version.lastRehearsalAt)}
             </span>
           )}
           {version.lastNightAt && (
-            <span style={{ background: '#e8f4fd', color: '#1a5276', padding: '3px 10px', borderRadius: '12px', fontWeight: 'bold', fontSize: '14px' }}>
+            <span className="rounded-xl bg-[#e8f4fd] px-2.5 py-0.5 text-sm font-bold text-[#1a5276]">
               🌙 ביצוע הטמעה: {fmtDateTimeShared(version.lastNightAt)}
             </span>
           )}
@@ -1850,8 +1823,8 @@ const VersionDetail: React.FC<{
 
         {/* ── Integration / QA dates row ── */}
         {isManager && (
-          <div style={{ marginTop: '10px', padding: '10px 14px', background: C.bgNested, borderRadius: RADIUS.md, border: `1px solid ${C.border}`, fontSize: '15px', display: 'flex', gap: '18px', flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={{ fontWeight: WEIGHT.bold, color: C.textSecondary, whiteSpace: 'nowrap' }}>🔧 תאריכי אינטגרציה / QA:</span>
+          <div className="mt-2.5 flex flex-wrap items-center gap-[18px] rounded-md border border-border bg-muted p-[10px_14px] text-[15px]">
+            <span className="whitespace-nowrap font-bold text-muted-foreground">🔧 תאריכי אינטגרציה / QA:</span>
             {editingQaDates ? (
               <>
                 {([
@@ -1860,7 +1833,7 @@ const VersionDetail: React.FC<{
                   { key: 'qaStart',          label: 'תחילת QA' },
                   { key: 'qaEnd',            label: 'סיום QA' },
                 ] as { key: keyof typeof qaDatesValue; label: string }[]).map(({ key, label }) => (
-                  <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '13px', color: C.textMuted }}>
+                  <label key={key} className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                     {label}
                     <DateField
                       value={qaDatesValue[key]}
@@ -1869,19 +1842,19 @@ const VersionDetail: React.FC<{
                     />
                   </label>
                 ))}
-                <button onClick={saveQaDates} style={{ padding: '5px 13px', background: C.success, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px', fontWeight: WEIGHT.bold, alignSelf: 'flex-end' }}>שמור</button>
-                <button onClick={() => setEditingQaDates(false)} style={{ padding: '5px 10px', background: C.bgNested, color: C.textSecondary, border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px', alignSelf: 'flex-end' }}>ביטול</button>
+                <button onClick={saveQaDates} className="cursor-pointer self-end rounded-md border-none bg-success px-3.5 py-1.5 text-sm font-bold text-white">שמור</button>
+                <button onClick={() => setEditingQaDates(false)} className="cursor-pointer self-end rounded-md border-none bg-muted px-2.5 py-1.5 text-sm text-muted-foreground">ביטול</button>
               </>
             ) : (
               <>
                 {version.integrationStart && (
-                  <span style={{ color: C.textSecondary }}>🔧 {fmtDateShared(version.integrationStart)} → {version.integrationEnd ? fmtDateShared(version.integrationEnd) : '—'}</span>
+                  <span className="text-muted-foreground">🔧 {fmtDateShared(version.integrationStart)} → {version.integrationEnd ? fmtDateShared(version.integrationEnd) : '—'}</span>
                 )}
                 {version.qaStart && (
-                  <span style={{ color: C.textSecondary }}>🧪 {fmtDateShared(version.qaStart)} → {version.qaEnd ? fmtDateShared(version.qaEnd) : '—'}</span>
+                  <span className="text-muted-foreground">🧪 {fmtDateShared(version.qaStart)} → {version.qaEnd ? fmtDateShared(version.qaEnd) : '—'}</span>
                 )}
                 {!version.integrationStart && !version.qaStart && (
-                  <span style={{ color: C.textDisabled, fontStyle: 'italic' }}>לא הוגדרו תאריכים</span>
+                  <span className="italic text-subtle-foreground">לא הוגדרו תאריכים</span>
                 )}
                 <button
                   onClick={() => {
@@ -1893,7 +1866,7 @@ const VersionDetail: React.FC<{
                     });
                     setEditingQaDates(true);
                   }}
-                  style={{ padding: '3px 10px', background: C.infoBg, color: C.info, border: `1px solid ${C.borderFocus}44`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px' }}
+                  className="cursor-pointer rounded-md border border-info/27 bg-info-bg px-2.5 py-0.5 text-xs text-info"
                 >
                   עריכה
                 </button>
@@ -1903,11 +1876,11 @@ const VersionDetail: React.FC<{
         )}
 
         {version.submissions?.length > 0 && (
-          <div style={{ marginTop: '12px' }}>
+          <div className="mt-3">
             {/* CR_REVIEW: detailed CR-based submission status panel */}
             {version.status === 'CR_REVIEW' && isManager && (() => {
               if (crSummaryLoading) return (
-                <div style={{ padding: '9px 14px', color: '#64748b', fontSize: '15px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '6px' }}>
+                <div className="mb-1.5 rounded-lg border border-slate-200 bg-slate-50 p-[9px_14px] text-[15px] text-slate-500">
                   ⏳ טוען סטטוס הגשות...
                 </div>
               );
@@ -1915,12 +1888,12 @@ const VersionDetail: React.FC<{
               if (!crSummary || crSummary.length === 0) {
                 // Sync pending or file not configured — show sync prompt only, no team cards
                 return (
-                  <div style={{ padding: '10px 16px', background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: '10px', marginBottom: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: '15px', color: '#92400e' }}>
+                  <div className="mb-1.5 flex items-center justify-between rounded-xl border border-amber-500 bg-amber-50 p-[10px_16px]">
+                    <span className="text-[15px] text-amber-800">
                       ⏳ טוען נתוני CR מהקובץ... לחץ <strong>🔄 סנכרן</strong> לרענון
                     </span>
                     <button onClick={refreshCrSummary} disabled={crSummaryLoading}
-                      style={{ fontSize: '14px', padding: '4px 12px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '6px', cursor: crSummaryLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', opacity: crSummaryLoading ? 0.6 : 1 }}>
+                      className={cn('rounded-md border-none bg-amber-500 px-3 py-1 text-sm font-bold text-white', crSummaryLoading ? 'cursor-not-allowed opacity-60' : 'cursor-pointer opacity-100')}>
                       {crSummaryLoading ? '⏳' : '🔄'} סנכרן
                     </button>
                   </div>
@@ -1947,46 +1920,45 @@ const VersionDetail: React.FC<{
               };
 
               return (
-                <div style={{ background: 'white', border: `1px solid ${allDone ? '#bbf7d0' : '#fecaca'}`, borderRadius: '10px', overflow: 'hidden', marginBottom: '6px', boxShadow: allDone ? 'none' : '0 0 0 3px rgba(239,68,68,0.08)' }}>
+                <div className="mb-1.5 overflow-hidden rounded-xl bg-white" style={{ border: `1px solid ${allDone ? '#bbf7d0' : '#fecaca'}`, boxShadow: allDone ? 'none' : '0 0 0 3px rgba(239,68,68,0.08)' }}>
                   <style>{`@keyframes cr-pulse{0%,100%{background-color:#fff1f2}50%{background-color:#fde8e8}}.cr-header-alert{animation:cr-pulse 2s ease-in-out infinite;cursor:pointer}.cr-header-ok{background:#f0fdf4;cursor:pointer}`}</style>
-                  <div className={allDone ? 'cr-header-ok' : 'cr-header-alert'}
-                    onClick={() => setCrSummaryExpanded(e => !e)}
-                    style={{ padding: '10px 16px', borderBottom: crSummaryExpanded ? '1px solid #f1f5f9' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none' }}>
-                    <span style={{ fontSize: '15px', fontWeight: '700', color: allDone ? '#15803d' : '#dc2626', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '17px' }}>{allDone ? '✅' : '●'}</span>
+                  <div className={cn(allDone ? 'cr-header-ok' : 'cr-header-alert', 'flex select-none items-center justify-between p-[10px_16px]', crSummaryExpanded ? 'border-b border-slate-100' : 'border-b-0')}
+                    onClick={() => setCrSummaryExpanded(e => !e)}>
+                    <span className={cn('flex items-center gap-2 text-[15px] font-bold', allDone ? 'text-green-700' : 'text-red-600')}>
+                      <span className="text-[17px]">{allDone ? '✅' : '●'}</span>
                       <span>
                         {allDone ? `כל ${total} הצוותים הגישו את פיתוחיהם` : `הגישו הכל: ${completeCount} מתוך ${total} צוותים — לחץ לפירוט`}
                         {!crAllApproved && (
-                          <span style={{ marginRight: '10px', fontSize: '14px', color: '#dc2626', fontWeight: '600' }}>
+                          <span className="ms-2.5 text-sm font-semibold text-red-600">
                             · ⚠️ יש CR שטרם אושר ע"י המנהל — בדוק ברשימת הפיתוחים למטה
                           </span>
                         )}
                         {crAllApproved && (
-                          <span style={{ marginRight: '10px', fontSize: '14px', color: '#15803d' }}>· ✅ כל CRים אושרו</span>
+                          <span className="ms-2.5 text-sm text-green-700">· ✅ כל CRים אושרו</span>
                         )}
                       </span>
                     </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div className="flex items-center gap-2">
                       <button onClick={e => { e.stopPropagation(); refreshCrSummary(); }} disabled={crSummaryLoading}
-                        style={{ fontSize: '13px', padding: '3px 10px', background: 'white', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: crSummaryLoading ? 'not-allowed' : 'pointer', color: '#475569', opacity: crSummaryLoading ? 0.5 : 1 }}>
+                        className={cn('rounded-md border border-slate-300 bg-white px-2.5 py-[3px] text-[13px] text-slate-600', crSummaryLoading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer opacity-100')}>
                         {crSummaryLoading ? '⏳' : '🔄'} סנכרן
                       </button>
-                      <span style={{ fontSize: '15px', color: '#94a3b8', transform: crSummaryExpanded ? 'rotate(180deg)' : 'none', display: 'inline-block', transition: 'transform 0.2s' }}>▼</span>
+                      <span className={cn('inline-block text-[15px] text-slate-400 transition-transform duration-base', crSummaryExpanded && 'rotate-180')}>▼</span>
                     </div>
                   </div>
                   {crSummaryExpanded && (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '10px', padding: '12px' }}>
+                    <div className="grid gap-2.5 p-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))' }}>
                       {sorted.map((t: any) => {
                         const { desc, accent, textColor } = statusMeta(t);
                         const canReview = t.teamId && t.status !== 'NOT_REQUIRED';
                         const cardBg: Record<string, string> = { PARTIAL: '#fafafa', NONE: '#fafafa', SUBMITTED_EMPTY: '#fafafa', COMPLETE: '#fafafa', NOT_REQUIRED: '#f4f4f5' };
                         return (
-                          <div key={t.teamId || t.teamName} style={{ borderRadius: '10px', border: `1px solid ${accent}33`, borderTop: `4px solid ${accent}`, background: cardBg[t.status] ?? 'white', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '6px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-                            <span style={{ fontWeight: '800', fontSize: '15px', color: '#1a2332', lineHeight: 1.2 }}>{t.teamName}</span>
-                            <span style={{ fontSize: '14px', color: textColor, lineHeight: 1.5, flex: 1 }}>{desc}</span>
+                          <div key={t.teamId || t.teamName} className="flex flex-col gap-1.5 rounded-xl p-[12px_14px] shadow-[0_1px_4px_rgba(0,0,0,0.06)]" style={{ border: `1px solid ${accent}33`, borderTop: `4px solid ${accent}`, background: cardBg[t.status] ?? 'white' }}>
+                            <span className="text-[15px] font-extrabold leading-tight text-[#1a2332]">{t.teamName}</span>
+                            <span className="flex-1 text-sm leading-relaxed" style={{ color: textColor }}>{desc}</span>
                             {canReview && (
                               <button onClick={() => setTeamPanelOpen({ teamId: t.teamId, teamName: t.teamName })}
-                                style={{ marginTop: '4px', padding: '5px 0', background: 'transparent', color: '#2d4a7a', border: '1px solid #2d4a7a', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', width: '100%' }}>
+                                className="mt-1 w-full cursor-pointer rounded-md border border-[#2d4a7a] bg-transparent py-1.5 text-sm font-semibold text-[#2d4a7a]">
                                 סקירה ←
                               </button>
                             )}
@@ -1999,9 +1971,9 @@ const VersionDetail: React.FC<{
               );
             })()}
             {/* Team filter pills */}
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', marginTop: '4px' }}>
-              <span style={{ fontSize: '13px', color: '#94a3b8' }}>סנן:</span>
-              <span onClick={() => setFilterTeam(null)} style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: filterTeam === null ? '#1a2332' : '#f0f0f0', color: filterTeam === null ? 'white' : '#666' }}>כולם</span>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <span className="text-[13px] text-slate-400">סנן:</span>
+              <span onClick={() => setFilterTeam(null)} className={cn('cursor-pointer rounded-full px-2.5 py-[3px] text-[13px] font-bold', filterTeam === null ? 'bg-[#1a2332] text-white' : 'bg-neutral-100 text-neutral-600')}>כולם</span>
               {(() => {
                 const assignedTeamIds = new Set<string>(
                   (version.phases ?? [])
@@ -2016,12 +1988,10 @@ const VersionDetail: React.FC<{
                 return base;
               })().map((sub: any) => (
                 <span key={sub.id} onClick={() => setFilterTeam(filterTeam === sub.team.id ? null : sub.team.id)}
-                  style={{
-                    padding: '3px 10px', borderRadius: '20px', fontSize: '13px', cursor: 'pointer',
-                    background: filterTeam === sub.team.id ? '#1a2332' : '#f0f0f0',
-                    color: filterTeam === sub.team.id ? 'white' : '#555',
-                    border: filterTeam === sub.team.id ? '1px solid #1a2332' : '1px solid transparent',
-                  }}>
+                  className={cn(
+                    'cursor-pointer rounded-full border px-2.5 py-[3px] text-[13px]',
+                    filterTeam === sub.team.id ? 'border-[#1a2332] bg-[#1a2332] text-white' : 'border-transparent bg-neutral-100 text-neutral-600',
+                  )}>
                   {sub.team.name}
                 </span>
               ))}
@@ -2043,12 +2013,12 @@ const VersionDetail: React.FC<{
         ).length;
         if (!hiddenNotDone) return null;
         return (
-          <div style={{ marginBottom: '12px', background: C.warningBg, border: `1px solid ${C.warning}`, borderRadius: '10px', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '15px' }}>
-            <span style={{ fontSize: '18px' }}>⚠️</span>
-            <span style={{ color: C.warning, fontWeight: 'bold' }}>
+          <div className="mb-3 flex items-center gap-2.5 rounded-xl border border-warning bg-warning-bg p-[10px_16px] text-[15px]">
+            <span className="text-lg">⚠️</span>
+            <span className="font-bold text-warning">
               סינון צוות פעיל — {hiddenNotDone} משימות לא גמורות מוסתרות.
             </span>
-            <button onClick={() => setFilterTeam(null)} style={{ marginRight: 'auto', padding: '3px 10px', background: C.warning, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>
+            <button onClick={() => setFilterTeam(null)} className="ms-auto cursor-pointer rounded-md border-none bg-warning px-2.5 py-[3px] text-sm font-bold text-white">
               הצג הכל
             </button>
           </div>
@@ -2057,7 +2027,7 @@ const VersionDetail: React.FC<{
 
       {/* ── CR_REVIEW: רשימת פיתוחים — מחוץ לחלונית ── */}
       {version.status === 'CR_REVIEW' && isManager && (
-        <div style={{ marginTop: '12px' }}>
+        <div className="mt-3">
           <CrPlanReviewPanel
             token={token}
             versionId={version.id}
@@ -2075,13 +2045,13 @@ const VersionDetail: React.FC<{
 
       {/* ── Lock banner ── */}
       {isLocked && (
-        <div style={{ background: C.bgInProgress, border: `2px solid ${C.statusInProgress}44`, borderRadius: '10px', padding: '12px 20px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ fontSize: '24px' }}>🔒</span>
+        <div className="mb-4 flex items-center gap-3 rounded-xl border-2 border-info/27 bg-info-bg p-[12px_20px]">
+          <span className="text-2xl">🔒</span>
           <div>
-            <div style={{ fontWeight: 'bold', color: C.statusInProgress, fontSize: '16px' }}>
+            <div className="text-base font-bold text-info">
               {['APPROVED', 'ACTIVE'].includes(version.status) ? 'גרסה נעולה לעריכה' : 'גרסה פעילה — מצב קריאה בלבד'}
             </div>
-            <div style={{ color: C.textSecondary, fontSize: '15px', marginTop: '2px' }}>
+            <div className="mt-0.5 text-[15px] text-muted-foreground">
               {['APPROVED', 'ACTIVE'].includes(version.status)
                 ? 'לא ניתן לערוך משימות בסטטוס זה — נדרשת הרשאת override'
                 : 'לא ניתן להוסיף, לערוך או למחוק משימות בזמן ביצוע'}
@@ -2092,20 +2062,21 @@ const VersionDetail: React.FC<{
 
       {/* ── Empty DRAFT: build deployment plan ── */}
       {version.status === 'DRAFT' && !(version.phases?.length) && isManager && (
-        <div style={{ background: '#f0f7ff', border: '2px dashed #2d4a7a', borderRadius: '14px', padding: '28px 24px', marginBottom: '20px', textAlign: 'center' }}>
-          <div style={{ fontSize: '32px', marginBottom: '10px' }}>📋</div>
-          <div style={{ fontWeight: 'bold', fontSize: '17px', color: '#1a2332', marginBottom: '6px' }}>
+        <div className="mb-5 rounded-2xl border-2 border-dashed border-[#2d4a7a] bg-[#f0f7ff] p-[28px_24px] text-center">
+          <div className="mb-2.5 text-[32px]">📋</div>
+          <div className="mb-1.5 text-[17px] font-bold text-[#1a2332]">
             בנה תוכנית הטמעה לגרסה
           </div>
-          <div style={{ fontSize: '15px', color: '#475569', marginBottom: '20px', lineHeight: 1.6 }}>
+          <div className="mb-5 text-[15px] leading-relaxed text-slate-600">
             הגרסה נוצרה. החל תבנית קיימת כדי לאכלס שלבים ומשימות אוטומטית.
           </div>
           {localTemplates.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', maxWidth: '400px', margin: '0 auto' }}>
+            <div className="mx-auto flex max-w-[400px] flex-col items-center gap-3">
               <select
                 value={applyTemplateId}
                 onChange={e => setApplyTemplateId(e.target.value)}
-                style={{ width: '100%', padding: '10px 14px', border: '2px solid #2d4a7a', borderRadius: '8px', fontSize: '15px', background: 'white', color: '#1a2332', direction: 'rtl' }}
+                dir="rtl"
+                className="w-full rounded-lg border-2 border-[#2d4a7a] bg-white p-[10px_14px] text-[15px] text-[#1a2332]"
               >
                 <option value="">בחר תבנית...</option>
                 {localTemplates.map((t: any) => (
@@ -2113,18 +2084,21 @@ const VersionDetail: React.FC<{
                 ))}
               </select>
               {applyTemplateError && (
-                <div style={{ color: '#dc2626', fontSize: '15px' }}>⚠️ {applyTemplateError}</div>
+                <div className="text-[15px] text-red-600">⚠️ {applyTemplateError}</div>
               )}
               <button
                 onClick={applyTemplateToVersion}
                 disabled={!applyTemplateId || applyTemplateLoading}
-                style={{ padding: '10px 28px', background: applyTemplateId && !applyTemplateLoading ? '#2d4a7a' : '#94a3b8', color: 'white', border: 'none', borderRadius: '8px', cursor: applyTemplateId ? 'pointer' : 'not-allowed', fontSize: '15px', fontWeight: 'bold', width: '100%' }}
+                className={cn(
+                  'w-full rounded-lg border-none px-7 py-2.5 text-[15px] font-bold text-white',
+                  applyTemplateId && !applyTemplateLoading ? 'cursor-pointer bg-[#2d4a7a]' : 'cursor-not-allowed bg-slate-400',
+                )}
               >
                 {applyTemplateLoading ? '⏳ מחיל תבנית...' : '📋 החל תבנית על הגרסה'}
               </button>
             </div>
           ) : (
-            <div style={{ fontSize: '15px', color: '#94a3b8' }}>
+            <div className="text-[15px] text-slate-400">
               אין תבניות שמורות. תוכל להוסיף שלבים ידנית או לשמור תבנית מגרסה קיימת.
             </div>
           )}
@@ -2133,12 +2107,15 @@ const VersionDetail: React.FC<{
 
       {/* ── Delete implementation plan — granular, not the whole version ── */}
       {isManager && !isLocked && (version.phases?.length ?? 0) > 0 && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
+        <div className="mb-2.5 flex justify-end">
           <button
             disabled={deletingPlan}
             onClick={deleteImplementationPlan}
             title="מוחק את השלבים והמשימות בלבד — לא נוגע בשיבוצי QA, תוכנית בדיקות או לוח פעילויות"
-            style={{ padding: '6px 14px', background: 'transparent', color: C.danger, border: `1px solid ${C.danger}55`, borderRadius: '8px', cursor: deletingPlan ? 'not-allowed' : 'pointer', fontSize: '14px', fontFamily: FONT, opacity: deletingPlan ? 0.6 : 1 }}
+            className={cn(
+              'rounded-lg border border-danger/33 bg-transparent px-3.5 py-1.5 text-sm text-danger',
+              deletingPlan ? 'cursor-not-allowed opacity-60' : 'cursor-pointer opacity-100',
+            )}
           >
             {deletingPlan ? '⏳ מוחק...' : '🗑 מחק תוכנית הטמעה'}
           </button>
@@ -2154,23 +2131,26 @@ const VersionDetail: React.FC<{
         const phaseTimes = getHierarchyTimes(phaseTasks, phaseCutoff);
 
         return (
-          <div key={phase.id} style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', marginBottom: '16px', border: phase.isGoNoGo ? `1px solid ${C.statusDone}44` : `1px solid ${C.border}`, boxShadow: phase.isGoNoGo ? `0 0 0 2px ${C.statusDone}22` : 'none' }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <div key={phase.id} className={cn('mb-4 rounded-xl border bg-card p-5', phase.isGoNoGo ? 'border-success/27 shadow-[0_0_0_2px_rgba(0,0,0,0.03)]' : 'border-border shadow-none')}>
+            <div className="mb-4 flex flex-wrap items-start gap-2">
               {/* Clickable phase title */}
-              <h3 onClick={() => togglePhase(phase.id)} style={{ margin: 0, color: C.textPrimary, fontSize: '17px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' as any, flexWrap: 'wrap', flex: 1 }}>
-                <span style={{ fontSize: '15px', color: '#999' }}>{collapsedPhases.has(phase.id) ? '►' : '▼'}</span>
-                <span style={{ background: phase.environment === 'HOT' ? '#fee' : phase.environment === 'HOTNET' ? '#e8f4fd' : '#f0f0f0', color: phase.environment === 'HOT' ? '#c0392b' : phase.environment === 'HOTNET' ? '#2980b9' : '#666', padding: '2px 8px', borderRadius: '4px', fontSize: '14px' }}>{phase.environment}</span>
+              <h3 onClick={() => togglePhase(phase.id)} className="m-0 flex flex-1 flex-wrap items-center gap-2 select-none cursor-pointer text-[17px] text-foreground">
+                <span className="text-[15px] text-neutral-400">{collapsedPhases.has(phase.id) ? '►' : '▼'}</span>
+                <span className={cn(
+                  'rounded px-2 py-0.5 text-sm',
+                  phase.environment === 'HOT' ? 'bg-red-100 text-red-700' : phase.environment === 'HOTNET' ? 'bg-sky-100 text-sky-700' : 'bg-neutral-100 text-neutral-600',
+                )}>{phase.environment}</span>
                 {editingPhaseId === phase.id ? (
-                  <span onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span onClick={e => e.stopPropagation()} className="flex items-center gap-1.5">
                     <input
                       autoFocus
                       value={editingPhaseName}
                       onChange={e => setEditingPhaseName(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') savePhaseRename(phase.id); if (e.key === 'Escape') setEditingPhaseId(null); }}
-                      style={{ padding: '4px 8px', border: `2px solid ${C.brand}`, borderRadius: '6px', fontSize: '16px', fontWeight: 'bold', width: '260px', background: C.bgNested, color: C.textPrimary }}
+                      className="w-[260px] rounded-md border-2 border-primary bg-muted p-[4px_8px] text-base font-bold text-foreground"
                     />
-                    <button onClick={() => savePhaseRename(phase.id)} disabled={phaseManageLoading} style={{ padding: '3px 10px', background: C.statusDone, color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '14px' }}>שמור</button>
-                    <button onClick={() => setEditingPhaseId(null)} style={{ padding: '3px 8px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '5px', cursor: 'pointer', fontSize: '14px' }}>×</button>
+                    <button onClick={() => savePhaseRename(phase.id)} disabled={phaseManageLoading} className="cursor-pointer rounded px-2.5 py-[3px] text-sm bg-success text-white border-none">שמור</button>
+                    <button onClick={() => setEditingPhaseId(null)} className="cursor-pointer rounded border border-border bg-muted px-2 py-[3px] text-sm text-muted-foreground">×</button>
                   </span>
                 ) : (
                   <span>{phase.name}</span>
@@ -2179,24 +2159,22 @@ const VersionDetail: React.FC<{
                   const pending = proposals.filter((p: any) => !p.usedInTaskId && Number(p.phase) === Number(phase.orderIndex)).length;
                   if (!pending) return null;
                   return (
-                    <span title={`${pending} הצעות ראשי צוותים לשלב זה`} style={{
-                      background: '#e67e22', color: 'white',
-                      padding: '2px 9px', borderRadius: '10px',
-                      fontSize: '13px', fontWeight: 'bold',
-                      cursor: 'default', whiteSpace: 'nowrap',
-                    }}>
+                    <span title={`${pending} הצעות ראשי צוותים לשלב זה`} className="cursor-default whitespace-nowrap rounded-[10px] bg-[#e67e22] px-2.5 py-0.5 text-[13px] font-bold text-white">
                       💡 {pending}
                     </span>
                   );
                 })()}
                 {phase.isGoNoGo && (
-                  <span style={{ background: C.bgDone, color: C.statusDone, padding: '2px 10px', borderRadius: '12px', fontSize: '13px', fontWeight: 'bold', border: `1px solid ${C.statusDone}44`, whiteSpace: 'nowrap' }}>
+                  <span className="whitespace-nowrap rounded-xl border border-success/27 bg-success-bg px-2.5 py-0.5 text-[13px] font-bold text-success">
                     🚦 שלב GO/NO GO
                   </span>
                 )}
-                <span style={{ fontSize: '14px', color: C.textMuted, fontWeight: 'normal' }}>({phase.subPhases?.length || 0} תת-שלבים)</span>
+                <span className="text-sm font-normal text-muted-foreground">({phase.subPhases?.length || 0} תת-שלבים)</span>
               {phaseTimes && (
-                <span style={{ fontSize: '14px', background: phaseTimes.overrun ? C.bgBlocked : C.bgNested, color: phaseTimes.overrun ? C.statusFailed : C.statusInProgress, padding: '2px 10px', borderRadius: '12px', fontWeight: phaseTimes.overrun ? 'bold' : 'normal', marginRight: '4px', border: phaseTimes.overrun ? `1px solid ${C.statusFailed}44` : `1px solid ${C.border}` }}>
+                <span className={cn(
+                  'ms-1 rounded-xl border px-2.5 py-0.5 text-sm',
+                  phaseTimes.overrun ? 'border-danger/27 bg-danger-bg font-bold text-danger' : 'border-border bg-muted font-normal text-info',
+                )}>
                   {phaseTimes.overrun ? '⚠️ ' : '⏰ '}
                   {phaseTimes.startIso ? formatTime(phaseTimes.startIso) : '?'}
                   {phaseTimes.endIso ? ` — ${formatTime(phaseTimes.endIso)}` : ''}
@@ -2205,7 +2183,10 @@ const VersionDetail: React.FC<{
                 </span>
               )}
               {phaseCutoff && (
-                <span style={{ fontSize: '13px', color: phaseTimes?.overrun ? C.statusFailed : C.textMuted, background: phaseTimes?.overrun ? C.bgBlocked : C.bgNested, padding: '1px 7px', borderRadius: '8px', border: `1px solid ${C.border}` }}>
+                <span className={cn(
+                  'rounded-lg border border-border px-[7px] py-px text-[13px]',
+                  phaseTimes?.overrun ? 'bg-danger-bg text-danger' : 'bg-muted text-muted-foreground',
+                )}>
                   יעד: {formatDateTimeShort(phaseCutoff.toISOString())}
                 </span>
               )}
@@ -2213,11 +2194,11 @@ const VersionDetail: React.FC<{
 
               {/* Phase management actions (managers only, non-locked) */}
               {isManager && !isLocked && editingPhaseId !== phase.id && (
-                <div style={{ display: 'flex', gap: '5px', alignItems: 'center', flexShrink: 0 }}>
+                <div className="flex shrink-0 items-center gap-1">
                   <button
                     title="שנה שם שלב"
                     onClick={() => { setEditingPhaseId(phase.id); setEditingPhaseName(phase.name); }}
-                    style={{ padding: '3px 8px', background: C.bgNested, color: C.brand, border: `1px solid ${C.brandDim}`, borderRadius: '5px', cursor: 'pointer', fontSize: '14px' }}>
+                    className="cursor-pointer rounded border border-primary/30 bg-muted px-2 py-[3px] text-sm text-primary">
                     ✏️
                   </button>
                   {!phase.isGoNoGo && (
@@ -2225,7 +2206,7 @@ const VersionDetail: React.FC<{
                       title="הגדר שלב זה כנקודת GO/NO GO"
                       onClick={() => setGoNogoPhase(phase.id)}
                       disabled={phaseManageLoading}
-                      style={{ padding: '3px 8px', background: C.bgDone, color: C.statusDone, border: `1px solid ${C.statusDone}44`, borderRadius: '5px', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap' }}>
+                      className="cursor-pointer whitespace-nowrap rounded border border-success/27 bg-success-bg px-2 py-[3px] text-sm text-success">
                       🚦 קבע GO/NO GO
                     </button>
                   )}
@@ -2234,7 +2215,7 @@ const VersionDetail: React.FC<{
                       title="מחק שלב (ריק)"
                       onClick={() => deletePhase(phase.id, phase.name)}
                       disabled={phaseManageLoading}
-                      style={{ padding: '3px 8px', background: C.bgBlocked, color: C.statusFailed, border: `1px solid ${C.statusFailed}44`, borderRadius: '5px', cursor: 'pointer', fontSize: '14px' }}>
+                      className="cursor-pointer rounded border border-danger/27 bg-danger-bg px-2 py-[3px] text-sm text-danger">
                       🗑️
                     </button>
                   )}
@@ -2268,28 +2249,35 @@ const VersionDetail: React.FC<{
                     setMoveConfirm({ taskId: dragging.taskId, taskTitle: draggedTask.title, targetSubId: sub.id, targetSubName: sub.name });
                     setDragging(null);
                   }}
-                  style={{ marginBottom: '12px', paddingRight: '16px', borderRight: dragOverSubId === sub.id ? `3px solid ${C.brand}` : `3px solid ${C.border}`, background: dragOverSubId === sub.id ? C.bgHover : 'transparent', borderRadius: dragOverSubId === sub.id ? '0 8px 8px 0' : undefined, transition: 'background 0.15s, border-color 0.15s' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <h4 onClick={() => toggleSubPhase(sub.id)} style={{ margin: 0, color: C.textPrimary, fontSize: '15px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', userSelect: 'none' as any, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '13px', color: C.textMuted }}>{collapsedSubPhases.has(sub.id) ? '►' : '▼'}</span>
+                  // Drop-zone visual feedback only (bound to `dragOverSubId`, set by the
+                  // onDragOver/onDrop above) — those handlers and the reorder/move-confirm
+                  // logic inside them are untouched; only this style→className changed.
+                  // NOTE: original was physical `Right` — in this RTL app, right = logical
+                  // *start*, so `ps-`/`border-s-`/`rounded-s-` (not `pe-`/`border-e-`) are
+                  // the correct equivalents, not a mismatch with the other end-based spots.
+                  className={cn(
+                    'mb-3 ps-4 border-s-[3px] transition-[background-color,border-color] duration-fast ease-out',
+                    dragOverSubId === sub.id ? 'border-primary bg-muted rounded-s-lg' : 'border-border bg-transparent'
+                  )}>
+                  <div className="mb-2 flex items-center justify-between">
+                    <h4 onClick={() => toggleSubPhase(sub.id)} className="m-0 flex flex-wrap select-none cursor-pointer items-center gap-1.5 text-[15px] text-foreground">
+                      <span className="text-[13px] text-muted-foreground">{collapsedSubPhases.has(sub.id) ? '►' : '▼'}</span>
                       {sub.name}
-                      <span style={{ fontSize: '13px', color: C.textMuted, fontWeight: 'normal' }}>({sub.tasks?.length || 0})</span>
+                      <span className="text-[13px] font-normal text-muted-foreground">({sub.tasks?.length || 0})</span>
                       {FEATURES.TEAM_LEAD_PROPOSAL && (() => {
                         const subPending = proposals.filter((p: any) => !p.usedInTaskId && p.subPhaseId === sub.id).length;
                         if (!subPending) return null;
                         return (
-                          <span title={`${subPending} הצעות ממתינות לתת-שלב זה`} style={{
-                            background: '#e67e22', color: 'white',
-                            padding: '1px 7px', borderRadius: '10px',
-                            fontSize: '12px', fontWeight: 'bold',
-                            cursor: 'default', whiteSpace: 'nowrap',
-                          }}>
+                          <span title={`${subPending} הצעות ממתינות לתת-שלב זה`} className="cursor-default whitespace-nowrap rounded-[10px] bg-[#e67e22] px-[7px] py-px text-xs font-bold text-white">
                             💡 {subPending}
                           </span>
                         );
                       })()}
                       {subTimes && (
-                        <span style={{ fontSize: '13px', background: subTimes.overrun ? C.bgBlocked : C.bgInProgress, color: subTimes.overrun ? C.statusFailed : C.statusInProgress, padding: '1px 8px', borderRadius: '10px', fontWeight: subTimes.overrun ? 'bold' : 'normal', border: subTimes.overrun ? `1px solid ${C.statusFailed}44` : 'none' }}>
+                        <span className={cn(
+                          'rounded-[10px] px-2 py-px text-[13px]',
+                          subTimes.overrun ? 'border border-danger/27 bg-danger-bg font-bold text-danger' : 'border-none bg-info-bg font-normal text-info',
+                        )}>
                           {subTimes.overrun ? '⚠️ ' : '⏰ '}
                           {subTimes.startIso ? formatTime(subTimes.startIso) : '?'}
                           {subTimes.endIso ? ` — ${formatTime(subTimes.endIso)}` : ''}
@@ -2305,7 +2293,7 @@ const VersionDetail: React.FC<{
                       setSelectedTaskPhaseOrder(phase.orderIndex);
                       setSelectedTaskPhaseStart(phase.plannedStart ?? undefined);
                       setSelectedTaskPhaseEnd(phase.plannedEnd ?? undefined);
-                    }} style={{ padding: '5px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '15px', fontWeight: '600' }}>+ משימה</button>}
+                    }} className="cursor-pointer rounded-md border-none bg-primary px-3.5 py-1.5 text-[15px] font-semibold text-white">+ משימה</button>}
                   </div>
 
                   {!collapsedSubPhases.has(sub.id) && (() => {
@@ -2320,16 +2308,16 @@ const VersionDetail: React.FC<{
                         const displayOrder = orderMap.get(task.id) ?? task.orderIndex;
                         return (
                       editingTask?.id === task.id ? (
-                        <div key={task.id} style={{ background: '#f0f7ff', borderRadius: '8px', padding: '14px', marginBottom: '6px', border: '1px solid #bee3f8' }}>
+                        <div key={task.id} className="mb-1.5 rounded-lg border border-sky-200 bg-[#f0f7ff] p-3.5">
                           {/* Row 1: title | user (filtered) | team (filtered) */}
-                          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                            <input value={editingTask.title} onChange={e => setEditingTask({ ...editingTask, title: e.target.value })} placeholder="שם המשימה" style={{ padding: '7px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px' }} />
+                          <div className="mb-2 grid grid-cols-[2fr_1fr_1fr] gap-2">
+                            <input value={editingTask.title} onChange={e => setEditingTask({ ...editingTask, title: e.target.value })} placeholder="שם המשימה" className="rounded-md border border-neutral-300 p-[7px] text-[15px]" />
                             {/* User with letter filter */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <div className="flex flex-col gap-0.5">
                               <input value={editFilters.user} onChange={e => setEditFilters(f => ({ ...f, user: e.target.value }))}
-                                placeholder="סנן עובד..." style={{ padding: '4px 7px', border: '1px solid #ddd', borderRadius: '6px 6px 0 0', fontSize: '13px', borderBottom: 'none' }} />
+                                placeholder="סנן עובד..." className="rounded-t-md border border-b-0 border-neutral-300 px-[7px] py-1 text-[13px]" />
                               <select value={editingTask.assignedUserName || ''} onChange={e => setEditingTask({ ...editingTask, assignedUserName: e.target.value })}
-                                style={{ padding: '5px 7px', border: '1px solid #ddd', borderRadius: '0 0 6px 6px', fontSize: '15px', borderTop: 'none' }}>
+                                className="rounded-b-md border border-t-0 border-neutral-300 px-[7px] py-[5px] text-[15px]">
                                 <option value="">-- עובד --</option>
                                 {(editingTask.assignedTeamId
                                   ? (teams.find((t: any) => t.id === editingTask.assignedTeamId)?.members || []).map((m: any) => m.user).filter(Boolean)
@@ -2339,28 +2327,28 @@ const VersionDetail: React.FC<{
                               </select>
                             </div>
                             {/* Team with letter filter */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <div className="flex flex-col gap-0.5">
                               <input value={editFilters.team} onChange={e => setEditFilters(f => ({ ...f, team: e.target.value }))}
-                                placeholder="סנן צוות..." style={{ padding: '4px 7px', border: '1px solid #ddd', borderRadius: '6px 6px 0 0', fontSize: '13px', borderBottom: 'none' }} />
+                                placeholder="סנן צוות..." className="rounded-t-md border border-b-0 border-neutral-300 px-[7px] py-1 text-[13px]" />
                               <select value={editingTask.assignedTeamId || ''} onChange={e => setEditingTask({ ...editingTask, assignedTeamId: e.target.value, assignedUserName: '', application: '' })}
-                                style={{ padding: '5px 7px', border: '1px solid #ddd', borderRadius: '0 0 6px 6px', fontSize: '15px', borderTop: 'none' }}>
+                                className="rounded-b-md border border-t-0 border-neutral-300 px-[7px] py-[5px] text-[15px]">
                                 <option value="">צוות</option>
                                 {teams.filter((t: any) => t.active && (!editFilters.team || t.name.toLowerCase().startsWith(editFilters.team.toLowerCase()))).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
                               </select>
                             </div>
                           </div>
                           {/* Row 2: CR# | app (filtered) | env | duration (minutes) */}
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                          <div className="mb-2 grid grid-cols-4 gap-2">
                             <div>
                               {(() => {
                                 const crList = (editingTask.crNumber || '').split(',').map((s: string) => s.trim()).filter(Boolean);
                                 return (
-                                  <div style={{ border: '1px solid #ddd', borderRadius: '6px', padding: '4px 6px', background: 'white', minHeight: '34px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px', boxSizing: 'border-box' }}>
+                                  <div className="box-border flex min-h-[34px] flex-wrap items-center gap-1 rounded-md border border-neutral-300 bg-white px-1.5 py-1">
                                     {crList.map((cr: string) => (
-                                      <span key={cr} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: '#e8f4fd', color: '#2980b9', borderRadius: '4px', padding: '2px 6px', fontSize: '14px' }}>
+                                      <span key={cr} className="inline-flex items-center gap-[3px] rounded bg-[#e8f4fd] px-1.5 py-0.5 text-sm text-[#2980b9]">
                                         {cr}
                                         <button onClick={() => setEditingTask({ ...editingTask, crNumber: crList.filter((c: string) => c !== cr).join(',') })}
-                                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2980b9', padding: '0', lineHeight: 1, fontSize: '15px' }}>×</button>
+                                          className="cursor-pointer border-none bg-transparent p-0 text-[15px] leading-none text-[#2980b9]">×</button>
                                       </span>
                                     ))}
                                     <input
@@ -2386,18 +2374,18 @@ const VersionDetail: React.FC<{
                                         }
                                       }}
                                       placeholder={crList.length === 0 ? 'CR# (Enter להוספה)' : '+ הוסף CR'}
-                                      style={{ border: 'none', outline: 'none', fontSize: '15px', padding: '2px 4px', minWidth: '110px', flex: 1 }}
+                                      className="min-w-[110px] flex-1 border-none px-1 py-0.5 text-[15px] outline-none"
                                     />
                                   </div>
                                 );
                               })()}
                             </div>
                             {/* Application with letter filter */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <div className="flex flex-col gap-0.5">
                               <input value={editFilters.app} onChange={e => setEditFilters(f => ({ ...f, app: e.target.value }))}
-                                placeholder="סנן..." style={{ padding: '4px 7px', border: '1px solid #ddd', borderRadius: '6px 6px 0 0', fontSize: '13px', borderBottom: 'none' }} />
+                                placeholder="סנן..." className="rounded-t-md border border-b-0 border-neutral-300 px-[7px] py-1 text-[13px]" />
                               <select value={editingTask.application || ''} onChange={e => setEditingTask({ ...editingTask, application: e.target.value })}
-                                style={{ padding: '5px 7px', border: '1px solid #ddd', borderRadius: '0 0 6px 6px', fontSize: '15px', borderTop: 'none' }}>
+                                className="rounded-b-md border border-t-0 border-neutral-300 px-[7px] py-[5px] text-[15px]">
                                 <option value="">Application</option>
                                 {(editingTask.assignedTeamId
                                   ? (teams.find((t: any) => t.id === editingTask.assignedTeamId)?.apps?.length
@@ -2408,13 +2396,13 @@ const VersionDetail: React.FC<{
                                   .map((a: string) => <option key={a} value={a}>{a}</option>)}
                               </select>
                             </div>
-                            <select value={editingTask.environment || 'BOTH'} onChange={e => setEditingTask({ ...editingTask, environment: e.target.value })} style={{ padding: '7px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px' }}>
+                            <select value={editingTask.environment || 'BOTH'} onChange={e => setEditingTask({ ...editingTask, environment: e.target.value })} className="rounded-md border border-neutral-300 p-[7px] text-[15px]">
                               <option value="BOTH">HOT + HOTNET</option>
                               <option value="HOT">HOT בלבד</option>
                               <option value="HOTNET">HOTNET בלבד</option>
                             </select>
                             <div>
-                              <label style={{ fontSize: '13px', color: '#777', display: 'block', marginBottom: '2px' }}>משך (דקות)</label>
+                              <label className="mb-0.5 block text-[13px] text-neutral-500">משך (דקות)</label>
                               <input type="number" min="1" value={editingTask._durationMins || ''}
                                 onChange={e => {
                                   const mins = parseInt(e.target.value);
@@ -2427,13 +2415,13 @@ const VersionDetail: React.FC<{
                                   if (mins > 0 && editingTask.plannedStart)
                                     setEditingTask((t: any) => ({ ...t, plannedEnd: calcEndFromMins(t.plannedStart, mins) }));
                                 }}
-                                placeholder="דקות" style={{ width: '100%', padding: '7px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px', boxSizing: 'border-box' }} />
+                                placeholder="דקות" className="box-border w-full rounded-md border border-neutral-300 p-[7px] text-[15px]" />
                             </div>
                           </div>
                           {/* Row 3: start | end (auto-calculated, read-only) */}
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                          <div className="mb-2 grid grid-cols-2 gap-2">
                             <div>
-                              <label style={{ fontSize: '13px', color: '#777', display: 'block', marginBottom: '3px' }}>תחילת משימה</label>
+                              <label className="mb-[3px] block text-[13px] text-neutral-500">תחילת משימה</label>
                               <DateTimeField value={editingTask.plannedStart ? utcToLocalInputStr(editingTask.plannedStart) : ''}
                                 onChange={v => {
                                   const upd: any = { ...editingTask, plannedStart: v };
@@ -2444,15 +2432,15 @@ const VersionDetail: React.FC<{
                                 style={{ width: '100%', padding: '7px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px', boxSizing: 'border-box' }} />
                             </div>
                             <div>
-                              <label style={{ fontSize: '13px', color: '#777', display: 'block', marginBottom: '3px' }}>סיום משימה (מחושב)</label>
+                              <label className="mb-[3px] block text-[13px] text-neutral-500">סיום משימה (מחושב)</label>
                               <DateTimeField disabled value={editingTask.plannedEnd ? utcToLocalInputStr(editingTask.plannedEnd) : ''} onChange={() => {}}
                                 style={{ width: '100%', padding: '7px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px', boxSizing: 'border-box', background: '#f5f5f5', color: '#666' }} />
                             </div>
                           </div>
                           {/* Row 4: dependency note | general note */}
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                            <input value={editingTask.dependencyNote || ''} onChange={e => setEditingTask({ ...editingTask, dependencyNote: e.target.value })} placeholder="הערת תלות (תלוי ב...)" style={{ padding: '7px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px' }} />
-                            <input value={editingTask.notes || ''} onChange={e => setEditingTask({ ...editingTask, notes: e.target.value })} placeholder="הערה כללית" style={{ padding: '7px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px' }} />
+                          <div className="mb-2 grid grid-cols-2 gap-2">
+                            <input value={editingTask.dependencyNote || ''} onChange={e => setEditingTask({ ...editingTask, dependencyNote: e.target.value })} placeholder="הערת תלות (תלוי ב...)" className="rounded-md border border-neutral-300 p-[7px] text-[15px]" />
+                            <input value={editingTask.notes || ''} onChange={e => setEditingTask({ ...editingTask, notes: e.target.value })} placeholder="הערה כללית" className="rounded-md border border-neutral-300 p-[7px] text-[15px]" />
                           </div>
                           {/* Row 5: dependency picker */}
                           {(() => {
@@ -2471,17 +2459,17 @@ const VersionDetail: React.FC<{
                             const alreadyLinked = new Set((editingTask.dependencies || []).map((d: any) => d.dependsOnTaskId));
                             const available = eligibleTasks.filter((t: any) => !alreadyLinked.has(t.id));
                             return (
-                              <div style={{ marginBottom: '8px', background: '#f9f9ff', border: '1px solid #ddd', borderRadius: '6px', padding: '8px 10px' }}>
-                                <label style={{ fontSize: '13px', color: '#777', display: 'block', marginBottom: '6px' }}>תלויות — המשימה תחכה לסיום:</label>
+                              <div className="mb-2 rounded-md border border-neutral-300 bg-[#f9f9ff] px-2.5 py-2">
+                                <label className="mb-1.5 block text-[13px] text-neutral-500">תלויות — המשימה תחכה לסיום:</label>
                                 {/* תגיות תלויות קיימות */}
                                 {(editingTask.dependencies || []).length > 0 && (
-                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
+                                  <div className="mb-1.5 flex flex-wrap gap-1">
                                     {(editingTask.dependencies || []).map((dep: any) => (
-                                      <span key={dep.dependsOnTaskId} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#e8f4fd', color: '#2d4a7a', padding: '2px 8px', borderRadius: '12px', fontSize: '14px' }}>
+                                      <span key={dep.dependsOnTaskId} className="flex items-center gap-1 rounded-xl bg-[#e8f4fd] px-2 py-0.5 text-sm text-[#2d4a7a]">
                                         🔗 {dep.dependsOn?.title || dep.dependsOnTaskId}
                                         <button
                                           onClick={() => removeDep(dep.dependsOnTaskId)}
-                                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', fontWeight: 'bold', fontSize: '15px', padding: '0 2px', lineHeight: 1 }}>
+                                          className="cursor-pointer border-none bg-transparent px-0.5 text-[15px] font-bold leading-none text-red-700">
                                           ✕
                                         </button>
                                       </span>
@@ -2507,12 +2495,12 @@ const VersionDetail: React.FC<{
                                     ? fmtTimeShared(previewEnd)
                                     : null;
                                   return (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                    <div className="flex flex-col gap-1">
+                                      <div className="flex items-center gap-1.5">
                                         <select
                                           value={newDepId}
                                           onChange={e => setNewDepId(e.target.value)}
-                                          style={{ flex: 1, padding: '5px 7px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }}>
+                                          className="flex-1 rounded-md border border-neutral-300 px-[7px] py-1.5 text-sm">
                                           <option value="">— בחר משימה תלויה —</option>
                                           {version.phases
                                             .filter((p: any) => p.orderIndex <= phase.orderIndex)
@@ -2534,12 +2522,15 @@ const VersionDetail: React.FC<{
                                             const depTask = eligibleTasks.find((t: any) => t.id === newDepId);
                                             if (depTask) addDep(depTask);
                                           }}
-                                          style={{ padding: '5px 12px', background: newDepId ? '#2d4a7a' : '#ccc', color: 'white', border: 'none', borderRadius: '6px', cursor: newDepId ? 'pointer' : 'not-allowed', fontSize: '14px', whiteSpace: 'nowrap' }}>
+                                          className={cn(
+                                            'whitespace-nowrap rounded-md border-none px-3 py-1.5 text-sm text-white',
+                                            newDepId ? 'cursor-pointer bg-[#2d4a7a]' : 'cursor-not-allowed bg-neutral-300',
+                                          )}>
                                           + הוסף
                                         </button>
                                       </div>
                                       {previewDep && (
-                                        <div style={{ fontSize: '13px', color: previewTime ? '#2d7a3a' : '#999', paddingRight: '2px' }}>
+                                        <div className={cn('ps-0.5 text-[13px]', previewTime ? 'text-[#2d7a3a]' : 'text-neutral-400')}>
                                           {previewTime
                                             ? `⏰ שעת תחילה תתעדכן ל: ${previewTime}`
                                             : '⚠️ לתלות זו אין תזמון — שעת תחילה לא תתעדכן אוטומטית'}
@@ -2549,17 +2540,17 @@ const VersionDetail: React.FC<{
                                   );
                                 })()}
                                 {available.length === 0 && (editingTask.dependencies || []).length === 0 && (
-                                  <span style={{ fontSize: '14px', color: '#aaa' }}>אין משימות קודמות זמינות לקישור</span>
+                                  <span className="text-sm text-neutral-400">אין משימות קודמות זמינות לקישור</span>
                                 )}
                               </div>
                             );
                           })()}
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <div className="flex items-center gap-2">
                             <button onClick={() => updateTask(task.id, editingTask)}
-                              style={{ padding: '7px 16px', background: editSaveOk ? '#1a7a3c' : '#27ae60', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '15px', fontWeight: 'bold', minWidth: '70px', transition: 'background 0.2s' }}>
+                              className={cn('min-w-[70px] cursor-pointer rounded-md border-none px-4 py-[7px] text-[15px] font-bold text-white transition-colors duration-base ease-out', editSaveOk ? 'bg-[#1a7a3c]' : 'bg-success')}>
                               {editSaveOk ? '✓' : 'שמור'}
                             </button>
-                            <button onClick={() => setEditingTask(null)} style={{ padding: '7px 16px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '15px' }}>ביטול</button>
+                            <button onClick={() => setEditingTask(null)} className="cursor-pointer rounded-md border-none bg-neutral-100 px-4 py-[7px] text-[15px] text-neutral-800">ביטול</button>
                           </div>
                         </div>
                       ) : (() => {
@@ -2591,15 +2582,17 @@ const VersionDetail: React.FC<{
                                 axios.post(`${API}/versions/sub-phases/${sub.id}/reorder`, { taskIds: withoutDragged.map((t: any) => t.id) }, { headers }).then(() => onRefresh()).catch(console.error);
                                 setDragging(null);
                               }}
+                              // Row chrome mixes real drag/selection/environment state
+                              // (background/border colors, opacity) — kept as computed
+                              // inline style, same as before; only layout/transition
+                              // became static classes. Handlers above are untouched.
+                              className="flex min-h-[40px] cursor-pointer items-center transition-colors duration-fast ease-out"
                               style={{
-                                display: 'flex', alignItems: 'center', minHeight: '40px',
                                 background: selectedTask?.id === task.id ? C.bgActive : dragOverTaskId === task.id ? C.bgActive : dragging?.taskId === task.id ? C.bgHover : C.bgCard,
                                 borderBottom: `1px solid ${C.border}`,
                                 borderRight: `3px solid ${selectedTask?.id === task.id ? C.brand : borderRight}`,
                                 borderTop: dragOverTaskId === task.id ? `2px solid ${C.brand}` : undefined,
                                 opacity: dragging?.taskId === task.id ? 0.5 : 1,
-                                cursor: 'pointer',
-                                transition: EASE.fast,
                               }}>
 
                               {/* # */}
@@ -2694,7 +2687,7 @@ const VersionDetail: React.FC<{
                               {/* Team */}
                               {(() => {
                                 const teamName = task.assignedTeam?.name;
-                                const tc = teamName ? teamColorFor(teamName) : null;
+                                const tc = teamName ? teamColor(teamName) : null;
                                 return (
                                   <div style={{ width: `${TV.team}px`, flexShrink: 0, padding: `0 ${SP[1]}`, textAlign: 'center', overflow: 'hidden' }}>
                                     {teamName ? (
@@ -2775,20 +2768,20 @@ const VersionDetail: React.FC<{
                     </>); })()}
 
                   {addingTask === sub.id && !isLocked && (
-                    <div style={{ background: '#f0f7ff', borderRadius: '8px', padding: '16px', marginTop: '8px', border: '1px solid #bee3f8' }}>
+                    <div className="mt-2 rounded-lg border border-sky-200 bg-[#f0f7ff] p-4">
                       {/* הצעות ראשי צוותים — מסוננות לפי שלב */}
                       {FEATURES.TEAM_LEAD_PROPOSAL && (() => {
                         const phaseProposals = proposals.filter((p: any) => p.phase === phase.orderIndex);
                         if (phaseProposals.length === 0) return null;
                         return (
-                          <div style={{ marginBottom: '12px', background: '#f0faf4', border: '2px solid #27ae60', borderRadius: '8px', padding: '10px 14px' }}>
-                            <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#1a5c2a', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <span style={{ background: '#27ae60', color: 'white', padding: '2px 8px', borderRadius: '10px', fontSize: '13px' }}>
+                          <div className="mb-3 rounded-lg border-2 border-[#27ae60] bg-[#f0faf4] p-[10px_14px]">
+                            <div className="mb-2 flex items-center gap-1.5 text-sm font-bold text-[#1a5c2a]">
+                              <span className="rounded-[10px] bg-[#27ae60] px-2 py-0.5 text-[13px] text-white">
                                 {phaseProposals.length}
                               </span>
                               💡 הצעות ראשי צוותים לשלב זה
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '200px', overflowY: 'auto' }}>
+                            <div className="flex max-h-[200px] flex-col gap-1 overflow-y-auto">
                               {phaseProposals.map((p: any) => {
                                 const isSelected = selectedProposalId === p.id;
                                 const teamName = teams.find((t: any) => t.id === p.teamId)?.name || '';
@@ -2807,48 +2800,48 @@ const VersionDetail: React.FC<{
                                       assignedUserName: p.assignedUserName || submitter?.fullName || t.assignedUserName,
                                     }));
                                     if (p.teamId) setSelectedTeam(p.teamId);
-                                  }} style={{
-                                    padding: '10px 12px', borderRadius: '8px', cursor: 'pointer',
-                                    background: sel ? '#1a5c2a' : 'white',
-                                    border: `1px solid ${sel ? '#27ae60' : '#c3e6cb'}`,
-                                    borderRight: `4px solid ${sel ? '#27ae60' : '#a8d5b5'}`,
-                                    transition: 'all 0.15s',
-                                  }}>
+                                  }}
+                                    className="cursor-pointer rounded-lg border-s-4 p-[10px_12px] transition-[background-color,border-color] duration-fast ease-out"
+                                    style={{
+                                      background: sel ? '#1a5c2a' : 'white',
+                                      border: `1px solid ${sel ? '#27ae60' : '#c3e6cb'}`,
+                                      borderInlineStartColor: sel ? '#27ae60' : '#a8d5b5',
+                                    }}>
                                     {/* שורה 1: CR badge + כותרת */}
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                                    <div className="mb-1.5 flex items-center gap-2">
                                       {p.crNumber && (
-                                        <span style={{ background: sel ? 'rgba(255,255,255,0.2)' : '#1a2332', color: 'white', padding: '2px 8px', borderRadius: '5px', fontSize: '13px', fontFamily: 'monospace', flexShrink: 0, fontWeight: '700' }}>
+                                        <span className={cn('shrink-0 rounded px-2 py-0.5 font-mono text-[13px] font-bold text-white', sel ? 'bg-white/20' : 'bg-[#1a2332]')}>
                                           {p.crNumber}
                                         </span>
                                       )}
-                                      <span style={{ fontWeight: '700', fontSize: '15px', color: sel ? 'white' : '#1a2332', flex: 1 }}>
+                                      <span className={cn('flex-1 text-[15px] font-bold', sel ? 'text-white' : 'text-[#1a2332]')}>
                                         {p.title}
                                       </span>
                                     </div>
                                     {/* שורה 2: badges */}
-                                    <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                    <div className="flex flex-wrap items-center gap-1.5">
                                       {teamName && (
-                                        <span style={{ fontSize: '14px', background: sel ? 'rgba(255,255,255,0.15)' : '#eef3fb', color: sel ? 'rgba(255,255,255,0.9)' : '#2d4a7a', padding: '2px 8px', borderRadius: '5px', fontWeight: '600' }}>
+                                        <span className={cn('rounded px-2 py-0.5 text-sm font-semibold', sel ? 'bg-white/15 text-white/90' : 'bg-[#eef3fb] text-[#2d4a7a]')}>
                                           👥 {teamName}
                                         </span>
                                       )}
                                       {p.app && (
-                                        <span style={{ fontSize: '14px', background: sel ? 'rgba(255,255,255,0.15)' : '#f0f4fa', color: sel ? 'rgba(255,255,255,0.9)' : '#333', padding: '2px 8px', borderRadius: '5px', fontWeight: '600', border: `1px solid ${sel ? 'transparent' : '#dde3ee'}` }}>
+                                        <span className={cn('rounded border px-2 py-0.5 text-sm font-semibold', sel ? 'border-transparent bg-white/15 text-white/90' : 'border-[#dde3ee] bg-[#f0f4fa] text-neutral-800')}>
                                           {p.app}
                                         </span>
                                       )}
                                       {p.estimatedMins && (
-                                        <span style={{ fontSize: '14px', color: sel ? 'rgba(255,255,255,0.8)' : '#555', fontWeight: '600' }}>
+                                        <span className={cn('text-sm font-semibold', sel ? 'text-white/80' : 'text-neutral-600')}>
                                           ⏱ {p.estimatedMins} דק'
                                         </span>
                                       )}
                                       {p.assignedUserName && (
-                                        <span style={{ fontSize: '14px', color: sel ? 'rgba(255,255,255,0.75)' : '#666' }}>
+                                        <span className={cn('text-sm', sel ? 'text-white/75' : 'text-neutral-600')}>
                                           👤 {p.assignedUserName}
                                         </span>
                                       )}
                                       {p.notes && (
-                                        <span style={{ fontSize: '13px', color: sel ? 'rgba(255,255,255,0.65)' : '#888', fontStyle: 'italic' }}>
+                                        <span className={cn('text-[13px] italic', sel ? 'text-white/65' : 'text-neutral-400')}>
                                           💬 {cleanHtmlText(p.notes)}
                                         </span>
                                       )}
@@ -2859,27 +2852,27 @@ const VersionDetail: React.FC<{
                             </div>
                             {selectedProposalId && (
                               <button type="button" onClick={() => { setSelectedProposalId(null); setNewTask(EMPTY_TASK); }}
-                                style={{ marginTop: '6px', fontSize: '13px', color: '#888', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                                className="mt-1.5 cursor-pointer border-none bg-transparent p-0 text-[13px] text-neutral-500">
                                 ✕ נקה בחירה
                               </button>
                             )}
-                            <div style={{ fontSize: '13px', color: '#555', marginTop: '5px' }}>לחץ על הצעה לטעינה אוטומטית — ניתן לערוך לפני השמירה</div>
+                            <div className="mt-1 text-[13px] text-neutral-600">לחץ על הצעה לטעינה אוטומטית — ניתן לערוך לפני השמירה</div>
                           </div>
                         );
                       })()}
                       {/* Row 1: title | team | user (filtered by team) */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                        <input placeholder="שם המשימה *" value={newTask.title} onChange={e => setNewTask({ ...newTask, title: e.target.value })} style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px' }} />
+                      <div className="mb-2 grid grid-cols-[2fr_1fr_1fr] gap-2">
+                        <input placeholder="שם המשימה *" value={newTask.title} onChange={e => setNewTask({ ...newTask, title: e.target.value })} className="rounded-md border border-neutral-300 p-2 text-[15px]" />
                         <select value={selectedTeam} onChange={e => {
                           setSelectedTeam(e.target.value);
                           setNewTask((t: any) => ({ ...t, assignedUserName: '' }));
                         }}
-                          style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px' }}>
+                          className="rounded-md border border-neutral-300 p-2 text-[15px]">
                           <option value="">צוות</option>
                           {teams.filter((t: any) => t.active).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
                         </select>
                         <select value={newTask.assignedUserName} onChange={e => setNewTask({ ...newTask, assignedUserName: e.target.value })}
-                          style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px' }}>
+                          className="rounded-md border border-neutral-300 p-2 text-[15px]">
                           <option value="">-- עובד אחראי --</option>
                           {(selectedTeam
                             ? (teams.find((t: any) => t.id === selectedTeam)?.members || [])
@@ -2890,16 +2883,16 @@ const VersionDetail: React.FC<{
                         </select>
                       </div>
                       {/* Row 2: CR# | app (filtered) | env | duration (minutes) */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                      <div className="mb-2 grid grid-cols-4 gap-2">
                         {(() => {
                           const crList = (newTask.crNumber || '').split(',').map((s: string) => s.trim()).filter(Boolean);
                           return (
-                            <div style={{ border: '1px solid #ddd', borderRadius: '6px', padding: '4px 6px', background: 'white', minHeight: '36px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px', boxSizing: 'border-box' }}>
+                            <div className="box-border flex min-h-[36px] flex-wrap items-center gap-1 rounded-md border border-neutral-300 bg-white px-1.5 py-1">
                               {crList.map((cr: string) => (
-                                <span key={cr} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: '#e8f4fd', color: '#2980b9', borderRadius: '4px', padding: '2px 6px', fontSize: '14px' }}>
+                                <span key={cr} className="inline-flex items-center gap-[3px] rounded bg-[#e8f4fd] px-1.5 py-0.5 text-sm text-[#2980b9]">
                                   {cr}
                                   <button onClick={() => setNewTask({ ...newTask, crNumber: crList.filter((c: string) => c !== cr).join(',') })}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2980b9', padding: '0', lineHeight: 1, fontSize: '15px' }}>×</button>
+                                    className="cursor-pointer border-none bg-transparent p-0 text-[15px] leading-none text-[#2980b9]">×</button>
                                 </span>
                               ))}
                               <input
@@ -2925,26 +2918,26 @@ const VersionDetail: React.FC<{
                                   }
                                 }}
                                 placeholder={crList.length === 0 ? 'CR# (Enter להוספה)' : '+ הוסף CR'}
-                                style={{ border: 'none', outline: 'none', fontSize: '15px', padding: '2px 4px', minWidth: '110px', flex: 1 }}
+                                className="min-w-[110px] flex-1 border-none px-1 py-0.5 text-[15px] outline-none"
                               />
                             </div>
                           );
                         })()}
                         <select value={newTask.application} onChange={e => setNewTask({ ...newTask, application: e.target.value })}
-                          style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px' }}>
+                          className="rounded-md border border-neutral-300 p-2 text-[15px]">
                           <option value="">Application</option>
                           {(selectedTeam && (teams.find((t: any) => t.id === selectedTeam)?.apps || []).length > 0
                             ? teams.find((t: any) => t.id === selectedTeam).apps
                             : APPS
                           ).map((a: string) => <option key={a} value={a}>{a}</option>)}
                         </select>
-                        <select value={newTask.environment} onChange={e => setNewTask({ ...newTask, environment: e.target.value })} style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px' }}>
+                        <select value={newTask.environment} onChange={e => setNewTask({ ...newTask, environment: e.target.value })} className="rounded-md border border-neutral-300 p-2 text-[15px]">
                           <option value="BOTH">HOT + HOTNET</option>
                           <option value="HOT">HOT בלבד</option>
                           <option value="HOTNET">HOTNET בלבד</option>
                         </select>
                         <div>
-                          <label style={{ fontSize: '13px', color: '#777', display: 'block', marginBottom: '2px' }}>משך (דקות)</label>
+                          <label className="mb-0.5 block text-[13px] text-neutral-500">משך (דקות)</label>
                           <input type="number" min="1" value={newTask._durationMins}
                             onChange={e => {
                               const mins = parseInt(e.target.value);
@@ -2957,13 +2950,13 @@ const VersionDetail: React.FC<{
                               if (mins > 0 && newTask.plannedStart)
                                 setNewTask((t: any) => ({ ...t, plannedEnd: calcEndFromMins(t.plannedStart, mins) }));
                             }}
-                            placeholder="דקות" style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px', boxSizing: 'border-box' }} />
+                            placeholder="דקות" className="box-border w-full rounded-md border border-neutral-300 p-2 text-[15px]" />
                         </div>
                       </div>
                       {/* Row 3: start | end (auto-calculated) */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                      <div className="mb-2 grid grid-cols-2 gap-2">
                         <div>
-                          <label style={{ fontSize: '13px', color: '#777', display: 'block', marginBottom: '3px' }}>תחילת משימה</label>
+                          <label className="mb-[3px] block text-[13px] text-neutral-500">תחילת משימה</label>
                           <DateTimeField value={newTask.plannedStart}
                             onChange={v => {
                               const upd: any = { ...newTask, plannedStart: v };
@@ -2974,14 +2967,14 @@ const VersionDetail: React.FC<{
                             style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px', boxSizing: 'border-box' }} />
                         </div>
                         <div>
-                          <label style={{ fontSize: '13px', color: '#777', display: 'block', marginBottom: '3px' }}>סיום משימה (מחושב)</label>
+                          <label className="mb-[3px] block text-[13px] text-neutral-500">סיום משימה (מחושב)</label>
                           <DateTimeField disabled value={newTask.plannedEnd} onChange={() => {}}
                             style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px', boxSizing: 'border-box', background: '#f5f5f5', color: '#666' }} />
                         </div>
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                        <input placeholder="הערת תלות (תלוי ב...)" value={newTask.dependencyNote} onChange={e => setNewTask({ ...newTask, dependencyNote: e.target.value })} style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px' }} />
-                        <input placeholder="הערה כללית" value={newTask.notes} onChange={e => setNewTask({ ...newTask, notes: e.target.value })} style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '15px' }} />
+                      <div className="mb-2 grid grid-cols-2 gap-2">
+                        <input placeholder="הערת תלות (תלוי ב...)" value={newTask.dependencyNote} onChange={e => setNewTask({ ...newTask, dependencyNote: e.target.value })} className="rounded-md border border-neutral-300 p-2 text-[15px]" />
+                        <input placeholder="הערה כללית" value={newTask.notes} onChange={e => setNewTask({ ...newTask, notes: e.target.value })} className="rounded-md border border-neutral-300 p-2 text-[15px]" />
                       </div>
                       {/* Dependency task selector */}
                       {(() => {
@@ -2991,26 +2984,26 @@ const VersionDetail: React.FC<{
                         const available = allTasksInScope.filter((t: any) => !newTaskDepIds.includes(t.id));
                         if (allTasksInScope.length === 0) return null;
                         return (
-                          <div style={{ background: '#f9f9ff', border: '1px solid #ddd', borderRadius: '6px', padding: '8px 10px', marginBottom: '8px' }}>
-                            <label style={{ fontSize: '13px', color: '#777', display: 'block', marginBottom: '6px' }}>תלויות — המשימה תחכה לסיום:</label>
+                          <div className="mb-2 rounded-md border border-neutral-300 bg-[#f9f9ff] px-2.5 py-2">
+                            <label className="mb-1.5 block text-[13px] text-neutral-500">תלויות — המשימה תחכה לסיום:</label>
                             {newTaskDepIds.length > 0 && (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
+                              <div className="mb-1.5 flex flex-wrap gap-1">
                                 {newTaskDepIds.map(depId => {
                                   const depTask = allTasksInScope.find((t: any) => t.id === depId);
                                   return (
-                                    <span key={depId} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#e8f4fd', color: '#2d4a7a', padding: '2px 8px', borderRadius: '12px', fontSize: '14px' }}>
+                                    <span key={depId} className="flex items-center gap-1 rounded-xl bg-[#e8f4fd] px-2 py-0.5 text-sm text-[#2d4a7a]">
                                       🔗 {depTask?.title || depId}
                                       <button type="button" onClick={() => setNewTaskDepIds(ids => ids.filter(id => id !== depId))}
-                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', fontWeight: 'bold', fontSize: '15px', padding: '0 2px', lineHeight: 1 }}>✕</button>
+                                        className="cursor-pointer border-none bg-transparent px-0.5 text-[15px] font-bold leading-none text-red-700">✕</button>
                                     </span>
                                   );
                                 })}
                               </div>
                             )}
                             {available.length > 0 && (
-                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                              <div className="flex items-center gap-1.5">
                                 <select value={newDepAddSelectId} onChange={e => setNewDepAddSelectId(e.target.value)}
-                                  style={{ flex: 1, padding: '5px 7px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }}>
+                                  className="flex-1 rounded-md border border-neutral-300 px-[7px] py-1.5 text-sm">
                                   <option value="">— בחר משימה תלויה —</option>
                                   {version.phases
                                     .filter((p: any) => p.orderIndex <= phase.orderIndex)
@@ -3049,20 +3042,20 @@ const VersionDetail: React.FC<{
                                     if (tm > 0) patch.plannedEnd = calcEndFromMins(depEnd, tm);
                                     setNewTask((t: any) => ({ ...t, ...patch }));
                                   }}
-                                  style={{ padding: '5px 12px', background: newDepAddSelectId ? '#2d4a7a' : '#ccc', color: 'white', border: 'none', borderRadius: '6px', cursor: newDepAddSelectId ? 'pointer' : 'not-allowed', fontSize: '14px', whiteSpace: 'nowrap' }}>
+                                  className={cn('whitespace-nowrap rounded-md border-none px-3 py-1.5 text-sm text-white', newDepAddSelectId ? 'cursor-pointer bg-[#2d4a7a]' : 'cursor-not-allowed bg-neutral-300')}>
                                   + הוסף
                                 </button>
                               </div>
                             )}
                             {available.length === 0 && newTaskDepIds.length === 0 && (
-                              <span style={{ fontSize: '14px', color: '#aaa' }}>אין משימות קודמות זמינות לקישור</span>
+                              <span className="text-sm text-neutral-400">אין משימות קודמות זמינות לקישור</span>
                             )}
                           </div>
                         );
                       })()}
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button onClick={() => addTask(sub.id)} disabled={!newTask.title} style={{ padding: '8px 16px', background: newTask.title ? '#27ae60' : '#ccc', color: 'white', border: 'none', borderRadius: '6px', cursor: newTask.title ? 'pointer' : 'not-allowed', fontSize: '15px', fontWeight: 'bold' }}>הוסף</button>
-                        <button onClick={() => { setAddingTask(null); setNewTask(EMPTY_TASK); setNewTaskDepIds([]); setNewDepAddSelectId(''); }} style={{ padding: '8px 16px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '15px' }}>ביטול</button>
+                      <div className="flex gap-2">
+                        <button onClick={() => addTask(sub.id)} disabled={!newTask.title} className={cn('rounded-md border-none px-4 py-2 text-[15px] font-bold text-white', newTask.title ? 'cursor-pointer bg-success' : 'cursor-not-allowed bg-neutral-300')}>הוסף</button>
+                        <button onClick={() => { setAddingTask(null); setNewTask(EMPTY_TASK); setNewTaskDepIds([]); setNewDepAddSelectId(''); }} className="cursor-pointer rounded-md border-none bg-neutral-100 px-4 py-2 text-[15px] text-neutral-800">ביטול</button>
                       </div>
                     </div>
                   )}
@@ -3071,11 +3064,11 @@ const VersionDetail: React.FC<{
             })}
 
             {!collapsedPhases.has(phase.id) && !(phase.subPhases?.length > 0) && !isLocked && (
-              <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '10px', color: C.textMuted, fontSize: '15px' }}>
+              <div className="flex items-center gap-2.5 p-[14px_16px] text-[15px] text-muted-foreground">
                 <span>אין תת-שלבים בשלב זה.</span>
                 {isManager && (
                   <button onClick={() => addSubPhase(phase.id)} disabled={phaseManageLoading}
-                    style={{ padding: '5px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '15px', fontWeight: '600' }}>
+                    className="cursor-pointer rounded-md border-none bg-primary px-3.5 py-1.5 text-[15px] font-semibold text-white">
                     + הוסף תת-שלב
                   </button>
                 )}
@@ -3087,30 +3080,30 @@ const VersionDetail: React.FC<{
 
       {/* ── Add Phase + error ── */}
       {isManager && !isLocked && (
-        <div style={{ marginBottom: '12px' }}>
+        <div className="mb-3">
           {phaseManageError && (
-            <div style={{ background: '#fee', border: '1px solid #e74c3c', borderRadius: '8px', padding: '8px 14px', fontSize: '15px', color: '#c0392b', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="mb-2 flex items-center gap-2 rounded-lg border border-red-500 bg-red-50 px-3.5 py-2 text-[15px] text-red-700">
               ⚠️ {phaseManageError}
-              <button onClick={() => setPhaseManageError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', fontWeight: 'bold' }}>×</button>
+              <button onClick={() => setPhaseManageError(null)} className="cursor-pointer border-none bg-transparent font-bold text-red-700">×</button>
             </div>
           )}
           {addingPhase ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'white', borderRadius: '10px', padding: '12px 16px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+            <div className="flex items-center gap-2 rounded-xl bg-white p-[12px_16px] shadow-[0_2px_8px_rgba(0,0,0,0.08)]">
               <input
                 autoFocus
                 value={newPhaseName}
                 onChange={e => setNewPhaseName(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') addPhase(); if (e.key === 'Escape') { setAddingPhase(false); setNewPhaseName(''); } }}
                 placeholder="שם השלב החדש"
-                style={{ flex: 1, padding: '8px 12px', border: '2px solid #2d4a7a', borderRadius: '6px', fontSize: '15px' }}
+                className="flex-1 rounded-md border-2 border-[#2d4a7a] px-3 py-2 text-[15px]"
               />
-              <button onClick={addPhase} disabled={!newPhaseName.trim() || phaseManageLoading} style={{ padding: '8px 16px', background: '#2d4a7a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px' }}>הוסף</button>
-              <button onClick={() => { setAddingPhase(false); setNewPhaseName(''); }} style={{ padding: '8px 14px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '15px' }}>ביטול</button>
+              <button onClick={addPhase} disabled={!newPhaseName.trim() || phaseManageLoading} className="cursor-pointer rounded-md border-none bg-[#2d4a7a] px-4 py-2 text-[15px] font-bold text-white">הוסף</button>
+              <button onClick={() => { setAddingPhase(false); setNewPhaseName(''); }} className="cursor-pointer rounded-md border-none bg-neutral-100 px-3.5 py-2 text-[15px] text-neutral-800">ביטול</button>
             </div>
           ) : (
             <button
               onClick={() => setAddingPhase(true)}
-              style={{ padding: '8px 18px', background: 'white', color: '#2d4a7a', border: '2px dashed #2d4a7a', borderRadius: '10px', cursor: 'pointer', fontSize: '15px', fontWeight: 'bold', width: '100%' }}>
+              className="w-full cursor-pointer rounded-xl border-2 border-dashed border-[#2d4a7a] bg-white px-[18px] py-2 text-[15px] font-bold text-[#2d4a7a]">
               + הוסף שלב
             </button>
           )}
@@ -3120,17 +3113,17 @@ const VersionDetail: React.FC<{
 
       {/* ── דיאלוג אישור העברת משימה ── */}
       {moveConfirm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'white', borderRadius: '14px', padding: '28px 32px', maxWidth: '420px', width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.25)', direction: 'rtl' }}>
-            <div style={{ fontSize: '28px', marginBottom: '12px', textAlign: 'center' }}>🚚</div>
-            <h3 style={{ margin: '0 0 10px', color: '#1a2332', textAlign: 'center' }}>העברת משימה</h3>
-            <p style={{ margin: '0 0 20px', color: '#444', fontSize: '15px', lineHeight: 1.6, textAlign: 'center' }}>
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/45">
+          <div dir="rtl" className="w-[90%] max-w-[420px] rounded-2xl bg-white p-[28px_32px] shadow-[0_8px_32px_rgba(0,0,0,0.25)]">
+            <div className="mb-3 text-center text-[28px]">🚚</div>
+            <h3 className="m-0 mb-2.5 text-center text-[#1a2332]">העברת משימה</h3>
+            <p className="m-0 mb-5 text-center text-[15px] leading-relaxed text-neutral-700">
               להעביר את <strong>"{moveConfirm.taskTitle}"</strong><br />
               לתת-שלב <strong>"{moveConfirm.targetSubName}"</strong>?
             </p>
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-              <button onClick={confirmMove} style={{ padding: '9px 24px', background: '#2d4a7a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px' }}>אשר העברה</button>
-              <button onClick={() => setMoveConfirm(null)} style={{ padding: '9px 24px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '15px' }}>ביטול</button>
+            <div className="flex justify-center gap-2.5">
+              <button onClick={confirmMove} className="cursor-pointer rounded-lg border-none bg-[#2d4a7a] px-6 py-[9px] text-[15px] font-bold text-white">אשר העברה</button>
+              <button onClick={() => setMoveConfirm(null)} className="cursor-pointer rounded-lg border-none bg-neutral-100 px-6 py-[9px] text-[15px] text-neutral-800">ביטול</button>
             </div>
           </div>
         </div>
@@ -3161,28 +3154,28 @@ const VersionDetail: React.FC<{
         const totalOverrunTasks = overrunTaskIds.size;
 
         return (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: 'white', borderRadius: '14px', padding: '28px 32px', minWidth: '560px', maxWidth: '800px', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,0.3)', direction: 'rtl' }}>
-              <h3 style={{ margin: '0 0 4px', color: '#1a2332' }}>📅 הכן ותזמן</h3>
-              <p style={{ color: '#666', fontSize: '15px', margin: '0 0 16px' }}>
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50">
+            <div dir="rtl" className="max-h-[92vh] min-w-[560px] max-w-[800px] overflow-y-auto rounded-2xl bg-white p-[28px_32px] shadow-[0_8px_40px_rgba(0,0,0,0.3)]">
+              <h3 className="m-0 mb-1 text-[#1a2332]">📅 הכן ותזמן</h3>
+              <p className="m-0 mb-4 text-[15px] text-neutral-600">
                 הכן תלויות ומבנה, ואז הגדר שעות לכל שלב כדי לחשב את תוכנית הביצוע.
               </p>
 
               {/* ── Prep section ── */}
-              <div style={{ background: '#f8f9fa', border: '1px solid #e0e0e0', borderRadius: '10px', marginBottom: '18px', overflow: 'hidden' }}>
+              <div className="mb-[18px] overflow-hidden rounded-xl border border-neutral-200 bg-neutral-50">
                 <div
                   onClick={() => { setPrepOpen(o => !o); setPrepMessage(null); }}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', cursor: 'pointer', userSelect: 'none' }}
+                  className="flex cursor-pointer select-none items-center justify-between p-[10px_16px]"
                 >
-                  <span style={{ fontWeight: 'bold', fontSize: '15px', color: '#1a2332' }}>🔧 הכנה לפני תזמון — תלויות ומבנה</span>
-                  <span style={{ fontSize: '14px', color: '#888' }}>{prepOpen ? '▲ סגור' : '▼ פתח'}</span>
+                  <span className="text-[15px] font-bold text-[#1a2332]">🔧 הכנה לפני תזמון — תלויות ומבנה</span>
+                  <span className="text-sm text-neutral-500">{prepOpen ? '▲ סגור' : '▼ פתח'}</span>
                 </div>
                 {prepOpen && (
-                  <div style={{ borderTop: '1px solid #e0e0e0', padding: '14px 16px' }}>
-                    <p style={{ margin: '0 0 12px', fontSize: '14px', color: '#666' }}>
+                  <div className="border-t border-neutral-200 p-[14px_16px]">
+                    <p className="m-0 mb-3 text-sm text-neutral-600">
                       הפעל לפי הסדר: סדר משימות ← תלויות לפי עובד ← עדכן שרשראות ← נקה תלויות שגויות
                     </p>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    <div className="flex flex-wrap gap-2">
                       <button onClick={async () => {
                         try {
                           const res = await axios.post(`${API}/versions/${version.id}/fix-task-order`, {}, { headers });
@@ -3191,7 +3184,7 @@ const VersionDetail: React.FC<{
                         } catch (err: any) {
                           setPrepMessage({ text: `❌ ${err?.response?.data?.message || 'שגיאה בתיקון סדר משימות'}`, ok: false });
                         }
-                      }} style={{ padding: '7px 14px', background: '#2d4a7a', color: 'white', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>
+                      }} className="cursor-pointer rounded-lg border-none bg-[#2d4a7a] px-3.5 py-1.5 text-sm font-bold text-white">
                         🔢 סדר משימות
                       </button>
                       <button onClick={async () => {
@@ -3203,7 +3196,7 @@ const VersionDetail: React.FC<{
                         } catch (err: any) {
                           setPrepMessage({ text: `❌ ${err?.response?.data?.message || 'שגיאה ביצירת תלויות'}`, ok: false });
                         }
-                      }} style={{ padding: '7px 14px', background: '#7f3fbf', color: 'white', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>
+                      }} className="cursor-pointer rounded-lg border-none bg-[#7f3fbf] px-3.5 py-1.5 text-sm font-bold text-white">
                         👤 צור תלויות לפי עובד
                       </button>
                       {lastUserDepPairs && lastUserDepPairs.length > 0 && (
@@ -3220,7 +3213,7 @@ const VersionDetail: React.FC<{
                               setPrepMessage({ text: `❌ ${err?.response?.data?.message || 'שגיאה ברולבק'}`, ok: false });
                             }
                           }, 'בטל תלויות', 'warning'
-                        )} style={{ padding: '7px 14px', background: '#e67e22', color: 'white', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>
+                        )} className="cursor-pointer rounded-lg border-none bg-[#e67e22] px-3.5 py-1.5 text-sm font-bold text-white">
                           ↩ בטל תלויות עובד ({lastUserDepPairs.length})
                         </button>
                       )}
@@ -3232,7 +3225,7 @@ const VersionDetail: React.FC<{
                         } catch (err: any) {
                           setPrepMessage({ text: `❌ ${err?.response?.data?.message || 'שגיאה בעדכון תלויות'}`, ok: false });
                         }
-                      }} style={{ padding: '7px 14px', background: '#7f3fbf', color: 'white', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>
+                      }} className="cursor-pointer rounded-lg border-none bg-[#7f3fbf] px-3.5 py-1.5 text-sm font-bold text-white">
                         🔗 עדכן שרשראות תלות
                       </button>
                       <button onClick={() => showConfirm(
@@ -3247,12 +3240,12 @@ const VersionDetail: React.FC<{
                             setPrepMessage({ text: `❌ ${err?.response?.data?.message || 'שגיאה'}`, ok: false });
                           }
                         }, 'נקה', 'warning'
-                      )} style={{ padding: '7px 14px', background: '#c0392b', color: 'white', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>
+                      )} className="cursor-pointer rounded-lg border-none bg-[#c0392b] px-3.5 py-1.5 text-sm font-bold text-white">
                         🗑 נקה תלויות בין-שלביות
                       </button>
                     </div>
                     {prepMessage && (
-                      <div style={{ marginTop: '10px', padding: '8px 12px', borderRadius: '7px', fontSize: '14px', background: prepMessage.ok ? '#d5f0dc' : '#fee', color: prepMessage.ok ? '#1a5c2a' : '#c0392b', border: `1px solid ${prepMessage.ok ? '#a9dfbf' : '#e74c3c'}` }}>
+                      <div className={cn('mt-2.5 rounded-lg border p-[8px_12px] text-sm', prepMessage.ok ? 'border-green-300 bg-[#d5f0dc] text-[#1a5c2a]' : 'border-red-500 bg-red-50 text-[#c0392b]')}>
                         {prepMessage.text}
                       </div>
                     )}
@@ -3261,18 +3254,18 @@ const VersionDetail: React.FC<{
               </div>
 
               {/* Dependencies toggle */}
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', cursor: 'pointer', userSelect: 'none' }}>
+              <label className="mb-4 flex cursor-pointer select-none items-center gap-2">
                 <input type="checkbox" checked={reschRespectDeps} onChange={e => setReschRespectDeps(e.target.checked)}
-                  style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
-                <span style={{ fontSize: '15px', color: '#1a2332' }}>התחשב בתלויות בין משימות</span>
-                <span style={{ fontSize: '13px', color: '#888' }}>(שעת התחלה = max(תחילת השלב, סיום תלויות))</span>
+                  className="h-4 w-4 cursor-pointer" />
+                <span className="text-[15px] text-[#1a2332]">התחשב בתלויות בין משימות</span>
+                <span className="text-[13px] text-neutral-500">(שעת התחלה = max(תחילת השלב, סיום תלויות))</span>
               </label>
 
               {/* Phase start/end inputs */}
-              <div style={{ marginBottom: '6px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', fontSize: '13px', color: '#888', fontWeight: 'bold', paddingRight: '2px' }}>
-                <span>שלב</span><span style={{ textAlign: 'center' }}>שעת התחלה</span><span style={{ textAlign: 'center' }}>שעת סיום (יעד)</span>
+              <div className="mb-1.5 grid grid-cols-3 gap-2 ps-0.5 text-[13px] font-bold text-neutral-500">
+                <span>שלב</span><span className="text-center">שעת התחלה</span><span className="text-center">שעת סיום (יעד)</span>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '7px', marginBottom: '18px' }}>
+              <div className="mb-[18px] flex flex-col gap-[7px]">
                 {([...(version.phases || [])].sort((a: any, b: any) => a.orderIndex - b.orderIndex)).map((phase: any, idx: number, arr: any[]) => {
                   const prevPhase = idx > 0 ? arr[idx - 1] : null;
 
@@ -3293,14 +3286,14 @@ const VersionDetail: React.FC<{
 
                   return (
                     <div key={phase.id}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', alignItems: 'center' }}>
-                        <label style={{ fontSize: '14px', fontWeight: 'bold', color: '#1a2332', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={phase.name}>{phase.name}</label>
+                      <div className="grid grid-cols-3 items-center gap-2">
+                        <label className="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-bold text-[#1a2332]" title={phase.name}>{phase.name}</label>
                         <div>
                           <DateTimeField value={reschPhaseStarts[phase.id] || ''}
                             onChange={v => setReschPhaseStarts(prev => ({ ...prev, [phase.id]: v }))}
                             style={{ padding: '6px 8px', border: `1.5px solid ${hasOverlap ? '#e74c3c' : '#ddd'}`, borderRadius: '7px', fontSize: '14px', width: '100%', boxSizing: 'border-box' as any }} />
                           {hasOverlap && prevEnd && (
-                            <div style={{ color: '#e74c3c', fontSize: '12px', marginTop: '2px' }}>
+                            <div className="mt-0.5 text-xs text-red-500">
                               ⚠️ מתחיל לפני סיום השלב הקודם ({fmtDateTimeShared(prevEnd)})
                             </div>
                           )}
@@ -3315,48 +3308,48 @@ const VersionDetail: React.FC<{
               </div>
 
               {reschError && (
-                <div style={{ background: '#fee', border: '1px solid #e74c3c', borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', color: '#c0392b', fontSize: '15px' }}>
+                <div className="mb-3 rounded-md border border-red-500 bg-red-50 px-3 py-2 text-[15px] text-[#c0392b]">
                   {reschError}
                 </div>
               )}
 
               {reschWarnings.length > 0 && (
-                <div style={{ background: '#fff8e1', border: '1px solid #f39c12', borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', fontSize: '14px', color: '#7d5200' }}>
-                  <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>⚠️ התאמות אוטומטיות — שלבים שהוזזו קדימה:</div>
+                <div className="mb-3 rounded-md border border-[#f39c12] bg-[#fff8e1] px-3 py-2 text-sm text-[#7d5200]">
+                  <div className="mb-1 font-bold">⚠️ התאמות אוטומטיות — שלבים שהוזזו קדימה:</div>
                   {reschWarnings.map((w, i) => <div key={i}>• {w}</div>)}
                 </div>
               )}
 
               {/* Preview — only overrunning tasks */}
               {reschPreview && (
-                <div style={{ marginBottom: '16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '15px', fontWeight: 'bold', color: '#1a2332' }}>
+                <div className="mb-4">
+                  <div className="mb-2 flex items-center gap-2.5">
+                    <span className="text-[15px] font-bold text-[#1a2332]">
                       תצוגה מקדימה — {reschPreview.length} משימות יעודכנו
                     </span>
                     {totalOverrunTasks > 0 ? (
-                      <span style={{ background: '#fee', color: '#c0392b', padding: '2px 10px', borderRadius: '10px', fontSize: '14px', border: '1px solid #e74c3c', fontWeight: 'bold' }}>
+                      <span className="rounded-[10px] border border-red-500 bg-red-50 px-2.5 py-0.5 text-sm font-bold text-[#c0392b]">
                         ⚠️ {totalOverrunTasks} משימות חורגות
                       </span>
                     ) : (
-                      <span style={{ background: '#d5f0dc', color: '#1a5c2a', padding: '2px 10px', borderRadius: '10px', fontSize: '14px', border: '1px solid #a9dfbf' }}>
+                      <span className="rounded-[10px] border border-green-300 bg-[#d5f0dc] px-2.5 py-0.5 text-sm text-[#1a5c2a]">
                         ✅ אין חריגות
                       </span>
                     )}
                   </div>
 
                   {totalOverrunTasks > 0 && (
-                    <div style={{ border: '1px solid #e0e0e0', borderRadius: '8px', overflow: 'hidden', maxHeight: '320px', overflowY: 'auto' }}>
+                    <div className="max-h-[320px] overflow-hidden overflow-y-auto rounded-lg border border-neutral-200">
                       {overrunPhaseOrder.map(phaseId => {
                         const tasks = overrunByPhase[phaseId];
                         const phaseEndStr = reschPhaseEnds[phaseId];
                         return (
                           <React.Fragment key={phaseId}>
                             {/* Phase header */}
-                            <div style={{ background: '#fff3e0', padding: '6px 12px', fontWeight: 'bold', fontSize: '14px', color: '#b7380a', borderBottom: '1px solid #ffe0b2', display: 'flex', justifyContent: 'space-between' }}>
+                            <div className="flex justify-between border-b border-[#ffe0b2] bg-[#fff3e0] px-3 py-1.5 text-sm font-bold text-[#b7380a]">
                               <span>{tasks[0]?.phaseName}</span>
                               {phaseEndStr && (
-                                <span style={{ fontWeight: 'normal', color: '#c0392b' }}>
+                                <span className="font-normal text-[#c0392b]">
                                   יעד סיום: {formatDateTimeShort(phaseEndStr)}
                                 </span>
                               )}
@@ -3368,17 +3361,17 @@ const VersionDetail: React.FC<{
                                 ? Math.round((new Date(u.plannedEnd).getTime() - new Date(phaseEndStr).getTime()) / 60000)
                                 : 0;
                               return (
-                                <div key={u.taskId} style={{ borderBottom: '1px solid #f5f5f5', background: isEditing ? '#fffbf0' : '#fff8f8' }}>
+                                <div key={u.taskId} className={cn('border-b border-neutral-100', isEditing ? 'bg-[#fffbf0]' : 'bg-[#fff8f8]')}>
                                   {/* Task info row */}
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 12px' }}>
-                                    <div style={{ flex: 1, fontSize: '14px' }}>
-                                      <span style={{ fontWeight: 'bold', color: '#1a2332' }}>{u.title}</span>
-                                      <span style={{ color: '#888', marginRight: '8px', fontFamily: 'monospace', fontSize: '13px' }}>
-                                        {formatDateTimeShort(u.plannedStart)} — <span style={{ color: '#c0392b', fontWeight: 'bold' }}>{formatDateTimeShort(u.plannedEnd)}</span>
+                                  <div className="flex items-center gap-2 p-[7px_12px]">
+                                    <div className="flex-1 text-sm">
+                                      <span className="font-bold text-[#1a2332]">{u.title}</span>
+                                      <span className="ms-2 font-mono text-[13px] text-neutral-500">
+                                        {formatDateTimeShort(u.plannedStart)} — <span className="font-bold text-[#c0392b]">{formatDateTimeShort(u.plannedEnd)}</span>
                                       </span>
-                                      {u.duration && <span style={{ background: '#fef9e7', color: '#b7950b', padding: '1px 5px', borderRadius: '4px', fontSize: '13px' }}>⏱ {u.duration}</span>}
+                                      {u.duration && <span className="rounded bg-[#fef9e7] px-1.5 py-0.5 text-[13px] text-[#b7950b]">⏱ {u.duration}</span>}
                                       {overrunMins > 0 && (
-                                        <span style={{ color: '#c0392b', fontSize: '13px', marginRight: '6px' }}>({overrunMins} דק' חריגה)</span>
+                                        <span className="ms-1.5 text-[13px] text-[#c0392b]">({overrunMins} דק' חריגה)</span>
                                       )}
                                     </div>
                                     <button
@@ -3386,15 +3379,15 @@ const VersionDetail: React.FC<{
                                         if (isEditing) { setReschEditingId(null); setReschEditStart(''); setReschEditDur(''); setReschEditEnd(''); }
                                         else { setReschEditingId(u.taskId); setReschEditStart(utcToLocalInputStr(u.plannedStart)); setReschEditDur(u.duration || ''); setReschEditEnd(utcToLocalInputStr(u.plannedEnd)); }
                                       }}
-                                      style={{ padding: '3px 10px', background: isEditing ? '#555' : '#e67e22', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', whiteSpace: 'nowrap' }}>
+                                      className={cn('cursor-pointer whitespace-nowrap rounded-md border-none px-2.5 py-[3px] text-[13px] text-white', isEditing ? 'bg-neutral-600' : 'bg-[#e67e22]')}>
                                       {isEditing ? '✕ סגור' : '✏️ תקן'}
                                     </button>
                                   </div>
                                   {/* Inline edit form */}
                                   {isEditing && (
-                                    <div style={{ background: '#fffde7', padding: '10px 12px', borderTop: '1px solid #ffe082', display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                                    <div className="flex flex-wrap items-end gap-2.5 border-t border-[#ffe082] bg-[#fffde7] p-[10px_12px]">
                                       <div>
-                                        <div style={{ fontSize: '13px', color: '#3498db', marginBottom: '3px', fontWeight: 'bold' }}>שעת התחלה</div>
+                                        <div className="mb-0.5 text-[13px] font-bold text-[#3498db]">שעת התחלה</div>
                                         <DateTimeField value={reschEditStart}
                                           onChange={v => {
                                             setReschEditStart(v);
@@ -3403,9 +3396,9 @@ const VersionDetail: React.FC<{
                                           }}
                                           style={{ padding: '5px 8px', border: '1.5px solid #3498db', borderRadius: '6px', fontSize: '14px' }} />
                                       </div>
-                                      <div style={{ color: '#bbb', fontWeight: 'bold', paddingBottom: '5px' }}>|</div>
+                                      <div className="pb-1 font-bold text-neutral-300">|</div>
                                       <div>
-                                        <div style={{ fontSize: '13px', color: '#666', marginBottom: '3px' }}>משך (45ד' / 1ש' 30ד')</div>
+                                        <div className="mb-0.5 text-[13px] text-neutral-600">משך (45ד' / 1ש' 30ד')</div>
                                         <input value={reschEditDur}
                                           onChange={e => {
                                             const v = e.target.value;
@@ -3414,16 +3407,16 @@ const VersionDetail: React.FC<{
                                             if (mins && mins > 0 && reschEditStart) setReschEditEnd(calcEndFromMins(reschEditStart, mins));
                                           }}
                                           placeholder="למשל: 30ד'"
-                                          style={{ padding: '5px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', width: '100px' }} />
+                                          className="w-[100px] rounded-md border border-neutral-300 px-2 py-1.5 text-sm" />
                                       </div>
-                                      <div style={{ color: '#888', fontWeight: 'bold', paddingBottom: '5px' }}>→</div>
+                                      <div className="pb-1 font-bold text-neutral-500">→</div>
                                       <div>
-                                        <div style={{ fontSize: '13px', color: '#666', marginBottom: '3px' }}>שעת סיום</div>
+                                        <div className="mb-0.5 text-[13px] text-neutral-600">שעת סיום</div>
                                         <DateTimeField value={reschEditEnd} onChange={v => setReschEditEnd(v)}
                                           style={{ padding: '5px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }} />
                                       </div>
                                       <button onClick={() => applyTaskEdit(u.taskId)}
-                                        style={{ padding: '5px 14px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>
+                                        className="cursor-pointer rounded-md border-none bg-success px-3.5 py-1.5 text-sm font-bold text-white">
                                         עדכן חישוב
                                       </button>
                                     </div>
@@ -3440,22 +3433,22 @@ const VersionDetail: React.FC<{
               )}
 
               {/* Action buttons */}
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', flexWrap: 'wrap', borderTop: '1px solid #eee', paddingTop: '14px' }}>
+              <div className="flex flex-wrap justify-end gap-2.5 border-t border-neutral-200 pt-3.5">
                 <button onClick={() => { setRescheduleOpen(false); setReschPreview(null); setReschEditingId(null); }}
-                  style={{ padding: '8px 18px', background: '#f0f0f0', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '15px' }}>
+                  className="cursor-pointer rounded-lg border-none bg-neutral-100 px-[18px] py-2 text-[15px]">
                   ביטול
                 </button>
                 <button onClick={applyPhaseStartToAllTasks} disabled={reschLoading}
-                  style={{ padding: '8px 18px', background: '#7f3fbf', color: 'white', border: 'none', borderRadius: '8px', cursor: reschLoading ? 'not-allowed' : 'pointer', fontSize: '15px' }}>
+                  className={cn('rounded-lg border-none bg-[#7f3fbf] px-[18px] py-2 text-[15px] text-white', reschLoading ? 'cursor-not-allowed' : 'cursor-pointer')}>
                   {reschLoading ? '...' : '⚡ קבע שעת שלב לכל המשימות'}
                 </button>
                 <button onClick={previewReschedule} disabled={reschLoading}
-                  style={{ padding: '8px 18px', background: '#2d4a7a', color: 'white', border: 'none', borderRadius: '8px', cursor: reschLoading ? 'not-allowed' : 'pointer', fontSize: '15px' }}>
+                  className={cn('rounded-lg border-none bg-[#2d4a7a] px-[18px] py-2 text-[15px] text-white', reschLoading ? 'cursor-not-allowed' : 'cursor-pointer')}>
                   {reschLoading ? '...' : '👁 חשב ותצוגה מקדימה'}
                 </button>
                 {reschPreview && (
                   <button onClick={applyScheduleFromPreview} disabled={reschLoading}
-                    style={{ padding: '8px 18px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '8px', cursor: reschLoading ? 'not-allowed' : 'pointer', fontSize: '15px', fontWeight: 'bold' }}>
+                    className={cn('rounded-lg border-none bg-success px-[18px] py-2 text-[15px] font-bold text-white', reschLoading ? 'cursor-not-allowed' : 'cursor-pointer')}>
                     {reschLoading ? '...' : `✅ אשר ועדכן תוכנית (${reschPreview.length} משימות)`}
                   </button>
                 )}
@@ -3499,24 +3492,24 @@ const VersionDetail: React.FC<{
         };
 
         return (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: 'white', borderRadius: '14px', padding: '28px', width: '460px', maxWidth: '95vw', boxShadow: '0 8px 32px rgba(0,0,0,0.25)', direction: 'rtl' }}>
-              <h3 style={{ margin: '0 0 6px', color: '#1a2332', fontSize: '18px' }}>💾 שמירת תבנית</h3>
-              <p style={{ margin: '0 0 20px', fontSize: '15px', color: '#666' }}>
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/45">
+            <div dir="rtl" className="w-[460px] max-w-[95vw] rounded-2xl bg-white p-7 shadow-[0_8px_32px_rgba(0,0,0,0.25)]">
+              <h3 className="m-0 mb-1.5 text-lg text-[#1a2332]">💾 שמירת תבנית</h3>
+              <p className="m-0 mb-5 text-[15px] text-neutral-600">
                 שומר עותק מלא של הגרסה כולל שמות עובדים, צוותים ותלויות.
               </p>
 
               {/* Mode selector */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
+              <div className="mb-5 flex flex-col gap-3">
                 {localTemplates.length > 0 && (
-                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', padding: '12px', border: `2px solid ${saveTemplateMode === 'update' ? '#27ae60' : '#e0e0e0'}`, borderRadius: '10px', background: saveTemplateMode === 'update' ? '#f0faf4' : 'white' }}>
-                    <input type="radio" name="tplMode" value="update" checked={saveTemplateMode === 'update'} onChange={() => setSaveTemplateMode('update')} style={{ marginTop: '2px' }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '6px' }}>🔄 עדכן תבנית קיימת</div>
+                  <label className={cn('flex cursor-pointer items-start gap-2.5 rounded-xl border-2 p-3', saveTemplateMode === 'update' ? 'border-green-500 bg-[#f0faf4]' : 'border-neutral-200 bg-white')}>
+                    <input type="radio" name="tplMode" value="update" checked={saveTemplateMode === 'update'} onChange={() => setSaveTemplateMode('update')} className="mt-0.5" />
+                    <div className="flex-1">
+                      <div className="mb-1.5 text-[15px] font-bold">🔄 עדכן תבנית קיימת</div>
                       <select
                         value={saveTemplateSelectId}
                         onChange={e => { setSaveTemplateSelectId(e.target.value); setSaveTemplateMode('update'); }}
-                        style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '6px', fontSize: '15px', boxSizing: 'border-box' }}
+                        className="box-border w-full rounded-md border border-neutral-300 p-2 text-[15px]"
                       >
                         {localTemplates.map(t => (
                           <option key={t.id} value={t.id}>{t.name}{t.description ? ` — ${t.description}` : ''}</option>
@@ -3525,27 +3518,27 @@ const VersionDetail: React.FC<{
                     </div>
                   </label>
                 )}
-                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', padding: '12px', border: `2px solid ${saveTemplateMode === 'new' ? '#2d4a7a' : '#e0e0e0'}`, borderRadius: '10px', background: saveTemplateMode === 'new' ? '#f0f4fa' : 'white' }}>
-                  <input type="radio" name="tplMode" value="new" checked={saveTemplateMode === 'new'} onChange={() => setSaveTemplateMode('new')} style={{ marginTop: '2px' }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '6px' }}>✨ צור תבנית חדשה</div>
+                <label className={cn('flex cursor-pointer items-start gap-2.5 rounded-xl border-2 p-3', saveTemplateMode === 'new' ? 'border-[#2d4a7a] bg-[#f0f4fa]' : 'border-neutral-200 bg-white')}>
+                  <input type="radio" name="tplMode" value="new" checked={saveTemplateMode === 'new'} onChange={() => setSaveTemplateMode('new')} className="mt-0.5" />
+                  <div className="flex-1">
+                    <div className="mb-1.5 text-[15px] font-bold">✨ צור תבנית חדשה</div>
                     <input
                       type="text"
                       value={saveTemplateName}
                       onChange={e => { setSaveTemplateName(e.target.value); setSaveTemplateMode('new'); }}
                       placeholder="שם התבנית החדשה"
-                      style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '6px', fontSize: '15px', boxSizing: 'border-box' }}
+                      className="box-border w-full rounded-md border border-neutral-300 p-2 text-[15px]"
                     />
                   </div>
                 </label>
               </div>
 
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                <button onClick={() => setSaveTemplateOpen(false)} style={{ padding: '10px 20px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '15px' }}>ביטול</button>
+              <div className="flex justify-end gap-2.5">
+                <button onClick={() => setSaveTemplateOpen(false)} className="cursor-pointer rounded-lg border-none bg-neutral-100 px-5 py-2.5 text-[15px] text-neutral-800">ביטול</button>
                 <button
                   onClick={doSave}
                   disabled={!canSave}
-                  style={{ padding: '10px 24px', background: canSave ? '#27ae60' : '#ccc', color: 'white', border: 'none', borderRadius: '8px', cursor: canSave ? 'pointer' : 'not-allowed', fontWeight: 'bold', fontSize: '15px' }}
+                  className={cn('rounded-lg border-none px-6 py-2.5 text-[15px] font-bold text-white', canSave ? 'cursor-pointer bg-success' : 'cursor-not-allowed bg-neutral-300')}
                 >
                   {savingTemplate ? 'שומר...' : '💾 שמור תבנית'}
                 </button>

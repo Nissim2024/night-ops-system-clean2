@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
-import { C, FONT, FONT_MONO, RADIUS, SHADOW } from '../theme';
+import { Button } from './ui';
+import { cn } from '../lib/utils';
+import { teamColor } from './shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -10,13 +12,6 @@ const PHASE_META: Record<number, { label: string; icon: string }> = {
   3: { label: 'ליל הגרסה — HOT',    icon: '🌅' },
   4: { label: 'בוקר שלאחר גרסה',  icon: '📅' },
 };
-const TEAM_PALETTE = ['#4573D2', '#9C6ADE', '#37C47A', '#E8AF00', '#F0883E', '#14B8A6', '#EC6BAD', '#6366F1'];
-function teamColor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  return TEAM_PALETTE[hash % TEAM_PALETTE.length];
-}
-
 interface Proposal {
   id: string; teamId: string; title: string; app?: string | null; actionType?: string | null;
   phase: number; subPhaseId?: string | null; crNumber?: string | null; crLabel?: string | null;
@@ -25,10 +20,11 @@ interface Proposal {
 interface SubPhaseOpt { id: string; name: string; phaseOrderIndex: number }
 interface Props { token: string; versionId: string; versionName: string; }
 
-const selectStyle: React.CSSProperties = {
-  fontSize: '12.5px', fontWeight: 600, padding: '6px 11px', borderRadius: RADIUS.full,
-  border: `1px solid ${C.borderEm}`, background: C.bgCard, color: C.textSecondary, cursor: 'pointer',
-};
+// Base look shared by every filter-bar select — a small rounded pill,
+// consistent with the compact filter chips used elsewhere in the app.
+const selectBaseClass = 'cursor-pointer rounded-full border bg-card px-[11px] py-1.5 text-[12.5px] font-semibold';
+const selectActiveClass = 'border-primary text-primary';
+const selectInactiveClass = 'border-border text-muted-foreground';
 
 export const ReleaseAssignmentView: React.FC<Props> = ({ token, versionId, versionName }) => {
   const headers = { Authorization: `Bearer ${token}` };
@@ -114,40 +110,60 @@ export const ReleaseAssignmentView: React.FC<Props> = ({ token, versionId, versi
   });
 
   if (loading) return (
-    <div style={{ textAlign: 'center', padding: '80px', color: C.textMuted, direction: 'rtl', fontFamily: FONT }}>
-      <div style={{ fontSize: '36px', marginBottom: '14px' }}>⏳</div>טוען משימות מאושרות...
+    <div dir="rtl" className="p-20 text-center text-subtle-foreground">
+      <div className="mb-3.5 text-4xl">⏳</div>טוען משימות מאושרות...
     </div>
   );
 
   return (
-    <div style={{ direction: 'rtl', fontFamily: FONT }}>
-      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, boxShadow: SHADOW.xs, borderRadius: RADIUS.lg, padding: '16px 24px', marginBottom: '16px' }}>
-        <div style={{ fontSize: '18px', fontWeight: 800, color: C.textPrimary }}>Release Plan Assignment — שיבוץ לתוכנית המאוחדת</div>
-        <div style={{ fontSize: '13.5px', color: C.textMuted, marginTop: '2px' }}>
+    <div dir="rtl">
+      <div className="mb-4 rounded-lg border border-border bg-card px-6 py-4 shadow-xs">
+        <div className="text-lg font-extrabold text-foreground">Release Plan Assignment — שיבוץ לתוכנית המאוחדת</div>
+        <div className="mt-0.5 text-[13.5px] text-subtle-foreground">
           {versionName} · משימות שאושרו על ידי מנהל הגרסה, מוכנות לשיבוץ בתוכנית העלייה המאוחדת
         </div>
       </div>
 
       {/* ── Filters ── */}
-      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
-        <select value={fPhase} onChange={e => { setFPhase(e.target.value); setFSubPhase('all'); }} style={{ ...selectStyle, color: fPhase !== 'all' ? C.brand : C.textSecondary, borderColor: fPhase !== 'all' ? C.brand : C.borderEm }}>
+      <div className="mb-3.5 flex flex-wrap gap-2">
+        <select
+          value={fPhase}
+          onChange={e => { setFPhase(e.target.value); setFSubPhase('all'); }}
+          className={cn(selectBaseClass, fPhase !== 'all' ? selectActiveClass : selectInactiveClass)}
+        >
           <option value="all">שלב: הכל</option>
           {[1, 2, 3, 4].map(ph => <option key={ph} value={ph}>{PHASE_META[ph].icon} {PHASE_META[ph].label}</option>)}
         </select>
-        <select value={fSubPhase} onChange={e => setFSubPhase(e.target.value)} disabled={fPhase === 'all'}
-          style={{ ...selectStyle, color: fSubPhase !== 'all' ? C.brand : C.textSecondary, borderColor: fSubPhase !== 'all' ? C.brand : C.borderEm, opacity: fPhase === 'all' ? 0.5 : 1 }}>
+        <select
+          value={fSubPhase}
+          onChange={e => setFSubPhase(e.target.value)}
+          disabled={fPhase === 'all'}
+          className={cn(selectBaseClass, fSubPhase !== 'all' ? selectActiveClass : selectInactiveClass, fPhase === 'all' && 'cursor-not-allowed opacity-50')}
+        >
           <option value="all">תת-שלב: הכל</option>
           {subPhaseOptionsForPhase.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
         </select>
-        <select value={fCr} onChange={e => setFCr(e.target.value)} style={{ ...selectStyle, color: fCr !== 'all' ? C.brand : C.textSecondary, borderColor: fCr !== 'all' ? C.brand : C.borderEm }}>
+        <select
+          value={fCr}
+          onChange={e => setFCr(e.target.value)}
+          className={cn(selectBaseClass, fCr !== 'all' ? selectActiveClass : selectInactiveClass)}
+        >
           <option value="all">CR: הכל</option>
           {crOptions.map(cr => <option key={cr} value={cr}>{cr}</option>)}
         </select>
-        <select value={fTeam} onChange={e => setFTeam(e.target.value)} style={{ ...selectStyle, color: fTeam !== 'all' ? C.brand : C.textSecondary, borderColor: fTeam !== 'all' ? C.brand : C.borderEm }}>
+        <select
+          value={fTeam}
+          onChange={e => setFTeam(e.target.value)}
+          className={cn(selectBaseClass, fTeam !== 'all' ? selectActiveClass : selectInactiveClass)}
+        >
           <option value="all">צוות: הכל</option>
           {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
-        <select value={fSystem} onChange={e => setFSystem(e.target.value)} style={{ ...selectStyle, color: fSystem !== 'all' ? C.brand : C.textSecondary, borderColor: fSystem !== 'all' ? C.brand : C.borderEm }}>
+        <select
+          value={fSystem}
+          onChange={e => setFSystem(e.target.value)}
+          className={cn(selectBaseClass, fSystem !== 'all' ? selectActiveClass : selectInactiveClass)}
+        >
           <option value="all">מערכת: הכל</option>
           {systemOptions.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
@@ -155,44 +171,44 @@ export const ReleaseAssignmentView: React.FC<Props> = ({ token, versionId, versi
 
       {/* ── Bulk bar ── */}
       {selected.size > 0 && (
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px',
-          background: C.brandDim, border: `1px solid ${C.brand}40`, borderRadius: RADIUS.md,
-          padding: '11px 16px', marginBottom: '14px', fontSize: '12.5px', color: C.brand, fontWeight: 600,
-        }}>
+        <div className="mb-3.5 flex items-center justify-between gap-3.5 rounded-md border border-primary/40 bg-primary-50 px-4 py-[11px] text-[12.5px] font-semibold text-primary">
           <span>
             נבחרו {selected.size} משימות
             {selectedCrNumbers.length === 1 && ` מתוך ${selectedCrNumbers[0]}`}
           </span>
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div className="flex gap-2">
             {selectedCrNumbers.length > 0 && (
-              <button onClick={convertWholeCrs} disabled={converting}
-                style={{ padding: '8px 16px', borderRadius: RADIUS.md, fontSize: '12px', fontWeight: 700, border: `1px solid ${C.brand}60`, background: 'none', color: C.brand, cursor: 'pointer' }}>
+              <Button
+                onClick={convertWholeCrs}
+                disabled={converting}
+                variant="ghost"
+                size="sm"
+                className="border border-primary/60 bg-transparent text-primary hover:bg-primary-50"
+              >
                 שיבוץ כל משימות ה-{selectedCrNumbers.length === 1 ? selectedCrNumbers[0] : 'CR-ים שנבחרו'}
-              </button>
+              </Button>
             )}
-            <button onClick={() => convert(Array.from(selected))} disabled={converting}
-              style={{ padding: '8px 16px', borderRadius: RADIUS.md, fontSize: '12px', fontWeight: 700, border: 'none', background: C.brand, color: 'white', cursor: 'pointer' }}>
+            <Button onClick={() => convert(Array.from(selected))} disabled={converting} variant="primary" size="sm">
               {converting ? 'משבץ…' : 'שיבוץ הנבחרים'}
-            </button>
+            </Button>
           </div>
         </div>
       )}
 
       {error && (
-        <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}40`, color: C.danger, borderRadius: RADIUS.md, padding: '9px 14px', fontSize: '12.5px', marginBottom: '14px' }}>{error}</div>
+        <div className="mb-3.5 rounded-md border border-danger/40 bg-danger-bg px-3.5 py-2.5 text-[12.5px] text-danger">{error}</div>
       )}
 
       {/* ── Table ── */}
-      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.xs, overflow: 'hidden', marginBottom: '20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '9px 16px', background: C.bgNested, fontSize: '10.5px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.04em' }}>
-          <span style={{ width: '16px', flexShrink: 0 }} />
-          <span style={{ width: '160px', flexShrink: 0 }}>Phase / Sub Phase</span>
-          <span style={{ width: '90px', flexShrink: 0 }}>CR</span>
-          <span style={{ flex: 1, minWidth: 0 }}>משימה</span>
-          <span style={{ width: '80px', flexShrink: 0 }}>צוות</span>
-          <span style={{ width: '80px', flexShrink: 0 }}>מערכת</span>
-          <span style={{ width: '110px', flexShrink: 0 }} />
+      <div className="mb-5 overflow-hidden rounded-lg border border-border bg-card shadow-xs">
+        <div className="flex items-center gap-3 bg-muted px-4 py-2.5 text-[10.5px] font-bold uppercase tracking-[.04em] text-subtle-foreground">
+          <span className="w-4 shrink-0" />
+          <span className="w-40 shrink-0">Phase / Sub Phase</span>
+          <span className="w-[90px] shrink-0">CR</span>
+          <span className="min-w-0 flex-1">משימה</span>
+          <span className="w-20 shrink-0">צוות</span>
+          <span className="w-20 shrink-0">מערכת</span>
+          <span className="w-[110px] shrink-0" />
         </div>
 
         {[1, 2, 3, 4].map(phase => {
@@ -201,45 +217,53 @@ export const ReleaseAssignmentView: React.FC<Props> = ({ token, versionId, versi
           const pm = PHASE_META[phase];
           return (
             <div key={phase}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px', background: C.brandDim, fontSize: '11.5px', fontWeight: 700, color: C.brand }}>
+              <div className="flex items-center gap-2.5 bg-primary-50 px-4 py-2.5 text-[11.5px] font-bold text-primary">
                 {pm.icon} {pm.label}
               </div>
               {rows.map(p => {
                 const done = !!p.usedInTaskId;
                 const subPhaseName = subPhaseOpts.find(sp => sp.id === p.subPhaseId)?.name;
                 return (
-                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderBottom: `1px solid ${C.bgNested}` }}>
-                    <span onClick={() => !done && toggle(p.id)}
-                      style={{
-                        width: '16px', height: '16px', borderRadius: '4px', flexShrink: 0,
-                        border: `1.5px solid ${done ? C.borderEm : selected.has(p.id) ? C.brand : C.borderEm}`,
-                        background: selected.has(p.id) ? C.brand : 'transparent',
-                        color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px',
-                        cursor: done ? 'default' : 'pointer', opacity: done ? 0.4 : 1,
-                      }}>
+                  <div key={p.id} className="flex items-center gap-3 border-b border-muted px-4 py-3">
+                    <span
+                      onClick={() => !done && toggle(p.id)}
+                      className={cn(
+                        'flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] text-white',
+                        'border-[1.5px]',
+                        selected.has(p.id) ? 'border-primary bg-primary' : 'border-border bg-transparent',
+                        done ? 'cursor-default opacity-40' : 'cursor-pointer',
+                      )}
+                    >
                       {selected.has(p.id) ? '✓' : ''}
                     </span>
-                    <span style={{ width: '160px', flexShrink: 0, fontSize: '11px', color: C.textMuted }}>
+                    <span className="w-40 shrink-0 text-[11px] text-subtle-foreground">
                       {pm.label}{subPhaseName ? ` · ${subPhaseName}` : ''}
                     </span>
-                    <span style={{ width: '90px', flexShrink: 0, fontFamily: FONT_MONO, fontSize: '11px', color: C.brand }}>{p.crNumber || '—'}</span>
-                    <span style={{ flex: 1, minWidth: 0, fontSize: '12.5px', fontWeight: 600, color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.title}>
+                    <span className="w-[90px] shrink-0 font-mono text-[11px] text-primary">{p.crNumber || '—'}</span>
+                    <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-foreground" title={p.title}>
                       {p.title}
                     </span>
-                    <span style={{ width: '80px', flexShrink: 0 }}>
-                      <span style={{ fontSize: '10px', fontWeight: 700, padding: '3px 9px', borderRadius: RADIUS.full, color: 'white', background: teamColor(teamName(p.teamId)) }}>
-                        {teamName(p.teamId)}
-                      </span>
+                    <span className="w-20 shrink-0">
+                      {(() => {
+                        const tColor = teamColor(teamName(p.teamId));
+                        return (
+                          <span
+                            className="rounded-full px-2.5 py-[3px] text-[10px] font-bold"
+                            style={{ background: tColor.bg, color: tColor.color }}
+                          >
+                            {teamName(p.teamId)}
+                          </span>
+                        );
+                      })()}
                     </span>
-                    <span style={{ width: '80px', flexShrink: 0, fontSize: '11px', color: C.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.app || '—'}</span>
-                    <span style={{ width: '110px', flexShrink: 0 }}>
+                    <span className="w-20 shrink-0 truncate text-[11px] text-subtle-foreground">{p.app || '—'}</span>
+                    <span className="w-[110px] shrink-0">
                       {done ? (
-                        <span style={{ padding: '6px 13px', borderRadius: RADIUS.sm, fontSize: '11px', fontWeight: 700, background: C.successBg, color: C.success }}>✓ שובץ</span>
+                        <span className="rounded-sm bg-success-bg px-3 py-1.5 text-[11px] font-bold text-success">✓ שובץ</span>
                       ) : (
-                        <button onClick={() => convert([p.id])} disabled={converting}
-                          style={{ padding: '6px 13px', borderRadius: RADIUS.sm, fontSize: '11px', fontWeight: 700, border: `1px solid ${C.borderEm}`, background: C.bgCard, color: C.textSecondary, cursor: 'pointer' }}>
+                        <Button onClick={() => convert([p.id])} disabled={converting} variant="secondary" size="sm" className="text-[11px]">
                           שבץ לתוכנית
-                        </button>
+                        </Button>
                       )}
                     </span>
                   </div>
@@ -250,19 +274,18 @@ export const ReleaseAssignmentView: React.FC<Props> = ({ token, versionId, versi
         })}
 
         {filtered.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '40px 20px', color: C.textDisabled }}>
-            <div style={{ fontSize: '28px', marginBottom: '10px' }}>📥</div>
-            <div style={{ fontSize: '15px' }}>אין משימות מאושרות התואמות את הסינון</div>
+          <div className="p-10 text-center text-subtle-foreground">
+            <div className="mb-2.5 text-[28px]">📥</div>
+            <div className="text-base">אין משימות מאושרות התואמות את הסינון</div>
           </div>
         )}
       </div>
 
       {assignable.length > 0 && (
-        <div style={{ textAlign: 'center' }}>
-          <button onClick={() => convert(assignable.map(p => p.id))} disabled={converting}
-            style={{ padding: '10px 24px', borderRadius: RADIUS.md, fontSize: '14px', fontWeight: 700, border: 'none', background: C.success, color: 'white', cursor: 'pointer' }}>
+        <div className="text-center">
+          <Button onClick={() => convert(assignable.map(p => p.id))} disabled={converting} variant="success" size="lg">
             {converting ? 'משבץ…' : `🚀 שבץ את כל ${assignable.length} המשימות המסוננות`}
-          </button>
+          </Button>
         </div>
       )}
     </div>

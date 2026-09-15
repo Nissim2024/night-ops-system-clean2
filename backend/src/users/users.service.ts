@@ -325,7 +325,22 @@ export class UsersService {
 
     for (const qcUser of qcUsers) {
       const emailLower = qcUser.email.toLowerCase();
-      if (adminEmailsLower.includes(emailLower)) continue;
+      if (adminEmailsLower.includes(emailLower)) {
+        // Admin accounts stay protected from the rest of sync (never
+        // created/renamed/deactivated here — see delete() and the
+        // deactivation loop below) — but they can still be real QC users,
+        // and need a qcLogin to use the QC REST write-back tools
+        // (qc-rest.service.ts) same as anyone else. Skipping this `continue`
+        // entirely meant no admin could ever get qcLogin populated by sync
+        // (bug found 2026-09-15).
+        if (qcUser.userName) {
+          await prisma.user.updateMany({
+            where: { email: { equals: qcUser.email, mode: 'insensitive' } },
+            data: { qcLogin: qcUser.userName },
+          });
+        }
+        continue;
+      }
 
       const existing = await prisma.user.findFirst({
         where: { email: { equals: qcUser.email, mode: 'insensitive' } },

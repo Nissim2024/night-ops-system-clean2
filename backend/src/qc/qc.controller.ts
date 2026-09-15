@@ -131,6 +131,20 @@ export class QcController {
     return this.qcRestService.updateStatus(id, status, req.user.email ?? req.user.sub ?? 'DeployCenter', req.user.sub);
   }
 
+  // ── Stage-0 de-risk (2026-09-15): can this QC instance's REST API create
+  // Release + Release Cycle at all? Both probes are read-only.
+  @Get('rest-test/entity-fields/:type')
+  async probeEntityFields(@Request() req: any, @Param('type') type: string) {
+    await this.requireQcWrite(req);
+    return this.qcRestService.probeEntityFields(type, req.user.sub);
+  }
+
+  @Get('rest-test/releases')
+  async listRestReleases(@Request() req: any) {
+    await this.requireQcWrite(req);
+    return this.qcRestService.listReleasesRest(req.user.sub);
+  }
+
   // ── Defect attachments (spec confirmed 2026-09-03) — read-only, so no
   // action:qc_write gate: any authenticated user with a linked qcLogin can
   // view/download whatever their own QC account is allowed to see (access

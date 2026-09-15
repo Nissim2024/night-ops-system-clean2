@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { DeployCenterLogo } from './DeployCenterLogo';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
-import { Button, TextField, Alert, Spinner } from './ui';
+import { C } from '../theme';
+import { TextField, Alert, Spinner } from './ui';
+import { cn } from '../lib/utils';
 import pkg from '../../package.json';
 const APP_VERSION: string = pkg.version;
 
@@ -41,93 +42,74 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
     }
   };
 
+  const isSubmitDisabled = loading || !username || !password;
+
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: C.bgApp,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontFamily: FONT,
-      direction: 'rtl',
-      position: 'relative',
-      overflow: 'hidden',
-    }}>
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background [direction:rtl]">
       {/* Animated background */}
-      <div style={{
-        position: 'fixed', inset: 0, pointerEvents: 'none',
-        backgroundImage: `
+      <div
+        className="pointer-events-none fixed inset-0"
+        style={{
+          backgroundImage: `
           radial-gradient(ellipse 80% 50% at 20% 40%, rgba(56,139,253,0.06) 0%, transparent 60%),
           radial-gradient(ellipse 60% 40% at 80% 60%, rgba(56,139,253,0.04) 0%, transparent 60%),
           radial-gradient(circle at 1px 1px, rgba(56,139,253,0.05) 1px, transparent 0)
         `,
-        backgroundSize: 'auto, auto, 36px 36px',
-      }} />
+          backgroundSize: 'auto, auto, 36px 36px',
+        }}
+      />
 
       {/* Glowing orb */}
-      <div style={{
-        position: 'fixed', top: '-120px', left: '50%', transform: 'translateX(-50%)',
-        width: '600px', height: '400px', pointerEvents: 'none',
-        background: 'radial-gradient(ellipse at center, rgba(56,139,253,0.08) 0%, transparent 70%)',
-        filter: 'blur(40px)',
-      }} />
+      <div
+        className="pointer-events-none fixed top-[-120px] left-1/2 h-[400px] w-[600px] -translate-x-1/2"
+        style={{
+          background: 'radial-gradient(ellipse at center, rgba(56,139,253,0.08) 0%, transparent 70%)',
+          filter: 'blur(40px)',
+        }}
+      />
 
       {/* Test env indicator */}
       {IS_TEST && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0,
-          background: 'linear-gradient(135deg, rgba(227,179,65,0.15), rgba(227,179,65,0.08))',
-          borderBottom: `1px solid rgba(227,179,65,0.25)`,
-          padding: '8px 20px',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: SP[2],
-          ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.warning, letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-        }}>
+        <div
+          className="fixed inset-x-0 top-0 flex items-center justify-center gap-2 px-5 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-warning"
+          style={{
+            background: 'linear-gradient(135deg, rgba(227,179,65,0.15), rgba(227,179,65,0.08))',
+            borderBottom: '1px solid rgba(227,179,65,0.25)',
+          }}
+        >
           <span>⚡</span> סביבת בדיקות (Test Environment)
         </div>
       )}
 
       {/* Login card */}
-      <div style={{
-        position: 'relative', zIndex: 1,
-        background: `linear-gradient(160deg, ${C.bgCard} 0%, rgba(13,17,23,0.95) 100%)`,
-        borderRadius: RADIUS['2xl'],
-        padding: '48px',
-        width: '420px',
-        border: `1px solid ${C.borderEm}`,
-        boxShadow: SHADOW.floating,
-        opacity: mounted ? 1 : 0,
-        transform: mounted ? 'translateY(0)' : 'translateY(20px)',
-        transition: 'opacity 0.4s ease, transform 0.4s cubic-bezier(0.34,1.56,0.64,1)',
-      }}>
+      <div
+        className={cn(
+          'relative z-10 w-[420px] rounded-2xl border border-border p-12 shadow-xl transition-[opacity,transform] duration-slow ease-spring',
+          mounted ? 'translate-y-0 opacity-100' : 'translate-y-5 opacity-0'
+        )}
+        style={{ background: `linear-gradient(160deg, ${C.bgCard} 0%, rgba(13,17,23,0.95) 100%)` }}
+      >
         {/* Logo & branding */}
-        <div style={{ textAlign: 'center', marginBottom: '36px' }}>
+        <div className="mb-9 text-center">
           <DeployCenterLogo variant="login" />
-          <div style={{ marginTop: SP[3], ...TEXT.sm, color: C.textMuted, letterSpacing: '0.02em' }}>
+          <div className="mt-3 text-sm tracking-[0.02em] text-subtle-foreground">
             מערכת ניהול ליל ההטמעה
           </div>
-          <div style={{
-            width: '40px', height: '2px', margin: `${SP[3]} auto 0`,
-            background: `linear-gradient(90deg, transparent, ${C.brand}, transparent)`,
-            borderRadius: RADIUS.full,
-          }} />
+          <div
+            className="mx-auto mt-3 h-0.5 w-10 rounded-full"
+            style={{ background: `linear-gradient(90deg, transparent, ${C.brand}, transparent)` }}
+          />
         </div>
 
         {/* AD badge */}
         {ldapEnabled && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: SP[2],
-            background: C.brandDim, border: `1px solid rgba(56,139,253,0.30)`,
-            borderRadius: RADIUS.lg, padding: `${SP[2]} ${SP[3]}`,
-            marginBottom: SP[5],
-            ...TEXT.sm, color: C.textLink,
-          }}>
+          <div className="mb-5 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary-50 px-3 py-2 text-sm text-info">
             <span>🔒</span>
-            <span style={{ fontWeight: WEIGHT.medium }}>כניסה דרך Active Directory</span>
+            <span className="font-medium">כניסה דרך Active Directory</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <TextField
             label={ldapEnabled ? 'שם משתמש (AD)' : 'אימייל'}
             type={ldapEnabled ? 'text' : 'email'}
@@ -170,23 +152,14 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
 
           <button
             type="submit"
-            disabled={loading || !username || !password}
-            style={{
-              fontFamily: FONT,
-              ...TEXT.md, fontWeight: WEIGHT.semibold,
-              padding: '13px',
-              background: loading || !username || !password
-                ? C.bgHover
-                : `linear-gradient(135deg, ${C.brand} 0%, #2563eb 100%)`,
-              color: loading || !username || !password ? C.textMuted : 'white',
-              border: `1px solid ${loading || !username || !password ? C.borderEm : 'transparent'}`,
-              borderRadius: RADIUS.lg,
-              cursor: loading || !username || !password ? 'not-allowed' : 'pointer',
-              transition: EASE.standard,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: SP[2],
-              boxShadow: !loading && username && password ? `0 4px 14px rgba(56,139,253,0.35)` : undefined,
-              marginTop: SP[1],
-            }}
+            disabled={isSubmitDisabled}
+            className={cn(
+              'mt-1 flex items-center justify-center gap-2 rounded-lg p-[13px] text-md font-semibold transition-[background,color,box-shadow,border-color] duration-base ease-out',
+              isSubmitDisabled
+                ? 'cursor-not-allowed border border-border bg-muted text-subtle-foreground'
+                : 'cursor-pointer border border-transparent text-white shadow-[0_4px_14px_rgba(56,139,253,0.35)]'
+            )}
+            style={!isSubmitDisabled ? { background: `linear-gradient(135deg, ${C.brand} 0%, #2563eb 100%)` } : undefined}
           >
             {loading ? (
               <><Spinner size={16} color="currentColor" /> מתחבר...</>
@@ -202,13 +175,8 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
         </form>
 
         {/* Footer */}
-        <div style={{
-          marginTop: SP[6], paddingTop: SP[4], borderTop: `1px solid ${C.border}`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          gap: SP[2],
-          ...TEXT.xs, color: C.textDisabled,
-        }}>
-          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: C.success, display: 'inline-block' }} />
+        <div className="mt-6 flex items-center justify-center gap-2 border-t border-border pt-4 text-xs text-subtle-foreground">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-success" />
           DeployCenter v{APP_VERSION} · מאובטח
         </div>
       </div>

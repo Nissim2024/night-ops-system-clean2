@@ -1,8 +1,9 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { usePermissions } from '../context/PermissionsContext';
-import { C, FONT, SHADOW, statusColor, statusBg, severityColor, severityBg, severityLabel } from '../theme';
+import { C, statusColor, statusBg, severityColor, severityBg, severityLabel } from '../theme';
+import { cn } from '../lib/utils';
 import { formatDateTime, formatTime } from '../utils/dateFormat';
 import { FocusModeModal } from './FocusModeModal';
 
@@ -45,39 +46,39 @@ const GoNoGoPanel: React.FC<GoNoPanelProps> = ({ env, label, status, details, en
   const canCheck = envTasks.length > 0;
   const unwaived = failedTasks.filter((t: any) => !t.goNoGoWaived);
   const waived = failedTasks.filter((t: any) => t.goNoGoWaived);
-  const rehearsalBorder = isRehearsal ? '1px solid rgba(139,92,246,0.40)' : `1px solid ${C.border}`;
   return (
-    <div style={{ background: isRehearsal ? 'rgba(124,58,237,0.07)' : C.bgNested, borderRadius: '10px', padding: '16px', border: rehearsalBorder, minWidth: '280px', flex: 1 }}>
+    <div
+      className="rounded-[10px] p-4 min-w-[280px] flex-1 border"
+      style={{ background: isRehearsal ? 'rgba(124,58,237,0.07)' : C.bgNested, borderColor: isRehearsal ? 'rgba(139,92,246,0.40)' : C.border }}>
       {isRehearsal && (
-        <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#7c3aed', background: 'rgba(124,58,237,0.12)', padding: '3px 10px', borderRadius: '20px', display: 'inline-block', marginBottom: '8px', border: '1px solid rgba(124,58,237,0.30)' }}>
+        <div className="text-[13px] font-bold rounded-[20px] inline-block mb-2 py-[3px] px-2.5 border" style={{ color: '#7c3aed', background: 'rgba(124,58,237,0.12)', borderColor: 'rgba(124,58,237,0.30)' }}>
           🎭 חזרה גנרלית
         </div>
       )}
-      <div style={{ fontWeight: 'bold', color: C.textPrimary, marginBottom: '10px', fontSize: '15px' }}>{label}</div>
-      <div style={{ fontSize: '14px', color: C.textMuted, marginBottom: '10px' }}>
+      <div className="font-bold text-foreground mb-2.5 text-[15px]">{label}</div>
+      <div className="text-sm text-subtle-foreground mb-2.5">
         {envTasks.length} משימות · {envTasks.filter((t: any) => t.status === 'DONE').length} הושלמו
       </div>
       <button
         onClick={() => canCheck && onCheck(env)}
         disabled={!canCheck}
+        className={cn('py-2.5 px-5 font-bold text-[15px] border-none rounded-lg w-full', canCheck ? 'cursor-pointer' : 'cursor-not-allowed')}
         style={{
-          padding: '10px 20px', fontWeight: 'bold', fontSize: '15px', border: 'none', borderRadius: '8px',
-          cursor: canCheck ? 'pointer' : 'not-allowed', fontFamily: FONT,
           background: !canCheck ? C.bgHover : status === 'go' ? C.statusDone : status === 'nogo' ? C.statusFailed : isRehearsal ? '#8b5cf6' : C.brand,
-          color: !canCheck ? C.textDisabled : 'white', width: '100%',
+          color: !canCheck ? C.textDisabled : 'white',
         }}
       >
         {status === 'checking' ? 'בודק...' : status === 'go' ? (isRehearsal ? '✅ GO — חזרה!' : '✅ GO!') : status === 'nogo' ? '❌ NO GO' : isRehearsal ? 'בדוק GO/NO GO (חזרה)' : 'בדוק GO/NO GO'}
       </button>
       {status === 'go' && (
-        <div style={{ marginTop: '10px', background: C.bgDone, borderRadius: '6px', padding: '8px 12px', color: C.statusDone, fontWeight: 'bold', fontSize: '15px', border: `1px solid ${C.statusDone}44` }}>
+        <div className="mt-2.5 rounded-md py-2 px-3 font-bold text-[15px] border" style={{ background: C.bgDone, color: C.statusDone, borderColor: `${C.statusDone}44` }}>
           {isRehearsal ? `✅ חזרה הצליחה ב-${label}!` : `כל משימות ${label} הושלמו — ניתן להמשיך!`}
         </div>
       )}
       {status === 'nogo' && details && (
-        <div style={{ marginTop: '10px', background: C.bgBlocked, borderRadius: '6px', padding: '8px 12px', color: C.statusFailed, fontSize: '15px', border: `1px solid ${C.statusFailed}44` }}>
+        <div className="mt-2.5 rounded-md py-2 px-3 text-[15px] border" style={{ background: C.bgBlocked, color: C.statusFailed, borderColor: `${C.statusFailed}44` }}>
           {(details as any).missingByEnv?.length > 0 && (
-            <div style={{ marginBottom: '6px' }}>
+            <div className="mb-1.5">
               {(details as any).missingByEnv.map((line: string, i: number) => (
                 <div key={i}>⚠️ {line}</div>
               ))}
@@ -85,21 +86,21 @@ const GoNoGoPanel: React.FC<GoNoPanelProps> = ({ env, label, status, details, en
           )}
           {details.blocked > 0 && <div>{details.blocked} משימות חסומות/נכשלו</div>}
           {details.blockedNoReason?.length > 0 && (
-            <div style={{ marginTop: '6px', borderTop: `1px solid ${C.statusFailed}44`, paddingTop: '6px' }}>
-              <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>⚠️ חסומות ללא סיבה:</div>
+            <div className="mt-1.5 pt-1.5 border-t" style={{ borderColor: `${C.statusFailed}44` }}>
+              <div className="font-bold mb-1">⚠️ חסומות ללא סיבה:</div>
               {details.blockedNoReason.map((title: string, i: number) => (
-                <div key={i} style={{ fontSize: '14px' }}>• {title}</div>
+                <div key={i} className="text-sm">• {title}</div>
               ))}
             </div>
           )}
           {(details as any).incompleteTasks?.length > 0 && (
-            <div style={{ marginTop: '6px', borderTop: `1px solid ${C.statusFailed}44`, paddingTop: '6px' }}>
-              <div style={{ fontWeight: 'bold', marginBottom: '4px', fontSize: '14px' }}>⏳ משימות שטרם הושלמו:</div>
+            <div className="mt-1.5 pt-1.5 border-t" style={{ borderColor: `${C.statusFailed}44` }}>
+              <div className="font-bold mb-1 text-sm">⏳ משימות שטרם הושלמו:</div>
               {(details as any).incompleteTasks.map((t: any, i: number) => (
-                <div key={i} style={{ fontSize: '13px', marginBottom: '3px', display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  <span style={{ background: C.statusFailed + '22', color: C.statusFailed, padding: '1px 5px', borderRadius: '4px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>{t.status}</span>
-                  <span style={{ flex: 1 }}>{t.title}</span>
-                  <span style={{ color: C.textMuted, whiteSpace: 'nowrap' }}>{t.team}</span>
+                <div key={i} className="text-[13px] mb-[3px] flex gap-1.5 items-center">
+                  <span className="rounded font-bold whitespace-nowrap py-px px-[5px]" style={{ background: C.statusFailed + '22', color: C.statusFailed }}>{t.status}</span>
+                  <span className="flex-1">{t.title}</span>
+                  <span className="text-subtle-foreground whitespace-nowrap">{t.team}</span>
                 </div>
               ))}
             </div>
@@ -107,50 +108,50 @@ const GoNoGoPanel: React.FC<GoNoPanelProps> = ({ env, label, status, details, en
         </div>
       )}
       {isManager && failedTasks.length > 0 && (
-        <div style={{ marginTop: '12px', borderTop: `1px solid ${C.border}`, paddingTop: '10px' }}>
-          <div style={{ fontSize: '14px', fontWeight: 'bold', color: C.statusFailed, marginBottom: '6px' }}>
+        <div className="mt-3 pt-2.5 border-t border-border">
+          <div className="text-sm font-bold mb-1.5" style={{ color: C.statusFailed }}>
             ⚠️ משימות נכשלות ({failedTasks.length})
           </div>
           {unwaived.map((t: any) => (
-            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', background: C.bgBlocked, borderRadius: '6px', padding: '4px 8px' }}>
-              <span style={{ flex: 1, fontSize: '14px', color: C.statusFailed }}>{t.title}</span>
+            <div key={t.id} className="flex items-center gap-1.5 mb-1 rounded-md py-1 px-2" style={{ background: C.bgBlocked }}>
+              <span className="flex-1 text-sm" style={{ color: C.statusFailed }}>{t.title}</span>
               <button onClick={() => onRequestWaive?.(t.id, t.title)}
-                style={{ padding: '2px 8px', fontSize: '13px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                className="py-0.5 px-2 text-[13px] text-white border-none rounded cursor-pointer whitespace-nowrap" style={{ background: '#8b5cf6' }}>
                 ✓ אשר דילוג
               </button>
             </div>
           ))}
           {waived.length > 0 && (
-            <div style={{ marginTop: '4px' }}>
-              <div style={{ fontSize: '13px', color: C.textMuted, marginBottom: '3px' }}>מאושרים לדילוג:</div>
+            <div className="mt-1">
+              <div className="text-[13px] text-subtle-foreground mb-[3px]">מאושרים לדילוג:</div>
               {waived.map((t: any) => (
-                <div key={t.id} style={{ marginBottom: '3px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: C.bgDone, borderRadius: '6px', padding: '3px 8px' }}>
-                    <span style={{ flex: 1, fontSize: '14px', color: C.statusDone }}>✓ {t.title}</span>
+                <div key={t.id} className="mb-[3px]">
+                  <div className="flex items-center gap-1.5 rounded-md py-[3px] px-2" style={{ background: C.bgDone }}>
+                    <span className="flex-1 text-sm" style={{ color: C.statusDone }}>✓ {t.title}</span>
                     <button onClick={() => onToggleHistory?.(t.id)}
                       title="היסטוריית דילוגים"
-                      style={{ padding: '2px 6px', fontSize: '12px', background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: '4px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      className="py-0.5 px-1.5 text-xs bg-transparent text-subtle-foreground border border-border rounded cursor-pointer whitespace-nowrap">
                       🕐
                     </button>
                     <button onClick={() => onWaive?.(t.id)}
-                      style={{ padding: '2px 6px', fontSize: '12px', background: C.bgHover, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: '4px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      className="py-0.5 px-1.5 text-xs text-subtle-foreground border border-border rounded cursor-pointer whitespace-nowrap" style={{ background: C.bgHover }}>
                       בטל
                     </button>
                   </div>
                   {historyOpenId === t.id && (
-                    <div style={{ marginTop: '3px', marginRight: '8px', padding: '6px 10px', background: C.bgNested, borderRadius: '6px', border: `1px solid ${C.border}` }}>
+                    <div className="mt-[3px] me-2 py-1.5 px-2.5 rounded-md border border-border" style={{ background: C.bgNested }}>
                       {!historyData?.[t.id] ? (
-                        <div style={{ fontSize: '13px', color: C.textMuted }}>טוען...</div>
+                        <div className="text-[13px] text-subtle-foreground">טוען...</div>
                       ) : historyData[t.id].length === 0 ? (
-                        <div style={{ fontSize: '13px', color: C.textMuted }}>אין היסטוריה</div>
+                        <div className="text-[13px] text-subtle-foreground">אין היסטוריה</div>
                       ) : (
                         historyData[t.id].map((h: any) => (
-                          <div key={h.id} style={{ fontSize: '13px', color: C.textSecondary, marginBottom: '4px' }}>
+                          <div key={h.id} className="text-[13px] text-muted-foreground mb-1">
                             <div>
                               <strong>{h.action === 'GO_NOGO_WAIVED' ? '✓ אושר דילוג' : '↩ בוטל דילוג'}</strong>
                               {' '}ע"י {h.user?.fullName ?? '?'} · {formatDateTime(h.createdAt)}
                             </div>
-                            {h.afterData?.reason && <div style={{ color: C.textMuted }}>סיבה: {h.afterData.reason}</div>}
+                            {h.afterData?.reason && <div className="text-subtle-foreground">סיבה: {h.afterData.reason}</div>}
                           </div>
                         ))
                       )}
@@ -502,54 +503,52 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
   };
 
   if (loading) return (
-    <div style={{ textAlign: 'center', padding: '60px', color: C.textMuted, fontFamily: FONT }}>
+    <div className="text-center p-[60px] text-subtle-foreground">
       טוען War Room...
     </div>
   );
 
   return (
-    <div style={{ direction: 'rtl', fontFamily: FONT }}>
+    <div>
 
       {/* באנר חזרה גנרלית */}
       {isRehearsal && (
-        <div style={{ background: 'linear-gradient(135deg, #6d28d9 0%, #8b5cf6 100%)', borderRadius: '10px', padding: '12px 20px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px', color: 'white' }}>
-          <span style={{ fontSize: '28px' }}>🎭</span>
+        <div className="rounded-[10px] py-3 px-5 mb-4 flex items-center gap-3 text-white" style={{ background: 'linear-gradient(135deg, #6d28d9 0%, #8b5cf6 100%)' }}>
+          <span className="text-[28px]">🎭</span>
           <div>
-            <div style={{ fontWeight: 'bold', fontSize: '17px' }}>מצב חזרה גנרלית</div>
-            <div style={{ fontSize: '15px', opacity: 0.9 }}>סימולציה של לילה אמיתי — בסיום ניתן להוציא סיכום ולאפס את הגרסה ל"מאושר"</div>
+            <div className="font-bold text-[17px]">מצב חזרה גנרלית</div>
+            <div className="text-[15px] opacity-90">סימולציה של לילה אמיתי — בסיום ניתן להוציא סיכום ולאפס את הגרסה ל"מאושר"</div>
           </div>
         </div>
       )}
 
       {/* כותרת */}
-      <div style={{
-        background: isRehearsal
-          ? 'linear-gradient(135deg, #4c1d95 0%, #7c3aed 100%)'
-          : C.bgCard,
-        borderRadius: '12px', padding: '24px', marginBottom: '20px',
-        border: isRehearsal ? `1px solid rgba(139,92,246,0.50)` : `1px solid ${C.border}`,
-        boxShadow: SHADOW.sm,
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div
+        className="rounded-xl p-6 mb-5 border shadow-sm"
+        style={{
+          background: isRehearsal ? 'linear-gradient(135deg, #4c1d95 0%, #7c3aed 100%)' : C.bgCard,
+          borderColor: isRehearsal ? 'rgba(139,92,246,0.50)' : C.border,
+        }}>
+        <div className="flex justify-between items-center">
           <div>
-            <h2 style={{ margin: '0 0 4px', fontSize: '22px', color: isRehearsal ? 'white' : C.textPrimary }}>
+            <h2 className="m-0 mb-1 text-[22px]" style={{ color: isRehearsal ? 'white' : C.textPrimary }}>
               {isRehearsal ? '🎭 ' : ''}War Room —{' '}
               <span
                 onClick={onGoToHub}
                 title={onGoToHub ? 'עבור לדף הנחיתה' : undefined}
-                style={{ cursor: onGoToHub ? 'pointer' : 'default', textDecoration: onGoToHub ? 'underline dotted' : 'none' }}
+                className={cn(onGoToHub ? 'cursor-pointer underline decoration-dotted' : 'cursor-default no-underline')}
               >{versionName}</span>
             </h2>
-            <p style={{ margin: 0, fontSize: '15px', color: isRehearsal ? 'rgba(255,255,255,0.75)' : C.textMuted }}>
+            <p className="m-0 text-[15px]" style={{ color: isRehearsal ? 'rgba(255,255,255,0.75)' : C.textMuted }}>
               {isRehearsal ? 'חזרה גנרלית — בזמן אמת' : 'מבט-על בזמן אמת'}
             </p>
             {version?.reviewMeetingTime && (
-              <p style={{ margin: '4px 0 0', color: isRehearsal ? 'rgba(255,255,255,0.90)' : C.info, fontSize: '15px', fontWeight: '600' }}>
+              <p className="mt-1 mb-0 text-[15px] font-semibold" style={{ color: isRehearsal ? 'rgba(255,255,255,0.90)' : C.info }}>
                 🗓 ישיבת מעבר: {formatDateTime(version.reviewMeetingTime)}
               </p>
             )}
           </div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div className="flex gap-2 items-center">
             {isManager && (
               <button
                 disabled={pushToggling}
@@ -561,29 +560,17 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                   } catch {} finally { setPushToggling(false); }
                 }}
                 title={pushEnabled ? 'כבה התראות Push לכולם' : 'הפעל התראות Push לכולם'}
-                style={{
-                  padding: '7px 14px', borderRadius: '8px', cursor: pushToggling ? 'not-allowed' : 'pointer',
-                  fontSize: '15px', fontWeight: 'bold', border: 'none', fontFamily: FONT,
-                  background: pushEnabled ? C.successBg : C.dangerBg,
-                  color: pushEnabled ? C.statusDone : C.statusFailed,
-                }}>
+                className={cn('py-1.5 px-3.5 rounded-lg text-[15px] font-bold border-none', pushToggling ? 'cursor-not-allowed' : 'cursor-pointer')}
+                style={{ background: pushEnabled ? C.successBg : C.dangerBg, color: pushEnabled ? C.statusDone : C.statusFailed }}>
                 {pushEnabled ? '🔔 Push פעיל' : '🔕 Push כבוי'}
               </button>
             )}
             {version?.phases?.length > 0 && (
-              <button onClick={() => setFocusMode(true)} style={{
-                padding: '7px 16px', background: C.brand, color: 'white',
-                border: 'none', borderRadius: '8px', cursor: 'pointer',
-                fontSize: '15px', fontFamily: FONT, fontWeight: 'bold',
-              }}>
+              <button onClick={() => setFocusMode(true)} className="py-1.5 px-4 text-white border-none rounded-lg cursor-pointer text-[15px] font-bold" style={{ background: C.brand }}>
                 ⚡ מצב הרצה{focusTasks.length > 0 ? ` (${focusTasks.length})` : ''}
               </button>
             )}
-            <button onClick={() => fetchData()} style={{
-              padding: '7px 16px', background: C.bgNested, color: C.textSecondary,
-              border: `1px solid ${C.borderEm}`, borderRadius: '8px', cursor: 'pointer',
-              fontSize: '15px', fontFamily: FONT,
-            }}>
+            <button onClick={() => fetchData()} className="py-1.5 px-4 bg-muted text-muted-foreground rounded-lg cursor-pointer text-[15px] border" style={{ borderColor: C.borderEm }}>
               רענן
             </button>
           </div>
@@ -593,13 +580,13 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
         {(() => {
           const phases = [...(version?.phases ?? [])].sort((a: any, b: any) => a.orderIndex - b.orderIndex);
           if (phases.length === 0 || totalTasks === 0) return (
-            <div style={{ marginTop: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '15px', color: isRehearsal ? 'rgba(255,255,255,0.80)' : C.textSecondary }}>
+            <div className="mt-5">
+              <div className="flex justify-between mb-1.5 text-[15px]" style={{ color: isRehearsal ? 'rgba(255,255,255,0.80)' : C.textSecondary }}>
                 <span>התקדמות כללית</span>
                 <span>{doneTasks}/{totalTasks} משימות ({progressPercent}%)</span>
               </div>
-              <div style={{ background: isRehearsal ? 'rgba(0,0,0,0.20)' : C.bgHover, borderRadius: '8px', height: '10px', overflow: 'hidden' }}>
-                <div style={{ background: progressPercent === 100 ? C.statusDone : C.brand, width: `${progressPercent}%`, height: '100%', borderRadius: '8px', transition: 'width 0.5s ease' }} />
+              <div className="rounded-lg h-2.5 overflow-hidden" style={{ background: isRehearsal ? 'rgba(0,0,0,0.20)' : C.bgHover }}>
+                <div className="h-full rounded-lg transition-[width] duration-500 ease-in-out" style={{ background: progressPercent === 100 ? C.statusDone : C.brand, width: `${progressPercent}%` }} />
               </div>
             </div>
           );
@@ -616,32 +603,38 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
           }).filter((p: any) => p.total > 0);
           const totalAll = phaseStats.reduce((s: number, p: any) => s + p.total, 0);
           return (
-            <div style={{ marginTop: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '15px', color: isRehearsal ? 'rgba(255,255,255,0.80)' : C.textSecondary }}>
+            <div className="mt-5">
+              <div className="flex justify-between mb-1.5 text-[15px]" style={{ color: isRehearsal ? 'rgba(255,255,255,0.80)' : C.textSecondary }}>
                 <span>התקדמות כללית</span>
                 <span>{doneTasks}/{totalTasks} משימות ({progressPercent}%)</span>
               </div>
               {/* Segmented bar */}
-              <div style={{ display: 'flex', gap: '2px', height: '12px', borderRadius: '8px', overflow: 'hidden', background: isRehearsal ? 'rgba(0,0,0,0.20)' : C.bgHover }}>
+              <div className="flex gap-0.5 h-3 rounded-lg overflow-hidden" style={{ background: isRehearsal ? 'rgba(0,0,0,0.20)' : C.bgHover }}>
                 {phaseStats.map((p: any, i: number) => {
                   const segWidth = totalAll > 0 ? (p.total / totalAll) * 100 : 0;
                   const fillColor = p.isDone ? C.statusDone : p.isActive ? C.statusInProgress : C.brand;
                   const fillPct = p.pct * 100;
                   return (
-                    <div key={p.id} title={`${p.name}: ${p.done}/${p.total}`} style={{ flex: `${segWidth} 0 0%`, position: 'relative', background: isRehearsal ? 'rgba(255,255,255,0.08)' : C.bgHover, borderLeft: i > 0 ? `2px solid ${isRehearsal ? 'rgba(0,0,0,0.3)' : C.bgApp}` : 'none', overflow: 'hidden' }}>
-                      <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${fillPct}%`, background: fillColor, transition: 'width 0.5s ease' }} />
+                    <div key={p.id} title={`${p.name}: ${p.done}/${p.total}`}
+                      className="relative overflow-hidden"
+                      style={{
+                        flex: `${segWidth} 0 0%`,
+                        background: isRehearsal ? 'rgba(255,255,255,0.08)' : C.bgHover,
+                        borderInlineStart: i > 0 ? `2px solid ${isRehearsal ? 'rgba(0,0,0,0.3)' : C.bgApp}` : 'none',
+                      }}>
+                      <div className="absolute inset-y-0 start-0 h-full transition-[width] duration-500 ease-in-out" style={{ width: `${fillPct}%`, background: fillColor }} />
                     </div>
                   );
                 })}
               </div>
               {/* Phase labels */}
-              <div style={{ display: 'flex', gap: '2px', marginTop: '5px' }}>
+              <div className="flex gap-0.5 mt-[5px]">
                 {phaseStats.map((p: any) => {
                   const segWidth = totalAll > 0 ? (p.total / totalAll) * 100 : 0;
                   const labelColor = p.isDone ? C.statusDone : p.isActive ? C.statusInProgress : isRehearsal ? 'rgba(255,255,255,0.45)' : C.textDisabled;
                   return (
-                    <div key={p.id} title={`${p.name}: ${p.done}/${p.total}`} style={{ flex: `${segWidth} 0 0%`, overflow: 'hidden', textAlign: 'center' }}>
-                      <span style={{ fontSize: '12px', color: labelColor, whiteSpace: 'nowrap', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div key={p.id} title={`${p.name}: ${p.done}/${p.total}`} className="overflow-hidden text-center" style={{ flex: `${segWidth} 0 0%` }}>
+                      <span className="text-xs whitespace-nowrap block overflow-hidden text-ellipsis" style={{ color: labelColor }}>
                         {p.isActive ? '▶ ' : p.isDone ? '✓ ' : ''}{p.name} {p.done}/{p.total}
                       </span>
                     </div>
@@ -652,7 +645,7 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
           );
         })()}
 
-        <div style={{ display: 'flex', gap: '10px', marginTop: '16px', flexWrap: 'wrap' }}>
+        <div className="flex gap-2.5 mt-4 flex-wrap">
           {[
             { label: 'הושלמו', value: doneTasks,                                              color: C.statusDone },
             { label: 'בביצוע', value: inProgressTasks,                                        color: C.statusInProgress },
@@ -661,13 +654,10 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
             { label: 'חסומות', value: blockedTasks,                                            color: C.statusBlocked },
             { label: 'סה"כ',  value: totalTasks,                                              color: isRehearsal ? 'white' : C.textPrimary },
           ].map(stat => (
-            <div key={stat.label} style={{
-              background: isRehearsal ? 'rgba(0,0,0,0.20)' : C.bgNested,
-              borderRadius: '8px', padding: '10px 14px', textAlign: 'center', minWidth: '70px',
-              border: `1px solid ${isRehearsal ? 'rgba(255,255,255,0.12)' : C.border}`,
-            }}>
-              <div style={{ fontSize: '22px', fontWeight: 'bold', color: stat.color }}>{stat.value}</div>
-              <div style={{ fontSize: '13px', color: isRehearsal ? 'rgba(255,255,255,0.65)' : C.textMuted }}>{stat.label}</div>
+            <div key={stat.label} className="rounded-lg py-2.5 px-3.5 text-center min-w-[70px] border"
+              style={{ background: isRehearsal ? 'rgba(0,0,0,0.20)' : C.bgNested, borderColor: isRehearsal ? 'rgba(255,255,255,0.12)' : C.border }}>
+              <div className="text-[22px] font-bold" style={{ color: stat.color }}>{stat.value}</div>
+              <div className="text-[13px]" style={{ color: isRehearsal ? 'rgba(255,255,255,0.65)' : C.textMuted }}>{stat.label}</div>
             </div>
           ))}
         </div>
@@ -675,12 +665,12 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
 
       {/* GO/NO GO — מפוצל לפי סביבה */}
       {(can('action:gonogo') || isManager) && !hideGoNogo && (
-        <div style={{ background: isRehearsal ? 'rgba(124,58,237,0.06)' : C.bgCard, borderRadius: '12px', padding: '20px', marginBottom: '20px', border: isRehearsal ? '1px solid rgba(139,92,246,0.28)' : `1px solid ${C.border}` }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-            <h3 style={{ margin: 0, color: isRehearsal ? '#7c3aed' : C.textPrimary, fontSize: '16px' }}>GO / NO GO — {isRehearsal ? 'חזרה גנרלית' : 'לפי סביבה'}</h3>
-            {isRehearsal && <span style={{ fontSize: '14px', color: '#7c3aed', background: 'rgba(124,58,237,0.10)', padding: '2px 10px', borderRadius: '20px', border: '1px solid rgba(124,58,237,0.25)' }}>אינו מחליף GO/NO GO אמיתי</span>}
+        <div className="rounded-xl p-5 mb-5 border" style={{ background: isRehearsal ? 'rgba(124,58,237,0.06)' : C.bgCard, borderColor: isRehearsal ? 'rgba(139,92,246,0.28)' : C.border }}>
+          <div className="flex items-center gap-2.5 mb-4">
+            <h3 className="m-0 text-base" style={{ color: isRehearsal ? '#7c3aed' : C.textPrimary }}>GO / NO GO — {isRehearsal ? 'חזרה גנרלית' : 'לפי סביבה'}</h3>
+            {isRehearsal && <span className="text-sm rounded-[20px] py-0.5 px-2.5 border" style={{ color: '#7c3aed', background: 'rgba(124,58,237,0.10)', borderColor: 'rgba(124,58,237,0.25)' }}>אינו מחליף GO/NO GO אמיתי</span>}
           </div>
-          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+          <div className="flex gap-4 flex-wrap">
             <GoNoGoPanel env="HOTNET" label="פעילות לילה — HOTNET" status={goStatus['HOTNET']} details={goDetails['HOTNET']} envTasks={getEnvTasks('HOTNET')} onCheck={checkGoForEnv}
               failedTasks={getGoRequiredTasks('HOTNET').filter(t => t.status === 'FAILED')} onWaive={waiveTask}
               onRequestWaive={(id, title) => { setWaivingTask({ id, title }); setWaivingReason(''); }}
@@ -696,17 +686,16 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
       )}
 
       {/* בחירת תצוגה */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+      <div className="flex gap-2 mb-5">
         {[
           { key: 'overview',   label: '👥 סקירת צוותים' },
           { key: 'connected',  label: `🟢 מחוברים (${onlineUsers.length})` },
           { key: 'plan',       label: '📋 תוכנית ביצוע' },
         ].map(tab => (
           <button key={tab.key} onClick={() => setPlanView(tab.key as any)}
+            className="py-2.5 px-5 font-bold text-[15px] rounded-lg cursor-pointer border"
             style={{
-              padding: '10px 20px', fontWeight: 'bold', fontSize: '15px', borderRadius: '8px', cursor: 'pointer',
-              fontFamily: FONT,
-              border: planView === tab.key ? `1px solid ${C.brand}` : `1px solid ${C.border}`,
+              borderColor: planView === tab.key ? C.brand : C.border,
               background: planView === tab.key ? C.brandDim : C.bgNested,
               color: planView === tab.key ? C.textPrimary : C.textSecondary,
             }}>
@@ -718,17 +707,17 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
       {/* תוכנית ביצוע */}
       {planView === 'plan' && (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <h3 style={{ margin: 0, color: C.textPrimary, fontSize: '16px' }}>תוכנית ביצוע</h3>
-            <div style={{ display: 'flex', gap: '8px' }}>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="m-0 text-base text-foreground">תוכנית ביצוע</h3>
+            <div className="flex gap-2">
               <button
                 onClick={() => setCollapsedPhases(new Set(version?.phases?.map((p: any) => p.id) ?? []))}
-                style={{ padding: '6px 14px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '15px', color: C.textSecondary, fontFamily: FONT }}>
+                className="py-1.5 px-3.5 bg-muted border border-border rounded-md cursor-pointer text-[15px] text-muted-foreground">
                 ▶ קפל הכל
               </button>
               <button
                 onClick={() => setCollapsedPhases(new Set())}
-                style={{ padding: '6px 14px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '15px', color: C.textSecondary, fontFamily: FONT }}>
+                className="py-1.5 px-3.5 bg-muted border border-border rounded-md cursor-pointer text-[15px] text-muted-foreground">
                 ▼ פתח הכל
               </button>
             </div>
@@ -739,53 +728,50 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
             const phaseDone = phaseTasks.filter((t: any) => t.status === 'DONE').length;
             const isCollapsed = collapsedPhases.has(phase.id);
             return (
-              <div key={phase.id} style={{ background: C.bgCard, borderRadius: '12px', padding: '16px 20px', marginBottom: '12px', border: `1px solid ${C.border}` }}>
+              <div key={phase.id} className="bg-card rounded-xl py-4 px-5 mb-3 border border-border">
                 <div onClick={() => setCollapsedPhases(prev => { const n = new Set(prev); n.has(phase.id) ? n.delete(phase.id) : n.add(phase.id); return n; })}
-                  style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', marginBottom: isCollapsed ? 0 : '12px' }}>
-                  <span style={{ fontSize: '14px', color: C.textMuted }}>{isCollapsed ? '►' : '▼'}</span>
-                  <span style={{ background: envStyle.bg, color: envStyle.color, padding: '2px 8px', borderRadius: '4px', fontSize: '14px', fontWeight: 'bold' }}>{phase.environment}</span>
-                  <span style={{ fontWeight: 'bold', color: C.textPrimary, fontSize: '16px' }}>{phase.name}</span>
-                  <span style={{ fontSize: '14px', color: phaseDone === phaseTasks.length && phaseTasks.length > 0 ? C.statusDone : C.textMuted, fontWeight: 'bold' }}>
+                  className={cn('flex items-center gap-2.5 cursor-pointer', isCollapsed ? 'mb-0' : 'mb-3')}>
+                  <span className="text-sm text-subtle-foreground">{isCollapsed ? '►' : '▼'}</span>
+                  <span className="py-0.5 px-2 rounded text-sm font-bold" style={{ background: envStyle.bg, color: envStyle.color }}>{phase.environment}</span>
+                  <span className="font-bold text-foreground text-base">{phase.name}</span>
+                  <span className="text-sm font-bold" style={{ color: phaseDone === phaseTasks.length && phaseTasks.length > 0 ? C.statusDone : C.textMuted }}>
                     {phaseDone}/{phaseTasks.length} ✓
                   </span>
                 </div>
                 {!isCollapsed && phase.subPhases?.map((sub: any) => {
                   const subDone = (sub.tasks ?? []).filter((t: any) => t.status === 'DONE').length;
                   return (
-                    <div key={sub.id} style={{ marginBottom: '10px', paddingRight: '16px', borderRight: `3px solid ${C.borderEm}` }}>
-                      <div style={{ fontWeight: 'bold', color: C.textSecondary, fontSize: '15px', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div key={sub.id} className="mb-2.5 ps-4 border-s-[3px]" style={{ borderColor: C.borderEm }}>
+                      <div className="font-bold text-muted-foreground text-[15px] mb-1.5 flex items-center gap-2">
                         {sub.name}
-                        <span style={{ fontSize: '13px', color: C.textMuted, fontWeight: 'normal' }}>{subDone}/{sub.tasks?.length ?? 0}</span>
+                        <span className="text-[13px] text-subtle-foreground font-normal">{subDone}/{sub.tasks?.length ?? 0}</span>
                       </div>
                       {(sub.tasks ?? []).map((task: any) => {
                         const statusDef = TASK_STATUSES.find(s => s.value === task.status) ?? TASK_STATUSES[0];
                         const isBlocked = task.status === 'BLOCKED' || task.status === 'FAILED';
                         return (
-                          <div key={task.id} style={{
-                            background: isBlocked ? C.bgBlocked : C.bgNested,
-                            borderRadius: '8px', padding: '8px 12px', marginBottom: '4px',
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px',
-                            borderRight: `3px solid ${statusDef.color}`,
-                            border: `1px solid ${isBlocked ? C.statusFailed + '44' : C.border}`,
-                            borderRightWidth: '3px',
-                          }}>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontWeight: task.status === 'IN_PROGRESS' ? 'bold' : 'normal', color: C.textPrimary, fontSize: '15px' }}>{task.title}</div>
-                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
+                          <div key={task.id}
+                            className="rounded-lg py-2 px-3 mb-1 flex justify-between items-center gap-2 border-s-[3px]"
+                            style={{
+                              background: isBlocked ? C.bgBlocked : C.bgNested,
+                              borderInlineStartColor: statusDef.color,
+                              border: `1px solid ${isBlocked ? C.statusFailed + '44' : C.border}`,
+                              borderInlineStartWidth: '3px',
+                            }}>
+                            <div className="flex-1 min-w-0">
+                              <div className={cn('text-[15px] text-foreground', task.status === 'IN_PROGRESS' ? 'font-bold' : 'font-normal')}>{task.title}</div>
+                              <div className="flex gap-1.5 flex-wrap mt-0.5">
                                 {task.assignedUserName && (
-                                  <span style={{ fontSize: '13px', color: C.textMuted, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                  <span className="text-[13px] text-subtle-foreground flex items-center gap-[3px]">
                                     👤 {task.assignedUserName}
                                     {task.assignedUserId && !subscribedUserIds.includes(task.assignedUserId) && (
-                                      <span title="משתמש לא מנוי להתראות — שקול להתקשר" style={{
-                                        background: C.statusFailed, color: 'white', borderRadius: '4px',
-                                        padding: '0 4px', fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap',
-                                      }}>📵 להתקשר</span>
+                                      <span title="משתמש לא מנוי להתראות — שקול להתקשר" className="text-white rounded py-0 px-1 text-xs font-bold whitespace-nowrap" style={{ background: C.statusFailed }}>📵 להתקשר</span>
                                     )}
                                   </span>
                                 )}
-                                {task.assignedTeam?.name && <span style={{ fontSize: '13px', color: C.textMuted }}>👥 {task.assignedTeam.name}</span>}
-                                {task.duration && <span style={{ fontSize: '13px', color: C.statusInProgress }}>⏱ {task.duration}</span>}
-                                {task.blockedReason && <span style={{ fontSize: '13px', color: C.statusFailed }}>סיבה: {task.blockedReason}</span>}
+                                {task.assignedTeam?.name && <span className="text-[13px] text-subtle-foreground">👥 {task.assignedTeam.name}</span>}
+                                {task.duration && <span className="text-[13px]" style={{ color: C.statusInProgress }}>⏱ {task.duration}</span>}
+                                {task.blockedReason && <span className="text-[13px]" style={{ color: C.statusFailed }}>סיבה: {task.blockedReason}</span>}
                               </div>
                             </div>
                             <select
@@ -793,12 +779,8 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                               disabled={updatingTaskId === task.id}
                               title={blockedPhaseTaskIds.has(task.id) ? 'השלב הקודם טרם הסתיים — פתיחה/התחלה חסומות' : undefined}
                               onChange={e => updateTaskStatus(task.id, e.target.value)}
-                              style={{
-                                padding: '4px 8px', borderRadius: '6px', border: `2px solid ${statusDef.color}`,
-                                fontSize: '14px', fontWeight: 'bold', color: statusDef.color,
-                                background: statusDef.color + '22', cursor: 'pointer', minWidth: '90px',
-                                fontFamily: FONT,
-                              }}>
+                              className="py-1 px-2 rounded-md text-sm font-bold cursor-pointer min-w-[90px] border-2"
+                              style={{ borderColor: statusDef.color, color: statusDef.color, background: statusDef.color + '22' }}>
                               {TASK_STATUSES.map(s => (
                                 <option key={s.value} value={s.value}
                                   disabled={['OPEN', 'IN_PROGRESS'].includes(s.value) && blockedPhaseTaskIds.has(task.id)}
@@ -812,7 +794,8 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                                 onClick={() => rollbackTaskStatus(task.id)}
                                 disabled={updatingTaskId === task.id}
                                 title={`החזר ל-${ROLLBACK_MAP[task.status]}`}
-                                style={{ padding: '4px 8px', borderRadius: '6px', border: `1px solid #e67e22`, background: 'rgba(230,126,34,0.12)', color: '#e67e22', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap', fontWeight: 'bold', fontFamily: FONT }}>
+                                className="py-1 px-2 rounded-md text-sm whitespace-nowrap font-bold cursor-pointer border"
+                                style={{ borderColor: '#e67e22', background: 'rgba(230,126,34,0.12)', color: '#e67e22' }}>
                                 ◀ החזר
                               </button>
                             )}
@@ -883,39 +866,35 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
           const uProgress   = uTotal > 0 ? Math.round((uDone / uTotal) * 100) : 0;
 
           return (
-            <div key={key} style={{
-              background: C.bgCard, borderRadius: '12px', padding: '20px',
-              border: uBlocked > 0 ? `2px solid ${C.statusFailed}` : `1px solid ${C.border}`,
-              ...cardStyle,
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div key={key} className="bg-card rounded-xl p-5 border" style={{ borderColor: uBlocked > 0 ? C.statusFailed : C.border, borderWidth: uBlocked > 0 ? '2px' : '1px', ...cardStyle }}>
+              <div className="flex justify-between items-center mb-3">
+                <div className="flex items-center gap-2">
                   {dot}
-                  <h4 style={{ margin: 0, color: C.textPrimary, fontSize: '16px' }}>{name}</h4>
+                  <h4 className="m-0 text-foreground text-base">{name}</h4>
                 </div>
                 {uBlocked > 0 && (
-                  <span style={{ background: C.bgBlocked, color: C.statusFailed, padding: '2px 8px', borderRadius: '12px', fontSize: '14px', fontWeight: 'bold' }}>
+                  <span className="rounded-xl text-sm font-bold py-0.5 px-2" style={{ background: C.bgBlocked, color: C.statusFailed }}>
                     {uBlocked} חסום
                   </span>
                 )}
               </div>
 
               {uTotal === 0 ? (
-                <div style={{ background: C.bgNested, borderRadius: '8px', padding: '10px 14px', color: C.textMuted, fontSize: '15px', textAlign: 'center' }}>
+                <div className="rounded-lg py-2.5 px-3.5 text-subtle-foreground text-[15px] text-center" style={{ background: C.bgNested }}>
                   ללא משימות בגרסה
                 </div>
               ) : (
                 <>
-                  <div style={{ marginBottom: '12px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: C.textMuted, marginBottom: '4px' }}>
+                  <div className="mb-3">
+                    <div className="flex justify-between text-sm text-subtle-foreground mb-1">
                       <span>{uDone}/{uTotal} משימות</span>
                       <span>{uProgress}%</span>
                     </div>
-                    <div style={{ background: C.bgHover, borderRadius: '4px', height: '8px', overflow: 'hidden' }}>
-                      <div style={{ background: uProgress === 100 ? C.statusDone : C.brand, width: `${uProgress}%`, height: '100%', borderRadius: '4px', transition: 'width 0.3s' }} />
+                    <div className="rounded h-2 overflow-hidden" style={{ background: C.bgHover }}>
+                      <div className="h-full rounded transition-[width] duration-300" style={{ background: uProgress === 100 ? C.statusDone : C.brand, width: `${uProgress}%` }} />
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  <div className="flex gap-1.5 flex-wrap">
                     {[
                       { label: 'הושלם', value: uDone,       color: C.statusDone },
                       { label: 'בביצוע', value: uInProgress, color: C.statusInProgress },
@@ -923,24 +902,24 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                       { label: 'ממתין',  value: uWaiting,    color: C.statusWaiting },
                       { label: 'חסום',   value: uBlocked,    color: C.statusBlocked },
                     ].filter(s => s.value > 0).map(s => (
-                      <span key={s.label} style={{ background: s.color + '22', color: s.color, padding: '2px 8px', borderRadius: '12px', fontSize: '14px', fontWeight: 'bold' }}>
+                      <span key={s.label} className="rounded-xl text-sm font-bold py-0.5 px-2" style={{ background: s.color + '22', color: s.color }}>
                         {s.value} {s.label}
                       </span>
                     ))}
                   </div>
                   {uInProgress > 0 && (
-                    <div style={{ marginTop: '10px', borderTop: `1px solid ${C.border}`, paddingTop: '8px' }}>
+                    <div className="mt-2.5 pt-2 border-t border-border">
                       {userTasks.filter(t => t.status === 'IN_PROGRESS').map(t => (
-                        <div key={t.id} style={{ fontSize: '14px', color: C.statusInProgress, display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
+                        <div key={t.id} className="text-sm flex items-center gap-1 mb-0.5" style={{ color: C.statusInProgress }}>
                           <span>▶</span> {t.title}
                         </div>
                       ))}
                     </div>
                   )}
                   {uBlocked > 0 && (
-                    <div style={{ marginTop: '6px' }}>
+                    <div className="mt-1.5">
                       {userTasks.filter(t => t.status === 'BLOCKED').map(t => (
-                        <div key={t.id} style={{ fontSize: '14px', color: C.statusFailed, display: 'flex', alignItems: 'flex-start', gap: '4px', marginBottom: '2px' }}>
+                        <div key={t.id} className="text-sm flex items-start gap-1 mb-0.5" style={{ color: C.statusFailed }}>
                           <span>⛔</span>
                           <span>{t.title}{t.blockedReason ? ` — ${t.blockedReason}` : ''}</span>
                         </div>
@@ -955,32 +934,32 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
 
         return (
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
-              <h3 style={{ margin: 0, color: C.textPrimary, fontSize: '16px' }}>משתתפי התוכנית</h3>
-              <div style={{ display: 'flex', gap: '16px', fontSize: '15px', color: C.textMuted }}>
-                <span><span style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%', background: C.statusDone, marginLeft: '4px', boxShadow: `0 0 5px ${C.statusDone}` }} />מחובר ({inPlanOnline.length})</span>
-                <span><span style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%', background: C.statusFailed, marginLeft: '4px' }} />לא מחובר ({inPlanOffline.length})</span>
-                {notInPlan.length > 0 && <span><span style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%', background: C.textDisabled, marginLeft: '4px' }} />מחובר ללא משימות ({notInPlan.length})</span>}
+            <div className="flex items-center gap-5 mb-5 flex-wrap">
+              <h3 className="m-0 text-foreground text-base">משתתפי התוכנית</h3>
+              <div className="flex gap-4 text-[15px] text-subtle-foreground">
+                <span><span className="inline-block w-2.5 h-2.5 rounded-full me-1" style={{ background: C.statusDone, boxShadow: `0 0 5px ${C.statusDone}` }} />מחובר ({inPlanOnline.length})</span>
+                <span><span className="inline-block w-2.5 h-2.5 rounded-full me-1" style={{ background: C.statusFailed }} />לא מחובר ({inPlanOffline.length})</span>
+                {notInPlan.length > 0 && <span><span className="inline-block w-2.5 h-2.5 rounded-full me-1" style={{ background: C.textDisabled }} />מחובר ללא משימות ({notInPlan.length})</span>}
               </div>
             </div>
 
             {planUsers.length === 0 && onlineUsers.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '60px', color: C.textMuted, background: C.bgCard, borderRadius: '12px', border: `1px solid ${C.border}` }}>
-                <div style={{ fontSize: '40px', marginBottom: '12px' }}>👥</div>
-                <div style={{ fontSize: '17px' }}>אין משתמשים מחוברים כרגע</div>
+              <div className="text-center py-[60px] text-subtle-foreground bg-card rounded-xl border border-border">
+                <div className="text-4xl mb-3">👥</div>
+                <div className="text-[17px]">אין משתמשים מחוברים כרגע</div>
               </div>
             ) : (
               <>
                 {inPlanOnline.length > 0 && (
-                  <div style={{ marginBottom: '24px' }}>
-                    <div style={{ fontSize: '15px', fontWeight: 600, color: C.statusDone, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: C.statusDone, display: 'inline-block' }} />
+                  <div className="mb-6">
+                    <div className="text-[15px] font-semibold mb-2.5 flex items-center gap-1.5" style={{ color: C.statusDone }}>
+                      <span className="w-2 h-2 rounded-full inline-block" style={{ background: C.statusDone }} />
                       מחוברים ובתוכנית
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+                    <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
                       {inPlanOnline.map(u => renderUserCard(
                         u.name, u.key,
-                        <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: C.statusDone, display: 'inline-block', flexShrink: 0, boxShadow: `0 0 6px ${C.statusDone}` }} />,
+                        <span className="w-2.5 h-2.5 rounded-full inline-block shrink-0" style={{ background: C.statusDone, boxShadow: `0 0 6px ${C.statusDone}` }} />,
                         {},
                       ))}
                     </div>
@@ -988,15 +967,15 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                 )}
 
                 {inPlanOffline.length > 0 && (
-                  <div style={{ marginBottom: '24px' }}>
-                    <div style={{ fontSize: '15px', fontWeight: 600, color: C.statusFailed, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: C.statusFailed, display: 'inline-block' }} />
+                  <div className="mb-6">
+                    <div className="text-[15px] font-semibold mb-2.5 flex items-center gap-1.5" style={{ color: C.statusFailed }}>
+                      <span className="w-2 h-2 rounded-full inline-block" style={{ background: C.statusFailed }} />
                       בתוכנית — לא מחובר
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+                    <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
                       {inPlanOffline.map(u => renderUserCard(
                         u.name, u.key,
-                        <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: C.bgHover, border: `2px solid ${C.statusFailed}`, display: 'inline-block', flexShrink: 0 }} />,
+                        <span className="w-2.5 h-2.5 rounded-full inline-block shrink-0 border-2" style={{ background: C.bgHover, borderColor: C.statusFailed }} />,
                         { opacity: 0.85, borderColor: C.statusFailed, borderWidth: '2px' },
                       ))}
                     </div>
@@ -1005,14 +984,14 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
 
                 {notInPlan.length > 0 && (
                   <div>
-                    <div style={{ fontSize: '15px', fontWeight: 600, color: C.textMuted, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: C.textDisabled, display: 'inline-block' }} />
+                    <div className="text-[15px] font-semibold mb-2.5 flex items-center gap-1.5" style={{ color: C.textMuted }}>
+                      <span className="w-2 h-2 rounded-full inline-block" style={{ background: C.textDisabled }} />
                       מחוברים — לא חלק מהתוכנית
                     </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                    <div className="flex flex-wrap gap-2.5">
                       {notInPlan.map(u => (
-                        <div key={u.userId} style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: '8px', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '8px', color: C.textMuted, fontSize: '15px' }}>
-                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: C.textDisabled, display: 'inline-block' }} />
+                        <div key={u.userId} className="bg-muted border border-border rounded-lg py-2 px-3.5 flex items-center gap-2 text-subtle-foreground text-[15px]">
+                          <span className="w-2 h-2 rounded-full inline-block" style={{ background: C.textDisabled }} />
                           {u.fullName}
                         </div>
                       ))}
@@ -1027,11 +1006,11 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
 
       {planView === 'overview' && <>
       {/* כרטיסיות צוותים */}
-      <h3 style={{ color: C.textPrimary, marginBottom: '16px', fontSize: '16px' }}>
+      <h3 className="text-foreground mb-4 text-base">
         סטטוס צוותים
-        {onTeamClick && <span style={{ fontSize: '14px', color: C.textMuted, fontWeight: 'normal', marginRight: '8px' }}>— לחץ על שם הצוות לפרטי משימות</span>}
+        {onTeamClick && <span className="text-sm text-subtle-foreground font-normal me-2">— לחץ על שם הצוות לפרטי משימות</span>}
       </h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
         {teams.map(team => {
           const stats = getTeamStats(team.id);
           if (stats.total === 0) return null;
@@ -1042,15 +1021,13 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
           return (
             <div key={team.id}
               onClick={() => setSelectedTeam(isSelected ? null : team.id)}
-              style={{
-                background: C.bgCard, borderRadius: '12px', padding: '20px',
-                border: hasAlert ? `2px solid ${C.statusFailed}` : isSelected ? `2px solid ${C.brand}` : `1px solid ${C.border}`,
-                cursor: 'pointer', transition: 'all 0.2s',
-              }}>
+              className="bg-card rounded-xl p-5 cursor-pointer transition-all duration-200 border"
+              style={{ borderColor: hasAlert ? C.statusFailed : isSelected ? C.brand : C.border, borderWidth: hasAlert || isSelected ? '2px' : '1px' }}>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div className="flex justify-between items-center mb-3">
                 <h4
-                  style={{ margin: 0, color: onTeamClick ? C.brand : C.textPrimary, textDecoration: onTeamClick ? 'underline' : 'none', cursor: onTeamClick ? 'pointer' : 'default', fontSize: '16px' }}
+                  className={cn('m-0 text-base', onTeamClick ? 'underline cursor-pointer' : 'no-underline cursor-default')}
+                  style={{ color: onTeamClick ? C.brand : C.textPrimary }}
                   onClick={e => {
                     if (onTeamClick) {
                       e.stopPropagation();
@@ -1060,24 +1037,24 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                 >
                   {team.name}
                 </h4>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  {stats.failed > 0 && <span style={{ background: C.bgFailed, color: C.statusFailed, padding: '2px 8px', borderRadius: '12px', fontSize: '14px', fontWeight: 'bold' }}>{stats.failed} נכשל</span>}
-                  {stats.blocked > 0 && <span style={{ background: C.bgBlocked, color: C.statusBlocked, padding: '2px 8px', borderRadius: '12px', fontSize: '14px', fontWeight: 'bold' }}>{stats.blocked} חסום</span>}
-                  <span style={{ fontSize: '15px', color: C.textMuted }}>{isSelected ? '▲' : '▼'}</span>
+                <div className="flex gap-1.5 items-center">
+                  {stats.failed > 0 && <span className="rounded-xl text-sm font-bold py-0.5 px-2" style={{ background: C.bgFailed, color: C.statusFailed }}>{stats.failed} נכשל</span>}
+                  {stats.blocked > 0 && <span className="rounded-xl text-sm font-bold py-0.5 px-2" style={{ background: C.bgBlocked, color: C.statusBlocked }}>{stats.blocked} חסום</span>}
+                  <span className="text-[15px] text-subtle-foreground">{isSelected ? '▲' : '▼'}</span>
                 </div>
               </div>
 
-              <div style={{ marginBottom: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: C.textMuted, marginBottom: '4px' }}>
+              <div className="mb-3">
+                <div className="flex justify-between text-sm text-subtle-foreground mb-1">
                   <span>{stats.done}/{stats.total}</span>
                   <span>{teamProgress}%</span>
                 </div>
-                <div style={{ background: C.bgHover, borderRadius: '4px', height: '8px', overflow: 'hidden' }}>
-                  <div style={{ background: teamProgress === 100 ? C.statusDone : C.brand, width: `${teamProgress}%`, height: '100%', borderRadius: '4px', transition: 'width 0.3s' }} />
+                <div className="rounded h-2 overflow-hidden" style={{ background: C.bgHover }}>
+                  <div className="h-full rounded transition-[width] duration-300" style={{ background: teamProgress === 100 ? C.statusDone : C.brand, width: `${teamProgress}%` }} />
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <div className="flex gap-2 flex-wrap">
                 {[
                   { label: 'הושלם', value: stats.done,       color: C.statusDone },
                   { label: 'בביצוע', value: stats.inProgress, color: C.statusInProgress },
@@ -1085,20 +1062,20 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                   { label: 'ממתין', value: stats.waiting,     color: C.statusWaiting },
                   { label: 'נכשל',  value: stats.failed,      color: C.statusFailed },
                 ].filter(s => s.value > 0).map(s => (
-                  <span key={s.label} style={{ background: s.color + '22', color: s.color, padding: '2px 8px', borderRadius: '12px', fontSize: '14px', fontWeight: 'bold' }}>
+                  <span key={s.label} className="rounded-xl text-sm font-bold py-0.5 px-2" style={{ background: s.color + '22', color: s.color }}>
                     {s.value} {s.label}
                   </span>
                 ))}
               </div>
 
               {team.members && team.members.length > 0 && (
-                <div style={{ marginTop: '12px', borderTop: `1px solid ${C.border}`, paddingTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                <div className="mt-3 pt-2.5 border-t border-border flex flex-wrap gap-2">
                   {team.members.map((m: any) => {
                     const isOnline = onlineUsers.some(u => u.userId === m.user?.id);
                     return (
-                      <div key={m.user?.id} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: isOnline ? C.statusDone : C.bgHover, border: isOnline ? 'none' : `1px solid ${C.border}`, display: 'inline-block', flexShrink: 0 }} />
-                        <span style={{ fontSize: '14px', color: isOnline ? C.textPrimary : C.textMuted, fontWeight: isOnline ? '600' : 'normal' }}>
+                      <div key={m.user?.id} className="flex items-center gap-[5px]">
+                        <span className={cn('w-2 h-2 rounded-full inline-block shrink-0', isOnline ? 'border-none' : 'border')} style={{ background: isOnline ? C.statusDone : C.bgHover, borderColor: C.border }} />
+                        <span className={cn('text-sm', isOnline ? 'font-semibold' : 'font-normal')} style={{ color: isOnline ? C.textPrimary : C.textMuted }}>
                           {m.user?.fullName}
                         </span>
                       </div>
@@ -1108,31 +1085,28 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
               )}
 
               {isSelected && (
-                <div style={{ marginTop: '16px', borderTop: `1px solid ${C.border}`, paddingTop: '12px' }}>
-                  <h5 style={{ margin: '0 0 8px', color: C.textSecondary, fontSize: '15px' }}>משימות פעילות:</h5>
+                <div className="mt-4 pt-3 border-t border-border">
+                  <h5 className="mb-2 mt-0 text-muted-foreground text-[15px]">משימות פעילות:</h5>
                   {allTasks.filter(t => t.assignedTeamId === team.id && t.status !== 'DONE' && t.status !== 'WAITING').length === 0 ? (
-                    <div style={{ fontSize: '15px', color: C.textMuted }}>אין משימות פעילות כרגע</div>
+                    <div className="text-[15px] text-subtle-foreground">אין משימות פעילות כרגע</div>
                   ) : (
                     allTasks
                       .filter(t => t.assignedTeamId === team.id && t.status !== 'DONE' && t.status !== 'WAITING')
                       .map(task => (
-                        <div key={task.id} style={{ background: C.bgNested, borderRadius: '6px', padding: '8px 12px', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: `1px solid ${C.border}` }}>
+                        <div key={task.id} className="rounded-md py-2 px-3 mb-1.5 flex justify-between items-center border border-border" style={{ background: C.bgNested }}>
                           <div>
-                            <div style={{ fontSize: '15px', fontWeight: 'bold', color: C.textPrimary }}>{task.title}</div>
-                            {task.assignedUserName && <div style={{ fontSize: '13px', color: C.textMuted }}>👤 {task.assignedUserName}</div>}
+                            <div className="text-[15px] font-bold text-foreground">{task.title}</div>
+                            {task.assignedUserName && <div className="text-[13px] text-subtle-foreground">👤 {task.assignedUserName}</div>}
                             {task.plannedStart && (
-                              <div style={{ fontSize: '13px', color: C.statusInProgress }}>
+                              <div className="text-[13px]" style={{ color: C.statusInProgress }}>
                                 {formatTime(task.plannedStart)}
                                 {task.plannedEnd && ` — ${formatTime(task.plannedEnd)}`}
                               </div>
                             )}
-                            {task.blockedReason && <div style={{ fontSize: '13px', color: C.statusFailed, marginTop: '2px' }}>סיבה: {task.blockedReason}</div>}
+                            {task.blockedReason && <div className="text-[13px] mt-0.5" style={{ color: C.statusFailed }}>סיבה: {task.blockedReason}</div>}
                           </div>
-                          <span style={{
-                            fontSize: '13px', padding: '2px 8px', borderRadius: '8px', fontWeight: 'bold', whiteSpace: 'nowrap',
-                            background: statusBg(task.status),
-                            color: statusColor(task.status),
-                          }}>
+                          <span className="text-[13px] py-0.5 px-2 rounded-lg font-bold whitespace-nowrap"
+                            style={{ background: statusBg(task.status), color: statusColor(task.status) }}>
                             {task.status === 'IN_PROGRESS' ? 'בביצוע' : task.status === 'BLOCKED' ? 'חסום' : 'פתוח'}
                           </span>
                         </div>
@@ -1147,24 +1121,24 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
 
       {/* משימות חסומות */}
       {blockedTasks > 0 && (
-        <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', marginTop: '20px', border: `2px solid ${C.statusFailed}` }}>
-          <h3 style={{ margin: '0 0 16px', color: C.statusFailed, fontSize: '16px' }}>משימות חסומות — דורשות טיפול!</h3>
+        <div className="bg-card rounded-xl p-5 mt-5 border-2" style={{ borderColor: C.statusFailed }}>
+          <h3 className="mb-4 mt-0 text-base" style={{ color: C.statusFailed }}>משימות חסומות — דורשות טיפול!</h3>
           {allTasks.filter(t => t.status === 'BLOCKED').map(task => (
-            <div key={task.id} style={{ background: C.bgBlocked, borderRadius: '8px', padding: '12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: `1px solid ${C.statusFailed}44` }}>
+            <div key={task.id} className="rounded-lg p-3 mb-2 flex justify-between items-center border" style={{ background: C.bgBlocked, borderColor: `${C.statusFailed}44` }}>
               <div>
-                <div style={{ fontWeight: 'bold', color: C.statusFailed }}>{task.title}</div>
-                <div style={{ fontSize: '15px', color: C.textMuted, marginTop: '4px' }}>
+                <div className="font-bold" style={{ color: C.statusFailed }}>{task.title}</div>
+                <div className="text-[15px] text-subtle-foreground mt-1">
                   {task.assignedTeam?.name && <span>צוות: {task.assignedTeam.name} | </span>}
                   {task.blockedReason && <span>סיבה: {task.blockedReason}</span>}
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div className="flex items-center gap-1.5">
                 {(task as any).blockedSeverity && (
-                  <span style={{ background: severityBg((task as any).blockedSeverity), color: severityColor((task as any).blockedSeverity), padding: '4px 10px', borderRadius: '8px', fontSize: '14px', fontWeight: 'bold' }}>
+                  <span className="rounded-lg text-sm font-bold py-1 px-2.5" style={{ background: severityBg((task as any).blockedSeverity), color: severityColor((task as any).blockedSeverity) }}>
                     {severityLabel((task as any).blockedSeverity)}
                   </span>
                 )}
-                <span style={{ background: C.statusFailed, color: 'white', padding: '4px 10px', borderRadius: '8px', fontSize: '14px' }}>חסום</span>
+                <span className="text-white rounded-lg text-sm py-1 px-2.5" style={{ background: C.statusFailed }}>חסום</span>
               </div>
             </div>
           ))}
@@ -1224,22 +1198,20 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
 
       {/* ── דיאלוג סיבת חסימה ── */}
       {blockingTask && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
-          zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)' }}
           onClick={() => setBlockingTask(null)}
         >
           <div
-            style={{ background: C.bgCard, borderRadius: '14px', padding: '28px 32px', minWidth: '380px', maxWidth: '480px', boxShadow: '0 8px 32px rgba(0,0,0,0.6)', direction: 'rtl', border: `1px solid ${C.border}` }}
+            className="rounded-2xl py-7 px-8 min-w-[380px] max-w-[480px] border bg-card"
+            style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.6)', borderColor: C.border }}
             onClick={e => e.stopPropagation()}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-              <span style={{ fontSize: '22px' }}>🚨</span>
-              <h3 style={{ margin: 0, color: C.statusFailed, fontSize: '17px' }}>סיבת חסימה</h3>
+            <div className="flex items-center gap-2.5 mb-2">
+              <span className="text-[22px]">🚨</span>
+              <h3 className="m-0 text-[17px]" style={{ color: C.statusFailed }}>סיבת חסימה</h3>
             </div>
-            <p style={{ margin: '0 0 16px', fontSize: '15px', color: C.textMuted }}>
-              משימה: <strong style={{ color: C.textPrimary }}>{blockingTask.title}</strong>
+            <p className="mb-4 mt-0 text-[15px] text-subtle-foreground">
+              משימה: <strong className="text-foreground">{blockingTask.title}</strong>
             </p>
             <textarea
               autoFocus
@@ -1254,23 +1226,19 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
               }}
               placeholder="הזן את סיבת החסימה... (חובה)"
               rows={3}
-              style={{
-                width: '100%', padding: '10px 12px', borderRadius: '8px',
-                border: `1px solid ${C.borderEm}`, fontSize: '15px', resize: 'vertical',
-                boxSizing: 'border-box', direction: 'rtl', fontFamily: FONT,
-                background: C.bgNested, color: C.textPrimary, outline: 'none',
-              }}
+              className="w-full py-2.5 px-3 rounded-lg text-[15px] resize-y outline-none bg-muted text-foreground border"
+              style={{ borderColor: C.borderEm }}
             />
-            <div style={{ marginTop: '14px' }}>
-              <div style={{ fontSize: '14px', color: C.textMuted, marginBottom: '6px' }}>חומרת החסימה</div>
-              <div style={{ display: 'flex', gap: '6px' }}>
+            <div className="mt-3.5">
+              <div className="text-sm text-subtle-foreground mb-1.5">חומרת החסימה</div>
+              <div className="flex gap-1.5">
                 {(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const).map(sev => (
                   <button
                     key={sev}
                     onClick={() => setBlockingSeverity(sev)}
+                    className="flex-1 py-[7px] px-1 rounded-lg cursor-pointer text-sm font-bold border-[1.5px]"
                     style={{
-                      flex: 1, padding: '7px 4px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', fontFamily: FONT,
-                      border: `1.5px solid ${blockingSeverity === sev ? severityColor(sev) : C.border}`,
+                      borderColor: blockingSeverity === sev ? severityColor(sev) : C.border,
                       background: blockingSeverity === sev ? severityBg(sev) : C.bgNested,
                       color: blockingSeverity === sev ? severityColor(sev) : C.textSecondary,
                     }}
@@ -1278,10 +1246,10 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                 ))}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '10px', marginTop: '16px', justifyContent: 'flex-end' }}>
+            <div className="flex gap-2.5 mt-4 justify-end">
               <button
                 onClick={() => setBlockingTask(null)}
-                style={{ padding: '9px 20px', borderRadius: '8px', border: `1px solid ${C.border}`, background: C.bgNested, color: C.textSecondary, cursor: 'pointer', fontSize: '15px', fontFamily: FONT }}
+                className="py-2.5 px-5 rounded-lg bg-muted text-muted-foreground cursor-pointer text-[15px] border" style={{ borderColor: C.border }}
               >ביטול</button>
               <button
                 onClick={() => {
@@ -1289,7 +1257,8 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                   setBlockingTask(null);
                 }}
                 disabled={!blockingReason.trim()}
-                style={{ padding: '9px 22px', borderRadius: '8px', border: 'none', background: blockingReason.trim() ? C.statusFailed : C.bgHover, color: blockingReason.trim() ? 'white' : C.textDisabled, cursor: blockingReason.trim() ? 'pointer' : 'not-allowed', fontWeight: 'bold', fontSize: '15px', fontFamily: FONT }}
+                className={cn('py-2.5 px-[22px] rounded-lg border-none font-bold text-[15px]', blockingReason.trim() ? 'cursor-pointer text-white' : 'cursor-not-allowed')}
+                style={{ background: blockingReason.trim() ? C.statusFailed : C.bgHover, color: blockingReason.trim() ? 'white' : C.textDisabled }}
               >אשר חסימה</button>
             </div>
           </div>
@@ -1297,22 +1266,20 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
       )}
 
       {waivingTask && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
-          zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)' }}
           onClick={() => setWaivingTask(null)}
         >
           <div
-            style={{ background: C.bgCard, borderRadius: '14px', padding: '28px 32px', minWidth: '380px', maxWidth: '480px', boxShadow: '0 8px 32px rgba(0,0,0,0.6)', direction: 'rtl', border: `1px solid ${C.border}` }}
+            className="rounded-2xl py-7 px-8 min-w-[380px] max-w-[480px] border bg-card"
+            style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.6)', borderColor: C.border }}
             onClick={e => e.stopPropagation()}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-              <span style={{ fontSize: '22px' }}>🎭</span>
-              <h3 style={{ margin: 0, color: '#8b5cf6', fontSize: '17px' }}>אישור דילוג GO/NO-GO</h3>
+            <div className="flex items-center gap-2.5 mb-2">
+              <span className="text-[22px]">🎭</span>
+              <h3 className="m-0 text-[17px]" style={{ color: '#8b5cf6' }}>אישור דילוג GO/NO-GO</h3>
             </div>
-            <p style={{ margin: '0 0 16px', fontSize: '15px', color: C.textMuted }}>
-              משימה: <strong style={{ color: C.textPrimary }}>{waivingTask.title}</strong><br />
+            <p className="mb-4 mt-0 text-[15px] text-subtle-foreground">
+              משימה: <strong className="text-foreground">{waivingTask.title}</strong><br />
               פעולה זו נרשמת בהיסטוריה — נא נמק מדוע ניתן להמשיך למרות שהמשימה נכשלה.
             </p>
             <textarea
@@ -1328,17 +1295,13 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
               }}
               placeholder="הזן את הסיבה לדילוג... (חובה)"
               rows={3}
-              style={{
-                width: '100%', padding: '10px 12px', borderRadius: '8px',
-                border: `1px solid ${C.borderEm}`, fontSize: '15px', resize: 'vertical',
-                boxSizing: 'border-box', direction: 'rtl', fontFamily: FONT,
-                background: C.bgNested, color: C.textPrimary, outline: 'none',
-              }}
+              className="w-full py-2.5 px-3 rounded-lg text-[15px] resize-y outline-none bg-muted text-foreground border"
+              style={{ borderColor: C.borderEm }}
             />
-            <div style={{ display: 'flex', gap: '10px', marginTop: '16px', justifyContent: 'flex-end' }}>
+            <div className="flex gap-2.5 mt-4 justify-end">
               <button
                 onClick={() => setWaivingTask(null)}
-                style={{ padding: '9px 20px', borderRadius: '8px', border: `1px solid ${C.border}`, background: C.bgNested, color: C.textSecondary, cursor: 'pointer', fontSize: '15px', fontFamily: FONT }}
+                className="py-2.5 px-5 rounded-lg bg-muted text-muted-foreground cursor-pointer text-[15px] border" style={{ borderColor: C.border }}
               >ביטול</button>
               <button
                 onClick={() => {
@@ -1346,7 +1309,8 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
                   setWaivingTask(null);
                 }}
                 disabled={!waivingReason.trim()}
-                style={{ padding: '9px 22px', borderRadius: '8px', border: 'none', background: waivingReason.trim() ? '#8b5cf6' : C.bgHover, color: waivingReason.trim() ? 'white' : C.textDisabled, cursor: waivingReason.trim() ? 'pointer' : 'not-allowed', fontWeight: 'bold', fontSize: '15px', fontFamily: FONT }}
+                className={cn('py-2.5 px-[22px] rounded-lg border-none font-bold text-[15px]', waivingReason.trim() ? 'cursor-pointer text-white' : 'cursor-not-allowed')}
+                style={{ background: waivingReason.trim() ? '#8b5cf6' : C.bgHover, color: waivingReason.trim() ? 'white' : C.textDisabled }}
               >אשר דילוג</button>
             </div>
           </div>

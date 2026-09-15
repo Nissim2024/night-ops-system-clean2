@@ -9,6 +9,7 @@ import { NightSummary } from './NightSummary';
 import { DeployCenterLogo } from './DeployCenterLogo';
 import { CrReviewView } from './CrReviewView';
 import { C, statusColor, statusLabel } from '../theme';
+import { cn } from '../lib/utils';
 
 const SummaryVersionPicker: React.FC<{ token: string }> = ({ token }) => {
   const [versions, setVersions] = React.useState<any[]>([]);
@@ -22,28 +23,28 @@ const SummaryVersionPicker: React.FC<{ token: string }> = ({ token }) => {
   const selected = versions.find(v => v.id === selectedId);
 
   return (
-    <div style={{ direction: 'rtl', fontFamily: 'Arial' }}>
+    <div className="font-sans [direction:rtl]">
       {!selectedId ? (
-        <div style={{ maxWidth: '600px' }}>
-          <h2 style={{ color: '#1a2332', marginBottom: '20px' }}>בחר גרסה לסיכום</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div className="max-w-[600px]">
+          <h2 className="mb-5 text-foreground">בחר גרסה לסיכום</h2>
+          <div className="flex flex-col gap-3">
             {versions.map(v => (
               <div key={v.id} onClick={() => setSelectedId(v.id)}
-                style={{ background: 'white', borderRadius: '12px', padding: '16px 20px', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                className="flex cursor-pointer items-center justify-between rounded-lg bg-card px-5 py-4 shadow-xs"
                 onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.15)')}
                 onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)')}>
                 <div>
-                  <div style={{ fontWeight: 'bold', fontSize: '17px', color: '#1a2332' }}>{v.name}</div>
-                  <div style={{ fontSize: '15px', color: '#666', marginTop: '4px' }}>{formatDate(v.createdAt)}</div>
+                  <div className="text-sm font-bold text-foreground">{v.name}</div>
+                  <div className="mt-1 text-sm text-muted-foreground">{formatDate(v.createdAt)}</div>
                 </div>
-                <span style={{ background: '#1a2332', color: 'white', padding: '4px 12px', borderRadius: '12px', fontSize: '14px' }}>{v.status}</span>
+                <span className="rounded-lg bg-foreground px-3 py-1 text-xs text-white">{v.status}</span>
               </div>
             ))}
           </div>
         </div>
       ) : (
         <div>
-          <button onClick={() => setSelectedId('')} style={{ marginBottom: '16px', padding: '8px 16px', background: '#f0f0f0', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>→ חזור לבחירת גרסה</button>
+          <button onClick={() => setSelectedId('')} className="mb-4 cursor-pointer rounded-md border-none bg-muted px-4 py-2">→ חזור לבחירת גרסה</button>
           <NightSummary token={token} versionId={selectedId} versionName={selected?.name || ''} isRehearsal={selected?.status === 'REHEARSAL'} />
         </div>
       )}
@@ -167,47 +168,56 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
   ];
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f0f2f5', fontFamily: 'Arial, sans-serif', direction: 'rtl' }}>
-      <div style={{ background: 'linear-gradient(135deg, #1a2332 0%, #2d4a7a 100%)', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '64px', boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>
+    <div className="min-h-screen bg-background font-sans [direction:rtl]">
+      <div
+        className="flex h-16 items-center justify-between px-6 shadow-[0_2px_8px_rgba(0,0,0,0.3)]"
+        style={{ background: 'linear-gradient(135deg, #1a2332 0%, #2d4a7a 100%)' }}
+      >
         {/* Right side: logo + push bell + online + logout — always visible */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+        <div className="flex shrink-0 items-center gap-2">
           <DeployCenterLogo variant="nav" />
           <button
             onClick={push.subscribed ? push.unsubscribe : push.subscribe}
             disabled={push.loading || !push.supported}
             title={!push.supported ? 'דפדפן זה אינו תומך ב-Push (נסה Chrome)' : push.subscribed ? 'בטל התראות Push' : 'הפעל התראות Push'}
-            style={{
-              padding: '7px 12px', fontSize: '18px', border: 'none', borderRadius: '8px',
-              cursor: push.supported ? 'pointer' : 'not-allowed',
-              background: push.subscribed ? 'rgba(46,204,113,0.3)' : 'rgba(255,255,255,0.12)',
-              color: push.supported ? 'white' : 'rgba(255,255,255,0.4)',
-              transition: 'background 0.2s',
-            }}
+            className={cn(
+              'rounded-md border-none px-3 py-[7px] text-lg transition-[background] duration-fast',
+              push.supported ? 'cursor-pointer' : 'cursor-not-allowed',
+              push.subscribed ? 'bg-success/30' : 'bg-white/[0.12]',
+              push.supported ? 'text-white' : 'text-white/40'
+            )}
           >
             {push.loading ? '⏳' : push.subscribed ? '🔔' : '🔕'}
           </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', background: 'rgba(255,255,255,0.1)', borderRadius: '8px' }}>
-            <span style={{ fontSize: '12px', color: '#2ecc71' }}>●</span>
-            <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.9)' }}>{onlineUsers.length} מחוברים</span>
+          <div className="flex items-center gap-1 rounded-md bg-white/10 px-3 py-1.5">
+            <span className="text-xs text-success">●</span>
+            <span className="text-sm text-white/90">{onlineUsers.length} מחוברים</span>
           </div>
-          <button onClick={onLogout} style={{ padding: '8px 16px', background: 'rgba(231,76,60,0.7)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>יציאה</button>
+          <button onClick={onLogout} className="cursor-pointer rounded-md border-none bg-danger/70 px-4 py-2 text-white">יציאה</button>
         </div>
         {/* Left side: nav items + alerts */}
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', flex: 1, justifyContent: 'flex-end', paddingRight: '12px' }}>
+        <div className="flex flex-1 flex-wrap items-center justify-end gap-1.5 pe-3">
           {lastAlert && (
-            <div style={{ padding: '8px 16px', background: 'rgba(231,76,60,0.9)', color: 'white', borderRadius: '8px', fontSize: '15px', fontWeight: 'bold', flexShrink: 0 }}>
+            <div className="shrink-0 rounded-md bg-danger/90 px-4 py-2 text-sm font-bold text-white">
               {lastAlert}
             </div>
           )}
           {navItems.map(item => (
-            <button key={item.key} onClick={() => setView(item.key)} style={{ padding: '8px 16px', background: view === item.key ? 'rgba(255,255,255,0.25)' : 'transparent', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontWeight: view === item.key ? 'bold' : 'normal', fontSize: '15px', whiteSpace: 'nowrap' }}>
+            <button
+              key={item.key}
+              onClick={() => setView(item.key)}
+              className={cn(
+                'cursor-pointer whitespace-nowrap rounded-md border border-white/30 px-4 py-2 text-sm text-white',
+                view === item.key ? 'bg-white/25 font-bold' : 'bg-transparent font-normal'
+              )}
+            >
               {item.label}
             </button>
           ))}
         </div>
       </div>
 
-      <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
+      <div className="mx-auto max-w-[1400px] p-6">
         {view === 'versions' && (
           <VersionsView
             token={token}
@@ -220,10 +230,10 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
         {view === 'war-room' && (
           activeVersion
             ? <WarRoom token={token} versionId={activeVersion.id} versionName={activeVersion.name} isRehearsal={activeVersion.status === 'REHEARSAL'} onlineUsers={onlineUsers} onVersionEnded={fetchActiveVersion} />
-            : <div style={{ textAlign: 'center', padding: '80px', color: '#666' }}>
-                <div style={{ fontSize: '48px', marginBottom: '16px' }}>🌙</div>
-                <div style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '8px' }}>אין לילה פעיל כרגע</div>
-                <div style={{ fontSize: '15px' }}>הפעל גרסה (או חזרה גנרלית) ממסך "גרסאות"</div>
+            : <div className="p-20 text-center text-muted-foreground">
+                <div className="mb-4 text-5xl">🌙</div>
+                <div className="mb-2 text-lg font-bold">אין לילה פעיל כרגע</div>
+                <div className="text-sm">הפעל גרסה (או חזרה גנרלית) ממסך "גרסאות"</div>
               </div>
         )}
         {view === 'cr-review' && <CrReviewView token={token} />}
@@ -235,27 +245,27 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
 
         {view === 'tasks' && (
           <div>
-            <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
+            <div className="mb-6 flex flex-wrap gap-3">
               {TASK_STATUSES.map((status) => (
-                <div key={status} style={{ background: 'white', borderRadius: '12px', padding: '16px 20px', flex: '1', minWidth: '100px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderTop: `4px solid ${statusColor(status)}`, textAlign: 'center' }}>
-                  <div style={{ fontSize: '28px', fontWeight: 'bold', color: statusColor(status) }}>{statusCounts[status] || 0}</div>
-                  <div style={{ fontSize: '14px', color: '#666', marginTop: '4px' }}>{statusLabel(status)}</div>
+                <div key={status} className="min-w-[100px] flex-1 rounded-lg bg-card px-5 py-4 text-center shadow-xs" style={{ borderTop: `4px solid ${statusColor(status)}` }}>
+                  <div className="text-3xl font-bold" style={{ color: statusColor(status) }}>{statusCounts[status] || 0}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{statusLabel(status)}</div>
                 </div>
               ))}
             </div>
-            <h2 style={{ color: '#1a2332', marginBottom: '16px' }}>כל המשימות ({tasks.length})</h2>
-            {loading ? <div style={{ textAlign: 'center', padding: '60px' }}>טוען...</div> :
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <h2 className="mb-4 text-foreground">כל המשימות ({tasks.length})</h2>
+            {loading ? <div className="p-16 text-center">טוען...</div> :
+              <div className="flex flex-col gap-3">
                 {tasks.map(task => (
-                  <div key={task.id} style={{ background: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderRight: `5px solid ${statusColor(task.status)}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 'bold', fontSize: '17px', color: '#1a2332', marginBottom: '6px' }}>{task.title}</div>
-                      <div style={{ display: 'flex', gap: '12px', fontSize: '15px', color: '#666' }}>
+                  <div key={task.id} className="flex items-center justify-between gap-4 rounded-lg bg-card p-5 shadow-xs" style={{ borderRight: `5px solid ${statusColor(task.status)}` }}>
+                    <div className="flex-1">
+                      <div className="mb-1.5 text-sm font-bold text-foreground">{task.title}</div>
+                      <div className="flex gap-3 text-sm text-muted-foreground">
                         {task.assignedTeam && <span>צוות: {task.assignedTeam.name}</span>}
                         <span style={{ color: PRIORITY_COLORS[task.priority] }}>{PRIORITY_LABELS[task.priority]}</span>
                       </div>
                     </div>
-                    <select value={task.status} onChange={e => updateStatus(task.id, e.target.value)} style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '15px' }}>
+                    <select value={task.status} onChange={e => updateStatus(task.id, e.target.value)} className="rounded-md border border-border px-2.5 py-1.5 text-sm">
                       {TASK_STATUSES.map(s => <option key={s} value={s}>{statusLabel(s)}</option>)}
                     </select>
                   </div>
@@ -267,12 +277,12 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
 
         {view === 'teams' && (
           <div>
-            <h2 style={{ color: '#1a2332', marginBottom: '16px' }}>צוותים ({teams.length})</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+            <h2 className="mb-4 text-foreground">צוותים ({teams.length})</h2>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
               {teams.map(team => (
-                <div key={team.id} style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderTop: '4px solid #2d4a7a' }}>
-                  <h3 style={{ margin: '0 0 12px', color: '#1a2332' }}>{team.name}</h3>
-                  <div style={{ color: '#666', fontSize: '15px' }}>{team.members.length} חברים | {team._count.tasks} משימות</div>
+                <div key={team.id} className="rounded-lg border-t-4 border-t-[#2d4a7a] bg-card p-6 shadow-xs">
+                  <h3 className="m-0 mb-3 text-foreground">{team.name}</h3>
+                  <div className="text-sm text-muted-foreground">{team.members.length} חברים | {team._count.tasks} משימות</div>
                 </div>
               ))}
             </div>
@@ -280,21 +290,21 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
         )}
 
         {view === 'new-task' && (
-          <div style={{ maxWidth: '600px' }}>
-            <h2 style={{ color: '#1a2332', marginBottom: '16px' }}>משימה חדשה</h2>
-            <div style={{ background: 'white', borderRadius: '12px', padding: '32px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+          <div className="max-w-[600px]">
+            <h2 className="mb-4 text-foreground">משימה חדשה</h2>
+            <div className="rounded-lg bg-card p-8 shadow-xs">
               <form onSubmit={createTask}>
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>כותרת *</label>
-                  <input type="text" required value={newTask.title} onChange={e => setNewTask({ ...newTask, title: e.target.value })} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px', boxSizing: 'border-box' }} />
+                <div className="mb-4">
+                  <label className="mb-1.5 block font-bold">כותרת *</label>
+                  <input type="text" required value={newTask.title} onChange={e => setNewTask({ ...newTask, title: e.target.value })} className="box-border w-full rounded-md border-2 border-neutral-300 p-2.5 text-sm" />
                 </div>
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>CR Number</label>
-                  <input type="text" value={newTask.crNumber} onChange={e => setNewTask({ ...newTask, crNumber: e.target.value })} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px', boxSizing: 'border-box' }} />
+                <div className="mb-4">
+                  <label className="mb-1.5 block font-bold">CR Number</label>
+                  <input type="text" value={newTask.crNumber} onChange={e => setNewTask({ ...newTask, crNumber: e.target.value })} className="box-border w-full rounded-md border-2 border-neutral-300 p-2.5 text-sm" />
                 </div>
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>Application</label>
-                  <select value={newTask.application} onChange={e => setNewTask({ ...newTask, application: e.target.value })} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px' }}>
+                <div className="mb-4">
+                  <label className="mb-1.5 block font-bold">Application</label>
+                  <select value={newTask.application} onChange={e => setNewTask({ ...newTask, application: e.target.value })} className="w-full rounded-md border-2 border-neutral-300 p-2.5 text-sm">
                     <option value="">בחר Application</option>
                     <option value="WIZ">WIZ</option>
                     <option value="CRM">CRM</option>
@@ -307,9 +317,9 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
                     <option value="OTHER">אחר</option>
                   </select>
                 </div>
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>עדיפות</label>
-                  <select value={newTask.priority} onChange={e => setNewTask({ ...newTask, priority: e.target.value })} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px' }}>
+                <div className="mb-4">
+                  <label className="mb-1.5 block font-bold">עדיפות</label>
+                  <select value={newTask.priority} onChange={e => setNewTask({ ...newTask, priority: e.target.value })} className="w-full rounded-md border-2 border-neutral-300 p-2.5 text-sm">
                     <option value="LOW">נמוך</option>
                     <option value="MEDIUM">בינוני</option>
                     <option value="HIGH">גבוה</option>
@@ -317,14 +327,14 @@ export const Dashboard: React.FC<Props> = ({ token, onLogout }) => {
                     <option value="PRODUCTION_BLOCKER">חוסם Production</option>
                   </select>
                 </div>
-                <div style={{ marginBottom: '24px' }}>
-                  <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>צוות</label>
-                  <select value={newTask.assignedTeamId} onChange={e => setNewTask({ ...newTask, assignedTeamId: e.target.value })} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px' }}>
+                <div className="mb-6">
+                  <label className="mb-1.5 block font-bold">צוות</label>
+                  <select value={newTask.assignedTeamId} onChange={e => setNewTask({ ...newTask, assignedTeamId: e.target.value })} className="w-full rounded-md border-2 border-neutral-300 p-2.5 text-sm">
                     <option value="">בחר צוות</option>
                     {teams.filter((team: any) => team.active).map((team: any) => <option key={team.id} value={team.id}>{team.name}</option>)}
                   </select>
                 </div>
-                <button type="submit" style={{ width: '100%', padding: '14px', background: '#1a2332', color: 'white', border: 'none', borderRadius: '8px', fontSize: '17px', fontWeight: 'bold', cursor: 'pointer' }}>צור משימה</button>
+                <button type="submit" className="w-full cursor-pointer rounded-md border-none bg-foreground p-3.5 text-sm font-bold text-white">צור משימה</button>
               </form>
             </div>
           </div>

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../../theme';
+import { C } from '../../theme';
+import { cn } from '../../lib/utils';
+import { Select } from '../ui';
 import { useDialog } from '../../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -274,19 +276,20 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
   // ── Render helpers ────────────────────────────────────────────────────────────
 
   const TesterCell = ({ tester, rowBg }: { tester: Tester; rowBg: string }) => (
-    <td style={{ padding: `${SP[2]} ${SP[3]}`, borderBottom: `1px solid ${C.border}`, position: 'sticky', right: 0, background: rowBg, zIndex: 1, minWidth: '220px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP[2] }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
-          <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: C.infoBg, border: `1px solid ${C.info}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.info, flexShrink: 0 }}>
+    <td className="py-2 px-3 border-b border-border sticky start-0 z-[1] min-w-[220px]" style={{ background: rowBg }}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0" style={{ background: C.infoBg, border: `1px solid ${C.info}33`, color: C.info }}>
             {tester.fullName.charAt(0)}
           </div>
           <div>
-            <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap' }}>{tester.fullName}</div>
-            <div style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap' }}>{tester.email}</div>
+            <div className="text-sm font-semibold whitespace-nowrap">{tester.fullName}</div>
+            <div className="text-xs text-subtle-foreground whitespace-nowrap">{tester.email}</div>
           </div>
         </div>
         <button onClick={() => removeTester(tester)} title="הסר בודק"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textDisabled, fontSize: '14px', padding: '3px 5px', borderRadius: RADIUS.sm, transition: EASE.fast, flexShrink: 0 }}
+          className="bg-transparent border-none cursor-pointer text-sm py-[3px] px-[5px] rounded-sm transition-colors duration-fast ease-out shrink-0"
+          style={{ color: C.textDisabled }}
           onMouseEnter={e => { e.currentTarget.style.color = C.danger; e.currentTarget.style.background = C.dangerBg; }}
           onMouseLeave={e => { e.currentTarget.style.color = C.textDisabled; e.currentTarget.style.background = 'none'; }}
         >✕</button>
@@ -301,28 +304,35 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
     const isSaving = savingCell === cellKey;
     const isNR     = level === -1;
     return (
-      <td style={{ padding: '4px', textAlign: 'center', borderBottom: `1px solid ${C.border}`, borderLeft: si < total - 1 ? `1px solid ${C.border}` : 'none', position: 'relative', minWidth: '60px' }}>
+      <td className={cn('p-1 text-center border-b border-border relative min-w-[60px]', si < total - 1 && 'border-e border-border')}>
         {isEdit ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: 'center', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 100, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '6px', boxShadow: SHADOW.lg }}>
+          <div className="flex flex-col gap-0.5 items-center absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[100] bg-card border border-border rounded-lg p-1.5 shadow-lg">
             {[0,1,2,3,4,5].map(l => (
               <button key={l} disabled={isSaving}
                 onClick={() => saveLevel(tester.userId, skill.id, l)}
-                style={{ width: '36px', height: '24px', borderRadius: RADIUS.sm, border: 'none', background: l === 0 ? C.bgNested : LEVEL_BG[l], color: l === 0 ? C.textMuted : LEVEL_COLOR[l], cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.bold, transition: EASE.fast, opacity: isSaving ? 0.5 : 1 }}>
+                className="w-9 h-6 rounded-sm border-none cursor-pointer text-xs font-bold transition-opacity duration-fast ease-out"
+                style={{ background: l === 0 ? C.bgNested : LEVEL_BG[l], color: l === 0 ? C.textMuted : LEVEL_COLOR[l], opacity: isSaving ? 0.5 : 1 }}>
                 {l === 0 ? '—' : l}
               </button>
             ))}
             {/* N/R separator + button */}
-            <div style={{ width: '100%', height: '1px', background: C.border, margin: '2px 0' }} />
+            <div className="w-full h-px bg-border my-0.5" />
             <button disabled={isSaving}
               onClick={() => saveLevel(tester.userId, skill.id, -1)}
               title="לא רלוונטי — לא נכנס לחישוב הציון"
-              style={{ width: '36px', height: '24px', borderRadius: RADIUS.sm, border: `1px solid ${NR_COLOR}55`, background: level === -1 ? NR_BG : 'transparent', color: NR_COLOR, cursor: 'pointer', fontSize: '11px', fontWeight: WEIGHT.bold, transition: EASE.fast, opacity: isSaving ? 0.5 : 1 }}>
+              className="w-9 h-6 rounded-sm cursor-pointer text-[11px] font-bold transition-opacity duration-fast ease-out border"
+              style={{ borderColor: `${NR_COLOR}55`, background: level === -1 ? NR_BG : 'transparent', color: NR_COLOR, opacity: isSaving ? 0.5 : 1 }}>
               N/R
             </button>
           </div>
         ) : (
           <button onClick={() => setEditCell({ userId: tester.userId, skillId: skill.id })}
-            style={{ width: '40px', height: '30px', borderRadius: RADIUS.sm, border: isNR ? `1px solid ${NR_COLOR}44` : 'none', background: isNR ? NR_BG : level > 0 ? LEVEL_BG[level] : 'transparent', color: isNR ? NR_COLOR : level > 0 ? LEVEL_COLOR[level] : C.textDisabled, cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.bold, transition: EASE.fast }}
+            className={cn('w-10 h-[30px] rounded-sm cursor-pointer text-xs font-bold transition-colors duration-fast ease-out', isNR ? 'border' : 'border-none')}
+            style={{
+              borderColor: isNR ? `${NR_COLOR}44` : undefined,
+              background: isNR ? NR_BG : level > 0 ? LEVEL_BG[level] : 'transparent',
+              color: isNR ? NR_COLOR : level > 0 ? LEVEL_COLOR[level] : C.textDisabled,
+            }}
             onMouseEnter={e => { if (level === 0) e.currentTarget.style.background = C.bgHover; }}
             onMouseLeave={e => { if (level === 0) e.currentTarget.style.background = 'transparent'; }}
             title={isNR ? 'לא רלוונטי — לחץ לשינוי' : level > 0 ? LEVEL_LABEL[level] : 'הגדר רמה'}>
@@ -335,49 +345,49 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
 
   // ─────────────────────────────────────────────────────────────────────────────
 
-  if (loading) return <div style={{ textAlign: 'center', padding: SP[10], color: C.textMuted, ...TEXT.sm }}>טוען מטריצה...</div>;
-  if (error)   return <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}44`, borderRadius: RADIUS.lg, padding: SP[4], color: C.danger, ...TEXT.sm }}>{error}</div>;
+  if (loading) return <div className="text-center p-10 text-subtle-foreground text-sm">טוען מטריצה...</div>;
+  if (error)   return <div className="bg-danger-bg border border-danger/[26.7%] rounded-lg p-4 text-danger text-sm">{error}</div>;
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', color: C.textPrimary }}>
+    <div className="text-foreground">
 
       {/* ── Toast ── */}
       {successMsg && (
-        <div style={{ position: 'fixed', top: '70px', left: '50%', transform: 'translateX(-50%)', zIndex: 9999, background: C.success, color: C.textInverse, padding: '10px 20px', borderRadius: RADIUS.lg, ...TEXT.sm, fontWeight: WEIGHT.semibold, boxShadow: SHADOW.md }}>
+        <div className="fixed top-[70px] left-1/2 -translate-x-1/2 z-[9999] bg-success text-white py-2.5 px-5 rounded-lg text-sm font-semibold shadow-md">
           ✓ {successMsg}
         </div>
       )}
 
       {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[4] }}>
+      <div className="flex items-center justify-between mb-4">
         <div>
-          <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, display: 'flex', alignItems: 'center', gap: SP[2] }}>
+          <div className="text-xl font-bold flex items-center gap-2">
             <span>🧠</span> מטריצת סקילים
           </div>
-          <div style={{ ...TEXT.sm, color: C.textMuted, marginTop: '2px' }}>
+          <div className="text-sm text-subtle-foreground mt-0.5">
             {testers.length} בודקים · {skills.length} סקילים · משקל כולל {skills.reduce((s, sk) => s + sk.weight, 0)}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: SP[2] }}>
+        <div className="flex gap-2">
           <input
             ref={fileInputRef}
             type="file"
             accept=".xlsx,.xls"
-            style={{ display: 'none' }}
+            className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) handleImportFile(f); }}
           />
           <button onClick={() => fileInputRef.current?.click()} disabled={importing}
-            style={{ background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '7px 14px', cursor: importing ? 'not-allowed' : 'pointer', ...TEXT.sm, fontWeight: WEIGHT.semibold, transition: EASE.fast, opacity: importing ? 0.6 : 1 }}>
+            className={cn('bg-muted text-muted-foreground border border-border rounded-md py-[7px] px-3.5 text-sm font-semibold transition-opacity duration-fast ease-out', importing ? 'cursor-not-allowed opacity-60' : 'cursor-pointer opacity-100')}>
             {importing ? '⏳ מייבא...' : '📥 ייבוא Excel'}
           </button>
           <button onClick={openAddTester}
-            style={{ background: C.infoBg, color: C.info, border: `1px solid ${C.info}33`, borderRadius: RADIUS.md, padding: '7px 14px', cursor: 'pointer', ...TEXT.sm, fontWeight: WEIGHT.semibold, transition: EASE.fast }}
+            className="bg-info-bg text-info border border-info/20 rounded-md py-[7px] px-3.5 cursor-pointer text-sm font-semibold transition-colors duration-fast ease-out"
             onMouseEnter={e => e.currentTarget.style.background = C.info + '22'}
             onMouseLeave={e => e.currentTarget.style.background = C.infoBg}>
             + בודק
           </button>
           <button onClick={() => setShowAddSkill(true)}
-            style={{ background: C.brand, color: C.textInverse, border: 'none', borderRadius: RADIUS.md, padding: '7px 14px', cursor: 'pointer', ...TEXT.sm, fontWeight: WEIGHT.semibold, transition: EASE.fast }}
+            className="bg-primary text-white border-none rounded-md py-[7px] px-3.5 cursor-pointer text-sm font-semibold transition-[filter] duration-fast ease-out"
             onMouseEnter={e => e.currentTarget.style.filter = 'brightness(1.1)'}
             onMouseLeave={e => e.currentTarget.style.filter = 'none'}>
             + סקיל
@@ -387,18 +397,18 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
 
       {/* ── Import result ── */}
       {importResult && (
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '14px 18px', marginBottom: SP[4] }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], marginBottom: importResult.warnings.length > 0 ? SP[2] : 0 }}>
-            <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>📥 תוצאות ייבוא:</span>
-            <span style={{ ...TEXT.xs, color: C.success }}>{importResult.stats.cellsUpdated} רמות עודכנו</span>
-            {importResult.stats.testersCreated > 0 && <span style={{ ...TEXT.xs, color: C.info }}>{importResult.stats.testersCreated} בודקים חדשים</span>}
-            {importResult.stats.rowsSkipped > 0 && <span style={{ ...TEXT.xs, color: C.warning }}>{importResult.stats.rowsSkipped} שורות דולגו</span>}
-            <button onClick={() => setImportResult(null)} style={{ marginRight: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '15px' }}>✕</button>
+        <div className="bg-card border border-border rounded-lg py-3.5 px-[18px] mb-4">
+          <div className={cn('flex items-center gap-3', importResult.warnings.length > 0 ? 'mb-2' : 'mb-0')}>
+            <span className="text-sm font-bold text-foreground">📥 תוצאות ייבוא:</span>
+            <span className="text-xs text-success">{importResult.stats.cellsUpdated} רמות עודכנו</span>
+            {importResult.stats.testersCreated > 0 && <span className="text-xs text-info">{importResult.stats.testersCreated} בודקים חדשים</span>}
+            {importResult.stats.rowsSkipped > 0 && <span className="text-xs text-warning">{importResult.stats.rowsSkipped} שורות דולגו</span>}
+            <button onClick={() => setImportResult(null)} className="ms-auto bg-transparent border-none cursor-pointer text-subtle-foreground text-[15px]">✕</button>
           </div>
           {importResult.warnings.length > 0 && (
-            <div style={{ maxHeight: '140px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            <div className="max-h-[140px] overflow-y-auto flex flex-col gap-[3px]">
               {importResult.warnings.map((w, i) => (
-                <div key={i} style={{ ...TEXT.xs, color: C.textMuted }}>⚠ {w}</div>
+                <div key={i} className="text-xs text-subtle-foreground">⚠ {w}</div>
               ))}
             </div>
           )}
@@ -406,20 +416,20 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
       )}
 
       {/* ── View toggle ── */}
-      <div style={{ display: 'flex', gap: '4px', marginBottom: SP[4], background: C.bgNested, padding: '4px', borderRadius: RADIUS.lg, width: 'fit-content' }}>
+      <div className="flex gap-1 mb-4 bg-muted p-1 rounded-lg w-fit">
         {([['summary', 'תצוגת סיכום', '📊'], ['matrix', 'מטריצה מפורטת', '🔢']] as const).map(([mode, label, icon]) => (
           <button key={mode} onClick={() => setViewMode(mode as any)}
-            style={{ padding: '7px 16px', borderRadius: RADIUS.md, border: 'none', background: viewMode === mode ? C.bgCard : 'transparent', cursor: 'pointer', ...TEXT.sm, fontWeight: viewMode === mode ? WEIGHT.semibold : WEIGHT.normal, color: viewMode === mode ? C.textPrimary : C.textSecondary, boxShadow: viewMode === mode ? SHADOW.sm : 'none', transition: EASE.fast }}>
+            className={cn('py-[7px] px-4 rounded-md border-none cursor-pointer text-sm transition-shadow duration-fast ease-out', viewMode === mode ? 'bg-card font-semibold text-foreground shadow-sm' : 'bg-transparent font-normal text-muted-foreground shadow-none')}>
             {icon} {label}
           </button>
         ))}
       </div>
 
       {testers.length === 0 && skills.length === 0 && (
-        <div style={{ textAlign: 'center', padding: SP[10], color: C.textMuted, background: C.bgCard, borderRadius: RADIUS['2xl'], border: `1px solid ${C.border}` }}>
-          <div style={{ fontSize: '48px', marginBottom: SP[3] }}>🧠</div>
-          <div style={{ ...TEXT.lg, fontWeight: WEIGHT.semibold, marginBottom: SP[2] }}>המטריצה ריקה</div>
-          <div style={{ ...TEXT.sm }}>הוסף בודקים וסקילים כדי להתחיל</div>
+        <div className="text-center p-10 text-subtle-foreground bg-card rounded-2xl border border-border">
+          <div className="text-5xl mb-3">🧠</div>
+          <div className="text-lg font-semibold mb-2">המטריצה ריקה</div>
+          <div className="text-sm">הוסף בודקים וסקילים כדי להתחיל</div>
         </div>
       )}
 
@@ -427,28 +437,29 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
           SUMMARY VIEW
       ══════════════════════════════════════════════════════════════════════════ */}
       {viewMode === 'summary' && testers.length > 0 && (
-        <div style={{ background: C.bgCard, borderRadius: RADIUS['2xl'], border: `1px solid ${C.border}`, boxShadow: SHADOW.sm, overflow: 'hidden' }}>
-          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+        <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
+          <table className="border-collapse w-full">
             <thead>
-              <tr style={{ background: C.bgNested, borderBottom: `1px solid ${C.border}` }}>
-                <th style={{ padding: `${SP[3]} ${SP[4]}`, textAlign: 'right', ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', minWidth: '220px' }}>בודק</th>
+              <tr className="bg-muted border-b border-border">
+                <th className="py-3 px-4 text-right text-xs font-bold text-subtle-foreground uppercase tracking-wider min-w-[220px]">בודק</th>
                 {CATEGORY_ORDER.map(cat => {
                   const m = SKILL_TYPE_META[cat];
                   const count = catSkillsMap[cat].length;
                   return (
-                    <th key={cat} style={{ padding: `${SP[3]} ${SP[3]}`, textAlign: 'center', minWidth: '130px' }}>
+                    <th key={cat} className="py-3 px-3 text-center min-w-[130px]">
                       <button onClick={() => { setActiveCategory(cat); setViewMode('matrix'); }}
-                        style={{ background: m.bg, border: `1px solid ${m.color}44`, borderRadius: RADIUS.lg, padding: '5px 12px', cursor: 'pointer', transition: EASE.fast, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', width: '100%' }}
+                        className="rounded-lg py-[5px] px-3 cursor-pointer transition-opacity duration-fast ease-out flex flex-col items-center gap-0.5 w-full"
+                        style={{ background: m.bg, border: `1px solid ${m.color}44` }}
                         onMouseEnter={e => e.currentTarget.style.opacity = '0.75'}
                         onMouseLeave={e => e.currentTarget.style.opacity = '1'}
                         title="לחץ לפרטים">
-                        <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: m.color }}>{m.label}</span>
-                        <span style={{ ...TEXT.xs, color: m.color, opacity: 0.75 }}>{count} סקילים</span>
+                        <span className="text-xs font-bold" style={{ color: m.color }}>{m.label}</span>
+                        <span className="text-xs opacity-75" style={{ color: m.color }}>{count} סקילים</span>
                       </button>
                     </th>
                   );
                 })}
-                <th style={{ padding: `${SP[3]} ${SP[3]}`, textAlign: 'center', minWidth: '80px', ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted }}>סה"כ</th>
+                <th className="py-3 px-3 text-center min-w-[80px] text-xs font-bold text-subtle-foreground">סה"כ</th>
               </tr>
             </thead>
             <tbody>
@@ -458,21 +469,21 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
                 const allRated = catAvgs.filter(a => a !== null) as number[];
                 const totalAvg = allRated.length > 0 ? allRated.reduce((a, b) => a + b, 0) / allRated.length : null;
                 return (
-                  <tr key={tester.userId} style={{ background: rowBg }}>
+                  <tr key={tester.userId} className={ti % 2 === 0 ? 'bg-card' : 'bg-muted'}>
                     <TesterCell tester={tester} rowBg={rowBg} />
                     {CATEGORY_ORDER.map((cat, ci) => {
                       const avg = catAvgs[ci];
                       const m   = SKILL_TYPE_META[cat];
                       return (
-                        <td key={cat} style={{ padding: SP[3], textAlign: 'center', borderBottom: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}` }}>
+                        <td key={cat} className="py-3 text-center border-b border-s border-border">
                           {avg !== null ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
-                              <span style={{ fontWeight: WEIGHT.bold, color: avgColor(avg), background: avgBg(avg), padding: '3px 10px', borderRadius: RADIUS.full, fontSize: '16px' }}>
+                            <div className="flex flex-col items-center gap-1.5">
+                              <span className="font-bold py-[3px] px-2.5 rounded-full text-base" style={{ color: avgColor(avg), background: avgBg(avg) }}>
                                 {avg.toFixed(1)}
                               </span>
                               {/* Mini bar */}
-                              <div style={{ width: '80px', height: '5px', background: C.bgHover, borderRadius: '99px', overflow: 'hidden' }}>
-                                <div style={{ height: '100%', width: `${(avg / 5) * 100}%`, background: avgColor(avg), borderRadius: '99px', transition: EASE.standard }} />
+                              <div className="w-20 h-[5px] bg-muted rounded-full overflow-hidden">
+                                <div className="h-full rounded-full transition-all duration-base ease-out" style={{ width: `${(avg / 5) * 100}%`, background: avgColor(avg) }} />
                               </div>
                               {/* Per-skill fill rate (N/R excluded from denominator) */}
                               {(() => {
@@ -481,29 +492,30 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
                                 const rated   = catSk.filter(sk => getLevel(tester, sk.id) > 0).length;
                                 const denom   = catSk.length - nrCount;
                                 return (
-                                  <span style={{ ...TEXT.xs, color: C.textDisabled }}>
+                                  <span className="text-xs text-subtle-foreground">
                                     {rated}/{denom} סקילים{nrCount > 0 && <span style={{ color: NR_COLOR }}> ·{nrCount}N/R</span>}
                                   </span>
                                 );
                               })()}
                               <button onClick={() => { setActiveCategory(cat); setViewMode('matrix'); }}
-                                style={{ ...TEXT.xs, color: m.color, background: m.bg, border: `1px solid ${m.color}33`, borderRadius: RADIUS.sm, padding: '2px 8px', cursor: 'pointer', fontWeight: WEIGHT.semibold }}>
+                                className="text-xs rounded-sm py-0.5 px-2 cursor-pointer font-semibold"
+                                style={{ color: m.color, background: m.bg, border: `1px solid ${m.color}33` }}>
                                 פרטים
                               </button>
                             </div>
                           ) : (
-                            <span style={{ ...TEXT.sm, color: C.textDisabled }}>—</span>
+                            <span className="text-sm text-subtle-foreground">—</span>
                           )}
                         </td>
                       );
                     })}
                     {/* Total avg */}
-                    <td style={{ padding: SP[3], textAlign: 'center', borderBottom: `1px solid ${C.border}` }}>
+                    <td className="py-3 text-center border-b border-border">
                       {totalAvg !== null ? (
-                        <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: avgColor(totalAvg), background: avgBg(totalAvg), padding: '4px 10px', borderRadius: RADIUS.full }}>
+                        <span className="text-sm font-bold py-1 px-2.5 rounded-full" style={{ color: avgColor(totalAvg), background: avgBg(totalAvg) }}>
                           {totalAvg.toFixed(1)}
                         </span>
-                      ) : <span style={{ color: C.textDisabled }}>—</span>}
+                      ) : <span className="text-subtle-foreground">—</span>}
                     </td>
                   </tr>
                 );
@@ -519,58 +531,60 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
       {viewMode === 'matrix' && testers.length > 0 && skills.length > 0 && (<>
 
         {/* Category tabs */}
-        <div style={{ display: 'flex', gap: SP[2], marginBottom: SP[3], padding: '4px', background: C.bgNested, borderRadius: RADIUS.xl }}>
+        <div className="flex gap-2 mb-3 p-1 bg-muted rounded-xl">
           {CATEGORY_ORDER.map(cat => {
             const m     = SKILL_TYPE_META[cat];
             const count = catSkillsMap[cat].length;
             const isAct = activeCategory === cat;
             return (
               <button key={cat} onClick={() => setActiveCategory(cat)}
-                style={{ flex: 1, padding: '9px 8px', borderRadius: RADIUS.lg, border: isAct ? `2px solid ${m.color}` : '2px solid transparent', background: isAct ? m.bg : 'transparent', cursor: 'pointer', transition: EASE.fast, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
-                <span style={{ ...TEXT.sm, fontWeight: isAct ? WEIGHT.bold : WEIGHT.normal, color: isAct ? m.color : C.textSecondary }}>{m.label}</span>
-                <span style={{ ...TEXT.xs, color: isAct ? m.color : C.textDisabled }}>{count} סקילים · משקל {catSkillsMap[cat].reduce((s, sk) => s + sk.weight, 0)}</span>
+                className="flex-1 py-2.5 px-2 rounded-lg cursor-pointer transition-colors duration-fast ease-out flex flex-col items-center gap-[3px] border-2"
+                style={{ borderColor: isAct ? m.color : 'transparent', background: isAct ? m.bg : 'transparent' }}>
+                <span className={cn('text-sm', isAct ? 'font-bold' : 'font-normal')} style={{ color: isAct ? m.color : C.textSecondary }}>{m.label}</span>
+                <span className="text-xs" style={{ color: isAct ? m.color : C.textDisabled }}>{count} סקילים · משקל {catSkillsMap[cat].reduce((s, sk) => s + sk.weight, 0)}</span>
               </button>
             );
           })}
         </div>
 
         {/* Level legend */}
-        <div style={{ display: 'flex', gap: SP[3], marginBottom: SP[3], flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="flex gap-3 mb-3 flex-wrap items-center">
           {([1,2,3,4,5] as const).map(l => (
-            <div key={l} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <div style={{ width: '22px', height: '22px', borderRadius: RADIUS.sm, background: LEVEL_BG[l], border: `1px solid ${LEVEL_COLOR[l]}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', ...TEXT.xs, fontWeight: WEIGHT.bold, color: LEVEL_COLOR[l] }}>{l}</div>
-              <span style={{ ...TEXT.xs, color: C.textMuted }}>{LEVEL_LABEL[l].split(' — ')[1]}</span>
+            <div key={l} className="flex items-center gap-[5px]">
+              <div className="w-[22px] h-[22px] rounded-sm flex items-center justify-center text-xs font-bold" style={{ background: LEVEL_BG[l], border: `1px solid ${LEVEL_COLOR[l]}44`, color: LEVEL_COLOR[l] }}>{l}</div>
+              <span className="text-xs text-subtle-foreground">{LEVEL_LABEL[l].split(' — ')[1]}</span>
             </div>
           ))}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginRight: SP[2], paddingRight: SP[2], borderRight: `1px solid ${C.border}` }}>
-            <div style={{ width: '22px', height: '22px', borderRadius: RADIUS.sm, background: NR_BG, border: `1px solid ${NR_COLOR}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: WEIGHT.bold, color: NR_COLOR }}>N/R</div>
-            <span style={{ ...TEXT.xs, color: C.textMuted }}>לא רלוונטי — לא נכנס לחישוב</span>
+          <div className="flex items-center gap-[5px] ms-2 ps-2 border-s border-border">
+            <div className="w-[22px] h-[22px] rounded-sm flex items-center justify-center text-[11px] font-bold" style={{ background: NR_BG, border: `1px solid ${NR_COLOR}44`, color: NR_COLOR }}>N/R</div>
+            <span className="text-xs text-subtle-foreground">לא רלוונטי — לא נכנס לחישוב</span>
           </div>
         </div>
 
         {/* Matrix table */}
-        <div style={{ overflowX: 'auto', background: C.bgCard, borderRadius: RADIUS['2xl'], border: `1px solid ${C.border}`, boxShadow: SHADOW.sm }}>
-          <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: `${220 + activeSkills.length * 72 + 70}px` }}>
+        <div className="overflow-x-auto bg-card rounded-2xl border border-border shadow-sm">
+          <table className="border-collapse w-full" style={{ minWidth: `${220 + activeSkills.length * 72 + 70}px` }}>
             <thead>
-              <tr style={{ background: C.bgNested, borderBottom: `2px solid ${activeMeta.color}44` }}>
+              <tr className="bg-muted" style={{ borderBottom: `2px solid ${activeMeta.color}44` }}>
                 {/* Tester col header — sticky */}
-                <th style={{ padding: `${SP[3]} ${SP[3]}`, textAlign: 'right', position: 'sticky', right: 0, background: C.bgNested, zIndex: 2, borderLeft: `1px solid ${C.border}` }}>
-                  <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>בודק</span>
+                <th className="py-3 px-3 text-right sticky start-0 bg-muted z-[2] border-e border-border">
+                  <span className="text-xs font-bold text-subtle-foreground uppercase tracking-wider">בודק</span>
                 </th>
                 {/* Skill headers */}
                 {activeSkills.map((skill, si) => (
                   <th key={skill.id}
-                    style={{ padding: `${SP[2]} 6px`, textAlign: 'center', verticalAlign: 'bottom', borderLeft: `1px solid ${C.border}`, minWidth: '72px', maxWidth: '100px' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                      <span style={{ ...TEXT.xs, color: C.textSecondary, fontWeight: WEIGHT.medium, lineHeight: 1.3, maxWidth: '88px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textAlign: 'center', wordBreak: 'break-word' as const }} title={skill.name}>
+                    className="py-2 px-1.5 text-center align-bottom border-e border-border min-w-[72px] max-w-[100px]">
+                    <div className="flex flex-col items-center gap-1">
+                      <span className="text-xs text-muted-foreground font-medium leading-[1.3] max-w-[88px] line-clamp-2 text-center break-words" title={skill.name}>
                         {skill.name}
                       </span>
-                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                        <span title="משקל" style={{ fontSize: '12px', color: activeMeta.color, background: activeMeta.bg, padding: '1px 5px', borderRadius: '4px', fontWeight: WEIGHT.bold }}>
+                      <div className="flex gap-1 items-center">
+                        <span title="משקל" className="text-[12px] font-bold py-px px-[5px] rounded-xs" style={{ color: activeMeta.color, background: activeMeta.bg }}>
                           {skill.weight}
                         </span>
                         <button onClick={() => deleteSkill(skill)} title="מחק סקיל"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textDisabled, fontSize: '12px', padding: '1px', lineHeight: 1, transition: EASE.fast }}
+                          className="bg-transparent border-none cursor-pointer text-[12px] p-px leading-none transition-colors duration-fast ease-out"
+                          style={{ color: C.textDisabled }}
                           onMouseEnter={e => e.currentTarget.style.color = C.danger}
                           onMouseLeave={e => e.currentTarget.style.color = C.textDisabled}>✕</button>
                       </div>
@@ -578,8 +592,8 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
                   </th>
                 ))}
                 {/* Avg header */}
-                <th style={{ padding: `${SP[2]} ${SP[3]}`, textAlign: 'center', borderRight: `2px solid ${activeMeta.color}44`, minWidth: '72px' }}>
-                  <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: activeMeta.color }}>ממוצע<br/>משוקלל</span>
+                <th className="py-2 px-3 text-center min-w-[72px]" style={{ borderInlineStart: `2px solid ${activeMeta.color}44` }}>
+                  <span className="text-xs font-bold" style={{ color: activeMeta.color }}>ממוצע<br/>משוקלל</span>
                 </th>
               </tr>
             </thead>
@@ -588,23 +602,23 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
                 const rowBg = ti % 2 === 0 ? C.bgCard : C.bgNested;
                 const avg   = calcWeightedAvg(tester, activeSkills);
                 return (
-                  <tr key={tester.userId} style={{ background: rowBg }}>
+                  <tr key={tester.userId} className={ti % 2 === 0 ? 'bg-card' : 'bg-muted'}>
                     <TesterCell tester={tester} rowBg={rowBg} />
                     {activeSkills.map((skill, si) => (
                       <SkillLevelCell key={skill.id} tester={tester} skill={skill} si={si} total={activeSkills.length} />
                     ))}
                     {/* Avg cell */}
-                    <td style={{ padding: SP[2], textAlign: 'center', borderBottom: `1px solid ${C.border}`, borderRight: `2px solid ${activeMeta.color}44` }}>
+                    <td className="p-2 text-center border-b border-border" style={{ borderInlineStart: `2px solid ${activeMeta.color}44` }}>
                       {avg !== null ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                          <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: avgColor(avg), background: avgBg(avg), padding: '3px 10px', borderRadius: RADIUS.full }}>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="text-sm font-bold py-[3px] px-2.5 rounded-full" style={{ color: avgColor(avg), background: avgBg(avg) }}>
                             {avg.toFixed(1)}
                           </span>
-                          <div style={{ width: '50px', height: '4px', background: C.bgHover, borderRadius: '99px', overflow: 'hidden' }}>
-                            <div style={{ height: '100%', width: `${(avg / 5) * 100}%`, background: avgColor(avg), borderRadius: '99px' }} />
+                          <div className="w-[50px] h-1 bg-muted rounded-full overflow-hidden">
+                            <div className="h-full rounded-full" style={{ width: `${(avg / 5) * 100}%`, background: avgColor(avg) }} />
                           </div>
                         </div>
-                      ) : <span style={{ color: C.textDisabled }}>—</span>}
+                      ) : <span className="text-subtle-foreground">—</span>}
                     </td>
                   </tr>
                 );
@@ -612,22 +626,22 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
             </tbody>
             {/* Category average row */}
             <tfoot>
-              <tr style={{ background: C.bgNested, borderTop: `2px solid ${activeMeta.color}44` }}>
-                <td style={{ padding: `${SP[2]} ${SP[3]}`, position: 'sticky', right: 0, background: C.bgNested, zIndex: 1, borderLeft: `1px solid ${C.border}` }}>
-                  <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted }}>ממוצע קבוצה</span>
+              <tr className="bg-muted" style={{ borderTop: `2px solid ${activeMeta.color}44` }}>
+                <td className="py-2 px-3 sticky start-0 bg-muted z-[1] border-e border-border">
+                  <span className="text-xs font-bold text-subtle-foreground">ממוצע קבוצה</span>
                 </td>
                 {activeSkills.map((skill, si) => {
                   const levels = testers.map(t => getLevel(t, skill.id)).filter(l => l > 0);
                   const avg = levels.length > 0 ? levels.reduce((a, b) => a + b, 0) / levels.length : null;
                   return (
-                    <td key={skill.id} style={{ padding: SP[2], textAlign: 'center', borderLeft: `1px solid ${C.border}` }}>
+                    <td key={skill.id} className="p-2 text-center border-e border-border">
                       {avg !== null
-                        ? <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: avgColor(avg) }}>{avg.toFixed(1)}</span>
-                        : <span style={{ color: C.textDisabled, ...TEXT.xs }}>—</span>}
+                        ? <span className="text-xs font-semibold" style={{ color: avgColor(avg) }}>{avg.toFixed(1)}</span>
+                        : <span className="text-xs text-subtle-foreground">—</span>}
                     </td>
                   );
                 })}
-                <td style={{ borderRight: `2px solid ${activeMeta.color}44` }} />
+                <td style={{ borderInlineStart: `2px solid ${activeMeta.color}44` }} />
               </tr>
             </tfoot>
           </table>
@@ -636,59 +650,61 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
 
       {/* ── Click outside to close cell editor ── */}
       {editCell && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setEditCell(null)} />
+        <div className="fixed inset-0 z-[99]" onClick={() => setEditCell(null)} />
       )}
 
       {/* ── Add Skill Modal ── */}
       {showAddSkill && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 3000, background: C.bgOverlay, display: 'flex', alignItems: 'center', justifyContent: 'center', direction: 'rtl' }}
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center" style={{ background: C.bgOverlay }}
           onClick={e => { if (e.target === e.currentTarget) { setShowAddSkill(false); setNewSkillName(''); } }}>
-          <div style={{ background: C.bgCard, borderRadius: RADIUS['3xl'], width: '400px', maxWidth: '94vw', boxShadow: '0 24px 64px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold }}>הוספת סקיל חדש</span>
-              <button onClick={() => { setShowAddSkill(false); setNewSkillName(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '18px' }}>✕</button>
+          <div className="bg-card rounded-3xl w-[400px] max-w-[94vw] overflow-hidden" style={{ boxShadow: '0 24px 64px rgba(0,0,0,0.35)' }}>
+            <div className="py-4 px-5 border-b border-border flex items-center justify-between">
+              <span className="text-lg font-bold">הוספת סקיל חדש</span>
+              <button onClick={() => { setShowAddSkill(false); setNewSkillName(''); }} className="bg-transparent border-none cursor-pointer text-subtle-foreground text-lg">✕</button>
             </div>
-            <div style={{ padding: '20px' }}>
-              <label style={{ display: 'block', ...TEXT.sm, fontWeight: WEIGHT.semibold, marginBottom: SP[2] }}>שם הסקיל</label>
+            <div className="p-5">
+              <label className="block text-sm font-semibold mb-2">שם הסקיל</label>
               <input
                 value={newSkillName}
                 onChange={e => setNewSkillName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && addSkill()}
                 placeholder="לדוגמה: Selenium, SQL, Agile..."
                 autoFocus
-                style={{ width: '100%', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, padding: '8px 12px', fontFamily: FONT, ...TEXT.sm, outline: 'none', boxSizing: 'border-box', marginBottom: SP[4] }}
+                className="w-full rounded-md border border-border py-2 px-3 text-sm outline-none mb-4"
                 onFocus={e => e.currentTarget.style.borderColor = C.borderFocus}
                 onBlur={e => e.currentTarget.style.borderColor = C.border}
               />
-              <label style={{ display: 'block', ...TEXT.sm, fontWeight: WEIGHT.semibold, marginBottom: SP[2] }}>קטגוריה</label>
-              <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap', marginBottom: SP[4] }}>
+              <label className="block text-sm font-semibold mb-2">קטגוריה</label>
+              <div className="flex gap-2 flex-wrap mb-4">
                 {(['Professional', 'Applications', 'Tools', 'Personal', 'Business'] as const).map(t => {
                   const meta = SKILL_TYPE_META[t];
                   const isActive = newSkillType === t;
                   return (
                     <button key={t} onClick={() => setNewSkillType(t)}
-                      style={{ padding: '7px 12px', borderRadius: RADIUS.md, border: `1px solid ${isActive ? meta.color : C.border}`, background: isActive ? meta.bg : C.bgNested, cursor: 'pointer', ...TEXT.xs, fontWeight: isActive ? WEIGHT.bold : WEIGHT.normal, color: isActive ? meta.color : C.textSecondary, transition: EASE.fast }}>
+                      className={cn('py-[7px] px-3 rounded-md cursor-pointer text-xs transition-colors duration-fast ease-out border', isActive ? 'font-bold' : 'font-normal')}
+                      style={{ borderColor: isActive ? meta.color : C.border, background: isActive ? meta.bg : C.bgNested, color: isActive ? meta.color : C.textSecondary }}>
                       {meta.label}
                     </button>
                   );
                 })}
               </div>
-              <label style={{ display: 'block', ...TEXT.sm, fontWeight: WEIGHT.semibold, marginBottom: SP[2] }}>משקל (1–5)</label>
-              <div style={{ display: 'flex', gap: SP[2], marginBottom: SP[5] }}>
+              <label className="block text-sm font-semibold mb-2">משקל (1–5)</label>
+              <div className="flex gap-2 mb-5">
                 {[1,2,3,4,5].map(w => (
                   <button key={w} onClick={() => setNewSkillWeight(w)}
-                    style={{ flex: 1, padding: '7px', borderRadius: RADIUS.md, border: `1px solid ${newSkillWeight === w ? C.brand : C.border}`, background: newSkillWeight === w ? `${C.brand}18` : C.bgNested, cursor: 'pointer', ...TEXT.sm, fontWeight: newSkillWeight === w ? WEIGHT.bold : WEIGHT.normal, color: newSkillWeight === w ? C.brand : C.textSecondary, transition: EASE.fast }}>
+                    className={cn('flex-1 py-[7px] rounded-md cursor-pointer text-sm transition-colors duration-fast ease-out border', newSkillWeight === w ? 'font-bold' : 'font-normal')}
+                    style={{ borderColor: newSkillWeight === w ? C.brand : C.border, background: newSkillWeight === w ? `${C.brand}18` : C.bgNested, color: newSkillWeight === w ? C.brand : C.textSecondary }}>
                     {w}
                   </button>
                 ))}
               </div>
-              <div style={{ display: 'flex', gap: SP[2] }}>
+              <div className="flex gap-2">
                 <button onClick={addSkill} disabled={!newSkillName.trim() || savingSkill}
-                  style={{ flex: 1, background: C.brand, color: C.textInverse, border: 'none', borderRadius: RADIUS.md, padding: '9px', cursor: 'pointer', ...TEXT.sm, fontWeight: WEIGHT.semibold, opacity: !newSkillName.trim() || savingSkill ? 0.5 : 1 }}>
+                  className={cn('flex-1 bg-primary text-white border-none rounded-md py-2.5 cursor-pointer text-sm font-semibold transition-opacity duration-fast ease-out', (!newSkillName.trim() || savingSkill) ? 'opacity-50' : 'opacity-100')}>
                   {savingSkill ? 'שומר...' : 'הוסף'}
                 </button>
                 <button onClick={() => { setShowAddSkill(false); setNewSkillName(''); }}
-                  style={{ flex: 1, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '9px', cursor: 'pointer', ...TEXT.sm, color: C.textSecondary }}>
+                  className="flex-1 bg-muted border border-border rounded-md py-2.5 cursor-pointer text-sm text-muted-foreground">
                   ביטול
                 </button>
               </div>
@@ -699,45 +715,43 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
 
       {/* ── Add Tester Modal ── */}
       {showAddTester && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 3000, background: C.bgOverlay, display: 'flex', alignItems: 'center', justifyContent: 'center', direction: 'rtl' }}
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center" style={{ background: C.bgOverlay }}
           onClick={e => { if (e.target === e.currentTarget) setShowAddTester(false); }}>
-          <div style={{ background: C.bgCard, borderRadius: RADIUS['3xl'], width: '400px', maxWidth: '94vw', boxShadow: '0 24px 64px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold }}>הוספת בודק</span>
-              <button onClick={() => setShowAddTester(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '18px' }}>✕</button>
+          <div className="bg-card rounded-3xl w-[400px] max-w-[94vw] overflow-hidden" style={{ boxShadow: '0 24px 64px rgba(0,0,0,0.35)' }}>
+            <div className="py-4 px-5 border-b border-border flex items-center justify-between">
+              <span className="text-lg font-bold">הוספת בודק</span>
+              <button onClick={() => setShowAddTester(false)} className="bg-transparent border-none cursor-pointer text-subtle-foreground text-lg">✕</button>
             </div>
-            <div style={{ padding: '20px' }}>
+            <div className="p-5">
               {/* Team filter */}
-              <label style={{ display: 'block', ...TEXT.sm, fontWeight: WEIGHT.semibold, marginBottom: SP[2] }}>סנן לפי צוות</label>
-              <select value={filterTeamId} onChange={e => handleTeamFilterChange(e.target.value)}
-                style={{ width: '100%', padding: '8px 12px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, fontFamily: FONT, ...TEXT.sm, marginBottom: SP[4], outline: 'none', background: C.bgCard, color: C.textPrimary }}>
+              <label className="block text-sm font-semibold mb-2">סנן לפי צוות</label>
+              <Select value={filterTeamId} onChange={e => handleTeamFilterChange(e.target.value)} fullWidth className="mb-4">
                 <option value="">כל הצוותים</option>
                 {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
+              </Select>
 
               {availableUsers.length === 0
                 ? <>
-                    <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[4], background: C.bgNested, borderRadius: RADIUS.md, marginBottom: SP[4] }}>
+                    <div className="text-sm text-subtle-foreground text-center p-4 bg-muted rounded-md mb-4">
                       {filterTeamId ? 'כל חברי הצוות כבר רשומים כבודקים' : 'כל המשתמשים הפעילים כבר רשומים כבודקים'}
                     </div>
                     <button onClick={() => setShowAddTester(false)}
-                      style={{ width: '100%', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '9px', cursor: 'pointer', ...TEXT.sm, color: C.textSecondary }}>
+                      className="w-full bg-muted border border-border rounded-md py-2.5 cursor-pointer text-sm text-muted-foreground">
                       סגור
                     </button>
                   </>
                 : (<>
-                  <label style={{ display: 'block', ...TEXT.sm, fontWeight: WEIGHT.semibold, marginBottom: SP[2] }}>בחר עובד</label>
-                  <select value={selectedUserId} onChange={e => setSelectedUserId(e.target.value)}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, fontFamily: FONT, ...TEXT.sm, marginBottom: SP[5], outline: 'none', background: C.bgCard, color: C.textPrimary }}>
+                  <label className="block text-sm font-semibold mb-2">בחר עובד</label>
+                  <Select value={selectedUserId} onChange={e => setSelectedUserId(e.target.value)} fullWidth className="mb-5">
                     {availableUsers.map(u => <option key={u.id} value={u.id}>{u.fullName} ({u.email})</option>)}
-                  </select>
-                  <div style={{ display: 'flex', gap: SP[2] }}>
+                  </Select>
+                  <div className="flex gap-2">
                     <button onClick={addTester} disabled={!selectedUserId || savingTester}
-                      style={{ flex: 1, background: C.info, color: C.textInverse, border: 'none', borderRadius: RADIUS.md, padding: '9px', cursor: 'pointer', ...TEXT.sm, fontWeight: WEIGHT.semibold, opacity: savingTester ? 0.5 : 1 }}>
+                      className={cn('flex-1 bg-info text-white border-none rounded-md py-2.5 cursor-pointer text-sm font-semibold transition-opacity duration-fast ease-out', savingTester ? 'opacity-50' : 'opacity-100')}>
                       {savingTester ? 'מוסיף...' : 'הוסף בודק'}
                     </button>
                     <button onClick={() => setShowAddTester(false)}
-                      style={{ flex: 1, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '9px', cursor: 'pointer', ...TEXT.sm, color: C.textSecondary }}>
+                      className="flex-1 bg-muted border border-border rounded-md py-2.5 cursor-pointer text-sm text-muted-foreground">
                       ביטול
                     </button>
                   </div>

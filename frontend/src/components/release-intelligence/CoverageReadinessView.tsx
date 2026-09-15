@@ -1,105 +1,80 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
+import { C } from '../../theme';
+import { cn } from '../../lib/utils';
+import { RadialSegmentedGauge, CR_DEFECT_SEVERITY_META } from './CycleProgressView';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
-interface Req {
-  title: string; subject: string; planned: number; passed: number; failed: number; blocked: number; notReady: number; notRun: number;
-  // CR-linked defect counts (spec confirmed 2026-09-05) — only present when
-  // this requirement's own title resolves to a real CR number (see backend's
-  // crNumberFromTitle); a module/subject folder row (no CR behind it) has
-  // both null, same as a CR that genuinely has zero reported defects has
-  // crDefects with all-zero counts — the two aren't the same thing, hence
-  // null vs a real (zeroed) object rather than one "no data" state.
-  crNumber: string | null;
-  crDefects: { reported: number; open: number; critical: number } | null;
+interface ScopedCounts {
+  passed: number; failed: number; notRun: number; blocked: number; notCompleted: number; notReady: number;
+  notApplicable: number; notRelevant: number; total: number; coveragePct: number;
 }
+interface CrGaugeRow {
+  crNumber: string; crLabel: string; project: string | null;
+  core: ScopedCounts; sa: ScopedCounts;
+  reportedDefectsCount: number; stillOpenDefectsCount: number;
+  defectsBySeverity: { showStopper: number; severe: number; medium: number; low: number };
+}
+interface ScopeKpis { covered: number; failed: number; blocked: number; notReady: number; coveragePct: number }
 interface CoverageReadiness {
-  kpis: { covered: number; failed: number; blocked: number; notReady: number; coveragePct: number };
-  byRequirement: Req[];
+  kpis: { core: ScopeKpis; sa: ScopeKpis };
+  crRows: CrGaugeRow[];
 }
+
+type Scope = 'core' | 'sa';
 
 function KpiCard({ value, label, valueColor }: { value: string; label: string; valueColor?: string }) {
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '16px 20px', flex: 1, minWidth: '140px' }}>
-      <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: valueColor ?? C.textPrimary, lineHeight: 1.2 }}>{value}</div>
-      <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>{label}</div>
-    </div>
-  );
-}
-
-// Same segmented-bar idiom CyclesPanel already uses for per-cycle status
-// breakdown (CycleProgressView's SegmentedProgressBar) — reused here instead
-// of inventing a second visual language, just adapted to Req's own field set
-// (no notCompleted/notApplicable/notRelevant at this granularity).
-const REQ_SEGMENT_COLOR: Record<string, string> = {
-  passed: C.success, failed: C.danger, blocked: C.warning, notReady: C.textMuted, notRun: C.statusOpen,
-};
-const REQ_SEGMENT_LABEL: Record<string, string> = {
-  passed: 'עברו', failed: 'נכשלו', blocked: 'חסומים', notReady: 'לא מוכנים ל-QA', notRun: 'לא רצו',
-};
-const REQ_SEGMENT_KEYS = ['passed', 'failed', 'blocked', 'notReady', 'notRun'] as const;
-
-function ReqLegend() {
-  return (
-    <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap', padding: '10px 14px', borderBottom: `1px solid ${C.border}`, ...TEXT.xs, color: C.textMuted }}>
-      {REQ_SEGMENT_KEYS.map(k => (
-        <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '9px', height: '9px', borderRadius: '2px', background: REQ_SEGMENT_COLOR[k], display: 'inline-block' }} />
-          {REQ_SEGMENT_LABEL[k]}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function ReqBar({ r }: { r: Req }) {
-  const total = r.passed + r.failed + r.blocked + r.notReady + r.notRun;
-  if (total === 0) return <div style={{ height: '8px', background: C.bgNested, borderRadius: RADIUS.sm, flex: 1, minWidth: '80px' }} />;
-  const segments = REQ_SEGMENT_KEYS.map(key => ({ key, count: r[key] })).filter(s => s.count > 0);
-  return (
-    <div style={{ height: '8px', background: C.bgNested, borderRadius: RADIUS.sm, overflow: 'hidden', display: 'flex', flex: 1, minWidth: '80px' }}>
-      {segments.map(s => (
-        <div key={s.key} title={`${REQ_SEGMENT_LABEL[s.key]}: ${s.count}`} style={{ width: `${(s.count / total) * 100}%`, height: '100%', background: REQ_SEGMENT_COLOR[s.key] }} />
-      ))}
-    </div>
-  );
-}
-
-// Per-CR defect counts (spec confirmed 2026-09-05) — reported (all statuses),
-// open, and how many of the open ones are critical (Show Stopper/Severe,
-// same definition used everywhere else in this app). Only rendered when the
-// row actually resolved to a CR number (see backend's crNumberFromTitle) —
-// a module/subject folder row with no CR behind it (crDefects === null)
-// gets a blank spacer instead, so the column still aligns.
-function CrDefectStats({ d }: { d: Req['crDefects'] }) {
-  if (!d) return <div style={{ width: '150px', flexShrink: 0 }} />;
-  return (
-    <div style={{ width: '150px', flexShrink: 0, display: 'flex', gap: '9px', ...TEXT.xs, whiteSpace: 'nowrap' as const }}>
-      <span title="תקלות שדווחו בסה״כ ב-CR זה" style={{ color: C.textMuted }}>🐞 {d.reported}</span>
-      <span title="תקלות פתוחות" style={{ color: d.open > 0 ? C.warning : C.textMuted, fontWeight: d.open > 0 ? WEIGHT.semibold : WEIGHT.normal }}>פתוחות {d.open}</span>
-      <span title="מתוכן קריטיות (Show Stopper / Severe)" style={{ color: d.critical > 0 ? C.danger : C.textMuted, fontWeight: d.critical > 0 ? WEIGHT.bold : WEIGHT.normal }}>קריטיות {d.critical}</span>
-    </div>
-  );
-}
-
-// One row per requirement: title+subject (fixed-width, truncated) → the bar
-// (fills the rest of the row) → per-CR defect counts → coverage% (compact,
-// colored). Replaces the old 8-numeric-column table — same data, scanned by
-// shape/color instead of read column by column (spec confirmed 2026-09-04).
-function ReqRow({ r }: { r: Req }) {
-  const pct = r.planned > 0 ? Math.round((r.passed / r.planned) * 100) : 0;
-  const pctColor = r.failed > 0 || r.blocked > 0 ? C.danger : pct >= 80 ? C.success : C.textMuted;
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], padding: '10px 14px', borderBottom: `1px solid ${C.border}` }}>
-      <div style={{ width: '260px', flexShrink: 0, minWidth: 0 }}>
-        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }} title={r.title}>{r.title || '—'}</div>
-        {r.subject && <div style={{ ...TEXT.xs, color: C.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{r.subject}</div>}
+    <div className="min-w-[140px] flex-1 rounded-lg border border-border bg-card px-5 py-4">
+      <div className="text-xl font-bold leading-tight" style={{ color: valueColor ?? undefined }}>
+        <span className={valueColor ? '' : 'text-foreground'}>{value}</span>
       </div>
-      <ReqBar r={r} />
-      <CrDefectStats d={r.crDefects} />
-      <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: pctColor, width: '44px', textAlign: 'left' as const, flexShrink: 0, fontVariantNumeric: 'tabular-nums' as const }}>{pct}%</div>
+      <div className="mt-1 text-xs text-subtle-foreground">{label}</div>
+    </div>
+  );
+}
+
+// Same "clock" card shape as CycleProgressView's per-CR cards (2026-09-14) —
+// gauge dominant, defect badge below — just scoped to whichever toggle
+// (core cycles / Stand Alone) is active instead of one specific cycle, since
+// this screen's own point is "progress across the whole test plan" per the
+// user's wording, not a single cycle's snapshot.
+function CrGaugeCard({ row, scope }: { row: CrGaugeRow; scope: Scope }) {
+  const counts = row[scope];
+  const hasData = counts.total > 0;
+  const successPct = hasData ? Math.round((counts.passed / counts.total) * 100) : null;
+  const openDefectsTotal = Object.values(row.defectsBySeverity).reduce((s, n) => s + n, 0);
+  return (
+    <div className="bg-card border border-border rounded-lg p-3 flex flex-col items-center gap-2 text-center">
+      <div className="w-full text-sm font-semibold text-foreground min-w-0" title={`${row.crNumber} — ${row.crLabel.replace(/^\d+\s*-\s*/, '')}`}>
+        <span className="font-bold">{row.crNumber}</span>
+        {' — '}
+        <span className="line-clamp-1">{row.crLabel.replace(/^\d+\s*-\s*/, '')}</span>
+      </div>
+
+      <RadialSegmentedGauge
+        passed={counts.passed} failed={counts.failed} blocked={counts.blocked}
+        notCompleted={counts.notCompleted} notRun={counts.notRun} notReady={counts.notReady}
+        notApplicable={counts.notApplicable} notRelevant={counts.notRelevant}
+        total={counts.total} targetPct={null} successPct={successPct}
+        size={96}
+      />
+
+      {row.project && <div className="text-xs text-subtle-foreground truncate w-full">📁 {row.project}</div>}
+
+      {row.reportedDefectsCount > 0 && (
+        <span
+          className="inline-flex items-center gap-1 text-xs font-semibold rounded-full py-0.5 px-[9px] whitespace-nowrap"
+          style={{ color: C.danger, background: `${C.danger}14`, border: `1px solid ${C.danger}40` }}
+          title={openDefectsTotal > 0
+            ? Object.entries(row.defectsBySeverity).filter(([, n]) => n > 0)
+                .map(([key, n]) => `${CR_DEFECT_SEVERITY_META[key].label}: ${n}`).join(' · ')
+            : undefined}
+        >
+          🐞 {row.stillOpenDefectsCount}/{row.reportedDefectsCount}
+        </span>
+      )}
     </div>
   );
 }
@@ -110,6 +85,8 @@ export const CoverageReadinessView: React.FC<Props> = ({ token, versionId }) => 
   const headers = { Authorization: `Bearer ${token}` };
   const [data, setData] = useState<CoverageReadiness | null>(null);
   const [loading, setLoading] = useState(false);
+  const [scope, setScope] = useState<Scope>('core');
+  const [search, setSearch] = useState('');
 
   const load = useCallback(() => {
     if (!versionId) { setData(null); return; }
@@ -123,46 +100,81 @@ export const CoverageReadinessView: React.FC<Props> = ({ token, versionId }) => 
 
   useEffect(() => { load(); }, [load]);
 
+  const visibleRows = useMemo(() => {
+    if (!data) return [];
+    const q = search.trim().toLowerCase();
+    return data.crRows
+      .filter(r => r[scope].total > 0)
+      .filter(r => !q || r.crNumber.toLowerCase().includes(q) || r.crLabel.toLowerCase().includes(q))
+      // Worst-first: any failed/blocked pushes a CR to the top, then lowest
+      // pass-rate — same instinct the old row-list screen used.
+      .sort((a, b) => {
+        const ca = a[scope]; const cb = b[scope];
+        const riskA = ca.failed > 0 || ca.blocked > 0 ? 1 : 0;
+        const riskB = cb.failed > 0 || cb.blocked > 0 ? 1 : 0;
+        if (riskA !== riskB) return riskB - riskA;
+        const pctA = ca.total > 0 ? ca.passed / ca.total : 1;
+        const pctB = cb.total > 0 ? cb.passed / cb.total : 1;
+        return pctA - pctB;
+      });
+  }, [data, scope, search]);
+
   if (!versionId) {
-    return <div style={{ fontFamily: FONT, direction: 'rtl', textAlign: 'center', padding: SP[8], color: C.textMuted }}>בחר גרסה מתפריט הצד.</div>;
+    return <div dir="rtl" className="p-8 text-center font-sans text-subtle-foreground">בחר גרסה מתפריט הצד.</div>;
   }
-  if (loading && !data) return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>טוען...</div>;
-  if (!data) return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>לא ניתן לטעון נתונים עבור גרסה זו.</div>;
+  if (loading && !data) return <div dir="rtl" className="p-6 font-sans text-subtle-foreground">טוען...</div>;
+  if (!data) return <div dir="rtl" className="p-6 font-sans text-subtle-foreground">לא ניתן לטעון נתונים עבור גרסה זו.</div>;
+
+  const kpis = data.kpis[scope];
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>✅ כיסוי ומוכנות</div>
+    <div dir="rtl" className="flex flex-col gap-4 font-sans">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="text-lg font-bold text-foreground">✅ כיסוי ומוכנות</div>
 
-      <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
-        <KpiCard value={String(data.kpis.covered)} label="Covered" valueColor={C.success} />
-        <KpiCard value={String(data.kpis.failed)} label="Failed" valueColor={data.kpis.failed > 0 ? C.danger : C.success} />
-        <KpiCard value={String(data.kpis.blocked)} label="Blocked" valueColor={data.kpis.blocked > 0 ? '#e8af00' : C.success} />
-        <KpiCard value={String(data.kpis.notReady)} label="Not Ready" />
-        <KpiCard value={`${data.kpis.coveragePct}%`} label="Coverage %" valueColor={C.brand} />
+        {/* CORE (Cycle 1/2/3) / Stand Alone toggle (2026-09-14) — this screen
+            tracks progress across the whole test plan, and a CR's scripts can
+            live under either bucket (or both). */}
+        <div className="inline-flex rounded-md border border-border bg-muted p-0.5">
+          {(['core', 'sa'] as Scope[]).map(s => (
+            <button
+              key={s}
+              onClick={() => setScope(s)}
+              className={cn(
+                'rounded-[5px] px-3 py-1 text-xs font-semibold whitespace-nowrap',
+                scope === s ? 'bg-card text-foreground shadow-xs' : 'text-subtle-foreground cursor-pointer'
+              )}
+            >
+              {s === 'core' ? 'פיתוחי ליבה' : 'Stand Alone'}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'hidden' }}>
-        {data.byRequirement.length === 0 ? (
-          <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6], textAlign: 'center' }}>אין נתוני כיסוי לגרסה זו.</div>
-        ) : (
-          <>
-            <ReqLegend />
-            {/* Worst-first: any failed/blocked pushes a requirement to the top,
-                then lowest pass-rate — same instinct as the coverage tile's own
-                sorted CR lists (the eye should land on what needs attention). */}
-            {[...data.byRequirement]
-              .sort((a, b) => {
-                const riskA = a.failed > 0 || a.blocked > 0 ? 1 : 0;
-                const riskB = b.failed > 0 || b.blocked > 0 ? 1 : 0;
-                if (riskA !== riskB) return riskB - riskA;
-                const pctA = a.planned > 0 ? a.passed / a.planned : 1;
-                const pctB = b.planned > 0 ? b.passed / b.planned : 1;
-                return pctA - pctB;
-              })
-              .map((r, i) => <ReqRow key={i} r={r} />)}
-          </>
-        )}
+      <div className="flex flex-wrap gap-3">
+        <KpiCard value={String(kpis.covered)} label="Covered" valueColor={C.success} />
+        <KpiCard value={String(kpis.failed)} label="Failed" valueColor={kpis.failed > 0 ? C.danger : C.success} />
+        <KpiCard value={String(kpis.blocked)} label="Blocked" valueColor={kpis.blocked > 0 ? '#e8af00' : C.success} />
+        <KpiCard value={String(kpis.notReady)} label="Not Ready" />
+        <KpiCard value={`${kpis.coveragePct}%`} label="Coverage %" valueColor={C.brand} />
       </div>
+
+      <input
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="חיפוש לפי שם או מספר CR..."
+        className="w-full max-w-sm rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground"
+      />
+
+      {visibleRows.length === 0 ? (
+        <div className="rounded-lg border border-border bg-card p-6 text-center text-sm text-subtle-foreground">
+          {search ? 'אין CR-ים התואמים את החיפוש.' : 'אין נתוני כיסוי להצגה בתצוגה הזו.'}
+        </div>
+      ) : (
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' }}>
+          {visibleRows.map(r => <CrGaugeCard key={r.crNumber} row={r} scope={scope} />)}
+        </div>
+      )}
     </div>
   );
 };

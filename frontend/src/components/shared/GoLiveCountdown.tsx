@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TEXT, WEIGHT } from '../../theme';
+import { cn } from '../../lib/utils';
 import { formatDateTime } from '../../utils/dateFormat';
 
 interface Props {
@@ -10,6 +10,11 @@ interface Props {
 // Live-ticking days/hours/minutes/seconds until go-live — no page refresh
 // needed. Shared between the manager's HomeDashboard hero card and the QA
 // tester's home view.
+//
+// Colors here are intentionally raw white/black-alpha values, not theme
+// tokens: this badge always renders on top of a colored hero card background
+// (independent of the app's light/dark theme), so it can't use
+// foreground/border tokens that flip with the theme.
 export const GoLiveCountdown: React.FC<Props> = ({ plannedStart, status }) => {
   const [nowTick, setNowTick] = useState(() => Date.now());
   useEffect(() => {
@@ -34,17 +39,16 @@ export const GoLiveCountdown: React.FC<Props> = ({ plannedStart, status }) => {
     : `🚀 ${days > 0 ? `${days} ${days === 1 ? 'יום' : 'ימים'}, ` : ''}${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' as const }}>
-      <span style={{
-        ...TEXT.xs, fontWeight: WEIGHT.bold, color: 'white',
-        background: overdue ? 'rgba(240,106,106,.25)' : 'rgba(255,255,255,.14)',
-        border: `1px solid ${overdue ? 'rgba(240,106,106,.4)' : 'rgba(255,255,255,.22)'}`,
-        borderRadius: '10px', padding: '2px 10px',
-        fontVariantNumeric: 'tabular-nums' as const,
-      }}>
+    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+      <span
+        className={cn(
+          'rounded-[10px] border px-2.5 py-0.5 text-xs font-bold tabular-nums text-white',
+          overdue ? 'border-[rgba(240,106,106,0.4)] bg-[rgba(240,106,106,0.25)]' : 'border-white/[0.22] bg-white/[0.14]'
+        )}
+      >
         {countdownLabel}
       </span>
-      <span style={{ ...TEXT.xs, color: 'rgba(255,255,255,.6)' }}>
+      <span className="text-xs text-white/60">
         עלייה לאוויר: {dateLabel}
       </span>
     </div>

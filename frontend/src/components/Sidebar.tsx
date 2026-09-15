@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { C, FONT, WEIGHT, SP, RADIUS, EASE, versionStatusColor, versionStatusLabel, lifecyclePhaseLabel, lifecyclePhaseColor, lifecyclePhaseGroup } from '../theme';
+import { C, versionStatusColor, versionStatusLabel, lifecyclePhaseLabel, lifecyclePhaseColor, lifecyclePhaseGroup } from '../theme';
+import { cn } from '../lib/utils';
 import pkg from '../../package.json';
 const APP_VERSION: string = pkg.version;
 
@@ -73,10 +74,7 @@ const RI_VIEWS = [
   { key: 'daily-qa', label: 'ניהול QA יומי', icon: '📋' },
   { key: 'coverage-readiness', label: 'כיסוי ומוכנות', icon: '✅' },
   { key: 'bug-dashboard', label: 'לוח באגים (QC)', icon: '🪲' },
-  { key: 'reopen-analysis', label: 'ניתוח Reopen', icon: '♻️' },
-  { key: 'cycle-progress', label: 'התקדמות סבבים', icon: '🔄' },
   { key: 'timeline-activities', label: 'ציר זמן ופעילויות', icon: '🗓️' },
-  { key: 'go-no-go', label: 'Go / No-Go', icon: '🚦' },
   { key: 'incidents', label: 'תקלות ו-RCA', icon: '🧯' },
 ];
 
@@ -143,38 +141,39 @@ const VersionPickerModal: React.FC<{
   return (
     <div
       onClick={onClose}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(10,11,26,0.55)', zIndex: 4000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '10vh 16px 16px', direction: 'rtl' }}
+      className="fixed inset-0 z-[4000] flex items-start justify-center px-4 pb-4 pt-[10vh] [direction:rtl]"
+      style={{ background: 'rgba(10,11,26,0.55)' }}
     >
       <div
         onClick={e => e.stopPropagation()}
-        style={{ background: C.bgCard, borderRadius: RADIUS.lg, width: '360px', maxWidth: '92vw', maxHeight: '68vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(0,0,0,0.35)', fontFamily: FONT, overflow: 'hidden' }}
+        className="flex max-h-[68vh] w-[360px] max-w-[92vw] flex-col overflow-hidden rounded-lg bg-card shadow-[0_24px_60px_rgba(0,0,0,0.35)]"
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px', borderBottom: `1px solid ${C.border}` }}>
-          <div style={{ fontSize: '15px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>בחירת גרסה</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '17px', color: C.textMuted, lineHeight: 1, padding: '2px 6px' }}>✕</button>
+        <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
+          <div className="text-sm font-bold text-foreground">בחירת גרסה</div>
+          <button onClick={onClose} className="cursor-pointer border-none bg-transparent px-1.5 py-0.5 text-base leading-none text-subtle-foreground">✕</button>
         </div>
 
         {showSearch && (
-          <div style={{ padding: '10px 16px 4px' }}>
+          <div className="px-4 pb-1 pt-2.5">
             <input
               autoFocus
               value={q}
               onChange={e => setQ(e.target.value)}
               placeholder="חיפוש גרסה..."
-              style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, fontFamily: FONT, fontSize: '13px', background: C.bgApp, color: C.textPrimary, direction: 'rtl' }}
+              className="box-border w-full rounded-md border border-border bg-background px-2.5 py-2 text-[13px] text-foreground [direction:rtl]"
             />
           </div>
         )}
 
-        <div style={{ overflowY: 'auto', padding: '6px 8px 10px' }}>
+        <div className="overflow-y-auto px-2 pb-2.5 pt-1.5">
           {groupsWithItems.length === 0 && (
-            <div style={{ fontSize: '13px', color: C.textMuted, textAlign: 'center', padding: '24px' }}>לא נמצאו גרסאות</div>
+            <div className="p-6 text-center text-[13px] text-subtle-foreground">לא נמצאו גרסאות</div>
           )}
           {groupsWithItems.map(({ group, items }) => (
-            <div key={group.id} style={{ marginBottom: '6px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 10px 4px', fontSize: '11px', fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
-                <span style={{ fontSize: '13px' }}>{group.icon}</span><span>{group.label}</span>
-                <span style={{ color: C.textDisabled, fontWeight: WEIGHT.normal }}>· {items.length}</span>
+            <div key={group.id} className="mb-1.5">
+              <div className="flex items-center gap-1.5 px-2.5 pb-1 pt-2 text-[11px] font-bold uppercase tracking-[0.04em] text-subtle-foreground">
+                <span className="text-[13px]">{group.icon}</span><span>{group.label}</span>
+                <span className="font-normal text-subtle-foreground">· {items.length}</span>
               </div>
               {items.map(v => {
                 const isSel = v.id === selectedVersionId;
@@ -184,22 +183,20 @@ const VersionPickerModal: React.FC<{
                   <button
                     key={v.id}
                     onClick={() => { onPick(v.id); onClose(); }}
+                    className="mb-0.5 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-right [direction:rtl]"
                     style={{
-                      width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
-                      padding: '9px 10px', borderRadius: RADIUS.md, cursor: 'pointer',
                       background: isSel ? C.bgHover : 'transparent',
                       border: `1px solid ${isSel ? C.border : 'transparent'}`,
-                      textAlign: 'right' as const, direction: 'rtl', fontFamily: FONT, marginBottom: '2px',
                     }}
                     onMouseEnter={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = C.bgNested; }}
                     onMouseLeave={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                   >
-                    <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: sColor, flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '14px', fontWeight: isSel ? WEIGHT.bold : WEIGHT.medium, color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.name}</div>
-                      <div style={{ fontSize: '12px', color: sColor }}>{sLabel}</div>
+                    <span className="h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: sColor }} />
+                    <div className="min-w-0 flex-1">
+                      <div className={cn('overflow-hidden text-ellipsis whitespace-nowrap text-sm text-foreground', isSel ? 'font-bold' : 'font-medium')}>{v.name}</div>
+                      <div className="text-xs" style={{ color: sColor }}>{sLabel}</div>
                     </div>
-                    {isSel && <span style={{ fontSize: '13px', color: C.brand, fontWeight: WEIGHT.bold }}>✓</span>}
+                    {isSel && <span className="text-[13px] font-bold text-primary">✓</span>}
                   </button>
                 );
               })}
@@ -255,27 +252,21 @@ export const Sidebar: React.FC<Props> = ({
   const isQh           = activeModule === 'quality-hub';
 
   return (
-    <div style={{
-      width: '280px', minWidth: '280px',
-      background: C.sidebarBg,
-      borderLeft: `1px solid ${C.sidebarBorder}`,
-      display: 'flex', flexDirection: 'column',
-      fontFamily: FONT, overflowY: 'auto',
-    }}>
+    <div
+      className="flex w-[280px] min-w-[280px] flex-col overflow-y-auto"
+      style={{ background: C.sidebarBg, borderLeft: `1px solid ${C.sidebarBorder}` }}
+    >
 
       {IS_TEST && (
-        <div style={{
-          margin: `${SP[3]} ${SP[3]} 0`,
-          background: 'rgba(232,175,0,0.15)', border: `1px solid rgba(232,175,0,0.30)`,
-          color: '#d4a017', fontSize: '14px', fontWeight: WEIGHT.bold,
-          textAlign: 'center', padding: '5px 8px', borderRadius: RADIUS.md,
-          letterSpacing: '0.08em', textTransform: 'uppercase' as const,
-        }}>⚡ TEST</div>
+        <div
+          className="mx-3 mt-3 rounded-md px-2 py-1.5 text-center text-sm font-bold uppercase tracking-[0.08em]"
+          style={{ background: 'rgba(232,175,0,0.15)', border: '1px solid rgba(232,175,0,0.30)', color: '#d4a017' }}
+        >⚡ TEST</div>
       )}
 
       {/* ─── Module switcher ─── */}
       {(canAccessVersionManagement || canAccessQa || canAccessReleaseIntelligence || canAccessQualityHub) && (
-        <div style={{ padding: `${SP[3]} ${SP[3]} 0`, display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+        <div className="flex flex-wrap gap-1.5 px-3 pt-3">
           {[
             { key: 'version-management' as const, label: 'ניהול גרסה',  icon: '🧭', active: isVm,          show: canAccessVersionManagement },
             { key: 'qa' as const,                  label: 'ניהול QA',    icon: '👥', active: isQa,          show: canAccessQa },
@@ -286,19 +277,19 @@ export const Sidebar: React.FC<Props> = ({
             <button
               key={m.key}
               onClick={() => onModuleChange?.(m.key)}
+              className="flex min-w-[78px] flex-1 basis-[30%] cursor-pointer flex-col items-center gap-1 rounded-md px-1.5 py-2 transition-[background] duration-fast ease-out"
               style={{
-                flex: '1 1 30%', minWidth: '78px', padding: '8px 6px',
                 background: m.active ? C.sidebarBgActive : 'transparent',
-                border: m.active ? `1px solid rgba(255,255,255,0.12)` : `1px solid ${C.sidebarBorder}`,
-                borderRadius: RADIUS.md, cursor: 'pointer',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
-                transition: EASE.fast,
+                border: m.active ? '1px solid rgba(255,255,255,0.12)' : `1px solid ${C.sidebarBorder}`,
               }}
               onMouseEnter={e => { if (!m.active) e.currentTarget.style.background = C.sidebarBgHover; }}
               onMouseLeave={e => { if (!m.active) e.currentTarget.style.background = 'transparent'; }}
             >
-              <span style={{ fontSize: '17px', lineHeight: 1 }}>{m.icon}</span>
-              <span style={{ fontSize: '13px', fontWeight: m.active ? WEIGHT.semibold : WEIGHT.medium, color: m.active ? C.sidebarText : 'rgba(255,255,255,0.55)', lineHeight: 1 }}>{m.label}</span>
+              <span className="text-base leading-none">{m.icon}</span>
+              <span
+                className={cn('text-[13px] leading-none', m.active ? 'font-semibold' : 'font-medium')}
+                style={{ color: m.active ? C.sidebarText : 'rgba(255,255,255,0.55)' }}
+              >{m.label}</span>
             </button>
           ))}
         </div>
@@ -312,27 +303,22 @@ export const Sidebar: React.FC<Props> = ({
         const curColor = cur ? versionPhaseColor(cur) : C.sidebarTextMuted;
         const curLabel = cur ? versionPhaseLabel(cur) : '';
         return (
-          <div style={{ padding: `${SP[3]} ${SP[3]} 0` }}>
+          <div className="px-3 pt-3">
             <button
               onClick={() => setVerPickerOpen(true)}
-              style={{
-                width: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: '9px',
-                padding: '9px 11px', background: C.sidebarBgActive, color: C.sidebarText,
-                border: `1px solid ${C.sidebarBorder}`, borderRadius: RADIUS.md,
-                fontFamily: FONT, cursor: 'pointer', textAlign: 'right' as const, direction: 'rtl',
-                transition: EASE.fast,
-              }}
+              className="box-border flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-right transition-[background] duration-fast ease-out [direction:rtl]"
+              style={{ background: C.sidebarBgActive, color: C.sidebarText, border: `1px solid ${C.sidebarBorder}` }}
               onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = C.sidebarBgHover}
               onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = C.sidebarBgActive}
             >
-              <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: curColor, flexShrink: 0 }} />
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span className="h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: curColor }} />
+              <span className="min-w-0 flex-1">
+                <span className="block overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-semibold">
                   {cur ? cur.name : 'בחר גרסה'}
                 </span>
-                {curLabel && <span style={{ display: 'block', fontSize: '11px', color: 'rgba(255,255,255,0.55)' }}>{curLabel}</span>}
+                {curLabel && <span className="block text-[11px]" style={{ color: 'rgba(255,255,255,0.55)' }}>{curLabel}</span>}
               </span>
-              <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.45)', flexShrink: 0 }}>▾</span>
+              <span className="shrink-0 text-xs" style={{ color: 'rgba(255,255,255,0.45)' }}>▾</span>
             </button>
           </div>
         );
@@ -351,20 +337,19 @@ export const Sidebar: React.FC<Props> = ({
       {onHomeClick && (
         <div
           onClick={onHomeClick}
+          className="mt-2 flex cursor-pointer items-center gap-2.5 px-3 py-2.5 transition-[background] duration-fast ease-out"
           style={{
-            display: 'flex', alignItems: 'center', gap: '10px',
-            padding: `10px ${SP[3]}`,
-            cursor: 'pointer',
             background: activeTab === 'home' && activeModule === 'deployments' ? C.sidebarBgActive : 'transparent',
             borderRight: activeTab === 'home' && activeModule === 'deployments' ? `3px solid ${C.sidebarAccent}` : '3px solid transparent',
-            transition: EASE.fast,
-            marginTop: SP[2],
           }}
           onMouseEnter={e => { if (!(activeTab === 'home' && activeModule === 'deployments')) (e.currentTarget as HTMLElement).style.background = C.sidebarBgHover; }}
           onMouseLeave={e => { if (!(activeTab === 'home' && activeModule === 'deployments')) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
         >
-          <span style={{ fontSize: '17px', lineHeight: 1 }}>🏠</span>
-          <span style={{ fontSize: '15px', fontWeight: activeTab === 'home' && activeModule === 'deployments' ? WEIGHT.semibold : WEIGHT.medium, color: activeTab === 'home' && activeModule === 'deployments' ? C.sidebarText : 'rgba(255,255,255,0.78)' }}>
+          <span className="text-base leading-none">🏠</span>
+          <span
+            className={cn('text-sm', activeTab === 'home' && activeModule === 'deployments' ? 'font-semibold' : 'font-medium')}
+            style={{ color: activeTab === 'home' && activeModule === 'deployments' ? C.sidebarText : 'rgba(255,255,255,0.78)' }}
+          >
             דף הבית
           </span>
         </div>
@@ -378,23 +363,15 @@ export const Sidebar: React.FC<Props> = ({
         {/* כותרת גרסאות — רמה ראשונה */}
         <div
           onClick={() => setVersionsOpen(v => !v)}
-          style={{
-            padding: `16px ${SP[3]} 10px`,
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            cursor: 'pointer', userSelect: 'none',
-          }}
+          className="flex cursor-pointer select-none items-center justify-between px-3 pb-2.5 pt-4"
           onMouseEnter={e => (e.currentTarget as HTMLElement).style.opacity = '0.75'}
           onMouseLeave={e => (e.currentTarget as HTMLElement).style.opacity = '1'}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '15px', color: 'rgba(255,255,255,0.50)', lineHeight: 1 }}>
+          <div className="flex items-center gap-2">
+            <span className="text-sm leading-none" style={{ color: 'rgba(255,255,255,0.50)' }}>
               {versionsOpen ? '▾' : '▸'}
             </span>
-            <span style={{
-              fontSize: '16px', fontWeight: WEIGHT.bold,
-              color: 'rgba(255,255,255,0.90)',
-              letterSpacing: '0.01em',
-            }}>
+            <span className="text-base font-bold tracking-[0.01em]" style={{ color: 'rgba(255,255,255,0.90)' }}>
               גרסאות
             </span>
           </div>
@@ -410,43 +387,34 @@ export const Sidebar: React.FC<Props> = ({
             <div key={group.id}>
               <button
                 onClick={() => toggle(group.id)}
-                style={{
-                  width: '100%', display: 'flex', alignItems: 'center', gap: '9px',
-                  padding: `10px ${SP[3]}`,
-                  background: 'transparent', border: 'none', cursor: 'pointer',
-                  textAlign: 'right' as const, direction: 'rtl',
-                  transition: EASE.fast,
-                }}
+                className="flex w-full cursor-pointer items-center gap-2.5 border-none bg-transparent px-3 py-2.5 text-right transition-[background] duration-fast ease-out [direction:rtl]"
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = C.sidebarBgHover}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
               >
-                <span style={{ fontSize: '17px', lineHeight: 1, flexShrink: 0 }}>{group.icon}</span>
-                <span style={{
-                  fontSize: '17px', fontWeight: WEIGHT.semibold,
-                  color: hasSelected ? C.sidebarText : 'rgba(255,255,255,0.78)',
-                  flex: 1,
-                }}>
+                <span className="shrink-0 text-base leading-none">{group.icon}</span>
+                <span
+                  className="flex-1 text-sm font-semibold"
+                  style={{ color: hasSelected ? C.sidebarText : 'rgba(255,255,255,0.78)' }}
+                >
                   {group.label}
                 </span>
                 {items.length > 0 && (
-                  <span style={{
-                    fontSize: '15px', color: 'rgba(255,255,255,0.55)',
-                    background: 'rgba(255,255,255,0.10)',
-                    padding: '2px 8px', borderRadius: RADIUS.full,
-                    fontWeight: WEIGHT.semibold,
-                  }}>
+                  <span
+                    className="rounded-full px-2 py-0.5 text-sm font-semibold"
+                    style={{ color: 'rgba(255,255,255,0.55)', background: 'rgba(255,255,255,0.10)' }}
+                  >
                     {items.length}
                   </span>
                 )}
-                <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.40)' }}>
+                <span className="text-xs" style={{ color: 'rgba(255,255,255,0.40)' }}>
                   {isOpen ? '▾' : '▸'}
                 </span>
               </button>
 
               {isOpen && (
-                <div style={{ paddingBottom: '4px' }}>
+                <div className="pb-1">
                   {items.length === 0 ? (
-                    <div style={{ fontSize: '15px', color: 'rgba(255,255,255,0.35)', padding: `4px ${SP[3]} 4px 30px` }}>
+                    <div className="py-1 ps-3 pe-[30px] text-sm" style={{ color: 'rgba(255,255,255,0.35)' }}>
                       אין גרסאות
                     </div>
                   ) : items.map((v: any) => {
@@ -459,36 +427,26 @@ export const Sidebar: React.FC<Props> = ({
                         onClick={() => onVersionChange?.(v.id)}
                         onMouseEnter={() => setHoveredVer(v.id)}
                         onMouseLeave={() => setHoveredVer(null)}
+                        className="relative mb-0.5 flex w-full items-center gap-2.5 overflow-hidden rounded-md py-2.5 ps-2 pe-[26px] text-right transition-[background] duration-fast ease-out [direction:rtl]"
                         style={{
-                          width: '100%', display: 'flex', alignItems: 'center', gap: '11px',
-                          padding: `10px ${SP[2]} 10px 26px`,
-                          borderRadius: RADIUS.md, cursor: 'pointer',
                           background: isSel ? C.sidebarBgActive : isHov ? C.sidebarBgHover : 'transparent',
-                          border: isSel ? `1px solid rgba(255,255,255,0.12)` : '1px solid transparent',
-                          textAlign: 'right' as const, direction: 'rtl',
-                          transition: EASE.fast, marginBottom: '2px',
-                          position: 'relative', overflow: 'hidden',
+                          border: isSel ? '1px solid rgba(255,255,255,0.12)' : '1px solid transparent',
                         }}>
                         {isSel && (
-                          <div style={{ position: 'absolute', right: 0, top: '15%', bottom: '15%', width: '3px', borderRadius: '0 3px 3px 0', background: sColor, boxShadow: `0 0 8px ${sColor}80` }} />
+                          <div className="absolute bottom-[15%] top-[15%] start-0 w-[3px] rounded-s-[3px] rounded-e-none" style={{ background: sColor, boxShadow: `0 0 8px ${sColor}80` }} />
                         )}
-                        <span style={{
-                          width: '10px', height: '10px', borderRadius: '50%', flexShrink: 0,
-                          background: sColor,
-                          boxShadow: isSel ? `0 0 8px ${sColor}90` : undefined,
-                          display: 'block',
-                        }} />
-                        <div style={{ flex: 1, minWidth: 0, textAlign: 'right' }}>
-                          <div style={{
-                            fontSize: '17px',
-                            fontWeight: isSel ? WEIGHT.semibold : WEIGHT.medium,
-                            color: isSel ? C.sidebarText : 'rgba(255,255,255,0.85)',
-                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                            lineHeight: '22px',
-                          }}>
+                        <span
+                          className="block h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ background: sColor, boxShadow: isSel ? `0 0 8px ${sColor}90` : undefined }}
+                        />
+                        <div className="min-w-0 flex-1 text-right">
+                          <div
+                            className={cn('overflow-hidden text-ellipsis whitespace-nowrap text-sm leading-[22px]', isSel ? 'font-semibold' : 'font-medium')}
+                            style={{ color: isSel ? C.sidebarText : 'rgba(255,255,255,0.85)' }}
+                          >
                             {v.name}
                           </div>
-                          <div style={{ fontSize: '15px', color: sColor, opacity: 0.9, lineHeight: '17px' }}>
+                          <div className="text-sm leading-[17px] opacity-90" style={{ color: sColor }}>
                             {sLabel}
                           </div>
                         </div>
@@ -498,38 +456,36 @@ export const Sidebar: React.FC<Props> = ({
                 </div>
               )}
 
-              <div style={{ height: '1px', background: C.sidebarBorder, margin: `2px ${SP[3]}`, opacity: 0.5 }} />
+              <div className="mx-3 my-0.5 h-px opacity-50" style={{ background: C.sidebarBorder }} />
             </div>
           );
         })}
 
         {/* המשימות שלי — disabled (not just silently inert) when no version is REHEARSAL/ACTIVE */}
-        <div style={{ padding: `${SP[2]} ${SP[3]} 0` }}>
+        <div className="px-3 pt-2">
           <button onClick={onMyTasksClick}
             disabled={!onMyTasksClick}
             title={!onMyTasksClick ? 'זמין רק כשיש גרסה בחזרה גנרלית או בלילה פעיל' : undefined}
             onMouseEnter={() => setHoveredItem('my-tasks')}
             onMouseLeave={() => setHoveredItem(null)}
+            className={cn(
+              'flex w-full items-center gap-2.5 rounded-lg px-2 py-2.5 text-right transition-[background] duration-fast ease-out [direction:rtl]',
+              onMyTasksClick ? 'cursor-pointer' : 'cursor-not-allowed'
+            )}
             style={{
-              width: '100%', display: 'flex', alignItems: 'center', gap: '11px',
-              padding: `11px ${SP[2]}`, borderRadius: RADIUS.lg,
-              cursor: onMyTasksClick ? 'pointer' : 'not-allowed',
               opacity: onMyTasksClick ? 1 : 0.4,
-              background: myTasksActive ? `rgba(240,106,106,0.15)` : hoveredItem === 'my-tasks' && onMyTasksClick ? C.sidebarBgHover : 'transparent',
-              border: myTasksActive ? `1px solid rgba(240,106,106,0.35)` : '1px solid transparent',
-              textAlign: 'right' as const, direction: 'rtl', transition: EASE.fast,
+              background: myTasksActive ? 'rgba(240,106,106,0.15)' : hoveredItem === 'my-tasks' && onMyTasksClick ? C.sidebarBgHover : 'transparent',
+              border: myTasksActive ? '1px solid rgba(240,106,106,0.35)' : '1px solid transparent',
             }}>
-            <span style={{ fontSize: '18px', flexShrink: 0 }}>👤</span>
-            <span style={{
-              fontSize: '17px',
-              fontWeight: myTasksActive ? WEIGHT.semibold : WEIGHT.medium,
-              color: myTasksActive ? (C.sidebarAccent ?? C.brand) : 'rgba(255,255,255,0.78)',
-              flex: 1,
-            }}>
+            <span className="shrink-0 text-lg">👤</span>
+            <span
+              className={cn('flex-1 text-sm', myTasksActive ? 'font-semibold' : 'font-medium')}
+              style={{ color: myTasksActive ? (C.sidebarAccent ?? C.brand) : 'rgba(255,255,255,0.78)' }}
+            >
               המשימות שלי
             </span>
             {myTasksActive && (
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: C.sidebarAccent ?? C.brand, flexShrink: 0 }} />
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: C.sidebarAccent ?? C.brand }} />
             )}
           </button>
         </div>
@@ -538,8 +494,8 @@ export const Sidebar: React.FC<Props> = ({
 
       {/* ─── Version Management Module nav ─── */}
       {isVm && canAccessVersionManagement && (
-        <div style={{ padding: `${SP[3]} ${SP[3]} 0`, display: 'flex', flexDirection: 'column', gap: '2px' }}>
-          <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em', textTransform: 'uppercase' as const, padding: `6px ${SP[2]} 4px` }}>
+        <div className="flex flex-col gap-0.5 px-3 pt-3">
+          <div className="px-2 pb-1 pt-1.5 text-[13px] font-bold uppercase tracking-[0.08em]" style={{ color: 'rgba(255,255,255,0.35)' }}>
             ניהול גרסה
           </div>
           {/* Previously wired (onNewVersionClick prop existed, handler
@@ -552,16 +508,12 @@ export const Sidebar: React.FC<Props> = ({
           {onNewVersionClick && (
             <button
               onClick={onNewVersionClick}
-              style={{
-                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
-                padding: '9px', marginBottom: '6px', borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT,
-                background: 'rgba(56,139,253,0.15)', border: `1px solid rgba(56,139,253,0.35)`,
-                color: '#6ba8ff', fontSize: '14px', fontWeight: WEIGHT.semibold, transition: EASE.fast,
-              }}
+              className="mb-1.5 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md p-2.5 text-sm font-semibold transition-[background] duration-fast ease-out"
+              style={{ background: 'rgba(56,139,253,0.15)', border: '1px solid rgba(56,139,253,0.35)', color: '#6ba8ff' }}
               onMouseEnter={e => { e.currentTarget.style.background = 'rgba(56,139,253,0.25)'; }}
               onMouseLeave={e => { e.currentTarget.style.background = 'rgba(56,139,253,0.15)'; }}
             >
-              <span style={{ fontSize: '15px', lineHeight: 1 }}>+</span>
+              <span className="text-sm leading-none">+</span>
               גרסה חדשה
             </button>
           )}
@@ -573,24 +525,19 @@ export const Sidebar: React.FC<Props> = ({
                 onClick={() => onVmViewChange?.(view.key)}
                 onMouseEnter={() => setHoveredItem(view.key)}
                 onMouseLeave={() => setHoveredItem(null)}
+                className="relative flex w-full items-center gap-2.5 overflow-hidden rounded-lg px-2 py-2.5 text-right transition-[background] duration-fast ease-out [direction:rtl]"
                 style={{
-                  width: '100%', display: 'flex', alignItems: 'center', gap: '11px',
-                  padding: `11px ${SP[2]}`, borderRadius: RADIUS.lg, cursor: 'pointer',
                   background: isActive ? C.sidebarBgActive : isHov ? C.sidebarBgHover : 'transparent',
-                  border: isActive ? `1px solid rgba(255,255,255,0.12)` : '1px solid transparent',
-                  textAlign: 'right' as const, direction: 'rtl', transition: EASE.fast,
-                  position: 'relative', overflow: 'hidden',
+                  border: isActive ? '1px solid rgba(255,255,255,0.12)' : '1px solid transparent',
                 }}>
                 {isActive && (
-                  <div style={{ position: 'absolute', right: 0, top: '15%', bottom: '15%', width: '3px', borderRadius: '0 3px 3px 0', background: C.brand, boxShadow: `0 0 8px ${C.brand}80` }} />
+                  <div className="absolute bottom-[15%] top-[15%] start-0 w-[3px] rounded-s-[3px] rounded-e-none" style={{ background: C.brand, boxShadow: `0 0 8px ${C.brand}80` }} />
                 )}
-                <span style={{ fontSize: '18px', flexShrink: 0, lineHeight: 1 }}>{view.icon}</span>
-                <span style={{
-                  fontSize: '17px',
-                  fontWeight: isActive ? WEIGHT.semibold : WEIGHT.medium,
-                  color: isActive ? C.sidebarText : 'rgba(255,255,255,0.78)',
-                  flex: 1,
-                }}>
+                <span className="shrink-0 text-lg leading-none">{view.icon}</span>
+                <span
+                  className={cn('flex-1 text-sm', isActive ? 'font-semibold' : 'font-medium')}
+                  style={{ color: isActive ? C.sidebarText : 'rgba(255,255,255,0.78)' }}
+                >
                   {view.label}
                 </span>
               </button>
@@ -601,8 +548,8 @@ export const Sidebar: React.FC<Props> = ({
 
       {/* ─── QA Module nav ─── */}
       {isQa && canAccessQa && (
-        <div style={{ padding: `${SP[3]} ${SP[3]} 0`, display: 'flex', flexDirection: 'column', gap: '2px' }}>
-          <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em', textTransform: 'uppercase' as const, padding: `6px ${SP[2]} 4px` }}>
+        <div className="flex flex-col gap-0.5 px-3 pt-3">
+          <div className="px-2 pb-1 pt-1.5 text-[13px] font-bold uppercase tracking-[0.08em]" style={{ color: 'rgba(255,255,255,0.35)' }}>
             ניהול QA
           </div>
           {QA_VIEWS.map(view => {
@@ -613,24 +560,19 @@ export const Sidebar: React.FC<Props> = ({
                 onClick={() => onQaViewChange?.(view.key)}
                 onMouseEnter={() => setHoveredItem(view.key)}
                 onMouseLeave={() => setHoveredItem(null)}
+                className="relative flex w-full items-center gap-2.5 overflow-hidden rounded-lg px-2 py-2.5 text-right transition-[background] duration-fast ease-out [direction:rtl]"
                 style={{
-                  width: '100%', display: 'flex', alignItems: 'center', gap: '11px',
-                  padding: `11px ${SP[2]}`, borderRadius: RADIUS.lg, cursor: 'pointer',
                   background: isActive ? C.sidebarBgActive : isHov ? C.sidebarBgHover : 'transparent',
-                  border: isActive ? `1px solid rgba(255,255,255,0.12)` : '1px solid transparent',
-                  textAlign: 'right' as const, direction: 'rtl', transition: EASE.fast,
-                  position: 'relative', overflow: 'hidden',
+                  border: isActive ? '1px solid rgba(255,255,255,0.12)' : '1px solid transparent',
                 }}>
                 {isActive && (
-                  <div style={{ position: 'absolute', right: 0, top: '15%', bottom: '15%', width: '3px', borderRadius: '0 3px 3px 0', background: C.brand, boxShadow: `0 0 8px ${C.brand}80` }} />
+                  <div className="absolute bottom-[15%] top-[15%] start-0 w-[3px] rounded-s-[3px] rounded-e-none" style={{ background: C.brand, boxShadow: `0 0 8px ${C.brand}80` }} />
                 )}
-                <span style={{ fontSize: '18px', flexShrink: 0, lineHeight: 1 }}>{view.icon}</span>
-                <span style={{
-                  fontSize: '17px',
-                  fontWeight: isActive ? WEIGHT.semibold : WEIGHT.medium,
-                  color: isActive ? C.sidebarText : 'rgba(255,255,255,0.78)',
-                  flex: 1,
-                }}>
+                <span className="shrink-0 text-lg leading-none">{view.icon}</span>
+                <span
+                  className={cn('flex-1 text-sm', isActive ? 'font-semibold' : 'font-medium')}
+                  style={{ color: isActive ? C.sidebarText : 'rgba(255,255,255,0.78)' }}
+                >
                   {view.label}
                 </span>
               </button>
@@ -641,8 +583,8 @@ export const Sidebar: React.FC<Props> = ({
 
       {/* ─── Release Intelligence Module nav ─── */}
       {isRi && canAccessReleaseIntelligence && (
-        <div style={{ padding: `${SP[3]} ${SP[3]} 0`, display: 'flex', flexDirection: 'column', gap: '2px' }}>
-          <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em', textTransform: 'uppercase' as const, padding: `6px ${SP[2]} 4px` }}>
+        <div className="flex flex-col gap-0.5 px-3 pt-3">
+          <div className="px-2 pb-1 pt-1.5 text-[13px] font-bold uppercase tracking-[0.08em]" style={{ color: 'rgba(255,255,255,0.35)' }}>
             ניהול בדיקות
           </div>
           {RI_VIEWS.map(view => {
@@ -653,24 +595,19 @@ export const Sidebar: React.FC<Props> = ({
                 onClick={() => onRiViewChange?.(view.key)}
                 onMouseEnter={() => setHoveredItem(view.key)}
                 onMouseLeave={() => setHoveredItem(null)}
+                className="relative flex w-full items-center gap-2.5 overflow-hidden rounded-lg px-2 py-2.5 text-right transition-[background] duration-fast ease-out [direction:rtl]"
                 style={{
-                  width: '100%', display: 'flex', alignItems: 'center', gap: '11px',
-                  padding: `11px ${SP[2]}`, borderRadius: RADIUS.lg, cursor: 'pointer',
                   background: isActive ? C.sidebarBgActive : isHov ? C.sidebarBgHover : 'transparent',
-                  border: isActive ? `1px solid rgba(255,255,255,0.12)` : '1px solid transparent',
-                  textAlign: 'right' as const, direction: 'rtl', transition: EASE.fast,
-                  position: 'relative', overflow: 'hidden',
+                  border: isActive ? '1px solid rgba(255,255,255,0.12)' : '1px solid transparent',
                 }}>
                 {isActive && (
-                  <div style={{ position: 'absolute', right: 0, top: '15%', bottom: '15%', width: '3px', borderRadius: '0 3px 3px 0', background: C.brand, boxShadow: `0 0 8px ${C.brand}80` }} />
+                  <div className="absolute bottom-[15%] top-[15%] start-0 w-[3px] rounded-s-[3px] rounded-e-none" style={{ background: C.brand, boxShadow: `0 0 8px ${C.brand}80` }} />
                 )}
-                <span style={{ fontSize: '18px', flexShrink: 0, lineHeight: 1 }}>{view.icon}</span>
-                <span style={{
-                  fontSize: '17px',
-                  fontWeight: isActive ? WEIGHT.semibold : WEIGHT.medium,
-                  color: isActive ? C.sidebarText : 'rgba(255,255,255,0.78)',
-                  flex: 1,
-                }}>
+                <span className="shrink-0 text-lg leading-none">{view.icon}</span>
+                <span
+                  className={cn('flex-1 text-sm', isActive ? 'font-semibold' : 'font-medium')}
+                  style={{ color: isActive ? C.sidebarText : 'rgba(255,255,255,0.78)' }}
+                >
                   {view.label}
                 </span>
               </button>
@@ -681,8 +618,8 @@ export const Sidebar: React.FC<Props> = ({
 
       {/* ─── Quality Hub Module nav ─── */}
       {isQh && canAccessQualityHub && (
-        <div style={{ padding: `${SP[3]} ${SP[3]} 0`, display: 'flex', flexDirection: 'column', gap: '2px' }}>
-          <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em', textTransform: 'uppercase' as const, padding: `6px ${SP[2]} 4px` }}>
+        <div className="flex flex-col gap-0.5 px-3 pt-3">
+          <div className="px-2 pb-1 pt-1.5 text-[13px] font-bold uppercase tracking-[0.08em]" style={{ color: 'rgba(255,255,255,0.35)' }}>
             Quality Hub
           </div>
           {QH_VIEWS.map(view => {
@@ -693,24 +630,19 @@ export const Sidebar: React.FC<Props> = ({
                 onClick={() => onQhViewChange?.(view.key)}
                 onMouseEnter={() => setHoveredItem(view.key)}
                 onMouseLeave={() => setHoveredItem(null)}
+                className="relative flex w-full items-center gap-2.5 overflow-hidden rounded-lg px-2 py-2.5 text-right transition-[background] duration-fast ease-out [direction:rtl]"
                 style={{
-                  width: '100%', display: 'flex', alignItems: 'center', gap: '11px',
-                  padding: `11px ${SP[2]}`, borderRadius: RADIUS.lg, cursor: 'pointer',
                   background: isActive ? C.sidebarBgActive : isHov ? C.sidebarBgHover : 'transparent',
-                  border: isActive ? `1px solid rgba(255,255,255,0.12)` : '1px solid transparent',
-                  textAlign: 'right' as const, direction: 'rtl', transition: EASE.fast,
-                  position: 'relative', overflow: 'hidden',
+                  border: isActive ? '1px solid rgba(255,255,255,0.12)' : '1px solid transparent',
                 }}>
                 {isActive && (
-                  <div style={{ position: 'absolute', right: 0, top: '15%', bottom: '15%', width: '3px', borderRadius: '0 3px 3px 0', background: C.brand, boxShadow: `0 0 8px ${C.brand}80` }} />
+                  <div className="absolute bottom-[15%] top-[15%] start-0 w-[3px] rounded-s-[3px] rounded-e-none" style={{ background: C.brand, boxShadow: `0 0 8px ${C.brand}80` }} />
                 )}
-                <span style={{ fontSize: '18px', flexShrink: 0, lineHeight: 1 }}>{view.icon}</span>
-                <span style={{
-                  fontSize: '17px',
-                  fontWeight: isActive ? WEIGHT.semibold : WEIGHT.medium,
-                  color: isActive ? C.sidebarText : 'rgba(255,255,255,0.78)',
-                  flex: 1,
-                }}>
+                <span className="shrink-0 text-lg leading-none">{view.icon}</span>
+                <span
+                  className={cn('flex-1 text-sm', isActive ? 'font-semibold' : 'font-medium')}
+                  style={{ color: isActive ? C.sidebarText : 'rgba(255,255,255,0.78)' }}
+                >
                   {view.label}
                 </span>
               </button>
@@ -721,57 +653,50 @@ export const Sidebar: React.FC<Props> = ({
 
       {/* ─── חופשות (standalone — only when not in QA module which already has it) ─── */}
       {showLeaves && !isQa && (
-        <div style={{ padding: `${SP[2]} ${SP[3]} 0` }}>
+        <div className="px-3 pt-2">
           <button
             onClick={onLeavesClick}
             onMouseEnter={() => setHoveredItem('leaves-standalone')}
             onMouseLeave={() => setHoveredItem(null)}
+            className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2.5 text-right transition-[background] duration-fast ease-out [direction:rtl]"
             style={{
-              width: '100%', display: 'flex', alignItems: 'center', gap: '11px',
-              padding: `11px ${SP[2]}`, borderRadius: RADIUS.lg, cursor: 'pointer',
               background: leavesActive ? 'rgba(75,192,120,0.15)' : hoveredItem === 'leaves-standalone' ? C.sidebarBgHover : 'transparent',
               border: leavesActive ? '1px solid rgba(75,192,120,0.35)' : '1px solid transparent',
-              textAlign: 'right' as const, direction: 'rtl', transition: EASE.fast,
             }}>
-            <span style={{ fontSize: '18px', flexShrink: 0 }}>📅</span>
-            <span style={{
-              fontSize: '17px',
-              fontWeight: leavesActive ? WEIGHT.semibold : WEIGHT.medium,
-              color: leavesActive ? '#7ee8a2' : 'rgba(255,255,255,0.78)',
-              flex: 1,
-            }}>
+            <span className="shrink-0 text-lg">📅</span>
+            <span
+              className={cn('flex-1 text-sm', leavesActive ? 'font-semibold' : 'font-medium')}
+              style={{ color: leavesActive ? '#7ee8a2' : 'rgba(255,255,255,0.78)' }}
+            >
               חופשות
             </span>
             {leavesActive && (
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#7ee8a2', flexShrink: 0 }} />
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: '#7ee8a2' }} />
             )}
           </button>
         </div>
       )}
 
-      <div style={{ flex: 1 }} />
+      <div className="flex-1" />
 
       {/* ─── Admin ─── */}
       {showAdmin && (
         <>
-          <div style={{ height: '1px', background: C.sidebarBorder, margin: `${SP[2]} ${SP[3]}` }} />
-          <div style={{ padding: `0 ${SP[3]} ${SP[2]}` }}>
+          <div className="mx-3 my-2 h-px" style={{ background: C.sidebarBorder }} />
+          <div className="px-3 pb-2">
             <button onClick={onAdminClick}
               onMouseEnter={() => setHoveredItem('admin')}
               onMouseLeave={() => setHoveredItem(null)}
+              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2.5 text-right transition-[background] duration-fast ease-out [direction:rtl]"
               style={{
-                width: '100%', display: 'flex', alignItems: 'center', gap: '11px',
-                padding: `11px ${SP[2]}`, borderRadius: RADIUS.lg, cursor: 'pointer',
                 background: activeTab === 'admin' ? C.sidebarBgActive : hoveredItem === 'admin' ? C.sidebarBgHover : 'transparent',
-                border: activeTab === 'admin' ? `1px solid rgba(255,255,255,0.12)` : '1px solid transparent',
-                textAlign: 'right' as const, direction: 'rtl', transition: EASE.fast,
+                border: activeTab === 'admin' ? '1px solid rgba(255,255,255,0.12)' : '1px solid transparent',
               }}>
-              <span style={{ fontSize: '18px', flexShrink: 0 }}>⚙️</span>
-              <span style={{
-                fontSize: '17px', fontWeight: WEIGHT.medium,
-                color: activeTab === 'admin' ? C.sidebarText : 'rgba(255,255,255,0.78)',
-                flex: 1,
-              }}>
+              <span className="shrink-0 text-lg">⚙️</span>
+              <span
+                className="flex-1 text-sm font-medium"
+                style={{ color: activeTab === 'admin' ? C.sidebarText : 'rgba(255,255,255,0.78)' }}
+              >
                 ניהול
               </span>
             </button>
@@ -780,13 +705,11 @@ export const Sidebar: React.FC<Props> = ({
       )}
 
       {/* ─── Footer ─── */}
-      <div style={{
-        padding: `${SP[2]} ${SP[3]}`,
-        borderTop: `1px solid ${C.sidebarBorder}`,
-        display: 'flex', alignItems: 'center', gap: '8px',
-        fontSize: '14px', color: 'rgba(255,255,255,0.35)',
-      }}>
-        <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: C.success, flexShrink: 0, boxShadow: `0 0 4px ${C.success}80` }} />
+      <div
+        className="flex items-center gap-2 border-t px-3 py-2 text-sm"
+        style={{ borderColor: C.sidebarBorder, color: 'rgba(255,255,255,0.35)' }}
+      >
+        <div className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: C.success, boxShadow: `0 0 4px ${C.success}80` }} />
         <span>DeployCenter v{APP_VERSION}</span>
       </div>
     </div>

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { DateField, DateTimeField } from './DatePicker';
-import { C, FONT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
 import { formatDate } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -53,11 +52,37 @@ function fmtDateOnly(iso: string | null | undefined): string {
   return iso ? formatDate(iso) : '—';
 }
 
-function btnStyle(bg: string, disabled: boolean): React.CSSProperties {
-  return {
-    padding: '9px 20px', background: disabled ? C.textDisabled : bg, color: 'white', border: 'none',
-    borderRadius: RADIUS.md, cursor: disabled ? 'not-allowed' : 'pointer', fontSize: '15px', fontWeight: WEIGHT.bold, fontFamily: FONT,
-  };
+// Explicit literal class lookup (never string-interpolated) per the two
+// action buttons in this file — "brand" (save dates) and "success" (approve).
+// Disabled swaps to a neutral fill, matching the old btnStyle()'s behavior of
+// swapping the background to C.textDisabled rather than dimming via opacity.
+const ACTION_BTN_VARIANT_CLASS: Record<'brand' | 'success', string> = {
+  brand: 'bg-primary hover:bg-primary-600',
+  success: 'bg-success hover:brightness-95',
+};
+function actionBtnClass(variant: 'brand' | 'success', disabled: boolean): string {
+  return [
+    'rounded-md px-5 py-[9px] text-[15px] font-bold text-white',
+    'transition-colors duration-fast ease-out',
+    disabled ? 'cursor-not-allowed bg-subtle-foreground' : `cursor-pointer ${ACTION_BTN_VARIANT_CLASS[variant]}`,
+  ].join(' ');
+}
+
+// Step-chain bubble/label classes — three mutually exclusive states
+// (done / active / neither), looked up explicitly rather than built from
+// interpolated variables.
+function stepBubbleClass(isDone: boolean, isActive: boolean): string {
+  if (isDone) return 'border-success bg-success';
+  if (isActive) return 'border-primary bg-primary';
+  return 'border-border bg-muted';
+}
+function stepLabelClass(isDone: boolean, isActive: boolean): string {
+  if (isDone) return 'text-success';
+  if (isActive) return 'text-primary';
+  return 'text-subtle-foreground';
+}
+function connectorClass(done: boolean): string {
+  return done ? 'bg-success/50' : 'bg-border';
 }
 
 export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ version, token, isManager, onRefresh, onStatusChange, focusStep }) => {
@@ -265,57 +290,53 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
   };
 
   return (
-    <div style={{ background: C.bgCard, borderRadius: RADIUS.xl, marginBottom: '20px', boxShadow: SHADOW.sm, border: `1px solid ${C.border}`, overflow: 'hidden', fontFamily: FONT, direction: 'rtl' }}>
+    <div className="mb-5 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
       {/* ── Header: title + numbered badge + step chain ── */}
       <div
-        style={{ padding: '14px 24px 16px', cursor: 'pointer' }}
+        className="cursor-pointer px-6 pb-4 pt-3.5"
         onClick={() => setExpanded(e => !e)}
       >
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '20px' }}>
-            <span style={{ fontSize: '16px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>ניהול גרסה</span>
-            <span style={{
-              width: '22px', height: '22px', borderRadius: '50%', background: C.brand, color: 'white',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: WEIGHT.bold, flexShrink: 0,
-            }}>1</span>
-            <span style={{ fontSize: '14px', color: C.textMuted, marginRight: '4px' }}>{expanded ? '▾' : '▸'}</span>
+        <div className="flex items-center">
+          <div className="ms-5 flex shrink-0 items-center gap-2">
+            <span className="text-base font-bold text-foreground">ניהול גרסה</span>
+            <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-primary text-[13px] font-bold text-white">1</span>
+            <span className="me-1 text-sm text-subtle-foreground">{expanded ? '▾' : '▸'}</span>
           </div>
 
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+          <div className="flex flex-1 items-center">
             {STEPS.map((s, i) => {
               const isDone = stepDone[s.key];
               const isActive = s.key === activeStepKey;
               const isNodeOpen = s.key === openStep;
-              const bubbleBg = isDone ? C.success : isActive ? C.brand : C.bgNested;
-              const bubbleBorder = isDone ? C.success : isActive ? C.brand : C.borderEm;
-              const labelColor = isDone ? C.success : isActive ? C.brand : C.textDisabled;
               return (
                 <React.Fragment key={s.key}>
                   <div
                     onClick={(e) => { e.stopPropagation(); userPickedStepRef.current = true; setOpenStep(s.key); setExpanded(true); }}
                     title={s.label}
-                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flexShrink: 0, cursor: 'pointer' }}
+                    className="flex shrink-0 cursor-pointer flex-col items-center gap-1"
                   >
-                    <div style={{
-                      width: '32px', height: '32px', borderRadius: '50%', background: bubbleBg,
-                      border: `2px solid ${bubbleBorder}`,
-                      boxShadow: isNodeOpen ? `0 0 0 3px ${C.brandDim}` : 'none',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', transition: EASE.fast,
-                    }}>
+                    <div className={[
+                      'flex h-8 w-8 items-center justify-center rounded-full border-2',
+                      'transition-[background-color,border-color,box-shadow] duration-fast ease-out',
+                      stepBubbleClass(isDone, isActive),
+                      isNodeOpen ? 'ring-4 ring-primary-100' : '',
+                    ].join(' ')}>
                       {isDone ? (
                         <svg width="12" height="10" viewBox="0 0 12 10" fill="none">
                           <path d="M1 5L4.5 8.5L11 1.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                       ) : isActive ? (
-                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'white' }} />
+                        <div className="h-2 w-2 rounded-full bg-white" />
                       ) : null}
                     </div>
-                    <span style={{ fontSize: '13px', fontWeight: isActive ? WEIGHT.semibold : WEIGHT.normal, color: labelColor, whiteSpace: 'nowrap' }}>
+                    <span className={`whitespace-nowrap text-[13px] ${isActive ? 'font-semibold' : 'font-normal'} ${stepLabelClass(isDone, isActive)}`}>
                       {s.label}
                     </span>
                   </div>
                   {i < STEPS.length - 1 && (
-                    <div style={{ flex: 1, height: '1.5px', minWidth: '10px', background: stepDone[STEPS[i + 1].key] || stepDone[s.key] ? `${C.success}80` : C.border, margin: '0 6px', alignSelf: 'flex-start', marginTop: '15px' }} />
+                    <div
+                      className={`mx-1.5 mt-[15px] h-[1.5px] min-w-[10px] flex-1 self-start ${connectorClass(stepDone[STEPS[i + 1].key] || stepDone[s.key])}`}
+                    />
                   )}
                 </React.Fragment>
               );
@@ -323,17 +344,14 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
           </div>
         </div>
 
-        <div style={{ marginTop: '10px', fontSize: '13px', color: C.textMuted }}>
+        <div className="mt-2.5 text-[13px] text-subtle-foreground">
           {stepDescriptions[openStep]}
         </div>
 
         {openStep === 'manage' && (
           <div
             onClick={e => e.stopPropagation()}
-            style={{
-              marginTop: '10px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md,
-              padding: '8px 12px', fontSize: '13px', color: C.textSecondary, display: 'flex', alignItems: 'center', gap: '6px',
-            }}
+            className="mt-2.5 flex items-center gap-1.5 rounded-md border border-border bg-muted px-3 py-2 text-[13px] text-muted-foreground"
           >
             <span>●</span>
             <span>כל שינוי בתכולה (הוספה/הסרה של משימה) מפעיל עדכון אוטומטי במודול 2 (תכנון ושיבוץ בדיקות) ובמודול 6 (תכנון ושיבוץ משימות לעלייה לאוויר)</span>
@@ -343,84 +361,81 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
 
       {/* ── Expandable content ── */}
       {expanded && (
-        <div style={{ borderTop: `1px solid ${C.border}`, padding: '20px 24px' }} onClick={e => e.stopPropagation()}>
+        <div className="border-t border-border px-6 py-5" onClick={e => e.stopPropagation()}>
           {error && (
-            <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}`, borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', color: C.danger, fontSize: '14px' }}>⚠️ {error}</div>
+            <div className="mb-4 rounded-lg border border-danger bg-danger-bg px-3.5 py-2.5 text-sm text-danger">⚠️ {error}</div>
           )}
 
           {openStep === 'open' && (
             <div>
               {datesLocked && (
-                <div style={{
-                  marginBottom: '14px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md,
-                  padding: '8px 12px', fontSize: '13px', color: C.textSecondary,
-                }}>
+                <div className="mb-3.5 rounded-md border border-border bg-muted px-3 py-2 text-[13px] text-muted-foreground">
                   ● תאריכי אינטגרציה ו-QA מנוהלים אוטומטית על ידי תוכנית העבודה של QA ואינם ניתנים לעריכה כאן — לשינוי לוח הזמנים יש לעדכן את תוכנית העבודה במודול 2 (תכנון ושיבוץ בדיקות).
                 </div>
               )}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              <div className="flex flex-col gap-[18px]">
                 <div>
-                  <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '8px' }}>אינטגרציה ו-QA</div>
-                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div className="mb-2 text-[13px] font-bold text-subtle-foreground">אינטגרציה ו-QA</div>
+                  <div className="flex flex-wrap items-end gap-4">
                     <div>
-                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>תחילת בדיקות אינטגרציה</label>
+                      <label className="mb-1.5 block text-[13px] font-semibold text-muted-foreground">תחילת בדיקות אינטגרציה</label>
                       <DateField value={dates.integrationStart} onChange={v => setDates(d => ({ ...d, integrationStart: v }))} disabled={datesLocked} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>סיום בדיקות אינטגרציה</label>
+                      <label className="mb-1.5 block text-[13px] font-semibold text-muted-foreground">סיום בדיקות אינטגרציה</label>
                       <DateField value={dates.integrationEnd} onChange={v => setDates(d => ({ ...d, integrationEnd: v }))} minIso={dates.integrationStart || undefined} disabled={datesLocked} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>תחילת QA</label>
+                      <label className="mb-1.5 block text-[13px] font-semibold text-muted-foreground">תחילת QA</label>
                       <DateField value={dates.qaStart} onChange={v => setDates(d => ({ ...d, qaStart: v }))} disabled={datesLocked} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>סיום QA</label>
+                      <label className="mb-1.5 block text-[13px] font-semibold text-muted-foreground">סיום QA</label>
                       <DateField value={dates.qaEnd} onChange={v => setDates(d => ({ ...d, qaEnd: v }))} minIso={dates.qaStart || undefined} disabled={datesLocked} />
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '8px' }}>עלייה לאוויר</div>
-                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div className="mb-2 text-[13px] font-bold text-subtle-foreground">עלייה לאוויר</div>
+                  <div className="flex flex-wrap items-end gap-4">
                     <div>
-                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>יעד לעליה לאוויר (ליל ההטמעה)</label>
+                      <label className="mb-1.5 block text-[13px] font-semibold text-muted-foreground">יעד לעליה לאוויר (ליל ההטמעה)</label>
                       <DateTimeField value={dates.plannedStart} onChange={v => setDates(d => ({ ...d, plannedStart: v }))} />
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '8px' }}>ישיבות</div>
-                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div className="mb-2 text-[13px] font-bold text-subtle-foreground">ישיבות</div>
+                  <div className="flex flex-wrap items-end gap-4">
                     <div>
-                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>ישיבת סקירה</label>
+                      <label className="mb-1.5 block text-[13px] font-semibold text-muted-foreground">ישיבת סקירה</label>
                       <DateTimeField value={dates.reviewMeetingTime} onChange={v => setDates(d => ({ ...d, reviewMeetingTime: v }))} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>ישיבת תוכנית עבודה</label>
+                      <label className="mb-1.5 block text-[13px] font-semibold text-muted-foreground">ישיבת תוכנית עבודה</label>
                       <DateTimeField value={dates.workPlanMeetingTime} onChange={v => setDates(d => ({ ...d, workPlanMeetingTime: v }))} />
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '8px' }}>מועדי הגשה ואישור</div>
-                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div className="mb-2 text-[13px] font-bold text-subtle-foreground">מועדי הגשה ואישור</div>
+                  <div className="flex flex-wrap items-end gap-4">
                     <div>
-                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>מועד הגשת תוכניות</label>
+                      <label className="mb-1.5 block text-[13px] font-semibold text-muted-foreground">מועד הגשת תוכניות</label>
                       <DateTimeField value={dates.submissionDeadline} onChange={v => setDates(d => ({ ...d, submissionDeadline: v }))} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>מועד אישור תוכניות</label>
+                      <label className="mb-1.5 block text-[13px] font-semibold text-muted-foreground">מועד אישור תוכניות</label>
                       <DateTimeField value={dates.approvalDeadline} onChange={v => setDates(d => ({ ...d, approvalDeadline: v }))} />
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <button onClick={saveDates} disabled={savingDates} style={btnStyle(C.brand, savingDates)}>
+                  <button onClick={saveDates} disabled={savingDates} className={actionBtnClass('brand', savingDates)}>
                     {savingDates ? '...' : '💾 שמור תאריכים'}
                   </button>
                 </div>
@@ -430,22 +445,22 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
 
           {(openStep === 'scope' || openStep === 'manage') && (
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <div style={{ fontSize: '14px', color: C.textSecondary }}>
+              <div className="mb-3 flex items-center justify-between">
+                <div className="text-sm text-muted-foreground">
                   {activeRows.length} CR-ים פעילים{attentionRows.length > 0 ? `, ${attentionRows.length} דורשים תשומת לב` : ''}
                 </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button onClick={resync} disabled={loadingRows} style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px' }}>
+                <div className="flex gap-2">
+                  <button onClick={resync} disabled={loadingRows} className="cursor-pointer rounded-md border border-border bg-muted px-3.5 py-1.5 text-[13px] text-muted-foreground">
                     🔄 סנכרן מ-CR_LIST
                   </button>
                   {openStep === 'manage' && attentionRows.length > 0 && (
-                    <button onClick={acknowledgeAttention} style={{ padding: '6px 14px', background: C.warning, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontWeight: WEIGHT.bold }}>
+                    <button onClick={acknowledgeAttention} className="cursor-pointer rounded-md border-none bg-warning px-3.5 py-1.5 text-[13px] font-bold text-white">
                       ✓ אשר שינויים
                     </button>
                   )}
                 </div>
               </div>
-              {loadingRows ? <div style={{ color: C.textMuted }}>טוען...</div> : (
+              {loadingRows ? <div className="text-subtle-foreground">טוען...</div> : (
                 <CrList rows={rows} versionId={version.id} headers={headers} />
               )}
 
@@ -463,25 +478,25 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
 
           {openStep === 'approve' && (
             <div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px', maxWidth: '420px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                  <span style={{ color: C.textMuted }}>תחילת אינטגרציה</span>
-                  <span style={{ color: C.textPrimary, fontWeight: WEIGHT.semibold }}>{dates.integrationStart || '—'}</span>
+              <div className="mb-4 flex max-w-[420px] flex-col gap-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-subtle-foreground">תחילת אינטגרציה</span>
+                  <span className="font-semibold text-foreground">{dates.integrationStart || '—'}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                  <span style={{ color: C.textMuted }}>סיום אינטגרציה</span>
-                  <span style={{ color: C.textPrimary, fontWeight: WEIGHT.semibold }}>{dates.integrationEnd || '—'}</span>
+                <div className="flex justify-between text-sm">
+                  <span className="text-subtle-foreground">סיום אינטגרציה</span>
+                  <span className="font-semibold text-foreground">{dates.integrationEnd || '—'}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                  <span style={{ color: C.textMuted }}>יעד עליה לאוויר</span>
-                  <span style={{ color: C.textPrimary, fontWeight: WEIGHT.semibold }}>{dates.plannedStart ? dates.plannedStart.replace('T', ' ') : '—'}</span>
+                <div className="flex justify-between text-sm">
+                  <span className="text-subtle-foreground">יעד עליה לאוויר</span>
+                  <span className="font-semibold text-foreground">{dates.plannedStart ? dates.plannedStart.replace('T', ' ') : '—'}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                  <span style={{ color: C.textMuted }}>CR-ים בתכולה</span>
-                  <span style={{ color: C.textPrimary, fontWeight: WEIGHT.semibold }}>{activeRows.length}</span>
+                <div className="flex justify-between text-sm">
+                  <span className="text-subtle-foreground">CR-ים בתכולה</span>
+                  <span className="font-semibold text-foreground">{activeRows.length}</span>
                 </div>
               </div>
-              <button onClick={doApprove} disabled={approving || !datesComplete || !scopeExists} style={btnStyle(C.success, approving || !datesComplete || !scopeExists)}>
+              <button onClick={doApprove} disabled={approving || !datesComplete || !scopeExists} className={actionBtnClass('success', approving || !datesComplete || !scopeExists)}>
                 {approving ? '...' : version.status === 'COLLECTING' ? '✓ אשר תכולה ועבור לסקירת CR' : '✓ אשר תכולה'}
               </button>
             </div>
@@ -507,14 +522,14 @@ const EstimateBreakdown: React.FC<{
   const maxDays = Math.max(...(teams.length ? teams.map(t => qaFilter ? t.qaFilteredDays : t.totalDays) : [1]), 1);
 
   return (
-    <div style={{ marginTop: '16px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-        <span style={{ fontSize: '17px' }}>📊</span>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>פירוט הערכות השקעה לפי צוות</div>
-          <div style={{ fontSize: '12px', color: C.textMuted }}>לחץ על צוות לפירוט CRs</div>
+    <div className="mt-4 rounded-md border border-border bg-muted p-4">
+      <div className="mb-3.5 flex items-center gap-2.5">
+        <span className="text-[17px]">📊</span>
+        <div className="flex-1">
+          <div className="text-sm font-bold text-foreground">פירוט הערכות השקעה לפי צוות</div>
+          <div className="text-xs text-subtle-foreground">לחץ על צוות לפירוט CRs</div>
         </div>
-        <div style={{ display: 'flex', gap: '4px', background: C.bgCard, borderRadius: RADIUS.md, padding: '3px' }}>
+        <div className="flex gap-1 rounded-md bg-card p-[3px]">
           {[
             { key: false, label: 'כל CRs' },
             { key: true, label: 'CRs עם QA' },
@@ -522,50 +537,47 @@ const EstimateBreakdown: React.FC<{
             <button
               key={String(opt.key)}
               onClick={() => onQaFilterChange(opt.key)}
-              style={{
-                border: 'none', borderRadius: RADIUS.sm, padding: '5px 14px',
-                fontSize: '12px', fontWeight: WEIGHT.semibold, fontFamily: FONT, cursor: 'pointer',
-                background: qaFilter === opt.key ? C.bgNested : 'transparent',
-                color: qaFilter === opt.key ? C.textPrimary : C.textMuted,
-                boxShadow: qaFilter === opt.key ? SHADOW.xs : 'none',
-                transition: EASE.fast,
-              }}
+              className={[
+                'cursor-pointer rounded-sm border-none px-3.5 py-[5px] text-xs font-semibold',
+                'transition-[background-color,color,box-shadow] duration-fast ease-out',
+                qaFilter === opt.key ? 'bg-muted text-foreground shadow-xs' : 'bg-transparent text-subtle-foreground',
+              ].join(' ')}
             >{opt.label}</button>
           ))}
         </div>
-        <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: C.brand, background: C.brandDim, borderRadius: RADIUS.md, padding: '4px 12px' }}>
+        <div className="rounded-md bg-primary-100 px-3 py-1 text-[13px] font-bold text-primary">
           סה"כ: {qaFilter ? stats.qaFilteredEstimateDays : stats.totalEstimateDays} ימ"ע
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+      <div className="flex flex-col gap-1">
         {teams.map(team => {
           const days = qaFilter ? team.qaFilteredDays : team.totalDays;
           const crs = qaFilter ? team.crs.filter(c => c.hasQa) : team.crs;
           const isOpen = expandedTeam === team.teamId;
           const barPct = Math.round((days / maxDays) * 100);
           return (
-            <div key={team.teamId} style={{ borderRadius: RADIUS.md, overflow: 'hidden', border: `1px solid ${isOpen ? C.brand : C.border}`, transition: EASE.fast }}>
+            <div key={team.teamId} className={`overflow-hidden rounded-md border transition-colors duration-fast ease-out ${isOpen ? 'border-primary' : 'border-border'}`}>
               <div
                 onClick={() => onExpandTeam(isOpen ? null : team.teamId)}
-                style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', cursor: 'pointer', background: isOpen ? C.brandDim : C.bgCard }}
+                className={`flex cursor-pointer items-center gap-3 px-3.5 py-2.5 ${isOpen ? 'bg-primary-100' : 'bg-card'}`}
               >
-                <div style={{ fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textPrimary, minWidth: '130px' }}>{team.teamName}</div>
-                <div style={{ flex: 1, background: C.bgNested, borderRadius: '4px', height: '8px', overflow: 'hidden' }}>
-                  <div style={{ width: `${barPct}%`, height: '100%', background: C.brand, borderRadius: '4px', transition: 'width 0.4s ease' }} />
+                <div className="min-w-[130px] text-[13px] font-semibold text-foreground">{team.teamName}</div>
+                <div className="h-2 flex-1 overflow-hidden rounded bg-muted">
+                  <div className="h-full rounded bg-primary transition-[width] duration-300 ease-out" style={{ width: `${barPct}%` }} />
                 </div>
-                <div style={{ fontSize: '13px', fontWeight: WEIGHT.bold, color: C.brand, minWidth: '60px', textAlign: 'left' }}>{days} ימ"ע</div>
-                <div style={{ fontSize: '12px', color: C.textMuted, minWidth: '50px', textAlign: 'left' }}>{crs.length} CRs</div>
-                <div style={{ fontSize: '12px', color: C.brand }}>{isOpen ? '▲' : '▼'}</div>
+                <div className="min-w-[60px] text-start text-[13px] font-bold text-primary">{days} ימ"ע</div>
+                <div className="min-w-[50px] text-start text-xs text-subtle-foreground">{crs.length} CRs</div>
+                <div className="text-xs text-primary">{isOpen ? '▲' : '▼'}</div>
               </div>
               {isOpen && (
-                <div style={{ background: C.bgNested, padding: '8px 14px 10px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                <div className="flex flex-col gap-[3px] bg-muted px-3.5 pb-2.5 pt-2">
                   {crs.map(cr => (
-                    <div key={cr.crNumber} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '5px 6px', borderRadius: RADIUS.sm }}>
-                      <div style={{ fontSize: '12px', fontWeight: WEIGHT.semibold, color: C.textMuted, minWidth: '60px' }}>{cr.crNumber}</div>
-                      <div style={{ fontSize: '12px', color: C.textSecondary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cr.crLabel.replace(cr.crNumber + ' - ', '')}</div>
-                      {cr.hasQa && <span style={{ fontSize: '12px', color: C.success, fontWeight: WEIGHT.semibold }}>QA</span>}
-                      <div style={{ fontSize: '12px', fontWeight: WEIGHT.bold, color: C.brand, minWidth: '50px', textAlign: 'left' }}>{cr.teamDays} ימ"ע</div>
+                    <div key={cr.crNumber} className="flex items-center gap-2.5 rounded-sm px-1.5 py-[5px]">
+                      <div className="min-w-[60px] text-xs font-semibold text-subtle-foreground">{cr.crNumber}</div>
+                      <div className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground">{cr.crLabel.replace(cr.crNumber + ' - ', '')}</div>
+                      {cr.hasQa && <span className="text-xs font-semibold text-success">QA</span>}
+                      <div className="min-w-[50px] text-start text-xs font-bold text-primary">{cr.teamDays} ימ"ע</div>
                     </div>
                   ))}
                 </div>
@@ -574,7 +586,7 @@ const EstimateBreakdown: React.FC<{
           );
         })}
         {teams.length === 0 && (
-          <div style={{ fontSize: '13px', color: C.textMuted, textAlign: 'center', padding: '20px' }}>
+          <div className="p-5 text-center text-[13px] text-subtle-foreground">
             הפירוט לפי צוות זמין לאחר סינכרון CR_LIST עם הגרסה
           </div>
         )}
@@ -612,36 +624,36 @@ const CrList: React.FC<{ rows: CrRow[]; versionId: string; headers: Record<strin
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+    <div className="flex flex-col gap-1.5">
       {rows.map(r => (
-        <div key={r.crNumber} style={{
-          background: r.needsAttention ? C.warningBg : C.bgNested,
-          border: `1px solid ${r.needsAttention ? C.warning : C.border}`, borderRadius: RADIUS.md,
-          opacity: r.syncStatus === 'REMOVED' ? 0.6 : 1,
-        }}>
+        <div key={r.crNumber} className={[
+          'rounded-md border',
+          r.needsAttention ? 'border-warning bg-warning-bg' : 'border-border bg-muted',
+          r.syncStatus === 'REMOVED' ? 'opacity-60' : 'opacity-100',
+        ].join(' ')}>
           <div
             onClick={r.needsAttention ? () => toggle(r) : undefined}
-            style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', cursor: r.needsAttention ? 'pointer' : 'default' }}
+            className={`flex items-center gap-2.5 px-3 py-2 ${r.needsAttention ? 'cursor-pointer' : 'cursor-default'}`}
           >
-            <span style={{ fontWeight: WEIGHT.semibold, color: C.textPrimary, minWidth: '90px' }}>{r.crNumber}</span>
-            <span style={{ color: C.textSecondary, flex: 1, textDecoration: r.syncStatus === 'REMOVED' ? 'line-through' : 'none' }}>{r.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}</span>
-            <span style={{ fontSize: '13px', color: C.textMuted }}>{r.teamNames.join(', ')}</span>
-            {r.syncStatus === 'NEW' && <span style={{ fontSize: '12px', color: C.brand, fontWeight: WEIGHT.bold }}>חדש</span>}
-            {r.syncStatus === 'REMOVED' && <span style={{ fontSize: '12px', color: C.danger, fontWeight: WEIGHT.bold }}>הוסר</span>}
+            <span className="min-w-[90px] font-semibold text-foreground">{r.crNumber}</span>
+            <span className={`flex-1 text-muted-foreground ${r.syncStatus === 'REMOVED' ? 'line-through' : ''}`}>{r.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}</span>
+            <span className="text-[13px] text-subtle-foreground">{r.teamNames.join(', ')}</span>
+            {r.syncStatus === 'NEW' && <span className="text-xs font-bold text-primary">חדש</span>}
+            {r.syncStatus === 'REMOVED' && <span className="text-xs font-bold text-danger">הוסר</span>}
             {r.needsAttention && (
-              <span style={{ fontSize: '12px', color: C.warning, fontWeight: WEIGHT.bold }}>
+              <span className="text-xs font-bold text-warning">
                 ⚠ דורש תשומת לב · {expandedCr === r.crNumber ? 'הסתר פירוט ▲' : 'מה השתנה? ▾'}
               </span>
             )}
           </div>
           {expandedCr === r.crNumber && (
-            <div style={{ padding: '4px 12px 10px 12px', borderTop: `1px solid ${C.warning}44` }}>
+            <div className="border-t border-warning/25 px-3 pb-2.5 pt-1">
               {loadingDetail ? (
-                <div style={{ fontSize: '13px', color: C.textMuted }}>טוען...</div>
+                <div className="text-[13px] text-subtle-foreground">טוען...</div>
               ) : (
                 (details ?? []).map((d, i) => (
-                  <div key={i} style={{ fontSize: '13px', color: C.textSecondary, marginTop: '4px' }}>
-                    <span style={{ fontWeight: WEIGHT.semibold, color: C.textPrimary }}>{d.teamName}:</span> {d.reason}
+                  <div key={i} className="mt-1 text-[13px] text-muted-foreground">
+                    <span className="font-semibold text-foreground">{d.teamName}:</span> {d.reason}
                   </div>
                 ))
               )}
@@ -649,7 +661,7 @@ const CrList: React.FC<{ rows: CrRow[]; versionId: string; headers: Record<strin
           )}
         </div>
       ))}
-      {rows.length === 0 && <div style={{ color: C.textMuted }}>אין CR-ים בתכולת הגרסה. יש לסנכרן מקובץ CR_LIST.</div>}
+      {rows.length === 0 && <div className="text-subtle-foreground">אין CR-ים בתכולת הגרסה. יש לסנכרן מקובץ CR_LIST.</div>}
     </div>
   );
 };

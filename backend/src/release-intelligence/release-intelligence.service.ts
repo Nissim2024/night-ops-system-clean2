@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaClient } from '@prisma/client';
-import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDto, CrCoverageDto, CycleQgTargetDto, resolveDefectPersonNames, bugStatusBucket } from '../qc/qc.service';
+import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDto, CrCoverageDto, CycleQgTargetDto, CycleTestTotalsDto, resolveDefectPersonNames, bugStatusBucket, executedScriptCount } from '../qc/qc.service';
 import { countWorkDays, nextWorkDay, isWorkDay, dateKey } from '../qa/qa.scheduler';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
@@ -170,10 +170,16 @@ export class ReleaseIntelligenceService {
       .filter(t => CORE_CYCLE_TYPES.includes(t.cycleType))
       .flatMap(t => t.crCoverage.map(cc => ({ ...cc, cycleType: t.cycleType })));
     const coreTotal = coreCrCoverage.reduce((s, cc) => s + cc.total, 0);
-    const corePassedFailed = coreCrCoverage.reduce((s, cc) => s + cc.passed + cc.failed, 0);
+    // executed% must use the SAME definition as getCrCoverage / getCycleProgress
+    // and ALM (executedScriptCount — includes Blocked / Not Completed / N/A /
+    // Not Relevant, excludes No Run / Not Ready for QA). This spot previously
+    // counted passed+failed only, so the RI-Home "כיסוי בדיקות" tile and the
+    // readiness coverage axis read lower than the cycle screen for the same
+    // release (fixed 2026-09-10).
+    const coreExecuted = coreCrCoverage.reduce((s, cc) => s + executedScriptCount(cc), 0);
     const corePassed = coreCrCoverage.reduce((s, cc) => s + cc.passed, 0);
     // executed% (ran) and passed% (ran AND passed) across the 3 core cycles.
-    const coveragePct = coreTotal > 0 ? Math.round((corePassedFailed / coreTotal) * 100) : 0;
+    const coveragePct = coreTotal > 0 ? Math.round((coreExecuted / coreTotal) * 100) : 0;
     const passedPct = coreTotal > 0 ? Math.round((corePassed / coreTotal) * 100) : 0;
 
     // Critical defects — open, severity Show Stopper (see CRITICAL_SEVERITIES)
@@ -1016,58 +1022,109 @@ export class ReleaseIntelligenceService {
   }
 
   // ── Coverage & Readiness — spec section 14 ──────────────────────────────────
+  // Rewritten 2026-09-14 (feedback: gauge-grid redesign, same clock widget as
+  // Cycle Progress, CORE/Stand-Alone toggle, search by CR name/number) to
+  // read from getCrCoverage instead of getTestCoverage — the latter groups
+  // by Requirement with SQL-side SUM(CASE...), the exact double-count/drop
+  // pattern the 2026-09-14 ITv06-2026 audit found (see CYCLE_TEST_TOTALS_SQL's
+  // own comment); getCrCoverage already dedupes by DISTINCT test id per (CR,
+  // cycle), so summing it per-CR across cycles here inherits that fix rather
+  // than repeating the old bug in a third place.
   async getCoverageReadiness(versionId: string) {
-    const [coverage, defects] = await Promise.all([
-      this.qcService.getTestCoverage(versionId).catch((): TestCoverageDto[] => []),
+    const version = await prisma.version.findUnique({ where: { id: versionId } });
+    if (!version) throw new BadRequestException('גרסה לא נמצאה');
+
+    const vcaRows = await prisma.versionCrAssignment.findMany({
+      where: { versionId, syncStatus: { not: 'REMOVED' } },
+      select: { crNumber: true, project: true },
+    });
+    const versionCrNumbers = [...new Set(vcaRows.map(r => r.crNumber))];
+    const projectByCr = new Map<string, string>();
+    for (const row of vcaRows) {
+      if (row.project && !projectByCr.has(row.crNumber)) projectByCr.set(row.crNumber, row.project);
+    }
+
+    const [coverageRows, defects] = await Promise.all([
+      this.qcService.getCrCoverage(versionCrNumbers, versionId).catch((): CrCoverageDto[] => []),
       this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
     ]);
-    const sum = (key: keyof TestCoverageDto) => coverage.reduce((s, c) => s + (Number(c[key]) || 0), 0);
-    const planned = sum('planned');
-    const failed = sum('failed');
-    const blocked = sum('blocked');
-    const notReady = sum('notReady');
-    const notRun = sum('notRun');
-    const covered = Math.max(0, planned - notRun - notReady);
-    const coveragePct = planned > 0 ? Math.round((covered / planned) * 100) : 0;
 
-    // Per-CR defect counts (spec confirmed 2026-09-05), same reported/open/
-    // critical definitions used everywhere else (CLOSED_DEFECT_STATUSES,
-    // CRITICAL_SEVERITIES) — grouped once here rather than per-row below.
-    const defectsByCr = new Map<string, { reported: number; open: number; critical: number }>();
-    for (const d of defects) {
-      const cr = d.crReferenceNumber?.trim();
-      if (!cr) continue;
-      const bucket = defectsByCr.get(cr) ?? { reported: 0, open: 0, critical: 0 };
-      bucket.reported++;
-      const isOpen = !CLOSED_DEFECT_STATUSES.includes(d.status);
-      if (isOpen) {
-        bucket.open++;
-        if (CRITICAL_SEVERITIES.includes(d.severity)) bucket.critical++;
+    const emptyCounts = () => ({
+      passed: 0, failed: 0, notRun: 0, blocked: 0, notCompleted: 0, notReady: 0,
+      notApplicable: 0, notRelevant: 0, total: 0,
+    });
+    type ScopedCounts = ReturnType<typeof emptyCounts>;
+    const addRow = (bucket: ScopedCounts, row: CrCoverageDto) => {
+      bucket.passed += row.passed; bucket.failed += row.failed; bucket.notRun += row.notRun;
+      bucket.blocked += row.blocked; bucket.notCompleted += row.notCompleted; bucket.notReady += row.notReady;
+      bucket.notApplicable += row.notApplicable; bucket.notRelevant += row.notRelevant; bucket.total += row.total;
+    };
+    const withPct = (c: ScopedCounts) => ({ ...c, coveragePct: c.total > 0 ? Math.round((executedScriptCount(c) / c.total) * 100) : 0 });
+
+    // Same CYCLE_1/2/3 vs "stand alone" split cycleNameMatches uses elsewhere
+    // in this file, just classifying a raw Oracle cycle name directly instead
+    // of checking it against one already-known cycleType — a CR's rows can
+    // land in either bucket (or both, if it's tested in a core cycle and
+    // separately in Stand Alone) or in neither (UAT/Dress Rehearsal/Go Live
+    // rows exist in coverageRows too but aren't part of this screen's toggle).
+    const classifyScope = (realCycleName: string): 'CORE' | 'SA' | null => {
+      const n = realCycleName.trim().toLowerCase();
+      if (n === 'cycle 1' || n === 'cycle 2' || n === 'cycle 3') return 'CORE';
+      if (n.startsWith('stand alone')) return 'SA';
+      return null;
+    };
+
+    const byCr = new Map<string, { crNumber: string; crLabel: string; core: ScopedCounts; sa: ScopedCounts }>();
+    for (const row of coverageRows) {
+      const scope = classifyScope(row.cycleName);
+      if (!scope) continue;
+      let entry = byCr.get(row.crNumber);
+      if (!entry) {
+        entry = { crNumber: row.crNumber, crLabel: `${row.crNumber} - ${row.crTitle}`, core: emptyCounts(), sa: emptyCounts() };
+        byCr.set(row.crNumber, entry);
       }
-      defectsByCr.set(cr, bucket);
+      addRow(scope === 'CORE' ? entry.core : entry.sa, row);
     }
-    // A requirement row's `title` is the QC requirement name (RQ_REQ_NAME) —
-    // for a CR-linked requirement this is conventionally "<crNumber> - ..."
-    // (matches what QC itself displays); module/subject folders with no CR
-    // behind them (e.g. "HOT WEB") have no such prefix and simply get no
-    // defect stats. Not a guess: this is the same "<crNumber> - description"
-    // shape already visible in the real screen's own titles.
-    const crNumberFromTitle = (title: string): string | null => {
-      const m = /^(\d{4,7})\b/.exec(title?.trim() ?? '');
-      return m ? m[1] : null;
+
+    // Per-CR defect counts — reportedDefectsCount/stillOpenDefectsCount as
+    // requested (2026-09-14: "כמות התקלות שנפתחו... וגם כמה עדיין לא נסגרו
+    // ולא בוטלו" — deliberately only Closed/Canceled, narrower than this
+    // file's CLOSED_DEFECT_STATUSES). defectsBySeverity kept for the same
+    // hover-tooltip use as the Cycle Progress cards, scoped to the broader
+    // CLOSED_DEFECT_STATUSES "open" definition like everywhere else.
+    const crRows = Array.from(byCr.values()).map(e => {
+      const crDefects = defects.filter(d => d.crReferenceNumber === e.crNumber);
+      const openDefects = crDefects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
+      return {
+        crNumber: e.crNumber, crLabel: e.crLabel, project: projectByCr.get(e.crNumber) ?? null,
+        core: withPct(e.core), sa: withPct(e.sa),
+        reportedDefectsCount: crDefects.length,
+        stillOpenDefectsCount: crDefects.filter(d => !['Closed', 'Canceled'].includes(d.status)).length,
+        defectsBySeverity: {
+          showStopper: openDefects.filter(d => d.severity === 'Show Stopper').length,
+          severe: openDefects.filter(d => d.severity === 'Severe').length,
+          medium: openDefects.filter(d => d.severity === 'Medium').length,
+          low: openDefects.filter(d => d.severity === 'Low').length,
+        },
+      };
+    });
+
+    const scopeKpis = (key: 'core' | 'sa') => {
+      const rows = crRows.map(r => r[key]);
+      const total = rows.reduce((s, c) => s + c.total, 0);
+      const executed = rows.reduce((s, c) => s + executedScriptCount(c), 0);
+      return {
+        covered: executed,
+        failed: rows.reduce((s, c) => s + c.failed, 0),
+        blocked: rows.reduce((s, c) => s + c.blocked, 0),
+        notReady: rows.reduce((s, c) => s + c.notReady, 0),
+        coveragePct: total > 0 ? Math.round((executed / total) * 100) : 0,
+      };
     };
 
     return {
-      kpis: { covered, failed, blocked, notReady, coveragePct },
-      byRequirement: coverage.map(c => {
-        const crNumber = crNumberFromTitle(c.title);
-        const crDefects = crNumber ? defectsByCr.get(crNumber) ?? { reported: 0, open: 0, critical: 0 } : null;
-        return {
-          title: c.title, subject: c.subject, planned: c.planned, passed: c.passed,
-          failed: c.failed, blocked: c.blocked, notReady: c.notReady, notRun: c.notRun,
-          crNumber, crDefects,
-        };
-      }),
+      kpis: { core: scopeKpis('core'), sa: scopeKpis('sa') },
+      crRows,
     };
   }
 
@@ -1138,10 +1195,15 @@ export class ReleaseIntelligenceService {
     // taking down the whole screen with "לא ניתן לטעון נתונים עבור גרסה זו"
     // (found live in production, 2026-08-02 — getCrCoverage/getCycleQgTargets
     // were the only two of these four calls NOT wrapped like this).
-    const [coverageRows, qgTargets, defectsByCycle] = await Promise.all([
+    const [coverageRows, qgTargets, defectsByCycle, cycleTestTotals] = await Promise.all([
       this.qcService.getCrCoverage(versionCrNumbers, versionId).catch((): CrCoverageDto[] => []),
       this.qcService.getCycleQgTargets(versionId).catch((): CycleQgTargetDto[] => []),
       this.qcService.getDefectsByCycle(versionId).catch((): DefectByCycleDto[] => []),
+      // Cycle-level headline totals — CR-agnostic, so immune to getCrCoverage's
+      // per-CR dedup gaps (see CYCLE_TEST_TOTALS_SQL's comment). Empty when
+      // Oracle's disabled or the release isn't linked yet; the per-cycle
+      // fallback below then behaves exactly as it did before this existed.
+      this.qcService.getCycleTestTotals(versionId).catch((): CycleTestTotalsDto[] => []),
     ]);
 
     const timeline = cycles.map(c => {
@@ -1188,6 +1250,17 @@ export class ReleaseIntelligenceService {
             medium: crDefects.filter(d => d.severity === 'Medium').length,
             low: crDefects.filter(d => d.severity === 'Low').length,
           };
+          // Two extra CR-level defect counts for the cycle-detail gauge cards
+          // (feedback 2026-09-14): total ever reported against this CR
+          // (any status, from the full unfiltered `defects`, not `openDefects`),
+          // and "still not closed and not canceled" — deliberately ONLY those
+          // two statuses per the user's own wording, NOT this file's broader
+          // CLOSED_DEFECT_STATUSES (which also excludes Rejected/Fixed) — a
+          // narrower definition than "open" everywhere else in this file.
+          const reportedDefectsCount = defects.filter(d => d.crReferenceNumber === row.crNumber).length;
+          const stillOpenDefectsCount = defects.filter(d =>
+            d.crReferenceNumber === row.crNumber && !['Closed', 'Canceled'].includes(d.status)
+          ).length;
           return {
             crNumber: row.crNumber, crLabel: `${row.crNumber} - ${row.crTitle}`,
             passed: row.passed, failed: row.failed, notRun: row.notRun,
@@ -1201,13 +1274,30 @@ export class ReleaseIntelligenceService {
             total: row.total, coveragePct: row.coveragePct,
             project: projectByCr.get(row.crNumber) ?? null,
             tester: testerNames.length > 0 ? testerNames.join(' + ') : null,
-            daysRemaining, defectsBySeverity,
+            daysRemaining, defectsBySeverity, reportedDefectsCount, stillOpenDefectsCount,
           };
         });
       const crs = crCoverage.map(cc => ({ crNumber: cc.crNumber, crLabel: cc.crLabel }));
-      const totalTests = crCoverage.reduce((s, cc) => s + cc.total, 0);
-      const executedTests = crCoverage.reduce((s, cc) => s + cc.passed + cc.failed + cc.blocked + cc.notCompleted, 0);
-      const passedTests = crCoverage.reduce((s, cc) => s + cc.passed, 0);
+      // Cycle-wide headline totals come from getCycleTestTotals (CR-agnostic,
+      // COUNT(DISTINCT TS_TEST_ID) per status) when available — matches QC's
+      // own Requirements Coverage screen for the same release+cycle (real
+      // audit, 2026-09-14, ITv06-2026). Summing crCoverage's per-CR rows
+      // instead double-counts a test whose requirements span two DIFFERENT
+      // CRs (each CR bucket counts it once) and drops a test whose CR can't
+      // be resolved at all (resolveCr() dead-ends, or the CR isn't in this
+      // version's own VersionCrAssignment scope) — both gaps confirmed
+      // against real production numbers. Falls back to the old per-CR sum
+      // only when no matching totals row exists (Oracle disabled, release
+      // not yet linked, or this specific cycle has no QC data yet) — same
+      // behavior as before this existed.
+      const cycleTotals = cycleTestTotals.find(t => cycleNameMatches(c.cycleType, t.cycleName));
+      const totalTests = cycleTotals ? cycleTotals.total : crCoverage.reduce((s, cc) => s + cc.total, 0);
+      // Same "executed" definition as getCrCoverage's own per-CR coveragePct
+      // and ALM (executedScriptCount) — this rollup previously omitted N/A and
+      // Not Relevant, so the cycle-level % read lower than the sum of its own
+      // CR rows whenever a script was marked out of scope (fixed 2026-09-10).
+      const executedTests = cycleTotals ? executedScriptCount(cycleTotals) : crCoverage.reduce((s, cc) => s + executedScriptCount(cc), 0);
+      const passedTests = cycleTotals ? cycleTotals.passed : crCoverage.reduce((s, cc) => s + cc.passed, 0);
       // Coverage = how much of the plan ran (executed/total); Success = how
       // much of the plan actually passed (passed/total) — same denominator as
       // coverage so both sit on the same 0-100% scale as the QG target marker.
@@ -1239,11 +1329,30 @@ export class ReleaseIntelligenceService {
         : pastEnd && (canEvaluateQg ? qgReached : true) ? 'done'
         : 'active';
 
+      // Same cycleTotals-or-fallback source as totalTests/passedTests above,
+      // exposed as raw counts (not just the two rollup %s) — the frontend's
+      // segmented progress bar was independently re-summing crCoverage's
+      // per-CR rows for its own segment sizes, which would have silently
+      // kept the exact bug this whole cycleTotals fix targets even after
+      // successPct/coveragePct started coming from the deduped source.
+      const scriptCounts = cycleTotals ?? crCoverage.reduce((acc, cr) => ({
+        total: acc.total + cr.total, passed: acc.passed + cr.passed, failed: acc.failed + cr.failed,
+        blocked: acc.blocked + cr.blocked, notCompleted: acc.notCompleted + cr.notCompleted,
+        notRun: acc.notRun + cr.notRun, notReady: acc.notReady + cr.notReady,
+        notApplicable: acc.notApplicable + cr.notApplicable, notRelevant: acc.notRelevant + cr.notRelevant,
+        cycleName: '',
+      }), { total: 0, passed: 0, failed: 0, blocked: 0, notCompleted: 0, notRun: 0, notReady: 0, notApplicable: 0, notRelevant: 0, cycleName: '' });
+
       return {
         cycleType: c.cycleType, plannedStart: c.plannedStart, plannedEnd: c.plannedEnd, progressPct, state,
         crCount: crs.length, testerCount: testerIds.size, defectCount, crs,
         testers: [...testerIds].map(id => nameById.get(id) ?? id),
         coveragePct, successPct, crCoverage, qgTargetPct,
+        scriptCounts: {
+          total: scriptCounts.total, passed: scriptCounts.passed, failed: scriptCounts.failed,
+          blocked: scriptCounts.blocked, notCompleted: scriptCounts.notCompleted, notRun: scriptCounts.notRun,
+          notReady: scriptCounts.notReady, notApplicable: scriptCounts.notApplicable, notRelevant: scriptCounts.notRelevant,
+        },
       };
     });
     const currentCycle = timeline.find(t => t.state === 'active') ?? null;

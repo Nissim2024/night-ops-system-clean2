@@ -2,9 +2,24 @@
  * DeployCenter UI Kit v3 — Asana-Inspired Light Theme
  */
 import React, { useState } from 'react';
-import { C, FONT, FONT_MONO, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, JIRA,
+import { C, SP, JIRA,
          statusColor, statusBg, statusLabel,
          versionStatusColor, versionStatusBg, versionStatusLabel } from '../theme';
+import { cn } from '../lib/utils';
+import * as Kit from './ui/index';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Migration note (2026-09-12): the components below marked "→ new kit" now
+// render on top of src/components/ui/* (Tailwind + Radix) internally, but
+// keep their exact original prop APIs (style-object based, same prop names)
+// so none of this file's ~23 existing callers needed to change. Components
+// with app-specific shapes (StatusChip, VersionStatusChip, PriorityChip,
+// TaskCheckbox, TaskRowAsana, KPIBar, TableHeader, SectionCollapse, Alert,
+// EmptyState, SectionHeader, ProgressBar, Avatar, StatCard, TabBar, BackLink)
+// don't map cleanly onto generic Linear-style primitives and were left as-is
+// on theme.ts. `Select` also stayed a native <select> (just restyled) rather
+// than swapping to Radix Select, since callers pass literal <option> children
+// that Radix's item-based API can't render — swapping would break all of them.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Button
@@ -22,67 +37,45 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   fullWidth?: boolean;
 }
 
-const BTN_BASE: React.CSSProperties = {
-  fontFamily: FONT,
-  fontWeight: WEIGHT.semibold,
-  border: 'none',
-  cursor: 'pointer',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: SP[2],
-  outline: 'none',
-  whiteSpace: 'nowrap',
-  transition: EASE.fast,
-  userSelect: 'none',
-  textDecoration: 'none',
+// → new kit: renders Kit.Button internally. Variants beyond the kit's own
+// four (primary/secondary/ghost/destructive) are layered on via className
+// overrides (twMerge resolves the conflicting bg/text/border utilities).
+const BTN_VARIANT_CLASS: Record<ButtonVariant, { kitVariant: 'primary' | 'secondary' | 'ghost' | 'destructive'; extra?: string }> = {
+  primary:   { kitVariant: 'primary' },
+  secondary: { kitVariant: 'secondary' },
+  ghost:     { kitVariant: 'ghost' },
+  danger:    { kitVariant: 'destructive' },
+  success:   { kitVariant: 'ghost', extra: 'bg-success-bg text-success hover:bg-success-bg border border-success/30' },
+  warning:   { kitVariant: 'ghost', extra: 'bg-warning-bg text-warning hover:bg-warning-bg border border-warning/30' },
+  outline:   { kitVariant: 'secondary', extra: 'bg-transparent shadow-none' },
 };
 
-const BTN_SIZES: Record<ButtonSize, React.CSSProperties> = {
-  xs: { ...TEXT.xs, fontWeight: WEIGHT.semibold, padding: '3px 10px', borderRadius: RADIUS.sm },
-  sm: { ...TEXT.sm, fontWeight: WEIGHT.semibold, padding: '5px 12px', borderRadius: RADIUS.md },
-  md: { ...TEXT.base, padding: '7px 14px', borderRadius: RADIUS.md },
-  lg: { ...TEXT.md, padding: '9px 18px', borderRadius: RADIUS.lg },
-};
-
-const BTN_VARIANTS: Record<ButtonVariant, React.CSSProperties> = {
-  primary:   { background: C.brand, color: '#fff', boxShadow: SHADOW.xs },
-  secondary: { background: C.bgCard, color: C.textSecondary, border: `1px solid ${C.borderEm}`, boxShadow: SHADOW.xs },
-  ghost:     { background: 'transparent', color: C.textMuted },
-  danger:    { background: C.dangerBg, color: C.danger, border: `1px solid rgba(240,106,106,0.30)` },
-  success:   { background: C.successBg, color: C.success, border: `1px solid rgba(55,196,122,0.30)` },
-  warning:   { background: C.warningBg, color: C.warning, border: `1px solid rgba(232,175,0,0.30)` },
-  outline:   { background: 'transparent', color: C.textSecondary, border: `1px solid ${C.borderEm}` },
+const BTN_SIZE_CLASS: Record<ButtonSize, { kitSize: 'sm' | 'md' | 'lg'; extra?: string }> = {
+  xs: { kitSize: 'sm', extra: 'h-6 px-2 text-xs rounded' },
+  sm: { kitSize: 'sm' },
+  md: { kitSize: 'md' },
+  lg: { kitSize: 'lg' },
 };
 
 export const Button: React.FC<ButtonProps> = ({
   variant = 'primary', size = 'md', loading, icon, iconRight, fullWidth,
-  children, style, disabled, ...props
+  children, style, className, ...props
 }) => {
-  const [hov, setHov] = useState(false);
-  const dis = disabled || loading;
-
-  const hovStyle: React.CSSProperties = hov && !dis ? {
-    filter: 'brightness(0.94)',
-    transform: 'translateY(-1px)',
-    boxShadow: SHADOW.sm,
-  } : {};
-
+  const v = BTN_VARIANT_CLASS[variant];
+  const s = BTN_SIZE_CLASS[size];
   return (
-    <button {...props} disabled={dis}
-      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{
-        ...BTN_BASE, ...BTN_SIZES[size], ...BTN_VARIANTS[variant],
-        width: fullWidth ? '100%' : undefined,
-        opacity: dis ? 0.45 : 1,
-        cursor: dis ? 'not-allowed' : 'pointer',
-        ...hovStyle, ...style,
-      }}
+    <Kit.Button
+      variant={v.kitVariant}
+      size={s.kitSize}
+      loading={loading}
+      style={style}
+      className={cn(v.extra, s.extra, fullWidth && 'w-full', className)}
+      {...props}
     >
-      {loading ? <Spinner size={13} color="currentColor" /> : icon}
+      {!loading && icon}
       {children}
       {iconRight}
-    </button>
+    </Kit.Button>
   );
 };
 
@@ -97,14 +90,8 @@ export const BackLink: React.FC<{ onClick: () => void; label?: string; style?: R
   <button
     type="button"
     onClick={onClick}
-    style={{
-      background: 'none', border: 'none', padding: 0, margin: 0, cursor: 'pointer',
-      fontFamily: FONT, fontSize: '13px', fontWeight: WEIGHT.semibold, color: JIRA.blue,
-      display: 'inline-flex', alignItems: 'center', gap: '4px', alignSelf: 'flex-start',
-      lineHeight: 1.4, ...style,
-    }}
-    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.textDecoration = 'underline'; }}
-    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.textDecoration = 'none'; }}
+    className="inline-flex items-center self-start gap-1 border-none bg-transparent p-0 m-0 cursor-pointer text-[13px] font-semibold leading-snug hover:underline"
+    style={{ color: JIRA.blue, ...style }}
   >
     <span aria-hidden>→</span>{label}
   </button>
@@ -123,32 +110,36 @@ interface CardProps {
   onClick?: () => void;
 }
 
+// → new kit: same rounded-xl/padding-scale look, built on Kit.Card's base classes.
+const CARD_VARIANT_CLASS: Record<string, string> = {
+  default:  'bg-card border border-border shadow-xs',
+  flat:     'bg-muted border border-border shadow-none',
+  ghost:    'bg-transparent border-none shadow-none',
+  outlined: 'bg-card border border-border shadow-none',
+};
+
+// Tailwind's class scanner needs literal strings, not template interpolation
+// (`p-${padding}` would never generate real CSS) — hence this explicit map.
+const CARD_PADDING_CLASS: Record<keyof typeof SP | 'none', string> = {
+  none: 'p-0', 1: 'p-1', 2: 'p-2', 3: 'p-3', 4: 'p-4', 5: 'p-5',
+  6: 'p-6', 8: 'p-8', 10: 'p-10', 12: 'p-12', 16: 'p-16', 20: 'p-20',
+};
+
 export const Card: React.FC<CardProps> = ({
   children, style, padding = 6, variant = 'default', hover, onClick,
 }) => {
-  const [hov, setHov] = useState(false);
-  const pad = padding === 'none' ? '0' : SP[padding as keyof typeof SP] ?? SP[6];
-
-  const variants: Record<string, React.CSSProperties> = {
-    default:  { background: C.bgCard, border: `1px solid ${C.border}`, boxShadow: SHADOW.card },
-    flat:     { background: C.bgNested, border: `1px solid ${C.border}` },
-    ghost:    { background: 'transparent' },
-    outlined: { background: C.bgCard, border: `1px solid ${C.borderEm}` },
-  };
-
-  const hovStyle: React.CSSProperties = (hover || onClick) && hov ? {
-    boxShadow: SHADOW.md,
-    borderColor: C.borderEm,
-  } : {};
-
+  const padClass = CARD_PADDING_CLASS[padding] ?? CARD_PADDING_CLASS[6];
   return (
-    <div onClick={onClick}
-      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{
-        borderRadius: RADIUS.xl, padding: pad,
-        transition: EASE.standard, cursor: onClick ? 'pointer' : undefined,
-        ...variants[variant], ...hovStyle, ...style,
-      }}
+    <div
+      onClick={onClick}
+      className={cn(
+        'rounded-xl transition-shadow duration-base ease-out',
+        CARD_VARIANT_CLASS[variant],
+        padClass,
+        onClick && 'cursor-pointer',
+        (hover || onClick) && 'hover:shadow-md hover:border-neutral-300'
+      )}
+      style={style}
     >
       {children}
     </div>
@@ -166,24 +157,23 @@ interface StatusChipProps {
   style?: React.CSSProperties;
 }
 
+const STATUS_CHIP_SIZE_CLASS: Record<'xs' | 'sm' | 'md', string> = {
+  xs: 'text-xs px-[7px] py-0.5 gap-1',
+  sm: 'text-xs font-semibold px-[9px] py-[3px] gap-[5px]',
+  md: 'text-sm font-semibold px-[11px] py-1 gap-1.5',
+};
+
 export const StatusChip: React.FC<StatusChipProps> = ({ status, size = 'sm', dot, style }) => {
   const color = statusColor(status);
   const bg    = statusBg(status);
   const label = statusLabel(status);
 
-  const sizes = {
-    xs: { ...TEXT.xs, padding: '2px 7px', borderRadius: RADIUS.full, gap: '4px' },
-    sm: { ...TEXT.xs, fontWeight: WEIGHT.semibold, padding: '3px 9px', borderRadius: RADIUS.full, gap: '5px' },
-    md: { ...TEXT.sm, fontWeight: WEIGHT.semibold, padding: '4px 11px', borderRadius: RADIUS.full, gap: '6px' },
-  };
-
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', fontFamily: FONT,
-      color, background: bg, border: `1px solid ${color}30`,
-      ...sizes[size], ...style,
-    }}>
-      {dot && <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: color, flexShrink: 0 }} />}
+    <span
+      className={cn('inline-flex items-center rounded-full border', STATUS_CHIP_SIZE_CLASS[size])}
+      style={{ color, background: bg, borderColor: `${color}30`, ...style }}
+    >
+      {dot && <span className="h-[5px] w-[5px] shrink-0 rounded-full" style={{ background: color }} />}
       {label}
     </span>
   );
@@ -193,24 +183,23 @@ export const StatusChip: React.FC<StatusChipProps> = ({ status, size = 'sm', dot
 // VersionStatusChip
 // ─────────────────────────────────────────────────────────────────────────────
 
+const VERSION_STATUS_CHIP_SIZE_CLASS: Record<'xs' | 'sm' | 'md', string> = {
+  xs: 'text-xs px-2 py-0.5',
+  sm: 'text-xs font-semibold px-2.5 py-[3px]',
+  md: 'text-sm font-semibold px-3 py-1',
+};
+
 export const VersionStatusChip: React.FC<{ status: string; size?: 'xs' | 'sm' | 'md'; style?: React.CSSProperties }> = ({ status, size = 'sm', style }) => {
   const color = versionStatusColor[status] ?? C.textMuted;
   const bg    = versionStatusBg[status]    ?? 'transparent';
   const label = versionStatusLabel[status] ?? status;
 
-  const sizes = {
-    xs: { ...TEXT.xs, padding: '2px 8px', borderRadius: RADIUS.full },
-    sm: { ...TEXT.xs, fontWeight: WEIGHT.semibold, padding: '3px 10px', borderRadius: RADIUS.full },
-    md: { ...TEXT.sm, fontWeight: WEIGHT.semibold, padding: '4px 12px', borderRadius: RADIUS.full },
-  };
-
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: '5px',
-      fontFamily: FONT, color, background: bg, border: `1px solid ${color}30`,
-      ...sizes[size], ...style,
-    }}>
-      <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: color, flexShrink: 0 }} />
+    <span
+      className={cn('inline-flex items-center gap-[5px] rounded-full border', VERSION_STATUS_CHIP_SIZE_CLASS[size])}
+      style={{ color, background: bg, borderColor: `${color}30`, ...style }}
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: color }} />
       {label}
     </span>
   );
@@ -235,17 +224,13 @@ const PRIORITY_META: Record<string, { label: string; color: string; bg: string }
 
 export const PriorityChip: React.FC<PriorityChipProps> = ({ priority, size = 'sm', style }) => {
   const meta = PRIORITY_META[priority?.toUpperCase()] ?? { label: priority, color: C.textMuted, bg: C.bgHover };
-  const sz = size === 'xs'
-    ? { ...TEXT.xs, padding: '2px 7px', borderRadius: RADIUS.full }
-    : { ...TEXT.xs, fontWeight: WEIGHT.semibold, padding: '3px 9px', borderRadius: RADIUS.full };
+  const szClass = size === 'xs' ? 'text-xs px-[7px] py-0.5' : 'text-xs font-semibold px-[9px] py-[3px]';
 
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', fontFamily: FONT,
-      color: meta.color, background: meta.bg,
-      border: `1px solid ${meta.color}30`,
-      ...sz, ...style,
-    }}>
+    <span
+      className={cn('inline-flex items-center rounded-full border', szClass)}
+      style={{ color: meta.color, background: meta.bg, borderColor: `${meta.color}30`, ...style }}
+    >
       {meta.label}
     </span>
   );
@@ -263,12 +248,10 @@ interface BadgeProps {
 }
 
 export const Badge: React.FC<BadgeProps> = ({ children, color = C.textMuted, bg = C.bgHover, style }) => (
-  <span style={{
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    ...TEXT.xs, fontWeight: WEIGHT.semibold, fontFamily: FONT,
-    color, background: bg, padding: '2px 7px', borderRadius: RADIUS.full, lineHeight: '16px',
-    ...style,
-  }}>
+  <span
+    className="inline-flex items-center justify-center rounded-full px-[7px] py-0.5 text-xs font-semibold leading-4"
+    style={{ color, background: bg, ...style }}
+  >
     {children}
   </span>
 );
@@ -287,49 +270,33 @@ interface TextFieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
   inputStyle?: React.CSSProperties;
 }
 
+// → new kit: wraps Kit.Input, preserving the label/hint/error/icon layout.
 export const TextField: React.FC<TextFieldProps> = ({
-  label, hint, error, icon, iconRight, fullWidth, inputStyle, style, id, ...props
+  label, hint, error, icon, iconRight, fullWidth, inputStyle, style, id, className, ...props
 }) => {
-  const [focused, setFocused] = useState(false);
   const elId = id ?? `field-${Math.random().toString(36).slice(2,8)}`;
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1], width: fullWidth ? '100%' : undefined, ...style }}>
+    <div className={cn('flex flex-col gap-1', fullWidth && 'w-full')} style={style}>
       {label && (
-        <label htmlFor={elId} style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: C.textSecondary, fontFamily: FONT }}>
-          {label}
-        </label>
+        <label htmlFor={elId} className="text-sm font-medium text-muted-foreground">{label}</label>
       )}
-      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+      <div className="relative flex items-center">
         {icon && (
-          <span style={{ position: 'absolute', right: '10px', color: C.textMuted, display: 'flex', alignItems: 'center', pointerEvents: 'none' }}>
-            {icon}
-          </span>
+          <span className="pointer-events-none absolute start-3 flex items-center text-subtle-foreground">{icon}</span>
         )}
-        <input id={elId} {...props}
-          onFocus={e => { setFocused(true); props.onFocus?.(e); }}
-          onBlur={e  => { setFocused(false); props.onBlur?.(e); }}
-          style={{
-            fontFamily: FONT, ...TEXT.base, color: C.textPrimary,
-            background: C.bgCard,
-            border: `1px solid ${error ? C.danger : focused ? C.borderFocus : C.borderEm}`,
-            borderRadius: RADIUS.md,
-            padding: `${SP[2]} ${iconRight ? SP[8] : SP[3]} ${SP[2]} ${icon ? SP[8] : SP[3]}`,
-            width: fullWidth ? '100%' : undefined,
-            outline: 'none',
-            boxShadow: focused ? (error ? `0 0 0 2px ${C.danger}30` : `0 0 0 2px ${C.borderFocus}25`) : SHADOW.inset,
-            transition: EASE.fast, boxSizing: 'border-box',
-            ...inputStyle,
-          }}
+        <Kit.Input
+          id={elId}
+          aria-invalid={!!error}
+          className={cn(icon && 'ps-9', iconRight && 'pe-9', fullWidth && 'w-full', className)}
+          style={inputStyle}
+          {...props}
         />
         {iconRight && (
-          <span style={{ position: 'absolute', left: '10px', color: C.textMuted, display: 'flex', alignItems: 'center' }}>
-            {iconRight}
-          </span>
+          <span className="absolute end-3 flex items-center text-subtle-foreground">{iconRight}</span>
         )}
       </div>
       {(hint || error) && (
-        <span style={{ ...TEXT.xs, color: error ? C.danger : C.textMuted, fontFamily: FONT }}>{error ?? hint}</span>
+        <span className={cn('text-xs', error ? 'text-danger' : 'text-subtle-foreground')}>{error ?? hint}</span>
       )}
     </div>
   );
@@ -343,26 +310,14 @@ interface TextAreaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement
   label?: string; hint?: string; fullWidth?: boolean;
 }
 
-export const TextArea: React.FC<TextAreaProps> = ({ label, hint, fullWidth, style, id, ...props }) => {
-  const [focused, setFocused] = useState(false);
+// → new kit: wraps Kit.Textarea.
+export const TextArea: React.FC<TextAreaProps> = ({ label, hint, fullWidth, style, id, className, ...props }) => {
   const elId = id ?? `ta-${Math.random().toString(36).slice(2,8)}`;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1], width: fullWidth ? '100%' : undefined, ...style }}>
-      {label && <label htmlFor={elId} style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: C.textSecondary, fontFamily: FONT }}>{label}</label>}
-      <textarea id={elId} {...props}
-        onFocus={e => { setFocused(true); props.onFocus?.(e); }}
-        onBlur={e  => { setFocused(false); props.onBlur?.(e); }}
-        style={{
-          fontFamily: FONT, ...TEXT.base, color: C.textPrimary, background: C.bgCard,
-          border: `1px solid ${focused ? C.borderFocus : C.borderEm}`,
-          borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`,
-          resize: 'vertical', outline: 'none',
-          boxShadow: focused ? `0 0 0 2px ${C.borderFocus}25` : SHADOW.inset,
-          transition: EASE.fast, width: fullWidth ? '100%' : undefined,
-          boxSizing: 'border-box', minHeight: '80px',
-        }}
-      />
-      {hint && <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>{hint}</span>}
+    <div className={cn('flex flex-col gap-1', fullWidth && 'w-full')} style={style}>
+      {label && <label htmlFor={elId} className="text-sm font-medium text-muted-foreground">{label}</label>}
+      <Kit.Textarea id={elId} className={cn(fullWidth && 'w-full', className)} {...props} />
+      {hint && <span className="text-xs text-subtle-foreground">{hint}</span>}
     </div>
   );
 };
@@ -375,25 +330,34 @@ interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   label?: string; fullWidth?: boolean; children: React.ReactNode;
 }
 
-export const Select: React.FC<SelectProps> = ({ label, fullWidth, style, id, children, ...props }) => {
-  const [focused, setFocused] = useState(false);
+// NOT swapped to Radix Select: every caller passes literal <option> children,
+// which Radix's item-based API can't render. Restyled in place instead — same
+// native <select>, new kit's visual language (border/focus-ring/radius).
+// The chevron background-image stays inline style (a data-URI SVG doesn't
+// survive being encoded as a Tailwind arbitrary-value class reliably).
+const SELECT_CHEVRON_STYLE: React.CSSProperties = {
+  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237F7F7F'/%3E%3C/svg%3E")`,
+  backgroundRepeat: 'no-repeat', backgroundPosition: 'left 12px center',
+};
+
+export const Select: React.FC<SelectProps> = ({ label, fullWidth, style, id, className, children, ...props }) => {
   const elId = id ?? `sel-${Math.random().toString(36).slice(2,8)}`;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1], width: fullWidth ? '100%' : undefined, ...style }}>
-      {label && <label htmlFor={elId} style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: C.textSecondary, fontFamily: FONT }}>{label}</label>}
-      <select id={elId} {...props}
-        onFocus={e => { setFocused(true); props.onFocus?.(e); }}
-        onBlur={e  => { setFocused(false); props.onBlur?.(e); }}
-        style={{
-          fontFamily: FONT, ...TEXT.base, color: C.textPrimary, background: C.bgCard,
-          border: `1px solid ${focused ? C.borderFocus : C.borderEm}`,
-          borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, outline: 'none',
-          boxShadow: focused ? `0 0 0 2px ${C.borderFocus}25` : SHADOW.inset,
-          transition: EASE.fast, width: fullWidth ? '100%' : undefined, cursor: 'pointer',
-          appearance: 'none', WebkitAppearance: 'none',
-          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237F7F7F'/%3E%3C/svg%3E")`,
-          backgroundRepeat: 'no-repeat', backgroundPosition: 'left 12px center', paddingLeft: '30px',
-        }}
+    <div className={cn('flex flex-col gap-1', fullWidth && 'w-full')} style={style}>
+      {label && <label htmlFor={elId} className="text-sm font-medium text-muted-foreground">{label}</label>}
+      <select
+        id={elId}
+        className={cn(
+          'h-9 rounded-md border border-input bg-card ps-3 pe-8 text-sm text-foreground',
+          'cursor-pointer appearance-none',
+          'transition-[border-color,box-shadow] duration-fast ease-out',
+          'hover:border-neutral-300',
+          'focus:outline-none focus:border-primary focus:shadow-focus',
+          fullWidth && 'w-full',
+          className
+        )}
+        style={SELECT_CHEVRON_STYLE}
+        {...props}
       >
         {children}
       </select>
@@ -405,30 +369,29 @@ export const Select: React.FC<SelectProps> = ({ label, fullWidth, style, id, chi
 // Spinner
 // ─────────────────────────────────────────────────────────────────────────────
 
+// → new kit: Kit.Spinner is currentColor-based, so `color` still works via inline style.
 export const Spinner: React.FC<{ size?: number; color?: string; style?: React.CSSProperties }> = ({
   size = 18, color = C.brand, style,
 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    style={{ animation: 'spin 0.7s linear infinite', flexShrink: 0, ...style }}>
-    <circle cx="12" cy="12" r="10" stroke={color} strokeOpacity="0.20" strokeWidth="2.5" />
-    <path d="M12 2a10 10 0 0 1 10 10" stroke={color} strokeWidth="2.5" strokeLinecap="round" />
-    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-  </svg>
+  <Kit.Spinner
+    style={{ width: size, height: size, color, flexShrink: 0, ...style }}
+  />
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Divider
 // ─────────────────────────────────────────────────────────────────────────────
 
+// → new kit: built on Kit.Separator.
 export const Divider: React.FC<{ style?: React.CSSProperties; label?: string }> = ({ style, label }) => (
   label ? (
-    <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], ...style }}>
-      <div style={{ flex: 1, height: '1px', background: C.border }} />
-      <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, whiteSpace: 'nowrap' }}>{label}</span>
-      <div style={{ flex: 1, height: '1px', background: C.border }} />
+    <div className="flex items-center gap-3" style={style}>
+      <Kit.Separator className="flex-1" />
+      <span className="whitespace-nowrap text-xs text-subtle-foreground">{label}</span>
+      <Kit.Separator className="flex-1" />
     </div>
   ) : (
-    <div style={{ height: '1px', background: C.border, ...style }} />
+    <Kit.Separator style={style} />
   )
 );
 
@@ -442,32 +405,30 @@ interface AlertProps {
   onClose?: () => void; style?: React.CSSProperties; icon?: React.ReactNode;
 }
 
-const ALERT_COLORS: Record<AlertVariant, { color: string; bg: string; border: string }> = {
-  info:    { color: C.info,    bg: C.infoBg,    border: `rgba(69,115,210,0.25)` },
-  success: { color: C.success, bg: C.successBg, border: `rgba(55,196,122,0.25)` },
-  warning: { color: C.warning, bg: C.warningBg, border: `rgba(232,175,0,0.25)` },
-  danger:  { color: C.danger,  bg: C.dangerBg,  border: `rgba(240,106,106,0.25)` },
+const ALERT_TEXT_CLASS: Record<AlertVariant, string> = {
+  info: 'text-info', success: 'text-success', warning: 'text-warning', danger: 'text-danger',
+};
+const ALERT_CLASS: Record<AlertVariant, string> = {
+  info:    `${ALERT_TEXT_CLASS.info} bg-info-bg border-info/25`,
+  success: `${ALERT_TEXT_CLASS.success} bg-success-bg border-success/25`,
+  warning: `${ALERT_TEXT_CLASS.warning} bg-warning-bg border-warning/25`,
+  danger:  `${ALERT_TEXT_CLASS.danger} bg-danger-bg border-danger/25`,
 };
 
 const ALERT_ICONS: Record<AlertVariant, string> = { info: 'ℹ️', success: '✅', warning: '⚠️', danger: '🚫' };
 
-export const Alert: React.FC<AlertProps> = ({ variant = 'info', title, children, onClose, style, icon }) => {
-  const { color, bg, border } = ALERT_COLORS[variant];
-  return (
-    <div style={{
-      display: 'flex', gap: SP[3], alignItems: 'flex-start',
-      background: bg, border: `1px solid ${border}`, borderRadius: RADIUS.lg,
-      padding: `${SP[3]} ${SP[4]}`, ...style,
-    }}>
-      <span style={{ fontSize: '15px', flexShrink: 0, marginTop: '1px' }}>{icon ?? ALERT_ICONS[variant]}</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {title && <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color, fontFamily: FONT, marginBottom: '2px' }}>{title}</div>}
-        <div style={{ ...TEXT.sm, color, fontFamily: FONT }}>{children}</div>
-      </div>
-      {onClose && <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color, opacity: 0.6, padding: '2px', flexShrink: 0 }}>✕</button>}
+export const Alert: React.FC<AlertProps> = ({ variant = 'info', title, children, onClose, style, icon }) => (
+  <div className={cn('flex items-start gap-3 rounded-lg border px-4 py-3', ALERT_CLASS[variant])} style={style}>
+    <span className="mt-px shrink-0 text-[15px]">{icon ?? ALERT_ICONS[variant]}</span>
+    <div className="min-w-0 flex-1">
+      {title && <div className="mb-0.5 text-sm font-semibold">{title}</div>}
+      <div className="text-sm">{children}</div>
     </div>
-  );
-};
+    {onClose && (
+      <button onClick={onClose} className={cn('shrink-0 border-none bg-transparent p-0.5 cursor-pointer opacity-60 hover:opacity-100', ALERT_TEXT_CLASS[variant])}>✕</button>
+    )}
+  </div>
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Modal
@@ -479,50 +440,28 @@ interface ModalProps {
   width?: number | string; style?: React.CSSProperties;
 }
 
-export const Modal: React.FC<ModalProps> = ({ open, onClose, title, subtitle, children, footer, width = 560, style }) => {
-  if (!open) return null;
-  return (
-    <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, zIndex: 1000,
-      background: C.bgOverlay,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: SP[4], backdropFilter: 'blur(2px)',
-      animation: 'fadeIn 0.15s ease',
-    }}>
-      <style>{`@keyframes fadeIn{from{opacity:0}to{opacity:1}} @keyframes slideUp{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}`}</style>
-      <div onClick={e => e.stopPropagation()} style={{
-        width, maxWidth: '100%', maxHeight: '90vh',
-        background: C.bgCard, border: `1px solid ${C.border}`,
-        borderRadius: RADIUS['2xl'], boxShadow: SHADOW.floating,
-        display: 'flex', flexDirection: 'column',
-        animation: 'slideUp 0.20s cubic-bezier(0.34,1.56,0.64,1)',
-        ...style,
-      }}>
-        {(title || onClose) && (
-          <div style={{
-            display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-            padding: `${SP[5]} ${SP[6]} ${subtitle ? SP[2] : SP[4]}`,
-            borderBottom: `1px solid ${C.border}`,
-          }}>
-            <div>
-              {title && <h2 style={{ margin: 0, ...TEXT.xl, fontWeight: WEIGHT.semibold, color: C.textPrimary, fontFamily: FONT }}>{title}</h2>}
-              {subtitle && <p style={{ margin: `${SP[1]} 0 0`, ...TEXT.sm, color: C.textMuted, fontFamily: FONT }}>{subtitle}</p>}
-            </div>
-            {onClose && (
-              <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '18px', lineHeight: 1, padding: SP[1], borderRadius: RADIUS.sm }}>✕</button>
-            )}
-          </div>
-        )}
-        <div style={{ flex: 1, overflowY: 'auto', padding: SP[6] }}>{children}</div>
-        {footer && (
-          <div style={{ padding: `${SP[4]} ${SP[6]}`, borderTop: `1px solid ${C.border}`, display: 'flex', gap: SP[3] }}>
-            {footer}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
+// → new kit: built on Kit.Dialog/Kit.DialogContent, fully controlled via
+// `open`/`onOpenChange` (no state lives inside Radix, same as the old div-based
+// version). `hideClose` (added to DialogContent for this) keeps the close X
+// conditional on `onClose`, matching the old behavior exactly.
+export const Modal: React.FC<ModalProps> = ({ open, onClose, title, subtitle, children, footer, width = 560, style }) => (
+  <Kit.Dialog open={open} onOpenChange={(o) => { if (!o) onClose?.(); }}>
+    <Kit.DialogContent
+      hideClose={!onClose}
+      className="flex max-h-[90vh] max-w-none flex-col rounded-2xl p-0"
+      style={{ width, maxWidth: '100%', ...style }}
+    >
+      {(title || onClose) && (
+        <div className={cn('border-b border-border px-6 pt-5', subtitle ? 'pb-2' : 'pb-4')}>
+          {title && <Kit.DialogTitle className="text-xl">{title}</Kit.DialogTitle>}
+          {subtitle && <Kit.DialogDescription className="mt-1">{subtitle}</Kit.DialogDescription>}
+        </div>
+      )}
+      <div className="flex-1 overflow-y-auto p-6">{children}</div>
+      {footer && <div className="flex gap-3 border-t border-border px-6 py-4">{footer}</div>}
+    </Kit.DialogContent>
+  </Kit.Dialog>
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EmptyState
@@ -533,15 +472,11 @@ interface EmptyStateProps {
 }
 
 export const EmptyState: React.FC<EmptyStateProps> = ({ icon = '📭', title, description, action, style }) => (
-  <div style={{
-    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    gap: SP[3], padding: `${SP[12]} ${SP[6]}`, textAlign: 'center',
-    color: C.textMuted, fontFamily: FONT, ...style,
-  }}>
-    <span style={{ fontSize: '32px', opacity: 0.5 }}>{icon}</span>
+  <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center text-subtle-foreground" style={style}>
+    <span className="text-[32px] opacity-50">{icon}</span>
     <div>
-      <div style={{ ...TEXT.md, fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: SP[1] }}>{title}</div>
-      {description && <div style={{ ...TEXT.sm, color: C.textMuted, maxWidth: '280px' }}>{description}</div>}
+      <div className="mb-1 text-md font-semibold text-muted-foreground">{title}</div>
+      {description && <div className="max-w-[280px] text-sm text-subtle-foreground">{description}</div>}
     </div>
     {action}
   </div>
@@ -556,13 +491,13 @@ interface SectionHeaderProps {
 }
 
 export const SectionHeader: React.FC<SectionHeaderProps> = ({ title, subtitle, action, count, style }) => (
-  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP[3], ...style }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
-      <h3 style={{ margin: 0, ...TEXT.md, fontWeight: WEIGHT.semibold, color: C.textPrimary, fontFamily: FONT }}>{title}</h3>
+  <div className="flex items-center justify-between gap-3" style={style}>
+    <div className="flex items-center gap-2">
+      <h3 className="m-0 text-md font-semibold text-foreground">{title}</h3>
       {count !== undefined && <Badge color={C.textMuted} bg={C.bgHover}>{count}</Badge>}
-      {subtitle && <span style={{ ...TEXT.sm, color: C.textMuted, fontFamily: FONT }}>{subtitle}</span>}
+      {subtitle && <span className="text-sm text-subtle-foreground">{subtitle}</span>}
     </div>
-    {action && <div style={{ display: 'flex', gap: SP[2], alignItems: 'center' }}>{action}</div>}
+    {action && <div className="flex items-center gap-2">{action}</div>}
   </div>
 );
 
@@ -577,18 +512,15 @@ interface ProgressBarProps {
 export const ProgressBar: React.FC<ProgressBarProps> = ({ value, max = 100, color = C.brand, label, showValue, height = 6, style }) => {
   const pct = Math.min(100, Math.max(0, (value / max) * 100));
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1], ...style }}>
+    <div className="flex flex-col gap-1" style={style}>
       {(label || showValue) && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          {label && <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>{label}</span>}
-          {showValue && <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textSecondary, fontFamily: FONT }}>{Math.round(pct)}%</span>}
+        <div className="flex items-center justify-between">
+          {label && <span className="text-xs text-subtle-foreground">{label}</span>}
+          {showValue && <span className="text-xs font-semibold text-muted-foreground">{Math.round(pct)}%</span>}
         </div>
       )}
-      <div style={{ height: `${height}px`, background: C.bgHover, borderRadius: RADIUS.full, overflow: 'hidden' }}>
-        <div style={{
-          height: '100%', width: `${pct}%`, background: color,
-          borderRadius: RADIUS.full, transition: 'width 0.4s ease',
-        }} />
+      <div className="overflow-hidden rounded-full bg-muted" style={{ height: `${height}px` }}>
+        <div className="h-full rounded-full transition-[width] duration-slow ease-out" style={{ width: `${pct}%`, background: color }} />
       </div>
     </div>
   );
@@ -606,13 +538,10 @@ export const Avatar: React.FC<{ name: string; size?: number; color?: string; sty
   const initials = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
   const bg = color ?? AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length];
   return (
-    <div style={{
-      width: `${size}px`, height: `${size}px`, borderRadius: '50%',
-      background: bg, color: '#fff',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: `${Math.round(size * 0.38)}px`, fontWeight: WEIGHT.semibold,
-      fontFamily: FONT, flexShrink: 0, ...style,
-    }}>
+    <div
+      className="flex shrink-0 items-center justify-center rounded-full font-semibold text-white"
+      style={{ width: `${size}px`, height: `${size}px`, background: bg, fontSize: `${Math.round(size * 0.38)}px`, ...style }}
+    >
       {initials}
     </div>
   );
@@ -628,19 +557,19 @@ interface StatCardProps {
 }
 
 export const StatCard: React.FC<StatCardProps> = ({ label, value, icon, color = C.brand, delta, deltaPositive, style }) => (
-  <Card style={{ ...style }}>
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[2] }}>
-      <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, fontWeight: WEIGHT.medium, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+  <Card style={style}>
+    <div className="mb-2 flex items-center justify-between">
+      <span className="text-xs font-medium uppercase tracking-wide text-subtle-foreground">
         {label}
       </span>
-      {icon && <span style={{ fontSize: '17px', opacity: 0.6 }}>{icon}</span>}
+      {icon && <span className="text-[17px] opacity-60">{icon}</span>}
     </div>
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: SP[2] }}>
-      <span style={{ ...TEXT['3xl'], fontWeight: WEIGHT.bold, color: C.textPrimary, fontFamily: FONT, lineHeight: 1 }}>
+    <div className="flex items-end gap-2">
+      <span className="text-3xl font-bold leading-none text-foreground">
         {value}
       </span>
       {delta && (
-        <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, fontFamily: FONT, color: deltaPositive ? C.success : C.danger, paddingBottom: '2px' }}>
+        <span className={cn('pb-0.5 text-xs font-semibold', deltaPositive ? 'text-success' : 'text-danger')}>
           {deltaPositive ? '↑' : '↓'} {delta}
         </span>
       )}
@@ -652,28 +581,15 @@ export const StatCard: React.FC<StatCardProps> = ({ label, value, icon, color = 
 // Checkbox
 // ─────────────────────────────────────────────────────────────────────────────
 
+// → new kit: wraps Kit.Checkbox (Radix), same checked/onChange(boolean) API.
 export const Checkbox: React.FC<{
   checked: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean; style?: React.CSSProperties;
 }> = ({ checked, onChange, label, disabled, style }) => (
-  <label style={{
-    display: 'inline-flex', alignItems: 'center', gap: SP[2],
-    cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1,
-    fontFamily: FONT, ...TEXT.sm, color: C.textSecondary, userSelect: 'none', ...style,
-  }}>
-    <span style={{
-      width: '16px', height: '16px', borderRadius: RADIUS.xs, flexShrink: 0,
-      background: checked ? C.brand : C.bgCard,
-      border: `1.5px solid ${checked ? C.brand : C.borderEm}`,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      transition: EASE.fast,
-    }}>
-      {checked && (
-        <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
-          <path d="M1 3.5L3.5 6L8 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-      )}
-    </span>
-    <input type="checkbox" checked={checked} disabled={disabled} onChange={e => onChange(e.target.checked)} style={{ display: 'none' }} />
+  <label
+    className={cn('inline-flex items-center gap-2 text-sm text-muted-foreground select-none', disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer')}
+    style={style}
+  >
+    <Kit.Checkbox checked={checked} disabled={disabled} onCheckedChange={(v) => onChange(v === true)} />
     {label}
   </label>
 );
@@ -682,34 +598,23 @@ export const Checkbox: React.FC<{
 // Toggle
 // ─────────────────────────────────────────────────────────────────────────────
 
+// → new kit: wraps Kit.Switch (Radix), same checked/onChange(boolean) API.
 export const Toggle: React.FC<{
   checked: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean; size?: 'sm' | 'md'; style?: React.CSSProperties;
-}> = ({ checked, onChange, label, disabled, size = 'md', style }) => {
-  const w = size === 'sm' ? 28 : 36, h = size === 'sm' ? 16 : 20, d = h - 4;
-  return (
-    <label style={{
-      display: 'inline-flex', alignItems: 'center', gap: SP[2],
-      cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1,
-      fontFamily: FONT, ...TEXT.sm, color: C.textSecondary, userSelect: 'none', ...style,
-    }}>
-      <span style={{
-        width: `${w}px`, height: `${h}px`, borderRadius: `${h}px`, flexShrink: 0,
-        background: checked ? C.brand : C.bgHover,
-        border: `1px solid ${checked ? C.brand : C.borderEm}`,
-        position: 'relative', transition: EASE.fast,
-      }}>
-        <span style={{
-          position: 'absolute', top: '2px',
-          right: checked ? '2px' : `${w - d - 2}px`,
-          width: `${d}px`, height: `${d}px`, borderRadius: '50%',
-          background: 'white', transition: EASE.spring, boxShadow: SHADOW.xs,
-        }} />
-      </span>
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={e => onChange(e.target.checked)} style={{ display: 'none' }} />
-      {label}
-    </label>
-  );
-};
+}> = ({ checked, onChange, label, disabled, size = 'md', style }) => (
+  <label
+    className={cn('inline-flex items-center gap-2 text-sm text-muted-foreground select-none', disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer')}
+    style={style}
+  >
+    <Kit.Switch
+      checked={checked}
+      disabled={disabled}
+      onCheckedChange={onChange}
+      className={size === 'sm' ? 'scale-90' : undefined}
+    />
+    {label}
+  </label>
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TabBar
@@ -722,36 +627,31 @@ interface TabBarProps {
 }
 
 export const TabBar: React.FC<TabBarProps> = ({ tabs, active, onChange, style, variant = 'underline' }) => (
-  <div style={{
-    display: 'flex', gap: variant === 'pill' ? SP[1] : 0,
-    borderBottom: variant === 'underline' ? `1px solid ${C.border}` : undefined,
-    ...style,
-  }}>
+  <div className={cn('flex', variant === 'pill' ? 'gap-1' : 'gap-0 border-b border-border')} style={style}>
     {tabs.map(tab => {
       const isActive = tab.key === active;
       if (variant === 'pill') return (
-        <button key={tab.key} onClick={() => onChange(tab.key)} style={{
-          fontFamily: FONT, ...TEXT.sm, fontWeight: isActive ? WEIGHT.semibold : WEIGHT.medium,
-          background: isActive ? C.bgActive : 'transparent',
-          color: isActive ? C.brand : C.textMuted,
-          border: `1px solid ${isActive ? C.borderFocus + '30' : 'transparent'}`,
-          borderRadius: RADIUS.md, padding: '5px 12px', cursor: 'pointer', transition: EASE.fast,
-          display: 'flex', alignItems: 'center', gap: SP[2],
-        }}>
+        <button
+          key={tab.key}
+          onClick={() => onChange(tab.key)}
+          className={cn(
+            'flex items-center gap-2 rounded-md border px-3 py-[5px] text-sm cursor-pointer transition-[background-color,color,border-color] duration-fast ease-out',
+            isActive ? 'bg-primary-50 font-semibold text-primary border-primary/30' : 'bg-transparent font-medium text-subtle-foreground border-transparent'
+          )}
+        >
           {tab.icon}{tab.label}
           {tab.count !== undefined && <Badge color={isActive ? C.brand : C.textDisabled} bg={isActive ? C.infoBg : C.bgHover}>{tab.count}</Badge>}
         </button>
       );
       return (
-        <button key={tab.key} onClick={() => onChange(tab.key)} style={{
-          fontFamily: FONT, ...TEXT.sm, fontWeight: isActive ? WEIGHT.semibold : WEIGHT.normal,
-          background: 'none', border: 'none', cursor: 'pointer',
-          color: isActive ? C.textPrimary : C.textMuted,
-          padding: `${SP[2]} ${SP[3]}`,
-          borderBottom: `2px solid ${isActive ? C.brand : 'transparent'}`,
-          marginBottom: '-1px', transition: EASE.fast,
-          display: 'flex', alignItems: 'center', gap: SP[2],
-        }}>
+        <button
+          key={tab.key}
+          onClick={() => onChange(tab.key)}
+          className={cn(
+            'flex items-center gap-2 border-0 border-b-2 bg-transparent px-3 py-2 -mb-px text-sm cursor-pointer transition-[color,border-color] duration-fast ease-out',
+            isActive ? 'font-semibold text-foreground border-b-primary' : 'font-normal text-subtle-foreground border-b-transparent'
+          )}
+        >
           {tab.icon}{tab.label}
           {tab.count !== undefined && <Badge color={isActive ? C.brand : C.textDisabled} bg={isActive ? C.infoBg : C.bgHover}>{tab.count}</Badge>}
         </button>
@@ -767,18 +667,16 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, active, onChange, style, v
 export const Tooltip: React.FC<{ text: string; children: React.ReactNode; position?: 'top' | 'bottom' }> = ({ text, children, position = 'top' }) => {
   const [vis, setVis] = useState(false);
   return (
-    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}
+    <span className="relative inline-flex items-center"
       onMouseEnter={() => setVis(true)} onMouseLeave={() => setVis(false)}>
       {children}
       {vis && (
-        <span style={{
-          position: 'absolute',
-          [position === 'top' ? 'bottom' : 'top']: 'calc(100% + 6px)',
-          left: '50%', transform: 'translateX(-50%)',
-          background: C.textPrimary, color: '#fff', ...TEXT.xs, fontFamily: FONT,
-          padding: '4px 10px', borderRadius: RADIUS.md,
-          whiteSpace: 'nowrap', zIndex: 100, boxShadow: SHADOW.md, pointerEvents: 'none',
-        }}>
+        <span
+          className={cn(
+            'absolute start-1/2 z-[100] -translate-x-1/2 whitespace-nowrap rounded-md bg-foreground px-2.5 py-1 text-xs text-white shadow-md pointer-events-none',
+            position === 'top' ? 'bottom-[calc(100%+6px)]' : 'top-[calc(100%+6px)]'
+          )}
+        >
           {text}
         </span>
       )}
@@ -797,12 +695,11 @@ export const TaskCheckbox: React.FC<{
   return (
     <button onClick={onChange}
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+      className="flex shrink-0 items-center justify-center rounded-full border-2 p-0 cursor-pointer transition-[background-color,border-color] duration-fast ease-out"
       style={{
-        width: `${size}px`, height: `${size}px`, borderRadius: '50%', flexShrink: 0,
+        width: `${size}px`, height: `${size}px`,
         background: checked ? color : 'transparent',
-        border: `2px solid ${checked ? color : hov ? color : C.borderEm}`,
-        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        transition: EASE.fast, padding: 0,
+        borderColor: checked ? color : hov ? color : C.borderEm,
         ...style,
       }}
     >
@@ -844,31 +741,24 @@ export const TaskRowAsana: React.FC<TaskRowAsanaProps> = ({
   return (
     <div
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{
-        display: 'flex', alignItems: 'center',
-        minHeight: '40px',
-        background: isSelected ? C.bgActive : hov ? C.bgHover : C.bgCard,
-        borderBottom: `1px solid ${C.border}`,
-        transition: EASE.fast, cursor: 'pointer',
-        ...style,
-      }}
+      className="flex min-h-[40px] cursor-pointer items-center border-b border-border transition-colors duration-fast ease-out"
+      style={{ background: isSelected ? C.bgActive : hov ? C.bgHover : C.bgCard, ...style }}
     >
       {/* Checkbox */}
-      <div style={{ width: '40px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div className="flex w-10 shrink-0 items-center justify-center">
         {onCheck !== undefined ? (
           <TaskCheckbox checked={!!isChecked} onChange={onCheck} />
         ) : (
-          <div style={{ width: '20px', height: '20px', borderRadius: '50%', border: `2px solid ${C.borderEm}` }} />
+          <div className="h-5 w-5 rounded-full border-2" style={{ borderColor: C.borderEm }} />
         )}
       </div>
 
       {/* Title */}
-      <div onClick={onClick} style={{ flex: 1, minWidth: 0, padding: `0 ${SP[2]}`, display: 'flex', alignItems: 'center', gap: SP[2] }}>
-        <span style={{
-          ...TEXT.base, color: isChecked ? C.textDisabled : C.textPrimary,
-          fontFamily: FONT, textDecoration: isChecked ? 'line-through' : 'none',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>
+      <div onClick={onClick} className="flex min-w-0 flex-1 items-center gap-2 px-2">
+        <span className={cn(
+          'overflow-hidden text-ellipsis whitespace-nowrap text-base',
+          isChecked ? 'text-subtle-foreground line-through' : 'text-foreground no-underline'
+        )}>
           {title}
         </span>
         {crNumber && <Badge color={C.info} bg={C.infoBg}>{crNumber}</Badge>}
@@ -876,32 +766,32 @@ export const TaskRowAsana: React.FC<TaskRowAsanaProps> = ({
       </div>
 
       {/* Assignee */}
-      <div style={{ width: '120px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: SP[2], padding: `0 ${SP[2]}`, overflow: 'hidden', direction: 'ltr' }}>
-        {assignee && <><Avatar name={assignee} size={22} /><span style={{ ...TEXT.xs, color: C.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{assignee.split(' ')[0]}</span></>}
+      <div className="flex w-[120px] shrink-0 items-center gap-2 overflow-hidden px-2" dir="ltr">
+        {assignee && <><Avatar name={assignee} size={22} /><span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-subtle-foreground">{assignee.split(' ')[0]}</span></>}
       </div>
 
       {/* Due date */}
-      <div style={{ width: '110px', flexShrink: 0, paddingRight: SP[2] }}>
-        {dueDate && <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>{dueDate}</span>}
+      <div className="w-[110px] shrink-0 pe-2">
+        {dueDate && <span className="text-xs text-subtle-foreground">{dueDate}</span>}
       </div>
 
       {/* Priority */}
-      <div style={{ width: '90px', flexShrink: 0, paddingRight: SP[2] }}>
+      <div className="w-[90px] shrink-0 pe-2">
         {priority && <PriorityChip priority={priority} size="xs" />}
       </div>
 
       {/* Status */}
-      <div style={{ width: '100px', flexShrink: 0, paddingRight: SP[2] }}>
+      <div className="w-[100px] shrink-0 pe-2">
         {status && <StatusChip status={status} size="xs" dot />}
       </div>
 
       {/* Actions */}
       {(hov || isSelected) && actions && (
-        <div style={{ width: '80px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: SP[1], paddingRight: SP[2] }}>
+        <div className="flex w-20 shrink-0 items-center gap-1 pe-2">
           {actions}
         </div>
       )}
-      {!(hov || isSelected) && actions && <div style={{ width: '80px', flexShrink: 0 }} />}
+      {!(hov || isSelected) && actions && <div className="w-20 shrink-0" />}
     </div>
   );
 };
@@ -915,26 +805,24 @@ interface TableHeaderProps {
   style?: React.CSSProperties;
 }
 
+const TABLE_HEADER_ALIGN_CLASS: Record<'left' | 'right' | 'center', string> = {
+  left: 'text-left', right: 'text-right', center: 'text-center',
+};
+
 export const TableHeader: React.FC<TableHeaderProps> = ({ columns, style }) => (
-  <div style={{
-    display: 'flex', alignItems: 'center',
-    background: C.bgCard, borderBottom: `1px solid ${C.border}`,
-    padding: `${SP[1]} 0`,
-    ...style,
-  }}>
+  <div className="flex items-center border-b border-border bg-card py-1" style={style}>
     {/* Checkbox column */}
-    <div style={{ width: '40px', flexShrink: 0 }} />
+    <div className="w-10 shrink-0" />
     {columns.map(col => (
-      <div key={col.key} style={{
-        width: col.width,
-        flex: col.width ? undefined : 1,
-        padding: `0 ${SP[2]}`,
-        ...TEXT.xs, fontWeight: WEIGHT.semibold,
-        color: C.textMuted, fontFamily: FONT,
-        textAlign: col.align ?? 'right',
-        textTransform: 'uppercase', letterSpacing: '0.05em',
-        whiteSpace: 'nowrap', flexShrink: col.width ? 0 : undefined,
-      }}>
+      <div
+        key={col.key}
+        className={cn(
+          'whitespace-nowrap px-2 text-xs font-semibold uppercase tracking-wide text-subtle-foreground',
+          col.width ? 'shrink-0' : 'flex-1',
+          TABLE_HEADER_ALIGN_CLASS[col.align ?? 'right']
+        )}
+        style={{ width: col.width }}
+      >
         {col.label}
       </div>
     ))}
@@ -962,27 +850,21 @@ export const SectionCollapse: React.FC<SectionCollapseProps> = ({
   return (
     <div
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{
-        display: 'flex', alignItems: 'center', gap: SP[2],
-        padding: `${SP[2]} ${SP[3]} ${SP[2]} 0`,
-        background: hov ? C.bgHover : C.bgCard,
-        borderBottom: `1px solid ${C.border}`,
-        borderLeft: color ? `3px solid ${color}` : 'none',
-        paddingRight: color ? SP[3] : undefined,
-        cursor: 'pointer', transition: EASE.fast,
-        ...style,
-      }}
+      className={cn('flex cursor-pointer items-center gap-2 border-b border-border py-2 ps-0 pe-3 transition-colors duration-fast ease-out', color && 'border-s-[3px]')}
+      style={{ background: hov ? C.bgHover : C.bgCard, borderInlineStartColor: color, ...style }}
     >
       {/* Checkbox placeholder */}
-      <div style={{ width: '40px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <button onClick={onToggle} style={{
-          background: 'none', border: 'none', cursor: 'pointer', padding: '2px',
-          color: C.textMuted, fontSize: '12px', lineHeight: 1, borderRadius: RADIUS.xs,
-          transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)', transition: EASE.fast,
-        }}>▼</button>
+      <div className="flex w-10 shrink-0 items-center justify-center">
+        <button
+          onClick={onToggle}
+          className={cn(
+            'cursor-pointer rounded-xs border-none bg-transparent p-0.5 text-xs leading-none text-subtle-foreground transition-transform duration-fast ease-out',
+            isOpen ? 'rotate-0' : '-rotate-90'
+          )}
+        >▼</button>
       </div>
 
-      <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textSecondary, fontFamily: FONT, flex: 1 }}>
+      <span className="flex-1 text-sm font-semibold text-muted-foreground">
         {title}
       </span>
 
@@ -991,7 +873,7 @@ export const SectionCollapse: React.FC<SectionCollapseProps> = ({
       )}
 
       {hov && actions && (
-        <div style={{ display: 'flex', gap: SP[1], alignItems: 'center' }} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
           {actions}
         </div>
       )}
@@ -1009,20 +891,15 @@ interface KPIBarProps {
 }
 
 export const KPIBar: React.FC<KPIBarProps> = ({ stats, style }) => (
-  <div style={{
-    display: 'flex', gap: SP[4], alignItems: 'center',
-    padding: `${SP[3]} ${SP[4]}`,
-    background: C.bgCard, border: `1px solid ${C.border}`,
-    borderRadius: RADIUS.xl, ...style,
-  }}>
+  <div className="flex items-center gap-4 rounded-2xl border border-border bg-card px-4 py-3" style={style}>
     {stats.map((s, i) => (
       <React.Fragment key={s.label}>
-        {i > 0 && <div style={{ width: '1px', height: '32px', background: C.border }} />}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '80px' }}>
-          <span style={{ ...TEXT['2xl'], fontWeight: WEIGHT.bold, color: s.color ?? C.textPrimary, fontFamily: FONT, lineHeight: 1 }}>
+        {i > 0 && <div className="h-8 w-px bg-border" />}
+        <div className="flex min-w-[80px] flex-col gap-0.5">
+          <span className="text-2xl font-bold leading-none" style={{ color: s.color ?? C.textPrimary }}>
             {s.value}
           </span>
-          <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>{s.label}</span>
+          <span className="text-xs text-subtle-foreground">{s.label}</span>
         </div>
       </React.Fragment>
     ))}

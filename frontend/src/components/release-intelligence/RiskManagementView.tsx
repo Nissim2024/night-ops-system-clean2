@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
+import { C } from '../../theme';
+import { cn } from '../../lib/utils';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -117,63 +118,60 @@ export const RiskManagementView: React.FC<Props> = ({ token, versionId, role }) 
     setSaving(false);
   };
 
-  const inputStyle: React.CSSProperties = {
-    padding: '6px 9px', borderRadius: RADIUS.sm, border: `1px solid ${C.borderEm}`,
-    background: C.bgCard, color: C.textPrimary, fontFamily: FONT, ...TEXT.xs, boxSizing: 'border-box', width: '100%',
-  };
-  const thStyle: React.CSSProperties = { padding: '8px 10px', textAlign: 'right' as const, ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, borderBottom: `1px solid ${C.border}`, whiteSpace: 'nowrap' as const };
-  const tdStyle: React.CSSProperties = { padding: '8px 10px', verticalAlign: 'top' as const, borderBottom: `1px solid ${C.border}`, ...TEXT.xs, color: C.textPrimary };
+  const inputClass = 'w-full box-border rounded-sm border border-border bg-card px-[9px] py-1.5 text-xs text-foreground';
+  const thClass = 'whitespace-nowrap border-b border-border px-2.5 py-2 text-right text-xs font-bold text-subtle-foreground';
+  const tdClass = 'border-b border-border px-2.5 py-2 align-top text-xs text-foreground';
 
   if (!versionId) {
-    return <div style={{ fontFamily: FONT, direction: 'rtl', textAlign: 'center', padding: SP[8], color: C.textMuted }}>בחר גרסה מתפריט הצד.</div>;
+    return <div className="p-8 text-center text-subtle-foreground [direction:rtl]">בחר גרסה מתפריט הצד.</div>;
   }
 
   const renderForm = (isNew: boolean) => (
-    <tr style={{ background: C.bgHover }}>
-      <td style={tdStyle}>
+    <tr className="bg-muted">
+      <td className={tdClass}>
         <textarea autoFocus value={draft.title} onChange={e => setDraft(d => ({ ...d, title: e.target.value }))}
-          placeholder="תיאור הסיכון…" rows={2} style={{ ...inputStyle, resize: 'vertical' as const, minWidth: '220px' }} />
+          placeholder="תיאור הסיכון…" rows={2} className={cn(inputClass, 'min-w-[220px] resize-y')} />
       </td>
-      <td style={tdStyle}>
-        <select value={draft.severity} onChange={e => setDraft(d => ({ ...d, severity: e.target.value }))} style={inputStyle}>
+      <td className={tdClass}>
+        <select value={draft.severity} onChange={e => setDraft(d => ({ ...d, severity: e.target.value }))} className={inputClass}>
           {SEVERITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </td>
-      <td style={tdStyle}>
-        <select value={draft.probability} onChange={e => setDraft(d => ({ ...d, probability: e.target.value }))} style={inputStyle}>
+      <td className={tdClass}>
+        <select value={draft.probability} onChange={e => setDraft(d => ({ ...d, probability: e.target.value }))} className={inputClass}>
           {PROBABILITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </td>
-      <td style={tdStyle}>
-        <select value={draft.impact} onChange={e => setDraft(d => ({ ...d, impact: e.target.value }))} style={{ ...inputStyle, marginBottom: draft.impact === IMPACT_OTHER ? '6px' : 0 }}>
+      <td className={tdClass}>
+        <select value={draft.impact} onChange={e => setDraft(d => ({ ...d, impact: e.target.value }))} className={cn(inputClass, draft.impact === IMPACT_OTHER && 'mb-1.5')}>
           {IMPACT_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
           <option value={IMPACT_OTHER}>{IMPACT_OTHER}</option>
         </select>
         {draft.impact === IMPACT_OTHER && (
-          <input value={draft.impactOther} onChange={e => setDraft(d => ({ ...d, impactOther: e.target.value }))} placeholder="פרט…" style={inputStyle} />
+          <input value={draft.impactOther} onChange={e => setDraft(d => ({ ...d, impactOther: e.target.value }))} placeholder="פרט…" className={inputClass} />
         )}
       </td>
-      <td style={tdStyle}>
+      <td className={tdClass}>
         <textarea value={draft.mitigation} onChange={e => setDraft(d => ({ ...d, mitigation: e.target.value }))}
-          placeholder="מיטיגציה…" rows={2} style={{ ...inputStyle, resize: 'vertical' as const, minWidth: '180px' }} />
+          placeholder="מיטיגציה…" rows={2} className={cn(inputClass, 'min-w-[180px] resize-y')} />
       </td>
-      <td style={tdStyle}>
+      <td className={tdClass}>
         <select
           value={draft.status}
           onChange={e => setDraft(d => ({ ...d, status: e.target.value }))}
-          style={inputStyle}
+          className={inputClass}
         >
           {STATUS_OPTIONS.map(o => (
             <option key={o.value} value={o.value} disabled={o.value === 'CLOSED' && !canClose && draft.status !== 'CLOSED'}>{o.label}</option>
           ))}
         </select>
       </td>
-      <td style={{ ...tdStyle, whiteSpace: 'nowrap' as const }}>
-        <div style={{ display: 'flex', gap: '6px' }}>
-          <button onClick={save} disabled={saving || !draft.title.trim()} style={{ padding: '5px 12px', background: C.brand, color: '#fff', border: 'none', borderRadius: RADIUS.sm, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold, opacity: saving || !draft.title.trim() ? 0.6 : 1 }}>
+      <td className={cn(tdClass, 'whitespace-nowrap')}>
+        <div className="flex gap-1.5">
+          <button onClick={save} disabled={saving || !draft.title.trim()} className={cn('cursor-pointer rounded-sm border-none bg-primary px-3 py-[5px] text-xs font-semibold text-white', (saving || !draft.title.trim()) && 'opacity-60')}>
             {saving ? '...' : 'שמור'}
           </button>
-          <button onClick={cancel} disabled={saving} style={{ padding: '5px 12px', background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs }}>
+          <button onClick={cancel} disabled={saving} className="cursor-pointer rounded-sm border border-border bg-transparent px-3 py-[5px] text-xs text-subtle-foreground">
             ביטול
           </button>
         </div>
@@ -182,57 +180,60 @@ export const RiskManagementView: React.FC<Props> = ({ token, versionId, role }) 
   );
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>⚠️ ניהול סיכונים</div>
+    <div className="flex flex-col gap-3 [direction:rtl]">
+      <div className="flex items-center justify-between">
+        <div className="text-lg font-bold text-foreground">⚠️ ניהול סיכונים</div>
         {canWrite && !adding && (
-          <button onClick={startAdd} style={{ padding: '7px 16px', background: C.brand, color: '#fff', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.semibold }}>
+          <button onClick={startAdd} className="cursor-pointer rounded-md border-none bg-primary px-4 py-[7px] text-sm font-semibold text-white">
             + סיכון חדש
           </button>
         )}
       </div>
 
-      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div className="overflow-auto rounded-lg border border-border bg-card">
+        <table className="w-full border-collapse">
           <thead>
             <tr>
-              <th style={thStyle}>תיאור הסיכון</th>
-              <th style={thStyle}>חומרה</th>
-              <th style={thStyle}>סבירות</th>
-              <th style={thStyle}>השפעה</th>
-              <th style={thStyle}>מיטיגציה</th>
-              <th style={thStyle}>סטטוס</th>
-              {canWrite && <th style={thStyle}></th>}
+              <th className={thClass}>תיאור הסיכון</th>
+              <th className={thClass}>חומרה</th>
+              <th className={thClass}>סבירות</th>
+              <th className={thClass}>השפעה</th>
+              <th className={thClass}>מיטיגציה</th>
+              <th className={thClass}>סטטוס</th>
+              {canWrite && <th className={thClass}></th>}
             </tr>
           </thead>
           <tbody>
             {adding && renderForm(true)}
             {!loading && risks.length === 0 && !adding && (
-              <tr><td colSpan={7} style={{ ...tdStyle, textAlign: 'center', color: C.textMuted, padding: SP[5] }}>אין סיכונים רשומים לגרסה זו.</td></tr>
+              <tr><td colSpan={7} className={cn(tdClass, 'p-5 text-center text-subtle-foreground')}>אין סיכונים רשומים לגרסה זו.</td></tr>
             )}
             {risks.map(r => editingId === r.id ? (
               <React.Fragment key={r.id}>{renderForm(false)}</React.Fragment>
             ) : (
               <tr key={r.id}>
-                <td style={{ ...tdStyle, whiteSpace: 'pre-wrap' as const, minWidth: '220px' }}>{r.title}</td>
-                <td style={tdStyle}>
-                  <span style={{ color: SEVERITY_COLOR[r.severity] ?? C.textMuted, fontWeight: WEIGHT.semibold }}>{SEVERITY_LABEL[r.severity] ?? r.severity}</span>
+                <td className={cn(tdClass, 'min-w-[220px] whitespace-pre-wrap')}>{r.title}</td>
+                <td className={tdClass}>
+                  <span className="font-semibold" style={{ color: SEVERITY_COLOR[r.severity] ?? C.textMuted }}>{SEVERITY_LABEL[r.severity] ?? r.severity}</span>
                 </td>
-                <td style={tdStyle}>{r.probability ? (PROBABILITY_LABEL[r.probability] ?? r.probability) : '—'}</td>
-                <td style={tdStyle}>{r.impact || '—'}</td>
-                <td style={{ ...tdStyle, whiteSpace: 'pre-wrap' as const, minWidth: '180px' }}>{r.mitigation || '—'}</td>
-                <td style={tdStyle}>
-                  <span style={{
-                    display: 'inline-block', color: STATUS_COLOR[r.status] ?? C.textMuted, fontWeight: WEIGHT.semibold,
-                    background: `${STATUS_COLOR[r.status] ?? C.textMuted}14`, border: `1px solid ${STATUS_COLOR[r.status] ?? C.textMuted}40`,
-                    borderRadius: RADIUS.full, padding: '2px 9px',
-                  }}>
+                <td className={tdClass}>{r.probability ? (PROBABILITY_LABEL[r.probability] ?? r.probability) : '—'}</td>
+                <td className={tdClass}>{r.impact || '—'}</td>
+                <td className={cn(tdClass, 'min-w-[180px] whitespace-pre-wrap')}>{r.mitigation || '—'}</td>
+                <td className={tdClass}>
+                  <span
+                    className="inline-block rounded-full px-2.5 py-0.5 font-semibold"
+                    style={{
+                      color: STATUS_COLOR[r.status] ?? C.textMuted,
+                      background: `${STATUS_COLOR[r.status] ?? C.textMuted}14`,
+                      border: `1px solid ${STATUS_COLOR[r.status] ?? C.textMuted}40`,
+                    }}
+                  >
                     {STATUS_LABEL[r.status] ?? r.status}
                   </span>
                 </td>
                 {canWrite && (
-                  <td style={{ ...tdStyle, whiteSpace: 'nowrap' as const }}>
-                    <button onClick={() => startEdit(r)} style={{ background: 'transparent', border: 'none', color: C.brand, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold }}>✏️ ערוך</button>
+                  <td className={cn(tdClass, 'whitespace-nowrap')}>
+                    <button onClick={() => startEdit(r)} className="cursor-pointer border-none bg-transparent text-xs font-semibold text-primary">✏️ ערוך</button>
                   </td>
                 )}
               </tr>

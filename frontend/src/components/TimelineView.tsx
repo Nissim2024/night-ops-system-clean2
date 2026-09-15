@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { statusColor } from '../theme';
 import { formatTime } from '../utils/dateFormat';
@@ -83,6 +83,10 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
   const maxTs = allEnds.length   ? Math.max(...allEnds)   + PAD : now.getTime() + 3_600_000;
   const span  = maxTs - minTs;
 
+  // NOTE: pct() drives every bar/tick position on the Gantt below via inline
+  // `left`/`width` styles computed from real dates — this is the read-only
+  // Gantt pixel-math flagged as migration-risk. Left completely untouched;
+  // only static decorative styling around it was converted to Tailwind.
   const pct = (t: number) => Math.max(0, Math.min(100, ((t - minTs) / span) * 100));
   const nowPct     = pct(now.getTime());
   const nowVisible = nowPct >= 0 && nowPct <= 100;
@@ -174,83 +178,72 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
   const LABEL_W    = 340;
 
   // ── Reusable grid + now-line ─────────────────────────────────────────
+  // Tick/now-line positions (`left: ${pct}%`) are computed from real dates —
+  // untouched. Only the static line colors became Tailwind-token backgrounds.
   const grid = (h: number) => (
     <>
       {ticks.map((tick, i) => (
-        <div key={i} style={{ position: 'absolute', left: `${pct(tick.getTime())}%`, top: 0, width: 1, height: h, background: '#f0f0f0' }} />
+        <div key={i} className="absolute top-0 w-px bg-border" style={{ left: `${pct(tick.getTime())}%`, height: h }} />
       ))}
       {nowVisible && (
-        <div style={{ position: 'absolute', left: `${nowPct}%`, top: 0, width: 2, height: h, background: 'rgba(231,76,60,0.45)', zIndex: 4 }} />
+        <div className="absolute top-0 z-[4] w-0.5 bg-danger/45" style={{ left: `${nowPct}%`, height: h }} />
       )}
     </>
   );
 
   // ── Sticky label cell ─────────────────────────────────────────────────
   const labelCell = (children: React.ReactNode, bg: string, h: number, indent = 0, extra?: React.CSSProperties) => (
-    <div style={{
-      width: LABEL_W, minWidth: LABEL_W, height: h,
-      position: 'sticky', left: 0, zIndex: 10,
-      background: bg, borderLeft: '2px solid #e0e0e0',
-      display: 'flex', alignItems: 'center',
-      padding: `0 10px 0 ${10 + indent}px`,
-      boxSizing: 'border-box', ...extra,
-    }}>
+    <div
+      className="sticky end-0 z-10 box-border flex items-center border-e-2 border-border"
+      style={{ width: LABEL_W, minWidth: LABEL_W, height: h, background: bg, padding: `0 10px 0 ${10 + indent}px`, ...extra }}
+    >
       {children}
     </div>
   );
 
   if (loading) return (
-    <div style={{ textAlign: 'center', padding: '80px', color: '#666' }}>טוען ציר זמן...</div>
+    <div className="p-20 text-center text-muted-foreground">טוען ציר זמן...</div>
   );
 
   if (allTasks.length === 0) return (
-    <div style={{ textAlign: 'center', padding: '80px', background: 'white', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-      <div style={{ fontSize: '64px' }}>⏱️</div>
-      <h3 style={{ color: '#1a2332', marginTop: '12px' }}>אין משימות עם תזמון</h3>
-      <p style={{ color: '#888' }}>הוסף שעות התחלה וסיום למשימות בשלב ההכנה</p>
+    <div className="rounded-xl bg-card p-20 text-center shadow-xs">
+      <div className="text-6xl">⏱️</div>
+      <h3 className="mt-3 text-foreground">אין משימות עם תזמון</h3>
+      <p className="text-subtle-foreground">הוסף שעות התחלה וסיום למשימות בשלב ההכנה</p>
     </div>
   );
 
   return (
-    <div style={{ direction: 'rtl', fontFamily: 'Arial' }}>
+    <div dir="rtl" className="font-sans">
 
       {/* ── Stats header ─────────────────────────────────────────────── */}
-      <div style={{
-        background: 'linear-gradient(135deg, #1a2332, #2d4a7a)',
-        borderRadius: '12px', padding: '16px 20px', marginBottom: '16px',
-        color: 'white', display: 'flex', justifyContent: 'space-between',
-        alignItems: 'center', flexWrap: 'wrap', gap: '12px',
-      }}>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-gradient-to-br from-neutral-900 to-primary-700 p-4 text-white">
         <div>
-          <div style={{ fontSize: '18px', fontWeight: 'bold' }}>⏱ ציר זמן — {version?.name || versionName}</div>
-          <div style={{ fontSize: '15px', opacity: 0.7, marginTop: '4px' }}>
+          <div className="text-lg font-bold">⏱ ציר זמן — {version?.name || versionName}</div>
+          <div className="mt-1 text-[15px] opacity-70">
             {fmt(new Date(minTs))} — {fmt(new Date(maxTs))}
-            <span style={{ margin: '0 10px', opacity: 0.4 }}>|</span>
-            עכשיו: <strong style={{ color: '#e74c3c' }}>{fmt(now)}</strong>
+            <span className="mx-2.5 opacity-40">|</span>
+            עכשיו: <strong className="text-danger">{fmt(now)}</strong>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="flex flex-wrap items-center gap-2.5">
           {[
-            { v: allTasks.length, l: 'מתוזמנות', c: '#3498db' },
-            { v: statDone,        l: 'הושלמו',   c: '#27ae60' },
-            { v: statLate,        l: 'מאחרות',   c: '#e74c3c' },
-            { v: statBlocked,     l: 'חסומות',   c: '#e67e22' },
+            { v: allTasks.length, l: 'מתוזמנות', c: 'text-primary-300' },
+            { v: statDone,        l: 'הושלמו',   c: 'text-success' },
+            { v: statLate,        l: 'מאחרות',   c: 'text-danger' },
+            { v: statBlocked,     l: 'חסומות',   c: 'text-warning' },
           ].map(s => (
-            <div key={s.l} style={{ background: 'rgba(255,255,255,0.12)', borderRadius: '8px', padding: '8px 14px', textAlign: 'center' }}>
-              <div style={{ fontSize: '20px', fontWeight: 'bold', color: s.c }}>{s.v}</div>
-              <div style={{ fontSize: '13px', opacity: 0.75 }}>{s.l}</div>
+            <div key={s.l} className="rounded-md bg-white/10 px-3.5 py-2 text-center">
+              <div className={`text-xl font-bold ${s.c}`}>{s.v}</div>
+              <div className="text-[13px] opacity-75">{s.l}</div>
             </div>
           ))}
-          <button onClick={load} style={{ padding: '8px 14px', background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)', color: 'white', borderRadius: '8px', cursor: 'pointer' }}>
+          <button onClick={load} className="rounded-md border border-white/30 bg-white/15 px-3.5 py-2 text-white transition-colors duration-fast ease-out hover:bg-white/25">
             ↻ רענן
           </button>
           <button
             onClick={() => { setCalcOpen(o => !o); setImpactRows([]); }}
-            style={{
-              padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold',
-              background: calcOpen ? '#f39c12' : 'rgba(243,156,18,0.25)',
-              border: '1px solid #f39c12', color: 'white',
-            }}
+            className={`rounded-md border border-warning px-3.5 py-2 font-bold text-white transition-colors duration-fast ease-out ${calcOpen ? 'bg-warning' : 'bg-warning/25 hover:bg-warning/40'}`}
           >
             ⏳ מחשבון עיכוב
           </button>
@@ -259,27 +252,21 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
 
       {/* ── Delay Calculator panel ───────────────────────────────────── */}
       {calcOpen && (
-        <div style={{
-          background: 'white', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-          padding: '20px', marginBottom: '16px', border: '2px solid #f39c12',
-        }}>
-          <div style={{ fontWeight: 'bold', fontSize: '17px', color: '#7d5500', marginBottom: '14px' }}>
+        <div className="mb-4 rounded-xl border-2 border-warning bg-card p-5 shadow-sm">
+          <div className="mb-3.5 text-[17px] font-bold text-warning">
             ⏳ מחשבון השפעת עיכוב — סימולציה
           </div>
 
           {/* Inputs */}
-          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '16px' }}>
-            <div style={{ flex: '1 1 280px' }}>
-              <label style={{ fontSize: '14px', color: '#666', display: 'block', marginBottom: '4px' }}>
+          <div className="mb-4 flex flex-wrap items-end gap-3">
+            <div className="flex-[1_1_280px]">
+              <label className="mb-1 block text-sm text-muted-foreground">
                 משימה מעוכבת
               </label>
               <select
                 value={calcTaskId}
                 onChange={e => { setCalcTaskId(e.target.value); setImpactRows([]); }}
-                style={{
-                  width: '100%', padding: '8px 10px', borderRadius: '8px',
-                  border: '1px solid #ddd', fontSize: '15px', background: '#f8f9fa',
-                }}
+                className="w-full rounded-md border border-input bg-muted px-2.5 py-2 text-[15px] text-foreground"
               >
                 <option value=''>— בחר משימה —</option>
                 {calcTasks.map(t => (
@@ -290,8 +277,8 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
               </select>
             </div>
 
-            <div style={{ flex: '0 0 160px' }}>
-              <label style={{ fontSize: '14px', color: '#666', display: 'block', marginBottom: '4px' }}>
+            <div className="flex-[0_0_160px]">
+              <label className="mb-1 block text-sm text-muted-foreground">
                 עיכוב (דקות)
               </label>
               <input
@@ -300,21 +287,14 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                 max={480}
                 value={calcDelay}
                 onChange={e => { setCalcDelay(Number(e.target.value)); setImpactRows([]); }}
-                style={{
-                  width: '100%', padding: '8px 10px', borderRadius: '8px',
-                  border: '1px solid #ddd', fontSize: '15px', boxSizing: 'border-box',
-                }}
+                className="box-border w-full rounded-md border border-input px-2.5 py-2 text-[15px] text-foreground"
               />
             </div>
 
             <button
               onClick={runCalc}
               disabled={!calcTaskId}
-              style={{
-                padding: '9px 20px', background: calcTaskId ? '#e67e22' : '#ccc',
-                color: 'white', border: 'none', borderRadius: '8px',
-                cursor: calcTaskId ? 'pointer' : 'default', fontWeight: 'bold', fontSize: '15px',
-              }}
+              className={`rounded-md px-5 py-2.5 text-[15px] font-bold text-white transition-colors duration-fast ease-out ${calcTaskId ? 'cursor-pointer bg-warning hover:brightness-95' : 'cursor-default bg-neutral-300'}`}
             >
               חשב השפעה
             </button>
@@ -333,75 +313,64 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
             return (
               <div>
                 {/* Summary bar */}
-                <div style={{
-                  display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '14px',
-                }}>
+                <div className="mb-3.5 flex flex-wrap gap-2.5">
                   {[
-                    { label: 'משימות מושפעות', value: impactRows.length, color: '#e67e22' },
-                    { label: 'קריטיות (ישירות)', value: critical.length,  color: '#e74c3c' },
-                    { label: 'החלקת סיום',       value: `${totalSlip > 0 ? '+' : ''}${fmtMin(totalSlip)}`, color: totalSlip > 0 ? '#e74c3c' : '#27ae60' },
-                    { label: 'צפי סיום חדש',     value: fmt(lastEnd),     color: '#1a2332' },
+                    { label: 'משימות מושפעות', value: impactRows.length, color: 'text-warning' },
+                    { label: 'קריטיות (ישירות)', value: critical.length,  color: 'text-danger' },
+                    { label: 'החלקת סיום',       value: `${totalSlip > 0 ? '+' : ''}${fmtMin(totalSlip)}`, color: totalSlip > 0 ? 'text-danger' : 'text-success' },
+                    { label: 'צפי סיום חדש',     value: fmt(lastEnd),     color: 'text-foreground' },
                   ].map(s => (
-                    <div key={s.label} style={{
-                      background: '#f8f9fa', border: '1px solid #e0e0e0',
-                      borderRadius: '8px', padding: '8px 14px', textAlign: 'center', minWidth: '110px',
-                    }}>
-                      <div style={{ fontSize: '18px', fontWeight: 'bold', color: s.color }}>{s.value}</div>
-                      <div style={{ fontSize: '13px', color: '#888', marginTop: '2px' }}>{s.label}</div>
+                    <div key={s.label} className="min-w-[110px] rounded-md border border-border bg-muted px-3.5 py-2 text-center">
+                      <div className={`text-lg font-bold ${s.color}`}>{s.value}</div>
+                      <div className="mt-0.5 text-[13px] text-subtle-foreground">{s.label}</div>
                     </div>
                   ))}
                 </div>
 
                 {/* Selected task info */}
                 {srcTask && (
-                  <div style={{
-                    background: '#fff8e1', border: '1px solid #f39c12', borderRadius: '8px',
-                    padding: '8px 14px', marginBottom: '10px', fontSize: '15px', color: '#7d5500',
-                  }}>
+                  <div className="mb-2.5 rounded-md border border-warning bg-warning-bg px-3.5 py-2 text-[15px] text-warning">
                     <strong>{srcTask.title}</strong> — מתוכנן לסיים ב-{fmt(new Date(srcTask.plannedEnd))},
                     יסיים ב-<strong>{fmt(new Date(new Date(srcTask.plannedEnd).getTime() + calcDelay * 60_000))}</strong> (עיכוב {calcDelay} ד')
                   </div>
                 )}
 
                 {/* Impact table */}
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-[15px]">
                     <thead>
-                      <tr style={{ background: '#f4f6f8', textAlign: 'right' }}>
+                      <tr className="bg-muted text-end">
                         {['משימה', 'שלב', 'תחילה מתוכנן', 'סיום מתוכנן', 'תחילה חדשה', 'סיום חדש', 'הזזה'].map(h => (
-                          <th key={h} style={{ padding: '10px 12px', borderBottom: '2px solid #ccc', fontWeight: 'bold', color: '#1a2332', whiteSpace: 'nowrap', fontSize: '15px' }}>{h}</th>
+                          <th key={h} className="whitespace-nowrap border-b-2 border-border px-3 py-2.5 text-[15px] font-bold text-foreground">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {impactRows.map((row, i) => (
-                        <tr key={row.task.id} style={{
-                          background: row.isCritical ? '#fff5f5' : (i % 2 === 0 ? 'white' : '#fafafa'),
-                          borderRight: row.isCritical ? '3px solid #e74c3c' : '3px solid transparent',
-                        }}>
-                          <td style={{ padding: '9px 12px', borderBottom: '1px solid #eee', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {row.isCritical && <span style={{ color: '#e74c3c', marginLeft: '4px', fontSize: '14px' }}>●</span>}
-                            <span style={{ fontWeight: '500', color: '#1a2332' }}>{row.task.title}</span>
+                        <tr key={row.task.id} className={`border-s-[3px] ${row.isCritical ? 'border-s-danger bg-danger-bg' : `border-s-transparent ${i % 2 === 0 ? 'bg-card' : 'bg-muted'}`}`}>
+                          <td className="max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-b border-border px-3 py-2.5">
+                            {row.isCritical && <span className="me-1 text-sm text-danger">●</span>}
+                            <span className="font-medium text-foreground">{row.task.title}</span>
                             {row.task.assignedTeamName && (
-                              <span style={{ color: '#555', fontSize: '14px', marginRight: '6px' }}> ({row.task.assignedTeamName})</span>
+                              <span className="ms-1.5 text-sm text-muted-foreground"> ({row.task.assignedTeamName})</span>
                             )}
                           </td>
-                          <td style={{ padding: '9px 12px', borderBottom: '1px solid #eee', color: '#333', whiteSpace: 'nowrap' }}>
+                          <td className="whitespace-nowrap border-b border-border px-3 py-2.5 text-muted-foreground">
                             {row.task.phaseName}
                           </td>
-                          <td style={{ padding: '9px 12px', borderBottom: '1px solid #eee', color: '#444', whiteSpace: 'nowrap' }}>
+                          <td className="whitespace-nowrap border-b border-border px-3 py-2.5 text-muted-foreground">
                             {fmt(new Date(row.task.plannedStart))}
                           </td>
-                          <td style={{ padding: '9px 12px', borderBottom: '1px solid #eee', color: '#444', whiteSpace: 'nowrap' }}>
+                          <td className="whitespace-nowrap border-b border-border px-3 py-2.5 text-muted-foreground">
                             {fmt(new Date(row.task.plannedEnd))}
                           </td>
-                          <td style={{ padding: '9px 12px', borderBottom: '1px solid #eee', fontWeight: 'bold', color: '#e67e22', whiteSpace: 'nowrap' }}>
+                          <td className="whitespace-nowrap border-b border-border px-3 py-2.5 font-bold text-warning">
                             {fmt(row.projectedStart)}
                           </td>
-                          <td style={{ padding: '9px 12px', borderBottom: '1px solid #eee', fontWeight: 'bold', color: '#e74c3c', whiteSpace: 'nowrap' }}>
+                          <td className="whitespace-nowrap border-b border-border px-3 py-2.5 font-bold text-danger">
                             {fmt(row.projectedEnd)}
                           </td>
-                          <td style={{ padding: '9px 12px', borderBottom: '1px solid #eee', color: '#e74c3c', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                          <td className="whitespace-nowrap border-b border-border px-3 py-2.5 font-bold text-danger">
                             +{fmtMin(row.shiftMin)}
                           </td>
                         </tr>
@@ -409,7 +378,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                     </tbody>
                   </table>
                 </div>
-                <div style={{ fontSize: '14px', color: '#555', marginTop: '8px' }}>
+                <div className="mt-2 text-sm text-muted-foreground">
                   ● = משימה קריטית (מתחילה עד 5 דקות אחרי סיום המשימה המעוכבת) | הסימולציה מניחה שמשך המשימות נשמר
                 </div>
               </div>
@@ -417,7 +386,7 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
           })()}
 
           {calcTaskId && impactRows.length === 0 && (
-            <div style={{ color: '#888', fontSize: '15px', fontStyle: 'italic' }}>
+            <div className="text-[15px] italic text-subtle-foreground">
               לחץ "חשב השפעה" לראות אילו משימות יושפעו
             </div>
           )}
@@ -425,30 +394,31 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
       )}
 
       {/* ── Gantt ────────────────────────────────────────────────────── */}
-      <div style={{ background: 'white', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', overflowX: 'auto' }}>
+      <div className="overflow-x-auto rounded-xl bg-card shadow-xs">
         <div style={{ minWidth: '800px' }}>
 
           {/* ── Time axis (sticky top) ─── */}
-          <div style={{ display: 'flex', height: 48, borderBottom: '2px solid #ddd', position: 'sticky', top: 0, zIndex: 20, background: 'white' }}>
+          <div className="sticky top-0 z-20 flex h-12 border-b-2 border-border bg-card">
             {labelCell(
-              <span style={{ fontSize: '15px', color: '#333', fontWeight: 'bold' }}>משימה / זמן</span>,
-              '#f8f9fa', 48
+              <span className="text-[15px] font-bold text-foreground">משימה / זמן</span>,
+              'var(--tw-color-muted, hsl(var(--muted)))', 48
             )}
-            <div style={{ flex: 1, position: 'relative' }}>
+            <div className="relative flex-1">
+              {/* Tick x-positions (`left: ${pct}%`) come from real dates — untouched. */}
               {ticks.map((tick, i) => {
                 const x = pct(tick.getTime());
                 return (
-                  <div key={i} style={{ position: 'absolute', left: `${x}%`, top: 0, height: '100%' }}>
-                    <div style={{ width: 1, height: '100%', background: '#e0e0e0' }} />
-                    <span style={{ position: 'absolute', bottom: 5, left: 4, fontSize: '13px', color: '#555', whiteSpace: 'nowrap' }}>
+                  <div key={i} className="absolute top-0 h-full" style={{ left: `${x}%` }}>
+                    <div className="h-full w-px bg-border" />
+                    <span className="absolute bottom-1 end-1 whitespace-nowrap text-[13px] text-muted-foreground">
                       {fmt(tick)}
                     </span>
                   </div>
                 );
               })}
               {nowVisible && (
-                <div style={{ position: 'absolute', left: `${nowPct}%`, top: 0, height: '100%', width: 2, background: '#e74c3c', zIndex: 6 }}>
-                  <span style={{ position: 'absolute', top: 4, left: 4, fontSize: '12px', color: '#e74c3c', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                <div className="absolute top-0 z-[6] h-full w-0.5 bg-danger" style={{ left: `${nowPct}%` }}>
+                  <span className="absolute top-1 end-1 whitespace-nowrap text-xs font-bold text-danger">
                     עכשיו
                   </span>
                 </div>
@@ -461,22 +431,22 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
             <React.Fragment key={phase.id}>
 
               {/* Phase row */}
-              <div style={{ display: 'flex', height: H_PHASE, cursor: 'pointer' }} onClick={() => toggle(phase.id)}>
+              <div className="flex cursor-pointer" style={{ height: H_PHASE }} onClick={() => toggle(phase.id)}>
                 {labelCell(
                   <>
-                    <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginLeft: '4px' }}>
+                    <span className="me-1 text-xs text-white/50">
                       {collapsed.has(phase.id) ? '►' : '▼'}
                     </span>
-                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#7ecfff', marginLeft: '6px', whiteSpace: 'nowrap' }}>
+                    <span className="me-1.5 whitespace-nowrap text-sm font-bold text-primary-300">
                       {phase.environment}
                     </span>
-                    <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.9)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span className="overflow-hidden text-ellipsis whitespace-nowrap text-sm text-white/90">
                       {phase.name}
                     </span>
                   </>,
-                  '#1a2332', H_PHASE
+                  'hsl(var(--foreground))', H_PHASE
                 )}
-                <div style={{ flex: 1, position: 'relative', background: 'rgba(26,35,50,0.06)', borderBottom: '1px solid #2d4a7a33' }}>
+                <div className="relative flex-1 border-b border-primary-700/20 bg-foreground/[0.06]">
                   {grid(H_PHASE)}
                 </div>
               </div>
@@ -488,23 +458,23 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                   <React.Fragment key={sp.id}>
 
                     {/* Sub-phase row */}
-                    <div style={{ display: 'flex', height: H_SUBPHASE, cursor: 'pointer' }} onClick={() => toggle(sp.id)}>
+                    <div className="flex cursor-pointer" style={{ height: H_SUBPHASE }} onClick={() => toggle(sp.id)}>
                       {labelCell(
                         <>
-                          <span style={{ fontSize: '12px', color: '#666', marginLeft: '4px' }}>
+                          <span className="me-1 text-xs text-muted-foreground">
                             {collapsed.has(sp.id) ? '►' : '▼'}
                           </span>
-                          <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#1a2332', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span className="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-bold text-foreground">
                             {sp.name}
                           </span>
-                          <span style={{ fontSize: '13px', color: '#666', marginRight: 'auto', marginLeft: '4px', whiteSpace: 'nowrap' }}>
+                          <span className="ms-auto me-1 whitespace-nowrap text-[13px] text-muted-foreground">
                             ({spTasks.length})
                           </span>
                         </>,
-                        '#f4f7fa', H_SUBPHASE, 18,
-                        { borderBottom: '1px solid #e0e8f0' }
+                        'hsl(var(--muted))', H_SUBPHASE, 18,
+                        { borderBottom: '1px solid hsl(var(--border))' }
                       )}
-                      <div style={{ flex: 1, position: 'relative', background: 'rgba(52,152,219,0.04)', borderBottom: '1px solid #e0e8f0' }}>
+                      <div className="relative flex-1 border-b border-border bg-primary-50">
                         {grid(H_SUBPHASE)}
                       </div>
                     </div>
@@ -524,48 +494,46 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                       const sc = statusColor(task.status);
 
                       return (
-                        <div key={task.id} style={{ display: 'flex', height: H_TASK }}>
+                        <div key={task.id} className="flex" style={{ height: H_TASK }}>
 
                           {/* Label */}
                           {labelCell(
                             <>
-                              <div style={{ flex: 1, overflow: 'hidden' }}>
-                                <div style={{ fontSize: '15px', fontWeight: '500', color: '#1a2332', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={task.title}>
+                              <div className="flex-1 overflow-hidden">
+                                <div className="overflow-hidden text-ellipsis whitespace-nowrap text-[15px] font-medium text-foreground" title={task.title}>
                                   {task.title}
                                 </div>
-                                <div style={{ fontSize: '13px', color: '#555', marginTop: '2px' }}>
+                                <div className="mt-0.5 text-[13px] text-muted-foreground">
                                   {task.assignedTeam?.name && `👥 ${task.assignedTeam.name}`}
                                   {task.assignedUserName && ` · ${task.assignedUserName}`}
                                 </div>
                               </div>
                               {d !== null && (
-                                <span style={{
-                                  fontSize: '12px', fontWeight: 'bold', padding: '1px 5px', borderRadius: '4px',
-                                  whiteSpace: 'nowrap', marginRight: '4px',
-                                  background: d > 0 ? '#fee' : '#f0fff4',
-                                  color:      d > 0 ? '#e74c3c' : '#27ae60',
-                                }}>
+                                <span className={`ms-1 whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-bold ${d > 0 ? 'bg-danger-bg text-danger' : 'bg-success-bg text-success'}`}>
                                   {d > 0 ? `+${fmtMin(d)}` : `-${fmtMin(d)}`}
                                 </span>
                               )}
                             </>,
-                            'white', H_TASK, 32,
-                            { borderBottom: '1px solid #f5f5f5' }
+                            'hsl(var(--card))', H_TASK, 32,
+                            { borderBottom: '1px solid hsl(var(--border))' }
                           )}
 
-                          {/* Chart cell */}
-                          <div style={{ flex: 1, position: 'relative', borderBottom: '1px solid #f5f5f5' }}>
+                          {/* Chart cell — bar positions (`left`/`width` from pct()) and
+                              `sc` (statusColor(), a runtime hex) are business-driven and
+                              stay as inline style; only static box shape became classes. */}
+                          <div className="relative flex-1 border-b border-border">
                             {grid(H_TASK)}
 
                             {/* Planned bar — outline */}
                             {pw > 0 && (
                               <div
                                 title={`מתוכנן: ${fmt(new Date(task.plannedStart))} — ${fmt(new Date(task.plannedEnd))}`}
+                                className="absolute z-[2] box-border rounded"
                                 style={{
-                                  position: 'absolute', left: `${ps}%`, width: `${pw}%`,
+                                  left: `${ps}%`, width: `${pw}%`,
                                   top: 13, height: 20,
-                                  border: `2px solid ${sc}`, borderRadius: 4,
-                                  background: `${sc}20`, boxSizing: 'border-box', zIndex: 2,
+                                  border: `2px solid ${sc}`,
+                                  background: `${sc}20`,
                                 }}
                               />
                             )}
@@ -574,25 +542,17 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
                             {aw !== null && aw > 0 && as_ !== null && (
                               <div
                                 title={`בפועל: ${fmt(new Date(task.startedAt))}${task.completedAt ? ` — ${fmt(new Date(task.completedAt))}` : ' (בביצוע)'}`}
-                                style={{
-                                  position: 'absolute', left: `${as_}%`, width: `${aw}%`,
-                                  top: 19, height: 8,
-                                  background: statusColor(task.status),
-                                  borderRadius: 3, zIndex: 3, opacity: 0.88,
-                                }}
+                                className="absolute z-[3] rounded-sm opacity-90"
+                                style={{ left: `${as_}%`, width: `${aw}%`, top: 19, height: 8, background: statusColor(task.status) }}
                               />
                             )}
 
                             {/* Overrun marker: red shading past planned end */}
                             {d !== null && d > 0 && task.completedAt && (
-                              <div style={{
-                                position: 'absolute', left: `${pe}%`,
-                                width: `${Math.max(0, pct(ts(task.completedAt)) - pe)}%`,
-                                top: 13, height: 20,
-                                background: 'rgba(231,76,60,0.15)',
-                                borderRight: '2px solid #e74c3c',
-                                zIndex: 1,
-                              }} />
+                              <div
+                                className="absolute z-[1] border-s-2 border-danger bg-danger/15"
+                                style={{ left: `${pe}%`, width: `${Math.max(0, pct(ts(task.completedAt)) - pe)}%`, top: 13, height: 20 }}
+                              />
                             )}
                           </div>
                         </div>
@@ -605,19 +565,19 @@ export const TimelineView: React.FC<Props> = ({ token, versionId, versionName })
           ))}
 
           {/* ── Legend ─── */}
-          <div style={{ display: 'flex', gap: '20px', padding: '12px 16px', borderTop: '2px solid #e0e0e0', background: '#fafafa', flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={{ fontSize: '14px', color: '#666', fontWeight: 'bold' }}>מקרא:</span>
+          <div className="flex flex-wrap items-center gap-5 border-t-2 border-border bg-muted px-4 py-3">
+            <span className="text-sm font-bold text-muted-foreground">מקרא:</span>
             {([
-              { label: 'מתוכנן',  el: <div style={{ width: 36, height: 14, border: '2px solid #3498db', borderRadius: 3, background: '#3498db18' }} /> },
-              { label: 'הושלם',   el: <div style={{ width: 36, height:  8, background: '#27ae60', borderRadius: 3 }} /> },
-              { label: 'בביצוע',  el: <div style={{ width: 36, height:  8, background: '#f39c12', borderRadius: 3 }} /> },
-              { label: 'חסום',    el: <div style={{ width: 36, height:  8, background: '#e74c3c', borderRadius: 3 }} /> },
-              { label: 'חריגה',   el: <div style={{ width: 20, height: 14, background: 'rgba(231,76,60,0.2)', borderRight: '2px solid #e74c3c', borderRadius: '0 3px 3px 0' }} /> },
-              { label: 'עכשיו',   el: <div style={{ width:  2, height: 20, background: '#e74c3c' }} /> },
+              { label: 'מתוכנן',  el: <div className="h-3.5 w-9 rounded border-2 border-primary bg-primary/10" /> },
+              { label: 'הושלם',   el: <div className="h-2 w-9 rounded bg-success" /> },
+              { label: 'בביצוע',  el: <div className="h-2 w-9 rounded bg-warning" /> },
+              { label: 'חסום',    el: <div className="h-2 w-9 rounded bg-danger" /> },
+              { label: 'חריגה',   el: <div className="h-3.5 w-5 rounded-s border-s-2 border-danger bg-danger/20" /> },
+              { label: 'עכשיו',   el: <div className="h-5 w-0.5 bg-danger" /> },
             ] as const).map(({ label, el }) => (
-              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div key={label} className="flex items-center gap-1.5">
                 {el}
-                <span style={{ fontSize: '14px', color: '#555' }}>{label}</span>
+                <span className="text-sm text-muted-foreground">{label}</span>
               </div>
             ))}
           </div>

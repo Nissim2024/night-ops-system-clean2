@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, versionStatusColor, versionStatusBg, versionStatusLabel } from '../theme';
+import { C, versionStatusColor, versionStatusBg, versionStatusLabel } from '../theme';
+import { cn } from '../lib/utils';
 import { DeployCenterLogo } from './DeployCenterLogo';
 import { useDialog } from '../context/DialogContext';
 import { formatDateTime } from '../utils/dateFormat';
@@ -180,25 +181,25 @@ export const CrManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const totalPending = data.reduce((s, v) => s + v.pendingApprovalCount, 0);
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: C.bgApp, fontFamily: FONT, direction: 'rtl', color: C.textPrimary, overflow: 'hidden' }}>
+    <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
 
       {/* ─── Header ─── */}
-      <div style={{ background: C.headerBg, padding: `0 ${SP[6]}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '58px', borderBottom: `1px solid ${C.border}`, flexShrink: 0, boxShadow: SHADOW.xs }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
+      <div className="bg-card px-6 flex items-center justify-between h-[58px] border-b border-border shrink-0 shadow-xs">
+        <div className="flex items-center gap-3">
           <DeployCenterLogo variant="nav" />
-          <div style={{ width: '1px', height: '20px', background: C.border }} />
-          <span style={{ ...TEXT.base, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>לוח מנהל CR</span>
+          <div className="w-px h-5 bg-border" />
+          <span className="text-base font-semibold text-foreground">לוח מנהל CR</span>
           {totalPending > 0 && (
-            <span style={{ background: C.danger, color: C.textInverse, ...TEXT.xs, fontWeight: WEIGHT.bold, borderRadius: RADIUS.full, padding: '2px 8px' }}>
+            <span className="bg-danger text-white text-xs font-bold rounded-full py-0.5 px-2">
               {totalPending} ממתינים לאישור
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
-          <span style={{ ...TEXT.sm, color: C.textMuted }}>{userInfo.name}</span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-subtle-foreground">{userInfo.name}</span>
           <button
             onClick={onLogout}
-            style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '6px 14px', cursor: 'pointer', ...TEXT.sm, color: C.textSecondary, transition: EASE.fast }}
+            className="bg-transparent border border-border rounded-md py-1.5 px-3.5 cursor-pointer text-sm text-muted-foreground transition-colors duration-fast ease-out"
             onMouseEnter={e => (e.currentTarget.style.background = C.bgHover)}
             onMouseLeave={e => (e.currentTarget.style.background = 'none')}
           >
@@ -209,31 +210,31 @@ export const CrManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
 
       {/* ─── Toast ─── */}
       {successMsg && (
-        <div style={{ position: 'fixed', top: '70px', left: '50%', transform: 'translateX(-50%)', zIndex: 9999, background: C.success, color: C.textInverse, padding: '10px 20px', borderRadius: RADIUS.lg, ...TEXT.sm, fontWeight: WEIGHT.semibold, boxShadow: SHADOW.md, transition: EASE.standard }}>
+        <div className="fixed top-[70px] left-1/2 -translate-x-1/2 z-[9999] bg-success text-white py-2.5 px-5 rounded-lg text-sm font-semibold shadow-md transition-all duration-base ease-out">
           ✓ {successMsg}
         </div>
       )}
 
       {/* ─── Body ─── */}
-      <div style={{ flex: 1, overflow: 'auto', padding: SP[6] }}>
-        <div style={{ maxWidth: '900px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+      <div className="flex-1 overflow-auto p-6">
+        <div className="max-w-[900px] mx-auto flex flex-col gap-4">
 
           {loading && (
-            <div style={{ textAlign: 'center', padding: SP[10], color: C.textMuted, ...TEXT.base }}>טוען...</div>
+            <div className="text-center p-10 text-subtle-foreground text-base">טוען...</div>
           )}
 
           {error && (
-            <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}44`, borderRadius: RADIUS.lg, padding: SP[4], color: C.danger, ...TEXT.sm }}>
+            <div className="bg-danger-bg border border-danger/[26.7%] rounded-lg p-4 text-danger text-sm">
               {error}
-              <button onClick={load} style={{ marginRight: SP[3], background: 'none', border: 'none', cursor: 'pointer', color: C.info, textDecoration: 'underline', ...TEXT.sm }}>נסה שוב</button>
+              <button onClick={load} className="ms-3 bg-transparent border-none cursor-pointer text-info underline text-sm">נסה שוב</button>
             </div>
           )}
 
           {!loading && !error && data.length === 0 && (
-            <div style={{ textAlign: 'center', padding: SP[10], color: C.textMuted }}>
-              <div style={{ fontSize: '48px', marginBottom: SP[3] }}>✓</div>
-              <div style={{ ...TEXT.lg, fontWeight: WEIGHT.semibold }}>אין גרסאות פעילות הדורשות אישור</div>
-              <div style={{ ...TEXT.sm, color: C.textMuted, marginTop: SP[2] }}>גרסאות יופיעו כאן כאשר הן בשלב איסוף / טיוב / סקירה</div>
+            <div className="text-center p-10 text-subtle-foreground">
+              <div className="text-5xl mb-3">✓</div>
+              <div className="text-lg font-semibold text-subtle-foreground">אין גרסאות פעילות הדורשות אישור</div>
+              <div className="text-sm text-subtle-foreground mt-2">גרסאות יופיעו כאן כאשר הן בשלב איסוף / טיוב / סקירה</div>
             </div>
           )}
 
@@ -254,39 +255,43 @@ export const CrManagerDashboard: React.FC<Props> = ({ token, onLogout }) => {
       {/* ─── Return Plan Modal ─── */}
       {returnModal && (
         <div
-          style={{ position: 'fixed', inset: 0, zIndex: 3000, background: C.bgOverlay, display: 'flex', alignItems: 'center', justifyContent: 'center', direction: 'rtl' }}
+          className="fixed inset-0 z-[3000] flex items-center justify-center"
+          style={{ background: C.bgOverlay }}
           onClick={e => { if (e.target === e.currentTarget) { setReturnModal(null); setReturnNote(''); } }}
         >
-          <div style={{ background: C.bgCard, borderRadius: RADIUS['3xl'], width: '460px', maxWidth: '94vw', boxShadow: '0 24px 64px rgba(0,0,0,0.45)', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold }}>החזרת תוכנית לתיקון</span>
-              <button onClick={() => { setReturnModal(null); setReturnNote(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '18px' }}>✕</button>
+          <div className="bg-card rounded-3xl w-[460px] max-w-[94vw] overflow-hidden" style={{ boxShadow: '0 24px 64px rgba(0,0,0,0.45)' }}>
+            <div className="py-4 px-5 border-b border-border flex items-center justify-between">
+              <span className="text-lg font-bold">החזרת תוכנית לתיקון</span>
+              <button onClick={() => { setReturnModal(null); setReturnNote(''); }} className="bg-transparent border-none cursor-pointer text-subtle-foreground text-lg">✕</button>
             </div>
-            <div style={{ padding: '20px' }}>
-              <div style={{ ...TEXT.sm, color: C.textSecondary, marginBottom: SP[3] }}>
+            <div className="p-5">
+              <div className="text-sm text-muted-foreground mb-3">
                 <strong>CR:</strong> {returnModal.crNumber} &nbsp;|&nbsp; <strong>צוות:</strong> {returnModal.teamName}
               </div>
-              <label style={{ display: 'block', ...TEXT.sm, fontWeight: WEIGHT.semibold, marginBottom: SP[2], color: C.textPrimary }}>הערה לראש הצוות</label>
+              <label className="block text-sm font-semibold mb-2 text-foreground">הערה לראש הצוות</label>
               <textarea
                 value={returnNote}
                 onChange={e => setReturnNote(e.target.value)}
                 placeholder="פרט מה צריך לתקן בתוכנית..."
                 rows={4}
-                style={{ width: '100%', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, padding: '8px 12px', fontFamily: FONT, ...TEXT.sm, resize: 'vertical', outline: 'none', boxSizing: 'border-box', transition: EASE.fast }}
+                className="w-full rounded-md border border-border py-2 px-3 text-sm resize-y outline-none transition-colors duration-fast ease-out"
                 onFocus={e => (e.currentTarget.style.borderColor = C.borderFocus)}
                 onBlur={e => (e.currentTarget.style.borderColor = C.border)}
               />
-              <div style={{ display: 'flex', justifyContent: 'flex-start', gap: SP[2], marginTop: SP[4] }}>
+              <div className="flex justify-start gap-2 mt-4">
                 <button
                   onClick={submitReturn}
                   disabled={!returnNote.trim() || returnLoading}
-                  style={{ background: C.danger, color: C.textInverse, border: 'none', borderRadius: RADIUS.md, padding: '8px 20px', cursor: 'pointer', ...TEXT.sm, fontWeight: WEIGHT.semibold, opacity: !returnNote.trim() || returnLoading ? 0.5 : 1, transition: EASE.fast }}
+                  className={cn(
+                    'bg-danger text-white border-none rounded-md py-2 px-5 cursor-pointer text-sm font-semibold transition-opacity duration-fast ease-out',
+                    (!returnNote.trim() || returnLoading) ? 'opacity-50' : 'opacity-100'
+                  )}
                 >
                   {returnLoading ? 'שולח...' : 'החזר לתיקון'}
                 </button>
                 <button
                   onClick={() => { setReturnModal(null); setReturnNote(''); }}
-                  style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '8px 20px', cursor: 'pointer', ...TEXT.sm, color: C.textSecondary, transition: EASE.fast }}
+                  className="bg-muted border border-border rounded-md py-2 px-5 cursor-pointer text-sm text-muted-foreground transition-colors duration-fast ease-out"
                 >
                   ביטול
                 </button>
@@ -318,36 +323,36 @@ const VersionCard: React.FC<VersionCardProps> = ({ version, expanded, onToggle, 
   const formatDate = (d: string | null) => d ? formatDateTime(d) : '';
 
   return (
-    <div style={{ background: C.bgCard, borderRadius: RADIUS['2xl'], border: `1px solid ${C.border}`, boxShadow: SHADOW.sm, overflow: 'hidden' }}>
+    <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
       {/* Card header */}
       <div
         onClick={onToggle}
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${SP[4]} ${SP[5]}`, cursor: 'pointer', transition: EASE.fast, background: C.bgCard }}
+        className="flex items-center justify-between py-4 px-5 cursor-pointer transition-colors duration-fast ease-out bg-card"
         onMouseEnter={e => (e.currentTarget.style.background = C.bgHover)}
         onMouseLeave={e => (e.currentTarget.style.background = C.bgCard)}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
-          <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{version.name}</span>
-          <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: statusColor, background: statusBg, padding: '2px 10px', borderRadius: RADIUS.full }}>{statusText}</span>
+        <div className="flex items-center gap-3">
+          <span className="text-lg font-bold text-foreground">{version.name}</span>
+          <span className="text-xs font-semibold py-0.5 px-2.5 rounded-full" style={{ color: statusColor, background: statusBg }}>{statusText}</span>
           {version.pendingApprovalCount > 0 && (
-            <span style={{ background: C.dangerBg, color: C.danger, ...TEXT.xs, fontWeight: WEIGHT.bold, padding: '2px 10px', borderRadius: RADIUS.full, border: `1px solid ${C.danger}33` }}>
+            <span className="bg-danger-bg text-danger text-xs font-bold py-0.5 px-2.5 rounded-full border border-danger/20">
               {version.pendingApprovalCount} ממתינים לאישור
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
+        <div className="flex items-center gap-3">
           {version.plannedStart && (
-            <span style={{ ...TEXT.xs, color: C.textMuted }}>{formatDate(version.plannedStart)}</span>
+            <span className="text-xs text-subtle-foreground">{formatDate(version.plannedStart)}</span>
           )}
-          <span style={{ ...TEXT.sm, color: C.textMuted, transition: EASE.fast, transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', display: 'inline-block' }}>▶</span>
+          <span className={cn('text-sm text-subtle-foreground inline-block transition-transform duration-fast ease-out', expanded ? 'rotate-90' : 'rotate-0')}>▶</span>
         </div>
       </div>
 
       {/* CRs list */}
       {expanded && (
-        <div style={{ borderTop: `1px solid ${C.border}` }}>
+        <div className="border-t border-border">
           {version.crs.length === 0 ? (
-            <div style={{ padding: `${SP[4]} ${SP[5]}`, ...TEXT.sm, color: C.textMuted, textAlign: 'center' }}>אין CRים לגרסה זו</div>
+            <div className="py-4 px-5 text-sm text-subtle-foreground text-center">אין CRים לגרסה זו</div>
           ) : (
             version.crs.map(cr => (
               <CrRow
@@ -400,19 +405,19 @@ const CrRow: React.FC<CrRowProps> = ({ cr, approving, onApproveCr, onReturnPlan 
     if (!items.length) return null;
     const multi = items.length > 1;
     return (
-      <div style={{ marginBottom: '16px' }}>
-        <div style={{ fontSize: '14px', color: accent, fontWeight: 800, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+      <div className="mb-4">
+        <div className="text-sm font-extrabold mb-2 flex items-center gap-[5px]" style={{ color: accent }}>
           <span>{icon}</span><span>{label}</span>
         </div>
         {items.map((item, i) => (
-          <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', marginBottom: i < items.length - 1 ? '8px' : 0 }}>
-            <span style={{ color: accent, flexShrink: 0, marginTop: '2px' }}>•</span>
+          <div key={i} className={cn('flex gap-2 items-start', i < items.length - 1 ? 'mb-2' : 'mb-0')}>
+            <span className="shrink-0 mt-0.5" style={{ color: accent }}>•</span>
             {multi && (
-              <span style={{ fontSize: '13px', fontWeight: 700, background: 'rgba(163,113,247,0.18)', color: '#a371f7', padding: '2px 8px', borderRadius: RADIUS.sm, border: '1px solid rgba(163,113,247,0.3)', flexShrink: 0, whiteSpace: 'nowrap' }}>
+              <span className="text-[13px] font-bold rounded-sm border shrink-0 whitespace-nowrap py-0.5 px-2 bg-[rgba(163,113,247,0.18)] text-[#a371f7] border-[rgba(163,113,247,0.3)]">
                 {item.team}
               </span>
             )}
-            <span style={{ ...TEXT.sm, color: C.textSecondary, lineHeight: 1.6, whiteSpace: 'pre-wrap', flex: 1 }}>{item.text}</span>
+            <span className="text-sm text-muted-foreground leading-[1.6] whitespace-pre-wrap flex-1">{item.text}</span>
           </div>
         ))}
       </div>
@@ -420,64 +425,67 @@ const CrRow: React.FC<CrRowProps> = ({ cr, approving, onApproveCr, onReturnPlan 
   };
 
   return (
-    <div style={{ borderBottom: `1px solid ${C.border}` }}>
+    <div className="border-b border-border">
       {/* ── Header row (click to expand) ── */}
       <div
-        style={{ padding: `${SP[4]} ${SP[5]}`, background: C.bgCard, transition: EASE.fast, cursor: 'pointer' }}
+        className="py-4 px-5 transition-colors duration-fast ease-out cursor-pointer bg-card"
         onClick={() => setIsOpen(p => !p)}
         onMouseEnter={e => (e.currentTarget.style.background = C.bgHover)}
         onMouseLeave={e => (e.currentTarget.style.background = C.bgCard)}
       >
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: SP[4], marginBottom: SP[3] }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap' }}>
-              <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, fontFamily: "'Courier New', monospace" }}>{cr.crNumber}</span>
-              {cr.crLabel && <span style={{ ...TEXT.sm, color: C.textSecondary }}>{cr.crLabel}</span>}
-              {cr.crManager && <span style={{ ...TEXT.xs, color: C.textMuted, background: C.bgNested, padding: '2px 8px', borderRadius: RADIUS.sm }}>מנהל CR: {cr.crManager}</span>}
+        <div className="flex items-start justify-between gap-4 mb-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-bold text-foreground font-mono">{cr.crNumber}</span>
+              {cr.crLabel && <span className="text-sm text-muted-foreground">{cr.crLabel}</span>}
+              {cr.crManager && <span className="text-xs text-subtle-foreground bg-muted py-0.5 px-2 rounded-sm">מנהל CR: {cr.crManager}</span>}
               {highRisk && RISK_META[highRisk] && (
-                <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, padding: '2px 8px', borderRadius: RADIUS.sm, background: RISK_META[highRisk].bg, color: RISK_META[highRisk].color }}>
+                <span className="text-xs font-semibold py-0.5 px-2 rounded-sm" style={{ background: RISK_META[highRisk].bg, color: RISK_META[highRisk].color }}>
                   {RISK_META[highRisk].label}
                 </span>
               )}
               {proposals.length > 0 && (
-                <span style={{ ...TEXT.xs, color: C.textMuted, background: C.bgNested, padding: '2px 8px', borderRadius: RADIUS.sm }}>
+                <span className="text-xs text-subtle-foreground bg-muted py-0.5 px-2 rounded-sm">
                   💡 {proposals.length} משימות
                 </span>
               )}
             </div>
             {cr.crDescription && (
-              <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '500px' }}>{cleanHtmlText(cr.crDescription)}</div>
+              <div className="text-xs text-subtle-foreground mt-1 overflow-hidden text-ellipsis whitespace-nowrap max-w-[500px]">{cleanHtmlText(cr.crDescription)}</div>
             )}
           </div>
 
           {/* Approval status + actions */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexShrink: 0 }}>
+          <div className="flex items-center gap-2 shrink-0">
             {cr.crManagerApproved ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: SP[1], background: C.successBg, border: `1px solid ${C.success}33`, borderRadius: RADIUS.md, padding: '5px 12px' }}>
-                <span style={{ color: C.success, fontSize: '15px' }}>✓</span>
-                <span style={{ ...TEXT.xs, color: C.success, fontWeight: WEIGHT.semibold }}>אושר ע"י {cr.crManagerApprovedBy ?? 'מנהל CR'}</span>
+              <div className="flex items-center gap-1 bg-success-bg border border-success/20 rounded-md py-[5px] px-3">
+                <span className="text-success text-[15px]">✓</span>
+                <span className="text-xs text-success font-semibold">אושר ע"י {cr.crManagerApprovedBy ?? 'מנהל CR'}</span>
               </div>
             ) : !cr.allTeamsSubmitted ? (
-              <div style={{ background: C.warningBg, border: `1px solid ${C.warning}33`, borderRadius: RADIUS.md, padding: '5px 12px' }}>
-                <span style={{ ...TEXT.xs, color: C.warning, fontWeight: WEIGHT.semibold }}>ממתין להגשת כל הצוותים</span>
+              <div className="bg-warning-bg border border-warning/20 rounded-md py-[5px] px-3">
+                <span className="text-xs text-warning font-semibold">ממתין להגשת כל הצוותים</span>
               </div>
             ) : (
               <button
                 onClick={e => { e.stopPropagation(); onApproveCr(); }}
                 disabled={approving}
-                style={{ background: C.success, color: C.textInverse, border: 'none', borderRadius: RADIUS.md, padding: '6px 16px', cursor: 'pointer', ...TEXT.sm, fontWeight: WEIGHT.semibold, opacity: approving ? 0.6 : 1, transition: EASE.fast }}
+                className={cn(
+                  'bg-success text-white border-none rounded-md py-1.5 px-4 cursor-pointer text-sm font-semibold transition-opacity duration-fast ease-out',
+                  approving ? 'opacity-60' : 'opacity-100'
+                )}
                 onMouseEnter={e => !approving && (e.currentTarget.style.filter = 'brightness(1.1)')}
                 onMouseLeave={e => (e.currentTarget.style.filter = 'none')}
               >
                 {approving ? '...' : 'אשר CR'}
               </button>
             )}
-            <span style={{ ...TEXT.sm, color: C.textMuted, transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)', display: 'inline-block', transition: EASE.standard }}>▶</span>
+            <span className={cn('text-sm text-subtle-foreground inline-block transition-transform duration-base ease-out', isOpen ? 'rotate-90' : 'rotate-0')}>▶</span>
           </div>
         </div>
 
         {/* Team chips */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[2] }}>
+        <div className="flex flex-wrap gap-2">
           {cr.teams.map(t => (
             <TeamChip
               key={t.planId}
@@ -491,23 +499,23 @@ const CrRow: React.FC<CrRowProps> = ({ cr, approving, onApproveCr, onReturnPlan 
 
       {/* ── Expanded plan content ── */}
       {isOpen && (
-        <div style={{ background: C.bgApp, borderTop: `1px solid ${C.border}` }}>
+        <div className="bg-background border-t border-border">
 
           {/* CR description block */}
           {cr.crDescription && (
-            <div style={{ padding: '8px 20px', borderBottom: `1px solid ${C.border}`, background: 'rgba(163,113,247,0.06)', ...TEXT.xs, color: '#c9b8f7', display: 'flex', gap: '6px' }}>
-              <span style={{ color: '#a371f7', fontWeight: WEIGHT.bold, flexShrink: 0 }}>פרטי CR:</span>
-              <span style={{ lineHeight: 1.5 }}>{cleanHtmlText(cr.crDescription)}</span>
+            <div className="py-2 px-5 border-b border-border text-xs flex gap-1.5 bg-[rgba(163,113,247,0.06)] text-[#c9b8f7]">
+              <span className="text-[#a371f7] font-bold shrink-0">פרטי CR:</span>
+              <span className="leading-normal">{cleanHtmlText(cr.crDescription)}</span>
             </div>
           )}
 
           {/* Return reasons */}
           {returnedTeams.length > 0 && (
-            <div style={{ padding: '10px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+            <div className="py-2.5 px-5 border-b border-border flex flex-col gap-2">
               {returnedTeams.map(t => (
-                <div key={t.planId} style={{ background: C.dangerBg, border: `1px solid ${C.danger}33`, borderRadius: RADIUS.md, padding: '8px 12px', ...TEXT.xs }}>
-                  <span style={{ color: C.danger, fontWeight: WEIGHT.bold }}>↩ הוחזר — {t.teamName}:</span>
-                  <span style={{ color: C.textSecondary, marginRight: '6px' }}>{t.returnReason}</span>
+                <div key={t.planId} className="bg-danger-bg border border-danger/20 rounded-md py-2 px-3 text-xs">
+                  <span className="text-danger font-bold">↩ הוחזר — {t.teamName}:</span>
+                  <span className="text-muted-foreground ms-1.5">{t.returnReason}</span>
                 </div>
               ))}
             </div>
@@ -515,7 +523,7 @@ const CrRow: React.FC<CrRowProps> = ({ cr, approving, onApproveCr, onReturnPlan 
 
           {/* Plan content fields */}
           {hasContent && (
-            <div style={{ padding: '16px 20px', display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '24px', borderBottom: `1px solid ${C.border}` }}>
+            <div className="py-4 px-5 grid grid-cols-[3fr_2fr] gap-6 border-b border-border">
               <div>
                 {aggField('📋', 'תוכנית עבודה',            workItems,    '#d4a843')}
                 {aggField('📜', 'סקריפטים',                scriptsItems,  '#8b949e')}
@@ -530,7 +538,7 @@ const CrRow: React.FC<CrRowProps> = ({ cr, approving, onApproveCr, onReturnPlan 
           )}
 
           {!hasContent && activeTeams.some(t => t.submissionStatus === 'SUBMITTED' || t.submissionStatus === 'APPROVED') && (
-            <div style={{ padding: '14px 20px', ...TEXT.xs, color: C.textMuted, fontStyle: 'italic', textAlign: 'center', borderBottom: `1px solid ${C.border}` }}>
+            <div className="py-3.5 px-5 text-xs text-subtle-foreground italic text-center border-b border-border">
               ראשי הצוותים הגישו אך לא מילאו שדות תוכנית
             </div>
           )}
@@ -538,7 +546,7 @@ const CrRow: React.FC<CrRowProps> = ({ cr, approving, onApproveCr, onReturnPlan 
           {/* Task proposals */}
           {proposals.length > 0 ? (
             <div>
-              <div style={{ padding: '7px 20px', ...TEXT.xs, color: '#d4a843', fontWeight: WEIGHT.bold, textTransform: 'uppercase' as const, letterSpacing: '0.5px', background: 'rgba(212,168,67,0.05)' }}>
+              <div className="py-[7px] px-5 text-xs font-bold uppercase tracking-[0.5px] text-[#d4a843] bg-[rgba(212,168,67,0.05)]">
                 💡 משימות לביצוע ({proposals.length})
               </div>
               {proposals.map((prop, i) => {
@@ -547,26 +555,26 @@ const CrRow: React.FC<CrRowProps> = ({ cr, approving, onApproveCr, onReturnPlan 
                 const teamEntry = cr.teams.find(t => t.teamId === prop.teamId);
                 const teamName = teamEntry?.teamName ?? prop.teamId;
                 return (
-                  <div key={prop.id} style={{ padding: '10px 20px', borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? C.bgApp : C.bgNested, display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                    <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', alignItems: 'center', rowGap: '4px', columnGap: '6px' }}>
-                      <span style={{ color: '#d4a843' }}>•</span>
-                      <span style={{ ...TEXT.sm, color: C.textSecondary }}>בפעילות</span>
-                      <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, padding: '2px 8px', borderRadius: RADIUS.sm, background: ph.bg, color: ph.color }}>{phaseName}</span>
-                      <span style={{ ...TEXT.sm, color: C.textSecondary }}>, צוות</span>
-                      <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, background: 'rgba(163,113,247,0.18)', color: '#b48ef5', padding: '2px 8px', borderRadius: RADIUS.sm, border: '1px solid rgba(163,113,247,0.35)' }}>{teamName}</span>
-                      {prop.assignedUserName && <span style={{ ...TEXT.sm, color: C.textSecondary }}>ע"י {prop.assignedUserName}</span>}
-                      <span style={{ ...TEXT.sm, color: C.textSecondary }}>מבצע</span>
-                      <span style={{ ...TEXT.base, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{prop.title}</span>
+                  <div key={prop.id} className={cn('py-2.5 px-5 border-t border-border flex items-start gap-2.5', i % 2 === 0 ? 'bg-background' : 'bg-muted')}>
+                    <div className="flex-1 flex flex-wrap items-center gap-y-1 gap-x-1.5">
+                      <span className="text-[#d4a843]">•</span>
+                      <span className="text-sm text-muted-foreground">בפעילות</span>
+                      <span className="text-xs font-bold py-0.5 px-2 rounded-sm" style={{ background: ph.bg, color: ph.color }}>{phaseName}</span>
+                      <span className="text-sm text-muted-foreground">, צוות</span>
+                      <span className="text-xs font-bold rounded-sm py-0.5 px-2 border bg-[rgba(163,113,247,0.18)] text-[#b48ef5] border-[rgba(163,113,247,0.35)]">{teamName}</span>
+                      {prop.assignedUserName && <span className="text-sm text-muted-foreground">ע"י {prop.assignedUserName}</span>}
+                      <span className="text-sm text-muted-foreground">מבצע</span>
+                      <span className="text-base font-bold text-foreground">{prop.title}</span>
                       {prop.estimatedMins && (
-                        <span style={{ ...TEXT.xs, color: C.textSecondary }}>· {prop.estimatedMins} דק'</span>
+                        <span className="text-xs text-muted-foreground">· {prop.estimatedMins} דק'</span>
                       )}
                       {prop.notes && (
-                        <div style={{ width: '100%', marginTop: '2px', paddingRight: '18px', ...TEXT.xs, color: C.textSecondary, display: 'flex', gap: '4px' }}>
+                        <div className="w-full mt-0.5 ps-[18px] text-xs text-muted-foreground flex gap-1">
                           <span>💬</span><span>{cleanHtmlText(prop.notes)}</span>
                         </div>
                       )}
                     </div>
-                    <span style={{ flexShrink: 0, ...TEXT.xs, padding: '2px 8px', borderRadius: RADIUS.sm, fontWeight: WEIGHT.semibold, background: prop.status === 'READY' ? 'rgba(63,185,80,0.18)' : 'rgba(210,153,34,0.18)', color: prop.status === 'READY' ? '#3fb950' : '#d29922' }}>
+                    <span className={cn('shrink-0 text-xs py-0.5 px-2 rounded-sm font-semibold', prop.status === 'READY' ? 'bg-[rgba(63,185,80,0.18)] text-[#3fb950]' : 'bg-[rgba(210,153,34,0.18)] text-[#d29922]')}>
                       {prop.status === 'READY' ? 'מוכן' : 'טיוטא'}
                     </span>
                   </div>
@@ -574,7 +582,7 @@ const CrRow: React.FC<CrRowProps> = ({ cr, approving, onApproveCr, onReturnPlan 
               })}
             </div>
           ) : activeTeams.length > 0 && (
-            <div style={{ padding: '12px 20px', ...TEXT.xs, color: C.textMuted, fontStyle: 'italic', textAlign: 'center' }}>
+            <div className="py-3 px-5 text-xs text-subtle-foreground italic text-center">
               לא הוגשו משימות לפיתוח זה
             </div>
           )}
@@ -601,18 +609,19 @@ const TeamChip: React.FC<TeamChipProps> = ({ team, crApproved, onReturn }) => {
 
   return (
     <div
-      style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: bg, border: `1px solid ${color}33`, borderRadius: RADIUS.full, padding: '4px 10px 4px 4px', transition: EASE.fast, position: 'relative' }}
+      className="inline-flex items-center gap-1.5 rounded-full py-1 ps-2.5 pe-1 relative transition-colors duration-fast ease-out"
+      style={{ background: bg, border: `1px solid ${color}33` }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
-      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: color, flexShrink: 0 }} />
-      <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>{team.teamName}</span>
-      <span style={{ ...TEXT.xs, color }}>{label}</span>
+      <span className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: color }} />
+      <span className="text-xs font-semibold text-foreground">{team.teamName}</span>
+      <span className="text-xs" style={{ color }}>{label}</span>
       {canReturn && hover && (
         <button
           onClick={onReturn}
           title="החזר לתיקון"
-          style={{ background: C.dangerBg, border: `1px solid ${C.danger}33`, borderRadius: RADIUS.sm, padding: '1px 6px', cursor: 'pointer', ...TEXT.xs, color: C.danger, marginRight: '2px', transition: EASE.fast }}
+          className="bg-danger-bg border border-danger/20 rounded-sm py-px px-1.5 cursor-pointer text-xs text-danger ms-0.5 transition-colors duration-fast ease-out"
         >
           ↩
         </button>

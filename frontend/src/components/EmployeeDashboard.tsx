@@ -14,7 +14,6 @@ import { QaTestersView } from './qa/QaTestersView';
 import { MyQaTasksView, MyQaTask, TargetDefectGroup } from './qa/MyQaTasksView';
 import { FocusModeModal } from './FocusModeModal';
 import { RUNBOOKS } from './qa/RunbookModal';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
 
 // Same order used by VersionProgressChain — picks the most-advanced planning
 // version when several exist, instead of whichever happens to come first in the API response.
@@ -58,6 +57,11 @@ const NAV_ITEMS: { key: NavView; label: string; icon: string }[] = [
   { key: 'leaves',  label: 'חופשות',            icon: '📅' },
   { key: 'skills',  label: 'מטריצת מיומנויות',  icon: '🎯' },
 ];
+
+// Fixed 4-value toast-type palette — approximated onto the semantic tokens.
+const TOAST_CLASS: Record<ToastItem['type'], string> = {
+  info: 'bg-info', go: 'bg-success', blocked: 'bg-danger', warn: 'bg-warning',
+};
 
 export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [myTeam, setMyTeam]               = useState<any>(null);
@@ -312,7 +316,7 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const myFocusTasks = focusAllTasks.filter(isMyFocusTask);
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', fontFamily: FONT, direction: 'rtl', background: C.bgApp, color: C.textPrimary, overflow: 'hidden' }}>
+    <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
 
       {/* ── Focus Mode overlay ── */}
       {focusMode && !focusLoading && (
@@ -327,26 +331,15 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
       )}
 
       {/* ─── Header ─── */}
-      <div style={{
-        background: C.headerBg,
-        padding: `0 ${SP[6]}`,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        height: '58px', flexShrink: 0,
-        borderBottom: `1px solid ${C.border}`,
-        boxShadow: SHADOW.xs, zIndex: 100,
-      }}>
+      <div className="bg-card px-6 flex items-center justify-between h-[58px] shrink-0 border-b border-border shadow-xs z-[100]">
         <DeployCenterLogo variant="nav" />
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
+        <div className="flex items-center gap-3">
           {/* Online */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: SP[1],
-            background: C.successBg, border: `1px solid ${C.success}33`,
-            padding: '4px 10px', borderRadius: RADIUS.full,
-          }}>
-            <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: C.success, boxShadow: `0 0 5px ${C.success}80` }} />
-            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.success }}>{onlineUsers.length}</span>
-            <span style={{ ...TEXT.xs, color: C.textMuted }}>מחוברים</span>
+          <div className="flex items-center gap-1 bg-success-bg border border-success/20 px-2.5 py-1 rounded-full">
+            <div className="w-[7px] h-[7px] rounded-full bg-success shadow-[0_0_5px_rgba(22,163,74,0.5)]" />
+            <span className="text-xs font-semibold text-success">{onlineUsers.length}</span>
+            <span className="text-xs text-subtle-foreground">מחוברים</span>
           </div>
 
           {/* Focus Mode */}
@@ -354,12 +347,7 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
             <button
               onClick={openFocusMode}
               title="פתח מצב הרצה — המשימות שלי"
-              style={{
-                padding: '7px 14px', background: C.brand, color: 'white',
-                border: 'none', borderRadius: RADIUS.md, cursor: 'pointer',
-                fontSize: '15px', fontWeight: WEIGHT.bold, fontFamily: FONT,
-                display: 'flex', alignItems: 'center', gap: '6px',
-              }}>
+              className="px-3.5 py-[7px] bg-primary text-white border-none rounded-md cursor-pointer text-[15px] font-bold flex items-center gap-1.5">
               ⚡ המשימות שלי
             </button>
           )}
@@ -369,44 +357,26 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
             onClick={push.subscribed ? push.unsubscribe : push.subscribe}
             disabled={push.loading || !push.supported}
             title={!push.supported ? 'דפדפן זה אינו תומך ב-Push' : push.subscribed ? 'בטל התראות' : 'הפעל התראות'}
-            style={{
-              width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              border: `1px solid ${push.subscribed ? C.success + '44' : C.border}`,
-              borderRadius: RADIUS.md, cursor: push.supported ? 'pointer' : 'not-allowed',
-              background: push.subscribed ? C.successBg : C.bgNested, fontSize: '17px',
-              transition: EASE.fast, opacity: push.supported ? 1 : 0.4,
-            }}
+            className={`w-[34px] h-[34px] flex items-center justify-center rounded-md text-[17px] border transition-[background-color,border-color] duration-fast ease-out ${push.subscribed ? 'border-success/30 bg-success-bg' : 'border-border bg-muted'} ${push.supported ? 'cursor-pointer opacity-100' : 'cursor-not-allowed opacity-40'}`}
           >
             {push.loading ? '⏳' : push.subscribed ? '🔔' : '🔕'}
           </button>
 
-          <div style={{ width: '1px', height: '20px', background: C.border }} />
+          <div className="w-px h-5 bg-border" />
 
           {/* User */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
-            <div style={{
-              width: '28px', height: '28px', borderRadius: '50%',
-              background: C.brandDim, border: `1px solid ${C.brand}44`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '14px', fontWeight: WEIGHT.bold, color: C.brand,
-            }}>
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-full bg-primary-50 border border-primary/30 flex items-center justify-center text-sm font-bold text-primary">
               {initials}
             </div>
-            <span style={{ ...TEXT.sm, color: C.textSecondary }}>{fullName}</span>
+            <span className="text-sm text-muted-foreground">{fullName}</span>
           </div>
 
           {/* Logout */}
           <button
             onClick={onLogout}
             title="יציאה"
-            style={{
-              width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: 'transparent', color: C.textMuted,
-              border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer',
-              transition: EASE.fast,
-            }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = C.danger + '44'; e.currentTarget.style.color = C.danger; e.currentTarget.style.background = C.dangerBg; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = 'transparent'; }}
+            className="w-8 h-8 flex items-center justify-center bg-transparent text-subtle-foreground border border-border rounded-md cursor-pointer transition-[background-color,border-color,color] duration-fast ease-out hover:border-danger/30 hover:text-danger hover:bg-danger-bg"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
@@ -421,38 +391,21 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
       )}
 
       {/* ─── Body ─── */}
-      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+      <div className="flex flex-1 min-h-0 overflow-hidden">
 
         {/* ── Sidebar ── */}
-        <div style={{
-          width: '240px', minWidth: '240px',
-          background: C.sidebarBg,
-          borderLeft: `1px solid ${C.sidebarBorder}`,
-          display: 'flex', flexDirection: 'column',
-          overflowY: 'auto',
-        }}>
+        <div className="w-60 min-w-[240px] bg-[#14152A] border-s border-[#2A2C52] flex flex-col overflow-y-auto">
           {IS_TEST && (
-            <div style={{
-              margin: `${SP[3]} ${SP[3]} 0`,
-              background: 'rgba(232,175,0,0.15)', border: `1px solid rgba(232,175,0,0.30)`,
-              color: '#d4a017', fontSize: '14px', fontWeight: WEIGHT.bold,
-              textAlign: 'center', padding: '5px 8px', borderRadius: RADIUS.md,
-              letterSpacing: '0.08em', textTransform: 'uppercase' as const,
-            }}>⚡ TEST</div>
+            <div className="mx-3 mt-3 bg-warning/15 border border-warning/30 text-[#d4a017] text-sm font-bold text-center px-2 py-1.5 rounded-md tracking-wider uppercase">⚡ TEST</div>
           )}
 
           {/* Nav section label */}
-          <div style={{
-            padding: `16px ${SP[3]} 8px`,
-            fontSize: '13px', fontWeight: WEIGHT.bold,
-            color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em',
-            textTransform: 'uppercase' as const,
-          }}>
+          <div className="pt-4 px-3 pb-2 text-[13px] font-bold text-white/35 tracking-wider uppercase">
             ניווט
           </div>
 
           {/* Nav items */}
-          <div style={{ padding: `0 ${SP[3]}`, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          <div className="px-3 flex flex-col gap-0.5">
             {visibleNavItems.map(item => {
               const isActive = activeView === item.key;
               const isHov    = hoveredNav === item.key && !isActive;
@@ -461,24 +414,12 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
                   onClick={() => setActiveView(item.key)}
                   onMouseEnter={() => setHoveredNav(item.key)}
                   onMouseLeave={() => setHoveredNav(null)}
-                  style={{
-                    width: '100%', display: 'flex', alignItems: 'center', gap: '11px',
-                    padding: `11px ${SP[2]}`, borderRadius: RADIUS.lg, cursor: 'pointer',
-                    background: isActive ? C.sidebarBgActive : isHov ? C.sidebarBgHover : 'transparent',
-                    border: isActive ? `1px solid rgba(255,255,255,0.12)` : '1px solid transparent',
-                    textAlign: 'right' as const, direction: 'rtl', transition: EASE.fast,
-                    position: 'relative', overflow: 'hidden',
-                  }}>
+                  className={`w-full flex items-center gap-[11px] px-2 py-[11px] rounded-lg cursor-pointer text-right relative overflow-hidden border transition-[background-color] duration-fast ease-out ${isActive ? 'bg-[#2A2C52] border-white/10' : isHov ? 'bg-[#1F2140] border-transparent' : 'bg-transparent border-transparent'}`}>
                   {isActive && (
-                    <div style={{ position: 'absolute', right: 0, top: '15%', bottom: '15%', width: '3px', borderRadius: '0 3px 3px 0', background: C.brand, boxShadow: `0 0 8px ${C.brand}80` }} />
+                    <div className="absolute start-0 top-[15%] bottom-[15%] w-[3px] rounded-[0_3px_3px_0] bg-primary shadow-[0_0_8px_rgba(94,106,210,0.5)]" />
                   )}
-                  <span style={{ fontSize: '18px', flexShrink: 0, lineHeight: 1 }}>{item.icon}</span>
-                  <span style={{
-                    fontSize: '17px',
-                    fontWeight: isActive ? WEIGHT.semibold : WEIGHT.medium,
-                    color: isActive ? C.sidebarText : 'rgba(255,255,255,0.78)',
-                    flex: 1,
-                  }}>
+                  <span className="text-lg shrink-0 leading-none">{item.icon}</span>
+                  <span className={`text-[17px] flex-1 ${isActive ? 'font-semibold text-white' : 'font-medium text-white/[.78]'}`}>
                     {item.label}
                   </span>
                 </button>
@@ -486,36 +427,31 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
             })}
           </div>
 
-          <div style={{ flex: 1 }} />
+          <div className="flex-1" />
 
           {/* Team info */}
           {myTeam && (
             <>
-              <div style={{ height: '1px', background: C.sidebarBorder, margin: `${SP[2]} ${SP[3]}` }} />
-              <div style={{ padding: `${SP[2]} ${SP[3]} ${SP[3]}`, display: 'flex', alignItems: 'center', gap: SP[2] }}>
-                <span style={{ fontSize: '17px' }}>👥</span>
+              <div className="h-px bg-[#2A2C52] mx-3 my-2" />
+              <div className="px-3 pt-2 pb-3 flex items-center gap-2">
+                <span className="text-[17px]">👥</span>
                 <div>
-                  <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.5)' }}>הצוות שלי</div>
-                  <div style={{ fontSize: '15px', fontWeight: WEIGHT.semibold, color: 'rgba(255,255,255,0.85)' }}>{myTeam.name}</div>
+                  <div className="text-sm text-white/50">הצוות שלי</div>
+                  <div className="text-[15px] font-semibold text-white/85">{myTeam.name}</div>
                 </div>
               </div>
             </>
           )}
 
           {/* Footer */}
-          <div style={{
-            padding: `${SP[2]} ${SP[3]}`,
-            borderTop: `1px solid ${C.sidebarBorder}`,
-            display: 'flex', alignItems: 'center', gap: '8px',
-            fontSize: '14px', color: 'rgba(255,255,255,0.35)',
-          }}>
-            <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: C.success, flexShrink: 0, boxShadow: `0 0 4px ${C.success}80` }} />
+          <div className="px-3 py-2 border-t border-[#2A2C52] flex items-center gap-2 text-sm text-white/35">
+            <div className="w-[7px] h-[7px] rounded-full bg-success shrink-0 shadow-[0_0_4px_rgba(22,163,74,0.5)]" />
             <span>DeployCenter v{APP_VERSION}</span>
           </div>
         </div>
 
         {/* ── Main content ── */}
-        <div style={{ flex: 1, padding: SP[6], overflowY: 'auto', minWidth: 0, minHeight: 0, background: C.bgApp }}>
+        <div className="flex-1 p-6 overflow-y-auto min-w-0 min-h-0 bg-background">
 
           {/* ─── Home view ─── */}
           {activeView === 'home' && !loading && (
@@ -560,31 +496,27 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
 
           {/* ─── Tasks view ─── */}
           {activeView === 'tasks' && (loading ? (
-            <div style={{ textAlign: 'center', padding: '80px', color: C.textMuted }}>
-              <div style={{ fontSize: '48px' }}>🌙</div>
-              <p style={{ fontSize: '17px', marginTop: '12px' }}>טוען...</p>
+            <div className="text-center p-20 text-subtle-foreground">
+              <div className="text-5xl">🌙</div>
+              <p className="text-[17px] mt-3">טוען...</p>
             </div>
           ) : myTeam ? (
             <>
               {activeVersion ? (
                 <>
                   {/* Progress graph */}
-                  <div style={{
-                    background: 'linear-gradient(135deg, #1a2332 0%, #2d4a7a 100%)',
-                    borderRadius: '12px', padding: '20px 24px', marginBottom: '20px', color: 'white',
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '15px' }}>
+                  <div className="bg-[linear-gradient(135deg,#1a2332_0%,#2d4a7a_100%)] rounded-xl px-6 py-5 mb-5 text-white">
+                    <div className="flex justify-between mb-1.5 text-[15px]">
                       <span>התקדמות כללית — {activeVersion.name}</span>
                       <span>{taskStats.done}/{taskStats.total} משימות ({taskStats.total > 0 ? Math.round((taskStats.done / taskStats.total) * 100) : 0}%)</span>
                     </div>
-                    <div style={{ background: 'rgba(255,255,255,0.2)', borderRadius: '8px', height: '12px', overflow: 'hidden' }}>
-                      <div style={{
-                        background: taskStats.total > 0 && taskStats.done === taskStats.total ? '#27ae60' : '#3498db',
-                        width: `${taskStats.total > 0 ? Math.round((taskStats.done / taskStats.total) * 100) : 0}%`,
-                        height: '100%', borderRadius: '8px', transition: 'width 0.5s ease',
-                      }} />
+                    <div className="bg-white/20 rounded-lg h-3 overflow-hidden">
+                      <div
+                        className={`h-full rounded-lg transition-[width] duration-slow ease-out ${taskStats.total > 0 && taskStats.done === taskStats.total ? 'bg-[#27ae60]' : 'bg-[#3498db]'}`}
+                        style={{ width: `${taskStats.total > 0 ? Math.round((taskStats.done / taskStats.total) * 100) : 0}%` }}
+                      />
                     </div>
-                    <div style={{ display: 'flex', gap: '12px', marginTop: '14px', flexWrap: 'wrap' }}>
+                    <div className="flex gap-3 mt-3.5 flex-wrap">
                       {[
                         { label: 'הושלמו',  value: taskStats.done,        color: '#27ae60' },
                         { label: 'בביצוע',  value: taskStats.inProgress,  color: '#f39c12' },
@@ -593,9 +525,9 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
                         { label: 'חסומות',  value: taskStats.blocked,     color: '#e74c3c' },
                         { label: 'סה"כ',    value: taskStats.total,       color: 'white'   },
                       ].map(stat => (
-                        <div key={stat.label} style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '8px', padding: '8px 14px', textAlign: 'center', minWidth: '64px' }}>
-                          <div style={{ fontSize: '20px', fontWeight: 'bold', color: stat.color }}>{stat.value}</div>
-                          <div style={{ fontSize: '13px', opacity: 0.8 }}>{stat.label}</div>
+                        <div key={stat.label} className="bg-white/10 rounded-lg px-3.5 py-2 text-center min-w-[64px]">
+                          <div className="text-xl font-bold" style={{ color: stat.color }}>{stat.value}</div>
+                          <div className="text-[13px] opacity-80">{stat.label}</div>
                         </div>
                       ))}
                     </div>
@@ -603,17 +535,17 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
                   <TeamView token={token} teamId={myTeam.id} teamName={myTeam.name} versionId={activeVersion.id} userId={payload.sub} userName={fullName} refreshKey={refreshKey} hideAddTask hideFocusMode />
                 </>
               ) : (
-                <div style={{ textAlign: 'center', padding: '80px', color: C.textMuted, background: C.bgCard, borderRadius: '16px', border: `1px solid ${C.border}` }}>
-                  <div style={{ fontSize: '64px' }}>🌙</div>
-                  <h2 style={{ color: C.textPrimary, marginTop: '16px' }}>אין הרצה פעילה כרגע</h2>
-                  <p style={{ color: C.textMuted }}>סטטוס הגרסה ופרטים נוספים זמינים ב<span onClick={() => setActiveView('home')} style={{ color: C.brand, cursor: 'pointer', fontWeight: 'bold' }}>דף הבית</span>.</p>
+                <div className="text-center p-20 text-subtle-foreground bg-card rounded-2xl border border-border">
+                  <div className="text-6xl">🌙</div>
+                  <h2 className="text-foreground mt-4">אין הרצה פעילה כרגע</h2>
+                  <p className="text-subtle-foreground">סטטוס הגרסה ופרטים נוספים זמינים ב<span onClick={() => setActiveView('home')} className="text-primary cursor-pointer font-bold">דף הבית</span>.</p>
                 </div>
               )}
             </>
           ) : (
-            <div style={{ textAlign: 'center', padding: '80px', color: C.textMuted, background: C.bgCard, borderRadius: '16px', border: `1px solid ${C.border}` }}>
-              <div style={{ fontSize: '64px' }}>👤</div>
-              <h2 style={{ color: C.textPrimary, marginTop: '16px' }}>לא שויכת לצוות</h2>
+            <div className="text-center p-20 text-subtle-foreground bg-card rounded-2xl border border-border">
+              <div className="text-6xl">👤</div>
+              <h2 className="text-foreground mt-4">לא שויכת לצוות</h2>
               <p>פנה למנהל הלילה כדי להשתייך לצוות</p>
             </div>
           ))}
@@ -621,34 +553,16 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
       </div>
 
       {/* ─── Toast container ─── */}
-      <div style={{
-        position: 'fixed', bottom: '24px', left: '24px',
-        display: 'flex', flexDirection: 'column', gap: '10px',
-        zIndex: 9999, direction: 'rtl',
-      }}>
-        {toasts.map(t => {
-          const colors: Record<string, string> = {
-            info: '#2980b9', go: '#27ae60', blocked: '#c0392b', warn: '#e67e22',
-          };
-          return (
-            <div key={t.id} className="toast-slide-in" style={{
-              background: colors[t.type] || '#333',
-              color: 'white', borderRadius: '10px',
-              padding: '12px 16px', minWidth: '260px', maxWidth: '380px',
-              boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
-              display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px',
-            }}>
-              <div>
-                <div style={{ fontWeight: 'bold', fontSize: '15px' }}>{t.title}</div>
-                {t.body && <div style={{ fontSize: '15px', marginTop: '4px', opacity: 0.9 }}>{t.body}</div>}
-              </div>
-              <button onClick={() => dismissToast(t.id)} style={{
-                background: 'none', border: 'none', color: 'white',
-                cursor: 'pointer', fontSize: '17px', lineHeight: 1, opacity: 0.7, flexShrink: 0,
-              }}>✕</button>
+      <div className="fixed bottom-6 end-6 flex flex-col gap-2.5 z-[9999]">
+        {toasts.map(t => (
+          <div key={t.id} className={`toast-slide-in ${TOAST_CLASS[t.type] ?? 'bg-neutral-800'} text-white rounded-[10px] px-4 py-3 min-w-[260px] max-w-[380px] shadow-lg flex justify-between items-start gap-2.5`}>
+            <div>
+              <div className="font-bold text-[15px]">{t.title}</div>
+              {t.body && <div className="text-[15px] mt-1 opacity-90">{t.body}</div>}
             </div>
-          );
-        })}
+            <button onClick={() => dismissToast(t.id)} className="bg-transparent border-none text-white cursor-pointer text-[17px] leading-none opacity-70 shrink-0">✕</button>
+          </div>
+        ))}
       </div>
     </div>
   );

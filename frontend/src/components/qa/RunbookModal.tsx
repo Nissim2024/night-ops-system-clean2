@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { C, TEXT, WEIGHT, SP, RADIUS, SHADOW, FONT } from '../../theme';
+import { C } from '../../theme';
 import { formatDate } from '../../utils/dateFormat';
 
 const API  = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -446,11 +446,7 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
     setRepTeamFrom(''); setRepTeamTo('');
   };
 
-  const inputSm: React.CSSProperties = {
-    padding: `4px ${SP[2]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm,
-    background: C.bgCard, color: C.textPrimary, fontFamily: FONT, fontSize: 14,
-    outline: 'none', width: '100%', boxSizing: 'border-box' as const,
-  };
+  const inputSmClass = 'box-border w-full rounded-sm border border-border bg-card px-2 py-1 font-sans text-sm text-foreground outline-none';
 
   // Column order: # | פעילות | משך | התחלה | סיום | צוות | עובד | סטטוס
   // Last column holds a compact status <select> in edit mode, but up to 3
@@ -467,26 +463,17 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
 
   return (
     <div
+      dir="rtl"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-      style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
-        zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-        paddingTop: 32, overflowY: 'auto', direction: 'rtl',
-      }}
+      className="fixed inset-0 z-[2000] flex items-start justify-center overflow-y-auto bg-black/55 pt-8"
     >
-      <div style={{
-        background: C.bgCard, borderRadius: RADIUS.xl, width: '96vw', maxWidth: 1180,
-        boxShadow: SHADOW.xl, display: 'flex', flexDirection: 'column',
-        marginBottom: 32, maxHeight: '92vh', overflow: 'hidden',
-      }}>
+      <div className="mb-8 flex max-h-[92vh] w-[96vw] max-w-[1180px] flex-col overflow-hidden rounded-xl bg-card shadow-xl">
 
         {/* ── Header ── */}
-        <div style={{
-          padding: `${SP[4]} ${SP[5]}`, background: C.brand, display: 'flex', alignItems: 'center', gap: SP[3], flexWrap: 'wrap',
-        }}>
-          <span style={{ fontSize: 26 }}>📋</span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 20, fontWeight: WEIGHT.bold, color: 'white' }}>
+        <div className="flex flex-wrap items-center gap-3 bg-primary px-5 py-4">
+          <span className="text-2xl">📋</span>
+          <div className="min-w-0 flex-1">
+            <div className="text-xl font-bold text-white">
               {isInt                          ? 'היערכות לבדיקות אינטגרציה'
                : isQa                         ? 'היערכות לבדיקות QA'
                : trigger === 'REFRESH_DRY_RUN'  ? 'היערכות לחזרה גנרלית'
@@ -494,103 +481,83 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
                : trigger === 'REFRESH_TRAIN'    ? 'סביבת TRAIN — רענון ויישור גרסה'
                : ''}
             </div>
-            <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.85)', marginTop: 3 }}>
+            <div className="mt-1 text-sm text-white/85">
               {def.title}
               {' · '}
-              <span style={{ fontWeight: WEIGHT.semibold }}>{def.envLabel}</span>
+              <span className="font-semibold">{def.envLabel}</span>
               {dateStartISO ? ` · ${fmtDate(dateStartISO)}` : ''}
             </div>
           </div>
 
-          <div style={{
-            fontSize: 17, fontWeight: WEIGHT.bold, color: 'white',
-            background: 'rgba(255,255,255,0.18)', borderRadius: RADIUS.full, padding: '4px 14px',
-          }}>
+          <div className="rounded-full bg-white/[.18] px-3.5 py-1 text-[17px] font-bold text-white">
             {runMode ? doneCount : staffed}/{steps.length}
           </div>
 
           {(isInt || isQa) && !runMode && (
-            <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.15)', padding: 3, borderRadius: RADIUS.md }}>
+            <div className="flex gap-0.5 rounded-md bg-white/15 p-[3px]">
               {(isInt
                 ? ['REFRESH_INT_FULL',  'REFRESH_INT_BILLY'] as const
                 : ['REFRESH_QA_PREP',   'REFRESH_QA_BILLY']  as const
               ).map(id => (
-                <button key={id} onClick={() => setPlanId(id)} style={{
-                  padding: `4px 14px`, borderRadius: RADIUS.sm, border: 'none',
-                  background: planId === id ? 'white' : 'transparent',
-                  color: planId === id ? C.brand : 'white',
-                  fontFamily: FONT, ...TEXT.xs,
-                  fontWeight: planId === id ? WEIGHT.bold : WEIGHT.normal,
-                  cursor: 'pointer', transition: 'all 0.15s',
-                }}>
+                <button
+                  key={id}
+                  onClick={() => setPlanId(id)}
+                  className={`rounded-sm border-none px-3.5 py-1 font-sans text-xs transition-[background,color] duration-150 ease-out ${planId === id ? 'bg-white font-bold text-primary' : 'bg-transparent font-normal text-white'} cursor-pointer`}
+                >
                   {(id === 'REFRESH_INT_FULL' || id === 'REFRESH_QA_PREP') ? "מסלול א'" : "מסלול ב'"}
                 </button>
               ))}
             </div>
           )}
 
-          <button onClick={() => setRunMode(v => !v)} style={{
-            padding: `6px 16px`, borderRadius: RADIUS.md, border: `1px solid rgba(255,255,255,0.5)`,
-            background: runMode ? 'white' : 'rgba(255,255,255,0.15)', color: runMode ? C.brand : 'white',
-            fontFamily: FONT, ...TEXT.xs, cursor: 'pointer', fontWeight: WEIGHT.bold,
-          }}>
+          <button
+            onClick={() => setRunMode(v => !v)}
+            className={`cursor-pointer rounded-md border border-white/50 px-4 py-1.5 font-sans text-xs font-bold ${runMode ? 'bg-white text-primary' : 'bg-white/15 text-white'}`}
+          >
             {runMode ? '✏️ חזור לעריכה' : '▶ הפעל במצב הרצה'}
           </button>
 
           {!runMode && (
-            <button onClick={() => setShowReplace(v => !v)} style={{
-              padding: `6px 14px`, borderRadius: RADIUS.md, border: `1px solid rgba(255,255,255,0.4)`,
-              background: showReplace ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.15)', color: 'white',
-              fontFamily: FONT, ...TEXT.xs, cursor: 'pointer', fontWeight: WEIGHT.semibold,
-            }}>
+            <button
+              onClick={() => setShowReplace(v => !v)}
+              className={`cursor-pointer rounded-md border border-white/40 px-3.5 py-1.5 font-sans text-xs font-semibold text-white ${showReplace ? 'bg-white/[.28]' : 'bg-white/15'}`}
+            >
               🔄 החלפה
             </button>
           )}
           {!runMode && (
-            <button onClick={() => setEditingSteps(v => !v)} style={{
-              padding: `6px 14px`, borderRadius: RADIUS.md, border: `1px solid rgba(255,255,255,0.4)`,
-              background: editingSteps ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.15)', color: 'white',
-              fontFamily: FONT, ...TEXT.xs, cursor: 'pointer', fontWeight: WEIGHT.semibold,
-            }}>
+            <button
+              onClick={() => setEditingSteps(v => !v)}
+              className={`cursor-pointer rounded-md border border-white/40 px-3.5 py-1.5 font-sans text-xs font-semibold text-white ${editingSteps ? 'bg-white/[.28]' : 'bg-white/15'}`}
+            >
               🛠 ערוך שלבים
             </button>
           )}
           {!runMode && editingSteps && (
-            <button onClick={saveAsTemplate} disabled={savingTemplate} style={{
-              padding: `6px 14px`, borderRadius: RADIUS.md, border: 'none',
-              background: templateSaved ? C.success : 'white', color: templateSaved ? 'white' : C.brand,
-              fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.bold,
-              cursor: savingTemplate ? 'wait' : 'pointer', opacity: savingTemplate ? 0.7 : 1,
-            }}>
+            <button
+              onClick={saveAsTemplate}
+              disabled={savingTemplate}
+              className={`rounded-md border-none px-3.5 py-1.5 font-sans text-xs font-bold ${templateSaved ? 'bg-success text-white' : 'bg-white text-primary'} ${savingTemplate ? 'cursor-wait opacity-70' : 'cursor-pointer opacity-100'}`}
+            >
               {templateSaved ? '✓ התבנית נשמרה' : savingTemplate ? 'שומר…' : '📑 שמור כתבנית'}
             </button>
           )}
           {!runMode && (
-            <button onClick={handleSave} disabled={saving} style={{
-              padding: `6px 18px`, borderRadius: RADIUS.md, border: 'none',
-              background: saved ? C.success : 'white', color: saved ? 'white' : C.brand,
-              fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.bold,
-              cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1,
-              transition: 'background 0.3s',
-            }}>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className={`rounded-md border-none px-[18px] py-1.5 font-sans text-xs font-bold transition-colors duration-300 ${saved ? 'bg-success text-white' : 'bg-white text-primary'} ${saving ? 'cursor-wait opacity-70' : 'cursor-pointer opacity-100'}`}
+            >
               {saved ? '✓ נשמר' : saving ? 'שומר…' : '💾 שמור'}
             </button>
           )}
-          <button onClick={onClose} style={{
-            width: 30, height: 30, borderRadius: '50%', border: 'none',
-            background: 'rgba(255,255,255,0.18)', color: 'white',
-            fontFamily: FONT, fontSize: 16, cursor: 'pointer', lineHeight: '1',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>✕</button>
+          <button onClick={onClose} className="flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-full border-none bg-white/[.18] font-sans text-base leading-none text-white">✕</button>
         </div>
 
         {/* ── Run-mode filter bar ── */}
         {runMode && (
-          <div style={{
-            padding: `${SP[2]} ${SP[5]}`, borderBottom: `1px solid ${C.border}`,
-            background: C.bgNested, display: 'flex', alignItems: 'center', gap: SP[2],
-          }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: C.textSecondary, cursor: 'pointer' }}>
+          <div className="flex items-center gap-2 border-b border-border bg-muted px-5 py-2">
+            <label className="flex cursor-pointer items-center gap-1.5 text-sm text-muted-foreground">
               <input type="checkbox" checked={nearOnly} onChange={e => setNearOnly(e.target.checked)} />
               הצג רק שלבים ב-15 הדקות הקרובות
             </label>
@@ -599,17 +566,14 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
 
         {/* ── Replace panel ── */}
         {showReplace && (
-          <div style={{
-            padding: `${SP[3]} ${SP[5]}`, borderBottom: `1px solid ${C.border}`,
-            background: C.bgActive, display: 'flex', flexDirection: 'column', gap: SP[2],
-          }}>
+          <div className="flex flex-col gap-2 border-b border-border bg-[#E6E7F5] px-5 py-3">
             {/* Replace employee row */}
-            <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.bold, minWidth: 60 }}>עובד:</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="min-w-[60px] text-xs font-bold text-subtle-foreground">עובד:</span>
               <select
                 value={repEmpFrom}
                 onChange={e => setRepEmpFrom(e.target.value)}
-                style={{ ...inputSm, width: 160 }}
+                className={`${inputSmClass} w-40`}
               >
                 <option value="">-- מי להחליף --</option>
                 {rows.some(r => !r.employee?.trim()) && (
@@ -619,11 +583,11 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
                   <option key={emp} value={emp}>{emp}</option>
                 ))}
               </select>
-              <span style={{ ...TEXT.xs, color: C.textMuted }}>→</span>
+              <span className="text-xs text-subtle-foreground">→</span>
               <select
                 value={repEmpToTeam}
                 onChange={e => { setRepEmpToTeam(e.target.value); setRepEmpTo(''); }}
-                style={{ ...inputSm, width: 130 }}
+                className={`${inputSmClass} w-[130px]`}
               >
                 <option value="">-- סנן לפי צוות --</option>
                 {teams.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
@@ -631,7 +595,7 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
               <select
                 value={repEmpTo}
                 onChange={e => setRepEmpTo(e.target.value)}
-                style={{ ...inputSm, width: 160 }}
+                className={`${inputSmClass} w-40`}
               >
                 <option value="">-- במי להחליף --</option>
                 {(repEmpToTeam
@@ -641,60 +605,63 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
                   <option key={m.id} value={m.fullName}>{m.fullName}</option>
                 ))}
               </select>
-              <button onClick={handleReplaceEmp} disabled={!repEmpFrom.trim()} style={{
-                padding: `4px 14px`, borderRadius: RADIUS.md, border: 'none',
-                background: repEmpFrom.trim() ? BLUE : C.bgHover,
-                color: repEmpFrom.trim() ? '#fff' : C.textDisabled,
-                fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.bold,
-                cursor: repEmpFrom.trim() ? 'pointer' : 'not-allowed',
-              }}>{repEmpFrom === EMPTY_SENTINEL ? 'שבץ בכל השורות הריקות' : 'החלף'}</button>
+              <button
+                onClick={handleReplaceEmp}
+                disabled={!repEmpFrom.trim()}
+                className="rounded-md border-none px-3.5 py-1 font-sans text-xs font-bold"
+                style={{
+                  background: repEmpFrom.trim() ? BLUE : C.bgHover,
+                  color: repEmpFrom.trim() ? '#fff' : C.textDisabled,
+                  cursor: repEmpFrom.trim() ? 'pointer' : 'not-allowed',
+                }}
+              >{repEmpFrom === EMPTY_SENTINEL ? 'שבץ בכל השורות הריקות' : 'החלף'}</button>
             </div>
 
             {/* Replace team row */}
-            <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.bold, minWidth: 60 }}>צוות:</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="min-w-[60px] text-xs font-bold text-subtle-foreground">צוות:</span>
               <select
                 value={repTeamFrom}
                 onChange={e => setRepTeamFrom(e.target.value)}
-                style={{ ...inputSm, width: 160 }}
+                className={`${inputSmClass} w-40`}
               >
                 <option value="">-- מי להחליף --</option>
                 {Array.from(new Set(rows.map(r => r.team).filter(Boolean))).map(t => (
                   <option key={t} value={t}>{t}</option>
                 ))}
               </select>
-              <span style={{ ...TEXT.xs, color: C.textMuted }}>→</span>
+              <span className="text-xs text-subtle-foreground">→</span>
               <select
                 value={repTeamTo}
                 onChange={e => setRepTeamTo(e.target.value)}
-                style={{ ...inputSm, width: 160 }}
+                className={`${inputSmClass} w-40`}
               >
                 <option value="">-- במה להחליף --</option>
                 {teams.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
               </select>
-              <button onClick={handleReplaceTeam} disabled={!repTeamFrom.trim()} style={{
-                padding: `4px 14px`, borderRadius: RADIUS.md, border: 'none',
-                background: repTeamFrom.trim() ? BLUE : C.bgHover,
-                color: repTeamFrom.trim() ? '#fff' : C.textDisabled,
-                fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.bold,
-                cursor: repTeamFrom.trim() ? 'pointer' : 'not-allowed',
-              }}>החלף</button>
+              <button
+                onClick={handleReplaceTeam}
+                disabled={!repTeamFrom.trim()}
+                className="rounded-md border-none px-3.5 py-1 font-sans text-xs font-bold"
+                style={{
+                  background: repTeamFrom.trim() ? BLUE : C.bgHover,
+                  color: repTeamFrom.trim() ? '#fff' : C.textDisabled,
+                  cursor: repTeamFrom.trim() ? 'pointer' : 'not-allowed',
+                }}
+              >החלף</button>
             </div>
           </div>
         )}
 
         {/* ── Table ── */}
-        <div style={{ overflowY: 'auto', flex: 1 }}>
+        <div className="flex-1 overflow-y-auto">
           {/* Header */}
-          <div style={{
-            display: 'grid', gridTemplateColumns: COLS,
-            padding: `${SP[2]} ${SP[4]}`,
-            borderBottom: `2px solid ${C.border}`,
-            background: C.bgNested,
-            position: 'sticky', top: 0, zIndex: 1,
-          }}>
+          <div
+            className="sticky top-0 z-[1] grid border-b-2 border-border bg-muted px-4 py-2"
+            style={{ gridTemplateColumns: COLS }}
+          >
             {HDRS.map((h, i) => (
-              <div key={i} style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              <div key={i} className="text-xs font-bold uppercase tracking-wide text-subtle-foreground">
                 {h}
               </div>
             ))}
@@ -715,42 +682,43 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
             }
 
             return (
-              <div key={step.key} style={{
-                display: 'grid', gridTemplateColumns: COLS,
-                padding: `${SP[2]} ${SP[4]}`,
-                borderBottom: `1px solid ${C.border}`,
-                borderRight: `3px solid ${row.status === 'pending' ? 'transparent' : scfg.color}`,
-                background: row.status === 'done' ? C.bgNested : step.bold ? 'rgba(240,106,106,0.05)' : C.bgCard,
-                opacity: row.status === 'done' ? 0.7 : 1,
-                alignItems: 'center', gap: SP[1],
-              }}>
-                <div style={{ fontSize: 13, color: C.textMuted, fontWeight: WEIGHT.bold, display: 'flex', alignItems: 'center', gap: 3 }}>
+              <div
+                key={step.key}
+                className="grid items-center gap-1 border-b border-border px-4 py-2"
+                style={{
+                  gridTemplateColumns: COLS,
+                  borderInlineEnd: `3px solid ${row.status === 'pending' ? 'transparent' : scfg.color}`,
+                  background: row.status === 'done' ? C.bgNested : step.bold ? 'rgba(240,106,106,0.05)' : C.bgCard,
+                  opacity: row.status === 'done' ? 0.7 : 1,
+                }}
+              >
+                <div className="flex items-center gap-0.5 text-[13px] font-bold text-subtle-foreground">
                   {isEditingThisStep && (
                     <button
                       onClick={() => deleteStep(step.key)}
                       title="מחק שלב"
-                      style={{ background: 'transparent', border: 'none', color: '#dc3545', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1 }}
+                      className="cursor-pointer border-none bg-transparent p-0 text-[13px] leading-none text-[#dc3545]"
                     >🗑</button>
                   )}
                   {i + 1}
                 </div>
 
                 {isEditingThisStep ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: SP[2] }}>
+                  <div className="flex flex-col gap-1 ps-2">
                     <input
                       value={step.activity}
                       onChange={e => setStep(i, { activity: e.target.value })}
                       placeholder="שם הפעילות"
-                      style={{ ...inputSm, fontWeight: WEIGHT.semibold }}
+                      className={`${inputSmClass} font-semibold`}
                     />
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <input value={step.defaultTeam} onChange={e => setStep(i, { defaultTeam: e.target.value })} placeholder="צוות ברירת מחדל" style={{ ...inputSm, width: 100, fontSize: 12 }} />
-                      <input value={step.startTime}   onChange={e => setStep(i, { startTime: e.target.value })}   placeholder="התחלה"           style={{ ...inputSm, width: 60,  fontSize: 12 }} />
-                      <input value={step.endTime}     onChange={e => setStep(i, { endTime: e.target.value })}     placeholder="סיום"             style={{ ...inputSm, width: 60,  fontSize: 12 }} />
+                    <div className="flex gap-1">
+                      <input value={step.defaultTeam} onChange={e => setStep(i, { defaultTeam: e.target.value })} placeholder="צוות ברירת מחדל" className={`${inputSmClass} w-[100px] text-xs`} />
+                      <input value={step.startTime}   onChange={e => setStep(i, { startTime: e.target.value })}   placeholder="התחלה"           className={`${inputSmClass} w-[60px] text-xs`} />
+                      <input value={step.endTime}     onChange={e => setStep(i, { endTime: e.target.value })}     placeholder="סיום"             className={`${inputSmClass} w-[60px] text-xs`} />
                     </div>
                   </div>
                 ) : (
-                  <div style={{ fontSize: 16, color: C.textPrimary, fontWeight: step.bold ? WEIGHT.bold : WEIGHT.medium, paddingLeft: SP[2] }}>
+                  <div className={`ps-2 text-base text-foreground ${step.bold ? 'font-bold' : 'font-medium'}`}>
                     {step.activity}
                   </div>
                 )}
@@ -760,49 +728,49 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
                     value={step.duration}
                     onChange={e => setStep(i, { duration: e.target.value })}
                     placeholder="משך"
-                    style={{ ...inputSm, fontSize: 12 }}
+                    className={`${inputSmClass} text-xs`}
                   />
                 ) : (
-                  <div style={{ fontSize: 13, color: C.textMuted, whiteSpace: 'nowrap' }}>{step.duration}</div>
+                  <div className="whitespace-nowrap text-[13px] text-subtle-foreground">{step.duration}</div>
                 )}
 
                 {runMode ? (
                   <>
-                    <div style={{ fontSize: 14, color: C.textPrimary, fontWeight: WEIGHT.semibold }}>{row.startTime}</div>
-                    <div style={{ fontSize: 14, color: C.textPrimary, fontWeight: WEIGHT.semibold }}>{row.endTime}</div>
-                    <div style={{ fontSize: 14, color: C.textSecondary }}>{row.team || step.defaultTeam}</div>
-                    <div style={{ fontSize: 14, color: row.employee ? C.textPrimary : C.textMuted, fontStyle: row.employee ? 'normal' : 'italic' }}>
+                    <div className="text-sm font-semibold text-foreground">{row.startTime}</div>
+                    <div className="text-sm font-semibold text-foreground">{row.endTime}</div>
+                    <div className="text-sm text-muted-foreground">{row.team || step.defaultTeam}</div>
+                    <div className={`text-sm ${row.employee ? 'font-normal text-foreground' : 'italic text-subtle-foreground'}`}>
                       {row.employee || 'לא משובץ'}
                     </div>
 
                     {/* Status action buttons — persist immediately */}
-                    <div style={{ display: 'flex', gap: 4 }}>
+                    <div className="flex gap-1">
                       {row.status !== 'in_progress' && row.status !== 'done' && (
                         <button
                           onClick={() => handleStatusChange(i, 'in_progress')}
                           disabled={savingStatus === i}
-                          style={{ background: C.statusInProgress, color: 'white', border: 'none', borderRadius: RADIUS.sm, padding: '5px 8px', fontSize: 13, fontWeight: WEIGHT.bold, cursor: 'pointer', opacity: savingStatus === i ? 0.6 : 1 }}
+                          className={`cursor-pointer rounded-sm border-none bg-warning px-2 py-1.5 text-[13px] font-bold text-white ${savingStatus === i ? 'opacity-60' : 'opacity-100'}`}
                         >▶ התחל</button>
                       )}
                       {row.status !== 'done' && (
                         <button
                           onClick={() => handleStatusChange(i, 'done')}
                           disabled={savingStatus === i}
-                          style={{ background: C.success, color: 'white', border: 'none', borderRadius: RADIUS.sm, padding: '5px 8px', fontSize: 13, fontWeight: WEIGHT.bold, cursor: 'pointer', opacity: savingStatus === i ? 0.6 : 1 }}
+                          className={`cursor-pointer rounded-sm border-none bg-success px-2 py-1.5 text-[13px] font-bold text-white ${savingStatus === i ? 'opacity-60' : 'opacity-100'}`}
                         >✓ סיים</button>
                       )}
                       {row.status !== 'issue' && (
                         <button
                           onClick={() => handleStatusChange(i, 'issue')}
                           disabled={savingStatus === i}
-                          style={{ background: 'transparent', color: '#dc3545', border: '1px solid #dc354566', borderRadius: RADIUS.sm, padding: '5px 8px', fontSize: 13, fontWeight: WEIGHT.bold, cursor: 'pointer', opacity: savingStatus === i ? 0.6 : 1 }}
+                          className={`cursor-pointer rounded-sm border border-[#dc354566] bg-transparent px-2 py-1.5 text-[13px] font-bold text-[#dc3545] ${savingStatus === i ? 'opacity-60' : 'opacity-100'}`}
                         >🚫 בעיה</button>
                       )}
                       {(row.status === 'done' || row.status === 'issue') && (
                         <button
                           onClick={() => handleStatusChange(i, 'pending')}
                           disabled={savingStatus === i}
-                          style={{ background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '5px 8px', fontSize: 13, cursor: 'pointer', opacity: savingStatus === i ? 0.6 : 1 }}
+                          className={`cursor-pointer rounded-sm border border-border bg-transparent px-2 py-1.5 text-[13px] text-subtle-foreground ${savingStatus === i ? 'opacity-60' : 'opacity-100'}`}
                         >↺ חזור</button>
                       )}
                     </div>
@@ -814,7 +782,7 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
                       value={row.startTime}
                       onChange={e => setRow(i, { startTime: e.target.value })}
                       placeholder="HH:MM"
-                      style={inputSm}
+                      className={inputSmClass}
                     />
 
                     {/* End time */}
@@ -822,14 +790,14 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
                       value={row.endTime}
                       onChange={e => setRow(i, { endTime: e.target.value })}
                       placeholder="HH:MM"
-                      style={inputSm}
+                      className={inputSmClass}
                     />
 
                     {/* Team select */}
                     <select
                       value={row.team}
                       onChange={e => setRow(i, { team: e.target.value, employee: '', employeeUserId: null })}
-                      style={{ ...inputSm, color: row.team ? C.textPrimary : C.textMuted }}
+                      className={`${inputSmClass} ${row.team ? 'text-foreground' : 'text-subtle-foreground'}`}
                     >
                       <option value="">{step.defaultTeam}</option>
                       {teams.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
@@ -846,7 +814,7 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
                             const m = members.find(mm => mm.fullName === e.target.value);
                             setRow(i, { employee: e.target.value, employeeUserId: m?.id ?? null });
                           }}
-                          style={{ ...inputSm, color: row.employee ? C.textPrimary : C.textMuted }}
+                          className={`${inputSmClass} ${row.employee ? 'text-foreground' : 'text-subtle-foreground'}`}
                         >
                           <option value="">-- בחר עובד --</option>
                           {members.map(m => <option key={m.id} value={m.fullName}>{m.fullName}</option>)}
@@ -856,7 +824,7 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
                           value={row.employee}
                           onChange={e => setRow(i, { employee: e.target.value })}
                           placeholder="שם עובד"
-                          style={inputSm}
+                          className={inputSmClass}
                         />
                       );
                     })()}
@@ -865,14 +833,8 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
                     <select
                       value={row.status}
                       onChange={e => setRow(i, { status: e.target.value })}
-                      style={{
-                        ...inputSm,
-                        background: scfg.bg,
-                        color: scfg.color,
-                        fontWeight: WEIGHT.semibold,
-                        border: `1px solid ${scfg.color}55`,
-                        cursor: 'pointer',
-                      }}
+                      className={`${inputSmClass} cursor-pointer font-semibold`}
+                      style={{ background: scfg.bg, color: scfg.color, border: `1px solid ${scfg.color}55` }}
                     >
                       {STATUS_OPTIONS.map(s => (
                         <option key={s.value} value={s.value}>{s.label}</option>
@@ -885,33 +847,28 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
           })}
 
           {editingSteps && !runMode && (
-            <div style={{ padding: `${SP[3]} ${SP[4]}`, borderBottom: `1px solid ${C.border}` }}>
-              <button onClick={addStep} disabled={addingStep} style={{
-                padding: `6px 16px`, borderRadius: RADIUS.md, border: `1px dashed ${BLUE}`,
-                background: 'transparent', color: BLUE,
-                fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.bold,
-                cursor: addingStep ? 'wait' : 'pointer', opacity: addingStep ? 0.6 : 1,
-              }}>
+            <div className="border-b border-border px-4 py-3">
+              <button
+                onClick={addStep}
+                disabled={addingStep}
+                className={`rounded-md border border-dashed border-[#4573D2] bg-transparent px-4 py-1.5 font-sans text-xs font-bold text-[#4573D2] ${addingStep ? 'cursor-wait opacity-60' : 'cursor-pointer opacity-100'}`}
+              >
                 {addingStep ? 'מוסיף…' : '+ הוסף שלב'}
               </button>
             </div>
           )}
 
           {/* Footer */}
-          <div style={{
-            padding: `${SP[3]} ${SP[5]}`, borderTop: `1px solid ${C.border}`,
-            background: C.bgNested,
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          }}>
-            <span style={{ fontSize: 14, color: C.textMuted }}>
+          <div className="flex items-center justify-between border-t border-border bg-muted px-5 py-3">
+            <span className="text-sm text-subtle-foreground">
               {staffed} / {steps.length} שלבים מאוישים
               {' · '}
-              <span style={{ color: '#28a745', fontWeight: WEIGHT.semibold }}>{doneCount} הושלמו</span>
+              <span className="font-semibold text-[#28a745]">{doneCount} הושלמו</span>
               {issueCount > 0 && (
-                <span style={{ color: '#dc3545', fontWeight: WEIGHT.semibold }}>{' · '}{issueCount} בעיות</span>
+                <span className="font-semibold text-[#dc3545]">{' · '}{issueCount} בעיות</span>
               )}
             </span>
-            <span style={{ ...TEXT.xs, color: C.textDisabled }}>שורות מודגשות = שלבים קריטיים</span>
+            <span className="text-xs text-subtle-foreground">שורות מודגשות = שלבים קריטיים</span>
           </div>
         </div>
       </div>

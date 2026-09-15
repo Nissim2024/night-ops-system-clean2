@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, RADIUS, SHADOW } from '../theme';
+import { C } from '../theme';
+import { cn } from '../lib/utils';
 import { formatDate } from '../utils/dateFormat';
-import { DefectIdBadge } from './shared/defectFieldDisplay';
+import { DefectIdBadge, teamColor } from './shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -18,14 +19,6 @@ interface CrEntry {
 }
 interface Props { token: string; versionId?: string; versionName?: string; }
 
-// Stable color per team so the same team reads as the same color everywhere
-// it appears across the merged timeline (mirrors CrReviewView's helper).
-const TEAM_PALETTE = ['#4573D2', '#9C6ADE', '#37C47A', '#E8AF00', '#F0883E', '#14B8A6', '#EC6BAD', '#6366F1'];
-function teamColor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  return TEAM_PALETTE[hash % TEAM_PALETTE.length];
-}
 
 interface DayPart {
   key: string; icon: string; title: string; meta: string;
@@ -106,8 +99,8 @@ export const UnifiedGoLivePlanView: React.FC<Props> = ({ token, versionId, versi
   }, [versionId, entries]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return (
-    <div style={{ textAlign: 'center', padding: '80px', color: C.textMuted, direction: 'rtl', fontFamily: FONT }}>
-      <div style={{ fontSize: '36px', marginBottom: '14px' }}>⏳</div>טוען תוכנית מאוחדת...
+    <div className="text-center p-20 text-subtle-foreground">
+      <div className="text-4xl mb-3.5">⏳</div>טוען תוכנית מאוחדת...
     </div>
   );
 
@@ -152,75 +145,70 @@ export const UnifiedGoLivePlanView: React.FC<Props> = ({ token, versionId, versi
   let stepCounter = 0;
 
   return (
-    <div style={{ direction: 'rtl', fontFamily: FONT, maxWidth: '820px', margin: '0 auto' }}>
+    <div className="max-w-[820px] mx-auto">
       {/* ── Header ── */}
-      <div style={{ marginBottom: '24px' }}>
-        <h2 style={{ ...TEXT['2xl'], fontWeight: WEIGHT.bold, color: C.textPrimary, margin: 0 }}>
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-foreground m-0">
           תוכנית מאוחדת לעלייה לאוויר
         </h2>
-        <div style={{ ...TEXT.base, color: C.textMuted, marginTop: '4px' }}>
+        <div className="text-base text-subtle-foreground mt-1">
           {versionName ?? ''} · כל הצוותים סיימו הגשה — תסריט אחד רציף לכל אורך חלון השינוי, לפי סדר זמנים, לקריאה בשיחת הגרסה
         </div>
       </div>
 
       {/* ── KPI tiles ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '32px' }}>
+      <div className="grid grid-cols-3 gap-3 mb-8">
         {[
           { label: 'משימות עם השפעה תפעולית', value: totalImpact },
           { label: 'משימות בתסריט המאוחד', value: totalImpact },
           { label: 'CR-ים בתוכנית', value: crCount },
         ].map(kpi => (
-          <div key={kpi.label} style={{
-            background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg,
-            padding: '16px 18px', boxShadow: SHADOW.card,
-          }}>
-            <div style={{ ...TEXT['2xl'], fontWeight: WEIGHT.bold, color: C.textPrimary }}>{kpi.value}</div>
-            <div style={{ ...TEXT.sm, color: C.textMuted, marginTop: '2px' }}>{kpi.label}</div>
+          <div key={kpi.label} className="bg-card border border-border rounded-lg py-4 px-[18px] shadow-xs">
+            <div className="text-2xl font-bold text-foreground">{kpi.value}</div>
+            <div className="text-sm text-subtle-foreground mt-0.5">{kpi.label}</div>
           </div>
         ))}
       </div>
 
       {/* ── Per-CR defect indicators — counted across all teams (spec 2026-08-29) ── */}
       {entries.length > 0 && (
-        <div style={{ marginBottom: '32px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textMuted }}>🪲 תקלות מול כל CR — כלל הצוותים</div>
+        <div className="mb-8 flex flex-col gap-2">
+          <div className="text-sm font-semibold text-subtle-foreground">🪲 תקלות מול כל CR — כלל הצוותים</div>
           {entries.map(e => {
             const ind = crDefects[e.crNumber];
             const indLoading = crDefectsLoading[e.crNumber];
             const expanded = expandedBucket[e.crNumber] ?? null;
             const list = expanded && ind ? ind[expanded] : [];
             return (
-              <div key={e.crNumber} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '10px 14px', boxShadow: SHADOW.xs }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap', fontSize: '12px' }}>
-                  <span style={{ color: C.textPrimary, fontWeight: WEIGHT.semibold, fontFamily: 'monospace' }}>{e.crLabel || e.crNumber}</span>
+              <div key={e.crNumber} className="bg-card border border-border rounded-md py-2.5 px-3.5 shadow-xs">
+                <div className="flex items-center gap-[18px] flex-wrap text-xs">
+                  <span className="text-foreground font-semibold font-mono">{e.crLabel || e.crNumber}</span>
                   {indLoading && !ind ? (
-                    <span style={{ color: C.textMuted }}>טוען...</span>
+                    <span className="text-subtle-foreground">טוען...</span>
                   ) : ind && defectBuckets().map(b => (
                     <button
                       key={b.key}
                       onClick={() => setExpandedBucket(prev => ({ ...prev, [e.crNumber]: prev[e.crNumber] === b.key ? null : b.key }))}
-                      style={{
-                        background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: FONT,
-                        display: 'flex', alignItems: 'center', gap: '5px',
-                        fontWeight: expanded === b.key ? WEIGHT.bold : WEIGHT.normal,
-                        color: expanded === b.key ? b.color : C.textSecondary,
-                        textDecoration: expanded === b.key ? 'underline' : 'none',
-                      }}
+                      className={cn(
+                        'bg-transparent border-none cursor-pointer p-0 flex items-center gap-[5px]',
+                        expanded === b.key ? 'font-bold underline' : 'font-normal no-underline'
+                      )}
+                      style={{ color: expanded === b.key ? b.color : C.textSecondary }}
                     >
-                      {b.label}: <span style={{ fontWeight: WEIGHT.bold, color: b.color }}>{ind[b.key].length}</span>
+                      {b.label}: <span className="font-bold" style={{ color: b.color }}>{ind[b.key].length}</span>
                     </button>
                   ))}
                 </div>
                 {expanded && (
-                  <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '220px', overflowY: 'auto' }}>
+                  <div className="mt-2.5 flex flex-col gap-1 max-h-[220px] overflow-y-auto">
                     {list.length === 0 ? (
-                      <div style={{ fontSize: '12px', color: C.textMuted }}>אין תקלות ברשימה זו.</div>
+                      <div className="text-xs text-subtle-foreground">אין תקלות ברשימה זו.</div>
                     ) : list.map((d: any) => (
-                      <div key={d.id} style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '12px', padding: '5px 8px', background: C.bgNested, borderRadius: RADIUS.sm, border: `1px solid ${C.border}` }}>
+                      <div key={d.id} className="flex gap-2.5 items-center text-xs py-[5px] px-2 bg-muted rounded-sm border border-border">
                         <DefectIdBadge id={d.id} />
-                        <span style={{ color: C.textPrimary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title || d.subject}</span>
-                        <span style={{ color: C.textMuted, flexShrink: 0 }}>{d.status}</span>
-                        <span style={{ color: C.textMuted, flexShrink: 0, direction: 'ltr' }}>{d.detectedInRelease} → {d.targetRelease || '—'}</span>
+                        <span className="text-foreground flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{d.title || d.subject}</span>
+                        <span className="text-subtle-foreground shrink-0">{d.status}</span>
+                        <span className="text-subtle-foreground shrink-0" dir="ltr">{d.detectedInRelease} → {d.targetRelease || '—'}</span>
                       </div>
                     ))}
                   </div>
@@ -232,73 +220,56 @@ export const UnifiedGoLivePlanView: React.FC<Props> = ({ token, versionId, versi
       )}
 
       {dayParts.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px', color: C.textMuted, ...TEXT.base }}>
+        <div className="text-center p-[60px] text-subtle-foreground text-base">
           עדיין אין משימות בעלות השפעה תפעולית בתוכנית זו
         </div>
       ) : (
         /* ── Continuous story thread ── */
-        <div style={{ position: 'relative' }}>
-          <div style={{
-            position: 'absolute', top: '24px', bottom: '24px', right: '23px',
-            width: '2px', background: C.border,
-          }} />
+        <div className="relative">
+          <div className="absolute top-6 bottom-6 start-[23px] w-[2px] bg-border" />
 
           {dayParts.map(dp => (
-            <div key={dp.key} style={{ marginBottom: '28px' }}>
+            <div key={dp.key} className="mb-7">
               {/* Day-part node */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px', position: 'relative' }}>
-                <div style={{
-                  width: '48px', height: '48px', borderRadius: RADIUS.full, flexShrink: 0,
-                  background: C.moduleGoLive, color: '#fff', fontSize: '22px',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  boxShadow: SHADOW.sm, zIndex: 1,
-                }}>
+              <div className="flex items-center gap-4 mb-4 relative">
+                <div
+                  className="w-12 h-12 rounded-full shrink-0 text-white text-[22px] flex items-center justify-center shadow-sm z-[1]"
+                  style={{ background: C.moduleGoLive }}
+                >
                   {dp.icon}
                 </div>
                 <div>
-                  <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{dp.title}</div>
-                  <div style={{ ...TEXT.sm, color: C.textMuted }}>{dp.meta}</div>
+                  <div className="text-lg font-bold text-foreground">{dp.title}</div>
+                  <div className="text-sm text-subtle-foreground">{dp.meta}</div>
                 </div>
               </div>
 
               {/* Step cards */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingInlineStart: '64px' }}>
+              <div className="flex flex-col gap-2.5 ps-16">
                 {dp.items.map(item => {
                   stepCounter += 1;
                   const num = String(stepCounter).padStart(2, '0');
                   const tColor = teamColor(item.teamName);
                   return (
-                    <div key={item.id} style={{
-                      display: 'flex', alignItems: 'flex-start', gap: '12px',
-                      background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.md,
-                      padding: '12px 14px', boxShadow: SHADOW.xs,
-                    }}>
-                      <div style={{
-                        width: '28px', height: '28px', borderRadius: RADIUS.full, flexShrink: 0,
-                        background: C.bgNested, color: C.textSecondary, fontWeight: WEIGHT.bold,
-                        fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontFamily: 'monospace',
-                      }}>
+                    <div key={item.id} className="flex items-start gap-3 bg-card border border-border rounded-md py-3 px-3.5 shadow-xs">
+                      <div className="w-7 h-7 rounded-full shrink-0 bg-muted text-muted-foreground font-bold text-[13px] flex items-center justify-center font-mono">
                         {num}
                       </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ ...TEXT.base, fontWeight: WEIGHT.medium, color: C.textPrimary, lineHeight: 1.6 }}>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-base font-medium text-foreground leading-[1.6]">
                           {narrativeSentence(item)}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
-                          <span style={{
-                            ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.warning, background: C.warningBg,
-                            borderRadius: RADIUS.sm, padding: '2px 8px',
-                          }}>
+                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                          <span className="text-xs font-semibold text-warning bg-warning-bg rounded-sm py-0.5 px-2">
                             משפיע
                           </span>
-                          <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: 'monospace' }}>
+                          <span className="text-xs text-subtle-foreground font-mono">
                             {item.crLabel || item.crNumber}
                           </span>
-                          <span style={{
-                            ...TEXT.xs, fontWeight: WEIGHT.semibold, color: '#fff',
-                            background: tColor, borderRadius: RADIUS.sm, padding: '2px 8px',
-                          }}>
+                          <span
+                            className="text-xs font-semibold rounded-sm py-0.5 px-2"
+                            style={{ background: tColor.bg, color: tColor.color }}
+                          >
                             {item.teamName}
                           </span>
                         </div>

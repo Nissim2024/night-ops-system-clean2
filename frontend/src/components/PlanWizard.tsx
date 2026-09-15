@@ -1,7 +1,13 @@
 ﻿import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { DateField, DateTimeField } from './DatePicker';
-import { C, FONT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
+// DateField/DateTimeField (unmigrated) only accept a `style` prop, not
+// className — the handful of style objects still feeding them below are the
+// one deliberate exception to the className migration in this file. `C` is
+// kept only for that purpose; every other visual has moved to Tailwind
+// classes on the new design tokens.
+import { C } from '../theme';
+import { cn } from '../lib/utils';
 import { formatTime } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -165,14 +171,14 @@ function Step1Content({ version, phaseStarts, phaseEnds, setPhaseStarts, setPhas
 
   return (
     <div>
-      <h3 style={{ margin: '0 0 8px', fontSize: '17px', color: C.textPrimary }}>📅 הגדרת מסגרת זמן</h3>
-      <p style={{ margin: '0 0 16px', color: C.textMuted, fontSize: '15px' }}>
+      <h3 className="m-0 mb-2 text-sm text-foreground">📅 הגדרת מסגרת זמן</h3>
+      <p className="m-0 mb-4 text-xs text-subtle-foreground">
         קבע שעת התחלה וסיום לכל שלב. המערכת תחשב את זמן כל משימה לפי מבנה התלויות.
       </p>
 
       {/* Base night date picker */}
-      <div style={{ marginBottom: '18px', padding: '12px 16px', background: C.infoBg, border: `1px solid ${C.info}`, borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
-        <span style={{ fontWeight: '600', fontSize: '15px', color: C.info, whiteSpace: 'nowrap' }}>🌙 תאריך לילה ההטמעה:</span>
+      <div className="mb-[18px] flex flex-wrap items-center gap-3.5 rounded-md border border-info/30 bg-info/10 px-4 py-3">
+        <span className="whitespace-nowrap text-xs font-semibold text-info">🌙 תאריך לילה ההטמעה:</span>
         <DateField
           value={baseDate}
           onChange={v => setBaseDate(v)}
@@ -181,33 +187,36 @@ function Step1Content({ version, phaseStarts, phaseEnds, setPhaseStarts, setPhas
         <button
           onClick={() => applyDefaults(baseDate)}
           disabled={!baseDate}
-          style={{ padding: '6px 14px', background: baseDate ? C.info : C.textMuted, color: 'white', border: 'none', borderRadius: '6px', cursor: baseDate ? 'pointer' : 'not-allowed', fontSize: '15px', fontWeight: '600', whiteSpace: 'nowrap' }}
+          className={cn(
+            'whitespace-nowrap rounded-md px-3.5 py-1.5 text-xs font-semibold text-white transition-colors duration-fast ease-out',
+            baseDate ? 'cursor-pointer bg-info hover:brightness-95' : 'cursor-not-allowed bg-subtle-foreground'
+          )}
         >
           חשב ברירות מחדל ⚡
         </button>
-        <span style={{ fontSize: '13px', color: C.textMuted }}>כל שעות השלבים יחושבו אוטומטית</span>
+        <span className="text-xs text-subtle-foreground">כל שעות השלבים יחושבו אוטומטית</span>
       </div>
 
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
+      <table className="w-full border-collapse text-xs">
         <thead>
-          <tr style={{ background: C.bgNested }}>
-            <th style={{ padding: '10px 12px', textAlign: 'right', borderBottom: `2px solid ${C.border}`, fontWeight: '600', color: C.textPrimary }}>שלב</th>
-            <th style={{ padding: '10px 12px', textAlign: 'center', borderBottom: `2px solid ${C.border}`, fontWeight: '600', color: C.textPrimary }}>התחלה</th>
-            <th style={{ padding: '10px 12px', textAlign: 'center', borderBottom: `2px solid ${C.border}`, fontWeight: '600', color: C.textPrimary }}>סיום</th>
+          <tr className="bg-muted">
+            <th className="border-b-2 border-border px-3 py-2.5 text-right font-semibold text-foreground">שלב</th>
+            <th className="border-b-2 border-border px-3 py-2.5 text-center font-semibold text-foreground">התחלה</th>
+            <th className="border-b-2 border-border px-3 py-2.5 text-center font-semibold text-foreground">סיום</th>
           </tr>
         </thead>
         <tbody>
           {sortedPhases.map((phase: any) => (
-            <tr key={phase.id} style={{ borderBottom: `1px solid ${C.bgNested}` }}>
-              <td style={{ padding: '10px 12px', color: C.textPrimary, fontWeight: '500' }}>{phase.name}</td>
-              <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+            <tr key={phase.id} className="border-b border-muted">
+              <td className="px-3 py-2.5 font-medium text-foreground">{phase.name}</td>
+              <td className="px-3 py-2 text-center">
                 <DateTimeField
                   value={phaseStarts[phase.id] ?? ''}
                   onChange={v => setPhaseStarts({ ...phaseStarts, [phase.id]: v })}
                   style={{ padding: '6px 10px', border: `1px solid ${C.borderEm}`, borderRadius: '6px', fontSize: '15px' }}
                 />
               </td>
-              <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+              <td className="px-3 py-2 text-center">
                 <DateTimeField
                   value={phaseEnds[phase.id] ?? ''}
                   onChange={v => setPhaseEnds({ ...phaseEnds, [phase.id]: v })}
@@ -234,8 +243,8 @@ function Step2Content({ version, users, teams, workerReplacements, setWorkerRepl
 
   if (entries.length === 0) {
     return (
-      <div style={{ textAlign: 'center', padding: '40px', color: C.textMuted }}>
-        <div style={{ fontSize: '32px', marginBottom: '12px' }}>👤</div>
+      <div className="p-10 text-center text-subtle-foreground">
+        <div className="mb-3 text-[32px]">👤</div>
         אין משימות עם צוות מוקצה בתוכנית זו
       </div>
     );
@@ -258,18 +267,18 @@ function Step2Content({ version, users, teams, workerReplacements, setWorkerRepl
 
   return (
     <div>
-      <h3 style={{ margin: '0 0 8px', fontSize: '17px', color: C.textPrimary }}>👥 החלפת עובדים</h3>
-      <p style={{ margin: '0 0 20px', color: C.textMuted, fontSize: '15px' }}>
+      <h3 className="m-0 mb-2 text-[17px] text-foreground">👥 החלפת עובדים</h3>
+      <p className="m-0 mb-5 text-[15px] text-subtle-foreground">
         בחר מחליף לכל עובד מהתבנית. עזוב ריק כדי לשמור על העובד המקורי. ניתן להגביל את ההחלפה לשלב מסוים בלבד, במקום כל הגרסה —
         וניתן להוסיף כמה החלפות לאותו עובד, כל אחת עבור שלב אחר.
       </p>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
+      <table className="w-full border-collapse text-[15px]">
         <thead>
-          <tr style={{ background: C.bgNested }}>
-            <th style={{ padding: '10px 12px', textAlign: 'right', borderBottom: `2px solid ${C.border}`, fontWeight: '600', color: C.textPrimary }}>עובד בתבנית</th>
-            <th style={{ padding: '10px 12px', textAlign: 'right', borderBottom: `2px solid ${C.border}`, fontWeight: '600', color: C.textPrimary }}>מחליף →</th>
-            <th style={{ padding: '10px 12px', textAlign: 'right', borderBottom: `2px solid ${C.border}`, fontWeight: '600', color: C.textPrimary }}>תחולה</th>
-            <th style={{ padding: '10px 12px', borderBottom: `2px solid ${C.border}`, width: '32px' }} />
+          <tr className="bg-muted">
+            <th className="border-b-2 border-border px-3 py-2.5 text-right font-semibold text-foreground">עובד בתבנית</th>
+            <th className="border-b-2 border-border px-3 py-2.5 text-right font-semibold text-foreground">מחליף →</th>
+            <th className="border-b-2 border-border px-3 py-2.5 text-right font-semibold text-foreground">תחולה</th>
+            <th className="w-8 border-b-2 border-border" />
           </tr>
         </thead>
         <tbody>
@@ -283,34 +292,40 @@ function Step2Content({ version, users, teams, workerReplacements, setWorkerRepl
               new Set(rows.filter((_, i) => i !== excludeIdx).map(r => r.phaseId).filter(Boolean));
 
             return rows.map((current, idx) => (
-              <tr key={`${entry.key}:${idx}`} style={{ borderBottom: idx === rows.length - 1 ? `1px solid ${C.bgNested}` : 'none', background: entry.isEmpty ? C.warningBg : 'transparent' }}>
-                <td style={{ padding: '10px 12px', color: entry.isEmpty ? C.warning : C.textPrimary }}>
+              <tr
+                key={`${entry.key}:${idx}`}
+                className={cn(
+                  idx === rows.length - 1 ? 'border-b border-muted' : 'border-b-0',
+                  entry.isEmpty ? 'bg-warning-bg' : 'bg-transparent'
+                )}
+              >
+                <td className={cn('px-3 py-2.5', entry.isEmpty ? 'text-warning' : 'text-foreground')}>
                   {idx === 0 && (
                     <>
                       {entry.isEmpty ? (
                         <span>
-                          <span style={{ color: C.warning, marginLeft: '4px' }}>⚠</span>
+                          <span className="me-1 text-warning">⚠</span>
                           לא משובץ
                         </span>
                       ) : (
                         <span>
                           {entry.displayName}
                           {entry.isUnknown && (
-                            <span style={{ fontSize: '13px', color: C.danger, marginRight: '6px' }} title="עובד לא פעיל / לא קיים במערכת">⚠ לא פעיל</span>
+                            <span className="ms-1.5 text-[13px] text-danger" title="עובד לא פעיל / לא קיים במערכת">⚠ לא פעיל</span>
                           )}
                         </span>
                       )}
                       {team && (
-                        <span style={{ fontSize: '13px', color: C.textMuted, marginRight: '6px' }}>({team.name})</span>
+                        <span className="ms-1.5 text-[13px] text-subtle-foreground">({team.name})</span>
                       )}
                     </>
                   )}
                 </td>
-                <td style={{ padding: '8px 12px' }}>
+                <td className="px-3 py-2">
                   <select
                     value={current.toUserId}
                     onChange={e => updateRow(entry.key, idx, { toUserId: e.target.value })}
-                    style={{ padding: '7px 10px', border: `1px solid ${C.borderEm}`, borderRadius: '6px', fontSize: '15px', width: '100%', background: 'white' }}
+                    className="w-full rounded-md border border-border bg-card px-2.5 py-[7px] text-[15px]"
                   >
                     <option value="">{entry.isEmpty ? '— בחר עובד לשיבוץ —' : '— ללא שינוי —'}</option>
                     {pool.map((u: any) => (
@@ -318,12 +333,15 @@ function Step2Content({ version, users, teams, workerReplacements, setWorkerRepl
                     ))}
                   </select>
                 </td>
-                <td style={{ padding: '8px 12px' }}>
+                <td className="px-3 py-2">
                   <select
                     value={current.phaseId}
                     disabled={!current.toUserId}
                     onChange={e => updateRow(entry.key, idx, { phaseId: e.target.value })}
-                    style={{ padding: '7px 10px', border: `1px solid ${C.borderEm}`, borderRadius: '6px', fontSize: '15px', width: '100%', background: current.toUserId ? 'white' : C.bgNested, color: current.toUserId ? C.textPrimary : C.textMuted }}
+                    className={cn(
+                      'w-full rounded-md border border-border px-2.5 py-[7px] text-[15px]',
+                      current.toUserId ? 'bg-card text-foreground' : 'bg-muted text-subtle-foreground'
+                    )}
                     title="ברירת מחדל: כל הגרסה"
                   >
                     <option value="">כל הגרסה</option>
@@ -332,20 +350,20 @@ function Step2Content({ version, users, teams, workerReplacements, setWorkerRepl
                     ))}
                   </select>
                 </td>
-                <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                <td className="px-3 py-2 text-center">
                   {idx === rows.length - 1 ? (
                     <button
                       type="button"
                       title="הוסף החלפה נוספת לאותו עובד עבור שלב אחר"
                       onClick={() => addRow(entry.key)}
-                      style={{ background: 'none', border: `1px solid ${C.borderEm}`, borderRadius: '6px', width: '26px', height: '26px', cursor: 'pointer', color: C.info, fontSize: '15px', lineHeight: 1 }}
+                      className="h-[26px] w-[26px] cursor-pointer rounded-md border border-border bg-transparent text-[15px] leading-none text-info"
                     >+</button>
                   ) : (
                     <button
                       type="button"
                       title="הסר החלפה זו"
                       onClick={() => removeRow(entry.key, idx)}
-                      style={{ background: 'none', border: `1px solid ${C.borderEm}`, borderRadius: '6px', width: '26px', height: '26px', cursor: 'pointer', color: C.danger, fontSize: '15px', lineHeight: 1 }}
+                      className="h-[26px] w-[26px] cursor-pointer rounded-md border border-border bg-transparent text-[15px] leading-none text-danger"
                     >✕</button>
                   )}
                 </td>
@@ -361,26 +379,26 @@ function Step2Content({ version, users, teams, workerReplacements, setWorkerRepl
 function Step3Content({ depsResult }: { depsResult: { created: number; skipped: number } | null }) {
   return (
     <div>
-      <h3 style={{ margin: '0 0 8px', fontSize: '17px', color: C.textPrimary }}>🔗 תלויות ועדכון זמנים</h3>
-      <p style={{ margin: '0 0 16px', color: C.textMuted, fontSize: '15px' }}>
+      <h3 className="m-0 mb-2 text-[17px] text-foreground">🔗 תלויות ועדכון זמנים</h3>
+      <p className="m-0 mb-4 text-[15px] text-subtle-foreground">
         יצירת תלויות אוטומטיות בין משימות של אותו עובד (לפי סדר), ואחריה חישוב זמני ביצוע לפי שרשראות התלות.
       </p>
 
-      <div style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: '10px', padding: '16px 20px', marginBottom: '16px' }}>
-        <div style={{ fontWeight: 'bold', color: C.textPrimary, marginBottom: '8px', fontSize: '15px' }}>מה יקרה:</div>
-        <ul style={{ margin: 0, paddingRight: '20px', color: C.textSecondary, fontSize: '15px', lineHeight: '1.8' }}>
+      <div className="mb-4 rounded-[10px] border border-border bg-muted px-5 py-4">
+        <div className="mb-2 text-[15px] font-bold text-foreground">מה יקרה:</div>
+        <ul className="m-0 ps-5 text-[15px] leading-[1.8] text-muted-foreground">
           <li>לכל עובד, כל משימה שלו תהיה תלויה במשימה הקודמת שלו (בתוך אותו שלב)</li>
           <li>תלויות קיימות לא יידרסו</li>
           <li>לאחר יצירת התלויות — המערכת תחשב מחדש את זמני כל המשימות</li>
         </ul>
       </div>
 
-      <div style={{ background: C.warningBg, border: `1px solid ${C.warning}`, borderRadius: '10px', padding: '12px 16px', fontSize: '15px', color: C.warning }}>
+      <div className="rounded-[10px] border border-warning bg-warning-bg px-4 py-3 text-[15px] text-warning">
         💡 <strong>לחץ "רק חשב זמנים"</strong> אם כבר יצרת תלויות ורוצה רק לעדכן את הזמנים לפיהן.
       </div>
 
       {depsResult && (
-        <div style={{ marginTop: '16px', background: C.successBg, border: `1px solid ${C.success}`, borderRadius: '8px', padding: '12px 16px', fontSize: '15px', color: C.success }}>
+        <div className="mt-4 rounded-md border border-success bg-success-bg px-4 py-3 text-[15px] text-success">
           ✅ נוצרו <strong>{depsResult.created}</strong> תלויות חדשות | דולגו (קיימות/מעגליות): <strong>{depsResult.skipped}</strong>
         </div>
       )}
@@ -429,20 +447,16 @@ function Step4Content({ anomalies, versionId, token, onRedetect }: {
     }
   };
 
-  const thStyle: React.CSSProperties = {
-    padding: '9px 10px', textAlign: 'right', borderBottom: `2px solid ${C.borderEm}`,
-    color: C.textPrimary, fontWeight: '700', fontSize: '14px', background: C.border,
-  };
-  const thC: React.CSSProperties = { ...thStyle, textAlign: 'center' };
+  const TH_CLASS = 'border-b-2 border-border bg-border px-2.5 py-[9px] text-sm font-bold text-foreground';
 
   if (anomalies === null) {
     return (
       <div>
-        <h3 style={{ margin: '0 0 8px', fontSize: '17px', color: C.textPrimary }}>🔍 בדיקת חריגות</h3>
-        <p style={{ margin: '0 0 20px', color: C.textMuted, fontSize: '15px' }}>
+        <h3 className="m-0 mb-2 text-[17px] text-foreground">🔍 בדיקת חריגות</h3>
+        <p className="m-0 mb-5 text-[15px] text-subtle-foreground">
           בדיקה אם משימות כלשהן חורגות מסיום השלב המתוכנן.
         </p>
-        <div style={{ textAlign: 'center', padding: '40px', color: C.textMuted }}>
+        <div className="p-10 text-center text-subtle-foreground">
           לחץ "בדוק חריגות" כדי לבצע את הבדיקה
         </div>
       </div>
@@ -452,11 +466,11 @@ function Step4Content({ anomalies, versionId, token, onRedetect }: {
   if (anomalies.length === 0) {
     return (
       <div>
-        <h3 style={{ margin: '0 0 8px', fontSize: '17px', color: C.textPrimary }}>🔍 בדיקת חריגות</h3>
-        <div style={{ textAlign: 'center', padding: '40px' }}>
-          <div style={{ fontSize: '48px', marginBottom: '12px' }}>✅</div>
-          <div style={{ color: C.success, fontWeight: 'bold', fontSize: '17px' }}>לא נמצאו חריגות</div>
-          <div style={{ color: C.textMuted, fontSize: '15px', marginTop: '8px' }}>כל המשימות בתוך מסגרת הזמן של השלב</div>
+        <h3 className="m-0 mb-2 text-[17px] text-foreground">🔍 בדיקת חריגות</h3>
+        <div className="p-10 text-center">
+          <div className="mb-3 text-[48px]">✅</div>
+          <div className="text-[17px] font-bold text-success">לא נמצאו חריגות</div>
+          <div className="mt-2 text-[15px] text-subtle-foreground">כל המשימות בתוך מסגרת הזמן של השלב</div>
         </div>
       </div>
     );
@@ -470,67 +484,70 @@ function Step4Content({ anomalies, versionId, token, onRedetect }: {
 
   return (
     <div>
-      <h3 style={{ margin: '0 0 8px', fontSize: '17px', color: C.textPrimary }}>🔍 בדיקת חריגות</h3>
-      <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}`, borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', color: C.danger, fontSize: '15px', fontWeight: 'bold' }}>
+      <h3 className="m-0 mb-2 text-[17px] text-foreground">🔍 בדיקת חריגות</h3>
+      <div className="mb-4 rounded-md border border-danger bg-danger-bg px-4 py-3 text-[15px] font-bold text-danger">
         ⚠️ נמצאו {anomalies.length} חריגות — משימות שיסתיימו אחרי סיום השלב
       </div>
 
       {Object.entries(byPhase).map(([phaseName, items]) => (
-        <div key={phaseName} style={{ marginBottom: '20px' }}>
-          <div style={{ fontWeight: 'bold', color: C.textPrimary, marginBottom: '8px', fontSize: '15px', padding: '6px 12px', background: C.dangerBg, borderRadius: '6px', borderRight: `3px solid ${C.danger}` }}>
+        <div key={phaseName} className="mb-5">
+          <div className="mb-2 rounded-md border-s-[3px] border-s-danger bg-danger-bg px-3 py-1.5 text-[15px] font-bold text-foreground">
             שלב: {phaseName}
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
+          <table className="w-full border-collapse text-[15px]">
             <thead>
               <tr>
-                <th style={thStyle}>משימה</th>
-                <th style={{ ...thC, width: '130px' }}>משך (עריכה)</th>
-                <th style={{ ...thC, width: '90px' }}>סיום מתוכנן</th>
-                <th style={{ ...thC, width: '80px' }}>סיום שלב</th>
-                <th style={{ ...thC, width: '70px' }}>חריגה</th>
-                <th style={{ ...thC }}>הסר תלות</th>
+                <th className={cn(TH_CLASS, 'text-right')}>משימה</th>
+                <th className={cn(TH_CLASS, 'w-[130px] text-center')}>משך (עריכה)</th>
+                <th className={cn(TH_CLASS, 'w-[90px] text-center')}>סיום מתוכנן</th>
+                <th className={cn(TH_CLASS, 'w-20 text-center')}>סיום שלב</th>
+                <th className={cn(TH_CLASS, 'w-[70px] text-center')}>חריגה</th>
+                <th className={cn(TH_CLASS, 'text-center')}>הסר תלות</th>
               </tr>
             </thead>
             <tbody>
               {items.map((a: any) => (
                 <React.Fragment key={a.taskId}>
-                  <tr style={{ borderBottom: rowErrors[a.taskId] ? 'none' : `1px solid ${C.bgNested}`, background: 'white' }}>
-                    <td style={{ padding: '8px 10px', color: C.textPrimary, fontWeight: '500' }}>
+                  <tr className={cn('bg-card', !rowErrors[a.taskId] && 'border-b border-muted')}>
+                    <td className="px-2.5 py-2 font-medium text-foreground">
                       {a.taskTitle}
-                      {a.assignedUserName && <span style={{ display: 'block', fontSize: '13px', color: C.textMuted }}>👤 {a.assignedUserName}</span>}
+                      {a.assignedUserName && <span className="block text-[13px] text-subtle-foreground">👤 {a.assignedUserName}</span>}
                     </td>
-                    <td style={{ padding: '6px 8px', textAlign: 'center' }}>
-                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center', justifyContent: 'center' }}>
+                    <td className="px-2 py-1.5 text-center">
+                      <div className="flex items-center justify-center gap-1">
                         <input
                           type="text"
                           value={editDur[a.taskId] !== undefined ? editDur[a.taskId] : (a.duration ?? '')}
                           onChange={e => setEditDur(p => ({ ...p, [a.taskId]: e.target.value }))}
                           placeholder="30ד / 1ש30ד"
-                          style={{ width: '72px', padding: '4px 6px', border: `1px solid ${C.borderEm}`, borderRadius: '5px', fontSize: '14px', direction: 'ltr', textAlign: 'center' }}
+                          className="w-[72px] rounded-[5px] border border-border px-1.5 py-1 text-center text-sm [direction:ltr]"
                         />
                         <button
                           onClick={() => saveDuration(a.taskId, a.duration)}
                           disabled={saving === a.taskId}
-                          style={{ padding: '4px 8px', background: saving === a.taskId ? C.textMuted : C.brand, color: 'white', border: 'none', borderRadius: '5px', cursor: saving === a.taskId ? 'not-allowed' : 'pointer', fontSize: '13px', whiteSpace: 'nowrap' }}
+                          className={cn(
+                            'whitespace-nowrap rounded-[5px] border-none px-2 py-1 text-[13px] text-white',
+                            saving === a.taskId ? 'cursor-not-allowed bg-subtle-foreground' : 'cursor-pointer bg-primary'
+                          )}
                         >
                           {saving === a.taskId ? '...' : 'עדכן'}
                         </button>
                       </div>
                     </td>
-                    <td style={{ padding: '8px 10px', textAlign: 'center', color: C.danger, direction: 'ltr', fontWeight: '600' }}>
+                    <td className="px-2.5 py-2 text-center font-semibold text-danger [direction:ltr]">
                       {formatTime(a.taskEnd)}
                     </td>
-                    <td style={{ padding: '8px 10px', textAlign: 'center', color: C.textSecondary, direction: 'ltr' }}>
+                    <td className="px-2.5 py-2 text-center text-muted-foreground [direction:ltr]">
                       {formatTime(a.phaseEnd)}
                     </td>
-                    <td style={{ padding: '8px 10px', textAlign: 'center', color: C.danger, fontWeight: 'bold' }}>
+                    <td className="px-2.5 py-2 text-center font-bold text-danger">
                       +{a.overrunMins}ד'
                     </td>
-                    <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                    <td className="px-2 py-1.5 text-center">
                       {(a.dependencies ?? []).length === 0 ? (
-                        <span style={{ color: C.textMuted, fontSize: '13px' }}>—</span>
+                        <span className="text-[13px] text-subtle-foreground">—</span>
                       ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                        <div className="flex flex-col gap-[3px]">
                           {(a.dependencies ?? []).map((dep: any) => {
                             const key = `${a.taskId}|${dep.taskId}`;
                             return (
@@ -539,7 +556,10 @@ function Step4Content({ anomalies, versionId, token, onRedetect }: {
                                 onClick={() => removeDep(a.taskId, dep.taskId, dep.taskTitle)}
                                 disabled={removing === key}
                                 title={`הסר תלות על: ${dep.taskTitle}`}
-                                style={{ padding: '3px 7px', background: removing === key ? C.textMuted : C.dangerBg, color: C.danger, border: `1px solid ${C.danger}`, borderRadius: '4px', cursor: removing === key ? 'not-allowed' : 'pointer', fontSize: '13px', whiteSpace: 'nowrap', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                className={cn(
+                                  'max-w-[140px] overflow-hidden text-ellipsis whitespace-nowrap rounded border border-danger px-[7px] py-[3px] text-[13px] text-danger',
+                                  removing === key ? 'cursor-not-allowed bg-subtle-foreground' : 'cursor-pointer bg-danger-bg'
+                                )}
                               >
                                 {removing === key ? '...' : `🔗 ${dep.taskTitle.length > 18 ? dep.taskTitle.slice(0, 18) + '…' : dep.taskTitle}`}
                               </button>
@@ -551,8 +571,8 @@ function Step4Content({ anomalies, versionId, token, onRedetect }: {
                   </tr>
                   {rowErrors[a.taskId] && (
                     <tr>
-                      <td colSpan={6} style={{ padding: '2px 10px 8px', borderBottom: `1px solid ${C.bgNested}` }}>
-                        <span style={{ color: C.danger, fontSize: '13px' }}>⚠️ {rowErrors[a.taskId]}</span>
+                      <td colSpan={6} className="border-b border-muted px-2.5 pb-2 pt-0.5">
+                        <span className="text-[13px] text-danger">⚠️ {rowErrors[a.taskId]}</span>
                       </td>
                     </tr>
                   )}
@@ -562,7 +582,7 @@ function Step4Content({ anomalies, versionId, token, onRedetect }: {
           </table>
         </div>
       ))}
-      <p style={{ color: C.textMuted, fontSize: '14px', marginTop: '8px' }}>
+      <p className="mt-2 text-sm text-subtle-foreground">
         לאחר עדכון משך או הסרת תלות — הפעל מחדש את "בדוק חריגות" כדי לאמת.
       </p>
     </div>
@@ -593,36 +613,36 @@ function Step5Content({ sortResult, version }: { sortResult: { reordered: number
 
   return (
     <div>
-      <h3 style={{ margin: '0 0 8px', fontSize: '17px', color: C.textPrimary }}>🔀 מיון כרונולוגי</h3>
-      <p style={{ margin: '0 0 16px', color: C.textMuted, fontSize: '15px' }}>
+      <h3 className="m-0 mb-2 text-[17px] text-foreground">🔀 מיון כרונולוגי</h3>
+      <p className="m-0 mb-4 text-[15px] text-subtle-foreground">
         מסדר את orderIndex של משימות לפי plannedStart בתוך כל תת-שלב.
       </p>
 
       {sortResult ? (
-        <div style={{ textAlign: 'center', padding: '30px' }}>
-          <div style={{ fontSize: '40px', marginBottom: '12px' }}>✅</div>
-          <div style={{ color: C.success, fontWeight: 'bold', fontSize: '17px' }}>
+        <div className="p-[30px] text-center">
+          <div className="mb-3 text-[40px]">✅</div>
+          <div className="text-[17px] font-bold text-success">
             {sortResult.reordered > 0 ? `${sortResult.reordered} משימות מוינו מחדש` : 'הסדר כבר תקין — אין שינויים נדרשים'}
           </div>
         </div>
       ) : sample.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '30px', color: C.textMuted }}>
-          <div style={{ fontSize: '32px', marginBottom: '8px' }}>ℹ️</div>
+        <div className="p-[30px] text-center text-subtle-foreground">
+          <div className="mb-2 text-[32px]">ℹ️</div>
           אין משימות עם זמנים מתוכננים הדורשות מיון
         </div>
       ) : (
         <div>
-          <div style={{ fontWeight: '600', color: C.textPrimary, marginBottom: '12px', fontSize: '15px' }}>תצוגה מקדימה — תת-שלבים שישתנו:</div>
+          <div className="mb-3 text-[15px] font-semibold text-foreground">תצוגה מקדימה — תת-שלבים שישתנו:</div>
           {sample.map((s, i) => (
-            <div key={i} style={{ marginBottom: '16px', border: `1px solid ${C.border}`, borderRadius: '8px', overflow: 'hidden' }}>
-              <div style={{ padding: '8px 14px', background: C.bgNested, fontWeight: '600', fontSize: '15px', color: C.textPrimary }}>
+            <div key={i} className="mb-4 overflow-hidden rounded-md border border-border">
+              <div className="bg-muted px-3.5 py-2 text-[15px] font-semibold text-foreground">
                 {s.phaseName} › {s.subName}
               </div>
-              <div style={{ padding: '10px 14px' }}>
+              <div className="px-3.5 py-2.5">
                 {s.tasks.map((t: any, ti: number) => (
-                  <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '4px 0', fontSize: '15px', color: C.textSecondary }}>
-                    <span style={{ color: C.textMuted, minWidth: '20px' }}>{ti + 1}.</span>
-                    <span style={{ color: C.info, minWidth: '50px', direction: 'ltr', fontFamily: 'monospace' }}>
+                  <div key={t.id} className="flex items-center gap-2.5 py-1 text-[15px] text-muted-foreground">
+                    <span className="min-w-[20px] text-subtle-foreground">{ti + 1}.</span>
+                    <span className="min-w-[50px] font-mono text-info [direction:ltr]">
                       {formatTime(t.plannedStart)}
                     </span>
                     <span>{t.title}</span>
@@ -831,36 +851,29 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 3000, direction: 'rtl' }}>
-      <div style={{ position: 'absolute', inset: 0, background: C.bgOverlay, backdropFilter: 'blur(2px)' }} />
+    <div className="fixed inset-0 z-[3000]" dir="rtl">
+      <div className="absolute inset-0 backdrop-blur-[2px]" style={{ background: C.bgOverlay }} />
 
-      <div style={{
-        position: 'relative', zIndex: 1, maxWidth: 860,
-        margin: '32px auto', background: C.bgCard, borderRadius: RADIUS.xl,
-        boxShadow: SHADOW.md, overflow: 'hidden', fontFamily: FONT,
-        display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 64px)',
-      }}>
+      <div className="relative z-[1] mx-auto flex max-w-[860px] flex-col overflow-hidden rounded-2xl bg-card shadow-md" style={{ margin: '32px auto', maxHeight: 'calc(100vh - 64px)' }}>
 
         {/* ── Header — light, matches the app's other modal headers ── */}
-        <div style={{ padding: `${SP[4]} ${SP[6]}`, background: C.bgCard, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+        <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-6 py-4">
           <div>
-            <div style={{ fontSize: '17px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>🔧 הכן תוכנית</div>
-            <div style={{ fontSize: '14px', color: C.textMuted, marginTop: '2px' }}>{version.name}</div>
+            <div className="text-[17px] font-bold text-foreground">🔧 הכן תוכנית</div>
+            <div className="mt-0.5 text-sm text-subtle-foreground">{version.name}</div>
           </div>
           <button
             onClick={onClose}
             title="סגור"
-            style={{ background: 'transparent', border: 'none', color: C.textMuted, fontSize: '18px', cursor: 'pointer', padding: SP[1], lineHeight: 1, transition: EASE.fast }}
-            onMouseEnter={e => { e.currentTarget.style.color = C.danger; }}
-            onMouseLeave={e => { e.currentTarget.style.color = C.textMuted; }}
+            className="cursor-pointer border-none bg-transparent p-1 text-lg leading-none text-subtle-foreground transition-colors duration-fast ease-out hover:text-danger"
           >
             ✕
           </button>
         </div>
 
         {/* ── Progress bar — connected step chain, consistent with the app's other stage-chain components ── */}
-        <div style={{ padding: `${SP[4]} ${SP[6]}`, background: C.bgNested, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-          <div style={{ display: 'flex', gap: SP[1], alignItems: 'stretch' }}>
+        <div className="shrink-0 border-b border-border bg-muted px-6 py-4">
+          <div className="flex items-stretch gap-1">
             {STEP_LABELS.map((label, i) => {
               const key = stepKeys[i];
               const status = wizState[key];
@@ -874,15 +887,19 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
                 <React.Fragment key={i}>
                   <button
                     onClick={() => { setStep(i); setError(null); setStepMessage(null); }}
-                    style={{ flex: 1, padding: '8px 6px', border: `1.5px solid ${border}`, borderRadius: RADIUS.md, cursor: 'pointer', background: bg, color: fg, fontSize: '13px', fontWeight: isActive ? WEIGHT.bold : WEIGHT.medium, transition: EASE.fast, lineHeight: 1.4, fontFamily: FONT }}
+                    className={cn(
+                      'flex-1 rounded-md border-[1.5px] px-1.5 py-2 text-[13px] leading-snug cursor-pointer transition-[background-color,color,border-color] duration-fast ease-out',
+                      isActive ? 'font-bold' : 'font-medium'
+                    )}
+                    style={{ background: bg, color: fg, borderColor: border }}
                   >
-                    <div style={{ fontSize: '15px', marginBottom: '3px' }}>
+                    <div className="mb-[3px] text-[15px]">
                       {isDone ? '✅' : isSkipped ? '⊘' : `${i + 1}`}
                     </div>
                     {label}
                   </button>
                   {i < 4 && (
-                    <div style={{ width: '14px', alignSelf: 'center', height: '2px', borderTop: `2px dashed ${isDone ? C.success : C.border}`, flexShrink: 0 }} />
+                    <div className="h-0.5 w-3.5 shrink-0 self-center border-t-2 border-dashed" style={{ borderTopColor: isDone ? C.success : C.border }} />
                   )}
                 </React.Fragment>
               );
@@ -891,14 +908,14 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
         </div>
 
         {/* ── Step content ── */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+        <div className="flex-1 overflow-y-auto px-7 py-6">
           {error && (
-            <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}`, borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', color: C.danger, fontSize: '15px' }}>
+            <div className="mb-4 rounded-lg border border-danger bg-danger-bg px-4 py-3 text-[15px] text-danger">
               ⚠️ {error}
             </div>
           )}
           {stepMessage && (
-            <div style={{ background: C.successBg, border: `1px solid ${C.success}`, borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', color: C.success, fontSize: '15px' }}>
+            <div className="mb-4 rounded-lg border border-success bg-success-bg px-4 py-3 text-[15px] text-success">
               {stepMessage}
             </div>
           )}
@@ -931,61 +948,63 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
              saving" button that called the exact same onClose as the header's
              ✕ — pure duplication with a misleading label implying different
              behavior. Removed; the header ✕ is now the only close action. ── */}
-        <div style={{ padding: `${SP[3]} ${SP[6]}`, borderTop: `1px solid ${C.border}`, background: C.bgCard, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+        <div className="flex shrink-0 items-center justify-between border-t border-border bg-card px-6 py-3">
           <button
             onClick={() => { setStep(s => Math.max(0, s - 1)); setError(null); setStepMessage(null); }}
             disabled={step === 0}
-            style={{
-              padding: '9px 18px', background: 'transparent',
-              border: `1px solid ${step === 0 ? C.border : C.borderEm}`, borderRadius: RADIUS.md,
-              cursor: step === 0 ? 'not-allowed' : 'pointer', color: step === 0 ? C.textDisabled : C.textSecondary,
-              fontSize: '15px', fontFamily: FONT, transition: EASE.fast,
-            }}
+            className={cn(
+              'rounded-md border bg-transparent px-[18px] py-[9px] text-[15px] transition-colors duration-fast ease-out',
+              step === 0 ? 'cursor-not-allowed text-subtle-foreground' : 'cursor-pointer text-muted-foreground'
+            )}
+            style={{ borderColor: step === 0 ? C.border : C.borderEm }}
           >
             → חזור
           </button>
 
-          <div style={{ display: 'flex', gap: SP[3], alignItems: 'center' }}>
+          <div className="flex items-center gap-3">
             <button
               onClick={() => markStep('skipped')}
               disabled={loading}
-              style={{ padding: '9px 10px', background: 'transparent', color: C.textMuted, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', fontSize: '14px', fontFamily: FONT, textDecoration: 'underline', textUnderlineOffset: '2px' }}
+              className={cn(
+                'border-none bg-transparent px-2.5 py-[9px] text-sm text-subtle-foreground underline underline-offset-2',
+                loading ? 'cursor-not-allowed' : 'cursor-pointer'
+              )}
             >
               דלג על שלב זה
             </button>
 
             {step === 0 && (
-              <button onClick={executeStep1} disabled={loading} style={btnStyle(C.brand)}>
+              <button onClick={executeStep1} disabled={loading} className={PRIMARY_BTN_CLASS} style={btnStyle(C.brand)}>
                 {loading ? '...' : '📅 קבע מסגרת ותזמן'}
               </button>
             )}
             {step === 1 && (
-              <button onClick={executeStep2} disabled={loading} style={btnStyle(C.warning)}>
+              <button onClick={executeStep2} disabled={loading} className={PRIMARY_BTN_CLASS} style={btnStyle(C.warning)}>
                 {loading ? '...' : '🔄 החלף עובדים'}
               </button>
             )}
             {step === 2 && (
               <>
-                <button onClick={executeStep3CalcOnly} disabled={loading} style={btnStyle(C.textSecondary)}>
+                <button onClick={executeStep3CalcOnly} disabled={loading} className={PRIMARY_BTN_CLASS} style={btnStyle(C.textSecondary)}>
                   {loading ? '...' : '⏱ רק חשב זמנים'}
                 </button>
-                <button onClick={executeStep3Full} disabled={loading} style={btnStyle(C.brand)}>
+                <button onClick={executeStep3Full} disabled={loading} className={PRIMARY_BTN_CLASS} style={btnStyle(C.brand)}>
                   {loading ? '...' : '🔗 צור תלויות וחשב'}
                 </button>
               </>
             )}
             {step === 3 && anomalies === null && (
-              <button onClick={executeStep4} disabled={loading} style={btnStyle(C.brand)}>
+              <button onClick={executeStep4} disabled={loading} className={PRIMARY_BTN_CLASS} style={btnStyle(C.brand)}>
                 {loading ? '...' : '🔍 בדוק חריגות'}
               </button>
             )}
             {step === 3 && anomalies !== null && anomalies.length > 0 && (
-              <button onClick={() => markStep('done')} disabled={loading} style={btnStyle(C.warning)}>
+              <button onClick={() => markStep('done')} disabled={loading} className={PRIMARY_BTN_CLASS} style={btnStyle(C.warning)}>
                 המשך בכל זאת ←
               </button>
             )}
             {step === 4 && (
-              <button onClick={executeStep5} disabled={loading} style={btnStyle(C.brand)}>
+              <button onClick={executeStep5} disabled={loading} className={PRIMARY_BTN_CLASS} style={btnStyle(C.brand)}>
                 {loading ? '...' : '🔀 סדר לפי שעה'}
               </button>
             )}
@@ -996,11 +1015,8 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
   );
 }
 
+const PRIMARY_BTN_CLASS = 'rounded-md border-none px-5 py-[9px] text-[15px] font-bold text-white shadow-xs cursor-pointer transition-[background-color] duration-fast ease-out';
+
 function btnStyle(bg: string): React.CSSProperties {
-  return {
-    padding: '9px 20px', background: bg, color: 'white',
-    border: 'none', borderRadius: RADIUS.md, cursor: 'pointer',
-    fontSize: '15px', fontWeight: WEIGHT.bold, fontFamily: FONT,
-    boxShadow: SHADOW.xs, transition: EASE.fast,
-  };
+  return { background: bg };
 }

@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { formatDate } from '../../utils/dateFormat';
 import { DefectIdBadge } from '../shared/defectFieldDisplay';
 import { BackLink } from '../ui';
@@ -21,7 +20,7 @@ interface Rca {
   aiConfidence: number | null; approvedBy: string | null; approvedAt: string | null; answers: RcaAnswer[]; lessons: RcaLesson[];
 }
 const RCA_STATUS_LABEL: Record<string, string> = { OPEN: 'פתוח', INVESTIGATION: 'בתחקור', COMPLETED: 'הושלם', CANCELLED: 'בוטל' };
-const RCA_STATUS_COLOR: Record<string, string> = { OPEN: C.textMuted, INVESTIGATION: C.warning, COMPLETED: C.success, CANCELLED: C.danger };
+const RCA_STATUS_CLASS: Record<string, string> = { OPEN: 'text-subtle-foreground', INVESTIGATION: 'text-warning', COMPLETED: 'text-success', CANCELLED: 'text-danger' };
 interface RelevantTeam { id: string; name: string; members: { id: string; fullName: string }[]; }
 interface RootCauseTaxonomy { categories: string[]; taxonomy: Record<string, string[]>; }
 
@@ -57,16 +56,13 @@ interface IncidentDetail {
 const PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 const PRIORITY_LABEL: Record<string, string> = { LOW: 'נמוכה', MEDIUM: 'בינונית', HIGH: 'גבוהה', CRITICAL: 'קריטית' };
 const ACTION_STATUS_LABEL: Record<string, string> = { OPEN: 'פתוח', IN_PROGRESS: 'בתהליך', DONE: 'הושלם', OVERDUE: 'באיחור' };
-const ACTION_STATUS_COLOR: Record<string, string> = { OPEN: C.textMuted, IN_PROGRESS: C.warning, DONE: C.success, OVERDUE: C.danger };
+const ACTION_STATUS_CLASS: Record<string, string> = { OPEN: 'text-subtle-foreground', IN_PROGRESS: 'text-warning', DONE: 'text-success', OVERDUE: 'text-danger' };
 
 const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
 
-const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '8px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md,
-  fontFamily: FONT, fontSize: '13px', boxSizing: 'border-box',
-};
-const labelStyle: React.CSSProperties = { ...TEXT.xs, color: C.textMuted, marginBottom: '4px', display: 'block' };
-const sectionTitleStyle: React.CSSProperties = { ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textSecondary, textTransform: 'uppercase', letterSpacing: '0.03em' };
+const inputClass = 'w-full px-2.5 py-2 border border-border rounded-md text-[13px] box-border';
+const labelClass = 'text-xs text-subtle-foreground mb-1 block';
+const sectionTitleClass = 'text-xs font-bold text-muted-foreground uppercase tracking-wide';
 
 interface Props { token: string; role: string; incidentId: string; onClose: () => void; onChanged: () => void; }
 
@@ -198,8 +194,8 @@ export const RcaWizardModal: React.FC<Props> = ({ token, role, incidentId, onClo
 
   if (loading || !incident) {
     return (
-      <div style={{ position: 'fixed', inset: 0, background: C.bgApp, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1001, fontFamily: FONT }}>
-        <div style={{ ...TEXT.sm, color: C.textMuted }}>טוען...</div>
+      <div className="fixed inset-0 bg-background flex items-center justify-center z-[1001]">
+        <div className="text-sm text-subtle-foreground">טוען...</div>
       </div>
     );
   }
@@ -207,63 +203,58 @@ export const RcaWizardModal: React.FC<Props> = ({ token, role, incidentId, onClo
   const concluded = ['RCA_DONE', 'CLOSED'].includes(incident.status);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: C.bgApp, zIndex: 1001, display: 'flex', flexDirection: 'column', fontFamily: FONT, direction: 'rtl' }}>
-      <div style={{ background: C.bgCard, borderBottom: `1px solid ${C.border}`, padding: `${SP[3]} ${SP[5]}`, display: 'flex', alignItems: 'flex-start', gap: SP[3], flexShrink: 0 }}>
+    <div className="fixed inset-0 bg-background z-[1001] flex flex-col">
+      <div className="bg-card border-b border-border px-5 py-3 flex items-start gap-3 shrink-0">
         <BackLink onClick={onClose} style={{ marginTop: '3px' }} />
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}><DefectIdBadge id={incident.qcDefectId} /> {incident.title}</div>
-          {incident.description && <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '4px' }}>{incident.description}</div>}
+          <div className="flex items-center gap-2 text-lg font-bold text-foreground"><DefectIdBadge id={incident.qcDefectId} /> {incident.title}</div>
+          {incident.description && <div className="text-xs text-subtle-foreground mt-1">{incident.description}</div>}
         </div>
       </div>
 
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      <div className="flex-1 flex overflow-hidden">
         {/* ── Main column: choose method / AI chat / manual investigation ── */}
-        <div style={{ flex: '1 1 60%', display: 'flex', flexDirection: 'column', minWidth: 0, borderLeft: `1px solid ${C.border}` }}>
+        <div className="flex-[1_1_60%] flex flex-col min-w-0 border-s border-border">
           {mode === 'CHOOSE' && (
             <ChooseModeScreen onChooseAi={startAiChat} onChooseManual={startManual} />
           )}
 
           {mode === 'AI_CHAT' && (
             <>
-              <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: SP[5], display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-                {error && <div style={{ ...TEXT.xs, color: C.danger, background: `${C.danger}11`, padding: '8px 10px', borderRadius: RADIUS.md }}>{error}</div>}
+              <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 flex flex-col gap-3">
+                {error && <div className="text-xs text-danger bg-danger-bg px-2.5 py-2 rounded-md">{error}</div>}
                 {starting && incident.chatMessages.length === 0 && (
-                  <div style={{ ...TEXT.sm, color: C.textMuted, alignSelf: 'flex-end', display: 'flex', alignItems: 'center', gap: '6px' }}>🤖 אוסף ראיות ופותח שיחה...</div>
+                  <div className="text-sm text-subtle-foreground self-end flex items-center gap-1.5">🤖 אוסף ראיות ופותח שיחה...</div>
                 )}
                 {incident.chatMessages.map(m => (
-                  <div key={m.id} style={{ alignSelf: m.role === 'USER' ? 'flex-start' : 'flex-end', maxWidth: '75%' }}>
-                    <div style={{
-                      background: m.role === 'USER' ? C.brand : (m.concluded ? `${C.success}18` : C.bgNested),
-                      color: m.role === 'USER' ? 'white' : C.textPrimary,
-                      border: m.concluded ? `1px solid ${C.success}` : 'none',
-                      borderRadius: RADIUS.lg, padding: '10px 14px', whiteSpace: 'pre-wrap', ...TEXT.sm, lineHeight: 1.6,
-                    }}>
-                      {m.concluded && <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.success, marginBottom: '4px' }}>✅ ה-RCA הושלם</div>}
+                  <div key={m.id} className="max-w-[75%]" style={{ alignSelf: m.role === 'USER' ? 'flex-start' : 'flex-end' }}>
+                    <div className={`rounded-lg px-3.5 py-2.5 whitespace-pre-wrap text-sm leading-relaxed border ${m.role === 'USER' ? 'bg-primary text-white border-transparent' : m.concluded ? 'bg-success-bg text-foreground border-success' : 'bg-muted text-foreground border-transparent'}`}>
+                      {m.concluded && <div className="text-xs font-bold text-success mb-1">✅ ה-RCA הושלם</div>}
                       {m.content}
                     </div>
                   </div>
                 ))}
                 {sending && (
-                  <div style={{ ...TEXT.sm, color: C.textMuted, alignSelf: 'flex-end' }}>🤖 חושב...</div>
+                  <div className="text-sm text-subtle-foreground self-end">🤖 חושב...</div>
                 )}
               </div>
 
               {!concluded ? (
-                <div style={{ borderTop: `1px solid ${C.border}`, padding: SP[3], display: 'flex', gap: SP[2], flexShrink: 0 }}>
+                <div className="border-t border-border p-3 flex gap-2 shrink-0">
                   <input
                     value={draft}
                     onChange={e => setDraft(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
                     placeholder="הקלד תשובה..."
                     disabled={sending || starting}
-                    style={{ ...inputStyle, flex: 1 }}
+                    className={`${inputClass} flex-1`}
                   />
-                  <button onClick={send} disabled={sending || starting || !draft.trim()} style={{ padding: '8px 20px', background: (!draft.trim() || sending) ? C.textDisabled : C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: (!draft.trim() || sending) ? 'not-allowed' : 'pointer', fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.bold }}>
+                  <button onClick={send} disabled={sending || starting || !draft.trim()} className={`px-5 py-2 text-white border-none rounded-md text-sm font-bold ${(!draft.trim() || sending) ? 'bg-subtle-foreground cursor-not-allowed' : 'bg-primary cursor-pointer'}`}>
                     שלח
                   </button>
                 </div>
               ) : (
-                <div style={{ borderTop: `1px solid ${C.border}`, padding: SP[3], textAlign: 'center', ...TEXT.xs, color: C.textMuted, flexShrink: 0 }}>
+                <div className="border-t border-border p-3 text-center text-xs text-subtle-foreground shrink-0">
                   השיחה הושלמה — המשך בפאנל מימין (פעולות מעקב / סגירה)
                 </div>
               )}
@@ -271,9 +262,9 @@ export const RcaWizardModal: React.FC<Props> = ({ token, role, incidentId, onClo
           )}
 
           {mode === 'MANUAL' && (
-            <div style={{ flex: 1, overflowY: 'auto', padding: SP[5] }}>
-              <div style={{ maxWidth: '700px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-                {error && <div style={{ ...TEXT.xs, color: C.danger, background: `${C.danger}11`, padding: '8px 10px', borderRadius: RADIUS.md }}>{error}</div>}
+            <div className="flex-1 overflow-y-auto p-5">
+              <div className="max-w-[700px] mx-auto flex flex-col gap-3">
+                {error && <div className="text-xs text-danger bg-danger-bg px-2.5 py-2 rounded-md">{error}</div>}
                 <ManualRcaForm
                   incident={incident} busy={busy} token={token} teams={teams} teamsScoped={teamsScoped} taxonomy={taxonomy} guidedTree={guidedTree} onAddAction={addAction}
                   onTeamsResolved={(resolvedTeams) => { setTeams(resolvedTeams); setTeamsScoped(true); }}
@@ -292,7 +283,7 @@ export const RcaWizardModal: React.FC<Props> = ({ token, role, incidentId, onClo
         </div>
 
         {/* ── Side panel: incident details + evidence + RCA conclusion + actions + close ── */}
-        <div style={{ flex: '0 0 380px', overflowY: 'auto', padding: SP[4], display: 'flex', flexDirection: 'column', gap: SP[5], background: C.bgCard }}>
+        <div className="flex-[0_0_380px] overflow-y-auto p-4 flex flex-col gap-5 bg-card">
           <IncidentDetailsPanel incident={incident} busy={busy} onSaveTriage={async (patch) => {
             setBusy(true);
             try { await axios.patch(`${API}/incidents/${incidentId}/triage`, patch, { headers }); load(); onChanged(); } finally { setBusy(false); }
@@ -345,29 +336,23 @@ export const RcaWizardModal: React.FC<Props> = ({ token, role, incidentId, onClo
 
 // ── Choose-method screen ──────────────────────────────────────────────────────
 const ChooseModeScreen: React.FC<{ onChooseAi: () => void; onChooseManual: () => void }> = ({ onChooseAi, onChooseManual }) => (
-  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: SP[5] }}>
-    <div style={{ display: 'flex', gap: SP[4], maxWidth: '640px' }}>
+  <div className="flex-1 flex items-center justify-center p-5">
+    <div className="flex gap-4 max-w-[640px]">
       <button
         onClick={onChooseAi}
-        style={{
-          flex: 1, display: 'flex', flexDirection: 'column', gap: SP[2], padding: SP[4], textAlign: 'right',
-          background: C.bgCard, border: `1.5px solid ${C.border}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontFamily: FONT,
-        }}
+        className="flex-1 flex flex-col gap-2 p-4 text-right bg-card border-[1.5px] border-border rounded-lg cursor-pointer"
       >
-        <div style={{ fontSize: '28px' }}>🤖</div>
-        <div style={{ ...TEXT.md, fontWeight: WEIGHT.bold, color: C.textPrimary }}>ניהול על ידי AI</div>
-        <div style={{ ...TEXT.xs, color: C.textMuted, lineHeight: 1.5 }}>שיחה מונחית — ה-AI אוסף ראיות, שואל שאלות, ומגיע למסקנה ולפעולות מוצעות בעצמו.</div>
+        <div className="text-[28px]">🤖</div>
+        <div className="text-md font-bold text-foreground">ניהול על ידי AI</div>
+        <div className="text-xs text-subtle-foreground leading-relaxed">שיחה מונחית — ה-AI אוסף ראיות, שואל שאלות, ומגיע למסקנה ולפעולות מוצעות בעצמו.</div>
       </button>
       <button
         onClick={onChooseManual}
-        style={{
-          flex: 1, display: 'flex', flexDirection: 'column', gap: SP[2], padding: SP[4], textAlign: 'right',
-          background: C.bgCard, border: `1.5px solid ${C.border}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontFamily: FONT,
-        }}
+        className="flex-1 flex flex-col gap-2 p-4 text-right bg-card border-[1.5px] border-border rounded-lg cursor-pointer"
       >
-        <div style={{ fontSize: '28px' }}>✍️</div>
-        <div style={{ ...TEXT.md, fontWeight: WEIGHT.bold, color: C.textPrimary }}>תחקיר עצמי</div>
-        <div style={{ ...TEXT.xs, color: C.textMuted, lineHeight: 1.5 }}>5-Why / עצם דג — אתה מנהל את הניתוח, עם אפשרות ל-AI להציע את השאלה הבאה אם תרצה.</div>
+        <div className="text-[28px]">✍️</div>
+        <div className="text-md font-bold text-foreground">תחקיר עצמי</div>
+        <div className="text-xs text-subtle-foreground leading-relaxed">5-Why / עצם דג — אתה מנהל את הניתוח, עם אפשרות ל-AI להציע את השאלה הבאה אם תרצה.</div>
       </button>
     </div>
   </div>
@@ -389,10 +374,11 @@ const ManualRcaForm: React.FC<{
   const readOnly = incident.status === 'RCA_DONE' || incident.status === 'CLOSED';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-      <div style={{ display: 'flex', gap: SP[2] }}>
+    <div className="flex flex-col gap-3">
+      <div className="flex gap-2">
         {(['FIVE_WHY', 'FISHBONE', 'GUIDED'] as const).map(m => (
-          <button key={m} onClick={() => !readOnly && setMethod(m)} disabled={readOnly} style={{ padding: '5px 12px', borderRadius: RADIUS.md, border: `1.5px solid ${method === m ? C.brand : C.border}`, background: method === m ? C.brandDim : 'transparent', color: method === m ? C.brand : C.textSecondary, cursor: readOnly ? 'default' : 'pointer', fontFamily: FONT, ...TEXT.sm }}>
+          <button key={m} onClick={() => !readOnly && setMethod(m)} disabled={readOnly}
+            className={`px-3 py-1.5 rounded-md border-[1.5px] text-sm ${readOnly ? 'cursor-default' : 'cursor-pointer'} ${method === m ? 'border-primary bg-primary-50 text-primary' : 'border-border bg-transparent text-muted-foreground'}`}>
             {METHOD_LABEL[m]}
           </button>
         ))}
@@ -421,32 +407,32 @@ const RootCauseClassifier: React.FC<{
   if (!taxonomy) return null;
   const reasons = taxonomy.taxonomy[category] ?? [];
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-      <div style={{ display: 'flex', gap: SP[2] }}>
-        <div style={{ flex: 1 }}>
-          <label style={labelStyle}>קטגוריית גורם שורש (Root Cause Category)</label>
+    <div className="flex flex-col gap-2">
+      <div className="flex gap-2">
+        <div className="flex-1">
+          <label className={labelClass}>קטגוריית גורם שורש (Root Cause Category)</label>
           <select
             value={category} disabled={readOnly}
             onChange={e => { onCategoryChange(e.target.value); onReasonChange(''); }}
-            style={inputStyle}
+            className={inputClass}
           >
             <option value="">בחר קטגוריה...</option>
             {taxonomy.categories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
-        <div style={{ flex: 1 }}>
-          <label style={labelStyle}>גורם שורש (Root Cause)</label>
-          <select value={reason} disabled={readOnly || !category} onChange={e => onReasonChange(e.target.value)} style={inputStyle}>
+        <div className="flex-1">
+          <label className={labelClass}>גורם שורש (Root Cause)</label>
+          <select value={reason} disabled={readOnly || !category} onChange={e => onReasonChange(e.target.value)} className={inputClass}>
             <option value="">{category ? 'בחר גורם...' : 'בחרו קטגוריה קודם'}</option>
             {reasons.map(r => <option key={r} value={r}>{r}</option>)}
           </select>
         </div>
       </div>
       <div>
-        <label style={labelStyle}>תיאור מפורט (RCA Description)</label>
+        <label className={labelClass}>תיאור מפורט (RCA Description)</label>
         <textarea
           value={description} disabled={readOnly} onChange={e => onDescriptionChange(e.target.value)} rows={3}
-          placeholder="הקשר, תנאים וגורמים שהובילו לתקלה..." style={{ ...inputStyle, resize: 'vertical' }}
+          placeholder="הקשר, תנאים וגורמים שהובילו לתקלה..." className={`${inputClass} resize-y`}
         />
       </div>
     </div>
@@ -488,22 +474,22 @@ const CrTeamsResolver: React.FC<{ versionId: string; token: string; onResolved: 
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: C.bgNested, borderRadius: RADIUS.md, padding: SP[2] }}>
-      <div style={{ ...TEXT.xs, color: C.textMuted }}>יודעים באיזה CR מדובר? בחרו אותו כדי לטעון את הצוותים שעבדו עליו בפועל.</div>
-      <div style={{ display: 'flex', gap: '6px' }}>
-        <select value={selectedCr} onChange={e => { setSelectedCr(e.target.value); setNotFound(false); }} style={{ ...inputStyle, flex: 1 }}>
+    <div className="flex flex-col gap-1.5 bg-muted rounded-md p-2">
+      <div className="text-xs text-subtle-foreground">יודעים באיזה CR מדובר? בחרו אותו כדי לטעון את הצוותים שעבדו עליו בפועל.</div>
+      <div className="flex gap-1.5">
+        <select value={selectedCr} onChange={e => { setSelectedCr(e.target.value); setNotFound(false); }} className={`${inputClass} flex-1`}>
           <option value="">בחר CR...</option>
           {crs.map(c => <option key={c.crNumber} value={c.crNumber}>{c.label}</option>)}
         </select>
         <button
           onClick={apply}
           disabled={!selectedCr || loading}
-          style={{ padding: '5px 14px', background: C.bgApp, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: (!selectedCr || loading) ? 'not-allowed' : 'pointer', color: C.textSecondary, fontFamily: FONT, ...TEXT.xs }}
+          className={`px-3.5 py-1.5 bg-background border border-border rounded-sm text-muted-foreground text-xs ${(!selectedCr || loading) ? 'cursor-not-allowed' : 'cursor-pointer'}`}
         >
           {loading ? 'טוען...' : 'טען צוותים'}
         </button>
       </div>
-      {notFound && <div style={{ ...TEXT.xs, color: C.warning }}>לא נמצאה תוכנית CR עם צוותים משויכים ל-CR שנבחר.</div>}
+      {notFound && <div className="text-xs text-warning">לא נמצאה תוכנית CR עם צוותים משויכים ל-CR שנבחר.</div>}
     </div>
   );
 };
@@ -511,7 +497,7 @@ const CrTeamsResolver: React.FC<{ versionId: string; token: string; onResolved: 
 // Small transparency note shown wherever a team dropdown/list is scoped —
 // explains why the list is short (or long) instead of leaving it unexplained.
 const TeamsScopeNote: React.FC<{ scoped: boolean }> = ({ scoped }) => (
-  <div style={{ ...TEXT.xs, color: C.textMuted, fontStyle: 'italic' }}>
+  <div className="text-xs text-subtle-foreground italic">
     {scoped ? 'הצוותים מוצגים לפי מי שעבד בפועל על ה-CR המקושר לתקלה' : 'לא נמצא CR מקושר — בחרו צוות רלוונטי מהרשימה'}
   </div>
 );
@@ -562,32 +548,32 @@ const LessonsEditor: React.FC<{
   const removeRow = (teamId: string) => { const next = { ...value }; delete next[teamId]; onChange(next); };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+    <div className="flex flex-col gap-2">
       <TeamsScopeNote scoped={teamsScoped} />
       {addedIds.map(id => {
         const t = teams.find(x => x.id === id);
         return (
           <div key={id}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <label style={labelStyle}>{t?.name ?? id}</label>
+            <div className="flex justify-between items-center">
+              <label className={labelClass}>{t?.name ?? id}</label>
               {!teamsScoped && !readOnly && (
-                <button onClick={() => removeRow(id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, ...TEXT.xs }}>✕ הסר</button>
+                <button onClick={() => removeRow(id)} className="bg-transparent border-none cursor-pointer text-subtle-foreground text-xs">✕ הסר</button>
               )}
             </div>
-            <input value={value[id]} disabled={readOnly} onChange={e => setText(id, e.target.value)} style={inputStyle} />
+            <input value={value[id]} disabled={readOnly} onChange={e => setText(id, e.target.value)} className={inputClass} />
           </div>
         );
       })}
       {!teamsScoped && !readOnly && availableTeams.length > 0 && (
-        <div style={{ display: 'flex', gap: '6px' }}>
-          <select value={addingTeamId} onChange={e => setAddingTeamId(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
+        <div className="flex gap-1.5">
+          <select value={addingTeamId} onChange={e => setAddingTeamId(e.target.value)} className={`${inputClass} flex-1`}>
             <option value="">בחר צוות...</option>
             {availableTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
           <button
             onClick={() => { if (addingTeamId) { setText(addingTeamId, ''); setAddingTeamId(''); } }}
             disabled={!addingTeamId}
-            style={{ padding: '5px 14px', background: addingTeamId ? C.bgNested : C.bgApp, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: addingTeamId ? 'pointer' : 'not-allowed', color: C.textSecondary, fontFamily: FONT, ...TEXT.xs }}
+            className={`px-3.5 py-1.5 border border-border rounded-sm text-muted-foreground text-xs ${addingTeamId ? 'bg-muted cursor-pointer' : 'bg-background cursor-not-allowed'}`}
           >
             + הוסף לקח
           </button>
@@ -634,22 +620,22 @@ const FiveWhyForm: React.FC<{
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2">
         {answers.map((a, i) => (
           <div key={i}>
-            <label style={labelStyle}>שאלה {a.step}</label>
-            <input value={a.question} disabled={readOnly} onChange={e => setAnswers(prev => prev.map((x, xi) => xi === i ? { ...x, question: e.target.value } : x))} style={{ ...inputStyle, marginBottom: '4px' }} />
-            <textarea value={a.answer} disabled={readOnly} onChange={e => setAnswers(prev => prev.map((x, xi) => xi === i ? { ...x, answer: e.target.value } : x))} rows={2} placeholder="תשובה..." style={{ ...inputStyle, resize: 'vertical' }} />
+            <label className={labelClass}>שאלה {a.step}</label>
+            <input value={a.question} disabled={readOnly} onChange={e => setAnswers(prev => prev.map((x, xi) => xi === i ? { ...x, question: e.target.value } : x))} className={`${inputClass} mb-1`} />
+            <textarea value={a.answer} disabled={readOnly} onChange={e => setAnswers(prev => prev.map((x, xi) => xi === i ? { ...x, answer: e.target.value } : x))} rows={2} placeholder="תשובה..." className={`${inputClass} resize-y`} />
           </div>
         ))}
-        {suggestError && <div style={{ ...TEXT.xs, color: C.danger }}>{suggestError}</div>}
+        {suggestError && <div className="text-xs text-danger">{suggestError}</div>}
         {!readOnly && (
-          <div style={{ display: 'flex', gap: SP[2] }}>
-            <button onClick={() => setAnswers(prev => [...prev, { step: prev.length + 1, question: 'למה?', answer: '' }])} style={{ padding: '5px 10px', background: 'none', border: `1px dashed ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', color: C.textMuted, fontFamily: FONT, ...TEXT.xs }}>
+          <div className="flex gap-2">
+            <button onClick={() => setAnswers(prev => [...prev, { step: prev.length + 1, question: 'למה?', answer: '' }])} className="px-2.5 py-1.5 bg-transparent border border-dashed border-border rounded-md cursor-pointer text-subtle-foreground text-xs">
               + הוסף סבב "למה"
             </button>
-            <button onClick={suggestNextQuestion} disabled={suggesting} style={{ padding: '5px 10px', background: 'none', border: `1px dashed ${C.brand}`, borderRadius: RADIUS.md, cursor: suggesting ? 'not-allowed' : 'pointer', color: C.brand, fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.bold }}>
+            <button onClick={suggestNextQuestion} disabled={suggesting} className={`px-2.5 py-1.5 bg-transparent border border-dashed border-primary rounded-md text-primary text-xs font-bold ${suggesting ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
               {suggesting ? 'חושב...' : '🤖 הצע שאלה הבאה'}
             </button>
           </div>
@@ -657,8 +643,8 @@ const FiveWhyForm: React.FC<{
       </div>
 
       <div>
-        <label style={labelStyle}>גורם שורש (סיכום)</label>
-        <textarea value={rootCause} disabled={readOnly} onChange={e => setRootCause(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
+        <label className={labelClass}>גורם שורש (סיכום)</label>
+        <textarea value={rootCause} disabled={readOnly} onChange={e => setRootCause(e.target.value)} rows={3} className={`${inputClass} resize-y`} />
       </div>
 
       <RootCauseClassifier
@@ -666,7 +652,7 @@ const FiveWhyForm: React.FC<{
         onCategoryChange={setCategory} onReasonChange={setReason} onDescriptionChange={setDescription}
       />
 
-      <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textSecondary }}>לקחים לפי צוות (ניתן להשאיר ריק אם לא רלוונטי)</div>
+      <div className="text-xs font-semibold text-muted-foreground">לקחים לפי צוות (ניתן להשאיר ריק אם לא רלוונטי)</div>
       <LessonsEditor teams={teams} teamsScoped={teamsScoped} readOnly={readOnly} value={lessons} onChange={setLessons} />
 
       {!readOnly && (
@@ -678,7 +664,7 @@ const FiveWhyForm: React.FC<{
             lessons: lessonsPayload(teams, lessons),
           })}
           disabled={busy}
-          style={{ alignSelf: 'flex-start', padding: '8px 20px', background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: busy ? 'not-allowed' : 'pointer', fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.bold }}
+          className={`self-start px-5 py-2 bg-primary text-white border-none rounded-md text-sm font-bold ${busy ? 'cursor-not-allowed' : 'cursor-pointer'}`}
         >
           {busy ? 'שומר...' : '💾 שמור RCA'}
         </button>
@@ -734,15 +720,15 @@ const FishboneWizard: React.FC<{
   // Already saved (read-only) — show a flat summary instead of the stepper.
   if (readOnly) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+      <div className="flex flex-col gap-3">
         {FISHBONE_CATEGORIES.map(cat => {
           const inCat = causes.filter(c => c.category === cat);
           if (!inCat.length) return null;
           return (
             <div key={cat}>
-              <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textSecondary }}>{FISHBONE_CATEGORY_LABEL[cat]}</div>
+              <div className="text-xs font-bold text-muted-foreground">{FISHBONE_CATEGORY_LABEL[cat]}</div>
               {inCat.map((c, i) => (
-                <div key={i} style={{ ...TEXT.sm, color: c.isRootCause ? C.success : C.textPrimary, fontWeight: c.isRootCause ? WEIGHT.bold : WEIGHT.normal }}>
+                <div key={i} className={`text-sm ${c.isRootCause ? 'text-success font-bold' : 'text-foreground font-normal'}`}>
                   {c.isRootCause ? '🎯 ' : '• '}{c.text}
                 </div>
               ))}
@@ -750,14 +736,14 @@ const FishboneWizard: React.FC<{
           );
         })}
         <div>
-          <label style={labelStyle}>גורם שורש (סיכום)</label>
-          <div style={{ ...TEXT.sm, color: C.textPrimary }}>{rootCause || '—'}</div>
+          <label className={labelClass}>גורם שורש (סיכום)</label>
+          <div className="text-sm text-foreground">{rootCause || '—'}</div>
         </div>
         {(rcCategory || rcReason || rcDescription) && (
           <div>
-            <label style={labelStyle}>סיווג גורם שורש</label>
-            {(rcCategory || rcReason) && <div style={{ ...TEXT.sm, color: C.textPrimary }}>{[rcCategory, rcReason].filter(Boolean).join(' › ')}</div>}
-            {rcDescription && <div style={{ ...TEXT.sm, color: C.textSecondary, marginTop: '4px' }}>{rcDescription}</div>}
+            <label className={labelClass}>סיווג גורם שורש</label>
+            {(rcCategory || rcReason) && <div className="text-sm text-foreground">{[rcCategory, rcReason].filter(Boolean).join(' › ')}</div>}
+            {rcDescription && <div className="text-sm text-muted-foreground mt-1">{rcDescription}</div>}
           </div>
         )}
       </div>
@@ -767,49 +753,45 @@ const FishboneWizard: React.FC<{
   const STEP_LABELS = ['זיהוי גורמים אפשריים', 'בחירת גורם השורש', 'לקחים לפי צוות', 'פעולות מעקב'];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+    <div className="flex flex-col gap-4">
       {/* Step indicator */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: SP[1] }}>
+      <div className="flex items-center gap-1">
         {STEP_LABELS.map((label, i) => (
           <React.Fragment key={i}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{
-                width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: step === i + 1 ? C.brand : step > i + 1 ? C.success : C.bgNested,
-                color: step >= i + 1 ? 'white' : C.textMuted, ...TEXT.xs, fontWeight: WEIGHT.bold, flexShrink: 0,
-              }}>
+            <div className="flex items-center gap-1.5">
+              <span className={`w-[22px] h-[22px] rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${step === i + 1 ? 'bg-primary text-white' : step > i + 1 ? 'bg-success text-white' : 'bg-muted text-subtle-foreground'}`}>
                 {step > i + 1 ? '✓' : i + 1}
               </span>
-              <span style={{ ...TEXT.xs, color: step === i + 1 ? C.textPrimary : C.textMuted, fontWeight: step === i + 1 ? WEIGHT.bold : WEIGHT.normal }}>{label}</span>
+              <span className={`text-xs ${step === i + 1 ? 'text-foreground font-bold' : 'text-subtle-foreground font-normal'}`}>{label}</span>
             </div>
-            {i < STEP_LABELS.length - 1 && <div style={{ flex: 1, height: '1px', background: C.border }} />}
+            {i < STEP_LABELS.length - 1 && <div className="flex-1 h-px bg-border" />}
           </React.Fragment>
         ))}
       </div>
 
       {/* Step 1 — brainstorm causes per category */}
       {step === 1 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-          <div style={{ ...TEXT.xs, color: C.textMuted }}>עבור כל קטגוריה, רשמו כל גורם אפשרי שעולה בדעתכם — גם אם לא בטוחים בו. נצמצם לגורם השורש בשלב הבא.</div>
+        <div className="flex flex-col gap-3">
+          <div className="text-xs text-subtle-foreground">עבור כל קטגוריה, רשמו כל גורם אפשרי שעולה בדעתכם — גם אם לא בטוחים בו. נצמצם לגורם השורש בשלב הבא.</div>
           {FISHBONE_CATEGORIES.map(cat => (
-            <div key={cat} style={{ border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: SP[2] }}>
-              <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textSecondary, marginBottom: '6px' }}>{FISHBONE_CATEGORY_LABEL[cat]}</div>
+            <div key={cat} className="border border-border rounded-md p-2">
+              <div className="text-xs font-bold text-muted-foreground mb-1.5">{FISHBONE_CATEGORY_LABEL[cat]}</div>
               {causes.filter(c => c.category === cat).map((c) => {
                 const idx = causes.indexOf(c);
                 return (
-                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                    <span style={{ ...TEXT.sm, color: C.textPrimary, flex: 1 }}>• {c.text}</span>
-                    <button onClick={() => removeCause(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, ...TEXT.xs }}>✕</button>
+                  <div key={idx} className="flex items-center gap-1.5 mb-1">
+                    <span className="text-sm text-foreground flex-1">• {c.text}</span>
+                    <button onClick={() => removeCause(idx)} className="bg-transparent border-none cursor-pointer text-subtle-foreground text-xs">✕</button>
                   </div>
                 );
               })}
-              <div style={{ display: 'flex', gap: '6px' }}>
+              <div className="flex gap-1.5">
                 <input
                   value={drafts[cat] ?? ''} onChange={e => setDrafts(prev => ({ ...prev, [cat]: e.target.value }))}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCause(cat); } }}
-                  placeholder="גורם אפשרי..." style={{ ...inputStyle, flex: 1, fontSize: '12px' }}
+                  placeholder="גורם אפשרי..." className={`${inputClass} flex-1 text-xs`}
                 />
-                <button onClick={() => addCause(cat)} style={{ padding: '5px 12px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer', color: C.textSecondary, fontFamily: FONT, ...TEXT.xs }}>+</button>
+                <button onClick={() => addCause(cat)} className="px-3 py-1.5 bg-muted border border-border rounded-sm cursor-pointer text-muted-foreground text-xs">+</button>
               </div>
             </div>
           ))}
@@ -818,18 +800,18 @@ const FishboneWizard: React.FC<{
 
       {/* Step 2 — converge on the root cause */}
       {step === 2 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-          <div style={{ ...TEXT.xs, color: C.textMuted }}>מתוך כל הגורמים שנרשמו, בחרו איזה אחד הוא באמת גורם השורש.</div>
+        <div className="flex flex-col gap-2">
+          <div className="text-xs text-subtle-foreground">מתוך כל הגורמים שנרשמו, בחרו איזה אחד הוא באמת גורם השורש.</div>
           {causes.map((c, i) => (
-            <label key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', borderRadius: RADIUS.md, background: c.isRootCause ? `${C.success}18` : C.bgNested, border: c.isRootCause ? `1px solid ${C.success}` : '1px solid transparent', cursor: 'pointer' }}>
+            <label key={i} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md cursor-pointer border ${c.isRootCause ? 'bg-success-bg border-success' : 'bg-muted border-transparent'}`}>
               <input type="radio" name="root-cause" checked={c.isRootCause} onChange={() => markRoot(i)} />
-              <span style={{ ...TEXT.xs, color: C.textMuted, minWidth: '60px' }}>{FISHBONE_CATEGORY_LABEL[c.category]}</span>
-              <span style={{ ...TEXT.sm, color: C.textPrimary, flex: 1 }}>{c.text}</span>
+              <span className="text-xs text-subtle-foreground min-w-[60px]">{FISHBONE_CATEGORY_LABEL[c.category]}</span>
+              <span className="text-sm text-foreground flex-1">{c.text}</span>
             </label>
           ))}
-          <div style={{ marginTop: SP[2] }}>
-            <label style={labelStyle}>גורם שורש (סיכום — ניתן לנסח מחדש)</label>
-            <textarea value={rootCause} onChange={e => setRootCause(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
+          <div className="mt-2">
+            <label className={labelClass}>גורם שורש (סיכום — ניתן לנסח מחדש)</label>
+            <textarea value={rootCause} onChange={e => setRootCause(e.target.value)} rows={3} className={`${inputClass} resize-y`} />
           </div>
           <RootCauseClassifier
             taxonomy={taxonomy} category={rcCategory} reason={rcReason} description={rcDescription}
@@ -840,8 +822,8 @@ const FishboneWizard: React.FC<{
 
       {/* Step 3 — lessons per team */}
       {step === 3 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-          <div style={{ ...TEXT.xs, color: C.textMuted }}>לקחים לפי צוות — ניתן להשאיר ריק אם לא רלוונטי.</div>
+        <div className="flex flex-col gap-2">
+          <div className="text-xs text-subtle-foreground">לקחים לפי צוות — ניתן להשאיר ריק אם לא רלוונטי.</div>
           <LessonsEditor teams={teams} teamsScoped={teamsScoped} value={lessons} onChange={setLessons} />
         </div>
       )}
@@ -851,11 +833,11 @@ const FishboneWizard: React.FC<{
         <FishboneActionsStep incident={incident} busy={busy} teams={teams} teamsScoped={teamsScoped} onAddAction={onAddAction} />
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1px solid ${C.border}`, paddingTop: SP[3] }}>
+      <div className="flex justify-between border-t border-border pt-3">
         <button
           onClick={() => setStep(prev => (prev - 1) as any)}
           disabled={step === 1}
-          style={{ padding: '7px 16px', background: 'none', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: step === 1 ? 'not-allowed' : 'pointer', color: step === 1 ? C.textDisabled : C.textSecondary, fontFamily: FONT, ...TEXT.sm }}
+          className={`px-4 py-1.5 bg-transparent border border-border rounded-md text-sm ${step === 1 ? 'cursor-not-allowed text-subtle-foreground' : 'cursor-pointer text-muted-foreground'}`}
         >
           ‹ הקודם
         </button>
@@ -863,11 +845,7 @@ const FishboneWizard: React.FC<{
           <button
             onClick={() => setStep(prev => (prev + 1) as any)}
             disabled={(step === 1 && causes.length === 0) || (step === 2 && !causes.some(c => c.isRootCause))}
-            style={{
-              padding: '7px 16px', border: 'none', borderRadius: RADIUS.md, fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.bold, color: 'white',
-              background: (step === 1 && causes.length === 0) || (step === 2 && !causes.some(c => c.isRootCause)) ? C.textDisabled : C.brand,
-              cursor: (step === 1 && causes.length === 0) || (step === 2 && !causes.some(c => c.isRootCause)) ? 'not-allowed' : 'pointer',
-            }}
+            className={`px-4 py-1.5 border-none rounded-md text-sm font-bold text-white ${(step === 1 && causes.length === 0) || (step === 2 && !causes.some(c => c.isRootCause)) ? 'bg-subtle-foreground cursor-not-allowed' : 'bg-primary cursor-pointer'}`}
           >
             הבא ›
           </button>
@@ -880,7 +858,7 @@ const FishboneWizard: React.FC<{
               lessons: lessonsPayload(teams, lessons),
             })}
             disabled={busy}
-            style={{ padding: '8px 20px', background: C.success, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: busy ? 'not-allowed' : 'pointer', fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.bold }}
+            className={`px-5 py-2 bg-success text-white border-none rounded-md text-sm font-bold ${busy ? 'cursor-not-allowed' : 'cursor-pointer'}`}
           >
             {busy ? 'שומר...' : '✅ סיום — שמור RCA'}
           </button>
@@ -906,10 +884,10 @@ const OwnerField: React.FC<{ team: RelevantTeam | undefined; value: string; onCh
 
   if (manual) {
     return (
-      <div style={{ display: 'flex', gap: '4px', flex: 1 }}>
-        <input value={value} onChange={e => onChange(e.target.value)} placeholder="אחראי..." style={{ ...inputStyle, flex: 1 }} />
+      <div className="flex gap-1 flex-1">
+        <input value={value} onChange={e => onChange(e.target.value)} placeholder="אחראי..." className={`${inputClass} flex-1`} />
         {members.length > 0 && (
-          <button type="button" onClick={() => { setManual(false); onChange(''); }} style={{ padding: '0 8px', background: 'none', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer', color: C.textMuted, fontFamily: FONT, ...TEXT.xs }}>
+          <button type="button" onClick={() => { setManual(false); onChange(''); }} className="px-2 bg-transparent border border-border rounded-sm cursor-pointer text-subtle-foreground text-xs">
             רשימה
           </button>
         )}
@@ -921,7 +899,7 @@ const OwnerField: React.FC<{ team: RelevantTeam | undefined; value: string; onCh
     <select
       value={value}
       onChange={e => { if (e.target.value === '__other__') { setManual(true); onChange(''); } else onChange(e.target.value); }}
-      style={{ ...inputStyle, flex: 1 }}
+      className={`${inputClass} flex-1`}
     >
       <option value="">בחר אחראי...</option>
       {members.map(m => <option key={m.id} value={m.fullName}>{m.fullName}</option>)}
@@ -941,37 +919,37 @@ const FishboneActionsStep: React.FC<{
   const [priority, setPriority] = useState('MEDIUM');
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-      <div style={{ ...TEXT.xs, color: C.textMuted }}>בהתבסס על גורם השורש שזיהיתם, הוסיפו פעולות מעקב לפני שמסיימים (אפשר להוסיף עוד גם אחר כך).</div>
+    <div className="flex flex-col gap-2">
+      <div className="text-xs text-subtle-foreground">בהתבסס על גורם השורש שזיהיתם, הוסיפו פעולות מעקב לפני שמסיימים (אפשר להוסיף עוד גם אחר כך).</div>
       {incident.actions.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <div className="flex flex-col gap-1">
           {incident.actions.map(a => (
-            <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: C.bgNested, borderRadius: RADIUS.md, padding: '6px 10px' }}>
-              <span style={{ ...TEXT.xs, color: C.brand, background: C.brandDim, borderRadius: RADIUS.sm, padding: '2px 6px', fontWeight: WEIGHT.bold }}>{a.team}</span>
-              <span style={{ ...TEXT.sm, color: C.textPrimary, flex: 1 }}>{a.title}</span>
+            <div key={a.id} className="flex items-center gap-1.5 bg-muted rounded-md px-2.5 py-1.5">
+              <span className="text-xs text-primary bg-primary-50 rounded-sm px-1.5 py-0.5 font-bold">{a.team}</span>
+              <span className="text-sm text-foreground flex-1">{a.title}</span>
             </div>
           ))}
         </div>
       )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: incident.actions.length ? `1px solid ${C.border}` : 'none', paddingTop: incident.actions.length ? SP[2] : 0 }}>
+      <div className={`flex flex-col gap-1.5 ${incident.actions.length ? 'border-t border-border pt-2' : ''}`}>
         <TeamsScopeNote scoped={teamsScoped} />
-        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="כותרת הפעולה..." style={inputStyle} />
-        <div style={{ display: 'flex', gap: SP[2] }}>
-          <select value={team} onChange={e => { setTeam(e.target.value); setOwner(''); }} style={{ ...inputStyle, flex: 1 }}>
+        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="כותרת הפעולה..." className={inputClass} />
+        <div className="flex gap-2">
+          <select value={team} onChange={e => { setTeam(e.target.value); setOwner(''); }} className={`${inputClass} flex-1`}>
             {teams.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
           </select>
-          <select value={priority} onChange={e => setPriority(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
+          <select value={priority} onChange={e => setPriority(e.target.value)} className={`${inputClass} flex-1`}>
             {PRIORITY_OPTIONS.map(p => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}
           </select>
         </div>
-        <div style={{ display: 'flex', gap: SP[2] }}>
+        <div className="flex gap-2">
           <OwnerField team={teams.find(t => t.name === team)} value={owner} onChange={setOwner} />
-          <input type="date" value={dueAt} onChange={e => setDueAt(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
+          <input type="date" value={dueAt} onChange={e => setDueAt(e.target.value)} className={`${inputClass} flex-1`} />
         </div>
         <button
           onClick={() => { if (title.trim()) { onAddAction({ title: title.trim(), team, owner: owner || undefined, dueAt: dueAt || undefined, priority }); setTitle(''); setOwner(''); setDueAt(''); } }}
           disabled={busy || !title.trim()}
-          style={{ alignSelf: 'flex-start', padding: '7px 16px', background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT, ...TEXT.sm }}
+          className="self-start px-4 py-1.5 bg-primary text-white border-none rounded-md cursor-pointer text-sm"
         >
           + הוסף פעולה
         </button>
@@ -1060,31 +1038,27 @@ const GuidedInvestigationWizard: React.FC<{
     setCurrentNodeId(prev.nodeId);
   };
 
-  if (!guidedTree) return <div style={{ ...TEXT.sm, color: C.textMuted }}>טוען עץ חקירה...</div>;
+  if (!guidedTree) return <div className="text-sm text-subtle-foreground">טוען עץ חקירה...</div>;
 
   const leaf = leafId ? guidedTree.leaves[leafId] : null;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+    <div className="flex flex-col gap-4">
       {/* Stage indicator */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: SP[1] }}>
+      <div className="flex items-center gap-1">
         {(['facts', 'tree', 'review'] as const).map((s, i) => {
           const labels: Record<GuidedStage, string> = { facts: 'איסוף עובדות', tree: 'חקירת שרשרת האירועים', review: 'גורם שורש ופעולות' };
           const stageOrder: GuidedStage[] = ['facts', 'tree', 'review'];
           const idx = stageOrder.indexOf(stage);
           return (
             <React.Fragment key={s}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{
-                  width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: stage === s ? C.brand : idx > i ? C.success : C.bgNested,
-                  color: idx >= i ? 'white' : C.textMuted, ...TEXT.xs, fontWeight: WEIGHT.bold, flexShrink: 0,
-                }}>
+              <div className="flex items-center gap-1.5">
+                <span className={`w-[22px] h-[22px] rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${stage === s ? 'bg-primary text-white' : idx > i ? 'bg-success text-white' : 'bg-muted text-subtle-foreground'}`}>
                   {idx > i ? '✓' : i + 1}
                 </span>
-                <span style={{ ...TEXT.xs, color: stage === s ? C.textPrimary : C.textMuted, fontWeight: stage === s ? WEIGHT.bold : WEIGHT.normal }}>{labels[s]}</span>
+                <span className={`text-xs ${stage === s ? 'text-foreground font-bold' : 'text-subtle-foreground font-normal'}`}>{labels[s]}</span>
               </div>
-              {i < 2 && <div style={{ flex: 1, height: '1px', background: C.border }} />}
+              {i < 2 && <div className="flex-1 h-px bg-border" />}
             </React.Fragment>
           );
         })}
@@ -1092,35 +1066,37 @@ const GuidedInvestigationWizard: React.FC<{
 
       {/* Stage 2 — facts only, blocks progression until complete */}
       {stage === 'facts' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-          <div style={{ ...TEXT.xs, color: C.textMuted }}>יש למלא את כל השדות הבאים לפני מעבר לחקירת שרשרת האירועים — המערכת אינה מאפשרת לדלג ישירות למסקנות.</div>
+        <div className="flex flex-col gap-3">
+          <div className="text-xs text-subtle-foreground">יש למלא את כל השדות הבאים לפני מעבר לחקירת שרשרת האירועים — המערכת אינה מאפשרת לדלג ישירות למסקנות.</div>
           <div>
-            <label style={labelStyle}>מה הפעולה שבוצעה?</label>
-            <input value={actionTaken} disabled={readOnly} onChange={e => setActionTaken(e.target.value)} style={inputStyle} />
+            <label className={labelClass}>מה הפעולה שבוצעה?</label>
+            <input value={actionTaken} disabled={readOnly} onChange={e => setActionTaken(e.target.value)} className={inputClass} />
           </div>
           <div>
-            <label style={labelStyle}>מה היה אמור לקרות?</label>
-            <input value={expectedResult} disabled={readOnly} onChange={e => setExpectedResult(e.target.value)} style={inputStyle} />
+            <label className={labelClass}>מה היה אמור לקרות?</label>
+            <input value={expectedResult} disabled={readOnly} onChange={e => setExpectedResult(e.target.value)} className={inputClass} />
           </div>
           <div>
-            <label style={labelStyle}>מה קרה בפועל?</label>
-            <input value={actualResult} disabled={readOnly} onChange={e => setActualResult(e.target.value)} style={inputStyle} />
+            <label className={labelClass}>מה קרה בפועל?</label>
+            <input value={actualResult} disabled={readOnly} onChange={e => setActualResult(e.target.value)} className={inputClass} />
           </div>
           <div>
-            <label style={labelStyle}>מתי התחילה התקלה?</label>
-            <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
+            <label className={labelClass}>מתי התחילה התקלה?</label>
+            <div className="flex gap-2 flex-wrap">
               {Object.entries(GUIDED_TIMING_LABEL).map(([v, l]) => (
-                <button key={v} onClick={() => !readOnly && setTiming(v)} disabled={readOnly} style={{ padding: '5px 12px', borderRadius: RADIUS.md, border: `1.5px solid ${timing === v ? C.brand : C.border}`, background: timing === v ? C.brandDim : 'transparent', color: timing === v ? C.brand : C.textSecondary, cursor: readOnly ? 'default' : 'pointer', fontFamily: FONT, ...TEXT.xs }}>
+                <button key={v} onClick={() => !readOnly && setTiming(v)} disabled={readOnly}
+                  className={`px-3 py-1.5 rounded-md border-[1.5px] text-xs ${readOnly ? 'cursor-default' : 'cursor-pointer'} ${timing === v ? 'border-primary bg-primary-50 text-primary' : 'border-border bg-transparent text-muted-foreground'}`}>
                   {l}
                 </button>
               ))}
             </div>
           </div>
           <div>
-            <label style={labelStyle}>האם התקלה משתחזרת?</label>
-            <div style={{ display: 'flex', gap: SP[2] }}>
+            <label className={labelClass}>האם התקלה משתחזרת?</label>
+            <div className="flex gap-2">
               {Object.entries(GUIDED_REPRO_LABEL).map(([v, l]) => (
-                <button key={v} onClick={() => !readOnly && setReproducibility(v)} disabled={readOnly} style={{ padding: '5px 12px', borderRadius: RADIUS.md, border: `1.5px solid ${reproducibility === v ? C.brand : C.border}`, background: reproducibility === v ? C.brandDim : 'transparent', color: reproducibility === v ? C.brand : C.textSecondary, cursor: readOnly ? 'default' : 'pointer', fontFamily: FONT, ...TEXT.xs }}>
+                <button key={v} onClick={() => !readOnly && setReproducibility(v)} disabled={readOnly}
+                  className={`px-3 py-1.5 rounded-md border-[1.5px] text-xs ${readOnly ? 'cursor-default' : 'cursor-pointer'} ${reproducibility === v ? 'border-primary bg-primary-50 text-primary' : 'border-border bg-transparent text-muted-foreground'}`}>
                   {l}
                 </button>
               ))}
@@ -1129,19 +1105,19 @@ const GuidedInvestigationWizard: React.FC<{
 
           {incident.evidence.length > 0 && (
             <div>
-              <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>עובדות שנאספו אוטומטית</div>
-              <table style={{ width: '100%', borderCollapse: 'collapse', ...TEXT.xs }}>
+              <div className="text-xs font-semibold text-muted-foreground mb-1.5">עובדות שנאספו אוטומטית</div>
+              <table className="w-full border-collapse text-xs">
                 <thead>
                   <tr>
-                    <th style={{ textAlign: 'right', padding: '4px 8px', color: C.textMuted, borderBottom: `1px solid ${C.border}` }}>עובדה</th>
-                    <th style={{ textAlign: 'right', padding: '4px 8px', color: C.textMuted, borderBottom: `1px solid ${C.border}`, width: '140px' }}>מקור</th>
+                    <th className="text-right px-2 py-1 text-subtle-foreground border-b border-border">עובדה</th>
+                    <th className="text-right px-2 py-1 text-subtle-foreground border-b border-border w-[140px]">מקור</th>
                   </tr>
                 </thead>
                 <tbody>
                   {incident.evidence.map(e => (
-                    <tr key={e.id} style={{ borderBottom: `1px solid ${C.border}` }}>
-                      <td style={{ padding: '4px 8px', color: C.textPrimary }}>{e.content}</td>
-                      <td style={{ padding: '4px 8px', color: C.textMuted }}>{e.type}</td>
+                    <tr key={e.id} className="border-b border-border">
+                      <td className="px-2 py-1 text-foreground">{e.content}</td>
+                      <td className="px-2 py-1 text-subtle-foreground">{e.type}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1149,12 +1125,12 @@ const GuidedInvestigationWizard: React.FC<{
             </div>
           )}
 
-          {factsError && <div style={{ ...TEXT.xs, color: C.danger }}>{factsError}</div>}
+          {factsError && <div className="text-xs text-danger">{factsError}</div>}
           {!readOnly && (
             <button
               onClick={saveFacts}
               disabled={!factsComplete || savingFacts}
-              style={{ alignSelf: 'flex-start', padding: '8px 20px', background: factsComplete ? C.brand : C.textDisabled, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: factsComplete ? 'pointer' : 'not-allowed', fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.bold }}
+              className={`self-start px-5 py-2 text-white border-none rounded-md text-sm font-bold ${factsComplete ? 'bg-primary cursor-pointer' : 'bg-subtle-foreground cursor-not-allowed'}`}
             >
               {savingFacts ? 'שומר...' : 'המשך לחקירת שרשרת האירועים ›'}
             </button>
@@ -1164,27 +1140,27 @@ const GuidedInvestigationWizard: React.FC<{
 
       {/* Stage 3 — fixed-option decision tree; no free-text "root cause" input anywhere here */}
       {stage === 'tree' && currentNodeId && guidedTree.nodes[currentNodeId] && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+        <div className="flex flex-col gap-3">
           {path.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div className="flex flex-col gap-1">
               {path.map((p, i) => (
-                <div key={i} style={{ ...TEXT.xs, color: C.textMuted }}>{p.question} <b style={{ color: C.textSecondary }}>← {p.answerLabel}</b></div>
+                <div key={i} className="text-xs text-subtle-foreground">{p.question} <b className="text-muted-foreground">← {p.answerLabel}</b></div>
               ))}
             </div>
           )}
-          <div style={{ ...TEXT.md, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{guidedTree.nodes[currentNodeId].question}</div>
-          <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
+          <div className="text-md font-bold text-foreground">{guidedTree.nodes[currentNodeId].question}</div>
+          <div className="flex gap-2 flex-wrap">
             {guidedTree.nodes[currentNodeId].options.map(opt => (
               <button
                 key={opt.value} onClick={() => chooseOption(opt)}
-                style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: `1.5px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, cursor: 'pointer', fontFamily: FONT, ...TEXT.sm }}
+                className="px-4 py-2 rounded-md border-[1.5px] border-border bg-muted text-foreground cursor-pointer text-sm"
               >
                 {opt.label}
               </button>
             ))}
           </div>
           {path.length > 0 && (
-            <button onClick={stepBack} style={{ alignSelf: 'flex-start', padding: '5px 12px', background: 'none', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', color: C.textMuted, fontFamily: FONT, ...TEXT.xs }}>
+            <button onClick={stepBack} className="self-start px-3 py-1.5 bg-transparent border border-border rounded-md cursor-pointer text-subtle-foreground text-xs">
               ‹ חזור שלב
             </button>
           )}
@@ -1193,57 +1169,57 @@ const GuidedInvestigationWizard: React.FC<{
 
       {/* Stage 4-6 — the system infers everything below from the path/leaf; nothing here is typed in by the user */}
       {stage === 'review' && leaf && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+        <div className="flex flex-col gap-3">
           <div>
-            <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: '6px' }}>שרשרת 5-Why (נבנתה אוטומטית מהחקירה)</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div className="text-xs font-semibold text-muted-foreground mb-1.5">שרשרת 5-Why (נבנתה אוטומטית מהחקירה)</div>
+            <div className="flex flex-col gap-1.5">
               {path.map((p, i) => (
-                <div key={i} style={{ ...TEXT.sm }}>
-                  <span style={{ color: C.textMuted }}>למה? ({p.question})</span><br />
-                  <span style={{ color: C.textPrimary }}>נבחר: {p.answerLabel}</span>
+                <div key={i} className="text-sm">
+                  <span className="text-subtle-foreground">למה? ({p.question})</span><br />
+                  <span className="text-foreground">נבחר: {p.answerLabel}</span>
                 </div>
               ))}
-              <div style={{ ...TEXT.sm, background: `${C.success}18`, border: `1px solid ${C.success}`, borderRadius: RADIUS.md, padding: '8px 10px' }}>
-                <span style={{ color: C.textMuted }}>מה הגורם השורשי הסופי?</span><br />
-                <span style={{ color: C.success, fontWeight: WEIGHT.bold }}>{leaf.rootCause}</span>
+              <div className="text-sm bg-success-bg border border-success rounded-md px-2.5 py-2">
+                <span className="text-subtle-foreground">מה הגורם השורשי הסופי?</span><br />
+                <span className="text-success font-bold">{leaf.rootCause}</span>
               </div>
             </div>
           </div>
 
           <div>
-            <label style={labelStyle}>סיבה ישירה (Direct Cause)</label>
-            <div style={{ ...TEXT.sm, color: C.textPrimary }}>{leaf.directCause}</div>
+            <label className={labelClass}>סיבה ישירה (Direct Cause)</label>
+            <div className="text-sm text-foreground">{leaf.directCause}</div>
           </div>
           <div>
-            <label style={labelStyle}>שורש התקלה (Root Cause)</label>
-            <div style={{ ...TEXT.sm, color: C.textPrimary }}>{leaf.rootCause}</div>
+            <label className={labelClass}>שורש התקלה (Root Cause)</label>
+            <div className="text-sm text-foreground">{leaf.rootCause}</div>
           </div>
           <div>
-            <label style={labelStyle}>סיווג גורם שורש (הוסק אוטומטית)</label>
-            <div style={{ ...TEXT.sm, color: C.textPrimary }}>{leaf.category} › {leaf.rootCauseReason}</div>
+            <label className={labelClass}>סיווג גורם שורש (הוסק אוטומטית)</label>
+            <div className="text-sm text-foreground">{leaf.category} › {leaf.rootCauseReason}</div>
           </div>
-          <div style={{ display: 'flex', gap: SP[3] }}>
-            <div style={{ flex: 1, background: C.bgNested, borderRadius: RADIUS.md, padding: SP[2] }}>
-              <label style={labelStyle}>פעולת תיקון מוצעת</label>
-              <div style={{ ...TEXT.sm, color: C.textPrimary }}>{leaf.correctiveAction}</div>
+          <div className="flex gap-3">
+            <div className="flex-1 bg-muted rounded-md p-2">
+              <label className={labelClass}>פעולת תיקון מוצעת</label>
+              <div className="text-sm text-foreground">{leaf.correctiveAction}</div>
             </div>
-            <div style={{ flex: 1, background: C.bgNested, borderRadius: RADIUS.md, padding: SP[2] }}>
-              <label style={labelStyle}>פעולה מונעת מוצעת</label>
-              <div style={{ ...TEXT.sm, color: C.textPrimary }}>{leaf.preventiveAction}</div>
+            <div className="flex-1 bg-muted rounded-md p-2">
+              <label className={labelClass}>פעולה מונעת מוצעת</label>
+              <div className="text-sm text-foreground">{leaf.preventiveAction}</div>
             </div>
           </div>
           {!readOnly && (
-            <div style={{ ...TEXT.xs, color: C.textMuted, fontStyle: 'italic' }}>שתי הפעולות למעלה ייווצרו אוטומטית כפעולות מעקב עם שמירת ה-RCA — ניתן לשייך אחראי ותאריך בהמשך בפאנל הפעולות.</div>
+            <div className="text-xs text-subtle-foreground italic">שתי הפעולות למעלה ייווצרו אוטומטית כפעולות מעקב עם שמירת ה-RCA — ניתן לשייך אחראי ותאריך בהמשך בפאנל הפעולות.</div>
           )}
 
-          <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textSecondary }}>לקחים לפי צוות (ניתן להשאיר ריק אם לא רלוונטי)</div>
+          <div className="text-xs font-semibold text-muted-foreground">לקחים לפי צוות (ניתן להשאיר ריק אם לא רלוונטי)</div>
           <LessonsEditor teams={teams} teamsScoped={teamsScoped} readOnly={readOnly} value={lessons} onChange={setLessons} />
 
           {!readOnly && (
             <button
               onClick={() => onSubmit({ method: 'GUIDED', treePath: path, treeLeafId: leafId, lessons: lessonsPayload(teams, lessons) })}
               disabled={busy}
-              style={{ alignSelf: 'flex-start', padding: '8px 20px', background: C.success, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: busy ? 'not-allowed' : 'pointer', fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.bold }}
+              className={`self-start px-5 py-2 bg-success text-white border-none rounded-md text-sm font-bold ${busy ? 'cursor-not-allowed' : 'cursor-pointer'}`}
             >
               {busy ? 'שומר...' : '✅ סיום — שמור RCA'}
             </button>
@@ -1276,33 +1252,33 @@ const IncidentDetailsPanel: React.FC<{
   ].filter(([, v]) => v) as [string, string][];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-      <div style={sectionTitleStyle}>📋 פרטי אירוע</div>
+    <div className="flex flex-col gap-2">
+      <div className={sectionTitleClass}>📋 פרטי אירוע</div>
       {qcFacts.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+        <div className="flex flex-col gap-0.5">
           {qcFacts.map(([label, v]) => (
-            <div key={label} style={{ ...TEXT.xs, color: C.textSecondary }}><b>{label}:</b> {v}</div>
+            <div key={label} className="text-xs text-muted-foreground"><b>{label}:</b> {v}</div>
           ))}
         </div>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: `1px solid ${C.border}`, paddingTop: SP[2], marginTop: qcFacts.length ? '4px' : 0 }}>
-        <div style={{ ...TEXT.xs, color: C.textMuted, fontStyle: 'italic' }}>הנתונים הבאים לא קיימים ב-QC — יש למלא ידנית:</div>
+      <div className={`flex flex-col gap-1.5 border-t border-border pt-2 ${qcFacts.length ? 'mt-1' : 'mt-0'}`}>
+        <div className="text-xs text-subtle-foreground italic">הנתונים הבאים לא קיימים ב-QC — יש למלא ידנית:</div>
         <div>
-          <label style={labelStyle}>כמות משתמשים מושפעים</label>
-          <input type="number" min={0} value={affectedUsersCount} onChange={e => setAffectedUsersCount(e.target.value)} style={{ ...inputStyle, fontSize: '12px' }} />
+          <label className={labelClass}>כמות משתמשים מושפעים</label>
+          <input type="number" min={0} value={affectedUsersCount} onChange={e => setAffectedUsersCount(e.target.value)} className={`${inputClass} text-xs`} />
         </div>
         <div>
-          <label style={labelStyle}>משפיע על לקוחות?</label>
-          <select value={customerFacing} onChange={e => setCustomerFacing(e.target.value as any)} style={{ ...inputStyle, fontSize: '12px' }}>
+          <label className={labelClass}>משפיע על לקוחות?</label>
+          <select value={customerFacing} onChange={e => setCustomerFacing(e.target.value as any)} className={`${inputClass} text-xs`}>
             <option value="">לא ידוע</option>
             <option value="true">כן</option>
             <option value="false">לא</option>
           </select>
         </div>
         <div>
-          <label style={labelStyle}>משך אי-זמינות (דקות)</label>
-          <input type="number" min={0} value={downtimeMinutes} onChange={e => setDowntimeMinutes(e.target.value)} style={{ ...inputStyle, fontSize: '12px' }} />
+          <label className={labelClass}>משך אי-זמינות (דקות)</label>
+          <input type="number" min={0} value={downtimeMinutes} onChange={e => setDowntimeMinutes(e.target.value)} className={`${inputClass} text-xs`} />
         </div>
         <button
           onClick={() => onSaveTriage({
@@ -1311,7 +1287,7 @@ const IncidentDetailsPanel: React.FC<{
             downtimeMinutes: downtimeMinutes === '' ? null : Number(downtimeMinutes),
           })}
           disabled={busy}
-          style={{ alignSelf: 'flex-start', padding: '6px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.sm, cursor: busy ? 'not-allowed' : 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.bold }}
+          className={`self-start px-3.5 py-1.5 bg-primary text-white border-none rounded-sm text-xs font-bold ${busy ? 'cursor-not-allowed' : 'cursor-pointer'}`}
         >
           💾 שמור
         </button>
@@ -1324,22 +1300,22 @@ const IncidentDetailsPanel: React.FC<{
 const EvidencePanel: React.FC<{ incident: IncidentDetail; onAddManual: (content: string) => void }> = ({ incident, onAddManual }) => {
   const [manualText, setManualText] = useState('');
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-      <div style={sectionTitleStyle}>🔍 ראיות ({incident.evidence.length})</div>
+    <div className="flex flex-col gap-2">
+      <div className={sectionTitleClass}>🔍 ראיות ({incident.evidence.length})</div>
       {incident.evidence.length === 0 ? (
-        <div style={{ ...TEXT.xs, color: C.textMuted }}>נאספות אוטומטית כשהשיחה נפתחת.</div>
+        <div className="text-xs text-subtle-foreground">נאספות אוטומטית כשהשיחה נפתחת.</div>
       ) : incident.evidence.map(e => (
-        <div key={e.id} style={{ background: C.bgNested, borderRadius: RADIUS.md, padding: '6px 10px' }}>
-          <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textSecondary }}>{e.type}</div>
-          <div style={{ ...TEXT.xs, color: C.textPrimary, marginTop: '2px' }}>{e.content}</div>
+        <div key={e.id} className="bg-muted rounded-md px-2.5 py-1.5">
+          <div className="text-xs font-bold text-muted-foreground">{e.type}</div>
+          <div className="text-xs text-foreground mt-0.5">{e.content}</div>
         </div>
       ))}
-      <div style={{ display: 'flex', gap: '4px' }}>
-        <input value={manualText} onChange={e => setManualText(e.target.value)} placeholder="+ ראיה ידנית..." style={{ ...inputStyle, flex: 1, fontSize: '12px' }} />
+      <div className="flex gap-1">
+        <input value={manualText} onChange={e => setManualText(e.target.value)} placeholder="+ ראיה ידנית..." className={`${inputClass} flex-1 text-xs`} />
         <button
           onClick={() => { if (manualText.trim()) { onAddManual(manualText.trim()); setManualText(''); } }}
           disabled={!manualText.trim()}
-          style={{ padding: '4px 10px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs }}
+          className="px-2.5 py-1 bg-muted text-muted-foreground border border-border rounded-sm cursor-pointer text-xs"
         >
           הוסף
         </button>
@@ -1350,28 +1326,28 @@ const EvidencePanel: React.FC<{ incident: IncidentDetail; onAddManual: (content:
 
 // ── RCA conclusion panel (read-only — produced by the chat) ──────────────────
 const RcaSummaryPanel: React.FC<{ rca: Rca; busy: boolean; onUpdateStatus: (status: 'OPEN' | 'INVESTIGATION' | 'COMPLETED' | 'CANCELLED') => void }> = ({ rca, busy, onUpdateStatus }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-      <div style={sectionTitleStyle}>🧩 מסקנות RCA</div>
+  <div className="flex flex-col gap-2">
+    <div className="flex items-center justify-between">
+      <div className={sectionTitleClass}>🧩 מסקנות RCA</div>
       <select
         value={rca.status} disabled={busy} onChange={e => onUpdateStatus(e.target.value as any)}
-        style={{ ...TEXT.xs, padding: '2px 6px', borderRadius: RADIUS.sm, border: `1px solid ${C.border}`, color: RCA_STATUS_COLOR[rca.status], fontWeight: WEIGHT.bold, fontFamily: FONT }}
+        className={`text-xs px-1.5 py-0.5 rounded-sm border border-border font-bold ${RCA_STATUS_CLASS[rca.status]}`}
       >
         {Object.entries(RCA_STATUS_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
       </select>
     </div>
-    {rca.directCause && <div style={{ ...TEXT.xs, color: C.textSecondary }}><b>סיבה ישירה:</b> {rca.directCause}</div>}
-    {rca.rootCause && <div style={{ ...TEXT.sm, color: C.textPrimary }}><b>גורם שורש:</b> {rca.rootCause}</div>}
+    {rca.directCause && <div className="text-xs text-muted-foreground"><b>סיבה ישירה:</b> {rca.directCause}</div>}
+    {rca.rootCause && <div className="text-sm text-foreground"><b>גורם שורש:</b> {rca.rootCause}</div>}
     {(rca.category || rca.rootCauseReason) && (
-      <div style={{ ...TEXT.xs, color: C.textSecondary }}><b>סיווג:</b> {[rca.category, rca.rootCauseReason].filter(Boolean).join(' › ')}</div>
+      <div className="text-xs text-muted-foreground"><b>סיווג:</b> {[rca.category, rca.rootCauseReason].filter(Boolean).join(' › ')}</div>
     )}
-    {rca.description && <div style={{ ...TEXT.xs, color: C.textSecondary }}><b>תיאור מפורט:</b> {rca.description}</div>}
-    {rca.aiConfidence != null && <div style={{ ...TEXT.xs, color: C.textMuted }}>רמת ביטחון: {Math.round(rca.aiConfidence * 100)}%</div>}
+    {rca.description && <div className="text-xs text-muted-foreground"><b>תיאור מפורט:</b> {rca.description}</div>}
+    {rca.aiConfidence != null && <div className="text-xs text-subtle-foreground">רמת ביטחון: {Math.round(rca.aiConfidence * 100)}%</div>}
     {rca.lessons.length > 0 && (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
-        <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textSecondary }}>לקחים לפי צוות</div>
+      <div className="flex flex-col gap-1 mt-1">
+        <div className="text-xs font-semibold text-muted-foreground">לקחים לפי צוות</div>
         {rca.lessons.map(l => (
-          <div key={l.id} style={{ ...TEXT.xs, color: C.textSecondary }}><b>{l.teamName}:</b> {l.text}</div>
+          <div key={l.id} className="text-xs text-muted-foreground"><b>{l.teamName}:</b> {l.text}</div>
         ))}
       </div>
     )}
@@ -1392,20 +1368,21 @@ const ActionsPanel: React.FC<{
   const [showAdd, setShowAdd] = useState(false);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-      <div style={sectionTitleStyle}>✅ פעולות מעקב ({incident.actions.length})</div>
+    <div className="flex flex-col gap-2">
+      <div className={sectionTitleClass}>✅ פעולות מעקב ({incident.actions.length})</div>
       {incident.actions.length === 0 ? (
-        <div style={{ ...TEXT.xs, color: C.textMuted }}>אין פעולות עדיין.</div>
+        <div className="text-xs text-subtle-foreground">אין פעולות עדיין.</div>
       ) : incident.actions.map(a => (
-        <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px', background: C.bgNested, borderRadius: RADIUS.md, padding: '8px 10px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ ...TEXT.xs, color: C.brand, background: C.brandDim, borderRadius: RADIUS.sm, padding: '2px 6px', fontWeight: WEIGHT.bold }}>{a.team}</span>
-            <span style={{ ...TEXT.xs, color: C.textPrimary, flex: 1 }}>{a.title}</span>
+        <div key={a.id} className="flex flex-col gap-1 bg-muted rounded-md px-2.5 py-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-primary bg-primary-50 rounded-sm px-1.5 py-0.5 font-bold">{a.team}</span>
+            <span className="text-xs text-foreground flex-1">{a.title}</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            {a.ownerName && <span style={{ ...TEXT.xs, color: C.textMuted }}>{a.ownerName}</span>}
-            {a.dueAt && <span style={{ ...TEXT.xs, color: C.textMuted }}>{formatDate(a.dueAt)}</span>}
-            <select value={a.status} onChange={e => onUpdateStatus(a.id, e.target.value)} disabled={busy} style={{ ...TEXT.xs, padding: '2px 4px', borderRadius: RADIUS.sm, border: `1px solid ${C.border}`, color: ACTION_STATUS_COLOR[a.status], fontWeight: WEIGHT.bold, fontFamily: FONT, marginRight: 'auto' }}>
+          <div className="flex items-center gap-1.5">
+            {a.ownerName && <span className="text-xs text-subtle-foreground">{a.ownerName}</span>}
+            {a.dueAt && <span className="text-xs text-subtle-foreground">{formatDate(a.dueAt)}</span>}
+            <select value={a.status} onChange={e => onUpdateStatus(a.id, e.target.value)} disabled={busy}
+              className={`text-xs px-1 py-0.5 rounded-sm border border-border font-bold ms-auto ${ACTION_STATUS_CLASS[a.status]}`}>
               {Object.entries(ACTION_STATUS_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
           </div>
@@ -1413,29 +1390,29 @@ const ActionsPanel: React.FC<{
       ))}
 
       {!showAdd ? (
-        <button onClick={() => setShowAdd(true)} style={{ alignSelf: 'flex-start', padding: '4px 10px', background: 'none', border: `1px dashed ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer', color: C.textMuted, fontFamily: FONT, ...TEXT.xs }}>
+        <button onClick={() => setShowAdd(true)} className="self-start px-2.5 py-1 bg-transparent border border-dashed border-border rounded-sm cursor-pointer text-subtle-foreground text-xs">
           + הוסף פעולה
         </button>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: `1px solid ${C.border}`, paddingTop: SP[2] }}>
+        <div className="flex flex-col gap-1.5 border-t border-border pt-2">
           <TeamsScopeNote scoped={teamsScoped} />
-          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="כותרת הפעולה..." style={{ ...inputStyle, fontSize: '12px' }} />
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <select value={team} onChange={e => { setTeam(e.target.value); setOwner(''); }} style={{ ...inputStyle, flex: 1, fontSize: '12px' }}>
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="כותרת הפעולה..." className={`${inputClass} text-xs`} />
+          <div className="flex gap-1.5">
+            <select value={team} onChange={e => { setTeam(e.target.value); setOwner(''); }} className={`${inputClass} flex-1 text-xs`}>
               {teams.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
             </select>
-            <select value={priority} onChange={e => setPriority(e.target.value)} style={{ ...inputStyle, flex: 1, fontSize: '12px' }}>
+            <select value={priority} onChange={e => setPriority(e.target.value)} className={`${inputClass} flex-1 text-xs`}>
               {PRIORITY_OPTIONS.map(p => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}
             </select>
           </div>
-          <div style={{ display: 'flex', gap: '6px' }}>
+          <div className="flex gap-1.5">
             <OwnerField team={teams.find(t => t.name === team)} value={owner} onChange={setOwner} />
-            <input type="date" value={dueAt} onChange={e => setDueAt(e.target.value)} style={{ ...inputStyle, flex: 1, fontSize: '12px' }} />
+            <input type="date" value={dueAt} onChange={e => setDueAt(e.target.value)} className={`${inputClass} flex-1 text-xs`} />
           </div>
           <button
             onClick={() => { if (title.trim()) { onAdd({ title: title.trim(), team, owner: owner || undefined, dueAt: dueAt || undefined, priority }); setTitle(''); setOwner(''); setDueAt(''); setShowAdd(false); } }}
             disabled={busy || !title.trim()}
-            style={{ padding: '6px 12px', background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.sm, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs }}
+            className="px-3 py-1.5 bg-primary text-white border-none rounded-sm cursor-pointer text-xs"
           >
             הוסף
           </button>
@@ -1449,24 +1426,24 @@ const ActionsPanel: React.FC<{
 const ClosePanel: React.FC<{ incident: IncidentDetail; busy: boolean; canClose: boolean; onClose: (rationale?: string) => void }> = ({ incident, busy, canClose, onClose }) => {
   const [rationale, setRationale] = useState('');
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2], borderTop: `1px solid ${C.border}`, paddingTop: SP[3] }}>
-      <div style={sectionTitleStyle}>🔒 סגירה</div>
+    <div className="flex flex-col gap-2 border-t border-border pt-3">
+      <div className={sectionTitleClass}>🔒 סגירה</div>
       {incident.status === 'CLOSED' ? (
-        <div style={{ ...TEXT.xs, color: C.success }}>✅ נסגרה{incident.rca?.approvedBy ? ` ע"י ${incident.rca.approvedBy}` : ''}.</div>
+        <div className="text-xs text-success">✅ נסגרה{incident.rca?.approvedBy ? ` ע"י ${incident.rca.approvedBy}` : ''}.</div>
       ) : !canClose ? (
-        <div style={{ ...TEXT.xs, color: C.textMuted }}>סגירה דורשת הרשאת מנהל לילה.</div>
+        <div className="text-xs text-subtle-foreground">סגירה דורשת הרשאת מנהל לילה.</div>
       ) : (
         <>
           {incident.actions.length === 0 && (
             <div>
-              <label style={labelStyle}>אין פעולות מעקב — נדרש נימוק מפורש</label>
-              <textarea value={rationale} onChange={e => setRationale(e.target.value)} rows={2} style={{ ...inputStyle, resize: 'vertical', fontSize: '12px' }} />
+              <label className={labelClass}>אין פעולות מעקב — נדרש נימוק מפורש</label>
+              <textarea value={rationale} onChange={e => setRationale(e.target.value)} rows={2} className={`${inputClass} resize-y text-xs`} />
             </div>
           )}
           <button
             onClick={() => onClose(rationale || undefined)}
             disabled={busy || (incident.actions.length === 0 && !rationale.trim())}
-            style={{ padding: '7px 16px', background: (incident.actions.length === 0 && !rationale.trim()) ? C.textDisabled : C.success, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: (incident.actions.length === 0 && !rationale.trim()) ? 'not-allowed' : 'pointer', fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.bold }}
+            className={`px-4 py-1.5 text-white border-none rounded-md text-sm font-bold ${(incident.actions.length === 0 && !rationale.trim()) ? 'bg-subtle-foreground cursor-not-allowed' : 'bg-success cursor-pointer'}`}
           >
             🔒 סגור תקלה
           </button>

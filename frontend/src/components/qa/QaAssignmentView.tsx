@@ -2,11 +2,12 @@ import React, { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspens
 import axios from 'axios';
 const QaWorkPlanView    = lazy(() => import('./QaWorkPlanView'));
 const QaActivityPlanView = lazy(() => import('./QaActivityPlanView'));
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../../theme';
+import { C } from '../../theme';
 import { ConfirmDialog, DialogConfig } from '../ConfirmDialog';
 import { useDialog } from '../../context/DialogContext';
 import { DateField } from '../DatePicker';
 import { formatDate as fmtDateShared, formatDateTime as fmtDateTimeShared } from '../../utils/dateFormat';
+import { cn } from '../../lib/utils';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -277,8 +278,8 @@ const STATUS_ORDER = ['IN_PROGRESS','ACTIVE','REHEARSAL','APPROVED','REVIEW','RE
 
 function ScoreBar({ value, color, width = 80 }: { value: number; color: string; width?: number }) {
   return (
-    <div style={{ width, height: 5, background: C.bgHover, borderRadius: RADIUS.full, overflow: 'hidden', flexShrink: 0 }}>
-      <div style={{ height: '100%', width: `${value}%`, background: color, borderRadius: RADIUS.full, transition: 'width 0.4s ease' }} />
+    <div className="h-[5px] shrink-0 overflow-hidden rounded-full bg-muted" style={{ width }}>
+      <div className="h-full rounded-full transition-[width] duration-[400ms] ease-out" style={{ width: `${value}%`, background: color }} />
     </div>
   );
 }
@@ -288,16 +289,17 @@ function ScoreBar({ value, color, width = 80 }: { value: number; color: string; 
 function LoadBar({ used, capacity }: { used: number; capacity: number }) {
   const pct   = capacity > 0 ? Math.min((used / capacity) * 100, 100) : 0;
   const over  = capacity > 0 && used > capacity;
-  const color = over ? C.danger : pct > 85 ? C.warning : C.success;
+  const barColorClass  = over ? 'bg-danger'  : pct > 85 ? 'bg-warning'  : 'bg-success';
+  const textColorClass = over ? 'text-danger' : pct > 85 ? 'text-warning' : 'text-success';
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], minWidth: 140 }}>
-      <div style={{ flex: 1, height: 6, background: C.bgHover, borderRadius: RADIUS.full, overflow: 'hidden', minWidth: 70 }}>
-        <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: RADIUS.full, transition: 'width 0.3s ease' }} />
+    <div className="flex min-w-[140px] items-center gap-2">
+      <div className="h-1.5 min-w-[70px] flex-1 overflow-hidden rounded-full bg-muted">
+        <div className={cn('h-full rounded-full transition-[width] duration-300 ease-out', barColorClass)} style={{ width: `${pct}%` }} />
       </div>
-      <span style={{ ...TEXT.xs, color, fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>
+      <span className={cn('whitespace-nowrap text-xs font-bold', textColorClass)}>
         {used.toFixed(1)} / {capacity} י'
       </span>
-      {over && <span style={{ ...TEXT.xs, color: C.danger, fontWeight: WEIGHT.bold }}>⚠</span>}
+      {over && <span className="text-xs font-bold text-danger">⚠</span>}
     </div>
   );
 }
@@ -326,12 +328,12 @@ function TesterTimeline({
   missingFromPlan: Assignment[];
 }) {
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.sm, padding: SP[4], marginBottom: SP[4] }}>
-      <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: SP[3] }}>
+    <div className="mb-4 rounded-lg border border-border bg-card p-4 shadow-sm">
+      <div className="mb-3 text-sm font-bold text-foreground">
         📊 ציר זמן — {testerName}
       </div>
       {planExists && missingFromPlan.length > 0 && (
-        <div style={{ ...TEXT.xs, color: C.warning, background: C.warningBg, border: `1px solid ${C.warning}`, borderRadius: RADIUS.md, padding: SP[2], marginBottom: SP[3] }}>
+        <div className="mb-3 rounded-md border border-warning bg-warning-bg p-2 text-xs text-warning">
           ⚠ {missingFromPlan.length} מתוך המשימות הנוכחיות של {testerName} ({missingFromPlan.map(a => a.crNumber).join(', ')}) אינ{missingFromPlan.length === 1 ? 'ה' : 'ן'} בתוכנית הזו — ציר הזמן למטה מציג את התוכנית הקיימת, לא בהכרח את השיבוץ העדכני. יש ליצור מחדש כדי לסנכרן.
         </div>
       )}
@@ -392,7 +394,7 @@ function PreplanCapacityBars({
   const saSegs = segsForCycle('STAND_ALONE');
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+    <div className="flex flex-col gap-4">
       {cycleRows.map(row => {
         if (row.segs.length === 0) return null;
         const totalDays = row.segs.reduce((s, x) => s + x.days, 0);
@@ -401,30 +403,27 @@ function PreplanCapacityBars({
         const over = totalDays > row.capacity;
         return (
           <div key={row.label}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', ...TEXT.xs, color: C.textMuted, marginBottom: 4 }}>
-              <span style={{ fontWeight: WEIGHT.semibold, color: C.textSecondary }}>{row.label}</span>
-              <span style={{ color: over ? C.danger : C.textMuted, fontWeight: over ? WEIGHT.bold : WEIGHT.normal }}>
+            <div className="mb-1 flex justify-between text-xs text-subtle-foreground">
+              <span className="font-semibold text-muted-foreground">{row.label}</span>
+              <span className={cn(over ? 'font-bold text-danger' : 'font-normal text-subtle-foreground')}>
                 {totalDays} / {row.capacity} ימים{over ? ' ⚠ חריגה' : ''}
               </span>
             </div>
             {/* Capacity line */}
-            <div style={{ position: 'relative', height: 8, background: C.bgNested, borderRadius: RADIUS.sm, marginBottom: 4 }}>
-              <div style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: `${pctOf(row.capacity)}%`, background: C.border, borderRadius: RADIUS.sm }} />
+            <div className="relative mb-1 h-2 rounded-sm bg-muted">
+              <div className="absolute inset-y-0 start-0 rounded-sm bg-border" style={{ width: `${pctOf(row.capacity)}%` }} />
             </div>
             {/* Load line — segmented by CR, in queue order */}
-            <div style={{ display: 'flex', height: 22, borderRadius: RADIUS.sm, overflow: 'hidden', border: `1px solid ${C.border}` }}>
+            <div className="flex h-[22px] overflow-hidden rounded-sm border border-border">
               {row.segs.map((seg, i) => (
                 <div
                   key={seg.crNumber + i}
                   title={`${seg.crNumber} — ${seg.crLabel ?? seg.crNumber} (${seg.days} ימים)`}
-                  style={{
-                    width: `${pctOf(seg.days)}%`, background: TIMELINE_COLORS[i % TIMELINE_COLORS.length],
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-                    borderLeft: i > 0 ? `1px solid ${C.bgCard}` : 'none', position: 'relative',
-                  }}
+                  className={cn('relative flex items-center justify-center overflow-hidden', i > 0 && 'border-e border-e-card')}
+                  style={{ width: `${pctOf(seg.days)}%`, background: TIMELINE_COLORS[i % TIMELINE_COLORS.length] }}
                 >
-                  {seg.urgent && <span style={{ position: 'absolute', right: 2, color: '#fff', fontWeight: WEIGHT.bold, fontSize: 10 }}>🔴</span>}
-                  {pctOf(seg.days) > 6 && <span style={{ ...TEXT.xs, color: '#fff', fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{seg.crNumber}</span>}
+                  {seg.urgent && <span className="absolute start-0.5 text-[10px] font-bold text-white">🔴</span>}
+                  {pctOf(seg.days) > 6 && <span className="whitespace-nowrap text-xs font-bold text-white">{seg.crNumber}</span>}
                 </div>
               ))}
             </div>
@@ -433,29 +432,26 @@ function PreplanCapacityBars({
       })}
       {saSegs.length > 0 && (
         <div>
-          <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: 4 }}>
+          <div className="mb-1 text-xs font-semibold text-muted-foreground">
             Stand Alone (ללא קיבולת קבועה)
           </div>
-          <div style={{ display: 'flex', height: 22, borderRadius: RADIUS.sm, overflow: 'hidden', border: `1px solid ${C.border}` }}>
+          <div className="flex h-[22px] overflow-hidden rounded-sm border border-border">
             {saSegs.map((seg, i) => (
               <div
                 key={seg.crNumber + i}
                 title={`${seg.crNumber} — ${seg.crLabel ?? seg.crNumber} (${seg.days} ימים)`}
-                style={{
-                  flex: seg.days, background: TIMELINE_COLORS[i % TIMELINE_COLORS.length],
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-                  borderLeft: i > 0 ? `1px solid ${C.bgCard}` : 'none', position: 'relative', minWidth: 24,
-                }}
+                className={cn('relative flex min-w-[24px] items-center justify-center overflow-hidden', i > 0 && 'border-e border-e-card')}
+                style={{ flex: seg.days, background: TIMELINE_COLORS[i % TIMELINE_COLORS.length] }}
               >
-                {seg.urgent && <span style={{ position: 'absolute', right: 2, color: '#fff', fontWeight: WEIGHT.bold, fontSize: 10 }}>🔴</span>}
-                <span style={{ ...TEXT.xs, color: '#fff', fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{seg.crNumber}</span>
+                {seg.urgent && <span className="absolute start-0.5 text-[10px] font-bold text-white">🔴</span>}
+                <span className="whitespace-nowrap text-xs font-bold text-white">{seg.crNumber}</span>
               </div>
             ))}
           </div>
         </div>
       )}
       {cycleRows.every(r => r.segs.length === 0) && saSegs.length === 0 && (
-        <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[3] }}>אין עדיין משימות משובצות לבודק זה</div>
+        <div className="p-3 text-center text-sm text-subtle-foreground">אין עדיין משימות משובצות לבודק זה</div>
       )}
     </div>
   );
@@ -501,7 +497,7 @@ function RealTesterGantt({ filterTesterId, planCycles, holidayDays, cycle1Length
   const otherShown = Array.from(otherByCr.values()).sort((a, b) => a.plannedStart.localeCompare(b.plannedStart));
 
   if (mainTasks.length === 0 && otherShown.length === 0) {
-    return <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[3] }}>אין עדיין משימות בתוכנית העבודה לבודק זה</div>;
+    return <div className="p-3 text-center text-sm text-subtle-foreground">אין עדיין משימות בתוכנית העבודה לבודק זה</div>;
   }
 
   // Segment width/label comes from the task's own effortDays — the same
@@ -523,34 +519,32 @@ function RealTesterGantt({ filterTesterId, planCycles, holidayDays, cycle1Length
   const over       = cycle1LengthDays > 0 && totalDays > cycle1LengthDays;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+    <div className="flex flex-col gap-3">
       {mainTasks.length > 0 && (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', ...TEXT.xs, color: C.textMuted, marginBottom: 4 }}>
-            <span style={{ fontWeight: WEIGHT.semibold, color: C.textSecondary }}>סבב 1 + Stand Alone</span>
-            <span style={{ color: over ? C.danger : C.textMuted, fontWeight: over ? WEIGHT.bold : WEIGHT.normal }}>
+          <div className="mb-1 flex justify-between text-xs text-subtle-foreground">
+            <span className="font-semibold text-muted-foreground">סבב 1 + Stand Alone</span>
+            <span className={cn(over ? 'font-bold text-danger' : 'font-normal text-subtle-foreground')}>
               {totalDays} / {cycle1LengthDays} ימים{over ? ' ⚠ חריגה' : ''}
             </span>
           </div>
           {/* Capacity line — Cycle 1's real length */}
-          <div style={{ position: 'relative', height: 8, background: C.bgNested, borderRadius: RADIUS.sm, marginBottom: 4 }}>
-            <div style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: `${pctOf(cycle1LengthDays)}%`, background: C.border, borderRadius: RADIUS.sm }} />
+          <div className="relative mb-1 h-2 rounded-sm bg-muted">
+            <div className="absolute inset-y-0 start-0 rounded-sm bg-border" style={{ width: `${pctOf(cycle1LengthDays)}%` }} />
           </div>
           {/* Load line — Cycle 1 + SA tasks, sequential, real durations */}
-          <div style={{ display: 'flex', height: 24, borderRadius: RADIUS.sm, overflow: 'hidden', border: `1px solid ${C.border}` }}>
+          <div className="flex h-6 overflow-hidden rounded-sm border border-border">
             {segs.map((seg, i) => (
               <div
                 key={seg.crNumber + i}
                 title={`${seg.crNumber} — ${seg.crLabel ?? seg.crNumber} (${seg.days} ימים)${seg.isSA ? ' — Stand Alone' : ''}`}
+                className={cn('relative flex items-center justify-center overflow-hidden', i > 0 && 'border-e border-e-card')}
                 style={{
                   width: `${pctOf(seg.days)}%`, background: TIMELINE_COLORS[i % TIMELINE_COLORS.length],
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-                  borderLeft: i > 0 ? `1px solid ${C.bgCard}` : 'none',
                   backgroundImage: seg.isSA ? 'repeating-linear-gradient(45deg, rgba(255,255,255,0.25), rgba(255,255,255,0.25) 4px, transparent 4px, transparent 8px)' : undefined,
-                  position: 'relative',
                 }}
               >
-                {pctOf(seg.days) > 6 && <span style={{ ...TEXT.xs, color: '#fff', fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{seg.crNumber}</span>}
+                {pctOf(seg.days) > 6 && <span className="whitespace-nowrap text-xs font-bold text-white">{seg.crNumber}</span>}
               </div>
             ))}
           </div>
@@ -558,12 +552,12 @@ function RealTesterGantt({ filterTesterId, planCycles, holidayDays, cycle1Length
       )}
       {otherShown.length > 0 && (
         <div>
-          <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.danger, marginBottom: 4 }}>
+          <div className="mb-1 text-xs font-semibold text-danger">
             ⚠ משימות נוספות שאינן בסבב 1 או ב-Stand Alone
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div className="flex flex-col gap-1">
             {otherShown.map(t => (
-              <div key={t.crNumber} style={{ ...TEXT.xs, color: C.textSecondary, padding: `4px ${SP[2]}`, background: C.dangerBg, borderRadius: RADIUS.sm }}>
+              <div key={t.crNumber} className="rounded-sm bg-danger-bg px-2 py-1 text-xs text-muted-foreground">
                 CR {t.crNumber} — {t.crLabel ?? t.crNumber} · {CYCLE_LABEL[t.cycleType] ?? t.cycleType} · מתחיל {fmtDateIso(t.plannedStart)}
               </div>
             ))}
@@ -595,8 +589,8 @@ function decodeHtmlEntities(text: string | null | undefined): string {
 function DetailField({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>{label}</div>
-      <div style={{ ...TEXT.sm, color: value ? C.textPrimary : C.textDisabled }}>{value ?? '—'}</div>
+      <div className="mb-1 text-xs text-subtle-foreground">{label}</div>
+      <div className={cn('text-sm', value ? 'text-foreground' : 'text-subtle-foreground')}>{value ?? '—'}</div>
     </div>
   );
 }
@@ -608,7 +602,8 @@ function CycleChip({ cycleType }: { cycleType: string }) {
   return (
     <span
       title={info.fullLabel}
-      style={{ background: info.bg, color: info.color, padding: '2px 5px', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, whiteSpace: 'nowrap', border: `1px solid ${info.color}33` }}
+      className="whitespace-nowrap rounded-sm border px-[5px] py-0.5 text-xs font-bold"
+      style={{ background: info.bg, color: info.color, borderColor: `${info.color}33` }}
     >
       {info.label}
     </span>
@@ -706,6 +701,7 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   const [cycle2LengthDays, setCycle2LengthDays] = useState(6);
   const [cycle3LengthDays, setCycle3LengthDays] = useState(4);
   const [planExists, setPlanExists]     = useState(false); // does a QaWorkPlan already exist for this version — gates "save" vs. "generate"
+  const [planStatus, setPlanStatus]     = useState<'DRAFT' | 'APPROVED' | null>(null); // same GET /qa/workplan response planExists already reads — just also captures .status, for the secondary-tester confirm dialog below
   const [planOverflowIssues, setPlanOverflowIssues] = useState<OverflowIssue[]>([]); // real overflow from the generated plan, once one exists
   const [planCycles, setPlanCycles] = useState<PlanCycle[]>([]); // full per-cycle task data, for the per-tester Gantt timeline
   const [savingSettings, setSavingSettings] = useState(false);
@@ -817,7 +813,7 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   // ── Load version data ───────────────────────────────────────────────────────
 
   const loadVersion = useCallback(async (vId: string) => {
-    if (!vId) { setCrs([]); setAssignments([]); setScoring({}); setCrSyncStatuses({}); setSecondTesterSuggestions([]); setPlanExists(false); setPlanOverflowIssues([]); setPlanCycles([]); setCycleTasksByCr(new Map()); return; }
+    if (!vId) { setCrs([]); setAssignments([]); setScoring({}); setCrSyncStatuses({}); setSecondTesterSuggestions([]); setPlanExists(false); setPlanStatus(null); setPlanOverflowIssues([]); setPlanCycles([]); setCycleTasksByCr(new Map()); return; }
     setLoading(true);
     try {
       // Pick up CR_LIST changes automatically on load — without this, edits
@@ -851,6 +847,7 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
       // Restore dates only if there is an existing (even DRAFT) work plan
       const plan = planRes?.data;
       setPlanExists(!!plan?.cycle1Start);
+      setPlanStatus(plan?.status ?? null);
       setPlanOverflowIssues(plan?.overflowIssues ?? []);
       setPlanCycles(plan?.cycles ?? []);
       const taskMap = new Map<string, { id: string }[]>();
@@ -991,6 +988,43 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
     } finally {
       setSaving(null);
     }
+  };
+
+  // Add/remove secondary tester — confirms first whenever a work plan already
+  // exists, because PATCH .../secondary silently does a full delete-and-
+  // regenerate of the ENTIRE plan server-side (qa.controller.ts's
+  // patchSecondary → generateWorkPlan), not just this one CR: every cycle-2/3
+  // task any manager had manually disabled to relieve someone's overflow gets
+  // reactivated, and (if the plan was APPROVED) the approval is lost — same
+  // real impact as the "🔁 בנה מחדש מאפס" button already warns about, but
+  // this one previously had no warning at all (found 2026-09-14 auditing why
+  // "resolved" overload warnings could reappear on their own). Skips the
+  // dialog when no plan exists yet — there's nothing downstream to protect.
+  const patchSecondaryTester = async (crNumber: string, assignmentId: string, secondaryTesterId: string | null) => {
+    const run = async () => {
+      setSaving(crNumber);
+      try {
+        await axios.patch(`${API}/qa/assignments/${assignmentId}/secondary`, { secondaryTesterId }, { headers });
+        await loadVersion(selectedVId);
+      } finally {
+        setSaving(null);
+      }
+    };
+    if (!planExists) { await run(); return; }
+    setConfirmDialog({
+      title: secondaryTesterId ? 'הוספת בודק שני' : 'הסרת בודק שני',
+      message: (planStatus === 'APPROVED'
+        ? 'התוכנית כבר אושרה. '
+        : '') +
+        `שינוי בודק שני בונה מחדש את כל תוכנית העבודה (לכל ה-CRים, לא רק זה) — כל משימת סבב 2/3 שהושבתה ידנית תחזור לפעילה${planStatus === 'APPROVED' ? ', והאישור על התוכנית יימחק' : ''}.
+
+להמשיך?`,
+      variant: 'warning',
+      confirmLabel: 'כן, המשך',
+      cancelLabel: 'ביטול',
+      onConfirm: () => run(),
+      onCancel: () => {},
+    });
   };
 
   // ── Auto-assign ─────────────────────────────────────────────────────────────
@@ -1397,6 +1431,7 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
         : 'כל ה-CRים המשובצים נכללו בתוכנית.';
       dialog.alert(msg, 'תוכנית עבודה נוצרה', unassignedCrs.length > 0 ? 'warning' : 'success');
       setPlanExists(true);
+      setPlanStatus('DRAFT'); // a freshly generated/rebuilt plan always starts as DRAFT
       // The generate call rebuilds the plan server-side, but this component's
       // own planCycles/assignments/planOverflowIssues state was never
       // refetched afterward — so every screen reading from it (the "missing
@@ -1425,7 +1460,7 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
         { versionId: selectedVId, cycle1Start, testingEnd, cycle1LengthDays, cycle2LengthDays, cycle3LengthDays },
         { headers },
       );
-      dialog.alert('השינויים נשמרו. שינוי בתאריך ההתחלה עדכן את מועדי הסבבים הקיימים; שינוי באורך סבב בלבד יילקח בחשבון רק ביצירת תוכנית מחדש.', 'נשמר', 'success');
+      dialog.alert('השינויים נשמרו ועודכנו מיד בתוכנית הקיימת (מועדי המשימות בפועל שוקללו מחדש) — אין צורך ביצירת תוכנית מחדש.', 'נשמר', 'success');
       // Same staleness gap as doGenerateWorkPlan above — a cycle1Start move
       // reflows real task dates server-side, invisible here without a refetch.
       await loadVersion(selectedVId);
@@ -1506,17 +1541,57 @@ CRים אלה לא ייכללו בתוכנית העבודה.
       const total = a.qaEffort != null ? a.qaEffort : (effortMap.get(a.crNumber) ?? 0);
       // A second tester carries their participation % of the effort — the
       // rest stays with primary, matching the actual scheduler split, so
-      // adding help to an overloaded tester correctly reduces their load here too.
+      // adding help to an overloaded tester correctly reduces their load here
+      // too. Whole-day rounding with a 1-day floor per side — matches
+      // qa.scheduler.ts's splitEffort exactly (Math.max(1, Math.round(...)),
+      // no decimals). This used to round to one decimal place with no floor,
+      // so a small CR's secondary share could compute to 0 days here while
+      // splitEffort/testerLoadForView both floor it to 1 — silently
+      // under-counting load in this specific alert relative to every other
+      // load view on the same screen (found 2026-09-14 auditing overload
+      // warnings).
       if (a.secondaryUser) {
         const pct = a.secondaryParticipationPct ?? 50;
-        bump(a.userId, a.user.fullName, Math.round(total * (100 - pct) / 100 * 10) / 10);
-        bump(a.secondaryTesterId!, a.secondaryUser.fullName, Math.round(total * pct / 100 * 10) / 10);
+        bump(a.userId, a.user.fullName, Math.max(1, Math.round(total * (100 - pct) / 100)));
+        bump(a.secondaryTesterId!, a.secondaryUser.fullName, Math.max(1, Math.round(total * pct / 100)));
       } else {
         bump(a.userId, a.user.fullName, total);
       }
     });
     return map;
   }, [assignments, effortMap, archivedCrSet, crByNumber]);
+
+  // CRs whose saved plan's CYCLE_1 primary/secondary task split disagrees
+  // with the assignment's CURRENT secondaryParticipationPct — surfaced as an
+  // inline warning next to the % input (feedback 2026-09-14: found that
+  // editing this % alone never cascades to the real plan — qa.service.ts's
+  // patchAssignment only reschedules on a qaEffort change — so the saved
+  // plan can silently keep using a stale split with nothing on screen
+  // pointing at *why* the red overload panel's numbers don't match what
+  // this % field currently says). Deliberately NOT auto-cascading this
+  // (unlike qaEffort edits) — cascadeEffortToWorkPlan isn't secondary-aware
+  // itself (it would overwrite both testers' tasks with the same full
+  // effort, not a split), so silently "fixing" it here risked corrupting a
+  // currently-working case; flagging it and pointing at "בנה מחדש" is the
+  // safe fix. 5-point tolerance absorbs ordinary whole-day rounding.
+  const staleSplitCrs = useMemo(() => {
+    const stale = new Set<string>();
+    if (!planExists) return stale;
+    const cycle1 = planCycles.find(c => c.cycleType === 'CYCLE_1');
+    if (!cycle1) return stale;
+    assignments.forEach(a => {
+      if (!a.secondaryTesterId || archivedCrSet.has(a.crNumber)) return;
+      const primaryTask = cycle1.tasks.find(t => t.crNumber === a.crNumber && t.userId === a.userId && t.isPrimary);
+      const secondaryTask = cycle1.tasks.find(t => t.crNumber === a.crNumber && t.userId === a.secondaryTesterId && !t.isPrimary);
+      if (!primaryTask || !secondaryTask) return; // CR not in the saved CYCLE_1 plan at all — the separate "missing from plan" banner covers that case
+      const totalInPlan = primaryTask.effortDays + secondaryTask.effortDays;
+      if (totalInPlan <= 0) return;
+      const actualPct = Math.round((secondaryTask.effortDays / totalInPlan) * 100);
+      const expectedPct = a.secondaryParticipationPct ?? 50;
+      if (Math.abs(actualPct - expectedPct) > 5) stale.add(a.crNumber);
+    });
+    return stale;
+  }, [planExists, planCycles, assignments, archivedCrSet]);
 
   // Per-cycle tester load for the "עומס בודקים" panel below — unlike
   // testerLoad above (raw per-CR effort, fixed to CYCLE_1, used only for the
@@ -1680,8 +1755,14 @@ CRים אלה לא ייכללו בתוכנית העבודה.
 
   // Real overflow from the generated plan (qa-workplan.service.ts's
   // computeOverflowIssues — same data the Work Plan screen's matrix uses),
-  // grouped by tester. Once a plan exists this replaces the estimate above —
-  // the two must never show conflicting numbers for the same person.
+  // grouped by tester. NOTE (corrected 2026-09-14): this does NOT replace
+  // the estimate above — both are shown together whenever a plan exists (see
+  // the estimate panel's own render-site comment). They CAN legitimately
+  // disagree: this one reflects the last SAVED plan, the estimate reflects
+  // the CURRENT (possibly unsaved) cycle-length/assignment inputs — that's
+  // the intended "preview what a rebuild would do" use case, not a bug. An
+  // earlier version of this comment claimed the two "must never conflict",
+  // which was never actually enforced and is misleading — don't restore it.
   // Live-recomputed CORE_OVERFLOW / CORE_TESTING_END_OVERFLOW — mirrors
   // qa-workplan.service.ts's computeOverflowIssues() exactly for these two
   // checks, computed client-side so it reacts immediately to whatever's in
@@ -1891,20 +1972,20 @@ CRים אלה לא ייכללו בתוכנית העבודה.
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ padding: `${SP[4]} ${SP[5]}`, direction: 'rtl', fontFamily: FONT }}>
+    <div className="p-4 px-5 [direction:rtl]">
 
       {/* Header */}
-      <div style={{ marginBottom: SP[4] }}>
-        <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, display: 'flex', alignItems: 'center', gap: SP[2] }}>
+      <div className="mb-4">
+        <div className="flex items-center gap-2 text-xl font-bold">
           🎯 שיבוץ בודקים ותוכנית עבודה
         </div>
-        <div style={{ ...TEXT.sm, color: C.textMuted, marginTop: '2px' }}>
+        <div className="mt-0.5 text-sm text-subtle-foreground">
           שבץ בודקים, הגדר סבבים וסדר בדיקות, ובנה תוכנית עבודה. כולל UAT וסבב Stand Alone.
         </div>
       </div>
 
       {/* Tab toggle */}
-      <div style={{ display: 'flex', gap: 0, marginBottom: SP[4], borderBottom: `2px solid ${C.border}` }}>
+      <div className="mb-4 flex gap-0 border-b-2 border-border">
         {(['assignments', 'workplan', 'activity'] as const).map(tab => {
           const label = tab === 'assignments' ? '📋 שיבוץ בודקים' : tab === 'workplan' ? '🗓 תוכנית עבודה' : '📅 לוח פעילויות';
           const active = activeTab === tab;
@@ -1915,13 +1996,10 @@ CRים אלה לא ייכללו בתוכנית העבודה.
               // without requiring a manual page reload.
               if (tab === 'assignments' && activeTab !== 'assignments') loadVersion(selectedVId);
               setActiveTab(tab);
-            }} style={{
-              padding: `${SP[2]} ${SP[4]}`, border: 'none', background: 'transparent',
-              borderBottom: active ? `2px solid ${BLUE}` : '2px solid transparent',
-              marginBottom: '-2px',
-              color: active ? BLUE : C.textMuted, fontWeight: active ? WEIGHT.bold : WEIGHT.normal,
-              ...TEXT.sm, cursor: 'pointer', fontFamily: FONT, transition: EASE.fast,
-            }}>
+            }} className={cn(
+              '-mb-0.5 px-4 py-2 text-sm border-0 border-b-2 bg-transparent cursor-pointer transition-colors duration-100 ease-out',
+              active ? 'border-[#4573D2] font-bold text-[#4573D2]' : 'border-transparent font-normal text-subtle-foreground',
+            )}>
               {label}
             </button>
           );
@@ -1930,7 +2008,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
 
       {/* Work plan tab */}
       {activeTab === 'workplan' && (
-        <Suspense fallback={<div style={{ padding: SP[6], textAlign: 'center', color: C.textMuted }}>טוען...</div>}>
+        <Suspense fallback={<div className="p-6 text-center text-subtle-foreground">טוען...</div>}>
           <QaWorkPlanView
             token={token}
             initialVersionId={selectedVId}
@@ -1942,7 +2020,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
 
       {/* Activity board tab */}
       {activeTab === 'activity' && (
-        <Suspense fallback={<div style={{ padding: SP[6], textAlign: 'center', color: C.textMuted }}>טוען...</div>}>
+        <Suspense fallback={<div className="p-6 text-center text-subtle-foreground">טוען...</div>}>
           <QaActivityPlanView
             token={token}
             versionId={selectedVId}
@@ -1957,36 +2035,30 @@ CRים אלה לא ייכללו בתוכנית העבודה.
       {/* ── Second-tester suggestions — CR whose effort alone exceeds the
           configured threshold (default 12 days), no secondary tester set yet ── */}
       {secondTesterSuggestions.filter(s => !dismissedSuggestions.has(s.assignmentId)).length > 0 && (
-        <div style={{
-          background: C.bgInProgress, border: `1px solid ${C.statusInProgress}44`,
-          borderRadius: RADIUS.lg, padding: SP[4], marginBottom: SP[4],
-        }}>
-          <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: SP[2] }}>
+        <div className="mb-4 rounded-lg bg-[rgba(232,175,0,0.12)] p-4 border border-[#E8AF0044]">
+          <div className="mb-2 text-sm font-bold text-foreground">
             ⏱ הצעות לבודק שני — CR-ים שעלולים להאריך את סבב 1
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+          <div className="flex flex-col gap-2">
             {secondTesterSuggestions.filter(s => !dismissedSuggestions.has(s.assignmentId)).map(s => (
-              <div key={s.assignmentId} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP[3],
-                background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`,
-              }}>
-                <div style={{ ...TEXT.sm, color: C.textSecondary }}>
-                  <strong style={{ color: C.textPrimary }}>{s.crNumber}</strong>
+              <div key={s.assignmentId} className="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2">
+                <div className="text-sm text-muted-foreground">
+                  <strong className="text-foreground">{s.crNumber}</strong>
                   {s.crLabel && ` — ${s.crLabel.replace(/^\d+\s*-\s*/, '')}`}
                   {' '}({s.qaEffortDays} ימים, סף {s.thresholdDays}) — מומלץ: <strong>{s.suggestedTesterName}</strong>
                   {s.timeSavingDays > 0 && ` · חוסך כ-${s.timeSavingDays} ימים`}
                 </div>
-                <div style={{ display: 'flex', gap: SP[2], flexShrink: 0 }}>
+                <div className="flex shrink-0 gap-2">
                   <button
                     onClick={() => applySecondTesterSuggestion(s)}
                     disabled={applyingSuggestion === s.assignmentId}
-                    style={{ padding: '5px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold }}
+                    className="cursor-pointer rounded-md border-0 bg-primary px-3.5 py-[5px] text-xs font-semibold text-white"
                   >
                     {applyingSuggestion === s.assignmentId ? 'מאשר...' : '✓ אשר'}
                   </button>
                   <button
                     onClick={() => setDismissedSuggestions(prev => new Set(prev).add(s.assignmentId))}
-                    style={{ padding: '5px 12px', background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', ...TEXT.xs }}
+                    className="cursor-pointer rounded-md border border-border bg-transparent px-3 py-[5px] text-xs text-subtle-foreground"
                   >
                     התעלם
                   </button>
@@ -1998,13 +2070,9 @@ CRים אלה לא ייכללו בתוכנית העבודה.
       )}
 
       {/* Version + dates + generate */}
-      <div style={{
-        background: C.bgCard, border: `1px solid ${C.border}`,
-        borderRadius: RADIUS.lg, padding: SP[4], marginBottom: SP[4], boxShadow: SHADOW.sm,
-        display: 'flex', flexWrap: 'wrap', gap: SP[4], alignItems: 'flex-end',
-      }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto', minWidth: 200 }}>
-          <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>גרסה</span>
+      <div className="mb-4 flex flex-wrap items-end gap-4 rounded-lg border border-border bg-card p-4 shadow-sm">
+        <label className="flex flex-none flex-col gap-1 min-w-[200px]">
+          <span className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">גרסה</span>
           <select
             value={selectedVId}
             onChange={e => {
@@ -2015,7 +2083,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
               setCycle1Start('');
               setTestingEnd('');
             }}
-            style={{ padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, background: C.bgNested, color: C.textPrimary, outline: 'none', cursor: 'pointer', fontFamily: FONT }}
+            className="cursor-pointer rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none"
           >
             <option value="">— בחר גרסה —</option>
             {versions.map(v => (
@@ -2026,122 +2094,115 @@ CRים אלה לא ייכללו בתוכנית העבודה.
           </select>
         </label>
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
-          <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>התחלת בדיקות</span>
-          <DateField value={cycle1Start} onChange={v => setCycle1Start(v)}
-            style={{ padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, background: C.bgNested, color: C.textPrimary, outline: 'none', fontFamily: FONT }}
-          />
+        <label className="flex flex-none flex-col gap-1">
+          <span className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">התחלת בדיקות</span>
+          <DateField value={cycle1Start} onChange={v => setCycle1Start(v)} />
         </label>
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
-          <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>סיום בדיקות</span>
-          <DateField value={testingEnd} onChange={v => setTestingEnd(v)}
-            style={{ padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, background: C.bgNested, color: C.textPrimary, outline: 'none', fontFamily: FONT }}
-          />
+        <label className="flex flex-none flex-col gap-1">
+          <span className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">סיום בדיקות</span>
+          <DateField value={testingEnd} onChange={v => setTestingEnd(v)} />
         </label>
 
         {cycleRanges && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
-            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>תאריכי סבב 1</span>
-            <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>
+          <div className="flex flex-none flex-col gap-1">
+            <span className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">תאריכי סבב 1</span>
+            <div className="whitespace-nowrap rounded-md border border-border bg-muted px-3 py-2 text-end text-sm font-semibold text-muted-foreground [direction:ltr]">
               {fmtRange(cycleRanges.cycle1)}
             </div>
             {holidayNoteFor(cycleRanges.cycle1) && (
-              <span style={{ ...TEXT.xs, color: C.textMuted }}>{holidayNoteFor(cycleRanges.cycle1)}</span>
+              <span className="text-xs text-subtle-foreground">{holidayNoteFor(cycleRanges.cycle1)}</span>
             )}
           </div>
         )}
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
-          <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }} title="גבול קבוע לסבב 1. מי שלא מספיק מסומן כחורג, לא מותח את הסבב לכל הצוות">
+        <label className="flex flex-none flex-col gap-1">
+          <span className="text-xs font-bold uppercase tracking-wider text-subtle-foreground" title="גבול קבוע לסבב 1. מי שלא מספיק מסומן כחורג, לא מותח את הסבב לכל הצוות">
             אורך סבב 1 (ימי עבודה)
           </span>
           <input
             type="number" min={1} value={cycle1LengthDays}
             onChange={e => setCycle1LengthDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
-            style={{ width: 90, padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, background: C.bgNested, color: C.textPrimary, outline: 'none', fontFamily: FONT }}
+            className="w-[90px] rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none"
           />
         </label>
 
         {cycleRanges && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
-            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>תאריכי סבב 2</span>
-            <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>
+          <div className="flex flex-none flex-col gap-1">
+            <span className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">תאריכי סבב 2</span>
+            <div className="whitespace-nowrap rounded-md border border-border bg-muted px-3 py-2 text-end text-sm font-semibold text-muted-foreground [direction:ltr]">
               {fmtRange(cycleRanges.cycle2)}
             </div>
             {holidayNoteFor(cycleRanges.cycle2) && (
-              <span style={{ ...TEXT.xs, color: C.textMuted }}>{holidayNoteFor(cycleRanges.cycle2)}</span>
+              <span className="text-xs text-subtle-foreground">{holidayNoteFor(cycleRanges.cycle2)}</span>
             )}
           </div>
         )}
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
-          <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }} title="גבול קבוע לסבב 2, בלתי תלוי בסבב 1">
+        <label className="flex flex-none flex-col gap-1">
+          <span className="text-xs font-bold uppercase tracking-wider text-subtle-foreground" title="גבול קבוע לסבב 2, בלתי תלוי בסבב 1">
             אורך סבב 2 (ימי עבודה)
           </span>
           <input
             type="number" min={1} value={cycle2LengthDays}
             onChange={e => setCycle2LengthDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
-            style={{ width: 90, padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, background: C.bgNested, color: C.textPrimary, outline: 'none', fontFamily: FONT }}
+            className="w-[90px] rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none"
           />
         </label>
 
         {cycleRanges && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
-            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>תאריכי סבב 3</span>
-            <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>
+          <div className="flex flex-none flex-col gap-1">
+            <span className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">תאריכי סבב 3</span>
+            <div className="whitespace-nowrap rounded-md border border-border bg-muted px-3 py-2 text-end text-sm font-semibold text-muted-foreground [direction:ltr]">
               {fmtRange(cycleRanges.cycle3)}
             </div>
             {holidayNoteFor(cycleRanges.cycle3) && (
-              <span style={{ ...TEXT.xs, color: C.textMuted }}>{holidayNoteFor(cycleRanges.cycle3)}</span>
+              <span className="text-xs text-subtle-foreground">{holidayNoteFor(cycleRanges.cycle3)}</span>
             )}
           </div>
         )}
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
-          <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }} title="גבול קבוע לסבב 3, בלתי תלוי בסבב 1/2">
+        <label className="flex flex-none flex-col gap-1">
+          <span className="text-xs font-bold uppercase tracking-wider text-subtle-foreground" title="גבול קבוע לסבב 3, בלתי תלוי בסבב 1/2">
             אורך סבב 3 (ימי עבודה)
           </span>
           <input
             type="number" min={1} value={cycle3LengthDays}
             onChange={e => setCycle3LengthDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
-            style={{ width: 90, padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, background: C.bgNested, color: C.textPrimary, outline: 'none', fontFamily: FONT }}
+            className="w-[90px] rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none"
           />
         </label>
 
         {cycleDays > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }}>
-            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>אורך כל התקופה</span>
-            <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold }}>
+          <div className="flex flex-none flex-col gap-1">
+            <span className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">אורך כל התקופה</span>
+            <div className="rounded-md border border-border bg-muted px-3 py-2 text-sm font-semibold text-muted-foreground">
               {cycleDays} ימי עבודה
             </div>
           </div>
         )}
 
         {selectedVersion?.plannedStart && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto' }} title="נקבע בשלב יצירת הגרסה — משימות ליבה לא יכולות להימשך מעברו">
-            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>🚀 מועד עלייה לאוויר</span>
-            <div style={{ padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.semibold }}>
+          <div className="flex flex-none flex-col gap-1" title="נקבע בשלב יצירת הגרסה — משימות ליבה לא יכולות להימשך מעברו">
+            <span className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">🚀 מועד עלייה לאוויר</span>
+            <div className="rounded-md border border-border bg-muted px-3 py-2 text-sm font-semibold text-muted-foreground">
               {fmtDateShared(selectedVersion.plannedStart)}
             </div>
           </div>
         )}
 
-        <div style={{ flex: 1 }} />
+        <div className="flex-1" />
 
         {selectedVId && (
-          <div style={{ display: 'flex', gap: SP[2], alignSelf: 'flex-end' }}>
+          <div className="flex items-end self-end gap-2">
             <button
               disabled={syncing}
               onClick={openSyncPreview}
               title="בדוק שינויים ברשימת CRים מול קובץ ה-Excel"
-              style={{
-                padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, color: C.textSecondary,
-                border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold,
-                cursor: syncing ? 'not-allowed' : 'pointer',
-                opacity: syncing ? 0.5 : 1,
-                fontFamily: FONT, transition: EASE.fast, whiteSpace: 'nowrap',
-              }}
+              className={cn(
+                'whitespace-nowrap rounded-md border border-border bg-muted px-3 py-2 text-sm font-semibold text-muted-foreground transition-colors duration-100 ease-out',
+                syncing ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+              )}
             >
               {syncing ? '⏳' : '🔄'} סנכרן משימות גרסה
             </button>
@@ -2149,13 +2210,10 @@ CRים אלה לא ייכללו בתוכנית העבודה.
               disabled={bulkAssigning || visibleCrs.filter(cr => !assignmentMap.has(cr.crNumber)).length === 0}
               onClick={autoAssignAll}
               title="שיבוץ אוטומטי לכל ה-CR-ים שטרם שובצו"
-              style={{
-                padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, color: C.textSecondary,
-                border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold,
-                cursor: (bulkAssigning || visibleCrs.filter(cr => !assignmentMap.has(cr.crNumber)).length === 0) ? 'not-allowed' : 'pointer',
-                opacity: (bulkAssigning || visibleCrs.filter(cr => !assignmentMap.has(cr.crNumber)).length === 0) ? 0.5 : 1,
-                fontFamily: FONT, transition: EASE.fast, whiteSpace: 'nowrap',
-              }}
+              className={cn(
+                'whitespace-nowrap rounded-md border border-border bg-muted px-3 py-2 text-sm font-semibold text-muted-foreground transition-colors duration-100 ease-out',
+                (bulkAssigning || visibleCrs.filter(cr => !assignmentMap.has(cr.crNumber)).length === 0) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+              )}
             >
               {bulkAssigning ? '⏳ משבץ...' : '⚡ שיבוץ אוטומטי לכולם'}
             </button>
@@ -2164,13 +2222,10 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                 disabled={savingSettings || !cycle1Start || !testingEnd}
                 onClick={doSaveWorkPlanSettings}
                 title="שומר תאריכים/אורכי סבב על התוכנית הקיימת — לא מוחק שיבוצים, דריסות מאמץ, או אישור שכבר ניתן"
-                style={{
-                  padding: `${SP[2]} ${SP[4]}`, background: C.bgNested, color: C.textPrimary,
-                  border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold,
-                  cursor: (savingSettings || !cycle1Start || !testingEnd) ? 'not-allowed' : 'pointer',
-                  opacity: (savingSettings || !cycle1Start || !testingEnd) ? 0.5 : 1,
-                  fontFamily: FONT, transition: EASE.fast, whiteSpace: 'nowrap',
-                }}
+                className={cn(
+                  'whitespace-nowrap rounded-md border border-border bg-muted px-4 py-2 text-sm font-semibold text-foreground transition-colors duration-100 ease-out',
+                  (savingSettings || !cycle1Start || !testingEnd) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+                )}
               >
                 {savingSettings ? '⏳ שומר...' : '💾 שמור שינויים'}
               </button>
@@ -2179,13 +2234,10 @@ CRים אלה לא ייכללו בתוכנית העבודה.
               disabled={generating || !cycle1Start || !testingEnd}
               onClick={generateWorkPlan}
               title={planExists ? 'מוחק את התוכנית הקיימת ובונה אותה מחדש מאפס — כולל שיבוצים ידניים ואישור' : undefined}
-              style={{
-                padding: `${SP[2]} ${SP[4]}`, background: BLUE, color: '#fff',
-                border: 'none', borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold,
-                cursor: (generating || !cycle1Start || !testingEnd) ? 'not-allowed' : 'pointer',
-                opacity: (generating || !cycle1Start || !testingEnd) ? 0.5 : 1,
-                fontFamily: FONT, transition: EASE.fast, whiteSpace: 'nowrap',
-              }}
+              className={cn(
+                'whitespace-nowrap rounded-md border-0 bg-[#4573D2] px-4 py-2 text-sm font-semibold text-white transition-colors duration-100 ease-out',
+                (generating || !cycle1Start || !testingEnd) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+              )}
             >
               {generating ? '⏳ מחשב...' : planExists ? '🔁 בנה מחדש מאפס' : '📋 צור תוכנית עבודה'}
             </button>
@@ -2194,12 +2246,15 @@ CRים אלה לא ייכללו בתוכנית העבודה.
       </div>
 
       {isManager && assignments.length > 0 && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: SP[3] }}>
+        <div className="mb-3 flex justify-end">
           <button
             disabled={deletingAssignments}
             onClick={deleteAllAssignments}
             title="מוחק את כל שיבוצי הבודקים לגרסה זו — לא נוגע בתוכנית העבודה או בתכולת ה-CRים"
-            style={{ padding: `4px ${SP[3]}`, background: 'transparent', color: C.danger, border: `1px solid ${C.danger}55`, borderRadius: RADIUS.sm, ...TEXT.xs, cursor: deletingAssignments ? 'not-allowed' : 'pointer', fontFamily: FONT, opacity: deletingAssignments ? 0.6 : 1 }}
+            className={cn(
+              'rounded-sm border border-danger/33 bg-transparent px-3 py-1 text-xs text-danger',
+              deletingAssignments ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+            )}
           >
             {deletingAssignments ? '⏳ מוחק...' : '🗑 מחק שיבוץ'}
           </button>
@@ -2215,24 +2270,24 @@ CRים אלה לא ייכללו בתוכנית העבודה.
            production 2026-08-03: CR 13219 stuck in this state). Split so the
            message actually tells the user what will fix it. ── */}
       {missingFromPlan.length > 0 && (
-        <div style={{ border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], borderRight: `4px solid ${C.warning}`, backgroundColor: C.warningBg, marginBottom: SP[4] }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+        <div className="mb-4 rounded-lg border border-border border-s-4 border-s-warning bg-warning-bg p-4">
+          <div className="flex flex-col gap-2">
             {missingFromPlanRebuildable.length > 0 && (
-              <div style={{ display: 'flex', gap: SP[2], alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                <strong style={{ color: C.warning, ...TEXT.sm, whiteSpace: 'nowrap' }}>
+              <div className="flex flex-wrap items-start gap-2">
+                <strong className="whitespace-nowrap text-sm text-warning">
                   ⚠ תוכנית העבודה לא מעודכנת:
                 </strong>
-                <span style={{ ...TEXT.sm, color: C.textSecondary }}>
+                <span className="text-sm text-muted-foreground">
                   {missingFromPlanRebuildable.length} {missingFromPlanRebuildable.length === 1 ? 'CR משובץ' : 'CRים משובצים'} שאינ{missingFromPlanRebuildable.length === 1 ? 'ו' : 'ם'} בתוכנית הקיימת ({missingFromPlanRebuildable.map(a => a.crNumber).join(', ')}) — ציר הזמן ומסך תוכנית העבודה עדיין מציגים את התוכנית הישנה. יש ליצור מחדש (🔁 בנה מחדש מאפס למעלה) כדי לראות נתונים עדכניים.
                 </span>
               </div>
             )}
             {missingFromPlanNoEffort.length > 0 && (
-              <div style={{ display: 'flex', gap: SP[2], alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                <strong style={{ color: C.danger, ...TEXT.sm, whiteSpace: 'nowrap' }}>
+              <div className="flex flex-wrap items-start gap-2">
+                <strong className="whitespace-nowrap text-sm text-danger">
                   ⚠ ללא מאמץ QA:
                 </strong>
-                <span style={{ ...TEXT.sm, color: C.textSecondary }}>
+                <span className="text-sm text-muted-foreground">
                   {missingFromPlanNoEffort.length} {missingFromPlanNoEffort.length === 1 ? 'CR משובץ' : 'CRים משובצים'} ({missingFromPlanNoEffort.map(a => a.crNumber).join(', ')}) ל{missingFromPlanNoEffort.length === 1 ? 'א' : 'לא'} נכלל{missingFromPlanNoEffort.length === 1 ? '' : 'ים'} בתוכנית — לבנייה מחדש לא תהיה השפעה: אין ל{missingFromPlanNoEffort.length === 1 ? 'ו' : 'הם'} מאמץ QA מוגדר (0 או ריק), ומשימה כזו לא נכנסת לתוכנית עבודה בשום בנייה. יש להגדיר מאמץ QA בטבלה למעלה ואז לבנות מחדש.
                 </span>
               </div>
@@ -2248,23 +2303,20 @@ CRים אלה לא ייכללו בתוכנית העבודה.
            (unlike Stand Alone, which is allowed to and only warns); this is
            surfaced prominently but doesn't block saving/generating the plan. ── */}
       {planExists && planStructuralIssues.length > 0 && (
-        <div style={{
-          marginBottom: SP[4], borderRadius: RADIUS.lg, border: `2px solid ${C.danger}`,
-          background: C.dangerBg, overflow: 'hidden',
-        }}>
+        <div className="mb-4 overflow-hidden rounded-lg border-2 border-danger bg-danger-bg">
           <div
             onClick={() => setStructuralPanelCollapsed(v => !v)}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${SP[3]} ${SP[4]}`, cursor: 'pointer' }}
+            className="flex cursor-pointer items-center justify-between px-4 py-3"
           >
-            <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.danger }}>
+            <span className="text-sm font-bold text-danger">
               🚨 {planStructuralIssues.length} סבבי ליבה חורגים מתאריך סיום הבדיקות
             </span>
-            <span style={{ ...TEXT.sm, color: C.danger }}>{structuralPanelCollapsed ? '▸ הצג' : '▾ הסתר'}</span>
+            <span className="text-sm text-danger">{structuralPanelCollapsed ? '▸ הצג' : '▾ הסתר'}</span>
           </div>
           {!structuralPanelCollapsed && (
-            <div style={{ padding: `0 ${SP[4]} ${SP[4]}`, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+            <div className="flex flex-col gap-2 px-4 pb-4">
               {planStructuralIssues.map((issue, i) => (
-                <div key={i} style={{ padding: SP[3], background: C.bgCard, borderRadius: RADIUS.md, border: `1px solid ${C.border}`, ...TEXT.sm, color: C.textPrimary }}>
+                <div key={i} className="rounded-md border border-border bg-card p-3 text-sm text-foreground">
                   {issue.message}
                 </div>
               ))}
@@ -2275,26 +2327,23 @@ CRים אלה לא ייכללו בתוכנית העבודה.
 
       {/* ── Overload alert: real plan data once one exists ── */}
       {planExists && planIssuesByTester.length > 0 && (
-        <div style={{
-          marginBottom: SP[4], borderRadius: RADIUS.lg, border: `1px solid ${C.danger}`,
-          background: C.dangerBg, overflow: 'hidden',
-        }}>
+        <div className="mb-4 overflow-hidden rounded-lg border border-danger bg-danger-bg">
           <div
             onClick={() => setOverloadPanelCollapsed(v => !v)}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${SP[3]} ${SP[4]}`, cursor: 'pointer' }}
+            className="flex cursor-pointer items-center justify-between px-4 py-3"
           >
-            <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.danger }}>
+            <span className="text-sm font-bold text-danger">
               ⚠️ {planIssuesByTester.length} בודקים עם חריגה בתוכנית העבודה בפועל
             </span>
-            <span style={{ ...TEXT.sm, color: C.danger }}>{overloadPanelCollapsed ? '▸ הצג' : '▾ הסתר'}</span>
+            <span className="text-sm text-danger">{overloadPanelCollapsed ? '▸ הצג' : '▾ הסתר'}</span>
           </div>
           {!overloadPanelCollapsed && (
-            <div style={{ padding: `0 ${SP[4]} ${SP[4]}`, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+            <div className="flex flex-col gap-2 px-4 pb-4">
               {planIssuesByTester.map(t => (
-                <div key={t.userId} style={{ padding: SP[3], background: C.bgCard, borderRadius: RADIUS.md, border: `1px solid ${C.border}`, ...TEXT.sm, color: C.textPrimary }}>
+                <div key={t.userId} className="rounded-md border border-border bg-card p-3 text-sm text-foreground">
                   <b>{t.fullName}</b>
                   {t.issues.map((issue, i) => (
-                    <div key={i} style={{ marginTop: SP[1], ...TEXT.xs, color: C.textSecondary }}>⚠ {issue.message}</div>
+                    <div key={i} className="mt-1 text-xs text-muted-foreground">⚠ {issue.message}</div>
                   ))}
                 </div>
               ))}
@@ -2311,23 +2360,22 @@ CRים אלה לא ייכללו בתוכנית העבודה.
            reflects what's actually saved; this one is a forecast that only takes
            effect once the plan is (re)built. ── */}
       {overloadIssues.length > 0 && (
-        <div style={{
-          marginBottom: SP[4], borderRadius: RADIUS.lg, border: `1px solid ${C.warning}`,
-          background: C.warningBg, overflow: 'hidden',
-        }}>
+        <div className="mb-4 overflow-hidden rounded-lg border border-warning bg-warning-bg">
           <div
             onClick={() => setEstimatePanelCollapsed(v => !v)}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${SP[3]} ${SP[4]}`, cursor: 'pointer' }}
+            className="flex cursor-pointer items-center justify-between px-4 py-3"
           >
-            <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.warning }}>
-              ⚠️ {overloadIssues.length} בודקים חורגים מאורך סבב 1 ({cycle1LengthDays} ימי עבודה) — הערכה לפי ההגדרות הנוכחיות{planExists ? ', תיכנס לתוקף רק לאחר בנייה מחדש' : ', לפני יצירת תוכנית עבודה'}
+            <span className="text-sm font-bold text-warning">
+              {planExists
+                ? `🔮 תחזית: ${overloadIssues.length} בודקים יחרגו מאורך סבב 1 (${cycle1LengthDays} ימי עבודה) אם התוכנית תיבנה מחדש עכשיו — לפי ההגדרות/שיבוצים הנוכחיים על המסך, לא לפי התוכנית השמורה בפועל (שיכולה להיראות שונה — ראה/י פאנל אדום למעלה אם יש).`
+                : `⚠️ ${overloadIssues.length} בודקים חורגים מאורך סבב 1 (${cycle1LengthDays} ימי עבודה) — הערכה לפי ההגדרות הנוכחיות, לפני יצירת תוכנית עבודה`}
             </span>
-            <span style={{ ...TEXT.sm, color: C.warning }}>{estimatePanelCollapsed ? '▸ הצג' : '▾ הסתר'}</span>
+            <span className="text-sm text-warning">{estimatePanelCollapsed ? '▸ הצג' : '▾ הסתר'}</span>
           </div>
           {!estimatePanelCollapsed && (
-            <div style={{ padding: `0 ${SP[4]} ${SP[4]}`, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+            <div className="flex flex-col gap-2 px-4 pb-4">
               {overloadIssues.map(issue => (
-                <div key={issue.userId} style={{ padding: SP[3], background: C.bgCard, borderRadius: RADIUS.md, border: `1px solid ${C.border}`, ...TEXT.sm, color: C.textPrimary }}>
+                <div key={issue.userId} className="rounded-md border border-border bg-card p-3 text-sm text-foreground">
                   <div>
                     <b>{issue.fullName}</b> — משובצים לו {issue.totalDays} ימי עבודה, מול אורך סבב 1 של {cycle1LengthDays} ימים (חריגה של {issue.daysOver} ימים).
                     {issue.biggest && (
@@ -2341,12 +2389,10 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                         const crRec = crs.find(c => c.crNumber === issue.biggest!.crNumber);
                         if (crRec) assign(crRec, issue.suggestion!.userId);
                       }}
-                      style={{
-                        marginTop: SP[2], padding: `4px ${SP[3]}`, background: C.success, color: '#fff',
-                        border: 'none', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.semibold,
-                        cursor: saving === issue.biggest.crNumber ? 'not-allowed' : 'pointer',
-                        opacity: saving === issue.biggest.crNumber ? 0.6 : 1, fontFamily: FONT,
-                      }}
+                      className={cn(
+                        'mt-2 rounded-sm border-0 bg-success px-3 py-1 text-xs font-semibold text-white',
+                        saving === issue.biggest.crNumber ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+                      )}
                     >
                       🔧 העבר CR {issue.biggest.crNumber} ל-{issue.suggestion.fullName} (יישאר עם {issue.suggestion.newTotal}/{cycle1LengthDays} ימים) — לבצע?
                     </button>
@@ -2360,28 +2406,28 @@ CRים אלה לא ייכללו בתוכנית העבודה.
 
       {/* ── Sync diff modal ── */}
       {syncDiff && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: SP[4] }}>
-          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.xl, boxShadow: SHADOW.xl, width: '100%', maxWidth: 560, maxHeight: '80vh', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
-            <div style={{ padding: `${SP[4]} ${SP[5]}`, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>🔄 תצוגה מקדימה של סנכרון</span>
-              <button onClick={() => setSyncDiff(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 18, fontFamily: FONT }}>✕</button>
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/45 p-4">
+          <div className="flex max-h-[80vh] w-full max-w-[560px] flex-col rounded-xl border border-border bg-card shadow-xl [direction:rtl]">
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <span className="text-lg font-bold text-foreground">🔄 תצוגה מקדימה של סנכרון</span>
+              <button onClick={() => setSyncDiff(null)} className="cursor-pointer border-0 bg-transparent text-lg text-subtle-foreground">✕</button>
             </div>
-            <div style={{ padding: `${SP[3]} ${SP[5]}`, display: 'flex', gap: SP[3], borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-              <span style={{ background: C.successBg, color: C.success, padding: `3px ${SP[3]}`, borderRadius: RADIUS.full, ...TEXT.sm, fontWeight: WEIGHT.bold }}>+{addedGrouped.filter(g => !excludedAddedCrs.has(g.crNumber)).length} חדשים</span>
-              <span style={{ background: C.dangerBg,  color: C.danger,  padding: `3px ${SP[3]}`, borderRadius: RADIUS.full, ...TEXT.sm, fontWeight: WEIGHT.bold }}>−{syncDiff.removed.length} הוסרו</span>
-              <span style={{ background: C.bgNested,  color: C.textMuted, padding: `3px ${SP[3]}`, borderRadius: RADIUS.full, ...TEXT.sm, fontWeight: WEIGHT.medium }}>{syncDiff.unchanged} ללא שינוי</span>
+            <div className="flex shrink-0 gap-3 border-b border-border px-5 py-3">
+              <span className="rounded-full bg-success-bg px-3 py-[3px] text-sm font-bold text-success">+{addedGrouped.filter(g => !excludedAddedCrs.has(g.crNumber)).length} חדשים</span>
+              <span className="rounded-full bg-danger-bg px-3 py-[3px] text-sm font-bold text-danger">−{syncDiff.removed.length} הוסרו</span>
+              <span className="rounded-full bg-muted px-3 py-[3px] text-sm font-medium text-subtle-foreground">{syncDiff.unchanged} ללא שינוי</span>
             </div>
-            <div style={{ overflowY: 'auto', flex: 1, padding: SP[4] }}>
+            <div className="flex-1 overflow-y-auto p-4">
               {addedGrouped.length > 0 && (
-                <div style={{ marginBottom: SP[3] }}>
-                  <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.success, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: SP[2] }}>CRים חדשים שיתווספו</div>
+                <div className="mb-3">
+                  <div className="mb-2 text-xs font-bold uppercase tracking-wider text-success">CRים חדשים שיתווספו</div>
                   {addedGrouped.map(item => {
                     const excluded = excludedAddedCrs.has(item.crNumber);
                     return (
-                      <div key={item.crNumber} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[1]} ${SP[2]}`, borderRadius: RADIUS.sm, background: excluded ? C.bgNested : C.successBg, marginBottom: 4, opacity: excluded ? 0.5 : 1 }}>
-                        <span style={{ background: C.success + '22', color: C.success, padding: `1px ${SP[2]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{item.crNumber}</span>
-                        <span style={{ ...TEXT.xs, color: C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: excluded ? 'line-through' : 'none', flex: 1 }}>{item.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}</span>
-                        <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap', flexShrink: 0 }}>{item.teamNames.join(', ')}</span>
+                      <div key={item.crNumber} className={cn('mb-1 flex items-center gap-2 rounded-sm px-2 py-1', excluded ? 'bg-muted opacity-50' : 'bg-success-bg')}>
+                        <span className="whitespace-nowrap rounded-sm bg-success/13 px-2 py-px text-xs font-bold text-success">{item.crNumber}</span>
+                        <span className={cn('flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground', excluded && 'line-through')}>{item.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}</span>
+                        <span className="shrink-0 whitespace-nowrap text-xs text-subtle-foreground">{item.teamNames.join(', ')}</span>
                         <button
                           onClick={() => setExcludedAddedCrs(prev => {
                             const n = new Set(prev);
@@ -2389,7 +2435,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                             return n;
                           })}
                           title={excluded ? 'בטל הסרה — הוסף בחזרה לשיבוץ' : 'הסר CR זה מהשיבוץ (כל הצוותים)'}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: excluded ? C.success : C.textMuted, fontSize: 14, flexShrink: 0, fontFamily: FONT }}
+                          className={cn('shrink-0 cursor-pointer border-0 bg-transparent text-sm', excluded ? 'text-success' : 'text-subtle-foreground')}
                         >{excluded ? '↺' : '✕'}</button>
                       </div>
                     );
@@ -2398,34 +2444,37 @@ CRים אלה לא ייכללו בתוכנית העבודה.
               )}
               {syncDiff.removed.length > 0 && (
                 <div>
-                  <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.danger, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: SP[2] }}>CRים שהוסרו מהתכולה</div>
+                  <div className="mb-2 text-xs font-bold uppercase tracking-wider text-danger">CRים שהוסרו מהתכולה</div>
                   {syncDiff.removed.map(item => (
-                    <div key={`${item.crNumber}-${item.teamName}`} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[1]} ${SP[2]}`, borderRadius: RADIUS.sm, background: C.dangerBg, marginBottom: 4 }}>
-                      <span style={{ background: C.danger + '22', color: C.danger, padding: `1px ${SP[2]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{item.crNumber}</span>
-                      <span style={{ ...TEXT.xs, color: C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'line-through', flex: 1 }}>{item.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}</span>
-                      <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap', flexShrink: 0 }}>{item.teamName}</span>
+                    <div key={`${item.crNumber}-${item.teamName}`} className="mb-1 flex items-center gap-2 rounded-sm bg-danger-bg px-2 py-1">
+                      <span className="whitespace-nowrap rounded-sm bg-danger/13 px-2 py-px text-xs font-bold text-danger">{item.crNumber}</span>
+                      <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground line-through">{item.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}</span>
+                      <span className="shrink-0 whitespace-nowrap text-xs text-subtle-foreground">{item.teamName}</span>
                     </div>
                   ))}
                 </div>
               )}
               {syncDiff.added.length === 0 && syncDiff.removed.length === 0 && (
-                <div style={{ textAlign: 'center', padding: SP[4], ...TEXT.sm, color: C.textMuted }}>✅ אין שינויים — התכולה זהה לקובץ ה-Excel</div>
+                <div className="p-4 text-center text-sm text-subtle-foreground">✅ אין שינויים — התכולה זהה לקובץ ה-Excel</div>
               )}
             </div>
-            <div style={{ padding: `${SP[3]} ${SP[5]}`, borderTop: `1px solid ${C.border}`, display: 'flex', gap: SP[2], justifyContent: 'flex-start', flexShrink: 0 }}>
+            <div className="flex shrink-0 justify-start gap-2 border-t border-border px-5 py-3">
               {(() => {
                 const nothingToApply = addedGrouped.every(g => excludedAddedCrs.has(g.crNumber)) && syncDiff.removed.length === 0;
                 return (
                   <button
                     onClick={applySyncConfirmed}
                     disabled={nothingToApply}
-                    style={{ padding: `${SP[2]} ${SP[4]}`, background: BLUE, color: '#fff', border: 'none', borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: nothingToApply ? 'not-allowed' : 'pointer', fontFamily: FONT, opacity: nothingToApply ? 0.5 : 1 }}
+                    className={cn(
+                      'rounded-md border-0 bg-[#4573D2] px-4 py-2 text-sm font-semibold text-white',
+                      nothingToApply ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+                    )}
                   >אשר ובצע סנכרון</button>
                 );
               })()}
               <button
                 onClick={() => setSyncDiff(null)}
-                style={{ padding: `${SP[2]} ${SP[4]}`, background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT }}
+                className="cursor-pointer rounded-md border border-border bg-muted px-4 py-2 text-sm font-semibold text-muted-foreground"
               >ביטול</button>
             </div>
           </div>
@@ -2439,8 +2488,8 @@ CRים אלה לא ייכללו בתוכנית העבודה.
       {!loading && crs.length > 0 && (
         <div>
           {/* Stat bar + search */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[3], gap: SP[3] }}>
-            <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-2">
               <StatPill value={visibleCrs.length} label="CRים"    color={BLUE}      bg={BLUE_BG}     />
               <StatPill value={assigned}     label="משובצים"    color={C.success} bg={C.successBg}  />
               {unassigned > 0 && <StatPill value={unassigned} label="ממתינים" color={C.warning} bg={C.warningBg} />}
@@ -2453,7 +2502,10 @@ CRים אלה לא ייכללו בתוכנית העבודה.
               {hiddenCrs.size > 0 && (
                 <button
                   onClick={() => setShowHidden(v => !v)}
-                  style={{ padding: `2px ${SP[3]}`, background: showHidden ? '#f3e8ff' : C.bgNested, color: showHidden ? '#7c3aed' : C.textMuted, border: `1px solid ${showHidden ? '#c4b5fd' : C.border}`, borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT }}
+                  className={cn(
+                    'cursor-pointer rounded-full border px-3 py-0.5 text-xs font-semibold',
+                    showHidden ? 'border-[#c4b5fd] bg-[#f3e8ff] text-[#7c3aed]' : 'border-border bg-muted text-subtle-foreground',
+                  )}
                 >
                   🙈 מוסתרות ({hiddenCrs.size})
                 </button>
@@ -2461,7 +2513,10 @@ CRים אלה לא ייכללו בתוכנית העבודה.
               {archivedCrSet.size > 0 && (
                 <button
                   onClick={() => setShowArchived(v => !v)}
-                  style={{ padding: `2px ${SP[3]}`, background: showArchived ? C.bgNested : C.bgNested, color: showArchived ? C.textPrimary : C.textMuted, border: `1px solid ${showArchived ? C.borderEm : C.border}`, borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT }}
+                  className={cn(
+                    'cursor-pointer rounded-full border border-border bg-muted px-3 py-0.5 text-xs font-semibold',
+                    showArchived ? 'text-foreground' : 'text-subtle-foreground',
+                  )}
                 >
                   📦 בארכיון ({archivedCrSet.size})
                 </button>
@@ -2470,11 +2525,11 @@ CRים אלה לא ייכללו בתוכנית העבודה.
             <input
               type="text" placeholder="חיפוש CR / תיאור..."
               value={search} onChange={e => setSearch(e.target.value)}
-              style={{ padding: `6px ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, fontFamily: FONT, background: C.bgNested, color: C.textPrimary, outline: 'none', width: 200 }}
+              className="w-[200px] rounded-md border border-border bg-muted px-3 py-1.5 text-sm text-foreground outline-none"
             />
             <select
               value={filterTesterId} onChange={e => setFilterTesterId(e.target.value)}
-              style={{ padding: `6px ${SP[3]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, fontFamily: FONT, background: C.bgNested, color: C.textPrimary, outline: 'none' }}
+              className="rounded-md border border-border bg-muted px-3 py-1.5 text-sm text-foreground outline-none"
             >
               <option value="">כל הבודקים</option>
               {Array.from(allTestersRoster.entries())
@@ -2502,14 +2557,14 @@ CRים אלה לא ייכללו בתוכנית העבודה.
           )}
 
           {/* Table */}
-          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'visible', boxShadow: SHADOW.sm }}>
-            <div style={{ overflowX: 'auto' }}>
-              <table ref={tableRef} style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+          <div className="overflow-visible rounded-lg border border-border bg-card shadow-sm">
+            <div className="overflow-x-auto">
+              <table ref={tableRef} className="w-full table-fixed border-collapse">
                 <colgroup>
                   {colWidths.map((w, i) => <col key={i} style={{ width: `${w}%` }} />)}
                 </colgroup>
                 <thead>
-                  <tr style={{ background: C.bgNested }}>
+                  <tr className="bg-muted">
                     {([
                       { key: null,     label: 'פרוייקט' },
                       { key: 'cr',     label: 'CR'    },
@@ -2527,26 +2582,26 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                       <th
                         key={label || '__actions'}
                         onClick={key ? () => handleSort(key) : undefined}
-                        style={{
-                          position: 'relative',
-                          padding: `${SP[2]} ${SP[3]}`, textAlign: 'right', ...TEXT.xs,
-                          fontWeight: WEIGHT.bold, color: key && sortCol === key ? BLUE : C.textMuted,
-                          textTransform: 'uppercase', letterSpacing: '0.04em',
-                          borderBottom: `1px solid ${C.border}`, whiteSpace: 'nowrap',
-                          overflow: 'hidden', textOverflow: 'ellipsis',
-                          cursor: key ? 'pointer' : 'default',
-                          userSelect: 'none',
-                        }}
+                        className={cn(
+                          'relative overflow-hidden text-ellipsis whitespace-nowrap border-b border-border px-3 py-2 text-start text-xs font-bold uppercase tracking-wide select-none',
+                          key ? 'cursor-pointer' : 'cursor-default',
+                          key && sortCol === key ? 'text-[#4573D2]' : 'text-subtle-foreground',
+                        )}
                       >
                         {label}
                         {key && sortCol === key && (
-                          <span style={{ marginRight: 4, fontSize: 10 }}>{sortDir === 'asc' ? '▲' : '▼'}</span>
+                          <span className="ms-1 text-[10px]">{sortDir === 'asc' ? '▲' : '▼'}</span>
                         )}
                         <span
                           title="גרור כדי לשנות רוחב עמודה"
                           onMouseDown={e => startColResize(i, e)}
                           onClick={e => e.stopPropagation()}
-                          style={{ position: 'absolute', top: 0, bottom: 0, left: -3, width: 6, cursor: 'col-resize', zIndex: 1 }}
+                          // `left: -3` stays physical (not a logical `start`/`end` class) on
+                          // purpose — it's the exact grab-handle position startColResize's
+                          // clientX math above was written against; converting it is a visual
+                          // change only (never touches data) but not worth the RTL-flip risk.
+                          className="absolute inset-y-0 z-10 w-1.5 cursor-col-resize"
+                          style={{ left: -3 }}
                         />
                       </th>
                     ))}
@@ -2578,44 +2633,47 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                       : (effectiveSA ? ['STAND_ALONE'] : ['CYCLE_1', 'CYCLE_2', 'CYCLE_3']);
 
                     const syncStatus = crSyncStatuses[cr.crNumber] ?? 'ACTIVE';
-                    const rowBg = syncStatus === 'NEW'
-                      ? 'rgba(22,163,74,0.07)'
-                      : syncStatus === 'REMOVED'
-                        ? 'rgba(220,38,38,0.07)'
-                        : (i % 2 === 0 ? 'transparent' : C.bgNested);
 
                     return (
-                      <tr key={cr.crNumber} style={{ background: rowBg, borderBottom: `1px solid ${C.border}`, opacity: syncStatus === 'REMOVED' ? 0.75 : 1 }}>
+                      <tr key={cr.crNumber} className={cn(
+                        'border-b border-border',
+                        syncStatus === 'NEW' ? 'bg-[rgba(22,163,74,0.07)]'
+                          : syncStatus === 'REMOVED' ? 'bg-[rgba(220,38,38,0.07)] opacity-75'
+                          : (i % 2 === 0 ? 'bg-transparent' : 'bg-muted'),
+                      )}>
 
                         {/* Project */}
-                        <td style={{ padding: `${SP[2]} ${SP[3]}` }}>
+                        <td className="px-3 py-2">
                           {cr.project
-                            ? <span style={{ ...TEXT.xs, color: C.textSecondary, whiteSpace: 'normal', wordBreak: 'break-word', display: 'block' }} title={cr.project}>{cr.project}</span>
-                            : <span style={{ ...TEXT.xs, color: C.textDisabled }}>—</span>}
+                            ? <span className="block whitespace-normal break-words text-xs text-muted-foreground" title={cr.project}>{cr.project}</span>
+                            : <span className="text-xs text-subtle-foreground">—</span>}
                         </td>
 
                         {/* CR number */}
-                        <td style={{ padding: `${SP[2]} ${SP[3]}`, whiteSpace: 'nowrap' }}>
+                        <td className="whitespace-nowrap px-3 py-2">
                           <span
                             onClick={() => openCrDetail(cr.crNumber)}
                             title="לחץ לפרטי ה-CR"
-                            style={{ background: BLUE_BG, color: BLUE, padding: `2px ${SP[2]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, cursor: 'pointer', textDecoration: 'underline dotted' }}
+                            className="cursor-pointer rounded-sm bg-[#4573D21A] px-2 py-0.5 text-xs font-bold text-[#4573D2] underline decoration-dotted"
                           >
                             {cr.crNumber}
                           </span>
                         </td>
 
                         {/* Label */}
-                        <td style={{ padding: `${SP[2]} ${SP[3]}`, maxWidth: 220 }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                            <div style={{ ...TEXT.sm, color: syncStatus === 'REMOVED' ? C.textMuted : C.textPrimary, whiteSpace: 'normal', wordBreak: 'break-word', textDecoration: syncStatus === 'REMOVED' ? 'line-through' : 'none' }} title={cr.crLabel ?? ''}>
-                              {cr.crLabel ? cr.crLabel.replace(/^\d+\s*-\s*/, '') : <span style={{ color: C.textDisabled }}>—</span>}
+                        <td className="px-3 py-2 max-w-[220px]">
+                          <div className="flex flex-col gap-0.5">
+                            <div className={cn(
+                              'whitespace-normal break-words text-sm',
+                              syncStatus === 'REMOVED' ? 'text-subtle-foreground line-through' : 'text-foreground',
+                            )} title={cr.crLabel ?? ''}>
+                              {cr.crLabel ? cr.crLabel.replace(/^\d+\s*-\s*/, '') : <span className="text-subtle-foreground">—</span>}
                             </div>
-                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                              {syncStatus === 'NEW'     && <span onClick={() => showCrChangeDetail(cr.crNumber)} title="לחץ לפרטי השינוי" style={{ background: C.successBg, color: C.success, padding: '1px 5px', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, cursor: 'pointer', textDecoration: 'underline dotted' }}>חדש 🟢</span>}
-                              {syncStatus === 'REMOVED' && <span onClick={() => showCrChangeDetail(cr.crNumber)} title="לחץ לפרטי השינוי" style={{ background: C.dangerBg,  color: C.danger,  padding: '1px 5px', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, cursor: 'pointer', textDecoration: 'underline dotted' }}>⚠ הוסר מהתכולה</span>}
+                            <div className="flex flex-wrap gap-1">
+                              {syncStatus === 'NEW'     && <span onClick={() => showCrChangeDetail(cr.crNumber)} title="לחץ לפרטי השינוי" className="cursor-pointer rounded-sm bg-success-bg px-[5px] py-px text-xs font-bold text-success underline decoration-dotted">חדש 🟢</span>}
+                              {syncStatus === 'REMOVED' && <span onClick={() => showCrChangeDetail(cr.crNumber)} title="לחץ לפרטי השינוי" className="cursor-pointer rounded-sm bg-danger-bg px-[5px] py-px text-xs font-bold text-danger underline decoration-dotted">⚠ הוסר מהתכולה</span>}
                               {cr.riskLevel && (
-                                <span style={{ background: risk.bg, color: risk.color, padding: '1px 5px', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.semibold }}>
+                                <span className="rounded-sm px-[5px] py-px text-xs font-semibold" style={{ background: risk.bg, color: risk.color }}>
                                   {riskLabel(cr.riskLevel)}
                                 </span>
                               )}
@@ -2624,7 +2682,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                         </td>
 
                         {/* QA Effort — always editable; original CR_LIST value kept visible when overridden */}
-                        <td style={{ padding: `${SP[2]} ${SP[3]}`, whiteSpace: 'nowrap', textAlign: 'center' }}>
+                        <td className="whitespace-nowrap px-3 py-2 text-center">
                           {(() => {
                             const wasOverridden = asg?.qaEffort != null && cr.qaEffortDays != null && asg.qaEffort !== cr.qaEffortDays;
                             return isEditingEff ? (
@@ -2632,7 +2690,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                                 autoFocus
                                 type="number" min="0.1" step="0.1"
                                 defaultValue={effortDays ?? 1}
-                                style={{ width: 54, padding: '2px 4px', border: `1px solid ${BLUE}`, borderRadius: RADIUS.sm, ...TEXT.xs, textAlign: 'center', fontFamily: FONT, outline: 'none' }}
+                                className="w-[54px] rounded-sm border border-[#4573D2] px-1 py-0.5 text-center text-xs outline-none"
                                 onBlur={e => saveEffort(cr.crNumber, e.target.value, asg?.id)}
                                 onKeyDown={e => {
                                   if (e.key === 'Enter') saveEffort(cr.crNumber, (e.target as HTMLInputElement).value, asg?.id);
@@ -2643,13 +2701,13 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                               <span
                                 title={wasOverridden ? `לחץ לעריכה — ערך מקורי מ-CR_LIST: ${cr.qaEffortDays}י'` : 'לחץ לעריכה'}
                                 onClick={() => setEditingEffort(cr.crNumber)}
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer', userSelect: 'none' }}
+                                className="inline-flex cursor-pointer items-center gap-1 select-none"
                               >
-                                <span style={{ background: BLUE_BG, color: BLUE, padding: `2px 8px`, borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.bold }}>
+                                <span className="rounded-full bg-[#4573D21A] px-2 py-0.5 text-xs font-bold text-[#4573D2]">
                                   {effortDays != null ? `${effortDays}י'` : '—'}
                                 </span>
                                 {wasOverridden && (
-                                  <span style={{ ...TEXT.xs, color: C.textDisabled, textDecoration: 'line-through' }}>
+                                  <span className="text-xs text-subtle-foreground line-through">
                                     {cr.qaEffortDays}י'
                                   </span>
                                 )}
@@ -2659,33 +2717,25 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                         </td>
 
                         {/* סוג: integrative / SA toggle + ליבה (core) toggle — always interactive */}
-                        <td style={{ padding: `${SP[2]} ${SP[3]}` }}>
-                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap gap-1">
                             <button
                               title={effectiveSA ? 'לחץ להפוך לאינטגרטיבי' : 'לחץ להפוך ל-Stand Alone'}
                               onClick={() => toggleStandAlone(cr, asg, effectiveSA)}
-                              style={{
-                                padding: '2px 8px',
-                                background: effectiveSA ? 'rgba(183,107,0,0.13)' : BLUE_BG,
-                                color:      effectiveSA ? '#b76b00'              : BLUE,
-                                border:     `1px solid ${effectiveSA ? '#b76b0044' : BLUE + '44'}`,
-                                borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold,
-                                cursor: 'pointer', fontFamily: FONT, transition: EASE.fast,
-                              }}
+                              className={cn(
+                                'cursor-pointer rounded-sm px-2 py-0.5 text-xs font-bold transition-colors duration-100 ease-out',
+                                effectiveSA ? 'bg-[rgba(183,107,0,0.13)] text-[#b76b00] border border-[#b76b0044]' : 'bg-[#4573D21A] text-[#4573D2] border border-[#4573D244]',
+                              )}
                             >
                               {effectiveSA ? 'SA' : 'אינטג\''}
                             </button>
                             <button
                               title={cr.isCore ? 'לחץ להסיר סימון ליבה' : 'לחץ לסמן כליבה'}
                               onClick={() => patchCrRecord(cr.crNumber, { isCore: !cr.isCore })}
-                              style={{
-                                padding: '2px 8px',
-                                background: cr.isCore ? 'rgba(220,38,38,0.10)' : C.bgNested,
-                                color:      cr.isCore ? '#dc2626'              : C.textMuted,
-                                border:     `1px solid ${cr.isCore ? '#dc262644' : C.border}`,
-                                borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold,
-                                cursor: 'pointer', fontFamily: FONT, transition: EASE.fast,
-                              }}
+                              className={cn(
+                                'cursor-pointer rounded-sm px-2 py-0.5 text-xs font-bold transition-colors duration-100 ease-out',
+                                cr.isCore ? 'bg-[rgba(220,38,38,0.10)] text-[#dc2626] border border-[#dc262644]' : 'bg-muted text-subtle-foreground border border-border',
+                              )}
                             >
                               ליבה
                             </button>
@@ -2693,7 +2743,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                         </td>
 
                         {/* עדיפות: urgent flag + go-live date + QA-arrival tracking + notes — popover */}
-                        <td style={{ padding: `${SP[2]} ${SP[3]}`, position: 'relative', whiteSpace: 'nowrap' }}>
+                        <td className="relative whitespace-nowrap px-3 py-2">
                           {(() => {
                             const qaOverdue = !!cr.qaArrivalDate && !cr.qaReceived && new Date(cr.qaArrivalDate) < new Date();
                             const tooltipParts: string[] = [];
@@ -2722,14 +2772,13 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                                     });
                                   }
                                 }}
-                                style={{
-                                  padding: '2px 8px',
-                                  background: cr.urgent ? C.dangerBg : qaOverdue ? C.dangerBg : cr.priorityTestDate ? '#fff7e6' : cr.notes ? C.bgNested : 'transparent',
-                                  color:      cr.urgent ? C.danger   : qaOverdue ? C.danger   : cr.priorityTestDate ? '#b76b00' : C.textMuted,
-                                  border:     `1px solid ${cr.urgent ? C.danger + '44' : qaOverdue ? C.danger + '44' : cr.priorityTestDate ? '#b76b0044' : C.border}`,
-                                  borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold,
-                                  cursor: 'pointer', fontFamily: FONT, transition: EASE.fast,
-                                }}
+                                className={cn(
+                                  'cursor-pointer rounded-sm px-2 py-0.5 text-xs font-bold transition-colors duration-100 ease-out border',
+                                  cr.urgent || qaOverdue ? 'bg-danger-bg text-danger border-danger/27'
+                                    : cr.priorityTestDate ? 'bg-[#fff7e6] text-[#b76b00] border-[#b76b0044]'
+                                    : cr.notes ? 'bg-muted text-subtle-foreground border-border'
+                                    : 'bg-transparent text-subtle-foreground border-border',
+                                )}
                               >
                                 {/* Closed state stays a compact glyph — full detail only on click, in the popover below */}
                                 {cr.urgent ? '🔴 דחוף' : cr.priorityTestDate ? '📅' : cr.notes ? '📝' : '—'}
@@ -2740,9 +2789,9 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                         </td>
 
                         {/* סבבים: cycles multiselect */}
-                        <td style={{ padding: `${SP[2]} ${SP[3]}`, position: 'relative', whiteSpace: 'nowrap' }}>
+                        <td className="relative whitespace-nowrap px-3 py-2">
                           {asg ? (
-                            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', cursor: 'pointer' }}
+                            <div className="flex cursor-pointer flex-wrap gap-[3px]"
                               onClick={e => {
                                 setOpenPicker(p => p?.crNumber === cr.crNumber ? null : p);
                                 setOpenCyclesPicker(isOpenCyc ? null : computeAnchoredPos(cr.crNumber, e.currentTarget, 210));
@@ -2751,54 +2800,57 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                               {effectiveCycles.map(ct => <CycleChip key={ct} cycleType={ct} />)}
                             </div>
                           ) : (
-                            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', opacity: 0.45 }}>
+                            <div className="flex flex-wrap gap-[3px] opacity-45">
                               {(cr.isStandAlone ? ['STAND_ALONE'] : ['CYCLE_1', 'CYCLE_2', 'CYCLE_3']).map(ct => <CycleChip key={ct} cycleType={ct} />)}
                             </div>
                           )}
                         </td>
 
                         {/* סדר: queue position per tester — also feeds buildWorkPlan's manualSortOrder */}
-                        <td style={{ padding: `${SP[2]} ${SP[3]}`, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        <td className="whitespace-nowrap px-3 py-2 text-center">
                           {orderNum != null && asg ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
-                              <span style={{ background: C.bgNested, border: `1px solid ${C.border}`, color: C.textSecondary, padding: '2px 7px', borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.bold }}>
+                            <div className="flex items-center justify-center gap-1">
+                              <span className="rounded-full border border-border bg-muted px-[7px] py-0.5 text-xs font-bold text-muted-foreground">
                                 {orderNum}
                               </span>
                               {reorderingCr === cr.crNumber ? (
-                                <span style={{ ...TEXT.xs, color: C.textMuted }}>⟳</span>
+                                <span className="text-xs text-subtle-foreground">⟳</span>
                               ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                                <div className="flex flex-col gap-0">
                                   <button
                                     title="הזז למעלה בתור הבודק"
                                     disabled={orderNum === 1}
                                     onClick={() => reorderAssignment(asg, orderNum - 1)}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 1px', lineHeight: 1, fontSize: 9, color: C.textMuted, opacity: orderNum === 1 ? 0.2 : 0.6 }}
+                                    className={cn('cursor-pointer border-0 bg-transparent px-px text-[9px] leading-none text-subtle-foreground', orderNum === 1 ? 'opacity-20' : 'opacity-60')}
                                   >▲</button>
                                   <button
                                     title="הזז למטה בתור הבודק"
                                     disabled={orderNum === testerQueueLengthMap.get(cr.crNumber)}
                                     onClick={() => reorderAssignment(asg, orderNum + 1)}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 1px', lineHeight: 1, fontSize: 9, color: C.textMuted, opacity: orderNum === testerQueueLengthMap.get(cr.crNumber) ? 0.2 : 0.6 }}
+                                    className={cn('cursor-pointer border-0 bg-transparent px-px text-[9px] leading-none text-subtle-foreground', orderNum === testerQueueLengthMap.get(cr.crNumber) ? 'opacity-20' : 'opacity-60')}
                                   >▼</button>
                                 </div>
                               )}
                             </div>
                           ) : (
-                            <span style={{ ...TEXT.xs, color: C.textDisabled }}>—</span>
+                            <span className="text-xs text-subtle-foreground">—</span>
                           )}
                         </td>
 
                         {/* Assigned tester */}
-                        <td style={{ padding: `${SP[2]} ${SP[3]}` }}>
+                        <td className="px-3 py-2">
                           {asg ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: SP[1], flexWrap: 'wrap' }}>
-                              <div style={{ width: 24, height: 24, borderRadius: '50%', background: testerOverload ? C.dangerBg : BLUE_BG, color: testerOverload ? C.danger : BLUE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: WEIGHT.bold, fontSize: '12px', flexShrink: 0, border: testerOverload ? `1px solid ${C.danger}44` : 'none' }}>
+                            <div className="flex flex-wrap items-center gap-1">
+                              <div className={cn(
+                                'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold',
+                                testerOverload ? 'border border-danger/27 bg-danger-bg text-danger' : 'bg-[#4573D21A] text-[#4573D2]',
+                              )}>
                                 {asg.user.fullName.charAt(0).toUpperCase()}
                               </div>
-                              <span style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: testerOverload ? C.danger : C.textPrimary }}>{asg.user.fullName}</span>
-                              {testerOverload && <span title="בודק זה חורג ממשך הסבב" style={{ cursor: 'help' }}>⚠️</span>}
+                              <span className={cn('text-sm font-medium', testerOverload ? 'text-danger' : 'text-foreground')}>{asg.user.fullName}</span>
+                              {testerOverload && <span title="בודק זה חורג ממשך הסבב" className="cursor-help">⚠️</span>}
                               {asg.secondaryUser && (
-                                <span title="בודק שני" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, ...TEXT.xs, color: C.info, background: C.infoBg, padding: `1px ${SP[1]}`, borderRadius: RADIUS.sm, whiteSpace: 'nowrap' }}>
+                                <span title="בודק שני" className="inline-flex items-center gap-1 whitespace-nowrap rounded-sm bg-info-bg px-1 py-px text-xs text-info">
                                   + {asg.secondaryUser.fullName}
                                   <input
                                     type="number" min={1} max={99}
@@ -2815,22 +2867,19 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                                       }
                                     }}
                                     onClick={e => e.stopPropagation()}
-                                    style={{ width: 40, padding: '0 3px', border: `1px solid ${C.info}55`, borderRadius: RADIUS.sm, ...TEXT.xs, background: C.bgCard, color: C.info, outline: 'none', fontFamily: FONT, textAlign: 'center', MozAppearance: 'textfield' }}
+                                    className="w-10 rounded-sm border border-info/33 bg-card px-[3px] text-center text-xs text-info outline-none [-moz-appearance:textfield]"
                                   />%
+                                  {staleSplitCrs.has(cr.crNumber) && (
+                                    <span title="האחוז השתנה מאז שהתוכנית נבנתה — התוכנית השמורה עדיין לפי חלוקה ישנה. יש לבנות מחדש כדי לעדכן." className="cursor-help">⚠️</span>
+                                  )}
                                   <button
                                     disabled={isSaving}
                                     title="הסר בודק שני"
-                                    onClick={async e => {
+                                    onClick={e => {
                                       e.stopPropagation();
-                                      setSaving(cr.crNumber);
-                                      try {
-                                        await axios.patch(`${API}/qa/assignments/${asg.id}/secondary`, { secondaryTesterId: null }, { headers });
-                                        await loadVersion(selectedVId);
-                                      } finally {
-                                        setSaving(null);
-                                      }
+                                      patchSecondaryTester(cr.crNumber, asg.id, null);
                                     }}
-                                    style={{ background: 'none', border: 'none', cursor: isSaving ? 'not-allowed' : 'pointer', color: C.info, padding: 0, fontSize: 11, lineHeight: 1 }}
+                                    className={cn('border-0 bg-transparent p-0 text-[11px] leading-none text-info', isSaving ? 'cursor-not-allowed' : 'cursor-pointer')}
                                   >✕</button>
                                 </span>
                               )}
@@ -2839,23 +2888,21 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                                   disabled={isSaving}
                                   onClick={e => { setOpenCyclesPicker(null); openPickerFor(cr.crNumber, e.currentTarget, 'secondary'); }}
                                   title="הוסף בודק שני"
-                                  style={{ padding: `1px ${SP[1]}`, background: 'transparent', color: C.textMuted, border: `1px dashed ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.xs, cursor: isSaving ? 'not-allowed' : 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' }}
+                                  className={cn('whitespace-nowrap rounded-sm border border-dashed border-border bg-transparent px-1 py-px text-xs text-subtle-foreground', isSaving ? 'cursor-not-allowed' : 'cursor-pointer')}
                                 >+ בודק שני</button>
                               )}
                               <button
                                 disabled={isSaving}
                                 onClick={() => unassign(asg.id, cr.crNumber)}
                                 title="הסר שיבוץ"
-                                style={{ width: 16, height: 16, borderRadius: '50%', border: `1px solid ${C.border}`, background: 'transparent', color: C.textDisabled, fontSize: '11px', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT, transition: EASE.fast }}
-                                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = C.dangerBg; (e.currentTarget as HTMLButtonElement).style.color = C.danger; }}
-                                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = C.textDisabled; }}
+                                className="flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border bg-transparent text-[11px] text-subtle-foreground transition-colors duration-100 ease-out hover:border-danger hover:bg-danger-bg hover:text-danger"
                               >✕</button>
                             </div>
                           ) : (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: SP[1], flexWrap: 'wrap' }}>
-                              <span style={{ ...TEXT.xs, color: C.textDisabled }}>לא שובץ</span>
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span className="text-xs text-subtle-foreground">לא שובץ</span>
                               {top1 && (
-                                <span style={{ background: C.successBg, color: C.success, padding: `1px 6px`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.medium, whiteSpace: 'nowrap' }}>
+                                <span className="whitespace-nowrap rounded-sm bg-success-bg px-1.5 py-px text-xs font-medium text-success">
                                   ⭐ {top1.fullName}
                                 </span>
                               )}
@@ -2864,66 +2911,72 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                         </td>
 
                         {/* Computed testing-days split (primary/secondary) */}
-                        <td style={{ padding: `${SP[2]} ${SP[3]}`, whiteSpace: 'nowrap', textAlign: 'center' }}>
+                        <td className="whitespace-nowrap px-3 py-2 text-center">
                           {asg?.secondaryUser && effortDays != null ? (() => {
                             const pct = asg.secondaryParticipationPct ?? 50;
                             const secondaryDays = Math.max(1, Math.round(effortDays * pct / 100 * 10) / 10);
                             const primaryDays   = Math.max(1, Math.round(effortDays * (100 - pct) / 100 * 10) / 10);
                             return (
-                              <span title={`${asg.user.fullName}: ${primaryDays} ימים · ${asg.secondaryUser!.fullName}: ${secondaryDays} ימים`} style={{ ...TEXT.xs, color: C.textSecondary, fontWeight: WEIGHT.semibold }}>
+                              <span title={`${asg.user.fullName}: ${primaryDays} ימים · ${asg.secondaryUser!.fullName}: ${secondaryDays} ימים`} className="text-xs font-semibold text-muted-foreground">
                                 {primaryDays} / {secondaryDays}
                               </span>
                             );
                           })() : (
-                            <span style={{ ...TEXT.xs, color: C.textDisabled }}>—</span>
+                            <span className="text-xs text-subtle-foreground">—</span>
                           )}
                         </td>
 
                         {/* Score */}
-                        <td style={{ padding: `${SP[2]} ${SP[3]}`, whiteSpace: 'nowrap' }}>
+                        <td className="whitespace-nowrap px-3 py-2">
                           {asg?.autoScore != null ? (
                             <ScoreBadge score={asg.autoScore} />
                           ) : (
-                            <span style={{ ...TEXT.xs, color: C.textDisabled }}>—</span>
+                            <span className="text-xs text-subtle-foreground">—</span>
                           )}
                         </td>
 
                         {/* Actions + score picker */}
-                        <td style={{ padding: `${SP[2]} ${SP[3]}` }}>
-                          <div style={{ display: 'flex', gap: SP[1], alignItems: 'center', flexWrap: 'wrap' }}>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap items-center gap-1">
                             <button
                               disabled={isSaving}
                               onClick={async () => { const r = await autoAssign(cr.crNumber); if (r?.status === 'MANUAL_INTERVENTION') { dialog.alert('שיבוץ ידני נדרש:\n\n' + r.blockReasons.join('\n'), 'שיבוץ ידני נדרש', 'warning'); } }}
                               title="שיבוץ אוטומטי"
-                              style={{ padding: `5px 8px`, background: C.successBg, color: C.success, border: `1px solid ${C.success}44`, borderRadius: RADIUS.md, ...TEXT.xs, fontWeight: WEIGHT.semibold, cursor: isSaving ? 'not-allowed' : 'pointer', fontFamily: FONT, transition: EASE.fast, opacity: isSaving ? 0.5 : 1 }}
-                              onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = C.success + '22'}
-                              onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = C.successBg}
+                              className={cn(
+                                'rounded-md border border-success/44 bg-success-bg px-2 py-[5px] text-xs font-semibold text-success transition-colors duration-100 ease-out hover:bg-success/13',
+                                isSaving ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+                              )}
                             >⚡ אוטו</button>
                             <button
                               disabled={isSaving}
                               onClick={e => { setOpenCyclesPicker(null); openPickerFor(cr.crNumber, e.currentTarget); }}
-                              style={{ padding: `5px ${SP[3]}`, background: asg ? C.bgNested : BLUE, color: asg ? C.textSecondary : '#fff', border: `1px solid ${asg ? C.border : BLUE}`, borderRadius: RADIUS.md, ...TEXT.xs, fontWeight: WEIGHT.semibold, cursor: isSaving ? 'not-allowed' : 'pointer', fontFamily: FONT, transition: EASE.fast, opacity: isSaving ? 0.5 : 1 }}
+                              className={cn(
+                                'rounded-md border px-3 py-[5px] text-xs font-semibold transition-colors duration-100 ease-out',
+                                asg ? 'border-border bg-muted text-muted-foreground' : 'border-[#4573D2] bg-[#4573D2] text-white',
+                                isSaving ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+                              )}
                             >{isSaving ? '...' : asg ? 'החלף' : 'שבץ'}</button>
                             <button
                               title="הסתר CR מהרשימה (ניתן לשחזור)"
                               onClick={() => hideCr(cr.crNumber)}
-                              style={{ padding: '5px 7px', background: 'transparent', color: C.textDisabled, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.xs, cursor: 'pointer', fontFamily: FONT, lineHeight: 1 }}
-                              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#dc2626'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#dc2626'; }}
-                              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.textDisabled; (e.currentTarget as HTMLButtonElement).style.borderColor = C.border; }}
+                              className="cursor-pointer rounded-md border border-border bg-transparent px-[7px] py-[5px] text-xs leading-none text-subtle-foreground transition-colors duration-100 ease-out hover:border-[#dc2626] hover:text-[#dc2626]"
                             >🙈</button>
                             {syncStatus === 'REMOVED' && isManager && (
                               <button
                                 disabled={archivingCr === cr.crNumber}
                                 title="העבר את ה-CR הזה לארכיון — יוסתר מהתצוגה הפעילה ולא ייספר בעומס הבודקים, ניתן לשחזור"
                                 onClick={() => archiveCrTasks(cr.crNumber)}
-                                style={{ padding: '5px 7px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.xs, cursor: archivingCr === cr.crNumber ? 'not-allowed' : 'pointer', fontFamily: FONT, lineHeight: 1, fontWeight: WEIGHT.semibold, opacity: archivingCr === cr.crNumber ? 0.5 : 1 }}
+                                className={cn(
+                                  'rounded-md border border-border bg-muted px-[7px] py-[5px] text-xs font-semibold leading-none text-muted-foreground',
+                                  archivingCr === cr.crNumber ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+                                )}
                               >📦 ארכיון</button>
                             )}
                             {syncStatus === 'REMOVED' && isManager && (
                               <button
                                 title="מחק CR לצמיתות"
                                 onClick={() => handleDeleteCr(cr.crNumber)}
-                                style={{ padding: '5px 7px', background: C.dangerBg, color: C.danger, border: `1px solid ${C.danger}44`, borderRadius: RADIUS.md, ...TEXT.xs, cursor: 'pointer', fontFamily: FONT, lineHeight: 1, fontWeight: WEIGHT.semibold }}
+                                className="cursor-pointer rounded-md border border-danger/44 bg-danger-bg px-[7px] py-[5px] text-xs font-semibold leading-none text-danger"
                               >🗑 מחק</button>
                             )}
                           </div>
@@ -2938,19 +2991,19 @@ CRים אלה לא ייכללו בתוכנית העבודה.
 
           {/* Hidden CRs section */}
           {showHidden && hiddenCrs.size > 0 && (
-            <div style={{ marginTop: SP[3], background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: RADIUS.lg, padding: SP[3] }}>
-              <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: '#7c3aed', marginBottom: SP[2] }}>
+            <div className="mt-3 rounded-lg border border-[#e9d5ff] bg-[#faf5ff] p-3">
+              <div className="mb-2 text-xs font-bold text-[#7c3aed]">
                 🙈 CRים מוסתרים — {hiddenCrs.size} משימות
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[2] }}>
+              <div className="flex flex-wrap gap-2">
                 {crs.filter(cr => hiddenCrs.has(cr.crNumber)).map(cr => (
-                  <div key={cr.crNumber} style={{ display: 'flex', alignItems: 'center', gap: SP[1], background: '#fff', border: '1px solid #e9d5ff', borderRadius: RADIUS.md, padding: `4px ${SP[2]}` }}>
-                    <span style={{ background: BLUE_BG, color: BLUE, padding: `1px ${SP[1]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold }}>{cr.crNumber}</span>
-                    {cr.crLabel && <span style={{ ...TEXT.xs, color: C.textSecondary, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cr.crLabel.replace(/^\d+\s*-\s*/, '')}</span>}
+                  <div key={cr.crNumber} className="flex items-center gap-1 rounded-md border border-[#e9d5ff] bg-white px-2 py-1">
+                    <span className="rounded-sm bg-[#4573D21A] px-1 py-px text-xs font-bold text-[#4573D2]">{cr.crNumber}</span>
+                    {cr.crLabel && <span className="max-w-[180px] overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground">{cr.crLabel.replace(/^\d+\s*-\s*/, '')}</span>}
                     <button
                       onClick={() => restoreCr(cr.crNumber)}
                       title="שחזר לרשימה"
-                      style={{ padding: '2px 6px', background: 'transparent', color: '#7c3aed', border: '1px solid #c4b5fd', borderRadius: RADIUS.sm, ...TEXT.xs, cursor: 'pointer', fontFamily: FONT, fontWeight: WEIGHT.semibold }}
+                      className="cursor-pointer rounded-sm border border-[#c4b5fd] bg-transparent px-1.5 py-0.5 text-xs font-semibold text-[#7c3aed]"
                     >↩ שחזר</button>
                   </div>
                 ))}
@@ -2959,20 +3012,23 @@ CRים אלה לא ייכללו בתוכנית העבודה.
           )}
 
           {showArchived && archivedCrSet.size > 0 && (
-            <div style={{ marginTop: SP[3], background: C.bgHover, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.lg, padding: SP[3] }}>
-              <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: SP[2] }}>
+            <div className="mt-3 rounded-lg border border-border bg-muted p-3">
+              <div className="mb-2 text-xs font-bold text-foreground">
                 📦 CRים בארכיון — {archivedCrSet.size}, מוסתרים מהתצוגה הפעילה ולא נספרים בעומס הבודקים
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[2] }}>
+              <div className="flex flex-wrap gap-2">
                 {crs.filter(cr => cr.isArchived).map(cr => (
-                  <div key={cr.crNumber} style={{ display: 'flex', alignItems: 'center', gap: SP[1], background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: `4px ${SP[2]}` }}>
-                    <span style={{ background: BLUE_BG, color: BLUE, padding: `1px ${SP[1]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold }}>{cr.crNumber}</span>
-                    {cr.crLabel && <span style={{ ...TEXT.xs, color: C.textSecondary, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={cr.archivedReason ?? ''}>{cr.crLabel.replace(/^\d+\s*-\s*/, '')}</span>}
+                  <div key={cr.crNumber} className="flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1">
+                    <span className="rounded-sm bg-[#4573D21A] px-1 py-px text-xs font-bold text-[#4573D2]">{cr.crNumber}</span>
+                    {cr.crLabel && <span className="max-w-[180px] overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground" title={cr.archivedReason ?? ''}>{cr.crLabel.replace(/^\d+\s*-\s*/, '')}</span>}
                     <button
                       disabled={archivingCr === cr.crNumber}
                       onClick={() => restoreArchivedCr(cr.crNumber)}
                       title="שחזר מהארכיון לתצוגה הפעילה"
-                      style={{ padding: '2px 6px', background: 'transparent', color: C.brand, border: `1px solid ${C.brand}`, borderRadius: RADIUS.sm, ...TEXT.xs, cursor: archivingCr === cr.crNumber ? 'not-allowed' : 'pointer', fontFamily: FONT, fontWeight: WEIGHT.semibold, opacity: archivingCr === cr.crNumber ? 0.5 : 1 }}
+                      className={cn(
+                        'rounded-sm border border-primary bg-transparent px-1.5 py-0.5 text-xs font-semibold text-primary',
+                        archivingCr === cr.crNumber ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+                      )}
                     >♻ שחזר</button>
                   </div>
                 ))}
@@ -2988,19 +3044,16 @@ CRים אלה לא ייכללו בתוכנית העבודה.
             return cr ? (
               <div
                 ref={pickerRef}
+                className="fixed z-[1000] w-[380px] overflow-y-auto rounded-lg border border-border bg-card p-2 shadow-lg [direction:rtl]"
                 style={{
-                  position: 'fixed',
                   ...(openPicker.top    !== undefined ? { top:    openPicker.top    } : {}),
                   ...(openPicker.bottom !== undefined ? { bottom: openPicker.bottom } : {}),
                   right: openPicker.right,
-                  background: C.bgCard, border: `1px solid ${C.border}`,
-                  borderRadius: RADIUS.lg, boxShadow: SHADOW.lg,
-                  width: 380, maxHeight: openPicker.maxH ?? 520, overflowY: 'auto',
-                  zIndex: 1000, padding: SP[2], direction: 'rtl',
+                  maxHeight: openPicker.maxH ?? 520,
                 }}
               >
                 {scoringLoading === cr.crNumber ? (
-                  <div style={{ padding: SP[4], textAlign: 'center', ...TEXT.sm, color: C.textMuted }}>⏳ מחשב ציונים...</div>
+                  <div className="p-4 text-center text-sm text-subtle-foreground">⏳ מחשב ציונים...</div>
                 ) : result ? (
                   pickerMode === 'secondary' && asg ? (
                     <ScoringPickerContent
@@ -3008,22 +3061,16 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                       allTesters={cr.testers.filter(t => t.userId !== asg.userId)}
                       currentUserId={asg.secondaryTesterId ?? undefined}
                       title="בחירת בודק שני"
-                      onAssign={async userId => {
+                      onAssign={userId => {
                         setOpenPicker(null);
-                        setSaving(cr.crNumber);
-                        try {
-                          await axios.patch(`${API}/qa/assignments/${asg.id}/secondary`, { secondaryTesterId: userId }, { headers });
-                          await loadVersion(selectedVId);
-                        } finally {
-                          setSaving(null);
-                        }
+                        patchSecondaryTester(cr.crNumber, asg.id, userId);
                       }}
                     />
                   ) : (
                     <ScoringPickerContent result={result} allTesters={cr.testers} currentUserId={asg?.userId} onAssign={(userId, score) => assign(cr, userId, score)} />
                   )
                 ) : (
-                  <div style={{ padding: SP[4], textAlign: 'center', ...TEXT.sm, color: C.textMuted }}>שגיאה בטעינת הניקוד</div>
+                  <div className="p-4 text-center text-sm text-subtle-foreground">שגיאה בטעינת הניקוד</div>
                 )}
               </div>
             ) : null;
@@ -3039,56 +3086,67 @@ CRים אלה לא ייכללו בתוכנית העבודה.
             return (
               <div
                 ref={cyclesPickerRef}
+                className="fixed z-[1000] w-[210px] overflow-y-auto rounded-lg border border-border bg-card p-2 shadow-lg"
                 style={{
-                  position: 'fixed',
                   ...(openCyclesPicker.top    !== undefined ? { top:    openCyclesPicker.top    } : {}),
                   ...(openCyclesPicker.bottom !== undefined ? { bottom: openCyclesPicker.bottom } : {}),
                   right: openCyclesPicker.right,
-                  background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.lg,
-                  width: 210, maxHeight: openCyclesPicker.maxH ?? 400, overflowY: 'auto',
-                  zIndex: 1000, padding: SP[2],
+                  maxHeight: openCyclesPicker.maxH ?? 400,
                 }}
               >
-                <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, padding: `${SP[1]} ${SP[2]}`, marginBottom: SP[1], textTransform: 'uppercase', letterSpacing: '0.04em' }}>סבבי בדיקות</div>
+                <div className="mb-1 px-2 py-1 text-xs font-bold uppercase tracking-wide text-subtle-foreground">סבבי בדיקות</div>
                 {ALL_CYCLES.map(ct => {
                   const info     = CYCLE_INFO[ct];
                   const selected = effectiveCycles.includes(ct);
                   return (
-                    <label key={ct} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[1]} ${SP[2]}`, cursor: 'pointer', borderRadius: RADIUS.sm, background: selected ? info.bg : 'transparent' }}>
+                    <label key={ct} className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1" style={{ background: selected ? info.bg : 'transparent' }}>
                       <input
                         type="checkbox"
                         checked={selected}
-                        style={{ accentColor: info.color, cursor: 'pointer' }}
+                        className="cursor-pointer"
+                        style={{ accentColor: info.color }}
                         onChange={() => {
-                          const newCycles = selected
-                            ? effectiveCycles.filter(c => c !== ct)
-                            : [...effectiveCycles, ct];
+                          // Stand Alone and the core cycles are mutually
+                          // exclusive — a CR is tested on exactly one track,
+                          // never both (confirmed 2026-09-14; previously
+                          // nothing here prevented checking e.g. CYCLE_1 and
+                          // STAND_ALONE together, which silently double-
+                          // booked the tester's time — the scheduler builds
+                          // a full-effort task on each track independently).
+                          let newCycles: string[];
+                          if (selected) {
+                            newCycles = effectiveCycles.filter(c => c !== ct);
+                          } else if (ct === 'STAND_ALONE') {
+                            newCycles = ['STAND_ALONE'];
+                          } else {
+                            newCycles = [...effectiveCycles.filter(c => c !== 'STAND_ALONE'), ct];
+                          }
                           patchAssignment(asg.id, cr.crNumber, { cycles: newCycles });
                         }}
                       />
-                      <span style={{ background: info.bg, color: info.color, padding: '1px 5px', borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, minWidth: 28, textAlign: 'center', border: `1px solid ${info.color}33` }}>
+                      <span className="min-w-[28px] rounded-sm px-[5px] py-px text-center text-xs font-bold" style={{ background: info.bg, color: info.color, border: `1px solid ${info.color}33` }}>
                         {info.label}
                       </span>
-                      <span style={{ ...TEXT.xs, color: C.textSecondary }}>{info.fullLabel}</span>
+                      <span className="text-xs text-muted-foreground">{info.fullLabel}</span>
                     </label>
                   );
                 })}
                 {effectiveCycles.includes('STAND_ALONE') && (
-                  <div style={{ marginTop: SP[2], paddingTop: SP[2], borderTop: `1px solid ${C.border}` }}>
-                    <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, padding: `0 ${SP[2]}`, marginBottom: SP[1] }}>
+                  <div className="mt-2 border-t border-border pt-2">
+                    <div className="mb-1 px-2 text-xs font-bold text-subtle-foreground">
                       מועד יעד מוקדם ל-Stand Alone (אופציונלי)
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: SP[1], padding: `0 ${SP[2]}` }}>
+                    <div className="flex items-center gap-1 px-2">
                       <DateField
                         value={asg.standAloneDueDate ? asg.standAloneDueDate.slice(0, 10) : ''}
                         onChange={v => patchAssignment(asg.id, cr.crNumber, { standAloneDueDate: v || null })}
-                        style={{ padding: `4px ${SP[2]}`, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.xs, background: C.bgNested, color: C.textPrimary, outline: 'none', fontFamily: FONT, flex: 1 }}
+                        style={{ flex: 1 }}
                       />
                       {asg.standAloneDueDate && (
                         <button
                           title="נקה תאריך יעד"
                           onClick={() => patchAssignment(asg.id, cr.crNumber, { standAloneDueDate: null })}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textDisabled, ...TEXT.xs, padding: 2 }}
+                          className="cursor-pointer border-0 bg-transparent p-0.5 text-xs text-subtle-foreground"
                         >✕</button>
                       )}
                     </div>
@@ -3105,18 +3163,16 @@ CRים אלה לא ייכללו בתוכנית העבודה.
             return (
               <div
                 ref={priorityPickerRef}
+                className="fixed z-[1000] flex w-[640px] flex-col gap-3 overflow-y-auto rounded-lg border border-border bg-card p-4 shadow-lg"
                 style={{
-                  position: 'fixed',
                   ...(openPriorityPicker.top    !== undefined ? { top:    openPriorityPicker.top    } : {}),
                   ...(openPriorityPicker.bottom !== undefined ? { bottom: openPriorityPicker.bottom } : {}),
                   right: openPriorityPicker.right,
-                  background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.lg,
-                  width: 640, maxHeight: openPriorityPicker.maxH ?? 600, overflowY: 'auto',
-                  zIndex: 1000, padding: SP[4], display: 'flex', flexDirection: 'column', gap: SP[3],
+                  maxHeight: openPriorityPicker.maxH ?? 600,
                 }}
                 onClick={e => e.stopPropagation()}
               >
-                <label style={{ display: 'flex', alignItems: 'center', gap: SP[2], cursor: 'pointer', ...TEXT.sm, color: C.textPrimary }}>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
                   <input
                     type="checkbox"
                     checked={priorityDraft.urgent}
@@ -3126,31 +3182,31 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                 </label>
 
                 <div>
-                  <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, marginBottom: '4px' }}>🚀 תאריך עליה לאוויר</div>
-                  <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '6px' }}>
+                  <div className="mb-1 text-sm font-semibold text-foreground">🚀 תאריך עליה לאוויר</div>
+                  <div className="mb-1.5 text-xs text-subtle-foreground">
                     עולה לייצור לפני הגרסה / מחוץ למסגרתה — יש לבדוק ראשון
                   </div>
                   <input
                     type="date"
                     value={priorityDraft.priorityTestDate}
                     onChange={e => setPriorityDraft(d => d && { ...d, priorityTestDate: e.target.value })}
-                    style={{ width: '100%', padding: '5px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.sm, fontFamily: FONT, boxSizing: 'border-box' }}
+                    className="box-border w-full rounded-sm border border-border px-2 py-[5px] text-sm"
                   />
                 </div>
 
-                <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: SP[3] }}>
-                  <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, marginBottom: '6px' }}>📥 הגעה ל-QA</div>
-                  <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                    <div style={{ flex: '1 1 180px' }}>
-                      <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>תאריך הגעה צפוי</div>
+                <div className="border-t border-border pt-3">
+                  <div className="mb-1.5 text-sm font-semibold text-foreground">📥 הגעה ל-QA</div>
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div className="flex-[1_1_180px]">
+                      <div className="mb-1 text-xs text-subtle-foreground">תאריך הגעה צפוי</div>
                       <input
                         type="date"
                         value={priorityDraft.qaArrivalDate}
                         onChange={e => setPriorityDraft(d => d && { ...d, qaArrivalDate: e.target.value })}
-                        style={{ width: '100%', padding: '5px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.sm, fontFamily: FONT, boxSizing: 'border-box' }}
+                        className="box-border w-full rounded-sm border border-border px-2 py-[5px] text-sm"
                       />
                     </div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: SP[2], cursor: 'pointer', ...TEXT.sm, color: C.textPrimary, flex: '0 0 auto', paddingBottom: '6px' }}>
+                    <label className="flex flex-none items-center gap-2 pb-1.5 text-sm text-foreground cursor-pointer">
                       <input
                         type="checkbox"
                         checked={priorityDraft.qaReceived}
@@ -3162,16 +3218,16 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                       ✓ התקבל
                     </label>
                     {priorityDraft.qaReceived && (
-                      <div style={{ flex: '1 1 180px' }}>
-                        <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>תאריך קבלה בפועל</div>
+                      <div className="flex-[1_1_180px]">
+                        <div className="mb-1 text-xs text-subtle-foreground">תאריך קבלה בפועל</div>
                         <input
                           type="date"
                           value={priorityDraft.qaReceivedAt}
                           onChange={e => setPriorityDraft(d => d && { ...d, qaReceivedAt: e.target.value })}
-                          style={{ width: '100%', padding: '5px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.sm, fontFamily: FONT, boxSizing: 'border-box' }}
+                          className="box-border w-full rounded-sm border border-border px-2 py-[5px] text-sm"
                         />
                         {priorityDraft.qaArrivalDate && priorityDraft.qaReceivedAt > priorityDraft.qaArrivalDate && (
-                          <div style={{ ...TEXT.xs, color: C.danger, marginTop: '4px' }}>⚠ התקבל באיחור</div>
+                          <div className="mt-1 text-xs text-danger">⚠ התקבל באיחור</div>
                         )}
                       </div>
                     )}
@@ -3179,26 +3235,29 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                 </div>
 
                 <div>
-                  <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>הערות</div>
+                  <div className="mb-1 text-xs text-subtle-foreground">הערות</div>
                   <textarea
                     value={priorityDraft.notes}
                     onChange={e => setPriorityDraft(d => d && { ...d, notes: e.target.value })}
                     rows={2}
-                    style={{ width: '100%', padding: '5px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.sm, fontFamily: FONT, resize: 'vertical', boxSizing: 'border-box' }}
+                    className="box-border w-full resize-y rounded-sm border border-border px-2 py-[5px] text-sm"
                   />
                 </div>
 
-                <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-start', borderTop: `1px solid ${C.border}`, paddingTop: SP[3] }}>
+                <div className="flex justify-start gap-2 border-t border-border pt-3">
                   <button
                     disabled={savingPriority}
                     onClick={() => savePriorityDraft(cr.crNumber)}
-                    style={{ padding: `6px ${SP[4]}`, background: BLUE, color: '#fff', border: 'none', borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: savingPriority ? 'not-allowed' : 'pointer', opacity: savingPriority ? 0.6 : 1, fontFamily: FONT }}
+                    className={cn(
+                      'rounded-md border-0 bg-[#4573D2] px-4 py-1.5 text-sm font-semibold text-white',
+                      savingPriority ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+                    )}
                   >
                     {savingPriority ? '⏳ שומר...' : '💾 שמור'}
                   </button>
                   <button
                     onClick={() => { setOpenPriorityPicker(null); setPriorityDraft(null); }}
-                    style={{ padding: `6px ${SP[4]}`, background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT }}
+                    className="cursor-pointer rounded-md border border-border bg-transparent px-4 py-1.5 text-sm font-semibold text-subtle-foreground"
                   >
                     ביטול
                   </button>
@@ -3208,37 +3267,36 @@ CRים אלה לא ייכללו בתוכנית העבודה.
           })()}
 
           {/* Progress bar */}
-          <div style={{ marginTop: SP[3], padding: SP[3], background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, display: 'flex', alignItems: 'center', gap: SP[3] }}>
-            <div style={{ flex: 1, height: 6, background: C.bgHover, borderRadius: RADIUS.full, overflow: 'hidden' }}>
-              <div style={{ height: '100%', background: visibleCrs.length === assigned ? C.success : BLUE, width: `${visibleCrs.length > 0 ? Math.round((assigned / visibleCrs.length) * 100) : 0}%`, transition: 'width 0.4s ease', borderRadius: RADIUS.full }} />
+          <div className="mt-3 flex items-center gap-3 rounded-md border border-border bg-card p-3">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+              <div className={cn('h-full rounded-full transition-[width] duration-[400ms] ease-out', visibleCrs.length === assigned ? 'bg-success' : 'bg-[#4573D2]')} style={{ width: `${visibleCrs.length > 0 ? Math.round((assigned / visibleCrs.length) * 100) : 0}%` }} />
             </div>
-            <div style={{ ...TEXT.sm, color: C.textMuted, whiteSpace: 'nowrap' }}>
+            <div className="whitespace-nowrap text-sm text-subtle-foreground">
               {assigned} / {visibleCrs.length} משובצים{visibleCrs.length > 0 && ` (${Math.round((assigned / visibleCrs.length) * 100)}%)`}
             </div>
             {visibleCrs.length > 0 && assigned === visibleCrs.length && (
-              <span style={{ background: C.successBg, color: C.success, padding: `2px ${SP[2]}`, borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.semibold }}>✓ כל ה-CRים משובצים!</span>
+              <span className="rounded-full bg-success-bg px-2 py-0.5 text-xs font-semibold text-success">✓ כל ה-CRים משובצים!</span>
             )}
           </div>
 
           {/* Tester load panel — switchable per-cycle view */}
           {testerLoad.size > 0 && (
-            <div style={{ marginTop: SP[3], background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.sm, overflow: 'hidden' }}>
-              <div style={{ padding: `${SP[2]} ${SP[4]}`, background: C.bgNested, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: SP[3], flexWrap: 'wrap' }}>
-                <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>📊 עומס בודקים</span>
+            <div className="mt-3 overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+              <div className="flex flex-wrap items-center gap-3 border-b border-border bg-muted px-4 py-2">
+                <span className="text-sm font-bold text-foreground">📊 עומס בודקים</span>
 
                 {/* Cycle view selector */}
-                <div style={{ display: 'flex', gap: '4px', background: C.bgCard, padding: '3px', borderRadius: RADIUS.md, border: `1px solid ${C.border}` }}>
+                <div className="flex gap-1 rounded-md border border-border bg-card p-[3px]">
                   {LOAD_VIEW_CYCLES.map(ct => {
                     const info = CYCLE_INFO[ct];
                     const active = loadViewCycle === ct;
                     return (
                       <button key={ct} onClick={() => setLoadViewCycle(ct)}
-                        style={{
-                          padding: '4px 10px', borderRadius: RADIUS.sm, border: 'none', cursor: 'pointer',
-                          background: active ? info.bg : 'transparent',
-                          color: active ? info.color : C.textMuted,
-                          ...TEXT.xs, fontWeight: active ? WEIGHT.bold : WEIGHT.normal, fontFamily: FONT, transition: EASE.fast,
-                        }}>
+                        className={cn(
+                          'cursor-pointer rounded-sm border-0 px-2.5 py-1 text-xs transition-colors duration-100 ease-out',
+                          active ? 'font-bold' : 'bg-transparent font-normal text-subtle-foreground',
+                        )}
+                        style={active ? { background: info.bg, color: info.color } : undefined}>
                         {info.fullLabel}
                       </button>
                     );
@@ -3246,35 +3304,38 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                 </div>
 
                 {capacityForView > 0 && (
-                  <span style={{ ...TEXT.xs, color: C.textMuted }}>קיבולת: {capacityForView} ימי עבודה לבודק (אורך {CYCLE_INFO[loadViewCycle].fullLabel})</span>
+                  <span className="text-xs text-subtle-foreground">קיבולת: {capacityForView} ימי עבודה לבודק (אורך {CYCLE_INFO[loadViewCycle].fullLabel})</span>
                 )}
                 {loadViewCycle === 'CYCLE_1' && overloadCount > 0 && (
-                  <span style={{ ...TEXT.xs, background: C.dangerBg, color: C.danger, padding: `2px ${SP[2]}`, borderRadius: RADIUS.full, fontWeight: WEIGHT.semibold, border: `1px solid ${C.danger}33` }}>
+                  <span className="rounded-full border border-danger/33 bg-danger-bg px-2 py-0.5 text-xs font-semibold text-danger">
                     ⚠ {overloadCount} חורג{overloadCount > 1 ? 'ים' : ''}
                   </span>
                 )}
               </div>
-              <div style={{ padding: SP[3], display: 'flex', flexWrap: 'wrap', gap: SP[2] }}>
+              <div className="flex flex-wrap gap-2 p-3">
                 {testerLoadForView.size === 0 && (
-                  <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[2] }}>אין CR-ים בסבב זה</div>
+                  <div className="p-2 text-sm text-subtle-foreground">אין CR-ים בסבב זה</div>
                 )}
                 {Array.from(testerLoadForView.entries())
                   .sort((a, b) => b[1].totalDays - a[1].totalDays)
                   .map(([userId, { fullName, totalDays, crCount }]) => {
                     const over = capacityForView > 0 && totalDays > capacityForView;
                     return (
-                      <div key={userId} style={{ padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, background: over ? C.dangerBg : C.bgNested, border: `1px solid ${over ? C.danger + '44' : C.border}`, minWidth: 200, flex: '1 1 200px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
-                          <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: over ? C.danger : C.textPrimary }}>
+                      <div key={userId} className={cn(
+                        'min-w-[200px] flex-[1_1_200px] rounded-md border px-3 py-2',
+                        over ? 'border-danger/44 bg-danger-bg' : 'border-border bg-muted',
+                      )}>
+                        <div className="mb-1 flex items-center justify-between">
+                          <span className={cn('text-xs font-semibold', over ? 'text-danger' : 'text-foreground')}>
                             {over && '⚠ '}{fullName}
                           </span>
                           {over && (
-                            <span style={{ ...TEXT.xs, background: C.dangerBg, color: C.danger, padding: `1px 6px`, borderRadius: RADIUS.full, fontWeight: WEIGHT.bold, border: `1px solid ${C.danger}33` }}>
+                            <span className="rounded-full border border-danger/33 bg-danger-bg px-1.5 py-px text-xs font-bold text-danger">
                               +{(totalDays - capacityForView).toFixed(1)}י'
                             </span>
                           )}
                         </div>
-                        <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '5px' }}>
+                        <div className="mb-1 text-xs text-subtle-foreground">
                           {crCount} פיתוח{crCount !== 1 ? 'ים' : ''}
                         </div>
                         <LoadBar used={totalDays} capacity={capacityForView || totalDays} />
@@ -3291,39 +3352,39 @@ CRים אלה לא ייכללו בתוכנית העבודה.
 
       {/* ── CR detail modal ── */}
       {crDetailFor && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: SP[4] }}
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/45 p-4"
           onClick={() => { setCrDetailFor(null); setCrDetail(null); }}>
-          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.xl, boxShadow: SHADOW.xl, width: '100%', maxWidth: 1010, maxHeight: '85vh', display: 'flex', flexDirection: 'column', direction: 'rtl' }}
+          <div className="flex max-h-[85vh] w-full max-w-[1010px] flex-col rounded-xl border border-border bg-card shadow-xl [direction:rtl]"
             onClick={e => e.stopPropagation()}>
-            <div style={{ padding: `${SP[4]} ${SP[5]}`, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
-                <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>📄 פרטי CR {crDetailFor}</span>
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div className="flex items-center gap-3">
+                <span className="text-lg font-bold text-foreground">📄 פרטי CR {crDetailFor}</span>
                 {crDetail?.versionName && (
-                  <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.brand, background: C.brandDim, padding: `2px ${SP[3]}`, borderRadius: RADIUS.full }}>
+                  <span className="rounded-full bg-primary-50 px-3 py-0.5 text-xs font-semibold text-primary">
                     {crDetail.versionName}
                   </span>
                 )}
               </div>
-              <button onClick={() => { setCrDetailFor(null); setCrDetail(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 18, fontFamily: FONT }}>✕</button>
+              <button onClick={() => { setCrDetailFor(null); setCrDetail(null); }} className="cursor-pointer border-0 bg-transparent text-lg text-subtle-foreground">✕</button>
             </div>
-            <div style={{ overflowY: 'auto', flex: 1, padding: SP[5], display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+            <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
               {crDetailLoading ? (
-                <div style={{ textAlign: 'center', padding: SP[6], color: C.textMuted, ...TEXT.sm }}>⏳ טוען...</div>
+                <div className="p-6 text-center text-sm text-subtle-foreground">⏳ טוען...</div>
               ) : !crDetail ? (
-                <div style={{ textAlign: 'center', padding: SP[6], color: C.textMuted, ...TEXT.sm }}>שגיאה בטעינת פרטי ה-CR</div>
+                <div className="p-6 text-center text-sm text-subtle-foreground">שגיאה בטעינת פרטי ה-CR</div>
               ) : (
                 <>
                   <div>
-                    <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>כותרת</div>
-                    <div style={{ ...TEXT.md, color: C.textPrimary, fontWeight: WEIGHT.semibold }}>{crDetail.crLabel}</div>
+                    <div className="mb-1 text-xs text-subtle-foreground">כותרת</div>
+                    <div className="text-md font-semibold text-foreground">{crDetail.crLabel}</div>
                   </div>
                   {crDetail.crDescription && (
                     <div>
-                      <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>תיאור</div>
-                      <div style={{ ...TEXT.sm, color: C.textSecondary, whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{decodeHtmlEntities(crDetail.crDescription)}</div>
+                      <div className="mb-1 text-xs text-subtle-foreground">תיאור</div>
+                      <div className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{decodeHtmlEntities(crDetail.crDescription)}</div>
                     </div>
                   )}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: SP[4], padding: SP[4], background: C.bgNested, borderRadius: RADIUS.lg }}>
+                  <div className="grid grid-cols-3 gap-4 rounded-lg bg-muted p-4">
                     <DetailField label="מנהל CR" value={crDetail.crManager} />
                     <DetailField label="מאפיין" value={crDetail.application} />
                     <DetailField label="סך כל הערכות" value={crDetail.estimateDays != null ? `${crDetail.estimateDays} ימים` : null} />
@@ -3332,32 +3393,32 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                   </div>
                   {crDetail.notes && (
                     <div>
-                      <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>הערות</div>
-                      <div style={{ ...TEXT.sm, color: C.textSecondary, whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{decodeHtmlEntities(crDetail.notes)}</div>
+                      <div className="mb-1 text-xs text-subtle-foreground">הערות</div>
+                      <div className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{decodeHtmlEntities(crDetail.notes)}</div>
                     </div>
                   )}
                   {crDetail.archiveHistory.length > 0 && (
                     <div>
-                      <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: SP[2] }}>
+                      <div className="mb-2 text-xs font-bold uppercase tracking-wide text-subtle-foreground">
                         📦 היסטוריית ארכיון
                       </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+                      <div className="flex flex-col gap-2">
                         {crDetail.archiveHistory.map(entry => (
-                          <div key={entry.id} style={{ background: C.bgNested, borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, ...TEXT.sm }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: SP[2] }}>
-                              <span style={{ fontWeight: WEIGHT.medium, color: entry.action === 'TASK_ARCHIVED' ? C.danger : C.success }}>
+                          <div key={entry.id} className="rounded-md bg-muted px-3 py-2 text-sm">
+                            <div className="flex justify-between gap-2">
+                              <span className={cn('font-medium', entry.action === 'TASK_ARCHIVED' ? 'text-danger' : 'text-success')}>
                                 {entry.action === 'TASK_ARCHIVED' ? '📦 הועבר לארכיון' : '↺ שוחזר מהארכיון'}
                                 {entry.cycleType ? ` — ${CYCLE_LABEL[entry.cycleType] ?? entry.cycleType}` : ''}
                               </span>
-                              <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap' }}>
+                              <span className="whitespace-nowrap text-xs text-subtle-foreground">
                                 {fmtDateTimeShared(entry.createdAt)}
                               </span>
                             </div>
                             {entry.reason && (
-                              <div style={{ ...TEXT.xs, color: C.textSecondary, marginTop: 2 }}>סיבה: {entry.reason}</div>
+                              <div className="mt-0.5 text-xs text-muted-foreground">סיבה: {entry.reason}</div>
                             )}
                             {entry.userEmail && (
-                              <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: 2 }}>ע"י {entry.userEmail}</div>
+                              <div className="mt-0.5 text-xs text-subtle-foreground">ע"י {entry.userEmail}</div>
                             )}
                           </div>
                         ))}
@@ -3432,24 +3493,24 @@ function ScoringPickerContent({
 
   return (
     <div>
-      <div style={{ padding: `${SP[2]} ${SP[3]}`, borderBottom: `1px solid ${C.border}`, marginBottom: SP[2] }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{title ?? 'שיבוץ מונחה AI'}</span>
+      <div className="mb-2 border-b border-border px-3 py-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold uppercase tracking-wide text-subtle-foreground">{title ?? 'שיבוץ מונחה AI'}</span>
           {isManual ? (
-            <span style={{ background: C.dangerBg, color: C.danger, padding: `2px 8px`, borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.bold }}>⚠ שיבוץ ידני נדרש</span>
+            <span className="rounded-full bg-danger-bg px-2 py-0.5 text-xs font-bold text-danger">⚠ שיבוץ ידני נדרש</span>
           ) : (
-            <span style={{ background: C.successBg, color: C.success, padding: `2px 8px`, borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.semibold }}>✓ {result.recommendations.length} מומלצים</span>
+            <span className="rounded-full bg-success-bg px-2 py-0.5 text-xs font-semibold text-success">✓ {result.recommendations.length} מומלצים</span>
           )}
         </div>
         {result.requiredSkillName && (
-          <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>
+          <div className="mt-[3px] text-xs text-subtle-foreground">
             סקיל נדרש: <strong>{result.requiredSkillName}</strong> רמה {result.requiredMinLevel}+
             {result.qaEffortDays > 0 && ` · מאמץ: ${result.qaEffortDays} ימים`}
           </div>
         )}
       </div>
       {isManual && result.blockReasons.map((r, i) => (
-        <div key={i} style={{ margin: `${SP[1]} ${SP[2]}`, padding: SP[2], background: C.dangerBg, border: `1px solid ${C.danger}33`, borderRadius: RADIUS.md, ...TEXT.xs, color: C.danger, lineHeight: '1.5' }}>{r}</div>
+        <div key={i} className="m-1 rounded-md border border-danger/33 bg-danger-bg p-2 text-xs leading-normal text-danger">{r}</div>
       ))}
       {result.recommendations.map((t, idx) => (
         <ScoredTesterRow key={t.userId} tester={t} rank={idx + 1} isCurrentlyAssigned={currentUserId === t.userId} onAssign={() => onAssign(t.userId, t.totalScore)} />
@@ -3459,16 +3520,16 @@ function ScoringPickerContent({
       )}
 
       {/* Manual override section */}
-      <div style={{ borderTop: `1px solid ${C.border}`, marginTop: SP[2], paddingTop: SP[1] }}>
+      <div className="mt-2 border-t border-border pt-1">
         <button
           onClick={() => setShowManual(s => !s)}
-          style={{ width: '100%', padding: `${SP[1]} ${SP[2]}`, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'right', fontFamily: FONT, display: 'flex', alignItems: 'center', gap: SP[1], ...TEXT.xs, color: C.textMuted }}
+          className="flex w-full cursor-pointer items-center gap-1 border-0 bg-transparent px-2 py-1 text-start text-xs text-subtle-foreground"
         >
-          <span style={{ transform: showManual ? 'rotate(90deg)' : 'none', transition: EASE.fast, display: 'inline-block' }}>▶</span>
+          <span className={cn('inline-block transition-transform duration-100 ease-out', showManual ? 'rotate-90' : '')}>▶</span>
           <span>בחירה ידנית — כל הבודקים ({sortedAll.length})</span>
         </button>
         {showManual && (
-          <div ref={manualListRef} style={{ maxHeight: 200, overflowY: 'auto', padding: `0 ${SP[1]} ${SP[1]}` }}>
+          <div ref={manualListRef} className="max-h-[200px] overflow-y-auto px-1 pb-1">
             {sortedAll.map((t, mi) => {
               const isCurrent     = t.userId === currentUserId;
               const isRecommended = recommendedIds.has(t.userId);
@@ -3478,24 +3539,24 @@ function ScoringPickerContent({
                 <div
                   key={t.userId}
                   onClick={() => onAssign(t.userId, 0)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: SP[2],
-                    padding: `${SP[1]} ${SP[2]}`, borderRadius: RADIUS.sm,
-                    background: isCurrent ? BLUE_BG : isNavSelected ? C.bgHover : 'transparent',
-                    border: isCurrent ? `1px solid ${BLUE}33` : isNavSelected ? `1px solid ${C.border}` : '1px solid transparent',
-                    cursor: 'pointer', transition: EASE.fast,
-                  }}
-                  onMouseEnter={e => { if (!isCurrent && !isNavSelected) (e.currentTarget as HTMLDivElement).style.background = C.bgHover; }}
-                  onMouseLeave={e => { if (!isCurrent && !isNavSelected) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+                  className={cn(
+                    'flex cursor-pointer items-center gap-2 rounded-sm border px-2 py-1 transition-colors duration-100 ease-out',
+                    isCurrent ? 'border-[#4573D233] bg-[#4573D21A]'
+                      : isNavSelected ? 'border-border bg-muted'
+                      : 'border-transparent bg-transparent hover:bg-muted',
+                  )}
                 >
-                  <div style={{ width: 22, height: 22, borderRadius: '50%', background: isCurrent ? BLUE_BG : C.bgNested, color: isCurrent ? BLUE : C.textSecondary, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: WEIGHT.bold, fontSize: '12px', flexShrink: 0, border: `1px solid ${isCurrent ? BLUE + '44' : C.border}` }}>
+                  <div className={cn(
+                    'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border text-xs font-bold',
+                    isCurrent ? 'border-[#4573D244] bg-[#4573D21A] text-[#4573D2]' : 'border-border bg-muted text-muted-foreground',
+                  )}>
                     {t.fullName.charAt(0).toUpperCase()}
                   </div>
-                  <span style={{ ...TEXT.xs, color: isCurrent ? BLUE : C.textPrimary, fontWeight: isCurrent ? WEIGHT.semibold : WEIGHT.normal, flex: 1 }}>
+                  <span className={cn('flex-1 text-xs', isCurrent ? 'font-semibold text-[#4573D2]' : 'font-normal text-foreground')}>
                     {t.fullName}
                   </span>
-                  {isCurrent && <span style={{ ...TEXT.xs, color: BLUE, fontWeight: WEIGHT.bold }}>✓ משובץ</span>}
-                  {isRecommended && !isCurrent && <span style={{ ...TEXT.xs, color: C.textMuted }}>⭐ מומלץ</span>}
+                  {isCurrent && <span className="text-xs font-bold text-[#4573D2]">✓ משובץ</span>}
+                  {isRecommended && !isCurrent && <span className="text-xs text-subtle-foreground">⭐ מומלץ</span>}
                 </div>
               );
             })}
@@ -3514,23 +3575,27 @@ function ScoredTesterRow({ tester, rank, isCurrentlyAssigned, onAssign }: {
   return (
     <div
       onClick={onAssign}
-      style={{ padding: SP[3], marginBottom: '2px', borderRadius: RADIUS.md, cursor: 'pointer', background: isCurrentlyAssigned ? BLUE_BG : 'transparent', border: isCurrentlyAssigned ? `1px solid ${BLUE}33` : '1px solid transparent', transition: EASE.fast }}
-      onMouseEnter={e => { if (!isCurrentlyAssigned) (e.currentTarget as HTMLDivElement).style.background = C.bgHover; }}
-      onMouseLeave={e => { if (!isCurrentlyAssigned) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+      className={cn(
+        'mb-0.5 cursor-pointer rounded-md border p-3 transition-colors duration-100 ease-out',
+        isCurrentlyAssigned ? 'border-[#4573D233] bg-[#4573D21A]' : 'border-transparent bg-transparent hover:bg-muted',
+      )}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: SP[2] }}>
-        <div style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0, background: rank === 1 ? '#FFD700' : rank === 2 ? '#C0C0C0' : '#CD7F32', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: WEIGHT.bold, fontSize: '12px' }}>
+      <div className="mb-2 flex items-center gap-2">
+        <div className={cn(
+          'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white',
+          rank === 1 ? 'bg-[#FFD700]' : rank === 2 ? 'bg-[#C0C0C0]' : 'bg-[#CD7F32]',
+        )}>
           #{rank}
         </div>
-        <div style={{ flex: 1 }}>
-          <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>{tester.fullName}</span>
-          {isCurrentlyAssigned && <span style={{ ...TEXT.xs, color: BLUE, marginRight: SP[1] }}>✓ משובץ</span>}
+        <div className="flex-1">
+          <span className="text-sm font-semibold text-foreground">{tester.fullName}</span>
+          {isCurrentlyAssigned && <span className="ms-1 text-xs text-[#4573D2]">✓ משובץ</span>}
         </div>
-        <div style={{ background: st.bg, color: st.color, padding: `2px 8px`, borderRadius: RADIUS.full, ...TEXT.sm, fontWeight: WEIGHT.bold, flexShrink: 0 }}>
+        <div className="shrink-0 rounded-full px-2 py-0.5 text-sm font-bold" style={{ background: st.bg, color: st.color }}>
           {tester.totalScore}
         </div>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+      <div className="flex flex-col gap-[5px]">
         <BreakdownBar label="עומס (50%)" weighted={bd.load.weightedScore} raw={bd.load.rawScore} color={BLUE} detail={bd.load.currentHours > 0 ? `${bd.load.currentHours} ימים משובצים` : 'פנוי לחלוטין'} />
         <BreakdownBar label="מיומנות (35%)" weighted={bd.skill.weightedScore} raw={bd.skill.rawScore} color={C.success} detail={bd.skill.level !== null ? `רמה ${bd.skill.level} / נדרש ${bd.skill.requiredLevel}${bd.skill.rawScore === 70 ? ' (overkill)' : ''}` : 'אין מיומנות ספציפית'} />
         <BreakdownBar label="המשכיות (15%)" weighted={bd.continuity.weightedScore} raw={bd.continuity.rawScore} color='#9C6ADE' detail={bd.continuity.hasHistory ? '✓ בדק מערכת זו ב-3 חודשים האחרונים' : 'ללא היסטוריה אחרונה'} />
@@ -3541,11 +3606,11 @@ function ScoredTesterRow({ tester, rank, isCurrentlyAssigned, onAssign }: {
 
 function BreakdownBar({ label, weighted, raw, color, detail }: { label: string; weighted: number; raw: number; color: string; detail: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
-      <span style={{ ...TEXT.xs, color: C.textMuted, minWidth: 95, flexShrink: 0 }}>{label}</span>
+    <div className="flex items-center gap-2">
+      <span className="min-w-[95px] shrink-0 text-xs text-subtle-foreground">{label}</span>
       <ScoreBar value={raw} color={color} width={70} />
-      <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color, minWidth: 20, textAlign: 'center' }}>{weighted}</span>
-      <span style={{ ...TEXT.xs, color: C.textDisabled, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail}</span>
+      <span className="min-w-[20px] text-center text-xs font-bold" style={{ color }}>{weighted}</span>
+      <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-subtle-foreground">{detail}</span>
     </div>
   );
 }
@@ -3556,13 +3621,13 @@ function FilteredSection({ filteredByLeave, filteredBySkill, requiredSkillName, 
   const [open, setOpen] = useState(false);
   const total = filteredByLeave.length + filteredBySkill.length;
   return (
-    <div style={{ borderTop: `1px solid ${C.border}`, marginTop: SP[2], paddingTop: SP[2] }}>
-      <button onClick={() => setOpen(!open)} style={{ width: '100%', padding: `${SP[1]} ${SP[2]}`, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'right', fontFamily: FONT, display: 'flex', alignItems: 'center', gap: SP[1], ...TEXT.xs, color: C.textMuted }}>
-        <span style={{ transform: open ? 'rotate(90deg)' : 'none', transition: EASE.fast, display: 'inline-block' }}>▶</span>
+    <div className="mt-2 border-t border-border pt-2">
+      <button onClick={() => setOpen(!open)} className="flex w-full cursor-pointer items-center gap-1 border-0 bg-transparent px-2 py-1 text-start text-xs text-subtle-foreground">
+        <span className={cn('inline-block transition-transform duration-100 ease-out', open ? 'rotate-90' : '')}>▶</span>
         <span>{total} בודק{total > 1 ? 'ים' : ''} סוננ{total > 1 ? 'ו' : ''} (לא עומד{total > 1 ? 'ים' : ''} בתנאי הסף)</span>
       </button>
       {open && (
-        <div style={{ padding: `0 ${SP[2]} ${SP[2]}` }}>
+        <div className="px-2 pb-2">
           {filteredByLeave.length > 0 && <FilterGroup icon="🏖" title="חופשה מאושרת בתאריכי הגרסה" names={filteredByLeave} color={C.warning} />}
           {filteredBySkill.length > 0 && <FilterGroup icon="🔴" title={`חסר סקיל ${requiredSkillName} ברמה ${requiredMinLevel}+`} names={filteredBySkill} color={C.danger} />}
         </div>
@@ -3573,33 +3638,33 @@ function FilteredSection({ filteredByLeave, filteredBySkill, requiredSkillName, 
 
 function FilterGroup({ icon, title, names, color }: { icon: string; title: string; names: string[]; color: string }) {
   return (
-    <div style={{ marginBottom: SP[2], padding: SP[2], background: color + '11', borderRadius: RADIUS.md }}>
-      <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color, marginBottom: '3px' }}>{icon} {title}</div>
-      <div style={{ ...TEXT.xs, color: C.textMuted }}>{names.join(', ')}</div>
+    <div className="mb-2 rounded-md p-2" style={{ background: color + '11' }}>
+      <div className="mb-[3px] text-xs font-semibold" style={{ color }}>{icon} {title}</div>
+      <div className="text-xs text-subtle-foreground">{names.join(', ')}</div>
     </div>
   );
 }
 
 function ScoreBadge({ score }: { score: number }) {
   const st = scoreStyle(score);
-  return <span style={{ background: st.bg, color: st.color, padding: `2px 8px`, borderRadius: RADIUS.full, ...TEXT.xs, fontWeight: WEIGHT.bold }}>{score}</span>;
+  return <span className="rounded-full px-2 py-0.5 text-xs font-bold" style={{ background: st.bg, color: st.color }}>{score}</span>;
 }
 
 function EmptyState({ icon, title, sub }: { icon: string; title: string; sub: string }) {
   return (
-    <div style={{ textAlign: 'center', padding: SP[10], color: C.textMuted, background: C.bgCard, borderRadius: RADIUS.lg, border: `1px dashed ${C.border}` }}>
-      <div style={{ fontSize: '40px', marginBottom: SP[3] }}>{icon}</div>
-      <div style={{ ...TEXT.md, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>{title}</div>
-      {sub && <div style={{ ...TEXT.sm, marginTop: SP[1] }}>{sub}</div>}
+    <div className="rounded-lg border border-dashed border-border bg-card p-10 text-center text-subtle-foreground">
+      <div className="mb-3 text-[40px]">{icon}</div>
+      <div className="text-md font-semibold text-foreground">{title}</div>
+      {sub && <div className="mt-1 text-sm">{sub}</div>}
     </div>
   );
 }
 
 function StatPill({ value, label, color, bg }: { value: number; label: string; color: string; bg: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: SP[1], padding: `3px ${SP[3]}`, background: bg, borderRadius: RADIUS.full, ...TEXT.sm }}>
-      <span style={{ fontWeight: WEIGHT.bold, color }}>{value}</span>
-      <span style={{ color, opacity: 0.8 }}>{label}</span>
+    <div className="flex items-center gap-1 rounded-full px-3 py-[3px] text-sm" style={{ background: bg }}>
+      <span className="font-bold" style={{ color }}>{value}</span>
+      <span className="opacity-80" style={{ color }}>{label}</span>
     </div>
   );
 }

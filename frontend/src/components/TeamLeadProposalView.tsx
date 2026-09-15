@@ -2,7 +2,9 @@
 import axios from 'axios';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { DateField } from './DatePicker';
-import { C, FONT, FONT_MONO, RADIUS, SHADOW, WEIGHT } from '../theme';
+import { C, SHADOW, WEIGHT } from '../theme';
+import { cn } from '../lib/utils';
+import { Button } from './ui';
 import { cleanHtmlText } from '../utils/textSanitize';
 import { formatDateTime } from '../utils/dateFormat';
 import { DefectIdBadge } from './shared/defectFieldDisplay';
@@ -319,15 +321,15 @@ const emptyForm = {
   responsibleTeamId: '',
 };
 
-const labelStyle: React.CSSProperties = {
-  fontSize: '14px', color: C.textSecondary, display: 'block',
-  marginBottom: '4px', fontWeight: '600',
-};
-const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '8px', border: `1px solid ${C.border}`,
-  borderRadius: RADIUS.md, fontSize: '15px', boxSizing: 'border-box',
-  fontFamily: FONT,
-};
+const labelClass = 'mb-1 block text-sm font-semibold text-muted-foreground';
+// Base input look shared by the proposal form's fields — `invalid` swaps the
+// border to danger red (the previous per-field validation highlight), `extra`
+// carries any remaining one-off overrides (background, height, ...).
+const inputClass = (invalid?: boolean, extra?: string) => cn(
+  'w-full box-border rounded-md border bg-card px-3 py-2.5 text-[15px] text-foreground',
+  invalid ? 'border-danger' : 'border-border',
+  extra,
+);
 
 // ── Task Wizard — guided step-by-step "Add Task" modal ──────────────────────
 type SubPhaseOpt = { id: string; name: string; phaseName: string; phaseOrderIndex: number };
@@ -339,15 +341,13 @@ interface WizardStep {
   render: (d: WizardData, set: (patch: WizardData) => void) => React.ReactNode;
 }
 
-const wizChip = (sel: boolean): React.CSSProperties => ({
-  fontSize: '11.5px', fontWeight: WEIGHT.semibold, padding: '5px 12px', borderRadius: RADIUS.full,
-  border: `1px solid ${sel ? GOLIVE : C.borderEm}`, background: sel ? `${GOLIVE}1c` : C.bgCard,
-  color: sel ? GOLIVE : C.textSecondary, cursor: 'pointer',
+const wizChipClass = 'cursor-pointer rounded-full border px-3 py-[5px] text-[11.5px] font-semibold';
+const wizChipStyle = (sel: boolean): React.CSSProperties => ({
+  borderColor: sel ? GOLIVE : C.borderEm,
+  background: sel ? `${GOLIVE}1c` : C.bgCard,
+  color: sel ? GOLIVE : C.textSecondary,
 });
-const wizField: React.CSSProperties = {
-  fontFamily: FONT, fontSize: '13px', padding: '9px 12px', borderRadius: RADIUS.sm,
-  border: `1px solid ${C.borderEm}`, background: C.bgCard, color: C.textPrimary, width: '100%', boxSizing: 'border-box',
-};
+const wizFieldClass = 'w-full box-border rounded-sm border border-border bg-card px-3 py-[9px] text-[13px] text-foreground';
 
 function descriptionStep(label = 'תיאור המשימה', placeholder = 'תאר את הפעולה שיש לבצע...'): WizardStep {
   return {
@@ -355,7 +355,7 @@ function descriptionStep(label = 'תיאור המשימה', placeholder = 'תא�
     summary: d => d.description || '',
     render: (d, set) => (
       <textarea autoFocus value={d.description || ''} onChange={e => set({ description: e.target.value })}
-        placeholder={placeholder} style={{ ...wizField, minHeight: '72px', resize: 'vertical' }} />
+        placeholder={placeholder} className={cn(wizFieldClass, 'min-h-[72px] resize-y')} />
     ),
   };
 }
@@ -364,7 +364,7 @@ function systemStep(teamAppList: string[]): WizardStep {
     key: 'system', label: 'מערכת',
     summary: d => d.system || '',
     render: (d, set) => (
-      <select autoFocus value={d.system || ''} onChange={e => set({ system: e.target.value || undefined })} style={wizField}>
+      <select autoFocus value={d.system || ''} onChange={e => set({ system: e.target.value || undefined })} className={wizFieldClass}>
         <option value="">— בחר מערכת —</option>
         {teamAppList.map(app => <option key={app} value={app}>{app}</option>)}
       </select>
@@ -377,19 +377,19 @@ function phaseStep(label: string, phaseOptions: number[], phaseLabels: Record<nu
     summary: d => d.phase != null ? (phaseLabels[d.phase]?.split(' — ')[1] || phaseLabels[d.phase] || `שלב ${d.phase}`) : '',
     render: (d, set) => (
       <div>
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
+        <div className="mb-[10px] flex flex-wrap gap-[6px]">
           {phaseOptions.map(ph => {
             const fullLabel = phaseLabels[ph] || PHASE_LABELS[ph] || `שלב ${ph}`;
             const shortLabel = fullLabel.split(' — ')[1] || fullLabel;
             return (
-              <span key={ph} title={fullLabel} onClick={() => set({ phase: ph, subPhaseId: '' })} style={wizChip(d.phase === ph)}>
+              <span key={ph} title={fullLabel} onClick={() => set({ phase: ph, subPhaseId: '' })} className={wizChipClass} style={wizChipStyle(d.phase === ph)}>
                 {shortLabel}
               </span>
             );
           })}
         </div>
         {d.phase != null && subPhaseOpts.filter(sp => sp.phaseOrderIndex === d.phase).length > 0 && (
-          <select value={d.subPhaseId || ''} onChange={e => set({ subPhaseId: e.target.value })} style={wizField}>
+          <select value={d.subPhaseId || ''} onChange={e => set({ subPhaseId: e.target.value })} className={wizFieldClass}>
             <option value="">תת-שלב מדוייק — לא נבחר (ישובץ בתחילת השלב)</option>
             {subPhaseOpts.filter(sp => sp.phaseOrderIndex === d.phase).map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
           </select>
@@ -403,7 +403,7 @@ function ownerStep(teamUsers: { id: string; fullName: string }[]): WizardStep {
     key: 'owner', label: 'עובד אחראי',
     summary: d => d.ownerName || '',
     render: (d, set) => (
-      <select autoFocus value={d.ownerName || ''} onChange={e => set({ ownerName: e.target.value })} style={wizField}>
+      <select autoFocus value={d.ownerName || ''} onChange={e => set({ ownerName: e.target.value })} className={wizFieldClass}>
         <option value="">— בחר עובד אחראי —</option>
         {teamUsers.map(u => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
       </select>
@@ -415,13 +415,13 @@ function durationStep(): WizardStep {
     key: 'duration', label: 'משך משוער',
     summary: d => d.estimatedMins ? `כ-${d.estimatedMins} דק'` : '',
     render: (d, set) => (
-      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+      <div className="flex flex-wrap items-center gap-[6px]">
         {DURATION_CHIPS.map(mins => (
-          <span key={mins} onClick={() => set({ estimatedMins: mins })} style={wizChip(d.estimatedMins === mins)}>{mins} דק'</span>
+          <span key={mins} onClick={() => set({ estimatedMins: mins })} className={wizChipClass} style={wizChipStyle(d.estimatedMins === mins)}>{mins} דק'</span>
         ))}
         <input type="number" min={1} placeholder="אחר…" value={d.estimatedMins && !DURATION_CHIPS.includes(d.estimatedMins) ? d.estimatedMins : ''}
           onChange={e => set({ estimatedMins: e.target.value ? parseInt(e.target.value) : undefined })}
-          style={{ ...wizField, width: '80px' }} />
+          className={cn(wizFieldClass, 'w-[80px]')} />
       </div>
     ),
   };
@@ -432,7 +432,7 @@ function notesStep(): WizardStep {
     summary: d => d.dependencyNote || '',
     render: (d, set) => (
       <textarea value={d.dependencyNote || ''} onChange={e => set({ dependencyNote: e.target.value })}
-        placeholder="הערות, תלויות, פרטים נוספים (אופציונלי)..." style={{ ...wizField, minHeight: '56px', resize: 'vertical' }} />
+        placeholder="הערות, תלויות, פרטים נוספים (אופציונלי)..." className={cn(wizFieldClass, 'min-h-[56px] resize-y')} />
     ),
   };
 }
@@ -441,8 +441,8 @@ function objectTypeStep(): WizardStep {
     key: 'objectType', label: 'סוג האובייקט',
     summary: d => d.type || '',
     render: (d, set) => (
-      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-        {MONITORING_TYPES.map(t => <span key={t} onClick={() => set({ type: t })} style={wizChip(d.type === t)}>{t}</span>)}
+      <div className="flex flex-wrap gap-[6px]">
+        {MONITORING_TYPES.map(t => <span key={t} onClick={() => set({ type: t })} className={wizChipClass} style={wizChipStyle(d.type === t)}>{t}</span>)}
       </div>
     ),
   };
@@ -453,7 +453,7 @@ function objectNameStep(): WizardStep {
     summary: d => d.name || '',
     render: (d, set) => (
       <input autoFocus value={d.name || ''} onChange={e => set({ name: e.target.value })}
-        placeholder="שם הטבלה / ממשק / תהליך המנוטר..." style={wizField} />
+        placeholder="שם הטבלה / ממשק / תהליך המנוטר..." className={wizFieldClass} />
     ),
   };
 }
@@ -462,7 +462,7 @@ function assigneeStep(teamUsers: { id: string; fullName: string }[]): WizardStep
     key: 'assignee', label: 'אחראי מעקב',
     summary: d => d.assignedUserName || '',
     render: (d, set) => (
-      <select autoFocus value={d.assignedUserName || ''} onChange={e => set({ assignedUserName: e.target.value })} style={wizField}>
+      <select autoFocus value={d.assignedUserName || ''} onChange={e => set({ assignedUserName: e.target.value })} className={wizFieldClass}>
         <option value="">— בחר עובד אחראי —</option>
         {teamUsers.map(u => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
       </select>
@@ -475,7 +475,7 @@ function successCriteriaStep(): WizardStep {
     summary: d => d.note || '',
     render: (d, set) => (
       <textarea autoFocus value={d.note || ''} onChange={e => set({ note: e.target.value })}
-        placeholder="מה מעיד שהמעקב תקין? (אופציונלי)" style={{ ...wizField, minHeight: '56px', resize: 'vertical' }} />
+        placeholder="מה מעיד שהמעקב תקין? (אופציונלי)" className={cn(wizFieldClass, 'min-h-[56px] resize-y')} />
     ),
   };
 }
@@ -539,101 +539,100 @@ const TaskWizardModal: React.FC<{
   const wizTypeMeta = type ? WIZARD_TYPES.find(t => t.type === type) : null;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: C.bgOverlay, zIndex: 6000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+    <div className="fixed inset-0 z-[6000] flex items-center justify-center" style={{ background: C.bgOverlay }}
       onClick={onCancel}>
       <div onClick={e => e.stopPropagation()}
-        style={{ background: C.bgCard, borderRadius: RADIUS.xl, width: '92vw', maxWidth: '600px', maxHeight: '86vh', display: 'flex', flexDirection: 'column', boxShadow: SHADOW.floating }}>
+        className="flex max-h-[86vh] w-[92vw] max-w-[600px] flex-col rounded-xl bg-card shadow-lg">
 
-        <div style={{ padding: '20px 24px 0', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-            <span style={{ fontFamily: FONT_MONO, fontWeight: WEIGHT.bold, color: GOLIVE, background: `${GOLIVE}1e`, padding: '3px 10px', borderRadius: RADIUS.sm, fontSize: '12px' }}>{crNumber}</span>
+        <div className="shrink-0 px-6 pt-5">
+          <div className="mb-[10px] flex items-center gap-2">
+            <span className="rounded-sm px-[10px] py-[3px] font-mono text-xs font-bold" style={{ color: GOLIVE, background: `${GOLIVE}1e` }}>{crNumber}</span>
             {wizTypeMeta && (
-              <span style={{ fontSize: '11px', fontWeight: WEIGHT.bold, padding: '3px 11px', borderRadius: RADIUS.full, background: `${C.brand}1e`, color: C.brand }}>{wizTypeMeta.icon} {wizTypeMeta.label}</span>
+              <span className="rounded-full px-[11px] py-[3px] text-[11px] font-bold" style={{ background: `${C.brand}1e`, color: C.brand }}>{wizTypeMeta.icon} {wizTypeMeta.label}</span>
             )}
           </div>
-          <div style={{ fontSize: '17px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+          <div className="text-[17px] font-bold text-foreground">
             {stepIdx === -1 ? 'הוספת משימה — שלב 1: סוג המשימה' : `שלב ${stepIdx + 2}: ${steps[stepIdx]?.label}`}
           </div>
         </div>
 
-        <div style={{ padding: '16px 24px', overflowY: 'auto', flex: 1 }}>
+        <div className="flex-1 overflow-y-auto px-6 py-4">
           {stepIdx === -1 ? (
             <>
-              <div style={{ fontSize: '11px', fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: '12px' }}>
+              <div className="mb-3 text-[11px] font-bold uppercase tracking-[.05em] text-subtle-foreground">
                 בחירת סוג המשימה קובעת אילו שדות יופיעו בהמשך
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+              <div className="grid grid-cols-4 gap-2">
                 {WIZARD_TYPES.map(t => (
                   <div key={t.type} onClick={() => pickType(t.type)}
+                    className="cursor-pointer rounded-md border-2 px-2 py-[14px] text-center"
                     style={{
-                      padding: '14px 8px', textAlign: 'center', borderRadius: RADIUS.md, cursor: 'pointer',
-                      border: `2px solid ${type === t.type ? GOLIVE : C.borderEm}`,
+                      borderColor: type === t.type ? GOLIVE : C.borderEm,
                       background: type === t.type ? `${GOLIVE}1a` : C.bgCard,
                     }}>
-                    <div style={{ fontSize: '18px', marginBottom: '6px' }}>{t.icon}</div>
-                    <div style={{ fontSize: '11px', fontWeight: WEIGHT.bold, color: type === t.type ? GOLIVE : C.textSecondary }}>{t.label}</div>
+                    <div className="mb-[6px] text-lg">{t.icon}</div>
+                    <div className="text-[11px] font-bold" style={{ color: type === t.type ? GOLIVE : C.textSecondary }}>{t.label}</div>
                   </div>
                 ))}
               </div>
             </>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div className="flex flex-col gap-2">
               {steps.map((s, i) => {
                 const isDone = i < stepIdx;
                 const isActive = i === stepIdx;
                 const canJump = i <= stepIdx;
                 return (
-                  <div key={s.key} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.xs, overflow: 'hidden' }}>
+                  <div key={s.key} className="overflow-hidden rounded-lg border border-border bg-card shadow-xs">
                     <div onClick={() => canJump && setStepIdx(i)}
+                      className={cn('flex items-center gap-[10px] px-[15px] py-[11px]', canJump ? 'cursor-pointer' : 'cursor-default')}
                       style={{
-                        display: 'flex', alignItems: 'center', gap: '10px', padding: '11px 15px', cursor: canJump ? 'pointer' : 'default',
                         background: isDone ? `${C.success}12` : isActive ? `${GOLIVE}10` : 'transparent',
                       }}>
-                      <span style={{
-                        width: '22px', height: '22px', borderRadius: '50%', flexShrink: 0, fontSize: '11px', fontWeight: WEIGHT.bold,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        background: isDone ? C.success : isActive ? GOLIVE : C.bgNested,
-                        color: isDone || isActive ? '#fff' : C.textMuted,
-                      }}>
+                      <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
+                        style={{
+                          background: isDone ? C.success : isActive ? GOLIVE : C.bgNested,
+                          color: isDone || isActive ? '#fff' : C.textMuted,
+                        }}>
                         {isDone ? '✓' : i + 1}
                       </span>
-                      <span style={{ fontSize: '12.5px', fontWeight: WEIGHT.bold, flex: 1, color: C.textPrimary }}>{s.label}</span>
-                      {!isActive && <span style={{ fontSize: '11.5px', color: C.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '180px' }}>{s.summary(data) || '—'}</span>}
+                      <span className="flex-1 text-[12.5px] font-bold text-foreground">{s.label}</span>
+                      {!isActive && <span className="max-w-[180px] overflow-hidden text-ellipsis whitespace-nowrap text-[11.5px] text-subtle-foreground">{s.summary(data) || '—'}</span>}
                     </div>
-                    {isActive && <div style={{ padding: '14px 15px 15px', borderTop: `1px solid ${C.border}` }}>{s.render(data, patch)}</div>}
+                    {isActive && <div className="border-t border-border px-[15px] pb-[15px] pt-[14px]">{s.render(data, patch)}</div>}
                   </div>
                 );
               })}
 
               {stepIdx >= 0 && (
-                <div style={{ background: C.bgNested, border: `1px dashed ${GOLIVE}`, borderRadius: RADIUS.lg, padding: '12px 15px', marginTop: '2px' }}>
-                  <div style={{ fontSize: '10.5px', fontWeight: WEIGHT.bold, color: GOLIVE, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: '5px' }}>🔊 תצוגה מקדימה</div>
-                  <div style={{ fontSize: '13px', lineHeight: 1.6, color: C.textPrimary }}>{type ? wizardNarrative(type, data, teamName) : ''}</div>
+                <div className="mt-0.5 rounded-lg border border-dashed px-[15px] py-3" style={{ borderColor: GOLIVE, background: C.bgNested }}>
+                  <div className="mb-[5px] text-[10.5px] font-bold uppercase tracking-[.05em]" style={{ color: GOLIVE }}>🔊 תצוגה מקדימה</div>
+                  <div className="text-[13px] leading-[1.6] text-foreground">{type ? wizardNarrative(type, data, teamName) : ''}</div>
                 </div>
               )}
             </div>
           )}
         </div>
 
-        <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.border}`, display: 'flex', gap: '10px', flexShrink: 0 }}>
-          <button onClick={onCancel} style={{ padding: '11px 18px', background: 'none', border: `1px solid ${C.borderEm}`, color: C.textMuted, borderRadius: RADIUS.md, fontSize: '13px', fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT }}>
+        <div className="flex shrink-0 gap-[10px] border-t border-border px-5 py-[14px]">
+          <button onClick={onCancel} className="rounded-md border border-border px-[18px] py-[11px] text-[13px] font-semibold text-subtle-foreground">
             ביטול
           </button>
           {stepIdx >= 0 && !(stepIdx === 0 && initialType) && (
             <button onClick={() => setStepIdx(i => i - 1)}
-              style={{ padding: '11px 18px', background: 'none', border: `1px solid ${C.borderEm}`, color: C.textSecondary, borderRadius: RADIUS.md, fontSize: '13px', fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT }}>
+              className="rounded-md border border-border px-[18px] py-[11px] text-[13px] font-semibold text-muted-foreground">
               ‹ הקודם
             </button>
           )}
-          <div style={{ flex: 1 }} />
+          <div className="flex-1" />
           {stepIdx === -1 ? null : stepIdx < steps.length - 1 ? (
             <button onClick={() => setStepIdx(i => i + 1)}
-              style={{ flex: 1, maxWidth: '200px', padding: '11px', background: GOLIVE, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: '13px', fontWeight: WEIGHT.bold, cursor: 'pointer', fontFamily: FONT }}>
+              className="max-w-[200px] flex-1 rounded-md p-[11px] text-[13px] font-bold text-white" style={{ background: GOLIVE }}>
               הבא ›
             </button>
           ) : (
             <button onClick={confirm}
-              style={{ flex: 1, maxWidth: '200px', padding: '11px', background: GOLIVE, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: '13px', fontWeight: WEIGHT.bold, cursor: 'pointer', fontFamily: FONT }}>
+              className="max-w-[200px] flex-1 rounded-md p-[11px] text-[13px] font-bold text-white" style={{ background: GOLIVE }}>
               ✓ הוסף לתוכנית
             </button>
           )}
@@ -1584,49 +1583,43 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
   // ── Form modal ─────────────────────────────────────────────────────────────
   const renderForm = () => (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 3000, background: C.bgOverlay, direction: 'rtl' }}
+    <div className="fixed inset-0 z-[3000] bg-[--overlay] [--overlay:theme(colors.black/45%)]" dir="rtl"
       onClick={e => { if (e.target === e.currentTarget) cancelForm(); }}>
-      <div style={{
-        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-        width: '760px', maxWidth: '94vw', maxHeight: '84vh',
-        background: C.bgCard, display: 'flex', flexDirection: 'column',
-        borderRadius: '16px', overflow: 'hidden',
-        boxShadow: '0 24px 64px rgba(0,0,0,0.45)',
-      }}>
+      <div className="fixed left-1/2 top-1/2 flex max-h-[84vh] w-[760px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl bg-card shadow-floating">
         {/* Panel header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-          <button onClick={cancelForm} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '20px', lineHeight: 1, padding: '2px 6px' }}>✕</button>
-          <span style={{ fontSize: '16px', fontWeight: '700', color: C.textPrimary }}>{editId ? 'עריכת משימה' : 'פרטי משימה'}</span>
+        <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-5 py-4">
+          <button onClick={cancelForm} className="rounded px-1.5 py-0.5 text-xl leading-none text-subtle-foreground">✕</button>
+          <span className="text-base font-bold text-foreground">{editId ? 'עריכת משימה' : 'פרטי משימה'}</span>
         </div>
 
         {/* Scrollable body */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
 
           {/* שם משימה */}
           <div>
-            <label style={labelStyle}>שם משימה <span style={{ color: C.danger }}>*</span></label>
+            <label className={labelClass}>שם משימה <span className="text-danger">*</span></label>
             <input
               autoFocus
               value={form.title}
               onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-              style={{ ...inputStyle, borderColor: !form.title.trim() ? C.danger : C.border, fontSize: '15px', padding: '10px 12px' }}
+              className={inputClass(!form.title.trim())}
               placeholder="תאר את הצעד שיש לבצע..."
             />
           </div>
 
           {/* CR מקושר */}
           <div>
-            <label style={labelStyle}>פיתוחים בגרסה (CR)</label>
+            <label className={labelClass}>פיתוחים בגרסה (CR)</label>
             {form.isFree ? (
-              <div style={{ padding: '10px 12px', background: C.bgNested, borderRadius: RADIUS.md, fontSize: '15px', color: C.textSecondary, border: `1px solid ${C.border}` }}>
+              <div className="rounded-md border border-border bg-muted px-3 py-2.5 text-[15px] text-muted-foreground">
                 ללא CR — משימה תשתיתית / כללית
               </div>
             ) : form.crNumber && form.crLabel ? (
-              <div style={{ padding: '10px 12px', background: C.infoBg, border: `1px solid ${C.info}40`, borderRadius: RADIUS.md, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ background: C.textPrimary, color: C.textInverse, padding: '2px 8px', borderRadius: RADIUS.sm, fontSize: '14px', fontWeight: '700', fontFamily: 'monospace', flexShrink: 0 }}>
+              <div className="flex items-center gap-2 rounded-md border border-info/40 bg-info/10 px-3 py-2.5">
+                <span className="flex-shrink-0 rounded-sm bg-foreground px-2 py-0.5 font-mono text-sm font-bold text-white">
                   {form.crNumber}
                 </span>
-                <span style={{ fontSize: '15px', color: C.info, fontWeight: '600' }}>{form.crLabel.replace(`${form.crNumber} - `, '')}</span>
+                <span className="text-[15px] font-semibold text-info">{form.crLabel.replace(`${form.crNumber} - `, '')}</span>
               </div>
             ) : (
               <>
@@ -1641,23 +1634,23 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                   }}
                   list="tl-cr-datalist"
                   placeholder="הקלד CR# (Enter לחץ ‏↵ להקש)"
-                  style={{ ...inputStyle, padding: '10px 12px' }}
+                  className={inputClass()}
                 />
                 <datalist id="tl-cr-datalist">
                   {crItems.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                 </datalist>
                 {form.crLabel && (
-                  <div style={{ fontSize: '14px', color: C.success, marginTop: '4px' }}>✓ {form.crLabel}</div>
+                  <div className="mt-1 text-sm text-success">✓ {form.crLabel}</div>
                 )}
               </>
             )}
           </div>
 
           {/* שלב | תת-שלב */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label style={labelStyle}>שלב <span style={{ color: C.danger }}>*</span></label>
-              <select value={form.phase} onChange={e => setForm(f => ({ ...f, phase: parseInt(e.target.value), subPhaseId: '', responsibleTeamId: myTeamId, assignedUserName: '' }))} style={{ ...inputStyle, padding: '10px 12px' }}>
+              <label className={labelClass}>שלב <span className="text-danger">*</span></label>
+              <select value={form.phase} onChange={e => setForm(f => ({ ...f, phase: parseInt(e.target.value), subPhaseId: '', responsibleTeamId: myTeamId, assignedUserName: '' }))} className={inputClass()}>
                 {(Object.keys(phaseLabels).length > 0
                   ? Object.keys(phaseLabels).map(Number).sort((a, b) => a - b)
                   : [1, 2, 3, 4]
@@ -1665,25 +1658,25 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
               </select>
             </div>
             <div>
-              <label style={labelStyle}>תת-שלב</label>
+              <label className={labelClass}>תת-שלב</label>
               {subPhaseOpts.filter(sp => sp.phaseOrderIndex === form.phase).length > 0 ? (
                 <select value={form.subPhaseId} onChange={e => setForm(f => ({ ...f, subPhaseId: e.target.value }))}
-                  style={{ ...inputStyle, padding: '10px 12px', background: form.subPhaseId ? C.infoBg : undefined }}>
+                  className={inputClass(false, form.subPhaseId ? 'bg-info/10' : undefined)}>
                   <option value="">-- בחר --</option>
                   {subPhaseOpts.filter(sp => sp.phaseOrderIndex === form.phase).map(sp => (
                     <option key={sp.id} value={sp.id}>{sp.name}</option>
                   ))}
                 </select>
               ) : (
-                <div style={{ padding: '10px 12px', background: C.bgNested, borderRadius: RADIUS.md, fontSize: '14px', color: C.textMuted, border: `1px solid ${C.border}` }}>אין תת-שלבים</div>
+                <div className="rounded-md border border-border bg-muted px-3 py-2.5 text-sm text-muted-foreground">אין תת-שלבים</div>
               )}
             </div>
           </div>
 
           {/* סוג פעולה | מערכת */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label style={labelStyle}>סוג פעולה <span style={{ color: C.danger }}>*</span></label>
+              <label className={labelClass}>סוג פעולה <span className="text-danger">*</span></label>
               <select value={form.actionType} onChange={e => {
                 const val = e.target.value;
                 const currentTitle = form.title.trim();
@@ -1696,15 +1689,15 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                 } else {
                   setForm(f => ({ ...f, actionType: val }));
                 }
-              }} style={{ ...inputStyle, padding: '10px 12px', borderColor: !form.actionType ? C.danger : C.border }}>
+              }} className={inputClass(!form.actionType)}>
                 <option value="">-- בחר --</option>
                 {ACTION_TYPE_OPTIONS.map(a => <option key={a} value={a}>{a}</option>)}
               </select>
             </div>
             <div>
-              <label style={labelStyle}>אפליקציה <span style={{ color: C.danger }}>*</span></label>
+              <label className={labelClass}>אפליקציה <span className="text-danger">*</span></label>
               <select value={form.app} onChange={e => setForm(f => ({ ...f, app: e.target.value }))}
-                style={{ ...inputStyle, padding: '10px 12px', borderColor: !form.app ? C.danger : C.border }}>
+                className={inputClass(!form.app)}>
                 <option value="">-- בחר --</option>
                 {teamAppList.map(a => <option key={a} value={a}>{a}</option>)}
               </select>
@@ -1712,45 +1705,45 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           </div>
 
           {/* צוות אחראי | אחראי */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label style={labelStyle}>צוות אחראי</label>
+              <label className={labelClass}>צוות אחראי</label>
               <select
                 value={allowOtherTeam ? (form.responsibleTeamId || myTeamId) : myTeamId}
                 disabled={!allowOtherTeam}
                 onChange={e => setForm(f => ({ ...f, responsibleTeamId: e.target.value, assignedUserName: '' }))}
-                style={{ ...inputStyle, padding: '10px 12px', ...(!allowOtherTeam ? { background: C.bgNested, color: C.textMuted, cursor: 'not-allowed' } : {}) }}
+                className={inputClass(false, !allowOtherTeam ? 'bg-muted text-muted-foreground cursor-not-allowed' : undefined)}
               >
                 {(allowOtherTeam ? allowedTeams : allowedTeams.filter((t: any) => t.id === myTeamId))
                   .map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginTop: '6px' }}>
+              <div className="mt-1.5 flex items-center gap-2">
                 <input type="checkbox" id="allow-other-team" checked={allowOtherTeam}
                   onChange={e => {
                     const checked = e.target.checked;
                     setAllowOtherTeam(checked);
                     if (!checked) setForm(f => ({ ...f, responsibleTeamId: myTeamId, assignedUserName: '' }));
                   }}
-                  style={{ width: '14px', height: '14px', cursor: 'pointer' }} />
-                <label htmlFor="allow-other-team" style={{ fontSize: '13px', color: C.textSecondary, cursor: 'pointer' }}>
+                  className="h-3.5 w-3.5 cursor-pointer" />
+                <label htmlFor="allow-other-team" className="cursor-pointer text-sm text-muted-foreground">
                   אפשר לבחור צוות אחר
                 </label>
               </div>
               {allowOtherTeam && (form.phase === 2 || form.phase === 3) && (
-                <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '3px' }}>
+                <div className="mt-1 text-sm text-subtle-foreground">
                   ניתן לשייך לצוות QA לביצוע בדיקות
                 </div>
               )}
               {allowOtherTeam && form.phase === 4 && (
-                <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '3px' }}>
+                <div className="mt-1 text-sm text-subtle-foreground">
                   ניתן לשייך לצוות QA / תפעול לבקרות בוקר
                 </div>
               )}
             </div>
             <div>
-              <label style={labelStyle}>אחראי <span style={{ color: C.danger }}>*</span></label>
+              <label className={labelClass}>אחראי <span className="text-danger">*</span></label>
               <select value={form.assignedUserName} onChange={e => setForm(f => ({ ...f, assignedUserName: e.target.value }))}
-                style={{ ...inputStyle, padding: '10px 12px', borderColor: !form.assignedUserName ? C.danger : C.border }}>
+                className={inputClass(!form.assignedUserName)}>
                 <option value="">-- בחר --</option>
                 {responsibleTeamUsers.map((u: any) => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
               </select>
@@ -1758,38 +1751,36 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           </div>
 
           {/* משך */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
+          <div className="grid grid-cols-[1fr_2fr] gap-3">
             <div>
-              <label style={labelStyle}>משך (דק') <span style={{ color: C.danger }}>*</span></label>
+              <label className={labelClass}>משך (דק') <span className="text-danger">*</span></label>
               <input type="number" min={1} value={form.estimatedMins}
                 onChange={e => setForm(f => ({ ...f, estimatedMins: e.target.value }))}
-                style={{ ...inputStyle, padding: '10px 12px', borderColor: !form.estimatedMins ? C.danger : C.border }}
+                className={inputClass(!form.estimatedMins)}
                 placeholder="10" />
             </div>
           </div>
 
           {/* הערות */}
           <div>
-            <label style={labelStyle}>הערות כלליות</label>
+            <label className={labelClass}>הערות כלליות</label>
             <textarea value={form.notes}
               onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-              style={{ ...inputStyle, height: '72px', resize: 'vertical', padding: '10px 12px' }}
+              className={inputClass(false, 'h-[72px] resize-y')}
               placeholder="פרמטרים, הוראות מיוחדות, תלויות..." />
           </div>
 
-          {error && <div style={{ color: C.danger, fontSize: '15px', background: C.dangerBg, padding: '8px 12px', borderRadius: RADIUS.md }}>{error}</div>}
+          {error && <div className="rounded-md bg-danger/10 px-3 py-2 text-[15px] text-danger">{error}</div>}
         </div>
 
         {/* Footer */}
-        <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.border}`, display: 'flex', gap: '10px', justifyContent: 'flex-start', flexShrink: 0, background: C.bgCard }}>
-          <button onClick={save} disabled={saving}
-            style={{ padding: '9px 24px', background: saving ? C.textDisabled : C.brand, color: C.textInverse, border: 'none', borderRadius: RADIUS.lg, cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '15px' }}>
+        <div className="flex flex-shrink-0 gap-2.5 justify-start border-t border-border bg-card px-5 py-3.5">
+          <Button onClick={save} disabled={saving} loading={saving} className="px-6 text-[15px]">
             {saving ? 'שומר...' : editId ? 'שמור שינויים' : 'הוסף משימה'}
-          </button>
-          <button onClick={cancelForm}
-            style={{ padding: '9px 20px', background: C.bgCard, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '15px', fontWeight: '600' }}>
+          </Button>
+          <Button variant="secondary" onClick={cancelForm} className="px-5 text-[15px]">
             ביטול
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -1802,62 +1793,56 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   // way to mark it ready) — confirmCrPlan instead bounces the user to this tab
   // when a task still needs approving before it lets the plan be confirmed.
   const renderRow = (p: Proposal) => (
-    <div key={p.id} style={{
-      borderRadius: RADIUS.lg, marginBottom: '6px',
+    <div key={p.id} className="mb-[6px] overflow-hidden rounded-lg" style={{
       background: p.usedInTaskId ? C.successBg : C.bgNested,
       border: `1px solid ${p.usedInTaskId ? C.success + '50' : C.border}`,
-      overflow: 'hidden',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px' }}>
-        <span style={{
+      <div className="flex items-center gap-2 px-3 py-2">
+        <span className="shrink-0 whitespace-nowrap rounded-full px-[10px] py-0.5 text-[13px] font-semibold" style={{
           background: PHASE_BADGE[p.phase]?.bg, color: PHASE_BADGE[p.phase]?.color,
-          padding: '2px 10px', borderRadius: RADIUS.full, fontSize: '13px', fontWeight: '600', whiteSpace: 'nowrap', flexShrink: 0,
         }}>
           {(phaseLabels[p.phase] || PHASE_LABELS[p.phase])?.split(' — ')[1] || `שלב ${p.phase}`}
         </span>
-        <span style={{ flex: 1, fontSize: '15px', fontWeight: '600', color: C.textPrimary }}>{p.title}</span>
+        <span className="flex-1 text-[15px] font-semibold text-foreground">{p.title}</span>
         {p.usedInTaskId ? (
-          <span style={{ fontSize: '13px', color: C.success, fontWeight: '700', whiteSpace: 'nowrap', flexShrink: 0 }}>✅ בתוכנית</span>
+          <span className="shrink-0 whitespace-nowrap text-[13px] font-bold text-success">✅ בתוכנית</span>
         ) : locked ? (
-          <div style={{ display: 'flex', gap: '4px', flexShrink: 0, alignItems: 'center' }}>
-            <span style={{ fontSize: '13px', color: p.status === 'READY' ? C.success : C.warning, fontWeight: '700', whiteSpace: 'nowrap' }}>
+          <div className="flex shrink-0 items-center gap-1">
+            <span className="whitespace-nowrap text-[13px] font-bold" style={{ color: p.status === 'READY' ? C.success : C.warning }}>
               {p.status === 'READY' ? '✓ מוכן' : 'טיוטא'}
             </span>
             <button onClick={() => openEdit(p)}
-              style={{ padding: '2px 8px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}50`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
+              className="rounded-md border px-2 py-0.5 text-[13px] font-semibold" style={{ background: C.warningBg, color: C.warning, borderColor: `${C.warning}50` }}>
               ערוך
             </button>
           </div>
         ) : (
-          <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-            <button onClick={() => toggleStatus(p)} style={{
-              padding: '2px 10px', border: 'none', borderRadius: RADIUS.full, cursor: 'pointer',
-              fontSize: '13px', fontWeight: '600', whiteSpace: 'nowrap',
+          <div className="flex shrink-0 gap-1">
+            <button onClick={() => toggleStatus(p)} className="whitespace-nowrap rounded-full px-[10px] py-0.5 text-[13px] font-semibold" style={{
               background: p.status === 'READY' ? C.success : C.warning, color: C.textInverse,
             }}>
               {p.status === 'READY' ? '✓ מוכן' : 'טיוטא'}
             </button>
             <button onClick={() => openEdit(p)}
-              style={{ padding: '2px 8px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}50`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
+              className="rounded-md border px-2 py-0.5 text-[13px] font-semibold" style={{ background: C.warningBg, color: C.warning, borderColor: `${C.warning}50` }}>
               ערוך
             </button>
             <button onClick={() => remove(p)}
-              style={{ padding: '2px 8px', background: C.dangerBg, color: C.danger, border: `1px solid ${C.danger}50`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
+              className="rounded-md border px-2 py-0.5 text-[13px] font-semibold" style={{ background: C.dangerBg, color: C.danger, borderColor: `${C.danger}50` }}>
               מחק
             </button>
           </div>
         )}
       </div>
-      <div style={{
-        display: 'flex', gap: '16px', flexWrap: 'wrap',
-        padding: '5px 12px 8px', borderTop: `1px solid ${C.border}`,
-        background: p.usedInTaskId ? C.successBg : C.bgCard, fontSize: '14px', color: C.textSecondary,
+      <div className="flex flex-wrap gap-4 border-t px-3 pb-2 pt-[5px] text-sm" style={{
+        borderColor: C.border,
+        background: p.usedInTaskId ? C.successBg : C.bgCard, color: C.textSecondary,
       }}>
-        <span><span style={{ color: C.textMuted }}>מערכת: </span>{p.app || <span style={{ color: C.textDisabled }}>לא הוזן</span>}</span>
-        {p.actionType && <span style={{ background: C.infoBg, color: C.info, padding: '1px 7px', borderRadius: RADIUS.sm, fontSize: '13px', fontWeight: '600' }}>{p.actionType}</span>}
-        <span><span style={{ color: C.textMuted }}>משך: </span>{p.estimatedMins ? `${p.estimatedMins} דק'` : <span style={{ color: C.textDisabled }}>לא הוזן</span>}</span>
-        <span><span style={{ color: C.textMuted }}>עובד אחראי: </span>{p.assignedUserName || <span style={{ color: C.textDisabled }}>לא הוזן</span>}</span>
-        {p.notes && <span style={{ color: C.textSecondary, fontStyle: 'italic' }}>📝 {cleanHtmlText(p.notes)}</span>}
+        <span><span className="text-subtle-foreground">מערכת: </span>{p.app || <span className="text-subtle-foreground">לא הוזן</span>}</span>
+        {p.actionType && <span className="rounded-sm bg-info-bg px-[7px] py-px text-[13px] font-semibold text-info">{p.actionType}</span>}
+        <span><span className="text-subtle-foreground">משך: </span>{p.estimatedMins ? `${p.estimatedMins} דק'` : <span className="text-subtle-foreground">לא הוזן</span>}</span>
+        <span><span className="text-subtle-foreground">עובד אחראי: </span>{p.assignedUserName || <span className="text-subtle-foreground">לא הוזן</span>}</span>
+        {p.notes && <span className="italic text-muted-foreground">📝 {cleanHtmlText(p.notes)}</span>}
       </div>
     </div>
   );
@@ -1874,8 +1859,8 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     if (next.has(ph)) next.delete(ph); else next.add(ph);
     return { ...prev, openPhases: next };
   });
-  const actionCardMiniSel: React.CSSProperties = { fontFamily: FONT, fontSize: '12px', padding: '6px 10px', borderRadius: RADIUS.sm, border: `1px solid ${C.borderEm}`, background: C.bgCard, color: C.textPrimary };
-  const actionCardMiniTa: React.CSSProperties = { width: '100%', fontFamily: FONT, fontSize: '13px', padding: '8px 10px', borderRadius: RADIUS.sm, border: `1px solid ${C.borderEm}`, background: C.bgCard, color: C.textPrimary, resize: 'none', minHeight: '42px', boxSizing: 'border-box', overflow: 'hidden' };
+  const actionCardMiniSelClass = 'rounded-sm border border-border bg-card px-[10px] py-1.5 text-xs text-foreground';
+  const actionCardMiniTaClass = 'w-full box-border resize-none overflow-hidden rounded-sm border border-border bg-card px-[10px] py-2 text-[13px] text-foreground min-h-[42px]';
   const autoGrowAction = (e: React.FormEvent<HTMLTextAreaElement>) => {
     const el = e.currentTarget;
     el.style.height = 'auto';
@@ -1883,17 +1868,17 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   };
 
   const renderActionCard = (a: CrPlanAction, idx: number, onChange: (patch: Partial<CrPlanAction>) => void, onRemove: () => void) => (
-    <div key={a.id ?? `new-${idx}`} style={{ background: C.bgNested, borderRadius: RADIUS.md, padding: '12px 14px', marginBottom: '10px' }}>
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-        <select value={a.actionType} onChange={e => onChange({ actionType: e.target.value })} style={actionCardMiniSel}>
+    <div key={a.id ?? `new-${idx}`} className="mb-[10px] rounded-md px-[14px] py-3" style={{ background: C.bgNested }}>
+      <div className="mb-2 flex gap-2">
+        <select value={a.actionType} onChange={e => onChange({ actionType: e.target.value })} className={actionCardMiniSelClass}>
           {ACTION_TYPE_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
-        <div style={{ flex: 1 }} />
-        <button onClick={onRemove} style={{ background: 'none', border: 'none', color: C.danger, cursor: 'pointer', fontSize: '13px' }}>הסר</button>
+        <div className="flex-1" />
+        <button onClick={onRemove} className="text-[13px] text-danger">הסר</button>
       </div>
       <textarea value={a.description} onInput={autoGrowAction} onChange={e => onChange({ description: e.target.value })}
-        style={{ ...actionCardMiniTa, marginBottom: '8px' }} placeholder="תאר את הפעולה שיש לבצע..." />
-      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+        className={cn(actionCardMiniTaClass, 'mb-2')} placeholder="תאר את הפעולה שיש לבצע..." />
+      <div className="mb-2 flex flex-wrap gap-[6px]">
         {phaseOptions.map(ph => {
           const fullLabel = phaseLabels[ph] || PHASE_LABELS[ph] || `שלב ${ph}`;
           const shortLabel = fullLabel.split(' — ')[1] || fullLabel;
@@ -1901,10 +1886,10 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           return (
             <span key={ph} title={fullLabel}
               onClick={() => onChange({ phase: ph, subPhaseId: '' })}
+              className="cursor-pointer rounded-full border px-[10px] py-[3px] text-[11px] font-bold"
               style={{
-                fontSize: '11px', fontWeight: WEIGHT.bold, padding: '3px 10px', borderRadius: RADIUS.full, cursor: 'pointer',
                 background: sel ? GOLIVE : C.bgCard,
-                border: `1px solid ${sel ? GOLIVE : C.borderEm}`,
+                borderColor: sel ? GOLIVE : C.borderEm,
                 color: sel ? '#fff' : C.textMuted,
               }}>
               {shortLabel}
@@ -1914,39 +1899,39 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
       </div>
       {subPhaseOpts.filter(sp => sp.phaseOrderIndex === a.phase).length > 0 && (
         <select value={a.subPhaseId || ''} onChange={e => onChange({ subPhaseId: e.target.value })}
-          style={{ ...actionCardMiniSel, width: '100%', boxSizing: 'border-box', marginBottom: '8px' }}>
+          className={cn(actionCardMiniSelClass, 'mb-2 w-full box-border')}>
           <option value="">תת-שלב מדוייק — לא נבחר (ישובץ בתחילת השלב)</option>
           {subPhaseOpts.filter(sp => sp.phaseOrderIndex === a.phase).map(sp => (
             <option key={sp.id} value={sp.id}>{sp.name}</option>
           ))}
         </select>
       )}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-        <select value={a.system || ''} onChange={e => onChange({ system: e.target.value || undefined })} style={actionCardMiniSel}>
+      <div className="mb-2 grid grid-cols-3 gap-2">
+        <select value={a.system || ''} onChange={e => onChange({ system: e.target.value || undefined })} className={actionCardMiniSelClass}>
           <option value="">מערכת — ללא</option>
           {teamAppList.map((app: string) => <option key={app} value={app}>{app}</option>)}
         </select>
         <input type="number" min={1} value={a.estimatedMins ?? ''} onChange={e => onChange({ estimatedMins: e.target.value ? parseInt(e.target.value) : undefined })}
-          placeholder="משך זמן משוער (דק')" style={{ ...actionCardMiniSel, width: '100%', boxSizing: 'border-box' }} />
-        <select value={a.ownerName || ''} onChange={e => onChange({ ownerName: e.target.value })} style={actionCardMiniSel}>
+          placeholder="משך זמן משוער (דק')" className={cn(actionCardMiniSelClass, 'w-full box-border')} />
+        <select value={a.ownerName || ''} onChange={e => onChange({ ownerName: e.target.value })} className={actionCardMiniSelClass}>
           <option value="">אחראי — ללא</option>
           {teamUsers.map((u: any) => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
         </select>
       </div>
 
       {/* תלות לוגית — בורר מתקפל שלב ← תת-שלב ← משימה. תלות = "חייבת להסתיים קודם". */}
-      <div style={{ marginBottom: '6px' }}>
+      <div className="mb-[6px]">
         <div onClick={() => setDepPicker(p => p?.actionIdx === idx ? null : { actionIdx: idx, openPhases: new Set() })}
-          style={{ ...actionCardMiniSel, width: '100%', boxSizing: 'border-box', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ color: a.dependsOnTaskId ? C.textPrimary : C.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          className={cn(actionCardMiniSelClass, 'flex w-full box-border cursor-pointer items-center justify-between')}>
+          <span className="overflow-hidden text-ellipsis whitespace-nowrap" style={{ color: a.dependsOnTaskId ? C.textPrimary : C.textMuted }}>
             {a.dependsOnTaskId ? `תלות: ${depTaskTitle(a.dependsOnTaskId) || '—'}` : 'תלות לוגית — לחץ לבחירת משימה מהתוכנית'}
           </span>
-          <span style={{ flexShrink: 0, color: C.textMuted, marginRight: '6px' }}>{depPicker?.actionIdx === idx ? '▴' : '▾'}</span>
+          <span className="ms-[6px] shrink-0 text-subtle-foreground">{depPicker?.actionIdx === idx ? '▴' : '▾'}</span>
         </div>
         {depPicker?.actionIdx === idx && (
-          <div style={{ border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.sm, marginTop: '4px', maxHeight: '220px', overflowY: 'auto', background: C.bgCard }}>
+          <div className="mt-1 max-h-[220px] overflow-y-auto rounded-sm border border-border bg-card">
             <div onClick={() => { onChange({ dependsOnTaskId: undefined }); setDepPicker(null); }}
-              style={{ padding: '7px 10px', fontSize: '12px', color: C.textMuted, cursor: 'pointer', borderBottom: `1px solid ${C.bgNested}` }}>
+              className="cursor-pointer border-b px-[10px] py-[7px] text-xs text-subtle-foreground" style={{ borderColor: C.bgNested }}>
               ✕ ללא תלות במשימה קיימת
             </div>
             {frameworkTasksByPhase.map(([phaseOrderIndex, { phaseLabel, bySubPhase }]) => {
@@ -1954,17 +1939,17 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
               const taskCount = Array.from(bySubPhase.values()).reduce((n, s) => n + s.tasks.length, 0);
               return (
                 <div key={phaseOrderIndex}>
-                  <div onClick={() => toggleDepPhase(phaseOrderIndex)} style={{ padding: '7px 10px', fontSize: '12px', fontWeight: WEIGHT.semibold, color: C.textSecondary, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', background: C.bgNested }}>
+                  <div onClick={() => toggleDepPhase(phaseOrderIndex)} className="flex cursor-pointer justify-between px-[10px] py-[7px] text-xs font-semibold text-muted-foreground" style={{ background: C.bgNested }}>
                     <span>{phaseLabel} ({taskCount})</span>
                     <span>{isOpen ? '▴' : '▾'}</span>
                   </div>
                   {isOpen && Array.from(bySubPhase.entries()).map(([subKey, sub]) => (
                     <div key={subKey}>
-                      <div style={{ padding: '5px 12px 2px', fontSize: '10.5px', color: C.textDisabled, textTransform: 'uppercase' }}>{sub.subPhaseName}</div>
+                      <div className="px-3 pb-0.5 pt-[5px] text-[10.5px] uppercase text-subtle-foreground">{sub.subPhaseName}</div>
                       {sub.tasks.map((t, ti) => (
                         <div key={`${t.id}-${ti}`} onClick={() => { onChange({ dependsOnTaskId: t.id }); setDepPicker(null); }}
+                          className="cursor-pointer px-4 py-[5px] text-xs"
                           style={{
-                            padding: '5px 16px', fontSize: '12px', cursor: 'pointer',
                             color: a.dependsOnTaskId === t.id ? GOLIVE : C.textPrimary,
                             fontWeight: a.dependsOnTaskId === t.id ? WEIGHT.semibold : WEIGHT.normal,
                             background: a.dependsOnTaskId === t.id ? `${GOLIVE}14` : 'transparent',
@@ -1981,7 +1966,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         )}
       </div>
       <input value={a.dependencyNote || ''} onChange={e => onChange({ dependencyNote: e.target.value })}
-        placeholder="הערת תלות נוספת / תלות שאינה משימה בתוכנית..." style={{ ...actionCardMiniSel, width: '100%', boxSizing: 'border-box' }} />
+        placeholder="הערת תלות נוספת / תלות שאינה משימה בתוכנית..." className={cn(actionCardMiniSelClass, 'w-full box-border')} />
     </div>
   );
 
@@ -2089,8 +2074,8 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     const error = targetReviewError[crNumber];
     if (!data) {
       return error
-        ? <div style={{ padding: '16px', background: C.dangerBg, color: C.danger, borderRadius: RADIUS.md, fontSize: '14px' }}>{error}</div>
-        : <div style={{ textAlign: 'center', padding: '40px', color: C.textMuted, fontSize: '15px' }}>⏳ טוען תכולת TARGET...</div>;
+        ? <div className="rounded-md p-4 text-sm" style={{ background: C.dangerBg, color: C.danger }}>{error}</div>
+        : <div className="p-10 text-center text-[15px] text-subtle-foreground">⏳ טוען תכולת TARGET...</div>;
     }
 
     const { review, teamName, defects } = data;
@@ -2110,69 +2095,65 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     };
 
     return (
-      <div style={{ fontFamily: FONT }}>
-        <div style={{ background: `${GOLIVE}12`, border: `1px solid ${GOLIVE}40`, borderRadius: RADIUS.lg, padding: '18px 22px', marginBottom: '18px' }}>
-          <div style={{ fontSize: '19px', fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '6px' }}>תכולת TARGET לצוות {teamName}</div>
-          <div style={{ fontSize: '14px', color: C.textSecondary, lineHeight: 1.5 }}>
+      <div>
+        <div className="mb-[18px] rounded-lg px-[22px] py-[18px]" style={{ background: `${GOLIVE}12`, borderColor: `${GOLIVE}40`, borderWidth: 1, borderStyle: 'solid' }}>
+          <div className="mb-[6px] text-[19px] font-bold text-foreground">תכולת TARGET לצוות {teamName}</div>
+          <div className="text-sm leading-[1.5] text-muted-foreground">
             נמצאו {defects.length} תקלות TARGET המשויכות לצוות {teamName} ונכללות ב-{crLabel || crNumber}
           </div>
         </div>
 
         {review.approved && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: C.successBg, border: `1px solid ${C.success}40`, borderRadius: RADIUS.md, padding: '12px 18px', marginBottom: '16px' }}>
-            <div style={{ flex: 1, fontSize: '14px', color: C.success, fontWeight: WEIGHT.semibold, lineHeight: 1.5 }}>
+          <div className="mb-4 flex items-center gap-3 rounded-md px-[18px] py-3" style={{ background: C.successBg, border: `1px solid ${C.success}40` }}>
+            <div className="flex-1 text-sm font-semibold leading-[1.5]" style={{ color: C.success }}>
               ✓ CR TARGET אושר ע"י {review.approvedByName} {review.approvedAt && `· ${formatDateTime(review.approvedAt)}`}
               {specialCount > 0 && ` · ${specialCount} תקלות דורשות הטמעה מיוחדת`}
               {managementCount > 0 && ` · ${managementCount} תקלות סומנו כחשובות`}
             </div>
             {lockedForEdit ? (
-              <button onClick={() => setUnlockedForEdit(prev => new Set(prev).add(crNumber))} style={{
-                flexShrink: 0, padding: '7px 14px', background: 'transparent', border: `1px solid ${C.success}`,
-                borderRadius: RADIUS.sm, color: C.success, fontSize: '13px', fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT,
-              }}>
+              <button onClick={() => setUnlockedForEdit(prev => new Set(prev).add(crNumber))} className="shrink-0 rounded-sm px-[14px] py-[7px] text-[13px] font-semibold"
+                style={{ background: 'transparent', border: `1px solid ${C.success}`, color: C.success }}>
                 ✏️ פתח לעריכה
               </button>
             ) : (
-              <button onClick={() => setUnlockedForEdit(prev => { const next = new Set(prev); next.delete(crNumber); return next; })} style={{
-                flexShrink: 0, padding: '7px 14px', background: C.success, border: 'none',
-                borderRadius: RADIUS.sm, color: '#fff', fontSize: '13px', fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT,
-              }}>
+              <button onClick={() => setUnlockedForEdit(prev => { const next = new Set(prev); next.delete(crNumber); return next; })} className="shrink-0 rounded-sm px-[14px] py-[7px] text-[13px] font-semibold text-white"
+                style={{ background: C.success, border: 'none' }}>
                 🔒 סיים עריכה
               </button>
             )}
           </div>
         )}
 
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'hidden', marginBottom: '18px', pointerEvents: lockedForEdit ? 'none' : undefined, opacity: lockedForEdit ? 0.6 : 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '11px 16px', background: C.bgNested, fontSize: '12.5px', fontWeight: WEIGHT.bold, color: C.textSecondary, textTransform: 'uppercase', letterSpacing: '.03em' }}>
-            <span style={{ width: '20px', flexShrink: 0 }}>✓</span>
-            <span style={{ width: '100px', flexShrink: 0 }}>תקלה</span>
-            <span style={{ flex: 1 }}>תיאור</span>
-            <span style={{ width: '280px', flexShrink: 0 }}>סימון מיוחד</span>
+        <div className={cn('mb-[18px] overflow-hidden rounded-lg border border-border bg-card', lockedForEdit && 'pointer-events-none opacity-60')}>
+          <div className="flex items-center gap-[10px] px-4 py-[11px] text-[12.5px] font-bold uppercase tracking-[.03em] text-muted-foreground" style={{ background: C.bgNested }}>
+            <span className="w-5 shrink-0">✓</span>
+            <span className="w-[100px] shrink-0">תקלה</span>
+            <span className="flex-1">תיאור</span>
+            <span className="w-[280px] shrink-0">סימון מיוחד</span>
           </div>
           {defects.map(d => {
             const actionIdx = f.actions.findIndex(a => a.sourceDefectId === d.id);
             return (
-              <div key={d.defectId} style={{ borderTop: `1px solid ${C.bgNested}` }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 16px' }}>
-                  <span style={{ width: '20px', flexShrink: 0, color: C.success, fontWeight: WEIGHT.bold, fontSize: '15px' }}>✓</span>
-                  <span style={{ width: '100px', flexShrink: 0, fontFamily: FONT_MONO, fontSize: '13px', fontWeight: WEIGHT.semibold, color: targetDefectStatusColor(d.status) }}>DEF-{d.defectId}</span>
-                  <span style={{ flex: 1, fontSize: '14.5px', color: targetDefectStatusColor(d.status), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${d.title} (${d.status})`}>{d.title}</span>
-                  <div style={{ width: '280px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '13.5px', color: C.textPrimary, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={d.requiresSpecialImplementation} style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+              <div key={d.defectId} className="border-t" style={{ borderColor: C.bgNested }}>
+                <div className="flex items-center gap-[10px] px-4 py-[14px]">
+                  <span className="w-5 shrink-0 text-[15px] font-bold" style={{ color: C.success }}>✓</span>
+                  <span className="w-[100px] shrink-0 font-mono text-[13px] font-semibold" style={{ color: targetDefectStatusColor(d.status) }}>DEF-{d.defectId}</span>
+                  <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[14.5px]" style={{ color: targetDefectStatusColor(d.status) }} title={`${d.title} (${d.status})`}>{d.title}</span>
+                  <div className="flex w-[280px] shrink-0 flex-col gap-[6px]">
+                    <label className="flex cursor-pointer items-center gap-[7px] text-[13.5px] text-foreground">
+                      <input type="checkbox" checked={d.requiresSpecialImplementation} className="h-4 w-4 cursor-pointer"
                         onChange={e => patchTargetDefect(crNumber, d, { requiresSpecialImplementation: e.target.checked }, teamId)} />
                       דורשת הטמעה מיוחדת
                     </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '13.5px', color: C.textPrimary, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={d.importantToManagement} style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                    <label className="flex cursor-pointer items-center gap-[7px] text-[13.5px] text-foreground">
+                      <input type="checkbox" checked={d.importantToManagement} className="h-4 w-4 cursor-pointer"
                         onChange={e => patchTargetDefect(crNumber, d, { importantToManagement: e.target.checked }, teamId)} />
                       תקלה חשובה
                     </label>
                   </div>
                 </div>
                 {d.requiresSpecialImplementation && actionIdx >= 0 && (
-                  <div style={{ padding: '0 16px 14px 46px', background: C.bgNested }}>
+                  <div className="ps-4 pe-[46px] pb-[14px]" style={{ background: C.bgNested }}>
                     {renderActionCard(
                       f.actions[actionIdx], actionIdx,
                       patch => setCrPlanForms(prev => {
@@ -2188,27 +2169,28 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           })}
         </div>
 
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '18px 20px' }}>
+        <div className="rounded-lg border border-border bg-card px-5 py-[18px]">
           {!lockedForEdit && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '9px', fontSize: '14.5px', color: C.textPrimary, cursor: 'pointer' }}>
-                <input type="checkbox" checked={review.gateChecklist1} style={{ width: '17px', height: '17px', cursor: 'pointer' }} onChange={e => patchGate({ gateChecklist1: e.target.checked })} />
+            <div className="mb-4 flex flex-col gap-[10px]">
+              <label className="flex cursor-pointer items-center gap-[9px] text-[14.5px] text-foreground">
+                <input type="checkbox" checked={review.gateChecklist1} className="h-[17px] w-[17px] cursor-pointer" onChange={e => patchGate({ gateChecklist1: e.target.checked })} />
                 בדקתי את רשימת התקלות
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '9px', fontSize: '14.5px', color: C.textPrimary, cursor: 'pointer' }}>
-                <input type="checkbox" checked={review.gateChecklist2} style={{ width: '17px', height: '17px', cursor: 'pointer' }} onChange={e => patchGate({ gateChecklist2: e.target.checked })} />
+              <label className="flex cursor-pointer items-center gap-[9px] text-[14.5px] text-foreground">
+                <input type="checkbox" checked={review.gateChecklist2} className="h-[17px] w-[17px] cursor-pointer" onChange={e => patchGate({ gateChecklist2: e.target.checked })} />
                 לא חסרה תקלה שאמורה להיכלל
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '9px', fontSize: '14.5px', color: C.textPrimary, cursor: 'pointer' }}>
-                <input type="checkbox" checked={review.gateChecklist3} style={{ width: '17px', height: '17px', cursor: 'pointer' }} onChange={e => patchGate({ gateChecklist3: e.target.checked })} />
+              <label className="flex cursor-pointer items-center gap-[9px] text-[14.5px] text-foreground">
+                <input type="checkbox" checked={review.gateChecklist3} className="h-[17px] w-[17px] cursor-pointer" onChange={e => patchGate({ gateChecklist3: e.target.checked })} />
                 לא מופיעות תקלות שאינן מוכרות לי
               </label>
             </div>
           )}
-          <div style={{ display: 'flex', gap: '9px' }}>
+          <div className="flex gap-[9px]">
             {!lockedForEdit && (
               <button onClick={() => saveCrPlan(crNumber, { crType: 'TARGET' })} disabled={savingPlan === crNumber}
-                style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, padding: '10px 18px', borderRadius: RADIUS.md, background: savingPlan === crNumber ? C.textDisabled : C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, cursor: savingPlan === crNumber ? 'not-allowed' : 'pointer' }}>
+                className={cn('rounded-md border border-border px-[18px] py-[10px] text-sm font-semibold text-muted-foreground', savingPlan === crNumber ? 'cursor-not-allowed' : 'cursor-pointer')}
+                style={{ background: savingPlan === crNumber ? C.textDisabled : C.bgNested }}>
                 {savingPlan === crNumber ? 'שומר...' : '💾 שמור טיוטה'}
               </button>
             )}
@@ -2219,11 +2201,9 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                 with no derived task, which is exactly the bug this fixes. */}
             {!lockedForEdit && (
               <button onClick={() => approveTargetCr(crNumber, review.id, teamId)} disabled={!gateReady || approving}
+                className={cn('flex-1 rounded-md border-none p-[13px] text-[15px] font-bold', gateReady && !approving ? 'cursor-pointer' : 'cursor-not-allowed')}
                 style={{
-                  flex: 1, padding: '13px', border: 'none', borderRadius: RADIUS.md,
-                  fontSize: '15px', fontWeight: WEIGHT.bold, fontFamily: FONT,
                   background: gateReady ? GOLIVE : C.bgNested, color: gateReady ? '#fff' : C.textDisabled,
-                  cursor: gateReady && !approving ? 'pointer' : 'not-allowed',
                 }}>
                 {approving ? 'מאשר…' : review.approved ? '🔄 עדכן משימות ואשר מחדש' : '✓ אשר CR TARGET'}
               </button>
@@ -2237,17 +2217,16 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
   // ── CrPlan form content ──────────────────────────────────────────────────────
   // ── Section-1 gate — "האם קיימת השפעה תפעולית מיוחדת ל-CR זה?" ──────────────
   const renderGate = (crNumber: string) => (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.xl, padding: '28px 26px', textAlign: 'center', boxShadow: SHADOW.sm, maxWidth: '620px', margin: '0 auto' }}>
-      <div style={{ fontSize: '17px', fontWeight: '800', marginBottom: '20px', lineHeight: 1.4, color: C.textPrimary }}>
+    <div className="mx-auto max-w-[620px] rounded-xl border border-border bg-card px-[26px] py-7 text-center shadow-sm">
+      <div className="mb-5 text-[17px] font-extrabold leading-[1.4] text-foreground">
         האם קיימת השפעה תפעולית מיוחדת ל-CR זה?
       </div>
-      <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+      <div className="flex justify-center gap-3">
         <button onClick={() => answerGate(crNumber, false)}
           onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-2px)'; }}
           onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'none'; }}
+          className="max-w-[220px] flex-1 cursor-pointer rounded-lg p-[18px] text-sm font-bold transition-transform duration-fast"
           style={{
-            flex: 1, maxWidth: '220px', padding: '18px', borderRadius: RADIUS.lg, fontSize: '14px',
-            fontWeight: '700', cursor: 'pointer', fontFamily: FONT, transition: 'transform .12s',
             border: '2px solid rgba(22,163,74,.25)', background: C.successBg, color: C.success,
           }}>
           לא — הטמעה רגילה
@@ -2255,9 +2234,8 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         <button onClick={() => answerGate(crNumber, true)}
           onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-2px)'; }}
           onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'none'; }}
+          className="max-w-[220px] flex-1 cursor-pointer rounded-lg p-[18px] text-sm font-bold transition-transform duration-fast"
           style={{
-            flex: 1, maxWidth: '220px', padding: '18px', borderRadius: RADIUS.lg, fontSize: '14px',
-            fontWeight: '700', cursor: 'pointer', fontFamily: FONT, transition: 'transform .12s',
             border: '2px solid rgba(217,119,6,.3)', background: C.warningBg, color: C.warning,
           }}>
           כן — יש פרטים למלא
@@ -2310,47 +2288,40 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     // tagged on each of this team's own actions (Section 2), not the CR-wide scope.
     const involvedSystems = Array.from(new Set(f.actions.map(a => a.system).filter((s): s is string => !!s)));
 
-    const secHdr: React.CSSProperties = {
-      padding: '10px 16px', background: C.bgNested, borderBottom: `1px solid ${C.border}`, fontSize: '12.5px', fontWeight: '700',
-      color: C.textSecondary, display: 'flex', alignItems: 'center', gap: '8px',
-    };
-    const secNum = (n: number): React.CSSProperties => ({
-      width: '20px', height: '20px', borderRadius: '50%', background: GOLIVE, color: '#fff',
-      fontSize: '10px', fontWeight: '700', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-    });
-    const sec: React.CSSProperties = {
-      background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, marginBottom: '10px', overflow: 'hidden',
-    };
-    const secBody: React.CSSProperties = { padding: '14px 16px' };
-    const chip = (selected: boolean): React.CSSProperties => ({
-      fontSize: '11px', fontWeight: '600', padding: '4px 11px', borderRadius: RADIUS.full, cursor: 'pointer',
-      border: `1px solid ${selected ? GOLIVE : C.borderEm}`,
+    const secHdrClass = 'flex items-center gap-2 border-b border-border bg-muted px-4 py-[10px] text-[12.5px] font-bold text-muted-foreground';
+    const secNumClass = 'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white';
+    const secNumStyle: React.CSSProperties = { background: GOLIVE };
+    const secClass = 'mb-[10px] overflow-hidden rounded-md border border-border bg-card';
+    const secBodyClass = 'px-4 py-[14px]';
+    const chipClass = 'cursor-pointer rounded-full px-[11px] py-1 text-[11px] font-semibold border';
+    const chipStyle = (selected: boolean): React.CSSProperties => ({
+      borderColor: selected ? GOLIVE : C.borderEm,
       background: selected ? `${GOLIVE}24` : C.bgCard,
       color: selected ? GOLIVE : C.textSecondary,
     });
-    const miniSel: React.CSSProperties = { fontFamily: FONT, fontSize: '12px', padding: '6px 10px', borderRadius: RADIUS.sm, border: `1px solid ${C.borderEm}`, background: C.bgCard, color: C.textPrimary };
-    const miniTa: React.CSSProperties = { width: '100%', fontFamily: FONT, fontSize: '13px', padding: '8px 10px', borderRadius: RADIUS.sm, border: `1px solid ${C.borderEm}`, background: C.bgCard, color: C.textPrimary, resize: 'none', minHeight: '42px', boxSizing: 'border-box', overflow: 'hidden' };
+    const miniSelClass = 'rounded-sm border border-border bg-card px-[10px] py-1.5 text-xs text-foreground';
+    const miniTaClass = 'w-full box-border resize-none overflow-hidden rounded-sm border border-border bg-card px-[10px] py-2 text-[13px] text-foreground min-h-[42px]';
 
     return (
       <div>
         {plan?.submissionStatus === 'RETURNED' && plan.returnReason && (
-          <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}40`, borderRadius: RADIUS.md, padding: '10px 14px', fontSize: '13px', color: C.danger, marginBottom: '12px' }}>
+          <div className="mb-3 rounded-md border px-[14px] py-[10px] text-[13px] text-danger" style={{ background: C.dangerBg, borderColor: `${C.danger}40` }}>
             ⚠ התוכנית הוחזרה לתיקון: {plan.returnReason}
           </div>
         )}
 
         {(involvedSystems.length > 0 || involvedTeams.length > 0) && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '8px 14px', marginBottom: '12px', fontSize: '12px' }}>
+          <div className="mb-3 flex flex-wrap gap-[14px] rounded-md border border-border bg-muted px-[14px] py-2 text-xs">
             {involvedSystems.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ color: C.textMuted, fontWeight: WEIGHT.semibold }}>מערכות מעורבות:</span>
-                <span style={{ color: C.textSecondary }}>{involvedSystems.join(', ')}</span>
+              <div className="flex items-center gap-[6px]">
+                <span className="font-semibold text-subtle-foreground">מערכות מעורבות:</span>
+                <span className="text-muted-foreground">{involvedSystems.join(', ')}</span>
               </div>
             )}
             {involvedTeams.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ color: C.textMuted, fontWeight: WEIGHT.semibold }}>צוותים נוספים מעורבים:</span>
-                <span style={{ color: C.textSecondary }}>{involvedTeams.join(', ')}</span>
+              <div className="flex items-center gap-[6px]">
+                <span className="font-semibold text-subtle-foreground">צוותים נוספים מעורבים:</span>
+                <span className="text-muted-foreground">{involvedTeams.join(', ')}</span>
               </div>
             )}
           </div>
@@ -2368,37 +2339,32 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           ];
           const list = expanded && ind ? ind[expanded] : [];
           return (
-            <div style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '10px 14px', marginBottom: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap', fontSize: '12px' }}>
-                <span style={{ color: C.textMuted, fontWeight: WEIGHT.semibold }}>🪲 תקלות מול CR זה:</span>
+            <div className="mb-3 rounded-md border border-border px-[14px] py-[10px]" style={{ background: C.bgNested }}>
+              <div className="flex flex-wrap items-center gap-[18px] text-xs">
+                <span className="font-semibold text-subtle-foreground">🪲 תקלות מול CR זה:</span>
                 {indLoading && !ind ? (
-                  <span style={{ color: C.textMuted }}>טוען...</span>
+                  <span className="text-subtle-foreground">טוען...</span>
                 ) : ind && buckets.map(b => (
                   <button
                     key={b.key}
                     onClick={() => setExpandedDefectBucket(prev => ({ ...prev, [crNumber]: prev[crNumber] === b.key ? null : b.key }))}
-                    style={{
-                      background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: FONT,
-                      display: 'flex', alignItems: 'center', gap: '5px',
-                      fontWeight: expanded === b.key ? WEIGHT.bold : WEIGHT.normal,
-                      color: expanded === b.key ? b.color : C.textSecondary,
-                      textDecoration: expanded === b.key ? 'underline' : 'none',
-                    }}
+                    className={cn('flex cursor-pointer items-center gap-[5px] border-none bg-transparent p-0', expanded === b.key ? 'font-bold underline' : 'font-normal no-underline')}
+                    style={{ color: expanded === b.key ? b.color : C.textSecondary }}
                   >
-                    {b.label}: <span style={{ fontWeight: WEIGHT.bold, color: b.color }}>{ind[b.key].length}</span>
+                    {b.label}: <span className="font-bold" style={{ color: b.color }}>{ind[b.key].length}</span>
                   </button>
                 ))}
               </div>
               {expanded && (
-                <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '220px', overflowY: 'auto' }}>
+                <div className="mt-[10px] flex max-h-[220px] flex-col gap-1 overflow-y-auto">
                   {list.length === 0 ? (
-                    <div style={{ fontSize: '12px', color: C.textMuted }}>אין תקלות ברשימה זו.</div>
+                    <div className="text-xs text-subtle-foreground">אין תקלות ברשימה זו.</div>
                   ) : list.map((d: any) => (
-                    <div key={d.id} style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '12px', padding: '5px 8px', background: C.bgCard, borderRadius: RADIUS.sm, border: `1px solid ${C.border}` }}>
+                    <div key={d.id} className="flex items-center gap-[10px] rounded-sm border border-border bg-card px-2 py-[5px] text-xs">
                       <DefectIdBadge id={d.id} />
-                      <span style={{ color: C.textPrimary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title || d.subject}</span>
-                      <span style={{ color: C.textMuted, flexShrink: 0 }}>{d.status}</span>
-                      <span style={{ color: C.textMuted, flexShrink: 0, direction: 'ltr' }}>{d.detectedInRelease} → {d.targetRelease || '—'}</span>
+                      <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-foreground">{d.title || d.subject}</span>
+                      <span className="shrink-0 text-subtle-foreground">{d.status}</span>
+                      <span className="shrink-0 text-subtle-foreground" dir="ltr">{d.detectedInRelease} → {d.targetRelease || '—'}</span>
                     </div>
                   ))}
                 </div>
@@ -2408,32 +2374,32 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         })()}
 
         {lockedForEdit && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: C.successBg, border: '1px solid rgba(22,163,74,.3)', borderRadius: RADIUS.md, padding: '10px 14px', marginBottom: '12px' }}>
-            <span style={{ fontSize: '13px', color: '#0F5A2A', flex: 1 }}>✓ התוכנית הוגשה ונעולה לעריכה.</span>
+          <div className="mb-3 flex items-center gap-[10px] rounded-md px-[14px] py-[10px]" style={{ background: C.successBg, border: '1px solid rgba(22,163,74,.3)' }}>
+            <span className="flex-1 text-[13px]" style={{ color: '#0F5A2A' }}>✓ התוכנית הוגשה ונעולה לעריכה.</span>
             <button onClick={() => setUnlockedForEdit(prev => new Set(prev).add(crNumber))}
-              style={{ fontSize: '13px', fontWeight: WEIGHT.bold, padding: '6px 14px', borderRadius: RADIUS.md, background: C.bgCard, color: C.success, border: `1px solid ${C.success}60`, cursor: 'pointer', fontFamily: FONT, flexShrink: 0 }}>
+              className="shrink-0 cursor-pointer rounded-md px-[14px] py-1.5 text-[13px] font-bold" style={{ background: C.bgCard, color: C.success, border: `1px solid ${C.success}60` }}>
               ✏️ פתח לעריכה
             </button>
           </div>
         )}
 
-        <div style={{ pointerEvents: lockedForEdit ? 'none' : undefined, opacity: lockedForEdit ? 0.6 : 1 }}>
+        <div className={cn(lockedForEdit && 'pointer-events-none opacity-60')}>
         {/* Section 1 — מה משתנה */}
-        <div style={sec}>
-          <div style={secHdr}><span style={secNum(1)}>1</span>מה משתנה</div>
-          <div style={secBody}>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+        <div className={secClass}>
+          <div className={secHdrClass}><span className={secNumClass} style={secNumStyle}>1</span>מה משתנה</div>
+          <div className={secBodyClass}>
+            <div className="flex flex-wrap gap-[6px]">
               {CHANGE_TYPES.map(ct => (
-                <span key={ct} style={chip(f.changeTypes.includes(ct))} onClick={() => toggleChip(f.changeTypes, ct, 'changeTypes')}>{ct}</span>
+                <span key={ct} className={chipClass} style={chipStyle(f.changeTypes.includes(ct))} onClick={() => toggleChip(f.changeTypes, ct, 'changeTypes')}>{ct}</span>
               ))}
             </div>
           </div>
         </div>
 
         {/* Section 2 — פעולות מיוחדות */}
-        <div style={sec}>
-          <div style={secHdr}><span style={secNum(2)}>2</span>פעולות מיוחדות</div>
-          <div style={secBody}>
+        <div className={secClass}>
+          <div className={secHdrClass}><span className={secNumClass} style={secNumStyle}>2</span>פעולות מיוחדות</div>
+          <div className={secBodyClass}>
             {/* Timeline Planning — grouped by day-part (real phase field) then by
                 action type ("Activity Container"). Visual grouping only: the
                 per-task edit card below is byte-for-byte the same form as before,
@@ -2452,41 +2418,41 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
               const monContainerKey = `${bucket.phase}-monitoring`;
               const monCollapsed = collapsedContainers.has(monContainerKey);
               return (
-                <div key={bucket.phase} style={{ marginBottom: '18px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                    <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: GOLIVE, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '800', flexShrink: 0 }}>
+                <div key={bucket.phase} className="mb-[18px]">
+                  <div className="mb-2 flex items-center gap-[10px]">
+                    <div className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full text-[11px] font-extrabold text-white" style={{ background: GOLIVE }}>
                       {bucket.letter}
                     </div>
                     <div>
-                      <div style={{ fontSize: '12.5px', fontWeight: '800', color: C.textPrimary }}>{bucket.title}</div>
-                      <div style={{ fontSize: '10.5px', color: C.textMuted }}>{bucket.meta}</div>
+                      <div className="text-[12.5px] font-extrabold text-foreground">{bucket.title}</div>
+                      <div className="text-[10.5px] text-subtle-foreground">{bucket.meta}</div>
                     </div>
                   </div>
 
                   {byType.size === 0 ? (
-                    <div style={{ fontSize: '11.5px', color: C.textDisabled, padding: '2px 2px 10px' }}>אין פעולות עדיין בשלב זה</div>
+                    <div className="px-0.5 pb-[10px] pt-0.5 text-[11.5px] text-subtle-foreground">אין פעולות עדיין בשלב זה</div>
                   ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>
+                    <div className="mb-2 flex flex-col gap-2">
                       {Array.from(byType.entries()).map(([actionType, items]) => {
                         const containerKey = `${bucket.phase}-${actionType}`;
                         const collapsed = collapsedContainers.has(containerKey);
                         const iconMeta = ACTION_TYPE_ICON[actionType] ?? ACTION_TYPE_ICON['אחר'];
                         return (
-                          <div key={containerKey} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.xs, overflow: 'hidden' }}>
+                          <div key={containerKey} className="overflow-hidden rounded-lg border border-border bg-card shadow-xs">
                             <div
                               onClick={() => setCollapsedContainers(prev => {
                                 const next = new Set(prev);
                                 if (next.has(containerKey)) next.delete(containerKey); else next.add(containerKey);
                                 return next;
                               })}
-                              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', cursor: 'pointer' }}>
-                              <span style={{ width: '26px', height: '26px', borderRadius: RADIUS.sm, background: iconMeta.bg, color: iconMeta.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', flexShrink: 0 }}>{iconMeta.icon}</span>
-                              <span style={{ fontSize: '12.5px', fontWeight: '700', color: C.textPrimary, flex: 1 }}>{actionType}</span>
-                              <span style={{ fontSize: '10.5px', fontWeight: '700', color: C.textMuted, background: C.bgNested, padding: '2px 9px', borderRadius: RADIUS.full }}>{items.length} משימות</span>
-                              <span style={{ color: C.textDisabled, fontSize: '11px' }}>{collapsed ? '◂' : '▾'}</span>
+                              className="flex cursor-pointer items-center gap-[10px] px-[14px] py-[10px]">
+                              <span className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-sm text-xs" style={{ background: iconMeta.bg, color: iconMeta.color }}>{iconMeta.icon}</span>
+                              <span className="flex-1 text-[12.5px] font-bold text-foreground">{actionType}</span>
+                              <span className="rounded-full bg-muted px-[9px] py-0.5 text-[10.5px] font-bold text-subtle-foreground">{items.length} משימות</span>
+                              <span className="text-[11px] text-subtle-foreground">{collapsed ? '◂' : '▾'}</span>
                             </div>
                             {!collapsed && (
-                              <div style={{ borderTop: `1px solid ${C.border}`, padding: '10px 14px' }}>
+                              <div className="border-t border-border px-[14px] py-[10px]">
                                 {items.map(({ a, idx }) =>
                                   renderActionCard(a, idx, patch => updateAction(idx, patch), () => removeAction(idx))
                                 )}
@@ -2499,45 +2465,45 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                   )}
 
                   {bucketMonItems.length > 0 && (
-                    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.xs, overflow: 'hidden', marginBottom: '8px' }}>
+                    <div className="mb-2 overflow-hidden rounded-lg border border-border bg-card shadow-xs">
                       <div
                         onClick={() => setCollapsedContainers(prev => {
                           const next = new Set(prev);
                           if (next.has(monContainerKey)) next.delete(monContainerKey); else next.add(monContainerKey);
                           return next;
                         })}
-                        style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', cursor: 'pointer' }}>
-                        <span style={{ width: '26px', height: '26px', borderRadius: RADIUS.sm, background: C.infoBg, color: C.info, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', flexShrink: 0 }}>👁</span>
-                        <span style={{ fontSize: '12.5px', fontWeight: '700', color: C.textPrimary, flex: 1 }}>בקרה (Monitoring)</span>
-                        <span style={{ fontSize: '10.5px', fontWeight: '700', color: C.textMuted, background: C.bgNested, padding: '2px 9px', borderRadius: RADIUS.full }}>{bucketMonItems.length} נקודות</span>
-                        <span style={{ color: C.textDisabled, fontSize: '11px' }}>{monCollapsed ? '◂' : '▾'}</span>
+                        className="flex cursor-pointer items-center gap-[10px] px-[14px] py-[10px]">
+                        <span className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-sm bg-info-bg text-xs text-info">👁</span>
+                        <span className="flex-1 text-[12.5px] font-bold text-foreground">בקרה (Monitoring)</span>
+                        <span className="rounded-full bg-muted px-[9px] py-0.5 text-[10.5px] font-bold text-subtle-foreground">{bucketMonItems.length} נקודות</span>
+                        <span className="text-[11px] text-subtle-foreground">{monCollapsed ? '◂' : '▾'}</span>
                       </div>
                       {!monCollapsed && (
-                        <div style={{ borderTop: `1px solid ${C.border}`, padding: '10px 14px' }}>
+                        <div className="border-t border-border px-[14px] py-[10px]">
                           {bucketMonItems.map(({ m, idx }) => {
                             const monTeamMembers = teams.find((t: any) => t.id === m.assignedTeamId)?.members?.map((mm: any) => mm.user).filter(Boolean) ?? teamUsers;
                             return (
-                              <div key={idx} style={{ background: C.bgNested, borderRadius: RADIUS.md, padding: '12px 14px', marginBottom: '10px' }}>
-                                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                                  <select value={m.type} onChange={e => updateMonitoring(idx, { type: e.target.value })} style={miniSel}>
+                              <div key={idx} className="mb-[10px] rounded-md px-[14px] py-3" style={{ background: C.bgNested }}>
+                                <div className="mb-2 flex gap-2">
+                                  <select value={m.type} onChange={e => updateMonitoring(idx, { type: e.target.value })} className={miniSelClass}>
                                     {MONITORING_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                                   </select>
-                                  <input value={m.name} onChange={e => updateMonitoring(idx, { name: e.target.value })} style={{ ...miniSel, flex: 1, boxSizing: 'border-box', fontFamily: FONT_MONO }} placeholder="שם ממשק/עבודה/טבלה" />
-                                  <button onClick={() => removeMonitoring(idx)} style={{ background: 'none', border: 'none', color: C.danger, cursor: 'pointer', fontSize: '13px', flexShrink: 0 }}>הסר</button>
+                                  <input value={m.name} onChange={e => updateMonitoring(idx, { name: e.target.value })} className={cn(miniSelClass, 'flex-1 box-border font-mono')} placeholder="שם ממשק/עבודה/טבלה" />
+                                  <button onClick={() => removeMonitoring(idx)} className="shrink-0 text-[13px] text-danger">הסר</button>
                                 </div>
                                 <input value={m.note || ''} onChange={e => updateMonitoring(idx, { note: e.target.value })}
-                                  style={{ ...miniSel, width: '100%', boxSizing: 'border-box', marginBottom: '8px' }} placeholder="לוודא ש..." />
-                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                                  className={cn(miniSelClass, 'mb-2 w-full box-border')} placeholder="לוודא ש..." />
+                                <div className="mb-2 flex flex-wrap gap-[6px]">
                                   {phaseOptions.map(ph => {
                                     const fullLabel = phaseLabels[ph] || PHASE_LABELS[ph] || `שלב ${ph}`;
                                     const shortLabel = fullLabel.split(' — ')[1] || fullLabel;
                                     const sel = m.phase === ph;
                                     return (
                                       <span key={ph} title={fullLabel} onClick={() => updateMonitoring(idx, { phase: ph })}
+                                        className="cursor-pointer rounded-full border px-[10px] py-[3px] text-[11px] font-bold"
                                         style={{
-                                          fontSize: '11px', fontWeight: WEIGHT.bold, padding: '3px 10px', borderRadius: RADIUS.full, cursor: 'pointer',
                                           background: sel ? GOLIVE : C.bgCard,
-                                          border: `1px solid ${sel ? GOLIVE : C.borderEm}`,
+                                          borderColor: sel ? GOLIVE : C.borderEm,
                                           color: sel ? '#fff' : C.textMuted,
                                         }}>
                                         {shortLabel}
@@ -2545,12 +2511,12 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                                     );
                                   })}
                                 </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                                  <select value={m.assignedTeamId || ''} onChange={e => updateMonitoring(idx, { assignedTeamId: e.target.value || undefined, assignedUserName: undefined })} style={miniSel}>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <select value={m.assignedTeamId || ''} onChange={e => updateMonitoring(idx, { assignedTeamId: e.target.value || undefined, assignedUserName: undefined })} className={miniSelClass}>
                                     <option value="">צוות אחראי — ללא</option>
                                     {teams.filter((t: any) => t.active).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
                                   </select>
-                                  <select value={m.assignedUserName || ''} onChange={e => updateMonitoring(idx, { assignedUserName: e.target.value || undefined })} style={miniSel}>
+                                  <select value={m.assignedUserName || ''} onChange={e => updateMonitoring(idx, { assignedUserName: e.target.value || undefined })} className={miniSelClass}>
                                     <option value="">עובד אחראי — ללא</option>
                                     {monTeamMembers.map((u: any) => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
                                   </select>
@@ -2564,7 +2530,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                   )}
 
                   <button onClick={() => setTaskWizard({ crNumber, phase: bucket.phase, type: null, step: -1, data: {} })}
-                    style={{ width: '100%', padding: '8px', border: `1.5px dashed ${C.borderEm}`, borderRadius: RADIUS.md, background: 'none', color: GOLIVE, fontSize: '12px', fontWeight: '600', cursor: 'pointer', fontFamily: FONT }}>
+                    className="w-full rounded-md border-[1.5px] border-dashed border-border p-2 text-xs font-semibold" style={{ background: 'none', color: GOLIVE }}>
                     + הוספת משימה
                   </button>
                 </div>
@@ -2574,49 +2540,49 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         </div>
 
         {/* Section 3 — תנאים מקדימים */}
-        <div style={sec}>
-          <div style={secHdr}><span style={secNum(3)}>3</span>תנאים מקדימים</div>
-          <div style={secBody}>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+        <div className={secClass}>
+          <div className={secHdrClass}><span className={secNumClass} style={secNumStyle}>3</span>תנאים מקדימים</div>
+          <div className={secBodyClass}>
+            <div className="mb-2 flex flex-wrap gap-[6px]">
               {PREREQUISITE_OPTIONS.map(p => (
-                <span key={p} style={chip(f.prerequisites.includes(p))} onClick={() => toggleChip(f.prerequisites, p, 'prerequisites')}>{p}</span>
+                <span key={p} className={chipClass} style={chipStyle(f.prerequisites.includes(p))} onClick={() => toggleChip(f.prerequisites, p, 'prerequisites')}>{p}</span>
               ))}
             </div>
             <input value={f.prerequisitesNote} onChange={e => update({ prerequisitesNote: e.target.value })}
-              style={{ ...miniSel, width: '100%', boxSizing: 'border-box' }} placeholder="הערות חופשיות נוספות..." />
+              className={cn(miniSelClass, 'w-full box-border')} placeholder="הערות חופשיות נוספות..." />
           </div>
         </div>
 
         {/* Section 4 — Rollback */}
-        <div style={sec}>
-          <div style={secHdr}><span style={secNum(4)}>4</span>Rollback</div>
-          <div style={secBody}>
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <select value={f.rollbackType} onChange={e => update({ rollbackType: e.target.value })} style={miniSel}>
+        <div className={secClass}>
+          <div className={secHdrClass}><span className={secNumClass} style={secNumStyle}>4</span>Rollback</div>
+          <div className={secBodyClass}>
+            <div className="flex items-center gap-[10px]">
+              <select value={f.rollbackType} onChange={e => update({ rollbackType: e.target.value })} className={miniSelClass}>
                 <option value="">-- בחר סוג Rollback --</option>
                 {ROLLBACK_TYPES.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
-              <input value={f.rollbackPlan} onChange={e => update({ rollbackPlan: e.target.value })} style={{ ...miniSel, flex: 1 }} placeholder="הערות Rollback..." />
+              <input value={f.rollbackPlan} onChange={e => update({ rollbackPlan: e.target.value })} className={cn(miniSelClass, 'flex-1')} placeholder="הערות Rollback..." />
             </div>
           </div>
         </div>
 
         {/* Section 5 — אופן העלייה */}
-        <div style={sec}>
-          <div style={secHdr}><span style={secNum(5)}>5</span>אופן העלייה</div>
-          <div style={secBody}>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              <span style={chip(!f.gradualRollout)} onClick={() => update({ gradualRollout: false })}>🌙 עלייה בליל הגרסה</span>
-              <span style={chip(f.gradualRollout)} onClick={() => update({ gradualRollout: true })}>📶 עלייה מדורגת</span>
+        <div className={secClass}>
+          <div className={secHdrClass}><span className={secNumClass} style={secNumStyle}>5</span>אופן העלייה</div>
+          <div className={secBodyClass}>
+            <div className="flex flex-wrap gap-[6px]">
+              <span className={chipClass} style={chipStyle(!f.gradualRollout)} onClick={() => update({ gradualRollout: false })}>🌙 עלייה בליל הגרסה</span>
+              <span className={chipClass} style={chipStyle(f.gradualRollout)} onClick={() => update({ gradualRollout: true })}>📶 עלייה מדורגת</span>
             </div>
             {f.gradualRollout && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+              <div className="mt-[10px] flex flex-col gap-[10px]">
                 <textarea value={f.gradualDetails} onChange={e => update({ gradualDetails: e.target.value })}
-                  style={{ ...miniSel, width: '100%', minHeight: '60px', resize: 'vertical', boxSizing: 'border-box' }}
+                  className={cn(miniSelClass, 'w-full box-border min-h-[60px] resize-y')}
                   placeholder="שלבי העלייה — מה עולה בכל שלב, ובאיזה סדר..." />
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '13px', color: C.textMuted, whiteSpace: 'nowrap' }}>תאריך הפעלה:</span>
-                  <div style={{ maxWidth: '160px' }}>
+                <div className="flex items-center gap-[10px]">
+                  <span className="whitespace-nowrap text-[13px] text-subtle-foreground">תאריך הפעלה:</span>
+                  <div className="max-w-[160px]">
                     <DateField value={f.activationDate} onChange={iso => update({ activationDate: iso })} />
                   </div>
                 </div>
@@ -2627,12 +2593,12 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
         {/* תלויות CR (ברמת ה-CR, לא ברמת פעולה בודדת) */}
         {otherCrs.length > 0 && (
-          <div style={sec}>
-            <div style={secHdr}>תלויות ב-CR-ים אחרים</div>
-            <div style={secBody}>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          <div className={secClass}>
+            <div className={secHdrClass}>תלויות ב-CR-ים אחרים</div>
+            <div className={secBodyClass}>
+              <div className="flex flex-wrap gap-[6px]">
                 {otherCrs.map(cr => (
-                  <span key={cr} style={chip(f.dependsOnCrs.includes(cr))}
+                  <span key={cr} className={chipClass} style={chipStyle(f.dependsOnCrs.includes(cr))}
                     onClick={() => {
                       const next = f.dependsOnCrs.includes(cr) ? f.dependsOnCrs.filter(x => x !== cr) : [...f.dependsOnCrs, cr];
                       update({ dependsOnCrs: next });
@@ -2642,13 +2608,13 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                 ))}
               </div>
               {f.dependsOnCrs.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '10px' }}>
+                <div className="mt-[10px] flex flex-col gap-[6px]">
                   {f.dependsOnCrs.map(cr => (
-                    <div key={cr} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '12px', fontFamily: FONT_MONO, color: C.textMuted, width: '90px', flexShrink: 0 }}>{cr} תלוי ב-</span>
+                    <div key={cr} className="flex items-center gap-2">
+                      <span className="w-[90px] shrink-0 font-mono text-xs text-subtle-foreground">{cr} תלוי ב-</span>
                       <input value={f.dependencyNotes[cr] || ''}
                         onChange={e => update({ dependencyNotes: { ...f.dependencyNotes, [cr]: e.target.value } })}
-                        style={{ ...miniSel, flex: 1 }} placeholder="הסבר את התלות..." />
+                        className={cn(miniSelClass, 'flex-1')} placeholder="הסבר את התלות..." />
                     </div>
                   ))}
                 </div>
@@ -2660,19 +2626,19 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         </div>
 
         {/* Section 6 — תקציר וסגירה */}
-        <div style={sec}>
-          <div style={secHdr}><span style={secNum(6)}>6</span>תקציר וסגירה</div>
-          <div style={secBody}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '14px', fontSize: '13px', color: C.textSecondary, lineHeight: 1.6 }}>
-              <div>• שינויים ב-<strong style={{ color: C.textPrimary }}>{f.changeTypes.length ? f.changeTypes.join(', ') : '—'}</strong></div>
+        <div className={secClass}>
+          <div className={secHdrClass}><span className={secNumClass} style={secNumStyle}>6</span>תקציר וסגירה</div>
+          <div className={secBodyClass}>
+            <div className="mb-[14px] flex flex-col gap-[10px] text-[13px] leading-[1.6] text-muted-foreground">
+              <div>• שינויים ב-<strong className="text-foreground">{f.changeTypes.length ? f.changeTypes.join(', ') : '—'}</strong></div>
 
               <div>
-                <div>• <strong style={{ color: C.textPrimary }}>{f.actions.length} פעולות מיוחדות</strong></div>
+                <div>• <strong className="text-foreground">{f.actions.length} פעולות מיוחדות</strong></div>
                 {f.actions.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '4px', paddingRight: '14px' }}>
+                  <div className="mt-1 flex flex-col gap-[3px] pe-[14px]">
                     {f.actions.map((a, i) => (
-                      <div key={i} style={{ fontSize: '12px' }}>
-                        ◦ <strong style={{ color: C.textPrimary }}>{a.actionType}</strong>
+                      <div key={i} className="text-xs">
+                        ◦ <strong className="text-foreground">{a.actionType}</strong>
                         {` (${(phaseLabels[a.phase] || PHASE_LABELS[a.phase] || `שלב ${a.phase}`).split(' — ')[1] || a.phase}${a.estimatedMins ? `, ${a.estimatedMins} דק'` : ''})`}
                         {a.description && ` — ${a.description}`}
                       </div>
@@ -2681,14 +2647,14 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                 )}
               </div>
 
-              <div>• תנאים מקדימים: <strong style={{ color: C.textPrimary }}>{f.prerequisites.length ? f.prerequisites.join(', ') : 'אין'}</strong>{f.prerequisitesNote && ` — ${f.prerequisitesNote}`}</div>
+              <div>• תנאים מקדימים: <strong className="text-foreground">{f.prerequisites.length ? f.prerequisites.join(', ') : 'אין'}</strong>{f.prerequisitesNote && ` — ${f.prerequisitesNote}`}</div>
 
               <div>
-                <div>• <strong style={{ color: C.textPrimary }}>{f.actions.filter(a => a.actionType === 'בדיקה ידנית').length} בדיקות מיוחדות</strong></div>
+                <div>• <strong className="text-foreground">{f.actions.filter(a => a.actionType === 'בדיקה ידנית').length} בדיקות מיוחדות</strong></div>
                 {f.actions.filter(a => a.actionType === 'בדיקה ידנית').length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '4px', paddingRight: '14px' }}>
+                  <div className="mt-1 flex flex-col gap-[3px] pe-[14px]">
                     {f.actions.filter(a => a.actionType === 'בדיקה ידנית').map((a, i) => (
-                      <div key={i} style={{ fontSize: '12px' }}>
+                      <div key={i} className="text-xs">
                         ◦ {(phaseLabels[a.phase] || PHASE_LABELS[a.phase] || `שלב ${a.phase}`).split(' — ')[1] || a.phase}{a.description && ` — ${a.description}`}
                       </div>
                     ))}
@@ -2697,33 +2663,32 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
               </div>
 
               <div>
-                <div>• <strong style={{ color: C.textPrimary }}>{f.monitoringPoints.length} נקודות בקרה</strong> הוגדרו</div>
+                <div>• <strong className="text-foreground">{f.monitoringPoints.length} נקודות בקרה</strong> הוגדרו</div>
                 {f.monitoringPoints.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '4px', paddingRight: '14px' }}>
+                  <div className="mt-1 flex flex-col gap-[3px] pe-[14px]">
                     {f.monitoringPoints.map((m, i) => (
-                      <div key={i} style={{ fontSize: '12px' }}>
-                        ◦ <strong style={{ color: C.textPrimary }}>{m.type}</strong>{m.name && ` — ${m.name}`}{m.note && ` (${m.note})`}
+                      <div key={i} className="text-xs">
+                        ◦ <strong className="text-foreground">{m.type}</strong>{m.name && ` — ${m.name}`}{m.note && ` (${m.note})`}
                       </div>
                     ))}
                   </div>
                 )}
               </div>
 
-              <div>• Rollback: <strong style={{ color: C.textPrimary }}>{f.rollbackType || 'לא הוגדר'}</strong>{f.rollbackPlan && ` — ${f.rollbackPlan}`}</div>
+              <div>• Rollback: <strong className="text-foreground">{f.rollbackType || 'לא הוגדר'}</strong>{f.rollbackPlan && ` — ${f.rollbackPlan}`}</div>
             </div>
             {planValidationError[crNumber] && (
-              <div style={{ marginBottom: '10px', background: C.dangerBg, border: `1px solid ${C.danger}40`, borderRadius: RADIUS.md, padding: '10px 12px', fontSize: '12.5px', color: C.danger, lineHeight: 1.5 }}>
+              <div className="mb-[10px] rounded-md border px-3 py-[10px] text-[12.5px] leading-[1.5] text-danger" style={{ background: C.dangerBg, borderColor: `${C.danger}40` }}>
                 ⚠ {planValidationError[crNumber]}
               </div>
             )}
-            <button onClick={() => confirmCrPlan(crNumber)} disabled={savingPlan === crNumber || lockedForEdit} style={{
-              width: '100%', padding: '14px', background: (savingPlan === crNumber || lockedForEdit) ? C.textDisabled : GOLIVE, color: '#fff',
-              border: 'none', borderRadius: RADIUS.md, fontSize: '14px', fontWeight: WEIGHT.bold, cursor: (savingPlan === crNumber || lockedForEdit) ? 'not-allowed' : 'pointer', fontFamily: FONT,
-            }}>
+            <button onClick={() => confirmCrPlan(crNumber)} disabled={savingPlan === crNumber || lockedForEdit}
+              className={cn('w-full rounded-md border-none p-[14px] text-sm font-bold text-white', (savingPlan === crNumber || lockedForEdit) ? 'cursor-not-allowed' : 'cursor-pointer')}
+              style={{ background: (savingPlan === crNumber || lockedForEdit) ? C.textDisabled : GOLIVE }}>
               {savingPlan === crNumber ? 'שומר...' : lockedForEdit ? '✓ הוגש ונעול' : submitted ? '✓ שמור מחדש וסגור לעריכה' : '✓ אשר תוכנית CR'}
             </button>
             {derivedTaskNote[crNumber] && (
-              <div style={{ marginTop: '10px', background: C.infoBg, border: `1px solid ${C.info}40`, borderRadius: RADIUS.md, padding: '10px 12px', fontSize: '12.5px', color: C.info, lineHeight: 1.5 }}>
+              <div className="mt-[10px] rounded-md border px-3 py-[10px] text-[12.5px] leading-[1.5] text-info" style={{ background: C.infoBg, borderColor: `${C.info}40` }}>
                 {derivedTaskNote[crNumber]}
               </div>
             )}
@@ -2760,21 +2725,14 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     return (
       <div key={crNumber}
         onClick={() => trySelectCr(crNumber)}
-        style={{
-          display: 'flex', flexDirection: 'column', gap: '6px', padding: '12px 14px',
-          margin: '0 8px 8px', cursor: 'pointer',
-          background: C.bgCard, borderRadius: RADIUS.lg,
-          border: `1px solid ${isSelected ? GOLIVE : C.border}`,
-          boxShadow: isSelected ? SHADOW.sm : SHADOW.xs,
-          opacity: isDone && !isSelected ? 0.65 : 1,
-          transition: 'box-shadow .12s, border-color .12s',
-        }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '11px', fontWeight: '700', fontFamily: FONT_MONO, color: GOLIVE, background: `${GOLIVE}1F`, padding: '2px 9px', borderRadius: RADIUS.sm, flexShrink: 0 }}>{crNumber}</span>
-          <span style={{ flex: 1 }} />
-          <span style={{ fontSize: '10.5px', fontWeight: '700', padding: '3px 10px', borderRadius: RADIUS.full, flexShrink: 0, ...chipStyle }}>{chipText}</span>
+        className={cn('mx-2 mb-2 flex cursor-pointer flex-col gap-[6px] rounded-lg px-[14px] py-3 bg-card transition-shadow duration-fast', isSelected ? 'shadow-sm' : 'shadow-xs', isDone && !isSelected && 'opacity-65')}
+        style={{ border: `1px solid ${isSelected ? GOLIVE : C.border}` }}>
+        <div className="flex items-center gap-2">
+          <span className="shrink-0 rounded-sm px-[9px] py-0.5 font-mono text-[11px] font-bold" style={{ color: GOLIVE, background: `${GOLIVE}1F` }}>{crNumber}</span>
+          <span className="flex-1" />
+          <span className="shrink-0 rounded-full px-[10px] py-[3px] text-[10.5px] font-bold" style={chipStyle}>{chipText}</span>
         </div>
-        <div style={{ fontSize: '13px', fontWeight: '700', color: C.textPrimary, lineHeight: 1.55 }}>
+        <div className="text-[13px] font-bold leading-[1.55] text-foreground">
           {label || crNumber}
         </div>
       </div>
@@ -2817,39 +2775,38 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     const otherTeams = (teamVisibility[crNumber]?.teams ?? []).filter(t => !t.isMine);
 
     const tabBtn = (tab: 'plan' | 'tasks', tabLabel: string, badge?: React.ReactNode) => (
-      <button onClick={() => setSelectedTab(tab)} style={{
-        fontSize: '14px', fontWeight: 600, padding: '8px 12px', cursor: 'pointer',
-        color: selectedTab === tab ? C.brand : C.textMuted,
-        borderBottom: `2px solid ${selectedTab === tab ? C.brand : 'transparent'}`,
-        background: 'none', borderTop: 'none', borderRight: 'none', borderLeft: 'none',
-        fontFamily: FONT, marginBottom: '-1px', display: 'flex', alignItems: 'center', gap: '5px',
-      }}>
+      <button onClick={() => setSelectedTab(tab)}
+        className="-mb-px flex cursor-pointer items-center gap-[5px] border-x-0 border-t-0 border-b-2 bg-transparent px-3 py-2 text-sm font-semibold"
+        style={{
+          color: selectedTab === tab ? C.brand : C.textMuted,
+          borderBottomColor: selectedTab === tab ? C.brand : 'transparent',
+        }}>
         {tabLabel}{badge}
       </button>
     );
 
     return (
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#F5F5F5' }}>
+      <div className="flex flex-1 flex-col overflow-hidden bg-[#F5F5F5]">
 
         {/* Topbar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 18px', background: C.bgCard, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-          <span style={{ fontFamily: 'monospace', fontWeight: 700, color: C.info, background: C.infoBg, padding: '3px 9px', borderRadius: RADIUS.sm, fontSize: '14px', flexShrink: 0 }}>{crNumber}</span>
-          <span style={{ flex: 1, fontWeight: 600, fontSize: '15px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.textPrimary }}>{label || crNumber}</span>
+        <div className="flex shrink-0 items-center gap-[10px] border-b border-border bg-card px-[18px] py-[10px]">
+          <span className="shrink-0 rounded-sm bg-info-bg px-[9px] py-[3px] font-mono text-sm font-bold text-info">{crNumber}</span>
+          <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[15px] font-semibold text-foreground">{label || crNumber}</span>
           {!isNotNeeded && (
             crReturned ? (
-              <span style={{ fontSize: '13px', fontWeight: 700, padding: '2px 9px', borderRadius: '9999px', flexShrink: 0, color: C.danger, background: C.dangerBg, border: `1px solid ${C.danger}35` }}>
+              <span className="shrink-0 rounded-full border border-danger/35 bg-danger-bg px-[9px] py-0.5 text-[13px] font-bold text-danger">
                 ⚠ הוחזר לתיקון
               </span>
             ) : crSubmitted ? (
-              <span style={{ fontSize: '13px', fontWeight: 700, padding: '2px 9px', borderRadius: '9999px', flexShrink: 0, color: C.success, background: C.successBg, border: `1px solid ${C.success}35` }}>
+              <span className="shrink-0 rounded-full border border-success/35 bg-success-bg px-[9px] py-0.5 text-[13px] font-bold text-success">
                 ✅ הושלם
               </span>
             ) : gateAnswered ? (
-              <span style={{ fontSize: '13px', fontWeight: 700, padding: '2px 9px', borderRadius: '9999px', flexShrink: 0, color: C.warning, background: C.warningBg, border: `1px solid ${C.warning}35` }}>
+              <span className="shrink-0 rounded-full border border-warning/35 bg-warning-bg px-[9px] py-0.5 text-[13px] font-bold text-warning">
                 ⏳ בטיוטה
               </span>
             ) : (
-              <span style={{ fontSize: '13px', fontWeight: 700, padding: '2px 9px', borderRadius: '9999px', flexShrink: 0, color: C.textMuted, background: C.bgNested, border: `1px solid ${C.border}` }}>
+              <span className="shrink-0 rounded-full border border-border bg-muted px-[9px] py-0.5 text-[13px] font-bold text-subtle-foreground">
                 טרם נענה
               </span>
             )
@@ -2861,12 +2818,8 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
               onClick={() => toggleNotNeeded(crNumber)}
               disabled={isTogglingNN}
               title="לחץ להחזיר CR זה לתהליך הרגיל"
-              style={{
-                fontSize: '13px', fontWeight: 600, flexShrink: 0, fontFamily: FONT,
-                padding: '3px 9px', borderRadius: '6px',
-                cursor: isTogglingNN ? 'not-allowed' : 'pointer',
-                color: C.warning, background: C.warningBg, border: `1px solid ${C.warning}50`,
-              }}>
+              className={cn('shrink-0 rounded-md px-[9px] py-[3px] text-[13px] font-semibold', isTogglingNN ? 'cursor-not-allowed' : 'cursor-pointer')}
+              style={{ color: C.warning, background: C.warningBg, border: `1px solid ${C.warning}50` }}>
               {isTogglingNN ? '...' : '↩ החזר לתהליך'}
             </button>
           )}
@@ -2881,12 +2834,8 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
               onClick={() => toggleNotNeeded(crNumber)}
               disabled={isTogglingNN}
               title="לחץ אם בטעות סימנת שקיימת השפעה תפעולית מיוחדת ל-CR זה"
-              style={{
-                fontSize: '13px', fontWeight: 600, flexShrink: 0, fontFamily: FONT,
-                padding: '3px 9px', borderRadius: '6px',
-                cursor: isTogglingNN ? 'not-allowed' : 'pointer',
-                color: C.textMuted, background: C.bgNested, border: `1px solid ${C.border}`,
-              }}>
+              className={cn('shrink-0 rounded-md px-[9px] py-[3px] text-[13px] font-semibold', isTogglingNN ? 'cursor-not-allowed' : 'cursor-pointer')}
+              style={{ color: C.textMuted, background: C.bgNested, border: `1px solid ${C.border}` }}>
               {isTogglingNN ? '...' : '↩ בעצם אין השפעה מיוחדת'}
             </button>
           )}
@@ -2895,21 +2844,21 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           {!locked && isManager && (
             <button onClick={() => deleteCrGroup(crNumber)}
               title="מחיקת תוכנית — הרשאת מנהל בלבד"
-              style={{ fontSize: '13px', color: C.danger, background: C.dangerBg, border: `1px solid ${C.danger}40`, borderRadius: '6px', padding: '3px 9px', cursor: 'pointer', flexShrink: 0, fontFamily: FONT }}>
+              className="shrink-0 cursor-pointer rounded-md px-[9px] py-[3px] text-[13px] text-danger" style={{ background: C.dangerBg, border: `1px solid ${C.danger}40` }}>
               🗑
             </button>
           )}
         </div>
 
         {description && (
-          <div style={{ padding: '10px 18px', background: C.bgCard, borderBottom: `1px solid ${C.border}`, flexShrink: 0, fontSize: '13px', color: C.textSecondary, lineHeight: 1.5 }}>
+          <div className="shrink-0 border-b border-border bg-card px-[18px] py-[10px] text-[13px] leading-[1.5] text-muted-foreground">
             {description}
           </div>
         )}
 
         {otherTeams.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', padding: '12px 18px', background: C.bgCard, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-            <span style={{ fontSize: '13.5px', fontWeight: 700, color: C.textSecondary, flexShrink: 0 }}>צוותים מעורבים:</span>
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-card px-[18px] py-3">
+            <span className="shrink-0 text-[13.5px] font-bold text-muted-foreground">צוותים מעורבים:</span>
             {otherTeams.map(t => {
               // No Special Activity is a distinct outcome from a real submission —
               // not a shade of "done". Kept visually separate (blue vs green) so a
@@ -2927,13 +2876,8 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
               return (
                 <span key={t.teamId} title={canPreview ? `${teamLabel} — לחץ לתצוגה מקדימה` : teamLabel}
                   onClick={canPreview ? () => openTeamPreview(crNumber, t.teamId, t.teamName) : undefined}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: '700',
-                    padding: '5px 12px', borderRadius: RADIUS.full,
-                    border: `1px solid ${C.borderEm}`, background: C.bgNested, color: C.textSecondary,
-                    cursor: canPreview ? 'pointer' : 'default',
-                  }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
+                  className={cn('inline-flex items-center gap-[6px] rounded-full border border-border bg-muted px-3 py-[5px] text-[12.5px] font-bold text-muted-foreground', canPreview ? 'cursor-pointer' : 'cursor-default')}>
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: dotColor }} />
                   {t.teamName}
                 </span>
               );
@@ -2942,30 +2886,30 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         )}
 
         {/* Tabs */}
-        <div style={{ display: 'flex', background: C.bgCard, borderBottom: `1px solid ${C.border}`, padding: '0 18px', flexShrink: 0 }}>
+        <div className="flex shrink-0 border-b border-border bg-card px-[18px]">
           {tabBtn('plan', 'תוכנית CR')}
           {tabBtn('tasks', 'משימות נגזרות',
             draftCount > 0
-              ? <span style={{ background: `${C.warning}20`, color: C.warning, border: `1px solid ${C.warning}40`, fontSize: '11px', fontWeight: 700, padding: '1px 5px', borderRadius: '9999px' }}>{draftCount} טיוטא</span>
+              ? <span className="rounded-full border border-warning/40 text-[11px] font-bold px-[5px] py-px" style={{ background: `${C.warning}20`, color: C.warning }}>{draftCount} טיוטא</span>
               : crProposals.length > 0
-              ? <span style={{ background: `${C.success}15`, color: C.success, border: `1px solid ${C.success}30`, fontSize: '11px', fontWeight: 700, padding: '1px 5px', borderRadius: '9999px' }}>{crProposals.length}</span>
+              ? <span className="rounded-full border border-success/30 text-[11px] font-bold px-[5px] py-px" style={{ background: `${C.success}15`, color: C.success }}>{crProposals.length}</span>
               : undefined
           )}
         </div>
 
         {/* Tab content */}
         {selectedTab === 'plan' ? (
-          <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px' }}>
+          <div className="flex-1 overflow-y-auto px-[18px] py-[14px]">
             {isTargetCr ? (
               renderTargetCrGate(crNumber, label, teamIdOverride || myTeamId)
             ) : isNotNeeded ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '48px 0', textAlign: 'center' }}>
-                <div style={{ background: C.successBg, border: '1px solid rgba(22,163,74,.25)', borderRadius: RADIUS.md, padding: '14px 18px', fontSize: '13px', color: '#0F5A2A', lineHeight: 1.6, maxWidth: '440px' }}>
+              <div className="flex flex-col items-center justify-center gap-3 px-0 py-12 text-center">
+                <div className="max-w-[440px] rounded-md px-[18px] py-[14px] text-[13px] leading-[1.6]" style={{ background: C.successBg, border: '1px solid rgba(22,163,74,.25)', color: '#0F5A2A' }}>
                   ✓ נבחר: ללא השפעה מיוחדת — CR זה נכלל בהטמעה הרגילה ואינו דורש תיאום נוסף, סקריפטים או בדיקות מיוחדות.
                 </div>
                 {!locked && (
                   <button onClick={() => toggleNotNeeded(crNumber)} disabled={isTogglingNN}
-                    style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, padding: '8px 18px', borderRadius: RADIUS.md, background: 'none', color: C.textMuted, border: `1px solid ${C.borderEm}`, cursor: isTogglingNN ? 'not-allowed' : 'pointer' }}>
+                    className={cn('rounded-md border border-border px-[18px] py-2 text-sm font-semibold text-subtle-foreground', isTogglingNN ? 'cursor-not-allowed' : 'cursor-pointer')}>
                     {isTogglingNN ? '...' : '↩ בעצם יש השפעה — פתח מחדש'}
                   </button>
                 )}
@@ -2977,17 +2921,17 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             )}
           </div>
         ) : (
-          <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px' }}>
+          <div className="flex-1 overflow-y-auto px-[18px] py-[14px]">
             {crProposals.length === 0 && (
-              <div style={{ padding: '40px 0', textAlign: 'center', color: C.textMuted, fontSize: '15px' }}>
-                <div style={{ fontSize: '32px', marginBottom: '8px' }}>📋</div>
+              <div className="px-0 py-10 text-center text-[15px] text-subtle-foreground">
+                <div className="mb-2 text-[32px]">📋</div>
                 <div>אין משימות — הפק מהתוכנית או הוסף ידנית</div>
               </div>
             )}
             {crProposals.map(renderRow)}
             {!locked && !isNotNeeded && openFormForCr !== crNumber && (
               <button onClick={() => openAdd(crNumber, label)}
-                style={{ marginTop: '10px', width: '100%', padding: '9px', background: C.statusOpen, color: C.textInverse, border: 'none', borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '15px', fontWeight: 600 }}>
+                className="mt-[10px] w-full cursor-pointer rounded-lg border-none p-[9px] text-[15px] font-semibold text-white" style={{ background: C.statusOpen }}>
                 + הוסף משימה לביצוע
               </button>
             )}
@@ -2996,14 +2940,15 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
         {/* Footer — save draft + next navigation */}
         {selectedTab === 'plan' && !isNotNeeded && gateAnswered && (!crSubmitted || unlockedForEdit.has(crNumber)) && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '10px 18px', background: C.bgCard, borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <div className="flex shrink-0 items-center gap-[9px] border-t border-border bg-card px-[18px] py-[10px]">
             <button onClick={() => saveCrPlan(crNumber)} disabled={isSavingPln}
-              style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, padding: '7px 18px', borderRadius: RADIUS.md, background: isSavingPln ? C.textDisabled : C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, cursor: isSavingPln ? 'not-allowed' : 'pointer' }}>
+              className={cn('rounded-md border border-border px-[18px] py-[7px] text-sm font-semibold text-muted-foreground', isSavingPln ? 'cursor-not-allowed' : 'cursor-pointer')}
+              style={{ background: isSavingPln ? C.textDisabled : C.bgNested }}>
               {isSavingPln ? 'שומר...' : 'שמור טיוטה'}
             </button>
             {nextCrNum && (
               <button onClick={() => trySelectCr(nextCrNum)}
-                style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, padding: '7px 14px', borderRadius: RADIUS.md, background: C.bgCard, color: GOLIVE, border: `1px solid ${GOLIVE}40`, cursor: 'pointer' }}>
+                className="cursor-pointer rounded-md bg-card px-[14px] py-[7px] text-sm font-semibold" style={{ color: GOLIVE, border: `1px solid ${GOLIVE}40` }}>
                 הבא: {nextCrNum} ←
               </button>
             )}
@@ -3015,37 +2960,37 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div style={{ direction: 'rtl', fontFamily: FONT, color: C.textPrimary }}>
+    <div dir="rtl" className="text-foreground">
       <ConfirmDialog config={dialog} onClose={() => setDialog(null)} />
 
       {/* Cross-team plan preview — read-only, only ever shown for a SUBMITTED/APPROVED plan */}
       {teamPreview && (
-        <div onClick={() => setTeamPreview(null)} style={{ position: 'fixed', inset: 0, background: C.bgOverlay, zIndex: 4000, display: 'flex', alignItems: 'center', justifyContent: 'center', direction: 'rtl' }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: C.bgCard, borderRadius: RADIUS['3xl'], padding: '24px 28px', maxWidth: '560px', width: '95vw', maxHeight: '85vh', overflowY: 'auto', boxShadow: SHADOW.xl }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <div style={{ fontWeight: '700', fontSize: '17px', color: C.textPrimary }}>
+        <div dir="rtl" onClick={() => setTeamPreview(null)} className="fixed inset-0 z-[4000] flex items-center justify-center" style={{ background: C.bgOverlay }}>
+          <div onClick={e => e.stopPropagation()} className="max-h-[85vh] w-[95vw] max-w-[560px] overflow-y-auto rounded-3xl bg-card px-7 py-6 shadow-xl">
+            <div className="mb-1 flex items-center justify-between">
+              <div className="text-[17px] font-bold text-foreground">
                 תוכנית {teamPreview.teamName}
               </div>
-              <button onClick={() => setTeamPreview(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '18px', padding: '2px 6px' }}>✕</button>
+              <button onClick={() => setTeamPreview(null)} className="cursor-pointer border-none bg-transparent px-1.5 py-0.5 text-lg text-subtle-foreground">✕</button>
             </div>
 
             {teamPreview.loading && (
-              <div style={{ padding: '30px', textAlign: 'center', color: C.textMuted, fontSize: '14px' }}>טוען...</div>
+              <div className="p-[30px] text-center text-sm text-subtle-foreground">טוען...</div>
             )}
             {teamPreview.error && (
-              <div style={{ padding: '14px', background: C.dangerBg, color: C.danger, borderRadius: RADIUS.md, fontSize: '14px', marginTop: '12px' }}>
+              <div className="mt-3 rounded-md bg-danger-bg p-[14px] text-sm text-danger">
                 {teamPreview.error}
               </div>
             )}
             {teamPreview.data && (
               teamPreview.data.notNeededForPlan && teamPreview.data.actions.length === 0 ? (
-                <div style={{ padding: '20px', background: C.infoBg, color: C.info, borderRadius: RADIUS.md, fontSize: '14px', marginTop: '12px', textAlign: 'center' }}>
+                <div className="mt-3 rounded-md bg-info-bg p-5 text-center text-sm text-info">
                   🔵 הצוות מעורב ב-CR זה אך אין לו פעילות מיוחדת
                 </div>
               ) : (
-                <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div className="mt-[14px] flex flex-col gap-4">
                   {teamPreview.data.submittedByName && (
-                    <div style={{ fontSize: '13px', color: C.textMuted }}>
+                    <div className="text-[13px] text-subtle-foreground">
                       הוגש ע"י {teamPreview.data.submittedByName}
                       {teamPreview.data.submittedAt && ` · ${formatDateTime(teamPreview.data.submittedAt)}`}
                     </div>
@@ -3053,19 +2998,19 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
                   {teamPreview.data.actions.length > 0 && (
                     <div>
-                      <div style={{ fontSize: '13px', fontWeight: '700', color: C.textSecondary, marginBottom: '6px' }}>
+                      <div className="mb-[6px] text-[13px] font-bold text-muted-foreground">
                         פעילויות ({teamPreview.data.actions.length})
                       </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div className="flex flex-col gap-[6px]">
                         {teamPreview.data.actions.map((a, i) => (
-                          <div key={i} style={{ padding: '8px 10px', background: C.bgNested, borderRadius: RADIUS.md, fontSize: '13px' }}>
-                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '2px' }}>
-                              <span style={{ fontWeight: '700', color: C.brand }}>{a.actionType}</span>
-                              {a.system && <span style={{ color: C.textMuted }}>· {a.system}</span>}
-                              {a.estimatedMins != null && <span style={{ color: C.textMuted }}>· {a.estimatedMins} דק'</span>}
-                              {a.ownerName && <span style={{ color: C.textMuted, marginRight: 'auto' }}>{a.ownerName}</span>}
+                          <div key={i} className="rounded-md bg-muted px-[10px] py-2 text-[13px]">
+                            <div className="mb-0.5 flex items-center gap-[6px]">
+                              <span className="font-bold text-primary">{a.actionType}</span>
+                              {a.system && <span className="text-subtle-foreground">· {a.system}</span>}
+                              {a.estimatedMins != null && <span className="text-subtle-foreground">· {a.estimatedMins} דק'</span>}
+                              {a.ownerName && <span className="ms-auto text-subtle-foreground">{a.ownerName}</span>}
                             </div>
-                            <div style={{ color: C.textPrimary }}>{a.description}</div>
+                            <div className="text-foreground">{a.description}</div>
                           </div>
                         ))}
                       </div>
@@ -3074,14 +3019,14 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
                   {teamPreview.data.monitoringPoints.length > 0 && (
                     <div>
-                      <div style={{ fontSize: '13px', fontWeight: '700', color: C.textSecondary, marginBottom: '6px' }}>
+                      <div className="mb-[6px] text-[13px] font-bold text-muted-foreground">
                         נקודות בקרה ({teamPreview.data.monitoringPoints.length})
                       </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div className="flex flex-col gap-[6px]">
                         {teamPreview.data.monitoringPoints.map((m, i) => (
-                          <div key={i} style={{ padding: '8px 10px', background: C.bgNested, borderRadius: RADIUS.md, fontSize: '13px' }}>
-                            <span style={{ fontWeight: '700', color: C.info }}>{m.type}</span>{' — '}{m.name}
-                            {m.note && <div style={{ color: C.textMuted, marginTop: '2px' }}>{m.note}</div>}
+                          <div key={i} className="rounded-md bg-muted px-[10px] py-2 text-[13px]">
+                            <span className="font-bold text-info">{m.type}</span>{' — '}{m.name}
+                            {m.note && <div className="mt-0.5 text-subtle-foreground">{m.note}</div>}
                           </div>
                         ))}
                       </div>
@@ -3089,15 +3034,15 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                   )}
 
                   {(teamPreview.data.nightTestNeeded || teamPreview.data.nextDayTestNeeded) && (
-                    <div style={{ fontSize: '13px', color: C.textSecondary }}>
+                    <div className="text-[13px] text-muted-foreground">
                       <strong>בדיקות: </strong>
                       {[teamPreview.data.nightTestNeeded && 'ליל גרסה', teamPreview.data.nextDayTestNeeded && 'יום אחרי'].filter(Boolean).join(' + ')}
                     </div>
                   )}
 
-                  <div style={{ fontSize: '13px', color: C.textSecondary }}>
+                  <div className="text-[13px] text-muted-foreground">
                     <strong>Rollback: </strong>{teamPreview.data.rollbackType || 'לא הוגדר'}
-                    {teamPreview.data.rollbackPlan && <div style={{ color: C.textMuted, marginTop: '2px' }}>{teamPreview.data.rollbackPlan}</div>}
+                    {teamPreview.data.rollbackPlan && <div className="mt-0.5 text-subtle-foreground">{teamPreview.data.rollbackPlan}</div>}
                   </div>
                 </div>
               )
@@ -3137,20 +3082,18 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
       {/* Extract-tasks modal */}
       {extractModal && (
-        <div style={{ position: 'fixed', inset: 0, background: C.bgOverlay, zIndex: 4000, display: 'flex', alignItems: 'center', justifyContent: 'center', direction: 'rtl' }}>
-          <div style={{ background: C.bgCard, borderRadius: RADIUS['3xl'], padding: '24px 28px', maxWidth: '560px', width: '95vw', maxHeight: '85vh', overflowY: 'auto', boxShadow: SHADOW.xl }}>
-            <div style={{ fontWeight: '700', fontSize: '17px', color: C.textPrimary, marginBottom: '4px' }}>
+        <div dir="rtl" className="fixed inset-0 z-[4000] flex items-center justify-center" style={{ background: C.bgOverlay }}>
+          <div className="max-h-[85vh] w-[95vw] max-w-[560px] overflow-y-auto rounded-3xl bg-card px-7 py-6 shadow-xl">
+            <div className="mb-1 text-[17px] font-bold text-foreground">
               ⚡ הפק משימות מ{extractModal.sourceLabel}
             </div>
-            <div style={{ fontSize: '14px', color: C.textMuted, marginBottom: '16px' }}>
+            <div className="mb-4 text-sm text-subtle-foreground">
               CR {extractModal.crNumber} — בחר אילו שורות להפוך למשימות לביצוע
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
+            <div className="mb-5 flex flex-col gap-2">
               {extractModal.items.map((item, i) => (
-                <div key={i} style={{
-                  display: 'flex', alignItems: 'flex-start', gap: '10px',
-                  padding: '10px 12px', borderRadius: RADIUS.lg,
+                <div key={i} className="flex items-start gap-[10px] rounded-lg px-3 py-[10px]" style={{
                   background: item.checked ? C.infoBg : C.bgNested,
                   border: `1px solid ${item.checked ? `${C.info}40` : C.border}`,
                 }}>
@@ -3161,20 +3104,20 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                       ...m,
                       items: m.items.map((it, j) => j === i ? { ...it, checked: e.target.checked } : it),
                     } : null)}
-                    style={{ marginTop: '3px', flexShrink: 0, cursor: 'pointer' }}
+                    className="mt-[3px] shrink-0 cursor-pointer"
                   />
-                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <input
                       value={item.text}
                       onChange={e => setExtractModal(m => m ? {
                         ...m,
                         items: m.items.map((it, j) => j === i ? { ...it, text: e.target.value } : it),
                       } : null)}
-                      style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '15px', color: C.textPrimary, outline: 'none', fontFamily: FONT, boxSizing: 'border-box' }}
+                      className="w-full box-border border-none bg-transparent text-[15px] text-foreground outline-none"
                       disabled={!item.checked}
                     />
                     {item.duplicateId && (
-                      <span style={{ fontSize: '12px', color: C.warning, fontWeight: '600' }}>⚠ כבר קיימת — תישאל אם להחליף</span>
+                      <span className="text-xs font-semibold text-warning">⚠ כבר קיימת — תישאל אם להחליף</span>
                     )}
                   </div>
                   <input
@@ -3187,7 +3130,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                     } : null)}
                     disabled={!item.checked}
                     placeholder="דק'"
-                    style={{ width: '54px', fontSize: '13px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '2px 4px', textAlign: 'center', flexShrink: 0 }}
+                    className="w-[54px] shrink-0 rounded-sm border border-border px-1 py-0.5 text-center text-[13px]"
                   />
                   <select
                     value={item.phase}
@@ -3196,7 +3139,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                       items: m.items.map((it, j) => j === i ? { ...it, phase: parseInt(e.target.value) } : it),
                     } : null)}
                     disabled={!item.checked}
-                    style={{ fontSize: '13px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '2px 4px', background: C.bgCard, color: C.textSecondary, flexShrink: 0 }}
+                    className="shrink-0 rounded-sm border border-border bg-card px-1 py-0.5 text-[13px] text-muted-foreground"
                   >
                     {(Object.keys(phaseLabels).length > 0
                       ? Object.keys(phaseLabels).map(Number).sort((a, b) => a - b)
@@ -3212,7 +3155,8 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                       items: m.items.map((it, j) => j === i ? { ...it, assignedUserName: e.target.value } : it),
                     } : null)}
                     disabled={!item.checked}
-                    style={{ fontSize: '13px', border: `1px solid ${item.checked && !item.assignedUserName ? C.danger : C.border}`, borderRadius: RADIUS.sm, padding: '2px 4px', background: C.bgCard, color: C.textSecondary, flexShrink: 0, maxWidth: '110px' }}
+                    className="max-w-[110px] shrink-0 rounded-sm border bg-card px-1 py-0.5 text-[13px] text-muted-foreground"
+                    style={{ borderColor: item.checked && !item.assignedUserName ? C.danger : C.border }}
                   >
                     <option value="">-- אחראי --</option>
                     {myTeamMembers.map((u: any) => <option key={u.id} value={u.fullName}>{u.fullName}</option>)}
@@ -3221,26 +3165,26 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
               ))}
             </div>
             {extractModal.items.some(it => it.checked && !it.assignedUserName) && (
-              <div style={{ fontSize: '14px', color: C.danger, marginTop: '-8px', marginBottom: '12px' }}>
+              <div className="-mt-2 mb-3 text-sm text-danger">
                 ⚠ יש לבחור אחראי לכל משימה מסומנת — משימה בלי אחראי לא תעבור לתוכנית בפועל
               </div>
             )}
 
             {/* Select all / none */}
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+            <div className="mb-4 flex gap-2">
               <button onClick={() => setExtractModal(m => m ? { ...m, items: m.items.map(it => ({ ...it, checked: true })) } : null)}
-                style={{ fontSize: '14px', padding: '4px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, background: C.bgCard, cursor: 'pointer', color: C.textSecondary }}>
+                className="cursor-pointer rounded-md border border-border bg-card px-[10px] py-1 text-sm text-muted-foreground">
                 בחר הכל
               </button>
               <button onClick={() => setExtractModal(m => m ? { ...m, items: m.items.map(it => ({ ...it, checked: false })) } : null)}
-                style={{ fontSize: '14px', padding: '4px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, background: C.bgCard, cursor: 'pointer', color: C.textSecondary }}>
+                className="cursor-pointer rounded-md border border-border bg-card px-[10px] py-1 text-sm text-muted-foreground">
                 בטל הכל
               </button>
             </div>
 
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+            <div className="flex justify-end gap-[10px]">
               <button onClick={() => setExtractModal(null)}
-                style={{ padding: '8px 18px', border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, background: C.bgCard, cursor: 'pointer', fontSize: '15px', color: C.textSecondary }}>
+                className="cursor-pointer rounded-lg border border-border bg-card px-[18px] py-2 text-[15px] text-muted-foreground">
                 ביטול
               </button>
               {(() => {
@@ -3250,12 +3194,10 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
                   <button
                     onClick={createExtracted}
                     disabled={extracting || blocked}
+                    className={cn('rounded-lg border-none px-[22px] py-2 text-[15px] font-bold', blocked ? 'cursor-default' : 'cursor-pointer')}
                     style={{
-                      padding: '8px 22px', border: 'none', borderRadius: RADIUS.lg,
                       background: blocked ? C.bgNested : C.brand,
                       color: blocked ? C.textDisabled : C.textInverse,
-                      cursor: blocked ? 'default' : 'pointer',
-                      fontSize: '15px', fontWeight: '700',
                     }}
                   >
                     {extracting ? 'יוצר...' : `צור ${checkedCount} משימות`}
@@ -3268,31 +3210,26 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
       )}
 
       {/* Header */}
-      <div style={{
-        background: C.bgCard, border: `1px solid ${C.border}`,
-        borderRadius: RADIUS.lg, padding: '16px 20px', marginBottom: '16px',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px',
-        boxShadow: SHADOW.xs,
-      }}>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-5 py-4 shadow-xs">
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '2px' }}>
-            <span style={{ fontSize: '19px', fontWeight: '700', color: C.textPrimary }}>התכנון שלי — My CR Planning</span>
+          <div className="mb-0.5 flex items-center gap-[10px]">
+            <span className="text-[19px] font-bold text-foreground">התכנון שלי — My CR Planning</span>
             {myTeamName && (
-              <span style={{ fontSize: '11px', fontWeight: '700', padding: '3px 11px', borderRadius: RADIUS.full, background: `${GOLIVE}22`, color: GOLIVE }}>
+              <span className="rounded-full px-[11px] py-[3px] text-[11px] font-bold" style={{ background: `${GOLIVE}22`, color: GOLIVE }}>
                 {myTeamName}
               </span>
             )}
           </div>
-          <div style={{ fontSize: '12.5px', color: C.textMuted }}>
+          <div className="text-[12.5px] text-subtle-foreground">
             {versionName}
             {reviewMeetingTime && (
               <> · יש להגיש את כל התוכניות לפני פגישת הסקירה · {formatDateTime(reviewMeetingTime)} 🗓</>
             )}
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div className="flex items-center gap-[10px]">
           {proposals.length > 0 && (
-            <span style={{ fontSize: '13px', color: C.textMuted }}>
+            <span className="text-[13px] text-subtle-foreground">
               {totalReady}/{proposals.length} מוכן
             </span>
           )}
@@ -3300,33 +3237,31 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             <button
               onClick={() => syncCrItems(false)}
               disabled={syncLoading}
+              className={cn('whitespace-nowrap rounded-md px-4 py-[7px] text-[13.5px] font-bold', syncLoading ? 'cursor-not-allowed' : 'cursor-pointer')}
               style={{
-                padding: '7px 16px', background: syncLoading ? C.bgNested : C.successBg,
-                color: syncLoading ? C.textMuted : C.success, border: `1px solid ${syncLoading ? C.border : 'rgba(22,163,74,.25)'}`, borderRadius: RADIUS.md,
-                cursor: syncLoading ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '13.5px', whiteSpace: 'nowrap',
+                background: syncLoading ? C.bgNested : C.successBg,
+                color: syncLoading ? C.textMuted : C.success, border: `1px solid ${syncLoading ? C.border : 'rgba(22,163,74,.25)'}`,
               }}
             >
               {syncLoading ? '⏳ מסנכרן...' : '🔄 סנכרן רשימת פיתוחים'}
             </button>
           )}
           {!locked && (
-            <button onClick={() => openAdd()} style={{
-              padding: '7px 16px', background: C.brandDim, color: C.brand,
-              border: `1px solid ${C.brand}40`, borderRadius: RADIUS.md,
-              cursor: 'pointer', fontWeight: '600', fontSize: '13.5px',
-            }}>
+            <button onClick={() => openAdd()} className="cursor-pointer rounded-md px-4 py-[7px] text-[13.5px] font-semibold"
+              style={{ background: C.brandDim, color: C.brand, border: `1px solid ${C.brand}40` }}>
               + הוסף משימה
             </button>
           )}
           {locked ? (
             <>
-              <span style={{ padding: '7px 16px', background: C.successBg, color: C.success, border: `1px solid rgba(22,163,74,.25)`, borderRadius: RADIUS.md, fontWeight: '700', fontSize: '13.5px' }}>
+              <span className="rounded-md px-4 py-[7px] text-[13.5px] font-bold" style={{ background: C.successBg, color: C.success, border: '1px solid rgba(22,163,74,.25)' }}>
                 הוגש ✓
               </span>
               {isManager && (
                 <button
                   onClick={() => setManagerUnlocked(true)}
-                  style={{ padding: '7px 14px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}80`, borderRadius: RADIUS.md, cursor: 'pointer', fontWeight: '700', fontSize: '13px', whiteSpace: 'nowrap' }}
+                  className="cursor-pointer whitespace-nowrap rounded-md px-[14px] py-[7px] text-[13px] font-bold"
+                  style={{ background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}80` }}
                 >
                   ✏️ עדכן כמנהל
                 </button>
@@ -3334,35 +3269,34 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             </>
           ) : managerUnlocked ? (
             <>
-              <span style={{ padding: '7px 14px', background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}80`, borderRadius: RADIUS.md, fontWeight: '700', fontSize: '13px', whiteSpace: 'nowrap' }}>
+              <span className="whitespace-nowrap rounded-md px-[14px] py-[7px] text-[13px] font-bold" style={{ background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}80` }}>
                 ✏️ עריכת מנהל
               </span>
               <button
                 onClick={() => setManagerUnlocked(false)}
-                style={{ padding: '7px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontWeight: '700', fontSize: '13px', whiteSpace: 'nowrap' }}
+                className="cursor-pointer whitespace-nowrap rounded-md border border-border px-[14px] py-[7px] text-[13px] font-bold"
+                style={{ background: C.bgNested, color: C.textSecondary }}
               >
                 ✓ סיים עריכה
               </button>
             </>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px' }}>
+            <div className="flex flex-col items-end gap-[3px]">
               <button
                 onClick={submitDone}
                 disabled={submitting || !canSubmit}
                 title={!canSubmit ? `יש להשלים ${crGroups.length - doneCrCount} CR-ים לפני ההגשה` : ''}
+                className={cn('rounded-md border-none px-[18px] py-2 text-sm font-bold', (submitting || !canSubmit) ? 'cursor-not-allowed' : 'cursor-pointer')}
                 style={{
-                  padding: '8px 18px',
                   background: submitting ? C.textDisabled : (!canSubmit ? C.bgNested : GOLIVE),
-                  color: (!canSubmit && !submitting) ? C.textDisabled : C.textInverse, border: 'none', borderRadius: RADIUS.md,
-                  cursor: (submitting || !canSubmit) ? 'not-allowed' : 'pointer',
-                  fontWeight: '700', fontSize: '14px',
+                  color: (!canSubmit && !submitting) ? C.textDisabled : C.textInverse,
                   boxShadow: canSubmit && !submitting ? SHADOW.sm : 'none',
                 }}
               >
                 {submitting ? '...' : 'סיימתי הגשת תוכניות'}
               </button>
               {!canSubmit && crGroups.length > 0 && (
-                <span style={{ fontSize: '11px', color: C.textMuted, whiteSpace: 'nowrap' }}>
+                <span className="whitespace-nowrap text-[11px] text-subtle-foreground">
                   נותרו {crGroups.length - doneCrCount} CR-ים למילוי
                 </span>
               )}
@@ -3373,30 +3307,29 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
       {/* Sync error */}
       {syncError && (
-        <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}`, borderRadius: RADIUS.lg, padding: '10px 16px', marginBottom: '12px', fontSize: '15px', color: C.danger, display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="mb-3 flex items-center gap-2 rounded-lg border px-4 py-[10px] text-[15px] text-danger" style={{ background: C.dangerBg, borderColor: C.danger }}>
           ⚠️ {syncError}
-          <button onClick={() => setSyncError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.danger, fontWeight: '700', marginRight: 'auto' }}>×</button>
+          <button onClick={() => setSyncError(null)} className="ms-auto cursor-pointer border-none bg-transparent font-bold text-danger">×</button>
         </div>
       )}
 
       {/* Submission error */}
       {submitError && (
-        <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}`, borderRadius: RADIUS.lg, padding: '10px 16px', marginBottom: '12px', fontSize: '15px', color: C.danger }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="mb-3 rounded-lg border px-4 py-[10px] text-[15px] text-danger" style={{ background: C.dangerBg, borderColor: C.danger }}>
+          <div className="flex items-center gap-2">
             ⚠️ {submitError}
-            <button onClick={() => { setSubmitError(null); setSubmitErrorCrs([]); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.danger, fontWeight: '700', marginRight: 'auto' }}>×</button>
+            <button onClick={() => { setSubmitError(null); setSubmitErrorCrs([]); }} className="ms-auto cursor-pointer border-none bg-transparent font-bold text-danger">×</button>
           </div>
           {submitErrorCrs.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+            <div className="mt-2 flex flex-wrap gap-[6px]">
               {submitErrorCrs.map(cr => (
                 <span key={cr}
                   onClick={() => trySelectCr(cr)}
+                  className="cursor-pointer rounded-full border px-[10px] py-[3px] font-mono text-[13px] font-bold"
                   style={{
-                    fontSize: '13px', fontWeight: '700', fontFamily: FONT_MONO, cursor: 'pointer',
-                    padding: '3px 10px', borderRadius: RADIUS.full,
                     background: selectedCr === cr ? C.danger : C.bgCard,
                     color: selectedCr === cr ? C.textInverse : C.danger,
-                    border: `1px solid ${C.danger}`,
+                    borderColor: C.danger,
                   }}>
                   {cr} ←
                 </span>
@@ -3408,21 +3341,21 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
       {/* Submitted banner */}
       {locked && (
-        <div style={{ background: C.successBg, border: `2px solid ${C.success}`, borderRadius: RADIUS.xl, padding: '14px 20px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ fontSize: '24px' }}>✅</span>
+        <div className="mb-4 flex items-center gap-3 rounded-xl border-2 px-5 py-[14px]" style={{ background: C.successBg, borderColor: C.success }}>
+          <span className="text-2xl">✅</span>
           <div>
-            <div style={{ fontWeight: '700', color: C.success, fontSize: '16px' }}>ההגשה הושלמה</div>
-            <div style={{ fontSize: '15px', color: C.success, marginTop: '2px', opacity: 0.85 }}>מנהל הלילה יוכל לקדם את התוכנית לשלב הבא לאחר שכל הצוותים יגישו</div>
+            <div className="text-base font-bold text-success">ההגשה הושלמה</div>
+            <div className="mt-0.5 text-[15px] text-success opacity-85">מנהל הלילה יוכל לקדם את התוכנית לשלב הבא לאחר שכל הצוותים יגישו</div>
           </div>
         </div>
       )}
       {/* Manager edit banner */}
       {managerUnlocked && (
-        <div style={{ background: C.warningBg, border: `2px solid ${C.warning}`, borderRadius: RADIUS.xl, padding: '12px 20px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ fontSize: '22px' }}>✏️</span>
+        <div className="mb-4 flex items-center gap-3 rounded-xl border-2 px-5 py-3" style={{ background: C.warningBg, borderColor: C.warning }}>
+          <span className="text-[22px]">✏️</span>
           <div>
-            <div style={{ fontWeight: '700', color: C.warning, fontSize: '15px' }}>עריכת מנהל פעילה</div>
-            <div style={{ fontSize: '14px', color: C.warning, marginTop: '2px' }}>ניתן לערוך, להוסיף ולמחוק משימות. לחץ "סיים עריכה" בסיום.</div>
+            <div className="text-[15px] font-bold text-warning">עריכת מנהל פעילה</div>
+            <div className="mt-0.5 text-sm text-warning">ניתן לערוך, להוסיף ולמחוק משימות. לחץ "סיים עריכה" בסיום.</div>
           </div>
         </div>
       )}
@@ -3432,47 +3365,48 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
       {/* Main split panel */}
       {loading ? (
-        <div style={{ padding: '40px', textAlign: 'center', color: C.textMuted }}>טוען...</div>
+        <div className="p-10 text-center text-subtle-foreground">טוען...</div>
       ) : crGroups.length === 0 && freeGroup.length === 0 ? (
-        <div style={{ padding: '60px 40px', textAlign: 'center', background: C.bgCard, borderRadius: RADIUS['2xl'], color: C.textMuted, boxShadow: SHADOW.sm }}>
-          <div style={{ fontSize: '48px', marginBottom: '12px' }}>📋</div>
-          <div style={{ fontSize: '17px', marginBottom: '6px', color: C.textSecondary }}>אין CR-ים עדיין</div>
-          <div style={{ fontSize: '15px' }}>לחץ "🔄 סנכרן רשימת פיתוחים" לטעינה אוטומטית</div>
+        <div className="rounded-2xl bg-card px-10 py-[60px] text-center text-subtle-foreground shadow-sm">
+          <div className="mb-3 text-5xl">📋</div>
+          <div className="mb-[6px] text-[17px] text-muted-foreground">אין CR-ים עדיין</div>
+          <div className="text-[15px]">לחץ "🔄 סנכרן רשימת פיתוחים" לטעינה אוטומטית</div>
         </div>
       ) : (
-        <div style={{ display: 'flex', border: `1px solid ${C.border}`, borderRadius: RADIUS.xl, overflow: 'hidden', minHeight: '68vh', background: C.bgNested }}>
+        <div className="flex min-h-[68vh] overflow-hidden rounded-xl border border-border bg-muted">
 
           {/* LEFT: CR list */}
-          <div style={{ width: '264px', flexShrink: 0, overflowY: 'auto', background: C.bgNested, borderLeft: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column' }}>
+          <div className="flex w-[264px] shrink-0 flex-col overflow-y-auto border-e border-border bg-muted">
 
             {/* List header with progress */}
-            <div style={{ padding: '14px 16px 12px', background: C.bgCard, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px' }}>
-                <span style={{ fontSize: '12.5px', fontWeight: '600', color: C.textSecondary }}>
+            <div className="shrink-0 border-b border-border bg-card px-4 pb-3 pt-[14px]">
+              <div className="mb-2 flex items-baseline justify-between">
+                <span className="text-[12.5px] font-semibold text-muted-foreground">
                   {doneCrCount} מתוך {crGroups.length} תוכניות הושלמו
                 </span>
-                <span style={{ fontSize: '20px', fontWeight: '800', color: GOLIVE }}>
+                <span className="text-xl font-extrabold" style={{ color: GOLIVE }}>
                   {crGroups.length > 0 ? Math.round(doneCrCount / crGroups.length * 100) : 0}%
                 </span>
               </div>
-              <div style={{ height: '10px', background: C.bgNested, borderRadius: '5px', overflow: 'hidden' }}>
-                <div style={{ width: `${crGroups.length > 0 ? Math.round(doneCrCount / crGroups.length * 100) : 0}%`, height: '100%', background: GOLIVE, borderRadius: '5px', transition: 'width .3s ease-out' }} />
+              <div className="h-[10px] overflow-hidden rounded-[5px] bg-muted">
+                <div className="h-full rounded-[5px] transition-[width] duration-300 ease-out" style={{ width: `${crGroups.length > 0 ? Math.round(doneCrCount / crGroups.length * 100) : 0}%`, background: GOLIVE }} />
               </div>
             </div>
 
             {/* Active CRs */}
-            <div style={{ paddingTop: '8px' }}>
+            <div className="pt-2">
               {crGroups.filter(([cr]) => !crPlans[cr]?.notNeededForPlan).map(([crNumber, crProposals]) => renderListItem(crNumber, crProposals))}
             </div>
 
             {/* Free / infrastructure tasks — always visible so users can always add a task without CR */}
             <div onClick={() => trySelectCr(FREE_KEY, selectedTab)}
-              style={{ display: 'flex', alignItems: 'flex-start', gap: '9px', padding: '9px 14px', cursor: 'pointer', borderBottom: `1px solid ${C.bgNested}`, borderRight: `3px solid ${selectedCr === FREE_KEY ? C.brand : 'transparent'}`, background: selectedCr === FREE_KEY ? C.infoBg : 'transparent' }}>
-              <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: freeGroup.length === 0 ? C.borderEm : freeGroup.every(p => p.status === 'READY' || p.usedInTaskId) ? C.success : C.warning, flexShrink: 0, marginTop: '5px', border: freeGroup.length === 0 ? `1.5px solid ${C.textDisabled}` : 'none' }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: '12px', fontWeight: 700, color: freeGroup.length === 0 ? C.textDisabled : C.textMuted, fontFamily: 'monospace' }}>ללא CR</div>
-                <div style={{ fontSize: '13px', color: C.textSecondary, lineHeight: 1.35, marginTop: '1px' }}>משימות תשתיתיות</div>
-                <div style={{ fontSize: '12px', marginTop: '2px', color: C.textMuted }}>
+              className={cn('flex cursor-pointer items-start gap-[9px] border-b px-[14px] py-[9px] border-s-[3px]', selectedCr === FREE_KEY ? 'border-s-primary' : 'border-s-transparent')}
+              style={{ borderBottomColor: C.bgNested, background: selectedCr === FREE_KEY ? C.infoBg : 'transparent' }}>
+              <div className="mt-[5px] h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: freeGroup.length === 0 ? C.borderEm : freeGroup.every(p => p.status === 'READY' || p.usedInTaskId) ? C.success : C.warning, border: freeGroup.length === 0 ? `1.5px solid ${C.textDisabled}` : 'none' }} />
+              <div className="min-w-0 flex-1">
+                <div className="font-mono text-xs font-bold" style={{ color: freeGroup.length === 0 ? C.textDisabled : C.textMuted }}>ללא CR</div>
+                <div className="mt-px text-[13px] leading-[1.35] text-muted-foreground">משימות תשתיתיות</div>
+                <div className="mt-0.5 text-xs text-subtle-foreground">
                   {freeGroup.length === 0 ? 'לחץ להוספת משימה' : `${freeGroup.filter(p => p.status === 'READY' || p.usedInTaskId).length}/${freeGroup.length} מוכן`}
                 </div>
               </div>
@@ -3481,11 +3415,11 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
             {/* Not-needed section */}
             {crGroups.filter(([cr]) => crPlans[cr]?.notNeededForPlan).length > 0 && (
               <>
-                <div style={{ padding: '7px 14px 4px', borderTop: `1px solid ${C.bgNested}`, marginTop: '4px' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 700, color: C.textDisabled, textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                <div className="mt-1 border-t px-[14px] pb-1 pt-[7px]" style={{ borderTopColor: C.bgNested }}>
+                  <div className="text-xs font-bold uppercase tracking-[.06em] text-subtle-foreground">
                     לא נדרשים לתוכנית ({crGroups.filter(([cr]) => crPlans[cr]?.notNeededForPlan).length})
                   </div>
-                  <div style={{ fontSize: '12px', color: C.textDisabled, marginTop: '2px' }}>לחץ על CR לביטול הסימון ↩</div>
+                  <div className="mt-0.5 text-xs text-subtle-foreground">לחץ על CR לביטול הסימון ↩</div>
                 </div>
                 {crGroups.filter(([cr]) => crPlans[cr]?.notNeededForPlan).map(([crNumber, crProposals]) => renderListItem(crNumber, crProposals))}
               </>
@@ -3494,24 +3428,24 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
           {/* RIGHT: detail panel */}
           {selectedCr === FREE_KEY ? (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#F5F5F5' }}>
-              <div style={{ padding: '10px 18px', background: C.bgCard, borderBottom: `1px solid ${C.border}`, flexShrink: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: C.textMuted, background: C.bgNested, padding: '3px 9px', borderRadius: RADIUS.sm, fontSize: '14px' }}>ללא CR</span>
-                <span style={{ flex: 1, fontWeight: 600, fontSize: '15px', color: C.textPrimary }}>משימות תשתיתיות / כלליות</span>
+            <div className="flex flex-1 flex-col overflow-hidden bg-[#F5F5F5]">
+              <div className="flex shrink-0 items-center gap-[10px] border-b border-border bg-card px-[18px] py-[10px]">
+                <span className="rounded-sm bg-muted px-[9px] py-[3px] font-mono text-sm font-bold text-subtle-foreground">ללא CR</span>
+                <span className="flex-1 text-[15px] font-semibold text-foreground">משימות תשתיתיות / כלליות</span>
               </div>
-              <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px' }}>
+              <div className="flex-1 overflow-y-auto px-[18px] py-[14px]">
                 {freeGroup.sort((a, b) => a.phase - b.phase).map(renderRow)}
                 {!submissionDone && openFormForCr !== FREE_KEY && (
                   <button onClick={() => openAdd(undefined, undefined, true)}
-                    style={{ marginTop: '10px', width: '100%', padding: '9px', background: C.textMuted, color: C.textInverse, border: 'none', borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '15px', fontWeight: 600 }}>
+                    className="mt-[10px] w-full cursor-pointer rounded-lg border-none p-[9px] text-[15px] font-semibold text-white" style={{ background: C.textMuted }}>
                     + הוסף משימה
                   </button>
                 )}
               </div>
             </div>
           ) : selectedCr ? renderDetailPanel(selectedCr) : (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '12px', color: C.textMuted, fontSize: '15px' }}>
-              <div style={{ fontSize: '40px' }}>←</div>
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-[15px] text-subtle-foreground">
+              <div className="text-[40px]">←</div>
               <div>בחר CR מהרשימה משמאל</div>
             </div>
           )}

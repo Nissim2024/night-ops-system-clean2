@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
+import { C } from '../../theme';
+import { cn } from '../../lib/utils';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -53,7 +54,7 @@ function BarChartWithOverlays({ bars, overlays }: { bars: TimelinePoint[]; overl
   const hasBars = bars.some(b => b.value != null);
 
   if (!hasBars) {
-    return <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6], textAlign: 'center' }}>אין נתונים להצגה עם הפילטרים הנוכחיים.</div>;
+    return <div className="p-6 text-center text-sm text-subtle-foreground">אין נתונים להצגה עם הפילטרים הנוכחיים.</div>;
   }
 
   const barWidth = Math.max(14, Math.min(40, gap * 0.5));
@@ -63,8 +64,8 @@ function BarChartWithOverlays({ bars, overlays }: { bars: TimelinePoint[]; overl
   const yFor = (v: number) => (CHART_HEIGHT - BOTTOM_PAD) - (v / 100) * (CHART_HEIGHT - BOTTOM_PAD - TOP_PAD);
 
   return (
-    <div ref={containerRef} style={{ overflowX: 'auto', width: '100%' }}>
-      <svg width={width} height={CHART_HEIGHT + 40} style={{ display: 'block' }}>
+    <div ref={containerRef} className="w-full overflow-x-auto">
+      <svg width={width} height={CHART_HEIGHT + 40} className="block">
         {[0, 25, 50, 75, 100].map(v => (
           <g key={v}>
             <line x1={CHART_PAD - 20} y1={yFor(v)} x2={width - CHART_PAD + 20} y2={yFor(v)} stroke={C.border} strokeWidth={1} />
@@ -179,32 +180,32 @@ export const ReleaseQualityTimelineView: React.FC<Props> = ({ token }) => {
 
   if (releases.length === 0) {
     return (
-      <div style={{ fontFamily: FONT, direction: 'rtl', textAlign: 'center', padding: SP[8], color: C.textMuted }}>
+      <div className="p-8 text-center text-subtle-foreground [direction:rtl]">
         אין עדיין נתוני איכות גרסה. יש לייבא את שני קבצי ה-Excel דרך מסך הניהול.
       </div>
     );
   }
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>📈 ציר זמן איכות גרסה</div>
+    <div className="flex flex-col gap-4 [direction:rtl]">
+      <div className="text-lg font-bold text-foreground">📈 ציר זמן איכות גרסה</div>
 
-      <div style={{ display: 'flex', gap: SP[4], flexWrap: 'wrap' }}>
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[3] }}>
-          <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: SP[2] }}>סינון לפי שנה</div>
-          <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap', maxWidth: '340px' }}>
+      <div className="flex flex-wrap gap-4">
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="mb-2 text-xs text-subtle-foreground">סינון לפי שנה</div>
+          <div className="flex max-w-[340px] flex-wrap gap-2">
             {years.map(y => (
-              <label key={y} style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', ...TEXT.sm, background: selectedYears.includes(y) ? C.brandDim : 'transparent', padding: '3px 8px', borderRadius: RADIUS.sm }}>
+              <label key={y} className={cn('flex cursor-pointer items-center gap-1 rounded-sm px-2 py-[3px] text-sm', selectedYears.includes(y) ? 'bg-primary-50' : 'bg-transparent')}>
                 <input type="checkbox" checked={selectedYears.includes(y)} onChange={() => toggleYear(y)} />
                 {y}
               </label>
             ))}
           </div>
         </div>
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[3], maxHeight: '160px', overflowY: 'auto', minWidth: '220px' }}>
-          <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: SP[2] }}>או בחר גרסאות ספציפיות</div>
+        <div className="min-w-[220px] max-h-[160px] overflow-y-auto rounded-lg border border-border bg-card p-3">
+          <div className="mb-2 text-xs text-subtle-foreground">או בחר גרסאות ספציפיות</div>
           {releases.map(r => (
-            <label key={r.releaseName} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: '2px 0', cursor: 'pointer', ...TEXT.sm }}>
+            <label key={r.releaseName} className="flex cursor-pointer items-center gap-2 py-0.5 text-sm">
               <input type="checkbox" checked={selectedReleases.includes(r.releaseName)} onChange={() => toggleRelease(r.releaseName)} />
               {r.releaseName}
             </label>
@@ -213,15 +214,15 @@ export const ReleaseQualityTimelineView: React.FC<Props> = ({ token }) => {
         {(selectedYears.length > 0 || selectedReleases.length > 0) && (
           <button
             onClick={() => { setSelectedYears([]); setSelectedReleases([]); }}
-            style={{ alignSelf: 'flex-start', padding: '6px 12px', background: 'none', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', color: C.textMuted, ...TEXT.xs }}
+            className="self-start cursor-pointer rounded-md border border-border bg-transparent px-3 py-1.5 text-xs text-subtle-foreground"
           >
             נקה סינון
           </button>
         )}
       </div>
 
-      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[3] }}>
-        <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: SP[2] }}>הצג מדד על גבי ציון הגרסה הכללי</div>
+      <div className="rounded-lg border border-border bg-card p-3">
+        <div className="mb-2 text-xs text-subtle-foreground">הצג מדד על גבי ציון הגרסה הכללי</div>
         {/* flex-wrap + justify-content:center, not a grid — a grid with
             auto-fill locks in a fixed column count sized to the container,
             so a short last row only fills some of those columns and leaves
@@ -230,7 +231,7 @@ export const ReleaseQualityTimelineView: React.FC<Props> = ({ token }) => {
             row sits centered instead, which reads as intentional at any
             item count; a fixed button width keeps every row's columns
             aligned (order stays source/DOM order, unchanged). */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: SP[2] }}>
+        <div className="flex flex-wrap justify-center gap-2">
           {kpiDefs.map(k => {
             const active = selectedKpis.includes(k.kpiName);
             const color = kpiColor(k.kpiOrder);
@@ -238,15 +239,17 @@ export const ReleaseQualityTimelineView: React.FC<Props> = ({ token }) => {
               <button
                 key={k.kpiName}
                 onClick={() => toggleKpi(k.kpiName)}
+                className={cn(
+                  'flex flex-none basis-[190px] cursor-pointer items-center justify-center gap-1.5 rounded-md px-3 py-[5px] text-sm',
+                  active ? 'font-bold' : 'font-normal'
+                )}
                 style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '5px 12px', borderRadius: RADIUS.md,
-                  border: `1.5px solid ${active ? color : C.border}`, background: active ? `${color}22` : 'transparent',
-                  color: active ? color : C.textSecondary, cursor: 'pointer', fontFamily: FONT, ...TEXT.sm,
-                  fontWeight: active ? WEIGHT.bold : WEIGHT.normal,
-                  flex: '0 0 190px',
+                  border: `1.5px solid ${active ? color : C.border}`,
+                  background: active ? `${color}22` : 'transparent',
+                  color: active ? color : C.textSecondary,
                 }}
               >
-                <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: color, flexShrink: 0 }} />
+                <span className="h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: color }} />
                 {k.kpiName}
               </button>
             );
@@ -254,11 +257,11 @@ export const ReleaseQualityTimelineView: React.FC<Props> = ({ token }) => {
         </div>
       </div>
 
-      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4] }}>
+      <div className="rounded-lg border border-border bg-card p-4">
         {loading && !barsData ? (
-          <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6], textAlign: 'center' }}>טוען...</div>
+          <div className="p-6 text-center text-sm text-subtle-foreground">טוען...</div>
         ) : !barsData ? (
-          <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6], textAlign: 'center' }}>לא ניתן לטעון נתונים.</div>
+          <div className="p-6 text-center text-sm text-subtle-foreground">לא ניתן לטעון נתונים.</div>
         ) : (
           <BarChartWithOverlays bars={barsData.points} overlays={overlays} />
         )}

@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
+import { JIRA } from '../../theme';
 import { RcaWizardModal } from './RcaWizardModal';
-import { DefectIdBadge } from '../shared/defectFieldDisplay';
+import { DefectIdBadge, IssueKeyLink, StatusBadge, SeverityBadge, SelectColumnsDialog } from '../shared/defectFieldDisplay';
 import { BackLink } from '../ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -144,126 +144,20 @@ const DEFAULT_IMPORT_CANDIDATE_COLUMNS: (keyof ImportCandidate)[] = [
 ];
 const IMPORT_CANDIDATE_COLUMNS_STORAGE_KEY = 'deploycenter_incident_import_columns_v2';
 
-const columnMoveBtnStyle: React.CSSProperties = {
-  padding: '4px 10px', background: C.bgNested, color: C.textPrimary,
-  border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer',
-  fontSize: '13px', fontFamily: FONT, minWidth: '36px',
-};
-
-// "Select Columns" picker — mirrors VersionOverview.tsx's SelectColumnsDialog
-// (same reference ALM/QC "Select Columns" dialog UX), retyped for ImportCandidate.
-function SelectColumnsDialog({
-  allColumns, visibleKeys, onApply, onClose,
-}: {
-  allColumns: { key: keyof ImportCandidate; label: string }[];
-  visibleKeys: (keyof ImportCandidate)[];
-  onApply: (keys: (keyof ImportCandidate)[]) => void;
-  onClose: () => void;
-}) {
-  const [visible, setVisible] = useState(
-    visibleKeys.map(k => allColumns.find(c => c.key === k)).filter((c): c is { key: keyof ImportCandidate; label: string } => !!c)
-  );
-  const [available, setAvailable] = useState(allColumns.filter(c => !visibleKeys.includes(c.key)));
-  const [selAvailable, setSelAvailable] = useState<Set<keyof ImportCandidate>>(new Set());
-  const [selVisible, setSelVisible] = useState<Set<keyof ImportCandidate>>(new Set());
-
-  const toggle = (set: Set<keyof ImportCandidate>, key: keyof ImportCandidate, setFn: (s: Set<keyof ImportCandidate>) => void) => {
-    const next = new Set(set);
-    if (next.has(key)) next.delete(key); else next.add(key);
-    setFn(next);
-  };
-
-  const moveToVisible = () => {
-    if (selAvailable.size === 0) return;
-    setVisible(v => [...v, ...available.filter(c => selAvailable.has(c.key))]);
-    setAvailable(a => a.filter(c => !selAvailable.has(c.key)));
-    setSelAvailable(new Set());
-  };
-  const moveToAvailable = () => {
-    if (selVisible.size === 0) return;
-    setAvailable(a => [...a, ...visible.filter(c => selVisible.has(c.key))]);
-    setVisible(v => v.filter(c => !selVisible.has(c.key)));
-    setSelVisible(new Set());
-  };
-  const moveAllToVisible = () => { setVisible(v => [...v, ...available]); setAvailable([]); setSelAvailable(new Set()); };
-  const moveAllToAvailable = () => { setAvailable(a => [...a, ...visible]); setVisible([]); setSelVisible(new Set()); };
-
-  const reorder = (dir: -1 | 1) => {
-    if (selVisible.size !== 1) return;
-    const key = Array.from(selVisible)[0];
-    const idx = visible.findIndex(c => c.key === key);
-    const newIdx = idx + dir;
-    if (newIdx < 0 || newIdx >= visible.length) return;
-    const next = [...visible];
-    [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
-    setVisible(next);
-  };
-
-  const listBoxStyle: React.CSSProperties = {
-    border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, height: '280px',
-    overflowY: 'auto', background: C.bgNested,
-  };
-  const itemStyle = (selected: boolean): React.CSSProperties => ({
-    padding: '4px 8px', fontSize: '13px', cursor: 'pointer',
-    background: selected ? C.brandDim : 'transparent', color: C.textPrimary,
-  });
-
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: C.bgCard, borderRadius: RADIUS.lg, padding: '20px', width: '660px', maxWidth: '94vw', boxShadow: '0 20px 48px rgba(0,0,0,.25)', fontFamily: FONT }}>
-        <div style={{ fontSize: '15px', fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '14px', textAlign: 'right' }}>בחירת עמודות</div>
-        <div style={{ display: 'flex', gap: '10px', direction: 'ltr' }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: '12px', color: C.textMuted, marginBottom: '4px' }}>Available Columns:</div>
-            <div style={listBoxStyle}>
-              {available.map(c => (
-                <div key={c.key} onClick={() => toggle(selAvailable, c.key, setSelAvailable)} style={itemStyle(selAvailable.has(c.key))}>
-                  {c.label}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '6px' }}>
-            <button onClick={moveToVisible} style={columnMoveBtnStyle}>&gt;</button>
-            <button onClick={moveAllToVisible} style={columnMoveBtnStyle}>&gt;&gt;</button>
-            <button onClick={moveToAvailable} style={columnMoveBtnStyle}>&lt;</button>
-            <button onClick={moveAllToAvailable} style={columnMoveBtnStyle}>&lt;&lt;</button>
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <span style={{ fontSize: '12px', color: C.textMuted }}>Visible Columns:</span>
-              <div style={{ display: 'flex', gap: '4px' }}>
-                <button onClick={() => reorder(-1)} style={{ ...columnMoveBtnStyle, padding: '2px 8px' }}>↑</button>
-                <button onClick={() => reorder(1)} style={{ ...columnMoveBtnStyle, padding: '2px 8px' }}>↓</button>
-              </div>
-            </div>
-            <div style={listBoxStyle}>
-              {visible.map(c => (
-                <div key={c.key} onClick={() => toggle(selVisible, c.key, setSelVisible)} style={itemStyle(selVisible.has(c.key))}>
-                  {c.label}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-          <button onClick={onClose} style={{ padding: '8px 20px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontFamily: FONT }}>ביטול</button>
-          <button onClick={() => onApply(visible.map(c => c.key))} style={{ padding: '8px 20px', background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontWeight: WEIGHT.semibold, fontFamily: FONT }}>אישור</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 interface Metrics {
   total: number; closed: number; open: number; recurrenceRate: number;
   timeToRcaHoursAvg: number | null; actionsOnTimePct: number | null;
   openActionsCount: number; overdueActionsCount: number;
 }
 
-const SEVERITY_COLOR: Record<string, string> = { LOW: C.success, MEDIUM: C.warning, HIGH: C.danger, CRITICAL: C.danger };
+const SEVERITY_DOT_CLASS: Record<string, string> = { LOW: 'bg-success', MEDIUM: 'bg-warning', HIGH: 'bg-danger', CRITICAL: 'bg-danger' };
 const STATUS_LABEL: Record<string, string> = { NEW: 'חדש', ANALYZING: 'בניתוח', RCA_DONE: 'RCA הושלם', CLOSED: 'סגור' };
-const STATUS_COLOR: Record<string, string> = { NEW: C.textMuted, ANALYZING: C.warning, RCA_DONE: C.info, CLOSED: C.success };
+const STATUS_BADGE_CLASS: Record<string, string> = {
+  NEW: 'text-subtle-foreground bg-muted',
+  ANALYZING: 'text-warning bg-warning-bg',
+  RCA_DONE: 'text-info bg-info-bg',
+  CLOSED: 'text-success bg-success-bg',
+};
 
 // "פילוח לפי קטגוריית גורם שורש" — Root Cause Category rollup (see
 // incidents.service.ts's getCategoryBreakdown). Cross-version by default —
@@ -282,11 +176,11 @@ interface CategoryBreakdown { total: number; categories: CategoryBreakdownRow[];
 // categories (root-cause-taxonomy.ts) vs. the treemap's 8-slice cap.
 const CATEGORY_BAR_COLORS = ['#2a78d6', '#008300', '#e87ba4', '#eda100', '#1baf7a', '#eb6834', '#4a3aa7', '#e34948', '#0f9b8e', '#8e44ad', '#c2185b', '#5d4037'];
 
-function MetricTile({ label, value, accent }: { label: string; value: string | number; accent?: string }) {
+function MetricTile({ label, value, accentClass }: { label: string; value: string | number; accentClass?: string }) {
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '12px 16px', flex: '1 1 140px', minWidth: '140px' }}>
-      <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: accent ?? C.textPrimary }}>{value}</div>
-      <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>{label}</div>
+    <div className="bg-card border border-border rounded-lg px-4 py-3 flex-[1_1_140px] min-w-[140px]">
+      <div className={`text-xl font-bold ${accentClass ?? 'text-foreground'}`}>{value}</div>
+      <div className="text-xs text-subtle-foreground mt-[3px]">{label}</div>
     </div>
   );
 }
@@ -309,15 +203,15 @@ const CategoryBreakdownView: React.FC<{
   const maxCount = data?.categories[0]?.count ?? 0;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: C.bgApp, zIndex: 1001, display: 'flex', flexDirection: 'column', fontFamily: FONT, direction: 'rtl' }}>
-      <div style={{ background: C.bgCard, borderBottom: `1px solid ${C.border}`, padding: `${SP[3]} ${SP[5]}`, display: 'flex', alignItems: 'center', gap: SP[3], flexShrink: 0 }}>
+    <div className="fixed inset-0 bg-background z-[1001] flex flex-col">
+      <div className="bg-card border-b border-border px-5 py-3 flex items-center gap-3 shrink-0">
         <BackLink onClick={onClose} />
-        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary, flex: 1 }}>📊 פילוח לפי קטגוריית גורם שורש</div>
-        <div style={{ display: 'flex', gap: '4px', background: C.bgNested, borderRadius: RADIUS.md, padding: '3px' }}>
+        <div className="text-lg font-bold text-foreground flex-1">📊 פילוח לפי קטגוריית גורם שורש</div>
+        <div className="flex gap-1 bg-muted rounded-md p-[3px]">
           {(['all', 'version'] as const).map(s => (
             <button
               key={s} onClick={() => setScope(s)}
-              style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: 'none', cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.bold, background: scope === s ? C.brand : 'transparent', color: scope === s ? 'white' : C.textSecondary }}
+              className={`px-3 py-[5px] rounded-sm border-none cursor-pointer text-xs font-bold ${scope === s ? 'bg-primary text-white' : 'bg-transparent text-muted-foreground'}`}
             >
               {s === 'all' ? 'כל הגרסאות' : 'הגרסה הנוכחית'}
             </button>
@@ -325,40 +219,40 @@ const CategoryBreakdownView: React.FC<{
         </div>
       </div>
 
-      <div style={{ flex: 1, overflow: 'auto', padding: SP[5] }}>
+      <div className="flex-1 overflow-auto p-5">
         {loading ? (
-          <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[6] }}>טוען...</div>
+          <div className="text-sm text-subtle-foreground text-center p-6">טוען...</div>
         ) : !data || data.categories.length === 0 ? (
-          <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[6] }}>אין עדיין תקלות עם RCA שכולל סיווג קטגוריית גורם שורש{scope === 'version' ? ' בגרסה זו' : ''}.</div>
+          <div className="text-sm text-subtle-foreground text-center p-6">אין עדיין תקלות עם RCA שכולל סיווג קטגוריית גורם שורש{scope === 'version' ? ' בגרסה זו' : ''}.</div>
         ) : (
-          <div style={{ maxWidth: '900px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-            <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: SP[2] }}>{data.total} תקלות עם RCA מסווג · {data.categories.length} קטגוריות</div>
+          <div className="max-w-[900px] mx-auto flex flex-col gap-2">
+            <div className="text-xs text-subtle-foreground mb-2">{data.total} תקלות עם RCA מסווג · {data.categories.length} קטגוריות</div>
             {data.categories.map((row, i) => {
               const color = CATEGORY_BAR_COLORS[i % CATEGORY_BAR_COLORS.length];
               const isOpen = expanded.has(row.category);
               return (
-                <div key={row.category} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'hidden' }}>
-                  <div onClick={() => toggle(row.category)} style={{ display: 'flex', alignItems: 'center', gap: SP[3], padding: '12px 16px', cursor: 'pointer' }}>
-                    <span style={{ ...TEXT.xs, color: C.textMuted, width: '14px' }}>{isOpen ? '▾' : '▸'}</span>
-                    <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, minWidth: '140px' }}>{row.category}</span>
-                    <div style={{ flex: 1, height: '18px', background: C.bgNested, borderRadius: RADIUS.sm, overflow: 'hidden' }}>
-                      <div style={{ width: `${maxCount ? (row.count / maxCount) * 100 : 0}%`, height: '100%', background: color, borderRadius: RADIUS.sm, transition: 'width 0.3s' }} />
+                <div key={row.category} className="bg-card border border-border rounded-lg overflow-hidden">
+                  <div onClick={() => toggle(row.category)} className="flex items-center gap-3 px-4 py-3 cursor-pointer">
+                    <span className="text-xs text-subtle-foreground w-3.5">{isOpen ? '▾' : '▸'}</span>
+                    <span className="text-sm font-bold text-foreground min-w-[140px]">{row.category}</span>
+                    <div className="flex-1 h-[18px] bg-muted rounded-sm overflow-hidden">
+                      <div className="h-full rounded-sm transition-[width] duration-standard ease-out" style={{ width: `${maxCount ? (row.count / maxCount) * 100 : 0}%`, background: color }} />
                     </div>
-                    <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, minWidth: '70px', textAlign: 'left' }}>{row.count} ({row.pct}%)</span>
+                    <span className="text-sm font-bold text-foreground min-w-[70px] text-left">{row.count} ({row.pct}%)</span>
                   </div>
                   {isOpen && (
-                    <div style={{ borderTop: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column' }}>
+                    <div className="border-t border-border flex flex-col">
                       {row.incidents.map(inc => (
                         <div
                           key={inc.id} onClick={() => onOpenIncident(inc.id)}
-                          style={{ display: 'flex', alignItems: 'center', gap: SP[3], padding: '8px 16px 8px 40px', cursor: 'pointer', borderTop: `1px solid ${C.border}` }}
+                          className="flex items-center gap-3 py-2 ps-10 pe-4 cursor-pointer border-t border-border"
                         >
-                          <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: inc.severity ? SEVERITY_COLOR[inc.severity] : C.textMuted, flexShrink: 0 }} />
-                          <span style={{ minWidth: '56px' }}><DefectIdBadge id={inc.qcDefectId} /></span>
-                          <span style={{ ...TEXT.sm, color: C.textPrimary, flex: 1 }}>{inc.title}</span>
-                          {inc.rootCauseReason && <span style={{ ...TEXT.xs, color: C.textSecondary, background: C.bgNested, borderRadius: RADIUS.sm, padding: '2px 8px' }}>{inc.rootCauseReason}</span>}
-                          {scope === 'all' && <span style={{ ...TEXT.xs, color: C.textMuted, minWidth: '90px' }}>{inc.versionName}</span>}
-                          <span style={{ ...TEXT.xs, color: C.textMuted }}>{BREAKDOWN_RCA_STATUS_LABEL[inc.rcaStatus] ?? inc.rcaStatus}</span>
+                          <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${inc.severity ? SEVERITY_DOT_CLASS[inc.severity] : 'bg-subtle-foreground'}`} />
+                          <span className="min-w-[56px]"><DefectIdBadge id={inc.qcDefectId} /></span>
+                          <span className="text-sm text-foreground flex-1">{inc.title}</span>
+                          {inc.rootCauseReason && <span className="text-xs text-muted-foreground bg-muted rounded-sm px-2 py-0.5">{inc.rootCauseReason}</span>}
+                          {scope === 'all' && <span className="text-xs text-subtle-foreground min-w-[90px]">{inc.versionName}</span>}
+                          <span className="text-xs text-subtle-foreground">{BREAKDOWN_RCA_STATUS_LABEL[inc.rcaStatus] ?? inc.rcaStatus}</span>
                         </div>
                       ))}
                     </div>
@@ -468,50 +362,50 @@ export const IncidentsView: React.FC<Props> = ({ token, versionId, role }) => {
 
   if (!versionId) {
     return (
-      <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6], textAlign: 'center' }}>
+      <div className="text-sm text-subtle-foreground p-6 text-center">
         יש לבחור גרסה כדי להציג את תקלות ה-Go-Live שלה.
       </div>
     );
   }
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: SP[2] }}>
-        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>🧯 תקלות ו-RCA — Go-Live</div>
-        <div style={{ display: 'flex', gap: SP[2] }}>
-          <button onClick={() => setShowBreakdown(true)} style={{ padding: '8px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT, ...TEXT.sm }}>
+    <div className="flex flex-col gap-4">
+      <div className="flex justify-between items-center flex-wrap gap-2">
+        <div className="text-lg font-bold text-foreground">🧯 תקלות ו-RCA — Go-Live</div>
+        <div className="flex gap-2">
+          <button onClick={() => setShowBreakdown(true)} className="px-3.5 py-2 bg-muted text-muted-foreground border border-border rounded-md cursor-pointer text-sm">
             📊 פילוח לפי קטגוריית גורם שורש
           </button>
-          <button onClick={doSuggestGroups} style={{ padding: '8px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT, ...TEXT.sm }}>
+          <button onClick={doSuggestGroups} className="px-3.5 py-2 bg-muted text-muted-foreground border border-border rounded-md cursor-pointer text-sm">
             🔗 הצע קיבוץ תקלות דומות
           </button>
-          <button onClick={openImport} style={{ padding: '8px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.bold }}>
+          <button onClick={openImport} className="px-3.5 py-2 bg-primary text-white border-none rounded-md cursor-pointer text-sm font-bold">
             ⬇ בחר תקלות לתחקור
           </button>
         </div>
       </div>
 
       {metrics && (
-        <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
+        <div className="flex gap-2 flex-wrap">
           <MetricTile label="סה״כ תקלות" value={metrics.total} />
-          <MetricTile label="פתוחות" value={metrics.open} accent={metrics.open > 0 ? C.warning : C.success} />
-          <MetricTile label="סגורות" value={metrics.closed} accent={C.success} />
+          <MetricTile label="פתוחות" value={metrics.open} accentClass={metrics.open > 0 ? 'text-warning' : 'text-success'} />
+          <MetricTile label="סגורות" value={metrics.closed} accentClass="text-success" />
           <MetricTile label="שיעור הישנות (מקובצות)" value={`${metrics.recurrenceRate}%`} />
           <MetricTile label="זמן ממוצע ל-RCA (שעות)" value={metrics.timeToRcaHoursAvg ?? '—'} />
           <MetricTile label="פעולות שהושלמו בזמן" value={metrics.actionsOnTimePct != null ? `${metrics.actionsOnTimePct}%` : '—'} />
-          <MetricTile label="פעולות באיחור" value={metrics.overdueActionsCount} accent={metrics.overdueActionsCount > 0 ? C.danger : undefined} />
+          <MetricTile label="פעולות באיחור" value={metrics.overdueActionsCount} accentClass={metrics.overdueActionsCount > 0 ? 'text-danger' : undefined} />
         </div>
       )}
 
       {suggestedGroups && (
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[3] }}>
-          <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: SP[2] }}>הצעות קיבוץ (היוריסטי — לפי גורם שורש משותף, רק לתקלות שהושלם עבורן תחקיר)</div>
+        <div className="bg-card border border-border rounded-lg p-3">
+          <div className="text-sm font-semibold text-muted-foreground mb-2">הצעות קיבוץ (היוריסטי — לפי גורם שורש משותף, רק לתקלות שהושלם עבורן תחקיר)</div>
           {suggestedGroups.length === 0 ? (
-            <div style={{ ...TEXT.xs, color: C.textMuted }}>לא נמצאו תקלות עם גורם שורש דומה לקיבוץ (קיבוץ מתבצע רק לאחר השלמת תחקיר).</div>
+            <div className="text-xs text-subtle-foreground">לא נמצאו תקלות עם גורם שורש דומה לקיבוץ (קיבוץ מתבצע רק לאחר השלמת תחקיר).</div>
           ) : suggestedGroups.map((g, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderTop: i > 0 ? `1px solid ${C.border}` : 'none' }}>
-              <div style={{ ...TEXT.xs, color: C.textSecondary }}>{g.reason} · {g.incidentIds.length} תקלות</div>
-              <button onClick={() => createGroup(g)} style={{ padding: '4px 10px', background: C.brandDim, color: C.brand, border: 'none', borderRadius: RADIUS.sm, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.bold }}>
+            <div key={i} className={`flex justify-between items-center py-1.5 ${i > 0 ? 'border-t border-border' : ''}`}>
+              <div className="text-xs text-muted-foreground">{g.reason} · {g.incidentIds.length} תקלות</div>
+              <button onClick={() => createGroup(g)} className="px-2.5 py-1 bg-primary-50 text-primary border-none rounded-sm cursor-pointer text-xs font-bold">
                 צור קבוצה
               </button>
             </div>
@@ -519,11 +413,11 @@ export const IncidentsView: React.FC<Props> = ({ token, versionId, role }) => {
         </div>
       )}
 
-      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'hidden' }}>
+      <div className="bg-card border border-border rounded-lg overflow-hidden">
         {loading ? (
-          <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6], textAlign: 'center' }}>טוען...</div>
+          <div className="text-sm text-subtle-foreground p-6 text-center">טוען...</div>
         ) : incidents.length === 0 ? (
-          <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6], textAlign: 'center' }}>אין תקלות לגרסה זו. בחרו תקלות לתחקור כדי להתחיל.</div>
+          <div className="text-sm text-subtle-foreground p-6 text-center">אין תקלות לגרסה זו. בחרו תקלות לתחקור כדי להתחיל.</div>
         ) : (
           incidents.map((inc, i) => {
             const component = [inc.mainModule, inc.subModule || inc.systemComponent].filter(Boolean).join(' / ');
@@ -538,24 +432,21 @@ export const IncidentsView: React.FC<Props> = ({ token, versionId, role }) => {
               <div
                 key={inc.id}
                 onClick={() => setSelectedIncidentId(inc.id)}
-                style={{
-                  display: 'flex', flexDirection: 'column', gap: '4px', padding: '10px 14px', cursor: 'pointer',
-                  borderTop: i > 0 ? `1px solid ${C.border}` : 'none',
-                }}
+                className={`flex flex-col gap-1 px-3.5 py-2.5 cursor-pointer ${i > 0 ? 'border-t border-border' : ''}`}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: inc.severity ? SEVERITY_COLOR[inc.severity] : C.textMuted, flexShrink: 0 }} />
-                  <span style={{ minWidth: '60px' }}><DefectIdBadge id={inc.qcDefectId} /></span>
-                  <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, flex: 1 }}>{inc.title}</span>
-                  {inc.defectType && <span style={{ ...TEXT.xs, color: C.textSecondary, background: C.bgNested, borderRadius: RADIUS.sm, padding: '2px 8px' }}>{inc.defectType}</span>}
-                  {inc.group && <span style={{ ...TEXT.xs, color: C.brand, background: C.brandDim, borderRadius: RADIUS.full, padding: '2px 8px' }}>🔗 {inc.group.reason}</span>}
-                  <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: STATUS_COLOR[inc.status], background: `${STATUS_COLOR[inc.status]}22`, borderRadius: RADIUS.full, padding: '3px 10px' }}>
+                <div className="flex items-center gap-3">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${inc.severity ? SEVERITY_DOT_CLASS[inc.severity] : 'bg-subtle-foreground'}`} />
+                  <span className="min-w-[60px]"><DefectIdBadge id={inc.qcDefectId} /></span>
+                  <span className="text-sm font-semibold text-foreground flex-1">{inc.title}</span>
+                  {inc.defectType && <span className="text-xs text-muted-foreground bg-muted rounded-sm px-2 py-0.5">{inc.defectType}</span>}
+                  {inc.group && <span className="text-xs text-primary bg-primary-50 rounded-full px-2 py-0.5">🔗 {inc.group.reason}</span>}
+                  <span className={`text-xs font-bold rounded-full px-2.5 py-[3px] ${STATUS_BADGE_CLASS[inc.status]}`}>
                     {STATUS_LABEL[inc.status]}
                   </span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], paddingRight: '20px', ...TEXT.xs, color: C.textMuted, flexWrap: 'wrap' }}>
-                  {facts.length > 0 ? facts.map((f, fi) => <span key={fi}>{f}</span>) : <span style={{ fontStyle: 'italic' }}>אין פרטי השפעה עסקית — למלא בזמן התחקיר</span>}
-                  <span style={{ marginRight: 'auto' }}>{inc.evidence.length} ראיות · {inc.actions.length} פעולות</span>
+                <div className="flex items-center gap-3 pe-5 text-xs text-subtle-foreground flex-wrap">
+                  {facts.length > 0 ? facts.map((f, fi) => <span key={fi}>{f}</span>) : <span className="italic">אין פרטי השפעה עסקית — למלא בזמן התחקיר</span>}
+                  <span className="ms-auto">{inc.evidence.length} ראיות · {inc.actions.length} פעולות</span>
                 </div>
               </div>
             );
@@ -564,43 +455,44 @@ export const IncidentsView: React.FC<Props> = ({ token, versionId, role }) => {
       </div>
 
       {showImport && (
-        <div style={{ position: 'fixed', inset: 0, background: C.bgApp, zIndex: 1001, display: 'flex', flexDirection: 'column', fontFamily: FONT, direction: 'rtl' }}>
-          <div style={{ background: C.bgCard, borderBottom: `1px solid ${C.border}`, padding: `${SP[3]} ${SP[5]}`, display: 'flex', alignItems: 'center', gap: SP[3], flexShrink: 0 }}>
+        <div className="fixed inset-0 bg-background z-[1001] flex flex-col">
+          <div className="bg-card border-b border-border px-5 py-3 flex items-center gap-3 shrink-0">
             <BackLink onClick={() => setShowImport(false)} />
-            <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary, flex: 1 }}>בחר תקלות לתחקור</div>
+            <div className="text-lg font-bold text-foreground flex-1">בחר תקלות לתחקור</div>
             <button
               onClick={() => setShowColumnPicker(true)}
-              style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT, ...TEXT.sm }}
+              className="px-3.5 py-1.5 bg-muted text-muted-foreground border border-border rounded-md cursor-pointer text-sm"
             >
               ⚙ בחירת עמודות
             </button>
-            <button onClick={() => setShowImport(false)} style={{ padding: '8px 16px', background: 'none', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', color: C.textMuted, fontFamily: FONT, ...TEXT.sm }}>
+            <button onClick={() => setShowImport(false)} className="px-4 py-2 bg-transparent border border-border rounded-md cursor-pointer text-subtle-foreground text-sm">
               ביטול
             </button>
             <button
               onClick={doImport}
               disabled={!selectedCandidates.length || importing}
-              style={{ padding: '8px 20px', background: !selectedCandidates.length ? C.textDisabled : C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: !selectedCandidates.length ? 'not-allowed' : 'pointer', fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.bold }}
+              className={`px-5 py-2 text-white border-none rounded-md text-sm font-bold ${!selectedCandidates.length ? 'bg-subtle-foreground cursor-not-allowed' : 'bg-primary cursor-pointer'}`}
             >
               {importing ? 'מייבא...' : `ייבא (${selectedCandidates.length})`}
             </button>
           </div>
 
-          <div style={{ flex: 1, overflow: 'auto', padding: SP[4] }}>
+          <div className="flex-1 overflow-auto p-4">
             {candidates.length === 0 ? (
-              <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[6] }}>אין תקלות חדשות לייבוא (כולן כבר יובאו, או שאין תקלות ב-QC לגרסה זו).</div>
+              <div className="text-sm text-subtle-foreground text-center p-6">אין תקלות חדשות לייבוא (כולן כבר יובאו, או שאין תקלות ב-QC לגרסה זו).</div>
             ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', ...TEXT.sm }}>
+              <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr>
-                    <th style={{ textAlign: 'right', padding: '8px 10px', width: '30px', position: 'sticky', top: 0, background: C.bgApp }} />
+                    <th className="text-right px-2.5 py-2 w-[30px] sticky top-0 bg-background" />
                     {importColumns.map(key => (
+                      // Deliberately raw Atlassian/Jira hex (JIRA.textSubtle/greyN40) —
+                      // this table intentionally mimics ALM/QC's own "Select Columns"
+                      // look, not the app's own design tokens.
                       <th
                         key={key}
-                        style={{
-                          textAlign: 'right', padding: '8px 10px', color: C.textMuted, fontWeight: WEIGHT.bold,
-                          borderBottom: `2px solid ${C.border}`, whiteSpace: 'nowrap', position: 'sticky', top: 0, background: C.bgApp,
-                        }}
+                        className="text-right px-2.5 py-2 font-bold text-[11px] uppercase tracking-wide whitespace-nowrap sticky top-0 bg-background"
+                        style={{ color: JIRA.textSubtle, borderBottom: `2px solid ${JIRA.greyN40}` }}
                       >
                         {IMPORT_CANDIDATE_COLUMNS.find(c => c.key === key)?.label ?? key}
                       </th>
@@ -612,13 +504,16 @@ export const IncidentsView: React.FC<Props> = ({ token, versionId, role }) => {
                     const checked = selectedCandidates.includes(c.qcDefectId);
                     const toggle = () => setSelectedCandidates(prev => prev.includes(c.qcDefectId) ? prev.filter(x => x !== c.qcDefectId) : [...prev, c.qcDefectId]);
                     return (
-                      <tr key={c.qcDefectId} onClick={toggle} style={{ borderBottom: `1px solid ${C.border}`, cursor: 'pointer', background: checked ? C.brandDim : 'transparent' }}>
-                        <td style={{ padding: '7px 10px' }} onClick={e => e.stopPropagation()}>
+                      <tr key={c.qcDefectId} onClick={toggle} className={`border-b border-border cursor-pointer ${checked ? 'bg-primary-50' : 'bg-transparent'}`}>
+                        <td className="px-2.5 py-[7px]" onClick={e => e.stopPropagation()}>
                           <input type="checkbox" checked={checked} onChange={toggle} />
                         </td>
                         {importColumns.map(key => (
-                          <td key={key} style={{ padding: '7px 10px', color: C.textSecondary, whiteSpace: 'nowrap', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: key === 'qcDefectId' ? 'center' : 'right' }}>
-                            {key === 'qcDefectId' ? (c.qcDefectId ? <DefectIdBadge id={c.qcDefectId} /> : '—') : (String(c[key] ?? '') || '—')}
+                          <td key={key} className={`px-2.5 py-[7px] text-muted-foreground whitespace-nowrap max-w-[320px] overflow-hidden text-ellipsis ${key === 'qcDefectId' || key === 'severity' || key === 'status' ? 'text-center' : 'text-right'}`}>
+                            {key === 'qcDefectId' ? (c.qcDefectId ? <IssueKeyLink id={c.qcDefectId} /> : '—')
+                              : key === 'severity' ? <SeverityBadge severity={String(c[key] ?? '')} />
+                              : key === 'status' ? <StatusBadge status={String(c[key] ?? '')} />
+                              : (String(c[key] ?? '') || '—')}
                           </td>
                         ))}
                       </tr>

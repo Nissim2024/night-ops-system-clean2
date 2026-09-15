@@ -1,5 +1,14 @@
 import React, { useState } from 'react';
+// DateField/DateTimeField/DateRangeField/TimeField (unmigrated) only accept a
+// `style` prop, not className — the style objects still feeding them below
+// (inputStyle / validBorder) are the deliberate exception to the className
+// migration in this file, mirroring the same convention used in
+// PlanWizard.tsx. `C` is kept only for that purpose; every other visual has
+// moved to Tailwind classes. Colors with no equivalent design token (this
+// wizard's own one-off navy header gradient etc.) are preserved as literal
+// arbitrary-value classes rather than re-designed.
 import { C } from '../theme';
+import { cn } from '../lib/utils';
 import { DateField, DateTimeField, DateRangeField, TimeField, formatDMY } from './DatePicker';
 
 // formatDMY only parses bare 'YYYY-MM-DD' — split off the date part before
@@ -16,8 +25,8 @@ const formatDMYTime = (iso?: string): string => {
 const StrictDateTimeField: React.FC<{ value: string; onChange: (v: string) => void; style?: React.CSSProperties }> = ({ value, onChange, style }) => {
   const [datePart, timePart] = value ? value.split('T') : ['', ''];
   return (
-    <div style={{ display: 'flex', gap: '8px' }}>
-      <div style={{ flex: 1 }}>
+    <div className="flex gap-2">
+      <div className="flex-1">
         <DateField value={datePart} onChange={d => onChange(`${d}T${timePart}`)} style={style} />
       </div>
       <TimeField value={timePart} onChange={t => onChange(`${datePart}T${t}`)} />
@@ -66,12 +75,18 @@ interface Props {
 // שלב ראשון: פרטי הגרסה | שלב שני: תאריכי בדיקות (אינטגרציה+QA) | שלב שלישי: תאריכי פגישות | שלב רביעי: פעילויות (חזרה+ליל הטמעה) | שלב חמישי: אישור
 const STEP_LABELS = ['פרטי גרסה', 'תאריכי בדיקות', 'תאריכי פגישות', 'פעילויות', 'אישור'];
 
+// ── Style objects for DateField/DateTimeField/DateRangeField — the deliberate
+// exception (those components only accept `style`, not `className`). ──
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '9px', border: `2px solid ${C.border}`, borderRadius: '8px',
   fontSize: '15px', boxSizing: 'border-box', background: C.bgNested, color: C.textPrimary,
 };
-const labelStyle: React.CSSProperties = { display: 'block', marginBottom: '6px', fontWeight: 'bold', color: C.textPrimary, fontSize: '15px' };
-const optionalTag = <span style={{ fontSize: '12px', color: C.textMuted, fontWeight: 'normal' }}>אופציונלי</span>;
+const validBorder = (ok: boolean): React.CSSProperties => ({ ...inputStyle, border: `2px solid ${ok ? C.statusDone : C.statusBlocked}` });
+
+// ── Tailwind class constants for genuine (className-capable) form elements ──
+const LABEL_CLASS = 'mb-1.5 block text-[15px] font-bold text-foreground';
+const INPUT_CLASS = 'box-border w-full rounded-md border-2 border-border bg-muted p-[9px] text-[15px] text-foreground';
+const validClass = (ok: boolean) => (ok ? 'border-success' : 'border-danger');
 
 export const VersionWizard: React.FC<Props> = ({
   newVersion, setNewVersion, qcReleases, templates, selectedTemplateId, setSelectedTemplateId,
@@ -132,29 +147,24 @@ export const VersionWizard: React.FC<Props> = ({
   })();
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 3000, direction: 'rtl' }}>
-      <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,20,40,0.72)', backdropFilter: 'blur(2px)' }} />
+    <div className="fixed inset-0 z-[3000]" dir="rtl">
+      <div className="absolute inset-0 bg-[rgba(10,20,40,0.72)] backdrop-blur-[2px]" />
 
-      <div style={{
-        position: 'relative', zIndex: 1, maxWidth: 760,
-        margin: '32px auto', background: 'white', borderRadius: '16px',
-        boxShadow: '0 24px 64px rgba(0,0,0,0.45)', overflow: 'hidden',
-        display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 64px)',
-      }}>
+      <div className="relative z-[1] mx-auto my-8 flex max-h-[calc(100vh-64px)] max-w-[760px] flex-col overflow-hidden rounded-2xl bg-card shadow-[0_24px_64px_rgba(0,0,0,0.45)]">
         {/* Header */}
-        <div style={{ padding: '18px 28px 16px', background: 'linear-gradient(135deg, #1a2332 0%, #2d4a7a 100%)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+        <div className="flex shrink-0 items-center justify-between bg-gradient-to-br from-[#1a2332] to-[#2d4a7a] px-7 pb-4 pt-[18px] text-white">
           <div>
-            <div style={{ fontSize: '17px', fontWeight: 'bold', letterSpacing: '0.3px' }}>📋 יצירת תוכנית הטמעה</div>
-            <div style={{ fontSize: '14px', color: '#94a3b8', marginTop: '3px' }}>{newVersion.name || 'ללא שם עדיין'}</div>
+            <div className="text-[17px] font-bold tracking-[0.3px]">📋 יצירת תוכנית הטמעה</div>
+            <div className="mt-[3px] text-sm text-[#94a3b8]">{newVersion.name || 'ללא שם עדיין'}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', fontSize: '15px', cursor: 'pointer', padding: '7px 14px', borderRadius: '8px' }}>
+          <button onClick={onClose} className="cursor-pointer rounded-md border border-[rgba(255,255,255,0.2)] bg-[rgba(255,255,255,0.12)] px-3.5 py-[7px] text-[15px] text-white">
             ✕ ביטול
           </button>
         </div>
 
         {/* Progress bar */}
-        <div style={{ padding: '14px 28px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'stretch' }}>
+        <div className="shrink-0 border-b border-[#e2e8f0] bg-[#f8fafc] px-7 py-3.5">
+          <div className="flex items-stretch gap-1.5">
             {STEP_LABELS.map((label, i) => {
               const isActive = step === i;
               const isDone = step > i;
@@ -165,13 +175,18 @@ export const VersionWizard: React.FC<Props> = ({
                   <button
                     onClick={() => { if (i <= step) setStep(i); }}
                     disabled={i > step}
-                    style={{ flex: 1, padding: '8px 6px', border: 'none', borderRadius: '8px', cursor: i <= step ? 'pointer' : 'default', background: bg, color: fg, fontSize: '14px', fontWeight: isActive ? 700 : 500, transition: 'background 0.2s', lineHeight: 1.4 }}
+                    className={cn(
+                      'flex-1 rounded-md border-none px-1.5 py-2 text-sm leading-[1.4] transition-colors duration-fast ease-out',
+                      i <= step ? 'cursor-pointer' : 'cursor-default',
+                      isActive ? 'font-bold' : 'font-medium'
+                    )}
+                    style={{ background: bg, color: fg }}
                   >
-                    <div style={{ fontSize: '15px', marginBottom: '3px' }}>{isDone ? '✅' : isActive ? '●' : `${i + 1}`}</div>
+                    <div className="mb-[3px] text-[15px]">{isDone ? '✅' : isActive ? '●' : `${i + 1}`}</div>
                     {label}
                   </button>
                   {i < STEP_LABELS.length - 1 && (
-                    <div style={{ width: '18px', alignSelf: 'center', height: '2px', background: isDone ? '#16a34a' : '#e2e8f0', flexShrink: 0 }} />
+                    <div className="h-0.5 w-[18px] shrink-0 self-center" style={{ background: isDone ? '#16a34a' : '#e2e8f0' }} />
                   )}
                 </React.Fragment>
               );
@@ -180,20 +195,20 @@ export const VersionWizard: React.FC<Props> = ({
         </div>
 
         {/* Step content */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+        <div className="flex-1 overflow-y-auto px-7 py-6">
           {actionError && (
-            <div style={{ background: '#fff5f5', border: '1px solid #fca5a5', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', color: '#b91c1c', fontSize: '15px', display: 'flex', justifyContent: 'space-between' }}>
+            <div className="mb-4 flex justify-between rounded-md border border-[#fca5a5] bg-[#fff5f5] px-4 py-3 text-[15px] text-[#b91c1c]">
               <span>⚠️ {actionError}</span>
-              <button onClick={() => setActionError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', fontWeight: 'bold' }}>×</button>
+              <button onClick={() => setActionError(null)} className="cursor-pointer border-none bg-transparent font-bold text-[#b91c1c]">×</button>
             </div>
           )}
 
           {/* ── שלב 1: פרטי גרסה + בחירת שיטה ── */}
           {step === 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div className="flex flex-col gap-[18px]">
               <div>
-                <label style={labelStyle}>איך רוצים ליצור את הגרסה?</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                <label className={LABEL_CLASS}>איך רוצים ליצור את הגרסה?</label>
+                <div className="grid grid-cols-3 gap-2.5">
                   {([
                     { key: 'manual',   icon: '✏️', label: 'ידנית', desc: 'הזן פרטים ובנה תוכנית בהמשך' },
                     { key: 'template', icon: '📋', label: 'מתבנית שמורה', desc: 'שכפל מבנה מתבנית קיימת' },
@@ -202,29 +217,27 @@ export const VersionWizard: React.FC<Props> = ({
                     <div
                       key={opt.key}
                       onClick={() => setMethod(opt.key)}
-                      style={{
-                        cursor: 'pointer', borderRadius: '10px', padding: '14px 10px', textAlign: 'center',
-                        border: `2px solid ${method === opt.key ? C.brand : C.border}`,
-                        background: method === opt.key ? `${C.brand}0d` : C.bgNested,
-                        transition: 'all 0.15s',
-                      }}
+                      className={cn(
+                        'cursor-pointer rounded-[10px] border-2 px-2.5 py-3.5 text-center transition-[background-color,border-color] duration-base ease-out',
+                        method === opt.key ? 'border-primary bg-primary/5' : 'border-border bg-muted'
+                      )}
                     >
-                      <div style={{ fontSize: '22px', marginBottom: '4px' }}>{opt.icon}</div>
-                      <div style={{ fontWeight: 'bold', fontSize: '15px', color: method === opt.key ? C.brand : C.textPrimary }}>{opt.label}</div>
-                      <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '2px' }}>{opt.desc}</div>
+                      <div className="mb-1 text-[22px]">{opt.icon}</div>
+                      <div className={cn('text-[15px] font-bold', method === opt.key ? 'text-primary' : 'text-foreground')}>{opt.label}</div>
+                      <div className="mt-0.5 text-[13px] text-subtle-foreground">{opt.desc}</div>
                     </div>
                   ))}
                 </div>
               </div>
 
               <div>
-                <label style={labelStyle}>
-                  שם גרסה <span style={{ color: C.statusBlocked }}>*</span>
+                <label className={LABEL_CLASS}>
+                  שם גרסה <span className="text-danger">*</span>
                   {qcReleases.length === 0 && (
-                    <span style={{ fontSize: '13px', color: C.warning, marginRight: '6px', fontWeight: 'normal' }}>(סנכרן גרסאות QC מ-AdminPanel)</span>
+                    <span className="ms-1.5 text-[13px] font-normal text-warning">(סנכרן גרסאות QC מ-AdminPanel)</span>
                   )}
                 </label>
-                <div style={{ display: 'flex', gap: '6px' }}>
+                <div className="flex gap-1.5">
                   <select
                     value={newVersion.qcReleaseId || '__manual__'}
                     onChange={e => {
@@ -236,7 +249,7 @@ export const VersionWizard: React.FC<Props> = ({
                         setNewVersion(v => ({ ...v, qcReleaseId: val, name: rel?.relName || v.name }));
                       }
                     }}
-                    style={{ flexShrink: 0, maxWidth: '150px', padding: '9px 8px', border: `2px solid ${C.border}`, borderRadius: '8px', fontSize: '14px', background: C.bgNested, color: C.textPrimary }}
+                    className="max-w-[150px] shrink-0 rounded-md border-2 border-border bg-muted px-2 py-[9px] text-sm text-foreground"
                   >
                     <option value="__manual__">✏️ ידנית</option>
                     {qcReleases.length > 0 && <option disabled>── QC ──</option>}
@@ -257,52 +270,54 @@ export const VersionWizard: React.FC<Props> = ({
                     value={newVersion.name}
                     onChange={e => setNewVersion(v => ({ ...v, name: e.target.value, qcReleaseId: '' }))}
                     placeholder="לדוגמה: ITv04-2026"
-                    style={{ ...inputStyle, flex: 1, minWidth: 0, border: `2px solid ${newVersion.qcReleaseId ? C.statusDone : C.border}` }}
+                    className={cn(INPUT_CLASS, 'min-w-0 flex-1', newVersion.qcReleaseId ? 'border-success' : 'border-border')}
                   />
                 </div>
               </div>
 
               {method === 'manual' && (
                 <div>
-                  <label style={labelStyle}>תיאור <span style={{ color: C.statusBlocked }}>*</span></label>
+                  <label className={LABEL_CLASS}>תיאור <span className="text-danger">*</span></label>
                   <textarea
                     value={newVersion.description}
                     onChange={e => setNewVersion({ ...newVersion, description: e.target.value })}
                     placeholder="תיאור קצר של הגרסה"
                     rows={3}
-                    style={{ ...inputStyle, border: `2px solid ${!newVersion.description.trim() ? C.statusBlocked : C.statusDone}`, resize: 'vertical', fontFamily: 'inherit' }}
+                    className={cn(INPUT_CLASS, 'resize-y [font-family:inherit]', validClass(!!newVersion.description.trim()))}
                   />
                 </div>
               )}
 
               {method === 'template' && (
                 <div>
-                  <label style={labelStyle}>תבנית <span style={{ color: C.statusBlocked }}>*</span></label>
+                  <label className={LABEL_CLASS}>תבנית <span className="text-danger">*</span></label>
                   {templates.length > 0 ? (
                     <select value={selectedTemplateId} onChange={e => setSelectedTemplateId(e.target.value)}
-                      style={{ ...inputStyle, border: `2px solid ${selectedTemplateId ? C.statusDone : C.statusBlocked}` }}>
+                      className={cn(INPUT_CLASS, validClass(!!selectedTemplateId))}>
                       <option value="">📋 בחר תבנית שמורה</option>
                       {templates.map(t => <option key={t.id} value={t.id}>{t.name}{t.description ? ` — ${t.description}` : ''}</option>)}
                     </select>
                   ) : (
-                    <div style={{ fontSize: '15px', color: C.textMuted, fontStyle: 'italic' }}>אין תבניות שמורות — צור תבנית קודם, או בחר שיטה אחרת</div>
+                    <div className="text-[15px] italic text-subtle-foreground">אין תבניות שמורות — צור תבנית קודם, או בחר שיטה אחרת</div>
                   )}
                 </div>
               )}
 
               {method === 'excel' && (
                 <div>
-                  <label style={labelStyle}>קובץ Excel <span style={{ color: C.statusBlocked }}>*</span></label>
-                  <div style={{ border: `2px dashed ${importFile ? C.statusDone : '#c0d4e8'}`, borderRadius: '8px', padding: '24px', textAlign: 'center', background: '#f8fafc', cursor: 'pointer' }}
-                    onClick={() => document.getElementById('wizard-file-input')?.click()}>
-                    <div style={{ fontSize: '32px', marginBottom: '6px' }}>📂</div>
+                  <label className={LABEL_CLASS}>קובץ Excel <span className="text-danger">*</span></label>
+                  <div
+                    className={cn('cursor-pointer rounded-md border-2 border-dashed bg-[#f8fafc] p-6 text-center', importFile ? 'border-success' : 'border-[#c0d4e8]')}
+                    onClick={() => document.getElementById('wizard-file-input')?.click()}
+                  >
+                    <div className="mb-1.5 text-[32px]">📂</div>
                     {importFile ? (
-                      <div style={{ fontWeight: 'bold', color: C.textPrimary, fontSize: '15px' }}>{importFile.name}</div>
+                      <div className="text-[15px] font-bold text-foreground">{importFile.name}</div>
                     ) : (
-                      <div style={{ color: C.textMuted, fontSize: '15px' }}>לחץ לבחירת קובץ (xlsx, xls)</div>
+                      <div className="text-[15px] text-subtle-foreground">לחץ לבחירת קובץ (xlsx, xls)</div>
                     )}
                   </div>
-                  <input id="wizard-file-input" type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
+                  <input id="wizard-file-input" type="file" accept=".xlsx,.xls" className="hidden"
                     onChange={e => setImportFile(e.target.files?.[0] || null)} />
                 </div>
               )}
@@ -311,29 +326,29 @@ export const VersionWizard: React.FC<Props> = ({
 
           {/* ── שלב 2: תאריכי בדיקות (אינטגרציה + QA) ── */}
           {step === 1 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div className="flex flex-col gap-[18px]">
               <div>
-                <div style={{ ...labelStyle, marginBottom: '10px' }}>🔧 תאריכי אינטגרציה {method === 'manual' ? <span style={{ color: C.statusBlocked }}>*</span> : optionalTag}</div>
+                <div className={cn(LABEL_CLASS, 'mb-2.5')}>🔧 תאריכי אינטגרציה {method === 'manual' ? <span className="text-danger">*</span> : <span className="text-xs font-normal text-subtle-foreground">אופציונלי</span>}</div>
                 <DateRangeField
                   startIso={newVersion.integrationStart}
                   endIso={newVersion.integrationEnd}
                   onChange={(s, e) => setNewVersion({ ...newVersion, integrationStart: s, integrationEnd: e })}
-                  style={method === 'manual' ? { ...inputStyle, border: `2px solid ${!newVersion.integrationStart ? C.statusBlocked : C.statusDone}` } : inputStyle}
+                  style={method === 'manual' ? validBorder(!!newVersion.integrationStart) : inputStyle}
                 />
               </div>
 
               <div>
-                <div style={{ ...labelStyle, marginBottom: '10px' }}>🧪 תאריכי בדיקות QA {method === 'manual' ? <span style={{ color: C.statusBlocked }}>*</span> : optionalTag}</div>
+                <div className={cn(LABEL_CLASS, 'mb-2.5')}>🧪 תאריכי בדיקות QA {method === 'manual' ? <span className="text-danger">*</span> : <span className="text-xs font-normal text-subtle-foreground">אופציונלי</span>}</div>
                 <DateRangeField
                   startIso={newVersion.qaStart}
                   endIso={newVersion.qaEnd}
                   onChange={(s, e) => setNewVersion({ ...newVersion, qaStart: s, qaEnd: e })}
-                  style={method === 'manual' ? { ...inputStyle, border: `2px solid ${!newVersion.qaStart ? C.statusBlocked : C.statusDone}` } : inputStyle}
+                  style={method === 'manual' ? validBorder(!!newVersion.qaStart) : inputStyle}
                 />
               </div>
 
               {method !== 'manual' && (
-                <div style={{ fontSize: '14px', color: C.textMuted, fontStyle: 'italic' }}>
+                <div className="text-sm italic text-subtle-foreground">
                   אם לא מוזן, ניתן להשלים מאוחר יותר דרך פרטי הגרסה.
                 </div>
               )}
@@ -342,15 +357,15 @@ export const VersionWizard: React.FC<Props> = ({
 
           {/* ── שלב 3: תאריכי פגישות ── */}
           {step === 2 && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+            <div className="grid grid-cols-2 gap-3.5">
               <div>
-                <label style={labelStyle}>📅 ישיבת סקירת CR-ים <span style={{ fontSize: '12px', color: C.textMuted, fontWeight: 'normal' }}>T−10 ימי עבודה</span></label>
+                <label className={LABEL_CLASS}>📅 ישיבת סקירת CR-ים <span className="text-xs font-normal text-subtle-foreground">T−10 ימי עבודה</span></label>
                 <DateTimeField value={newVersion.reviewMeetingTime}
                   onChange={v => setNewVersion({ ...newVersion, reviewMeetingTime: v })}
                   style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>📋 ישיבת הצגת תוכנית עליה לאוויר <span style={{ fontSize: '12px', color: C.textMuted, fontWeight: 'normal' }}>T−9 ימי עבודה</span></label>
+                <label className={LABEL_CLASS}>📋 ישיבת הצגת תוכנית עליה לאוויר <span className="text-xs font-normal text-subtle-foreground">T−9 ימי עבודה</span></label>
                 <DateTimeField value={newVersion.workPlanMeetingTime}
                   onChange={v => setNewVersion({ ...newVersion, workPlanMeetingTime: v })}
                   style={inputStyle} />
@@ -360,18 +375,18 @@ export const VersionWizard: React.FC<Props> = ({
 
           {/* ── שלב 4: פעילויות — חזרה גנרלית + ליל ההטמעה ── */}
           {step === 3 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div className="flex flex-col gap-[18px]">
               <div>
-                <div style={{ ...labelStyle, marginBottom: '10px' }}>🎭 חזרה גנרלית <span style={{ fontSize: '12px', color: C.textMuted, fontWeight: 'normal' }}>אופציונלי</span></div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <div className={cn(LABEL_CLASS, 'mb-2.5')}>🎭 חזרה גנרלית <span className="text-xs font-normal text-subtle-foreground">אופציונלי</span></div>
+                <div className="grid grid-cols-2 gap-3.5">
                   <div>
-                    <label style={labelStyle}>תחילה</label>
+                    <label className={LABEL_CLASS}>תחילה</label>
                     <DateTimeField value={newVersion.plannedRehearsalStart}
                       onChange={v => setNewVersion({ ...newVersion, plannedRehearsalStart: v })}
                       style={inputStyle} />
                   </div>
                   <div>
-                    <label style={labelStyle}>סיום</label>
+                    <label className={LABEL_CLASS}>סיום</label>
                     <DateTimeField value={newVersion.plannedRehearsalEnd}
                       onChange={v => setNewVersion({ ...newVersion, plannedRehearsalEnd: v })}
                       style={inputStyle} />
@@ -380,26 +395,26 @@ export const VersionWizard: React.FC<Props> = ({
               </div>
 
               <div>
-                <div style={{ ...labelStyle, marginBottom: '10px' }}>
-                  🚀 ליל ההטמעה {method !== 'manual' && <span style={{ color: C.statusBlocked }}>*</span>}
-                  {method === 'manual' && <span style={{ fontSize: '12px', color: C.textMuted, fontWeight: 'normal' }}> אופציונלי</span>}
+                <div className={cn(LABEL_CLASS, 'mb-2.5')}>
+                  🚀 ליל ההטמעה {method !== 'manual' && <span className="text-danger">*</span>}
+                  {method === 'manual' && <span className="text-xs font-normal text-subtle-foreground"> אופציונלי</span>}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <div className="grid grid-cols-2 gap-3.5">
                   <div>
-                    <label style={labelStyle}>תחילה</label>
+                    <label className={LABEL_CLASS}>תחילה</label>
                     <StrictDateTimeField value={newVersion.plannedStart}
                       onChange={v => onPlannedStartChange(v)}
-                      style={method !== 'manual' ? { ...inputStyle, border: `2px solid ${!(plannedStartDate && plannedStartTime) ? C.statusBlocked : C.statusDone}` } : inputStyle} />
+                      style={method !== 'manual' ? validBorder(!!(plannedStartDate && plannedStartTime)) : inputStyle} />
                   </div>
                   <div>
-                    <label style={labelStyle}>סיום</label>
+                    <label className={LABEL_CLASS}>סיום</label>
                     <DateTimeField value={newVersion.plannedEnd}
                       onChange={v => setNewVersion({ ...newVersion, plannedEnd: v })}
                       style={inputStyle} />
                   </div>
                 </div>
                 {method === 'excel' && (
-                  <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '4px' }}>אם לא ממולא, ייקחו התאריכים מהקובץ</div>
+                  <div className="mt-1 text-[13px] text-subtle-foreground">אם לא ממולא, ייקחו התאריכים מהקובץ</div>
                 )}
               </div>
             </div>
@@ -407,9 +422,9 @@ export const VersionWizard: React.FC<Props> = ({
 
           {/* ── שלב 5: סקירה ואישור ── */}
           {step === 4 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ fontSize: '15px', color: C.textMuted, marginBottom: '4px' }}>
-                שיטת יצירה: <strong style={{ color: C.textPrimary }}>{method === 'manual' ? 'ידנית' : method === 'template' ? 'מתבנית שמורה' : 'ייבוא מ-Excel'}</strong>
+            <div className="flex flex-col gap-2.5">
+              <div className="mb-1 text-[15px] text-subtle-foreground">
+                שיטת יצירה: <strong className="text-foreground">{method === 'manual' ? 'ידנית' : method === 'template' ? 'מתבנית שמורה' : 'ייבוא מ-Excel'}</strong>
               </div>
               {[
                 ['שם גרסה', newVersion.name],
@@ -427,25 +442,28 @@ export const VersionWizard: React.FC<Props> = ({
                 ['ליל ההטמעה — תחילה', formatDMYTime(newVersion.plannedStart)],
                 ['ליל ההטמעה — סיום', formatDMYTime(newVersion.plannedEnd)],
               ].map(([label, value]) => (
-                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: C.bgNested, borderRadius: '6px', fontSize: '15px' }}>
-                  <span style={{ color: C.textMuted }}>{label}</span>
-                  <span style={{ color: C.textPrimary, fontWeight: 'bold' }}>{value || '—'}</span>
+                <div key={label} className="flex justify-between rounded-sm bg-muted px-3 py-2 text-[15px]">
+                  <span className="text-subtle-foreground">{label}</span>
+                  <span className="font-bold text-foreground">{value || '—'}</span>
                 </div>
               ))}
             </div>
           )}
 
           {step < LAST_STEP && missingLabels.length > 0 && (
-            <p style={{ margin: '14px 0 0', fontSize: '14px', color: C.danger }}>יש למלא: {missingLabels.join(', ')}</p>
+            <p className="mt-3.5 text-sm text-danger">יש למלא: {missingLabels.join(', ')}</p>
           )}
         </div>
 
         {/* Footer */}
-        <div style={{ padding: '16px 28px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', flexShrink: 0, background: '#f8fafc' }}>
+        <div className="flex shrink-0 justify-between border-t border-[#e2e8f0] bg-[#f8fafc] px-7 py-4">
           <button
             onClick={() => setStep(s => Math.max(0, s - 1))}
             disabled={step === 0}
-            style={{ padding: '9px 18px', background: step === 0 ? '#f1f5f9' : '#e2e8f0', border: 'none', borderRadius: '8px', cursor: step === 0 ? 'not-allowed' : 'pointer', color: step === 0 ? '#94a3b8' : '#374151', fontSize: '15px' }}
+            className={cn(
+              'rounded-md border-none px-[18px] py-[9px] text-[15px]',
+              step === 0 ? 'cursor-not-allowed bg-[#f1f5f9] text-[#94a3b8]' : 'cursor-pointer bg-[#e2e8f0] text-[#374151]'
+            )}
           >
             ← הקודם
           </button>
@@ -454,7 +472,10 @@ export const VersionWizard: React.FC<Props> = ({
             <button
               onClick={() => setStep(s => Math.min(LAST_STEP, s + 1))}
               disabled={!canProceed}
-              style={{ padding: '9px 24px', background: canProceed ? C.brand : C.textDisabled, color: 'white', border: 'none', borderRadius: '8px', cursor: canProceed ? 'pointer' : 'not-allowed', fontWeight: 'bold', fontSize: '15px' }}
+              className={cn(
+                'rounded-md border-none px-6 py-[9px] text-[15px] font-bold text-white',
+                canProceed ? 'cursor-pointer bg-primary' : 'cursor-not-allowed bg-subtle-foreground'
+              )}
             >
               הבא ←
             </button>
@@ -462,7 +483,10 @@ export const VersionWizard: React.FC<Props> = ({
             <button
               onClick={handleFinish}
               disabled={busy}
-              style={{ padding: '9px 24px', background: busy ? C.textDisabled : C.statusDone, color: 'white', border: 'none', borderRadius: '8px', cursor: busy ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}
+              className={cn(
+                'rounded-md border-none px-6 py-[9px] text-[15px] font-bold text-white',
+                busy ? 'cursor-not-allowed bg-subtle-foreground' : 'cursor-pointer bg-success'
+              )}
             >
               {busy ? 'יוצר...' : '✓ צור גרסה'}
             </button>

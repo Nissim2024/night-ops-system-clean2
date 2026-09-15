@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -26,41 +25,41 @@ export const KpiConfigView: React.FC<Props> = ({ token }) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  if (loading) return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>טוען...</div>;
+  if (loading) return <div className="p-6 text-subtle-foreground">טוען...</div>;
 
   if (!defs || defs.length === 0) {
     return (
-      <div style={{ fontFamily: FONT, direction: 'rtl', textAlign: 'center', padding: SP[8], color: C.textMuted }}>
+      <div className="p-8 text-center text-subtle-foreground">
         אין עדיין הגדרות KPI. יש לייבא את קובץ ה-KPI_RELEASE_SCORE_SETUP דרך מסך הניהול.
       </div>
     );
   }
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+    <div className="flex flex-col gap-4">
       <div>
-        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>⚙️ הגדרות KPI</div>
-        <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: SP[1] }}>
+        <div className="text-lg font-bold text-foreground">⚙️ הגדרות KPI</div>
+        <div className="text-xs text-subtle-foreground mt-1">
           מסך קריאה בלבד — הנוסחאות והמשקלים מגיעים מהמודל הארגוני הקיים ולא ניתנים לעריכה כאן.
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+      <div className="flex flex-col gap-3">
         {defs.sort((a, b) => a.kpiOrder - b.kpiOrder).map(d => (
-          <div key={d.id} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4] }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: SP[2] }}>
+          <div key={d.id} className="bg-card border border-border rounded-lg p-4">
+            <div className="flex justify-between items-start flex-wrap gap-2">
               <div>
-                <div style={{ ...TEXT.base, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{d.kpiOrder}. {d.kpiName}</div>
-                {d.purpose && <div style={{ ...TEXT.sm, color: C.textSecondary, marginTop: '2px' }}>{d.purpose}</div>}
+                <div className="text-base font-bold text-foreground">{d.kpiOrder}. {d.kpiName}</div>
+                {d.purpose && <div className="text-sm text-muted-foreground mt-0.5">{d.purpose}</div>}
               </div>
-              <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
-                <span style={{ background: C.bgNested, borderRadius: RADIUS.sm, padding: '3px 10px', ...TEXT.xs, color: C.textSecondary }}>יעד: {d.target}</span>
-                <span style={{ background: C.bgNested, borderRadius: RADIUS.sm, padding: '3px 10px', ...TEXT.xs, color: C.textSecondary }}>משקל: {(d.weight * 100).toFixed(1)}%</span>
-                <span style={{ background: C.brandDim, borderRadius: RADIUS.sm, padding: '3px 10px', ...TEXT.xs, color: C.brand, fontWeight: WEIGHT.semibold }}>{d.measuredEntity}</span>
+              <div className="flex gap-2 flex-wrap">
+                <span className="bg-muted rounded-sm px-2.5 py-[3px] text-xs text-muted-foreground">יעד: {d.target}</span>
+                <span className="bg-muted rounded-sm px-2.5 py-[3px] text-xs text-muted-foreground">משקל: {(d.weight * 100).toFixed(1)}%</span>
+                <span className="bg-primary-50 rounded-sm px-2.5 py-[3px] text-xs text-primary font-semibold">{d.measuredEntity}</span>
               </div>
             </div>
-            {d.description && <div style={{ ...TEXT.sm, color: C.textMuted, marginTop: SP[2] }}>{d.description}</div>}
-            <div style={{ display: 'flex', gap: SP[4], marginTop: SP[2], ...TEXT.xs, color: C.textDisabled }}>
+            {d.description && <div className="text-sm text-subtle-foreground mt-2">{d.description}</div>}
+            <div className="flex gap-4 mt-2 text-xs text-subtle-foreground">
               {d.dataSource && <span>מקור: {d.dataSource}</span>}
               {d.measurementPeriod && <span>תקופת מדידה: {d.measurementPeriod}</span>}
               {d.trend && <span>מגמה רצויה: {d.trend}</span>}

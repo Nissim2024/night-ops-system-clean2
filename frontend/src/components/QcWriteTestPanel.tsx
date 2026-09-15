@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../theme';
 import { formatDateTime } from '../utils/dateFormat';
 import { DefectIdBadge } from './shared/defectFieldDisplay';
+import { Button, TextField, TextArea } from './ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -29,6 +29,28 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
   const [allFields, setAllFields] = useState<Record<string, string> | null>(null);
   const [fieldsLoading, setFieldsLoading] = useState(false);
   const [fieldsFilter, setFieldsFilter] = useState('');
+
+  // Stage-0 de-risk (2026-09-15): does this QC instance's REST API even
+  // support Release/Release-Cycle entities, before any create-Release code
+  // is written. Both calls below are read-only.
+  const [entityProbe, setEntityProbe] = useState<{ type: string; result?: any; error?: string } | null>(null);
+  const [entityProbeLoading, setEntityProbeLoading] = useState(false);
+
+  const probeEntity = async (type: 'release' | 'release-cycle' | 'releases-list') => {
+    setEntityProbeLoading(true);
+    setEntityProbe({ type });
+    try {
+      const url = type === 'releases-list'
+        ? `${API}/qc/rest-test/releases`
+        : `${API}/qc/rest-test/entity-fields/${type}`;
+      const res = await axios.get(url, { headers });
+      setEntityProbe({ type, result: res.data });
+    } catch (e: any) {
+      setEntityProbe({ type, error: e?.response?.data?.message || e.message || 'שגיאה בבדיקה מול QC' });
+    } finally {
+      setEntityProbeLoading(false);
+    }
+  };
 
   const loadPreview = async () => {
     setLoading(true);
@@ -81,56 +103,51 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
     }
   };
 
-  const inputStyle: React.CSSProperties = {
-    padding: '8px 12px', borderRadius: RADIUS.md, border: `1px solid ${C.borderEm}`,
-    background: C.bgCard, color: C.textPrimary, fontFamily: FONT, ...TEXT.sm, boxSizing: 'border-box',
-  };
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4], fontFamily: FONT, direction: 'rtl', maxWidth: '760px' }}>
-      <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}40`, borderRadius: RADIUS.lg, padding: SP[4], ...TEXT.sm, color: C.danger }}>
+    <div className="flex flex-col gap-4 max-w-[760px]">
+      <div className="bg-danger-bg border border-danger/25 rounded-lg p-4 text-sm text-danger">
         ⚠️ כלי זה כותב ל-QC <strong>אמיתי בייצור</strong>, מזוהה מול QC כמשתמש ה-QC המקושר לחשבון שלך (ללא שמירת סיסמה). הוא רק מוסיף שורה ל"הערות פיתוח" הקיימות — לעולם לא מוחק/דורס. כל שליחה דורשת אישור מפורש.
       </div>
 
-      <div style={{ display: 'flex', gap: SP[3], alignItems: 'flex-end' }}>
+      <div className="flex gap-3 items-end">
         <div>
-          <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>מספר תקלה</div>
-          <input value={defectId} onChange={e => setDefectId(e.target.value)} style={{ ...inputStyle, width: '160px' }} />
+          <div className="text-xs text-subtle-foreground mb-1">מספר תקלה</div>
+          <TextField value={defectId} onChange={e => setDefectId(e.target.value)} className="w-[160px]" />
         </div>
-        <button
+        <Button
+          variant="primary"
           onClick={loadPreview}
           disabled={loading || !defectId.trim()}
-          style={{ padding: '8px 18px', background: C.brand, color: '#fff', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.semibold, opacity: loading ? 0.6 : 1 }}
         >
           {loading ? 'טוען...' : 'טען תקלה מ-QC'}
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="secondary"
           onClick={loadAllFields}
           disabled={fieldsLoading || !defectId.trim()}
           title="מציג את כל שמות השדות ש-REST מחזיר בפועל עבור התקלה, לאבחון שדות שלא נטענים נכון"
-          style={{ padding: '8px 18px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.semibold, opacity: fieldsLoading ? 0.6 : 1 }}
         >
           {fieldsLoading ? 'טוען...' : '🔍 הצג את כל שמות השדות (אבחון)'}
-        </button>
+        </Button>
       </div>
 
       {allFields && (
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+        <div className="bg-card border border-border rounded-lg p-4 flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-sm font-bold text-foreground">
             כל שמות השדות שהוחזרו מ-QC עבור תקלה <DefectIdBadge id={defectId} /> ({Object.keys(allFields).length})
           </div>
-          <input
+          <TextField
             value={fieldsFilter}
             onChange={e => setFieldsFilter(e.target.value)}
             placeholder="סנן לפי שם שדה או ערך (למשל: comment)…"
-            style={{ ...inputStyle, width: '100%' }}
+            fullWidth
           />
-          <div style={{ maxHeight: '360px', overflow: 'auto', border: `1px solid ${C.border}`, borderRadius: RADIUS.md }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', ...TEXT.xs, fontFamily: FONT }}>
+          <div className="max-h-[360px] overflow-auto border border-border rounded-md">
+            <table className="w-full border-collapse text-xs">
               <thead>
-                <tr style={{ background: C.bgNested }}>
-                  <th style={{ padding: '6px 8px', textAlign: 'right', borderBottom: `1px solid ${C.border}` }}>שם שדה (REST)</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'right', borderBottom: `1px solid ${C.border}` }}>ערך</th>
+                <tr className="bg-muted">
+                  <th className="py-1.5 px-2 text-right border-b border-border">שם שדה (REST)</th>
+                  <th className="py-1.5 px-2 text-right border-b border-border">ערך</th>
                 </tr>
               </thead>
               <tbody>
@@ -138,8 +155,8 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
                   .filter(([k, v]) => !fieldsFilter.trim() || k.toLowerCase().includes(fieldsFilter.toLowerCase()) || v.toLowerCase().includes(fieldsFilter.toLowerCase()))
                   .map(([k, v]) => (
                     <tr key={k}>
-                      <td style={{ padding: '5px 8px', borderBottom: `1px solid ${C.border}`, fontWeight: WEIGHT.semibold, color: C.brand, whiteSpace: 'nowrap' }}>{k}</td>
-                      <td style={{ padding: '5px 8px', borderBottom: `1px solid ${C.border}`, color: C.textPrimary, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{v || '(ריק)'}</td>
+                      <td className="py-[5px] px-2 border-b border-border font-semibold text-primary whitespace-nowrap">{k}</td>
+                      <td className="py-[5px] px-2 border-b border-border text-foreground whitespace-pre-wrap break-words">{v || '(ריק)'}</td>
                     </tr>
                   ))}
               </tbody>
@@ -149,76 +166,109 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
       )}
 
       {error && (
-        <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}40`, borderRadius: RADIUS.md, padding: SP[3], ...TEXT.sm, color: C.danger, whiteSpace: 'pre-wrap' }}>
+        <div className="bg-danger-bg border border-danger/25 rounded-md p-3 text-sm text-danger whitespace-pre-wrap">
           {error}
         </div>
       )}
 
       {preview && (
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+        <div className="bg-card border border-border rounded-lg p-4 flex flex-col gap-3">
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>תקלה <DefectIdBadge id={preview.id} /> — {preview.title || '(ללא כותרת)'}</div>
-            <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>סטטוס: {preview.status || '—'}</div>
+            <div className="flex items-center gap-2 text-lg font-bold text-foreground">תקלה <DefectIdBadge id={preview.id} /> — {preview.title || '(ללא כותרת)'}</div>
+            <div className="text-xs text-subtle-foreground mt-0.5">סטטוס: {preview.status || '—'}</div>
           </div>
 
           <div>
-            <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>הערות פיתוח נוכחיות (ב-QC):</div>
-            <div style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: SP[3], ...TEXT.sm, color: C.textSecondary, whiteSpace: 'pre-wrap', maxHeight: '200px', overflow: 'auto' }}>
+            <div className="text-xs text-subtle-foreground mb-1">הערות פיתוח נוכחיות (ב-QC):</div>
+            <div className="bg-muted border border-border rounded-md p-3 text-sm text-muted-foreground whitespace-pre-wrap max-h-[200px] overflow-auto">
               {preview.comments || '(ריק)'}
             </div>
           </div>
 
           <div>
-            <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>טקסט להוספה:</div>
-            <textarea
+            <div className="text-xs text-subtle-foreground mb-1">טקסט להוספה:</div>
+            <TextArea
               value={note}
               onChange={e => setNote(e.target.value)}
               rows={3}
               placeholder="הטקסט הזה יתווסף בסוף ההערות הקיימות, עם חותמת DeployCenter + זמן + שם המשתמש..."
-              style={{ ...inputStyle, width: '100%', resize: 'vertical' }}
+              fullWidth
+              className="resize-y"
             />
           </div>
 
           {!confirming ? (
-            <button
+            <Button
+              variant="secondary"
               onClick={() => setConfirming(true)}
               disabled={!note.trim()}
-              style={{ alignSelf: 'flex-start', padding: '8px 18px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: note.trim() ? 'pointer' : 'default', fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.semibold, opacity: note.trim() ? 1 : 0.5 }}
+              className="self-start"
             >
               המשך לתצוגה מקדימה
-            </button>
+            </Button>
           ) : (
-            <div style={{ background: C.warningBg, border: `1px solid ${C.warning}40`, borderRadius: RADIUS.md, padding: SP[3], display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-              <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>הערך שיישלח בפועל ל-QC (הערות פיתוח, אחרי הוספה):</div>
-              <div style={{ background: C.bgCard, borderRadius: RADIUS.sm, padding: SP[3], ...TEXT.xs, color: C.textPrimary, whiteSpace: 'pre-wrap', maxHeight: '200px', overflow: 'auto' }}>
+            <div className="bg-warning-bg border border-warning/25 rounded-md p-3 flex flex-col gap-2">
+              <div className="text-sm font-semibold text-foreground">הערך שיישלח בפועל ל-QC (הערות פיתוח, אחרי הוספה):</div>
+              <div className="bg-card rounded-sm p-3 text-xs text-foreground whitespace-pre-wrap max-h-[200px] overflow-auto">
                 {preview.comments ? `${preview.comments}\n---\n[DeployCenter · ... · ${formatDateTime(new Date())}]\n${note.trim()}` : `[DeployCenter · ... · ${formatDateTime(new Date())}]\n${note.trim()}`}
               </div>
-              <div style={{ display: 'flex', gap: SP[2] }}>
-                <button
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
                   onClick={() => setConfirming(false)}
                   disabled={sending}
-                  style={{ padding: '8px 18px', background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT, ...TEXT.sm }}
                 >
                   ביטול
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="danger"
                   onClick={sendUpdate}
                   disabled={sending}
-                  style={{ padding: '8px 18px', background: C.danger, color: '#fff', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT, ...TEXT.sm, fontWeight: WEIGHT.bold, opacity: sending ? 0.6 : 1 }}
                 >
                   {sending ? 'שולח ל-QC...' : '🔴 שלח עדכון ל-QC (ייצור)'}
-                </button>
+                </Button>
               </div>
             </div>
           )}
 
           {result !== null && (
-            <div style={{ background: C.successBg, border: `1px solid ${C.success}40`, borderRadius: RADIUS.md, padding: SP[3], ...TEXT.sm, color: C.success }}>
+            <div className="bg-success-bg border border-success/25 rounded-md p-3 text-sm text-success">
               ✓ העדכון נשלח בהצלחה ל-QC.
             </div>
           )}
         </div>
       )}
+
+      <div className="bg-card border border-border rounded-lg p-4 flex flex-col gap-3 mt-2">
+        <div className="text-sm font-bold text-foreground">
+          🧪 שלב 0 — האם QC בכלל תומך ביצירת Release / Release Cycle דרך REST?
+        </div>
+        <div className="text-xs text-subtle-foreground">
+          כלי אבחון בלבד — קריאות GET בלבד, לא כותב כלום ל-QC.
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="secondary" onClick={() => probeEntity('release')} disabled={entityProbeLoading}>
+            בדוק שדות ישות "release"
+          </Button>
+          <Button variant="secondary" onClick={() => probeEntity('release-cycle')} disabled={entityProbeLoading}>
+            בדוק שדות ישות "release-cycle"
+          </Button>
+          <Button variant="secondary" onClick={() => probeEntity('releases-list')} disabled={entityProbeLoading}>
+            קרא רשימת releases אמיתית
+          </Button>
+        </div>
+        {entityProbeLoading && <div className="text-sm text-subtle-foreground">בודק מול QC...</div>}
+        {entityProbe?.error && (
+          <div className="bg-danger-bg border border-danger/25 rounded-md p-3 text-sm text-danger whitespace-pre-wrap">
+            [{entityProbe.type}] {entityProbe.error}
+          </div>
+        )}
+        {entityProbe?.result !== undefined && (
+          <pre className="bg-muted border border-border rounded-md p-3 text-xs text-foreground whitespace-pre-wrap max-h-[300px] overflow-auto" dir="ltr">
+            {JSON.stringify(entityProbe.result, null, 2)}
+          </pre>
+        )}
+      </div>
     </div>
   );
 };

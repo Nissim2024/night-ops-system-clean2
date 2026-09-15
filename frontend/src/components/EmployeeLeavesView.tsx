@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
 import { DateField, DateRangeField } from './DatePicker';
 import { formatDate } from '../utils/dateFormat';
 
@@ -102,11 +101,82 @@ function confirmCancelReason(req: LeaveRequest): string | undefined {
   return window.prompt('סיבת ביטול (לא חובה):') ?? undefined;
 }
 
-const STATUS_META: Record<ApprovalStatus, { label: string; color: string; bg: string }> = {
-  PENDING:   { label: 'ממתין',  color: C.warning,    bg: C.warningBg },
-  APPROVED:  { label: 'אושר',   color: C.success,    bg: C.successBg },
-  DECLINED:  { label: 'נדחה',   color: C.danger,     bg: C.dangerBg  },
-  CANCELLED: { label: 'בוטל',   color: C.textMuted,  bg: C.bgNested  },
+// Explicit literal class lookups (never string-interpolated with a runtime
+// value) for every "pick one of N known states" spot in this file.
+const STATUS_META: Record<ApprovalStatus, { label: string; className: string }> = {
+  PENDING:   { label: 'ממתין',  className: 'text-warning bg-warning-bg border-warning/20' },
+  APPROVED:  { label: 'אושר',   className: 'text-success bg-success-bg border-success/20' },
+  DECLINED:  { label: 'נדחה',   className: 'text-danger bg-danger-bg border-danger/20' },
+  CANCELLED: { label: 'בוטל',   className: 'text-subtle-foreground bg-muted border-border' },
+};
+
+// Season-date type dot/label colors — raw hex (holiday=red, chol hamoed=orange),
+// not design-system tokens, kept as literal arbitrary-value classes 1:1 with
+// the old inline hex.
+function seasonDateTypeClasses(isHoliday: boolean): { dot: string; text: string; bg: string } {
+  return isHoliday
+    ? { dot: 'bg-[#e74c3c]', text: 'text-[#e74c3c]', bg: 'bg-[#e74c3c]/10' }
+    : { dot: 'bg-[#e67e22]', text: 'text-[#e67e22]', bg: 'bg-[#e67e22]/10' };
+}
+
+// Day-card tint by request kind — the old code used raw hardcoded rgba greens
+// /blues here (not the theme's success/info tokens), so those exact values are
+// preserved via arbitrary-value classes rather than swapped for the tokens.
+function dayCardClasses(kind: RequestKind | undefined): { bg: string; border: string } {
+  if (kind === 'leave') return { bg: 'bg-[rgba(46,204,113,0.08)]', border: 'border-success/25' };
+  if (kind === 'work') return { bg: 'bg-[rgba(52,152,219,0.08)]', border: 'border-info/25' };
+  return { bg: 'bg-muted', border: 'border-border' };
+}
+
+function seasonBadgeClasses(locked: boolean, isActive: boolean): string {
+  if (locked) return 'bg-danger-bg text-danger border-danger/20';
+  if (isActive) return 'bg-success-bg text-success border-success/20';
+  return 'bg-muted text-subtle-foreground border-border';
+}
+
+function toggleBtnClass(kind: RequestKind, active: boolean): string {
+  const activeMap: Record<RequestKind, string> = {
+    leave: 'bg-success border-success text-white',
+    work: 'bg-info border-info text-white',
+  };
+  const base = 'flex-1 cursor-pointer rounded-md border px-1 py-[5px] text-xs font-semibold transition-colors duration-fast ease-out';
+  return `${base} ${active ? activeMap[kind] : 'bg-transparent border-border text-subtle-foreground'}`;
+}
+
+function groupChipClass(kind: RequestKind): string {
+  return kind === 'leave'
+    ? 'bg-success-bg text-success border-success/20'
+    : 'bg-info-bg text-info border-info/20';
+}
+
+function rangeApplyBtnClass(hasRange: boolean, busy: boolean): string {
+  const base = 'rounded-md border-none px-[18px] py-[7px] text-sm font-semibold transition-colors duration-fast ease-out';
+  const color = hasRange ? 'bg-primary text-white' : 'bg-card text-subtle-foreground';
+  const cursor = (!hasRange || busy) ? 'cursor-not-allowed' : 'cursor-pointer';
+  return `${base} ${color} ${cursor}`;
+}
+
+function submitBtnClass(hasDate: boolean): string {
+  const base = 'rounded-md border-none px-5 py-2 text-sm font-semibold transition-colors duration-fast ease-out';
+  return hasDate ? `${base} bg-primary text-white cursor-pointer` : `${base} bg-muted text-subtle-foreground cursor-not-allowed`;
+}
+
+// Two DatePicker components (DateField/DateRangeField) don't accept a
+// className — they're a separate, unmigrated component (not in scope here) —
+// so the handful of call sites below that need a non-default look still pass
+// a `style` override. Kept as literal hardcoded values (not theme.ts imports)
+// so this file no longer depends on the old token system; values match
+// theme.ts's bgCard/bgNested/border/textPrimary/FONT/TEXT.sm 1:1.
+const FONT_STACK = "'Rubik', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif";
+const dateInputStyleOnCard: React.CSSProperties = {
+  padding: '6px 10px', borderRadius: '8px', border: '1px solid #E5E7EE',
+  background: '#FFFFFF', color: '#14152A', fontSize: '17px', lineHeight: '24px',
+  outline: 'none', fontFamily: FONT_STACK,
+};
+const dateInputStyleNested: React.CSSProperties = {
+  padding: '7px 12px', borderRadius: '8px', border: '1px solid #E5E7EE',
+  background: '#F1F2F7', color: '#14152A', fontSize: '17px', lineHeight: '24px',
+  outline: 'none', fontFamily: FONT_STACK,
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -245,31 +315,31 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
 
   if (loading) {
     return (
-      <div style={{ textAlign: 'center', padding: '60px', color: C.textMuted }}>
-        <div style={{ fontSize: '36px' }}>📅</div>
-        <p style={{ marginTop: '12px' }}>טוען...</p>
+      <div className="p-[60px] text-center text-subtle-foreground">
+        <div className="text-4xl">📅</div>
+        <p className="mt-3">טוען...</p>
       </div>
     );
   }
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', color: C.textPrimary }}>
+    <div className="text-foreground">
 
       {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], marginBottom: SP[5] }}>
-        <span style={{ fontSize: '24px' }}>📅</span>
+      <div className="mb-5 flex items-center gap-3">
+        <span className="text-xl">📅</span>
         <div>
-          <div style={{ fontSize: '22px', fontWeight: WEIGHT.bold }}>החופשות שלי</div>
-          <div style={{ ...TEXT.sm, color: C.textMuted }}>בקש חופשה או עבודה בימי החג</div>
+          <div className="text-lg font-bold">החופשות שלי</div>
+          <div className="text-sm text-subtle-foreground">בקש חופשה או עבודה בימי החג</div>
         </div>
-        <div style={{ marginRight: 'auto', display: 'flex', gap: SP[2] }}>
+        <div className="ms-auto flex gap-2">
           {approvedCount > 0 && (
-            <span style={{ background: C.successBg, color: C.success, border: `1px solid ${C.success}33`, ...TEXT.xs, fontWeight: WEIGHT.bold, padding: '4px 12px', borderRadius: RADIUS.full }}>
+            <span className="rounded-full border border-success/20 bg-success-bg px-3 py-1 text-xs font-bold text-success">
               ✓ {approvedCount} אושרו
             </span>
           )}
           {pendingCount > 0 && (
-            <span style={{ background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}33`, ...TEXT.xs, fontWeight: WEIGHT.bold, padding: '4px 12px', borderRadius: RADIUS.full }}>
+            <span className="rounded-full border border-warning/20 bg-warning-bg px-3 py-1 text-xs font-bold text-warning">
               ⏳ {pendingCount} ממתינים
             </span>
           )}
@@ -277,32 +347,31 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
       </div>
 
       {/* ── Season selector ── */}
-      <div style={{ display: 'flex', gap: SP[3], marginBottom: SP[5], flexWrap: 'wrap' }}>
+      <div className="mb-5 flex flex-wrap gap-3">
         {seasons.map(season => {
           const isSelected = season.id === selectedSeasonId;
           const myCount = myRequests.filter(r => r.seasonId === season.id).length;
           return (
             <button key={season.id}
               onClick={() => setSelectedSeasonId(season.id)}
-              style={{
-                padding: `${SP[3]} ${SP[4]}`, borderRadius: RADIUS['2xl'], cursor: 'pointer',
-                border: isSelected ? `2px solid ${C.brand}` : `1px solid ${C.border}`,
-                background: isSelected ? C.brandDim : season.isActive ? C.bgCard : C.bgNested,
-                textAlign: 'right' as const,
-                opacity: !season.isActive && !isSelected ? 0.55 : 1,
-                transition: EASE.fast, minWidth: '180px',
-              }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: '4px' }}>
-                <span style={{ fontSize: '11px', color: season.isActive ? C.success : C.textDisabled }}>
+              className={[
+                'min-w-[180px] cursor-pointer rounded-2xl px-4 py-3 text-start',
+                'transition-[background-color,border-color,opacity] duration-fast ease-out',
+                isSelected ? 'border-2 border-primary' : 'border border-border',
+                isSelected ? 'bg-primary-100' : season.isActive ? 'bg-card' : 'bg-muted',
+                !season.isActive && !isSelected ? 'opacity-[0.55]' : 'opacity-100',
+              ].join(' ')}>
+              <div className="mb-1 flex items-center gap-2">
+                <span className={`text-[11px] ${season.isActive ? 'text-success' : 'text-subtle-foreground'}`}>
                   {season.isActive ? '●' : '○'}
                 </span>
-                <span style={{ ...TEXT.md, fontWeight: WEIGHT.semibold, color: isSelected ? C.brand : C.textPrimary }}>
+                <span className={`text-md font-semibold ${isSelected ? 'text-primary' : 'text-foreground'}`}>
                   {season.name}
                 </span>
               </div>
-              <div style={{ ...TEXT.xs, color: C.textMuted }}>{season.dateRange}</div>
+              <div className="text-xs text-subtle-foreground">{season.dateRange}</div>
               {myCount > 0 && (
-                <div style={{ marginTop: '6px', ...TEXT.xs, color: C.info }}>{myCount} בקשות שלי</div>
+                <div className="mt-1.5 text-xs text-info">{myCount} בקשות שלי</div>
               )}
             </button>
           );
@@ -311,24 +380,17 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
 
       {/* ── Season calendar ── */}
       {selectedSeason && (
-        <div style={{ background: C.bgCard, borderRadius: RADIUS['2xl'], border: `1px solid ${C.border}`, padding: SP[5], marginBottom: SP[5], boxShadow: SHADOW.sm }}>
+        <div className="mb-5 rounded-2xl border border-border bg-card p-5 shadow-sm">
           {(() => {
             // Locked only once every date in the season has passed its own 3-day cutoff —
             // a multi-month season (e.g. summer) must stay open for its later dates even
             // after its earliest date's cutoff has passed.
             const locked = selectedSeason.isActive && selectedSeason.dates.every((sd: SeasonDate) => isSeasonLocked([sd]));
             return (
-              <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: SP[4] }}>
-                <span style={{ fontSize: '18px' }}>🗓</span>
-                <span style={{ ...TEXT.lg, fontWeight: WEIGHT.semibold }}>{selectedSeason.name}</span>
-                <span style={{
-                  ...TEXT.xs, fontWeight: WEIGHT.bold, padding: '2px 10px', borderRadius: RADIUS.full,
-                  ...(locked
-                    ? { background: C.dangerBg, color: C.danger, border: `1px solid ${C.danger}33` }
-                    : selectedSeason.isActive
-                    ? { background: C.successBg, color: C.success, border: `1px solid ${C.success}33` }
-                    : { background: C.bgNested,  color: C.textDisabled, border: `1px solid ${C.border}` }),
-                }}>
+              <div className="mb-4 flex items-center gap-2">
+                <span className="text-[18px]">🗓</span>
+                <span className="text-lg font-semibold">{selectedSeason.name}</span>
+                <span className={`rounded-full border px-2.5 py-0.5 text-xs font-bold ${seasonBadgeClasses(locked, selectedSeason.isActive)}`}>
                   {locked ? '🔒 נעול לבקשות' : selectedSeason.isActive ? 'חופשה פעילה' : 'עתידי'}
                 </span>
               </div>
@@ -336,24 +398,19 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
           })()}
 
           {selectedSeason.isActive && selectedSeason.dates.length > 1 && (
-            <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: SP[4], padding: SP[3], background: C.bgNested, borderRadius: RADIUS.lg, border: `1px solid ${C.border}` }}>
-              <div style={{ minWidth: '260px' }}>
-                <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>טווח תאריכים</div>
+            <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-border bg-muted p-3">
+              <div className="min-w-[260px]">
+                <div className="mb-1 text-xs text-subtle-foreground">טווח תאריכים</div>
                 <DateRangeField startIso={rangeStart} endIso={rangeEnd}
                   onChange={(s, e) => { setRangeStart(s); setRangeEnd(e); }}
-                  style={{ padding: '6px 10px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgCard, color: C.textPrimary, ...TEXT.sm, outline: 'none', fontFamily: FONT }} />
+                  style={dateInputStyleOnCard} />
               </div>
               <div>
-                <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>סוג</div>
-                <div style={{ display: 'flex', gap: '4px', background: C.bgCard, padding: '4px', borderRadius: RADIUS.md, border: `1px solid ${C.border}` }}>
+                <div className="mb-1 text-xs text-subtle-foreground">סוג</div>
+                <div className="flex gap-1 rounded-md border border-border bg-card p-1">
                   {(['leave', 'work'] as const).map(k => (
                     <button key={k} onClick={() => setRangeKind(k)}
-                      style={{
-                        padding: '5px 14px', borderRadius: RADIUS.sm, border: 'none', cursor: 'pointer',
-                        background: rangeKind === k ? C.bgNested : 'transparent',
-                        color: rangeKind === k ? C.textPrimary : C.textMuted,
-                        ...TEXT.xs, fontWeight: rangeKind === k ? WEIGHT.semibold : WEIGHT.normal,
-                      }}>
+                      className={`cursor-pointer rounded-sm border-none px-3.5 py-[5px] text-xs ${rangeKind === k ? 'bg-muted font-semibold text-foreground' : 'bg-transparent font-normal text-subtle-foreground'}`}>
                       {k === 'leave' ? '🏖 חופשה' : '💼 עבודה'}
                     </button>
                   ))}
@@ -362,21 +419,16 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
               <button
                 onClick={() => applyRange(selectedSeason)}
                 disabled={!rangeStart || !rangeEnd || rangeSaving}
-                style={{
-                  padding: '7px 18px', borderRadius: RADIUS.md, cursor: (!rangeStart || !rangeEnd || rangeSaving) ? 'not-allowed' : 'pointer',
-                  background: (!rangeStart || !rangeEnd) ? C.bgCard : C.brand,
-                  color: (!rangeStart || !rangeEnd) ? C.textDisabled : 'white',
-                  border: 'none', ...TEXT.sm, fontWeight: WEIGHT.semibold,
-                }}>
+                className={rangeApplyBtnClass(!!rangeStart && !!rangeEnd, rangeSaving)}>
                 {rangeSaving ? 'מחיל...' : 'החל על הטווח'}
               </button>
               {rangeSkipped > 0 && !rangeSaving && (
-                <div style={{ ...TEXT.xs, color: C.textMuted }}>{rangeSkipped} ימים בטווח דולגו (נעולים)</div>
+                <div className="text-xs text-subtle-foreground">{rangeSkipped} ימים בטווח דולגו (נעולים)</div>
               )}
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: SP[3] }}>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
             {selectedSeason.dates.map(sd => {
               const isoDate  = new Date(sd.date).toISOString().split('T')[0];
               const req      = reqForDate(isoDate);
@@ -386,48 +438,35 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
               const locked   = selectedSeason.isActive && isSeasonLocked([sd]);
               const disabled = !selectedSeason.isActive || isBusy || locked;
               const isHoliday = sd.type === 'holiday';
-              const dotColor  = isHoliday ? '#e74c3c' : '#e67e22';
-              const typeColor = isHoliday ? '#e74c3c' : '#e67e22';
-              const typeBg    = isHoliday ? 'rgba(231,76,60,0.12)' : 'rgba(230,126,34,0.12)';
+              const typeClasses = seasonDateTypeClasses(isHoliday);
+              const dayClasses = dayCardClasses(req?.kind);
 
               return (
-                <div key={sd.id} style={{
-                  background: req
-                    ? (req.kind === 'leave' ? 'rgba(46,204,113,0.08)' : 'rgba(52,152,219,0.08)')
-                    : C.bgNested,
-                  border: `1px solid ${req
-                    ? (req.kind === 'leave' ? C.success + '44' : C.info + '44')
-                    : C.border}`,
-                  borderRadius: RADIUS.xl, padding: SP[3],
-                  opacity: disabled && !req ? 0.55 : 1,
-                  transition: EASE.fast,
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: SP[2] }}>
+                <div key={sd.id} className={[
+                  'rounded-xl border p-3 transition-opacity duration-fast ease-out',
+                  dayClasses.bg, dayClasses.border,
+                  (disabled && !req) ? 'opacity-[0.55]' : 'opacity-100',
+                ].join(' ')}>
+                  <div className="mb-2 flex items-start justify-between">
                     <div>
-                      <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold }}>{fmt(isoDate)}</div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '3px' }}>
-                        <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: dotColor, display: 'inline-block', flexShrink: 0 }} />
-                        <span style={{ ...TEXT.xs, color: typeColor, fontWeight: WEIGHT.semibold }}>{sd.label}</span>
+                      <div className="text-sm font-bold text-foreground">{fmt(isoDate)}</div>
+                      <div className="mt-[3px] flex items-center gap-1">
+                        <span className={`inline-block h-[7px] w-[7px] shrink-0 rounded-full ${typeClasses.dot}`} />
+                        <span className={`text-xs font-semibold ${typeClasses.text}`}>{sd.label}</span>
                       </div>
                     </div>
-                    <span style={{ ...TEXT.xs, padding: '2px 7px', borderRadius: RADIUS.sm, background: typeBg, color: typeColor, fontWeight: WEIGHT.medium, flexShrink: 0 }}>
+                    <span className={`shrink-0 rounded-sm px-[7px] py-0.5 text-xs font-medium ${typeClasses.text} ${typeClasses.bg}`}>
                       {isHoliday ? 'חג' : 'ח"מ'}
                     </span>
                   </div>
 
                   {req && (
-                    <div style={{ marginBottom: SP[2] }}>
-                      <span style={{
-                        ...TEXT.xs, fontWeight: WEIGHT.semibold,
-                        color: STATUS_META[req.status].color,
-                        background: STATUS_META[req.status].bg,
-                        padding: '2px 8px', borderRadius: RADIUS.full,
-                        border: `1px solid ${STATUS_META[req.status].color}33`,
-                      }}>
+                    <div className="mb-2">
+                      <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${STATUS_META[req.status].className}`}>
                         {req.kind === 'leave' ? '🏖 חופשה' : '💼 עבודה'} — {STATUS_META[req.status].label}
                       </span>
                       {req.status === 'CANCELLED' && req.cancelledByName && (
-                        <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>
+                        <div className="mt-[3px] text-xs text-subtle-foreground">
                           בוטל ע"י {req.cancelledByName}{req.cancelReason ? ` — ${req.cancelReason}` : ''}
                         </div>
                       )}
@@ -435,32 +474,20 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
                   )}
 
                   {!disabled && !locked ? (
-                    <div style={{ display: 'flex', gap: '5px' }}>
+                    <div className="flex gap-[5px]">
                       <button onClick={() => toggleDate(sd, selectedSeason.id, 'leave')}
-                        style={{
-                          flex: 1, padding: '5px 4px', borderRadius: RADIUS.md, cursor: 'pointer',
-                          background: req?.kind === 'leave' ? C.success : 'transparent',
-                          border: `1px solid ${req?.kind === 'leave' ? C.success : C.border}`,
-                          color: req?.kind === 'leave' ? 'white' : C.textMuted,
-                          ...TEXT.xs, fontWeight: WEIGHT.semibold, transition: EASE.fast,
-                        }}>
+                        className={toggleBtnClass('leave', req?.kind === 'leave')}>
                         🏖 חופשה
                       </button>
                       <button onClick={() => toggleDate(sd, selectedSeason.id, 'work')}
-                        style={{
-                          flex: 1, padding: '5px 4px', borderRadius: RADIUS.md, cursor: 'pointer',
-                          background: req?.kind === 'work' ? C.info : 'transparent',
-                          border: `1px solid ${req?.kind === 'work' ? C.info : C.border}`,
-                          color: req?.kind === 'work' ? 'white' : C.textMuted,
-                          ...TEXT.xs, fontWeight: WEIGHT.semibold, transition: EASE.fast,
-                        }}>
+                        className={toggleBtnClass('work', req?.kind === 'work')}>
                         💼 עבודה
                       </button>
                     </div>
                   ) : locked ? (
-                    !req && <div style={{ ...TEXT.xs, color: C.danger }}>🔒 נעול — לא ניתן לבקש</div>
+                    !req && <div className="text-xs text-danger">🔒 נעול — לא ניתן לבקש</div>
                   ) : (
-                    !req && <div style={{ ...TEXT.xs, color: C.textDisabled }}>נפתח בהמשך</div>
+                    !req && <div className="text-xs text-subtle-foreground">נפתח בהמשך</div>
                   )}
                 </div>
               );
@@ -469,16 +496,11 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
 
           {/* Summary row — consecutive days submitted together (same groupId) show as one range chip */}
           {myRequests.some(r => r.seasonId === selectedSeason.id) && (
-            <div style={{ marginTop: SP[4], padding: `${SP[3]} ${SP[4]}`, background: C.bgNested, borderRadius: RADIUS.lg, display: 'flex', gap: SP[3], flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{ ...TEXT.sm, color: C.textMuted }}>הבקשות שלי:</span>
+            <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg bg-muted px-4 py-3">
+              <span className="text-sm text-subtle-foreground">הבקשות שלי:</span>
               {groupForDisplay(myRequests.filter(r => r.seasonId === selectedSeason.id))
                 .map(g => (
-                <span key={g.key} style={{
-                  ...TEXT.xs, fontWeight: WEIGHT.semibold, padding: '3px 10px', borderRadius: RADIUS.full,
-                  background: g.kind === 'leave' ? C.successBg : C.infoBg,
-                  color: g.kind === 'leave' ? C.success : C.info,
-                  border: `1px solid ${g.kind === 'leave' ? C.success : C.info}33`,
-                }}>
+                <span key={g.key} className={`rounded-full border px-2.5 py-[3px] text-xs font-semibold ${groupChipClass(g.kind)}`}>
                   {g.dates.length > 1
                     ? `${fmt(g.dates[0])} — ${fmt(g.dates[g.dates.length - 1])} (${g.dates.length} ימים)`
                     : fmt(g.dates[0])}
@@ -492,70 +514,59 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
       )}
 
       {/* ── Free-form request ── */}
-      <div style={{ background: C.bgCard, borderRadius: RADIUS['2xl'], border: `1px solid ${C.border}`, padding: SP[5], boxShadow: SHADOW.sm }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: SP[4] }}>
-          <span style={{ fontSize: '18px' }}>📝</span>
-          <span style={{ ...TEXT.lg, fontWeight: WEIGHT.semibold }}>בקשה לתאריך אחר</span>
+      <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+        <div className="mb-4 flex items-center gap-2">
+          <span className="text-[18px]">📝</span>
+          <span className="text-lg font-semibold">בקשה לתאריך אחר</span>
         </div>
-        <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div className="flex flex-wrap items-end gap-3">
           <div>
-            <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>תאריך</div>
+            <div className="mb-1 text-xs text-subtle-foreground">תאריך</div>
             <DateField value={freeDate} onChange={v => setFreeDate(v)}
-              style={{ padding: '7px 12px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, ...TEXT.sm, outline: 'none', fontFamily: FONT }} />
+              style={dateInputStyleNested} />
           </div>
           <div>
-            <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>סוג</div>
-            <div style={{ display: 'flex', gap: '4px', background: C.bgNested, padding: '4px', borderRadius: RADIUS.md, border: `1px solid ${C.border}` }}>
+            <div className="mb-1 text-xs text-subtle-foreground">סוג</div>
+            <div className="flex gap-1 rounded-md border border-border bg-muted p-1">
               {(['leave', 'work'] as const).map(k => (
                 <button key={k} onClick={() => setFreeKind(k)}
-                  style={{
-                    padding: '5px 14px', borderRadius: RADIUS.sm, border: 'none', cursor: 'pointer',
-                    background: freeKind === k ? C.bgCard : 'transparent',
-                    color: freeKind === k ? C.textPrimary : C.textMuted,
-                    ...TEXT.xs, fontWeight: freeKind === k ? WEIGHT.semibold : WEIGHT.normal,
-                    boxShadow: freeKind === k ? SHADOW.xs : 'none', transition: EASE.fast,
-                  }}>
+                  className={`cursor-pointer rounded-sm border-none px-3.5 py-[5px] text-xs transition-[background-color,color,box-shadow] duration-fast ease-out ${freeKind === k ? 'bg-card font-semibold text-foreground shadow-xs' : 'bg-transparent font-normal text-subtle-foreground'}`}>
                   {k === 'leave' ? '🏖 חופשה' : '💼 עבודה'}
                 </button>
               ))}
             </div>
           </div>
-          <div style={{ flex: 1, minWidth: '160px' }}>
-            <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>סיבה (אופציונלי)</div>
+          <div className="min-w-[160px] flex-1">
+            <div className="mb-1 text-xs text-subtle-foreground">סיבה (אופציונלי)</div>
             <input type="text" placeholder="חופשה משפחתית, אירוע..." value={freeReason} onChange={e => setFreeReason(e.target.value)}
-              style={{ width: '100%', padding: '7px 12px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, ...TEXT.sm, outline: 'none', fontFamily: FONT, boxSizing: 'border-box' }} />
+              className="box-border w-full rounded-md border border-border bg-muted px-3 py-[7px] text-sm text-foreground outline-none" />
           </div>
           <button onClick={submitFree} disabled={!freeDate || freeSaving}
-            style={{
-              padding: '8px 20px', borderRadius: RADIUS.md, cursor: freeDate ? 'pointer' : 'not-allowed',
-              background: freeDate ? C.brand : C.bgNested,
-              color: freeDate ? 'white' : C.textDisabled,
-              border: 'none', ...TEXT.sm, fontWeight: WEIGHT.semibold, transition: EASE.fast,
-            }}>
+            className={submitBtnClass(!!freeDate)}>
             {freeSaving ? '...' : 'שלח'}
           </button>
         </div>
 
         {/* Free requests list */}
         {freeRequests.length > 0 && (
-          <div style={{ marginTop: SP[4], display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-            <div style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.semibold }}>בקשות חופשה חופשיות:</div>
+          <div className="mt-4 flex flex-col gap-2">
+            <div className="text-xs font-semibold text-subtle-foreground">בקשות חופשה חופשיות:</div>
             {freeRequests.map(r => (
-              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: SP[3], padding: `${SP[2]} ${SP[3]}`, background: C.bgNested, borderRadius: RADIUS.lg, border: `1px solid ${C.border}` }}>
+              <div key={r.id} className="flex items-center gap-3 rounded-lg border border-border bg-muted px-3 py-2">
                 <span>{r.kind === 'leave' ? '🏖' : '💼'}</span>
-                <span style={{ ...TEXT.sm, fontWeight: WEIGHT.medium }}>{fmt(r.date)}</span>
-                {r.reason && <span style={{ ...TEXT.sm, color: C.textMuted }}>{r.reason}</span>}
+                <span className="text-sm font-medium text-foreground">{fmt(r.date)}</span>
+                {r.reason && <span className="text-sm text-subtle-foreground">{r.reason}</span>}
                 {r.status === 'CANCELLED' && r.cancelledByName && (
-                  <span style={{ ...TEXT.xs, color: C.textMuted }}>
+                  <span className="text-xs text-subtle-foreground">
                     בוטל ע"י {r.cancelledByName}{r.cancelReason ? ` — ${r.cancelReason}` : ''}
                   </span>
                 )}
-                <span style={{ marginRight: 'auto', ...TEXT.xs, fontWeight: WEIGHT.semibold, color: STATUS_META[r.status].color, background: STATUS_META[r.status].bg, padding: '2px 8px', borderRadius: RADIUS.full, border: `1px solid ${STATUS_META[r.status].color}33` }}>
+                <span className={`ms-auto rounded-full border px-2 py-0.5 text-xs font-semibold ${STATUS_META[r.status].className}`}>
                   {STATUS_META[r.status].label}
                 </span>
                 {(r.status === 'PENDING' || r.status === 'APPROVED') && (
                   <button onClick={() => cancelFree(r)}
-                    style={{ ...TEXT.xs, color: C.danger, background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 6px' }}>
+                    className="cursor-pointer rounded border-none bg-transparent px-1.5 py-0.5 text-xs text-danger">
                     ביטול
                   </button>
                 )}

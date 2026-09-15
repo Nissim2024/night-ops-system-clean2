@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { Card, Button, Alert } from '../ui';
 import { TABLE_COLUMN_FIELDS, DETAIL_FIELDS, FieldDef } from './openProdDefectsFields';
 
@@ -25,30 +24,31 @@ const FieldOrderEditor: React.FC<{ pool: FieldDef[]; value: string[]; onChange: 
   const add = (key: string) => { if (key && !value.includes(key)) onChange([...value, key]); };
 
   return (
-    <div style={{ display: 'flex', gap: SP[4], flexWrap: 'wrap' }}>
-      <div style={{ flex: 1, minWidth: '280px' }}>
-        <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: SP[2] }}>נבחרים ({value.length}) — לפי הסדר שיוצג</div>
-        {value.length === 0 && <div style={{ ...TEXT.sm, color: C.textMuted }}>לא נבחרו שדות.</div>}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+    <div className="flex flex-wrap gap-4">
+      <div className="min-w-[280px] flex-1">
+        <div className="mb-2 text-xs font-bold text-subtle-foreground">נבחרים ({value.length}) — לפי הסדר שיוצג</div>
+        {value.length === 0 && <div className="text-sm text-subtle-foreground">לא נבחרו שדות.</div>}
+        <div className="flex flex-col gap-1">
           {value.map((key, idx) => (
-            <div key={key} style={{ display: 'flex', alignItems: 'center', gap: SP[2], background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '6px 10px' }}>
-              <span style={{ ...TEXT.sm, color: C.textPrimary, flex: 1 }}>{labelOf(key)}</span>
-              <button onClick={() => move(idx, -1)} disabled={idx === 0} style={arrowBtn(idx === 0)}>↑</button>
-              <button onClick={() => move(idx, 1)} disabled={idx === value.length - 1} style={arrowBtn(idx === value.length - 1)}>↓</button>
-              <button onClick={() => remove(key)} style={{ ...arrowBtn(false), color: C.danger }}>✕</button>
+            <div key={key} className="flex items-center gap-2 rounded-md border border-border bg-muted px-2.5 py-1.5">
+              <span className="flex-1 text-sm text-foreground">{labelOf(key)}</span>
+              <button onClick={() => move(idx, -1)} disabled={idx === 0} className={arrowBtnClass(idx === 0)}>↑</button>
+              <button onClick={() => move(idx, 1)} disabled={idx === value.length - 1} className={arrowBtnClass(idx === value.length - 1)}>↓</button>
+              <button onClick={() => remove(key)} className={`${arrowBtnClass(false)} text-danger`}>✕</button>
             </div>
           ))}
         </div>
       </div>
-      <div style={{ flex: 1, minWidth: '240px' }}>
-        <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: SP[2] }}>זמינים להוספה ({available.length})</div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '260px', overflowY: 'auto' }}>
-          {available.length === 0 && <div style={{ ...TEXT.sm, color: C.textMuted }}>כל השדות נבחרו.</div>}
+      <div className="min-w-[240px] flex-1">
+        <div className="mb-2 text-xs font-bold text-subtle-foreground">זמינים להוספה ({available.length})</div>
+        <div className="flex max-h-[260px] flex-wrap gap-1.5 overflow-y-auto">
+          {available.length === 0 && <div className="text-sm text-subtle-foreground">כל השדות נבחרו.</div>}
           {available.map(f => (
-            <button key={f.key} onClick={() => add(f.key)} style={{
-              fontFamily: FONT, ...TEXT.xs, cursor: 'pointer', padding: '5px 10px', borderRadius: RADIUS.full,
-              border: `1px dashed ${C.border}`, background: 'transparent', color: C.textSecondary,
-            }}>
+            <button
+              key={f.key}
+              onClick={() => add(f.key)}
+              className="cursor-pointer rounded-full border border-dashed border-border bg-transparent px-2.5 py-1 font-sans text-xs text-muted-foreground"
+            >
               + {f.label}
             </button>
           ))}
@@ -58,10 +58,8 @@ const FieldOrderEditor: React.FC<{ pool: FieldDef[]; value: string[]; onChange: 
   );
 };
 
-const arrowBtn = (disabled: boolean): React.CSSProperties => ({
-  background: 'none', border: 'none', cursor: disabled ? 'default' : 'pointer',
-  color: disabled ? C.textDisabled : C.textMuted, fontSize: '14px', padding: '2px 6px', fontFamily: FONT,
-});
+const arrowBtnClass = (disabled: boolean) =>
+  `bg-transparent border-none font-sans text-sm px-1.5 py-0.5 ${disabled ? 'cursor-default text-subtle-foreground' : 'cursor-pointer text-subtle-foreground'}`;
 
 export const OpenProdDefectsConfigPanel: React.FC<{ token: string }> = ({ token }) => {
   const headers = { Authorization: `Bearer ${token}` };
@@ -96,16 +94,16 @@ export const OpenProdDefectsConfigPanel: React.FC<{ token: string }> = ({ token 
     }
   };
 
-  if (loading) return <div style={{ textAlign: 'center', padding: SP[8], color: C.textMuted, fontFamily: FONT }}>טוען...</div>;
+  if (loading) return <div className="p-8 text-center font-sans text-subtle-foreground">טוען...</div>;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4], fontFamily: FONT }}>
+    <div className="flex flex-col gap-4 font-sans">
       {error && <Alert variant="danger" onClose={() => setError(null)}>{error}</Alert>}
       {savedMsg && <Alert variant="success" onClose={() => setSavedMsg(false)}>התצורה נשמרה</Alert>}
 
       <Card>
-        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '4px' }}>עמודות טבלת "תקלות ייצור פתוחות"</div>
-        <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: SP[3] }}>
+        <div className="mb-1 text-sm font-bold text-foreground">עמודות טבלת "תקלות ייצור פתוחות"</div>
+        <div className="mb-3 text-xs text-subtle-foreground">
           קובע אילו עמודות מוצגות בטבלה במודול איכות גרסה → תקלות ייצור פתוחות, ובאיזה סדר.
         </div>
         {tableColumns != null && (
@@ -114,8 +112,8 @@ export const OpenProdDefectsConfigPanel: React.FC<{ token: string }> = ({ token 
       </Card>
 
       <Card>
-        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '4px' }}>שדות מסך פרטי תקלה</div>
-        <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: SP[3] }}>
+        <div className="mb-1 text-sm font-bold text-foreground">שדות מסך פרטי תקלה</div>
+        <div className="mb-3 text-xs text-subtle-foreground">
           קובע אילו שדות מוצגים במסך שנפתח בלחיצה על תקלה בטבלה, ובאיזה סדר. מציג את מלוא השדות הזמינים מ-QC.
         </div>
         {detailFields != null && (
@@ -123,7 +121,7 @@ export const OpenProdDefectsConfigPanel: React.FC<{ token: string }> = ({ token 
         )}
       </Card>
 
-      <Button onClick={save} disabled={saving} style={{ alignSelf: 'flex-start' }}>
+      <Button onClick={save} disabled={saving} className="self-start">
         {saving ? 'שומר...' : '💾 שמור תצורה'}
       </Button>
     </div>

@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, versionStatusLabel, versionStatusColor } from '../theme';
+import { C, SHADOW } from '../theme';
 import { useDialog } from '../context/DialogContext';
 import { VersionStatusChip } from './ui';
 import { formatDate as fmtDateShared, formatDateTime as fmtDateTimeShared } from '../utils/dateFormat';
@@ -155,19 +155,20 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
     return () => { cancelled = true; };
   }, [version.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── "הצעד הבא" לפי סטטוס ──
-  const CTA_MAP: Record<string, { icon: string; text: string; color: string; bg: string; tab?: string }> = {
-    DRAFT:         { icon: '📝', text: 'פתח לאיסוף משימות מהצוותים', color: C.brand,          bg: C.brandDim,   tab: 'version-detail' },
-    COLLECTING:    { icon: '📥', text: stats ? `${stats.submittedTeams}/${stats.totalTeams} צוותים הגישו — עקוב אחר ההגשות` : 'ממתין להגשות צוותים', color: C.warning, bg: C.warningBg, tab: 'proposals' },
-    CR_REVIEW:     { icon: '🔍', text: stats ? `${stats.approvedCRs}/${stats.totalCRs} CR-ים אושרו — השלם סקירה` : 'בסקירת תוכניות CR', color: C.warning,  bg: C.warningBg,  tab: 'cr-review' },
-    REFINING:      { icon: '✏️', text: 'בשלב טיוב התוכנית — עבור לישיבת מעבר', color: C.brand, bg: C.brandDim, tab: 'version-detail' },
-    REVIEW:        { icon: '✅', text: 'ניתן לאשר את התוכנית', color: C.statusDone, bg: C.bgDone, tab: 'version-detail' },
-    APPROVED:      { icon: '🎭', text: 'התוכנית מאושרת — ניתן להתחיל חזרה גנרלית', color: '#7c3aed', bg: 'rgba(124,58,237,0.10)', tab: 'version-detail' },
-    REHEARSAL:     { icon: '🎭', text: 'חזרה גנרלית פעילה — עבור ל-War Room', color: '#7c3aed', bg: 'rgba(124,58,237,0.10)', tab: 'board' },
-    ACTIVE:        { icon: '🚀', text: stats && stats.totalTasks > 0 ? `הרצה פעילה — ${Math.round(stats.doneTasks / stats.totalTasks * 100)}% הושלמו` : 'הרצה פעילה', color: C.statusFailed, bg: C.dangerBg, tab: 'board' },
-    MORNING_AFTER: { icon: '🌅', text: stats ? `${stats.totalTasks - stats.doneTasks} משימות בוקר נותרו` : 'משימות בוקר שלאחר הגרסה', color: C.statusInProgress, bg: C.bgInProgress, tab: 'board' },
-    COMPLETED:     { icon: '🏆', text: 'הגרסה הושלמה בהצלחה', color: C.statusDone, bg: C.bgDone },
-    ROLLED_BACK:   { icon: '🔄', text: 'הגרסה עברה Rollback', color: C.statusRollback, bg: C.bgNested },
+  // ── "הצעד הבא" לפי סטטוס — fixed 11-value enum, mapped to literal Tailwind
+  // class strings (not built via interpolation) rather than raw hex.
+  const CTA_MAP: Record<string, { icon: string; text: string; colorClass: string; tab?: string }> = {
+    DRAFT:         { icon: '📝', text: 'פתח לאיסוף משימות מהצוותים', colorClass: 'text-primary', tab: 'version-detail' },
+    COLLECTING:    { icon: '📥', text: stats ? `${stats.submittedTeams}/${stats.totalTeams} צוותים הגישו — עקוב אחר ההגשות` : 'ממתין להגשות צוותים', colorClass: 'text-warning', tab: 'proposals' },
+    CR_REVIEW:     { icon: '🔍', text: stats ? `${stats.approvedCRs}/${stats.totalCRs} CR-ים אושרו — השלם סקירה` : 'בסקירת תוכניות CR', colorClass: 'text-warning', tab: 'cr-review' },
+    REFINING:      { icon: '✏️', text: 'בשלב טיוב התוכנית — עבור לישיבת מעבר', colorClass: 'text-primary', tab: 'version-detail' },
+    REVIEW:        { icon: '✅', text: 'ניתן לאשר את התוכנית', colorClass: 'text-success', tab: 'version-detail' },
+    APPROVED:      { icon: '🎭', text: 'התוכנית מאושרת — ניתן להתחיל חזרה גנרלית', colorClass: 'text-[#7c3aed]', tab: 'version-detail' },
+    REHEARSAL:     { icon: '🎭', text: 'חזרה גנרלית פעילה — עבור ל-War Room', colorClass: 'text-[#7c3aed]', tab: 'board' },
+    ACTIVE:        { icon: '🚀', text: stats && stats.totalTasks > 0 ? `הרצה פעילה — ${Math.round(stats.doneTasks / stats.totalTasks * 100)}% הושלמו` : 'הרצה פעילה', colorClass: 'text-danger', tab: 'board' },
+    MORNING_AFTER: { icon: '🌅', text: stats ? `${stats.totalTasks - stats.doneTasks} משימות בוקר נותרו` : 'משימות בוקר שלאחר הגרסה', colorClass: 'text-warning', tab: 'board' },
+    COMPLETED:     { icon: '🏆', text: 'הגרסה הושלמה בהצלחה', colorClass: 'text-success' },
+    ROLLED_BACK:   { icon: '🔄', text: 'הגרסה עברה Rollback', colorClass: 'text-subtle-foreground' },
   };
   const cta = CTA_MAP[s];
 
@@ -376,36 +377,39 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                : cta?.tab;
 
   return (
-    <div style={{ direction: 'rtl', fontFamily: FONT }}>
+    <div>
 
       {/* בנר נעילה לגרסאות סגורות */}
       {isLocked && (
-        <div style={{ background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', color: C.textMuted }}>
-          🔒 <strong style={{ color: C.textSecondary }}>גרסה סגורה — תצוגה בלבד.</strong> רק מנהל מערכת (ADMIN) יכול לערוך.
+        <div className="bg-muted border border-border rounded-md px-4 py-2.5 mb-4 flex items-center gap-2 text-[15px] text-subtle-foreground">
+          🔒 <strong className="text-muted-foreground">גרסה סגורה — תצוגה בלבד.</strong> רק מנהל מערכת (ADMIN) יכול לערוך.
         </div>
       )}
 
       {/* ── פאנל שלבי בנייה — DRAFT בלבד ── */}
       {s === 'DRAFT' && isManager && (
-        <div style={{ background: C.bgCard, border: `2px solid ${C.brand}44`, borderRadius: '12px', padding: '18px 20px', marginBottom: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-            <span style={{ fontSize: '18px' }}>🏗️</span>
-            <span style={{ fontSize: '16px', fontWeight: 700, color: C.textPrimary }}>איך לבנות את התוכנית?</span>
+        <div className="bg-card border-2 border-primary/30 rounded-xl px-5 py-[18px] mb-4">
+          <div className="flex items-center gap-2 mb-3.5">
+            <span className="text-lg">🏗️</span>
+            <span className="text-base font-bold text-foreground">איך לבנות את התוכנית?</span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '10px' }}>
+          <div className="grid grid-cols-4 gap-2.5">
             {[
               { icon: '📤', title: 'ייבוא מ-Excel', sub: 'טען קובץ XLS עם משימות', color: C.statusDone },
               { icon: '🏷️', title: 'שימוש בתבנית', sub: 'טעינה מתבנית שמורה',   color: C.statusOpen },
               { icon: '🔧', title: 'אשף הכנת תוכנית', sub: 'מסגרת זמן, עובדים, תלויות', color: C.warning },
               { icon: '✏️', title: 'בנייה ידנית',  sub: 'הוסף שלבים ומשימות', color: C.textSecondary },
             ].map(step => (
+              // Kept as inline style (unchanged pattern): per-step accent color is
+              // dynamic and its hover effect is driven imperatively via
+              // onMouseEnter/onMouseLeave, not a static Tailwind pseudo-class.
               <button
                 key={step.title}
                 onClick={() => onNavigate('version-detail')}
                 style={{
                   background: C.bgNested, border: `1px solid ${step.color}44`,
                   borderRadius: '10px', padding: '14px 12px',
-                  cursor: 'pointer', textAlign: 'right' as const, direction: 'rtl',
+                  cursor: 'pointer', textAlign: 'right' as const,
                   display: 'flex', flexDirection: 'column', gap: '6px',
                   transition: 'transform 0.12s, box-shadow 0.12s',
                   boxShadow: SHADOW.sm,
@@ -414,13 +418,13 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 6px 20px rgba(0,0,0,0.12)'; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = ''; (e.currentTarget as HTMLElement).style.boxShadow = SHADOW.sm; }}
               >
-                <span style={{ fontSize: '22px' }}>{step.icon}</span>
-                <span style={{ fontSize: '15px', fontWeight: 700, color: C.textPrimary }}>{step.title}</span>
-                <span style={{ fontSize: '13px', color: C.textMuted, lineHeight: 1.4 }}>{step.sub}</span>
+                <span className="text-[22px]">{step.icon}</span>
+                <span className="text-[15px] font-bold text-foreground">{step.title}</span>
+                <span className="text-[13px] text-subtle-foreground leading-snug">{step.sub}</span>
               </button>
             ))}
           </div>
-          <div style={{ marginTop: '12px', fontSize: '14px', color: C.textMuted, display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div className="mt-3 text-sm text-subtle-foreground flex items-center gap-1.5">
             <span>💡</span>
             <span>לחץ על אחד הכפתורים — תגיע ל"פרטי גרסה" שם נמצאים כל הכלים לבנייה.</span>
           </div>
@@ -429,21 +433,17 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
 
 
       {/* כרטיס פרטי גרסה — עם עריכה אינליין */}
-      <div style={{
-        background: C.bgCard, borderRadius: '14px', padding: '20px 24px', marginBottom: '20px',
-        border: `1px solid ${isClosed ? C.borderEm : C.border}`, boxShadow: SHADOW.sm,
-        borderRight: `4px solid ${C.brand}`,
-      }}>
+      <div className={`bg-card rounded-2xl px-6 py-5 mb-5 border-s-4 border-s-primary shadow-sm ${isClosed ? 'border border-neutral-300' : 'border border-border'}`}>
         {/* שורת כותרת */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: C.textPrimary }}>{version.name}</h2>
+        <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
+          <div className="flex items-center gap-2.5">
+            <h2 className="m-0 text-xl font-bold text-foreground">{version.name}</h2>
             <VersionStatusChip status={version.status} size="sm" />
             {version.creator?.fullName && (
-              <span style={{ fontSize: '14px', color: C.textMuted }}>👤 {version.creator.fullName}</span>
+              <span className="text-sm text-subtle-foreground">👤 {version.creator.fullName}</span>
             )}
           </div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div className="flex gap-2 items-center">
             {isAdmin && (
               <button
                 onClick={async () => {
@@ -455,14 +455,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                     dialog.alert(err?.response?.data?.message || 'שגיאה במחיקת הגרסה', 'שגיאה', 'danger');
                   }
                 }}
-                style={{
-                  padding: '6px 12px',
-                  background: C.dangerBg ?? '#fff0f0',
-                  color: C.statusFailed,
-                  border: `1px solid ${C.statusFailed}44`,
-                  borderRadius: RADIUS.md, cursor: 'pointer',
-                  fontSize: '14px', fontWeight: 600, fontFamily: FONT,
-                }}
+                className="px-3 py-1.5 bg-danger-bg text-danger border border-danger/30 rounded-md cursor-pointer text-sm font-semibold"
                 title="מחק גרסה (Admin בלבד)"
               >
                 🗑 מחק
@@ -472,7 +465,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
         </div>
 
         {/* שדות תאריכים — עריכה אינליין, ממוינים לפי מועד */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
           {([
             { icon: '📅', label: 'התחלה מתוכננת',   field: 'plannedStart',      value: version.plannedStart,      dateOnly: false },
             { icon: '🏁', label: 'סיום מתוכנן',      field: 'plannedEnd',        value: version.plannedEnd,        dateOnly: false },
@@ -493,26 +486,24 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
             const inputType = dateOnly ? 'date' : 'datetime-local';
             const currentVal = value ? (dateOnly ? value.slice(0, 10) : value.slice(0, 16)) : '';
             return (
-              <div key={field} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span style={{ fontSize: '13px', color: C.textMuted, fontWeight: 600 }}>
+              <div key={field} className="flex flex-col gap-1">
+                <span className="text-[13px] text-subtle-foreground font-semibold">
                   {icon} {label}
                 </span>
                 {canEdit ? (
+                  // Focus/blur border-color swap kept as imperative handlers
+                  // (matches the original — a static focus-visible ring would
+                  // change the interaction, not just its styling).
                   <input
                     type={inputType}
                     defaultValue={currentVal}
                     onBlur={e => { if (e.target.value !== currentVal) saveField(field, e.target.value); }}
-                    style={{
-                      background: C.bgNested, color: C.textPrimary,
-                      border: `1px solid ${C.border}`, borderRadius: RADIUS.sm,
-                      padding: '6px 8px', fontSize: '15px', fontFamily: FONT,
-                      outline: 'none', cursor: 'pointer', width: '100%', boxSizing: 'border-box' as const,
-                    }}
+                    className="bg-muted text-foreground border border-border rounded-sm px-2 py-1.5 text-[15px] outline-none cursor-pointer w-full box-border"
                     onFocus={e => (e.target as HTMLElement).style.borderColor = C.brand}
                     onBlurCapture={e => (e.target as HTMLElement).style.borderColor = C.border}
                   />
                 ) : (
-                  <span style={{ fontSize: '15px', color: value ? C.textPrimary : C.textDisabled, padding: '6px 0' }}>
+                  <span className={`text-[15px] py-1.5 ${value ? 'text-foreground' : 'text-subtle-foreground'}`}>
                     {value ? (dateOnly ? fmtDateShared(value) : fmt(value)) : '—'}
                   </span>
                 )}
@@ -523,67 +514,39 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
 
         {/* סיכום נתוני גרסה — צוותים, משימות, CR-ים */}
         {stats && (stats.totalTeams > 0 || stats.totalTasks > 0 || stats.totalCRs > 0) && (
-          <div style={{
-            display: 'flex', gap: '6px', flexWrap: 'wrap',
-            marginTop: '14px', paddingTop: '12px', borderTop: `1px solid ${C.border}`,
-          }}>
+          <div className="flex gap-1.5 flex-wrap mt-3.5 pt-3 border-t border-border">
             {stats.totalTeams > 0 && (
-              <span style={{
-                fontSize: '14px', padding: '3px 10px', borderRadius: RADIUS.full,
-                background: C.bgNested, border: `1px solid ${C.border}`, color: C.textSecondary,
-              }}>
+              <span className="text-sm px-2.5 py-[3px] rounded-full bg-muted border border-border text-muted-foreground">
                 👥 <strong>{stats.totalTeams}</strong> צוותים
               </span>
             )}
             {stats.totalTasks > 0 && (
-              <span style={{
-                fontSize: '14px', padding: '3px 10px', borderRadius: RADIUS.full,
-                background: C.bgNested, border: `1px solid ${C.border}`, color: C.textSecondary,
-              }}>
+              <span className="text-sm px-2.5 py-[3px] rounded-full bg-muted border border-border text-muted-foreground">
                 📋 <strong>{stats.totalTasks}</strong> משימות
               </span>
             )}
             {stats.totalCRs > 0 && (
-              <span style={{
-                fontSize: '14px', padding: '3px 10px', borderRadius: RADIUS.full,
-                background: stats.approvedCRs === stats.totalCRs ? C.bgDone : C.bgNested,
-                border: `1px solid ${stats.approvedCRs === stats.totalCRs ? C.statusDone + '55' : C.border}`,
-                color: stats.approvedCRs === stats.totalCRs ? C.statusDone : C.textSecondary,
-              }}>
+              <span className={`text-sm px-2.5 py-[3px] rounded-full border ${stats.approvedCRs === stats.totalCRs ? 'bg-success-bg border-success/30 text-success' : 'bg-muted border-border text-muted-foreground'}`}>
                 🔧 <strong>{stats.approvedCRs}/{stats.totalCRs}</strong> CR-ים אושרו
               </span>
             )}
             {stats.submittedTeams > 0 && stats.totalTeams > 0 && stats.submittedTeams < stats.totalTeams && (
-              <span style={{
-                fontSize: '14px', padding: '3px 10px', borderRadius: RADIUS.full,
-                background: C.warningBg, border: `1px solid ${C.warning}44`, color: C.warning,
-              }}>
+              <span className="text-sm px-2.5 py-[3px] rounded-full bg-warning-bg border border-warning/30 text-warning">
                 📥 <strong>{stats.submittedTeams}/{stats.totalTeams}</strong> צוותים הגישו
               </span>
             )}
             {crStats && (
-              <span style={{
-                fontSize: '14px', padding: '3px 10px', borderRadius: RADIUS.full,
-                background: C.bgNested, border: `1px solid ${C.border}`, color: C.textSecondary,
-              }}>
+              <span className="text-sm px-2.5 py-[3px] rounded-full bg-muted border border-border text-muted-foreground">
                 🧪 QA &gt; 0.5 יום: <strong>{crStats.qaTaskCount}</strong> CR-ים
               </span>
             )}
             {crStats && (
-              <span style={{
-                fontSize: '14px', padding: '3px 10px', borderRadius: RADIUS.full,
-                background: C.bgNested, border: `1px solid ${C.border}`, color: C.textSecondary,
-              }}>
+              <span className="text-sm px-2.5 py-[3px] rounded-full bg-muted border border-border text-muted-foreground">
                 📊 סך כל הערכות: <strong>{crStats.totalEstimateDays}</strong> ימים
               </span>
             )}
             {crStats && (
-              <span style={{
-                fontSize: '14px', padding: '3px 10px', borderRadius: RADIUS.full,
-                background: crStats.actualsCount > 0 ? C.bgDone : C.bgNested,
-                border: `1px solid ${crStats.actualsCount > 0 ? C.statusDone + '44' : C.border}`,
-                color: crStats.actualsCount > 0 ? C.statusDone : C.textSecondary,
-              }}>
+              <span className={`text-sm px-2.5 py-[3px] rounded-full border ${crStats.actualsCount > 0 ? 'bg-success-bg border-success/30 text-success' : 'bg-muted border-border text-muted-foreground'}`}>
                 ✅ דיווח בפועל: <strong>{crStats.actualsCount}</strong> CR-ים
               </span>
             )}
@@ -592,15 +555,15 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
 
         {/* נתוני הרצה בפועל (קריאה בלבד) */}
         {(version.actualStart || version.lastRehearsalAt || version.lastNightAt) && (
-          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '14px', paddingTop: '12px', borderTop: `1px solid ${C.border}`, fontSize: '14px' }}>
+          <div className="flex gap-4 flex-wrap mt-3.5 pt-3 border-t border-border text-sm">
             {version.actualStart && (
-              <span style={{ color: C.statusInProgress }}>🚀 הרצה התחילה: {fmt(version.actualStart)}</span>
+              <span className="text-warning">🚀 הרצה התחילה: {fmt(version.actualStart)}</span>
             )}
             {version.lastRehearsalAt && (
-              <span style={{ color: '#f0883e' }}>🎭 חזרה הסתיימה: {fmt(version.lastRehearsalAt)}</span>
+              <span className="text-[#f0883e]">🎭 חזרה הסתיימה: {fmt(version.lastRehearsalAt)}</span>
             )}
             {version.lastNightAt && (
-              <span style={{ color: C.statusDone }}>✅ לילה הסתיים: {fmt(version.lastNightAt)}</span>
+              <span className="text-success">✅ לילה הסתיים: {fmt(version.lastNightAt)}</span>
             )}
           </div>
         )}
@@ -623,16 +586,16 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
         const planningCta    = ['DRAFT','COLLECTING','CR_REVIEW','REFINING','REVIEW','APPROVED'].includes(s);
         const showAlerts     = isPlanningRow && !!stats && ((!!cta && planningCta) || stats.alerts.length > 0);
         return (
-        <div key={row.title} style={{ marginBottom: '16px' }}>
+        <div key={row.title} className="mb-4">
           {/* כותרת שורה */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
-            <div style={{ height: '3px', width: '24px', background: row.accent, borderRadius: '2px', flexShrink: 0 }} />
-            <span style={{ fontSize: '13px', fontWeight: 700, color: C.textMuted, letterSpacing: '0.08em', textTransform: 'uppercase' as const, flexShrink: 0 }}>
+          <div className="flex items-center gap-2 mb-2.5 flex-wrap">
+            <div className="h-[3px] w-6 rounded-sm shrink-0" style={{ background: row.accent }} />
+            <span className="text-[13px] font-bold text-subtle-foreground tracking-wider uppercase shrink-0">
               {row.title}
             </span>
             {/* תאריכי הטמעה בכותרת שורת חזרה/הרצה */}
             {showDates && (version.plannedStart || version.plannedEnd) && (
-              <div style={{ display: 'flex', gap: '14px', marginRight: 'auto', fontSize: '14px', color: C.textSecondary }}>
+              <div className="flex gap-3.5 ms-auto text-sm text-muted-foreground">
                 {version.plannedStart && <span>📅 <strong>התחלה מתוכננת</strong> {fmt(version.plannedStart)}</span>}
                 {version.plannedEnd   && <span>🏁 <strong>סיום מתוכנן</strong> {fmt(version.plannedEnd)}</span>}
               </div>
@@ -641,33 +604,20 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
 
           {/* פנל CTA + התראות — בשורת תכנון בלבד */}
           {showAlerts && (
-            <div style={{
-              background: C.bgCard, border: `1px solid ${C.border}`,
-              borderRadius: '10px', padding: '12px 16px', marginBottom: '10px',
-            }}>
+            <div className="bg-card border border-border rounded-[10px] px-4 py-3 mb-2.5">
               {cta && (
                 <div
                   onClick={() => ctaTab && onNavigate(ctaTab)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0',
-                    cursor: ctaTab ? 'pointer' : 'default',
-                    borderBottom: stats!.alerts.length > 0 ? `1px solid ${C.border}44` : 'none',
-                    marginBottom: stats!.alerts.length > 0 ? '8px' : '0',
-                  }}
+                  className={`flex items-center gap-2 py-1 ${ctaTab ? 'cursor-pointer' : 'cursor-default'} ${stats!.alerts.length > 0 ? 'border-b border-border/30 mb-2' : 'mb-0'}`}
                 >
-                  <span style={{ fontSize: '17px' }}>{cta.icon}</span>
-                  <span style={{ fontSize: '15px', fontWeight: 700, color: cta.color, flex: 1 }}>{cta.text}</span>
-                  {ctaTab && <span style={{ fontSize: '13px', color: cta.color, opacity: 0.7 }}>← לחץ למעבר</span>}
+                  <span className="text-[17px]">{cta.icon}</span>
+                  <span className={`text-[15px] font-bold flex-1 ${cta.colorClass}`}>{cta.text}</span>
+                  {ctaTab && <span className={`text-[13px] opacity-70 ${cta.colorClass}`}>← לחץ למעבר</span>}
                 </div>
               )}
               {stats!.alerts.map((a, i) => (
-                <div key={i} style={{
-                  display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0',
-                  borderTop: i > 0 ? `1px solid ${C.border}33` : 'none',
-                  fontSize: '15px', color: a.type === 'error' ? C.statusFailed : C.warning,
-                  fontWeight: 600,
-                }}>
-                  <span style={{ fontSize: '16px' }}>{a.type === 'error' ? '🚨' : '⚠️'}</span>
+                <div key={i} className={`flex items-center gap-2 py-1 font-semibold text-[15px] ${i > 0 ? 'border-t border-border/20' : ''} ${a.type === 'error' ? 'text-danger' : 'text-warning'}`}>
+                  <span className="text-base">{a.type === 'error' ? '🚨' : '⚠️'}</span>
                   <span>{a.text}</span>
                 </div>
               ))}
@@ -676,43 +626,37 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
 
           {/* פנל stats + גרף התקדמות — בשורות חזרה והרצה */}
           {showStats && (
-            <div style={{
-              background: C.bgCard, border: `1px solid ${C.border}`,
-              borderRadius: '10px', padding: '10px 16px', marginBottom: '10px',
-            }}>
+            <div className="bg-card border border-border rounded-[10px] px-4 py-2.5 mb-2.5">
               {/* שורת קוביות */}
-              <div style={{ display: 'flex', gap: '0', alignItems: 'center' }}>
+              <div className="flex items-center">
                 {[
-                  { label: 'משימות',   value: effectiveStats!.totalTasks,      color: C.textPrimary },
-                  { label: 'הושלמו',  value: effectiveStats!.doneTasks,       color: C.statusDone },
-                  { label: 'בביצוע',  value: effectiveStats!.inProgressTasks, color: C.statusInProgress },
-                  { label: 'ממתינות', value: effectiveStats!.waitingTasks,    color: effectiveStats!.waitingTasks > 0 ? C.warning : C.textDisabled },
-                  { label: 'חסומות',  value: effectiveStats!.blockedTasks,    color: effectiveStats!.blockedTasks > 0 ? C.statusFailed : C.textDisabled },
-                  ...(effectiveStats!.totalTeams > 0 ? [{ label: 'צוותים', value: effectiveStats!.totalTeams, color: C.textSecondary }] : []),
-                  ...(effectiveStats!.totalCRs  > 0 ? [{ label: 'CR-ים',  value: effectiveStats!.totalCRs,   color: C.textSecondary }] : []),
+                  { label: 'משימות',   value: effectiveStats!.totalTasks,      colorClass: 'text-foreground' },
+                  { label: 'הושלמו',  value: effectiveStats!.doneTasks,       colorClass: 'text-success' },
+                  { label: 'בביצוע',  value: effectiveStats!.inProgressTasks, colorClass: 'text-warning' },
+                  { label: 'ממתינות', value: effectiveStats!.waitingTasks,    colorClass: effectiveStats!.waitingTasks > 0 ? 'text-warning' : 'text-subtle-foreground' },
+                  { label: 'חסומות',  value: effectiveStats!.blockedTasks,    colorClass: effectiveStats!.blockedTasks > 0 ? 'text-danger' : 'text-subtle-foreground' },
+                  ...(effectiveStats!.totalTeams > 0 ? [{ label: 'צוותים', value: effectiveStats!.totalTeams, colorClass: 'text-muted-foreground' }] : []),
+                  ...(effectiveStats!.totalCRs  > 0 ? [{ label: 'CR-ים',  value: effectiveStats!.totalCRs,   colorClass: 'text-muted-foreground' }] : []),
                 ].map((stat, i, arr) => (
-                  <div key={stat.label} style={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'center',
-                    padding: '0 16px', borderLeft: i < arr.length - 1 ? `1px solid ${C.border}` : 'none',
-                    minWidth: '65px',
-                  }}>
-                    <span style={{ fontSize: '20px', fontWeight: 700, color: stat.color, lineHeight: 1.2 }}>{stat.value}</span>
-                    <span style={{ fontSize: '13px', color: C.textMuted, marginTop: '2px' }}>{stat.label}</span>
+                  <div key={stat.label} className="flex flex-col items-center px-4 min-w-[65px]" style={{ borderInlineStart: i < arr.length - 1 ? `1px solid ${C.border}` : 'none' }}>
+                    <span className={`text-xl font-bold leading-tight ${stat.colorClass}`}>{stat.value}</span>
+                    <span className="text-[13px] text-subtle-foreground mt-0.5">{stat.label}</span>
                   </div>
                 ))}
               </div>
               {/* בר התקדמות — תמיד מתחת לקוביות */}
               {showProgress && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', paddingTop: '8px', borderTop: `1px solid ${C.border}33` }}>
-                  <div style={{ flex: 1, height: '5px', background: C.bgHover, borderRadius: '3px', overflow: 'hidden' }}>
-                    <div style={{
-                      height: '100%', borderRadius: '3px',
-                      background: effectiveStats!.doneTasks === effectiveStats!.totalTasks ? C.statusDone : row.accent,
-                      width: `${Math.round(effectiveStats!.doneTasks / effectiveStats!.totalTasks * 100)}%`,
-                      transition: 'width 0.5s ease',
-                    }} />
+                <div className="flex items-center gap-2 mt-2.5 pt-2 border-t border-border/20">
+                  <div className="flex-1 h-[5px] bg-muted rounded-[3px] overflow-hidden">
+                    <div
+                      className="h-full rounded-[3px] transition-[width] duration-slow ease-out"
+                      style={{
+                        background: effectiveStats!.doneTasks === effectiveStats!.totalTasks ? C.statusDone : row.accent,
+                        width: `${Math.round(effectiveStats!.doneTasks / effectiveStats!.totalTasks * 100)}%`,
+                      }}
+                    />
                   </div>
-                  <span style={{ fontSize: '13px', color: C.textMuted, whiteSpace: 'nowrap' }}>
+                  <span className="text-[13px] text-subtle-foreground whitespace-nowrap">
                     {effectiveStats!.doneTasks}/{effectiveStats!.totalTasks} ({Math.round(effectiveStats!.doneTasks / effectiveStats!.totalTasks * 100)}%)
                   </span>
                 </div>
@@ -722,8 +666,12 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
 
 
           {/* כרטיסים בשורה */}
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${row.cards.length}, 1fr)`, gap: '12px' }}>
+          <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${row.cards.length}, 1fr)` }}>
             {row.cards.map(card => (
+              // Kept as inline style (unchanged pattern): enabled/disabled +
+              // per-row accent color are dynamic, and hover is driven
+              // imperatively via onMouseEnter/onMouseLeave, not a static
+              // Tailwind pseudo-class.
               <button
                 key={card.id}
                 onClick={() => card.enabled && onNavigate(card.tab)}
@@ -736,7 +684,6 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                   cursor: card.enabled ? 'pointer' : 'not-allowed',
                   opacity: card.enabled ? 1 : 0.4,
                   textAlign: 'right' as const,
-                  direction: 'rtl',
                   transition: `transform 0.15s, box-shadow 0.15s, border-color 0.15s`,
                   display: 'flex',
                   flexDirection: 'column',
@@ -760,11 +707,11 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                   el.style.borderColor = C.borderEm;
                 }}
               >
-                {/* badge */}
+                {/* badge — per-card dynamic color with alpha blend, kept inline */}
                 {card.badge && (
                   <div style={{ position: 'absolute' as const, top: '14px', left: '14px' }}>
                     <span style={{
-                      fontSize: '12px', padding: '3px 8px', borderRadius: RADIUS.full,
+                      fontSize: '12px', padding: '3px 8px', borderRadius: '9999px',
                       background: (card.badgeColor ?? C.textMuted) + '25',
                       color: card.badgeColor ?? C.textMuted,
                       fontWeight: 700,
@@ -776,15 +723,15 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                 )}
 
                 {/* אייקון */}
-                <span style={{ fontSize: '38px', lineHeight: 1, display: 'block' }}>{card.icon}</span>
+                <span className="text-[38px] leading-none block">{card.icon}</span>
 
                 {/* כותרת */}
-                <div style={{ fontSize: '17px', fontWeight: 700, color: card.enabled ? C.textPrimary : C.textMuted, lineHeight: 1.2 }}>
+                <div className={`text-[17px] font-bold leading-tight ${card.enabled ? 'text-foreground' : 'text-subtle-foreground'}`}>
                   {card.title}
                 </div>
 
                 {/* תיאור */}
-                <div style={{ fontSize: '14px', color: C.textMuted, lineHeight: 1.5, marginTop: 'auto' }}>
+                <div className="text-sm text-subtle-foreground leading-relaxed mt-auto">
                   {card.subtitle}
                 </div>
               </button>

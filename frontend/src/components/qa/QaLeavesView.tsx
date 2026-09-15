@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../../theme';
 import { QaSeasonsView } from './QaSeasonsView';
 import { DateField } from '../DatePicker';
 import { formatDate } from '../../utils/dateFormat';
@@ -102,11 +101,11 @@ const LEAVE_DOW = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
 // context, not just a stylistic date-format difference.
 const fmt = (d: string) => `יום ${LEAVE_DOW[new Date(d).getDay()]}, ${formatDate(d)}`;
 
-const STATUS_META: Record<ApprovalStatus, { label: string; color: string; bg: string; border: string }> = {
-  PENDING:   { label: 'ממתין לאישור', color: C.warning,   bg: C.warningBg, border: `${C.warning}33` },
-  APPROVED:  { label: 'מאושר',        color: C.success,   bg: C.successBg, border: `${C.success}33` },
-  DECLINED:  { label: 'נדחה',         color: C.danger,    bg: C.dangerBg,  border: `${C.danger}33`  },
-  CANCELLED: { label: 'בוטל',         color: C.textMuted, bg: C.bgNested,  border: `${C.border}`    },
+const STATUS_META: Record<ApprovalStatus, { label: string; className: string }> = {
+  PENDING:   { label: 'ממתין לאישור', className: 'text-warning bg-warning-bg border-warning/20' },
+  APPROVED:  { label: 'מאושר',        className: 'text-success bg-success-bg border-success/20' },
+  DECLINED:  { label: 'נדחה',         className: 'text-danger bg-danger-bg border-danger/20' },
+  CANCELLED: { label: 'בוטל',         className: 'text-subtle-foreground bg-muted border-border' },
 };
 
 type FilterStatus = 'all' | ApprovalStatus;
@@ -211,50 +210,43 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
 
   if (loading) {
     return (
-      <div style={{ textAlign: 'center', padding: '60px', color: C.textMuted, fontFamily: FONT }}>
-        <div style={{ fontSize: '36px' }}>📅</div>
-        <p style={{ marginTop: '12px' }}>טוען...</p>
+      <div className="text-center p-[60px] text-subtle-foreground">
+        <div className="text-4xl">📅</div>
+        <p className="mt-3">טוען...</p>
       </div>
     );
   }
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', color: C.textPrimary }}>
+    <div className="text-foreground">
 
       {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[4] }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
-          <span style={{ fontSize: '22px' }}>📅</span>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <span className="text-[22px]">📅</span>
           <div>
-            <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold }}>
+            <div className="text-xl font-bold">
               {isAdmin ? 'ניהול חופשות' : 'לוח חופשות'}
             </div>
-            <div style={{ ...TEXT.sm, color: C.textMuted }}>
+            <div className="text-sm text-subtle-foreground">
               {isAdmin ? 'אישור ודחיית בקשות חופשה' : 'הגש בקשת חופשה וצפה בסטטוס'}
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: SP[2], alignItems: 'center' }}>
+        <div className="flex gap-2 items-center">
           {isAdmin && counts.pending > 0 && (
-            <span style={{ background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}33`, ...TEXT.xs, fontWeight: WEIGHT.bold, padding: '4px 12px', borderRadius: RADIUS.full }}>
+            <span className="bg-warning-bg text-warning border border-warning/20 text-xs font-bold px-3 py-1 rounded-full">
               {counts.pending} ממתינים לאישור
             </span>
           )}
           {isAdmin && counts.approved > 0 && (
-            <span style={{ background: C.successBg, color: C.success, border: `1px solid ${C.success}33`, ...TEXT.xs, fontWeight: WEIGHT.bold, padding: '4px 12px', borderRadius: RADIUS.full }}>
+            <span className="bg-success-bg text-success border border-success/20 text-xs font-bold px-3 py-1 rounded-full">
               {counts.approved} אושרו
             </span>
           )}
           <button
             onClick={() => setShowForm(v => !v)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '6px',
-              padding: '8px 16px', borderRadius: RADIUS.lg, cursor: 'pointer',
-              background: showForm ? C.successBg : C.bgCard,
-              border: `1px solid ${showForm ? C.success + '55' : C.border}`,
-              color: showForm ? C.success : C.textPrimary,
-              ...TEXT.sm, fontWeight: WEIGHT.semibold, transition: EASE.fast,
-            }}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg cursor-pointer text-sm font-semibold border transition-[background-color,border-color,color] duration-fast ease-out ${showForm ? 'bg-success-bg border-success/40 text-success' : 'bg-card border-border text-foreground'}`}
           >
             <span>📝</span><span>דווח חופשה</span>
           </button>
@@ -262,19 +254,13 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
       </div>
 
       {/* ── Tab bar ── */}
-      <div style={{ display: 'flex', gap: '4px', borderBottom: `2px solid ${C.border}`, marginBottom: SP[5] }}>
+      <div className="flex gap-1 border-b-2 border-border mb-5">
         {[
           { key: 'requests', label: '📋 בקשות חופשה' },
           ...(isFullAdmin ? [{ key: 'holidays', label: '🗓 מועדי חופשות' }] : []),
         ].map(t => (
           <button key={t.key} onClick={() => setMainTab(t.key as any)}
-            style={{
-              padding: '8px 18px', border: 'none', cursor: 'pointer', fontFamily: FONT,
-              background: 'transparent', fontWeight: mainTab === t.key ? WEIGHT.bold : WEIGHT.normal,
-              color: mainTab === t.key ? C.brand : C.textMuted,
-              borderBottom: mainTab === t.key ? `2px solid ${C.brand}` : '2px solid transparent',
-              marginBottom: '-2px', ...TEXT.sm, transition: EASE.fast,
-            }}>
+            className={`px-[18px] py-2 border-0 border-b-2 -mb-0.5 cursor-pointer bg-transparent text-sm transition-[color,border-color] duration-fast ease-out ${mainTab === t.key ? 'font-bold text-primary border-primary' : 'font-normal text-subtle-foreground border-transparent'}`}>
             {t.label}
           </button>
         ))}
@@ -286,25 +272,27 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
 
       {/* ── Report form ── */}
       {showForm && (
-        <div style={{ background: C.bgCard, border: `1px solid ${C.success}33`, borderRadius: RADIUS['2xl'], padding: SP[5], marginBottom: SP[5], boxShadow: SHADOW.sm }}>
-          <div style={{ ...TEXT.md, fontWeight: WEIGHT.semibold, marginBottom: SP[3] }}>בקשת חופשה חדשה</div>
-          <div style={{ display: 'flex', gap: SP[3], alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div className="bg-card border border-success/20 rounded-2xl p-5 mb-5 shadow-sm">
+          <div className="text-md font-semibold mb-3">בקשת חופשה חדשה</div>
+          <div className="flex gap-3 items-end flex-wrap">
             <div>
-              <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>תאריך</div>
+              <div className="text-xs text-subtle-foreground mb-1">תאריך</div>
+              {/* DateField only accepts a `style` prop (no className) — left as inline
+                  style, unchanged from before, matching its existing look. */}
               <DateField value={formDate} onChange={v => setFormDate(v)}
-                style={{ padding: '7px 12px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, ...TEXT.sm, outline: 'none', fontFamily: FONT }} />
+                style={{ padding: '7px 12px', borderRadius: '8px', border: '1px solid #E5E7EE', background: '#F1F2F7', color: '#14152A', fontSize: '17px', lineHeight: '24px', outline: 'none' }} />
             </div>
-            <div style={{ flex: 1, minWidth: '160px' }}>
-              <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>סיבה (אופציונלי)</div>
+            <div className="flex-1 min-w-[160px]">
+              <div className="text-xs text-subtle-foreground mb-1">סיבה (אופציונלי)</div>
               <input type="text" placeholder="חופשה משפחתית, חג..." value={formReason} onChange={e => setFormReason(e.target.value)}
-                style={{ width: '100%', padding: '7px 12px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, ...TEXT.sm, outline: 'none', fontFamily: FONT, boxSizing: 'border-box' }} />
+                className="w-full px-3 py-[7px] rounded-md border border-border bg-muted text-foreground text-sm outline-none box-border" />
             </div>
             <button onClick={submitReport} disabled={!formDate || formSaving}
-              style={{ padding: '8px 20px', borderRadius: RADIUS.md, cursor: formDate ? 'pointer' : 'not-allowed', background: formDate ? C.success : C.bgNested, color: formDate ? 'white' : C.textDisabled, border: 'none', ...TEXT.sm, fontWeight: WEIGHT.semibold }}>
+              className={`px-5 py-2 rounded-md border-none text-sm font-semibold ${formDate ? 'cursor-pointer bg-success text-white' : 'cursor-not-allowed bg-muted text-subtle-foreground'}`}>
               {formSaving ? '...' : 'שלח בקשה'}
             </button>
             <button onClick={() => setShowForm(false)}
-              style={{ padding: '8px 14px', borderRadius: RADIUS.md, cursor: 'pointer', background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, ...TEXT.sm }}>
+              className="px-3.5 py-2 rounded-md cursor-pointer bg-transparent text-subtle-foreground border border-border text-sm">
               ביטול
             </button>
           </div>
@@ -312,15 +300,15 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
       )}
 
       {/* ── Filters ── */}
-      <div style={{ display: 'flex', gap: SP[2], marginBottom: SP[4], flexWrap: 'wrap' }}>
+      <div className="flex gap-2 mb-4 flex-wrap">
         {/* Status filter */}
-        <div style={{ display: 'flex', gap: '4px', background: C.bgNested, borderRadius: RADIUS.lg, padding: '4px', border: `1px solid ${C.border}` }}>
+        <div className="flex gap-1 bg-muted rounded-lg p-1 border border-border">
           {(['all', 'PENDING', 'APPROVED', 'DECLINED', 'CANCELLED'] as FilterStatus[]).map(s => {
             const isActive = filterStatus === s;
             const label = s === 'all' ? 'הכל' : STATUS_META[s as ApprovalStatus]?.label ?? s;
             return (
               <button key={s} onClick={() => setFilter(s)}
-                style={{ padding: '5px 12px', borderRadius: RADIUS.md, border: 'none', background: isActive ? C.bgCard : 'transparent', boxShadow: isActive ? SHADOW.xs : 'none', cursor: 'pointer', ...TEXT.xs, fontWeight: isActive ? WEIGHT.semibold : WEIGHT.normal, color: isActive ? C.textPrimary : C.textMuted, transition: EASE.fast, whiteSpace: 'nowrap' }}>
+                className={`px-3 py-[5px] rounded-md border-none cursor-pointer text-xs whitespace-nowrap transition-[background-color,box-shadow] duration-fast ease-out ${isActive ? 'bg-card shadow-xs font-semibold text-foreground' : 'bg-transparent font-normal text-subtle-foreground'}`}>
                 {label}
               </button>
             );
@@ -330,7 +318,7 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
         {/* Season filter */}
         {seasons.length > 0 && (
           <select value={filterSeason} onChange={e => setFilterSeason(e.target.value)}
-            style={{ padding: '6px 12px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgCard, color: C.textPrimary, ...TEXT.sm, cursor: 'pointer', outline: 'none', fontFamily: FONT }}>
+            className="px-3 py-1.5 rounded-md border border-border bg-card text-foreground text-sm cursor-pointer outline-none">
             <option value="all">כל החופשות</option>
             {seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             <option value="">ללא חופשה</option>
@@ -340,7 +328,7 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
         {/* User filter — admin only */}
         {isAdmin && uniqueUsers.length > 0 && (
           <select value={filterUser} onChange={e => setFilterUser(e.target.value)}
-            style={{ padding: '6px 12px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgCard, color: C.textPrimary, ...TEXT.sm, cursor: 'pointer', outline: 'none', fontFamily: FONT }}>
+            className="px-3 py-1.5 rounded-md border border-border bg-card text-foreground text-sm cursor-pointer outline-none">
             <option value="all">כל העובדים</option>
             {uniqueUsers.map(u => <option key={u.id} value={u.id}>{u.fullName}</option>)}
           </select>
@@ -348,21 +336,20 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
       </div>
 
       {/* ── Table ── */}
-      <div style={{ background: C.bgCard, borderRadius: RADIUS['2xl'], border: `1px solid ${C.border}`, overflow: 'hidden', boxShadow: SHADOW.sm }}>
+      <div className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm">
 
         {/* Header */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: isAdmin ? '1.4fr 1.2fr 1fr 1.2fr 1.5fr 1fr' : '1.4fr 1fr 1.5fr 1.2fr 1fr',
-          padding: `${SP[2]} ${SP[5]}`, borderBottom: `1px solid ${C.border}`, background: C.bgNested,
-        }}>
+        <div
+          className="grid px-5 py-2 border-b border-border bg-muted"
+          style={{ gridTemplateColumns: isAdmin ? '1.4fr 1.2fr 1fr 1.2fr 1.5fr 1fr' : '1.4fr 1fr 1.5fr 1.2fr 1fr' }}
+        >
           {[...(isAdmin ? ['עובד'] : []), 'תאריך', 'סוג', 'חופשה', 'סטטוס', 'פעולות'].map(h => (
-            <span key={h} style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>{h}</span>
+            <span key={h} className="text-xs font-bold text-subtle-foreground uppercase tracking-wide">{h}</span>
           ))}
         </div>
 
         {displayRows.length === 0 && (
-          <div style={{ padding: SP[10], textAlign: 'center', color: C.textMuted, ...TEXT.sm }}>
+          <div className="p-10 text-center text-subtle-foreground text-sm">
             אין תוצאות
           </div>
         )}
@@ -377,99 +364,87 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
             : '1.4fr 1fr 1.5fr 1.2fr 1fr';
 
           return (
-            <div key={row.key} style={{
-              display: 'grid', gridTemplateColumns: cols,
-              padding: `${SP[3]} ${SP[5]}`,
-              borderBottom: i < displayRows.length - 1 ? `1px solid ${C.border}` : 'none',
-              background: i % 2 === 0 ? C.bgCard : C.bgNested,
-              alignItems: 'center', transition: EASE.fast,
-            }}>
+            <div key={row.key}
+              className={`grid px-5 py-3 items-center transition-[background-color] duration-fast ease-out ${i < displayRows.length - 1 ? 'border-b border-border' : ''} ${i % 2 === 0 ? 'bg-card' : 'bg-muted'}`}
+              style={{ gridTemplateColumns: cols }}
+            >
 
               {/* Employee (admin only) */}
               {isAdmin && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
-                  <div style={{
-                    width: '28px', height: '28px', borderRadius: '50%',
-                    background: C.infoBg, border: `1px solid ${C.info}33`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.info, flexShrink: 0,
-                  }}>
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full bg-info-bg border border-info/20 flex items-center justify-center text-xs font-bold text-info shrink-0">
                     {row.user?.fullName?.charAt(0) ?? '?'}
                   </div>
                   <div>
-                    <div style={{ ...TEXT.sm, fontWeight: WEIGHT.medium }}>{row.user?.fullName ?? '—'}</div>
-                    <div style={{ ...TEXT.xs, color: C.textMuted }}>{row.user?.email ?? ''}</div>
+                    <div className="text-sm font-medium">{row.user?.fullName ?? '—'}</div>
+                    <div className="text-xs text-subtle-foreground">{row.user?.email ?? ''}</div>
                   </div>
                 </div>
               )}
 
               {/* Date (range if submitted together) */}
-              <span style={{ ...TEXT.sm, color: C.textSecondary }}>
+              <span className="text-sm text-muted-foreground">
                 {isRange
                   ? `${fmt(row.dates[0])} – ${fmt(row.dates[row.dates.length - 1])} (${row.dates.length} ימים)`
                   : fmt(row.dates[0])}
               </span>
 
               {/* Kind */}
-              <span style={{ ...TEXT.sm }}>
+              <span className="text-sm">
                 {row.kind === 'leave' ? '🏖 חופשה' : '💼 עבודה'}
               </span>
 
               {/* Season / reason */}
               <div>
                 {row.season?.name && (
-                  <span style={{ ...TEXT.xs, color: C.info, background: C.infoBg, padding: '1px 7px', borderRadius: RADIUS.sm, display: 'inline-block' }}>
+                  <span className="text-xs text-info bg-info-bg px-[7px] py-px rounded-sm inline-block">
                     {row.season.name}
                   </span>
                 )}
                 {row.reason && (
-                  <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: row.season ? '3px' : 0 }}>{row.reason}</div>
+                  <div className={`text-xs text-subtle-foreground ${row.season ? 'mt-[3px]' : 'mt-0'}`}>{row.reason}</div>
                 )}
-                {!row.season?.name && !row.reason && <span style={{ ...TEXT.sm, color: C.textDisabled }}>—</span>}
+                {!row.season?.name && !row.reason && <span className="text-sm text-subtle-foreground">—</span>}
               </div>
 
               {/* Status badge + audit trail (who decided/cancelled it, and when) */}
               <div>
-                <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: meta.color, background: meta.bg, border: `1px solid ${meta.border}`, padding: '3px 10px', borderRadius: RADIUS.full, display: 'inline-block' }}>
+                <span className={`text-xs font-semibold px-2.5 py-[3px] rounded-full inline-block border ${meta.className}`}>
                   {meta.label}
                 </span>
                 {row.status === 'CANCELLED' && row.cancelledByName && (
-                  <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>
+                  <div className="text-xs text-subtle-foreground mt-[3px]">
                     ע"י {row.cancelledByName}{row.cancelReason ? ` — ${row.cancelReason}` : ''}
                   </div>
                 )}
                 {(row.status === 'APPROVED' || row.status === 'DECLINED') && row.decidedByName && (
-                  <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>
+                  <div className="text-xs text-subtle-foreground mt-[3px]">
                     ע"י {row.decidedByName}
                   </div>
                 )}
               </div>
 
               {/* Actions — approving/declining/cancelling a range acts on all its days in one call */}
-              <div style={{ display: 'flex', gap: '6px' }}>
+              <div className="flex gap-1.5">
                 {isAdmin && isPending && (
                   <>
                     <button onClick={() => updateStatus(row, 'APPROVED')} disabled={isSaving}
-                      style={{ background: C.successBg, color: C.success, border: `1px solid ${C.success}33`, borderRadius: RADIUS.sm, padding: '4px 10px', cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold, transition: EASE.fast, opacity: isSaving ? 0.5 : 1 }}
-                      onMouseEnter={e => e.currentTarget.style.background = C.success + '25'}
-                      onMouseLeave={e => e.currentTarget.style.background = C.successBg}>
+                      className={`bg-success-bg hover:bg-success/25 text-success border border-success/20 rounded-sm px-2.5 py-1 cursor-pointer text-xs font-semibold transition-[background-color] duration-fast ease-out ${isSaving ? 'opacity-50' : 'opacity-100'}`}>
                       {isSaving ? '...' : (isRange ? 'אשר טווח' : 'אשר')}
                     </button>
                     <button onClick={() => updateStatus(row, 'DECLINED')} disabled={isSaving}
-                      style={{ background: C.dangerBg, color: C.danger, border: `1px solid ${C.danger}33`, borderRadius: RADIUS.sm, padding: '4px 10px', cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold, transition: EASE.fast, opacity: isSaving ? 0.5 : 1 }}
-                      onMouseEnter={e => e.currentTarget.style.background = C.danger + '22'}
-                      onMouseLeave={e => e.currentTarget.style.background = C.dangerBg}>
+                      className={`bg-danger-bg hover:bg-danger/20 text-danger border border-danger/20 rounded-sm px-2.5 py-1 cursor-pointer text-xs font-semibold transition-[background-color] duration-fast ease-out ${isSaving ? 'opacity-50' : 'opacity-100'}`}>
                       דחה
                     </button>
                   </>
                 )}
                 {isAdmin && (row.status === 'PENDING' || row.status === 'APPROVED') && (
                   <button onClick={() => cancelRow(row)} disabled={isSaving}
-                    style={{ background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '4px 10px', cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold, transition: EASE.fast, opacity: isSaving ? 0.5 : 1 }}>
+                    className={`bg-transparent text-subtle-foreground border border-border rounded-sm px-2.5 py-1 cursor-pointer text-xs font-semibold transition-[background-color] duration-fast ease-out ${isSaving ? 'opacity-50' : 'opacity-100'}`}>
                     {isSaving ? '...' : 'בטל'}
                   </button>
                 )}
-                {!isAdmin && <span style={{ ...TEXT.xs, color: C.textDisabled }}>—</span>}
+                {!isAdmin && <span className="text-xs text-subtle-foreground">—</span>}
               </div>
             </div>
           );

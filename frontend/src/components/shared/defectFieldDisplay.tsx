@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import axios from 'axios';
-import { C, FONT, WEIGHT, RADIUS } from '../../theme';
+import { C, JIRA } from '../../theme';
 import { Avatar } from '../ui';
 import { formatDateTime } from '../../utils/dateFormat';
+import { cn } from '../../lib/utils';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -25,11 +26,21 @@ export function hasHebrew(s: string): boolean {
   return false;
 }
 
-// Stable hash-per-name palette — same as UnifiedGoLivePlanView's teamColor,
-// centralized here so every screen's person/team badges use one consistent
-// mapping instead of each file re-hashing its own.
-export const TEAM_PALETTE = ['#4573D2', '#9C6ADE', '#37C47A', '#E8AF00', '#F0883E', '#14B8A6', '#EC6BAD', '#6366F1'];
-export function teamColor(name: string): string {
+// Stable hash-per-name palette — canonical source is VersionsView.tsx's
+// deployment-plan team badges (feedback 2026-09-14: the defect-table
+// "אחראי" badge used a different 8-color palette that didn't match the
+// deployment plan's colors for the same team name). Centralized here so
+// every person/team badge across the app — defect tables, CR review,
+// go-live plan, deployment plan — resolves the same team name to the same
+// colors instead of each file re-hashing its own.
+export const TEAM_PALETTE: { bg: string; color: string }[] = [
+  { bg: '#dbeafe', color: '#1e40af' }, { bg: '#dcfce7', color: '#166534' },
+  { bg: '#fef3c7', color: '#92400e' }, { bg: '#fce7f3', color: '#9d174d' },
+  { bg: '#ede9fe', color: '#5b21b6' }, { bg: '#ffedd5', color: '#9a3412' },
+  { bg: '#cffafe', color: '#164e63' }, { bg: '#f0fdf4', color: '#14532d' },
+  { bg: '#fdf4ff', color: '#7e22ce' }, { bg: '#fff1f2', color: '#9f1239' },
+];
+export function teamColor(name: string): { bg: string; color: string } {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
   return TEAM_PALETTE[hash % TEAM_PALETTE.length];
@@ -60,13 +71,12 @@ export function contrastTextColor(bgHex: string): string {
 // visibly differed in size within the same table/screen (spec confirmed
 // 2026-09-03: "הערכים בשדות צריכים להיות בפונט עם גודל אחיד").
 export function NameBadge({ name }: { name: string }) {
-  const bg = teamColor(name);
+  const { bg, color } = teamColor(name);
   return (
-    <span style={{
-      fontWeight: WEIGHT.semibold, color: contrastTextColor(bg),
-      background: bg, borderRadius: RADIUS.sm, padding: '2px 8px',
-      whiteSpace: 'nowrap', display: 'inline-block',
-    }}>
+    <span
+      className="inline-block whitespace-nowrap rounded-sm px-2 py-0.5 font-semibold"
+      style={{ color, background: bg }}
+    >
       {name}
     </span>
   );
@@ -79,11 +89,10 @@ export function NameBadge({ name }: { name: string }) {
 // mentions a defect number (spec confirmed 2026-09-03).
 export function DefectIdBadge({ id }: { id: string | number }) {
   return (
-    <span style={{
-      fontWeight: WEIGHT.semibold, color: contrastTextColor(C.brand),
-      background: C.brand, borderRadius: RADIUS.sm, padding: '2px 8px',
-      whiteSpace: 'nowrap', display: 'inline-block', fontFamily: 'monospace',
-    }}>
+    <span
+      className="inline-block whitespace-nowrap rounded-sm bg-primary px-2 py-0.5 font-semibold font-mono"
+      style={{ color: contrastTextColor(C.brand) }}
+    >
       {id}
     </span>
   );
@@ -95,9 +104,100 @@ export function DefectIdBadge({ id }: { id: string | number }) {
 // letter + the login itself.
 export function PersonAvatar({ name, full = false }: { name: string; full?: boolean }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', direction: 'ltr' }}>
+    <span className="inline-flex items-center gap-1.5 [direction:ltr]">
       <Avatar name={name} size={20} />
-      <span style={{ color: C.textSecondary }}>{full ? name : name.split(' ')[0]}</span>
+      <span className="text-muted-foreground">{full ? name : name.split(' ')[0]}</span>
+    </span>
+  );
+}
+
+// ── Jira-style issue chrome ──────────────────────────────────────────────
+// Centralizes what used to be near-identical copies in DefectDrilldownModal,
+// OpenProdDefectsView and VersionOverview (SEVERITY_COLOR/STATUS_COLOR/
+// softChipStyle/PRIORITY_META) so every defect table and the shared detail
+// panel render severity/status/priority/id identically (feedback 2026-09-10:
+// "אני רוצה שתעצב את כל טבלאות התקלות" — one consistent Jira look, not N
+// drifting per-file copies).
+export const SEVERITY_COLOR: Record<string, string> = {
+  'Show Stopper': C.danger, Severe: C.danger, Medium: '#D97706', Low: C.textMuted,
+};
+export const STATUS_COLOR: Record<string, string> = {
+  New: C.statusOpen, Open: C.statusOpen,
+  Pending: C.statusInProgress, 'At Work': C.statusInProgress,
+  Fixed_Dev: C.warning, Fixed_Test: C.success, Fixed: C.success, Closed: C.success,
+  Reopen: C.danger, Rejected: C.textMuted, Canceled: C.textMuted,
+};
+export const DEFAULT_STATUS_COLOR = C.textMuted;
+
+// Soft pill — a lozenge: the field's own colour as text over a 14%-alpha
+// wash of it (Jira's "status lozenge" treatment).
+export function hexTint(hex: string, alpha = 0.14): string {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim());
+  if (!m) return C.bgNested;
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+export function SoftPill({ text, color }: { text: string; color: string }) {
+  return (
+    <span
+      className="inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold"
+      style={{ color, background: hexTint(color) }}
+    >
+      {text}
+    </span>
+  );
+}
+export function SeverityBadge({ severity }: { severity: string }) {
+  if (!severity) return <span style={{ color: JIRA.textSubtle }}>—</span>;
+  return <SoftPill text={severity} color={SEVERITY_COLOR[severity] ?? C.textSecondary} />;
+}
+export function StatusBadge({ status }: { status: string }) {
+  if (!status) return <span style={{ color: JIRA.textSubtle }}>—</span>;
+  return <SoftPill text={status} color={STATUS_COLOR[status] ?? DEFAULT_STATUS_COLOR} />;
+}
+
+// Jira-style priority arrows — a coloured glyph + the raw label.
+const PRIORITY_META: { test: RegExp; glyph: string; color: string }[] = [
+  { test: /highest|urgent|critical|show ?stopper|blocker|דחוף|קריטי/i, glyph: '⏫', color: C.danger },
+  { test: /high|גבוה/i,                                                glyph: '▲',  color: '#D04437' },
+  { test: /medium|normal|בינונ/i,                                      glyph: '▲',  color: '#E8930A' },
+  { test: /low|minor|נמוכ/i,                                           glyph: '▼',  color: '#2A8735' },
+  { test: /lowest|trivial/i,                                           glyph: '⏬', color: JIRA.textSubtle },
+];
+export function PriorityCell({ value }: { value: string }) {
+  if (!value) return <span style={{ color: JIRA.textSubtle }}>—</span>;
+  const m = PRIORITY_META.find(p => p.test.test(value));
+  return (
+    <span className="inline-flex items-center gap-[5px] text-xs [direction:ltr]" style={{ color: JIRA.text }}>
+      <span aria-hidden className="text-[11px] leading-none" style={{ color: m?.color ?? JIRA.textSubtle }}>{m?.glyph ?? '■'}</span>
+      {value}
+    </span>
+  );
+}
+
+// Jira issue-type icon — every row here is a Bug, so one fixed red/orange
+// square (matching Jira's own Bug issue-type icon colour) rather than a
+// per-row lookup; sits beside the key exactly like Jira's issue navigator.
+const BUG_TYPE_COLOR = '#E2483D';
+export function IssueTypeIcon() {
+  return (
+    <span
+      aria-hidden
+      title="Bug"
+      className="inline-block h-3 w-3 shrink-0 rounded-[3px]"
+      style={{ background: BUG_TYPE_COLOR }}
+    />
+  );
+}
+// Issue key — small type icon + the id as a Jira-blue link (Jira's "OP-1234"
+// convention). One shared identity for the id column across every defect
+// table (feedback 2026-09-10) — replaces the filled DefectIdBadge in TABLE
+// contexts; DefectIdBadge itself is untouched for the other places it's used.
+export function IssueKeyLink({ id }: { id: string | number }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 [direction:ltr]">
+      <IssueTypeIcon />
+      <span className="font-semibold" style={{ color: JIRA.blue }}>#{id}</span>
     </span>
   );
 }
@@ -117,7 +217,7 @@ export function renderNotesField(raw: string | null | undefined) {
   const chunks = raw.split(/_{5,}/).map(c => c.trim()).filter(Boolean);
   if (chunks.length === 0) return '—';
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+    <div className="flex flex-col gap-3.5">
       {chunks.map((chunk, i) => {
         const m = chunk.match(NOTE_ENTRY_HEADER_RE);
         if (m) {
@@ -125,13 +225,12 @@ export function renderNotesField(raw: string | null | undefined) {
           const body = chunk.slice(m[0].length).trim();
           const bodyRtl = hasHebrew(body);
           return (
-            <div key={i} style={{ borderTop: i > 0 ? `1px dashed ${C.border}` : 'none', paddingTop: i > 0 ? '10px' : 0 }}>
-              <div style={{ direction: 'ltr', textAlign: 'left', fontSize: '15px', fontWeight: WEIGHT.semibold, color: C.textMuted }}>{header}</div>
-              <div style={{
-                direction: bodyRtl ? 'rtl' : 'ltr', textAlign: bodyRtl ? 'right' : 'left',
-                whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: '4px',
-                fontSize: bodyRtl ? '16px' : undefined,
-              }}>
+            <div key={i} className={cn(i > 0 && 'border-t border-dashed border-border pt-2.5')}>
+              <div className="text-left text-sm font-semibold text-subtle-foreground [direction:ltr]">{header}</div>
+              <div className={cn(
+                'mt-1 whitespace-pre-wrap break-words',
+                bodyRtl ? 'text-right text-base [direction:rtl]' : 'text-left [direction:ltr]'
+              )}>
                 {body || '—'}
               </div>
             </div>
@@ -139,7 +238,10 @@ export function renderNotesField(raw: string | null | undefined) {
         }
         const rtl = hasHebrew(chunk);
         return (
-          <div key={i} style={{ direction: rtl ? 'rtl' : 'ltr', textAlign: rtl ? 'right' : 'left', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: rtl ? '16px' : undefined }}>
+          <div key={i} className={cn(
+            'whitespace-pre-wrap break-words',
+            rtl ? 'text-right text-base [direction:rtl]' : 'text-left [direction:ltr]'
+          )}>
             {chunk}
           </div>
         );
@@ -150,11 +252,7 @@ export function renderNotesField(raw: string | null | undefined) {
 
 export interface DetailGroup { title: string; fields: string[] }
 
-const columnMoveBtnStyle: React.CSSProperties = {
-  padding: '4px 10px', background: C.bgNested, color: C.textPrimary,
-  border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer',
-  fontSize: '13px', fontFamily: FONT, minWidth: '36px',
-};
+const columnMoveBtnClass = 'min-w-[36px] cursor-pointer rounded-sm border border-border bg-muted px-2.5 py-1 text-[13px] text-foreground';
 
 // Field→category assignment editor for a defect-detail form — lets a user
 // hide fields entirely and reassign which group each shown field appears
@@ -223,42 +321,43 @@ export function DetailGroupsDialog({
   };
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: C.bgCard, borderRadius: RADIUS.lg, padding: '20px', width: '640px', maxWidth: '94vw', maxHeight: '86vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 48px rgba(0,0,0,.25)', fontFamily: FONT, direction: 'rtl' }}>
-        <div style={{ fontSize: '15px', fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '4px' }}>התאמת שדות וקטגוריות בטופס פרטי התקלה</div>
-        <div style={{ fontSize: '12px', color: C.textMuted, marginBottom: '14px' }}>לכל שדה בחרו קטגוריה (או "הסתר") — ניתן גם להוסיף, לשנות שם, או למחוק קטגוריות.</div>
+    <div onClick={onClose} className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/50">
+      <div onClick={e => e.stopPropagation()} className="flex max-h-[86vh] w-[640px] max-w-[94vw] flex-col rounded-lg bg-card p-5 shadow-[0_20px_48px_rgba(0,0,0,.25)] [direction:rtl]">
+        <div className="mb-1 text-sm font-bold text-foreground">התאמת שדות וקטגוריות בטופס פרטי התקלה</div>
+        <div className="mb-3.5 text-xs text-subtle-foreground">לכל שדה בחרו קטגוריה (או "הסתר") — ניתן גם להוסיף, לשנות שם, או למחוק קטגוריות.</div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '14px', paddingBottom: '14px', borderBottom: `1px solid ${C.border}` }}>
+        <div className="mb-3.5 flex flex-wrap gap-1.5 border-b border-border pb-3.5">
           {categories.map(cat => (
-            <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '3px 6px' }}>
+            <div key={cat} className="flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-[3px]">
               <input
                 defaultValue={cat}
                 onBlur={e => renameCategory(cat, e.target.value)}
-                style={{ border: 'none', background: 'transparent', fontSize: '12px', color: C.textPrimary, width: `${Math.max(cat.length, 4)}ch`, fontFamily: FONT }}
+                className="border-none bg-transparent text-xs text-foreground"
+                style={{ width: `${Math.max(cat.length, 4)}ch` }}
               />
-              <button onClick={() => removeCategory(cat)} style={{ border: 'none', background: 'transparent', color: C.danger, cursor: 'pointer', fontSize: '12px', padding: 0 }}>✕</button>
+              <button onClick={() => removeCategory(cat)} className="cursor-pointer border-none bg-transparent p-0 text-xs text-danger">✕</button>
             </div>
           ))}
-          <div style={{ display: 'flex', gap: '4px' }}>
+          <div className="flex gap-1">
             <input
               value={newCategoryName}
               onChange={e => setNewCategoryName(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') addCategory(); }}
               placeholder="קטגוריה חדשה..."
-              style={{ fontSize: '12px', padding: '3px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, fontFamily: FONT, width: '110px' }}
+              className="w-[110px] rounded-sm border border-border px-2 py-[3px] text-xs"
             />
-            <button onClick={addCategory} style={{ ...columnMoveBtnStyle, padding: '2px 10px' }}>+</button>
+            <button onClick={addCategory} className={cn(columnMoveBtnClass, 'px-2.5 py-0.5')}>+</button>
           </div>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <div className="flex flex-1 flex-col gap-1 overflow-y-auto">
           {allColumns.map(c => (
-            <div key={c.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '4px 2px' }}>
-              <span style={{ fontSize: '13px', color: C.textSecondary }}>{c.label}</span>
+            <div key={c.key} className="flex items-center justify-between gap-2.5 px-0.5 py-1">
+              <span className="text-[13px] text-muted-foreground">{c.label}</span>
               <select
                 value={assignment[c.key] ?? ''}
                 onChange={e => setAssignment(a => ({ ...a, [c.key]: e.target.value || null }))}
-                style={{ fontSize: '12px', padding: '3px 6px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, fontFamily: FONT, minWidth: '150px' }}
+                className="min-w-[150px] rounded-sm border border-border px-1.5 py-[3px] text-xs"
               >
                 <option value="">— הסתר —</option>
                 {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
@@ -267,11 +366,11 @@ export function DetailGroupsDialog({
           ))}
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginTop: '16px', paddingTop: '12px', borderTop: `1px solid ${C.border}` }}>
-          <button onClick={resetToDefault} style={{ padding: '8px 16px', background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontFamily: FONT }}>↺ איפוס לברירת מחדל</button>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button onClick={onClose} style={{ padding: '8px 20px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontFamily: FONT }}>Cancel</button>
-            <button onClick={apply} style={{ padding: '8px 20px', background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontWeight: WEIGHT.semibold, fontFamily: FONT }}>OK</button>
+        <div className="mt-4 flex items-center justify-between gap-2 border-t border-border pt-3">
+          <button onClick={resetToDefault} className="cursor-pointer rounded-md border border-border bg-transparent px-4 py-2 text-[13px] text-subtle-foreground">↺ איפוס לברירת מחדל</button>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="cursor-pointer rounded-md border border-border bg-muted px-5 py-2 text-[13px] text-muted-foreground">Cancel</button>
+            <button onClick={apply} className="cursor-pointer rounded-md border-none bg-primary px-5 py-2 text-[13px] font-semibold text-white">OK</button>
           </div>
         </div>
       </div>
@@ -318,13 +417,13 @@ export function FieldChangeHistorySection({ defectId, token, defaultOpen = false
   }, [expanded, fieldHistory, defectId, token]);
 
   return (
-    <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: '12px' }}>
+    <div className="border-t border-border pt-3">
       <div
         onClick={() => setExpanded(v => !v)}
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: expanded ? '8px' : 0, cursor: 'pointer', userSelect: 'none' }}
+        className={cn('flex cursor-pointer select-none items-center justify-between', expanded && 'mb-2')}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textMuted }}>
-          <span style={{ display: 'inline-block', transition: 'transform 0.15s', transform: expanded ? 'rotate(90deg)' : 'none' }}>▶</span>
+        <div className="flex items-center gap-1.5 text-sm font-bold text-subtle-foreground">
+          <span className={cn('inline-block transition-transform duration-150', expanded && 'rotate-90')}>▶</span>
           היסטוריית שינויים
         </div>
         {expanded && fieldHistory && fieldHistory.length > 0 && (
@@ -332,7 +431,7 @@ export function FieldChangeHistorySection({ defectId, token, defaultOpen = false
             value={historyFieldFilter}
             onClick={e => e.stopPropagation()}
             onChange={e => setHistoryFieldFilter(e.target.value)}
-            style={{ fontSize: '13px', padding: '4px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, fontFamily: FONT }}
+            className="rounded-sm border border-border px-2 py-1 text-[13px]"
           >
             <option value="">כל השדות</option>
             {Array.from(new Set(fieldHistory.map(h => h.propertyName))).sort().map(p => (
@@ -343,16 +442,16 @@ export function FieldChangeHistorySection({ defectId, token, defaultOpen = false
       </div>
       {expanded && (
         !fieldHistory ? (
-          <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted, fontSize: '13px' }}>טוען...</div>
+          <div className="p-4 text-center text-[13px] text-subtle-foreground">טוען...</div>
         ) : fieldHistory.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted, fontSize: '13px' }}>אין היסטוריית שינויים זמינה לתקלה זו</div>
+          <div className="p-4 text-center text-[13px] text-subtle-foreground">אין היסטוריית שינויים זמינה לתקלה זו</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[13px]">
               <thead>
-                <tr style={{ background: C.bgNested }}>
+                <tr className="bg-muted">
                   {['מתי השתנה', 'מי שינה', 'שדה', 'ערך ישן', 'ערך חדש'].map(h => (
-                    <th key={h} style={{ padding: '6px 10px', textAlign: 'right', color: C.textMuted, fontWeight: WEIGHT.semibold, borderBottom: `1px solid ${C.border}`, whiteSpace: 'nowrap' }}>{h}</th>
+                    <th key={h} className="whitespace-nowrap border-b border-border px-2.5 py-1.5 text-right font-semibold text-subtle-foreground">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -363,12 +462,12 @@ export function FieldChangeHistorySection({ defectId, token, defaultOpen = false
                     const oldRtl = hasHebrew(h.oldValue);
                     const newRtl = hasHebrew(h.newValue);
                     return (
-                      <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                        <td style={{ padding: '6px 10px', color: C.textSecondary, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'left' }}>{formatDateTime(h.changeTime)}</td>
-                        <td style={{ padding: '6px 10px', color: C.textSecondary, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'left' }}>{h.changedBy || '—'}</td>
-                        <td style={{ padding: '6px 10px', color: C.textPrimary, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'left' }}>{h.propertyName || '—'}</td>
-                        <td style={{ padding: '6px 10px', color: C.textSecondary, direction: oldRtl ? 'rtl' : 'ltr', textAlign: oldRtl ? 'right' : 'left' }}>{h.oldValue || '—'}</td>
-                        <td style={{ padding: '6px 10px', color: C.textSecondary, direction: newRtl ? 'rtl' : 'ltr', textAlign: newRtl ? 'right' : 'left' }}>{h.newValue || '—'}</td>
+                      <tr key={i} className="border-b border-border">
+                        <td className="whitespace-nowrap px-2.5 py-1.5 text-left text-muted-foreground [direction:ltr]">{formatDateTime(h.changeTime)}</td>
+                        <td className="whitespace-nowrap px-2.5 py-1.5 text-left text-muted-foreground [direction:ltr]">{h.changedBy || '—'}</td>
+                        <td className="whitespace-nowrap px-2.5 py-1.5 text-left font-semibold text-foreground [direction:ltr]">{h.propertyName || '—'}</td>
+                        <td className={cn('px-2.5 py-1.5 text-muted-foreground', oldRtl ? 'text-right [direction:rtl]' : 'text-left [direction:ltr]')}>{h.oldValue || '—'}</td>
+                        <td className={cn('px-2.5 py-1.5 text-muted-foreground', newRtl ? 'text-right [direction:rtl]' : 'text-left [direction:ltr]')}>{h.newValue || '—'}</td>
                       </tr>
                     );
                   })}
@@ -433,19 +532,19 @@ function AttachmentPreviewModal({ defectId, fileName, token, onClose }: { defect
   }, [defectId, fileName, token]);
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 6000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: C.bgCard, borderRadius: RADIUS.lg, padding: '16px', width: '90vw', maxWidth: '900px', height: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 48px rgba(0,0,0,.3)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-          <div style={{ fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textPrimary, direction: 'ltr', textAlign: 'left' }}>{fileName}</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: C.textMuted }}>✕</button>
+    <div onClick={onClose} className="fixed inset-0 z-[6000] flex items-center justify-center bg-black/60 p-6">
+      <div onClick={e => e.stopPropagation()} className="flex h-[85vh] w-[90vw] max-w-[900px] flex-col rounded-lg bg-card p-4 shadow-[0_20px_48px_rgba(0,0,0,.3)]">
+        <div className="mb-2.5 flex items-center justify-between">
+          <div className="text-left text-sm font-bold text-foreground [direction:ltr]">{fileName}</div>
+          <button onClick={onClose} className="cursor-pointer border-none bg-transparent text-lg text-subtle-foreground">✕</button>
         </div>
-        <div style={{ flex: 1, overflow: 'auto', background: C.bgNested, borderRadius: RADIUS.md, display: 'flex', alignItems: content?.kind === 'text' ? 'stretch' : 'center', justifyContent: 'center' }}>
-          {error && <div style={{ color: C.danger, fontSize: '13px', padding: '20px' }}>{error}</div>}
-          {!error && !content && <div style={{ color: C.textMuted, fontSize: '13px', padding: '20px' }}>טוען...</div>}
-          {content?.kind === 'image' && <img src={content.url} alt={fileName} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />}
-          {content?.kind === 'pdf' && <iframe src={content.url} title={fileName} style={{ width: '100%', height: '100%', border: 'none' }} />}
+        <div className={cn('flex flex-1 justify-center overflow-auto rounded-md bg-muted', content?.kind === 'text' ? 'items-stretch' : 'items-center')}>
+          {error && <div className="p-5 text-[13px] text-danger">{error}</div>}
+          {!error && !content && <div className="p-5 text-[13px] text-subtle-foreground">טוען...</div>}
+          {content?.kind === 'image' && <img src={content.url} alt={fileName} className="max-h-full max-w-full object-contain" />}
+          {content?.kind === 'pdf' && <iframe src={content.url} title={fileName} className="h-full w-full border-none" />}
           {content?.kind === 'text' && (
-            <pre style={{ width: '100%', margin: 0, padding: '14px', fontSize: '12px', color: C.textPrimary, whiteSpace: 'pre-wrap', wordBreak: 'break-word', direction: 'ltr', textAlign: 'left' }}>
+            <pre className="m-0 w-full whitespace-pre-wrap break-words p-3.5 text-left text-xs text-foreground [direction:ltr]">
               {content.text}
             </pre>
           )}
@@ -486,33 +585,33 @@ export function AttachmentsSection({ defectId, token }: { defectId: string; toke
   };
 
   return (
-    <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: '12px' }}>
-      <div style={{ fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '8px' }}>
+    <div className="border-t border-border pt-3">
+      <div className="mb-2 text-sm font-bold text-subtle-foreground">
         קבצים מצורפים{attachments && attachments.length > 0 ? ` (${attachments.length})` : ''}
       </div>
       {attachments === null ? (
-        <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted, fontSize: '13px' }}>טוען...</div>
+        <div className="p-4 text-center text-[13px] text-subtle-foreground">טוען...</div>
       ) : attachments.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted, fontSize: '13px' }}>אין קבצים מצורפים</div>
+        <div className="p-4 text-center text-[13px] text-subtle-foreground">אין קבצים מצורפים</div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <div className="flex flex-col gap-1.5">
           {attachments.map(a => {
             const ext = fileExt(a.name);
             const canPreview = PREVIEWABLE_EXT.has(ext);
             return (
-              <div key={a.name} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 10px', background: C.bgNested, borderRadius: RADIUS.md }}>
-                <span style={{ fontSize: '16px', flexShrink: 0 }}>📎</span>
-                <div style={{ flex: 1, minWidth: 0, direction: 'ltr', textAlign: 'left' }}>
-                  <div style={{ fontSize: '13px', fontWeight: WEIGHT.semibold, color: C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
-                  <div style={{ fontSize: '11px', color: C.textMuted, marginTop: '2px' }}>
+              <div key={a.name} className="flex items-center gap-2.5 rounded-md bg-muted px-2.5 py-[7px]">
+                <span className="shrink-0 text-base">📎</span>
+                <div className="min-w-0 flex-1 text-left [direction:ltr]">
+                  <div className="overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-semibold text-foreground">{a.name}</div>
+                  <div className="mt-0.5 text-[11px] text-subtle-foreground">
                     {ext.toUpperCase() || '—'} · {formatFileSize(a.fileSize)}{a.uploadDate ? ` · ${formatDateTime(a.uploadDate)}` : ''}{a.owner ? ` · ${a.owner}` : ''}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                <div className="flex shrink-0 gap-1.5">
                   {canPreview && (
-                    <button onClick={() => setPreviewFile(a.name)} title="צפייה ישירה" style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer', padding: '4px 8px', fontSize: '13px' }}>👁️</button>
+                    <button onClick={() => setPreviewFile(a.name)} title="צפייה ישירה" className="cursor-pointer rounded-sm border border-border bg-transparent px-2 py-1 text-[13px]">👁️</button>
                   )}
-                  <button onClick={() => download(a.name)} title="הורדה" style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer', padding: '4px 8px', fontSize: '13px' }}>⬇️</button>
+                  <button onClick={() => download(a.name)} title="הורדה" className="cursor-pointer rounded-sm border border-border bg-transparent px-2 py-1 text-[13px]">⬇️</button>
                 </div>
               </div>
             );
@@ -724,30 +823,23 @@ export function EnumFilterButton({ label, options, selected, onToggle }: {
   const buttonLabel = selected.size === 0 ? 'הכל' : `${selected.size} נבחרו`;
 
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={ref} className="relative">
       <button
         onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
-        style={{
-          width: '100%', minWidth: 0, boxSizing: 'border-box', fontSize: '12px', padding: '3px 6px', textAlign: 'right',
-          border: `1px solid ${selected.size > 0 ? C.brand : C.border}`, borderRadius: RADIUS.sm, fontFamily: FONT,
-          color: selected.size > 0 ? C.brand : C.textSecondary, background: C.bgApp, cursor: 'pointer',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}
+        className={cn(
+          'box-border w-full min-w-0 cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap rounded-sm border bg-background px-1.5 py-[3px] text-right text-xs',
+          selected.size > 0 ? 'border-primary text-primary' : 'border-border text-muted-foreground'
+        )}
       >
         {buttonLabel} ▾
       </button>
       {open && (
         <div
           onClick={e => e.stopPropagation()}
-          style={{
-            position: 'absolute', top: '100%', right: 0, marginTop: '2px', zIndex: 20,
-            background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.md,
-            boxShadow: '0 8px 24px rgba(0,0,0,.18)', minWidth: '160px', maxHeight: '240px', overflowY: 'auto',
-            padding: '4px',
-          }}
+          className="absolute right-0 top-full z-20 mt-0.5 max-h-[240px] min-w-[160px] overflow-y-auto rounded-md border border-border bg-card p-1 shadow-[0_8px_24px_rgba(0,0,0,.18)]"
         >
           {options.map(opt => (
-            <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 6px', fontSize: '12px', color: C.textPrimary, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <label key={opt} className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap px-1.5 py-1 text-xs text-foreground">
               <input type="checkbox" checked={selected.has(opt)} onChange={() => onToggle(opt)} />
               {opt}
             </label>
@@ -766,9 +858,9 @@ export function ColumnFilterRow({
   filters: ColumnFiltersApi;
 }) {
   return (
-    <tr style={{ background: C.bgCard }}>
+    <tr className="bg-card">
       {columns.map(c => (
-        <th key={c.key} style={{ padding: '4px 6px', borderBottom: `1px solid ${C.border}`, width: getWidth(c.key) }}>
+        <th key={c.key} style={{ width: getWidth(c.key) }} className="border-b border-border px-1.5 py-1">
           {filters.isEnum(c.key) ? (
             <EnumFilterButton
               label={c.label}
@@ -782,21 +874,124 @@ export function ColumnFilterRow({
               onChange={e => filters.setTextTerm(c.key, e.target.value)}
               onClick={e => e.stopPropagation()}
               placeholder="חיפוש..."
-              style={{
-                // minWidth: 0 — <input> elements default to an intrinsic
-                // min-width (~150-190px in Chrome) that ignores width:100%
-                // and a narrower parent <th>; without overriding it, this
-                // search box silently became the real floor on how far a
-                // column could shrink, regardless of the resize handle's own
-                // (much smaller) MIN_COLUMN_WIDTH (found 2026-09-03).
-                width: '100%', minWidth: 0, boxSizing: 'border-box', fontSize: '12px', padding: '3px 6px',
-                border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, fontFamily: FONT,
-                color: C.textPrimary, background: C.bgApp,
-              }}
+              // min-w-0 — <input> elements default to an intrinsic min-width
+              // (~150-190px in Chrome) that ignores w-full and a narrower
+              // parent <th>; without overriding it, this search box silently
+              // became the real floor on how far a column could shrink,
+              // regardless of the resize handle's own (much smaller)
+              // MIN_COLUMN_WIDTH (found 2026-09-03).
+              className="box-border w-full min-w-0 rounded-sm border border-border bg-background px-1.5 py-[3px] text-xs text-foreground"
             />
           )}
         </th>
       ))}
     </tr>
+  );
+}
+
+// ── Column picker — one mechanism for every defect table ────────────────
+// Dual-listbox "Available / Visible" picker with move (›/»/‹/«) and reorder
+// (↑/↓) controls. Used to be reimplemented near-identically in
+// DefectDrilldownModal, VersionOverview and IncidentsView (each with its own
+// column-key type) — centralized here so every defect table's "⚙ בחירת
+// עמודות" opens the exact same dialog (feedback 2026-09-10: "החל את מנגנון
+// בחירת העמודות ... בכל טבלאות התקלות"). Generic over the column-key type
+// since each table's field vocabulary is genuinely different. Reuses
+// columnMoveBtnClass already defined above for DetailGroupsDialog.
+export function SelectColumnsDialog<K extends string>({
+  allColumns, visibleKeys, onApply, onClose,
+}: {
+  allColumns: { key: K; label: string }[];
+  visibleKeys: K[];
+  onApply: (keys: K[]) => void;
+  onClose: () => void;
+}) {
+  const [visible, setVisible] = useState(
+    visibleKeys.map(k => allColumns.find(c => c.key === k)).filter((c): c is { key: K; label: string } => !!c)
+  );
+  const [available, setAvailable] = useState(allColumns.filter(c => !visibleKeys.includes(c.key)));
+  const [selAvailable, setSelAvailable] = useState<Set<K>>(new Set());
+  const [selVisible, setSelVisible] = useState<Set<K>>(new Set());
+
+  const toggle = (set: Set<K>, key: K, setFn: (s: Set<K>) => void) => {
+    const next = new Set(set);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    setFn(next);
+  };
+
+  const moveToVisible = () => {
+    if (selAvailable.size === 0) return;
+    setVisible(v => [...v, ...available.filter(c => selAvailable.has(c.key))]);
+    setAvailable(a => a.filter(c => !selAvailable.has(c.key)));
+    setSelAvailable(new Set());
+  };
+  const moveToAvailable = () => {
+    if (selVisible.size === 0) return;
+    setAvailable(a => [...a, ...visible.filter(c => selVisible.has(c.key))]);
+    setVisible(v => v.filter(c => !selVisible.has(c.key)));
+    setSelVisible(new Set());
+  };
+  const moveAllToVisible = () => { setVisible(v => [...v, ...available]); setAvailable([]); setSelAvailable(new Set()); };
+  const moveAllToAvailable = () => { setAvailable(a => [...a, ...visible]); setVisible([]); setSelVisible(new Set()); };
+
+  const reorder = (dir: -1 | 1) => {
+    if (selVisible.size !== 1) return;
+    const key = Array.from(selVisible)[0];
+    const idx = visible.findIndex(c => c.key === key);
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= visible.length) return;
+    const next = [...visible];
+    [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
+    setVisible(next);
+  };
+
+  const listBoxClass = 'h-[280px] overflow-y-auto rounded-sm border border-border bg-muted';
+  const itemClass = (selected: boolean) =>
+    cn('cursor-pointer px-2 py-1 text-[13px] text-foreground', selected ? 'bg-primary/10' : 'bg-transparent');
+
+  return (
+    <div onClick={onClose} className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50">
+      <div onClick={e => e.stopPropagation()} className="w-[660px] max-w-[94vw] rounded-lg bg-card p-5 shadow-[0_20px_48px_rgba(0,0,0,.25)]">
+        <div className="mb-3.5 text-right text-sm font-bold text-foreground">בחירת עמודות</div>
+        <div className="flex gap-2.5 [direction:ltr]">
+          <div className="flex-1">
+            <div className="mb-1 text-xs text-subtle-foreground">Available Columns:</div>
+            <div className={listBoxClass}>
+              {available.map(c => (
+                <div key={c.key} onClick={() => toggle(selAvailable, c.key, setSelAvailable)} className={itemClass(selAvailable.has(c.key))}>
+                  {c.label}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-col justify-center gap-1.5">
+            <button onClick={moveToVisible} className={columnMoveBtnClass}>&gt;</button>
+            <button onClick={moveAllToVisible} className={columnMoveBtnClass}>&gt;&gt;</button>
+            <button onClick={moveToAvailable} className={columnMoveBtnClass}>&lt;</button>
+            <button onClick={moveAllToAvailable} className={columnMoveBtnClass}>&lt;&lt;</button>
+          </div>
+          <div className="flex-1">
+            <div className="mb-1 flex justify-between">
+              <span className="text-xs text-subtle-foreground">Visible Columns:</span>
+              <div className="flex gap-1">
+                <button onClick={() => reorder(-1)} className={cn(columnMoveBtnClass, 'px-2 py-0.5')}>↑</button>
+                <button onClick={() => reorder(1)} className={cn(columnMoveBtnClass, 'px-2 py-0.5')}>↓</button>
+              </div>
+            </div>
+            <div className={listBoxClass}>
+              {visible.map(c => (
+                <div key={c.key} onClick={() => toggle(selVisible, c.key, setSelVisible)} className={itemClass(selVisible.has(c.key))}>
+                  {c.label}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button onClick={onClose} className="cursor-pointer rounded-md border border-border bg-muted px-5 py-2 text-[13px] text-muted-foreground">ביטול</button>
+          <button onClick={() => onApply(visible.map(c => c.key))} className="cursor-pointer rounded-md border-none bg-primary px-5 py-2 text-[13px] font-semibold text-white">אישור</button>
+        </div>
+      </div>
+    </div>
   );
 }

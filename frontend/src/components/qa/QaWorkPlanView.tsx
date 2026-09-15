@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW } from '../../theme';
+import { cn } from '../../lib/utils';
 import { useDialog } from '../../context/DialogContext';
 import { ConfirmDialog, DialogConfig } from '../ConfirmDialog';
 import { DateField } from '../DatePicker';
 import { formatDate as fmtDateShared, formatDateTime as fmtDateTimeShared } from '../../utils/dateFormat';
+import { Select, Modal } from '../ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -277,6 +279,34 @@ function cycleAssignedDays(cycle: Cycle, filterUserId: string): number {
     .filter(t => t.isActive && t.taskType !== 'REGRESSION')
     .filter(t => !filterUserId || t.userId === filterUserId)
     .reduce((sum, t) => sum + t.effortDays, 0);
+}
+
+// ── Tailwind classes (top-level screen only) ────────────────────────────────
+// Literal-string lookups mirroring the old cardStyle/btnStyle look (defined
+// near the bottom of this file, unchanged) — kept separate because that
+// btnStyle/cardStyle pair is still used as-is by the protected SecondaryPanel
+// section below (part of the lead's hand-migrated DnD zone).
+const WP_CARD_CLASS = 'mb-3 rounded-lg border border-border bg-card p-4';
+
+const WP_BTN_BG_CLASS: Record<'success' | 'info' | 'indigo' | 'gray' | 'mutedGray' | 'warning' | 'danger' | 'brand', string> = {
+  success:   'bg-success',
+  info:      'bg-info',
+  indigo:    'bg-indigo-500',
+  gray:      'bg-gray-500',
+  mutedGray: 'bg-gray-400',
+  warning:   'bg-warning',
+  danger:    'bg-danger',
+  brand:     'bg-primary',
+};
+
+function wpBtnClass(kind: keyof typeof WP_BTN_BG_CLASS, disabled = false, small = false): string {
+  return cn(
+    'cursor-pointer whitespace-nowrap rounded-md border-none font-semibold text-white transition-opacity duration-fast ease-out',
+    small ? 'px-2.5 py-1 text-xs' : 'px-4 py-2 text-sm',
+    disabled
+      ? 'cursor-not-allowed bg-muted text-subtle-foreground'
+      : cn(WP_BTN_BG_CLASS[kind], 'hover:opacity-90'),
+  );
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -774,39 +804,39 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
 
   return (
     <>
-    <div style={{ padding: initialVersionId ? 0 : SP[6], fontFamily: FONT, direction: 'rtl', minHeight: initialVersionId ? undefined : '100vh', backgroundColor: initialVersionId ? undefined : C.bgApp }}>
+    <div className={cn('font-sans', initialVersionId ? undefined : 'min-h-screen bg-background p-6')} dir="rtl">
 
       {/* ── Header — only when standalone page ── */}
       {!initialVersionId && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[5], flexWrap: 'wrap', gap: SP[3] }}>
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 style={{ margin: 0, ...TEXT.xl, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+            <h2 className="m-0 text-xl font-bold text-foreground">
               תוכנית עבודה לבדיקות QA
             </h2>
-            <p style={{ margin: `${SP[1]} 0 0`, ...TEXT.sm, color: C.textMuted }}>
+            <p className="mt-1 mb-0 text-sm text-muted-foreground">
               תכנון סבבי בדיקות, שיבוץ בודקים, ייצוא לאקסל
             </p>
           </div>
 
           {workPlan && (
-            <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
+            <div className="flex flex-wrap gap-2">
               {allPlanTesters.length > 0 && (
-                <select value={filterUserId} onChange={e => setFilterUserId(e.target.value)} style={selectStyle}>
+                <Select value={filterUserId} onChange={e => setFilterUserId(e.target.value)} className="min-w-[220px]">
                   <option value="">כל הבודקים</option>
                   {allPlanTesters.map(t => <option key={t.userId} value={t.userId}>{t.fullName}</option>)}
-                </select>
+                </Select>
               )}
               {workPlan.status === 'DRAFT' && (
-                <button onClick={approve} style={btnStyle(C.success)}>✓ אשר תוכנית</button>
+                <button onClick={approve} className={wpBtnClass('success')}>✓ אשר תוכנית</button>
               )}
-              <button onClick={exportExcel} style={btnStyle(C.info)}>⬇ ייצוא Excel</button>
+              <button onClick={exportExcel} className={wpBtnClass('info')}>⬇ ייצוא Excel</button>
               {workPlan.status === 'APPROVED' && (
-                <button onClick={loadChangeLog} style={btnStyle('#6366F1')}>🕘 יומן שינויים</button>
+                <button onClick={loadChangeLog} className={wpBtnClass('indigo')}>🕘 יומן שינויים</button>
               )}
-              <button onClick={loadArchive} style={btnStyle('#6B7280')}>📦 ארכיון</button>
-              <button onClick={() => setShowGenForm(f => !f)} style={btnStyle(C.warning)}>↺ יצור מחדש</button>
-              <button onClick={revertToOriginal} disabled={reverting} style={btnStyle('#6B7280', reverting)}>{reverting ? 'מחשב...' : '⟲ חזור למקור'}</button>
-              <button onClick={deleteWorkPlan} disabled={deletingPlan} style={btnStyle(C.danger, deletingPlan)}>{deletingPlan ? 'מוחק...' : '🗑 מחק תוכנית בדיקות'}</button>
+              <button onClick={loadArchive} className={wpBtnClass('gray')}>📦 ארכיון</button>
+              <button onClick={() => setShowGenForm(f => !f)} className={wpBtnClass('warning')}>↺ יצור מחדש</button>
+              <button onClick={revertToOriginal} disabled={reverting} className={wpBtnClass('gray', reverting)}>{reverting ? 'מחשב...' : '⟲ חזור למקור'}</button>
+              <button onClick={deleteWorkPlan} disabled={deletingPlan} className={wpBtnClass('danger', deletingPlan)}>{deletingPlan ? 'מוחק...' : '🗑 מחק תוכנית בדיקות'}</button>
             </div>
           )}
         </div>
@@ -814,45 +844,42 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
 
       {/* ── Action bar (when embedded in assignment page) ── */}
       {initialVersionId && workPlan && (
-        <div style={{ display: 'flex', gap: SP[2], marginBottom: SP[4], flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="mb-4 flex flex-wrap items-center gap-2">
           {workPlan.status === 'DRAFT' && (
-            <button onClick={approve} style={btnStyle(C.success)}>✓ אשר תוכנית</button>
+            <button onClick={approve} className={wpBtnClass('success')}>✓ אשר תוכנית</button>
           )}
-          <button onClick={exportExcel} style={btnStyle(C.info)}>⬇ ייצוא Excel</button>
+          <button onClick={exportExcel} className={wpBtnClass('info')}>⬇ ייצוא Excel</button>
           {workPlan.status === 'APPROVED' && (
-            <button onClick={loadChangeLog} style={btnStyle('#6366F1')}>🕘 יומן שינויים</button>
+            <button onClick={loadChangeLog} className={wpBtnClass('indigo')}>🕘 יומן שינויים</button>
           )}
-          <button onClick={loadArchive} style={btnStyle('#6B7280')}>📦 ארכיון</button>
-          <button onClick={() => setShowGenForm(f => !f)} style={btnStyle(C.warning)}>↺ יצור מחדש</button>
-          <button onClick={revertToOriginal} disabled={reverting} style={btnStyle('#6B7280', reverting)}>{reverting ? 'מחשב...' : '⟲ חזור לתוכנית המקורית'}</button>
-          <button onClick={deleteWorkPlan} disabled={deletingPlan} style={btnStyle(C.danger, deletingPlan)}>{deletingPlan ? 'מוחק...' : '🗑 מחק תוכנית בדיקות'}</button>
+          <button onClick={loadArchive} className={wpBtnClass('gray')}>📦 ארכיון</button>
+          <button onClick={() => setShowGenForm(f => !f)} className={wpBtnClass('warning')}>↺ יצור מחדש</button>
+          <button onClick={revertToOriginal} disabled={reverting} className={wpBtnClass('gray', reverting)}>{reverting ? 'מחשב...' : '⟲ חזור לתוכנית המקורית'}</button>
+          <button onClick={deleteWorkPlan} disabled={deletingPlan} className={wpBtnClass('danger', deletingPlan)}>{deletingPlan ? 'מוחק...' : '🗑 מחק תוכנית בדיקות'}</button>
           {/* Filter by employee */}
           {allPlanTesters.length > 0 && (
-            <select value={filterUserId} onChange={e => setFilterUserId(e.target.value)} style={{ ...selectStyle, minWidth: 160, marginRight: 'auto' }}>
+            <Select value={filterUserId} onChange={e => setFilterUserId(e.target.value)} className="ms-auto min-w-[160px]">
               <option value="">כל הבודקים</option>
               {allPlanTesters.map(t => <option key={t.userId} value={t.userId}>{t.fullName}</option>)}
-            </select>
+            </Select>
           )}
         </div>
       )}
 
       {/* ── Overflow / conflict issues panel ── */}
       {workPlan && workPlan.overflowIssues && workPlan.overflowIssues.length > 0 && (
-        <div style={{
-          marginBottom: SP[4], borderRadius: RADIUS.lg, border: `1px solid ${C.danger}`,
-          background: C.dangerBg, overflow: 'hidden',
-        }}>
+        <div className="mb-4 overflow-hidden rounded-lg border border-danger bg-danger-bg">
           <div
             onClick={() => setIssuesCollapsed(v => !v)}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${SP[3]} ${SP[4]}`, cursor: 'pointer' }}
+            className="flex cursor-pointer items-center justify-between px-4 py-3"
           >
-            <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.danger }}>
+            <span className="text-sm font-bold text-danger">
               ⚠️ {workPlan.overflowIssues.length} בעיות בתוכנית העבודה — בודקים שלא מספיקים בתוך הסבב שלהם
             </span>
-            <span style={{ ...TEXT.sm, color: C.danger }}>{issuesCollapsed ? '▸ הצג' : '▾ הסתר'}</span>
+            <span className="text-sm text-danger">{issuesCollapsed ? '▸ הצג' : '▾ הסתר'}</span>
           </div>
           {!issuesCollapsed && (
-            <div style={{ padding: `0 ${SP[4]} ${SP[4]}`, display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+            <div className="flex flex-col gap-3 px-4 pb-4">
               {workPlan.overflowIssues.map((issue, i) => {
                 const hasRow = !!(issue.userName && issue.crNumber && issue.cycleType);
                 const goToRow = () => {
@@ -877,16 +904,13 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
                   <div
                     key={i}
                     onClick={hasRow ? goToRow : undefined}
-                    style={{
-                      padding: SP[3], background: C.bgCard, borderRadius: RADIUS.md, border: `1px solid ${C.border}`,
-                      cursor: hasRow ? 'pointer' : 'default',
-                    }}
+                    className={cn('rounded-md border border-border bg-card p-3', hasRow ? 'cursor-pointer' : 'cursor-default')}
                   >
-                    <div style={{ ...TEXT.sm, color: C.textPrimary, marginBottom: SP[2] }}>
+                    <div className="mb-2 text-sm text-foreground">
                       {issue.message}
-                      {hasRow && <span style={{ color: C.info, ...TEXT.xs, fontWeight: WEIGHT.semibold, marginRight: SP[2], whiteSpace: 'nowrap' }}>↓ עבור לשורה</span>}
+                      {hasRow && <span className="ms-2 whitespace-nowrap text-xs font-semibold text-info">↓ עבור לשורה</span>}
                     </div>
-                    <ul style={{ margin: 0, paddingRight: 18, ...TEXT.xs, color: C.textSecondary, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <ul className="m-0 flex flex-col gap-1 ps-[18px] text-xs text-muted-foreground">
                       {issue.suggestions.map((s, si) => <li key={si}>{s}</li>)}
                     </ul>
                   </div>
@@ -899,17 +923,17 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
 
       {/* ── Version picker (standalone only) ── */}
       {!initialVersionId && (
-        <div style={{ display: 'flex', gap: SP[3], alignItems: 'center', marginBottom: SP[5] }}>
-          <label style={{ ...TEXT.sm, color: C.textSecondary, fontWeight: WEIGHT.medium, whiteSpace: 'nowrap' }}>
+        <div className="mb-5 flex items-center gap-3">
+          <label className="whitespace-nowrap text-sm font-medium text-muted-foreground">
             גרסה:
           </label>
-          <select value={versionId} onChange={e => setVersionId(e.target.value)} style={selectStyle}>
+          <Select value={versionId} onChange={e => setVersionId(e.target.value)} className="min-w-[220px]">
             {versions.map(v => (
               <option key={v.id} value={v.id}>{v.name}</option>
             ))}
-          </select>
+          </Select>
           {!workPlan && !loading && (
-            <button onClick={() => setShowGenForm(true)} style={btnStyle(C.brand)}>
+            <button onClick={() => setShowGenForm(true)} className={wpBtnClass('brand')}>
               + צור תוכנית עבודה
             </button>
           )}
@@ -918,20 +942,13 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
 
       {/* ── Embedded: no work plan yet ── */}
       {initialVersionId && !workPlan && !loading && !showGenForm && (
-        <div style={{ marginBottom: SP[4] }}>
+        <div className="mb-4">
           {assignments.length === 0 ? (
-            <div style={{
-              padding: `${SP[3]} ${SP[4]}`,
-              borderRadius: RADIUS.md,
-              border: `1px solid ${C.warning}`,
-              backgroundColor: C.warningBg,
-              color: C.warning,
-              ...TEXT.sm, fontWeight: WEIGHT.medium,
-            }}>
+            <div className="rounded-md border border-warning bg-warning-bg px-4 py-3 text-sm font-medium text-warning">
               ⚠ יש לשבץ בודקים לפני יצירת תוכנית עבודה — עבור לטאב &quot;שיבוץ בודקים&quot;
             </div>
           ) : (
-            <button onClick={() => setShowGenForm(true)} style={btnStyle(C.brand)}>
+            <button onClick={() => setShowGenForm(true)} className={wpBtnClass('brand')}>
               + צור תוכנית עבודה
             </button>
           )}
@@ -940,12 +957,12 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
 
       {/* ── Generate form ── */}
       {(showGenForm || (!workPlan && !loading)) && (
-        <div style={cardStyle}>
-          <h3 style={{ margin: `0 0 ${SP[4]}`, ...TEXT.md, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>
+        <div className={WP_CARD_CLASS}>
+          <h3 className="mb-4 mt-0 text-md font-semibold text-foreground">
             {workPlan ? 'יצירת תוכנית מחדש' : 'צור תוכנית עבודה'}
           </h3>
-          <div style={{ display: 'flex', gap: SP[4], flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <label style={labelStyle}>
+          <div className="flex flex-wrap items-end gap-4">
+            <label className="flex flex-col text-xs font-medium text-muted-foreground">
               תאריך התחלה (סבב 1)
               <DateField
                 value={cycle1Start}
@@ -953,7 +970,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
                 style={inputStyle}
               />
             </label>
-            <label style={labelStyle}>
+            <label className="flex flex-col text-xs font-medium text-muted-foreground">
               תאריך סיום בדיקות
               <DateField
                 value={testingEnd}
@@ -961,39 +978,39 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
                 style={inputStyle}
               />
             </label>
-            <label style={labelStyle} title="גבול קבוע לסבב 1. מי שלא מספיק מסומן כחורג, לא מותח את הסבב לכל הצוות">
+            <label className="flex flex-col text-xs font-medium text-muted-foreground" title="גבול קבוע לסבב 1. מי שלא מספיק מסומן כחורג, לא מותח את הסבב לכל הצוות">
               אורך סבב 1 (ימי עבודה)
               <input
                 type="number" min={1} value={cycle1LengthDays}
                 onChange={e => setCycle1LengthDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                style={{ ...inputStyle, width: 90 }}
+                className="mt-1 block w-[90px] rounded-md border border-border px-3 py-2 text-sm text-foreground"
               />
             </label>
-            <label style={labelStyle} title="גבול קבוע לסבב 2, בלתי תלוי בסבב 1">
+            <label className="flex flex-col text-xs font-medium text-muted-foreground" title="גבול קבוע לסבב 2, בלתי תלוי בסבב 1">
               אורך סבב 2 (ימי עבודה)
               <input
                 type="number" min={1} value={cycle2LengthDays}
                 onChange={e => setCycle2LengthDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                style={{ ...inputStyle, width: 90 }}
+                className="mt-1 block w-[90px] rounded-md border border-border px-3 py-2 text-sm text-foreground"
               />
             </label>
-            <label style={labelStyle} title="גבול קבוע לסבב 3, בלתי תלוי בסבב 1/2">
+            <label className="flex flex-col text-xs font-medium text-muted-foreground" title="גבול קבוע לסבב 3, בלתי תלוי בסבב 1/2">
               אורך סבב 3 (ימי עבודה)
               <input
                 type="number" min={1} value={cycle3LengthDays}
                 onChange={e => setCycle3LengthDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                style={{ ...inputStyle, width: 90 }}
+                className="mt-1 block w-[90px] rounded-md border border-border px-3 py-2 text-sm text-foreground"
               />
             </label>
             <button
               onClick={generate}
               disabled={generating || !cycle1Start || !testingEnd}
-              style={btnStyle(C.brand, generating || !cycle1Start || !testingEnd)}
+              className={wpBtnClass('brand', generating || !cycle1Start || !testingEnd)}
             >
               {generating ? 'מחשב...' : 'צור תוכנית'}
             </button>
             {workPlan && (
-              <button onClick={() => setShowGenForm(false)} style={btnStyle(C.textMuted)}>
+              <button onClick={() => setShowGenForm(false)} className={wpBtnClass('mutedGray')}>
                 ביטול
               </button>
             )}
@@ -1003,9 +1020,9 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
 
       {/* ── Unassigned warning ── */}
       {unassigned.length > 0 && (
-        <div style={{ ...cardStyle, borderRight: `4px solid ${C.warning}`, backgroundColor: C.warningBg, marginBottom: SP[4] }}>
-          <strong style={{ color: C.warning, ...TEXT.sm }}>⚠ {unassigned.length} CRים ללא שיבוץ בודק — לא נכללו בתוכנית:</strong>
-          <span style={{ ...TEXT.sm, color: C.textSecondary, marginRight: SP[2] }}>
+        <div className={cn(WP_CARD_CLASS, 'border-s-4 border-s-warning bg-warning-bg mb-4')}>
+          <strong className="text-sm text-warning">⚠ {unassigned.length} CRים ללא שיבוץ בודק — לא נכללו בתוכנית:</strong>
+          <span className="ms-2 text-sm text-muted-foreground">
             {unassigned.join(', ')}
           </span>
         </div>
@@ -1013,35 +1030,33 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
 
       {/* ── Loading ── */}
       {loading && (
-        <div style={{ textAlign: 'center', padding: SP[8], color: C.textMuted, ...TEXT.base }}>
+        <div className="p-8 text-center text-base text-subtle-foreground">
           טוען...
         </div>
       )}
 
       {/* ── Work plan status banner ── */}
       {workPlan && (
-        <div style={{
-          ...cardStyle,
-          display: 'flex', gap: SP[6], alignItems: 'center',
-          backgroundColor: workPlan.status === 'APPROVED' ? C.successBg : C.bgNested,
-          borderRight: `4px solid ${workPlan.status === 'APPROVED' ? C.success : C.border}`,
-          marginBottom: SP[4],
-        }}>
-          <span style={{ ...TEXT.sm, color: C.textSecondary }}>
+        <div className={cn(
+          WP_CARD_CLASS,
+          'mb-4 flex items-center gap-6 border-s-4',
+          workPlan.status === 'APPROVED' ? 'bg-success-bg border-s-success' : 'bg-muted border-s-border',
+        )}>
+          <span className="text-sm text-muted-foreground">
             <strong>סטטוס:</strong>{' '}
-            <span style={{ color: workPlan.status === 'APPROVED' ? C.success : C.warning, fontWeight: WEIGHT.semibold }}>
+            <span className={cn('font-semibold', workPlan.status === 'APPROVED' ? 'text-success' : 'text-warning')}>
               {workPlan.status === 'APPROVED' ? 'מאושר' : 'טיוטה'}
             </span>
           </span>
           {workPlan.approvedBy && (
-            <span style={{ ...TEXT.sm, color: C.textSecondary }}>
+            <span className="text-sm text-muted-foreground">
               <strong>אושר ע"י:</strong> {workPlan.approvedBy}
             </span>
           )}
-          <span style={{ ...TEXT.sm, color: C.textSecondary }}>
+          <span className="text-sm text-muted-foreground">
             <strong>התחלת סבב 1:</strong> {fmtDate(workPlan.cycle1Start)}
           </span>
-          <span style={{ ...TEXT.sm, color: C.textSecondary }}>
+          <span className="text-sm text-muted-foreground">
             <strong>סיום בדיקות:</strong> {fmtDate(workPlan.testingEnd)}
           </span>
         </div>
@@ -1049,9 +1064,9 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
 
       {/* ── Staleness warning ── */}
       {staleUserInfo.length > 0 && (
-        <div style={{ ...cardStyle, borderRight: `4px solid ${C.danger}`, backgroundColor: C.dangerBg, marginBottom: SP[4], display: 'flex', gap: SP[2], alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          <strong style={{ color: C.danger, ...TEXT.sm, whiteSpace: 'nowrap' }}>⚠ תוכנית לא מעודכנת:</strong>
-          <span style={{ ...TEXT.sm, color: C.textSecondary }}>
+        <div className={cn(WP_CARD_CLASS, 'mb-4 flex flex-wrap items-start gap-2 border-s-4 border-s-danger bg-danger-bg')}>
+          <strong className="whitespace-nowrap text-sm text-danger">⚠ תוכנית לא מעודכנת:</strong>
+          <span className="text-sm text-muted-foreground">
             {staleUserInfo.join(', ')} מופיעים בתוכנית אך אינם משובצים כרגע. מומלץ לייצר מחדש.
           </span>
         </div>
@@ -1059,22 +1074,22 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
 
       {/* ── New CRs assigned but not in plan ── */}
       {missingFromPlan.length > 0 && (
-        <div style={{ ...cardStyle, borderRight: `4px solid ${C.warning}`, backgroundColor: C.warningBg, marginBottom: SP[4] }}>
-          <div style={{ display: 'flex', gap: SP[2], alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: SP[2] }}>
-            <strong style={{ color: C.warning, ...TEXT.sm, whiteSpace: 'nowrap' }}>
+        <div className={cn(WP_CARD_CLASS, 'mb-4 border-s-4 border-s-warning bg-warning-bg')}>
+          <div className="mb-2 flex flex-wrap items-start gap-2">
+            <strong className="whitespace-nowrap text-sm text-warning">
               ⚠ {missingFromPlan.length} {missingFromPlan.length === 1 ? 'CR משובץ' : 'CRים משובצים'} שאינ{missingFromPlan.length === 1 ? 'ו' : 'ם'} בתוכנית:
             </strong>
-            <span style={{ ...TEXT.sm, color: C.textSecondary }}>
+            <span className="text-sm text-muted-foreground">
               {missingFromPlan.map(a => a.crLabel ? `${a.crNumber} (${a.crLabel})` : a.crNumber).join(', ')}
             </span>
           </div>
-          <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ ...TEXT.xs, color: C.textMuted }}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-subtle-foreground">
               לשלב אותם בתוכנית — לחץ "↺ יצור מחדש"
             </span>
             <button
               onClick={() => setShowGenForm(true)}
-              style={{ ...btnStyle(C.warning), fontSize: 12, padding: '4px 10px' }}
+              className={wpBtnClass('warning', false, true)}
             >
               ↺ יצור מחדש
             </button>
@@ -1084,35 +1099,32 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
 
       {/* ── View mode toggle ── */}
       {workPlan && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: SP[4] }}>
-          <div style={{ display: 'flex', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, overflow: 'hidden' }}>
+        <div className="mb-4 flex items-center gap-2">
+          <div className="flex overflow-hidden rounded-md border border-border">
             <button
               onClick={() => setViewMode('cycles')}
-              style={{
-                padding: '6px 14px', border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: FONT,
-                fontWeight: WEIGHT.semibold, background: viewMode === 'cycles' ? C.brand : C.bgCard,
-                color: viewMode === 'cycles' ? '#fff' : C.textSecondary,
-              }}
+              className={cn(
+                'cursor-pointer border-none px-3.5 py-1.5 text-[13px] font-semibold',
+                viewMode === 'cycles' ? 'bg-primary text-white' : 'bg-card text-muted-foreground',
+              )}
             >📅 לפי סבב</button>
             <button
               onClick={() => setViewMode('employees')}
-              style={{
-                padding: '6px 14px', border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: FONT,
-                fontWeight: WEIGHT.semibold, background: viewMode === 'employees' ? C.brand : C.bgCard,
-                color: viewMode === 'employees' ? '#fff' : C.textSecondary,
-              }}
+              className={cn(
+                'cursor-pointer border-none px-3.5 py-1.5 text-[13px] font-semibold',
+                viewMode === 'employees' ? 'bg-primary text-white' : 'bg-card text-muted-foreground',
+              )}
             >👤 לפי עובד</button>
             <button
               onClick={() => setViewMode('timeline')}
-              style={{
-                padding: '6px 14px', border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: FONT,
-                fontWeight: WEIGHT.semibold, background: viewMode === 'timeline' ? C.brand : C.bgCard,
-                color: viewMode === 'timeline' ? '#fff' : C.textSecondary,
-              }}
+              className={cn(
+                'cursor-pointer border-none px-3.5 py-1.5 text-[13px] font-semibold',
+                viewMode === 'timeline' ? 'bg-primary text-white' : 'bg-card text-muted-foreground',
+              )}
             >📈 ציר זמן אמיתי</button>
           </div>
           {viewMode === 'employees' && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, ...TEXT.sm, color: C.textSecondary, cursor: 'pointer' }}>
+            <label className="flex cursor-pointer items-center gap-1.5 text-sm text-muted-foreground">
               <input type="checkbox" checked={onlyOverflowing} onChange={e => setOnlyOverflowing(e.target.checked)} />
               הצג רק חורגים
             </label>
@@ -1227,76 +1239,60 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
 
       {/* ── Change log — entries written only for corrections made after approval ── */}
       {showChangeLog && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 4000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={() => setShowChangeLog(false)}>
-          <div onClick={e => e.stopPropagation()}
-            style={{ background: C.bgCard, borderRadius: RADIUS.lg, padding: SP[5], maxWidth: 560, width: '92vw', maxHeight: '78vh', overflowY: 'auto', boxShadow: '0 20px 48px rgba(0,0,0,.25)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[3] }}>
-              <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>🕘 יומן שינויים</span>
-              <button onClick={() => setShowChangeLog(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: C.textMuted }}>✕</button>
-            </div>
-            {!changeLog || changeLog.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: SP[6], color: C.textMuted }}>אין תיקונים שבוצעו מאז אישור התוכנית</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-                {changeLog.map(entry => (
-                  <div key={entry.id} style={{ background: C.bgNested, borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, ...TEXT.sm }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: SP[2] }}>
-                      <span style={{ fontWeight: WEIGHT.medium, color: C.textPrimary }}>
-                        {describeChangeLogEntry(entry)}
-                      </span>
-                      <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap' }}>
-                        {fmtDateTimeShared(entry.createdAt)}
-                      </span>
-                    </div>
-                    {entry.userEmail && (
-                      <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: 2 }}>ע"י {entry.userEmail}</div>
-                    )}
+        <Modal open={showChangeLog} onClose={() => setShowChangeLog(false)} title="🕘 יומן שינויים" width={560}>
+          {!changeLog || changeLog.length === 0 ? (
+            <div className="p-6 text-center text-subtle-foreground">אין תיקונים שבוצעו מאז אישור התוכנית</div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {changeLog.map(entry => (
+                <div key={entry.id} className="rounded-md bg-muted px-3 py-2 text-sm">
+                  <div className="flex justify-between gap-2">
+                    <span className="font-medium text-foreground">
+                      {describeChangeLogEntry(entry)}
+                    </span>
+                    <span className="whitespace-nowrap text-xs text-subtle-foreground">
+                      {fmtDateTimeShared(entry.createdAt)}
+                    </span>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+                  {entry.userEmail && (
+                    <div className="mt-0.5 text-xs text-subtle-foreground">ע"י {entry.userEmail}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </Modal>
       )}
 
       {/* ── Archive — soft-removed tasks, restorable ── */}
       {showArchive && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 4000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={() => setShowArchive(false)}>
-          <div onClick={e => e.stopPropagation()}
-            style={{ background: C.bgCard, borderRadius: RADIUS.lg, padding: SP[5], maxWidth: 640, width: '92vw', maxHeight: '78vh', overflowY: 'auto', boxShadow: '0 20px 48px rgba(0,0,0,.25)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[3] }}>
-              <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>📦 ארכיון משימות</span>
-              <button onClick={() => setShowArchive(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: C.textMuted }}>✕</button>
-            </div>
-            {archivedTasks.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: SP[6], color: C.textMuted }}>אין משימות בארכיון</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-                {archivedTasks.map(task => (
-                  <div key={task.id} style={{ background: C.bgNested, borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, ...TEXT.sm, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP[3] }}>
-                    <div>
-                      <div style={{ fontWeight: WEIGHT.medium, color: C.textPrimary }}>
-                        CR {task.crNumber} {task.crLabel ? `— ${task.crLabel}` : ''}
-                      </div>
-                      <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: 2 }}>
-                        {task.user.fullName} · {CYCLE_LABEL[task.cycle.cycleType] ?? task.cycle.cycleType} · {task.effortDays} ימים · הועבר לארכיון {fmtDateTimeShared(task.updatedAt)}
-                      </div>
+        <Modal open={showArchive} onClose={() => setShowArchive(false)} title="📦 ארכיון משימות" width={640}>
+          {archivedTasks.length === 0 ? (
+            <div className="p-6 text-center text-subtle-foreground">אין משימות בארכיון</div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {archivedTasks.map(task => (
+                <div key={task.id} className="flex items-center justify-between gap-3 rounded-md bg-muted px-3 py-2 text-sm">
+                  <div>
+                    <div className="font-medium text-foreground">
+                      CR {task.crNumber} {task.crLabel ? `— ${task.crLabel}` : ''}
                     </div>
-                    <button
-                      onClick={() => restoreTask(task)}
-                      disabled={restoringTask === task.id}
-                      style={{ ...btnStyle(C.success, restoringTask === task.id), fontSize: 12, padding: '5px 10px', whiteSpace: 'nowrap' }}
-                    >
-                      {restoringTask === task.id ? '...' : '↺ שחזר'}
-                    </button>
+                    <div className="mt-0.5 text-xs text-subtle-foreground">
+                      {task.user.fullName} · {CYCLE_LABEL[task.cycle.cycleType] ?? task.cycle.cycleType} · {task.effortDays} ימים · הועבר לארכיון {fmtDateTimeShared(task.updatedAt)}
+                    </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+                  <button
+                    onClick={() => restoreTask(task)}
+                    disabled={restoringTask === task.id}
+                    className={wpBtnClass('success', restoringTask === task.id, true)}
+                  >
+                    {restoringTask === task.id ? '...' : '↺ שחזר'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Modal>
       )}
     </div>
     <ConfirmDialog config={confirmDialog} onClose={() => setConfirmDialog(null)} />
@@ -1407,49 +1403,49 @@ function GanttChart({ cycle, label, testerGroups, saGhostsByUser, urgentCrNumber
   const LABEL_W = 156; // wide enough for full first+last names ("Stanislav Abramyan") without ellipsis
 
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, marginBottom: SP[4], overflow: 'hidden' }}>
+    <div className="mb-4 overflow-hidden rounded-lg border border-border bg-card">
       <div
         onClick={() => setCollapsed(v => !v)}
-        style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: SP[4], paddingBottom: collapsed ? SP[4] : SP[3], cursor: 'pointer', userSelect: 'none', direction: 'rtl' }}
+        dir="rtl"
+        className={cn('flex cursor-pointer select-none items-center gap-2 p-4', collapsed ? 'pb-4' : 'pb-3')}
       >
-        <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em', flex: 1 }}>
+        <span className="flex-1 text-xs font-bold uppercase tracking-wider text-subtle-foreground">
           📊 ציר זמן — עומס בודקים ב{label}
         </span>
-        <span style={{ color: C.textMuted, fontSize: '13px' }}>{collapsed ? '▼' : '▲'}</span>
+        <span className="text-[13px] text-subtle-foreground">{collapsed ? '▼' : '▲'}</span>
       </div>
 
       {!collapsed && (
-        <div style={{ padding: `0 ${SP[4]} ${SP[4]}`, direction: 'rtl' }}>
+        <div dir="rtl" className="px-4 pb-4">
           {/* Cycle-span row */}
-          <div style={{ display: 'flex', alignItems: 'center', height: ROW_H, marginBottom: SP[2] }}>
-            <div style={{ width: LABEL_W, flexShrink: 0, ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textSecondary, paddingRight: SP[2], boxSizing: 'border-box' }}>
+          <div className="mb-2 flex h-[30px] items-center">
+            <div className="box-border w-[156px] shrink-0 ps-2 text-xs font-semibold text-muted-foreground">
               {label}
             </div>
-            <div style={{ flex: 1, position: 'relative', height: 14 }}>
-              <div style={{
-                position: 'absolute', top: 0, height: '100%', borderRadius: RADIUS.full,
-                right: 0, width: `${pct(cycleLengthDays)}%`,
-                background: C.brandDim, border: `1px solid ${C.brand}55`,
-              }} />
+            <div className="relative h-3.5 flex-1">
+              <div
+                className="absolute top-0 h-full rounded-full border border-primary/30 bg-primary-50"
+                style={{ right: 0, width: `${pct(cycleLengthDays)}%` }}
+              />
             </div>
           </div>
 
           {/* Tester rows */}
           {rows.map(row => (
-            <div key={row.name} style={{ display: 'flex', alignItems: 'center', height: ROW_H }}>
+            <div key={row.name} className="flex h-[30px] items-center">
               <div
                 title={row.name}
-                style={{
-                  width: LABEL_W, flexShrink: 0, ...TEXT.xs, fontWeight: WEIGHT.medium, color: C.textPrimary,
-                  paddingRight: SP[2], boxSizing: 'border-box', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}
+                className="box-border w-[156px] shrink-0 overflow-hidden text-ellipsis whitespace-nowrap ps-2 text-xs font-medium text-foreground"
               >
                 {row.name}
               </div>
-              <div style={{ flex: 1, position: 'relative', height: 18, background: C.bgNested, borderRadius: RADIUS.sm }}>
+              <div className="relative h-[18px] flex-1 rounded-sm bg-muted">
                 {/* Cycle-end marker — segments crossing it are overflowing the cycle */}
                 {cycleLengthDays < axisMaxDays && (
-                  <div style={{ position: 'absolute', top: -2, bottom: -2, right: `${pct(cycleLengthDays)}%`, borderRight: `1px dashed ${C.danger}88` }} />
+                  <div
+                    className="absolute -top-0.5 -bottom-0.5 border-s border-dashed border-danger/50"
+                    style={{ right: `${pct(cycleLengthDays)}%` }}
+                  />
                 )}
                 {row.segs.map(seg => {
                   const rightPct = pct(seg.startDay - 1);
@@ -1468,36 +1464,36 @@ function GanttChart({ cycle, label, testerGroups, saGhostsByUser, urgentCrNumber
                         setHoveredSeg({ text: tooltipText, x: r.left + r.width / 2, y: r.top });
                       }}
                       onMouseLeave={() => setHoveredSeg(null)}
+                      className={cn(
+                        'absolute top-0 box-border flex h-full cursor-default items-center justify-center overflow-hidden rounded-sm',
+                        seg.isGhost ? 'border border-dashed opacity-75' : 'border border-card',
+                      )}
                       style={{
-                        position: 'absolute', top: 0, height: '100%',
                         right: `${rightPct}%`, width: `${widthPct}%`,
                         background: seg.isGhost ? C.bgCard : seg.color ?? C.bgCard,
                         ...(seg.isGhost
-                          ? { border: `1px dashed ${ghostColor}88`, opacity: 0.75 }
+                          ? { borderColor: `${ghostColor}88` }
                           : seg.color ? {} : { backgroundImage: `repeating-linear-gradient(45deg, ${C.textDisabled}, ${C.textDisabled} 3px, ${C.bgCard} 3px, ${C.bgCard} 6px)` }),
-                        borderRadius: RADIUS.sm,
-                        boxSizing: 'border-box', border: seg.isGhost ? `1px dashed ${ghostColor}88` : `1px solid ${C.bgCard}`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-                        cursor: 'default',
                       }}
                     >
                       {/* Urgent marker — always at the left edge of the bar (regardless of
                           bar width/RTL day-direction), per explicit request: a fixed visual
-                          landmark independent of the segment's own text label. */}
+                          landmark independent of the segment's own text label. Kept physical
+                          `left` on purpose — this must NOT flip with RTL logical start/end. */}
                       {seg.isUrgent && (
                         <span
                           title="דחוף"
-                          style={{
-                            position: 'absolute', left: 2, top: '50%', transform: 'translateY(-50%)',
-                            fontWeight: WEIGHT.bold, fontSize: 11, color: C.danger, lineHeight: 1,
-                          }}
+                          className="absolute left-[2px] top-1/2 -translate-y-1/2 text-[11px] font-bold leading-none text-danger"
                         >!</span>
                       )}
                       {seg.isGhost && seg.hasConflict && (
-                        <span title="חפיפה בפועל" style={{ position: 'absolute', left: 2, top: '50%', transform: 'translateY(-50%)', fontSize: 11, lineHeight: 1 }}>⚠</span>
+                        <span title="חפיפה בפועל" className="absolute left-[2px] top-1/2 -translate-y-1/2 text-[11px] leading-none">⚠</span>
                       )}
                       {wide && (
-                        <span style={{ fontWeight: WEIGHT.bold, color: seg.isGhost ? ghostColor : seg.color ? '#fff' : C.textMuted, whiteSpace: 'nowrap', fontSize: 11 }}>
+                        <span
+                          className="whitespace-nowrap text-[11px] font-bold"
+                          style={{ color: seg.isGhost ? ghostColor : seg.color ? '#fff' : C.textMuted }}
+                        >
                           {seg.isGhost ? `↗ ${seg.ghostLabel} ${seg.crNumber}` : seg.isTarget ? `🎯 ${seg.crNumber}` : seg.crNumber}
                         </span>
                       )}
@@ -1509,34 +1505,34 @@ function GanttChart({ cycle, label, testerGroups, saGhostsByUser, urgentCrNumber
           ))}
 
           {/* Axis */}
-          <div style={{ display: 'flex', height: 18 }}>
-            <div style={{ width: LABEL_W, flexShrink: 0 }} />
-            <div style={{ flex: 1, position: 'relative' }}>
+          <div className="flex h-[18px]">
+            <div className="w-[156px] shrink-0" />
+            <div className="relative flex-1">
               {ticks.map(t => (
-                <span key={t} style={{
-                  position: 'absolute', right: `${pct(t)}%`, transform: 'translateX(50%)',
-                  color: C.textMuted, fontSize: 11, top: 2,
-                }}>
+                <span
+                  key={t}
+                  className="absolute top-0.5 translate-x-1/2 text-[11px] text-subtle-foreground"
+                  style={{ right: `${pct(t)}%` }}
+                >
                   {t}
                 </span>
               ))}
             </div>
           </div>
-          <div style={{ display: 'flex' }}>
-            <div style={{ width: LABEL_W, flexShrink: 0 }} />
-            <div style={{ flex: 1, textAlign: 'center', color: C.textMuted, fontSize: 11 }}>
+          <div className="flex">
+            <div className="w-[156px] shrink-0" />
+            <div className="flex-1 text-center text-[11px] text-subtle-foreground">
               ימים בסבב הבדיקות{axisMaxDays > cycleLengthDays ? ' (כולל חריגה מהסבב)' : ''}
             </div>
           </div>
         </div>
       )}
       {hoveredSeg && (
-        <div style={{
-          position: 'fixed', left: hoveredSeg.x, top: hoveredSeg.y, transform: 'translate(-50%, -100%) translateY(-6px)',
-          background: C.textPrimary, color: C.bgCard, ...TEXT.xs, fontWeight: WEIGHT.medium,
-          padding: `${SP[1]} ${SP[2]}`, borderRadius: RADIUS.sm, boxShadow: SHADOW.md,
-          whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 1000, direction: 'rtl',
-        }}>
+        <div
+          dir="rtl"
+          className="fixed z-[1000] whitespace-nowrap rounded-sm bg-foreground px-2 py-1 text-xs font-medium text-card shadow-md pointer-events-none"
+          style={{ left: hoveredSeg.x, top: hoveredSeg.y, transform: 'translate(-50%, -100%) translateY(-6px)' }}
+        >
           {hoveredSeg.text}
         </div>
       )}
@@ -1620,69 +1616,66 @@ function EmployeeCycleMatrix({
   if (cycles.length === 0) return null;
 
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'hidden', marginBottom: SP[4] }}>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', direction: 'rtl' }}>
+    <div className="mb-4 overflow-hidden rounded-lg border border-border bg-card">
+      <div className="overflow-x-auto">
+        <table dir="rtl" className="w-full border-collapse">
           <thead>
-            <tr style={{ background: C.bgNested }}>
-              <th style={{ padding: SP[3], textAlign: 'right', ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, whiteSpace: 'nowrap' }}>עובד</th>
+            <tr className="bg-muted">
+              <th className="whitespace-nowrap p-3 text-end text-xs font-bold text-subtle-foreground">עובד</th>
               {cycles.map(c => (
-                <th key={c.cycleType} style={{ padding: SP[3], textAlign: 'center', ...TEXT.xs, fontWeight: WEIGHT.bold, color: CYCLE_ACCENT[c.cycleType] ?? C.textMuted, whiteSpace: 'nowrap' }}>
+                <th key={c.cycleType} className="whitespace-nowrap p-3 text-center text-xs font-bold" style={{ color: CYCLE_ACCENT[c.cycleType] ?? C.textMuted }}>
                   {CYCLE_LABEL[c.cycleType] ?? c.cycleType}
                 </th>
               ))}
-              <th style={{ padding: SP[3], textAlign: 'center', ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, whiteSpace: 'nowrap' }}>סה״כ</th>
+              <th className="whitespace-nowrap p-3 text-center text-xs font-bold text-subtle-foreground">סה״כ</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(row => (
-              <tr key={row.tester.userId} style={{ borderTop: `1px solid ${C.border}` }}>
-                <td style={{ padding: SP[3], ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, whiteSpace: 'nowrap' }}>
-                  {row.anyOverflow && <span title="חורג באחד הסבבים" style={{ marginLeft: 6 }}>⚠️</span>}
+              <tr key={row.tester.userId} className="border-t border-border">
+                <td className="whitespace-nowrap p-3 text-sm font-semibold text-foreground">
+                  {row.anyOverflow && <span title="חורג באחד הסבבים" className="me-1.5">⚠️</span>}
                   {row.tester.fullName}
                 </td>
                 {row.cells.map(cell => {
                   const isExpanded = expandedCell === cell.key;
                   const isEmpty = cell.tasks.length === 0;
                   return (
-                    <td key={cell.cycleType} style={{ padding: SP[2], textAlign: 'center', verticalAlign: 'top' }}>
+                    <td key={cell.cycleType} className="p-2 text-center align-top">
                       {isEmpty ? (
-                        <span style={{ color: C.textDisabled, ...TEXT.xs }}>—</span>
+                        <span className="text-xs text-subtle-foreground">—</span>
                       ) : (
                         <div>
                           <button
                             onClick={() => onToggleCell(cell.key)}
-                            style={{
-                              border: `1px solid ${cell.hasOverflow ? C.danger : C.border}`,
-                              background: cell.hasOverflow ? C.dangerBg : C.bgNested,
-                              color: cell.hasOverflow ? C.danger : C.textSecondary,
-                              borderRadius: RADIUS.md, padding: '4px 10px', cursor: 'pointer',
-                              fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.bold, whiteSpace: 'nowrap',
-                            }}
+                            className={cn(
+                              'cursor-pointer whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-bold',
+                              cell.hasOverflow ? 'border-danger bg-danger-bg text-danger' : 'border-border bg-muted text-muted-foreground',
+                            )}
                           >
                             {cell.capacityDays != null ? `${cell.assignedDays}/${cell.capacityDays} ימים` : `${cell.assignedDays} ימים`}
                             {' · '}{cell.tasks.length} CR{cell.tasks.length === 1 ? '' : 'ים'}
                             {cell.hasOverflow && ' ⚠'}
                           </button>
                           {isExpanded && (
-                            <div style={{ marginTop: SP[2], textAlign: 'right', background: C.bgApp, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: SP[2], minWidth: 220 }}>
+                            <div className="mt-2 min-w-[220px] rounded-md border border-border bg-background p-2 text-right">
                               {cell.tasks.map(t => (
                                 <div
                                   key={t.id}
                                   onClick={() => onGoToRow(row.tester.fullName, t.crNumber, cell.cycleType)}
-                                  style={{ display: 'flex', justifyContent: 'space-between', gap: SP[2], padding: '3px 0', cursor: 'pointer', borderBottom: `1px solid ${C.border}` }}
+                                  className="flex cursor-pointer justify-between gap-2 border-b border-border py-[3px]"
                                 >
-                                  <span style={{ ...TEXT.xs, color: C.textPrimary }}>
-                                    {urgentCrNumbers.has(t.crNumber) && <span title="דחוף" style={{ color: C.danger, marginLeft: 4 }}>🔴</span>}
+                                  <span className="text-xs text-foreground">
+                                    {urgentCrNumbers.has(t.crNumber) && <span title="דחוף" className="me-1 text-danger">🔴</span>}
                                     {t.crNumber} — {t.crLabel ?? t.crNumber}
                                   </span>
-                                  <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap' }}>
+                                  <span className="whitespace-nowrap text-xs text-subtle-foreground">
                                     {fmtDate(t.plannedStart)}–{fmtDate(t.plannedEnd)} · {t.effortDays}י׳
                                   </span>
                                 </div>
                               ))}
                               {cell.issues.map((issue, i) => (
-                                <div key={i} style={{ ...TEXT.xs, color: C.danger, marginTop: SP[2] }}>⚠ {issue.message}</div>
+                                <div key={i} className="mt-2 text-xs text-danger">⚠ {issue.message}</div>
                               ))}
                             </div>
                           )}
@@ -1691,14 +1684,14 @@ function EmployeeCycleMatrix({
                     </td>
                   );
                 })}
-                <td style={{ padding: SP[2], textAlign: 'center', ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+                <td className="p-2 text-center text-sm font-bold text-foreground">
                   {row.totalDays} ימים
                 </td>
               </tr>
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={cycles.length + 2} style={{ padding: SP[5], textAlign: 'center', color: C.textMuted, ...TEXT.sm }}>
+                <td colSpan={cycles.length + 2} className="p-5 text-center text-sm text-subtle-foreground">
                   {onlyOverflowing ? 'אין חריגות כרגע 🎉' : 'אין בודקים בתוכנית'}
                 </td>
               </tr>
@@ -1798,40 +1791,41 @@ function AllTestersRealTimeline({
 
   if (rows.length === 0) {
     return (
-      <div style={{ ...cardStyle, textAlign: 'center', color: C.textMuted, padding: SP[5] }}>
+      <div className={cn(WP_CARD_CLASS, 'p-5 text-center text-subtle-foreground')}>
         אין בודקים עם משימות פעילות בתוכנית
       </div>
     );
   }
 
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, marginBottom: SP[4], overflow: 'hidden' }}>
-      <div style={{ padding: SP[4], paddingBottom: SP[3], display: 'flex', alignItems: 'center', gap: SP[2], direction: 'rtl' }}>
-        <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+    <div className="mb-4 overflow-hidden rounded-lg border border-border bg-card">
+      <div dir="rtl" className="flex items-center gap-2 p-4 pb-3">
+        <span className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">
           📊 ציר זמן אמיתי — כל הבודקים
         </span>
-        <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap', marginRight: 'auto' }}>
+        <div className="ms-auto flex flex-wrap gap-2">
           {cycleBands.map(b => (
-            <span key={b.cycleType} style={{ display: 'flex', alignItems: 'center', gap: 4, ...TEXT.xs, color: C.textMuted }}>
-              <span style={{ width: 10, height: 10, borderRadius: 2, background: CYCLE_BG[b.cycleType] ?? C.bgNested, border: `1px solid ${CYCLE_ACCENT[b.cycleType] ?? C.border}` }} />
+            <span key={b.cycleType} className="flex items-center gap-1 text-xs text-subtle-foreground">
+              <span className="h-2.5 w-2.5 rounded-sm border" style={{ background: CYCLE_BG[b.cycleType] ?? C.bgNested, borderColor: CYCLE_ACCENT[b.cycleType] ?? C.border }} />
               {CYCLE_LABEL[b.cycleType] ?? b.cycleType}
             </span>
           ))}
         </div>
       </div>
 
-      <div style={{ padding: `0 ${SP[4]} ${SP[4]}`, direction: 'rtl' }}>
+      <div dir="rtl" className="px-4 pb-4">
         {/* Date axis ticks */}
-        <div style={{ display: 'flex', alignItems: 'center', height: 18, marginBottom: SP[1] }}>
-          <div style={{ width: LABEL_W, flexShrink: 0 }} />
-          <div style={{ flex: 1, position: 'relative', height: '100%' }}>
+        <div className="mb-1 flex h-[18px] items-center">
+          <div className="w-[156px] shrink-0" />
+          <div className="relative h-full flex-1">
             {ticks.map(t => {
               const d = new Date(tlIsraelDay(axisStartIso)); d.setUTCDate(d.getUTCDate() + t);
               return (
-                <span key={t} style={{
-                  position: 'absolute', right: `${pctOf(t)}%`, transform: 'translateX(50%)',
-                  ...TEXT.xs, color: C.textDisabled, whiteSpace: 'nowrap',
-                }}>
+                <span
+                  key={t}
+                  className="absolute translate-x-1/2 whitespace-nowrap text-xs text-subtle-foreground"
+                  style={{ right: `${pctOf(t)}%` }}
+                >
                   {d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })}
                 </span>
               );
@@ -1840,31 +1834,35 @@ function AllTestersRealTimeline({
         </div>
 
         {/* Cycle-span row */}
-        <div style={{ display: 'flex', alignItems: 'center', height: 14, marginBottom: SP[2] }}>
-          <div style={{ width: LABEL_W, flexShrink: 0 }} />
-          <div style={{ flex: 1, position: 'relative', height: '100%' }}>
+        <div className="mb-2 flex h-3.5 items-center">
+          <div className="w-[156px] shrink-0" />
+          <div className="relative h-full flex-1">
             {cycleBands.map(b => (
-              <div key={b.cycleType} title={CYCLE_LABEL[b.cycleType] ?? b.cycleType} style={{
-                position: 'absolute', top: 0, height: '100%', borderRadius: RADIUS.sm,
-                right: `${b.rightPct}%`, width: `${b.widthPct}%`,
-                background: CYCLE_BG[b.cycleType] ?? C.bgNested, border: `1px solid ${CYCLE_ACCENT[b.cycleType] ?? C.border}55`,
-              }} />
+              <div
+                key={b.cycleType}
+                title={CYCLE_LABEL[b.cycleType] ?? b.cycleType}
+                className="absolute top-0 h-full rounded-sm border"
+                style={{
+                  right: `${b.rightPct}%`, width: `${b.widthPct}%`,
+                  background: CYCLE_BG[b.cycleType] ?? C.bgNested, borderColor: `${CYCLE_ACCENT[b.cycleType] ?? C.border}55`,
+                }}
+              />
             ))}
           </div>
         </div>
 
         {/* Tester rows */}
         {rows.map(row => (
-          <div key={row.tester.userId} style={{ display: 'flex', alignItems: 'center', height: ROW_H }}>
-            <div title={row.tester.fullName} style={{
-              width: LABEL_W, flexShrink: 0, ...TEXT.xs, fontWeight: WEIGHT.medium, color: C.textPrimary,
-              paddingRight: SP[2], boxSizing: 'border-box', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>
+          <div key={row.tester.userId} className="flex h-[30px] items-center">
+            <div
+              title={row.tester.fullName}
+              className="box-border w-[156px] shrink-0 overflow-hidden text-ellipsis whitespace-nowrap ps-2 text-xs font-medium text-foreground"
+            >
               {row.tester.fullName}
             </div>
-            <div style={{ flex: 1, position: 'relative', height: 18, background: C.bgNested, borderRadius: RADIUS.sm, overflow: 'hidden' }}>
+            <div className="relative h-[18px] flex-1 overflow-hidden rounded-sm bg-muted">
               {weekendBands.map((b, i) => (
-                <div key={i} style={{ position: 'absolute', top: 0, bottom: 0, right: `${b.rightPct}%`, width: `${b.widthPct}%`, background: 'rgba(0,0,0,0.04)' }} />
+                <div key={i} className="absolute bottom-0 top-0 bg-black/[0.04]" style={{ right: `${b.rightPct}%`, width: `${b.widthPct}%` }} />
               ))}
               {row.tasks.map((t, i) => {
                 const isTarget = TARGET_CR_PATTERN.test(t.crLabel ?? t.crNumber);
@@ -1879,15 +1877,11 @@ function AllTestersRealTimeline({
                     key={t.id}
                     onClick={() => onGoToRow(row.tester.fullName, t.crNumber, t.cycleType)}
                     title={`${isTarget ? '🎯 TARGET — ' : ''}${t.crNumber} — ${t.crLabel ?? t.crNumber} · ${CYCLE_LABEL[t.cycleType] ?? t.cycleType} · ${fmtDate(t.plannedStart)}–${fmtDate(t.plannedEnd)}`}
-                    style={{
-                      position: 'absolute', top: 1, bottom: 1, right: `${rightPct}%`, width: `${widthPct}%`,
-                      background: color, borderRadius: RADIUS.sm, cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-                      border: `1px solid ${C.bgCard}`, minWidth: 3,
-                    }}
+                    className="absolute bottom-px top-px flex min-w-[3px] cursor-pointer items-center justify-center overflow-hidden rounded-sm border border-card"
+                    style={{ right: `${rightPct}%`, width: `${widthPct}%`, background: color }}
                   >
-                    {urgentCrNumbers.has(t.crNumber) && <span style={{ position: 'absolute', right: 1, top: -1, color: '#fff', fontSize: 9 }}>🔴</span>}
-                    {wide && <span style={{ ...TEXT.xs, color: '#fff', fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{t.crNumber}</span>}
+                    {urgentCrNumbers.has(t.crNumber) && <span className="absolute -top-px start-px text-[9px] text-white">🔴</span>}
+                    {wide && <span className="whitespace-nowrap text-xs font-bold text-white">{t.crNumber}</span>}
                   </div>
                 );
               })}
@@ -2009,97 +2003,83 @@ function CycleCard({
   const noteVal = editNotes[cycle.id] ?? (cycle.notes ?? '');
 
   return (
-    <div style={{ ...cardStyle, marginBottom: SP[3], padding: 0, overflow: 'hidden' }}>
+    <div className={cn(WP_CARD_CLASS, 'mb-3 overflow-hidden p-0')}>
       {/* Header */}
       <div
         onClick={onToggleExpand}
-        style={{
-          display: 'flex', alignItems: 'center', gap: SP[3],
-          padding: `${SP[3]} ${SP[4]}`,
-          backgroundColor: bg, cursor: 'pointer',
-          borderBottom: expanded ? `1px solid ${C.border}` : 'none',
-          userSelect: 'none',
-        }}
+        className={cn('flex select-none items-center gap-3 px-4 py-3 cursor-pointer', expanded ? 'border-b border-border' : 'border-b-0')}
+        style={{ backgroundColor: bg }}
       >
-        <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: accent }}>{label}</span>
+        <span className="text-lg font-bold" style={{ color: accent }}>{label}</span>
 
-        <span style={{ ...TEXT.sm, color: C.textSecondary }}>
+        <span className="text-sm text-muted-foreground">
           {fmtDate(cycle.plannedStart)} — {fmtDate(cycle.plannedEnd)}
         </span>
 
         {!isRehearsalOrGoLive && (
-          <span style={{
-            ...TEXT.xs, fontWeight: WEIGHT.medium,
-            backgroundColor: accent + '22', color: accent,
-            padding: `2px ${SP[2]}`, borderRadius: RADIUS.sm,
-          }}>
+          <span
+            className="rounded-sm px-2 py-0.5 text-xs font-medium"
+            style={{ backgroundColor: accent + '22', color: accent }}
+          >
             {counts.active}/{counts.total} CRים פעילים
           </span>
         )}
         {!isRehearsalOrGoLive && (
           <span
             title={filterUserId ? 'ימי עבודה של העובד המסונן בסבב, מתוך ימי הסבב' : 'סה"כ ימי עבודה משובצים בסבב, מתוך ימי הסבב'}
-            style={{
-              ...TEXT.xs, fontWeight: WEIGHT.medium,
-              backgroundColor: assignedDays > totalWorkDays ? C.dangerBg : accent + '22',
-              color: assignedDays > totalWorkDays ? C.danger : accent,
-              padding: `2px ${SP[2]}`, borderRadius: RADIUS.sm,
-            }}>
+            className={cn('rounded-sm px-2 py-0.5 text-xs font-medium', assignedDays > totalWorkDays && 'bg-danger-bg text-danger')}
+            style={assignedDays > totalWorkDays ? undefined : { backgroundColor: accent + '22', color: accent }}
+          >
             {assignedDays}/{totalWorkDays} ימי בדיקה{filterUserId ? ' לעובד' : ''}
           </span>
         )}
         {isRehearsalOrGoLive && markedCrs.length > 0 && (
-          <span style={{ ...TEXT.xs, fontWeight: WEIGHT.medium, backgroundColor: accent + '22', color: accent, padding: `2px ${SP[2]}`, borderRadius: RADIUS.sm }}>
+          <span className="rounded-sm px-2 py-0.5 text-xs font-medium" style={{ backgroundColor: accent + '22', color: accent }}>
             {markedCrs.length} CRים · עד 3 שעות
           </span>
         )}
 
         {counts.regression > 0 && (
-          <span style={{
-            ...TEXT.xs,
-            backgroundColor: C.bgNested, color: C.textMuted,
-            padding: `2px ${SP[2]}`, borderRadius: RADIUS.sm,
-            border: `1px solid ${C.border}`,
-          }}>
+          <span className="rounded-sm border border-border bg-muted px-2 py-0.5 text-xs text-subtle-foreground">
             + רגרסיה
           </span>
         )}
 
-        <span style={{ marginRight: 'auto', color: C.textMuted, fontSize: '14px' }}>
+        <span className="ms-auto text-sm text-subtle-foreground">
           {expanded ? '▲' : '▼'}
         </span>
       </div>
 
       {/* Body */}
       {expanded && (
-        <div style={{ padding: SP[4] }}>
+        <div className="p-4">
           {isRehearsalOrGoLive ? (
             <div>
               {/* Marked CRs list */}
-              <div style={{ marginBottom: SP[3] }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: SP[2] }}>
-                  <span style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: accent, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              <div className="mb-3">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider" style={{ color: accent }}>
                     CRים מסומנים לסבב זה
                   </span>
-                  <span style={{ ...TEXT.xs, color: C.textMuted, background: C.bgNested, border: `1px solid ${C.border}`, padding: `1px ${SP[2]}`, borderRadius: RADIUS.full }}>
+                  <span className="rounded-full border border-border bg-muted px-2 py-px text-xs text-subtle-foreground">
                     {markedCrs.length} CRים · עד 3 שעות
                   </span>
                 </div>
                 {markedCrs.length === 0 ? (
-                  <div style={{ ...TEXT.sm, color: C.textMuted, fontStyle: 'italic', padding: `${SP[2]} 0` }}>
+                  <div className="py-2 text-sm italic text-subtle-foreground">
                     לא סומנו CRים לסבב זה — סמן CRים בלשונית השיבוץ
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div className="flex flex-col gap-1">
                     {markedCrs.map((a, idx) => (
-                      <div key={a.crNumber} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[1]} ${SP[2]}`, background: C.bgNested, borderRadius: RADIUS.sm, border: `1px solid ${C.border}` }}>
-                        <span style={{ ...TEXT.xs, color: C.textMuted, minWidth: 20, textAlign: 'center' }}>{idx + 1}.</span>
-                        <span style={{ background: bg, color: accent, padding: `1px ${SP[2]}`, borderRadius: RADIUS.sm, ...TEXT.xs, fontWeight: WEIGHT.bold, whiteSpace: 'nowrap' }}>{a.crNumber}</span>
-                        <span style={{ ...TEXT.xs, color: C.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                      <div key={a.crNumber} className="flex items-center gap-2 rounded-sm border border-border bg-muted px-2 py-1">
+                        <span className="min-w-[20px] text-center text-xs text-subtle-foreground">{idx + 1}.</span>
+                        <span className="whitespace-nowrap rounded-sm px-2 py-px text-xs font-bold" style={{ background: bg, color: accent }}>{a.crNumber}</span>
+                        <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground">
                           {a.crLabel?.replace(/^\d+\s*-\s*/, '') ?? ''}
                         </span>
                         {a.user && (
-                          <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                          <span className="shrink-0 whitespace-nowrap text-xs text-subtle-foreground">
                             {a.user.fullName.split(' ')[0]}
                           </span>
                         )}
@@ -2110,32 +2090,26 @@ function CycleCard({
               </div>
 
               {/* Freeform notes */}
-              <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: SP[1] }}>הוראות ותכולה ידנית לסבב:</div>
+              <div className="mb-1 text-xs text-subtle-foreground">הוראות ותכולה ידנית לסבב:</div>
               <textarea
                 value={noteVal}
                 onChange={e => onNotesChange(e.target.value)}
                 rows={4}
-                style={{
-                  width: '100%', boxSizing: 'border-box',
-                  padding: SP[3], borderRadius: RADIUS.md,
-                  border: `1px solid ${C.border}`,
-                  fontFamily: FONT, ...TEXT.sm, color: C.textPrimary,
-                  resize: 'vertical',
-                }}
+                className="box-border w-full resize-y rounded-md border border-border p-3 text-sm text-foreground"
                 placeholder="הוסף הוראות ספציפיות, CRים נוספים או הגדרות לסבב זה..."
               />
-              <div style={{ marginTop: SP[2], display: 'flex', gap: SP[2] }}>
-                <button onClick={onSaveNotes} disabled={savingNotes} style={btnStyle(C.info, savingNotes)}>
+              <div className="mt-2 flex gap-2">
+                <button onClick={onSaveNotes} disabled={savingNotes} className={wpBtnClass('info', savingNotes)}>
                   {savingNotes ? 'שומר...' : 'שמור הערות'}
                 </button>
               </div>
             </div>
           ) : testerGroups.size === 0 ? (
-            <p style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[4] }}>
+            <p className="p-4 text-center text-sm text-subtle-foreground">
               אין משימות בסבב זה
             </p>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+            <div className="flex flex-col gap-4">
               <GanttChart cycle={cycle} label={label} testerGroups={testerGroups} saGhostsByUser={saGhostsByUser} urgentCrNumbers={urgentCrNumbers} holidayDays={holidayDays} />
               {Array.from(testerGroups.entries()).map(([userId, group]) => (
                 <TesterSection
@@ -2280,7 +2254,7 @@ function TesterSection({
       </div>
 
       {!collapsed && (
-        <table style={{ width: '100%', borderCollapse: 'collapse', ...TEXT.sm, tableLayout: 'fixed' }}>
+        <table className="w-full table-fixed border-collapse text-sm">
           <colgroup>
             <col style={{ width: 56 }} />
             <col style={{ width: 80 }} />
@@ -2295,32 +2269,31 @@ function TesterSection({
             {editable && <col style={{ width: 130 }} />}
           </colgroup>
           <thead>
-            <tr style={{ backgroundColor: C.bgNested }}>
-              <th style={{ ...thStyle, textAlign: 'center' }}>#</th>
-              <th style={thStyle}>מס' CR</th>
-              <th style={thStyle}>תיאור</th>
-              <th style={thStyle}>סוג</th>
-              <th style={thStyle}>בודק שני</th>
-              <th style={thStyle}>התחלה</th>
-              <th style={thStyle}>סיום</th>
-              <th style={{ ...thStyle, textAlign: 'center' }}>ימים</th>
-              <th style={{ ...thStyle, textAlign: 'center' }}></th>
-              {editable && <th style={{ ...thStyle, textAlign: 'center' }}>פעיל</th>}
-              {editable && <th style={{ ...thStyle, textAlign: 'center' }}>בודק</th>}
+            <tr className="bg-muted">
+              <th className={cn(thBaseClass, 'text-center')}>#</th>
+              <th className={thBaseClass}>מס' CR</th>
+              <th className={thBaseClass}>תיאור</th>
+              <th className={thBaseClass}>סוג</th>
+              <th className={thBaseClass}>בודק שני</th>
+              <th className={thBaseClass}>התחלה</th>
+              <th className={thBaseClass}>סיום</th>
+              <th className={cn(thBaseClass, 'text-center')}>ימים</th>
+              <th className={cn(thBaseClass, 'text-center')}></th>
+              {editable && <th className={cn(thBaseClass, 'text-center')}>פעיל</th>}
+              {editable && <th className={cn(thBaseClass, 'text-center')}>בודק</th>}
             </tr>
           </thead>
           <tbody>
             {displayRows.map((row) => {
               if (row.kind === 'ghost') {
                 const t = row.task;
-                const ghostColor = t.hasConflict ? C.danger : C.brand;
                 return (
-                  <tr key={`ghost-${t.id}`} style={{ backgroundColor: t.hasConflict ? C.dangerBg : C.brandDim }}>
-                    <td colSpan={colCount} style={{ ...tdStyle, padding: `${SP[1]} ${SP[2]}` }}>
-                      <span style={{ ...TEXT.xs, color: ghostColor, fontWeight: WEIGHT.bold }}>
+                  <tr className={t.hasConflict ? 'bg-danger-bg' : 'bg-primary-50'}>
+                    <td colSpan={colCount} className={cn(tdBaseClass, 'px-2 py-1')}>
+                      <span className={cn('text-xs font-bold', t.hasConflict ? 'text-danger' : 'text-primary')}>
                         {t.hasConflict ? `⚠ חפיפה בפועל — ↗ ${t.ghostLabel}` : `↗ ${t.ghostLabel} (אין חפיפה בפועל)`}
                       </span>
-                      <span style={{ ...TEXT.xs, color: C.textSecondary, fontStyle: 'italic', marginRight: SP[2] }}>
+                      <span className="ms-2 text-xs italic text-muted-foreground">
                         {t.crNumber} — {t.crLabel ?? t.crNumber} · {fmtDate(t.plannedStart)}–{fmtDate(t.plannedEnd)} · {t.effortDays} ימים
                       </span>
                     </td>
@@ -2351,105 +2324,105 @@ function TesterSection({
                   onDragOver={isCycle1 && orderNum != null ? e => { e.preventDefault(); if (dragTaskId && dragTaskId !== task.id) setDragOverTaskId(task.id); } : undefined}
                   onDragLeave={isCycle1 && orderNum != null ? () => setDragOverTaskId(prev => prev === task.id ? null : prev) : undefined}
                   onDrop={isCycle1 && orderNum != null ? e => { e.preventDefault(); handleDrop(task); } : undefined}
-                  style={{
-                    backgroundColor: dragOverTaskId === task.id ? C.infoBg : isProblematic ? C.dangerBg : rowBg,
-                    opacity: isInactive ? 0.45 : 1,
-                    textDecoration: isInactive ? 'line-through' : 'none',
-                    outline: dragOverTaskId === task.id ? `2px dashed ${C.info}` : isProblematic ? `2px solid ${C.danger}` : 'none',
-                    outlineOffset: '-2px',
-                    transition: 'outline-color 0.3s',
-                  }}
+                  className={cn(
+                    isInactive && 'opacity-45 line-through',
+                    'outline-offset-[-2px] transition-[outline-color] duration-300',
+                    dragOverTaskId === task.id ? 'bg-info-bg outline-dashed outline-2 outline-info'
+                      : isProblematic ? 'bg-danger-bg outline outline-2 outline-danger'
+                      : 'outline-none'
+                  )}
+                  style={dragOverTaskId === task.id || isProblematic ? undefined : { backgroundColor: rowBg }}
                 >
                   {/* # + drag handle + reorder arrows */}
-                  <td style={{ ...tdStyle, textAlign: 'center', padding: `${SP[1]} 4px` }}>
+                  <td className={cn(tdBaseClass, 'text-center px-1 py-1')}>
                     {orderNum != null ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'center' }}>
+                      <div className="flex items-center justify-center gap-0.5">
                         {isCycle1 && !isReordering && (
                           <span
                             draggable
                             title="גרור לשינוי סדר"
                             onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDragTaskId(task.id); }}
                             onDragEnd={() => { setDragTaskId(null); setDragOverTaskId(null); }}
-                            style={{ cursor: 'grab', color: C.textDisabled, ...TEXT.xs, lineHeight: 1, userSelect: 'none' }}
+                            className="cursor-grab select-none text-xs leading-none text-subtle-foreground"
                           >⠿</span>
                         )}
-                        <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.medium, minWidth: 16 }}>{orderNum}</span>
+                        <span className="min-w-[16px] text-xs font-medium text-muted-foreground">{orderNum}</span>
                         {isCycle1 && !isReordering && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                          <div className="flex flex-col gap-0">
                             <button
                               title="הזז למעלה"
                               disabled={orderNum === 1}
                               onClick={() => onReorderTask(task.id, orderNum - 1)}
-                              style={{ ...arrowBtnStyle, opacity: orderNum === 1 ? 0.2 : 0.6 }}
+                              className={cn(arrowBtnClass, orderNum === 1 ? 'opacity-20' : 'opacity-60')}
                             >▲</button>
                             <button
                               title="הזז למטה"
                               disabled={orderNum === crTasks.length}
                               onClick={() => onReorderTask(task.id, orderNum + 1)}
-                              style={{ ...arrowBtnStyle, opacity: orderNum === crTasks.length ? 0.2 : 0.6 }}
+                              className={cn(arrowBtnClass, orderNum === crTasks.length ? 'opacity-20' : 'opacity-60')}
                             >▼</button>
                           </div>
                         )}
-                        {isReordering && <span style={{ ...TEXT.xs, color: C.textMuted }}>⟳</span>}
+                        {isReordering && <span className="text-xs text-muted-foreground">⟳</span>}
                       </div>
                     ) : isSecondary ? (
-                      <span style={{ ...TEXT.xs, color: C.info, opacity: 0.6 }}>↳</span>
+                      <span className="text-xs text-info opacity-60">↳</span>
                     ) : null}
                   </td>
-                  <td style={tdStyle}>
-                    <span style={{ ...TEXT.xs, fontWeight: WEIGHT.medium, color: isReg ? C.statusWaiting : isSecondary ? C.info : C.textLink }}>
+                  <td className={tdBaseClass}>
+                    <span className={cn('text-xs font-medium', isReg ? 'text-purple-500' : isSecondary ? 'text-info' : 'text-primary')}>
                       {!isReg && urgentCrNumbers.has(task.crNumber) && (
-                        <span title="דחוף — מתוזמן ראשון בתור הבודק" style={{ marginLeft: 3 }}>🔴</span>
+                        <span title="דחוף — מתוזמן ראשון בתור הבודק" className="me-[3px]">🔴</span>
                       )}
                       {isReg ? '—' : task.crNumber}
                     </span>
                   </td>
-                  <td style={{ ...tdStyle, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <td className={cn(tdBaseClass, 'overflow-hidden text-ellipsis whitespace-nowrap')}>
                     {isSecondary
-                      ? <span style={{ ...TEXT.xs, color: C.textMuted, fontStyle: 'italic' }}>↳ {task.crLabel ?? task.crNumber}</span>
+                      ? <span className="text-xs italic text-muted-foreground">↳ {task.crLabel ?? task.crNumber}</span>
                       : (task.crLabel ?? task.crNumber)
                     }
                   </td>
-                  <td style={tdStyle}>
+                  <td className={tdBaseClass}>
                     {isSecondary
-                      ? <span style={{ ...TEXT.xs, color: C.info, backgroundColor: C.infoBg, padding: `1px ${SP[1]}`, borderRadius: RADIUS.sm }}>בודק שני</span>
+                      ? <span className="rounded-sm bg-info-bg px-1 py-px text-xs text-info">בודק שני</span>
                       : <TaskTypeBadge type={task.taskType} />
                     }
                   </td>
                   {/* Secondary tester cell */}
-                  <td style={{ ...tdStyle, padding: `${SP[1]} ${SP[2]}` }}>
+                  <td className={cn(tdBaseClass, 'px-2 py-1')}>
                     {!isReg && !isSecondary ? (
                       secondaryName ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: SP[1] }}>
-                          <span style={{ ...TEXT.xs, color: C.info, fontWeight: WEIGHT.medium, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
+                        <div className="flex items-center gap-1">
+                          <span className="max-w-[90px] overflow-hidden text-ellipsis whitespace-nowrap text-xs font-medium text-info">
                             {secondaryName}
                           </span>
                           <button
                             title="שנה / הסר בודק שני"
                             onClick={() => onOpenSecondary(task.crNumber)}
-                            style={{ ...smallBtnStyle, backgroundColor: C.infoBg, color: C.info, border: `1px solid ${C.info}` }}
+                            className={cn(smallBtnClass, 'border border-info bg-info-bg text-info')}
                           >✎</button>
                         </div>
                       ) : (
                         <button
                           title="הוסף בודק שני"
                           onClick={() => onOpenSecondary(task.crNumber)}
-                          style={{ ...smallBtnStyle, backgroundColor: C.bgNested, color: C.textMuted, border: `1px dashed ${C.border}` }}
+                          className={cn(smallBtnClass, 'border border-dashed border-border bg-muted text-subtle-foreground')}
                         >+ בודק שני</button>
                       )
                     ) : null}
                   </td>
-                  <td style={tdStyle}>{fmtDate(task.plannedStart)}</td>
-                  <td style={tdStyle}>{fmtDate(task.plannedEnd)}</td>
-                  <td style={{ ...tdStyle, textAlign: 'center' }}>
+                  <td className={tdBaseClass}>{fmtDate(task.plannedStart)}</td>
+                  <td className={tdBaseClass}>{fmtDate(task.plannedEnd)}</td>
+                  <td className={cn(tdBaseClass, 'text-center')}>
                     {isReg ? (
-                      <span style={{ ...TEXT.xs, color: C.textMuted }}>{task.effortDays}</span>
+                      <span className="text-xs text-subtle-foreground">{task.effortDays}</span>
                     ) : isEditingThisEffort ? (
                       <input
                         autoFocus
                         type="number" min="0.5" step="0.5"
                         defaultValue={task.effortDays}
-                        style={{ width: 52, padding: '1px 4px', border: `1px solid ${C.info}`, borderRadius: RADIUS.sm, ...TEXT.xs, textAlign: 'center', fontFamily: FONT }}
+                        className="w-[52px] rounded-sm border border-info px-1 py-px text-center text-xs"
                         onBlur={e => onSaveEffort(task.id, e.target.value)}
                         onKeyDown={e => {
                           if (e.key === 'Enter') onSaveEffort(task.id, (e.target as HTMLInputElement).value);
@@ -2460,9 +2433,7 @@ function TesterSection({
                       <span
                         title="לחץ לעריכה"
                         onClick={() => onEditEffort(task.id)}
-                        style={{ cursor: 'pointer', ...TEXT.xs, color: C.textPrimary, fontWeight: WEIGHT.medium, padding: '1px 6px', borderRadius: RADIUS.sm, border: `1px solid transparent` }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLSpanElement).style.border = `1px solid ${C.border}`; }}
-                        onMouseLeave={e => (e.currentTarget as HTMLSpanElement).style.border = '1px solid transparent'}
+                        className="cursor-pointer rounded-sm border border-transparent px-1.5 py-px text-xs font-medium text-foreground hover:border-border"
                       >
                         {task.effortDays}
                       </span>
@@ -2475,36 +2446,28 @@ function TesterSection({
                       the backend's updateTaskEffort/deleteTask never
                       distinguished primary/secondary; this was a frontend-only
                       gate with no documented reason). ── */}
-                  <td style={{ ...tdStyle, textAlign: 'center' }}>
+                  <td className={cn(tdBaseClass, 'text-center')}>
                     {!isReg && (
                       <button
                         title="העבר לארכיון (ניתן לשחזור)"
                         onClick={() => onDeleteTask(task)}
                         disabled={deletingTask === task.id}
-                        style={{
-                          ...smallBtnStyle, backgroundColor: 'transparent', color: C.danger,
-                          border: '1px solid transparent', cursor: deletingTask === task.id ? 'not-allowed' : 'pointer',
-                        }}
+                        className={cn(smallBtnClass, 'border border-transparent bg-transparent text-danger', deletingTask === task.id ? 'cursor-not-allowed' : 'cursor-pointer')}
                       >
                         {deletingTask === task.id ? '…' : '📦'}
                       </button>
                     )}
                   </td>
                   {editable && (
-                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                    <td className={cn(tdBaseClass, 'text-center')}>
                       {!isReg && !isSecondary && (
                         <button
                           onClick={() => onToggleTask(task)}
                           disabled={togglingTasks.has(task.id)}
-                          style={{
-                            padding: `2px ${SP[2]}`,
-                            borderRadius: RADIUS.sm,
-                            border: `1px solid ${task.isActive ? C.success : C.border}`,
-                            backgroundColor: task.isActive ? C.successBg : C.bgNested,
-                            color: task.isActive ? C.success : C.textMuted,
-                            cursor: 'pointer',
-                            ...TEXT.xs, fontWeight: WEIGHT.medium,
-                          }}
+                          className={cn(
+                            'cursor-pointer rounded-sm border px-2 py-0.5 text-xs font-medium',
+                            task.isActive ? 'border-success bg-success-bg text-success' : 'border-border bg-muted text-subtle-foreground'
+                          )}
                         >
                           {togglingTasks.has(task.id) ? '...' : task.isActive ? 'כן' : 'לא'}
                         </button>
@@ -2512,7 +2475,7 @@ function TesterSection({
                     </td>
                   )}
                   {editable && (
-                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                    <td className={cn(tdBaseClass, 'text-center')}>
                       {!isReg && (
                         swappingTask === task.id ? (
                           <select
@@ -2521,7 +2484,7 @@ function TesterSection({
                             disabled={reassigning === task.id}
                             onChange={e => { if (e.target.value) onReassignTester(task.id, e.target.value); }}
                             onBlur={() => onStartSwap(null)}
-                            style={{ ...TEXT.xs, padding: '2px 4px', borderRadius: RADIUS.sm, border: `1px solid ${C.info}`, fontFamily: FONT, maxWidth: 120 }}
+                            className="max-w-[120px] rounded-sm border border-info px-1 py-0.5 text-xs"
                           >
                             <option value="">-- בחר בודק --</option>
                             {allTesters.filter(t => t.userId !== task.userId).map(t => (
@@ -2533,7 +2496,7 @@ function TesterSection({
                             title="החלף בודק"
                             onClick={() => onStartSwap(task.id)}
                             disabled={reassigning === task.id}
-                            style={{ ...smallBtnStyle, backgroundColor: C.bgNested, color: C.textMuted, border: `1px solid ${C.border}` }}
+                            className={cn(smallBtnClass, 'border border-border bg-muted text-subtle-foreground')}
                           >
                             {reassigning === task.id ? '...' : '🔄 החלף'}
                           </button>
@@ -2554,19 +2517,14 @@ function TesterSection({
 // ── TaskTypeBadge ─────────────────────────────────────────────────────────────
 
 function TaskTypeBadge({ type }: { type: string }) {
-  const map: Record<string, { label: string; color: string; bg: string }> = {
-    CR:          { label: 'CR',          color: C.info,         bg: C.infoBg       },
-    STAND_ALONE: { label: 'Stand Alone', color: C.success,      bg: C.successBg    },
-    REGRESSION:  { label: 'רגרסיה',      color: C.statusWaiting, bg: 'rgba(156,106,222,0.10)' },
+  const map: Record<string, { label: string; className: string }> = {
+    CR:          { label: 'CR',          className: 'text-info bg-info-bg' },
+    STAND_ALONE: { label: 'Stand Alone', className: 'text-success bg-success-bg' },
+    REGRESSION:  { label: 'רגרסיה',      className: 'text-purple-500 bg-purple-500/10' },
   };
-  const s = map[type] ?? { label: type, color: C.textMuted, bg: C.bgNested };
+  const s = map[type] ?? { label: type, className: 'text-subtle-foreground bg-muted' };
   return (
-    <span style={{
-      ...TEXT.xs, fontWeight: WEIGHT.medium,
-      color: s.color, backgroundColor: s.bg,
-      padding: `2px ${SP[2]}`, borderRadius: RADIUS.sm,
-      whiteSpace: 'nowrap',
-    }}>
+    <span className={cn('whitespace-nowrap rounded-sm px-2 py-0.5 text-xs font-medium', s.className)}>
       {s.label}
     </span>
   );
@@ -2793,36 +2751,11 @@ function btnStyle(color: string, disabled = false): React.CSSProperties {
   };
 }
 
-const thStyle: React.CSSProperties = {
-  padding: `${SP[2]} ${SP[3]}`,
-  textAlign: 'right',
-  fontWeight: WEIGHT.semibold,
-  color: C.textSecondary,
-  borderBottom: `1px solid ${C.border}`,
-  whiteSpace: 'nowrap',
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: `${SP[2]} ${SP[3]}`,
-  color: C.textPrimary,
-  borderBottom: `1px solid ${C.border}`,
-};
-
-const arrowBtnStyle: React.CSSProperties = {
-  background: 'none',
-  border: 'none',
-  cursor: 'pointer',
-  padding: '0 1px',
-  lineHeight: 1,
-  fontSize: 9,
-  color: C.textMuted,
-};
-
-const smallBtnStyle: React.CSSProperties = {
-  padding: `2px ${SP[2]}`,
-  borderRadius: RADIUS.sm,
-  cursor: 'pointer',
-  fontFamily: FONT,
-  fontSize: 11,
-  whiteSpace: 'nowrap',
-};
+// → new kit (2026-09-12): shared cell/button classes for the work-plan table,
+// including the drag-and-drop task row above. Only these constants + the
+// `style={{}}` props referencing them changed — every onDrag*/onDrop handler,
+// `draggable` attribute, and reorder condition in that row is untouched.
+const thBaseClass = 'whitespace-nowrap border-b border-border px-3 py-2 text-start font-semibold text-muted-foreground';
+const tdBaseClass = 'border-b border-border px-3 py-2 text-foreground';
+const arrowBtnClass = 'border-none bg-transparent p-0 px-px text-[9px] leading-none text-subtle-foreground';
+const smallBtnClass = 'cursor-pointer whitespace-nowrap rounded-sm px-2 py-0.5 text-[11px]';

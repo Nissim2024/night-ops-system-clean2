@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { C, TEXT, WEIGHT, SP, RADIUS, SHADOW, FONT } from '../../theme';
+import { Button } from '../ui';
 import { formatDateTime, formatTime } from '../../utils/dateFormat';
 
 export type InviteTeamMember = { id: string; fullName: string; email: string };
@@ -18,6 +18,13 @@ interface InviteDialogProps {
 
 // Recipient picker + real ICS calendar-invite sender — shared by any screen that
 // has its own event with a start/end time (activities board, runbook steps, etc).
+//
+// The outer overlay is kept as a hand-rolled backdrop (not the shared Modal from
+// '../ui') rather than swapped to it: this dialog has a custom brand-colored
+// banner header (icon + title + date range on a solid background) that Modal's
+// generic string title/subtitle can't reproduce, and it intentionally only
+// closes via backdrop-click or the Cancel/Send buttons — Modal's Radix-based
+// dialog would add Escape-to-close/focus-trap semantics that aren't here today.
 export function InviteDialog({ title, subtitle, startISO, endISO, teams, preSelectedEmails, onSend, onClose }: InviteDialogProps) {
   const allMembers = React.useMemo(() => {
     const seen = new Set<string>();
@@ -90,20 +97,21 @@ export function InviteDialog({ title, subtitle, startISO, endISO, teams, preSele
 
   return (
     <div
+      dir="rtl"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 2100, display: 'flex', alignItems: 'center', justifyContent: 'center', direction: 'rtl' }}
+      className="fixed inset-0 z-[2100] flex items-center justify-center bg-black/55"
     >
-      <div style={{ background: C.bgCard, borderRadius: RADIUS.xl, width: '92vw', maxWidth: 480, boxShadow: SHADOW.xl, overflow: 'hidden' }}>
-        <div style={{ padding: `${SP[4]} ${SP[5]}`, background: C.brand, color: 'white' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
-            <span style={{ fontSize: 22 }}>📅</span>
-            <div style={{ ...TEXT.base, fontWeight: WEIGHT.bold }}>קביעת פגישה ביומן</div>
+      <div className="w-[92vw] max-w-[480px] overflow-hidden rounded-xl bg-card shadow-xl">
+        <div className="bg-primary px-5 py-4 text-white">
+          <div className="flex items-center gap-2">
+            <span className="text-[22px]">📅</span>
+            <div className="text-base font-bold">קביעת פגישה ביומן</div>
           </div>
-          <div style={{ ...TEXT.xs, marginTop: 4, opacity: 0.9 }}>
+          <div className="mt-1 text-xs opacity-90">
             {title}{subtitle ? ` · ${subtitle}` : ''}
           </div>
           {startISO && endISO && (
-            <div style={{ ...TEXT.xs, marginTop: 2, opacity: 0.85 }}>
+            <div className="mt-0.5 text-xs opacity-85">
               {formatDateTime(startISO)}
               {' – '}
               {formatTime(endISO)}
@@ -111,20 +119,20 @@ export function InviteDialog({ title, subtitle, startISO, endISO, teams, preSele
           )}
         </div>
 
-        <div style={{ padding: SP[5], display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-          <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>בחר משתתפים לזימון:</div>
+        <div className="flex flex-col gap-3 p-5">
+          <div className="text-sm font-semibold text-foreground">בחר משתתפים לזימון:</div>
 
-          <div style={{ display: 'flex', gap: SP[2] }}>
+          <div className="flex gap-2">
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="חיפוש לפי שם..."
-              style={{ flex: 1, padding: '6px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.sm, fontFamily: FONT }}
+              className="flex-1 rounded-sm border border-border px-2.5 py-1.5 text-sm text-foreground placeholder:text-subtle-foreground focus:outline-none focus:border-primary"
             />
             <select
               value={teamFilter}
               onChange={e => setTeamFilter(e.target.value)}
-              style={{ padding: '6px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.sm, fontFamily: FONT, background: C.bgCard, color: C.textPrimary }}
+              className="cursor-pointer rounded-sm border border-border bg-card px-2.5 py-1.5 text-sm text-foreground focus:outline-none focus:border-primary"
             >
               <option value="">כל הקבוצות</option>
               {teams.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
@@ -132,9 +140,10 @@ export function InviteDialog({ title, subtitle, startISO, endISO, teams, preSele
           </div>
 
           {filteredMembers.length > 0 && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: SP[2], cursor: 'pointer', ...TEXT.xs, color: C.textMuted }}>
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-subtle-foreground">
               <input
                 type="checkbox"
+                className="accent-primary"
                 checked={filteredMembers.every(m => selected.has(m.email))}
                 onChange={e => {
                   const emails = filteredMembers.map(m => m.email);
@@ -150,52 +159,55 @@ export function InviteDialog({ title, subtitle, startISO, endISO, teams, preSele
             </label>
           )}
 
-          <div style={{ maxHeight: 220, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: SP[2] }}>
+          <div className="max-h-[220px] overflow-y-auto rounded-md border border-border p-2">
             {filteredMembers.map(m => (
-              <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: '5px 4px', cursor: 'pointer', ...TEXT.sm, color: C.textPrimary }}>
-                <input type="checkbox" checked={selected.has(m.email)} onChange={() => toggle(m.email)} />
-                {m.fullName} <span style={{ color: C.textMuted, ...TEXT.xs }}>({m.email})</span>
+              <label key={m.id} className="flex cursor-pointer items-center gap-2 px-1 py-1.5 text-sm text-foreground">
+                <input type="checkbox" className="accent-primary" checked={selected.has(m.email)} onChange={() => toggle(m.email)} />
+                {m.fullName} <span className="text-xs text-subtle-foreground">({m.email})</span>
               </label>
             ))}
-            {allMembers.length === 0 && <div style={{ ...TEXT.xs, color: C.textMuted, padding: SP[2] }}>אין משתמשים עם כתובת מייל</div>}
-            {allMembers.length > 0 && filteredMembers.length === 0 && <div style={{ ...TEXT.xs, color: C.textMuted, padding: SP[2] }}>לא נמצאו משתתפים תואמים</div>}
+            {allMembers.length === 0 && <div className="p-2 text-xs text-subtle-foreground">אין משתמשים עם כתובת מייל</div>}
+            {allMembers.length > 0 && filteredMembers.length === 0 && <div className="p-2 text-xs text-subtle-foreground">לא נמצאו משתתפים תואמים</div>}
           </div>
 
-          <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
+          <div className="flex flex-wrap gap-2">
             {extraEmails.map(email => (
-              <span key={email} style={{ ...TEXT.xs, background: C.bgNested, borderRadius: RADIUS.full, padding: '3px 10px', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span key={email} className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-[3px] text-xs text-foreground">
                 {email}
-                <span onClick={() => setExtraEmails(prev => prev.filter(e => e !== email))} style={{ cursor: 'pointer', color: C.textMuted }}>✕</span>
+                <span onClick={() => setExtraEmails(prev => prev.filter(e => e !== email))} className="cursor-pointer text-subtle-foreground">✕</span>
               </span>
             ))}
           </div>
 
-          <div style={{ display: 'flex', gap: SP[2] }}>
+          <div className="flex gap-2">
             <input
               value={extraEmail}
               onChange={e => setExtraEmail(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addExtraEmail(); } }}
               placeholder="הוסף כתובת מייל נוספת"
-              style={{ flex: 1, padding: '6px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, ...TEXT.sm, fontFamily: FONT, direction: 'ltr' }}
+              dir="ltr"
+              className="flex-1 rounded-sm border border-border px-2.5 py-1.5 text-sm text-foreground placeholder:text-subtle-foreground focus:outline-none focus:border-primary"
             />
-            <button onClick={addExtraEmail} style={{ padding: '6px 14px', borderRadius: RADIUS.sm, border: `1px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, ...TEXT.sm, cursor: 'pointer' }}>
+            <Button onClick={addExtraEmail} variant="secondary" size="sm">
               הוסף
-            </button>
+            </Button>
           </div>
 
-          {error && <div style={{ ...TEXT.xs, color: C.danger }}>{error}</div>}
+          {error && <div className="text-xs text-danger">{error}</div>}
 
-          <div style={{ display: 'flex', gap: SP[2], marginTop: SP[2] }}>
-            <button onClick={onClose} style={{ flex: 1, padding: '9px', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, background: C.bgNested, color: C.textSecondary, ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: 'pointer' }}>
+          <div className="mt-2 flex gap-2">
+            <Button onClick={onClose} variant="secondary" size="md" className="flex-1">
               ביטול
-            </button>
-            <button onClick={handleSend} disabled={sending || sent} style={{
-              flex: 2, padding: '9px', borderRadius: RADIUS.md, border: 'none',
-              background: sent ? C.success : C.brand, color: 'white',
-              ...TEXT.sm, fontWeight: WEIGHT.bold, cursor: sending ? 'wait' : 'pointer', opacity: sending ? 0.7 : 1,
-            }}>
+            </Button>
+            <Button
+              onClick={handleSend}
+              disabled={sending || sent}
+              variant={sent ? 'success' : 'primary'}
+              size="md"
+              className={`flex-[2] ${sending ? 'cursor-wait opacity-70' : ''}`}
+            >
               {sent ? '✓ נשלח' : sending ? 'שולח…' : '📅 שלח זימון'}
-            </button>
+            </Button>
           </div>
         </div>
       </div>

@@ -49,6 +49,26 @@ export interface TestCoverageDto {
   labId: string;
 }
 
+// Canonical "executed" definition (2026-08-03 product decision, confirmed
+// against ALM's own "% executed" cycle graph 2026-09-10): a script counts as
+// executed once it reached ANY terminal disposition — Passed / Failed /
+// Blocked / Not Completed, plus N/A and Not Relevant (deliberately marked
+// out of scope for this cycle) — but NOT 'No Run' or 'Not Ready for QA'
+// (genuinely not started). Every consumer of a per-CR coverage row
+// (getCrCoverage's own coveragePct, getCycleProgress's cycle rollup,
+// getOverview's core-cycle coveragePct/readiness axis) MUST derive
+// "executed" from this one helper — three hand-rolled variants had drifted
+// apart (passed+failed+blocked+notCompleted vs. passed+failed only vs. this),
+// so the per-CR %, the cycle %, and the RI-Home tile disagreed with each
+// other and with ALM.
+export function executedScriptCount(c: {
+  passed?: number; failed?: number; blocked?: number;
+  notCompleted?: number; notApplicable?: number; notRelevant?: number;
+}): number {
+  return (c.passed ?? 0) + (c.failed ?? 0) + (c.blocked ?? 0)
+    + (c.notCompleted ?? 0) + (c.notApplicable ?? 0) + (c.notRelevant ?? 0);
+}
+
 export interface DefectDto {
   id: string;
   assignedTo: string;
@@ -77,6 +97,57 @@ export interface DefectDto {
   // deferred to a later release, and no longer counts as a risk to the
   // current version (spec 2026-09-07, section 1).
   targetRelease: string;
+  // ── Extended fields (2026-09-14) — brings this DTO's column-picker breadth
+  // in line with TargetDefectDto's (feedback: the "כל התקלות שדווחו" screen's
+  // Select-Columns list had far fewer options than the TARGET-defect screen's,
+  // even though both ultimately read the same BUG table). Same BG_USER_XX
+  // slots as TARGET_CR_DEFECTS_SQL — see TargetDefectDto's field comments for
+  // the exact column mapping of each.
+  subject: string;
+  qaTester: string;
+  estimatedFixTime: string;
+  actualFixTime: string;
+  closedBy: string;
+  deploymentReason: string;
+  fixedUntil: string;
+  vendorStatus: string;
+  responseDate: string;
+  supportReferenceNumber: string;
+  subModule: string;
+  fixedInProd: string;
+  mainModule: string;
+  supportStatus: string;
+  vendorAssignTo: string;
+  category: string;
+  itemType: string;
+  estimateFixTime: string;
+  platform: string;
+  modified: string;
+  detectedInRelease: string;
+  detectedInCycle: string;
+  targetCycle: string;
+  crStatus: string;
+  dropNumber: string;
+  influence: string;
+  secondaryPriority: string;
+  releaseDefect: string;
+  businessProcess: string;
+  foundByAutomation: string;
+  mainBusinessProcess: string;
+  impact: string;
+  productionReason: string;
+  environmentComponent: string;
+  willBeTestAtGoLive: string;
+  deploymentCategory: string;
+  defectResponsible: string;
+  targetReleaseReason: string;
+  targetType: string;
+  systemComponent: string;
+  forRegressionTest: string;
+  escDefectResponsible: string;
+  toBeTestedOnProd: string;
+  deploymentDateProd: string;
+  targetScopeApproved: string;
 }
 
 export interface CrItemDto {
@@ -417,6 +488,52 @@ const TEST_COVERAGE_BY_REQ_SQL = `
     RR.REL_ID           = :releaseId
 `;
 
+// Cycle-wide, CR-agnostic test totals — release-scoped, grouped by cycle,
+// counting DISTINCT TS_TEST_ID per status. Exists because getCrCoverage's
+// per-(CR, cycle) dedup (see its `tests: Map<testId, status>` comment) only
+// collapses a test appearing under multiple requirements of the SAME CR —
+// two gaps still let getCycleProgress's cycle-level headline numbers (summed
+// across crCoverage's per-CR rows) drift from QC's own "Requirements
+// Coverage" screen for the same release+cycle (real user audit, 2026-09-14,
+// ITv06-2026): a test whose requirements span requirements under TWO
+// DIFFERENT CRs gets counted once per CR (inflates the sum), and a test
+// whose leaf requirement's CR can't be resolved at all (resolveCr() walks
+// off a broken/incomplete ancestor chain, or the CR isn't in this version's
+// own VersionCrAssignment scope — e.g. "Stand Alone Items") is dropped from
+// every CR bucket entirely (deflates the sum) — explaining both the +11
+// (Cycle 2) and -50 (Cycle 1) directions the user found in the same audit.
+// This query sidesteps both: it never walks the CR hierarchy at all, so
+// nothing here depends on a test successfully resolving to one of this
+// version's CRs — it's the exact same COUNT(DISTINCT TS_TEST_ID), scoped by
+// release+cycle, the user proved matches QC's own screen almost exactly
+// (441 vs the screen's 440, vs a naive COUNT(*) of 452).
+const CYCLE_TEST_TOTALS_SQL = `
+  SELECT
+    RQC.RQC_CYCLE_ID AS CYCLE_ID,
+    RCYC.RCYC_NAME   AS CYCLE_NAME,
+    COUNT(DISTINCT TS.TS_TEST_ID)                                                                    AS TOTAL,
+    COUNT(DISTINCT CASE WHEN TS.TS_EXEC_STATUS = 'Passed'           THEN TS.TS_TEST_ID END)          AS PASSED,
+    COUNT(DISTINCT CASE WHEN TS.TS_EXEC_STATUS = 'Failed'           THEN TS.TS_TEST_ID END)          AS FAILED,
+    COUNT(DISTINCT CASE WHEN TS.TS_EXEC_STATUS = 'No Run'           THEN TS.TS_TEST_ID END)          AS NOT_RUN,
+    COUNT(DISTINCT CASE WHEN TS.TS_EXEC_STATUS = 'Blocked'          THEN TS.TS_TEST_ID END)          AS BLOCKED,
+    COUNT(DISTINCT CASE WHEN TS.TS_EXEC_STATUS = 'Not Completed'    THEN TS.TS_TEST_ID END)          AS NOT_COMPLETED,
+    COUNT(DISTINCT CASE WHEN TS.TS_EXEC_STATUS = 'Not Ready for QA' THEN TS.TS_TEST_ID END)          AS NOT_READY,
+    COUNT(DISTINCT CASE WHEN TS.TS_EXEC_STATUS = 'N/A'              THEN TS.TS_TEST_ID END)          AS NOT_APPLICABLE,
+    COUNT(DISTINCT CASE WHEN TS.TS_EXEC_STATUS = 'Not Relevant'     THEN TS.TS_TEST_ID END)          AS NOT_RELEVANT
+  FROM
+    TEST TS, REQ_COVER RC, REQ RQ, REQ_RELEASES RQR, REQ_CYCLES RQC, RELEASE_CYCLES RCYC, RELEASES RR
+  WHERE
+    TS.TS_TEST_ID       = RC.RC_ENTITY_ID  AND
+    RQ.RQ_REQ_ID        = RC.RC_REQ_ID     AND
+    RC.RC_ENTITY_TYPE   = 'TEST'           AND
+    RQR.RQRL_REQ_ID     = RQ.RQ_REQ_ID     AND
+    RQR.RQRL_REQ_ID     = RQC.RQC_REQ_ID   AND
+    RQR.RQRL_RELEASE_ID = RR.REL_ID        AND
+    RQC.RQC_CYCLE_ID    = RCYC.RCYC_ID     AND
+    RR.REL_ID           = :releaseId
+  GROUP BY RQC.RQC_CYCLE_ID, RCYC.RCYC_NAME
+`;
+
 // Full requirement parent-chain + CR link, unscoped by release — a leaf
 // requirement's owning CR often lives several folder-levels up (see
 // getCrCoverage), and that ancestor folder isn't guaranteed to carry its
@@ -477,6 +594,55 @@ const DEFECTS_SQL_SELECT = `
     BG_USER_17                                                                         AS REASON,
     BG_USER_29                                                                         AS REOPEN_YN,
     RT.REL_NAME                                                                        AS TARGET_RELEASE,
+    -- Extended fields (2026-09-14) — same BG_USER_XX slots as
+    -- TARGET_CR_DEFECTS_SQL below, added so this DTO's column-picker offers
+    -- the same breadth as the TARGET-defect screen's (feedback: "כל התקלות
+    -- שדווחו" had far fewer Select-Columns options than TARGET even though
+    -- both read the same BUG table).
+    BG_ESTIMATED_FIX_TIME                                                              AS ESTIMATED_FIX_TIME,
+    BG_ACTUAL_FIX_TIME                                                                 AS ACTUAL_FIX_TIME,
+    BG_USER_07                                                                         AS CLOSED_BY,
+    BG_USER_08                                                                         AS DEPLOYMENT_REASON,
+    BG_USER_09                                                                         AS FIXED_UNTIL,
+    BG_USER_11                                                                         AS VENDOR_STATUS,
+    BG_USER_12                                                                         AS RESPONSE_DATE,
+    BG_USER_13                                                                         AS SUPPORT_REFERENCE_NUMBER,
+    BG_USER_14                                                                         AS SUB_MODULE,
+    BG_USER_15                                                                         AS FIXED_IN_PROD,
+    BG_USER_16                                                                         AS MAIN_MODULE,
+    BG_USER_18                                                                         AS SUPPORT_STATUS,
+    BG_USER_19                                                                         AS VENDOR_ASSIGN_TO,
+    BG_USER_20                                                                         AS CATEGORY,
+    BG_USER_22                                                                         AS ITEM_TYPE,
+    BG_USER_23                                                                         AS ESTIMATE_FIX_TIME,
+    BG_USER_24                                                                         AS PLATFORM,
+    BG_VTS                                                                             AS MODIFIED,
+    detected_rel.REL_NAME                                                              AS DETECTED_IN_RELEASE,
+    detected_rcyc.RCYC_NAME                                                            AS DETECTED_IN_CYCLE,
+    target_rcyc.RCYC_NAME                                                              AS TARGET_CYCLE,
+    BG_USER_27                                                                         AS CR_STATUS,
+    BG_USER_28                                                                         AS DROP_NUMBER,
+    BG_USER_31                                                                         AS INFLUENCE,
+    BG_USER_37                                                                         AS QA_TESTER,
+    BG_USER_39                                                                         AS SECONDARY_PRIORITY,
+    BG_USER_43                                                                         AS RELEASE_DEFECT,
+    BG_USER_44                                                                         AS BUSINESS_PROCESS,
+    BG_USER_45                                                                         AS FOUND_BY_AUTOMATION,
+    BG_USER_46                                                                         AS MAIN_BUSINESS_PROCESS,
+    BG_USER_47                                                                         AS IMPACT,
+    BG_USER_48                                                                         AS PRODUCTION_REASON,
+    BG_USER_49                                                                         AS ENVIRONMENT_COMPONENT,
+    BG_USER_50                                                                         AS WILL_BE_TEST_AT_GO_LIVE,
+    BG_USER_51                                                                         AS DEPLOYMENT_CATEGORY,
+    BG_USER_52                                                                         AS DEFECT_RESPONSIBLE,
+    BG_USER_53                                                                         AS TARGET_RELEASE_REASON,
+    BG_USER_54                                                                         AS TARGET_TYPE,
+    BG_USER_55                                                                         AS SYSTEM_COMPONENT,
+    BG_USER_56                                                                         AS FOR_REGRESSION_TEST,
+    BG_USER_57                                                                         AS ESC_DEFECT_RESPONSIBLE,
+    BG_USER_59                                                                         AS TO_BE_TESTED_ON_PROD,
+    BG_USER_60                                                                         AS DEPLOYMENT_DATE_PROD,
+    BG_USER_61                                                                         AS TARGET_SCOPE_APPROVED,
     REGEXP_REPLACE(
       REGEXP_REPLACE(
         REGEXP_REPLACE(
@@ -498,6 +664,9 @@ const DEFECTS_SQL_SELECT = `
     )                                                                                  AS DEFECT_COMMENTS
   FROM BUG
   LEFT JOIN RELEASES RT ON RT.REL_ID = BUG.BG_TARGET_REL
+  LEFT JOIN RELEASES detected_rel ON detected_rel.REL_ID = BUG.BG_DETECTED_IN_REL
+  LEFT JOIN RELEASE_CYCLES detected_rcyc ON detected_rcyc.RCYC_ID = BUG.BG_DETECTED_IN_RCYC
+  LEFT JOIN RELEASE_CYCLES target_rcyc ON target_rcyc.RCYC_ID = BUG.BG_TARGET_RCYC
 `;
 const DEFECTS_SQL = `${DEFECTS_SQL_SELECT}  WHERE BG_DETECTED_IN_REL = :releaseId\n`;
 // Not DEFECTS_BY_CYCLE_SQL below — that's a differently-shaped query (grouped
@@ -1080,7 +1249,8 @@ const BUG_DASHBOARD_SQL = `
     BG_USER_58      AS CR_REFERENCE_NUMBER,
     BG_TARGET_REL   AS TARGET_REL,
     BG_DETECTION_DATE AS DETECTED_ON_DATE,
-    BG_SEVERITY     AS SEVERITY
+    BG_SEVERITY     AS SEVERITY,
+    NVL(BG_SUMMARY, BG_SUBJECT) AS TITLE
   FROM BUG
   WHERE BG_DETECTED_IN_REL = :releaseId
 `;
@@ -1100,7 +1270,8 @@ const BUG_DASHBOARD_TARGET_SQL = `
     BG_USER_58      AS CR_REFERENCE_NUMBER,
     BG_TARGET_REL   AS TARGET_REL,
     BG_DETECTION_DATE AS DETECTED_ON_DATE,
-    BG_SEVERITY     AS SEVERITY
+    BG_SEVERITY     AS SEVERITY,
+    NVL(BG_SUMMARY, BG_SUBJECT) AS TITLE
   FROM BUG
   WHERE BG_TARGET_REL = :releaseId
     AND (BG_DETECTED_IN_REL IS NULL OR BG_DETECTED_IN_REL <> :releaseId)
@@ -1361,8 +1532,26 @@ const MOCK_COVERAGE: TestCoverageDto[] = [
   { total: 2,  responsible: 'maamona', planned: 2,  passed: 0, failed: 0, notCompleted: 0, blocked: 0, notRun: 0, notReady: 0, notApplicable: 0, notRelevant: 0, subject: '',                    title: 'חשבוניות ודף מקדים',                                release: '374', cycle: '1276', planId: '74536', labId: '74532' },
 ];
 
+// Defaults for DefectDto's extended fields (2026-09-14 addition) — the mock
+// fallback only fabricates realistic values for the original "always
+// useful" subset above; the extended BG_USER_XX fields just need to satisfy
+// the type, so every mock row spreads this rather than repeating 45 blank
+// fields four times over.
+const EMPTY_EXTENDED_DEFECT_FIELDS = {
+  subject: '', qaTester: '', estimatedFixTime: '', actualFixTime: '', closedBy: '', deploymentReason: '',
+  fixedUntil: '', vendorStatus: '', responseDate: '', supportReferenceNumber: '', subModule: '', fixedInProd: '',
+  mainModule: '', supportStatus: '', vendorAssignTo: '', category: '', itemType: '', estimateFixTime: '',
+  platform: '', modified: '', detectedInRelease: '', detectedInCycle: '', targetCycle: '', crStatus: '',
+  dropNumber: '', influence: '', secondaryPriority: '', releaseDefect: '', businessProcess: '',
+  foundByAutomation: '', mainBusinessProcess: '', impact: '', productionReason: '', environmentComponent: '',
+  willBeTestAtGoLive: '', deploymentCategory: '', defectResponsible: '', targetReleaseReason: '', targetType: '',
+  systemComponent: '', forRegressionTest: '', escDefectResponsible: '', toBeTestedOnProd: '', deploymentDateProd: '',
+  targetScopeApproved: '',
+};
+
 const MOCK_DEFECTS: DefectDto[] = [
   {
+    ...EMPTY_EXTENDED_DEFECT_FIELDS,
     id: '7727', assignedTo: 'NC Team', system: 'NC', title: 'רשומות כפולות בממשק בנקים',
     description: 'בממשק הבנקים נוצרו רשומות כפולות עבור אותו לקוח.',
     reproducible: 'Y', severity: 'Severe', priority: 'High', reporter: 'innad',
@@ -1371,6 +1560,7 @@ const MOCK_DEFECTS: DefectDto[] = [
     responsibility: 'NC Team', crHbrNumberReference: '', crReferenceNumber: '', fixType: 'Root Cause', reason: '', reopenYn: 'N', targetRelease: '',
   },
   {
+    ...EMPTY_EXTENDED_DEFECT_FIELDS,
     id: '8247', assignedTo: 'CRM Team', system: 'NC', title: 'רישום כפול של אירוע אישור הוראת קבע ב-CRM',
     description: 'בעת קליטת אישור הוראת קבע מהבנק נרשמים מספר אירועים ב-CRM.',
     reproducible: 'Y', severity: 'Low', priority: 'Medium', reporter: 'avia',
@@ -1379,6 +1569,7 @@ const MOCK_DEFECTS: DefectDto[] = [
     responsibility: 'CRM Team', crHbrNumberReference: '', crReferenceNumber: '', fixType: '', reason: 'Duplicate', reopenYn: 'N', targetRelease: '',
   },
   {
+    ...EMPTY_EXTENDED_DEFECT_FIELDS,
     id: '7884', assignedTo: 'NC Team', system: 'ISPIT', title: 'קובץ רענונים של HotNet נוצר ריק',
     description: 'תהליך יצירת קובץ הרענונים הסתיים בהצלחה אך הקובץ שנוצר היה ריק.',
     reproducible: 'Y', severity: 'Show Stopper', priority: 'Low', reporter: 'avia',
@@ -1387,6 +1578,7 @@ const MOCK_DEFECTS: DefectDto[] = [
     responsibility: 'NC Team', crHbrNumberReference: '', crReferenceNumber: '', fixType: 'Instance', reason: '', reopenYn: 'N', targetRelease: 'ITv09-2026',
   },
   {
+    ...EMPTY_EXTENDED_DEFECT_FIELDS,
     id: '12697', assignedTo: 'SSO Team', system: 'SSO', title: 'לא נשלח מייל לאחר הסרה מרשימת דיוור',
     description: 'משתמש לא קיבל מייל אישור לאחר סימון הסרה מרשימת הדיוור.',
     reproducible: 'Y', severity: 'Severe', priority: 'High', reporter: 'vladimirs',
@@ -1552,6 +1744,16 @@ export interface CrCoverageDto {
   passed: number; failed: number; notRun: number; blocked: number; notCompleted: number; notReady: number;
   notApplicable: number; notRelevant: number;
   total: number; coveragePct: number;
+}
+
+// Cycle-wide, CR-agnostic totals — see CYCLE_TEST_TOTALS_SQL's own comment
+// for why this exists alongside CrCoverageDto (per-CR dedup isn't the same
+// as per-cycle dedup).
+export interface CycleTestTotalsDto {
+  cycleName: string;
+  passed: number; failed: number; notRun: number; blocked: number; notCompleted: number; notReady: number;
+  notApplicable: number; notRelevant: number;
+  total: number;
 }
 let realCrCoverageCache: CrCoverageDto[] | null | undefined;
 function loadRealCrCoverage(): CrCoverageDto[] | null {
@@ -1747,6 +1949,7 @@ interface BugRawRow {
   TARGET_REL: string | number | null;
   DETECTED_ON_DATE: string | Date | null;
   SEVERITY: string | null;
+  TITLE?: string | null;   // NVL(BG_SUMMARY, BG_SUBJECT) — absent from mock rows, defaults to '' (see bugRawRowToDefectDto)
 }
 
 // BG_USER_10 (CATEGORY_REF) is overloaded in real QC: it holds either
@@ -1848,17 +2051,24 @@ export function bugStatusBucket(status: string | null | undefined): string {
   return hit ? hit.label : (status as string);
 }
 
-// Thin BugRawRow → DefectDto projection for the TARGET drill-down list. Only
-// the columns BUG_DASHBOARD_TARGET_SQL selects are populated; the rest default
-// to '' (the drill-down table only shows id/title/severity/status/owner/date,
-// and a row click re-fetches the full detail by id anyway).
+// Thin BugRawRow → DefectDto projection for the Bug Dashboard drill-down
+// lists. Only the columns BUG_DASHBOARD_SQL/BUG_DASHBOARD_TARGET_SQL select
+// are populated; the rest default to '' (the drill-down table only shows
+// id/title/severity/status/owner/date, and a row click re-fetches the full
+// detail by id anyway).
 function bugRawRowToDefectDto(r: BugRawRow): DefectDto {
   const cr = r.CR_REFERENCE_NUMBER ?? '';
+  // TITLE (BG_SUMMARY/BG_SUBJECT) is the real per-defect title. CR_REFERENCE_NUMBER
+  // (BG_USER_58) is shared across every defect linked to the same CR, so it was
+  // producing identical, non-title-looking values across a whole drill-down table
+  // when used as the title fallback — bug found in production 2026-09-10.
+  const title = (r.TITLE ?? '').trim();
   return {
+    ...EMPTY_EXTENDED_DEFECT_FIELDS,
     id: String(r.DEFECT_ID),
     assignedTo: r.ASSIGNED_TO ?? '',
     system: '',
-    title: cr || `תקלה ${r.DEFECT_ID}`,
+    title: title || cr || `תקלה ${r.DEFECT_ID}`,
     description: '',
     reproducible: '',
     severity: r.SEVERITY ?? '',
@@ -2184,7 +2394,7 @@ export class QcService {
           }
         }
         const total = v.tests.size;
-        const executed = counts.passed + counts.failed + counts.blocked + counts.notCompleted + counts.notApplicable + counts.notRelevant;
+        const executed = executedScriptCount(counts);
         return {
           crNumber: v.crNumber, crTitle: v.crTitle, releaseName: v.releaseName, cycleName: v.cycleName,
           ...counts, total, coveragePct: total > 0 ? Math.round((executed / total) * 100) : 0,
@@ -2192,6 +2402,44 @@ export class QcService {
       });
     } catch (err: any) {
       this.logger.error(`Oracle getCrCoverage: ${err.message}`);
+      throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
+  }
+
+  // Cycle-wide, CR-agnostic test totals for a release — see
+  // CYCLE_TEST_TOTALS_SQL's comment for why getCycleProgress needs this
+  // alongside getCrCoverage's per-CR rows (feedback 2026-09-14, ITv06-2026
+  // audit against QC's own Requirements Coverage screen). No mock-mode seed
+  // exists for this yet — returns [] when Oracle is disabled, same as an
+  // unlinked/never-synced release; getCycleProgress falls back to its old
+  // per-CR sum in that case, unchanged from before this method existed.
+  async getCycleTestTotals(versionId: string): Promise<CycleTestTotalsDto[]> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) return [];
+
+    const relId = await this.getRelId(versionId);
+    if (!relId) return [];
+
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const result = await conn.execute(CYCLE_TEST_TOTALS_SQL, { releaseId: relId });
+      return (result.rows ?? []).map((r: any): CycleTestTotalsDto => ({
+        cycleName:     r.CYCLE_NAME ?? '',
+        total:         Number(r.TOTAL),
+        passed:        Number(r.PASSED),
+        failed:        Number(r.FAILED),
+        notRun:        Number(r.NOT_RUN),
+        blocked:       Number(r.BLOCKED),
+        notCompleted:  Number(r.NOT_COMPLETED),
+        notReady:      Number(r.NOT_READY),
+        notApplicable: Number(r.NOT_APPLICABLE),
+        notRelevant:   Number(r.NOT_RELEVANT),
+      }));
+    } catch (err: any) {
+      this.logger.error(`Oracle getCycleTestTotals: ${err.message}`);
       throw err;
     } finally {
       if (conn) await conn.close().catch(() => {});
@@ -2328,6 +2576,51 @@ export class QcService {
         reason:                r.REASON                   ?? '',
         reopenYn:              r.REOPEN_YN                ?? '',
         targetRelease:         r.TARGET_RELEASE           ?? '',
+        subject:               r.SUBJECT                  ?? '',
+        qaTester:              r.QA_TESTER                ?? '',
+        estimatedFixTime:      r.ESTIMATED_FIX_TIME       ?? '',
+        actualFixTime:         r.ACTUAL_FIX_TIME          ?? '',
+        closedBy:              r.CLOSED_BY                ?? '',
+        deploymentReason:      r.DEPLOYMENT_REASON        ?? '',
+        fixedUntil:            r.FIXED_UNTIL              ?? '',
+        vendorStatus:          r.VENDOR_STATUS            ?? '',
+        responseDate:          r.RESPONSE_DATE            ?? '',
+        supportReferenceNumber: r.SUPPORT_REFERENCE_NUMBER ?? '',
+        subModule:             r.SUB_MODULE               ?? '',
+        fixedInProd:           r.FIXED_IN_PROD            ?? '',
+        mainModule:            r.MAIN_MODULE              ?? '',
+        supportStatus:         r.SUPPORT_STATUS           ?? '',
+        vendorAssignTo:        r.VENDOR_ASSIGN_TO         ?? '',
+        category:              r.CATEGORY                 ?? '',
+        itemType:              r.ITEM_TYPE                ?? '',
+        estimateFixTime:       r.ESTIMATE_FIX_TIME        ?? '',
+        platform:              r.PLATFORM                 ?? '',
+        modified:              r.MODIFIED                 ?? '',
+        detectedInRelease:     r.DETECTED_IN_RELEASE      ?? '',
+        detectedInCycle:       r.DETECTED_IN_CYCLE        ?? '',
+        targetCycle:           r.TARGET_CYCLE             ?? '',
+        crStatus:              r.CR_STATUS                ?? '',
+        dropNumber:            r.DROP_NUMBER              ?? '',
+        influence:             r.INFLUENCE                ?? '',
+        secondaryPriority:     r.SECONDARY_PRIORITY       ?? '',
+        releaseDefect:         r.RELEASE_DEFECT           ?? '',
+        businessProcess:       r.BUSINESS_PROCESS         ?? '',
+        foundByAutomation:     r.FOUND_BY_AUTOMATION      ?? '',
+        mainBusinessProcess:   r.MAIN_BUSINESS_PROCESS    ?? '',
+        impact:                r.IMPACT                   ?? '',
+        productionReason:      r.PRODUCTION_REASON        ?? '',
+        environmentComponent:  r.ENVIRONMENT_COMPONENT    ?? '',
+        willBeTestAtGoLive:    r.WILL_BE_TEST_AT_GO_LIVE  ?? '',
+        deploymentCategory:    r.DEPLOYMENT_CATEGORY      ?? '',
+        defectResponsible:     r.DEFECT_RESPONSIBLE       ?? '',
+        targetReleaseReason:   r.TARGET_RELEASE_REASON    ?? '',
+        targetType:            r.TARGET_TYPE              ?? '',
+        systemComponent:       r.SYSTEM_COMPONENT         ?? '',
+        forRegressionTest:     r.FOR_REGRESSION_TEST      ?? '',
+        escDefectResponsible:  r.ESC_DEFECT_RESPONSIBLE   ?? '',
+        toBeTestedOnProd:      r.TO_BE_TESTED_ON_PROD     ?? '',
+        deploymentDateProd:    r.DEPLOYMENT_DATE_PROD     ?? '',
+        targetScopeApproved:   r.TARGET_SCOPE_APPROVED    ?? '',
       }));
     } catch (err: any) {
       this.logger.error(`Oracle getDefects: ${err.message}`);

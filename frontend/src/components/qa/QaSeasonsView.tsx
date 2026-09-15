@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../../theme';
+import { C, SHADOW, EASE } from '../../theme';
+import { cn } from '../../lib/utils';
 import { useDialog } from '../../context/DialogContext';
 import { formatDate } from '../../utils/dateFormat';
 
@@ -197,23 +198,23 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
   };
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', color: C.textPrimary, display: 'flex', gap: SP[5], alignItems: 'flex-start' }}>
+    <div className="flex items-start gap-5 text-foreground [direction:rtl]">
 
       {/* ── Season list ── */}
-      <div style={{ width: '280px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[1] }}>
-          <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold }}>מועדי חופשות</div>
-          <button style={{ background: C.brand, color: C.textInverse, border: 'none', borderRadius: RADIUS.md, padding: '6px 14px', cursor: 'pointer', ...TEXT.sm, fontWeight: WEIGHT.semibold }}>
+      <div className="flex w-[280px] shrink-0 flex-col gap-3">
+        <div className="mb-1 flex items-center justify-between">
+          <div className="text-xl font-bold">מועדי חופשות</div>
+          <button className="cursor-pointer rounded-md border-none bg-primary px-3.5 py-1.5 text-sm font-semibold text-white">
             + חדשה
           </button>
         </div>
 
         {/* ── Auto-import row ── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.xl, padding: `${SP[2]} ${SP[3]}` }}>
+        <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">
           <select
             value={importYear}
             onChange={e => { setImportYear(Number(e.target.value)); setImportResult(null); }}
-            style={{ border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: '3px 6px', ...TEXT.sm, background: C.bgNested, color: C.textPrimary, cursor: 'pointer' }}
+            className="cursor-pointer rounded-md border border-border bg-muted px-1.5 py-[3px] text-sm text-foreground"
           >
             {[new Date().getFullYear() - 1, new Date().getFullYear(), new Date().getFullYear() + 1].map(y => (
               <option key={y} value={y}>{y}</option>
@@ -222,19 +223,22 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
           <button
             onClick={handleImport}
             disabled={importing}
-            style={{ flex: 1, background: importing ? C.textMuted : C.info, color: C.textInverse, border: 'none', borderRadius: RADIUS.md, padding: '4px 10px', cursor: importing ? 'not-allowed' : 'pointer', ...TEXT.sm, fontWeight: WEIGHT.semibold }}
+            className={cn(
+              'flex-1 rounded-md border-none px-2.5 py-1 text-sm font-semibold text-white',
+              importing ? 'cursor-not-allowed bg-neutral-400' : 'cursor-pointer bg-info'
+            )}
           >
             {importing ? 'מייבא...' : '📅 ייבוא חגים אוטומטי'}
           </button>
         </div>
         {importResult && (
-          <div style={{ ...TEXT.xs, color: C.success, background: C.successBg, padding: '4px 10px', borderRadius: RADIUS.md, textAlign: 'center' }}>
+          <div className="rounded-md bg-success-bg px-2.5 py-1 text-center text-xs text-success">
             נוספו {importResult.created} | דולגו {importResult.skipped}
           </div>
         )}
 
         {loading ? (
-          <div style={{ color: C.textMuted, ...TEXT.sm, textAlign: 'center', padding: SP[5] }}>טוען...</div>
+          <div className="p-5 text-center text-sm text-subtle-foreground">טוען...</div>
         ) : (() => {
           const now = new Date();
 
@@ -281,25 +285,24 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
               <div
                 key={s.id}
                 onClick={() => setSelectedId(s.id)}
+                className="cursor-pointer rounded-2xl p-4 transition-[background,box-shadow] duration-fast ease-out"
                 style={{
                   background: isSel ? C.bgActive : C.bgCard,
                   border: `1px solid ${isSel ? C.borderFocus : C.border}`,
-                  borderRadius: RADIUS['2xl'], padding: SP[4],
-                  cursor: 'pointer', transition: EASE.fast,
                   boxShadow: isSel ? SHADOW.sm : 'none',
                   opacity: isP ? 0.7 : 1,
                 }}
                 onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = C.bgHover; }}
                 onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = isP ? C.bgCard : C.bgCard; }}
               >
-                <div style={{ ...TEXT.base, fontWeight: WEIGHT.semibold, marginBottom: '4px' }}>{s.name}</div>
-                <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: SP[2] }}>{s.dateRange}</div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: statusColor, background: statusBg, padding: '2px 8px', borderRadius: RADIUS.full }}>
+                <div className="mb-1 text-base font-semibold">{s.name}</div>
+                <div className="mb-2 text-xs text-subtle-foreground">{s.dateRange}</div>
+                <div className="flex items-center justify-between">
+                  <span className="rounded-full px-2 py-0.5 text-xs font-semibold" style={{ color: statusColor, background: statusBg }}>
                     {statusLabel}
                   </span>
                   {isSel && requests.length > 0 && (
-                    <span style={{ ...TEXT.xs, color: C.textMuted }}>{requests.length} בקשות</span>
+                    <span className="text-xs text-subtle-foreground">{requests.length} בקשות</span>
                   )}
                 </div>
               </div>
@@ -312,10 +315,10 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
 
               {past.length > 0 && (
                 <>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], margin: `${SP[2]} 0 ${SP[1]}` }}>
-                    <div style={{ flex: 1, height: '1px', background: C.border }} />
-                    <span style={{ ...TEXT.xs, color: C.textMuted, whiteSpace: 'nowrap' }}>חגים שהסתיימו</span>
-                    <div style={{ flex: 1, height: '1px', background: C.border }} />
+                  <div className="mb-1 mt-2 flex items-center gap-2">
+                    <div className="h-px flex-1 bg-border" />
+                    <span className="whitespace-nowrap text-xs text-subtle-foreground">חגים שהסתיימו</span>
+                    <div className="h-px flex-1 bg-border" />
                   </div>
                   {past.map(renderCard)}
                 </>
@@ -327,27 +330,29 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
 
       {/* ── Detail panel ── */}
       {season && (
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="min-w-0 flex-1">
 
           {/* Header card */}
-          <div style={{ background: C.bgCard, borderRadius: RADIUS['2xl'], border: `1px solid ${C.border}`, padding: SP[5], marginBottom: SP[4], boxShadow: SHADOW.sm }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: SP[4] }}>
+          <div className="mb-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <div className="mb-4 flex items-start justify-between">
               <div>
-                <div style={{ ...TEXT['2xl'], fontWeight: WEIGHT.bold, marginBottom: '4px' }}>{season.name}</div>
-                <div style={{ ...TEXT.sm, color: C.textMuted }}>{season.dateRange}</div>
+                <div className="mb-1 text-2xl font-bold">{season.name}</div>
+                <div className="text-sm text-subtle-foreground">{season.dateRange}</div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
+              <div className="flex items-center gap-3">
                 {/* Manual activate / reopen — lets a manager open registration regardless of the auto lock/date window */}
                 <button
                   onClick={toggleSeasonActive}
                   disabled={togglingActive}
+                  className={cn(
+                    'whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold',
+                    togglingActive ? 'cursor-not-allowed' : 'cursor-pointer'
+                  )}
                   style={{
                     background: season.isActive ? C.bgNested : C.brand,
                     color: season.isActive ? C.textSecondary : C.textInverse,
                     border: `1px solid ${season.isActive ? C.border : C.brand}`,
-                    borderRadius: RADIUS.lg, padding: '8px 16px', cursor: togglingActive ? 'not-allowed' : 'pointer',
-                    ...TEXT.sm, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap',
                   }}
                 >
                   {togglingActive ? '...' : season.isActive ? 'סגור לבקשות' : (isLocked ? '🔓 פתח מחדש לבקשות' : 'הפעל לבקשות')}
@@ -359,12 +364,14 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
                   onClick={toggleSeasonForcesOff}
                   disabled={togglingForcesOff}
                   title="חג = ברירת מחדל לא עובדים (אפשר לבקש חריגה לעבוד). חלון-בקשות = ברירת מחדל עובדים (אפשר לבקש חופש) — לא קשור לפתיחה/סגירה של הבקשות למעלה"
+                  className={cn(
+                    'whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold',
+                    togglingForcesOff ? 'cursor-not-allowed' : 'cursor-pointer'
+                  )}
                   style={{
                     background: season.forcesOff ? C.dangerBg : C.bgNested,
                     color: season.forcesOff ? C.danger : C.textSecondary,
                     border: `1px solid ${season.forcesOff ? C.danger + '55' : C.border}`,
-                    borderRadius: RADIUS.lg, padding: '8px 16px', cursor: togglingForcesOff ? 'not-allowed' : 'pointer',
-                    ...TEXT.sm, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap',
                   }}
                 >
                   {togglingForcesOff ? '...' : season.forcesOff ? '🚫 חג — חוסם שיבוץ' : '📅 חלון-בקשות בלבד'}
@@ -372,14 +379,14 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
 
                 {/* Days counter or lock badge */}
                 {isLocked ? (
-                  <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}33`, borderRadius: RADIUS.xl, padding: '10px 18px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '22px', marginBottom: '2px' }}>🔒</div>
-                    <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.danger }}>נעול לבקשות</div>
+                  <div className="rounded-xl border border-danger/20 bg-danger-bg px-[18px] py-2.5 text-center">
+                    <div className="mb-0.5 text-[22px]">🔒</div>
+                    <div className="text-xs font-semibold text-danger">נעול לבקשות</div>
                   </div>
                 ) : daysToHoliday !== null && daysToHoliday > 0 ? (
-                  <div style={{ background: C.infoBg, border: `1px solid ${C.info}33`, borderRadius: RADIUS.xl, padding: '8px 16px', textAlign: 'center' }}>
-                    <div style={{ ...TEXT['2xl'], fontWeight: WEIGHT.bold, color: C.info }}>{daysToHoliday}</div>
-                    <div style={{ ...TEXT.xs, color: C.textMuted }}>ימים לפתיחה</div>
+                  <div className="rounded-xl border border-info/20 bg-info-bg px-4 py-2 text-center">
+                    <div className="text-2xl font-bold text-info">{daysToHoliday}</div>
+                    <div className="text-xs text-subtle-foreground">ימים לפתיחה</div>
                   </div>
                 ) : null}
               </div>
@@ -387,7 +394,7 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
 
             {/* Timeline */}
             {daysToHoliday !== null && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: SP[4] }}>
+              <div className="mb-4 flex items-center gap-0">
                 {[
                   { label: 'פתיחת חופשה לדיווח', desc: '30 יום לפני', done: daysToHoliday <= 30 },
                   { label: 'תזכורות יומיות',      desc: '29–4 ימים',   done: daysToHoliday <= 4  },
@@ -395,21 +402,22 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
                   { label: 'נעילה',               desc: 'מועד החגים',  done: daysToHoliday <= 0  },
                 ].map((step, i, arr) => (
                   <React.Fragment key={i}>
-                    <div style={{ flex: 1, textAlign: 'center' }}>
-                      <div style={{
-                        width: '28px', height: '28px', borderRadius: '50%', margin: '0 auto 4px',
-                        background: step.done ? C.success : C.bgNested,
-                        border: `2px solid ${step.done ? C.success : C.border}`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        ...TEXT.xs, color: step.done ? C.textInverse : C.textMuted, fontWeight: WEIGHT.bold,
-                      }}>
+                    <div className="flex-1 text-center">
+                      <div
+                        className="mx-auto mb-1 flex h-7 w-7 items-center justify-center rounded-full border-2 text-xs font-bold"
+                        style={{
+                          background: step.done ? C.success : C.bgNested,
+                          borderColor: step.done ? C.success : C.border,
+                          color: step.done ? C.textInverse : C.textMuted,
+                        }}
+                      >
                         {step.done ? '✓' : i + 1}
                       </div>
-                      <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: step.done ? C.success : C.textSecondary }}>{step.label}</div>
-                      <div style={{ ...TEXT.xs, color: C.textMuted }}>{step.desc}</div>
+                      <div className="text-xs font-semibold" style={{ color: step.done ? C.success : C.textSecondary }}>{step.label}</div>
+                      <div className="text-xs text-subtle-foreground">{step.desc}</div>
                     </div>
                     {i < arr.length - 1 && (
-                      <div style={{ height: '2px', width: '24px', background: C.border, flexShrink: 0 }} />
+                      <div className="h-0.5 w-6 shrink-0 bg-border" />
                     )}
                   </React.Fragment>
                 ))}
@@ -418,15 +426,14 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
 
             {/* Summary bar */}
             {userList.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
-                <div style={{ flex: 1, height: '8px', background: C.bgNested, borderRadius: RADIUS.full, overflow: 'hidden' }}>
-                  <div style={{
-                    height: '100%',
-                    width: `${Math.round((userList.filter(u => u.workDates.length > 0 || u.leaveDates.length > 0).length / Math.max(userList.length, 1)) * 100)}%`,
-                    background: C.info, borderRadius: RADIUS.full, transition: EASE.slow,
-                  }} />
+              <div className="flex items-center gap-3">
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-info transition-[width] duration-slow ease-out"
+                    style={{ width: `${Math.round((userList.filter(u => u.workDates.length > 0 || u.leaveDates.length > 0).length / Math.max(userList.length, 1)) * 100)}%` }}
+                  />
                 </div>
-                <span style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.info, minWidth: '60px' }}>
+                <span className="min-w-[60px] text-sm font-bold text-info">
                   {userList.length} בקשות
                 </span>
               </div>
@@ -434,65 +441,58 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
           </div>
 
           {/* Requests table */}
-          <div style={{ background: C.bgCard, borderRadius: RADIUS['2xl'], border: `1px solid ${C.border}`, overflow: 'hidden', boxShadow: SHADOW.sm }}>
-            <div style={{ padding: `${SP[3]} ${SP[5]}`, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ ...TEXT.base, fontWeight: WEIGHT.semibold }}>בקשות עובדים</span>
+          <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+            <div className="flex items-center justify-between border-b border-border px-5 py-3">
+              <span className="text-base font-semibold">בקשות עובדים</span>
               {pendingCount > 0 && season.isActive && (
-                <button style={{ background: C.dangerBg, color: C.danger, border: `1px solid ${C.danger}33`, borderRadius: RADIUS.md, padding: '5px 12px', cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold }}>
+                <button className="cursor-pointer rounded-md border border-danger/20 bg-danger-bg px-3 py-1.5 text-xs font-semibold text-danger">
                   📧 שלח תזכורת ל-{pendingCount} ממתינים
                 </button>
               )}
             </div>
 
             {reqLoading && (
-              <div style={{ padding: SP[8], textAlign: 'center', color: C.textMuted, ...TEXT.sm }}>טוען...</div>
+              <div className="p-8 text-center text-sm text-subtle-foreground">טוען...</div>
             )}
 
             {!reqLoading && userList.length === 0 && (
-              <div style={{ padding: SP[8], textAlign: 'center' }}>
-                <div style={{ fontSize: '32px', marginBottom: SP[2] }}>📭</div>
-                <div style={{ ...TEXT.sm, color: C.textMuted }}>ללא בקשה עד כה</div>
+              <div className="p-8 text-center">
+                <div className="mb-2 text-3xl">📭</div>
+                <div className="text-sm text-subtle-foreground">ללא בקשה עד כה</div>
               </div>
             )}
 
             {!reqLoading && userList.map((u, i) => (
-              <div key={u.userId} style={{
-                padding: `${SP[3]} ${SP[5]}`,
-                borderBottom: i < userList.length - 1 ? `1px solid ${C.border}` : 'none',
-                background: i % 2 === 0 ? C.bgCard : C.bgNested,
-                display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: SP[3],
-              }}>
+              <div
+                key={u.userId}
+                className="flex items-start justify-between gap-3 px-5 py-3"
+                style={{
+                  borderBottom: i < userList.length - 1 ? `1px solid ${C.border}` : 'none',
+                  background: i % 2 === 0 ? C.bgCard : C.bgNested,
+                }}
+              >
 
                 {/* User */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], minWidth: 0 }}>
-                  <div style={{
-                    width: '32px', height: '32px', borderRadius: '50%', flexShrink: 0,
-                    background: C.infoBg, border: `1px solid ${C.info}33`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.info,
-                  }}>
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-info/20 bg-info-bg text-sm font-bold text-info">
                     {u.fullName.charAt(0)}
                   </div>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ ...TEXT.sm, fontWeight: WEIGHT.medium }}>{u.fullName}</div>
-                    <div style={{ ...TEXT.xs, color: C.textMuted }}>{u.email}</div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">{u.fullName}</div>
+                    <div className="text-xs text-subtle-foreground">{u.email}</div>
                   </div>
                 </div>
 
                 {/* Dates per status */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px', flexShrink: 0 }}>
+                <div className="flex shrink-0 flex-col items-end gap-1.5">
 
                   {u.workDates.length > 0 && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                      <span style={{ ...TEXT.xs, color: C.success, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap' }}>
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <span className="whitespace-nowrap text-xs font-semibold text-success">
                         💼 ימי עבודה:
                       </span>
                       {u.workDates.sort().map(d => (
-                        <span key={d} style={{
-                          ...TEXT.xs, background: C.successBg, color: C.success,
-                          padding: '1px 7px', borderRadius: RADIUS.sm,
-                          border: `1px solid ${C.success}22`, whiteSpace: 'nowrap',
-                        }}>
+                        <span key={d} className="whitespace-nowrap rounded-sm border border-success/13 bg-success-bg px-1.5 py-px text-xs text-success">
                           {fmtShort(d)}
                         </span>
                       ))}
@@ -500,16 +500,12 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
                   )}
 
                   {u.leaveDates.length > 0 && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                      <span style={{ ...TEXT.xs, color: C.warning, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap' }}>
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <span className="whitespace-nowrap text-xs font-semibold text-warning">
                         🏖 ימי חופשה:
                       </span>
                       {u.leaveDates.sort().map(d => (
-                        <span key={d} style={{
-                          ...TEXT.xs, background: C.warningBg, color: C.warning,
-                          padding: '1px 7px', borderRadius: RADIUS.sm,
-                          border: `1px solid ${C.warning}22`, whiteSpace: 'nowrap',
-                        }}>
+                        <span key={d} className="whitespace-nowrap rounded-sm border border-warning/13 bg-warning-bg px-1.5 py-px text-xs text-warning">
                           {fmtShort(d)}
                         </span>
                       ))}
@@ -517,11 +513,11 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
                   )}
 
                   {u.workDates.length === 0 && u.leaveDates.length === 0 && (
-                    <span style={{ ...TEXT.xs, color: C.textDisabled }}>ללא בקשה</span>
+                    <span className="text-xs text-subtle-foreground">ללא בקשה</span>
                   )}
 
                   {u.hasPending && (
-                    <span style={{ ...TEXT.xs, color: C.warning, background: C.warningBg, padding: '1px 8px', borderRadius: RADIUS.full, border: `1px solid ${C.warning}22` }}>
+                    <span className="rounded-full border border-warning/13 bg-warning-bg px-2 py-px text-xs text-warning">
                       ⏳ ממתין לאישור
                     </span>
                   )}
@@ -532,7 +528,7 @@ export const QaSeasonsView: React.FC<Props> = ({ token }) => {
 
           {/* Warning footer */}
           {pendingCount > 0 && season.isActive && (
-            <div style={{ marginTop: SP[3], background: C.dangerBg, border: `1px solid ${C.danger}33`, borderRadius: RADIUS.xl, padding: SP[4], ...TEXT.sm, color: C.danger }}>
+            <div className="mt-3 rounded-xl border border-danger/20 bg-danger-bg p-4 text-sm text-danger">
               ⚠️ <strong>{pendingCount} בקשות</strong> ממתינות לאישור
               {daysToHoliday !== null && daysToHoliday <= 7 ? ' — שלח דוח למנהל' : ' — תזכורת אוטומטית תישלח מחר'}
             </div>

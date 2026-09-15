@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { C, TEXT, WEIGHT, SP, RADIUS, SHADOW, FONT } from '../../theme';
 import { formatDate } from '../../utils/dateFormat';
-import { DefectIdBadge } from '../shared/defectFieldDisplay';
+import { IssueKeyLink, StatusBadge, SeverityBadge } from '../shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -92,8 +91,8 @@ function DetailField({ label, value }: { label: string; value: string | null }) 
   if (!value) return null;
   return (
     <div>
-      <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '3px' }}>{label}</div>
-      <div style={{ ...TEXT.sm, color: C.textPrimary, fontWeight: WEIGHT.medium }}>{value}</div>
+      <div className="mb-1 text-xs text-subtle-foreground">{label}</div>
+      <div className="text-sm font-medium text-foreground">{value}</div>
     </div>
   );
 }
@@ -158,52 +157,51 @@ export const MyQaTasksView: React.FC<Props> = ({ tasks, versionName, versionId, 
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+    <div className="flex flex-col gap-4">
       <div>
-        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>🧪 המשימות שלי (QA)</div>
-        <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>
+        <div className="text-lg font-bold text-foreground">🧪 המשימות שלי (QA)</div>
+        <div className="mt-0.5 text-xs text-subtle-foreground">
           {versionName ? `בדיקות שהוקצו לך בגרסה ${versionName}` : 'בדיקות שהוקצו לך'}
         </div>
       </div>
 
       {tasks.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '80px', color: C.textMuted, background: C.bgCard, borderRadius: RADIUS.lg, border: `1px solid ${C.border}` }}>
-          <div style={{ fontSize: '48px' }}>🧪</div>
-          <p style={{ fontSize: '17px', marginTop: '12px' }}>אין לך משימות QA משובצות כרגע בגרסה זו</p>
+        <div className="rounded-lg border border-border bg-card p-20 text-center text-subtle-foreground">
+          <div className="text-[48px]">🧪</div>
+          <p className="mt-3 text-sm text-subtle-foreground">אין לך משימות QA משובצות כרגע בגרסה זו</p>
         </div>
       ) : (
         cycleTypes.map(ct => (
-          <div key={ct} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'hidden' }}>
-            <div style={{ padding: `${SP[3]} ${SP[4]}`, borderBottom: `1px solid ${C.border}`, ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+          <div key={ct} className="overflow-hidden rounded-lg border border-border bg-card">
+            <div className="border-b border-border px-4 py-3 text-sm font-bold text-foreground">
               {CYCLE_LABEL[ct] ?? ct} · {grouped.get(ct)!.length} משימות
             </div>
             <div>
               {grouped.get(ct)!.map(t => {
                 const isUrgent = t.urgent || !!t.priorityTestDate;
                 return (
-                  <div key={t.id} style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP[3],
-                    padding: `${SP[3]} ${SP[4]}`, borderBottom: `1px solid ${C.border}`,
-                    background: isUrgent ? C.dangerBg : 'transparent',
-                  }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: C.textPrimary, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: SP[1] }}>
-                        {isUrgent && <span title="דחוף / עדיפות" style={{ color: C.danger }}>🔴</span>}
+                  <div
+                    key={t.id}
+                    className={`flex items-center justify-between gap-3 border-b border-border px-4 py-3 ${isUrgent ? 'bg-danger-bg' : 'bg-transparent'}`}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1 text-sm font-medium text-foreground">
+                        {isUrgent && <span title="דחוף / עדיפות" className="text-danger">🔴</span>}
                         <span
                           onClick={() => openCrDetail(t.crNumber)}
                           title="לחץ לפרטי ה-CR"
-                          style={{ color: C.brand, cursor: 'pointer', textDecoration: 'underline dotted' }}
+                          className="cursor-pointer text-primary underline decoration-dotted"
                         >
                           {formatCrTitle(t.crNumber, t.crLabel)}
                         </span>
                         {!t.isPrimary && (
-                          <span style={{ ...TEXT.xs, color: C.textMuted }}>(בודק שני)</span>
+                          <span className="text-xs text-subtle-foreground">(בודק שני)</span>
                         )}
                         {t.taskType === 'STAND_ALONE' && (
-                          <span style={{ ...TEXT.xs, color: C.brand }}>SA</span>
+                          <span className="text-xs text-primary">SA</span>
                         )}
                       </div>
-                      <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>
+                      <div className="mt-0.5 text-xs text-subtle-foreground">
                         {fmtDate(t.plannedStart)} – {fmtDate(t.plannedEnd)} · {t.effortDays} ימים
                         {t.application && <> · פרויקט: {t.application}</>}
                       </div>
@@ -218,22 +216,22 @@ export const MyQaTasksView: React.FC<Props> = ({ tasks, versionName, versionId, 
 
       {/* ── Activities assigned to me from the activity board ── */}
       {myActivities.length > 0 && (
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'hidden' }}>
-          <div style={{ padding: `${SP[3]} ${SP[4]}`, borderBottom: `1px solid ${C.border}`, ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+        <div className="overflow-hidden rounded-lg border border-border bg-card">
+          <div className="border-b border-border px-4 py-3 text-sm font-bold text-foreground">
             📅 פעילויות משויכות אליי מלוח הפעילויות · {myActivities.length}
           </div>
           <div>
             {myActivities.map(a => (
-              <div key={a.id} style={{ padding: `${SP[3]} ${SP[4]}`, borderBottom: `1px solid ${C.border}`, opacity: a.isRelevant ? 1 : 0.55 }}>
-                <div style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: C.textPrimary }}>
+              <div key={a.id} className={`border-b border-border px-4 py-3 ${a.isRelevant ? 'opacity-100' : 'opacity-[0.55]'}`}>
+                <div className="text-sm font-medium text-foreground">
                   {a.label}
-                  <span style={{ ...TEXT.xs, color: C.textMuted, marginRight: SP[2] }}>({CAT_LABELS[a.category] ?? a.category})</span>
+                  <span className="ms-2 text-xs text-subtle-foreground">({CAT_LABELS[a.category] ?? a.category})</span>
                 </div>
-                <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>
+                <div className="mt-0.5 text-xs text-subtle-foreground">
                   {a.dateStart ? fmtDate(a.dateStart) : '—'}{a.dateEnd && a.dateEnd !== a.dateStart ? ` – ${fmtDate(a.dateEnd)}` : ''}
                   {a.owner && <> · {a.owner}</>}
                 </div>
-                {a.notes && <div style={{ ...TEXT.xs, color: C.textSecondary, marginTop: '2px' }}>{a.notes}</div>}
+                {a.notes && <div className="mt-0.5 text-xs text-muted-foreground">{a.notes}</div>}
               </div>
             ))}
           </div>
@@ -242,25 +240,31 @@ export const MyQaTasksView: React.FC<Props> = ({ tasks, versionName, versionId, 
 
       {/* ── TARGET CR defects — for every TARGET CR I'm assigned to test ── */}
       {targetDefectGroups.some(g => g.defects.length > 0) && (
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'hidden' }}>
-          <div style={{ padding: `${SP[3]} ${SP[4]}`, borderBottom: `1px solid ${C.border}`, ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
+        <div className="overflow-hidden rounded-lg border border-border bg-card">
+          <div className="border-b border-border px-4 py-3 text-sm font-bold text-foreground">
             🎯 תקלות TARGET · {targetDefectGroups.reduce((n, g) => n + g.defects.length, 0)}
           </div>
           <div>
             {targetDefectGroups.filter(g => g.defects.length > 0).map(g => (
               <div key={g.crNumber}>
-                <div style={{ padding: `${SP[2]} ${SP[4]}`, background: C.bgNested, ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textSecondary }}>
+                <div className="bg-muted px-4 py-2 text-xs font-semibold text-muted-foreground">
                   {formatCrTitle(g.crNumber, g.crLabel)}
                 </div>
                 {g.defects.map(d => (
-                  <div key={d.defectId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP[3], padding: `${SP[3]} ${SP[4]}`, borderBottom: `1px solid ${C.border}`, background: d.isMine ? C.brandDim : 'transparent' }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: C.textPrimary, display: 'flex', alignItems: 'center', gap: SP[1] }}>
-                        {d.isMine && <span title="תקלה משויכת אליי אישית" style={{ color: C.brand }}>★</span>}
-                        <DefectIdBadge id={d.defectId} /> — {d.title}
+                  <div
+                    key={d.defectId}
+                    className={`flex items-center justify-between gap-3 border-b border-border px-4 py-3 ${d.isMine ? 'bg-primary-50' : 'bg-transparent'}`}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1 text-sm font-medium text-foreground">
+                        {d.isMine && <span title="תקלה משויכת אליי אישית" className="text-primary">★</span>}
+                        <IssueKeyLink id={d.defectId} /> — {d.title}
                       </div>
-                      <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>
-                        {d.status}{d.severity && ` · ${d.severity}`}{d.assignedTo && ` · צוות: ${d.assignedTo}`}{d.qaTester && ` · בודק QA: ${d.qaTester}`}
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-subtle-foreground">
+                        {d.status && <StatusBadge status={d.status} />}
+                        {d.severity && <SeverityBadge severity={d.severity} />}
+                        {d.assignedTo && <span>צוות: {d.assignedTo}</span>}
+                        {d.qaTester && <span>בודק QA: {d.qaTester}</span>}
                       </div>
                     </div>
                   </div>
@@ -273,39 +277,49 @@ export const MyQaTasksView: React.FC<Props> = ({ tasks, versionName, versionId, 
 
       {/* ── CR detail modal ── */}
       {crDetailFor && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: SP[4] }}
-          onClick={() => { setCrDetailFor(null); setCrDetail(null); }}>
-          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.xl, boxShadow: SHADOW.xl, width: '100%', maxWidth: 720, maxHeight: '85vh', display: 'flex', flexDirection: 'column', direction: 'rtl' }}
-            onClick={e => e.stopPropagation()}>
-            <div style={{ padding: `${SP[4]} ${SP[5]}`, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
-                <span style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>📄 פרטי CR {crDetailFor}</span>
+        <div
+          className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/45 p-4"
+          onClick={() => { setCrDetailFor(null); setCrDetail(null); }}
+        >
+          <div
+            dir="rtl"
+            className="flex max-h-[85vh] w-full max-w-[720px] flex-col rounded-xl border border-border bg-card shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div className="flex items-center gap-3">
+                <span className="text-lg font-bold text-foreground">📄 פרטי CR {crDetailFor}</span>
                 {crDetail?.versionName && (
-                  <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.brand, background: C.brandDim, padding: `2px ${SP[3]}`, borderRadius: RADIUS.full }}>
+                  <span className="rounded-full bg-primary-50 px-3 py-0.5 text-xs font-semibold text-primary">
                     {crDetail.versionName}
                   </span>
                 )}
               </div>
-              <button onClick={() => { setCrDetailFor(null); setCrDetail(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 18, fontFamily: FONT }}>✕</button>
+              <button
+                onClick={() => { setCrDetailFor(null); setCrDetail(null); }}
+                className="cursor-pointer border-none bg-transparent text-lg text-subtle-foreground hover:text-foreground"
+              >
+                ✕
+              </button>
             </div>
-            <div style={{ overflowY: 'auto', flex: 1, padding: SP[5], display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+            <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
               {crDetailLoading ? (
-                <div style={{ textAlign: 'center', padding: SP[6], color: C.textMuted, ...TEXT.sm }}>⏳ טוען...</div>
+                <div className="p-6 text-center text-sm text-subtle-foreground">⏳ טוען...</div>
               ) : !crDetail ? (
-                <div style={{ textAlign: 'center', padding: SP[6], color: C.textMuted, ...TEXT.sm }}>שגיאה בטעינת פרטי ה-CR</div>
+                <div className="p-6 text-center text-sm text-subtle-foreground">שגיאה בטעינת פרטי ה-CR</div>
               ) : (
                 <>
                   <div>
-                    <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>כותרת</div>
-                    <div style={{ ...TEXT.md, color: C.textPrimary, fontWeight: WEIGHT.semibold }}>{crDetail.crLabel}</div>
+                    <div className="mb-1 text-xs text-subtle-foreground">כותרת</div>
+                    <div className="text-md font-semibold text-foreground">{crDetail.crLabel}</div>
                   </div>
                   {crDetail.crDescription && (
                     <div>
-                      <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>תיאור</div>
-                      <div style={{ ...TEXT.sm, color: C.textSecondary, whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{decodeHtmlEntities(crDetail.crDescription)}</div>
+                      <div className="mb-1 text-xs text-subtle-foreground">תיאור</div>
+                      <div className="whitespace-pre-wrap text-sm leading-[1.6] text-muted-foreground">{decodeHtmlEntities(crDetail.crDescription)}</div>
                     </div>
                   )}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: SP[4], padding: SP[4], background: C.bgNested, borderRadius: RADIUS.lg }}>
+                  <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted p-4">
                     <DetailField label="מנהל CR" value={crDetail.crManager} />
                     <DetailField label="פרויקט" value={crDetail.application} />
                     <DetailField label="סטטוס" value={crDetail.status} />
@@ -313,8 +327,8 @@ export const MyQaTasksView: React.FC<Props> = ({ tasks, versionName, versionId, 
                   </div>
                   {crDetail.notes && (
                     <div>
-                      <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '4px' }}>הערות</div>
-                      <div style={{ ...TEXT.sm, color: C.textSecondary, whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{decodeHtmlEntities(crDetail.notes)}</div>
+                      <div className="mb-1 text-xs text-subtle-foreground">הערות</div>
+                      <div className="whitespace-pre-wrap text-sm leading-[1.6] text-muted-foreground">{decodeHtmlEntities(crDetail.notes)}</div>
                     </div>
                   )}
                 </>

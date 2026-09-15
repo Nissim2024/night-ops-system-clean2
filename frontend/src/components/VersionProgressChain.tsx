@@ -1,5 +1,6 @@
 import React from 'react';
-import { C, FONT, TEXT, WEIGHT, EASE, RADIUS, SHADOW } from '../theme';
+import { C, SHADOW } from '../theme';
+import { cn } from '../lib/utils';
 
 interface Props {
   versionStatus: string;
@@ -167,66 +168,44 @@ export const VersionProgressChain: React.FC<Props> = ({
   });
 
   return (
-    <div style={{
-      background: C.bgCard,
-      borderBottom: `1px solid ${C.border}`,
-      padding: '14px 28px 16px',
-      direction: 'rtl',
-      boxShadow: SHADOW.xs,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center' }}>
+    <div className="bg-card border-b border-border pt-3.5 px-7 pb-4 shadow-xs">
+      <div className="flex items-center">
 
         {/* Right side: current stage label (anchored to RTL start = visual right) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, marginLeft: '20px' }}>
-          <span style={{
-            ...TEXT.xs, fontWeight: WEIGHT.medium, fontFamily: FONT,
-            color: C.textMuted, whiteSpace: 'nowrap',
-          }}>
+        <div className="flex items-center gap-1.5 shrink-0 me-5">
+          <span className="text-xs font-medium text-subtle-foreground whitespace-nowrap">
             שלב נוכחי:
           </span>
-          <span style={{
-            ...TEXT.xs, fontWeight: WEIGHT.semibold, fontFamily: FONT,
-            color: isRolledBack ? C.danger : C.textSecondary,
-            background: isRolledBack ? C.dangerBg : C.bgHover,
-            padding: '2px 8px', borderRadius: RADIUS.full,
-            border: `1px solid ${isRolledBack ? `${C.danger}30` : C.border}`,
-            whiteSpace: 'nowrap',
-          }}>
+          <span className={cn(
+            'text-xs font-semibold rounded-full py-0.5 px-2 whitespace-nowrap border',
+            isRolledBack
+              ? 'text-danger bg-danger-bg border-danger/[18.82%]'
+              : 'text-muted-foreground bg-muted border-border'
+          )}>
             {isRolledBack ? '🔄 ' : ''}{currentLabel}
           </span>
 
           {isReadyForRun && (
-            <span style={{
-              ...TEXT.xs, fontFamily: FONT, color: '#D4A017',
-              background: 'rgba(212,160,23,0.12)', padding: '2px 8px',
-              borderRadius: RADIUS.full, border: '1px solid rgba(212,160,23,0.30)',
-              whiteSpace: 'nowrap',
-            }}>
+            <span className="text-xs rounded-full py-0.5 px-2 whitespace-nowrap border text-[#D4A017] bg-[rgba(212,160,23,0.12)] border-[rgba(212,160,23,0.30)]">
               ✓ חזרה הושלמה — ממתין לפתיחת לילה
             </span>
           )}
 
           {!isRolledBack && nextStepLabel && (
-            <span style={{
-              ...TEXT.xs, fontFamily: FONT, color: C.textMuted, whiteSpace: 'nowrap',
-            }}>
-              ← שלב הבא: <strong style={{ color: C.textSecondary }}>{nextStepLabel}</strong>
+            <span className="text-xs text-subtle-foreground whitespace-nowrap">
+              ← שלב הבא: <strong className="text-muted-foreground">{nextStepLabel}</strong>
             </span>
           )}
 
           {!isRolledBack && completionPct !== null && (
-            <span title="התקדמות במחזור חיי הגרסה" style={{
-              ...TEXT.xs, fontFamily: FONT, fontWeight: WEIGHT.semibold, color: C.info,
-              background: C.infoBg, padding: '2px 8px', borderRadius: RADIUS.full,
-              border: `1px solid ${C.info}30`, whiteSpace: 'nowrap',
-            }}>
+            <span title="התקדמות במחזור חיי הגרסה" className="text-xs font-semibold rounded-full py-0.5 px-2 whitespace-nowrap border text-info bg-info-bg border-info/[18.82%]">
               {completionPct}%
             </span>
           )}
         </div>
 
         {/* Chain stretches across remaining space */}
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+        <div className="flex-1 flex items-center">
           {STAGES_DISPLAY.map((stage, si) => {
             const mState = mainState(stage.subs, effective, stage.id, activeRunPhase, rehearsalDone, rehearsalSummaryApproved);
             const isClickable = onStageClick && (mState === 'done' || mState === 'active');
@@ -252,50 +231,41 @@ export const VersionProgressChain: React.FC<Props> = ({
                 <div
                   onClick={() => isClickable && onStageClick?.(stage.id)}
                   title={stage.label}
-                  style={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'center',
-                    gap: '4px', flexShrink: 0, cursor: isClickable ? 'pointer' : 'default',
-                  }}
+                  className={cn('flex flex-col items-center gap-1 shrink-0', isClickable ? 'cursor-pointer' : 'cursor-default')}
                 >
-                  <div style={{
-                    width: '42px', height: '42px', borderRadius: '50%',
-                    background: bubbleBg,
-                    border: `2px solid ${bubbleBorder}`,
-                    boxShadow: mState === 'active'
-                      ? `0 0 0 4px ${stage.glow}, ${SHADOW.xs}`
-                      : mState === 'done'
-                      ? `0 0 0 2px rgba(55,196,122,0.15)`
-                      : 'none',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '17px', flexShrink: 0, position: 'relative',
-                    transition: EASE.slow,
-                  }}>
+                  <div
+                    className="w-[42px] h-[42px] rounded-full flex items-center justify-center text-[17px] shrink-0 relative transition-all duration-slow ease-out"
+                    style={{
+                      background: bubbleBg,
+                      border: `2px solid ${bubbleBorder}`,
+                      boxShadow: mState === 'active'
+                        ? `0 0 0 4px ${stage.glow}, ${SHADOW.xs}`
+                        : mState === 'done'
+                        ? `0 0 0 2px rgba(55,196,122,0.15)`
+                        : 'none',
+                    }}
+                  >
                     {mState === 'done' && !isRolledBack
                       ? (
                         <svg width="14" height="12" viewBox="0 0 12 10" fill="none">
                           <path d="M1 5L4.5 8.5L11 1.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                         </svg>
                       )
-                      : <span style={{ lineHeight: 1 }}>{stage.icon}</span>
+                      : <span className="leading-none">{stage.icon}</span>
                     }
 
                     {mState === 'active' && (
-                      <span style={{
-                        position: 'absolute', inset: '-6px', borderRadius: '50%',
-                        border: `1.5px solid ${stage.main}`,
-                        opacity: 0.45,
-                        animation: 'chain-pulse 2.2s ease-in-out infinite',
-                        pointerEvents: 'none',
-                      }} />
+                      <span
+                        className="absolute -inset-1.5 rounded-full opacity-[0.45] pointer-events-none animate-[chain-pulse_2.2s_ease-in-out_infinite]"
+                        style={{ border: `1.5px solid ${stage.main}` }}
+                      />
                     )}
                   </div>
 
-                  <span style={{
-                    fontSize: '14px', fontWeight: mState === 'active' ? WEIGHT.semibold : WEIGHT.normal,
-                    fontFamily: FONT, whiteSpace: 'nowrap',
-                    color: labelColor,
-                    transition: EASE.fast,
-                  }}>
+                  <span
+                    className={cn('text-sm whitespace-nowrap transition-all duration-fast ease-out', mState === 'active' ? 'font-semibold' : 'font-normal')}
+                    style={{ color: labelColor }}
+                  >
                     {isRolledBack && si === 2 ? 'Rollback' : stage.label}
                   </span>
                 </div>
@@ -325,45 +295,38 @@ export const VersionProgressChain: React.FC<Props> = ({
                       C.bgNested;
 
                     elements.push(
-                      <div key={`pre-${subIdx}`} style={{
-                        flex: 1, height: '1.5px', background: lineColor,
-                        minWidth: '6px', transition: EASE.slow,
-                      }} />
+                      <div key={`pre-${subIdx}`}
+                        className="flex-1 h-[1.5px] min-w-1.5 transition-all duration-slow ease-out"
+                        style={{ background: lineColor }}
+                      />
                     );
 
                     elements.push(
                       <div key={`sub-${subIdx}`}
                         title={sub.label}
-                        style={{
-                          display: 'flex', flexDirection: 'column',
-                          alignItems: 'center', gap: '3px', flexShrink: 0,
-                        }}
+                        className="flex flex-col items-center gap-[3px] shrink-0"
                       >
-                        <div style={{
-                          width: '20px', height: '20px', borderRadius: '50%',
-                          background: dotBg,
-                          border: `1.5px solid ${dotColor}`,
-                          boxShadow: sState === 'active' ? `0 0 6px ${stage.glow}` : 'none',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          transition: EASE.slow,
-                        }}>
+                        <div
+                          className="w-5 h-5 rounded-full flex items-center justify-center transition-all duration-slow ease-out"
+                          style={{
+                            background: dotBg,
+                            border: `1.5px solid ${dotColor}`,
+                            boxShadow: sState === 'active' ? `0 0 6px ${stage.glow}` : 'none',
+                          }}
+                        >
                           {sState === 'done' && (
                             <svg width="8" height="7" viewBox="0 0 7 6" fill="none">
                               <path d="M1 3L2.8 4.8L6 1.2" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                             </svg>
                           )}
                           {sState === 'active' && (
-                            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'white', opacity: 0.95 }} />
+                            <div className="w-1.5 h-1.5 rounded-full bg-white opacity-95" />
                           )}
                         </div>
-                        <span style={{
-                          fontSize: '13px', fontFamily: FONT, whiteSpace: 'nowrap',
-                          color: sState === 'active' ? stage.main
-                               : sState === 'done'   ? `${C.success}CC`
-                               : C.textDisabled,
-                          fontWeight: sState === 'active' ? WEIGHT.semibold : WEIGHT.normal,
-                          transition: EASE.fast,
-                        }}>
+                        <span
+                          className={cn('text-[13px] whitespace-nowrap transition-all duration-fast ease-out', sState === 'active' ? 'font-semibold' : 'font-normal')}
+                          style={{ color: sState === 'active' ? stage.main : sState === 'done' ? `${C.success}CC` : C.textDisabled }}
+                        >
                           {sub.label}
                         </span>
                       </div>
@@ -378,10 +341,10 @@ export const VersionProgressChain: React.FC<Props> = ({
                     C.border;
 
                   elements.push(
-                    <div key="post" style={{
-                      flex: 1, height: '1.5px', background: postLineColor,
-                      minWidth: '6px', transition: EASE.slow,
-                    }} />
+                    <div key="post"
+                      className="flex-1 h-[1.5px] min-w-1.5 transition-all duration-slow ease-out"
+                      style={{ background: postLineColor }}
+                    />
                   );
                   return elements;
                 })()}

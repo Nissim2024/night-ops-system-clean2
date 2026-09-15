@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
+import { C } from '../../theme';
+import { cn } from '../../lib/utils';
 import { formatDate } from '../../utils/dateFormat';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
 import { PersonAvatar } from '../shared/defectFieldDisplay';
@@ -154,24 +155,21 @@ function toDateInputValue(iso: string | null): string {
 }
 
 function StatusDot({ color }: { color: string }) {
-  return <span style={{ display: 'inline-block', width: '9px', height: '9px', borderRadius: '50%', background: color, flexShrink: 0 }} />;
+  return <span className="inline-block h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: color }} />;
 }
 
 function KpiCard({ value, label, color, onClick }: { value: string; label: string; color?: string; onClick?: () => void }) {
   return (
     <div
       onClick={onClick}
-      style={{
-        position: 'relative', background: C.bgCard, border: `1px solid ${C.border}`, borderTop: color ? `3px solid ${color}` : undefined,
-        borderRadius: RADIUS.lg, padding: '14px 18px', flex: '1 1 130px', minWidth: '130px',
-        cursor: onClick ? 'pointer' : 'default',
-      }}
+      className={cn('relative min-w-[130px] flex-1 basis-[130px] rounded-lg border bg-card px-[18px] py-3.5', onClick ? 'cursor-pointer' : 'cursor-default')}
+      style={{ borderColor: C.border, borderTop: color ? `3px solid ${color}` : undefined }}
       onMouseEnter={onClick ? e => { (e.currentTarget as HTMLElement).style.borderColor = C.brand; } : undefined}
       onMouseLeave={onClick ? e => { (e.currentTarget as HTMLElement).style.borderColor = C.border; } : undefined}
     >
-      {onClick && <span style={{ position: 'absolute', top: '10px', insetInlineEnd: '12px', ...TEXT.xs, color: C.textDisabled }}>←</span>}
-      <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: color ?? C.textPrimary, lineHeight: 1.2 }}>{value}</div>
-      <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>{label}</div>
+      {onClick && <span className="absolute top-2.5 text-xs text-subtle-foreground [inset-inline-end:12px]">←</span>}
+      <div className="text-xl font-bold leading-[1.2]" style={{ color: color ?? C.textPrimary }}>{value}</div>
+      <div className="mt-[3px] text-xs text-subtle-foreground">{label}</div>
     </div>
   );
 }
@@ -193,31 +191,31 @@ const HEALTH_PARTS: [keyof ReleaseHealthInfo['breakdown'], string][] = [
 function HealthBanner({ health }: { health: ReleaseHealthInfo | null }) {
   if (!health) {
     return (
-      <div style={{ ...TEXT.xs, color: C.textMuted, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '10px 14px' }}>
+      <div className="rounded-lg border border-border bg-card px-3.5 py-2.5 text-xs text-subtle-foreground">
         🩺 מדד מוכנות הגרסה — טרם חושב. ייחשב לאחר כניסה לדף הבית של ניהול הבדיקות.
       </div>
     );
   }
   const meta = HEALTH_REC_META[health.recommendation];
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderTop: `3px solid ${meta.color}`, borderRadius: RADIUS.lg, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: SP[4], flexWrap: 'wrap' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-        <span style={{ fontSize: '15px' }}>🩺</span>
-        <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.semibold }}>מוכנות הגרסה</span>
-        <span style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: meta.color, fontVariantNumeric: 'tabular-nums' }}>{health.score}</span>
-        <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: meta.color }}>{meta.label}</span>
+    <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border bg-card px-4 py-3" style={{ borderTop: `3px solid ${meta.color}` }}>
+      <div className="flex items-baseline gap-2">
+        <span className="text-sm">🩺</span>
+        <span className="text-xs font-semibold text-subtle-foreground">מוכנות הגרסה</span>
+        <span className="text-xl font-bold [font-variant-numeric:tabular-nums]" style={{ color: meta.color }}>{health.score}</span>
+        <span className="text-sm font-semibold" style={{ color: meta.color }}>{meta.label}</span>
       </div>
-      <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
+      <div className="flex flex-wrap gap-3">
         {HEALTH_PARTS.map(([k, label]) => {
           const v = health.breakdown[k];
           return (
-            <span key={k} style={{ ...TEXT.xs, color: C.textMuted }}>
-              {label} <span style={{ fontWeight: WEIGHT.semibold, fontVariantNumeric: 'tabular-nums', color: v < 50 ? C.danger : v < 80 ? C.warning : C.textSecondary }}>{v}</span>
+            <span key={k} className="text-xs text-subtle-foreground">
+              {label} <span className="font-semibold [font-variant-numeric:tabular-nums]" style={{ color: v < 50 ? C.danger : v < 80 ? C.warning : C.textSecondary }}>{v}</span>
             </span>
           );
         })}
       </div>
-      <span style={{ ...TEXT.xs, color: C.textDisabled, marginInlineStart: 'auto' }}>
+      <span className="ms-auto text-xs text-subtle-foreground">
         עודכן {new Date(health.calculatedAt).toLocaleString('he-IL', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}
       </span>
     </div>
@@ -240,21 +238,21 @@ function TargetDayBar({ meta, override, onOverride }: {
   const btn = (v: 'today' | 'tomorrow', label: string) => {
     const active = meta.targetDay === v;
     return (
-      <button onClick={() => onOverride(override === v ? null : v)} style={{
-        padding: '3px 12px', borderRadius: RADIUS.sm, border: 'none', cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold,
-        background: active ? C.bgCard : 'transparent', color: active ? C.textPrimary : C.textMuted,
-      }}>{label}</button>
+      <button
+        onClick={() => onOverride(override === v ? null : v)}
+        className={cn('cursor-pointer rounded-sm border-none px-3 py-[3px] text-xs font-semibold', active ? 'bg-card text-foreground' : 'bg-transparent text-subtle-foreground')}
+      >{label}</button>
     );
   };
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: SP[3], flexWrap: 'wrap', ...TEXT.xs, color: C.textMuted }}>
-      <span>🎯 יעדים יומיים מחושבים ל<strong style={{ color: C.textPrimary }}>{meta.targetDay === 'today' ? 'היום' : 'מחר'}</strong></span>
-      <div style={{ display: 'flex', gap: '2px', background: C.bgNested, borderRadius: RADIUS.md, padding: '2px' }}>
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-3.5 py-2.5 text-xs text-subtle-foreground">
+      <span>🎯 יעדים יומיים מחושבים ל<strong className="text-foreground">{meta.targetDay === 'today' ? 'היום' : 'מחר'}</strong></span>
+      <div className="flex gap-0.5 rounded-md bg-muted p-0.5">
         {btn('today', 'היום')}
         {btn('tomorrow', 'מחר')}
       </div>
-      {override && <span style={{ color: '#e8af00' }}>(נבחר ידנית · <button onClick={() => onOverride(null)} style={{ background: 'none', border: 'none', color: C.brand, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, padding: 0, textDecoration: 'underline' }}>אוטומטי לפי שעת {meta.standupCutoff}</button>)</span>}
-      <span style={{ marginInlineStart: 'auto' }}>
+      {override && <span style={{ color: '#e8af00' }}>(נבחר ידנית · <button onClick={() => onOverride(null)} className="cursor-pointer border-none bg-transparent p-0 text-xs text-primary underline">אוטומטי לפי שעת {meta.standupCutoff}</button>)</span>}
+      <span className="ms-auto">
         {deadlineText}
         {meta.workDaysLeft != null && ` · ${meta.workDaysLeft} ימי עבודה נותרו`}
         {!meta.hasSnapshot && ' · "בוצע היום" יופיע אחרי הצילום הלילי הראשון'}
@@ -263,17 +261,9 @@ function TargetDayBar({ meta, override, onOverride }: {
   );
 }
 
-const thStyle: React.CSSProperties = {
-  padding: '8px 10px', ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textMuted,
-  textAlign: 'right', borderBottom: `1px solid ${C.border}`, whiteSpace: 'nowrap',
-};
-const tdStyle: React.CSSProperties = {
-  padding: '8px 10px', ...TEXT.sm, color: C.textPrimary, borderBottom: `1px solid ${C.border}`,
-};
-const inputStyle: React.CSSProperties = {
-  padding: '6px 9px', borderRadius: RADIUS.sm, border: `1px solid ${C.borderEm}`,
-  background: C.bgCard, color: C.textPrimary, fontFamily: FONT, ...TEXT.xs, boxSizing: 'border-box', width: '100%',
-};
+const thClass = 'whitespace-nowrap border-b border-border px-2.5 py-2 text-right text-xs font-semibold text-subtle-foreground';
+const tdClass = 'border-b border-border px-2.5 py-2 text-sm text-foreground';
+const inputClass = 'box-border w-full rounded-sm border border-border bg-card px-[9px] py-1.5 text-xs text-foreground';
 
 // Shared CR-risk table body — used both by Release View's single flat list
 // and Team View's per-team sections (spec: "אותו מנגנון משרת גם Daily גרסה
@@ -284,9 +274,9 @@ const inputStyle: React.CSSProperties = {
 // record). Click the Defects count specifically (stopPropagation, so it
 // doesn't also toggle the row) to open the shared DefectDrilldownModal.
 function DeltaCell({ delta }: { delta: number | null }) {
-  if (delta == null) return <span style={{ color: C.textDisabled }}>—</span>;
+  if (delta == null) return <span className="text-subtle-foreground">—</span>;
   const color = delta > 0 ? C.success : delta < 0 ? C.danger : C.textMuted;
-  return <span style={{ color, fontWeight: delta !== 0 ? WEIGHT.semibold : WEIGHT.normal, fontVariantNumeric: 'tabular-nums' }}>{delta > 0 ? `+${delta}` : delta}</span>;
+  return <span className={cn('[font-variant-numeric:tabular-nums]', delta !== 0 ? 'font-semibold' : 'font-normal')} style={{ color }}>{delta > 0 ? `+${delta}` : delta}</span>;
 }
 
 function CrRiskTable({ rows, blockers, emptyMessage, onShowDefects, targetDay }: {
@@ -295,20 +285,20 @@ function CrRiskTable({ rows, blockers, emptyMessage, onShowDefects, targetDay }:
 }) {
   const [expandedCr, setExpandedCr] = useState<string | null>(null);
   if (rows.length === 0) {
-    return <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6], textAlign: 'center' }}>{emptyMessage}</div>;
+    return <div className="p-6 text-center text-sm text-subtle-foreground">{emptyMessage}</div>;
   }
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+    <table className="w-full border-collapse">
       <thead>
         <tr>
-          <th style={thStyle}>CR</th>
-          <th style={thStyle}>בודק</th>
-          <th style={thStyle}>התקדמות</th>
-          <th style={thStyle}>בוצע היום</th>
-          <th style={thStyle}>יעד {targetDay === 'today' ? 'להיום' : 'למחר'}</th>
-          <th style={thStyle}>תקלות</th>
-          <th style={thStyle}>חסמים</th>
-          <th style={thStyle}>סיכון</th>
+          <th className={thClass}>CR</th>
+          <th className={thClass}>בודק</th>
+          <th className={thClass}>התקדמות</th>
+          <th className={thClass}>בוצע היום</th>
+          <th className={thClass}>יעד {targetDay === 'today' ? 'להיום' : 'למחר'}</th>
+          <th className={thClass}>תקלות</th>
+          <th className={thClass}>חסמים</th>
+          <th className={thClass}>סיכון</th>
         </tr>
       </thead>
       <tbody>
@@ -317,26 +307,26 @@ function CrRiskTable({ rows, blockers, emptyMessage, onShowDefects, targetDay }:
           const expanded = expandedCr === cr.crNumber;
           return (
             <React.Fragment key={cr.crNumber}>
-              <tr title={cr.reasons.join(' · ')} onClick={() => setExpandedCr(v => v === cr.crNumber ? null : cr.crNumber)} style={{ cursor: 'pointer' }}>
-                <td style={{ ...tdStyle, fontWeight: WEIGHT.semibold }}>{cr.crNumber}{cr.crLabel ? ` — ${cr.crLabel.replace(/^\d+\s*-\s*/, '')}` : ''}</td>
-                <td style={{ ...tdStyle, color: cr.tester ? C.textPrimary : C.textMuted }}>{cr.tester ? <PersonAvatar name={cr.tester} full /> : '—'}</td>
-                <td style={tdStyle}>{cr.progressPct}%</td>
-                <td style={tdStyle}><DeltaCell delta={cr.passedDelta} /></td>
-                <td style={tdStyle} title={`נותרו ${cr.remaining} תרחישים${cr.mustFinishNow ? ' — עבר יעד הסבב, יש לסיים בהקדם' : ''}`}>
+              <tr title={cr.reasons.join(' · ')} onClick={() => setExpandedCr(v => v === cr.crNumber ? null : cr.crNumber)} className="cursor-pointer">
+                <td className={cn(tdClass, 'font-semibold')}>{cr.crNumber}{cr.crLabel ? ` — ${cr.crLabel.replace(/^\d+\s*-\s*/, '')}` : ''}</td>
+                <td className={tdClass} style={{ color: cr.tester ? C.textPrimary : C.textMuted }}>{cr.tester ? <PersonAvatar name={cr.tester} full /> : '—'}</td>
+                <td className={tdClass}>{cr.progressPct}%</td>
+                <td className={tdClass}><DeltaCell delta={cr.passedDelta} /></td>
+                <td className={tdClass} title={`נותרו ${cr.remaining} תרחישים${cr.mustFinishNow ? ' — עבר יעד הסבב, יש לסיים בהקדם' : ''}`}>
                   {cr.dailyTarget == null
-                    ? <span style={{ color: C.textDisabled }}>—</span>
-                    : <span style={{ fontWeight: WEIGHT.semibold, fontVariantNumeric: 'tabular-nums', color: cr.mustFinishNow ? C.danger : C.textPrimary }}>{cr.dailyTarget}{cr.mustFinishNow ? ' ⚠' : ''}</span>}
+                    ? <span className="text-subtle-foreground">—</span>
+                    : <span className="font-semibold [font-variant-numeric:tabular-nums]" style={{ color: cr.mustFinishNow ? C.danger : C.textPrimary }}>{cr.dailyTarget}{cr.mustFinishNow ? ' ⚠' : ''}</span>}
                 </td>
-                <td style={tdStyle}>
+                <td className={tdClass}>
                   {cr.defectCount > 0 ? (
-                    <span onClick={e => { e.stopPropagation(); onShowDefects(cr.crNumber, cr.crLabel); }} style={{ color: C.danger, textDecoration: 'underline', cursor: 'pointer' }}>
+                    <span onClick={e => { e.stopPropagation(); onShowDefects(cr.crNumber, cr.crLabel); }} className="cursor-pointer text-danger underline">
                       {cr.defectCount}
                     </span>
                   ) : cr.defectCount}
                 </td>
-                <td style={{ ...tdStyle, color: cr.blockerCount > 0 ? C.danger : C.textPrimary }}>{cr.blockerCount}</td>
-                <td style={tdStyle}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: RISK_COLOR[cr.risk], fontWeight: WEIGHT.semibold }}>
+                <td className={tdClass} style={{ color: cr.blockerCount > 0 ? C.danger : C.textPrimary }}>{cr.blockerCount}</td>
+                <td className={tdClass}>
+                  <span className="inline-flex items-center gap-1.5 font-semibold" style={{ color: RISK_COLOR[cr.risk] }}>
                     <StatusDot color={RISK_COLOR[cr.risk]} />
                     {RISK_LABEL[cr.risk]}
                   </span>
@@ -344,17 +334,17 @@ function CrRiskTable({ rows, blockers, emptyMessage, onShowDefects, targetDay }:
               </tr>
               {expanded && (
                 <tr>
-                  <td colSpan={8} style={{ padding: '4px 10px 12px', borderBottom: `1px solid ${C.border}`, background: C.bgNested }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', ...TEXT.xs }}>
-                      <div style={{ color: C.textSecondary }}>
+                  <td colSpan={8} className="border-b border-border bg-muted px-2.5 pb-3 pt-1">
+                    <div className="flex flex-col gap-1.5 text-xs">
+                      <div className="text-muted-foreground">
                         צוותים: {cr.teams.length > 0 ? cr.teams.map(t => t.name).join(', ') : 'ללא שיוך צוות'}
                       </div>
                       {crBlockers.length === 0 ? (
-                        <div style={{ color: C.textMuted }}>אין חסמים רשומים ל-CR זה.</div>
+                        <div className="text-subtle-foreground">אין חסמים רשומים ל-CR זה.</div>
                       ) : crBlockers.map(b => (
-                        <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', color: C.textSecondary, padding: '3px 6px' }}>
+                        <div key={b.id} className="flex justify-between px-1.5 py-0.5 text-muted-foreground">
                           <span>{b.title} ({BLOCKER_TYPE_LABEL[b.type] ?? b.type})</span>
-                          <span style={{ fontWeight: WEIGHT.semibold, color: b.status === 'OPEN' ? C.danger : C.success }}>{b.status === 'OPEN' ? 'פתוח' : 'נסגר'}</span>
+                          <span className="font-semibold" style={{ color: b.status === 'OPEN' ? C.danger : C.success }}>{b.status === 'OPEN' ? 'פתוח' : 'נסגר'}</span>
                         </div>
                       ))}
                     </div>
@@ -505,18 +495,18 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
 
   if (!versionId) {
     return (
-      <div style={{ fontFamily: FONT, direction: 'rtl', textAlign: 'center', padding: SP[8], color: C.textMuted }}>
+      <div className="p-8 text-center text-subtle-foreground [direction:rtl]">
         בחר גרסה מתפריט הצד כדי לראות את ה-Daily שלה.
       </div>
     );
   }
 
   if (loading && !data) {
-    return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>טוען...</div>;
+    return <div className="p-6 text-subtle-foreground [direction:rtl]">טוען...</div>;
   }
 
   if (!data) {
-    return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>לא ניתן לטעון נתונים עבור גרסה זו.</div>;
+    return <div className="p-6 text-subtle-foreground [direction:rtl]">לא ניתן לטעון נתונים עבור גרסה זו.</div>;
   }
 
   const { summary, testers, crs, alerts, dailyTargets } = data;
@@ -536,15 +526,16 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
   const teamSections = Array.from(crsByTeam.entries()).sort(([a], [b]) => a === NO_TEAM_LABEL ? 1 : b === NO_TEAM_LABEL ? -1 : a.localeCompare(b, 'he'));
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>📋 ניהול QA יומי</div>
-        <div style={{ display: 'flex', gap: '2px', background: C.bgNested, borderRadius: RADIUS.md, padding: '2px' }}>
+    <div className="flex flex-col gap-4 [direction:rtl]">
+      <div className="flex items-center justify-between">
+        <div className="text-lg font-bold text-foreground">📋 ניהול QA יומי</div>
+        <div className="flex gap-0.5 rounded-md bg-muted p-0.5">
           {(['RELEASE', 'TEAM'] as const).map(m => (
-            <button key={m} onClick={() => setViewMode(m)} style={{
-              padding: '5px 14px', borderRadius: RADIUS.sm, border: 'none', cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold,
-              background: viewMode === m ? C.bgCard : 'transparent', color: viewMode === m ? C.textPrimary : C.textMuted,
-            }}>
+            <button
+              key={m}
+              onClick={() => setViewMode(m)}
+              className={cn('cursor-pointer rounded-sm border-none px-3.5 py-1.5 text-xs font-semibold', viewMode === m ? 'bg-card text-foreground' : 'bg-transparent text-subtle-foreground')}
+            >
               {m === 'RELEASE' ? 'תצוגת גרסה' : 'תצוגת צוותים'}
             </button>
           ))}
@@ -559,47 +550,47 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
 
       {/* ── "מה השתנה מאתמול" — הדבר הראשון שמוצג, כדי שהישיבה תתחיל מהחריגים בלבד ── */}
       {diff && (diff.hasData ? (
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[3], display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
+        <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3">
+          <div className="text-xs font-bold uppercase tracking-[0.06em] text-subtle-foreground">
             מאתמול ({formatDate(diff.sinceDate)}) → היום
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[4] }}>
-            <span style={{ ...TEXT.sm, color: diff.testsPassedDelta >= 0 ? C.success : C.danger, fontWeight: WEIGHT.semibold }}>
+          <div className="flex flex-wrap gap-4">
+            <span className="text-sm font-semibold" style={{ color: diff.testsPassedDelta >= 0 ? C.success : C.danger }}>
               {diff.testsPassedDelta >= 0 ? '+' : ''}{diff.testsPassedDelta} תרחישים עברו
             </span>
-            <span style={{ ...TEXT.sm, color: diff.openDefectsDelta > 0 ? C.danger : C.textMuted, fontWeight: WEIGHT.semibold }}>
+            <span className="text-sm font-semibold" style={{ color: diff.openDefectsDelta > 0 ? C.danger : C.textMuted }}>
               {diff.openDefectsDelta >= 0 ? '+' : ''}{diff.openDefectsDelta} תקלות פתוחות
             </span>
-            <span style={{ ...TEXT.sm, color: diff.openBlockersDelta < 0 ? C.success : diff.openBlockersDelta > 0 ? C.danger : C.textMuted, fontWeight: WEIGHT.semibold }}>
+            <span className="text-sm font-semibold" style={{ color: diff.openBlockersDelta < 0 ? C.success : diff.openBlockersDelta > 0 ? C.danger : C.textMuted }}>
               {diff.openBlockersDelta > 0 ? '+' : ''}{diff.openBlockersDelta} חסמים פתוחים
             </span>
           </div>
           {(diff.crsMovedToHighRisk.length > 0 || diff.testersNoUpdates.length > 0) && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '4px', borderTop: `1px solid ${C.border}` }}>
+            <div className="flex flex-col gap-1 border-t border-border pt-1">
               {diff.crsMovedToHighRisk.map(cr => (
-                <div key={cr} style={{ ...TEXT.sm, color: C.danger, fontWeight: WEIGHT.semibold }}>⚠️ {cr} עבר לסיכון גבוה</div>
+                <div key={cr} className="text-sm font-semibold text-danger">⚠️ {cr} עבר לסיכון גבוה</div>
               ))}
               {diff.testersNoUpdates.map(t => (
-                <div key={t.tester} style={{ ...TEXT.sm, color: C.danger, fontWeight: WEIGHT.semibold }}>⚠️ {t.tester} — ללא עדכון {t.days} ימים</div>
+                <div key={t.tester} className="text-sm font-semibold text-danger">⚠️ {t.tester} — ללא עדכון {t.days} ימים</div>
               ))}
             </div>
           )}
         </div>
       ) : (
-        <div style={{ ...TEXT.xs, color: C.textMuted, padding: '2px 2px' }}>אין עדיין נתוני השוואה ליום הקודם — הצילום הראשון ירוץ הלילה.</div>
+        <div className="px-0.5 py-0.5 text-xs text-subtle-foreground">אין עדיין נתוני השוואה ליום הקודם — הצילום הראשון ירוץ הלילה.</div>
       ))}
 
       {/* ── אזור 6: התראות אוטומטיות — קודם כל, כדי שהמשתמש ייכנס ישר למה שדורש דיון ── */}
       {alerts.length > 0 && (
-        <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}40`, borderRadius: RADIUS.lg, padding: SP[3], display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <div className="flex flex-col gap-1 rounded-lg border border-danger/25 bg-danger-bg p-3">
           {alerts.map((a, i) => (
-            <div key={i} style={{ ...TEXT.sm, color: C.danger, fontWeight: WEIGHT.semibold }}>{a}</div>
+            <div key={i} className="text-sm font-semibold text-danger">{a}</div>
           ))}
         </div>
       )}
 
       {/* ── אזור 1: Executive Summary — כל כרטיס עם דריל לרשומות/לסקציה הרלוונטית ── */}
-      <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
+      <div className="flex flex-wrap gap-3">
         <KpiCard value={`${summary.testProgressPct}%`} label="התקדמות בדיקות" color={summary.testProgressPct >= 80 ? C.success : summary.testProgressPct >= 50 ? C.warning : C.danger} onClick={() => scrollToSection('daily-crs')} />
         <KpiCard value={String(summary.passed)} label="עברו" color={C.success} onClick={() => scrollToSection('daily-crs')} />
         <KpiCard value={String(summary.failed)} label="נכשלו" color={summary.failed > 0 ? C.danger : undefined} onClick={() => scrollToSection('daily-crs')} />
@@ -615,51 +606,51 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
 
       {/* ── אזור 2: Heat Map לבודקים ── */}
       <div id="daily-heatmap">
-        <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: '4px 0 8px' }}>מפת חום — בודקים</h2>
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflowX: 'auto' }}>
+        <h2 className="my-1 mb-2 text-xs font-bold uppercase tracking-[0.06em] text-subtle-foreground">מפת חום — בודקים</h2>
+        <div className="overflow-x-auto rounded-lg border border-border bg-card">
           {testers.length === 0 ? (
-            <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6], textAlign: 'center' }}>אין בודקים משובצים לגרסה זו.</div>
+            <div className="p-6 text-center text-sm text-subtle-foreground">אין בודקים משובצים לגרסה זו.</div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="w-full border-collapse">
               <thead>
                 <tr>
-                  <th style={thStyle}>בודק</th>
-                  <th style={thStyle}>התקדמות</th>
-                  <th style={thStyle}>CR</th>
-                  <th style={thStyle}>בוצע היום</th>
-                  <th style={thStyle}>יעד {dailyTargets.targetDay === 'today' ? 'להיום' : 'למחר'}</th>
-                  <th style={thStyle}>תקלות</th>
-                  <th style={thStyle}>חסמים</th>
-                  <th style={thStyle}>סטטוס</th>
+                  <th className={thClass}>בודק</th>
+                  <th className={thClass}>התקדמות</th>
+                  <th className={thClass}>CR</th>
+                  <th className={thClass}>בוצע היום</th>
+                  <th className={thClass}>יעד {dailyTargets.targetDay === 'today' ? 'להיום' : 'למחר'}</th>
+                  <th className={thClass}>תקלות</th>
+                  <th className={thClass}>חסמים</th>
+                  <th className={thClass}>סטטוס</th>
                 </tr>
               </thead>
               <tbody>
                 {testers.map(t => (
                   <React.Fragment key={t.tester}>
-                    <tr onClick={() => setExpandedTester(v => v === t.tester ? null : t.tester)} style={{ cursor: 'pointer' }}>
-                      <td style={{ ...tdStyle, fontWeight: WEIGHT.semibold }}>{t.tester && t.tester !== 'לא משויך' ? <PersonAvatar name={t.tester} full /> : t.tester}</td>
-                      <td style={tdStyle}>{t.progressPct}%</td>
-                      <td style={tdStyle}>{t.crCount}</td>
-                      <td style={tdStyle}><DeltaCell delta={t.doneToday} /></td>
-                      <td style={{ ...tdStyle, fontWeight: WEIGHT.semibold, fontVariantNumeric: 'tabular-nums' }}>{t.dailyTarget > 0 ? t.dailyTarget : <span style={{ color: C.textDisabled, fontWeight: WEIGHT.normal }}>—</span>}</td>
-                      <td style={tdStyle}>
+                    <tr onClick={() => setExpandedTester(v => v === t.tester ? null : t.tester)} className="cursor-pointer">
+                      <td className={cn(tdClass, 'font-semibold')}>{t.tester && t.tester !== 'לא משויך' ? <PersonAvatar name={t.tester} full /> : t.tester}</td>
+                      <td className={tdClass}>{t.progressPct}%</td>
+                      <td className={tdClass}>{t.crCount}</td>
+                      <td className={tdClass}><DeltaCell delta={t.doneToday} /></td>
+                      <td className={cn(tdClass, 'font-semibold [font-variant-numeric:tabular-nums]')}>{t.dailyTarget > 0 ? t.dailyTarget : <span className="font-normal text-subtle-foreground">—</span>}</td>
+                      <td className={tdClass}>
                         {t.defectCount > 0 ? (
-                          <span onClick={e => { e.stopPropagation(); showTesterDefects(t.tester); }} style={{ color: C.danger, textDecoration: 'underline', cursor: 'pointer' }}>
+                          <span onClick={e => { e.stopPropagation(); showTesterDefects(t.tester); }} className="cursor-pointer text-danger underline">
                             {t.defectCount}
                           </span>
                         ) : t.defectCount}
                       </td>
-                      <td style={{ ...tdStyle, color: t.blockerCount > 0 ? C.danger : C.textPrimary }}>{t.blockerCount}</td>
-                      <td style={tdStyle}><StatusDot color={STATUS_COLOR[t.status]} /></td>
+                      <td className={tdClass} style={{ color: t.blockerCount > 0 ? C.danger : C.textPrimary }}>{t.blockerCount}</td>
+                      <td className={tdClass}><StatusDot color={STATUS_COLOR[t.status]} /></td>
                     </tr>
                     {expandedTester === t.tester && (
                       <tr>
-                        <td colSpan={8} style={{ padding: '4px 10px 12px', borderBottom: `1px solid ${C.border}`, background: C.bgNested }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <td colSpan={8} className="border-b border-border bg-muted px-2.5 pb-3 pt-1">
+                          <div className="flex flex-col gap-1">
                             {t.crs.map(cr => (
-                              <div key={cr.crNumber} style={{ display: 'flex', justifyContent: 'space-between', ...TEXT.xs, color: C.textSecondary, padding: '3px 6px' }}>
+                              <div key={cr.crNumber} className="flex justify-between px-1.5 py-0.5 text-xs text-muted-foreground">
                                 <span>{cr.crNumber}{cr.crLabel ? ` — ${cr.crLabel.replace(/^\d+\s*-\s*/, '')}` : ''}</span>
-                                <span style={{ fontWeight: WEIGHT.semibold }}>{cr.progressPct}%</span>
+                                <span className="font-semibold">{cr.progressPct}%</span>
                               </div>
                             ))}
                           </div>
@@ -679,26 +670,26 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
       <div id="daily-crs" />
       {viewMode === 'RELEASE' ? (
         <div>
-          <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: '4px 0 8px' }}>CR-ים בסיכון</h2>
-          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflowX: 'auto' }}>
+          <h2 className="my-1 mb-2 text-xs font-bold uppercase tracking-[0.06em] text-subtle-foreground">CR-ים בסיכון</h2>
+          <div className="overflow-x-auto rounded-lg border border-border bg-card">
             <CrRiskTable rows={crs} blockers={blockers} emptyMessage="אין CR-ים משובצים לגרסה זו." onShowDefects={showCrDefects} targetDay={dailyTargets.targetDay} />
           </div>
         </div>
       ) : teamSections.length === 0 ? (
         <div>
-          <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: '4px 0 8px' }}>CR-ים בסיכון לפי צוות</h2>
-          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg }}>
-            <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6], textAlign: 'center' }}>אין CR-ים משובצים לגרסה זו.</div>
+          <h2 className="my-1 mb-2 text-xs font-bold uppercase tracking-[0.06em] text-subtle-foreground">CR-ים בסיכון לפי צוות</h2>
+          <div className="rounded-lg border border-border bg-card">
+            <div className="p-6 text-center text-sm text-subtle-foreground">אין CR-ים משובצים לגרסה זו.</div>
           </div>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+        <div className="flex flex-col gap-3">
           {teamSections.map(([teamName, rows]) => (
             <div key={teamName}>
-              <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: '4px 0 8px' }}>
-                {teamName} <span style={{ color: C.textMuted, fontWeight: WEIGHT.normal }}>({rows.length})</span>
+              <h2 className="my-1 mb-2 text-xs font-bold uppercase tracking-[0.06em] text-subtle-foreground">
+                {teamName} <span className="font-normal text-subtle-foreground">({rows.length})</span>
               </h2>
-              <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflowX: 'auto' }}>
+              <div className="overflow-x-auto rounded-lg border border-border bg-card">
                 <CrRiskTable rows={rows} blockers={blockers} emptyMessage="אין CR-ים משובצים לצוות זה." onShowDefects={showCrDefects} targetDay={dailyTargets.targetDay} />
               </div>
             </div>
@@ -708,63 +699,63 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
 
       {/* ── אזור 4: מרכז חסמים ── */}
       <div id="daily-blockers">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '4px 0 8px' }}>
-          <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: 0 }}>מרכז חסמים</h2>
+        <div className="my-1 mb-2 flex items-center justify-between">
+          <h2 className="m-0 text-xs font-bold uppercase tracking-[0.06em] text-subtle-foreground">מרכז חסמים</h2>
           {canWriteBlockers && !addingBlocker && (
-            <button onClick={startAddBlocker} style={{ padding: '5px 14px', background: C.brand, color: '#fff', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold }}>
+            <button onClick={startAddBlocker} className="cursor-pointer rounded-md border-none bg-primary px-3.5 py-1.5 text-xs font-semibold text-white">
               + חסם חדש
             </button>
           )}
         </div>
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div className="overflow-x-auto rounded-lg border border-border bg-card">
+          <table className="w-full border-collapse">
             <thead>
               <tr>
-                <th style={thStyle}>חסם</th>
-                <th style={thStyle}>סוג</th>
-                <th style={thStyle}>CR</th>
-                <th style={thStyle}>אחראי</th>
-                <th style={thStyle}>ימים פתוח</th>
-                <th style={thStyle}>סטטוס</th>
-                {canWriteBlockers && <th style={thStyle}></th>}
+                <th className={thClass}>חסם</th>
+                <th className={thClass}>סוג</th>
+                <th className={thClass}>CR</th>
+                <th className={thClass}>אחראי</th>
+                <th className={thClass}>ימים פתוח</th>
+                <th className={thClass}>סטטוס</th>
+                {canWriteBlockers && <th className={thClass}></th>}
               </tr>
             </thead>
             <tbody>
               {(addingBlocker || editingBlockerId) && (
-                <tr style={{ background: C.bgHover }}>
-                  <td style={tdStyle}>
-                    <input autoFocus value={blockerDraft.title} onChange={e => setBlockerDraft(d => ({ ...d, title: e.target.value }))} placeholder="תיאור החסם…" style={{ ...inputStyle, minWidth: '180px' }} />
+                <tr className="bg-muted">
+                  <td className={tdClass}>
+                    <input autoFocus value={blockerDraft.title} onChange={e => setBlockerDraft(d => ({ ...d, title: e.target.value }))} placeholder="תיאור החסם…" className={cn(inputClass, 'min-w-[180px]')} />
                   </td>
-                  <td style={tdStyle}>
-                    <select value={blockerDraft.type} onChange={e => setBlockerDraft(d => ({ ...d, type: e.target.value }))} style={inputStyle}>
+                  <td className={tdClass}>
+                    <select value={blockerDraft.type} onChange={e => setBlockerDraft(d => ({ ...d, type: e.target.value }))} className={inputClass}>
                       {BLOCKER_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
                   </td>
-                  <td style={tdStyle}>
-                    <input value={blockerDraft.crNumber} onChange={e => setBlockerDraft(d => ({ ...d, crNumber: e.target.value }))} placeholder="CR…" style={inputStyle} />
+                  <td className={tdClass}>
+                    <input value={blockerDraft.crNumber} onChange={e => setBlockerDraft(d => ({ ...d, crNumber: e.target.value }))} placeholder="CR…" className={inputClass} />
                   </td>
-                  <td style={tdStyle}>
+                  <td className={tdClass}>
                     <select
                       value={ownerSelectValue(blockerDraft.ownerName, people)}
                       onChange={e => setBlockerDraft(d => ({ ...d, ownerName: e.target.value === OWNER_OTHER ? '' : e.target.value }))}
-                      style={{ ...inputStyle, marginBottom: ownerSelectValue(blockerDraft.ownerName, people) === OWNER_OTHER ? '6px' : 0 }}
+                      className={cn(inputClass, ownerSelectValue(blockerDraft.ownerName, people) === OWNER_OTHER && 'mb-1.5')}
                     >
                       <option value="">— אחראי —</option>
                       {people.map(p => <option key={p.userId} value={p.fullName}>{p.fullName}</option>)}
                       <option value={OWNER_OTHER}>אחר…</option>
                     </select>
                     {ownerSelectValue(blockerDraft.ownerName, people) === OWNER_OTHER && (
-                      <input value={blockerDraft.ownerName} onChange={e => setBlockerDraft(d => ({ ...d, ownerName: e.target.value }))} placeholder="פרט…" style={inputStyle} />
+                      <input value={blockerDraft.ownerName} onChange={e => setBlockerDraft(d => ({ ...d, ownerName: e.target.value }))} placeholder="פרט…" className={inputClass} />
                     )}
                   </td>
-                  <td style={tdStyle}>—</td>
-                  <td style={tdStyle}>—</td>
-                  <td style={{ ...tdStyle, whiteSpace: 'nowrap' as const }}>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button onClick={saveBlocker} disabled={savingBlocker || !blockerDraft.title.trim()} style={{ padding: '5px 12px', background: C.brand, color: '#fff', border: 'none', borderRadius: RADIUS.sm, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold, opacity: savingBlocker || !blockerDraft.title.trim() ? 0.6 : 1 }}>
+                  <td className={tdClass}>—</td>
+                  <td className={tdClass}>—</td>
+                  <td className={cn(tdClass, 'whitespace-nowrap')}>
+                    <div className="flex gap-1.5">
+                      <button onClick={saveBlocker} disabled={savingBlocker || !blockerDraft.title.trim()} className={cn('cursor-pointer rounded-sm border-none bg-primary px-3 py-[5px] text-xs font-semibold text-white', (savingBlocker || !blockerDraft.title.trim()) && 'opacity-60')}>
                         {savingBlocker ? '...' : 'שמור'}
                       </button>
-                      <button onClick={cancelBlocker} disabled={savingBlocker} style={{ padding: '5px 12px', background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs }}>
+                      <button onClick={cancelBlocker} disabled={savingBlocker} className="cursor-pointer rounded-sm border border-border bg-transparent px-3 py-[5px] text-xs text-subtle-foreground">
                         ביטול
                       </button>
                     </div>
@@ -772,30 +763,39 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
                 </tr>
               )}
               {blockers.length === 0 && !addingBlocker && (
-                <tr><td colSpan={7} style={{ ...tdStyle, textAlign: 'center', color: C.textMuted, padding: SP[5] }}>אין חסמים רשומים לגרסה זו.</td></tr>
+                <tr><td colSpan={7} className={cn(tdClass, 'p-5 text-center text-subtle-foreground')}>אין חסמים רשומים לגרסה זו.</td></tr>
               )}
               {blockers.map(b => editingBlockerId === b.id ? null : (
                 <tr key={b.id}>
-                  <td style={{ ...tdStyle, fontWeight: WEIGHT.semibold, textDecoration: b.status === 'RESOLVED' ? 'line-through' : undefined, color: b.status === 'RESOLVED' ? C.textMuted : C.textPrimary }}>{b.title}</td>
-                  <td style={tdStyle}>{BLOCKER_TYPE_LABEL[b.type] ?? b.type}</td>
-                  <td style={tdStyle}>{b.crNumber || '—'}</td>
-                  <td style={tdStyle}>{b.ownerName || '—'}</td>
-                  <td style={{ ...tdStyle, color: b.status === 'OPEN' && daysOpen(b) > 2 ? C.danger : C.textPrimary, fontWeight: b.status === 'OPEN' && daysOpen(b) > 2 ? WEIGHT.semibold : undefined }}>{daysOpen(b)}</td>
-                  <td style={tdStyle}>
-                    <span style={{
-                      display: 'inline-block', color: b.status === 'OPEN' ? C.danger : C.success, fontWeight: WEIGHT.semibold,
-                      background: `${b.status === 'OPEN' ? C.danger : C.success}14`, border: `1px solid ${b.status === 'OPEN' ? C.danger : C.success}40`,
-                      borderRadius: RADIUS.full, padding: '2px 9px',
-                    }}>
+                  <td
+                    className={cn(tdClass, 'font-semibold')}
+                    style={{ textDecoration: b.status === 'RESOLVED' ? 'line-through' : undefined, color: b.status === 'RESOLVED' ? C.textMuted : C.textPrimary }}
+                  >{b.title}</td>
+                  <td className={tdClass}>{BLOCKER_TYPE_LABEL[b.type] ?? b.type}</td>
+                  <td className={tdClass}>{b.crNumber || '—'}</td>
+                  <td className={tdClass}>{b.ownerName || '—'}</td>
+                  <td
+                    className={cn(tdClass, b.status === 'OPEN' && daysOpen(b) > 2 && 'font-semibold')}
+                    style={{ color: b.status === 'OPEN' && daysOpen(b) > 2 ? C.danger : C.textPrimary }}
+                  >{daysOpen(b)}</td>
+                  <td className={tdClass}>
+                    <span
+                      className="inline-block rounded-full px-2.5 py-0.5 font-semibold"
+                      style={{
+                        color: b.status === 'OPEN' ? C.danger : C.success,
+                        background: `${b.status === 'OPEN' ? C.danger : C.success}14`,
+                        border: `1px solid ${b.status === 'OPEN' ? C.danger : C.success}40`,
+                      }}
+                    >
                       {b.status === 'OPEN' ? 'פתוח' : 'נסגר'}
                     </span>
                   </td>
                   {canWriteBlockers && (
-                    <td style={{ ...tdStyle, whiteSpace: 'nowrap' as const }}>
-                      <div style={{ display: 'flex', gap: '10px' }}>
-                        <button onClick={() => startEditBlocker(b)} style={{ background: 'transparent', border: 'none', color: C.brand, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold }}>✏️ ערוך</button>
+                    <td className={cn(tdClass, 'whitespace-nowrap')}>
+                      <div className="flex gap-2.5">
+                        <button onClick={() => startEditBlocker(b)} className="cursor-pointer border-none bg-transparent text-xs font-semibold text-primary">✏️ ערוך</button>
                         {canCloseBlockers && (
-                          <button onClick={() => toggleBlockerStatus(b)} style={{ background: 'transparent', border: 'none', color: b.status === 'OPEN' ? C.success : C.textMuted, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold }}>
+                          <button onClick={() => toggleBlockerStatus(b)} className="cursor-pointer border-none bg-transparent text-xs font-semibold" style={{ color: b.status === 'OPEN' ? C.success : C.textMuted }}>
                             {b.status === 'OPEN' ? '✔ סגור' : '↺ פתח מחדש'}
                           </button>
                         )}
@@ -811,59 +811,59 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
 
       {/* ── אזור 5: Action Items ── */}
       <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '4px 0 8px' }}>
-          <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: 0 }}>משימות לביצוע</h2>
+        <div className="my-1 mb-2 flex items-center justify-between">
+          <h2 className="m-0 text-xs font-bold uppercase tracking-[0.06em] text-subtle-foreground">משימות לביצוע</h2>
           {canWriteActions && !addingAction && (
-            <button onClick={startAddAction} style={{ padding: '5px 14px', background: C.brand, color: '#fff', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold }}>
+            <button onClick={startAddAction} className="cursor-pointer rounded-md border-none bg-primary px-3.5 py-1.5 text-xs font-semibold text-white">
               + משימה חדשה
             </button>
           )}
         </div>
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div className="overflow-x-auto rounded-lg border border-border bg-card">
+          <table className="w-full border-collapse">
             <thead>
               <tr>
-                <th style={thStyle}>משימה</th>
-                <th style={thStyle}>אחראי</th>
-                <th style={thStyle}>יעד</th>
-                <th style={thStyle}>סטטוס</th>
-                {canWriteActions && <th style={thStyle}></th>}
+                <th className={thClass}>משימה</th>
+                <th className={thClass}>אחראי</th>
+                <th className={thClass}>יעד</th>
+                <th className={thClass}>סטטוס</th>
+                {canWriteActions && <th className={thClass}></th>}
               </tr>
             </thead>
             <tbody>
               {(addingAction || editingActionId) && (
-                <tr style={{ background: C.bgHover }}>
-                  <td style={tdStyle}>
-                    <input autoFocus value={actionDraft.title} onChange={e => setActionDraft(d => ({ ...d, title: e.target.value }))} placeholder="תיאור המשימה…" style={{ ...inputStyle, minWidth: '200px' }} />
+                <tr className="bg-muted">
+                  <td className={tdClass}>
+                    <input autoFocus value={actionDraft.title} onChange={e => setActionDraft(d => ({ ...d, title: e.target.value }))} placeholder="תיאור המשימה…" className={cn(inputClass, 'min-w-[200px]')} />
                   </td>
-                  <td style={tdStyle}>
+                  <td className={tdClass}>
                     <select
                       value={ownerSelectValue(actionDraft.ownerName, people)}
                       onChange={e => setActionDraft(d => ({ ...d, ownerName: e.target.value === OWNER_OTHER ? '' : e.target.value }))}
-                      style={{ ...inputStyle, marginBottom: ownerSelectValue(actionDraft.ownerName, people) === OWNER_OTHER ? '6px' : 0 }}
+                      className={cn(inputClass, ownerSelectValue(actionDraft.ownerName, people) === OWNER_OTHER && 'mb-1.5')}
                     >
                       <option value="">— אחראי —</option>
                       {people.map(p => <option key={p.userId} value={p.fullName}>{p.fullName}</option>)}
                       <option value={OWNER_OTHER}>אחר…</option>
                     </select>
                     {ownerSelectValue(actionDraft.ownerName, people) === OWNER_OTHER && (
-                      <input value={actionDraft.ownerName} onChange={e => setActionDraft(d => ({ ...d, ownerName: e.target.value }))} placeholder="פרט…" style={inputStyle} />
+                      <input value={actionDraft.ownerName} onChange={e => setActionDraft(d => ({ ...d, ownerName: e.target.value }))} placeholder="פרט…" className={inputClass} />
                     )}
                   </td>
-                  <td style={tdStyle}>
-                    <input type="date" value={actionDraft.dueAt} onChange={e => setActionDraft(d => ({ ...d, dueAt: e.target.value }))} style={inputStyle} />
+                  <td className={tdClass}>
+                    <input type="date" value={actionDraft.dueAt} onChange={e => setActionDraft(d => ({ ...d, dueAt: e.target.value }))} className={inputClass} />
                   </td>
-                  <td style={tdStyle}>
-                    <select value={actionDraft.status} onChange={e => setActionDraft(d => ({ ...d, status: e.target.value as ActionItemStatus }))} style={inputStyle}>
+                  <td className={tdClass}>
+                    <select value={actionDraft.status} onChange={e => setActionDraft(d => ({ ...d, status: e.target.value as ActionItemStatus }))} className={inputClass}>
                       {ACTION_STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
                   </td>
-                  <td style={{ ...tdStyle, whiteSpace: 'nowrap' as const }}>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button onClick={saveAction} disabled={savingAction || !actionDraft.title.trim()} style={{ padding: '5px 12px', background: C.brand, color: '#fff', border: 'none', borderRadius: RADIUS.sm, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold, opacity: savingAction || !actionDraft.title.trim() ? 0.6 : 1 }}>
+                  <td className={cn(tdClass, 'whitespace-nowrap')}>
+                    <div className="flex gap-1.5">
+                      <button onClick={saveAction} disabled={savingAction || !actionDraft.title.trim()} className={cn('cursor-pointer rounded-sm border-none bg-primary px-3 py-[5px] text-xs font-semibold text-white', (savingAction || !actionDraft.title.trim()) && 'opacity-60')}>
                         {savingAction ? '...' : 'שמור'}
                       </button>
-                      <button onClick={cancelAction} disabled={savingAction} style={{ padding: '5px 12px', background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs }}>
+                      <button onClick={cancelAction} disabled={savingAction} className="cursor-pointer rounded-sm border border-border bg-transparent px-3 py-[5px] text-xs text-subtle-foreground">
                         ביטול
                       </button>
                     </div>
@@ -871,25 +871,34 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
                 </tr>
               )}
               {actions.length === 0 && !addingAction && (
-                <tr><td colSpan={5} style={{ ...tdStyle, textAlign: 'center', color: C.textMuted, padding: SP[5] }}>אין משימות רשומות לגרסה זו.</td></tr>
+                <tr><td colSpan={5} className={cn(tdClass, 'p-5 text-center text-subtle-foreground')}>אין משימות רשומות לגרסה זו.</td></tr>
               )}
               {actions.map(a => editingActionId === a.id ? null : (
                 <tr key={a.id}>
-                  <td style={{ ...tdStyle, fontWeight: WEIGHT.semibold, textDecoration: a.status === 'DONE' || a.status === 'CANCELED' ? 'line-through' : undefined, color: a.status === 'DONE' || a.status === 'CANCELED' ? C.textMuted : C.textPrimary }}>{a.title}</td>
-                  <td style={tdStyle}>{a.ownerName || '—'}</td>
-                  <td style={{ ...tdStyle, color: isActionOverdue(a) ? C.danger : C.textPrimary, fontWeight: isActionOverdue(a) ? WEIGHT.semibold : undefined }}>{a.dueAt ? formatDate(a.dueAt) : '—'}</td>
-                  <td style={tdStyle}>
-                    <span style={{
-                      display: 'inline-block', color: ACTION_STATUS_COLOR[a.status], fontWeight: WEIGHT.semibold,
-                      background: `${ACTION_STATUS_COLOR[a.status]}14`, border: `1px solid ${ACTION_STATUS_COLOR[a.status]}40`,
-                      borderRadius: RADIUS.full, padding: '2px 9px',
-                    }}>
+                  <td
+                    className={cn(tdClass, 'font-semibold')}
+                    style={{ textDecoration: a.status === 'DONE' || a.status === 'CANCELED' ? 'line-through' : undefined, color: a.status === 'DONE' || a.status === 'CANCELED' ? C.textMuted : C.textPrimary }}
+                  >{a.title}</td>
+                  <td className={tdClass}>{a.ownerName || '—'}</td>
+                  <td
+                    className={cn(tdClass, isActionOverdue(a) && 'font-semibold')}
+                    style={{ color: isActionOverdue(a) ? C.danger : C.textPrimary }}
+                  >{a.dueAt ? formatDate(a.dueAt) : '—'}</td>
+                  <td className={tdClass}>
+                    <span
+                      className="inline-block rounded-full px-2.5 py-0.5 font-semibold"
+                      style={{
+                        color: ACTION_STATUS_COLOR[a.status],
+                        background: `${ACTION_STATUS_COLOR[a.status]}14`,
+                        border: `1px solid ${ACTION_STATUS_COLOR[a.status]}40`,
+                      }}
+                    >
                       {ACTION_STATUS_LABEL[a.status]}
                     </span>
                   </td>
                   {canWriteActions && (
-                    <td style={{ ...tdStyle, whiteSpace: 'nowrap' as const }}>
-                      <button onClick={() => startEditAction(a)} style={{ background: 'transparent', border: 'none', color: C.brand, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold }}>✏️ ערוך</button>
+                    <td className={cn(tdClass, 'whitespace-nowrap')}>
+                      <button onClick={() => startEditAction(a)} className="cursor-pointer border-none bg-transparent text-xs font-semibold text-primary">✏️ ערוך</button>
                     </td>
                   )}
                 </tr>

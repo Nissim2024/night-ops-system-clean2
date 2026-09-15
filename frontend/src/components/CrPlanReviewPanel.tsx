@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, RADIUS, SHADOW } from '../theme';
+import { C } from '../theme';
+import { cn } from '../lib/utils';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { cleanHtmlText } from '../utils/textSanitize';
 import { formatDate } from '../utils/dateFormat';
+import { teamColor } from './shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -24,15 +26,6 @@ const RISK: Record<string, { color: string; bg: string; label: string }> = {
   HIGH:   { color: C.danger,  bg: C.dangerBg,  label: 'סיכון גבוה'   },
 };
 
-// Merging several teams' proposals into one shared phase-timeline only reads as
-// a coherent story if you can tell at a glance who owns each step — a stable
-// color per team name (not per-row-random) makes that possible.
-const TEAM_PALETTE = ['#4573D2', '#9C6ADE', '#37C47A', '#E8AF00', '#F0883E', '#14B8A6', '#EC6BAD', '#6366F1'];
-function teamColor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  return TEAM_PALETTE[hash % TEAM_PALETTE.length];
-}
 // A note that starts with "תלות" is a dependency call-out, not a generic
 // comment — worth its own visual treatment so the causal thread between merged
 // tasks (from potentially different teams) is visible, not just their order.
@@ -278,14 +271,14 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
   };
 
   if (loading) return (
-    <div style={{ padding: '20px', textAlign: 'center', color: C.textMuted, fontSize: '15px' }}>⏳ טוען...</div>
+    <div className="p-5 text-center text-subtle-foreground text-[15px]">⏳ טוען...</div>
   );
 
   /* ──────────────────────────────────────────────────────────────────────────
      PART A — Team cards grid (collapsible, unchanged)
   ─────────────────────────────────────────────────────────────────────────── */
   const teamGrid = (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '10px', padding: '12px' }}>
+    <div className="grid gap-2.5 p-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))' }}>
       {involvedTeams.map(team => {
         const sub          = subByTeam[team.id] ?? 'NOT_STARTED';
         const hasSubmitted = sub === 'SUBMITTED';
@@ -302,11 +295,13 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
           ? `הוגש — ${managerApproved} מתוך ${teamCrs.length} פיתוחים אושרו`
           : `לא הגיש — ${teamCrs.length} פיתוח${teamCrs.length !== 1 ? 'ים' : ''} ממתינים`;
         return (
-          <div key={team.id} style={{ borderRadius: RADIUS.lg, border: `1px solid ${accent}33`, borderTop: `4px solid ${accent}`, background: C.bgCard, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '6px', boxShadow: SHADOW.xs }}>
-            <span style={{ fontWeight: '800', fontSize: '15px', color: C.textPrimary, lineHeight: 1.2 }}>{team.name}</span>
-            <span style={{ fontSize: '14px', color: accent, lineHeight: 1.5, flex: 1 }}>{desc}</span>
+          <div key={team.id}
+            className="rounded-lg bg-card py-3 px-3.5 flex flex-col gap-1.5 shadow-xs"
+            style={{ border: `1px solid ${accent}33`, borderTop: `4px solid ${accent}` }}>
+            <span className="font-extrabold text-[15px] text-foreground leading-tight">{team.name}</span>
+            <span className="text-sm leading-normal flex-1" style={{ color: accent }}>{desc}</span>
             <button onClick={() => onTeamReview?.(team.id, team.name)}
-              style={{ marginTop: '4px', padding: '5px 0', background: 'transparent', color: C.brand, border: `1px solid ${C.brand}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '14px', fontWeight: '600', width: '100%' }}>
+              className="mt-1 py-1.5 bg-transparent text-primary rounded-md cursor-pointer text-sm font-semibold w-full border border-primary">
               סקירה ←
             </button>
           </div>
@@ -331,8 +326,8 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
   /* ── Detail panel ── */
   const renderDetail = () => {
     if (!selectedCr) return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textDisabled, flexDirection: 'column', gap: '10px' }}>
-        <div style={{ fontSize: '32px' }}>📋</div>
+      <div className="flex-1 flex items-center justify-center text-subtle-foreground flex-col gap-2.5">
+        <div className="text-3xl">📋</div>
         בחר CR מהרשימה לצפייה
       </div>
     );
@@ -360,40 +355,42 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
     const hasSummary   = Boolean(summaries[selectedCr]);
 
     return (
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <div className="flex-1 flex flex-col min-w-0">
 
         {/* ── Topbar ── */}
-        <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, background: C.bgCard, flexShrink: 0 }}>
+        <div className="py-2.5 px-4 border-b border-border bg-card shrink-0">
 
           {/* Row 1: CR chip · title · risk · approve button */}
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ fontFamily: 'monospace', fontSize: '15px', fontWeight: 800, background: `${C.moduleGoLive}1f`, color: C.moduleGoLive, padding: '3px 10px', borderRadius: RADIUS.sm, border: `1px solid ${C.moduleGoLive}4d`, flexShrink: 0 }}>
+          <div className="flex gap-2.5 items-center flex-wrap">
+            <span
+              className="font-mono text-[15px] font-extrabold py-[3px] px-2.5 rounded-sm shrink-0"
+              style={{ background: `${C.moduleGoLive}1f`, color: C.moduleGoLive, border: `1px solid ${C.moduleGoLive}4d` }}>
               {selectedCr}
             </span>
-            <div style={{ fontWeight: 700, fontSize: '16px', color: C.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div className="font-bold text-base text-foreground flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
               {crTitle || '—'}
             </div>
             {highRisk && RISK[highRisk] && (
-              <span style={{ fontSize: '13px', padding: '3px 9px', borderRadius: RADIUS.sm, fontWeight: 700, flexShrink: 0, background: RISK[highRisk].bg, color: RISK[highRisk].color }}>
+              <span className="text-[13px] py-[3px] px-2.5 rounded-sm font-bold shrink-0" style={{ background: RISK[highRisk].bg, color: RISK[highRisk].color }}>
                 {RISK[highRisk].label}
               </span>
             )}
             {isNotNeeded ? (
-              <span style={{ fontSize: '14px', color: C.textMuted, background: C.bgNested, padding: '3px 10px', borderRadius: RADIUS.full, border: `1px solid ${C.border}`, flexShrink: 0 }}>
+              <span className="text-sm text-subtle-foreground bg-muted py-[3px] px-2.5 rounded-full border border-border shrink-0">
                 ✗ לא נדרש לתוכנית
               </span>
             ) : isApproved ? (
               <>
-                <span style={{ fontSize: '14px', fontWeight: 700, color: C.success, background: C.successBg, padding: '3px 10px', borderRadius: RADIUS.full, border: `1px solid ${C.success}4d`, flexShrink: 0 }}>✅ מאושר</span>
+                <span className="text-sm font-bold text-success bg-success-bg py-[3px] px-2.5 rounded-full shrink-0" style={{ border: `1px solid ${C.success}4d` }}>✅ מאושר</span>
                 {isManager && (
                   <button onClick={() => approveCr(selectedCr, false)} disabled={isApp}
-                    style={{ padding: '4px 10px', background: C.bgCard, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', flexShrink: 0 }}>
+                    className="py-1 px-2.5 bg-card text-subtle-foreground border border-border rounded-md cursor-pointer text-[13px] shrink-0">
                     בטל אישור
                   </button>
                 )}
               </>
             ) : (
-              <span style={{ fontSize: '13px', color: C.textMuted, background: C.bgNested, padding: '3px 9px', borderRadius: RADIUS.sm, border: `1px solid ${C.border}`, flexShrink: 0 }}>
+              <span className="text-[13px] text-subtle-foreground bg-muted py-[3px] px-2.5 rounded-sm border border-border shrink-0">
                 {missingTeams.length > 0 ? `ממתין ל-${missingTeams.length} צוותים` : 'ממתין לאישור מנהל — ראה סרגל אישור בתחתית המסך'}
               </span>
             )}
@@ -401,17 +398,17 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
 
           {/* Row 2: manager · teams · systems */}
           {(crManager || teamsForCr.length > 0 || allSystems.length > 0) && (
-            <div style={{ display: 'flex', gap: '14px', alignItems: 'center', marginTop: '7px', flexWrap: 'wrap' }}>
+            <div className="flex gap-3.5 items-center mt-[7px] flex-wrap">
               {crManager && (
-                <span style={{ fontSize: '14px', color: C.textMuted, direction: 'rtl', unicodeBidi: 'isolate' }}>
-                  מנהל CR:&nbsp;<bdi style={{ color: C.textSecondary, fontWeight: 600 }}>{crManager}</bdi>
+                <span className="text-sm text-subtle-foreground" style={{ direction: 'rtl', unicodeBidi: 'isolate' }}>
+                  מנהל CR:&nbsp;<bdi className="text-muted-foreground font-semibold">{crManager}</bdi>
                 </span>
               )}
               {allSystems.length > 0 && (
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ fontSize: '13px', color: C.textMuted }}>מערכות:</span>
+                <div className="flex gap-1 flex-wrap items-center">
+                  <span className="text-[13px] text-subtle-foreground">מערכות:</span>
                   {allSystems.map(sys => (
-                    <span key={sys} style={{ fontSize: '13px', background: C.infoBg, color: C.info, padding: '1px 7px', borderRadius: RADIUS.sm, fontWeight: 600, border: `1px solid ${C.info}40` }}>{sys}</span>
+                    <span key={sys} className="text-[13px] bg-info-bg text-info py-px px-[7px] rounded-sm font-semibold border border-info/25">{sys}</span>
                   ))}
                 </div>
               )}
@@ -419,12 +416,11 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                 <button
                   onClick={() => toggleAlreadyInProduction(selectedCr, !isInProduction)}
                   title={isInProduction ? 'לחץ כדי להחזיר לרשימת ה-CR-ים הנדרשים לגרסה זו' : 'סמן אם ה-CR כבר עלה לייצור בנפרד (למשל הוטפיקס קודם) — לא יידרש תוכנית/אישור לגרסה זו'}
-                  style={{
-                    fontSize: '13px', fontWeight: 700, padding: '2px 9px', borderRadius: RADIUS.full, cursor: 'pointer',
-                    background: isInProduction ? C.successBg : C.bgNested,
-                    color: isInProduction ? C.success : C.textMuted,
-                    border: `1px solid ${isInProduction ? `${C.success}59` : C.border}`,
-                  }}>
+                  className={cn(
+                    'text-[13px] font-bold py-0.5 px-2.5 rounded-full cursor-pointer border',
+                    isInProduction ? 'bg-success-bg text-success' : 'bg-muted text-subtle-foreground'
+                  )}
+                  style={{ borderColor: isInProduction ? `${C.success}59` : C.border }}>
                   {isInProduction ? '🏭 כבר בייצור' : '🏭 סמן ככבר בייצור'}
                 </button>
               )}
@@ -433,17 +429,17 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
 
           {/* Row 3: rollout mode — night-of vs. gradual/staged */}
           {plans.length > 0 && (
-            <div style={{ marginTop: '7px' }}>
+            <div className="mt-[7px]">
               {gradualPlan ? (
-                <span style={{ fontSize: '13px', color: C.textSecondary, display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '12px', fontWeight: 700, color: C.info, background: C.infoBg, padding: '1px 8px', borderRadius: RADIUS.full, border: `1px solid ${C.info}40` }}>📶 עלייה מדורגת</span>
+                <span className="text-[13px] text-muted-foreground inline-flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs font-bold text-info bg-info-bg py-px px-2 rounded-full border border-info/25">📶 עלייה מדורגת</span>
                   {gradualPlan.gradualDetails && <span>{gradualPlan.gradualDetails}</span>}
                   {gradualPlan.activationDate && (
-                    <span>· תאריך הפעלה: <bdi style={{ fontWeight: 600, color: C.textPrimary }}>{formatDate(gradualPlan.activationDate)}</bdi></span>
+                    <span>· תאריך הפעלה: <bdi className="font-semibold text-foreground">{formatDate(gradualPlan.activationDate)}</bdi></span>
                   )}
                 </span>
               ) : (
-                <span style={{ fontSize: '12px', fontWeight: 700, color: C.moduleGoLive, background: `${C.moduleGoLive}18`, padding: '1px 8px', borderRadius: RADIUS.full, border: `1px solid ${C.moduleGoLive}40` }}>🌙 עלייה בליל הגרסה</span>
+                <span className="text-xs font-bold py-px px-2 rounded-full" style={{ color: C.moduleGoLive, background: `${C.moduleGoLive}18`, border: `1px solid ${C.moduleGoLive}40` }}>🌙 עלייה בליל הגרסה</span>
               )}
             </div>
           )}
@@ -451,11 +447,11 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
 
         {/* ── Teams status strip + KPI row ── */}
         {teamsForCr.length > 0 && (
-          <div style={{ padding: '12px 16px', borderBottom: `1px solid ${C.border}`, background: C.bgApp, flexShrink: 0 }}>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: '10px' }}>
+          <div className="py-3 px-4 border-b border-border bg-background shrink-0">
+            <div className="text-[11px] font-bold text-subtle-foreground uppercase tracking-wider mb-2.5">
               סטטוס הגשה לפי צוות — לחיצה מציגה את תקציר התוכנית של הצוות
             </div>
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: openTeamId ? '10px' : '12px' }}>
+            <div className={cn('flex gap-2.5 flex-wrap', openTeamId ? 'mb-2.5' : 'mb-3')}>
               {teamsForCr.map(t => {
                 const plan = plans.find(p => p.team.id === t.id);
                 const meta = plan?.notNeededForPlan
@@ -467,22 +463,23 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                 const isBusy = approvingTeam === teamKey;
                 const isOpen = openTeamId === t.id;
                 return (
-                  <span key={t.id} style={{
-                    display: 'flex', alignItems: 'center', gap: '9px', padding: '7px 13px',
-                    borderRadius: RADIUS.full, border: `1px solid ${isOpen ? C.moduleGoLive : C.borderEm}`, background: C.bgCard,
-                    fontSize: '12.5px', fontWeight: 700, color: C.textPrimary,
-                    boxShadow: isOpen ? `0 0 0 2px ${C.moduleGoLive}29` : 'none',
-                  }}>
+                  <span key={t.id}
+                    className="flex items-center gap-2 py-1.5 px-3.5 rounded-full bg-card text-[12.5px] font-bold text-foreground"
+                    style={{
+                      border: `1px solid ${isOpen ? C.moduleGoLive : C.borderEm}`,
+                      boxShadow: isOpen ? `0 0 0 2px ${C.moduleGoLive}29` : 'none',
+                    }}>
                     {canApprove && (
                       <button onClick={() => approveTeamPlan(selectedCr!, t.id, !plan!.planApproved)} disabled={isBusy}
-                        style={{ fontSize: '11px', fontWeight: 700, color: plan!.planApproved ? C.textMuted : C.moduleGoLive, background: 'transparent', border: 'none', cursor: isBusy ? 'not-allowed' : 'pointer', padding: 0 }}>
+                        className={cn('text-[11px] font-bold bg-transparent border-none p-0', isBusy ? 'cursor-not-allowed' : 'cursor-pointer')}
+                        style={{ color: plan!.planApproved ? C.textMuted : C.moduleGoLive }}>
                         {isBusy ? '…' : plan!.planApproved ? '↩ בטל' : '✓ Approve Team'}
                       </button>
                     )}
                     <span onClick={() => canPreview && setOpenTeamId(isOpen ? null : t.id)}
-                      style={{ display: 'flex', alignItems: 'center', gap: '7px', cursor: canPreview ? 'pointer' : 'default' }}>
+                      className={cn('flex items-center gap-[7px]', canPreview ? 'cursor-pointer' : 'cursor-default')}>
                       {t.name} · {meta.label}
-                      <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: meta.dot, flexShrink: 0 }} />
+                      <span className="w-[9px] h-[9px] rounded-full shrink-0" style={{ background: meta.dot }} />
                     </span>
                   </span>
                 );
@@ -501,8 +498,8 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                 (openPlan.rollbackType || openPlan.rollbackPlan) && `Rollback: ${openPlan.rollbackType || ''}${openPlan.rollbackPlan ? ` — ${openPlan.rollbackPlan}` : ''}`,
               ].filter(Boolean);
               return (
-                <div style={{ background: C.bgNested, borderRadius: RADIUS.md, padding: '14px 16px', fontSize: '12px', color: C.textSecondary, lineHeight: 1.7, marginBottom: '12px' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 700, color: C.textPrimary, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div className="bg-muted rounded-md py-3.5 px-4 text-xs text-muted-foreground leading-[1.7] mb-3">
+                  <div className="text-xs font-bold text-foreground mb-1.5 flex items-center gap-2">
                     🟢 תקציר תוכנית {openTeamName}
                   </div>
                   {parts.length > 0 ? parts.join(' · ') : 'הצוות לא פירט פעילויות עבור CR זה.'}
@@ -511,21 +508,21 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
             })()}
 
             {missingTeams.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: C.warningBg, border: `1px solid ${C.warning}40`, borderRadius: RADIUS.md, padding: '9px 14px', fontSize: '12.5px', color: C.warning, fontWeight: 600, marginBottom: '12px' }}>
+              <div className="flex items-center gap-2 bg-warning-bg rounded-md py-2 px-3.5 text-[12.5px] text-warning font-semibold mb-3" style={{ border: `1px solid ${C.warning}40` }}>
                 ⚠ לא ניתן לאשר את התוכנית המאוחדת — {missingTeams.map(t => t.name).join(', ')} טרם נתן/נתנו התייחסות
               </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
+            <div className="grid grid-cols-4 gap-2.5">
               {[
                 { label: 'צוותים מעורבים', val: teamsForCr.length },
                 { label: 'משימות בתוכנית המאוחדת', val: propsForCr.length },
                 { label: 'נקודות בקרה / ולידציה', val: plans.reduce((s, p) => s + (p.monitoringPoints?.length ?? 0), 0) },
                 { label: 'מוכן לאישור?', val: isApproved ? '✓ אושר' : missingTeams.length > 0 ? `ממתין ל-${missingTeams.length}` : 'מוכן', warn: !isApproved },
               ].map((kpi, i) => (
-                <div key={i} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '14px 18px', boxShadow: SHADOW.xs }}>
-                  <div style={{ fontSize: '11px', fontWeight: 600, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.05em' }}>{kpi.label}</div>
-                  <div style={{ fontSize: typeof kpi.val === 'string' && kpi.val.length > 6 ? '16px' : '26px', fontWeight: 800, marginTop: '6px', color: kpi.warn ? C.warning : C.textPrimary }}>{kpi.val}</div>
+                <div key={i} className="bg-card border border-border rounded-lg py-3.5 px-[18px] shadow-xs">
+                  <div className="text-[11px] font-semibold text-subtle-foreground uppercase tracking-wider">{kpi.label}</div>
+                  <div className={cn('font-extrabold mt-1.5', typeof kpi.val === 'string' && kpi.val.length > 6 ? 'text-base' : 'text-2xl')} style={{ color: kpi.warn ? C.warning : C.textPrimary }}>{kpi.val}</div>
                 </div>
               ))}
             </div>
@@ -533,31 +530,32 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
         )}
 
         {/* ── Body (single continuous story — no tabs) ── */}
-        <div style={{ padding: '14px 16px' }}>
+        <div className="py-3.5 px-4">
           <div>
 
               {/* ── AI Summary — collapsible with manual edit — indigo brand accent,
                   matching the design system's .ai-card (color-mix(brand 5%/22%)) ── */}
-              <div style={{ marginBottom: '14px', border: `1px solid ${C.brand}38`, borderRadius: RADIUS.lg, overflow: 'hidden' }}>
+              <div className="mb-3.5 rounded-lg overflow-hidden" style={{ border: `1px solid ${C.brand}38` }}>
                 {/* Header row */}
                 <div
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: `${C.brand}0d`, cursor: hasSummary ? 'pointer' : 'default' }}
+                  className={cn('flex items-center justify-between py-2.5 px-3.5', hasSummary ? 'cursor-pointer' : 'cursor-default')}
+                  style={{ background: `${C.brand}0d` }}
                   onClick={() => hasSummary && setSummaryOpen(prev => ({ ...prev, [selectedCr!]: !isSumOpen }))}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 800, color: C.brand }}>✨ סיכום AI — התוכנית המאוחדת</span>
+                  <div className="flex items-center gap-[7px]">
+                    <span className="text-[13px] font-extrabold" style={{ color: C.brand }}>✨ סיכום AI — התוכנית המאוחדת</span>
                     {hasSummary && (
-                      <span style={{ fontSize: '12px', color: C.brand, background: `${C.brand}26`, padding: '1px 6px', borderRadius: RADIUS.xs, border: `1px solid ${C.brand}4d` }}>שמור</span>
+                      <span className="text-xs rounded-xs py-px px-1.5" style={{ color: C.brand, background: `${C.brand}26`, border: `1px solid ${C.brand}4d` }}>שמור</span>
                     )}
                   </div>
-                  <div style={{ display: 'flex', gap: '7px', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
+                  <div className="flex gap-[7px] items-center" onClick={e => e.stopPropagation()}>
                     {hasSummary && isSumOpen && !isEditing && (
                       <button
                         onClick={() => {
                           setSummaryDraft(prev => ({ ...prev, [selectedCr!]: summaries[selectedCr!] }));
                           setSummaryEditing(prev => ({ ...prev, [selectedCr!]: true }));
                         }}
-                        style={{ fontSize: '11px', fontWeight: 700, padding: '5px 12px', background: C.bgCard, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.full, cursor: 'pointer' }}>
+                        className="text-[11px] font-bold py-1.5 px-3 bg-card text-muted-foreground rounded-full cursor-pointer border border-border">
                         ✏️ ערוך
                       </button>
                     )}
@@ -575,12 +573,17 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                             onConfirm: () => summarizeCr(selectedCr!),
                           });
                         }}
-                        style={{ fontSize: '11px', fontWeight: 700, padding: '5px 12px', background: C.bgCard, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.full, cursor: summarizingCr === selectedCr ? 'not-allowed' : 'pointer', opacity: summarizingCr === selectedCr ? 0.6 : 1 }}>
+                        className={cn(
+                          'text-[11px] font-bold py-1.5 px-3 bg-card text-muted-foreground rounded-full border border-border',
+                          summarizingCr === selectedCr ? 'cursor-not-allowed opacity-60' : 'cursor-pointer opacity-100'
+                        )}>
                         {summarizingCr === selectedCr ? '⏳ מסכם...' : hasSummary ? '🔄 עדכן' : '✨ צור סיכום'}
                       </button>
                     )}
                     {hasSummary && (
-                      <span style={{ fontSize: '14px', color: C.brand, display: 'inline-block', transform: isSumOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', cursor: 'pointer' }}
+                      <span
+                        className={cn('text-sm inline-block cursor-pointer transition-transform duration-200', isSumOpen ? 'rotate-180' : 'rotate-0')}
+                        style={{ color: C.brand }}
                         onClick={() => setSummaryOpen(prev => ({ ...prev, [selectedCr!]: !isSumOpen }))}>
                         ▼
                       </span>
@@ -590,32 +593,34 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
 
                 {/* Body — show when open */}
                 {hasSummary && isSumOpen && (
-                  <div style={{ padding: '14px 18px', borderTop: `1px solid ${C.brand}26`, background: C.bgCard }}>
+                  <div className="py-3.5 px-[18px] bg-card" style={{ borderTop: `1px solid ${C.brand}26` }}>
                     {isEditing ? (
                       <>
                         <textarea
                           value={summaryDraft[selectedCr] ?? summaries[selectedCr]}
                           onChange={e => setSummaryDraft(prev => ({ ...prev, [selectedCr!]: e.target.value }))}
-                          style={{ width: '100%', minHeight: '140px', fontSize: '15px', fontFamily: FONT, color: C.textSecondary, lineHeight: '1.7', background: C.bgNested, border: `1px solid ${C.brand}40`, borderRadius: RADIUS.md, padding: '9px 11px', resize: 'vertical', direction: 'rtl', boxSizing: 'border-box' }}
+                          className="w-full min-h-[140px] text-base text-muted-foreground leading-[1.7] bg-muted rounded-md py-2 px-2.5 resize-y"
+                          style={{ border: `1px solid ${C.brand}40` }}
                         />
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px', justifyContent: 'flex-start' }}>
+                        <div className="flex gap-2 mt-2 justify-start">
                           <button
                             onClick={() => {
                               setSummaries(prev => ({ ...prev, [selectedCr!]: summaryDraft[selectedCr!] ?? prev[selectedCr!] }));
                               setSummaryEditing(prev => ({ ...prev, [selectedCr!]: false }));
                             }}
-                            style={{ fontSize: '14px', padding: '4px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontWeight: 700 }}>
+                            className="text-sm py-1 px-3.5 text-white border-none rounded-md cursor-pointer font-bold"
+                            style={{ background: C.brand }}>
                             💾 שמור
                           </button>
                           <button
                             onClick={() => setSummaryEditing(prev => ({ ...prev, [selectedCr!]: false }))}
-                            style={{ fontSize: '14px', padding: '4px 12px', background: C.bgCard, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer' }}>
+                            className="text-sm py-1 px-3 bg-card text-subtle-foreground border border-border rounded-md cursor-pointer">
                             בטל
                           </button>
                         </div>
                       </>
                     ) : (
-                      <div style={{ fontSize: '12.5px', color: C.textPrimary, lineHeight: '1.7', whiteSpace: 'pre-wrap' }}>
+                      <div className="text-[12.5px] text-foreground leading-[1.7] whitespace-pre-wrap">
                         {summaries[selectedCr]}
                       </div>
                     )}
@@ -625,30 +630,31 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
 
               {/* CR description */}
               {crDesc && (
-                <div style={{ marginBottom: '14px', padding: '8px 12px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md }}>
-                  <div style={{ fontSize: '14px', color: C.textSecondary, fontWeight: 700, marginBottom: '4px' }}>פרטי CR</div>
-                  <div style={{ fontSize: '15px', color: C.textSecondary, lineHeight: 1.5 }}>{crDesc}</div>
+                <div className="mb-3.5 py-2 px-3 bg-muted border border-border rounded-md">
+                  <div className="text-sm text-muted-foreground font-bold mb-1">פרטי CR</div>
+                  <div className="text-base text-muted-foreground leading-normal">{crDesc}</div>
                 </div>
               )}
 
           </div>
 
           {/* ── Story header + narrate button ── */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', margin: '22px 0 14px' }}>
+          <div className="flex items-start justify-between gap-3 my-[22px] mb-3.5">
             <div>
-              <div style={{ fontSize: '15px', fontWeight: 800, color: C.textPrimary }}>התוכנית המאוחדת — כל המשימות של כל הצוותים ל-CR זה, לפי ציר הזמן</div>
-              <div style={{ fontSize: '11.5px', color: C.textMuted, marginTop: '2px' }}>מיועד להקראה בישיבת סקירת הגרסה ובליל העלייה — סדר ביצוע רציף, לא לפי סוג פעילות</div>
+              <div className="text-[15px] font-extrabold text-foreground">התוכנית המאוחדת — כל המשימות של כל הצוותים ל-CR זה, לפי ציר הזמן</div>
+              <div className="text-[11.5px] text-subtle-foreground mt-0.5">מיועד להקראה בישיבת סקירת הגרסה ובליל העלייה — סדר ביצוע רציף, לא לפי סוג פעילות</div>
             </div>
             <button onClick={toggleNarrate}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: C.moduleGoLive, background: `${C.moduleGoLive}18`, border: `1px solid ${C.moduleGoLive}4d`, padding: '7px 14px', borderRadius: RADIUS.full, cursor: 'pointer', flexShrink: 0 }}>
+              className="flex items-center gap-1.5 text-xs font-bold py-1.5 px-3.5 rounded-full cursor-pointer shrink-0"
+              style={{ color: C.moduleGoLive, background: `${C.moduleGoLive}18`, border: `1px solid ${C.moduleGoLive}4d` }}>
               {speaking ? '⏹ עצור הקראה' : '🔊 מצב הקראה'}
             </button>
           </div>
 
           <div>
               {propsForCr.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px 20px', color: C.textDisabled }}>
-                  <div style={{ fontSize: '28px', marginBottom: '10px' }}>📋</div>
+                <div className="text-center py-10 px-5 text-subtle-foreground">
+                  <div className="text-[28px] mb-2.5">📋</div>
                   ראשי הצוותים טרם הוסיפו משימות לביצוע
                 </div>
               ) : (
@@ -657,24 +663,20 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                   if (!phaseProps.length) return null;
                   const phaseName = PHASE_LABEL[phase] ?? `שלב ${phase}`;
                   return (
-                    <div key={phase} style={{ marginBottom: '20px' }}>
+                    <div key={phase} className="mb-5">
                       {/* Phase node — one accent (Go-Live orange) for every phase,
                           differentiated by icon/title, matching the design system's
                           per-module color convention rather than a rainbow per phase. */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '12px' }}>
-                        <div style={{
-                          width: '40px', height: '40px', borderRadius: RADIUS.full, flexShrink: 0,
-                          background: C.moduleGoLive, color: '#fff', fontSize: '18px',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: SHADOW.sm,
-                        }}>
+                      <div className="flex items-center gap-3.5 mb-3">
+                        <div className="w-10 h-10 rounded-full shrink-0 text-white text-lg flex items-center justify-center shadow-sm" style={{ background: C.moduleGoLive }}>
                           {PHASE_ICON[phase] ?? '📌'}
                         </div>
                         <div>
-                          <div style={{ fontSize: '15px', fontWeight: 800, color: C.textPrimary }}>{phaseName}</div>
-                          <div style={{ fontSize: '11.5px', color: C.textMuted }}>{PHASE_META[phase]} · {phaseProps.length} משימות</div>
+                          <div className="text-[15px] font-extrabold text-foreground">{phaseName}</div>
+                          <div className="text-[11.5px] text-subtle-foreground">{PHASE_META[phase]} · {phaseProps.length} משימות</div>
                         </div>
                       </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingInlineStart: '54px' }}>
+                      <div className="flex flex-col gap-2 ps-[54px]">
                       {phaseProps.map((prop, i) => {
                         stepCounter += 1;
                         const stepNum = String(stepCounter).padStart(2, '0');
@@ -694,35 +696,31 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                         const tColor = teamColor(teamName || '?');
                         const depNote = prop.notes && isDependencyNote(prop.notes);
                         return (
-                          <div key={prop.id} style={{
-                            display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '13px 16px',
-                            background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.xs,
-                          }}>
-                            <span style={{ fontFamily: 'monospace', fontSize: '11px', fontWeight: 700, color: C.textDisabled, flexShrink: 0, paddingTop: '2px', width: '20px' }}>
+                          <div key={prop.id} className="flex items-start gap-3 py-3.5 px-4 bg-card border border-border rounded-lg shadow-xs">
+                            <span className="font-mono text-[11px] font-bold text-subtle-foreground shrink-0 pt-0.5 w-5">
                               {stepNum}
                             </span>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: '13.5px', color: C.textPrimary, lineHeight: 1.6 }}>{sentence || prop.title}</div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[13.5px] text-foreground leading-[1.6]">{sentence || prop.title}</div>
                               {prop.notes && (
-                                <div style={{
-                                  marginTop: '4px', fontSize: '13px', paddingRight: '8px',
-                                  color: depNote ? C.info : C.textMuted, fontWeight: depNote ? 600 : 400,
-                                  borderRight: `2px solid ${depNote ? C.info : C.border}`,
-                                }}>
+                                <div
+                                  className={cn('mt-1 text-[13px] pe-2', depNote ? 'font-semibold' : 'font-normal')}
+                                  style={{ color: depNote ? C.info : C.textMuted, borderInlineEnd: `2px solid ${depNote ? C.info : C.border}` }}>
                                   {depNote ? '↳' : '💬'} {cleanHtmlText(prop.notes)}
                                 </div>
                               )}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
+                              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                                 {teamName && (
-                                  <span style={{ fontSize: '10px', fontWeight: 700, padding: '3px 9px', borderRadius: RADIUS.full, color: '#fff', background: tColor }}>
+                                  <span className="text-[10px] font-bold py-[3px] px-2.5 rounded-full" style={{ background: tColor.bg, color: tColor.color }}>
                                     {teamName}
                                   </span>
                                 )}
-                                <span style={{
-                                  fontSize: '10px', fontWeight: 600, padding: '2px 8px', borderRadius: RADIUS.full,
-                                  color: prop.status === 'READY' ? C.success : C.textMuted,
-                                  background: prop.status === 'READY' ? C.successBg : C.bgNested,
-                                }}>
+                                <span
+                                  className="text-[10px] font-semibold py-0.5 px-2 rounded-full"
+                                  style={{
+                                    color: prop.status === 'READY' ? C.success : C.textMuted,
+                                    background: prop.status === 'READY' ? C.successBg : C.bgNested,
+                                  }}>
                                   {prop.status === 'READY' ? '✓ מוכן' : 'טיוטה'}
                                 </span>
                               </div>
@@ -739,16 +737,16 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
 
           {/* ── Consolidated Rollback — one line per team with a rollback plan ── */}
           {plans.some(p => p.rollbackType || p.rollbackPlan) && (
-            <div style={{ marginTop: '20px', background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.xs, padding: '16px 18px' }}>
-              <div style={{ fontSize: '13px', fontWeight: 800, color: C.textPrimary, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="mt-5 bg-card border border-border rounded-lg shadow-xs py-4 px-[18px]">
+              <div className="text-[13px] font-extrabold text-foreground mb-2.5 flex items-center gap-2">
                 ↩ Rollback מרוכז — פעולות ביצוע קונקרטיות בלבד
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div className="flex flex-col gap-2">
                 {plans.filter(p => p.rollbackType || p.rollbackPlan).map(p => {
                   const tColor = teamColor(p.team.name);
                   return (
-                    <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12.5px', color: C.textSecondary }}>
-                      <span style={{ fontSize: '10px', fontWeight: 700, padding: '3px 9px', borderRadius: RADIUS.full, color: 'white', background: tColor, flexShrink: 0 }}>{p.team.name}</span>
+                    <div key={p.id} className="flex items-center gap-2.5 text-[12.5px] text-muted-foreground">
+                      <span className="text-[10px] font-bold py-[3px] px-2.5 rounded-full shrink-0" style={{ background: tColor.bg, color: tColor.color }}>{p.team.name}</span>
                       <span>{p.rollbackType ? `${p.rollbackType} — ` : ''}{p.rollbackPlan || 'אין פירוט נוסף'}</span>
                     </div>
                   );
@@ -762,15 +760,11 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
             stick within (the panel's own internal overflow, or the page's,
             whichever ends up active) instead of just scrolling away. ── */}
         {isManager && !isNotNeeded && (
-          <div style={{
-            position: 'sticky', bottom: '-14px', margin: '20px -16px -14px', background: C.bgCard, borderTop: `1px solid ${C.border}`,
-            boxShadow: SHADOW.md, padding: '14px 20px', display: 'flex', alignItems: 'center',
-            justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', flexShrink: 0,
-          }}>
-            <span style={{ fontSize: '12px', color: C.textMuted }}>
+          <div className="sticky -bottom-3.5 mt-5 -mx-4 -mb-3.5 bg-card border-t border-border shadow-md py-3.5 px-5 flex items-center justify-between gap-4 flex-wrap shrink-0">
+            <span className="text-xs text-subtle-foreground">
               ניתן לאשר את ה-CR כולו רק כשכל הצוותים המעורבים נמצאים במצב Submitted או No Special Activity — עד אז ניתן לאשר משימה/קבוצה/צוות בנפרד
             </span>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <div className="flex gap-2 flex-wrap">
               <button onClick={() => setDialog({
                 title: 'דחיית התוכנית המאוחדת',
                 message: 'התוכנית תוחזר לטיוטה עבור כל הצוותים המעורבים ב-CR זה, לעריכה מחדש.',
@@ -781,7 +775,7 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                   fetchAll();
                 },
               })}
-                style={{ padding: '9px 16px', borderRadius: RADIUS.md, fontSize: '12px', fontWeight: 700, border: `1px solid ${C.danger}4d`, background: C.bgCard, color: C.danger, cursor: 'pointer' }}>
+                className="py-2.5 px-4 rounded-md text-xs font-bold bg-card text-danger cursor-pointer" style={{ border: `1px solid ${C.danger}4d` }}>
                 ✕ Reject
               </button>
               <button onClick={() => setDialog({
@@ -794,7 +788,7 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                   fetchAll();
                 },
               })}
-                style={{ padding: '9px 16px', borderRadius: RADIUS.md, fontSize: '12px', fontWeight: 700, border: `1px solid ${C.warning}4d`, background: C.bgCard, color: C.warning, cursor: 'pointer' }}>
+                className="py-2.5 px-4 rounded-md text-xs font-bold bg-card text-warning cursor-pointer" style={{ border: `1px solid ${C.warning}4d` }}>
                 ✎ Request Changes
               </button>
               <button
@@ -808,9 +802,11 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                 }}
                 disabled={isApp || isApproved || missingTeams.length > 0}
                 title={missingTeams.length > 0 ? `חסום — ממתין להתייחסות ${missingTeams.map(t => t.name).join(', ')}` : undefined}
+                className={cn(
+                  'py-3 px-5 rounded-md text-[13px] font-bold border-none',
+                  (isApp || isApproved || missingTeams.length > 0) ? 'cursor-not-allowed' : 'cursor-pointer'
+                )}
                 style={{
-                  padding: '11px 20px', borderRadius: RADIUS.md, fontSize: '13px', fontWeight: 700, border: 'none',
-                  cursor: (isApp || isApproved || missingTeams.length > 0) ? 'not-allowed' : 'pointer',
                   background: (isApproved || missingTeams.length > 0) ? C.bgNested : C.moduleGoLive,
                   color: (isApproved || missingTeams.length > 0) ? C.textDisabled : 'white',
                 }}>
@@ -827,25 +823,29 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
   const splitPanel = (
     <>
       {allCrNumbers.length === 0 ? (
-        <div style={{ padding: '32px', textAlign: 'center', color: C.textMuted, fontSize: '15px', background: C.bgCard, borderRadius: '8px', border: `1px solid ${C.border}` }}>
+        <div className="p-8 text-center text-subtle-foreground text-[15px] bg-card rounded-lg border border-border">
           לא נמצאו CR-ים — בצע סינכרון מקובץ CR_LIST
         </div>
       ) : (
-        <div style={{ display: 'flex', border: `1px solid ${C.border}`, borderRadius: '12px', overflow: 'hidden', minHeight: '62vh' }}>
+        <div className="flex border border-border rounded-xl overflow-hidden min-h-[62vh]">
           {/* ── LEFT: CR list (252px) ── */}
-          <div style={{ width: '252px', flexShrink: 0, borderLeft: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', background: C.bgCard }}>
+          <div className="w-[252px] shrink-0 border-e border-border flex flex-col bg-card">
             {/* Progress + filter */}
-            <div style={{ padding: '9px 12px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '7px' }}>
-                <div style={{ flex: 1, height: '4px', background: C.border, borderRadius: '2px', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', background: allApproved ? '#3fb950' : '#f0883e', width: `${pct}%`, borderRadius: '2px', transition: 'width 0.4s' }} />
+            <div className="py-2.5 px-3 border-b border-border shrink-0">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="flex-1 h-1 bg-border rounded-sm overflow-hidden">
+                  <div className="h-full rounded-sm transition-[width] duration-[0.4s]" style={{ background: allApproved ? '#3fb950' : '#f0883e', width: `${pct}%` }} />
                 </div>
-                <span style={{ fontSize: '13px', fontWeight: 700, color: allApproved ? '#3fb950' : '#f0883e', whiteSpace: 'nowrap' }}>{approvedCount}/{allCrNumbers.length} CR</span>
+                <span className="text-[13px] font-bold whitespace-nowrap" style={{ color: allApproved ? '#3fb950' : '#f0883e' }}>{approvedCount}/{allCrNumbers.length} CR</span>
               </div>
-              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+              <div className="flex gap-1 flex-wrap">
                 {(['all', 'pending', 'approved', 'not_required'] as const).map(f => (
                   <button key={f} onClick={() => setCrFilter(f)}
-                    style={{ padding: '2px 8px', border: 'none', borderRadius: '99px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, background: crFilter === f ? '#1a2332' : C.bgNested, color: crFilter === f ? 'white' : C.textMuted, transition: 'all 0.1s' }}>
+                    className={cn(
+                      'py-0.5 px-2 border-none rounded-full cursor-pointer text-xs font-semibold transition-colors duration-100',
+                      crFilter === f ? 'text-white' : 'bg-muted text-subtle-foreground'
+                    )}
+                    style={{ background: crFilter === f ? '#1a2332' : undefined }}>
                     {f === 'all' ? 'הכל' : f === 'pending' ? 'ממתין' : f === 'approved' ? 'אושר' : 'לא נדרש'}
                   </button>
                 ))}
@@ -853,7 +853,7 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
             </div>
 
             {/* CR items */}
-            <div style={{ flex: 1, overflowY: 'auto' }}>
+            <div className="flex-1 overflow-y-auto">
               {filteredCrNums.map(crNumber => {
                 const plans      = crPlans.filter(p => p.crNumber === crNumber);
                 const propsForCr = proposals.filter(p => p.crNumber === crNumber);
@@ -871,16 +871,17 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                 const dotColor   = isApproved ? '#3fb950' : isNotNeeded ? '#8b949e' : missingCount === 0 ? '#d29922' : '#ef4444';
                 return (
                   <div key={crNumber} onClick={() => { setSelectedCr(crNumber); setOpenTeamId(null); }}
-                    style={{ display: 'flex', alignItems: 'flex-start', gap: '9px', padding: '9px 14px', cursor: 'pointer', borderBottom: `1px solid ${C.bgNested}`, borderRight: `3px solid ${isSelected ? C.brand : 'transparent'}`, background: isSelected ? C.infoBg : 'transparent', transition: 'background 0.1s' }}
+                    className="flex items-start gap-2.5 py-2.5 px-3.5 cursor-pointer border-b border-muted transition-colors duration-100"
+                    style={{ borderInlineEnd: `3px solid ${isSelected ? C.brand : 'transparent'}`, background: isSelected ? C.infoBg : 'transparent' }}
                     onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = C.bgHover; }}
                     onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
                   >
-                    <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: dotColor, flexShrink: 0, marginTop: '5px' }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '14px', fontWeight: 700, color: C.textPrimary, fontFamily: 'monospace' }}>{crNumber}</div>
-                      <div style={{ fontSize: '13px', color: C.textMuted, lineHeight: 1.35, marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={crTitle}>{crTitle || '—'}</div>
-                      <div style={{ fontSize: '12px', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
-                        {highRisk && RISK[highRisk] && <span style={{ padding: '1px 5px', borderRadius: '4px', fontWeight: 600, background: RISK[highRisk].bg, color: RISK[highRisk].color }}>{RISK[highRisk].label}</span>}
+                    <div className="w-[7px] h-[7px] rounded-full shrink-0 mt-1.5" style={{ background: dotColor }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-bold text-foreground font-mono">{crNumber}</div>
+                      <div className="text-[13px] text-subtle-foreground leading-[1.35] mt-px overflow-hidden text-ellipsis whitespace-nowrap" title={crTitle}>{crTitle || '—'}</div>
+                      <div className="text-xs mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        {highRisk && RISK[highRisk] && <span className="py-px px-[5px] rounded-xs font-semibold" style={{ background: RISK[highRisk].bg, color: RISK[highRisk].color }}>{RISK[highRisk].label}</span>}
                         <span style={{ color: isApproved ? '#3fb950' : C.textDisabled }}>
                           {isApproved ? '✓ אושר' : isNotNeeded ? '✗ לא נדרש' : `${propsForCr.length} משימות`}
                         </span>
@@ -890,7 +891,7 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
                 );
               })}
               {filteredCrNums.length === 0 && (
-                <div style={{ padding: '20px 14px', textAlign: 'center', color: C.textDisabled, fontSize: '14px' }}>אין תוצאות</div>
+                <div className="py-5 px-3.5 text-center text-subtle-foreground text-sm">אין תוצאות</div>
               )}
             </div>
           </div>
@@ -906,25 +907,28 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
 
   const teamPanelHeader = (
     <div onClick={() => setTeamPanelOpen(p => !p)}
-      style={{ padding: '10px 16px', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: allTeamsSubmitted ? 'rgba(63,185,80,0.10)' : 'rgba(248,81,73,0.08)' }}>
-      <span style={{ fontSize: '15px', fontWeight: 700, color: allTeamsSubmitted ? C.statusDone : C.statusBlocked, display: 'flex', alignItems: 'center', gap: '8px' }}>
+      className="py-2.5 px-4 cursor-pointer select-none flex items-center justify-between"
+      style={{ background: allTeamsSubmitted ? 'rgba(63,185,80,0.10)' : 'rgba(248,81,73,0.08)' }}>
+      <span className="text-[15px] font-bold flex items-center gap-2" style={{ color: allTeamsSubmitted ? C.statusDone : C.statusBlocked }}>
         <span>{allTeamsSubmitted ? '✅' : '●'}</span>
         {allTeamsSubmitted
           ? `כל ${involvedTeams.length} הצוותים הגישו · אושרו: ${approvedCount}/${allCrNumbers.length} CR`
           : `הגישו: ${teamsAllCovered}/${involvedTeams.length} צוותים · אושרו: ${approvedCount}/${allCrNumbers.length} CR`}
       </span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <div style={{ width: '80px', height: '5px', background: C.border, borderRadius: '3px', overflow: 'hidden' }}>
-          <div style={{ height: '100%', borderRadius: '3px', background: allTeamsSubmitted ? '#3fb950' : '#f0883e', width: `${submissionPct}%`, transition: 'width 0.4s' }} />
+      <div className="flex items-center gap-2">
+        <div className="w-20 h-[5px] bg-border rounded-sm overflow-hidden">
+          <div className="h-full rounded-sm transition-[width] duration-[0.4s]" style={{ background: allTeamsSubmitted ? '#3fb950' : '#f0883e', width: `${submissionPct}%` }} />
         </div>
-        <span style={{ fontSize: '15px', color: C.textMuted, transform: teamPanelOpen ? 'rotate(180deg)' : 'none', display: 'inline-block', transition: 'transform 0.2s' }}>▼</span>
+        <span className={cn('text-[15px] text-subtle-foreground inline-block transition-transform duration-200', teamPanelOpen ? 'rotate-180' : 'rotate-0')}>▼</span>
       </div>
     </div>
   );
 
   if (section === 'teams') return (
-    <div style={{ direction: 'rtl', fontFamily: FONT }}>
-      <div style={{ background: C.bgCard, border: `1px solid ${allTeamsSubmitted ? '#3fb95044' : C.border}`, borderRadius: '12px', overflow: 'hidden', boxShadow: allTeamsSubmitted ? '0 0 0 3px rgba(63,185,80,0.08)' : 'none' }}>
+    <div>
+      <div
+        className="bg-card rounded-xl overflow-hidden"
+        style={{ border: `1px solid ${allTeamsSubmitted ? '#3fb95044' : C.border}`, boxShadow: allTeamsSubmitted ? '0 0 0 3px rgba(63,185,80,0.08)' : 'none' }}>
         {teamPanelHeader}
         {teamPanelOpen && teamGrid}
       </div>
@@ -936,40 +940,43 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
      the whole list, instead of a free-browsing list+detail split panel.
   ─────────────────────────────────────────────────────────────────────────── */
   const wizardView = allCrNumbers.length === 0 ? (
-    <div style={{ padding: '32px', textAlign: 'center', color: C.textMuted, fontSize: '15px', background: C.bgCard, borderRadius: '8px', border: `1px solid ${C.border}` }}>
+    <div className="p-8 text-center text-subtle-foreground text-[15px] bg-card rounded-lg border border-border">
       לא נמצאו CR-ים — בצע סינכרון מקובץ CR_LIST
     </div>
   ) : (
-    <div style={{ display: 'flex', flexDirection: 'column', border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'visible' }}>
+    <div className="flex flex-col border border-border rounded-lg overflow-visible">
       {/* Step progress header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderBottom: `1px solid ${C.border}`, background: C.bgCard, flexShrink: 0 }}>
-        <span style={{ fontSize: '13px', fontWeight: 700, color: C.textMuted, whiteSpace: 'nowrap' }}>
+      <div className="flex items-center gap-3 py-3 px-4 border-b border-border bg-card shrink-0">
+        <span className="text-[13px] font-bold text-subtle-foreground whitespace-nowrap">
           CR {currentStepIndex + 1} מתוך {allCrNumbers.length}
         </span>
-        <div style={{ flex: 1, height: '6px', background: C.border, borderRadius: '3px', overflow: 'hidden' }}>
-          <div style={{ height: '100%', background: allApproved ? C.success : C.moduleGoLive, width: `${pct}%`, borderRadius: '3px', transition: 'width 0.4s' }} />
+        <div className="flex-1 h-1.5 bg-border rounded-sm overflow-hidden">
+          <div className="h-full rounded-sm transition-[width] duration-[0.4s]" style={{ background: allApproved ? C.success : C.moduleGoLive, width: `${pct}%` }} />
         </div>
-        <span style={{ fontSize: '13px', fontWeight: 700, color: allApproved ? C.success : C.moduleGoLive, whiteSpace: 'nowrap' }}>
+        <span className="text-[13px] font-bold whitespace-nowrap" style={{ color: allApproved ? C.success : C.moduleGoLive }}>
           {approvedCount}/{allCrNumbers.length} אושרו
         </span>
       </div>
 
       {/* Current CR detail */}
-      <div style={{ flex: 1, display: 'flex' }}>
+      <div className="flex-1 flex">
         {renderDetail()}
       </div>
 
       {/* Step navigation footer */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderTop: `1px solid ${C.border}`, background: C.bgCard, flexShrink: 0 }}>
+      <div className="flex items-center justify-between py-3 px-4 border-t border-border bg-card shrink-0">
         <button onClick={() => goToStep(-1)} disabled={currentStepIndex <= 0}
-          style={{ padding: '8px 18px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, background: C.bgCard, color: currentStepIndex <= 0 ? C.textDisabled : C.textSecondary, cursor: currentStepIndex <= 0 ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '14px', fontFamily: FONT }}>
+          className={cn('py-2 px-[18px] border border-border rounded-md bg-card font-bold text-sm', currentStepIndex <= 0 ? 'text-subtle-foreground cursor-not-allowed' : 'text-muted-foreground cursor-pointer')}>
           → הקודם
         </button>
         {allApproved && (
-          <span style={{ fontSize: '14px', fontWeight: 700, color: C.success }}>✅ כל התוכניות אושרו</span>
+          <span className="text-sm font-bold text-success">✅ כל התוכניות אושרו</span>
         )}
         <button onClick={() => goToStep(1)} disabled={currentStepIndex >= allCrNumbers.length - 1}
-          style={{ padding: '8px 18px', border: 'none', borderRadius: RADIUS.md, background: currentStepIndex >= allCrNumbers.length - 1 ? C.bgNested : C.brand, color: currentStepIndex >= allCrNumbers.length - 1 ? C.textDisabled : 'white', cursor: currentStepIndex >= allCrNumbers.length - 1 ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '14px', fontFamily: FONT }}>
+          className={cn(
+            'py-2 px-[18px] border-none rounded-md font-bold text-sm',
+            currentStepIndex >= allCrNumbers.length - 1 ? 'bg-muted text-subtle-foreground cursor-not-allowed' : 'bg-primary text-white cursor-pointer'
+          )}>
           הבא ←
         </button>
       </div>
@@ -977,17 +984,19 @@ export const CrPlanReviewPanel: React.FC<Props> = ({
   );
 
   if (section === 'crs') return (
-    <div style={{ direction: 'rtl', fontFamily: FONT }}>
+    <div>
       <ConfirmDialog config={dialog} onClose={() => setDialog(null)} />
       {wizardView}
     </div>
   );
 
   return (
-    <div style={{ direction: 'rtl', fontFamily: FONT }}>
+    <div>
       <ConfirmDialog config={dialog} onClose={() => setDialog(null)} />
       {/* Team panel */}
-      <div style={{ background: C.bgCard, border: `1px solid ${allTeamsSubmitted ? '#3fb95044' : C.border}`, borderRadius: '12px', overflow: 'hidden', marginBottom: '16px', boxShadow: allTeamsSubmitted ? '0 0 0 3px rgba(63,185,80,0.08)' : 'none' }}>
+      <div
+        className="bg-card rounded-xl overflow-hidden mb-4"
+        style={{ border: `1px solid ${allTeamsSubmitted ? '#3fb95044' : C.border}`, boxShadow: allTeamsSubmitted ? '0 0 0 3px rgba(63,185,80,0.08)' : 'none' }}>
         {teamPanelHeader}
         {teamPanelOpen && teamGrid}
       </div>

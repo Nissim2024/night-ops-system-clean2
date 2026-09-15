@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS, EASE, statusColor, statusLabel, severityColor, severityBg, severityLabel } from '../theme';
-import { Avatar, StatusChip, Divider } from './ui';
+import { C, statusColor, statusLabel, severityColor, severityBg, severityLabel } from '../theme';
+import { StatusChip, Divider } from './ui';
 import { FEATURES } from '../featureFlags';
 import { useDialog } from '../context/DialogContext';
 import { DateTimeField } from './DatePicker';
 import { formatDateTime as fmtDateTimeShared } from '../utils/dateFormat';
+import { cn } from '../lib/utils';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -45,13 +46,20 @@ const parseMins = (dur: string): number => {
 };
 const fmtDT = (iso: string) => iso ? fmtDateTimeShared(iso) : '—';
 
+// DateTimeField/DateField already carry their own converted className styling
+// (DatePicker.tsx) — this `inpStyle` object only supplies the handful of
+// this-panel-specific overrides (muted background, error border, etc.) via
+// the external `style` prop, since that component boundary takes a
+// CSSProperties object rather than a className.
+const inpStyle: React.CSSProperties = { background: C.bgNested };
+
 const DateInput: React.FC<{
   value: string;
   onChange: (v: string) => void;
   disabled?: boolean;
   style?: React.CSSProperties;
 }> = ({ value, onChange, disabled, style }) => (
-  <DateTimeField value={value} onChange={onChange} disabled={disabled} style={{ ...inp, ...style }} />
+  <DateTimeField value={value} onChange={onChange} disabled={disabled} style={{ ...inpStyle, ...style }} />
 );
 
 interface Props {
@@ -73,23 +81,16 @@ interface Props {
   onSave: () => void;
 }
 
-const Req = () => <span style={{ color: C.danger, marginRight: '2px' }}>*</span>;
+const Req = () => <span className="ms-0.5 text-danger">*</span>;
 
 const Label: React.FC<{ children: React.ReactNode; required?: boolean }> = ({ children, required }) => (
-  <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, fontWeight: WEIGHT.semibold, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: SP[1] }}>
+  <div className="mb-1 text-xs font-semibold uppercase tracking-[0.05em] text-subtle-foreground">
     {required && <Req />}{children}
   </div>
 );
 
-const inp: React.CSSProperties = {
-  fontFamily: FONT, fontSize: '15px', color: C.textPrimary,
-  background: C.bgNested, border: `1px solid ${C.borderEm}`,
-  borderRadius: RADIUS.md, padding: '7px 12px',
-  outline: 'none', width: '100%', boxSizing: 'border-box', transition: EASE.fast,
-};
-const errInp = (err: boolean): React.CSSProperties => ({
-  ...inp, border: `1px solid ${err ? C.danger : C.borderEm}`,
-});
+const inpClass = 'box-border w-full rounded-md border border-border bg-muted px-3 py-[7px] text-sm text-foreground outline-none transition-[border-color,box-shadow] duration-fast ease-out';
+const fieldErrClass = (err: boolean) => err ? 'border-danger' : '';
 
 export const TaskDetailPanel: React.FC<Props> = ({
   task, subPhaseId, versionId, token, isLocked = false, readonlyStatus = false,
@@ -325,33 +326,33 @@ export const TaskDetailPanel: React.FC<Props> = ({
 
   // ── Render ─────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ width: '100%', height: '100%', background: C.bgCard, display: 'flex', flexDirection: 'column', borderRadius: '16px', overflow: 'hidden' }}>
+    <div className="flex h-full w-full flex-col overflow-hidden rounded-xl bg-card">
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[3]} ${SP[4]}`, borderBottom: `1px solid ${C.border}`, background: C.bgElevated, flexShrink: 0 }}>
-        <span style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textSecondary, fontFamily: FONT, flex: 1 }}>
+      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-4 py-3">
+        <span className="flex-1 text-sm font-semibold text-muted-foreground">
           {isAdd ? '+ משימה חדשה' : 'פרטי משימה'}
         </span>
-        {saving && <span style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>שומר...</span>}
-        {saveOk && <span style={{ ...TEXT.xs, color: C.success, fontFamily: FONT }}>✓ נשמר</span>}
-        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: '20px', lineHeight: 1, padding: SP[1] }}>✕</button>
+        {saving && <span className="text-xs text-subtle-foreground">שומר...</span>}
+        {saveOk && <span className="text-xs text-success">✓ נשמר</span>}
+        <button onClick={onClose} className="cursor-pointer border-none bg-transparent p-1 text-xl leading-none text-subtle-foreground">✕</button>
       </div>
 
       {/* Body */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: SP[4], display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
 
         {/* Validation summary */}
         {errors.size > 0 && (
-          <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}44`, borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, ...TEXT.xs, color: C.danger, fontFamily: FONT }}>
+          <div className="rounded-md border border-danger/[0.27] bg-danger-bg px-3 py-2 text-xs text-danger">
             יש למלא את כל שדות החובה (מסומנים ב-*)
           </div>
         )}
 
         {/* ── Proposals ── */}
         {isAdd && FEATURES.TEAM_LEAD_PROPOSAL && proposals.length > 0 && (
-          <div style={{ background: C.bgDone + '22', border: `2px solid ${C.success}44`, borderRadius: RADIUS.lg, padding: SP[3] }}>
-            <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.success, marginBottom: SP[2], textTransform: 'uppercase', letterSpacing: '0.06em' }}>💡 הצעות ראשי צוותים</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1], maxHeight: '180px', overflowY: 'auto' }}>
+          <div className="rounded-lg border-2 border-success/[0.27] bg-transparent p-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.06em] text-success">💡 הצעות ראשי צוותים</div>
+            <div className="flex max-h-[180px] flex-col gap-1 overflow-y-auto">
               {proposals.map((p: any) => {
                 const isSel = selectedProposal === p.id;
                 const submittingTeamName = teams.find((t: any) => t.id === p.teamId)?.name ?? '';
@@ -370,18 +371,21 @@ export const TaskDetailPanel: React.FC<Props> = ({
                     if (p.assignedUserName) setAssignee(p.assignedUserName);
                     // use responsibleTeamId if set (team lead designated a different team), else submitting teamId
                     setTeamId((p as any).responsibleTeamId || p.teamId || '');
-                  })()} style={{ padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, cursor: 'pointer', background: isSel ? C.success : C.bgElevated, border: `1px solid ${isSel ? C.success : C.border}`, transition: EASE.fast }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: '3px' }}>
-                      {p.crNumber && <span style={{ fontSize: '13px', background: C.infoBg, color: C.info, padding: '1px 7px', borderRadius: RADIUS.sm, fontWeight: WEIGHT.semibold }}>{p.crNumber}</span>}
-                      <span style={{ fontSize: '15px', fontWeight: WEIGHT.semibold, color: isSel ? 'white' : C.textPrimary, flex: 1 }}>{p.title}</span>
+                  })()} className={cn(
+                    'cursor-pointer rounded-md px-3 py-2 transition-[background,border-color] duration-fast ease-out border',
+                    isSel ? 'border-success bg-success' : 'border-border bg-card'
+                  )}>
+                    <div className="mb-[3px] flex items-center gap-2">
+                      {p.crNumber && <span className="rounded-sm bg-info-bg px-1.5 py-px text-[13px] font-semibold text-info">{p.crNumber}</span>}
+                      <span className={cn('flex-1 text-[15px] font-semibold', isSel ? 'text-white' : 'text-foreground')}>{p.title}</span>
                     </div>
-                    <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
-                      {submittingTeamName && <span style={{ fontSize: '13px', color: isSel ? 'rgba(255,255,255,0.8)' : C.textMuted }}>מגיש: {submittingTeamName}</span>}
+                    <div className="flex flex-wrap gap-2">
+                      {submittingTeamName && <span className={cn('text-[13px]', isSel ? 'text-white/80' : 'text-subtle-foreground')}>מגיש: {submittingTeamName}</span>}
                       {responsibleTeamName && responsibleTeamName !== submittingTeamName && (
-                        <span style={{ fontSize: '13px', color: isSel ? 'rgba(255,255,255,0.9)' : C.brand, fontWeight: WEIGHT.semibold }}>אחראי: {responsibleTeamName}</span>
+                        <span className={cn('text-[13px] font-semibold', isSel ? 'text-white/90' : 'text-primary')}>אחראי: {responsibleTeamName}</span>
                       )}
-                      {p.app && <span style={{ fontSize: '13px', color: isSel ? 'rgba(255,255,255,0.7)' : C.textMuted }}>{p.app}</span>}
-                      {p.estimatedMins && <span style={{ fontSize: '13px', color: isSel ? 'rgba(255,255,255,0.7)' : C.warning }}>⏱ {p.estimatedMins} דק'</span>}
+                      {p.app && <span className={cn('text-[13px]', isSel ? 'text-white/70' : 'text-subtle-foreground')}>{p.app}</span>}
+                      {p.estimatedMins && <span className={cn('text-[13px]', isSel ? 'text-white/70' : 'text-warning')}>⏱ {p.estimatedMins} דק'</span>}
                     </div>
                   </div>
                 );
@@ -394,7 +398,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
         <div>
           <Label required>שם משימה</Label>
           <textarea value={title} onChange={e => setTitle(e.target.value)} rows={2} disabled={!editable}
-            style={{ ...inp, ...fieldErr('title'), resize: 'none', lineHeight: '1.5', fontWeight: WEIGHT.semibold, fontSize: '16px' }} />
+            className={cn(inpClass, fieldErrClass(errors.has('title')), 'resize-none text-base font-semibold leading-[1.5]')} />
         </div>
 
         <Divider />
@@ -404,10 +408,15 @@ export const TaskDetailPanel: React.FC<Props> = ({
           <div>
             <Label>סטטוס</Label>
             {readonlyStatus
-              ? <span style={{ ...TEXT.sm, fontFamily: FONT, color: C.textMuted, padding: '3px 10px', borderRadius: RADIUS.full, background: C.bgNested, border: `1px solid ${C.border}`, display: 'inline-block' }}>ממתין</span>
-              : <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[1] }}>
+              ? <span className="inline-block rounded-full border border-border bg-muted px-2.5 py-[3px] text-sm text-subtle-foreground">ממתין</span>
+              : <div className="flex flex-wrap gap-1">
                   {STATUSES.map(s => { const sc = statusColor(s), isA = status === s; return (
-                    <button key={s} onClick={() => handleStatusSave(s)} style={{ fontFamily: FONT, ...TEXT.xs, fontWeight: isA ? WEIGHT.semibold : WEIGHT.normal, padding: '4px 10px', borderRadius: RADIUS.full, cursor: 'pointer', background: isA ? sc+'20' : 'transparent', color: isA ? sc : C.textMuted, border: `1px solid ${isA ? sc+'60' : C.border}` }}>{statusLabel(s)}</button>
+                    <button
+                      key={s}
+                      onClick={() => handleStatusSave(s)}
+                      className={cn('cursor-pointer rounded-full px-2.5 py-1 text-xs', isA ? 'font-semibold' : 'font-normal')}
+                      style={{ background: isA ? sc + '20' : 'transparent', color: isA ? sc : C.textMuted, border: `1px solid ${isA ? sc + '60' : C.border}` }}
+                    >{statusLabel(s)}</button>
                   );})}
                 </div>
             }
@@ -415,14 +424,14 @@ export const TaskDetailPanel: React.FC<Props> = ({
         )}
 
         {/* ── צוות + אחראי ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <Label required>צוות</Label>
             <input value={teamFilter} onChange={e => setTeamFilter(e.target.value)} placeholder="סנן..."
-              style={{ ...inp, fontSize: '13px', padding: '4px 8px', borderRadius: `${RADIUS.sm} ${RADIUS.sm} 0 0`, borderBottom: 'none' }} />
+              className={cn(inpClass, 'rounded-b-none border-b-0 px-2 py-1 text-[13px]')} />
             <select value={teamId} onChange={e => { setTeamId(e.target.value); setAssignee(''); setApp(''); setTeamCrItems([]); }}
               disabled={!editable}
-              style={{ ...inp, ...fieldErr('teamId'), cursor: 'pointer', borderRadius: `0 0 ${RADIUS.sm} ${RADIUS.sm}`, borderTop: 'none' }}>
+              className={cn(inpClass, fieldErrClass(errors.has('teamId')), 'cursor-pointer rounded-t-none border-t-0')}>
               <option value="">— בחר צוות —</option>
               {activeTeams.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
@@ -430,10 +439,10 @@ export const TaskDetailPanel: React.FC<Props> = ({
           <div>
             <Label required>אחראי</Label>
             <input value={userFilter} onChange={e => setUserFilter(e.target.value)} placeholder="סנן..."
-              style={{ ...inp, fontSize: '13px', padding: '4px 8px', borderRadius: `${RADIUS.sm} ${RADIUS.sm} 0 0`, borderBottom: 'none' }} />
+              className={cn(inpClass, 'rounded-b-none border-b-0 px-2 py-1 text-[13px]')} />
             <select value={assignee} onChange={e => setAssignee(e.target.value)}
               disabled={!editable}
-              style={{ ...inp, ...fieldErr('assignee'), cursor: 'pointer', borderRadius: `0 0 ${RADIUS.sm} ${RADIUS.sm}`, borderTop: 'none' }}>
+              className={cn(inpClass, fieldErrClass(errors.has('assignee')), 'cursor-pointer rounded-t-none border-t-0')}>
               <option value="">— בחר אחראי —</option>
               {filteredUsers.map((u: any) => <option key={u.id ?? u.fullName} value={u.fullName}>{u.fullName}</option>)}
             </select>
@@ -441,14 +450,14 @@ export const TaskDetailPanel: React.FC<Props> = ({
         </div>
 
         {/* ── אפליקציה + סביבה ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <Label required>אפליקציה</Label>
             <input value={appFilter} onChange={e => setAppFilter(e.target.value)} placeholder="סנן..."
-              style={{ ...inp, fontSize: '13px', padding: '4px 8px', borderRadius: `${RADIUS.sm} ${RADIUS.sm} 0 0`, borderBottom: 'none' }} />
+              className={cn(inpClass, 'rounded-b-none border-b-0 px-2 py-1 text-[13px]')} />
             <select value={application} onChange={e => setApp(e.target.value)}
               disabled={!editable}
-              style={{ ...inp, ...fieldErr('application'), cursor: 'pointer', borderRadius: `0 0 ${RADIUS.sm} ${RADIUS.sm}`, borderTop: 'none' }}>
+              className={cn(inpClass, fieldErrClass(errors.has('application')), 'cursor-pointer rounded-t-none border-t-0')}>
               <option value="">— בחר אפליקציה —</option>
               {filteredApps.map((a: string) => <option key={a} value={a}>{a}</option>)}
             </select>
@@ -456,7 +465,7 @@ export const TaskDetailPanel: React.FC<Props> = ({
           <div>
             <Label required>סביבה</Label>
             <select value={environment} onChange={e => setEnv(e.target.value)}
-              disabled={!editable} style={{ ...inp, cursor: 'pointer' }}>
+              disabled={!editable} className={cn(inpClass, 'cursor-pointer')}>
               <option value="BOTH">HOT + HOTNET</option>
               <option value="HOT">HOT בלבד</option>
               <option value="HOTNET">HOTNET בלבד</option>
@@ -467,13 +476,13 @@ export const TaskDetailPanel: React.FC<Props> = ({
         {/* ── פיתוחים בגרסה (CR) ── */}
         <div>
           <Label>פיתוחים בגרסה</Label>
-          <div style={{ ...errInp(errors.has('crList')), display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center', padding: '6px 10px', minHeight: '40px' }}>
+          <div className={cn(inpClass, fieldErrClass(errors.has('crList')), 'flex min-h-10 flex-wrap items-center gap-1.5 px-2.5 py-1.5')}>
             {crList.map((cr: string) => {
               const match = activeCrItems.find(c => c.id === cr);
               return (
-                <span key={cr} title={match?.label ?? cr} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: C.infoBg, color: C.info, borderRadius: RADIUS.sm, padding: '2px 8px', fontSize: '15px', maxWidth: '260px' }}>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{match?.label ?? cr}</span>
-                  {editable && <button onClick={() => setCrList(l => l.filter(c => c !== cr))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.info, padding: 0, lineHeight: 1, fontSize: '16px', flexShrink: 0 }}>×</button>}
+                <span key={cr} title={match?.label ?? cr} className="inline-flex max-w-[260px] items-center gap-1 rounded-sm bg-info-bg px-2 py-0.5 text-sm text-info">
+                  <span className="overflow-hidden text-ellipsis whitespace-nowrap">{match?.label ?? cr}</span>
+                  {editable && <button onClick={() => setCrList(l => l.filter(c => c !== cr))} className="shrink-0 cursor-pointer border-none bg-transparent p-0 text-base leading-none text-info">×</button>}
                 </span>
               );
             })}
@@ -501,25 +510,25 @@ export const TaskDetailPanel: React.FC<Props> = ({
                   }
                 }}
                 placeholder={crList.length ? '+ הוסף' : 'הקלד CR# והקש Enter'}
-                style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: '15px', flex: 1, minWidth: '120px', color: C.textPrimary, fontFamily: FONT }}
+                className="min-w-[120px] flex-1 border-none bg-transparent text-sm text-foreground outline-none"
               />
             )}
             <datalist id="cr-datalist-panel">
               {activeCrItems.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
             </datalist>
           </div>
-          {!teamId && <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, marginTop: '3px' }}>בחר צוות כדי לסנן את הרשימה</div>}
-          {crInputError && <div style={{ ...TEXT.xs, color: C.danger, fontFamily: FONT, marginTop: '3px' }}>⚠ {crInputError}</div>}
+          {!teamId && <div className="mt-[3px] text-xs text-subtle-foreground">בחר צוות כדי לסנן את הרשימה</div>}
+          {crInputError && <div className="mt-[3px] text-xs text-danger">⚠ {crInputError}</div>}
         </div>
 
         {/* ── משך + התחלה + סיום (שורה אחת) ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr 1fr', gap: SP[3] }}>
+        <div className="grid grid-cols-[90px_1fr_1fr] gap-3">
           <div>
             <Label required>משך (דק')</Label>
             <input type="number" min="1" max="999" value={durationMins}
               onChange={e => { const v = e.target.value.slice(0,3); setDur(v); const m = parseInt(v); if (m > 0 && plannedStart) setEnd(calcEnd(plannedStart, m)); }}
               disabled={!editable}
-              style={{ ...inp, ...fieldErr('durationMins'), textAlign: 'center', fontWeight: WEIGHT.semibold }} placeholder="דק'" />
+              className={cn(inpClass, fieldErrClass(errors.has('durationMins')), 'text-center font-semibold')} placeholder="דק'" />
           </div>
           <div>
             <Label required>התחלה מתוכננת</Label>
@@ -549,22 +558,22 @@ export const TaskDetailPanel: React.FC<Props> = ({
 
         {/* Phase time warning */}
         {timeWarning && (
-          <div style={{ background: '#fff3cd', border: '1px solid #f59e0b', borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, display: 'flex', alignItems: 'flex-start', gap: SP[2] }}>
-            <span style={{ fontSize: '17px', flexShrink: 0 }}>⚠️</span>
+          <div className="flex items-start gap-2 rounded-md border border-warning bg-warning-bg px-3 py-2">
+            <span className="shrink-0 text-sm">⚠️</span>
             <div>
-              <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: '#92400e', fontFamily: FONT, marginBottom: '2px' }}>
+              <div className="mb-0.5 text-xs font-semibold text-warning">
                 התאריך חורג מלוח הזמנים של השלב
               </div>
-              <div style={{ ...TEXT.xs, color: '#78350f', fontFamily: FONT }}>{timeWarning}</div>
+              <div className="text-xs text-warning">{timeWarning}</div>
             </div>
           </div>
         )}
 
         {/* Actual dates */}
         {!isAdd && (task?.actualStart || task?.actualFinish) && (
-          <div style={{ display: 'flex', gap: SP[4] }}>
-            {task.actualStart  && <span style={{ ...TEXT.xs, color: C.statusDone, fontFamily: FONT }}>▶ התחיל: {fmtDT(task.actualStart)}</span>}
-            {task.actualFinish && <span style={{ ...TEXT.xs, color: C.statusDone, fontFamily: FONT }}>■ הסתיים: {fmtDT(task.actualFinish)}</span>}
+          <div className="flex gap-4">
+            {task.actualStart  && <span className="text-xs" style={{ color: C.statusDone }}>▶ התחיל: {fmtDT(task.actualStart)}</span>}
+            {task.actualFinish && <span className="text-xs" style={{ color: C.statusDone }}>■ הסתיים: {fmtDT(task.actualFinish)}</span>}
           </div>
         )}
 
@@ -572,23 +581,27 @@ export const TaskDetailPanel: React.FC<Props> = ({
         <div>
           <Label>תלויות</Label>
           {deps.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: SP[2] }}>
+            <div className="mb-2 flex flex-col gap-1">
               {deps.map((d: any) => {
                 const dep = d.dependsOn; const isDone = dep?.status === 'DONE';
                 return (
-                  <div key={d.dependsOnTaskId} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: '5px 10px', borderRadius: RADIUS.md, background: isDone ? C.bgDone : C.bgBlocked, border: `1px solid ${isDone ? C.statusDone+'33' : C.statusBlocked+'33'}` }}>
-                    <span style={{ color: isDone ? C.statusDone : C.statusBlocked, flexShrink: 0 }}>{isDone ? '✓' : '⏳'}</span>
-                    <span style={{ ...TEXT.xs, color: C.textPrimary, fontFamily: FONT, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dep?.title}</span>
+                  <div
+                    key={d.dependsOnTaskId}
+                    className="flex items-center gap-2 rounded-md px-2.5 py-1.5"
+                    style={{ background: isDone ? C.bgDone : C.bgBlocked, border: `1px solid ${isDone ? C.statusDone + '33' : C.statusBlocked + '33'}` }}
+                  >
+                    <span className="shrink-0" style={{ color: isDone ? C.statusDone : C.statusBlocked }}>{isDone ? '✓' : '⏳'}</span>
+                    <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-foreground">{dep?.title}</span>
                     {dep && <StatusChip status={dep.status} size="xs" />}
-                    {editable && <button onClick={() => removeDep(d.dependsOnTaskId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.danger, fontSize: '15px', padding: 0, lineHeight: 1 }}>✕</button>}
+                    {editable && <button onClick={() => removeDep(d.dependsOnTaskId)} className="cursor-pointer border-none bg-transparent p-0 text-sm leading-none text-danger">✕</button>}
                   </div>
                 );
               })}
             </div>
           )}
           {editable && eligibleTasks.filter((t: any) => !linkedIds.has(t.id)).length > 0 && (
-            <div style={{ display: 'flex', gap: SP[2] }}>
-              <select value={depAddId} onChange={e => setDepAddId(e.target.value)} style={{ ...inp, flex: 1, fontSize: '15px', cursor: 'pointer' }}>
+            <div className="flex gap-2">
+              <select value={depAddId} onChange={e => setDepAddId(e.target.value)} className={cn(inpClass, 'flex-1 cursor-pointer text-sm')}>
                 <option value="">— בחר משימה תלויה —</option>
                 {versionPhases.filter((p: any) => p.orderIndex <= currentPhaseOrder).map((p: any) => (
                   <optgroup key={p.id} label={p.name}>
@@ -600,7 +613,10 @@ export const TaskDetailPanel: React.FC<Props> = ({
                 ))}
               </select>
               <button disabled={!depAddId} onClick={() => addDep(eligibleTasks.find((t: any) => t.id === depAddId))}
-                style={{ padding: '7px 16px', background: depAddId ? C.brand : C.bgNested, color: depAddId ? 'white' : C.textDisabled, border: 'none', borderRadius: RADIUS.md, cursor: depAddId ? 'pointer' : 'not-allowed', fontSize: '15px', fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap' }}>
+                className={cn(
+                  'whitespace-nowrap rounded-md border-none px-4 py-[7px] text-sm font-semibold',
+                  depAddId ? 'cursor-pointer bg-primary text-white' : 'cursor-not-allowed bg-muted text-subtle-foreground'
+                )}>
                 + הוסף
               </button>
             </div>
@@ -608,35 +624,51 @@ export const TaskDetailPanel: React.FC<Props> = ({
         </div>
 
         {/* ── הערת תלות + הערות ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>הערת תלות</Label>
-            <input value={depNote} onChange={e => setDepNote(e.target.value)} disabled={!editable} placeholder="תלוי ב..." style={inp} />
+            <input value={depNote} onChange={e => setDepNote(e.target.value)} disabled={!editable} placeholder="תלוי ב..." className={inpClass} />
           </div>
           <div>
             <Label>הערות כלליות</Label>
-            <input value={notes} onChange={e => setNotes(e.target.value)} disabled={!editable} placeholder="הערה..." style={inp} />
+            <input value={notes} onChange={e => setNotes(e.target.value)} disabled={!editable} placeholder="הערה..." className={inpClass} />
           </div>
         </div>
 
         {/* ── סדר משימות ── */}
         <div>
           <Label>סדר בתוך תת-השלב</Label>
-          <input type="number" value={orderIndex} onChange={e => setOrderIndex(e.target.value)} disabled={!editable} style={{ ...inp, width: '100px' }} />
+          <input type="number" value={orderIndex} onChange={e => setOrderIndex(e.target.value)} disabled={!editable} className={cn(inpClass, 'w-[100px]')} />
         </div>
 
         {/* Alert boxes */}
-        {!isAdd && task?.blockedReason && <div style={{ background: C.bgBlocked, borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.statusBlocked}44` }}><div style={{ ...TEXT.xs, color: C.textOnBlockedBg, fontWeight: WEIGHT.semibold, marginBottom: '4px', fontFamily: FONT, display: 'flex', alignItems: 'center', gap: SP[2] }}>🚫 סיבת חסימה{task?.blockedSeverity && <span style={{ background: severityBg(task.blockedSeverity), color: severityColor(task.blockedSeverity), padding: '1px 8px', borderRadius: RADIUS.full, fontWeight: WEIGHT.semibold }}>{severityLabel(task.blockedSeverity)}</span>}</div><div style={{ ...TEXT.sm, color: C.textOnBlockedBg, fontFamily: FONT }}>{task.blockedReason}</div></div>}
-        {!isAdd && task?.failedReason && <div style={{ background: C.bgFailed, borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, border: `1px solid ${C.statusFailed}44` }}><div style={{ ...TEXT.xs, color: C.statusFailed, fontWeight: WEIGHT.semibold, marginBottom: '4px', fontFamily: FONT }}>✗ סיבת כישלון</div><div style={{ ...TEXT.sm, color: C.statusFailed, fontFamily: FONT }}>{task.failedReason}</div></div>}
+        {!isAdd && task?.blockedReason && (
+          <div className="rounded-md px-3 py-2" style={{ background: C.bgBlocked, border: `1px solid ${C.statusBlocked}44` }}>
+            <div className="mb-1 flex items-center gap-2 text-xs font-semibold" style={{ color: C.textOnBlockedBg }}>
+              🚫 סיבת חסימה{task?.blockedSeverity && <span style={{ background: severityBg(task.blockedSeverity), color: severityColor(task.blockedSeverity) }} className="rounded-full px-2 py-px font-semibold">{severityLabel(task.blockedSeverity)}</span>}
+            </div>
+            <div className="text-sm" style={{ color: C.textOnBlockedBg }}>{task.blockedReason}</div>
+          </div>
+        )}
+        {!isAdd && task?.failedReason && (
+          <div className="rounded-md px-3 py-2" style={{ background: C.bgFailed, border: `1px solid ${C.statusFailed}44` }}>
+            <div className="mb-1 text-xs font-semibold" style={{ color: C.statusFailed }}>✗ סיבת כישלון</div>
+            <div className="text-sm" style={{ color: C.statusFailed }}>{task.failedReason}</div>
+          </div>
+        )}
       </div>
 
       {/* Footer */}
       {editable && (
-        <div style={{ flexShrink: 0, padding: `${SP[3]} ${SP[4]}`, borderTop: `1px solid ${C.border}`, background: C.bgElevated, display: 'flex', direction: 'ltr', gap: SP[2], justifyContent: 'flex-end', alignItems: 'center' }}>
-          {errors.size > 0 && <span style={{ ...TEXT.xs, color: C.danger, fontFamily: FONT, flex: 1, direction: 'rtl', textAlign: 'right' }}>* יש למלא את כל שדות החובה</span>}
-          <button onClick={onClose} style={{ padding: '8px 20px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontSize: '15px', fontFamily: FONT }}>ביטול</button>
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border bg-card px-4 py-3 [direction:ltr]">
+          {errors.size > 0 && <span className="flex-1 text-right text-xs text-danger [direction:rtl]">* יש למלא את כל שדות החובה</span>}
+          <button onClick={onClose} className="cursor-pointer rounded-lg border border-border bg-muted px-5 py-2 text-sm text-muted-foreground">ביטול</button>
           <button onClick={handleSave} disabled={saving}
-            style={{ padding: '8px 24px', background: saveOk ? C.success : C.brand, color: 'white', border: 'none', borderRadius: RADIUS.lg, cursor: saving ? 'not-allowed' : 'pointer', fontSize: '15px', fontWeight: WEIGHT.semibold, minWidth: '90px', transition: EASE.fast, fontFamily: FONT }}>
+            className={cn(
+              'min-w-[90px] rounded-lg border-none px-6 py-2 text-sm font-semibold text-white transition-[background] duration-fast ease-out',
+              saving ? 'cursor-not-allowed' : 'cursor-pointer',
+              saveOk ? 'bg-success' : 'bg-primary'
+            )}>
             {saving ? '...' : saveOk ? '✓ נשמר' : isAdd ? 'הוסף משימה' : 'שמור שינויים'}
           </button>
         </div>

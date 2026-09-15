@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { WEIGHT } from '../../theme';
 import { formatDate } from '../../utils/dateFormat';
+import { cn } from '../../lib/utils';
 
 interface Cycle {
   cycleType: string;
@@ -83,30 +83,34 @@ export const VersionMilestoneTimeline: React.FC<Props> = ({ version, cycles }) =
   const fmt = (d: Date) => formatDate(d);
 
   return (
-    <div style={{ position: 'relative', display: 'flex', marginTop: '16px', gap: '2px' }}>
+    <div className="relative mt-4 flex gap-0.5">
       {/* One continuous rail behind every dot — simpler and more robust than
           computing a per-column connector, and correct regardless of how
           many stages there are or how wide each column ends up. */}
-      <div style={{ position: 'absolute', top: '6px', right: `${100 / stages.length / 2}%`, left: `${100 / stages.length / 2}%`, height: '2px', background: 'rgba(255,255,255,.15)' }} />
+      <div
+        className="absolute top-1.5 h-0.5 bg-white/15"
+        style={{ right: `${100 / stages.length / 2}%`, left: `${100 / stages.length / 2}%` }}
+      />
       {stages.map((s, i) => {
         const isPast = s.end.getTime() <= nowTick;
         const isNext = !isPast && stages.slice(0, i).every(ss => ss.end.getTime() <= nowTick);
         const color = STAGE_COLORS[i % STAGE_COLORS.length];
         return (
-          <div key={i} title={`${s.label} — ${fmt(s.start)} – ${fmt(s.end)}`} style={{ flex: '1 1 0', minWidth: 0, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' as const }}>
-            <div style={{
-              width: '13px', height: '13px', borderRadius: '50%', flexShrink: 0, zIndex: 1,
-              background: isPast || isNext ? color : `${color}4d`,
-              border: isNext ? '2px solid white' : '2px solid #1c1d3d',
-              boxShadow: isNext ? `0 0 0 3px ${color}55` : 'none',
-            }} />
-            <div style={{ marginTop: '8px', fontSize: '11px', lineHeight: '15px', color: 'rgba(255,255,255,.85)', whiteSpace: 'nowrap' as const, opacity: isPast ? 0.6 : 1 }}>
+          <div key={i} title={`${s.label} — ${fmt(s.start)} – ${fmt(s.end)}`} className="relative flex min-w-0 flex-1 flex-col items-center text-center">
+            <div
+              className={cn('h-[13px] w-[13px] shrink-0 rounded-full border-2 z-10', isNext ? 'border-white' : 'border-[#1c1d3d]')}
+              style={{
+                background: isPast || isNext ? color : `${color}4d`,
+                boxShadow: isNext ? `0 0 0 3px ${color}55` : 'none',
+              }}
+            />
+            <div className={cn('mt-2 whitespace-nowrap text-[11px] leading-[15px] text-white/85', isPast ? 'opacity-60' : 'opacity-100')}>
               {fmt(s.end)}
             </div>
-            <div style={{ fontSize: '11px', lineHeight: '15px', color: 'rgba(255,255,255,.5)', whiteSpace: 'nowrap' as const, opacity: isPast ? 0.6 : 1 }}>
+            <div className={cn('whitespace-nowrap text-[11px] leading-[15px] text-white/50', isPast ? 'opacity-60' : 'opacity-100')}>
               {fmt(s.start)}
             </div>
-            <div style={{ marginTop: '6px', fontSize: '12px', fontWeight: isNext ? WEIGHT.semibold : WEIGHT.medium, color: isNext ? 'white' : 'rgba(255,255,255,.75)', opacity: isPast ? 0.6 : 1 }}>
+            <div className={cn('mt-1.5 text-[12px]', isNext ? 'font-semibold text-white' : 'font-medium text-white/75', isPast ? 'opacity-60' : 'opacity-100')}>
               {s.label}
             </div>
           </div>

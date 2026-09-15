@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { VersionProgressChain } from './VersionProgressChain';
-import { C, FONT, TEXT, WEIGHT, RADIUS, SHADOW, EASE, severityColor, severityLabel } from '../theme';
+import { C, severityColor, severityLabel } from '../theme';
 import { RUNBOOKS } from './qa/RunbookModal';
 import { MyQaTask, TargetDefectGroup } from './qa/MyQaTasksView';
 import { VersionMilestoneTimeline } from './shared/VersionMilestoneTimeline';
@@ -28,10 +28,10 @@ const PHASE_META: Record<string, { label: string; icon: string; color: string; b
 
 function StatCard({ value, label, delta, deltaColor }: { value: string; label: string; delta?: string; deltaColor?: string }) {
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '16px 20px', flex: 1 }}>
-      <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: C.textPrimary, lineHeight: 1.2 }}>{value}</div>
-      <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>{label}</div>
-      {delta && <div style={{ ...TEXT.xs, color: deltaColor ?? C.textMuted, marginTop: '6px' }}>{delta}</div>}
+    <div className="flex-1 rounded-lg border border-border bg-card px-5 py-4">
+      <div className="text-xl font-bold leading-tight text-foreground">{value}</div>
+      <div className="mt-1 text-xs text-subtle-foreground">{label}</div>
+      {delta && <div className="mt-1.5 text-xs" style={{ color: deltaColor ?? undefined }}>{delta}</div>}
     </div>
   );
 }
@@ -40,18 +40,14 @@ function ActionItem({ icon, title, desc, urgent, onClick }: { icon: string; titl
   return (
     <div
       onClick={onClick}
-      style={{
-        display: 'flex', alignItems: 'flex-start', gap: '10px',
-        padding: '10px 0', borderBottom: `1px solid ${C.border}`,
-        cursor: onClick ? 'pointer' : 'default',
-      }}
+      className={`flex items-start gap-2.5 border-b border-border py-2.5 ${onClick ? 'cursor-pointer' : 'cursor-default'}`}
     >
-      <span style={{ fontSize: '17px', flexShrink: 0, marginTop: '1px' }}>{icon}</span>
-      <div style={{ flex: 1 }}>
-        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: urgent ? C.danger : C.textPrimary }}>{title}</div>
-        <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>{desc}</div>
+      <span className="mt-0.5 flex-shrink-0 text-base">{icon}</span>
+      <div className="flex-1">
+        <div className={`text-sm font-medium ${urgent ? 'text-danger' : 'text-foreground'}`}>{title}</div>
+        <div className="mt-0.5 text-xs text-subtle-foreground">{desc}</div>
       </div>
-      {onClick && <span style={{ ...TEXT.xs, color: C.brand, fontWeight: WEIGHT.semibold, flexShrink: 0, marginTop: '2px' }}>←</span>}
+      {onClick && <span className="mt-0.5 flex-shrink-0 text-xs font-semibold text-primary">←</span>}
     </div>
   );
 }
@@ -133,11 +129,11 @@ export const EmployeeHomeView: React.FC<Props> = ({
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div className="flex flex-col gap-4">
       {/* ── Greeting ── */}
       <div>
-        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{greeting}, {firstName} 👋</div>
-        <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '1px' }}>
+        <div className="text-lg font-bold text-foreground">{greeting}, {firstName} 👋</div>
+        <div className="mt-0.5 text-xs text-subtle-foreground">
           {new Date().toLocaleDateString('he-IL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           {teamName && <> · {teamName}</>}
         </div>
@@ -148,31 +144,31 @@ export const EmployeeHomeView: React.FC<Props> = ({
           pinned notice, milestone timeline and go-live countdown — not a
           separate card per piece. */}
       {primary && ph ? (
-        <div style={{
-          background: 'linear-gradient(135deg, #14152A 0%, #22244a 60%, #241f42 100%)',
-          borderRadius: RADIUS.lg, padding: '20px 24px', boxShadow: SHADOW.md,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-            <span style={{ fontSize: '36px', flexShrink: 0 }}>{ph.icon}</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '28px', fontWeight: WEIGHT.bold, color: 'white', lineHeight: 1.1, marginBottom: '4px', letterSpacing: '-0.01em' }}>
+        <div
+          className="rounded-lg px-6 py-5 shadow-md"
+          style={{ background: 'linear-gradient(135deg, #14152A 0%, #22244a 60%, #241f42 100%)' }}
+        >
+          <div className="flex items-center gap-5">
+            <span className="flex-shrink-0 text-4xl">{ph.icon}</span>
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 text-[28px] font-bold leading-[1.1] tracking-tight text-white">
                 {primary.name}
               </div>
-              <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: 'rgba(255,255,255,.85)', marginBottom: '6px' }}>{ph.icon} {ph.label}</div>
-              <div style={{ ...TEXT.xs, color: 'rgba(255,255,255,.6)' }}>{ph.desc}</div>
+              <div className="mb-1.5 text-sm font-semibold text-white/85">{ph.icon} {ph.label}</div>
+              <div className="text-xs text-white/60">{ph.desc}</div>
             </div>
-            <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
+            <div className="flex flex-shrink-0 flex-col items-start gap-2">
               {isLiveNow ? (
                 <button
                   onClick={onOpenFocusMode}
-                  style={{ background: 'white', color: '#14152A', border: 'none', borderRadius: RADIUS.md, padding: '10px 20px', ...TEXT.sm, fontWeight: WEIGHT.semibold, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' as const }}
+                  className="cursor-pointer whitespace-nowrap rounded-md border-none bg-white px-5 py-2.5 font-sans text-sm font-semibold text-[#14152A]"
                 >
                   ⚡ המשימות שלי
                 </button>
               ) : (
                 <button
                   onClick={onGoToTasks}
-                  style={{ background: 'transparent', color: 'white', border: '1px solid rgba(255,255,255,.35)', borderRadius: RADIUS.md, padding: '7px 16px', ...TEXT.xs, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' as const }}
+                  className="cursor-pointer whitespace-nowrap rounded-md border border-white/35 bg-transparent px-4 py-1.5 font-sans text-xs text-white"
                 >
                   פרטי גרסה
                 </button>
@@ -185,18 +181,13 @@ export const EmployeeHomeView: React.FC<Props> = ({
           {isQaTester && (
             <>
               {(homeNotices ?? []).map(n => (
-                <div key={n.id} style={{
-                  display: 'flex', gap: '8px', alignItems: 'flex-start',
-                  ...TEXT.sm, color: 'white', background: 'rgba(255,255,255,.08)',
-                  border: '1px solid rgba(255,255,255,.16)', borderRadius: RADIUS.md,
-                  padding: '8px 12px', marginTop: '10px',
-                }}>
-                  <span style={{ flexShrink: 0 }}>📌</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: 'inline-block', ...TEXT.xs, fontWeight: WEIGHT.bold, color: severityColor(n.urgency), background: 'white', borderRadius: RADIUS.full, padding: '1px 8px', marginBottom: '4px' }}>
+                <div key={n.id} className="mt-2.5 flex items-start gap-2 rounded-md border border-white/16 bg-white/[.08] px-3 py-2 text-sm text-white">
+                  <span className="flex-shrink-0">📌</span>
+                  <div className="min-w-0 flex-1">
+                    <span className="mb-1 inline-block rounded-full bg-white px-2 py-px text-xs font-bold" style={{ color: severityColor(n.urgency) }}>
                       {severityLabel(n.urgency)}
                     </span>
-                    <div style={{ whiteSpace: 'pre-wrap' as const }}>{n.text}</div>
+                    <div className="whitespace-pre-wrap">{n.text}</div>
                   </div>
                 </div>
               ))}
@@ -206,11 +197,11 @@ export const EmployeeHomeView: React.FC<Props> = ({
           )}
         </div>
       ) : (
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '20px 24px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <span style={{ fontSize: '32px' }}>🌙</span>
+        <div className="flex items-center gap-4 rounded-lg border border-border bg-card px-6 py-5">
+          <span className="text-3xl">🌙</span>
           <div>
-            <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>אין פעילות פעילה הלילה</div>
-            <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>אין גרסה פעילה כעת. המתן להנחיות מנהל הלילה.</div>
+            <div className="text-sm font-bold text-foreground">אין פעילות פעילה הלילה</div>
+            <div className="mt-0.5 text-xs text-subtle-foreground">אין גרסה פעילה כעת. המתן להנחיות מנהל הלילה.</div>
           </div>
         </div>
       )}
@@ -220,7 +211,7 @@ export const EmployeeHomeView: React.FC<Props> = ({
 
       {/* ── Stats row (only while a run is actually live) ── */}
       {isLiveNow && (
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div className="flex gap-3">
           <StatCard value={`${taskStats.done}/${taskStats.total}`} label="התקדמות כללית" deltaColor={C.success} delta={taskStats.total > 0 ? `${Math.round((taskStats.done / taskStats.total) * 100)}%` : undefined} />
           <StatCard value={String(taskStats.open)} label="פתוחות" />
           <StatCard value={String(taskStats.inProgress)} label="בביצוע" deltaColor={C.warning} />
@@ -243,60 +234,60 @@ export const EmployeeHomeView: React.FC<Props> = ({
           return { label: '○ טרם התחיל', color: C.textMuted };
         };
         return (
-          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '18px 20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <span style={{ fontSize: '30px', flexShrink: 0 }}>🧪</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>המשימות שלי (QA)</div>
+          <div className="rounded-lg border border-border bg-card px-5 py-[18px]">
+            <div className="flex items-center gap-4">
+              <span className="flex-shrink-0 text-[30px]">🧪</span>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-bold text-foreground">המשימות שלי (QA)</div>
                 {total > 0 ? (
-                  <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>
+                  <div className="mt-0.5 text-xs text-subtle-foreground">
                     {total} משימות בדיקה משובצות לך
                     {myQaTasks![0] && ` · הקרובה: CR ${myQaTasks![0].crNumber} (${CYCLE_LABEL[myQaTasks![0].cycle.cycleType] ?? myQaTasks![0].cycle.cycleType})`}
                   </div>
                 ) : (
-                  <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>אין לך משימות בדיקה משובצות כרגע בגרסה זו</div>
+                  <div className="mt-0.5 text-xs text-subtle-foreground">אין לך משימות בדיקה משובצות כרגע בגרסה זו</div>
                 )}
               </div>
               {onGoToQaTasks && (
-                <span onClick={onGoToQaTasks} style={{ ...TEXT.xs, color: C.brand, fontWeight: WEIGHT.semibold, flexShrink: 0, cursor: 'pointer' }}>לכל המשימות ←</span>
+                <span onClick={onGoToQaTasks} className="flex-shrink-0 cursor-pointer text-xs font-semibold text-primary">לכל המשימות ←</span>
               )}
             </div>
 
             {total > 0 && (
               <>
-                <div style={{ marginTop: '14px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <div className="mt-3.5">
+                  <div className="mb-1.5 flex items-center justify-between">
                     <span
                       onClick={() => setTasksExpanded(v => !v)}
-                      style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textSecondary, cursor: 'pointer', userSelect: 'none' as const }}
+                      className="cursor-pointer select-none text-xs font-semibold text-muted-foreground"
                     >
                       {tasksExpanded ? '▲' : '▼'} התקדמות בבדיקות (לפי לוח זמנים)
                     </span>
-                    <span style={{ ...TEXT.xs, color: C.textMuted }}>{pastSchedule}/{total} משימות ({pct}%)</span>
+                    <span className="text-xs text-subtle-foreground">{pastSchedule}/{total} משימות ({pct}%)</span>
                   </div>
                   <div
                     onClick={() => setTasksExpanded(v => !v)}
-                    style={{ background: C.bgNested, borderRadius: '8px', height: '10px', overflow: 'hidden', cursor: 'pointer' }}
+                    className="h-2.5 cursor-pointer overflow-hidden rounded-lg bg-muted"
                   >
-                    <div style={{ background: pct >= 100 ? C.success : C.brand, width: `${pct}%`, height: '100%', borderRadius: '8px', transition: 'width 0.5s ease' }} />
+                    <div className="h-full rounded-lg transition-[width] duration-500 ease-in-out" style={{ background: pct >= 100 ? C.success : C.brand, width: `${pct}%` }} />
                   </div>
-                  <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '4px' }}>
+                  <div className="mt-1 text-xs text-subtle-foreground">
                     מבוסס על תאריכי הסיום המתוכננים — לא בהכרח משקף השלמה בפועל
                   </div>
                 </div>
 
                 {/* ── Drill-down: per-task status, inline, no navigation needed ── */}
                 {tasksExpanded && (
-                  <div style={{ marginTop: '10px', borderTop: `1px solid ${C.border}`, paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div className="mt-2.5 flex flex-col gap-1.5 border-t border-border pt-2.5">
                     {myQaTasks!.map(t => {
                       const st = taskStatus(t);
                       return (
-                        <div key={t.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
-                          <div style={{ minWidth: 0 }}>
-                            <span style={{ ...TEXT.xs, fontWeight: WEIGHT.medium, color: C.textPrimary }}>CR {t.crNumber}</span>
-                            <span style={{ ...TEXT.xs, color: C.textMuted }}> · {CYCLE_LABEL[t.cycle.cycleType] ?? t.cycle.cycleType}</span>
+                        <div key={t.id} className="flex items-center justify-between gap-2.5">
+                          <div className="min-w-0">
+                            <span className="text-xs font-medium text-foreground">CR {t.crNumber}</span>
+                            <span className="text-xs text-subtle-foreground"> · {CYCLE_LABEL[t.cycle.cycleType] ?? t.cycle.cycleType}</span>
                           </div>
-                          <span style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: st.color, whiteSpace: 'nowrap' as const }}>{st.label}</span>
+                          <span className="whitespace-nowrap text-xs font-semibold" style={{ color: st.color }}>{st.label}</span>
                         </div>
                       );
                     })}
@@ -312,34 +303,31 @@ export const EmployeeHomeView: React.FC<Props> = ({
               const targetTotal = targetAll.length;
               const targetOpen = targetAll.filter(d => !['Closed', 'Canceled'].includes(d.status)).length;
               return (
-                <div style={{ marginTop: '14px', borderTop: `1px solid ${C.border}`, paddingTop: '14px' }}>
-                  <div style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textSecondary, marginBottom: '10px' }}>🪲 התקלות שלי</div>
+                <div className="mt-3.5 border-t border-border pt-3.5">
+                  <div className="mb-2.5 text-xs font-bold text-muted-foreground">🪲 התקלות שלי</div>
                   {defectStats && (
                     <>
                       {defectStats.tooFew && (
-                        <div style={{
-                          ...TEXT.xs, color: C.warning, background: C.warningBg, border: `1px solid ${C.warning}33`,
-                          borderRadius: RADIUS.md, padding: '8px 12px', marginBottom: '10px',
-                        }}>
+                        <div className="mb-2.5 rounded-md bg-warning/10 px-3 py-2 text-xs text-warning" style={{ border: `1px solid ${C.warning}33` }}>
                           ⚠ פתחת {defectStats.opened} תקלות מתוך כ-{defectStats.expectedMin} צפויות (לפי היקף הפיתוח של ה-CR-ים שאתה בודק) — כדאי לבדוק אם יש עוד תקלות שטרם דווחו.
                         </div>
                       )}
-                      <div style={{ display: 'flex' }}>
+                      <div className="flex">
                         {[
                           { value: defectStats.opened, label: 'תקלות שפתחתי', color: C.textPrimary },
                           { value: defectStats.stillOpen, label: 'עדיין פתוחות', color: defectStats.stillOpen > 0 ? C.warning : C.textPrimary },
                           { value: defectStats.waitingForMyVerification, label: 'ממתינות לבדיקתי', color: defectStats.waitingForMyVerification > 0 ? C.brand : C.textPrimary },
                         ].map((s, i) => (
-                          <div key={s.label} style={{ flex: 1, textAlign: 'center' as const, padding: '0 8px', borderRight: i > 0 ? `1px solid ${C.border}` : 'none' }}>
-                            <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: s.color, lineHeight: 1.2 }}>{s.value}</div>
-                            <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>{s.label}</div>
+                          <div key={s.label} className={`flex-1 px-2 text-center ${i > 0 ? 'border-s border-border' : ''}`}>
+                            <div className="text-xl font-bold leading-tight" style={{ color: s.color }}>{s.value}</div>
+                            <div className="mt-1 text-xs text-subtle-foreground">{s.label}</div>
                           </div>
                         ))}
                       </div>
                     </>
                   )}
                   {targetTotal > 0 && (
-                    <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: defectStats ? '10px' : '0' }}>
+                    <div className={`text-xs text-subtle-foreground ${defectStats ? 'mt-2.5' : 'mt-0'}`}>
                       🎯 {targetTotal} תקלות TARGET משויכות אליי · {targetOpen} עדיין פתוחות
                     </div>
                   )}
@@ -352,9 +340,9 @@ export const EmployeeHomeView: React.FC<Props> = ({
 
       {/* ── Next actions ── */}
       {actions.length > 0 && (
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '18px 20px' }}>
-          <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '4px' }}>📌 הפעולות הבאות שלך</div>
-          <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: '8px' }}>מה מומלץ לבדוק עכשיו</div>
+        <div className="rounded-lg border border-border bg-card px-5 py-[18px]">
+          <div className="mb-1 text-sm font-bold text-foreground">📌 הפעולות הבאות שלך</div>
+          <div className="mb-2 text-xs text-subtle-foreground">מה מומלץ לבדוק עכשיו</div>
           {actions.map((a, i) => <ActionItem key={i} {...a} />)}
         </div>
       )}

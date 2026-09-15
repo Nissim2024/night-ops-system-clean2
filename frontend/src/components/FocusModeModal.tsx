@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { C, FONT, WEIGHT, RADIUS, SHADOW, statusColor } from '../theme';
+import { C, statusColor } from '../theme';
 import { formatTime } from '../utils/dateFormat';
 
 const TERMINAL = ['DONE', 'FAILED', 'ROLLED_BACK'];
@@ -9,6 +9,10 @@ const STATUS_LABEL: Record<string, string> = {
 
 const fmtTime = (d?: string | Date | null) => d ? formatTime(d) : null;
 
+// Task-status colors (7 distinct states) have no equivalent in the semantic
+// success/warning/danger/info token set — kept as real per-status hex via
+// the existing statusColor() helper, applied through inline style (same
+// treatment as other runtime/data-driven color palettes in this migration).
 const TaskRow: React.FC<{
   task: any;
   isMine: boolean;
@@ -28,31 +32,24 @@ const TaskRow: React.FC<{
   const isBlocked = task.status === 'BLOCKED';
   const hasBlockingDeps = (task.dependencies ?? []).some((d: any) => !TERMINAL.includes(d.dependsOn?.status ?? ''));
   const sColor = statusColor(task.status);
-  const btnBase: React.CSSProperties = {
-    fontFamily: FONT, fontSize: '15px', fontWeight: WEIGHT.bold,
-    padding: '7px 12px', border: 'none', borderRadius: RADIUS.sm,
-    cursor: isUpdating ? 'not-allowed' : 'pointer',
-    whiteSpace: 'nowrap', opacity: isUpdating ? 0.6 : 1,
-    width: '100%', textAlign: 'center' as const,
-  };
+  const btnBaseClass = `text-[15px] font-bold px-3 py-[7px] border-none rounded-sm whitespace-nowrap w-full text-center ${isUpdating ? 'cursor-not-allowed opacity-60' : 'cursor-pointer opacity-100'}`;
 
   return (
-    <div style={{
-      borderRight: `3px solid ${sColor}`, borderBottom: `1px solid ${C.border}`,
-      background: isDone ? C.bgNested : isMine ? `${sColor}0d` : C.bgCard,
-      opacity: isDone ? 0.55 : 1,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', minHeight: '54px', gap: 0 }}>
-        <div style={{ flex: 1, minWidth: 0, padding: '8px 12px 8px 4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' as const }}>
-            {isMine && !isDone && <span style={{ color: C.brand, fontSize: '15px' }}>★</span>}
-            <span style={{ fontSize: '17px', fontWeight: isMine && !isDone ? WEIGHT.bold : WEIGHT.medium, color: isDone ? C.textDisabled : C.textPrimary }}>
+    <div
+      className={`border-b border-border ${isDone ? 'opacity-55' : 'opacity-100'}`}
+      style={{ borderInlineStart: `3px solid ${sColor}`, background: isDone ? undefined : isMine ? `${sColor}0d` : undefined }}
+    >
+      <div className="flex items-center gap-0 min-h-[54px]">
+        <div className="flex-1 min-w-0 pe-1 ps-3 py-2 flex flex-col gap-1">
+          <div className="flex items-center gap-[7px] flex-wrap">
+            {isMine && !isDone && <span className="text-primary text-[15px]">★</span>}
+            <span className={`text-[17px] ${isMine && !isDone ? 'font-bold' : 'font-medium'} ${isDone ? 'text-subtle-foreground' : 'text-foreground'}`}>
               {task.title}
             </span>
-            {task.crNumber && <span style={{ fontSize: '14px', color: C.info, background: C.infoBg, padding: '2px 7px', borderRadius: RADIUS.sm, whiteSpace: 'nowrap' as const, flexShrink: 0 }}>{task.crNumber}</span>}
+            {task.crNumber && <span className="text-sm text-info bg-info-bg px-[7px] py-0.5 rounded-sm whitespace-nowrap shrink-0">{task.crNumber}</span>}
           </div>
-          <div style={{ display: 'flex', gap: '9px', fontSize: '15px', color: C.textMuted, flexWrap: 'wrap' as const, alignItems: 'center' }}>
-            {task.assignedTeam?.name && <span style={{ color: C.brand, background: C.brandDim, padding: '1px 7px', borderRadius: RADIUS.sm }}>{task.assignedTeam.name}</span>}
+          <div className="flex gap-[9px] text-[15px] text-subtle-foreground flex-wrap items-center">
+            {task.assignedTeam?.name && <span className="text-primary bg-primary-50 px-[7px] py-px rounded-sm">{task.assignedTeam.name}</span>}
             {task.assignedUserName && <span>{task.assignedUserName.split(' ')[0]}</span>}
             {task.application && <span>{task.application}</span>}
             {task.duration && <span>⏱ {task.duration}</span>}
@@ -61,23 +58,23 @@ const TaskRow: React.FC<{
               const pEnd   = task.rehearsalPlannedEnd   ?? task.plannedEnd;
               if (!pStart && !pEnd) return null;
               return (
-                <span style={{ color: C.textSecondary, background: C.bgNested, padding: '2px 8px', borderRadius: RADIUS.sm, whiteSpace: 'nowrap' as const }}>
+                <span className="text-muted-foreground bg-muted px-2 py-0.5 rounded-sm whitespace-nowrap">
                   🕐 {pStart ? fmtTime(pStart) : '?'}
                   {pEnd && ` — ${fmtTime(pEnd)}`}
                 </span>
               );
             })()}
-            {isBlocked && task.blockedReason && <span style={{ color: C.statusFailed }}>⛔ {task.blockedReason}</span>}
+            {isBlocked && task.blockedReason && <span className="text-danger">⛔ {task.blockedReason}</span>}
           </div>
           {(task.dependencies ?? []).length > 0 && (
-            <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' as const, alignItems: 'center', marginTop: '2px' }}>
-              <span style={{ fontSize: '14px', color: C.textDisabled, flexShrink: 0 }}>תלוי ב:</span>
+            <div className="flex gap-1.5 flex-wrap items-center mt-0.5">
+              <span className="text-sm text-subtle-foreground shrink-0">תלוי ב:</span>
               {(task.dependencies ?? []).map((d: any) => {
                 const depStatus = d.dependsOn?.status ?? '';
                 const done = TERMINAL.includes(depStatus);
                 const dc = done ? C.statusDone : statusColor(depStatus);
                 return (
-                  <span key={d.id} style={{ fontSize: '14px', color: dc, background: dc + '22', padding: '2px 7px', borderRadius: RADIUS.sm, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, display: 'inline-block', flexShrink: 0 }}>
+                  <span key={d.id} className="text-sm px-[7px] py-0.5 rounded-sm max-w-[180px] overflow-hidden text-ellipsis whitespace-nowrap inline-block shrink-0" style={{ color: dc, background: dc + '22' }}>
                     {done ? '✓' : '○'} {d.dependsOn?.title ?? '?'}
                   </span>
                 );
@@ -86,38 +83,38 @@ const TaskRow: React.FC<{
           )}
         </div>
 
-        <div style={{ width: '78px', flexShrink: 0, padding: '0 6px', textAlign: 'center' }}>
-          <span style={{ fontSize: '14px', fontWeight: WEIGHT.semibold, color: sColor, background: sColor + '22', padding: '3px 8px', borderRadius: RADIUS.full, whiteSpace: 'nowrap' as const, display: 'inline-block' }}>
+        <div className="w-[78px] shrink-0 px-1.5 text-center">
+          <span className="text-sm font-semibold px-2 py-[3px] rounded-full whitespace-nowrap inline-block" style={{ color: sColor, background: sColor + '22' }}>
             {STATUS_LABEL[task.status] ?? task.status}
           </span>
         </div>
 
-        <div style={{ width: '108px', flexShrink: 0, padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <div className="w-[108px] shrink-0 px-2 py-1 flex flex-col gap-1">
           {!isDone && !isBlocking ? (
             <>
               {isOpen && (
                 <button disabled={isUpdating} onClick={() => onAction(task.id, 'IN_PROGRESS')}
-                  style={{ ...btnBase, background: C.statusInProgress, color: 'white' }}>▶ התחל</button>
+                  className={btnBaseClass} style={{ background: C.statusInProgress, color: 'white' }}>▶ התחל</button>
               )}
               {isIP && (
                 <button disabled={isUpdating} onClick={() => onAction(task.id, 'DONE')}
-                  style={{ ...btnBase, background: C.statusDone, color: 'white' }}>✓ סיים</button>
+                  className={btnBaseClass} style={{ background: C.statusDone, color: 'white' }}>✓ סיים</button>
               )}
               {isBlocked && (
                 <button disabled={isUpdating} onClick={() => onAction(task.id, 'IN_PROGRESS')}
-                  style={{ ...btnBase, background: 'transparent', color: C.statusDone, border: `1px solid ${C.statusDone}44` }}>♻️ חזור</button>
+                  className={btnBaseClass} style={{ background: 'transparent', color: C.statusDone, border: `1px solid ${C.statusDone}44` }}>♻️ חזור</button>
               )}
               {(isOpen || isIP) && (
                 <button disabled={isUpdating} onClick={() => onStartBlock(task.id)}
-                  style={{ ...btnBase, background: 'transparent', color: C.statusFailed, border: `1px solid ${C.statusFailed}55` }}>🚫 חסום</button>
+                  className={btnBaseClass} style={{ background: 'transparent', color: C.statusFailed, border: `1px solid ${C.statusFailed}55` }}>🚫 חסום</button>
               )}
               {isWait && !hasBlockingDeps && canOpenWaiting && (
                 <button disabled={isUpdating} onClick={() => onAction(task.id, 'OPEN')}
-                  style={{ ...btnBase, background: C.brand, color: 'white' }}>▷ פתח</button>
+                  className={`${btnBaseClass} bg-primary text-white`}>▷ פתח</button>
               )}
             </>
           ) : isDone ? (
-            <span style={{ fontSize: '22px', textAlign: 'center', display: 'block', opacity: 0.5 }}>
+            <span className="text-[22px] text-center block opacity-50">
               {task.status === 'DONE' ? '✓' : task.status === 'FAILED' ? '✗' : '⏪'}
             </span>
           ) : null}
@@ -125,19 +122,22 @@ const TaskRow: React.FC<{
       </div>
 
       {isBlocking && (
-        <div style={{ padding: '10px 12px 12px', borderTop: `1px solid ${C.border}` }}>
+        <div className="px-3 pt-2.5 pb-3 border-t border-border">
           <textarea autoFocus value={blockReason} onChange={e => setBlockReason(e.target.value)}
             placeholder="סיבת חסימה (חובה)..." rows={2}
-            style={{ width: '100%', padding: '9px 12px', borderRadius: RADIUS.sm, border: `1px solid ${C.statusFailed}66`, fontSize: '16px', resize: 'none', boxSizing: 'border-box', direction: 'rtl', fontFamily: FONT, background: C.bgNested, color: C.textPrimary, outline: 'none', marginBottom: '8px' }}
+            className="w-full px-3 py-[9px] rounded-sm text-base resize-none box-border bg-muted text-foreground outline-none mb-2"
+            style={{ border: `1px solid ${C.statusFailed}66` }}
           />
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div className="flex gap-2">
             <button onClick={onCancelBlock}
-              style={{ flex: 1, padding: '8px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer', fontFamily: FONT, fontSize: '15px' }}>
+              className="flex-1 p-2 bg-muted text-muted-foreground border border-border rounded-sm cursor-pointer text-[15px]">
               ביטול
             </button>
             <button disabled={!blockReason.trim() || isUpdating}
               onClick={() => onAction(task.id, 'BLOCKED', blockReason.trim())}
-              style={{ flex: 2, padding: '8px', background: blockReason.trim() ? C.statusFailed : C.bgNested, color: blockReason.trim() ? 'white' : C.textDisabled, border: 'none', borderRadius: RADIUS.sm, cursor: blockReason.trim() ? 'pointer' : 'not-allowed', fontWeight: WEIGHT.bold, fontFamily: FONT, fontSize: '15px' }}>
+              className="flex-[2] p-2 border-none rounded-sm font-bold text-[15px]"
+              style={{ background: blockReason.trim() ? C.statusFailed : undefined, color: blockReason.trim() ? 'white' : undefined, cursor: blockReason.trim() ? 'pointer' : 'not-allowed' }}
+            >
               אשר חסימה 🚫
             </button>
           </div>
@@ -218,52 +218,57 @@ export const FocusModeModal: React.FC<FocusModeModalProps> = ({
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: C.bgOverlay, zIndex: 20000, display: 'flex', alignItems: 'center', justifyContent: 'center', direction: 'rtl', fontFamily: FONT }}
+      className="fixed inset-0 bg-foreground/45 z-[20000] flex items-center justify-center"
       onClick={onClose}
     >
       <div
-        style={{ width: '100%', maxWidth: '860px', height: '90vh', margin: '0 16px', display: 'flex', flexDirection: 'column', background: C.bgApp, borderRadius: RADIUS.xl, boxShadow: SHADOW.lg, overflow: 'hidden', border: `1px solid ${C.border}` }}
+        className="w-full max-w-[860px] h-[90vh] mx-4 flex flex-col bg-background rounded-xl shadow-lg overflow-hidden border border-border"
         onClick={e => e.stopPropagation()}
       >
         {/* Header — big, unambiguous title with the phase as a clear subtitle */}
-        <div style={{ background: C.brand, padding: '18px 22px', flexShrink: 0, boxShadow: SHADOW.sm }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <span style={{ fontSize: '28px' }}>⚡</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '22px', fontWeight: WEIGHT.bold, color: 'white', lineHeight: 1.15 }}>מצב הרצה</div>
+        <div className="bg-primary px-[22px] py-[18px] shrink-0 shadow-sm">
+          <div className="flex items-center gap-3.5">
+            <span className="text-[28px]">⚡</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[22px] font-bold text-white leading-tight">מצב הרצה</div>
               {phaseLabel && (
-                <div style={{ fontSize: '16px', color: 'rgba(255,255,255,0.85)', marginTop: '2px', fontWeight: WEIGHT.medium }}>
+                <div className="text-base text-white/85 mt-0.5 font-medium">
                   {phaseLabel}
                 </div>
               )}
             </div>
-            <span style={{ fontSize: '17px', fontWeight: WEIGHT.bold, color: 'white', background: 'rgba(255,255,255,0.18)', padding: '5px 14px', borderRadius: RADIUS.md, whiteSpace: 'nowrap' as const }}>
+            <span className="text-[17px] font-bold text-white bg-white/[.18] px-3.5 py-[5px] rounded-md whitespace-nowrap">
               {done}/{total}
             </span>
             <button onClick={onClose}
-              style={{ background: 'rgba(255,255,255,0.18)', border: 'none', color: 'white', cursor: 'pointer', fontSize: '20px', width: '34px', height: '34px', borderRadius: RADIUS.md, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              className="bg-white/[.18] border-none text-white cursor-pointer text-xl w-[34px] h-[34px] rounded-md flex items-center justify-center shrink-0">
               ×
             </button>
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '15px', color: 'rgba(255,255,255,0.85)', userSelect: 'none' as const, marginTop: '12px' }}>
+          <label className="flex items-center gap-2 cursor-pointer text-[15px] text-white/85 select-none mt-3">
             <input type="checkbox" checked={nearOnly} onChange={e => setNearOnly(e.target.checked)}
-              style={{ width: '16px', height: '16px', accentColor: 'white', cursor: 'pointer' }} />
-            <span style={{ fontWeight: nearOnly ? WEIGHT.bold : WEIGHT.normal }}>
+              className="w-4 h-4 accent-white cursor-pointer" />
+            <span className={nearOnly ? 'font-bold' : 'font-normal'}>
               {NEAR_MINUTES} דקות קרובות בלבד
-              {nearOnly && <span style={{ marginRight: '6px' }}>({nearCount})</span>}
+              {nearOnly && <span className="me-1.5">({nearCount})</span>}
             </span>
           </label>
         </div>
 
         {/* Progress bar */}
-        <div style={{ padding: '12px 22px', background: C.bgCard, borderBottom: `1px solid ${C.border}`, flexShrink: 0, display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <div style={{ flex: 1, height: '9px', background: C.bgNested, borderRadius: RADIUS.sm, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${pct}%`, background: pct === 100 ? C.statusDone : `linear-gradient(90deg, ${C.brand}, ${C.statusInProgress})`, borderRadius: RADIUS.sm, transition: 'width 0.5s ease' }} />
+        <div className="px-[22px] py-3 bg-card border-b border-border shrink-0 flex items-center gap-3.5">
+          <div className="flex-1 h-[9px] bg-muted rounded-sm overflow-hidden">
+            <div
+              className="h-full rounded-sm transition-[width] duration-slow ease-out"
+              style={{ width: `${pct}%`, background: pct === 100 ? C.statusDone : `linear-gradient(90deg, ${C.brand}, ${C.statusInProgress})` }}
+            />
           </div>
-          <span style={{ fontSize: '16px', fontWeight: WEIGHT.semibold, color: C.textSecondary, whiteSpace: 'nowrap' as const }}>{pct}%</span>
+          <span className="text-base font-semibold text-muted-foreground whitespace-nowrap">{pct}%</span>
           {canOpenWaiting && openableCount > 0 && onBatchOpen && (
             <button disabled={!!updatingTaskId} onClick={onBatchOpen}
-              style={{ padding: '7px 16px', background: C.bgInProgress ?? C.statusInProgress + '22', color: '#8a6d00', border: `1px solid ${C.statusInProgress}55`, borderRadius: RADIUS.md, cursor: updatingTaskId ? 'not-allowed' : 'pointer', fontWeight: WEIGHT.bold, fontSize: '15px', fontFamily: FONT, whiteSpace: 'nowrap' as const, opacity: updatingTaskId ? 0.6 : 1 }}>
+              className={`px-4 py-[7px] rounded-md font-bold text-[15px] whitespace-nowrap ${updatingTaskId ? 'cursor-not-allowed opacity-60' : 'cursor-pointer opacity-100'}`}
+              style={{ background: C.bgInProgress ?? C.statusInProgress + '22', color: '#8a6d00', border: `1px solid ${C.statusInProgress}55` }}
+            >
               🔓 פתח ללא תלות ({openableCount})
             </button>
           )}
@@ -271,13 +276,13 @@ export const FocusModeModal: React.FC<FocusModeModalProps> = ({
 
         {/* Phase-complete banner */}
         {phaseComplete && (
-          <div style={{ padding: '14px 22px', background: C.successBg, borderBottom: `1px solid ${C.border}`, flexShrink: 0, display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{ fontSize: '24px' }}>✅</span>
+          <div className="px-[22px] py-3.5 bg-success-bg border-b border-border shrink-0 flex items-center gap-3">
+            <span className="text-2xl">✅</span>
             <div>
-              <div style={{ fontSize: '17px', fontWeight: WEIGHT.bold, color: C.statusDone }}>
+              <div className="text-[17px] font-bold text-success">
                 {phaseLabel ? `השלב "${phaseLabel}" הושלם!` : 'השלב הושלם!'}
               </div>
-              <div style={{ fontSize: '15px', color: C.textSecondary, marginTop: '2px' }}>
+              <div className="text-[15px] text-muted-foreground mt-0.5">
                 {nextPhaseInfo
                   ? (nextPhaseInfo.startTime
                       ? `ממתינים לשלב הבא — "${nextPhaseInfo.name}" יחל בשעה ${fmtTime(nextPhaseInfo.startTime)}`
@@ -289,17 +294,17 @@ export const FocusModeModal: React.FC<FocusModeModalProps> = ({
         )}
 
         {/* Task list */}
-        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+        <div className="flex-1 overflow-y-auto min-h-0">
           {total === 0 ? (
-            <div style={{ padding: '60px', textAlign: 'center' }}>
-              <div style={{ fontSize: '48px', marginBottom: '12px' }}>✅</div>
-              <div style={{ fontSize: '18px', fontWeight: WEIGHT.bold, color: C.statusDone }}>כל השלבים הושלמו!</div>
+            <div className="p-[60px] text-center">
+              <div className="text-5xl mb-3">✅</div>
+              <div className="text-lg font-bold text-success">כל השלבים הושלמו!</div>
             </div>
           ) : (
             <>
               {filteredSpotlight.length > 0 && (
                 <div>
-                  <div style={{ fontSize: '15px', fontWeight: WEIGHT.bold, color: C.brand, padding: '10px 18px', background: C.brandDim, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div className="text-[15px] font-bold text-primary px-[18px] py-2.5 bg-primary-50 border-b border-border flex items-center gap-1.5">
                     {spotlightLabel} ({filteredSpotlight.length})
                   </div>
                   {filteredSpotlight.map((t: any) => <TaskRow key={t.id} {...rowProps(t)} />)}
@@ -310,9 +315,9 @@ export const FocusModeModal: React.FC<FocusModeModalProps> = ({
                 const grpDone = grp.tasks.filter((t: any) => TERMINAL.includes(t.status)).length;
                 return (
                   <div key={grp.subName}>
-                    <div style={{ fontSize: '15px', fontWeight: WEIGHT.bold, color: C.textSecondary, padding: '9px 18px', background: C.bgNested, borderBottom: `1px solid ${C.border}`, borderTop: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="text-[15px] font-bold text-muted-foreground px-[18px] py-[9px] bg-muted border-b border-t border-border flex justify-between items-center">
                       <span>{grp.subName}</span>
-                      <span style={{ color: grpDone === grp.tasks.length ? C.statusDone : C.textMuted }}>{grpDone}/{grp.tasks.length}</span>
+                      <span className={grpDone === grp.tasks.length ? 'text-success' : 'text-subtle-foreground'}>{grpDone}/{grp.tasks.length}</span>
                     </div>
                     {grp.tasks.map((t: any) => <TaskRow key={t.id} {...rowProps(t)} />)}
                   </div>
@@ -320,11 +325,11 @@ export const FocusModeModal: React.FC<FocusModeModalProps> = ({
               })}
 
               {nearOnly && nearCount === 0 && !phaseComplete && (
-                <div style={{ padding: '48px', textAlign: 'center', color: C.textMuted }}>
-                  <div style={{ fontSize: '32px', marginBottom: '10px' }}>⏳</div>
-                  <div style={{ fontSize: '16px' }}>אין משימות פעילות בטווח {NEAR_MINUTES} הדקות הקרובות</div>
+                <div className="p-12 text-center text-subtle-foreground">
+                  <div className="text-[32px] mb-2.5">⏳</div>
+                  <div className="text-base">אין משימות פעילות בטווח {NEAR_MINUTES} הדקות הקרובות</div>
                   <button onClick={() => setNearOnly(false)}
-                    style={{ marginTop: '14px', padding: '9px 20px', background: C.bgNested, color: C.textPrimary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '15px', fontFamily: FONT }}>
+                    className="mt-3.5 px-5 py-[9px] bg-muted text-foreground border border-border rounded-md cursor-pointer text-[15px]">
                     הצג כל המשימות
                   </button>
                 </div>
@@ -334,7 +339,7 @@ export const FocusModeModal: React.FC<FocusModeModalProps> = ({
         </div>
 
         {/* Footer stats */}
-        <div style={{ background: C.bgCard, borderTop: `1px solid ${C.border}`, padding: '10px 22px', display: 'flex', gap: '18px', fontSize: '15px', color: C.textMuted, flexShrink: 0, flexWrap: 'wrap' as const }}>
+        <div className="bg-card border-t border-border px-[22px] py-2.5 flex gap-[18px] text-[15px] text-subtle-foreground shrink-0 flex-wrap">
           {[
             { label: 'הושלם', count: tasks.filter(t => t.status === 'DONE').length, color: C.statusDone },
             { label: 'בביצוע', count: tasks.filter(t => t.status === 'IN_PROGRESS').length, color: C.statusInProgress },
@@ -342,9 +347,9 @@ export const FocusModeModal: React.FC<FocusModeModalProps> = ({
             { label: 'ממתין', count: tasks.filter(t => t.status === 'WAITING').length, color: C.statusWaiting },
             { label: 'חסום', count: tasks.filter(t => t.status === 'BLOCKED').length, color: C.statusFailed },
           ].filter(s => s.count > 0).map(s => (
-            <span key={s.label} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: s.color, display: 'inline-block' }} />
-              <span style={{ color: s.color, fontWeight: WEIGHT.bold }}>{s.count}</span>
+            <span key={s.label} className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full inline-block" style={{ background: s.color }} />
+              <span className="font-bold" style={{ color: s.color }}>{s.count}</span>
               <span>{s.label}</span>
             </span>
           ))}

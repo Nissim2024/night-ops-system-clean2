@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
+import { C } from '../../theme';
+import { Select, TextField } from '../ui';
 import { useReleaseCount } from './releaseCountSetting';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -17,9 +18,9 @@ interface Overview {
 
 function KpiCard({ value, label, valueColor }: { value: string; label: string; valueColor?: string }) {
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '16px 20px', flex: 1, minWidth: '180px' }}>
-      <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: valueColor ?? C.textPrimary, lineHeight: 1.2 }}>{value}</div>
-      <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>{label}</div>
+    <div className="bg-card border border-border rounded-lg py-4 px-5 flex-1 min-w-[180px]">
+      <div className="text-xl font-bold leading-tight text-foreground" style={valueColor ? { color: valueColor } : undefined}>{value}</div>
+      <div className="text-xs text-subtle-foreground mt-[3px]">{label}</div>
     </div>
   );
 }
@@ -61,12 +62,12 @@ function ScoreBarChart({ points, selected, targetScore, onSelectRelease }: { poi
   const barWidth = Math.max(24, Math.min(56, gap * 0.6));
 
   if (points.length === 0) {
-    return <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6], textAlign: 'center' }}>אין נתונים להצגה.</div>;
+    return <div className="text-sm text-subtle-foreground p-6 text-center">אין נתונים להצגה.</div>;
   }
 
   return (
-    <div ref={containerRef} style={{ overflowX: 'auto', width: '100%' }}>
-      <svg width={width} height={CHART_HEIGHT + 40} style={{ display: 'block' }}>
+    <div ref={containerRef} className="overflow-x-auto w-full">
+      <svg width={width} height={CHART_HEIGHT + 40} className="block">
         {points.map((p, i) => {
           const x = 20 + i * gap + (gap - barWidth) / 2;
           const barHeight = Math.max(2, (p.totalScore / 100) * (CHART_HEIGHT - 30));
@@ -77,7 +78,7 @@ function ScoreBarChart({ points, selected, targetScore, onSelectRelease }: { poi
             <g
               key={p.releaseName}
               onClick={() => onSelectRelease?.(p.releaseName)}
-              style={{ cursor: onSelectRelease ? 'pointer' : 'default' }}
+              className={onSelectRelease ? 'cursor-pointer' : 'cursor-default'}
             >
               <rect
                 x={x} y={y} width={barWidth} height={barHeight} fill={color} rx={2}
@@ -136,7 +137,7 @@ export const ReleaseOverviewView: React.FC<Props> = ({ token, onSelectRelease })
 
   if (releases.length === 0 && !loading) {
     return (
-      <div style={{ fontFamily: FONT, direction: 'rtl', textAlign: 'center', padding: SP[8], color: C.textMuted }}>
+      <div className="text-center p-8 text-subtle-foreground">
         אין עדיין נתוני איכות גרסה. יש לייבא את שני קבצי ה-Excel דרך מסך הניהול (⚙️ ניהול → איכות גרסה).
       </div>
     );
@@ -145,27 +146,27 @@ export const ReleaseOverviewView: React.FC<Props> = ({ token, onSelectRelease })
   const scoreColor = (score: number, target: number) => (score >= target ? C.success : C.danger);
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>🏆 סקירה כללית — איכות גרסה</div>
-        <select
+    <div className="flex flex-col gap-4">
+      <div className="flex justify-between items-center">
+        <div className="text-lg font-bold text-foreground">🏆 סקירה כללית — איכות גרסה</div>
+        <Select
           value={selected}
           onChange={e => setSelected(e.target.value)}
-          style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, fontFamily: FONT, ...TEXT.sm, minWidth: '200px' }}
+          className="min-w-[200px]"
         >
           {releases.map(r => (
             <option key={r.releaseName} value={r.releaseName}>{r.releaseName} ({r.totalScore}%)</option>
           ))}
-        </select>
+        </Select>
       </div>
 
       {loading && !data ? (
-        <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6] }}>טוען...</div>
+        <div className="text-sm text-subtle-foreground p-6">טוען...</div>
       ) : !data ? (
-        <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6] }}>לא ניתן לטעון נתונים עבור גרסה זו.</div>
+        <div className="text-sm text-subtle-foreground p-6">לא ניתן לטעון נתונים עבור גרסה זו.</div>
       ) : (
         <>
-          <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
+          <div className="flex gap-3 flex-wrap">
             <KpiCard value={`${data.totalScore}%`} label={`ציון גרסה (${data.releaseName})`} valueColor={scoreColor(data.totalScore, data.targetScore)} />
             <KpiCard
               value={data.status === 'ABOVE_TARGET' ? `מעל היעד (${data.targetScore}%)` : `מתחת ליעד (${data.targetScore}%)`}
@@ -180,18 +181,18 @@ export const ReleaseOverviewView: React.FC<Props> = ({ token, onSelectRelease })
             />
           </div>
 
-          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4] }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: SP[3], flexWrap: 'wrap', gap: SP[2] }}>
-              <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textSecondary }}>
+          <div className="bg-card border border-border rounded-lg p-4">
+            <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
+              <div className="text-sm font-semibold text-muted-foreground">
                 ציון גרסה — {releaseCount} הגרסאות האחרונות
-                {onSelectRelease && <span style={{ ...TEXT.xs, fontWeight: WEIGHT.normal, color: C.textMuted }}> (לחצו על עמודה למעבר למטריצת KPI של אותה גרסה)</span>}
+                {onSelectRelease && <span className="text-xs font-normal text-subtle-foreground"> (לחצו על עמודה למעבר למטריצת KPI של אותה גרסה)</span>}
               </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: SP[2], ...TEXT.xs, color: C.textMuted }}>
+              <label className="flex items-center gap-2 text-xs text-subtle-foreground">
                 כמות גרסאות בגרף:
-                <input
+                <TextField
                   type="number" min={1} max={100} value={releaseCount}
                   onChange={e => setReleaseCount(Number(e.target.value) || 12)}
-                  style={{ width: '60px', padding: '4px 8px', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, fontFamily: FONT, ...TEXT.xs }}
+                  className="w-[60px]"
                 />
               </label>
             </div>

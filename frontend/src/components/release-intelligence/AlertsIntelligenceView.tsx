@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
+import { C } from '../../theme';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -65,76 +65,76 @@ export const AlertsIntelligenceView: React.FC<Props> = ({ token, versionId, role
   };
 
   if (!versionId) {
-    return <div style={{ fontFamily: FONT, direction: 'rtl', textAlign: 'center', padding: SP[8], color: C.textMuted }}>בחר גרסה מתפריט הצד.</div>;
+    return <div className="p-8 text-center text-subtle-foreground [direction:rtl]">בחר גרסה מתפריט הצד.</div>;
   }
-  if (loading && !data) return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>טוען...</div>;
-  if (!data) return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>לא ניתן לטעון נתונים עבור גרסה זו.</div>;
+  if (loading && !data) return <div className="p-6 text-subtle-foreground [direction:rtl]">טוען...</div>;
+  if (!data) return <div className="p-6 text-subtle-foreground [direction:rtl]">לא ניתן לטעון נתונים עבור גרסה זו.</div>;
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>🔔 התראות ותובנות</div>
+    <div className="flex flex-col gap-4 [direction:rtl]">
+      <div className="text-lg font-bold text-foreground">🔔 התראות ותובנות</div>
 
-      <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], flex: 1, minWidth: '320px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: SP[3] }}>
-            <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>📢 הודעות ידניות</div>
+      <div className="flex flex-wrap gap-3">
+        <div className="min-w-[320px] flex-1 rounded-lg border border-border bg-card p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="text-sm font-bold text-foreground">📢 הודעות ידניות</div>
           </div>
-          {data.manual.length === 0 && !adding && <div style={{ ...TEXT.sm, color: C.textMuted }}>אין הודעות.</div>}
+          {data.manual.length === 0 && !adding && <div className="text-sm text-subtle-foreground">אין הודעות.</div>}
           {data.manual.map(m => (
-            <div key={m.id} style={{ display: 'flex', alignItems: 'flex-start', gap: SP[2], padding: `${SP[2]} 0`, borderBottom: `1px solid ${C.border}` }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: SEVERITY_COLOR[m.severity] ?? C.textMuted, marginTop: '6px', flexShrink: 0 }} />
-              <div style={{ flex: 1 }}>
-                <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>{m.title}</div>
-                <div style={{ ...TEXT.xs, color: C.textMuted }}>{m.message}</div>
-                <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>{m.category}</div>
+            <div key={m.id} className="flex items-start gap-2 border-b border-border py-2">
+              <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: SEVERITY_COLOR[m.severity] ?? C.textMuted }} />
+              <div className="flex-1">
+                <div className="text-sm font-semibold text-foreground">{m.title}</div>
+                <div className="text-xs text-subtle-foreground">{m.message}</div>
+                <div className="mt-0.5 text-xs text-subtle-foreground">{m.category}</div>
               </div>
               {canWrite && (
-                <button onClick={() => remove(m.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 14 }}>✕</button>
+                <button onClick={() => remove(m.id)} className="cursor-pointer border-none bg-transparent text-[14px] text-subtle-foreground">✕</button>
               )}
             </div>
           ))}
           {canWrite && (
             adding ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2], marginTop: SP[3] }}>
-                <select value={category} onChange={e => setCategory(e.target.value)} style={{ padding: '8px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, fontFamily: FONT, ...TEXT.sm }}>
+              <div className="mt-3 flex flex-col gap-2">
+                <select value={category} onChange={e => setCategory(e.target.value)} className="rounded-md border border-border px-2.5 py-2 text-sm">
                   {MANUAL_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                 </select>
-                <input value={title} onChange={e => setTitle(e.target.value)} placeholder="כותרת" style={{ padding: '8px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, fontFamily: FONT, ...TEXT.sm }} />
-                <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="תוכן ההודעה" rows={2} style={{ padding: '8px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, fontFamily: FONT, ...TEXT.sm, resize: 'vertical' }} />
-                <select value={severity} onChange={e => setSeverity(e.target.value)} style={{ padding: '8px 10px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, fontFamily: FONT, ...TEXT.sm }}>
+                <input value={title} onChange={e => setTitle(e.target.value)} placeholder="כותרת" className="rounded-md border border-border px-2.5 py-2 text-sm" />
+                <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="תוכן ההודעה" rows={2} className="resize-y rounded-md border border-border px-2.5 py-2 text-sm" />
+                <select value={severity} onChange={e => setSeverity(e.target.value)} className="rounded-md border border-border px-2.5 py-2 text-sm">
                   <option value="CRITICAL">CRITICAL</option><option value="HIGH">HIGH</option><option value="MEDIUM">MEDIUM</option><option value="LOW">LOW</option>
                 </select>
-                <div style={{ display: 'flex', gap: SP[2] }}>
-                  <button onClick={submit} disabled={saving || !title.trim() || !message.trim()} style={{ padding: '7px 16px', background: C.brand, color: '#fff', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', ...TEXT.sm, fontWeight: WEIGHT.semibold }}>{saving ? 'שומר...' : 'שמור'}</button>
-                  <button onClick={() => setAdding(false)} style={{ padding: '7px 16px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', ...TEXT.sm }}>ביטול</button>
+                <div className="flex gap-2">
+                  <button onClick={submit} disabled={saving || !title.trim() || !message.trim()} className="rounded-md border-none bg-primary px-4 py-[7px] text-sm font-semibold text-white cursor-pointer">{saving ? 'שומר...' : 'שמור'}</button>
+                  <button onClick={() => setAdding(false)} className="cursor-pointer rounded-md border border-border bg-muted px-4 py-[7px] text-sm text-muted-foreground">ביטול</button>
                 </div>
               </div>
             ) : (
-              <button onClick={() => setAdding(true)} style={{ marginTop: SP[3], padding: '7px 14px', background: 'none', border: `1px dashed ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', color: C.textMuted, ...TEXT.sm, width: '100%' }}>+ הוסף הודעה</button>
+              <button onClick={() => setAdding(true)} className="mt-3 w-full cursor-pointer rounded-md border border-dashed border-border bg-transparent px-3.5 py-[7px] text-sm text-subtle-foreground">+ הוסף הודעה</button>
             )
           )}
         </div>
 
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], flex: 1, minWidth: '320px' }}>
-          <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: SP[3] }}>🤖 תובנות אוטומטיות</div>
+        <div className="min-w-[320px] flex-1 rounded-lg border border-border bg-card p-4">
+          <div className="mb-3 text-sm font-bold text-foreground">🤖 תובנות אוטומטיות</div>
           {data.auto.length === 0
-            ? <div style={{ ...TEXT.sm, color: C.textMuted }}>אין תובנות פעילות כרגע.</div>
+            ? <div className="text-sm text-subtle-foreground">אין תובנות פעילות כרגע.</div>
             : data.auto.map(a => (
-              <div key={a.id} style={{ display: 'flex', alignItems: 'flex-start', gap: SP[2], padding: `${SP[2]} 0`, borderBottom: `1px solid ${C.border}` }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: SEVERITY_COLOR[a.severity] ?? C.textMuted, marginTop: '6px', flexShrink: 0 }} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ ...TEXT.sm, color: C.textPrimary }}>{a.message}</div>
-                  <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>{a.category}</div>
+              <div key={a.id} className="flex items-start gap-2 border-b border-border py-2">
+                <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: SEVERITY_COLOR[a.severity] ?? C.textMuted }} />
+                <div className="flex-1">
+                  <div className="text-sm text-foreground">{a.message}</div>
+                  <div className="mt-0.5 text-xs text-subtle-foreground">{a.category}</div>
                 </div>
               </div>
             ))}
         </div>
 
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], flex: 1, minWidth: '260px' }}>
-          <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: SP[3] }}>💡 פעולות מומלצות</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-            <div style={{ ...TEXT.sm, color: C.textMuted }}>ליצירת סיכון חדש — עבור למסך "סקירה כללית" ולחץ "+ הוסף סיכון".</div>
-            <div style={{ ...TEXT.sm, color: C.textMuted }}>לבדיקת מצב ה-CR-ים — עבור למסך "בריאות CR".</div>
+        <div className="min-w-[260px] flex-1 rounded-lg border border-border bg-card p-4">
+          <div className="mb-3 text-sm font-bold text-foreground">💡 פעולות מומלצות</div>
+          <div className="flex flex-col gap-2">
+            <div className="text-sm text-subtle-foreground">ליצירת סיכון חדש — עבור למסך "סקירה כללית" ולחץ "+ הוסף סיכון".</div>
+            <div className="text-sm text-subtle-foreground">לבדיקת מצב ה-CR-ים — עבור למסך "בריאות CR".</div>
           </div>
         </div>
       </div>

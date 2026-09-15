@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -15,9 +14,13 @@ interface SuggestedRisk {
 // — this screen creates rows in that exact table, so labels must match.
 const SEVERITY_LABEL: Record<string, string> = { CRITICAL: 'קריטי', HIGH: 'גבוהה', MEDIUM: 'בינוני', LOW: 'נמוך' };
 const PROBABILITY_LABEL: Record<string, string> = { HIGH: 'גבוה', MEDIUM: 'בינוני', LOW: 'נמוך' };
-const SEVERITY_COLOR: Record<string, string> = { CRITICAL: C.danger, HIGH: C.warning, MEDIUM: '#e8af00', LOW: C.textMuted };
+const SEVERITY_COLOR_CLASS: Record<string, string> = { CRITICAL: 'text-danger', HIGH: 'text-warning', MEDIUM: 'text-warning', LOW: 'text-subtle-foreground' };
 const STATUS_LABEL: Record<string, string> = { PENDING: 'ממתין להחלטה', PROMOTED: 'הועבר לטבלה הראשית', REJECTED: 'נדחה' };
-const STATUS_COLOR: Record<string, string> = { PENDING: C.textMuted, PROMOTED: C.success, REJECTED: C.danger };
+const STATUS_BADGE_CLASS: Record<string, string> = {
+  PENDING: 'text-subtle-foreground bg-muted border-border',
+  PROMOTED: 'text-success bg-success-bg border-success/40',
+  REJECTED: 'text-danger bg-danger-bg border-danger/40',
+};
 
 // Same split as RiskManagementView's own RISK_WRITERS/RISK_CLOSERS — promoting
 // a candidate creates a real ReleaseRisk, so it needs the same permission
@@ -77,43 +80,39 @@ export const SuggestedRisksView: React.FC<Props> = ({ token, versionId, versionN
     setBusyId(null);
   };
 
-  const thStyle: React.CSSProperties = { padding: '8px 10px', textAlign: 'right' as const, ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, borderBottom: `1px solid ${C.border}`, whiteSpace: 'nowrap' as const };
-  const tdStyle: React.CSSProperties = { padding: '8px 10px', verticalAlign: 'top' as const, borderBottom: `1px solid ${C.border}`, ...TEXT.xs, color: C.textPrimary };
+  const thClass = 'px-2.5 py-2 text-right text-xs font-bold text-subtle-foreground border-b border-border whitespace-nowrap';
+  const tdClass = 'px-2.5 py-2 align-top border-b border-border text-xs text-foreground';
 
   const pending = rows.filter(r => r.status === 'PENDING');
   const decided = rows.filter(r => r.status !== 'PENDING');
 
   const renderRow = (r: SuggestedRisk) => (
     <tr key={r.id}>
-      <td style={{ ...tdStyle, whiteSpace: 'pre-wrap' as const, minWidth: '200px', fontWeight: WEIGHT.semibold }}>{r.title}</td>
-      <td style={{ ...tdStyle, minWidth: '150px' }}>{r.sourceArea}</td>
-      <td style={{ ...tdStyle, whiteSpace: 'pre-wrap' as const, minWidth: '220px', color: C.textMuted }}>{r.signal}</td>
-      <td style={tdStyle}>
-        <span style={{ color: SEVERITY_COLOR[r.severity] ?? C.textMuted, fontWeight: WEIGHT.semibold }}>{SEVERITY_LABEL[r.severity] ?? r.severity}</span>
+      <td className={`${tdClass} whitespace-pre-wrap min-w-[200px] font-semibold`}>{r.title}</td>
+      <td className={`${tdClass} min-w-[150px]`}>{r.sourceArea}</td>
+      <td className={`${tdClass} whitespace-pre-wrap min-w-[220px] text-subtle-foreground`}>{r.signal}</td>
+      <td className={tdClass}>
+        <span className={`font-semibold ${SEVERITY_COLOR_CLASS[r.severity] ?? 'text-subtle-foreground'}`}>{SEVERITY_LABEL[r.severity] ?? r.severity}</span>
       </td>
-      <td style={tdStyle}>{r.probability ? (PROBABILITY_LABEL[r.probability] ?? r.probability) : '—'}</td>
-      <td style={{ ...tdStyle, whiteSpace: 'pre-wrap' as const, minWidth: '200px' }}>{r.impact || '—'}</td>
-      <td style={{ ...tdStyle, whiteSpace: 'pre-wrap' as const, minWidth: '200px' }}>{r.mitigation || '—'}</td>
-      <td style={{ ...tdStyle, whiteSpace: 'nowrap' as const }}>
+      <td className={tdClass}>{r.probability ? (PROBABILITY_LABEL[r.probability] ?? r.probability) : '—'}</td>
+      <td className={`${tdClass} whitespace-pre-wrap min-w-[200px]`}>{r.impact || '—'}</td>
+      <td className={`${tdClass} whitespace-pre-wrap min-w-[200px]`}>{r.mitigation || '—'}</td>
+      <td className={`${tdClass} whitespace-nowrap`}>
         {r.status === 'PENDING' ? (
           canDecide ? (
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <button onClick={() => promote(r.id)} disabled={busyId === r.id} style={{ padding: '5px 10px', background: C.brand, color: '#fff', border: 'none', borderRadius: RADIUS.sm, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold, opacity: busyId === r.id ? 0.6 : 1 }}>
+            <div className="flex gap-1.5">
+              <button onClick={() => promote(r.id)} disabled={busyId === r.id} className={`px-2.5 py-1 bg-primary text-white border-none rounded-sm cursor-pointer text-xs font-semibold ${busyId === r.id ? 'opacity-60' : 'opacity-100'}`}>
                 ✅ העבר לטבלה הראשית
               </button>
-              <button onClick={() => reject(r.id)} disabled={busyId === r.id} style={{ padding: '5px 10px', background: 'transparent', color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, opacity: busyId === r.id ? 0.6 : 1 }}>
+              <button onClick={() => reject(r.id)} disabled={busyId === r.id} className={`px-2.5 py-1 bg-transparent text-subtle-foreground border border-border rounded-sm cursor-pointer text-xs ${busyId === r.id ? 'opacity-60' : 'opacity-100'}`}>
                 ✖ דחה
               </button>
             </div>
           ) : (
-            <span style={{ color: C.textMuted }}>{STATUS_LABEL.PENDING}</span>
+            <span className="text-subtle-foreground">{STATUS_LABEL.PENDING}</span>
           )
         ) : (
-          <span style={{
-            display: 'inline-block', color: STATUS_COLOR[r.status], fontWeight: WEIGHT.semibold,
-            background: `${STATUS_COLOR[r.status]}14`, border: `1px solid ${STATUS_COLOR[r.status]}40`,
-            borderRadius: RADIUS.full, padding: '2px 9px',
-          }}>
+          <span className={`inline-block font-semibold rounded-full px-2.5 py-0.5 border ${STATUS_BADGE_CLASS[r.status]}`}>
             {STATUS_LABEL[r.status]}
           </span>
         )}
@@ -122,10 +121,10 @@ export const SuggestedRisksView: React.FC<Props> = ({ token, versionId, versionN
   );
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+    <div className="flex flex-col gap-3">
       <div>
-        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>💡 הצעות סיכונים (ניתוח AI)</div>
-        <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>
+        <div className="text-lg font-bold text-foreground">💡 הצעות סיכונים (ניתוח AI)</div>
+        <div className="text-xs text-subtle-foreground mt-0.5">
           רשימת סיכונים פוטנציאליים שזוהו מתוך יכולות המערכת הקיימות — לבחינה בלבד. סיכון שתבחר להעביר ייווצר
           בטבלת "ניהול סיכונים" הרגילה{versionName ? ` עבור ${versionName}` : ''}, ומשם הוא כבר מזין את הודעות
           הבית ואת ה-KPI, בדיוק כמו סיכון שנוצר ידנית.
@@ -133,32 +132,32 @@ export const SuggestedRisksView: React.FC<Props> = ({ token, versionId, versionN
       </div>
 
       {error && (
-        <div style={{ background: `${C.danger}10`, border: `1px solid ${C.danger}40`, borderRadius: RADIUS.md, padding: '10px 14px', color: C.danger, ...TEXT.sm }}>
+        <div className="bg-danger-bg border border-danger/40 rounded-md px-3.5 py-2.5 text-danger text-sm">
           {error}
         </div>
       )}
 
-      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div className="bg-card border border-border rounded-lg overflow-auto">
+        <table className="w-full border-collapse">
           <thead>
             <tr>
-              <th style={thStyle}>כותרת הסיכון</th>
-              <th style={thStyle}>תחום / מודול מקור</th>
-              <th style={thStyle}>אות מזהה (הבסיס לזיהוי)</th>
-              <th style={thStyle}>חומרה</th>
-              <th style={thStyle}>סבירות</th>
-              <th style={thStyle}>השפעה</th>
-              <th style={thStyle}>מיטיגציה</th>
-              <th style={thStyle}>סטטוס / פעולה</th>
+              <th className={thClass}>כותרת הסיכון</th>
+              <th className={thClass}>תחום / מודול מקור</th>
+              <th className={thClass}>אות מזהה (הבסיס לזיהוי)</th>
+              <th className={thClass}>חומרה</th>
+              <th className={thClass}>סבירות</th>
+              <th className={thClass}>השפעה</th>
+              <th className={thClass}>מיטיגציה</th>
+              <th className={thClass}>סטטוס / פעולה</th>
             </tr>
           </thead>
           <tbody>
             {!loading && rows.length === 0 && (
-              <tr><td colSpan={8} style={{ ...tdStyle, textAlign: 'center', color: C.textMuted, padding: SP[5] }}>אין הצעות סיכונים כרגע.</td></tr>
+              <tr><td colSpan={8} className={`${tdClass} text-center text-subtle-foreground p-5`}>אין הצעות סיכונים כרגע.</td></tr>
             )}
             {pending.map(renderRow)}
             {decided.length > 0 && pending.length > 0 && (
-              <tr><td colSpan={8} style={{ ...tdStyle, borderBottom: 'none', padding: '4px 10px', color: C.textMuted, ...TEXT.xs }}>הוחלט עליהן קודם:</td></tr>
+              <tr><td colSpan={8} className={`${tdClass} border-b-0 px-2.5 py-1 text-subtle-foreground text-xs`}>הוחלט עליהן קודם:</td></tr>
             )}
             {decided.map(renderRow)}
           </tbody>

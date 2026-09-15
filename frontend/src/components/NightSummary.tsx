@@ -68,30 +68,28 @@ const SIGNIFICANT_MINS = 15;
 const BarChart: React.FC<{ title: string; data: { label: string; count: number; color: string }[] }> = ({ title, data }) => {
   const max = Math.max(...data.map(d => d.count), 1);
   return (
-    <div style={{ background: C.bgNested, borderRadius: '8px', padding: '12px 16px', border: `1px solid ${C.border}` }}>
-      <div style={{ fontSize: '14px', fontWeight: 'bold', color: C.textMuted, marginBottom: '10px' }}>{title}</div>
+    <div className="rounded-lg border border-border bg-muted px-4 py-3">
+      <div className="mb-2.5 text-sm font-bold text-subtle-foreground">{title}</div>
       {data.map(d => (
-        <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-          <div style={{ width: '72px', fontSize: '13px', color: C.textMuted, textAlign: 'right', flexShrink: 0 }}>{d.label}</div>
-          <div style={{ flex: 1, background: C.bgHover, borderRadius: '4px', height: '20px', overflow: 'hidden' }}>
-            <div style={{
-              width: `${Math.max((d.count / max) * 100, d.count > 0 ? 8 : 0)}%`,
-              background: d.color, height: '100%', borderRadius: '4px',
-              display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingLeft: '6px',
-              transition: 'width 0.4s',
-            }}>
-              {d.count > 0 && <span style={{ fontSize: '13px', color: 'white', fontWeight: 'bold', paddingLeft: '4px' }}>{d.count}</span>}
+        <div key={d.label} className="mb-1.5 flex items-center gap-2">
+          <div className="w-[72px] flex-shrink-0 text-end text-[13px] text-subtle-foreground">{d.label}</div>
+          <div className="h-5 flex-1 overflow-hidden rounded" style={{ background: C.bgHover }}>
+            <div
+              className="flex h-full items-center justify-end rounded ps-1.5 transition-[width] duration-300"
+              style={{ width: `${Math.max((d.count / max) * 100, d.count > 0 ? 8 : 0)}%`, background: d.color }}
+            >
+              {d.count > 0 && <span className="ps-1 text-[13px] font-bold text-white">{d.count}</span>}
             </div>
           </div>
-          {d.count === 0 && <span style={{ fontSize: '13px', color: C.textDisabled }}>0</span>}
+          {d.count === 0 && <span className="text-[13px] text-subtle-foreground">0</span>}
         </div>
       ))}
     </div>
   );
 };
 
-function badgeStyle(bg: string, color: string): React.CSSProperties {
-  return { background: bg, color, padding: '4px 14px', borderRadius: '20px', fontWeight: 'bold', fontSize: '15px', whiteSpace: 'nowrap' };
+function badgeClass(): string {
+  return 'rounded-full px-3.5 py-1 font-bold text-[15px] whitespace-nowrap';
 }
 
 export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, isRehearsal = false, onApproved, onGoToHub }) => {
@@ -538,7 +536,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
   };
 
   if (loading) return (
-    <div style={{ textAlign: 'center', padding: '40px', color: C.textMuted, fontFamily: FONT }}>טוען...</div>
+    <div className="p-10 text-center font-sans text-subtle-foreground">טוען...</div>
   );
 
   const effectiveGo = isGoNogo || (canForceApprove && !!summaryRecord?.sentAt);
@@ -841,24 +839,24 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 </body></html>`;
   };
 
-  const tdBase: React.CSSProperties = { padding: '8px 10px', border: `1px solid ${C.border}`, fontSize: '15px', verticalAlign: 'middle', color: C.textSecondary };
+  const tdBaseClass = 'px-2.5 py-2 border border-border text-[15px] align-middle text-muted-foreground';
 
   const timelineDelayBadge = (delayMins: number | null) => {
-    if (delayMins === null) return <span style={badgeStyle(C.bgHover, C.textMuted)}>— ממתין לנתונים</span>;
-    if (delayMins <= -SIGNIFICANT_MINS) return <span style={badgeStyle(C.bgDone, C.statusDone)}>⏩ לפני הזמן {fmtMins(Math.abs(delayMins))}</span>;
-    if (delayMins <= 0)                 return <span style={badgeStyle(C.bgDone, C.statusDone)}>✅ כמתוכנן</span>;
-    if (delayMins < SIGNIFICANT_MINS)  return <span style={badgeStyle(C.bgInProgress, C.statusInProgress)}>⚠️ איחור קל {fmtMins(delayMins)}</span>;
-    return <span style={badgeStyle(C.bgBlocked, C.statusFailed)}>🚨 חריגה בלוחות הזמנים +{fmtMins(delayMins)}</span>;
+    if (delayMins === null) return <span className={badgeClass()} style={{ background: C.bgHover, color: C.textMuted }}>— ממתין לנתונים</span>;
+    if (delayMins <= -SIGNIFICANT_MINS) return <span className={badgeClass()} style={{ background: C.bgDone, color: C.statusDone }}>⏩ לפני הזמן {fmtMins(Math.abs(delayMins))}</span>;
+    if (delayMins <= 0)                 return <span className={badgeClass()} style={{ background: C.bgDone, color: C.statusDone }}>✅ כמתוכנן</span>;
+    if (delayMins < SIGNIFICANT_MINS)  return <span className={badgeClass()} style={{ background: C.bgInProgress, color: C.statusInProgress }}>⚠️ איחור קל {fmtMins(delayMins)}</span>;
+    return <span className={badgeClass()} style={{ background: C.bgBlocked, color: C.statusFailed }}>🚨 חריגה בלוחות הזמנים +{fmtMins(delayMins)}</span>;
   };
 
   return (
-    <div style={{ direction: 'rtl', fontFamily: FONT }}>
-      <h2 style={{ color: isRehearsal ? C.warning : C.textPrimary, margin: '0 0 20px', fontSize: '20px' }}>
+    <div dir="rtl" className="font-sans">
+      <h2 className="mb-5 text-xl" style={{ color: isRehearsal ? C.warning : C.textPrimary }}>
         {isRehearsal ? '🎭 סיכום חזרה גנרלית' : '🌙 סיכום ליל ההטמעה'} (
         <bdi
           onClick={onGoToHub}
           title={onGoToHub ? 'עבור לדף הנחיתה' : undefined}
-          style={{ cursor: onGoToHub ? 'pointer' : 'default', textDecoration: onGoToHub ? 'underline dotted' : 'none' }}
+          className={onGoToHub ? 'cursor-pointer underline decoration-dotted' : 'cursor-default no-underline'}
         >{versionName}</bdi>)
       </h2>
 
@@ -866,15 +864,13 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 
       {/* ── Tab switcher ── */}
       {!isRehearsal && (
-        <div style={{ display: 'flex', gap: SP[2], marginBottom: SP[4], borderBottom: `1px solid ${C.border}`, paddingBottom: SP[2] }}>
+        <div className="mb-4 flex gap-2 border-b border-border pb-2">
           {(['dashboard', 'summary'] as const).map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)} style={{
-              padding: `${SP[2]} ${SP[4]}`, border: 'none', borderRadius: `${RADIUS.md} ${RADIUS.md} 0 0`, cursor: 'pointer', fontFamily: FONT,
-              ...TEXT.sm, fontWeight: activeTab === tab ? WEIGHT.semibold : WEIGHT.normal,
-              background: activeTab === tab ? C.brand : 'transparent',
-              color: activeTab === tab ? 'white' : C.textMuted,
-              transition: 'all 0.15s',
-            }}>
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`cursor-pointer rounded-t-md border-none px-4 py-2 font-sans text-sm transition-[background,color] duration-150 ease-out ${activeTab === tab ? 'bg-primary font-semibold text-white' : 'bg-transparent font-normal text-subtle-foreground'}`}
+            >
               {tab === 'dashboard' ? 'דשבורד' : 'סיכום מפורט'}
             </button>
           ))}
@@ -893,16 +889,16 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         const rollbackTasks = tasks.filter(t => t.status === 'FAILED' && t.failedReason && rollbackSet.has(t.failedReason));
         if (rollbackTasks.length === 0) return null;
         return (
-          <div style={{ background: C.nogoBg, border: `2px solid ${C.nogoBorder}`, borderRadius: '12px', padding: '14px 20px', marginBottom: '16px' }}>
-            <div style={{ fontWeight: 'bold', color: C.nogoText, fontSize: '16px', marginBottom: '8px' }}>🔴 נדרש Rollback לגרסה!</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div className="mb-4 rounded-xl px-5 py-3.5" style={{ background: C.nogoBg, border: `2px solid ${C.nogoBorder}` }}>
+            <div className="mb-2 text-base font-bold" style={{ color: C.nogoText }}>🔴 נדרש Rollback לגרסה!</div>
+            <div className="flex flex-col gap-1.5">
               {rollbackTasks.map(t => (
-                <div key={t.id} style={{ fontSize: '15px', color: C.textSecondary }}>
-                  ✗ <strong style={{ color: C.textPrimary }}>{t.title}</strong> — {t.failedReason}
+                <div key={t.id} className="text-[15px] text-muted-foreground">
+                  ✗ <strong className="text-foreground">{t.title}</strong> — {t.failedReason}
                 </div>
               ))}
             </div>
-            <div style={{ marginTop: '10px', fontSize: '14px', color: C.nogoText, fontWeight: 'bold' }}>
+            <div className="mt-2.5 text-sm font-bold" style={{ color: C.nogoText }}>
               לא ניתן לאשר סיכום עד לביצוע Rollback. פנה למנהל הלילה.
             </div>
           </div>
@@ -910,43 +906,37 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
       })()}
 
       {/* ── GO/NO GO Banner ── */}
-      <div style={{
-        borderRadius: RADIUS['2xl'],
-        padding: `${SP[5]} ${SP[6]}`,
-        marginBottom: SP[5],
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        gap: SP[4],
-        background: effectiveGo ? C.goBg : C.nogoBg,
-        border: `2px solid ${effectiveGo ? C.goBorder : C.nogoBorder}`,
-        boxShadow: effectiveGo
-          ? `0 4px 20px rgba(55,196,122,0.15)`
-          : `0 4px 20px rgba(240,106,106,0.15)`,
-        position: 'relative', overflow: 'hidden',
-      }}>
+      <div
+        className="relative mb-5 flex items-center justify-between gap-4 overflow-hidden rounded-2xl px-6 py-5"
+        style={{
+          background: effectiveGo ? C.goBg : C.nogoBg,
+          border: `2px solid ${effectiveGo ? C.goBorder : C.nogoBorder}`,
+          boxShadow: effectiveGo
+            ? `0 4px 20px rgba(55,196,122,0.15)`
+            : `0 4px 20px rgba(240,106,106,0.15)`,
+        }}
+      >
         {/* Background pulse */}
-        <div style={{
-          position: 'absolute', inset: 0, pointerEvents: 'none',
-          background: effectiveGo
-            ? 'radial-gradient(ellipse at 80% 50%, rgba(86,211,100,0.06), transparent)'
-            : 'radial-gradient(ellipse at 80% 50%, rgba(248,81,73,0.06), transparent)',
-        }} />
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background: effectiveGo
+              ? 'radial-gradient(ellipse at 80% 50%, rgba(86,211,100,0.06), transparent)'
+              : 'radial-gradient(ellipse at 80% 50%, rgba(248,81,73,0.06), transparent)',
+          }}
+        />
 
-        <div style={{ flex: 1, position: 'relative' }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: SP[3], marginBottom: SP[2],
-          }}>
-            <span style={{ fontSize: '24px' }}>{effectiveGo ? '✅' : '🛑'}</span>
-            <span style={{
-              ...TEXT.xl, fontWeight: WEIGHT.bold,
-              color: effectiveGo ? C.goText : C.nogoText,
-            }}>
+        <div className="relative flex-1">
+          <div className="mb-2 flex items-center gap-3">
+            <span className="text-2xl">{effectiveGo ? '✅' : '🛑'}</span>
+            <span className="text-xl font-bold" style={{ color: effectiveGo ? C.goText : C.nogoText }}>
               {effectiveGo
                 ? (isGoNogo ? 'GO — ניתן להוציא סיכום' : 'GO — הגרסה עברה בהצלחה')
                 : 'NO GO — לא ניתן להוציא סיכום'}
             </span>
           </div>
           {!isGoNogo && (
-            <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
+            <div className="flex flex-wrap gap-2">
               {waitingTasks.length > 0 && (
                 <Badge color={C.statusWaiting} bg={C.bgWaiting}>⏳ {waitingTasks.length} ממתינות</Badge>
               )}
@@ -961,32 +951,29 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         </div>
 
         {/* Progress ring */}
-        <div style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[1],
-          flexShrink: 0, position: 'relative',
-        }}>
-          <svg width="72" height="72" viewBox="0 0 72 72" style={{ transform: 'rotate(-90deg)' }}>
+        <div className="relative flex flex-shrink-0 flex-col items-center gap-1">
+          <svg width="72" height="72" viewBox="0 0 72 72" className="-rotate-90">
             <circle cx="36" cy="36" r="30" fill="none" stroke={effectiveGo ? `${C.success}22` : `${C.danger}22`} strokeWidth="5"/>
             <circle cx="36" cy="36" r="30" fill="none"
               stroke={effectiveGo ? C.success : C.danger}
               strokeWidth="5" strokeLinecap="round"
               strokeDasharray={`${2 * Math.PI * 30}`}
               strokeDashoffset={`${2 * Math.PI * 30 * (1 - progressPercent / 100)}`}
-              style={{ transition: 'stroke-dashoffset 0.8s ease' }}
+              className="transition-[stroke-dashoffset] duration-700 ease-out"
             />
             <text x="36" y="36" textAnchor="middle" dominantBaseline="central"
               style={{ transform: 'rotate(90deg) translateY(-72px)' }}
               fill={effectiveGo ? C.success : C.danger}
-              fontSize="16" fontWeight="700" fontFamily={FONT}>
+              fontSize="16" fontWeight="700" className="font-sans">
               {progressPercent}%
             </text>
           </svg>
-          <span style={{ ...TEXT.xs, color: C.textMuted }}>הושלם</span>
+          <span className="text-xs text-subtle-foreground">הושלם</span>
         </div>
       </div>
 
       {/* ── KPI Stats ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: SP[3], marginBottom: SP[5] }}>
+      <div className="mb-5 grid grid-cols-5 gap-3">
         {[
           { label: 'הושלמו',  value: doneTasks.length,       color: C.statusDone    },
           { label: 'בביצוע',  value: inProgressTasks.length, color: C.statusInProgress },
@@ -1009,7 +996,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         />
       </Card>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+      <div className="flex flex-col gap-4">
 
         {/* ── עיקרי הדברים ── */}
         <Card>
@@ -1021,18 +1008,18 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
           )}
           <textarea value={headline} onChange={e => setHeadline(e.target.value)}
             placeholder={autoHeadline ? 'הוסף הערות נוספות אם נדרש...' : 'לדוגמה: העלאת הגרסה הסתיימה בהצלחה בהוט ובהוטנט'}
-            rows={3} style={{
-              width: '100%', padding: SP[3], border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.md,
-              ...TEXT.base, boxSizing: 'border-box', resize: 'vertical', fontFamily: FONT, direction: 'rtl',
-              background: C.bgNested, color: C.textPrimary, outline: 'none', transition: EASE.fast,
-            }} />
+            dir="rtl"
+            rows={3}
+            className="w-full resize-y rounded-md border border-border bg-muted px-3 py-3 font-sans text-base text-foreground outline-none transition-colors duration-fast ease-out focus:border-primary"
+            style={{ boxSizing: 'border-box' }}
+          />
         </Card>
 
         {/* ── Timeline ── */}
         {phaseTimelines.length > 0 && (
-          <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}` }}>
-            <h3 style={{ margin: '0 0 16px', color: C.textPrimary, fontSize: '17px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>⏱ לוחות זמנים</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="mb-4 flex items-center gap-2 text-[17px] font-bold text-foreground">⏱ לוחות זמנים</h3>
+            <div className="flex flex-col gap-3">
               {phaseTimelines.map((pt, idx) => {
                 const isLate  = pt.delayMins !== null && pt.delayMins >= SIGNIFICANT_MINS;
                 const isEarly = pt.delayMins !== null && pt.delayMins <= -SIGNIFICANT_MINS;
@@ -1042,45 +1029,45 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                 const envColor    = pt.environment === 'HOT' ? C.statusFailed : C.statusOpen;
                 const envBg       = pt.environment === 'HOT' ? 'rgba(248,81,73,0.15)' : 'rgba(88,166,255,0.15)';
                 return (
-                  <div key={idx} style={{ border: `2px solid ${borderColor}`, borderRadius: '12px', padding: '16px 20px', background: bgColor, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+                  <div key={idx} className="rounded-xl px-5 py-4 shadow-sm" style={{ border: `2px solid ${borderColor}`, background: bgColor }}>
                     {/* Header row */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                        <span style={{ background: envBg, color: envColor, padding: '3px 12px', borderRadius: '12px', fontSize: '14px', fontWeight: 'bold', border: `1px solid ${envColor}33` }}>{pt.environment}</span>
-                        <span style={{ fontWeight: '700', color: C.textPrimary, fontSize: '16px' }}>{pt.name}</span>
-                        <span style={{ fontSize: '14px', color: C.textMuted, background: C.bgNested, padding: '2px 8px', borderRadius: '8px' }}>{pt.doneTasks}/{pt.totalTasks} משימות</span>
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <span className="rounded-xl px-3 py-1 text-sm font-bold" style={{ background: envBg, color: envColor, border: `1px solid ${envColor}33` }}>{pt.environment}</span>
+                        <span className="text-base font-bold text-foreground">{pt.name}</span>
+                        <span className="rounded-lg bg-muted px-2 py-0.5 text-sm text-subtle-foreground">{pt.doneTasks}/{pt.totalTasks} משימות</span>
                       </div>
                       {timelineDelayBadge(pt.delayMins)}
                     </div>
                     {/* Timing grid */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginBottom: '12px' }}>
+                    <div className="mb-3 grid grid-cols-4 gap-2">
                       {[
                         { label: 'התחלה מתוכננת', value: pt.plannedStart ? fmtTime(pt.plannedStart.toISOString()) : '—', color: C.textSecondary },
                         { label: 'סיום מתוכנן',   value: pt.plannedEnd   ? fmtTime(pt.plannedEnd.toISOString())   : '—', color: C.statusInProgress },
                         { label: 'התחלה בפועל',   value: pt.actualStart  ? fmtTime(pt.actualStart.toISOString())  : '—', color: C.statusOpen },
                         { label: 'סיום בפועל',    value: pt.actualEnd    ? fmtTime(pt.actualEnd.toISOString())    : '—', color: isLate ? C.statusFailed : C.statusDone },
                       ].map(f => (
-                        <div key={f.label} style={{ background: '#FFFFFF', border: `1px solid ${C.border}`, borderRadius: '8px', padding: '8px 12px' }}>
-                          <div style={{ color: C.textMuted, fontSize: '13px', marginBottom: '4px', fontWeight: '500' }}>{f.label}</div>
-                          <div style={{ fontWeight: '700', color: f.color, fontSize: '16px', letterSpacing: '0.3px' }}>{f.value}</div>
+                        <div key={f.label} className="rounded-lg border border-border bg-white px-3 py-2">
+                          <div className="mb-1 text-[13px] font-medium text-subtle-foreground">{f.label}</div>
+                          <div className="text-base font-bold tracking-wide" style={{ color: f.color }}>{f.value}</div>
                         </div>
                       ))}
                     </div>
                     {/* Delay reason */}
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                      <label style={{ fontSize: '14px', color: isLate ? C.statusFailed : C.textMuted, paddingTop: '8px', flexShrink: 0, fontWeight: isLate ? '600' : 'normal' }}>
+                    <div className="flex items-start gap-2">
+                      <label className={`flex-shrink-0 pt-2 text-sm ${isLate ? 'font-semibold' : 'font-normal'}`} style={{ color: isLate ? C.statusFailed : C.textMuted }}>
                         {isLate ? '⚠️ סיבת חריגה *' : 'סיבת חריגה / הערה'}
                       </label>
                       <textarea
                         value={phaseDelayReasons[idx] || ''}
                         onChange={e => setPhaseDelayReasons(prev => ({ ...prev, [idx]: e.target.value }))}
                         placeholder={isLate ? 'חובה — הסבר מדוע חרגו מלוחות הזמנים' : 'אופציונלי'}
+                        dir="rtl"
                         rows={2}
+                        className="flex-1 resize-y rounded-md px-2.5 py-1.5 font-sans text-[15px] text-foreground outline-none"
                         style={{
-                          flex: 1, padding: '7px 10px',
                           border: `1px solid ${isLate && !(phaseDelayReasons[idx] || '').trim() ? C.statusFailed : C.border}`,
-                          borderRadius: '6px', fontSize: '15px', resize: 'vertical', fontFamily: FONT, direction: 'rtl',
-                          background: C.bgNested, color: C.textPrimary, outline: 'none',
+                          background: C.bgNested,
                         }}
                       />
                     </div>
@@ -1093,12 +1080,12 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 
         {/* ── תקלות מהמערכת ── */}
         {blockedTasks.length > 0 && (
-          <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', border: `2px solid ${C.statusFailed}` }}>
-            <h3 style={{ margin: '0 0 12px', color: C.statusFailed, fontSize: '16px' }}>תקלות ({blockedTasks.length})</h3>
+          <div className="rounded-xl bg-card p-5" style={{ border: `2px solid ${C.statusFailed}` }}>
+            <h3 className="mb-3 text-base" style={{ color: C.statusFailed }}>תקלות ({blockedTasks.length})</h3>
             {blockedTasks.map(task => (
-              <div key={task.id} style={{ background: C.bgBlocked, borderRadius: '8px', padding: '12px', marginBottom: '8px', border: `1px solid ${C.statusFailed}33` }}>
-                <div style={{ fontWeight: 'bold', color: C.statusFailed, fontSize: '15px' }}>{task.title}</div>
-                <div style={{ fontSize: '14px', color: C.textMuted, marginTop: '4px' }}>
+              <div key={task.id} className="mb-2 rounded-lg bg-danger/10 p-3" style={{ border: `1px solid ${C.statusFailed}33` }}>
+                <div className="text-[15px] font-bold" style={{ color: C.statusFailed }}>{task.title}</div>
+                <div className="mt-1 text-sm text-subtle-foreground">
                   {task.assignedTeam?.name && <span>צוות: {task.assignedTeam.name} | </span>}
                   {task.blockedReason && <span>סיבה: {task.blockedReason}</span>}
                 </div>
@@ -1109,22 +1096,22 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 
         {/* ── Test Coverage (QC) ── */}
         {(
-          <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}` }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ margin: 0, color: C.textPrimary, fontSize: '17px', fontWeight: '700' }}>🧪 תכולת בדיקות (QC Test Coverage)</h3>
+          <div className="rounded-xl border border-border bg-card p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-[17px] font-bold text-foreground">🧪 תכולת בדיקות (QC Test Coverage)</h3>
               {qcMock && (
-                <span style={{ fontSize: '13px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
+                <span className="rounded-xl bg-warning/10 px-2.5 py-1 text-[13px] text-warning" style={{ border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
               )}
             </div>
             {qcLoading ? (
-              <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted }}>טוען נתוני QC...</div>
+              <div className="p-4 text-center text-subtle-foreground">טוען נתוני QC...</div>
             ) : coverage.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted, background: C.bgNested, borderRadius: '8px' }}>אין נתוני בדיקות</div>
+              <div className="rounded-lg bg-muted p-4 text-center text-subtle-foreground">אין נתוני בדיקות</div>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
                   <thead>
-                    <tr style={{ background: C.bgActive }}>
+                    <tr className="bg-[#E6E7F5]">
                       {[
                         '#', 'פרויקט/רגרסיה/באג', 'כותרת / CR', 'אחראי',
                         ...(coverageCols.passed ? ['Passed'] : []),
@@ -1134,29 +1121,31 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                         ...(coverageCols.notRun ? ['Not Run'] : []),
                         'הערות',
                       ].map(h => (
-                        <th key={h} style={{ padding: '9px 10px', textAlign: 'right', color: C.textPrimary, fontWeight: '600', whiteSpace: 'nowrap', border: `1px solid ${C.border}`, fontSize: '14px' }}>{h}</th>
+                        <th key={h} className="whitespace-nowrap border border-border px-2.5 py-2.5 text-end text-sm font-semibold text-foreground">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {coverage.map((r, i) => (
                       <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : C.bgNested }}>
-                        <td style={{ ...tdBase, color: C.textMuted, width: '28px', textAlign: 'center' }}>{i + 1}</td>
-                        <td style={{ ...tdBase, fontWeight: r.subject ? 'bold' : 'normal', color: r.subject ? C.textPrimary : C.textMuted, whiteSpace: 'nowrap' }}>{r.subject || '—'}</td>
-                        <td style={{ ...tdBase, maxWidth: '240px' }}>{r.title}</td>
-                        <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{r.responsible}</td>
-                        {coverageCols.passed && <td style={{ ...tdBase, textAlign: 'center', color: C.statusDone, fontWeight: r.passed > 0 ? 'bold' : 'normal' }}>{r.passed}</td>}
-                        {coverageCols.failed && <td style={{ ...tdBase, textAlign: 'center', color: r.failed > 0 ? C.statusFailed : C.textMuted, fontWeight: r.failed > 0 ? 'bold' : 'normal' }}>{r.failed}</td>}
-                        {coverageCols.notCompleted && <td style={{ ...tdBase, textAlign: 'center', color: r.notCompleted > 0 ? C.statusInProgress : C.textMuted }}>{r.notCompleted}</td>}
-                        {coverageCols.blocked && <td style={{ ...tdBase, textAlign: 'center', color: r.blocked > 0 ? C.statusFailed : C.textMuted }}>{r.blocked}</td>}
-                        {coverageCols.notRun && <td style={{ ...tdBase, textAlign: 'center', color: C.textMuted }}>{r.notRun}</td>}
-                        <td style={{ ...tdBase, minWidth: '120px' }}>
+                        <td className={`${tdBaseClass} w-7 text-center text-subtle-foreground`}>{i + 1}</td>
+                        <td className={`${tdBaseClass} whitespace-nowrap ${r.subject ? 'font-bold text-foreground' : 'font-normal text-subtle-foreground'}`}>{r.subject || '—'}</td>
+                        <td className={`${tdBaseClass} max-w-[240px]`}>{r.title}</td>
+                        <td className={`${tdBaseClass} whitespace-nowrap`}>{r.responsible}</td>
+                        {coverageCols.passed && <td className={`${tdBaseClass} text-center text-success ${r.passed > 0 ? 'font-bold' : 'font-normal'}`}>{r.passed}</td>}
+                        {coverageCols.failed && <td className={`${tdBaseClass} text-center ${r.failed > 0 ? 'font-bold text-danger' : 'font-normal text-subtle-foreground'}`}>{r.failed}</td>}
+                        {coverageCols.notCompleted && <td className={`${tdBaseClass} text-center`} style={{ color: r.notCompleted > 0 ? C.statusInProgress : C.textMuted }}>{r.notCompleted}</td>}
+                        {coverageCols.blocked && <td className={`${tdBaseClass} text-center ${r.blocked > 0 ? 'text-danger' : 'text-subtle-foreground'}`}>{r.blocked}</td>}
+                        {coverageCols.notRun && <td className={`${tdBaseClass} text-center`}>{r.notRun}</td>}
+                        <td className={`${tdBaseClass} min-w-[120px]`}>
                           <textarea
                             value={coverageRemarks[i] || ''}
                             onChange={e => setCoverageRemarks(prev => ({ ...prev, [i]: e.target.value }))}
                             placeholder="הערות..."
+                            dir="rtl"
                             rows={2}
-                            style={{ width: '100%', padding: '4px', border: `1px solid ${C.border}`, borderRadius: '4px', fontSize: '13px', resize: 'vertical', fontFamily: FONT, direction: 'rtl', boxSizing: 'border-box', background: C.bgHover, color: C.textPrimary }}
+                            className="w-full resize-y rounded border border-border bg-muted p-1 font-sans text-[13px] text-foreground"
+                            style={{ boxSizing: 'border-box' }}
                           />
                         </td>
                       </tr>
@@ -1170,68 +1159,72 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 
         {/* ── Defects (QC) ── */}
         {(
-          <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}` }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ margin: 0, color: C.textPrimary, fontSize: '16px' }}>🪲 תקלות שדווחו (QC)</h3>
+          <div className="rounded-xl border border-border bg-card p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-base text-foreground">🪲 תקלות שדווחו (QC)</h3>
               {qcMock ? (
-                <span style={{ fontSize: '13px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
+                <span className="rounded-xl bg-warning/10 px-2.5 py-1 text-[13px] text-warning" style={{ border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
               ) : (
-                <span style={{ fontSize: '13px', background: C.bgDone, color: C.statusDone, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusDone}44` }}>מחובר ל-QC ✅</span>
+                <span className="rounded-xl bg-success/10 px-2.5 py-1 text-[13px] text-success" style={{ border: `1px solid ${C.statusDone}44` }}>מחובר ל-QC ✅</span>
               )}
             </div>
             {qcLoading ? (
-              <div style={{ textAlign: 'center', padding: '16px', color: C.textMuted }}>טוען נתוני QC...</div>
+              <div className="p-4 text-center text-subtle-foreground">טוען נתוני QC...</div>
             ) : defects.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '20px', color: C.statusDone, background: C.bgDone, borderRadius: '8px', fontSize: '15px', fontWeight: 'bold', border: `1px solid ${C.statusDone}44` }}>
+              <div className="rounded-lg bg-success/10 p-5 text-center text-[15px] font-bold text-success" style={{ border: `1px solid ${C.statusDone}44` }}>
                 ✅ לא דווחו תקלות במהלך הפעילות
               </div>
             ) : (
               <>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '16px' }}>
+                <div className="mb-4 grid grid-cols-3 gap-3">
                   <BarChart title="התפלגות לפי חומרה"       data={severityData.filter(d => d.count > 0)} />
                   <BarChart title="התפלגות לפי סטטוס"       data={statusData.filter(d => d.count > 0)} />
                   <BarChart title="התפלגות לפי Responsibility" data={responsibilityData} />
                 </div>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-sm">
                     <thead>
-                      <tr style={{ background: C.bgNested }}>
+                      <tr className="bg-muted">
                         {['ID', 'כותרת התקלה', 'תיאור', 'חומרה', 'עדיפות', 'צוות אחראי', 'דווח ע"י', 'תאריך גילוי', 'סביבה', 'סטטוס', 'שלב בדיקה', 'סוג תקלה', 'הערות', 'מלל חופשי'].map(h => (
-                          <th key={h} style={{ padding: '7px 8px', textAlign: 'right', color: C.textSecondary, fontWeight: 'bold', whiteSpace: 'nowrap', border: `1px solid ${C.border}`, fontSize: '13px' }}>{h}</th>
+                          <th key={h} className="whitespace-nowrap border border-border px-2 py-1.5 text-end text-[13px] font-bold text-muted-foreground">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {defects.map((d, i) => (
                         <tr key={d.id} style={{ background: i % 2 === 0 ? 'transparent' : C.bgNested }}>
-                          <td style={{ ...tdBase, textAlign: 'center', whiteSpace: 'nowrap' }}><DefectIdBadge id={d.id} /></td>
-                          <td style={{ ...tdBase, maxWidth: '160px', fontWeight: 'bold', color: C.textPrimary }}>{d.title}</td>
-                          <td style={{ ...tdBase, maxWidth: '220px' }}>{cleanHtmlText(d.description)}</td>
-                          <td style={{ ...tdBase }}>
-                            <span style={{ background: (SEVERITY_COLORS[d.severity] || '#95a5a6') + '22', color: SEVERITY_COLORS[d.severity] || '#95a5a6', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap' }}>{d.severity}</span>
+                          <td className={`${tdBaseClass} whitespace-nowrap text-center`}><DefectIdBadge id={d.id} /></td>
+                          <td className={`${tdBaseClass} max-w-[160px] font-bold text-foreground`}>{d.title}</td>
+                          <td className={`${tdBaseClass} max-w-[220px]`}>{cleanHtmlText(d.description)}</td>
+                          <td className={tdBaseClass}>
+                            <span className="whitespace-nowrap rounded-lg px-1.5 py-px text-[13px] font-bold" style={{ background: (SEVERITY_COLORS[d.severity] || '#95a5a6') + '22', color: SEVERITY_COLORS[d.severity] || '#95a5a6' }}>{d.severity}</span>
                           </td>
-                          <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.priority}</td>
-                          <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.assignedTo}</td>
-                          <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.reporter}</td>
-                          <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.discoveryDate}</td>
-                          <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.environment}</td>
-                          <td style={{ ...tdBase }}>
-                            <span style={{
-                              background: d.status === 'Open' ? C.bgBlocked : d.status === 'Closed' ? C.bgDone : C.bgHover,
-                              color: d.status === 'Open' ? C.statusFailed : d.status === 'Closed' ? C.statusDone : C.textMuted,
-                              padding: '1px 8px', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', whiteSpace: 'nowrap',
-                            }}>{d.status}</span>
+                          <td className={`${tdBaseClass} whitespace-nowrap`}>{d.priority}</td>
+                          <td className={`${tdBaseClass} whitespace-nowrap`}>{d.assignedTo}</td>
+                          <td className={`${tdBaseClass} whitespace-nowrap`}>{d.reporter}</td>
+                          <td className={`${tdBaseClass} whitespace-nowrap`}>{d.discoveryDate}</td>
+                          <td className={`${tdBaseClass} whitespace-nowrap`}>{d.environment}</td>
+                          <td className={tdBaseClass}>
+                            <span
+                              className="whitespace-nowrap rounded-lg px-2 py-px text-[13px] font-bold"
+                              style={{
+                                background: d.status === 'Open' ? C.bgBlocked : d.status === 'Closed' ? C.bgDone : C.bgHover,
+                                color: d.status === 'Open' ? C.statusFailed : d.status === 'Closed' ? C.statusDone : C.textMuted,
+                              }}
+                            >{d.status}</span>
                           </td>
-                          <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.testPhase}</td>
-                          <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>{d.defectType}</td>
-                          <td style={{ ...tdBase, maxWidth: '160px' }}>{cleanHtmlText(d.notes)}</td>
-                          <td style={{ ...tdBase, minWidth: '120px' }}>
+                          <td className={`${tdBaseClass} whitespace-nowrap`}>{d.testPhase}</td>
+                          <td className={`${tdBaseClass} whitespace-nowrap`}>{d.defectType}</td>
+                          <td className={`${tdBaseClass} max-w-[160px]`}>{cleanHtmlText(d.notes)}</td>
+                          <td className={`${tdBaseClass} min-w-[120px]`}>
                             <textarea
                               value={defectRemarks[d.id] || ''}
                               onChange={e => setDefectRemarks(prev => ({ ...prev, [d.id]: e.target.value }))}
                               placeholder="מלל חופשי..."
+                              dir="rtl"
                               rows={2}
-                              style={{ width: '100%', padding: '4px', border: `1px solid ${C.border}`, borderRadius: '4px', fontSize: '13px', resize: 'vertical', fontFamily: FONT, direction: 'rtl', boxSizing: 'border-box', background: C.bgHover, color: C.textPrimary }}
+                              className="w-full resize-y rounded border border-border bg-muted p-1 font-sans text-[13px] text-foreground"
+                              style={{ boxSizing: 'border-box' }}
                             />
                           </td>
                         </tr>
@@ -1245,39 +1238,43 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         )}
 
         {/* ── הערות לצוות הבוקר ── */}
-        <div style={{ background: C.bgCard, borderRadius: '12px', padding: '20px', border: `1px solid ${C.border}` }}>
-          <h3 style={{ margin: '0 0 12px', color: C.textPrimary, fontSize: '16px' }}>הערות לצוות הבוקר</h3>
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h3 className="mb-3 text-base text-foreground">הערות לצוות הבוקר</h3>
           <textarea value={morningNotes} onChange={e => setMorningNotes(e.target.value)}
             placeholder="פריטים שדורשים מעקב בוקר..."
-            rows={3} style={{
-              width: '100%', padding: '10px', border: `1px solid ${C.borderEm}`, borderRadius: '8px',
-              fontSize: '15px', boxSizing: 'border-box', resize: 'vertical', fontFamily: FONT, direction: 'rtl',
-              background: C.bgNested, color: C.textPrimary, outline: 'none',
-            }} />
+            dir="rtl"
+            rows={3}
+            className="w-full resize-y rounded-lg border border-border bg-muted px-2.5 py-2.5 font-sans text-[15px] text-foreground outline-none"
+            style={{ boxSizing: 'border-box' }}
+          />
         </div>
 
         {/* ── משימות נכשלות — אישור דילוג (מנהל בלבד) ── */}
         {canForceApprove && failedNightTasks.length > 0 && !summaryRecord?.sentAt && (
-          <div style={{ background: C.bgCard, border: `2px solid ${C.statusFailed}`, borderRadius: '12px', padding: '20px' }}>
-            <h3 style={{ margin: '0 0 12px', color: C.statusFailed, fontSize: '16px' }}>⚠️ משימות נכשלות ({failedNightTasks.length})</h3>
-            <p style={{ margin: '0 0 12px', fontSize: '15px', color: C.textMuted }}>
+          <div className="rounded-xl bg-card p-5" style={{ border: `2px solid ${C.statusFailed}` }}>
+            <h3 className="mb-3 text-base" style={{ color: C.statusFailed }}>⚠️ משימות נכשלות ({failedNightTasks.length})</h3>
+            <p className="mb-3 text-[15px] text-subtle-foreground">
               סמן משימות שנכשלו כ"מאושר לדילוג" כדי לאפשר הפקת סיכום מבלי לעקוף GO/NO GO.
             </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div className="flex flex-col gap-1.5">
               {failedNightTasks.map(t => (
-                <div key={t.id} style={{
-                  display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', borderRadius: '8px',
-                  background: t.goNoGoWaived ? C.bgDone : C.bgBlocked,
-                  border: `1px solid ${t.goNoGoWaived ? C.statusDone + '44' : C.statusFailed + '44'}`,
-                }}>
-                  <span style={{ flex: 1, fontSize: '15px', color: t.goNoGoWaived ? C.statusDone : C.statusFailed, fontWeight: t.goNoGoWaived ? 'normal' : 'bold' }}>
+                <div
+                  key={t.id}
+                  className="flex items-center gap-2.5 rounded-lg px-3 py-2"
+                  style={{
+                    background: t.goNoGoWaived ? C.bgDone : C.bgBlocked,
+                    border: `1px solid ${t.goNoGoWaived ? C.statusDone + '44' : C.statusFailed + '44'}`,
+                  }}
+                >
+                  <span className={`flex-1 text-[15px] ${t.goNoGoWaived ? 'font-normal' : 'font-bold'}`} style={{ color: t.goNoGoWaived ? C.statusDone : C.statusFailed }}>
                     {t.goNoGoWaived ? '✓ ' : '✗ '}{t.title}
                   </span>
-                  {t.assignedTeam?.name && <span style={{ fontSize: '13px', color: C.textMuted }}>{t.assignedTeam.name}</span>}
+                  {t.assignedTeam?.name && <span className="text-[13px] text-subtle-foreground">{t.assignedTeam.name}</span>}
                   <button
                     onClick={() => waiveTask(t.id)}
-                    style={{ padding: '4px 12px', fontSize: '14px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap',
-                      background: t.goNoGoWaived ? C.bgHover : '#e67e22', color: t.goNoGoWaived ? C.textMuted : 'white' }}>
+                    className="cursor-pointer whitespace-nowrap rounded-md border-none px-3 py-1 text-sm font-bold"
+                    style={{ background: t.goNoGoWaived ? C.bgHover : '#e67e22', color: t.goNoGoWaived ? C.textMuted : 'white' }}
+                  >
                     {t.goNoGoWaived ? 'בטל אישור' : '✓ אשר דילוג'}
                   </button>
                 </div>
@@ -1287,23 +1284,25 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         )}
 
         {/* ── אישור סיכום ── */}
-        <div style={{
-          background: summaryRecord?.sentAt ? C.bgDone : C.bgCard,
-          border: `2px solid ${summaryRecord?.sentAt ? C.statusDone : '#e67e22'}`,
-          borderRadius: '12px', padding: '20px',
-        }}>
+        <div
+          className="rounded-xl p-5"
+          style={{
+            background: summaryRecord?.sentAt ? C.bgDone : C.bgCard,
+            border: `2px solid ${summaryRecord?.sentAt ? C.statusDone : '#e67e22'}`,
+          }}
+        >
           {summaryRecord?.sentAt ? (
             <>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span style={{ fontSize: '24px' }}>✅</span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">✅</span>
                 <div>
-                  <div style={{ fontWeight: 'bold', color: C.statusDone, fontSize: '16px' }}>הסיכום אושר ונשמר במערכת</div>
-                  <div style={{ fontSize: '15px', color: C.textMuted, marginTop: '2px' }}>
+                  <div className="text-base font-bold" style={{ color: C.statusDone }}>הסיכום אושר ונשמר במערכת</div>
+                  <div className="mt-0.5 text-[15px] text-subtle-foreground">
                     {fmtDateTimeShared(summaryRecord.sentAt)}
                   </div>
                   {summaryRecord.forceApprovedBy && (
-                    <div style={{ fontSize: '14px', color: C.statusInProgress, marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div className="mt-1 flex items-center gap-1.5 text-sm" style={{ color: C.statusInProgress }}>
                       <span>⚠️</span>
                       <span>
                         אושר בעקיפת GO על-ידי {summaryRecord.forceApprovedBy}
@@ -1313,63 +1312,69 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                   )}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <div className="flex flex-wrap items-center gap-2.5">
                 {canForceApprove && !editingApproved && (
-                  <button onClick={() => { setHeadline(summaryRecord?.headline || ''); setMorningNotes(summaryRecord?.morningNotes || ''); setEditingApproved(true); }}
-                    style={{ padding: '10px 18px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px', fontFamily: FONT }}>
+                  <button
+                    onClick={() => { setHeadline(summaryRecord?.headline || ''); setMorningNotes(summaryRecord?.morningNotes || ''); setEditingApproved(true); }}
+                    className="cursor-pointer rounded-lg border border-border bg-muted px-[18px] py-2.5 font-sans text-[15px] font-bold text-muted-foreground"
+                  >
                     ✏️ ערוך דוח
                   </button>
                 )}
-                <button onClick={copyToEmail}
-                  style={{ padding: '10px 24px', background: copied ? C.statusDone : C.statusWaiting, color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px', fontFamily: FONT, transition: 'background 0.2s' }}>
+                <button
+                  onClick={copyToEmail}
+                  className="cursor-pointer rounded-lg border-none px-6 py-2.5 font-sans text-[15px] font-bold text-white transition-colors duration-200"
+                  style={{ background: copied ? C.statusDone : C.statusWaiting }}
+                >
                   {copied ? '✓ הועתק!' : '📋 העתק לאימייל'}
                 </button>
-                <button onClick={openInOutlook}
-                  style={{ padding: '10px 24px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px', fontFamily: FONT }}>
+                <button
+                  onClick={openInOutlook}
+                  className="cursor-pointer rounded-lg border border-border bg-muted px-6 py-2.5 font-sans text-[15px] font-bold text-muted-foreground"
+                >
                   📧 פתח Outlook
                 </button>
                 <button
                   onClick={emailEnabled ? sendEmail : () => dialog.alert('שירות המייל אינו מופעל — הגדר SMTP בפאנל הניהול', 'שירות מייל מושבת', 'warning')}
                   disabled={emailSending}
+                  className={`rounded-lg border-none px-6 py-2.5 font-sans text-[15px] font-bold text-white transition-colors duration-200 ${emailSending ? 'cursor-not-allowed' : 'cursor-pointer'}`}
                   style={{
-                    padding: '10px 24px', fontFamily: FONT,
                     background: emailSending ? C.textDisabled : emailStatus === 'ok' ? C.statusDone : emailStatus === 'err' ? C.statusFailed : emailEnabled ? C.brand : C.bgHover,
-                    color: 'white', border: 'none', borderRadius: '8px',
-                    cursor: emailSending ? 'not-allowed' : 'pointer',
-                    fontWeight: 'bold', fontSize: '15px', transition: 'background 0.2s',
                   }}
                 >
                   {emailSending ? '⏳ שולח...' : emailStatus === 'ok' ? '✓ נשלח!' : emailStatus === 'err' ? '✗ שגיאה' : '📧 שלח במייל לרשימת תפוצה'}
                 </button>
                 {emailStatus === 'err' && emailError && (
-                  <div style={{ fontSize: '14px', color: C.statusFailed, marginTop: '4px' }}>{emailError}</div>
+                  <div className="mt-1 text-sm" style={{ color: C.statusFailed }}>{emailError}</div>
                 )}
               </div>
             </div>
 
             {/* ── עריכת דוח לאחר אישור (מנהל לילה בלבד) ── */}
             {editingApproved && canForceApprove && (
-              <div style={{ marginTop: '16px', borderTop: `1px solid ${C.border}`, paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <div style={{ fontSize: '15px', fontWeight: 'bold', color: C.statusInProgress }}>✏️ עריכת תוכן הדוח</div>
+              <div className="mt-4 flex flex-col gap-2.5 border-t border-border pt-4">
+                <div className="text-[15px] font-bold" style={{ color: C.statusInProgress }}>✏️ עריכת תוכן הדוח</div>
                 <div>
-                  <label style={{ fontSize: '14px', color: C.textMuted, display: 'block', marginBottom: '4px' }}>עיקרי הדברים</label>
+                  <label className="mb-1 block text-sm text-subtle-foreground">עיקרי הדברים</label>
                   <textarea
                     value={headline}
                     onChange={e => setHeadline(e.target.value)}
                     rows={3}
-                    style={{ width: '100%', padding: '8px', borderRadius: '8px', border: `1px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, fontSize: '15px', fontFamily: FONT, resize: 'vertical', boxSizing: 'border-box' }}
+                    className="w-full resize-y rounded-lg border border-border bg-muted px-2 py-2 font-sans text-[15px] text-foreground"
+                    style={{ boxSizing: 'border-box' }}
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '14px', color: C.textMuted, display: 'block', marginBottom: '4px' }}>לתשומת לב צוות הבוקר</label>
+                  <label className="mb-1 block text-sm text-subtle-foreground">לתשומת לב צוות הבוקר</label>
                   <textarea
                     value={morningNotes}
                     onChange={e => setMorningNotes(e.target.value)}
                     rows={3}
-                    style={{ width: '100%', padding: '8px', borderRadius: '8px', border: `1px solid ${C.border}`, background: C.bgNested, color: C.textPrimary, fontSize: '15px', fontFamily: FONT, resize: 'vertical', boxSizing: 'border-box' }}
+                    className="w-full resize-y rounded-lg border border-border bg-muted px-2 py-2 font-sans text-[15px] text-foreground"
+                    style={{ boxSizing: 'border-box' }}
                   />
                 </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div className="flex gap-2">
                   <button
                     disabled={savingEdit}
                     onClick={async () => {
@@ -1395,11 +1400,15 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                         dialog.alert(err?.response?.data?.message || 'שגיאה בשמירה', 'שגיאה', 'danger');
                       } finally { setSavingEdit(false); }
                     }}
-                    style={{ padding: '8px 20px', background: savingEdit ? C.textDisabled : C.statusDone, color: 'white', border: 'none', borderRadius: '8px', cursor: savingEdit ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
+                    className={`rounded-lg border-none px-5 py-2 text-[15px] font-bold text-white ${savingEdit ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                    style={{ background: savingEdit ? C.textDisabled : C.statusDone }}
+                  >
                     {savingEdit ? 'שומר...' : '✓ שמור שינויים'}
                   </button>
-                  <button onClick={() => setEditingApproved(false)}
-                    style={{ padding: '8px 16px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '8px', cursor: 'pointer', fontSize: '15px' }}>
+                  <button
+                    onClick={() => setEditingApproved(false)}
+                    className="cursor-pointer rounded-lg border border-border bg-muted px-4 py-2 text-[15px] text-muted-foreground"
+                  >
                     ביטול
                   </button>
                 </div>
@@ -1408,71 +1417,75 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
             </>
           ) : (
             <div>
-              <h3 style={{ margin: '0 0 12px', color: '#e67e22', fontSize: '16px' }}>
+              <h3 className="mb-3 text-base" style={{ color: '#e67e22' }}>
                 {isRehearsal ? '⚠️ אישור סיכום החזרה הגנרלית' : '⚠️ אישור סיכום — נדרש לסיום הלילה'}
               </h3>
-              <p style={{ margin: '0 0 16px', fontSize: '15px', color: C.textMuted }}>
+              <p className="mb-4 text-[15px] text-subtle-foreground">
                 {isRehearsal ? 'אישור הסיכום ישמור אותו במערכת ויאפס את תוכנית העבודה לקראת ליל ההטמעה.' : 'לפני אישור הסיכום — קרא את הדוח בעיון ווודא שכל הנתונים מדויקים.'}
               </p>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: C.textSecondary, marginBottom: '14px', fontSize: '15px' }}>
-                <input type="checkbox" checked={readConfirmed} onChange={e => setReadConfirmed(e.target.checked)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
+              <label className="mb-3.5 flex cursor-pointer items-center gap-2.5 text-[15px] text-muted-foreground">
+                <input type="checkbox" checked={readConfirmed} onChange={e => setReadConfirmed(e.target.checked)} className="h-[18px] w-[18px] cursor-pointer" />
                 קראתי את הדוח ואישרתי שכל הנתונים נכונים
               </label>
               {approveError && (
-                <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', fontSize: '15px', color: C.statusFailed, marginBottom: '10px' }}>{approveError}</div>
+                <div className="mb-2.5 rounded-md bg-danger/10 px-3 py-2 text-[15px] text-danger" style={{ border: `1px solid ${C.statusFailed}44` }}>{approveError}</div>
               )}
               {!isGoNogo && !canForceApprove && (
-                <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', fontSize: '15px', color: C.statusFailed, marginBottom: '10px', fontWeight: 'bold' }}>
+                <div className="mb-2.5 rounded-md bg-danger/10 px-3 py-2 text-[15px] font-bold text-danger" style={{ border: `1px solid ${C.statusFailed}44` }}>
                   🚫 לא ניתן לאשר סיכום — יש {goNogoWaiting + goNogoInc + goNogoBlocked} משימות לילה שטרם הושלמו
                   {isActiveRun && morningSubPhaseIds.size > 0 && (
-                    <div style={{ fontWeight: 'normal', fontSize: '14px', marginTop: '4px', color: C.statusFailed }}>משימות שלב הבוקר אינן נכללות בחישוב</div>
+                    <div className="mt-1 text-sm font-normal text-danger">משימות שלב הבוקר אינן נכללות בחישוב</div>
                   )}
                 </div>
               )}
               {!isGoNogo && canForceApprove && (
-                <div style={{ background: C.bgInProgress, border: `1px solid ${C.statusInProgress}44`, borderRadius: '6px', padding: '10px 14px', fontSize: '15px', color: C.statusInProgress, marginBottom: '12px' }}>
-                  <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>⚠️ עקיפת בדיקת GO — {goNogoWaiting + goNogoInc + goNogoBlocked} משימות לילה טרם הושלמו</div>
+                <div className="mb-3 rounded-md bg-warning/10 px-3.5 py-2.5 text-[15px] text-warning" style={{ border: `1px solid ${C.statusInProgress}44` }}>
+                  <div className="mb-1 font-bold">⚠️ עקיפת בדיקת GO — {goNogoWaiting + goNogoInc + goNogoBlocked} משימות לילה טרם הושלמו</div>
                   <div>בתור {userRole === 'ADMIN' ? 'מנהל מערכת' : 'מנהל לילה'} באפשרותך לאשר את הסיכום למרות זאת.</div>
                 </div>
               )}
-              <button onClick={approveSummary} disabled={!readConfirmed || approveLoading || !canDownload}
+              <button
+                onClick={approveSummary}
+                disabled={!readConfirmed || approveLoading || !canDownload}
+                className={`rounded-lg border-none px-6 py-2.5 font-sans text-[15px] font-bold ${(readConfirmed && canDownload) ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                 style={{
-                  padding: '10px 24px', fontFamily: FONT,
                   background: (readConfirmed && canDownload) ? (!isGoNogo ? '#e67e22' : C.statusDone) : C.bgHover,
                   color: (readConfirmed && canDownload) ? 'white' : C.textDisabled,
-                  border: 'none', borderRadius: '8px',
-                  cursor: (readConfirmed && canDownload) ? 'pointer' : 'not-allowed',
-                  fontWeight: 'bold', fontSize: '15px',
-                }}>
+                }}
+              >
                 {approveLoading ? '...' : !isGoNogo && canForceApprove ? '⚠️ אשר סיכום בעקיפת GO' : '✅ אשר סיכום'}
               </button>
             </div>
           )}
         </div>
 
-        {/* ── HTML Report (after approval) — intentionally white for print/email ── */}
+        {/* ── HTML Report (after approval) — intentionally white for print/email,
+            with fixed literal colors matching buildEmailHtml's own palette
+            exactly (not app theme tokens): this block is a live preview of
+            what actually gets emailed, so it must render identically
+            regardless of the viewer's app theme. ── */}
         {summaryRecord?.sentAt && (
-          <div style={{ background: 'white', borderRadius: '12px', padding: '32px', border: `3px solid ${isRehearsal ? '#7c3aed' : C.brand}` }}>
-            <div style={{ textAlign: 'center', borderBottom: `2px solid ${isRehearsal ? '#7c3aed' : '#1a2332'}`, paddingBottom: '16px', marginBottom: '24px' }}>
-              <div style={{ fontSize: '28px', fontWeight: 'bold', color: isRehearsal ? '#4c1d95' : '#1a2332' }}>
+          <div className="rounded-xl bg-white p-8" style={{ border: `3px solid ${isRehearsal ? '#7c3aed' : C.brand}` }}>
+            <div className="mb-6 pb-4 text-center" style={{ borderBottom: `2px solid ${isRehearsal ? '#7c3aed' : '#1a2332'}` }}>
+              <div className="text-[28px] font-bold" style={{ color: isRehearsal ? '#4c1d95' : '#1a2332' }}>
                 {isRehearsal ? '🎭 סיכום חזרה גנרלית' : '🌙 סיכום ליל ההטמעה'} (<bdi>{versionName}</bdi>)
               </div>
-              {isRehearsal && <div style={{ color: '#c0392b', fontSize: '15px', marginTop: '6px', fontWeight: 'bold' }}>⚠ מסמך זה הופק מחזרה גנרלית ואינו משקף לילה אמיתי</div>}
-              <div style={{ color: '#888', fontSize: '15px', marginTop: '6px' }}>
+              {isRehearsal && <div className="mt-1.5 text-[15px] font-bold" style={{ color: '#c0392b' }}>⚠ מסמך זה הופק מחזרה גנרלית ואינו משקף לילה אמיתי</div>}
+              <div className="mt-1.5 text-[15px]" style={{ color: '#888' }}>
                 הופק: {fmtDateTimeShared(summaryRecord.sentAt)}
               </div>
             </div>
 
             {/* GO/NO GO */}
-            <div style={{ background: effectiveGo ? '#d5f0dc' : '#fee', border: `1px solid ${effectiveGo ? '#27ae60' : '#e74c3c'}`, borderRadius: '8px', padding: '12px 20px', marginBottom: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '18px', fontWeight: 'bold', color: effectiveGo ? '#27ae60' : '#e74c3c' }}>
+            <div className="mb-5 rounded-lg px-5 py-3" style={{ background: effectiveGo ? '#d5f0dc' : '#fee', border: `1px solid ${effectiveGo ? '#27ae60' : '#e74c3c'}` }}>
+              <div className="flex items-center justify-between">
+                <span className="text-lg font-bold" style={{ color: effectiveGo ? '#27ae60' : '#e74c3c' }}>
                   {effectiveGo ? '✅ GO — הגרסה עברה בהצלחה' : '❌ NO GO'}
                 </span>
-                <span style={{ fontSize: '17px', color: '#333' }}>הושלמו <strong>{doneTasks.length}</strong> מתוך <strong>{tasks.length}</strong> משימות ({progressPercent}%)</span>
+                <span className="text-[17px]" style={{ color: '#333' }}>הושלמו <strong>{doneTasks.length}</strong> מתוך <strong>{tasks.length}</strong> משימות ({progressPercent}%)</span>
               </div>
               {effectiveGo && !isGoNogo && waitingTasks.length > 0 && (
-                <div style={{ fontSize: '15px', color: '#1e8449', marginTop: '6px' }}>
+                <div className="mt-1.5 text-[15px]" style={{ color: '#1e8449' }}>
                   המשך בפעילויות הבוקר שלאחר הגרסה — נותרו {waitingTasks.length} משימות לביצוע
                 </div>
               )}
@@ -1480,22 +1493,22 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 
             {/* Headline */}
             {(autoHeadline || summaryRecord.headline || headline) && (
-              <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ color: '#1a2332', margin: '0 0 8px', fontSize: '17px', borderRight: '4px solid #1a2332', paddingRight: '10px' }}>עיקרי הדברים</h3>
-                {autoHeadline && <div style={{ background: '#d5f0dc', border: '1px solid #a9dfbf', borderRadius: '6px', padding: '8px 12px', marginBottom: '8px', fontSize: '15px', color: '#1e8449', fontWeight: 'bold' }}>✅ {autoHeadline}</div>}
-                {(summaryRecord.headline || headline) && <p style={{ margin: 0, color: '#333', lineHeight: 1.7, fontSize: '15px', whiteSpace: 'pre-wrap' }}>{summaryRecord.headline || headline}</p>}
+              <div className="mb-5">
+                <h3 className="mb-2 ps-2.5 text-[17px]" style={{ color: '#1a2332', borderInlineStart: '4px solid #1a2332' }}>עיקרי הדברים</h3>
+                {autoHeadline && <div className="mb-2 rounded-md px-3 py-2 text-[15px] font-bold" style={{ background: '#d5f0dc', border: '1px solid #a9dfbf', color: '#1e8449' }}>✅ {autoHeadline}</div>}
+                {(summaryRecord.headline || headline) && <p className="whitespace-pre-wrap text-[15px] leading-relaxed" style={{ color: '#333' }}>{summaryRecord.headline || headline}</p>}
               </div>
             )}
 
             {/* Timeline in report */}
             {phaseTimelines.length > 0 && (
-              <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ color: '#1a2332', margin: '0 0 12px', fontSize: '17px', borderRight: '4px solid #2980b9', paddingRight: '10px' }}>⏱ לוחות זמנים</h3>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
+              <div className="mb-5">
+                <h3 className="mb-3 ps-2.5 text-[17px]" style={{ color: '#1a2332', borderInlineStart: '4px solid #2980b9' }}>⏱ לוחות זמנים</h3>
+                <table className="w-full border-collapse text-[15px]">
                   <thead>
                     <tr style={{ background: '#eaf0fb' }}>
                       {['שלב', 'סביבה', 'התחלה מתוכננת', 'סיום מתוכנן', 'התחלה בפועל', 'סיום בפועל', 'סטטוס', 'סיבת חריגה / הערה'].map(h => (
-                        <th key={h} style={{ padding: '8px 12px', textAlign: 'right', color: '#2d4a7a', fontWeight: 'bold', border: '1px solid #c8d8f0', whiteSpace: 'nowrap' }}>{h}</th>
+                        <th key={h} className="whitespace-nowrap px-3 py-2 text-end font-bold" style={{ color: '#2d4a7a', border: '1px solid #c8d8f0' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -1506,20 +1519,20 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                       const isOk    = pt.delayMins !== null && !isLate;
                       return (
                         <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#f8f9fa' }}>
-                          <td style={{ padding: '8px 12px', border: '1px solid #e0e8f0', fontWeight: 'bold', color: '#1a2332' }}>{pt.name}</td>
-                          <td style={{ padding: '8px 12px', border: '1px solid #e0e8f0' }}>
-                            <span style={{ background: pt.environment === 'HOT' ? '#fee' : '#e8f4fd', color: pt.environment === 'HOT' ? '#c0392b' : '#2980b9', padding: '1px 6px', borderRadius: '4px', fontSize: '13px', fontWeight: 'bold' }}>{pt.environment}</span>
+                          <td className="px-3 py-2 font-bold" style={{ border: '1px solid #e0e8f0', color: '#1a2332' }}>{pt.name}</td>
+                          <td className="px-3 py-2" style={{ border: '1px solid #e0e8f0' }}>
+                            <span className="rounded text-[13px] font-bold" style={{ background: pt.environment === 'HOT' ? '#fee' : '#e8f4fd', color: pt.environment === 'HOT' ? '#c0392b' : '#2980b9', padding: '1px 6px' }}>{pt.environment}</span>
                           </td>
-                          <td style={{ padding: '8px 12px', border: '1px solid #e0e8f0', color: '#333' }}>{pt.plannedStart ? fmtTime(pt.plannedStart.toISOString()) : '—'}</td>
-                          <td style={{ padding: '8px 12px', border: '1px solid #e0e8f0', color: '#333' }}>{pt.plannedEnd   ? fmtTime(pt.plannedEnd.toISOString())   : '—'}</td>
-                          <td style={{ padding: '8px 12px', border: '1px solid #e0e8f0', color: '#333' }}>{pt.actualStart  ? fmtTime(pt.actualStart.toISOString())  : '—'}</td>
-                          <td style={{ padding: '8px 12px', border: '1px solid #e0e8f0', color: isOk && !isLate ? '#27ae60' : isLate ? '#c0392b' : '#333', fontWeight: 'bold' }}>{pt.actualEnd ? fmtTime(pt.actualEnd.toISOString()) : '—'}</td>
-                          <td style={{ padding: '8px 12px', border: '1px solid #e0e8f0' }}>
-                            <span style={{ background: isEarly ? '#e8f8f0' : isOk ? '#d5f0dc' : isLate ? '#fde8d0' : '#f0f0f0', color: isEarly ? '#1e8449' : isOk ? '#1e8449' : isLate ? '#c0392b' : '#666', padding: '2px 8px', borderRadius: '8px', fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                          <td className="px-3 py-2" style={{ border: '1px solid #e0e8f0', color: '#333' }}>{pt.plannedStart ? fmtTime(pt.plannedStart.toISOString()) : '—'}</td>
+                          <td className="px-3 py-2" style={{ border: '1px solid #e0e8f0', color: '#333' }}>{pt.plannedEnd   ? fmtTime(pt.plannedEnd.toISOString())   : '—'}</td>
+                          <td className="px-3 py-2" style={{ border: '1px solid #e0e8f0', color: '#333' }}>{pt.actualStart  ? fmtTime(pt.actualStart.toISOString())  : '—'}</td>
+                          <td className="px-3 py-2 font-bold" style={{ border: '1px solid #e0e8f0', color: isOk && !isLate ? '#27ae60' : isLate ? '#c0392b' : '#333' }}>{pt.actualEnd ? fmtTime(pt.actualEnd.toISOString()) : '—'}</td>
+                          <td className="px-3 py-2" style={{ border: '1px solid #e0e8f0' }}>
+                            <span className="whitespace-nowrap rounded-lg px-2 py-0.5 text-sm font-bold" style={{ background: isEarly ? '#e8f8f0' : isOk ? '#d5f0dc' : isLate ? '#fde8d0' : '#f0f0f0', color: isEarly ? '#1e8449' : isOk ? '#1e8449' : isLate ? '#c0392b' : '#666' }}>
                               {pt.delayMins === null ? '—' : isEarly ? `⏩ לפני הזמן ${fmtMins(Math.abs(pt.delayMins))}` : !isLate ? '✅ כמתוכנן' : `🚨 חריגה +${fmtMins(pt.delayMins)}`}
                             </span>
                           </td>
-                          <td style={{ padding: '8px 12px', border: '1px solid #e0e8f0', color: phaseDelayReasons[i] ? '#333' : '#bbb', fontSize: '14px', fontStyle: phaseDelayReasons[i] ? 'normal' : 'italic' }}>
+                          <td className={`px-3 py-2 text-sm ${phaseDelayReasons[i] ? 'not-italic' : 'italic'}`} style={{ border: '1px solid #e0e8f0', color: phaseDelayReasons[i] ? '#333' : '#bbb' }}>
                             {phaseDelayReasons[i] || '—'}
                           </td>
                         </tr>
@@ -1532,22 +1545,22 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 
             {/* Blocked tasks */}
             {blockedTasks.length > 0 && (
-              <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ color: '#e74c3c', margin: '0 0 10px', fontSize: '17px', borderRight: '4px solid #e74c3c', paddingRight: '10px' }}>תקלות ({blockedTasks.length})</h3>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
+              <div className="mb-5">
+                <h3 className="mb-2.5 ps-2.5 text-[17px]" style={{ color: '#e74c3c', borderInlineStart: '4px solid #e74c3c' }}>תקלות ({blockedTasks.length})</h3>
+                <table className="w-full border-collapse text-[15px]">
                   <thead>
                     <tr style={{ background: '#fee' }}>
                       {['משימה', 'צוות', 'סיבה'].map(h => (
-                        <th key={h} style={{ padding: '8px 12px', textAlign: 'right', color: '#c0392b', fontWeight: 'bold', border: '1px solid #f5b7b1' }}>{h}</th>
+                        <th key={h} className="px-3 py-2 text-end font-bold" style={{ color: '#c0392b', border: '1px solid #f5b7b1' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {blockedTasks.map((t, i) => (
                       <tr key={t.id} style={{ background: i % 2 === 0 ? 'white' : '#fff9f9' }}>
-                        <td style={{ padding: '8px 12px', border: '1px solid #f0e0e0', color: '#333' }}>{t.title}</td>
-                        <td style={{ padding: '8px 12px', border: '1px solid #f0e0e0', color: '#333' }}>{t.assignedTeam?.name || '—'}</td>
-                        <td style={{ padding: '8px 12px', border: '1px solid #f0e0e0', color: '#333' }}>{t.blockedReason || '—'}</td>
+                        <td className="px-3 py-2" style={{ border: '1px solid #f0e0e0', color: '#333' }}>{t.title}</td>
+                        <td className="px-3 py-2" style={{ border: '1px solid #f0e0e0', color: '#333' }}>{t.assignedTeam?.name || '—'}</td>
+                        <td className="px-3 py-2" style={{ border: '1px solid #f0e0e0', color: '#333' }}>{t.blockedReason || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1557,13 +1570,13 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 
             {/* Test Coverage in report */}
             {coverage.length > 0 && (
-              <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ color: '#1a2332', margin: '0 0 10px', fontSize: '17px', borderRight: '4px solid #2980b9', paddingRight: '10px' }}>
+              <div className="mb-5">
+                <h3 className="mb-2.5 ps-2.5 text-[17px]" style={{ color: '#1a2332', borderInlineStart: '4px solid #2980b9' }}>
                   🧪 תכולת בדיקות (QC)
-                  {qcMock && <span style={{ fontSize: '13px', color: '#e67e22', marginRight: '8px', fontWeight: 'normal' }}>נתוני Mock</span>}
+                  {qcMock && <span className="me-2 text-[13px] font-normal" style={{ color: '#e67e22' }}>נתוני Mock</span>}
                 </h3>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-[13px]">
                     <thead>
                       <tr style={{ background: '#f0f7ff' }}>
                         {[
@@ -1575,23 +1588,23 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
                           ...(coverageCols.notRun ? ['Not Run'] : []),
                           'הערות',
                         ].map(h => (
-                          <th key={h} style={{ padding: '6px 8px', textAlign: 'right', color: '#2d4a7a', fontWeight: 'bold', whiteSpace: 'nowrap', border: '1px solid #c8d8f0' }}>{h}</th>
+                          <th key={h} className="whitespace-nowrap px-2 py-1.5 text-end font-bold" style={{ color: '#2d4a7a', border: '1px solid #c8d8f0' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {coverage.map((r, i) => (
                         <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#f8fbff' }}>
-                          <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', color: '#888', textAlign: 'center' }}>{i + 1}</td>
-                          <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', fontWeight: r.subject ? 'bold' : 'normal', color: '#333' }}>{r.subject || '—'}</td>
-                          <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', maxWidth: '200px', color: '#333' }}>{r.title}</td>
-                          <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', color: '#333' }}>{r.responsible}</td>
-                          {coverageCols.passed && <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', textAlign: 'center', color: '#27ae60', fontWeight: r.passed > 0 ? 'bold' : 'normal' }}>{r.passed}</td>}
-                          {coverageCols.failed && <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', textAlign: 'center', color: r.failed > 0 ? '#e74c3c' : '#aaa' }}>{r.failed}</td>}
-                          {coverageCols.notCompleted && <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', textAlign: 'center', color: r.notCompleted > 0 ? '#e67e22' : '#aaa' }}>{r.notCompleted}</td>}
-                          {coverageCols.blocked && <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', textAlign: 'center', color: r.blocked > 0 ? '#c0392b' : '#aaa' }}>{r.blocked}</td>}
-                          {coverageCols.notRun && <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', textAlign: 'center', color: '#95a5a6' }}>{r.notRun}</td>}
-                          <td style={{ padding: '6px 8px', border: '1px solid #dde8f5', color: '#555' }}>{coverageRemarks[i] || '—'}</td>
+                          <td className="px-2 py-1.5 text-center" style={{ border: '1px solid #dde8f5', color: '#888' }}>{i + 1}</td>
+                          <td className="px-2 py-1.5" style={{ border: '1px solid #dde8f5', fontWeight: r.subject ? 'bold' : 'normal', color: '#333' }}>{r.subject || '—'}</td>
+                          <td className="max-w-[200px] px-2 py-1.5" style={{ border: '1px solid #dde8f5', color: '#333' }}>{r.title}</td>
+                          <td className="px-2 py-1.5" style={{ border: '1px solid #dde8f5', color: '#333' }}>{r.responsible}</td>
+                          {coverageCols.passed && <td className="px-2 py-1.5 text-center" style={{ border: '1px solid #dde8f5', color: '#27ae60', fontWeight: r.passed > 0 ? 'bold' : 'normal' }}>{r.passed}</td>}
+                          {coverageCols.failed && <td className="px-2 py-1.5 text-center" style={{ border: '1px solid #dde8f5', color: r.failed > 0 ? '#e74c3c' : '#aaa' }}>{r.failed}</td>}
+                          {coverageCols.notCompleted && <td className="px-2 py-1.5 text-center" style={{ border: '1px solid #dde8f5', color: r.notCompleted > 0 ? '#e67e22' : '#aaa' }}>{r.notCompleted}</td>}
+                          {coverageCols.blocked && <td className="px-2 py-1.5 text-center" style={{ border: '1px solid #dde8f5', color: r.blocked > 0 ? '#c0392b' : '#aaa' }}>{r.blocked}</td>}
+                          {coverageCols.notRun && <td className="px-2 py-1.5 text-center" style={{ border: '1px solid #dde8f5', color: '#95a5a6' }}>{r.notRun}</td>}
+                          <td className="px-2 py-1.5" style={{ border: '1px solid #dde8f5', color: '#555' }}>{coverageRemarks[i] || '—'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1602,50 +1615,50 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 
             {/* Defects in report */}
             {(
-              <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ color: '#1a2332', margin: '0 0 12px', fontSize: '17px', borderRight: '4px solid #9b59b6', paddingRight: '10px' }}>
+              <div className="mb-5">
+                <h3 className="mb-3 ps-2.5 text-[17px]" style={{ color: '#1a2332', borderInlineStart: '4px solid #9b59b6' }}>
                   🪲 תקלות שדווחו (QC)
-                  {qcMock && <span style={{ fontSize: '13px', color: '#e67e22', marginRight: '8px', fontWeight: 'normal' }}>נתוני Mock</span>}
+                  {qcMock && <span className="me-2 text-[13px] font-normal" style={{ color: '#e67e22' }}>נתוני Mock</span>}
                 </h3>
                 {defects.length === 0 ? (
-                  <div style={{ background: '#f0fff4', borderRadius: '6px', padding: '12px', color: '#27ae60', fontWeight: 'bold' }}>✅ לא דווחו תקלות</div>
+                  <div className="rounded-md p-3 font-bold" style={{ background: '#f0fff4', color: '#27ae60' }}>✅ לא דווחו תקלות</div>
                 ) : (
                   <>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '14px' }}>
+                    <div className="mb-3.5 grid grid-cols-3 gap-2.5">
                       <BarChart title="חומרה"          data={severityData.filter(d => d.count > 0)} />
                       <BarChart title="סטטוס"          data={statusData.filter(d => d.count > 0)} />
                       <BarChart title="Responsibility"  data={responsibilityData} />
                     </div>
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse text-[13px]">
                         <thead>
                           <tr style={{ background: '#f3e8ff' }}>
                             {['ID', 'כותרת התקלה', 'תיאור', 'חומרה', 'עדיפות', 'צוות אחראי', 'דווח ע"י', 'תאריך גילוי', 'סביבה', 'סטטוס', 'שלב בדיקה', 'סוג תקלה', 'הערות', 'מלל חופשי'].map(h => (
-                              <th key={h} style={{ padding: '7px 8px', textAlign: 'right', color: '#6c3483', fontWeight: 'bold', border: '1px solid #d7bff5', whiteSpace: 'nowrap' }}>{h}</th>
+                              <th key={h} className="whitespace-nowrap px-2 py-1.5 text-end font-bold" style={{ color: '#6c3483', border: '1px solid #d7bff5' }}>{h}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
                           {defects.map((d, i) => (
                             <tr key={d.id} style={{ background: i % 2 === 0 ? 'white' : '#fdf5ff' }}>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', textAlign: 'center', whiteSpace: 'nowrap' }}><DefectIdBadge id={d.id} /></td>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', fontWeight: 'bold', maxWidth: '140px', color: '#1a2332' }}>{d.title}</td>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', maxWidth: '200px', color: '#555' }}>{cleanHtmlText(d.description)}</td>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5' }}>
-                                <span style={{ background: (SEVERITY_COLORS[d.severity] || '#95a5a6') + '22', color: SEVERITY_COLORS[d.severity] || '#95a5a6', padding: '1px 5px', borderRadius: '6px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>{d.severity}</span>
+                              <td className="whitespace-nowrap px-2 py-1.5 text-center" style={{ border: '1px solid #ead9f5' }}><DefectIdBadge id={d.id} /></td>
+                              <td className="max-w-[140px] px-2 py-1.5 font-bold" style={{ border: '1px solid #ead9f5', color: '#1a2332' }}>{d.title}</td>
+                              <td className="max-w-[200px] px-2 py-1.5" style={{ border: '1px solid #ead9f5', color: '#555' }}>{cleanHtmlText(d.description)}</td>
+                              <td className="px-2 py-1.5" style={{ border: '1px solid #ead9f5' }}>
+                                <span className="whitespace-nowrap rounded font-bold" style={{ background: (SEVERITY_COLORS[d.severity] || '#95a5a6') + '22', color: SEVERITY_COLORS[d.severity] || '#95a5a6', padding: '1px 5px' }}>{d.severity}</span>
                               </td>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', whiteSpace: 'nowrap', color: '#333' }}>{d.priority}</td>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', whiteSpace: 'nowrap', color: '#333' }}>{d.assignedTo}</td>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', whiteSpace: 'nowrap', color: '#333' }}>{d.reporter}</td>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', whiteSpace: 'nowrap', color: '#333' }}>{d.discoveryDate}</td>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', whiteSpace: 'nowrap', color: '#333' }}>{d.environment}</td>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5' }}>
-                                <span style={{ background: d.status === 'Open' ? '#fee' : d.status === 'Closed' ? '#d5f0dc' : '#f5f5f5', color: d.status === 'Open' ? '#e74c3c' : d.status === 'Closed' ? '#27ae60' : '#888', padding: '1px 5px', borderRadius: '6px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>{d.status}</span>
+                              <td className="whitespace-nowrap px-2 py-1.5" style={{ border: '1px solid #ead9f5', color: '#333' }}>{d.priority}</td>
+                              <td className="whitespace-nowrap px-2 py-1.5" style={{ border: '1px solid #ead9f5', color: '#333' }}>{d.assignedTo}</td>
+                              <td className="whitespace-nowrap px-2 py-1.5" style={{ border: '1px solid #ead9f5', color: '#333' }}>{d.reporter}</td>
+                              <td className="whitespace-nowrap px-2 py-1.5" style={{ border: '1px solid #ead9f5', color: '#333' }}>{d.discoveryDate}</td>
+                              <td className="whitespace-nowrap px-2 py-1.5" style={{ border: '1px solid #ead9f5', color: '#333' }}>{d.environment}</td>
+                              <td className="px-2 py-1.5" style={{ border: '1px solid #ead9f5' }}>
+                                <span className="whitespace-nowrap rounded font-bold" style={{ background: d.status === 'Open' ? '#fee' : d.status === 'Closed' ? '#d5f0dc' : '#f5f5f5', color: d.status === 'Open' ? '#e74c3c' : d.status === 'Closed' ? '#27ae60' : '#888', padding: '1px 5px' }}>{d.status}</span>
                               </td>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', whiteSpace: 'nowrap', color: '#333' }}>{d.testPhase}</td>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', whiteSpace: 'nowrap', color: '#333' }}>{d.defectType}</td>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', maxWidth: '140px', color: '#555' }}>{cleanHtmlText(d.notes)}</td>
-                              <td style={{ padding: '6px 8px', border: '1px solid #ead9f5', color: '#555' }}>{defectRemarks[d.id] || '—'}</td>
+                              <td className="whitespace-nowrap px-2 py-1.5" style={{ border: '1px solid #ead9f5', color: '#333' }}>{d.testPhase}</td>
+                              <td className="whitespace-nowrap px-2 py-1.5" style={{ border: '1px solid #ead9f5', color: '#333' }}>{d.defectType}</td>
+                              <td className="max-w-[140px] px-2 py-1.5" style={{ border: '1px solid #ead9f5', color: '#555' }}>{cleanHtmlText(d.notes)}</td>
+                              <td className="px-2 py-1.5" style={{ border: '1px solid #ead9f5', color: '#555' }}>{defectRemarks[d.id] || '—'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1658,13 +1671,13 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
 
             {/* Morning notes */}
             {(summaryRecord.morningNotes || morningNotes) && (
-              <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ color: '#8B4000', margin: '0 0 8px', fontSize: '17px', borderRight: '4px solid #f39c12', paddingRight: '10px' }}>לתשומת לב צוות הבוקר</h3>
-                <p style={{ margin: 0, color: '#333', lineHeight: 1.7, fontSize: '15px', background: '#fff8f0', padding: '12px', borderRadius: '6px', whiteSpace: 'pre-wrap' }}>{summaryRecord.morningNotes || morningNotes}</p>
+              <div className="mb-5">
+                <h3 className="mb-2 ps-2.5 text-[17px]" style={{ color: '#8B4000', borderInlineStart: '4px solid #f39c12' }}>לתשומת לב צוות הבוקר</h3>
+                <p className="whitespace-pre-wrap rounded-md p-3 text-[15px] leading-relaxed" style={{ color: '#333', background: '#fff8f0' }}>{summaryRecord.morningNotes || morningNotes}</p>
               </div>
             )}
 
-            <div style={{ textAlign: 'center', color: '#bbb', fontSize: '14px', marginTop: '24px', borderTop: '1px solid #eee', paddingTop: '12px' }}>
+            <div className="mt-6 border-t pt-3 text-center text-sm" style={{ color: '#bbb', borderTopColor: '#eee' }}>
               הופק אוטומטית ע"י DeployCenter
             </div>
           </div>

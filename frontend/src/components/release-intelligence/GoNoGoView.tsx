@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { formatDateTime } from '../../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -20,9 +19,9 @@ interface GoNoGo {
 }
 
 const RECOMMENDATION_STYLE: Record<GoNoGo['systemRecommendation'], { bg: string; border: string; text: string; label: string }> = {
-  GO:             { bg: C.goBg,   border: C.goBorder,   text: C.goText,   label: '✅ GO' },
-  CONDITIONAL_GO: { bg: C.warningBg, border: C.warning,  text: '#8A6300',  label: '⚠️ CONDITIONAL GO' },
-  NO_GO:          { bg: C.nogoBg, border: C.nogoBorder, text: C.nogoText, label: '⛔ NO GO' },
+  GO:             { bg: 'bg-success-bg', border: 'border-success', text: 'text-success', label: '✅ GO' },
+  CONDITIONAL_GO: { bg: 'bg-warning-bg', border: 'border-warning', text: 'text-warning', label: '⚠️ CONDITIONAL GO' },
+  NO_GO:          { bg: 'bg-danger-bg', border: 'border-danger', text: 'text-danger', label: '⛔ NO GO' },
 };
 
 type Stage = 'qa-manager' | 'release-manager' | 'management';
@@ -33,7 +32,7 @@ const STAGES: { key: Stage; label: string; statusField: keyof GoNoGo; byField: k
   { key: 'management', label: 'אישור הנהלה', statusField: 'managementStatus', byField: 'managementBy', atField: 'managementAt', roles: ['RELEASE_MANAGER', 'ADMIN'] },
 ];
 
-const STATUS_COLOR: Record<string, string> = { APPROVED: C.success, REJECTED: C.danger, PENDING: C.textMuted };
+const STATUS_COLOR_CLASS: Record<string, string> = { APPROVED: 'text-success', REJECTED: 'text-danger', PENDING: 'text-subtle-foreground' };
 const STATUS_LABEL: Record<string, string> = { APPROVED: 'אושר', REJECTED: 'נדחה', PENDING: 'ממתין' };
 
 interface Props { token: string; versionId?: string; role: string; }
@@ -67,54 +66,54 @@ export const GoNoGoView: React.FC<Props> = ({ token, versionId, role }) => {
   };
 
   if (!versionId) {
-    return <div style={{ fontFamily: FONT, direction: 'rtl', textAlign: 'center', padding: SP[8], color: C.textMuted }}>בחר גרסה מתפריט הצד.</div>;
+    return <div className="text-center p-8 text-subtle-foreground">בחר גרסה מתפריט הצד.</div>;
   }
-  if (loading && !data) return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>טוען...</div>;
-  if (!data) return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>לא ניתן לטעון נתונים עבור גרסה זו.</div>;
+  if (loading && !data) return <div className="p-6 text-subtle-foreground">טוען...</div>;
+  if (!data) return <div className="p-6 text-subtle-foreground">לא ניתן לטעון נתונים עבור גרסה זו.</div>;
 
   const rec = RECOMMENDATION_STYLE[data.systemRecommendation];
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>🚦 Go / No-Go</div>
+    <div className="flex flex-col gap-4">
+      <div className="text-lg font-bold text-foreground">🚦 Go / No-Go</div>
 
-      <div style={{ ...TEXT.xs, color: C.textMuted, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, padding: SP[3] }}>
+      <div className="text-xs text-subtle-foreground bg-muted border border-border rounded-md p-3">
         מסך זה הוא שכבת תיעוד והמלצה בלבד. אישור/דחייה בשלבים אלו אינו משנה את סטטוס הגרסה בפועל ואינו חוסם את תהליך העבודה הקיים.
       </div>
 
-      <div style={{ background: rec.bg, border: `2px solid ${rec.border}`, borderRadius: RADIUS.lg, padding: SP[5], textAlign: 'center' }}>
-        <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: SP[1] }}>המלצת מערכת (מבוססת ציון בריאות)</div>
-        <div style={{ fontSize: '28px', fontWeight: WEIGHT.bold, color: rec.text }}>{rec.label}</div>
+      <div className={`${rec.bg} border-2 ${rec.border} rounded-lg p-5 text-center`}>
+        <div className="text-xs text-subtle-foreground mb-1">המלצת מערכת (מבוססת ציון בריאות)</div>
+        <div className={`text-[28px] font-bold ${rec.text}`}>{rec.label}</div>
       </div>
 
-      <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
+      <div className="flex gap-3 flex-wrap">
         {STAGES.map(s => {
           const status = (data[s.statusField] as string | null) ?? 'PENDING';
           const by = data[s.byField] as string | null;
           const at = data[s.atField] as string | null;
           const canAct = s.roles.includes(role);
           return (
-            <div key={s.key} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], flex: 1, minWidth: '260px' }}>
-              <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: SP[2] }}>{s.label}</div>
-              <div style={{ ...TEXT.base, fontWeight: WEIGHT.semibold, color: STATUS_COLOR[status] }}>{STATUS_LABEL[status] ?? status}</div>
+            <div key={s.key} className="bg-card border border-border rounded-lg p-4 flex-1 min-w-[260px]">
+              <div className="text-sm font-bold text-foreground mb-2">{s.label}</div>
+              <div className={`text-base font-semibold ${STATUS_COLOR_CLASS[status]}`}>{STATUS_LABEL[status] ?? status}</div>
               {by && at && (
-                <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: SP[1] }}>
+                <div className="text-xs text-subtle-foreground mt-1">
                   {by} · {formatDateTime(at)}
                 </div>
               )}
               {canAct && (
-                <div style={{ display: 'flex', gap: SP[2], marginTop: SP[3] }}>
+                <div className="flex gap-2 mt-3">
                   <button
                     onClick={() => setStage(s.key, 'APPROVED')}
                     disabled={saving === s.key}
-                    style={{ flex: 1, padding: '7px 10px', background: C.success, color: '#fff', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold }}
+                    className="flex-1 px-2.5 py-[7px] bg-success text-white border-none rounded-md cursor-pointer text-xs font-semibold"
                   >
                     אשר
                   </button>
                   <button
                     onClick={() => setStage(s.key, 'REJECTED')}
                     disabled={saving === s.key}
-                    style={{ flex: 1, padding: '7px 10px', background: C.danger, color: '#fff', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold }}
+                    className="flex-1 px-2.5 py-[7px] bg-danger text-white border-none rounded-md cursor-pointer text-xs font-semibold"
                   >
                     דחה
                   </button>

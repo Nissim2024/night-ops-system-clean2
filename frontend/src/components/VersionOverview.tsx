@@ -1,8 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { C, FONT, WEIGHT, RADIUS, SHADOW } from '../theme';
+import { C, JIRA } from '../theme';
 import { VersionStatusChip, BackLink } from './ui';
-import { hasHebrew, NameBadge, PersonAvatar, DefectIdBadge, renderNotesField, DetailGroupsDialog, DetailGroup, FieldChangeHistorySection, AttachmentsSection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow } from './shared/defectFieldDisplay';
+import {
+  hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroupsDialog, DetailGroup,
+  FieldChangeHistorySection, AttachmentsSection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
+  IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, SelectColumnsDialog,
+} from './shared/defectFieldDisplay';
 import { formatDateTime } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -143,19 +147,17 @@ const PERSON_BADGE_FIELDS = new Set<keyof TargetDefect>([
   'assignedTo', 'qaTester', 'detectedBy', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo',
 ]);
 const TEAM_BADGE_FIELDS = new Set<keyof TargetDefect>(['responsibility']);
-// Same severity palette as DefectDrilldownModal's SEVERITY_COLOR (release-intelligence
-// module) — duplicated per this file's own established convention rather than a
-// cross-file import, so severity always reads the same color everywhere it appears.
-const SEVERITY_COLOR: Record<string, string> = {
-  'Show Stopper': C.danger, Severe: C.danger, Medium: '#e8af00', Low: C.textMuted,
-};
+// Jira-style id/severity/status — shared with every other defect table in the
+// app (feedback 2026-09-10: one consistent look, not a per-file duplicate).
 function renderTargetDefectValue(key: keyof TargetDefect, value: unknown, qcUserNames?: Record<string, string>) {
   const s = String(value ?? '');
   if (!s) return '—';
   if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={qcUserNames?.[s.toLowerCase()] ?? s} />;
   if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
-  if (key === 'id') return <DefectIdBadge id={s} />;
-  if (key === 'severity') return <span style={{ color: SEVERITY_COLOR[s] ?? C.textPrimary, fontWeight: WEIGHT.semibold }}>{s}</span>;
+  if (key === 'id') return <IssueKeyLink id={s} />;
+  if (key === 'status') return <StatusBadge status={s} />;
+  if (key === 'severity') return <SeverityBadge severity={s} />;
+  if (key === 'priority' || key === 'secondaryPriority') return <PriorityCell value={s} />;
   return s;
 }
 
@@ -239,15 +241,17 @@ function BackButton({ onClick }: { onClick: () => void }) {
   return <BackLink onClick={onClick} style={{ marginBottom: '16px' }} />;
 }
 
+// → new kit (2026-09-12): restyled onto Tailwind tokens; `group-hover:` responds
+// to the `group` class the two clickable call sites (סה"כ CR-ים / TARGET) add
+// on their wrapping <div> — StatTile itself has no onClick and never did, so
+// no click/navigation behavior changed here, only the visuals + a hover lift
+// on the wrapper that's already clickable.
 function StatTile({ label, value, sub, accent }: { label: string; value: React.ReactNode; sub?: React.ReactNode; accent?: string }) {
   return (
-    <div style={{
-      flex: '1 1 140px', background: C.bgCard, borderRadius: RADIUS.lg, boxShadow: SHADOW.sm,
-      border: `1px solid ${C.border}`, padding: '14px 16px', minWidth: '140px',
-    }}>
-      <div style={{ fontSize: '12px', fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{label}</div>
-      <div style={{ fontSize: '24px', fontWeight: WEIGHT.bold, color: accent ?? C.textPrimary, marginTop: '4px' }}>{value}</div>
-      {sub && <div style={{ fontSize: '12px', color: C.textMuted, marginTop: '2px' }}>{sub}</div>}
+    <div className="min-w-[140px] flex-1 rounded-lg border border-border bg-card p-3.5 shadow-xs transition-[box-shadow,border-color,transform] duration-base ease-out group-hover:-translate-y-0.5 group-hover:border-neutral-300 group-hover:shadow-md">
+      <div className="text-xs font-bold uppercase tracking-wide text-subtle-foreground">{label}</div>
+      <div className="mt-1 text-2xl font-bold text-foreground" style={accent ? { color: accent } : undefined}>{value}</div>
+      {sub && <div className="mt-0.5 text-xs text-subtle-foreground">{sub}</div>}
     </div>
   );
 }
@@ -269,19 +273,24 @@ function SimpleTreemap({ title, icon, items, unitLabel, maxSlices = MAX_SLICES }
   const slices = restTotal > 0 ? [...top, { label: 'אחר', value: restTotal }] : top;
   const total = slices.reduce((s, r) => s + r.value, 0) || 1;
 
+  // → new kit (2026-09-12): restyled onto Tailwind tokens. Sorting, the
+  // maxSlices/"אחר" bucketing, and the title="" tooltip content (percentage
+  // math) are byte-for-byte unchanged — only style objects became classNames.
+  // CATEGORY_COLORS/OTHER_COLOR deliberately untouched: dataviz hues, not
+  // chrome, and each slice's own inline `background` still carries them.
   if (slices.length === 0) {
     return (
-      <div style={{ background: C.bgCard, borderRadius: RADIUS.xl, boxShadow: SHADOW.sm, border: `1px solid ${C.border}`, padding: '16px 20px', marginBottom: '16px' }}>
-        <div style={{ fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '8px' }}>{icon} {title}</div>
-        <div style={{ fontSize: '13px', color: C.textMuted, textAlign: 'center', padding: '20px 0' }}>אין נתונים להצגה</div>
+      <div className="mb-4 rounded-xl border border-border bg-card p-5 shadow-xs">
+        <div className="mb-2 text-sm font-bold text-foreground">{icon} {title}</div>
+        <div className="py-5 text-center text-[13px] text-subtle-foreground">אין נתונים להצגה</div>
       </div>
     );
   }
 
   return (
-    <div style={{ background: C.bgCard, borderRadius: RADIUS.xl, boxShadow: SHADOW.sm, border: `1px solid ${C.border}`, padding: '16px 20px', marginBottom: '16px' }}>
-      <div style={{ fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '10px' }}>{icon} {title}</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
+    <div className="mb-4 rounded-xl border border-border bg-card p-5 shadow-xs">
+      <div className="mb-2.5 text-sm font-bold text-foreground">{icon} {title}</div>
+      <div className="flex flex-wrap gap-1">
         {slices.map((s, i) => {
           const pct = (s.value / total) * 100;
           const color = s.label === 'אחר' ? OTHER_COLOR : CATEGORY_COLORS[i % CATEGORY_COLORS.length];
@@ -289,140 +298,14 @@ function SimpleTreemap({ title, icon, items, unitLabel, maxSlices = MAX_SLICES }
             <div
               key={s.label}
               title={`${s.label}: ${Math.round(s.value * 100) / 100} ${unitLabel} (${Math.round(pct * 10) / 10}%)`}
-              style={{
-                flex: `0 1 ${Math.max(pct, 8)}%`, minWidth: '90px', height: '90px',
-                background: color, borderRadius: RADIUS.sm, padding: '8px 10px',
-                display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-                overflow: 'hidden', boxSizing: 'border-box',
-              }}
+              className="box-border flex h-[90px] min-w-[90px] flex-col justify-between overflow-hidden rounded-md p-2 transition-transform duration-fast ease-out hover:scale-[1.02]"
+              style={{ flex: `0 1 ${Math.max(pct, 8)}%`, background: color }}
             >
-              <span style={{ fontSize: '12px', fontWeight: WEIGHT.semibold, color: 'white', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {s.label}
-              </span>
-              <span style={{ fontSize: '15px', fontWeight: WEIGHT.bold, color: 'white' }}>
-                {Math.round(s.value * 100) / 100}
-              </span>
+              <span className="truncate text-xs font-semibold text-white">{s.label}</span>
+              <span className="text-[15px] font-bold text-white">{Math.round(s.value * 100) / 100}</span>
             </div>
           );
         })}
-      </div>
-    </div>
-  );
-}
-
-const columnMoveBtnStyle: React.CSSProperties = {
-  padding: '4px 10px', background: C.bgNested, color: C.textPrimary,
-  border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer',
-  fontSize: '13px', fontFamily: FONT, minWidth: '36px',
-};
-
-// "Select Columns" picker — two listboxes (available / visible) with move and
-// reorder controls, matching the reference ALM/QC dialog the user provided.
-// Kept as an overlay dialog (not a full-screen drill-down like the CR/TARGET
-// list screens) since it's a transient utility picker, not navigation.
-function SelectColumnsDialog({
-  allColumns, visibleKeys, onApply, onClose,
-}: {
-  allColumns: { key: keyof TargetDefect; label: string }[];
-  visibleKeys: (keyof TargetDefect)[];
-  onApply: (keys: (keyof TargetDefect)[]) => void;
-  onClose: () => void;
-}) {
-  const [visible, setVisible] = useState(
-    visibleKeys.map(k => allColumns.find(c => c.key === k)).filter((c): c is { key: keyof TargetDefect; label: string } => !!c)
-  );
-  const [available, setAvailable] = useState(
-    allColumns.filter(c => !visibleKeys.includes(c.key))
-  );
-  const [selAvailable, setSelAvailable] = useState<Set<keyof TargetDefect>>(new Set());
-  const [selVisible, setSelVisible] = useState<Set<keyof TargetDefect>>(new Set());
-
-  const toggle = (set: Set<keyof TargetDefect>, key: keyof TargetDefect, setFn: (s: Set<keyof TargetDefect>) => void) => {
-    const next = new Set(set);
-    if (next.has(key)) next.delete(key); else next.add(key);
-    setFn(next);
-  };
-
-  const moveToVisible = () => {
-    if (selAvailable.size === 0) return;
-    setVisible(v => [...v, ...available.filter(c => selAvailable.has(c.key))]);
-    setAvailable(a => a.filter(c => !selAvailable.has(c.key)));
-    setSelAvailable(new Set());
-  };
-  const moveToAvailable = () => {
-    if (selVisible.size === 0) return;
-    setAvailable(a => [...a, ...visible.filter(c => selVisible.has(c.key))]);
-    setVisible(v => v.filter(c => !selVisible.has(c.key)));
-    setSelVisible(new Set());
-  };
-  const moveAllToVisible = () => { setVisible(v => [...v, ...available]); setAvailable([]); setSelAvailable(new Set()); };
-  const moveAllToAvailable = () => { setAvailable(a => [...a, ...visible]); setVisible([]); setSelVisible(new Set()); };
-
-  const reorder = (dir: -1 | 1) => {
-    if (selVisible.size !== 1) return;
-    const key = Array.from(selVisible)[0];
-    const idx = visible.findIndex(c => c.key === key);
-    const newIdx = idx + dir;
-    if (newIdx < 0 || newIdx >= visible.length) return;
-    const next = [...visible];
-    [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
-    setVisible(next);
-  };
-
-  const listBoxStyle: React.CSSProperties = {
-    border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, height: '280px',
-    overflowY: 'auto', background: C.bgNested,
-  };
-  const itemStyle = (selected: boolean): React.CSSProperties => ({
-    padding: '4px 8px', fontSize: '13px', cursor: 'pointer',
-    background: selected ? C.brandDim : 'transparent', color: C.textPrimary,
-  });
-
-  return (
-    <div
-      onClick={onClose}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-    >
-      <div onClick={e => e.stopPropagation()} style={{ background: C.bgCard, borderRadius: RADIUS.lg, padding: '20px', width: '660px', maxWidth: '94vw', boxShadow: '0 20px 48px rgba(0,0,0,.25)', fontFamily: FONT }}>
-        <div style={{ fontSize: '15px', fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '14px', textAlign: 'right' }}>בחירת עמודות</div>
-        <div style={{ display: 'flex', gap: '10px', direction: 'ltr' }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: '12px', color: C.textMuted, marginBottom: '4px' }}>Available Columns:</div>
-            <div style={listBoxStyle}>
-              {available.map(c => (
-                <div key={c.key} onClick={() => toggle(selAvailable, c.key, setSelAvailable)} style={itemStyle(selAvailable.has(c.key))}>
-                  {c.label}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '6px' }}>
-            <button onClick={moveToVisible} style={columnMoveBtnStyle}>&gt;</button>
-            <button onClick={moveAllToVisible} style={columnMoveBtnStyle}>&gt;&gt;</button>
-            <button onClick={moveToAvailable} style={columnMoveBtnStyle}>&lt;</button>
-            <button onClick={moveAllToAvailable} style={columnMoveBtnStyle}>&lt;&lt;</button>
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <span style={{ fontSize: '12px', color: C.textMuted }}>Visible Columns:</span>
-              <div style={{ display: 'flex', gap: '4px' }}>
-                <button onClick={() => reorder(-1)} style={{ ...columnMoveBtnStyle, padding: '2px 8px' }}>↑</button>
-                <button onClick={() => reorder(1)} style={{ ...columnMoveBtnStyle, padding: '2px 8px' }}>↓</button>
-              </div>
-            </div>
-            <div style={listBoxStyle}>
-              {visible.map(c => (
-                <div key={c.key} onClick={() => toggle(selVisible, c.key, setSelVisible)} style={itemStyle(selVisible.has(c.key))}>
-                  {c.label}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-          <button onClick={onClose} style={{ padding: '8px 20px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontFamily: FONT }}>Cancel</button>
-          <button onClick={() => onApply(visible.map(c => c.key))} style={{ padding: '8px 20px', background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontWeight: WEIGHT.semibold, fontFamily: FONT }}>OK</button>
-        </div>
       </div>
     </div>
   );
@@ -488,6 +371,7 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
   };
 
   const [targetDefectSort, setTargetDefectSort] = useState<{ key: keyof TargetDefect; dir: 'asc' | 'desc' } | null>(null);
+  const [hoverTargetRow, setHoverTargetRow] = useState<string | null>(null);
   const toggleTargetDefectSort = (key: keyof TargetDefect) => {
     setTargetDefectSort(prev => prev?.key === key ? (prev.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' });
   };
@@ -558,27 +442,27 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
   const sortedCrList = [...(scope?.crs ?? [])].sort((a, b) => a.crNumber.localeCompare(b.crNumber));
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl' }}>
+    <div dir="rtl">
       {/* ── Header — hidden on the TARGET-defect screens (list + detail),
           since both already show their own contextual title and this row
           (version name/status/go-live warning) is just redundant clutter
           once drilled in that far (feedback confirmed 2026-08-30). ── */}
       {screen.type !== 'target-list' && screen.type !== 'target-defect-detail' && (
-        <div style={{ background: C.bgCard, borderRadius: RADIUS.xl, boxShadow: SHADOW.sm, border: `1px solid ${C.border}`, padding: '18px 24px', marginBottom: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '18px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>{version.name}</span>
+        <div className="mb-4 rounded-2xl border border-border bg-card px-6 py-[18px] shadow-sm">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-lg font-bold text-foreground">{version.name}</span>
             <VersionStatusChip status={version.status} size="md" />
             {goLiveLabel && (
-              <span style={{
-                fontSize: '13px', fontWeight: WEIGHT.bold, color: daysToGoLive! < 0 ? C.danger : C.brand,
-                background: daysToGoLive! < 0 ? C.dangerBg : C.brandDim, borderRadius: RADIUS.full, padding: '3px 12px',
-              }}>
+              <span
+                className="rounded-full px-3 py-[3px] text-[13px] font-bold"
+                style={{ color: daysToGoLive! < 0 ? C.danger : C.brand, background: daysToGoLive! < 0 ? C.dangerBg : C.brandDim }}
+              >
                 {goLiveLabel}
               </span>
             )}
             <span
               onClick={() => onJumpToStep('open')}
-              style={{ marginRight: 'auto', fontSize: '13px', color: C.brand, fontWeight: WEIGHT.semibold, cursor: 'pointer' }}
+              className="ms-auto cursor-pointer text-[13px] font-semibold text-primary"
             >
               🗓 ניהול תאריכים ›
             </span>
@@ -589,13 +473,13 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
       {screen.type === 'overview' && (
         <>
           {/* ── תכולה והיקף הגרסה — stat tiles ── */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
-            <div onClick={() => pushScreen({ type: 'cr-list' })} style={{ cursor: 'pointer', flex: '1 1 140px', minWidth: '140px' }}>
+          <div className="mb-4 flex flex-wrap gap-2.5">
+            <div onClick={() => pushScreen({ type: 'cr-list' })} className="group min-w-[140px] flex-1 cursor-pointer">
               <StatTile label="סה״כ CR-ים" value={scope?.crCount ?? '—'} />
             </div>
             <StatTile label="CR-ים בליבה" value={scope?.coreCrCount ?? '—'} />
             <StatTile label="CR-ים Stand Alone" value={scope?.saCrCount ?? '—'} />
-            <div onClick={() => pushScreen({ type: 'target-list' })} style={{ cursor: 'pointer', flex: '1 1 140px', minWidth: '140px' }}>
+            <div onClick={() => pushScreen({ type: 'target-list' })} className="group min-w-[140px] flex-1 cursor-pointer">
               <StatTile label="סה״כ TARGET" value={targetSummary?.total ?? scope?.targetCrCount ?? '—'} accent={C.brand} />
             </div>
             <StatTile label="סה״כ בדיקות" value={totalTests ?? '—'} />
@@ -628,30 +512,30 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
       {screen.type === 'cr-list' && (
         <div>
           <BackButton onClick={goBack} />
-          <div style={{ background: C.bgCard, borderRadius: RADIUS.xl, boxShadow: SHADOW.sm, border: `1px solid ${C.border}`, padding: '20px' }}>
-            <div style={{ fontSize: '16px', fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '12px' }}>📋 רשימת פיתוחים ({sortedCrList.length})</div>
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <div className="mb-3 text-base font-bold text-foreground">📋 רשימת פיתוחים ({sortedCrList.length})</div>
             {!scope ? (
-              <div style={{ textAlign: 'center', padding: '30px', color: C.textMuted }}>טוען...</div>
+              <div className="p-8 text-center text-subtle-foreground">טוען...</div>
             ) : sortedCrList.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '30px', color: C.textMuted }}>אין CR-ים בתכולת הגרסה</div>
+              <div className="p-8 text-center text-subtle-foreground">אין CR-ים בתכולת הגרסה</div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div className="flex flex-col gap-1">
                 {sortedCrList.map(c => (
                   <div
                     key={c.crNumber}
                     onClick={() => openCrDetail(c.crNumber)}
+                    className="flex cursor-pointer items-center gap-2.5 rounded-md border px-3 py-2.5"
                     style={{
-                      display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', cursor: 'pointer',
                       background: c.needsAttention ? C.warningBg : C.bgNested,
-                      border: `1px solid ${c.needsAttention ? C.warning : C.border}`, borderRadius: RADIUS.md,
+                      borderColor: c.needsAttention ? C.warning : C.border,
                     }}
                   >
-                    <span style={{ fontWeight: WEIGHT.semibold, color: C.textPrimary, minWidth: '90px' }}>{c.crNumber}</span>
-                    <span style={{ color: C.textSecondary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span className="min-w-[90px] font-semibold text-foreground">{c.crNumber}</span>
+                    <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground">
                       {c.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}
                     </span>
-                    <span style={{ fontSize: '12px', color: C.textMuted }}>{c.teams.map(t => t.teamName).join(', ')}</span>
-                    {c.needsAttention && <span style={{ fontSize: '12px', color: C.warning, fontWeight: WEIGHT.bold }}>⚠</span>}
+                    <span className="text-xs text-subtle-foreground">{c.teams.map(t => t.teamName).join(', ')}</span>
+                    {c.needsAttention && <span className="text-xs font-bold text-warning">⚠</span>}
                   </div>
                 ))}
               </div>
@@ -664,35 +548,31 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
       {screen.type === 'target-list' && (
         <div>
           <BackButton onClick={goBack} />
-          <div style={{ background: C.bgCard, borderRadius: RADIUS.xl, boxShadow: SHADOW.sm, border: `1px solid ${C.border}`, padding: '20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-              <span style={{ fontSize: '16px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>🎯 תקלות TARGET ({targetSummary?.defects.length ?? 0})</span>
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-base font-bold text-foreground">🎯 תקלות TARGET ({targetSummary?.defects.length ?? 0})</span>
               <button
                 onClick={() => setShowColumnPicker(true)}
-                style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontFamily: FONT }}
+                className="cursor-pointer rounded-md border border-border bg-muted px-3.5 py-1.5 text-[13px] text-muted-foreground"
               >
                 ⚙ בחירת עמודות
               </button>
             </div>
             {!targetSummary ? (
-              <div style={{ textAlign: 'center', padding: '30px', color: C.textMuted }}>טוען...</div>
+              <div className="p-8 text-center text-subtle-foreground">טוען...</div>
             ) : targetSummary.defects.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '30px', color: C.textMuted }}>אין תקלות TARGET בגרסה זו</div>
+              <div className="p-8 text-center text-subtle-foreground">אין תקלות TARGET בגרסה זו</div>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', fontSize: '13px', direction: 'rtl' }}>
+              <div className="overflow-x-auto">
+                <table className="w-full table-fixed border-collapse text-[13px]" dir="rtl">
                   <thead>
                     <tr>
                       {targetDefectColumns.map(key => (
                         <th
                           key={key}
                           onClick={() => toggleTargetDefectSort(key)}
-                          style={{
-                            position: 'sticky', top: 0, textAlign: 'right', padding: '8px 10px', color: C.textMuted, fontWeight: WEIGHT.bold,
-                            borderBottom: `2px solid ${C.border}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                            background: C.bgCard, width: getTargetColWidth(key),
-                            cursor: 'pointer', userSelect: 'none',
-                          }}
+                          className="sticky top-0 cursor-pointer select-none overflow-hidden text-ellipsis whitespace-nowrap border-b-2 px-2.5 py-2 text-right text-[11px] font-bold tracking-wide"
+                          style={{ color: JIRA.textSubtle, borderBottomColor: JIRA.greyN40, background: C.bgCard, width: getTargetColWidth(key) }}
                         >
                           {TARGET_DEFECT_COLUMNS.find(c => c.key === key)?.label ?? key}
                           {targetDefectSort?.key === key ? (targetDefectSort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
@@ -711,7 +591,10 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
                       <tr
                         key={d.id}
                         onClick={() => pushScreen({ type: 'target-defect-detail', defectId: d.id })}
-                        style={{ borderBottom: `1px solid ${C.border}`, cursor: 'pointer' }}
+                        onMouseEnter={() => setHoverTargetRow(d.id)}
+                        onMouseLeave={() => setHoverTargetRow(r => (r === d.id ? null : r))}
+                        className="cursor-pointer"
+                        style={{ background: hoverTargetRow === d.id ? JIRA.rowHover : undefined }}
                       >
                         {targetDefectColumns.map(key => {
                           const raw = String(d[key] ?? '');
@@ -719,9 +602,9 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
                           return (
                             <td
                               key={key}
+                              className="overflow-hidden text-ellipsis whitespace-nowrap border-b px-2.5 py-2"
                               style={{
-                                padding: '7px 10px', color: C.textSecondary, whiteSpace: 'nowrap',
-                                overflow: 'hidden', textOverflow: 'ellipsis', width: getTargetColWidth(key),
+                                color: JIRA.text, borderBottomColor: JIRA.greyN40, width: getTargetColWidth(key),
                                 direction: rtl ? 'rtl' : 'ltr', textAlign: rtl ? 'right' : 'left',
                               }}
                             >
@@ -765,22 +648,22 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
         const d = (targetSummary?.defects ?? []).find(x => x.id === screen.defectId);
         return (
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div className="flex items-center justify-between">
               <BackButton onClick={goBack} />
               <button
                 onClick={() => setShowDetailGroupsPicker(true)}
-                style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontFamily: FONT, marginBottom: '16px' }}
+                className="mb-4 cursor-pointer rounded-md border border-border bg-muted px-3.5 py-1.5 text-[13px] text-muted-foreground"
               >
                 ⚙ התאמת שדות וקטגוריות
               </button>
             </div>
-            <div style={{ background: C.bgCard, borderRadius: RADIUS.xl, boxShadow: SHADOW.sm, border: `1px solid ${C.border}`, padding: '20px' }}>
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
               {!d ? (
-                <div style={{ textAlign: 'center', padding: '30px', color: C.textMuted }}>תקלה לא נמצאה</div>
+                <div className="p-8 text-center text-subtle-foreground">תקלה לא נמצאה</div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '17px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>
-                    🎯 תקלה <DefectIdBadge id={d.id} /> — {d.summary || d.subject || d.title || '—'}
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center gap-2 text-[17px] font-bold text-foreground">
+                    🎯 תקלה <IssueKeyLink id={d.id} /> — {d.summary || d.subject || d.title || '—'}
                   </div>
 
                   {/* Category groups — moved right under the title (spec 2026-08-30):
@@ -794,9 +677,9 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
                     .map(group => ({ ...group, fields: group.fields.filter(k => !DETAIL_GROUPS_FIXED_FIELDS.has(k as keyof TargetDefect)) }))
                     .filter(group => group.fields.length > 0)
                     .map(group => (
-                    <div key={group.title} style={{ borderTop: `1px solid ${C.border}`, paddingTop: '12px' }}>
-                      <div style={{ fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '8px' }}>{group.title}</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '8px 16px', fontSize: '14px' }}>
+                    <div key={group.title} className="border-t border-border pt-3">
+                      <div className="mb-2 text-sm font-bold text-subtle-foreground">{group.title}</div>
+                      <div className="grid gap-x-4 gap-y-2 text-sm" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
                         {(group.fields as (keyof TargetDefect)[]).map(key => (
                           // direction:ltr (not just inherited rtl) — label and value are two
                           // separate spans, and the page's rtl base direction lets the Unicode
@@ -806,9 +689,9 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
                           // luck. Forcing ltr keeps "Label: value" order stable for every value
                           // shape, since these labels are always English. textAlign:left per
                           // spec (bug fixed / alignment changed 2026-08-30).
-                          <div key={key} style={{ direction: 'ltr', textAlign: 'left' }}>
-                            <span style={{ color: C.textMuted }}>{targetDefectFieldLabel(key)}: </span>
-                            <span style={{ color: C.textSecondary }}>{renderTargetDefectValue(key, d[key], targetSummary?.qcUserNames)}</span>
+                          <div key={key} className="text-left" dir="ltr">
+                            <span className="text-subtle-foreground">{targetDefectFieldLabel(key)}: </span>
+                            <span className="text-muted-foreground">{renderTargetDefectValue(key, d[key], targetSummary?.qcUserNames)}</span>
                           </div>
                         ))}
                       </div>
@@ -817,26 +700,20 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
 
                   {/* Description + Notes — side by side (each wraps to its own row
                       below ~380px so they don't get squeezed on a narrow window). */}
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', borderTop: `1px solid ${C.border}`, paddingTop: '12px' }}>
-                    <div style={{ flex: '1 1 380px', minWidth: '280px' }}>
-                      <div style={{ fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '6px' }}>תיאור</div>
-                      <div style={{
-                        direction: 'rtl', textAlign: 'right', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                        minHeight: '110px', maxHeight: '320px', overflowY: 'auto', lineHeight: 1.7, fontSize: '15px',
-                        color: C.textPrimary, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md,
-                        padding: '12px 14px',
-                      }}>
+                  <div className="flex flex-wrap gap-4 border-t border-border pt-3">
+                    <div className="min-w-[280px] flex-[1_1_380px]">
+                      <div className="mb-1.5 text-sm font-bold text-subtle-foreground">תיאור</div>
+                      <div
+                        className="max-h-80 min-h-[110px] overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted px-3.5 py-3 text-[15px] leading-[1.7] text-foreground"
+                        dir="rtl"
+                      >
                         {d.description || '—'}
                       </div>
                     </div>
 
-                    <div style={{ flex: '1 1 380px', minWidth: '280px' }}>
-                      <div style={{ fontSize: '14px', fontWeight: WEIGHT.bold, color: C.textMuted, marginBottom: '6px' }}>הערות</div>
-                      <div style={{
-                        minHeight: '110px', maxHeight: '320px', overflowY: 'auto', lineHeight: 1.7, fontSize: '15px',
-                        color: C.textPrimary, background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md,
-                        padding: '12px 14px',
-                      }}>
+                    <div className="min-w-[280px] flex-[1_1_380px]">
+                      <div className="mb-1.5 text-sm font-bold text-subtle-foreground">הערות</div>
+                      <div className="max-h-80 min-h-[110px] overflow-y-auto rounded-md border border-border bg-muted px-3.5 py-3 text-[15px] leading-[1.7] text-foreground">
                         {renderNotesField(d.notes)}
                       </div>
                     </div>
@@ -864,29 +741,29 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
       {screen.type === 'cr-detail' && (
         <div>
           <BackButton onClick={goBack} />
-          <div style={{ background: C.bgCard, borderRadius: RADIUS.xl, boxShadow: SHADOW.sm, border: `1px solid ${C.border}`, padding: '20px' }}>
-            <div style={{ fontSize: '16px', fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '12px' }}>CR {screen.crNumber}</div>
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <div className="mb-3 text-base font-bold text-foreground">CR {screen.crNumber}</div>
             {!crDetail ? (
-              <div style={{ textAlign: 'center', padding: '30px', color: C.textMuted }}>טוען...</div>
+              <div className="p-8 text-center text-subtle-foreground">טוען...</div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '14px' }}>
-                <div style={{ fontWeight: WEIGHT.semibold, color: C.textPrimary }}>{crDetail.crLabel}</div>
-                {crDetail.crDescription && <div style={{ color: C.textSecondary }}>{crDetail.crDescription}</div>}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
-                  <div><span style={{ color: C.textMuted }}>מנהל CR: </span>{crDetail.crManager || '—'}</div>
-                  <div><span style={{ color: C.textMuted }}>מאפיין: </span>{crDetail.application || '—'}</div>
-                  <div><span style={{ color: C.textMuted }}>הערכת ימים: </span>{crDetail.estimateDays ?? '—'}</div>
-                  <div><span style={{ color: C.textMuted }}>סטטוס במקור: </span>{crDetail.status || '—'}</div>
-                  <div style={{ gridColumn: '1 / -1' }}><span style={{ color: C.textMuted }}>צוותים: </span>{(crDetail.teams ?? []).join(', ') || '—'}</div>
+              <div className="flex flex-col gap-2.5 text-sm">
+                <div className="font-semibold text-foreground">{crDetail.crLabel}</div>
+                {crDetail.crDescription && <div className="text-muted-foreground">{crDetail.crDescription}</div>}
+                <div className="mt-1 grid grid-cols-2 gap-2">
+                  <div><span className="text-subtle-foreground">מנהל CR: </span>{crDetail.crManager || '—'}</div>
+                  <div><span className="text-subtle-foreground">מאפיין: </span>{crDetail.application || '—'}</div>
+                  <div><span className="text-subtle-foreground">הערכת ימים: </span>{crDetail.estimateDays ?? '—'}</div>
+                  <div><span className="text-subtle-foreground">סטטוס במקור: </span>{crDetail.status || '—'}</div>
+                  <div className="col-span-full"><span className="text-subtle-foreground">צוותים: </span>{(crDetail.teams ?? []).join(', ') || '—'}</div>
                 </div>
-                {crDetail.notes && <div style={{ color: C.textSecondary, fontStyle: 'italic' }}>הערה: {crDetail.notes}</div>}
+                {crDetail.notes && <div className="italic text-muted-foreground">הערה: {crDetail.notes}</div>}
 
-                <div style={{ borderTop: `1px solid ${C.border}`, marginTop: '6px', paddingTop: '10px' }}>
+                <div className="mt-1.5 border-t border-border pt-2.5">
                   {(crsByNumber.get(screen.crNumber)?.teams ?? []).map(t => (
                     <button
                       key={t.teamId}
                       onClick={() => openHistory(screen.crNumber, t.teamId)}
-                      style={{ padding: '6px 12px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', marginLeft: '6px' }}
+                      className="me-1.5 cursor-pointer rounded-md border border-border bg-muted px-3 py-1.5 text-[13px] text-muted-foreground"
                     >
                       🕘 היסטוריית שינויים — {t.teamName}
                     </button>
@@ -894,10 +771,10 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
                 </div>
 
                 {crDetail.archiveHistory?.length > 0 && (
-                  <div style={{ borderTop: `1px solid ${C.border}`, marginTop: '6px', paddingTop: '10px' }}>
-                    <div style={{ fontWeight: WEIGHT.semibold, color: C.textPrimary, marginBottom: '6px' }}>📦 היסטוריית ארכיון (QA)</div>
+                  <div className="mt-1.5 border-t border-border pt-2.5">
+                    <div className="mb-1.5 font-semibold text-foreground">📦 היסטוריית ארכיון (QA)</div>
                     {crDetail.archiveHistory.map((h: any) => (
-                      <div key={h.id} style={{ fontSize: '13px', color: C.textSecondary, marginBottom: '4px' }}>
+                      <div key={h.id} className="mb-1 text-[13px] text-muted-foreground">
                         {h.action === 'TASK_ARCHIVED' ? '📦 הועבר לארכיון' : '↺ שוחזר מהארכיון'}
                         {h.reason ? ` — ${h.reason}` : ''} · {formatDateTime(h.createdAt)}
                       </div>
@@ -914,12 +791,12 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
       {screen.type === 'history' && (
         <div>
           <BackButton onClick={goBack} />
-          <div style={{ background: C.bgCard, borderRadius: RADIUS.xl, boxShadow: SHADOW.sm, border: `1px solid ${C.border}`, padding: '20px' }}>
-            <div style={{ fontSize: '16px', fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '12px' }}>🕘 היסטוריית שינויים — {screen.crNumber}</div>
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <div className="mb-3 text-base font-bold text-foreground">🕘 היסטוריית שינויים — {screen.crNumber}</div>
             {!historyDetail ? (
-              <div style={{ textAlign: 'center', padding: '20px', color: C.textMuted }}>טוען...</div>
+              <div className="p-5 text-center text-subtle-foreground">טוען...</div>
             ) : (
-              <div style={{ fontSize: '14px', color: C.textSecondary, lineHeight: 1.7 }}>{historyDetail.reason}</div>
+              <div className="text-sm leading-[1.7] text-muted-foreground">{historyDetail.reason}</div>
             )}
           </div>
         </div>

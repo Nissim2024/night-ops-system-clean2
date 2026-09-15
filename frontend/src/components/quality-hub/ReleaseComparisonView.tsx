@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -27,14 +26,18 @@ function sortReleasesAsc<T extends { releaseName: string }>(items: T[]): T[] {
   });
 }
 
-function scoreColor(pct: number | null): string {
-  if (pct == null) return C.textMuted;
-  if (pct >= 90) return C.success;
-  if (pct >= 70) return '#e8af00';
-  return C.danger;
+// Fixed thresholds → semantic token classes (not raw hex).
+function scoreColorClass(pct: number | null): string {
+  if (pct == null) return 'text-subtle-foreground';
+  if (pct >= 90) return 'text-success';
+  if (pct >= 70) return 'text-warning';
+  return 'text-danger';
 }
 
-const RELEASE_COLORS = [C.brand, C.success, '#e8af00', C.danger, C.info, '#9c6ade', '#00897b', '#f0883e'];
+// Qualitative per-release swatch/bar palette — arbitrary index-based hues with
+// no semantic-token equivalent, kept as literal hex for inline style (same
+// pattern as the app's other data-viz "team color" palettes).
+const RELEASE_COLORS = ['#4F46E5', '#16A34A', '#e8af00', '#DC2626', '#0891B2', '#9c6ade', '#00897b', '#f0883e'];
 
 // Grouped bar chart: one cluster per KPI, one bar per selected release —
 // lets you visually compare a KPI's relative score across releases at a
@@ -45,27 +48,27 @@ function ComparisonChart({ releases, kpiRows }: { releases: { releaseName: strin
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: SP[4], flexWrap: 'wrap', marginBottom: SP[3], paddingBottom: SP[2], borderBottom: `1px solid ${C.border}` }}>
+      <div className="flex gap-4 flex-wrap mb-3 pb-2 border-b border-border">
         {releases.map((r, i) => (
-          <div key={r.releaseName} style={{ display: 'flex', alignItems: 'center', gap: SP[1] }}>
-            <span style={{ width: '12px', height: '12px', borderRadius: RADIUS.sm, background: RELEASE_COLORS[i % RELEASE_COLORS.length], display: 'inline-block' }} />
-            <span style={{ ...TEXT.xs, color: C.textMuted }}>{r.releaseName}</span>
+          <div key={r.releaseName} className="flex items-center gap-1">
+            <span className="w-3 h-3 rounded-sm inline-block" style={{ background: RELEASE_COLORS[i % RELEASE_COLORS.length] }} />
+            <span className="text-xs text-subtle-foreground">{r.releaseName}</span>
           </div>
         ))}
       </div>
-      <div style={{ width: '100%' }}>
+      <div className="w-full">
         {kpiRows.map(row => (
-          <div key={row.kpiName} style={{ display: 'flex', alignItems: 'center', height: `${rowHeight}px`, gap: SP[2] }}>
-            <div style={{ width: `${labelWidth}px`, flexShrink: 0, ...TEXT.xs, color: C.textPrimary, fontWeight: WEIGHT.semibold, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.kpiName}>
+          <div key={row.kpiName} className="flex items-center gap-2" style={{ height: `${rowHeight}px` }}>
+            <div className="shrink-0 text-xs text-foreground font-semibold overflow-hidden text-ellipsis whitespace-nowrap" style={{ width: `${labelWidth}px` }} title={row.kpiName}>
               {row.kpiName}
             </div>
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '3px', height: '100%' }}>
+            <div className="flex-1 flex items-center gap-[3px] h-full">
               {releases.map((r, i) => {
                 const v = row.perRelease[r.releaseName];
                 const pct = Math.max(0, Math.min(100, v ?? 0));
                 return (
-                  <div key={r.releaseName} style={{ flex: 1, height: '70%', background: C.bgNested, borderRadius: RADIUS.sm, position: 'relative', overflow: 'hidden' }} title={`${r.releaseName}: ${v != null ? v + '%' : '—'}`}>
-                    <div style={{ position: 'absolute', bottom: 0, right: 0, left: 0, height: `${pct}%`, background: RELEASE_COLORS[i % RELEASE_COLORS.length], borderRadius: RADIUS.sm }} />
+                  <div key={r.releaseName} className="flex-1 h-[70%] bg-muted rounded-sm relative overflow-hidden" title={`${r.releaseName}: ${v != null ? v + '%' : '—'}`}>
+                    <div className="absolute bottom-0 inset-x-0 rounded-sm" style={{ height: `${pct}%`, background: RELEASE_COLORS[i % RELEASE_COLORS.length] }} />
                   </div>
                 );
               })}
@@ -120,79 +123,79 @@ export const ReleaseComparisonView: React.FC<Props> = ({ token }) => {
 
   if (releases.length === 0) {
     return (
-      <div style={{ fontFamily: FONT, direction: 'rtl', textAlign: 'center', padding: SP[8], color: C.textMuted }}>
+      <div className="text-center p-8 text-subtle-foreground">
         אין עדיין נתוני איכות גרסה. יש לייבא את שני קבצי ה-Excel דרך מסך הניהול.
       </div>
     );
   }
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: SP[2] }}>
-        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>⚖️ השוואת גרסאות</div>
-        <div style={{ display: 'flex', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
-          <button onClick={() => setView('table')} style={{ padding: '6px 14px', border: 'none', background: view === 'table' ? C.brand : C.bgCard, color: view === 'table' ? '#fff' : C.textSecondary, cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold }}>טבלה</button>
-          <button onClick={() => setView('chart')} style={{ padding: '6px 14px', border: 'none', background: view === 'chart' ? C.brand : C.bgCard, color: view === 'chart' ? '#fff' : C.textSecondary, cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold }}>גרף</button>
+    <div className="flex flex-col gap-4">
+      <div className="flex justify-between items-center flex-wrap gap-2">
+        <div className="text-lg font-bold text-foreground">⚖️ השוואת גרסאות</div>
+        <div className="flex rounded-md border border-border overflow-hidden">
+          <button onClick={() => setView('table')} className={`px-3.5 py-1.5 border-none cursor-pointer text-xs font-semibold ${view === 'table' ? 'bg-primary text-white' : 'bg-card text-muted-foreground'}`}>טבלה</button>
+          <button onClick={() => setView('chart')} className={`px-3.5 py-1.5 border-none cursor-pointer text-xs font-semibold ${view === 'chart' ? 'bg-primary text-white' : 'bg-card text-muted-foreground'}`}>גרף</button>
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: SP[4], flexWrap: 'wrap' }}>
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[3], maxHeight: '220px', overflowY: 'auto', minWidth: '260px' }}>
-          <div style={{ ...TEXT.xs, color: C.textMuted, marginBottom: SP[2] }}>בחר גרסאות להשוואה (2+)</div>
+      <div className="flex gap-4 flex-wrap">
+        <div className="bg-card border border-border rounded-lg p-3 max-h-[220px] overflow-y-auto min-w-[260px]">
+          <div className="text-xs text-subtle-foreground mb-2">בחר גרסאות להשוואה (2+)</div>
           {releases.map(r => (
-            <label key={r.releaseName} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: '4px 0', cursor: 'pointer', ...TEXT.sm }}>
+            <label key={r.releaseName} className="flex items-center gap-2 py-1 cursor-pointer text-sm">
               <input type="checkbox" checked={picked.includes(r.releaseName)} onChange={() => toggleRelease(r.releaseName)} />
-              <span style={{ color: C.textPrimary }}>{r.releaseName}</span>
-              <span style={{ color: C.textMuted, ...TEXT.xs }}>({r.totalScore}%)</span>
+              <span className="text-foreground">{r.releaseName}</span>
+              <span className="text-subtle-foreground text-xs">({r.totalScore}%)</span>
             </label>
           ))}
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: SP[2], cursor: 'pointer', ...TEXT.sm, color: C.textSecondary, alignSelf: 'flex-start' }}>
+        <label className="flex items-center gap-2 cursor-pointer text-sm text-muted-foreground self-start">
           <input type="checkbox" checked={includeYearAverage} onChange={e => setIncludeYearAverage(e.target.checked)} />
           כלול ממוצע שנתי
         </label>
       </div>
 
       {loading && !data ? (
-        <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6] }}>טוען...</div>
+        <div className="text-sm text-subtle-foreground p-6">טוען...</div>
       ) : !data || picked.length === 0 ? (
-        <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6] }}>בחר לפחות גרסה אחת להשוואה.</div>
+        <div className="text-sm text-subtle-foreground p-6">בחר לפחות גרסה אחת להשוואה.</div>
       ) : (
         <>
-          <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
+          <div className="flex gap-3 flex-wrap">
             {sortedReleases.map(r => (
-              <div key={r.releaseName} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '14px 18px', flex: 1, minWidth: '160px' }}>
-                <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: scoreColor(r.totalScore) }}>{r.totalScore}%</div>
-                <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>{r.releaseName}</div>
+              <div key={r.releaseName} className="bg-card border border-border rounded-lg px-[18px] py-3.5 flex-1 min-w-[160px]">
+                <div className={`text-xl font-bold ${scoreColorClass(r.totalScore)}`}>{r.totalScore}%</div>
+                <div className="text-xs text-subtle-foreground mt-[3px]">{r.releaseName}</div>
               </div>
             ))}
             {data.yearAverage && (
-              <div style={{ background: C.bgNested, border: `1px dashed ${C.border}`, borderRadius: RADIUS.lg, padding: '14px 18px', flex: 1, minWidth: '160px' }}>
-                <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: C.textSecondary }}>{data.yearAverage.totalScore}%</div>
-                <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>{data.yearAverage.label}</div>
+              <div className="bg-muted border border-dashed border-border rounded-lg px-[18px] py-3.5 flex-1 min-w-[160px]">
+                <div className="text-xl font-bold text-muted-foreground">{data.yearAverage.totalScore}%</div>
+                <div className="text-xs text-subtle-foreground mt-[3px]">{data.yearAverage.label}</div>
               </div>
             )}
           </div>
 
           {view === 'table' ? (
-            <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <div className="bg-card border border-border rounded-lg overflow-auto">
+              <table className="w-full border-collapse">
                 <thead>
-                  <tr style={{ background: C.bgNested }}>
-                    <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: '16px', color: C.textSecondary, fontWeight: WEIGHT.bold, border: `1px solid ${C.border}` }}>KPI</th>
+                  <tr className="bg-muted">
+                    <th className="px-3 py-2.5 text-right text-base text-muted-foreground font-bold border border-border">KPI</th>
                     {sortedReleases.map(r => (
-                      <th key={r.releaseName} style={{ padding: '10px 12px', textAlign: 'right', fontSize: '16px', color: C.textSecondary, fontWeight: WEIGHT.bold, border: `1px solid ${C.border}` }}>{r.releaseName}</th>
+                      <th key={r.releaseName} className="px-3 py-2.5 text-right text-base text-muted-foreground font-bold border border-border">{r.releaseName}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {data.kpiRows.map(row => (
-                    <tr key={row.kpiName} style={{ borderBottom: `1px solid ${C.border}` }}>
-                      <td style={{ padding: '10px 12px', ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, border: `1px solid ${C.border}` }}>{row.kpiName}</td>
+                    <tr key={row.kpiName} className="border-b border-border">
+                      <td className="px-3 py-2.5 text-sm font-semibold text-foreground border border-border">{row.kpiName}</td>
                       {sortedReleases.map(r => {
                         const v = row.perRelease[r.releaseName];
                         return (
-                          <td key={r.releaseName} style={{ padding: '10px 12px', ...TEXT.sm, fontWeight: WEIGHT.semibold, color: scoreColor(v), border: `1px solid ${C.border}` }}>
+                          <td key={r.releaseName} className={`px-3 py-2.5 text-sm font-semibold border border-border ${scoreColorClass(v)}`}>
                             {v != null ? `${v}%` : '—'}
                           </td>
                         );
@@ -203,7 +206,7 @@ export const ReleaseComparisonView: React.FC<Props> = ({ token }) => {
               </table>
             </div>
           ) : (
-            <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4] }}>
+            <div className="bg-card border border-border rounded-lg p-4">
               <ComparisonChart releases={sortedReleases} kpiRows={data.kpiRows} />
             </div>
           )}

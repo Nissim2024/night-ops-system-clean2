@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { KpiDetailView } from './KpiDetailView';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -41,17 +40,17 @@ function totalDefects(s: KpiRow['severity']): number {
     Math.round(Math.abs(s.medium ?? 0)) + Math.round(Math.abs(s.low ?? 0));
 }
 
-function scoreColor(pct: number | null): string {
-  if (pct == null) return C.textMuted;
-  if (pct >= 90) return C.success;
-  if (pct >= 70) return '#e8af00';
-  return C.danger;
+function scoreColorClass(pct: number | null): string {
+  if (pct == null) return 'text-subtle-foreground';
+  if (pct >= 90) return 'text-success';
+  if (pct >= 70) return 'text-warning';
+  return 'text-danger';
 }
 
 // Row background: green when the KPI met target (Score Lost ~ 0), red/pink when it missed.
-function rowBg(scoreLostPct: number | null): string {
-  if (scoreLostPct == null) return 'transparent';
-  return scoreLostPct >= -0.05 ? C.bgDone : C.bgBlocked;
+function rowBgClass(scoreLostPct: number | null): string {
+  if (scoreLostPct == null) return 'bg-transparent';
+  return scoreLostPct >= -0.05 ? 'bg-success-bg' : 'bg-danger-bg';
 }
 
 // 100%-width stacked bar: Score (met) + Distance-from-target + Deviation (only when missed).
@@ -59,14 +58,14 @@ function StackedBar({ relativeScorePct }: { relativeScorePct: number | null }) {
   const score = Math.max(0, Math.min(100, relativeScorePct ?? 0));
   const deviation = relativeScorePct != null && relativeScorePct < 100 ? 100 - score : 0;
   return (
-    <div style={{ display: 'flex', height: '22px', borderRadius: RADIUS.sm, overflow: 'hidden', width: '100%' }}>
+    <div className="flex h-[22px] rounded-sm overflow-hidden w-full">
       {score > 0 && (
-        <div style={{ width: `${score}%`, background: C.success, display: 'flex', alignItems: 'center', justifyContent: 'center', ...TEXT.xs, color: '#fff', fontWeight: WEIGHT.semibold }}>
+        <div className="flex items-center justify-center text-xs text-white font-semibold bg-success" style={{ width: `${score}%` }}>
           {score > 12 ? `${score}%` : ''}
         </div>
       )}
       {deviation > 0 && (
-        <div style={{ width: `${deviation}%`, background: C.danger, display: 'flex', alignItems: 'center', justifyContent: 'center', ...TEXT.xs, color: '#fff', fontWeight: WEIGHT.semibold }}>
+        <div className="flex items-center justify-center text-xs text-white font-semibold bg-danger" style={{ width: `${deviation}%` }}>
           {deviation > 8 ? `${Math.round(deviation)}%` : ''}
         </div>
       )}
@@ -126,7 +125,7 @@ export const KpiMatrixView: React.FC<Props> = ({ token, role, initialRelease }) 
 
   if (releases.length === 0 && !loading) {
     return (
-      <div style={{ fontFamily: FONT, direction: 'rtl', textAlign: 'center', padding: SP[8], color: C.textMuted }}>
+      <div className="text-center p-8 text-subtle-foreground">
         אין עדיין נתוני איכות גרסה. יש לייבא את שני קבצי ה-Excel דרך מסך הניהול.
       </div>
     );
@@ -141,28 +140,30 @@ export const KpiMatrixView: React.FC<Props> = ({ token, role, initialRelease }) 
   // Bar view sorted by KPI order (matches the source deck), not worst-first.
   const barRows = data ? [...data.rows].sort((a, b) => a.kpiOrder - b.kpiOrder) : [];
 
+  const thClass = 'px-3 py-2.5 text-right text-base text-muted-foreground font-bold border border-border';
+
   const headerCell = (key: SortKey, label: string) => (
     <th
       onClick={() => toggleSort(key)}
-      style={{ padding: '10px 12px', textAlign: 'right', fontSize: '16px', color: C.textSecondary, fontWeight: WEIGHT.bold, border: `1px solid ${C.border}`, cursor: 'pointer', userSelect: 'none' }}
+      className={`${thClass} cursor-pointer select-none`}
     >
       {label} {sortKey === key ? (sortAsc ? '▲' : '▼') : ''}
     </th>
   );
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: SP[2] }}>
-        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>📊 מטריצת KPI</div>
-        <div style={{ display: 'flex', gap: SP[2], alignItems: 'center' }}>
-          <div style={{ display: 'flex', borderRadius: RADIUS.md, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
-            <button onClick={() => setView('table')} style={{ padding: '6px 14px', border: 'none', background: view === 'table' ? C.brand : C.bgCard, color: view === 'table' ? '#fff' : C.textSecondary, cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold }}>טבלה</button>
-            <button onClick={() => setView('bars')} style={{ padding: '6px 14px', border: 'none', background: view === 'bars' ? C.brand : C.bgCard, color: view === 'bars' ? '#fff' : C.textSecondary, cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold }}>עמודות</button>
+    <div className="flex flex-col gap-4">
+      <div className="flex justify-between items-center flex-wrap gap-2">
+        <div className="text-lg font-bold text-foreground">📊 מטריצת KPI</div>
+        <div className="flex gap-2 items-center">
+          <div className="flex rounded-md border border-border overflow-hidden">
+            <button onClick={() => setView('table')} className={`px-3.5 py-1.5 border-none cursor-pointer text-xs font-semibold ${view === 'table' ? 'bg-primary text-white' : 'bg-card text-muted-foreground'}`}>טבלה</button>
+            <button onClick={() => setView('bars')} className={`px-3.5 py-1.5 border-none cursor-pointer text-xs font-semibold ${view === 'bars' ? 'bg-primary text-white' : 'bg-card text-muted-foreground'}`}>עמודות</button>
           </div>
           <select
             value={selected}
             onChange={e => setSelected(e.target.value)}
-            style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: RADIUS.md, fontFamily: FONT, ...TEXT.sm, minWidth: '200px' }}
+            className="px-3.5 py-2 border border-border rounded-md text-sm min-w-[200px]"
           >
             {releases.map(r => (
               <option key={r.releaseName} value={r.releaseName}>{r.releaseName} ({r.totalScore}%)</option>
@@ -172,24 +173,24 @@ export const KpiMatrixView: React.FC<Props> = ({ token, role, initialRelease }) 
       </div>
 
       {loading && !data ? (
-        <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6] }}>טוען...</div>
+        <div className="text-sm text-subtle-foreground p-6">טוען...</div>
       ) : !data ? (
-        <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6] }}>לא ניתן לטעון נתונים עבור גרסה זו.</div>
+        <div className="text-sm text-subtle-foreground p-6">לא ניתן לטעון נתונים עבור גרסה זו.</div>
       ) : view === 'table' ? (
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflow: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div className="bg-card border border-border rounded-lg overflow-auto">
+          <table className="w-full border-collapse">
             <thead>
-              <tr style={{ background: C.bgNested }}>
+              <tr className="bg-muted">
                 {headerCell('kpiOrder', '#')}
-                <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: '16px', color: C.textSecondary, fontWeight: WEIGHT.bold, border: `1px solid ${C.border}` }}>KPI</th>
+                <th className={thClass}>KPI</th>
                 {headerCell('actual', 'בפועל')}
                 {headerCell('target', 'יעד')}
                 {headerCell('weight', 'משקל')}
                 {headerCell('relativeScorePct', 'ציון יחסי')}
                 {headerCell('contributionPct', 'תרומה לציון')}
                 {headerCell('scoreLostPct', 'Score Lost')}
-                <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: '16px', color: C.textSecondary, fontWeight: WEIGHT.bold, border: `1px solid ${C.border}` }}>סה&quot;כ תקלות</th>
-                <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: '16px', color: C.textSecondary, fontWeight: WEIGHT.bold, border: `1px solid ${C.border}` }}>חומרה (SS/Sev/Med/Low)</th>
+                <th className={thClass}>סה&quot;כ תקלות</th>
+                <th className={thClass}>חומרה (SS/Sev/Med/Low)</th>
               </tr>
             </thead>
             <tbody>
@@ -197,18 +198,18 @@ export const KpiMatrixView: React.FC<Props> = ({ token, role, initialRelease }) 
                 <tr
                   key={r.kpiName}
                   onClick={() => setDetailKpi(r.kpiName)}
-                  style={{ borderBottom: `1px solid ${C.border}`, background: rowBg(r.scoreLostPct), cursor: 'pointer' }}
+                  className={`border-b border-border cursor-pointer ${rowBgClass(r.scoreLostPct)}`}
                 >
-                  <td style={{ padding: '10px 12px', ...TEXT.sm, color: C.textLink, fontWeight: WEIGHT.bold, border: `1px solid ${C.border}`, textDecoration: 'underline' }}>{r.kpiOrder}</td>
-                  <td style={{ padding: '10px 12px', ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, border: `1px solid ${C.border}` }}>{r.kpiName}</td>
-                  <td style={{ padding: '10px 12px', ...TEXT.sm, color: C.textPrimary, border: `1px solid ${C.border}` }}>{fmt3(r.actual)}</td>
-                  <td style={{ padding: '10px 12px', ...TEXT.sm, color: C.textMuted, border: `1px solid ${C.border}` }}>{r.target}</td>
-                  <td style={{ padding: '10px 12px', ...TEXT.sm, color: C.textMuted, border: `1px solid ${C.border}` }}>{(r.weight * 100).toFixed(2)}%</td>
-                  <td style={{ padding: '10px 12px', ...TEXT.sm, fontWeight: WEIGHT.semibold, color: scoreColor(r.relativeScorePct), border: `1px solid ${C.border}` }}>{fmtPct(r.relativeScorePct)}</td>
-                  <td style={{ padding: '10px 12px', ...TEXT.sm, color: C.textPrimary, border: `1px solid ${C.border}` }}>{fmtPct(r.contributionPct)}</td>
-                  <td style={{ padding: '10px 12px', ...TEXT.sm, fontWeight: WEIGHT.semibold, color: r.scoreLostPct != null && r.scoreLostPct < 0 ? C.danger : C.success, border: `1px solid ${C.border}` }}>{fmtPct(r.scoreLostPct)}</td>
-                  <td style={{ padding: '10px 12px', ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, border: `1px solid ${C.border}` }}>{totalDefects(r.severity)}</td>
-                  <td style={{ padding: '10px 12px', ...TEXT.xs, color: C.textMuted, border: `1px solid ${C.border}` }}>
+                  <td className="px-3 py-2.5 text-sm text-primary font-bold border border-border underline">{r.kpiOrder}</td>
+                  <td className="px-3 py-2.5 text-sm font-semibold text-foreground border border-border">{r.kpiName}</td>
+                  <td className="px-3 py-2.5 text-sm text-foreground border border-border">{fmt3(r.actual)}</td>
+                  <td className="px-3 py-2.5 text-sm text-subtle-foreground border border-border">{r.target}</td>
+                  <td className="px-3 py-2.5 text-sm text-subtle-foreground border border-border">{(r.weight * 100).toFixed(2)}%</td>
+                  <td className={`px-3 py-2.5 text-sm font-semibold border border-border ${scoreColorClass(r.relativeScorePct)}`}>{fmtPct(r.relativeScorePct)}</td>
+                  <td className="px-3 py-2.5 text-sm text-foreground border border-border">{fmtPct(r.contributionPct)}</td>
+                  <td className={`px-3 py-2.5 text-sm font-semibold border border-border ${r.scoreLostPct != null && r.scoreLostPct < 0 ? 'text-danger' : 'text-success'}`}>{fmtPct(r.scoreLostPct)}</td>
+                  <td className="px-3 py-2.5 text-sm font-semibold text-foreground border border-border">{totalDefects(r.severity)}</td>
+                  <td className="px-3 py-2.5 text-xs text-subtle-foreground border border-border">
                     {fmtCount(r.severity.showStopper)} / {fmtCount(r.severity.severe)} / {fmtCount(r.severity.medium)} / {fmtCount(r.severity.low)}
                   </td>
                 </tr>
@@ -217,21 +218,21 @@ export const KpiMatrixView: React.FC<Props> = ({ token, role, initialRelease }) 
           </table>
         </div>
       ) : (
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-          <div style={{ display: 'flex', gap: SP[4], alignItems: 'center', paddingBottom: SP[2], borderBottom: `1px solid ${C.border}` }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: SP[1] }}>
-              <span style={{ width: '12px', height: '12px', borderRadius: RADIUS.sm, background: C.success, display: 'inline-block' }} />
-              <span style={{ ...TEXT.xs, color: C.textMuted }}>ציון שהושג</span>
+        <div className="bg-card border border-border rounded-lg p-4 flex flex-col gap-3">
+          <div className="flex gap-4 items-center pb-2 border-b border-border">
+            <div className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded-sm bg-success inline-block" />
+              <span className="text-xs text-subtle-foreground">ציון שהושג</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: SP[1] }}>
-              <span style={{ width: '12px', height: '12px', borderRadius: RADIUS.sm, background: C.danger, display: 'inline-block' }} />
-              <span style={{ ...TEXT.xs, color: C.textMuted }}>סטייה מהיעד (Score Lost)</span>
+            <div className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded-sm bg-danger inline-block" />
+              <span className="text-xs text-subtle-foreground">סטייה מהיעד (Score Lost)</span>
             </div>
           </div>
           {barRows.map(r => (
-            <div key={r.kpiName} onClick={() => setDetailKpi(r.kpiName)} style={{ display: 'flex', alignItems: 'center', gap: SP[3], cursor: 'pointer' }}>
-              <div style={{ minWidth: '220px', flexShrink: 0, ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary }}>{r.kpiName}</div>
-              <div style={{ flex: 1 }}>
+            <div key={r.kpiName} onClick={() => setDetailKpi(r.kpiName)} className="flex items-center gap-3 cursor-pointer">
+              <div className="min-w-[220px] shrink-0 text-sm font-semibold text-foreground">{r.kpiName}</div>
+              <div className="flex-1">
                 <StackedBar relativeScorePct={r.relativeScorePct} />
               </div>
             </div>

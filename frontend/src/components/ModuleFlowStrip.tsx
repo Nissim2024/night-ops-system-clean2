@@ -1,5 +1,5 @@
 import React from 'react';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS, EASE } from '../theme';
+import { C } from '../theme';
 
 // Slim chronological "process flow" strip across the top of the app — shows
 // how the 4 top-level modules relate to each other in the real release
@@ -48,11 +48,7 @@ export const ModuleFlowStrip: React.FC<Props> = (props) => {
   const { activeModule, onModuleChange } = props;
 
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: SP[2],
-      padding: `${SP[2]} ${SP[6]}`, background: C.bgNested, borderBottom: `1px solid ${C.border}`,
-      flexShrink: 0, fontFamily: FONT,
-    }}>
+    <div className="flex flex-shrink-0 items-center justify-center gap-2 border-b border-border bg-muted px-6 py-2 font-sans">
       {NODES.map((node, i) => {
         const permKey = CAN_ACCESS[node.key];
         const accessible = permKey ? props[permKey] : true;
@@ -60,38 +56,33 @@ export const ModuleFlowStrip: React.FC<Props> = (props) => {
         return (
           <React.Fragment key={node.key}>
             {i > 0 && (
-              <div style={{
-                width: '28px', height: 0, borderTop: `2px dashed ${C.border}`,
-                margin: `0 ${SP[1]}`, flexShrink: 0,
-              }} />
+              <div className="mx-1 h-0 w-7 flex-shrink-0 border-t-2 border-dashed border-border" />
             )}
             <button
               onClick={() => accessible && onModuleChange(node.key)}
               disabled={!accessible}
               title={!accessible ? 'אין הרשאה למודול זה' : node.label}
+              className={[
+                'flex items-center gap-2 rounded-full border border-border py-1 ps-2 pe-3 font-sans',
+                'transition-[opacity,border-color,background-color] duration-fast ease-out',
+                accessible ? 'cursor-pointer' : 'cursor-not-allowed',
+                accessible ? 'opacity-100' : 'opacity-45',
+              ].join(' ')}
               style={{
-                display: 'flex', alignItems: 'center', gap: SP[2],
-                padding: `${SP[1]} ${SP[3]} ${SP[1]} ${SP[2]}`,
-                borderRadius: RADIUS.full, border: `1.5px solid ${isActive ? node.color : C.border}`,
-                background: isActive ? `${node.color}14` : C.bgCard,
-                cursor: accessible ? 'pointer' : 'not-allowed',
-                opacity: accessible ? 1 : 0.45,
-                transition: EASE.fast,
-                fontFamily: FONT,
+                borderColor: isActive ? node.color : undefined,
+                background: isActive ? `${node.color}14` : undefined,
               }}
             >
-              <span style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                width: '22px', height: '22px', borderRadius: '50%',
-                background: isActive ? node.color : C.bgNested,
-                fontSize: '12px', flexShrink: 0,
-              }}>
+              <span
+                className="flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-full text-xs"
+                style={{ background: isActive ? node.color : C.bgNested }}
+              >
                 {isActive ? node.icon : i + 1}
               </span>
-              <span style={{
-                ...TEXT.xs, fontWeight: isActive ? WEIGHT.bold : WEIGHT.medium,
-                color: isActive ? node.color : C.textSecondary, whiteSpace: 'nowrap',
-              }}>
+              <span
+                className={`whitespace-nowrap text-xs ${isActive ? 'font-bold' : 'font-medium'}`}
+                style={{ color: isActive ? node.color : C.textSecondary }}
+              >
                 {node.label}
               </span>
             </button>

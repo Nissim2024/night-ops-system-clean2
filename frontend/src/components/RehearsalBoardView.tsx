@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { C, TEXT, WEIGHT, RADIUS, FONT } from '../theme';
+import { C } from '../theme';
 import { Card, SectionHeader, StatusChip, Badge } from './ui';
 import { formatTime, formatDateTime } from '../utils/dateFormat';
 
@@ -58,11 +58,11 @@ export const RehearsalBoardView: React.FC<Props> = ({ token, versionId }) => {
     return () => { cancelled = true; };
   }, [token, versionId]);
 
-  if (loading) return <div style={{ padding: '24px', color: C.textMuted, fontFamily: FONT }}>טוען...</div>;
-  if (error) return <div style={{ padding: '24px', color: C.danger, fontFamily: FONT }}>{error}</div>;
+  if (loading) return <div className="p-6 font-sans text-subtle-foreground">טוען...</div>;
+  if (error) return <div className="p-6 font-sans text-danger">{error}</div>;
   if (snapshot.length === 0) {
     return (
-      <div style={{ padding: '24px', color: C.textMuted, fontFamily: FONT }}>
+      <div className="p-6 font-sans text-subtle-foreground">
         אין נתוני חזרה גנרלית שמורים לגרסה זו.
       </div>
     );
@@ -107,24 +107,24 @@ export const RehearsalBoardView: React.FC<Props> = ({ token, versionId }) => {
   const orderedPhaseGroups = Array.from(grouped.values()).sort((a, b) => a.phaseOrder - b.phaseOrder);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px 28px' }}>
+    <div className="flex flex-col gap-4 px-7 py-5">
       <Card>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
-          <span style={{ fontSize: '22px' }}>🎭</span>
-          <div style={{ ...TEXT.md, fontWeight: WEIGHT.bold, color: C.textPrimary, fontFamily: FONT, flex: 1 }}>לוח חזרה גנרלית — היסטורי (לקריאה בלבד)</div>
-          <button onClick={() => { setCollapsedPhases(new Set()); setCollapsedSubPhases(new Set()); }} style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '15px', fontFamily: FONT }}>▼ פתח הכל</button>
+        <div className="mb-1 flex items-center gap-2.5">
+          <span className="text-[22px]">🎭</span>
+          <div className="flex-1 font-sans text-md font-bold text-foreground">לוח חזרה גנרלית — היסטורי (לקריאה בלבד)</div>
+          <button onClick={() => { setCollapsedPhases(new Set()); setCollapsedSubPhases(new Set()); }} className="cursor-pointer rounded-md border border-border bg-muted px-3.5 py-1.5 font-sans text-[15px] text-muted-foreground">▼ פתח הכל</button>
           <button onClick={() => {
             setCollapsedPhases(new Set(orderedPhaseGroups.map(g => g.phaseName)));
             setCollapsedSubPhases(new Set(orderedPhaseGroups.flatMap(g => Array.from(g.subs.values()).map(s => `${g.phaseName}::${s.subPhaseName}`))));
-          }} style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '15px', fontFamily: FONT }}>► סגור הכל</button>
+          }} className="cursor-pointer rounded-md border border-border bg-muted px-3.5 py-1.5 font-sans text-[15px] text-muted-foreground">► סגור הכל</button>
         </div>
-        <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>
+        <div className="font-sans text-xs text-subtle-foreground">
           תמונת מצב קפואה מרגע סיום החזרה{lastRehearsalAt ? ` (${formatDateTime(lastRehearsalAt)})` : ''}. מציג את מצב המשימות כפי שהיה בחזרה — לא ניתן לערוך.
         </div>
       </Card>
 
       {goNoGoPhase && (
-        <Card style={{ borderRight: `4px solid ${goDecision === 'GO' ? C.success : goDecision === 'NO_GO' ? C.danger : C.border}` }}>
+        <Card style={{ borderInlineStart: `4px solid ${goDecision === 'GO' ? C.success : goDecision === 'NO_GO' ? C.danger : C.border}` }}>
           <SectionHeader
             title={`GO/NO-GO בחזרה — שלב "${goNoGoPhase.name}"`}
             action={goDecision && (
@@ -132,18 +132,18 @@ export const RehearsalBoardView: React.FC<Props> = ({ token, versionId }) => {
             )}
           />
           {waivedTasks.length > 0 && (
-            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div className="mt-2.5 flex flex-col gap-1.5">
               {waivedTasks.map((t: any) => (
-                <div key={t.id} style={{ ...TEXT.xs, color: C.textSecondary, fontFamily: FONT }}>
+                <div key={t.id} className="font-sans text-xs text-muted-foreground">
                   ⚠️ <strong>{t.title}</strong> — עבר בעקיפה (waived) ע"י {t.waivedBy ?? '—'}{t.waivedAt ? ` ב-${fmtTime(t.waivedAt)}` : ''}
                 </div>
               ))}
             </div>
           )}
           {criticalFailed.length > 0 && (
-            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div className="mt-2.5 flex flex-col gap-1.5">
               {criticalFailed.map((t: any) => (
-                <div key={t.id} style={{ ...TEXT.xs, color: C.danger, fontFamily: FONT }}>
+                <div key={t.id} className="font-sans text-xs text-danger">
                   ❌ <strong>{t.title}</strong> — {t.status === 'BLOCKED' ? t.blockedReason : t.failedReason ?? 'לא הושלם'}
                 </div>
               ))}
@@ -156,34 +156,34 @@ export const RehearsalBoardView: React.FC<Props> = ({ token, versionId }) => {
         <Card key={phaseGroup.phaseName} padding={4}>
           <h3
             onClick={() => togglePhase(phaseGroup.phaseName)}
-            style={{ margin: '0 0 10px', color: C.textPrimary, fontSize: '17px', fontWeight: WEIGHT.semibold, fontFamily: FONT, display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' as any }}
+            className="mb-2.5 mt-0 flex cursor-pointer select-none items-center gap-2 font-sans text-[17px] font-semibold text-foreground"
           >
-            <span style={{ fontSize: '15px', color: '#999' }}>{collapsedPhases.has(phaseGroup.phaseName) ? '►' : '▼'}</span>
+            <span className="text-[15px] text-subtle-foreground">{collapsedPhases.has(phaseGroup.phaseName) ? '►' : '▼'}</span>
             <span>{phaseGroup.phaseName}</span>
-            <span style={{ fontSize: '14px', color: C.textMuted, fontWeight: 'normal' }}>({phaseGroup.subs.size} תת-שלבים)</span>
+            <span className="text-sm font-normal text-subtle-foreground">({phaseGroup.subs.size} תת-שלבים)</span>
           </h3>
           {!collapsedPhases.has(phaseGroup.phaseName) && Array.from(phaseGroup.subs.values()).sort((a, b) => a.subOrder - b.subOrder).map(sub => {
             const subKey = `${phaseGroup.phaseName}::${sub.subPhaseName}`;
             return (
-            <div key={sub.subPhaseName} style={{ marginBottom: '14px' }}>
+            <div key={sub.subPhaseName} className="mb-3.5">
               <h4
                 onClick={() => toggleSubPhase(subKey)}
-                style={{ margin: 0, color: C.textPrimary, fontSize: '15px', fontWeight: WEIGHT.semibold, fontFamily: FONT, cursor: 'pointer', userSelect: 'none' as any, display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}
+                className="mb-1.5 mt-0 flex cursor-pointer select-none items-center gap-1.5 font-sans text-[15px] font-semibold text-foreground"
               >
-                <span style={{ fontSize: '13px', color: C.textMuted }}>{collapsedSubPhases.has(subKey) ? '►' : '▼'}</span>
+                <span className="text-xs text-subtle-foreground">{collapsedSubPhases.has(subKey) ? '►' : '▼'}</span>
                 <span>{sub.subPhaseName}</span>
-                <span style={{ fontSize: '13px', color: C.textMuted, fontWeight: 'normal' }}>({sub.tasks.length})</span>
+                <span className="text-xs font-normal text-subtle-foreground">({sub.tasks.length})</span>
               </h4>
               {!collapsedSubPhases.has(subKey) && (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
                   <colgroup>
                     {COLUMN_WIDTHS.map((w, i) => <col key={i} style={{ width: w }} />)}
                   </colgroup>
                   <thead>
-                    <tr style={{ background: C.bgNested }}>
+                    <tr className="bg-muted">
                       {['משימה', 'צוות', 'סטטוס', 'מתוכנן', 'בפועל', 'הערה'].map(h => (
-                        <th key={h} style={{ padding: '6px 10px', textAlign: 'right', ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.semibold, borderBottom: `1px solid ${C.border}`, fontFamily: FONT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h}</th>
+                        <th key={h} className="overflow-hidden text-ellipsis whitespace-nowrap border-b border-border px-2.5 py-1.5 text-end font-sans text-xs font-semibold text-subtle-foreground">{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -191,19 +191,19 @@ export const RehearsalBoardView: React.FC<Props> = ({ token, versionId }) => {
                     {sub.tasks.sort((a: any, b: any) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0)).map((t: any) => {
                       const reason = t.blockedReason ?? t.delayReason ?? t.failedReason;
                       return (
-                        <tr key={t.id} style={{ borderBottom: `1px solid ${C.border}` }}>
-                          <td style={{ padding: '6px 10px', ...TEXT.sm, color: C.textPrimary, fontFamily: FONT, wordBreak: 'break-word' }}>
-                            {t.title}{t.isCriticalForGo && <Badge color={C.brand} bg={`${C.brand}12`} style={{ marginRight: '6px' }}>GO</Badge>}
+                        <tr key={t.id} className="border-b border-border">
+                          <td className="break-words px-2.5 py-1.5 font-sans text-sm text-foreground">
+                            {t.title}{t.isCriticalForGo && <Badge color={C.brand} bg={`${C.brand}12`} style={{ marginInlineStart: '6px' }}>GO</Badge>}
                           </td>
-                          <td style={{ padding: '6px 10px', ...TEXT.sm, color: C.textSecondary, fontFamily: FONT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.assignedTeam?.name ?? '—'}</td>
-                          <td style={{ padding: '6px 10px' }}><StatusChip status={t.status} /></td>
-                          <td style={{ padding: '6px 10px', ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>
+                          <td className="overflow-hidden text-ellipsis whitespace-nowrap px-2.5 py-1.5 font-sans text-sm text-muted-foreground">{t.assignedTeam?.name ?? '—'}</td>
+                          <td className="px-2.5 py-1.5"><StatusChip status={t.status} /></td>
+                          <td className="px-2.5 py-1.5 font-sans text-xs text-subtle-foreground">
                             {fmtTime(t.rehearsalPlannedStart)} – {fmtTime(t.rehearsalPlannedEnd)}
                           </td>
-                          <td style={{ padding: '6px 10px', ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>
+                          <td className="px-2.5 py-1.5 font-sans text-xs text-subtle-foreground">
                             {fmtTime(t.actualStart)} – {fmtTime(t.actualFinish)}
                           </td>
-                          <td style={{ padding: '6px 10px', ...TEXT.xs, color: reason ? C.danger : C.textMuted, fontFamily: FONT }}>{reason ?? '—'}</td>
+                          <td className={`px-2.5 py-1.5 font-sans text-xs ${reason ? 'text-danger' : 'text-subtle-foreground'}`}>{reason ?? '—'}</td>
                         </tr>
                       );
                     })}

@@ -45,6 +45,12 @@ interface Props {
   userId: string;
 }
 
+/* ─── Shared button classNames ───────────────────────────────────────────── */
+const primaryBtnClass = 'rounded-md border-none bg-primary px-4 py-1.5 text-sm font-bold text-primary-foreground cursor-pointer';
+const secondaryBtnClass = 'rounded-md border border-border bg-transparent px-4 py-1.5 text-sm text-muted-foreground cursor-pointer';
+const actionBtnClass = 'rounded-md px-3.5 py-1 text-xs font-bold cursor-pointer';
+const ghostBtnClass = 'rounded-md border border-border bg-transparent px-2.5 py-1 text-sm cursor-pointer';
+
 /* ─── Component ───────────────────────────────────────────────────────────── */
 export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, versionStatus, userRole }) => {
   const headers  = { Authorization: `Bearer ${token}` };
@@ -184,48 +190,49 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
   const StatusPill: React.FC<{ status: string }> = ({ status }) => {
     const m = STATUS_META[status] ?? STATUS_META.DRAFT;
     return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 10px', borderRadius: '12px', background: m.bg, color: m.color, fontWeight: '600', fontSize: '14px', border: `1px solid ${m.color}33` }}>
+      <span className="inline-flex items-center gap-1 rounded-xl px-2.5 py-1 text-sm font-semibold" style={{ background: m.bg, color: m.color, border: `1px solid ${m.color}33` }}>
         {m.icon} {m.label}
       </span>
     );
   };
 
   const txtArea = (field: keyof CrPlan, label: string, rows = 3) => (
-    <div style={{ marginBottom: '10px' }}>
-      <div style={{ fontSize: '14px', fontWeight: '600', color: C.textSecondary, marginBottom: '4px' }}>{label}</div>
+    <div className="mb-2.5">
+      <div className="mb-1 text-sm font-semibold text-muted-foreground">{label}</div>
       <textarea
         rows={rows}
         value={(formData[field] as string) ?? ''}
         onChange={e => setFormData(p => ({ ...p, [field]: e.target.value }))}
-        style={{ width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: '7px', background: C.bgNested, fontSize: '15px', color: C.textPrimary, resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }}
+        className="w-full resize-y rounded-md border border-border bg-muted px-2.5 py-1.5 font-[inherit] text-[15px] text-foreground"
+        style={{ boxSizing: 'border-box' }}
       />
     </div>
   );
 
   /* ── PLAN FORM (team lead fills) ─────────────────────────────────────────── */
   const renderForm = (plan: CrPlan) => (
-    <div style={{ padding: '14px 16px', background: C.bgActive, borderRadius: '8px', border: `1px solid ${C.border}`, marginTop: '8px' }}>
+    <div className="mt-2 rounded-lg border border-border bg-[#E6E7F5] px-4 py-3.5">
       {/* not-needed checkbox */}
-      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', cursor: 'pointer' }}>
+      <label className="mb-3 flex cursor-pointer items-center gap-2">
         <input type="checkbox" checked={!!formData.notNeededForPlan} onChange={e => setFormData(p => ({ ...p, notNeededForPlan: e.target.checked }))} />
-        <span style={{ fontSize: '15px', fontWeight: '600', color: C.textSecondary }}>CR זה לא מצריך תוכנית הטמעה</span>
+        <span className="text-[15px] font-semibold text-muted-foreground">CR זה לא מצריך תוכנית הטמעה</span>
       </label>
 
       {!formData.notNeededForPlan && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+          <div className="mb-2.5 grid grid-cols-2 gap-2.5">
             <div>
-              <div style={{ fontSize: '14px', fontWeight: '600', color: C.textSecondary, marginBottom: '4px' }}>סוג שינוי</div>
+              <div className="mb-1 text-sm font-semibold text-muted-foreground">סוג שינוי</div>
               <select value={formData.crType ?? ''} onChange={e => setFormData(p => ({ ...p, crType: e.target.value }))}
-                style={{ width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: '7px', background: C.bgNested, fontSize: '15px' }}>
+                className="w-full rounded-md border border-border bg-muted px-2.5 py-1.5 text-[15px]">
                 <option value="">-- בחר --</option>
                 <option>תיקון תקלה</option><option>פיתוח</option><option>תשתית</option><option>הסבה</option>
               </select>
             </div>
             <div>
-              <div style={{ fontSize: '14px', fontWeight: '600', color: C.textSecondary, marginBottom: '4px' }}>רמת סיכון</div>
+              <div className="mb-1 text-sm font-semibold text-muted-foreground">רמת סיכון</div>
               <select value={formData.riskLevel ?? ''} onChange={e => setFormData(p => ({ ...p, riskLevel: e.target.value }))}
-                style={{ width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: '7px', background: C.bgNested, fontSize: '15px' }}>
+                className="w-full rounded-md border border-border bg-muted px-2.5 py-1.5 text-[15px]">
                 <option value="">-- בחר --</option>
                 <option value="LOW">נמוך</option><option value="MEDIUM">בינוני</option><option value="HIGH">גבוה</option>
               </select>
@@ -237,19 +244,19 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
           {txtArea('rollbackPlan',      'תוכנית רולבק',              3)}
           {txtArea('nightTestingNotes', 'בדיקות בלילה',              2)}
           {txtArea('morningMonitoring', 'מעקב בוקר',                 2)}
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', cursor: 'pointer' }}>
+          <label className="mb-2.5 flex cursor-pointer items-center gap-2">
             <input type="checkbox" checked={!!formData.gradualRollout} onChange={e => setFormData(p => ({ ...p, gradualRollout: e.target.checked }))} />
-            <span style={{ fontSize: '15px', color: C.textSecondary }}>פריסה הדרגתית</span>
+            <span className="text-[15px] text-muted-foreground">פריסה הדרגתית</span>
           </label>
           {formData.gradualRollout && txtArea('gradualDetails', 'פרטי פריסה הדרגתית', 2)}
         </>
       )}
 
-      {saveError && <div style={{ color: '#f85149', fontSize: '14px', marginBottom: '8px' }}>{saveError}</div>}
+      {saveError && <div className="mb-2 text-sm text-[#f85149]">{saveError}</div>}
 
-      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-        <button onClick={() => setEditingId(null)} style={secondaryBtn}>ביטול</button>
-        <button onClick={() => savePlan(plan.id)} disabled={saving} style={primaryBtn}>
+      <div className="flex justify-end gap-2">
+        <button onClick={() => setEditingId(null)} className={secondaryBtnClass}>ביטול</button>
+        <button onClick={() => savePlan(plan.id)} disabled={saving} className={primaryBtnClass}>
           {saving ? 'שומר...' : '💾 שמור'}
         </button>
       </div>
@@ -265,46 +272,46 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
     const isEditing = editingId === plan.id;
 
     return (
-      <div key={plan.id} style={{ borderRadius: '10px', border: `1px solid ${C.border}`, background: C.bgCard, marginBottom: '10px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+      <div key={plan.id} className="mb-2.5 overflow-hidden rounded-lg border border-border bg-card shadow-xs">
         {/* Header */}
-        <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px', background: C.bgNested, borderBottom: `1px solid ${C.border}` }}>
-          <span style={{ fontWeight: '800', fontSize: '16px', color: C.textPrimary }}>{plan.crNumber}</span>
-          {plan.crLabel && <span style={{ fontSize: '15px', color: C.textMuted, flex: 1 }}>{plan.crLabel}</span>}
-          {risk && <span style={{ padding: '2px 9px', borderRadius: '10px', background: risk.bg, color: risk.color, fontSize: '13px', fontWeight: '700', border: `1px solid ${risk.color}33` }}>{risk.label}</span>}
+        <div className="flex items-center gap-3 border-b border-border bg-muted px-4 py-3">
+          <span className="text-base font-extrabold text-foreground">{plan.crNumber}</span>
+          {plan.crLabel && <span className="flex-1 text-[15px] text-subtle-foreground">{plan.crLabel}</span>}
+          {risk && <span className="rounded-xl px-2.5 py-0.5 text-[13px] font-bold" style={{ background: risk.bg, color: risk.color, border: `1px solid ${risk.color}33` }}>{risk.label}</span>}
           <StatusPill status={plan.submissionStatus} />
         </div>
 
         {/* Return reason banner */}
         {plan.submissionStatus === 'RETURNED' && plan.returnReason && (
-          <div style={{ padding: '8px 16px', background: 'rgba(210,153,34,0.08)', borderBottom: `1px solid rgba(210,153,34,0.25)`, display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: '15px', marginTop: '1px' }}>↩️</span>
+          <div className="flex items-start gap-2 border-b px-4 py-2" style={{ background: 'rgba(210,153,34,0.08)', borderBottomColor: 'rgba(210,153,34,0.25)' }}>
+            <span className="mt-0.5 text-[15px]">↩️</span>
             <div>
-              <div style={{ fontSize: '14px', fontWeight: '700', color: '#d29922', marginBottom: '2px' }}>הוחזר לתיקון</div>
-              <div style={{ fontSize: '15px', color: C.textSecondary }}>{plan.returnReason}</div>
+              <div className="mb-0.5 text-sm font-bold text-[#d29922]">הוחזר לתיקון</div>
+              <div className="text-[15px] text-muted-foreground">{plan.returnReason}</div>
             </div>
           </div>
         )}
 
         {/* Review note from manager */}
         {plan.reviewNote && (
-          <div style={{ padding: '6px 16px', background: 'rgba(41,128,185,0.06)', borderBottom: `1px solid rgba(41,128,185,0.15)`, fontSize: '14px', color: '#2980b9' }}>
+          <div className="border-b px-4 py-1.5 text-sm text-[#2980b9]" style={{ background: 'rgba(41,128,185,0.06)', borderBottomColor: 'rgba(41,128,185,0.15)' }}>
             💬 הערת מנהל: {plan.reviewNote}
           </div>
         )}
 
         {/* Content preview or editing form */}
         {isEditing ? renderForm(plan) : (
-          <div style={{ padding: '12px 16px' }}>
+          <div className="px-4 py-3">
             {plan.notNeededForPlan ? (
-              <div style={{ fontSize: '15px', color: C.textMuted, fontStyle: 'italic' }}>CR זה מסומן כ"לא מצריך תוכנית הטמעה"</div>
+              <div className="text-[15px] italic text-subtle-foreground">CR זה מסומן כ"לא מצריך תוכנית הטמעה"</div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div className="grid grid-cols-2 gap-2.5">
                 {plan.workPlan   && <Field label="תוכנית עבודה"  value={plan.workPlan} />}
                 {plan.scripts    && <Field label="סקריפטים"       value={plan.scripts} />}
                 {plan.runTimes   && <Field label="זמני הרצה"       value={plan.runTimes} />}
                 {plan.rollbackPlan && <Field label="רולבק"         value={plan.rollbackPlan} />}
                 {!plan.workPlan && !plan.scripts && (
-                  <div style={{ gridColumn: '1/-1', fontSize: '15px', color: C.textMuted, fontStyle: 'italic' }}>
+                  <div className="col-span-full text-[15px] italic text-subtle-foreground">
                     {isClosed ? 'לא הוגשה תוכנית הטמעה לפריט זה' : 'לא הוזן תוכן עדיין — לחץ "ערוך תוכנית" להתחלה'}
                   </div>
                 )}
@@ -312,21 +319,21 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
             )}
 
             {plan.submittedAt && (
-              <div style={{ marginTop: '8px', fontSize: '13px', color: C.textMuted }}>
+              <div className="mt-2 text-[13px] text-subtle-foreground">
                 {sm.icon} הוגש ב-{formatDateTime(plan.submittedAt)}
                 {plan.submittedByName && ` ע"י ${plan.submittedByName}`}
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: '8px', marginTop: '12px', justifyContent: 'flex-end' }}>
-              {canEdit && <button onClick={() => startEdit(plan)} style={secondaryBtn}>✏️ ערוך תוכנית</button>}
+            <div className="mt-3 flex justify-end gap-2">
+              {canEdit && <button onClick={() => startEdit(plan)} className={secondaryBtnClass}>✏️ ערוך תוכנית</button>}
               {canSubmit && (
-                <button onClick={() => submitPlan(plan.id)} style={primaryBtn}>
+                <button onClick={() => submitPlan(plan.id)} className={primaryBtnClass}>
                   📤 הגש לסקירה
                 </button>
               )}
               {plan.submissionStatus === 'APPROVED' && (
-                <span style={{ fontSize: '14px', color: '#3fb950', fontWeight: '700' }}>✅ אושר על ידי {plan.approvedByName ?? 'מנהל'}</span>
+                <span className="text-sm font-bold text-[#3fb950]">✅ אושר על ידי {plan.approvedByName ?? 'מנהל'}</span>
               )}
             </div>
           </div>
@@ -341,32 +348,32 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
     const canReturn  = !isClosed && plan.submissionStatus === 'SUBMITTED';
 
     return (
-      <div key={plan.id} style={{ padding: '10px 14px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-            <span style={{ fontWeight: '700', fontSize: '15px', color: C.textPrimary }}>{plan.team.name}</span>
+      <div key={plan.id} className="flex items-start gap-3 border-b border-border px-3.5 py-2.5">
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 flex items-center gap-2">
+            <span className="text-[15px] font-bold text-foreground">{plan.team.name}</span>
             <StatusPill status={plan.submissionStatus} />
-            {plan.notNeededForPlan && <span style={{ fontSize: '13px', color: C.textMuted, background: C.bgNested, padding: '1px 8px', borderRadius: '8px', border: `1px solid ${C.border}` }}>לא מצריך תוכנית</span>}
+            {plan.notNeededForPlan && <span className="rounded-lg border border-border bg-muted px-2 py-px text-[13px] text-subtle-foreground">לא מצריך תוכנית</span>}
           </div>
           {plan.returnReason && plan.submissionStatus === 'RETURNED' && (
-            <div style={{ fontSize: '14px', color: '#d29922' }}>↩️ {plan.returnReason}</div>
+            <div className="text-sm text-[#d29922]">↩️ {plan.returnReason}</div>
           )}
           {plan.submissionStatus === 'APPROVED' && (
-            <div style={{ fontSize: '13px', color: '#3fb950' }}>✅ אושר ע"י {plan.approvedByName ?? 'מנהל'}</div>
+            <div className="text-[13px] text-[#3fb950]">✅ אושר ע"י {plan.approvedByName ?? 'מנהל'}</div>
           )}
           {plan.submissionStatus === 'SUBMITTED' && (
-            <div style={{ fontSize: '13px', color: C.textMuted }}>
+            <div className="text-[13px] text-subtle-foreground">
               📤 הוגש {plan.submittedAt ? formatDateTime(plan.submittedAt) : ''}{plan.submittedByName ? ` ע"י ${plan.submittedByName}` : ''}
             </div>
           )}
-          {plan.reviewNote && <div style={{ fontSize: '13px', color: '#2980b9', marginTop: '2px' }}>💬 {plan.reviewNote}</div>}
+          {plan.reviewNote && <div className="mt-0.5 text-[13px] text-[#2980b9]">💬 {plan.reviewNote}</div>}
         </div>
 
         {!isClosed && (
-          <div style={{ display: 'flex', gap: '6px', flexShrink: 0, alignItems: 'center' }}>
-            <button onClick={() => { setNoteId(plan.id); setNoteText(plan.reviewNote ?? ''); }} style={ghostBtn} title="הוסף/ערוך הערה">💬</button>
-            {canReturn  && <button onClick={() => { setReturningId(plan.id); setReturnReason(''); }} style={{ ...actionBtn, background: 'rgba(210,153,34,0.12)', color: '#d29922', border: '1px solid rgba(210,153,34,0.35)' }}>↩️ החזר</button>}
-            {canApprove && <button onClick={() => approvePlan(plan.id)} style={{ ...actionBtn, background: 'rgba(63,185,80,0.12)', color: '#16a34a', border: '1px solid rgba(63,185,80,0.35)' }}>✅ אשר</button>}
+          <div className="flex flex-shrink-0 items-center gap-1.5">
+            <button onClick={() => { setNoteId(plan.id); setNoteText(plan.reviewNote ?? ''); }} className={ghostBtnClass} title="הוסף/ערוך הערה">💬</button>
+            {canReturn  && <button onClick={() => { setReturningId(plan.id); setReturnReason(''); }} className={actionBtnClass} style={{ background: 'rgba(210,153,34,0.12)', color: '#d29922', border: '1px solid rgba(210,153,34,0.35)' }}>↩️ החזר</button>}
+            {canApprove && <button onClick={() => approvePlan(plan.id)} className={actionBtnClass} style={{ background: 'rgba(63,185,80,0.12)', color: '#16a34a', border: '1px solid rgba(63,185,80,0.35)' }}>✅ אשר</button>}
           </div>
         )}
       </div>
@@ -376,15 +383,15 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
   /* ── FIELD helper ────────────────────────────────────────────────────────── */
   const Field: React.FC<{ label: string; value: string }> = ({ label, value }) => (
     <div>
-      <div style={{ fontSize: '13px', fontWeight: '700', color: C.textMuted, marginBottom: '2px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
-      <div style={{ fontSize: '15px', color: C.textSecondary, whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>{value}</div>
+      <div className="mb-0.5 text-[13px] font-bold uppercase tracking-wide text-subtle-foreground">{label}</div>
+      <div className="whitespace-pre-wrap text-[15px] leading-normal text-muted-foreground">{value}</div>
     </div>
   );
 
   /* ── RENDER ─────────────────────────────────────────────────────────────── */
 
   if (loading) return (
-    <div style={{ padding: '40px', textAlign: 'center', color: C.textMuted, fontSize: '15px' }}>⏳ טוען תוכניות הטמעה...</div>
+    <div className="p-10 text-center text-[15px] text-subtle-foreground">⏳ טוען תוכניות הטמעה...</div>
   );
 
   const noData = plans.length === 0 && assignments.length === 0;
@@ -395,10 +402,10 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
   if (isLead) {
     if (teamExempt) {
       return (
-        <div style={{ direction: 'rtl', padding: '40px 0', textAlign: 'center' }}>
-          <div style={{ fontSize: '32px', marginBottom: '12px' }}>🚫</div>
-          <div style={{ fontSize: '17px', fontWeight: '700', color: C.textSecondary, marginBottom: '6px' }}>הצוות שלך פטור מהגשת תוכניות הטמעה</div>
-          <div style={{ fontSize: '15px', color: C.textMuted }}>הוגדר על ידי מנהל המערכת כצוות שאינו נדרש להגיש תוכניות CR</div>
+        <div dir="rtl" className="py-10 text-center">
+          <div className="mb-3 text-3xl">🚫</div>
+          <div className="mb-1.5 text-[17px] font-bold text-muted-foreground">הצוות שלך פטור מהגשת תוכניות הטמעה</div>
+          <div className="text-[15px] text-subtle-foreground">הוגדר על ידי מנהל המערכת כצוות שאינו נדרש להגיש תוכניות CR</div>
         </div>
       );
     }
@@ -413,11 +420,11 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
     const allSubmitted   = myPlans.length > 0 && submittedCount === myPlans.length;
 
     return (
-      <div style={{ direction: 'rtl', padding: '0' }}>
+      <div dir="rtl">
         {/* Closed banner */}
         {isClosed && (
-          <div style={{ padding: '8px 14px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: '8px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', color: C.textMuted }}>
-            🔒 <strong style={{ color: C.textSecondary }}>גרסה סגורה — צפייה בלבד</strong>
+          <div className="mb-3 flex items-center gap-2 rounded-lg border border-border bg-muted px-3.5 py-2 text-[15px] text-subtle-foreground">
+            🔒 <strong className="text-muted-foreground">גרסה סגורה — צפייה בלבד</strong>
           </div>
         )}
 
@@ -425,13 +432,14 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
         {!isClosed && submissionDeadline && (() => {
           const isPast = new Date(submissionDeadline) < new Date();
           return (
-            <div style={{
-              padding: '8px 14px', borderRadius: '8px', marginBottom: '12px',
-              display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px',
-              background: isPast ? 'rgba(248,81,73,0.10)' : 'rgba(210,153,34,0.10)',
-              border: `1px solid ${isPast ? 'rgba(248,81,73,0.30)' : 'rgba(210,153,34,0.30)'}`,
-              color: isPast ? '#f85149' : '#d29922',
-            }}>
+            <div
+              className="mb-3 flex items-center gap-2 rounded-lg px-3.5 py-2 text-[15px]"
+              style={{
+                background: isPast ? 'rgba(248,81,73,0.10)' : 'rgba(210,153,34,0.10)',
+                border: `1px solid ${isPast ? 'rgba(248,81,73,0.30)' : 'rgba(210,153,34,0.30)'}`,
+                color: isPast ? '#f85149' : '#d29922',
+              }}
+            >
               ⏰ <strong>מועד הגשה: {formatDateTime(submissionDeadline)}</strong>
               {isPast && <span>— ⚠ המועד עבר</span>}
             </div>
@@ -440,24 +448,24 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
 
         {/* Progress bar */}
         {!isClosed && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 0 14px' }}>
-            <div style={{ flex: 1, height: '6px', background: C.border, borderRadius: '3px', overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: '3px', background: allSubmitted ? '#3fb950' : '#4573D2', width: myPlans.length ? `${Math.round(submittedCount / myPlans.length * 100)}%` : '0%', transition: 'width 0.4s' }} />
+          <div className="flex items-center gap-3 py-2.5 pb-3.5">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-sm" style={{ background: C.border }}>
+              <div className="h-full rounded-sm transition-[width] duration-300" style={{ background: allSubmitted ? '#3fb950' : '#4573D2', width: myPlans.length ? `${Math.round(submittedCount / myPlans.length * 100)}%` : '0%' }} />
             </div>
-            <span style={{ fontSize: '14px', fontWeight: '700', color: allSubmitted ? '#3fb950' : C.textMuted, whiteSpace: 'nowrap' }}>
+            <span className="whitespace-nowrap text-sm font-bold" style={{ color: allSubmitted ? '#3fb950' : C.textMuted }}>
               {submittedCount}/{myPlans.length} הוגשו
             </span>
           </div>
         )}
 
         {actionErr && (
-          <div style={{ padding: '8px 14px', background: 'rgba(248,81,73,0.10)', border: `1px solid rgba(248,81,73,0.3)`, borderRadius: '8px', color: '#f85149', fontSize: '15px', marginBottom: '12px' }}>
+          <div className="mb-3 rounded-lg px-3.5 py-2 text-[15px] text-[#f85149]" style={{ background: 'rgba(248,81,73,0.10)', border: '1px solid rgba(248,81,73,0.3)' }}>
             {actionErr}
           </div>
         )}
 
         {noData && (
-          <div style={{ padding: '30px', textAlign: 'center', color: C.textMuted, fontSize: '15px' }}>
+          <div className="p-8 text-center text-[15px] text-subtle-foreground">
             {isClosed ? 'לא הוגשו תוכניות הטמעה לצוות זה בגרסה.' : 'אין CR-ים משויכים לצוות שלך בגרסה זו.'}
           </div>
         )}
@@ -468,12 +476,12 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
           if (!plan) {
             // assigned but no plan written yet — show placeholder
             return (
-              <div key={crNumber} style={{ borderRadius: '10px', border: `1px solid ${C.border}`, background: C.bgCard, marginBottom: '10px', padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontWeight: '800', fontSize: '16px', color: C.textPrimary }}>{crNumber}</span>
-                  {assign?.crLabel && <span style={{ fontSize: '15px', color: C.textMuted }}>{assign.crLabel}</span>}
+              <div key={crNumber} className="mb-2.5 rounded-lg border border-border bg-card px-4 py-3.5 shadow-xs">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base font-extrabold text-foreground">{crNumber}</span>
+                  {assign?.crLabel && <span className="text-[15px] text-subtle-foreground">{assign.crLabel}</span>}
                   <StatusPill status="DRAFT" />
-                  <span style={{ marginRight: 'auto', fontSize: '14px', color: C.textMuted }}>תוכנית לא נוצרה עדיין</span>
+                  <span className="ms-auto text-sm text-subtle-foreground">תוכנית לא נוצרה עדיין</span>
                 </div>
               </div>
             );
@@ -491,9 +499,9 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
   ])).sort();
 
   const statCard = (label: string, value: number, color: string, bg: string) => (
-    <div style={{ padding: '14px 18px', borderRadius: '10px', background: bg, border: `1px solid ${color}33`, textAlign: 'center', flex: '1 1 100px' }}>
-      <div style={{ fontSize: '28px', fontWeight: '900', color, lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: '14px', color, fontWeight: '600', marginTop: '4px' }}>{label}</div>
+    <div className="flex-[1_1_100px] rounded-lg px-4 py-3.5 text-center" style={{ background: bg, border: `1px solid ${color}33` }}>
+      <div className="text-[28px] font-black leading-none" style={{ color }}>{value}</div>
+      <div className="mt-1 text-sm font-semibold" style={{ color }}>{label}</div>
     </div>
   );
 
@@ -516,18 +524,18 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
   })();
 
   return (
-    <div style={{ direction: 'rtl' }}>
+    <div dir="rtl">
       {/* ── Closed banner ── */}
       {isClosed && (
-        <div style={{ padding: '8px 14px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: '8px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', color: C.textMuted }}>
-          🔒 <strong style={{ color: C.textSecondary }}>גרסה סגורה — צפייה בלבד</strong>
+        <div className="mb-3.5 flex items-center gap-2 rounded-lg border border-border bg-muted px-3.5 py-2 text-[15px] text-subtle-foreground">
+          🔒 <strong className="text-muted-foreground">גרסה סגורה — צפייה בלבד</strong>
         </div>
       )}
 
       {/* ── Dashboard stats ── */}
       {stats && (
-        <div style={{ marginBottom: '18px' }}>
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
+        <div className="mb-5">
+          <div className="mb-2.5 flex flex-wrap gap-2.5">
             {statCard('סה"כ CR', stats.total, '#4573D2', 'rgba(69,115,210,0.08)')}
             {statCard('טיוטה', stats.draft, '#7F7F7F', '#F5F5F5')}
             {statCard('הוגש', stats.submitted, '#2980b9', 'rgba(41,128,185,0.08)')}
@@ -535,30 +543,30 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
             {statCard('אושר', stats.approved, '#3fb950', 'rgba(63,185,80,0.08)')}
           </div>
           {/* progress bar */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ flex: 1, height: '7px', background: C.border, borderRadius: '4px', overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: '4px', background: pct === 100 ? '#3fb950' : '#4573D2', width: `${pct}%`, transition: 'width 0.4s' }} />
+          <div className="flex items-center gap-2.5">
+            <div className="h-[7px] flex-1 overflow-hidden rounded" style={{ background: C.border }}>
+              <div className="h-full rounded transition-[width] duration-300" style={{ background: pct === 100 ? '#3fb950' : '#4573D2', width: `${pct}%` }} />
             </div>
-            <span style={{ fontSize: '15px', fontWeight: '700', color: pct === 100 ? '#3fb950' : C.textMuted, whiteSpace: 'nowrap' }}>{pct}% אושרו</span>
+            <span className="whitespace-nowrap text-[15px] font-bold" style={{ color: pct === 100 ? '#3fb950' : C.textMuted }}>{pct}% אושרו</span>
           </div>
         </div>
       )}
 
       {/* ── CR Manager pending approval indicator ── */}
       {pendingCrManagerCrs.length > 0 && (
-        <div style={{ padding: '10px 14px', background: C.warningBg, border: `1px solid ${C.warning}44`, borderRadius: '8px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', color: C.warning, fontWeight: '600' }}>
+        <div className="mb-3.5 flex items-center gap-2 rounded-lg bg-warning/10 px-3.5 py-2.5 text-[15px] font-semibold text-warning" style={{ border: `1px solid ${C.warning}44` }}>
           ⏳ {pendingCrManagerCrs.length} CR ממתינים לאישור מנהל CR לפני מעבר לסקירה: {pendingCrManagerCrs.join(', ')}
         </div>
       )}
 
       {actionErr && (
-        <div style={{ padding: '8px 14px', background: 'rgba(248,81,73,0.10)', border: `1px solid rgba(248,81,73,0.3)`, borderRadius: '8px', color: '#f85149', fontSize: '15px', marginBottom: '12px' }}>
+        <div className="mb-3 rounded-lg px-3.5 py-2 text-[15px] text-[#f85149]" style={{ background: 'rgba(248,81,73,0.10)', border: '1px solid rgba(248,81,73,0.3)' }}>
           {actionErr}
         </div>
       )}
 
       {noData && (
-        <div style={{ padding: '30px', textAlign: 'center', color: C.textMuted, fontSize: '15px' }}>
+        <div className="p-8 text-center text-[15px] text-subtle-foreground">
           {isClosed ? 'לא הוגשו תוכניות הטמעה בגרסה זו.' : 'אין CR-ים בגרסה זו — יש לסנכרן מקובץ ה-CR.'}
         </div>
       )}
@@ -573,23 +581,23 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
         const headerColor = allApproved ? '#3fb950' : anyPending ? '#2980b9' : C.textMuted;
 
         return (
-          <div key={crNumber} style={{ borderRadius: '10px', border: `1px solid ${C.border}`, background: C.bgCard, marginBottom: '10px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+          <div key={crNumber} className="mb-2.5 overflow-hidden rounded-lg border border-border bg-card shadow-xs">
             <div
               onClick={() => setExpanded(prev => { const n = new Set(prev); n.has(crNumber) ? n.delete(crNumber) : n.add(crNumber); return n; })}
-              style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', background: C.bgNested, userSelect: 'none' }}
+              className="flex cursor-pointer select-none items-center gap-3 bg-muted px-4 py-3"
             >
-              <span style={{ fontWeight: '800', fontSize: '16px', color: C.textPrimary }}>{crNumber}</span>
-              {assign?.crLabel && <span style={{ fontSize: '15px', color: C.textMuted, flex: 1 }}>{assign.crLabel}</span>}
-              <span style={{ fontSize: '14px', color: headerColor, fontWeight: '700', marginRight: 'auto' }}>
+              <span className="text-base font-extrabold text-foreground">{crNumber}</span>
+              {assign?.crLabel && <span className="flex-1 text-[15px] text-subtle-foreground">{assign.crLabel}</span>}
+              <span className="ms-auto text-sm font-bold" style={{ color: headerColor }}>
                 {allApproved ? '✅ כל התוכניות אושרו' : anyPending ? `📤 ${crPlans.filter(p => p.submissionStatus === 'SUBMITTED').length} ממתין לסקירה` : `${crPlans.length} צוותים`}
               </span>
-              <span style={{ color: C.textMuted, fontSize: '15px' }}>{isOpen ? '▲' : '▼'}</span>
+              <span className="text-[15px] text-subtle-foreground">{isOpen ? '▲' : '▼'}</span>
             </div>
 
             {isOpen && (
               <div>
                 {crPlans.length === 0 ? (
-                  <div style={{ padding: '14px 16px', color: C.textMuted, fontSize: '15px', fontStyle: 'italic' }}>
+                  <div className="px-4 py-3.5 text-[15px] italic text-subtle-foreground">
                     לא הוגשה תוכנית הטמעה לאף צוות עדיין.
                   </div>
                 ) : (
@@ -603,21 +611,27 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
 
       {/* ── Return dialog ── */}
       {returningId && (
-        <div style={{ position: 'fixed', inset: 0, background: C.bgOverlay, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
-          <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px 28px', width: '420px', maxWidth: '90vw', boxShadow: '0 8px 32px rgba(0,0,0,0.25)', direction: 'rtl' }}>
-            <div style={{ fontWeight: '800', fontSize: '17px', marginBottom: '12px', color: C.textPrimary }}>↩️ החזרת תוכנית לתיקון</div>
-            <div style={{ fontSize: '15px', color: C.textMuted, marginBottom: '10px' }}>נא לציין את הסיבה להחזרה (תוצג לראש הצוות):</div>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[rgba(20,21,42,0.45)]">
+          <div dir="rtl" className="w-[420px] max-w-[90vw] rounded-xl bg-card px-7 py-6 shadow-lg">
+            <div className="mb-3 text-[17px] font-extrabold text-foreground">↩️ החזרת תוכנית לתיקון</div>
+            <div className="mb-2.5 text-[15px] text-subtle-foreground">נא לציין את הסיבה להחזרה (תוצג לראש הצוות):</div>
             <textarea
               value={returnReason}
               onChange={e => setReturnReason(e.target.value)}
               rows={3}
               placeholder="הסיבה להחזרה..."
               autoFocus
-              style={{ width: '100%', padding: '8px 12px', border: `1px solid ${C.border}`, borderRadius: '8px', background: C.bgNested, fontSize: '15px', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: '14px' }}
+              className="mb-3.5 w-full resize-y rounded-lg border border-border bg-muted px-3 py-2 font-[inherit] text-[15px]"
+              style={{ boxSizing: 'border-box' }}
             />
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setReturningId(null)} style={secondaryBtn}>ביטול</button>
-              <button onClick={confirmReturn} disabled={returning || !returnReason.trim()} style={{ ...actionBtn, background: 'rgba(210,153,34,0.15)', color: '#b7791f', border: '1px solid rgba(210,153,34,0.4)', opacity: returnReason.trim() ? 1 : 0.5 }}>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setReturningId(null)} className={secondaryBtnClass}>ביטול</button>
+              <button
+                onClick={confirmReturn}
+                disabled={returning || !returnReason.trim()}
+                className={actionBtnClass}
+                style={{ background: 'rgba(210,153,34,0.15)', color: '#b7791f', border: '1px solid rgba(210,153,34,0.4)', opacity: returnReason.trim() ? 1 : 0.5 }}
+              >
                 {returning ? 'שולח...' : '↩️ החזר לתיקון'}
               </button>
             </div>
@@ -627,41 +641,25 @@ export const ImplementationPlansView: React.FC<Props> = ({ token, versionId, ver
 
       {/* ── Note dialog ── */}
       {noteId && (
-        <div style={{ position: 'fixed', inset: 0, background: C.bgOverlay, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
-          <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px 28px', width: '400px', maxWidth: '90vw', boxShadow: '0 8px 32px rgba(0,0,0,0.25)', direction: 'rtl' }}>
-            <div style={{ fontWeight: '800', fontSize: '17px', marginBottom: '12px', color: C.textPrimary }}>💬 הערת סקירה</div>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[rgba(20,21,42,0.45)]">
+          <div dir="rtl" className="w-[400px] max-w-[90vw] rounded-xl bg-card px-7 py-6 shadow-lg">
+            <div className="mb-3 text-[17px] font-extrabold text-foreground">💬 הערת סקירה</div>
             <textarea
               value={noteText}
               onChange={e => setNoteText(e.target.value)}
               rows={3}
               placeholder="הערה לראש הצוות (אופציונלי)..."
               autoFocus
-              style={{ width: '100%', padding: '8px 12px', border: `1px solid ${C.border}`, borderRadius: '8px', background: C.bgNested, fontSize: '15px', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: '14px' }}
+              className="mb-3.5 w-full resize-y rounded-lg border border-border bg-muted px-3 py-2 font-[inherit] text-[15px]"
+              style={{ boxSizing: 'border-box' }}
             />
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-              <button onClick={() => { setNoteId(null); setNoteText(''); }} style={secondaryBtn}>ביטול</button>
-              <button onClick={saveNote} disabled={savingNote} style={primaryBtn}>{savingNote ? 'שומר...' : '💾 שמור הערה'}</button>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => { setNoteId(null); setNoteText(''); }} className={secondaryBtnClass}>ביטול</button>
+              <button onClick={saveNote} disabled={savingNote} className={primaryBtnClass}>{savingNote ? 'שומר...' : '💾 שמור הערה'}</button>
             </div>
           </div>
         </div>
       )}
     </div>
   );
-};
-
-/* ── Shared button styles ─────────────────────────────────────────────────── */
-const primaryBtn: React.CSSProperties = {
-  padding: '7px 16px', background: C.brand, color: '#fff', border: 'none',
-  borderRadius: '7px', cursor: 'pointer', fontSize: '15px', fontWeight: '700',
-};
-const secondaryBtn: React.CSSProperties = {
-  padding: '7px 16px', background: 'transparent', color: C.textSecondary,
-  border: `1px solid ${C.border}`, borderRadius: '7px', cursor: 'pointer', fontSize: '15px',
-};
-const actionBtn: React.CSSProperties = {
-  padding: '5px 14px', borderRadius: '7px', cursor: 'pointer', fontSize: '14px', fontWeight: '700',
-};
-const ghostBtn: React.CSSProperties = {
-  padding: '5px 10px', background: 'transparent', border: `1px solid ${C.border}`,
-  borderRadius: '7px', cursor: 'pointer', fontSize: '15px',
 };

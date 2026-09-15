@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
+import { C, JIRA } from '../../theme';
 import { useReleaseCount } from './releaseCountSetting';
-import { DefectIdBadge } from '../shared/defectFieldDisplay';
+import { IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, PersonAvatar, NameBadge, hasHebrew, SelectColumnsDialog } from '../shared/defectFieldDisplay';
 import { BackLink } from '../ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -37,6 +37,106 @@ interface ProblemNote {
 }
 type ProblemDraft = { problemCharacteristics: string; defectCount: string };
 const EMPTY_PROBLEM_DRAFT: ProblemDraft = { problemCharacteristics: '', defectCount: '' };
+
+// Defect column catalog — same DefectDto shape /qc/defects-by-kpi returns
+// everywhere else in the app (DefectDrilldownModal's ALL_COLUMNS, which this
+// mirrors field-for-field — extended 2026-09-14 alongside it so no screen is
+// left with the older, narrower/Hebrew-labeled catalog). Column picker (same
+// shared dialog as every other defect table — feedback 2026-09-10) replaces
+// this screen's old fixed 6-column list.
+type DefectColumnKey =
+  | 'id' | 'title' | 'subject' | 'severity' | 'status' | 'assignedTo' | 'qaTester' | 'discoveryDate' | 'priority'
+  | 'reporter' | 'environment' | 'testPhase' | 'defectType' | 'system' | 'responsibility' | 'crHbrNumberReference'
+  | 'crReferenceNumber' | 'fixType' | 'reason' | 'reopenYn' | 'targetRelease' | 'estimatedFixTime' | 'actualFixTime'
+  | 'closedBy' | 'deploymentReason' | 'fixedUntil' | 'vendorStatus' | 'responseDate' | 'supportReferenceNumber'
+  | 'subModule' | 'fixedInProd' | 'mainModule' | 'supportStatus' | 'vendorAssignTo' | 'category' | 'itemType'
+  | 'estimateFixTime' | 'platform' | 'modified' | 'detectedInRelease' | 'detectedInCycle' | 'targetCycle'
+  | 'crStatus' | 'dropNumber' | 'influence' | 'secondaryPriority' | 'releaseDefect' | 'businessProcess'
+  | 'foundByAutomation' | 'mainBusinessProcess' | 'impact' | 'productionReason' | 'environmentComponent'
+  | 'willBeTestAtGoLive' | 'deploymentCategory' | 'defectResponsible' | 'targetReleaseReason' | 'targetType'
+  | 'systemComponent' | 'forRegressionTest' | 'escDefectResponsible' | 'toBeTestedOnProd' | 'deploymentDateProd'
+  | 'targetScopeApproved';
+const DEFECT_COLUMNS: { key: DefectColumnKey; label: string }[] = [
+  { key: 'id', label: 'Defect ID' },
+  { key: 'title', label: 'Title' },
+  { key: 'subject', label: 'Subject' },
+  { key: 'severity', label: 'Severity' },
+  { key: 'status', label: 'Bug Status' },
+  { key: 'assignedTo', label: 'Assigned To' },
+  { key: 'qaTester', label: 'QA' },
+  { key: 'discoveryDate', label: 'Detected on Date' },
+  { key: 'priority', label: 'Priority' },
+  { key: 'reporter', label: 'Detected By' },
+  { key: 'environment', label: 'Environment' },
+  { key: 'testPhase', label: 'Test Phase' },
+  { key: 'defectType', label: 'Bug Type' },
+  { key: 'system', label: 'Project' },
+  { key: 'responsibility', label: 'Responsibility' },
+  { key: 'crHbrNumberReference', label: 'CR/HBR Number reference' },
+  { key: 'crReferenceNumber', label: 'CR Reference Number' },
+  { key: 'fixType', label: 'Fix Type' },
+  { key: 'reason', label: 'Reason' },
+  { key: 'reopenYn', label: 'Reopen Y/N' },
+  { key: 'targetRelease', label: 'Target Release' },
+  { key: 'estimatedFixTime', label: 'Estimated Fix Time' },
+  { key: 'actualFixTime', label: 'Fix Time' },
+  { key: 'closedBy', label: 'Closed By' },
+  { key: 'deploymentReason', label: 'Deployment Reason' },
+  { key: 'fixedUntil', label: 'Fixed Until' },
+  { key: 'vendorStatus', label: 'Vendor Status' },
+  { key: 'responseDate', label: 'Response Date' },
+  { key: 'supportReferenceNumber', label: 'Support Reference Number' },
+  { key: 'subModule', label: 'Sub Module' },
+  { key: 'fixedInProd', label: 'Fixed in Prod' },
+  { key: 'mainModule', label: 'Main Module' },
+  { key: 'supportStatus', label: 'Support Status' },
+  { key: 'vendorAssignTo', label: 'Assign To (Vendor)' },
+  { key: 'category', label: 'Category' },
+  { key: 'itemType', label: 'Item Type' },
+  { key: 'estimateFixTime', label: 'Estimate Fix Time' },
+  { key: 'platform', label: 'Platform' },
+  { key: 'modified', label: 'Modified' },
+  { key: 'detectedInRelease', label: 'Detected in Release' },
+  { key: 'detectedInCycle', label: 'Detected in Cycle' },
+  { key: 'targetCycle', label: 'Target Cycle' },
+  { key: 'crStatus', label: 'CR Status' },
+  { key: 'dropNumber', label: 'Drop#' },
+  { key: 'influence', label: 'Influence' },
+  { key: 'secondaryPriority', label: 'Secondary Priority' },
+  { key: 'releaseDefect', label: 'Release Defect' },
+  { key: 'businessProcess', label: 'Business Process' },
+  { key: 'foundByAutomation', label: 'Found By Automation' },
+  { key: 'mainBusinessProcess', label: 'Main Business Process' },
+  { key: 'impact', label: 'Impact' },
+  { key: 'productionReason', label: 'Production Reason' },
+  { key: 'environmentComponent', label: 'Environment Component' },
+  { key: 'willBeTestAtGoLive', label: 'Will Be Test At Go Live' },
+  { key: 'deploymentCategory', label: 'Deployment Category' },
+  { key: 'defectResponsible', label: 'Defect Responsible' },
+  { key: 'targetReleaseReason', label: 'Target Release Reason' },
+  { key: 'targetType', label: 'Target Type' },
+  { key: 'systemComponent', label: 'System Component' },
+  { key: 'forRegressionTest', label: 'For Regression Test' },
+  { key: 'escDefectResponsible', label: 'Esc Defect Responsible' },
+  { key: 'toBeTestedOnProd', label: 'To Be Tested On Prod' },
+  { key: 'deploymentDateProd', label: 'Deployment Date (Prod)' },
+  { key: 'targetScopeApproved', label: 'Target Scope Approved' },
+];
+const DEFAULT_DEFECT_COLUMNS: DefectColumnKey[] = ['id', 'title', 'severity', 'status', 'assignedTo', 'discoveryDate'];
+const DEFECT_COLUMNS_STORAGE_KEY = 'deploycenter_kpi_defect_columns_v1';
+const PERSON_BADGE_FIELDS = new Set<DefectColumnKey>(['reporter', 'qaTester', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo']);
+const TEAM_BADGE_FIELDS = new Set<DefectColumnKey>(['assignedTo', 'responsibility']);
+function renderDefectCell(key: DefectColumnKey, value: unknown) {
+  const s = String(value ?? '');
+  if (!s) return key === 'priority' ? <PriorityCell value="" /> : '—';
+  if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={s} full />;
+  if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
+  if (key === 'id') return <IssueKeyLink id={s} />;
+  if (key === 'status') return <StatusBadge status={s} />;
+  if (key === 'severity') return <SeverityBadge severity={s} />;
+  if (key === 'priority') return <PriorityCell value={s} />;
+  return s;
+}
 
 interface ImprovementTask {
   id: string;
@@ -88,19 +188,20 @@ function KpiCard({ value, label, valueColor, onClick }: { value: string; label: 
   return (
     <div
       onClick={onClick}
-      style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '14px 16px', flex: 1, minWidth: '140px', cursor: onClick ? 'pointer' : undefined }}
+      className={`min-w-[140px] flex-1 rounded-lg border border-border bg-card px-4 py-3.5 ${onClick ? 'cursor-pointer' : ''}`}
     >
-      <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: valueColor ?? C.textPrimary, lineHeight: 1.2 }}>{value}</div>
-      <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>{label}</div>
+      <div className="text-lg font-bold leading-tight" style={{ color: valueColor ?? undefined }}>
+        <span className={valueColor ? '' : 'text-foreground'}>{value}</span>
+      </div>
+      <div className="mt-1 text-xs text-subtle-foreground">{label}</div>
     </div>
   );
 }
 
-const summaryCellStyle: React.CSSProperties = { padding: '12px 8px', textAlign: 'center', color: C.textPrimary, fontWeight: WEIGHT.semibold };
-const itemCellStyle: React.CSSProperties = { padding: '6px 8px', borderBottom: `1px solid ${C.border}`, color: C.textPrimary, verticalAlign: 'top' };
-const iconBtnStyle: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', padding: '2px 4px' };
-const itemInputStyle: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '4px 6px', borderRadius: RADIUS.sm, border: `1px solid ${C.borderEm}`, background: C.bgCard, color: C.textPrimary, fontFamily: FONT, fontSize: '12px' };
-const itemTextareaStyle: React.CSSProperties = { ...itemInputStyle, resize: 'vertical', minHeight: '48px' };
+const summaryCellClass = 'p-2.5 py-3 text-center font-semibold text-foreground';
+const itemCellClass = 'px-2 py-1.5 border-b border-border text-foreground align-top';
+const iconBtnClass = 'bg-transparent border-none cursor-pointer text-[13px] px-1 py-0.5';
+const itemInputClass = 'w-full rounded-sm border border-border bg-card px-1.5 py-1 font-sans text-xs text-foreground';
 
 function ProblemNoteEditRow({ draft, setDraft, saving, onSave, onCancel }: {
   draft: ProblemDraft; setDraft: React.Dispatch<React.SetStateAction<ProblemDraft>>;
@@ -108,12 +209,12 @@ function ProblemNoteEditRow({ draft, setDraft, saving, onSave, onCancel }: {
 }) {
   const set = (patch: Partial<ProblemDraft>) => setDraft(prev => ({ ...prev, ...patch }));
   return (
-    <tr style={{ background: C.bgNested }}>
-      <td style={itemCellStyle}><textarea rows={2} style={itemTextareaStyle} value={draft.problemCharacteristics} onChange={e => set({ problemCharacteristics: e.target.value })} /></td>
-      <td style={itemCellStyle}><input style={{ ...itemInputStyle, textAlign: 'center' }} type="number" value={draft.defectCount} onChange={e => set({ defectCount: e.target.value })} /></td>
-      <td style={{ ...itemCellStyle, whiteSpace: 'nowrap' }}>
-        <button onClick={onSave} disabled={saving} style={{ ...iconBtnStyle, color: C.brand, fontWeight: WEIGHT.semibold, opacity: saving ? 0.6 : 1 }}>{saving ? '...' : 'שמור'}</button>
-        <button onClick={onCancel} disabled={saving} style={{ ...iconBtnStyle, color: C.textMuted }}>ביטול</button>
+    <tr className="bg-muted">
+      <td className={itemCellClass}><textarea rows={2} className={`${itemInputClass} min-h-[48px] resize-y`} value={draft.problemCharacteristics} onChange={e => set({ problemCharacteristics: e.target.value })} /></td>
+      <td className={itemCellClass}><input className={`${itemInputClass} text-center`} type="number" value={draft.defectCount} onChange={e => set({ defectCount: e.target.value })} /></td>
+      <td className={`${itemCellClass} whitespace-nowrap`}>
+        <button onClick={onSave} disabled={saving} className={`${iconBtnClass} font-semibold text-primary ${saving ? 'opacity-60' : 'opacity-100'}`}>{saving ? '...' : 'שמור'}</button>
+        <button onClick={onCancel} disabled={saving} className={`${iconBtnClass} text-subtle-foreground`}>ביטול</button>
       </td>
     </tr>
   );
@@ -128,18 +229,18 @@ function ImprovementTaskEditRow({ draft, setDraft, saving, onSave, onCancel }: {
 }) {
   const set = (patch: Partial<TaskDraft>) => setDraft(prev => ({ ...prev, ...patch }));
   return (
-    <tr style={{ background: C.bgNested }}>
-      <td style={itemCellStyle}><textarea rows={2} style={itemTextareaStyle} value={draft.requiredImprovement} onChange={e => set({ requiredImprovement: e.target.value })} /></td>
-      <td style={itemCellStyle}><textarea rows={2} style={itemTextareaStyle} value={draft.mainDevelopments} onChange={e => set({ mainDevelopments: e.target.value })} /></td>
-      <td style={itemCellStyle}><input style={itemInputStyle} value={draft.responsibility} onChange={e => set({ responsibility: e.target.value })} /></td>
-      <td style={itemCellStyle}>
-        <select style={itemInputStyle} value={draft.status} onChange={e => set({ status: e.target.value })}>
+    <tr className="bg-muted">
+      <td className={itemCellClass}><textarea rows={2} className={`${itemInputClass} min-h-[48px] resize-y`} value={draft.requiredImprovement} onChange={e => set({ requiredImprovement: e.target.value })} /></td>
+      <td className={itemCellClass}><textarea rows={2} className={`${itemInputClass} min-h-[48px] resize-y`} value={draft.mainDevelopments} onChange={e => set({ mainDevelopments: e.target.value })} /></td>
+      <td className={itemCellClass}><input className={itemInputClass} value={draft.responsibility} onChange={e => set({ responsibility: e.target.value })} /></td>
+      <td className={itemCellClass}>
+        <select className={itemInputClass} value={draft.status} onChange={e => set({ status: e.target.value })}>
           {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </td>
-      <td style={{ ...itemCellStyle, whiteSpace: 'nowrap' }}>
-        <button onClick={onSave} disabled={saving} style={{ ...iconBtnStyle, color: C.brand, fontWeight: WEIGHT.semibold, opacity: saving ? 0.6 : 1 }}>{saving ? '...' : 'שמור'}</button>
-        <button onClick={onCancel} disabled={saving} style={{ ...iconBtnStyle, color: C.textMuted }}>ביטול</button>
+      <td className={`${itemCellClass} whitespace-nowrap`}>
+        <button onClick={onSave} disabled={saving} className={`${iconBtnClass} font-semibold text-primary ${saving ? 'opacity-60' : 'opacity-100'}`}>{saving ? '...' : 'שמור'}</button>
+        <button onClick={onCancel} disabled={saving} className={`${iconBtnClass} text-subtle-foreground`}>ביטול</button>
       </td>
     </tr>
   );
@@ -170,7 +271,7 @@ function GradeTrendChart({ points }: { points: { releaseName: string; value: num
 
   const usable = points.filter(p => p.value != null);
   if (usable.length === 0) {
-    return <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6], textAlign: 'center' }}>אין נתונים להצגה.</div>;
+    return <div className="p-6 text-center text-sm text-subtle-foreground">אין נתונים להצגה.</div>;
   }
   const maxVal = Math.max(...usable.map(p => p.value as number), 0.001);
   // Fill the full available width when there's room for all points; only
@@ -182,8 +283,8 @@ function GradeTrendChart({ points }: { points: { releaseName: string; value: num
   const barWidth = Math.min(32, gap * 0.6);
 
   return (
-    <div ref={containerRef} style={{ overflowX: 'auto', width: '100%' }}>
-      <svg width={width} height={CHART_HEIGHT + 40} style={{ display: 'block' }}>
+    <div ref={containerRef} className="w-full overflow-x-auto">
+      <svg width={width} height={CHART_HEIGHT + 40} className="block">
         {points.map((p, i) => {
           const x = 16 + i * gap;
           if (p.value == null) return null;
@@ -223,6 +324,23 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
   const [showDefects, setShowDefects] = useState(false);
   const [defectsLoading, setDefectsLoading] = useState(false);
   const [defectsError, setDefectsError] = useState<string | null>(null);
+  const [severityFilter, setSeverityFilter] = useState<string | null>(null);
+  const [showColumnPicker, setShowColumnPicker] = useState(false);
+  const [defectColumns, setDefectColumns] = useState<DefectColumnKey[]>(() => {
+    try {
+      const saved = localStorage.getItem(DEFECT_COLUMNS_STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch { /* ignore malformed storage */ }
+    return DEFAULT_DEFECT_COLUMNS;
+  });
+  const applyDefectColumns = (keys: DefectColumnKey[]) => {
+    setDefectColumns(keys);
+    try { localStorage.setItem(DEFECT_COLUMNS_STORAGE_KEY, JSON.stringify(keys)); } catch { /* ignore quota errors */ }
+    setShowColumnPicker(false);
+  };
+  const visibleDefectColumns = defectColumns
+    .map(key => DEFECT_COLUMNS.find(c => c.key === key))
+    .filter((c): c is { key: DefectColumnKey; label: string } => !!c);
 
   useEffect(() => {
     setLoading(true);
@@ -251,9 +369,7 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
   const KPI_WITHOUT_DEFECT_LIST = ['Average Time Resolved Defect KPI', 'Defect Resolution Time KPI'];
   const hasDefectDrillDown = !KPI_WITHOUT_DEFECT_LIST.includes(kpiName);
 
-  const toggleDefects = () => {
-    if (showDefects) { setShowDefects(false); return; }
-    setShowDefects(true);
+  const ensureDefectsLoaded = () => {
     if (defects != null || defectsError || !qcLink?.versionId) return;
     setDefectsLoading(true);
     setDefectsError(null);
@@ -261,6 +377,21 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
       .then(res => setDefects(res.data ?? []))
       .catch(e => setDefectsError(e?.response?.data?.message || e.message || 'שגיאה בטעינת התקלות'))
       .finally(() => setDefectsLoading(false));
+  };
+  const toggleDefects = () => {
+    if (showDefects) { setShowDefects(false); return; }
+    setSeverityFilter(null);
+    setShowDefects(true);
+    ensureDefectsLoaded();
+  };
+  // Drill-down from a severity KpiCard (feedback 2026-09-14: "לאפשר דריל
+  // מכל מקום שבו יש ספירה של תקלות לפי severity") — same defect list
+  // toggleDefects already fetches (one KPI-scoped fetch either way), just
+  // opened pre-filtered to that severity instead of showing everything.
+  const showDefectsForSeverity = (severity: string) => {
+    setSeverityFilter(severity);
+    setShowDefects(true);
+    ensureDefectsLoaded();
   };
 
   const canEditImprovements = NOTE_EDITOR_ROLES.includes(role);
@@ -442,60 +573,60 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
   };
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+    <div dir="rtl" className="flex flex-col gap-4 font-sans">
+      <div className="flex flex-col gap-1.5">
         <BackLink onClick={onBack} label="חזרה למטריצה" />
-        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>🔍 {kpiName} — {releaseName}</div>
+        <div className="text-lg font-bold text-foreground">🔍 {kpiName} — {releaseName}</div>
       </div>
 
       {loading ? (
-        <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6] }}>טוען...</div>
+        <div className="p-6 text-sm text-subtle-foreground">טוען...</div>
       ) : !data ? (
-        <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6] }}>לא ניתן לטעון נתונים.</div>
+        <div className="p-6 text-sm text-subtle-foreground">לא ניתן לטעון נתונים.</div>
       ) : (
         <>
           {data.definition.purpose && (
-            <div style={{ ...TEXT.sm, color: C.textSecondary, background: C.bgNested, borderRadius: RADIUS.md, padding: SP[3] }}>
+            <div className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
               {data.definition.purpose}{data.definition.description ? ` — ${data.definition.description}` : ''}
             </div>
           )}
 
-          <div style={{ overflowX: 'auto', background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', ...TEXT.sm, minWidth: '760px' }}>
+          <div className="overflow-x-auto rounded-lg border border-border bg-card">
+            <table className="w-full min-w-[760px] border-collapse text-sm">
               <thead>
-                <tr style={{ background: C.bgNested }}>
+                <tr className="bg-muted">
                   {['Target', 'Grade', 'Weight', 'Relative Score', 'Score', 'Difference score', 'Average (Year)', 'Total Defects', 'Show Stopper', 'Severe', 'Medium', 'Low'].map(h => (
-                    <th key={h} style={{ padding: '10px 8px', textAlign: 'center', fontWeight: WEIGHT.bold, color: C.textSecondary, borderBottom: `2px solid ${C.border}`, whiteSpace: 'nowrap' }}>{h}</th>
+                    <th key={h} className="whitespace-nowrap border-b-2 border-border px-2 py-2.5 text-center font-bold text-muted-foreground">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td style={summaryCellStyle}>{fmtGradeOrPct(data.target, data.definition.kpiType)}</td>
-                  <td style={summaryCellStyle}>{fmtGradeOrPct(data.grade, data.definition.kpiType)}</td>
-                  <td style={summaryCellStyle}>{`${(data.weight * 100).toFixed(2)}%`}</td>
-                  <td style={{ ...summaryCellStyle, color: scoreColor(data.relativeScorePct), fontWeight: WEIGHT.bold }}>{fmtPct(data.relativeScorePct)}</td>
-                  <td style={summaryCellStyle}>{fmtPct(data.contributionPct)}</td>
-                  <td style={{ ...summaryCellStyle, color: data.scoreLostPct != null && data.scoreLostPct < 0 ? C.danger : C.success, fontWeight: WEIGHT.bold }}>{fmtPct(data.scoreLostPct)}</td>
-                  <td style={summaryCellStyle}>{fmtGradeOrPct(data.yearAverageGrade, data.definition.kpiType)}</td>
-                  <td style={{ ...summaryCellStyle, fontWeight: WEIGHT.bold }}>
+                  <td className={summaryCellClass}>{fmtGradeOrPct(data.target, data.definition.kpiType)}</td>
+                  <td className={summaryCellClass}>{fmtGradeOrPct(data.grade, data.definition.kpiType)}</td>
+                  <td className={summaryCellClass}>{`${(data.weight * 100).toFixed(2)}%`}</td>
+                  <td className={`${summaryCellClass} font-bold`} style={{ color: scoreColor(data.relativeScorePct) }}>{fmtPct(data.relativeScorePct)}</td>
+                  <td className={summaryCellClass}>{fmtPct(data.contributionPct)}</td>
+                  <td className={`${summaryCellClass} font-bold`} style={{ color: data.scoreLostPct != null && data.scoreLostPct < 0 ? C.danger : C.success }}>{fmtPct(data.scoreLostPct)}</td>
+                  <td className={summaryCellClass}>{fmtGradeOrPct(data.yearAverageGrade, data.definition.kpiType)}</td>
+                  <td className={`${summaryCellClass} font-bold`}>
                     {fmtCount((data.severity.showStopper ?? 0) + (data.severity.severe ?? 0) + (data.severity.medium ?? 0) + (data.severity.low ?? 0))}
                   </td>
-                  <td style={{ ...summaryCellStyle, color: C.danger }}>{fmtCount(data.severity.showStopper)}</td>
-                  <td style={{ ...summaryCellStyle, color: '#e8af00' }}>{fmtCount(data.severity.severe)}</td>
-                  <td style={summaryCellStyle}>{fmtCount(data.severity.medium)}</td>
-                  <td style={summaryCellStyle}>{fmtCount(data.severity.low)}</td>
+                  <td className={summaryCellClass} style={{ color: C.danger }}>{fmtCount(data.severity.showStopper)}</td>
+                  <td className={summaryCellClass} style={{ color: '#e8af00' }}>{fmtCount(data.severity.severe)}</td>
+                  <td className={summaryCellClass}>{fmtCount(data.severity.medium)}</td>
+                  <td className={summaryCellClass}>{fmtCount(data.severity.low)}</td>
                 </tr>
               </tbody>
             </table>
           </div>
 
           {data.liveSeverity && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <div style={{ ...TEXT.xs, color: C.textMuted }}>
+            <div className="flex flex-col gap-1.5">
+              <div className="text-xs text-subtle-foreground">
                 לצורך השוואה — מחושב חי מרשימת התקלות האמיתית של {releaseName} (לא מהקובץ המיובא):
               </div>
-              <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
+              <div className="flex flex-wrap gap-3">
                 <KpiCard
                   value={fmtCount(
                     data.liveSeverity.showStopper + data.liveSeverity.severe + data.liveSeverity.medium + data.liveSeverity.low
@@ -503,63 +634,127 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
                   label='סה"כ תקלות (חי)'
                   onClick={qcLink?.hasQcData && hasDefectDrillDown ? toggleDefects : undefined}
                 />
-                <KpiCard value={fmtCount(data.liveSeverity.showStopper)} label="Show Stopper (חי)" valueColor={C.danger} />
-                <KpiCard value={fmtCount(data.liveSeverity.severe)} label="Severe (חי)" valueColor="#e8af00" />
-                <KpiCard value={fmtCount(data.liveSeverity.medium)} label="Medium (חי)" />
-                <KpiCard value={fmtCount(data.liveSeverity.low)} label="Low (חי)" />
+                <KpiCard
+                  value={fmtCount(data.liveSeverity.showStopper)} label="Show Stopper (חי)" valueColor={C.danger}
+                  onClick={qcLink?.hasQcData && hasDefectDrillDown ? () => showDefectsForSeverity('Show Stopper') : undefined}
+                />
+                <KpiCard
+                  value={fmtCount(data.liveSeverity.severe)} label="Severe (חי)" valueColor="#e8af00"
+                  onClick={qcLink?.hasQcData && hasDefectDrillDown ? () => showDefectsForSeverity('Severe') : undefined}
+                />
+                <KpiCard
+                  value={fmtCount(data.liveSeverity.medium)} label="Medium (חי)"
+                  onClick={qcLink?.hasQcData && hasDefectDrillDown ? () => showDefectsForSeverity('Medium') : undefined}
+                />
+                <KpiCard
+                  value={fmtCount(data.liveSeverity.low)} label="Low (חי)"
+                  onClick={qcLink?.hasQcData && hasDefectDrillDown ? () => showDefectsForSeverity('Low') : undefined}
+                />
               </div>
             </div>
           )}
 
           {qcLink?.hasQcData && hasDefectDrillDown && (
-            <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4] }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textSecondary }}>תקלות (QC) — מסונן לפי {kpiName} — {releaseName}</div>
-                <button
-                  onClick={toggleDefects}
-                  style={{ padding: '6px 14px', background: C.brand, color: '#fff', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold }}
-                >
-                  {showDefects ? 'הסתר' : '🪲 צפה בתקלות'}
-                </button>
+            <div className="rounded-lg border border-border bg-card p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-semibold text-muted-foreground">
+                  תקלות (QC) — מסונן לפי {kpiName} — {releaseName}{severityFilter ? ` · ${severityFilter}` : ''}
+                </div>
+                <div className="flex gap-2">
+                  {showDefects && severityFilter && (
+                    <button
+                      onClick={() => setSeverityFilter(null)}
+                      className="cursor-pointer rounded-md border border-border bg-muted px-3.5 py-1.5 font-sans text-xs font-semibold text-muted-foreground"
+                    >
+                      ✕ נקה סינון חומרה
+                    </button>
+                  )}
+                  {showDefects && (
+                    <button
+                      onClick={() => setShowColumnPicker(true)}
+                      className="cursor-pointer rounded-md border border-border bg-muted px-3.5 py-1.5 font-sans text-xs font-semibold text-muted-foreground"
+                    >
+                      ⚙ בחירת עמודות
+                    </button>
+                  )}
+                  <button
+                    onClick={toggleDefects}
+                    className="cursor-pointer rounded-md border-none bg-primary px-3.5 py-1.5 font-sans text-xs font-semibold text-primary-foreground"
+                  >
+                    {showDefects ? 'הסתר' : '🪲 צפה בתקלות'}
+                  </button>
+                </div>
               </div>
               {showDefects && (
-                <div style={{ marginTop: SP[3], overflowX: 'auto' }}>
+                <div className="mt-3 overflow-x-auto">
                   {defectsLoading ? (
-                    <div style={{ ...TEXT.xs, color: C.textMuted, padding: SP[3] }}>טוען...</div>
+                    <div className="p-3 text-xs text-subtle-foreground">טוען...</div>
                   ) : defectsError ? (
-                    <div style={{ ...TEXT.xs, color: C.danger, padding: SP[3] }}>⚠️ שגיאה בטעינת התקלות: {defectsError}</div>
+                    <div className="p-3 text-xs text-danger">⚠️ שגיאה בטעינת התקלות: {defectsError}</div>
                   ) : !defects || defects.length === 0 ? (
-                    <div style={{ ...TEXT.xs, color: C.textMuted, padding: SP[3] }}>אין תקלות זמינות לגרסה זו</div>
-                  ) : (
-                    <table style={{ width: '100%', borderCollapse: 'collapse', ...TEXT.xs }}>
-                      <thead>
-                        <tr style={{ background: C.bgNested }}>
-                          {['תקלה', 'כותרת', 'חומרה', 'סטטוס', 'אחראי', 'תאריך גילוי'].map(h => (
-                            <th key={h} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: WEIGHT.semibold, color: C.textSecondary, borderBottom: `1px solid ${C.border}` }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {defects.map(d => (
-                          <tr key={d.id}>
-                            <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}`, textAlign: 'center' }}><DefectIdBadge id={d.id} /></td>
-                            <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>{d.title}</td>
-                            <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>{d.severity}</td>
-                            <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>{d.status}</td>
-                            <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>{d.assignedTo}</td>
-                            <td style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>{d.discoveryDate}</td>
+                    <div className="p-3 text-xs text-subtle-foreground">אין תקלות זמינות לגרסה זו</div>
+                  ) : (() => {
+                    const filteredDefects = severityFilter ? defects.filter(d => d.severity === severityFilter) : defects;
+                    if (filteredDefects.length === 0) {
+                      return <div className="p-3 text-xs text-subtle-foreground">אין תקלות בחומרה {severityFilter}</div>;
+                    }
+                    return (
+                    <div className="overflow-hidden rounded-md bg-card" style={{ border: `1px solid ${JIRA.greyN40}` }}>
+                      <table className="w-full border-collapse text-xs">
+                        <thead>
+                          <tr>
+                            {visibleDefectColumns.map(c => (
+                              <th
+                                key={c.key}
+                                className="px-2 py-2 text-end text-[11px] font-bold tracking-wide"
+                                style={{ color: JIRA.textSubtle, borderBottom: `2px solid ${JIRA.greyN40}` }}
+                              >{c.label}</th>
+                            ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
+                        </thead>
+                        <tbody>
+                          {filteredDefects.map(d => (
+                            <tr key={d.id}>
+                              {visibleDefectColumns.map(c => {
+                                const isBadge = PERSON_BADGE_FIELDS.has(c.key) || TEAM_BADGE_FIELDS.has(c.key);
+                                const isCentered = c.key === 'id' || c.key === 'severity' || c.key === 'status' || c.key === 'priority' || c.key === 'reopenYn';
+                                const raw = String(d[c.key] ?? '');
+                                const rtl = isBadge || isCentered ? false : hasHebrew(raw);
+                                return (
+                                  <td
+                                    key={c.key}
+                                    style={{
+                                      padding: '7px 8px', borderBottom: `1px solid ${JIRA.greyN40}`, color: isBadge || c.key === 'severity' || c.key === 'id' || c.key === 'priority' ? undefined : JIRA.text,
+                                      textAlign: isCentered ? 'center' : (rtl ? 'right' : 'left'), direction: isCentered ? undefined : (rtl ? 'rtl' : 'ltr'),
+                                    }}
+                                  >
+                                    {renderDefectCell(c.key, d[c.key])}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
           )}
 
-          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4] }}>
-            <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textSecondary, marginBottom: SP[3] }}>
+          {showColumnPicker && (
+            <SelectColumnsDialog
+              allColumns={DEFECT_COLUMNS}
+              visibleKeys={defectColumns}
+              onApply={applyDefectColumns}
+              onClose={() => setShowColumnPicker(false)}
+            />
+          )}
+
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="mb-3 text-sm font-semibold text-muted-foreground">
               מגמת ערך בפועל (Grade) לאורך גרסאות — {releaseCount} הגרסאות האחרונות
             </div>
             <GradeTrendChart points={data.trend.slice(-releaseCount)} />
@@ -567,54 +762,54 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
 
           {/* ── AI-suggested analysis (draft only) ── */}
           {qcLink?.hasQcData && hasDefectDrillDown && canEditImprovements && (
-            <div style={{ background: C.bgCard, border: `1px solid ${C.brand}40`, borderRadius: RADIUS.lg, padding: SP[4] }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textSecondary }}>🤖 ניתוח AI (טיוטה בלבד — לא נשמר אוטומטית)</div>
+            <div className="rounded-lg bg-card p-4" style={{ border: `1px solid ${C.brand}40` }}>
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-muted-foreground">🤖 ניתוח AI (טיוטה בלבד — לא נשמר אוטומטית)</div>
                 <button
                   onClick={runAiSuggest}
                   disabled={aiLoading}
-                  style={{ padding: '6px 14px', background: C.brand, color: '#fff', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', ...TEXT.xs, fontWeight: WEIGHT.semibold, opacity: aiLoading ? 0.6 : 1 }}
+                  className={`cursor-pointer rounded-md border-none bg-primary px-3.5 py-1.5 font-sans text-xs font-semibold text-primary-foreground ${aiLoading ? 'opacity-60' : 'opacity-100'}`}
                 >
                   {aiLoading ? 'מנתח...' : '🤖 הצע ניתוח'}
                 </button>
               </div>
 
               {aiError && (
-                <div style={{ ...TEXT.xs, color: C.danger, marginTop: SP[2] }}>⚠️ {aiError}</div>
+                <div className="mt-2 text-xs text-danger">⚠️ {aiError}</div>
               )}
 
               {(aiSuggestedNotes || aiSuggestedTasks) && (
-                <div style={{ marginTop: SP[3], display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+                <div className="mt-3 flex flex-col gap-3">
                   {aiSuggestedNotes && aiSuggestedNotes.length > 0 && (
                     <div>
-                      <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textMuted, marginBottom: '6px' }}>מאפייני בעיות מוצעים:</div>
+                      <div className="mb-1.5 text-xs font-semibold text-subtle-foreground">מאפייני בעיות מוצעים:</div>
                       {aiSuggestedNotes.map((n, idx) => (
-                        <div key={idx} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '8px 10px', background: C.bgNested, borderRadius: RADIUS.sm, marginBottom: '6px' }}>
-                          <div style={{ flex: 1, ...TEXT.xs, color: C.textPrimary }}>{n.problemCharacteristics} {n.defectCount != null && <span style={{ color: C.textMuted }}>({n.defectCount} תקלות)</span>}</div>
-                          <button onClick={() => acceptAiNote(idx)} style={{ ...iconBtnStyle, color: C.success, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap' }}>✓ הוסף</button>
-                          <button onClick={() => setAiSuggestedNotes(prev => prev ? prev.filter((_, i) => i !== idx) : prev)} style={{ ...iconBtnStyle, color: C.textMuted, whiteSpace: 'nowrap' }}>✗ התעלם</button>
+                        <div key={idx} className="mb-1.5 flex items-start gap-2.5 rounded-sm bg-muted px-2.5 py-2">
+                          <div className="flex-1 text-xs text-foreground">{n.problemCharacteristics} {n.defectCount != null && <span className="text-subtle-foreground">({n.defectCount} תקלות)</span>}</div>
+                          <button onClick={() => acceptAiNote(idx)} className={`${iconBtnClass} whitespace-nowrap font-semibold text-success`}>✓ הוסף</button>
+                          <button onClick={() => setAiSuggestedNotes(prev => prev ? prev.filter((_, i) => i !== idx) : prev)} className={`${iconBtnClass} whitespace-nowrap text-subtle-foreground`}>✗ התעלם</button>
                         </div>
                       ))}
                     </div>
                   )}
                   {aiSuggestedTasks && aiSuggestedTasks.length > 0 && (
                     <div>
-                      <div style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textMuted, marginBottom: '6px' }}>משימות שיפור מוצעות:</div>
+                      <div className="mb-1.5 text-xs font-semibold text-subtle-foreground">משימות שיפור מוצעות:</div>
                       {aiSuggestedTasks.map((t, idx) => (
-                        <div key={idx} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '8px 10px', background: C.bgNested, borderRadius: RADIUS.sm, marginBottom: '6px' }}>
-                          <div style={{ flex: 1, ...TEXT.xs, color: C.textPrimary }}>
+                        <div key={idx} className="mb-1.5 flex items-start gap-2.5 rounded-sm bg-muted px-2.5 py-2">
+                          <div className="flex-1 text-xs text-foreground">
                             {t.requiredImprovement}
-                            {t.mainDevelopments && <div style={{ color: C.textMuted, marginTop: '2px' }}>{t.mainDevelopments}</div>}
-                            {t.responsibility && <div style={{ color: C.textMuted, marginTop: '2px' }}>אחריות מוצעת: {t.responsibility}</div>}
+                            {t.mainDevelopments && <div className="mt-0.5 text-subtle-foreground">{t.mainDevelopments}</div>}
+                            {t.responsibility && <div className="mt-0.5 text-subtle-foreground">אחריות מוצעת: {t.responsibility}</div>}
                           </div>
-                          <button onClick={() => acceptAiTask(idx)} style={{ ...iconBtnStyle, color: C.success, fontWeight: WEIGHT.semibold, whiteSpace: 'nowrap' }}>✓ הוסף</button>
-                          <button onClick={() => setAiSuggestedTasks(prev => prev ? prev.filter((_, i) => i !== idx) : prev)} style={{ ...iconBtnStyle, color: C.textMuted, whiteSpace: 'nowrap' }}>✗ התעלם</button>
+                          <button onClick={() => acceptAiTask(idx)} className={`${iconBtnClass} whitespace-nowrap font-semibold text-success`}>✓ הוסף</button>
+                          <button onClick={() => setAiSuggestedTasks(prev => prev ? prev.filter((_, i) => i !== idx) : prev)} className={`${iconBtnClass} whitespace-nowrap text-subtle-foreground`}>✗ התעלם</button>
                         </div>
                       ))}
                     </div>
                   )}
                   {aiSuggestedNotes?.length === 0 && aiSuggestedTasks?.length === 0 && (
-                    <div style={{ ...TEXT.xs, color: C.textMuted }}>ה-AI לא זיהה דפוסים ברורים ברשימת התקלות.</div>
+                    <div className="text-xs text-subtle-foreground">ה-AI לא זיהה דפוסים ברורים ברשימת התקלות.</div>
                   )}
                 </div>
               )}
@@ -622,13 +817,13 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
           )}
 
           {/* ── Problem notes ── */}
-          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4] }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: SP[3] }}>
-              <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textSecondary }}>מאפייני הבעיות</div>
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-sm font-semibold text-muted-foreground">מאפייני הבעיות</div>
               {canEditImprovements && editingNoteId === null && (
                 <button
                   onClick={startAddNote}
-                  style={{ padding: '4px 12px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', color: C.textSecondary, ...TEXT.xs, fontWeight: WEIGHT.semibold }}
+                  className="cursor-pointer rounded-md border border-border bg-muted px-3 py-1 font-sans text-xs font-semibold text-muted-foreground"
                 >
                   + הוסף שורה
                 </button>
@@ -636,14 +831,14 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
             </div>
 
             {notesLoading ? (
-              <div style={{ ...TEXT.xs, color: C.textMuted, padding: SP[2] }}>טוען...</div>
+              <div className="p-2 text-xs text-subtle-foreground">טוען...</div>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', ...TEXT.xs, minWidth: '480px' }}>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[480px] border-collapse text-xs">
                   <thead>
-                    <tr style={{ background: C.bgNested }}>
+                    <tr className="bg-muted">
                       {['מאפייני הבעיות', 'סה"כ תקלות', ''].map(h => (
-                        <th key={h} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: WEIGHT.semibold, color: C.textSecondary, borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                        <th key={h} className="border-b border-border px-2 py-1.5 text-end font-semibold text-muted-foreground">{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -652,13 +847,13 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
                       <ProblemNoteEditRow key={note.id} draft={noteDraft} setDraft={setNoteDraft} saving={savingNoteRow} onSave={saveNoteRow} onCancel={() => setEditingNoteId(null)} />
                     ) : (
                       <tr key={note.id}>
-                        <td style={{ ...itemCellStyle, whiteSpace: 'pre-wrap' }}>{note.problemCharacteristics || '—'}</td>
-                        <td style={{ ...itemCellStyle, textAlign: 'center' }}>{note.defectCount ?? '—'}</td>
-                        <td style={{ ...itemCellStyle, whiteSpace: 'nowrap' }}>
+                        <td className={`${itemCellClass} whitespace-pre-wrap`}>{note.problemCharacteristics || '—'}</td>
+                        <td className={`${itemCellClass} text-center`}>{note.defectCount ?? '—'}</td>
+                        <td className={`${itemCellClass} whitespace-nowrap`}>
                           {canEditImprovements && editingNoteId === null && (
                             <>
-                              <button onClick={() => startEditNote(note)} style={iconBtnStyle} title="ערוך">✏️</button>
-                              <button onClick={() => deleteNote(note.id)} style={iconBtnStyle} title="מחק">🗑</button>
+                              <button onClick={() => startEditNote(note)} className={iconBtnClass} title="ערוך">✏️</button>
+                              <button onClick={() => deleteNote(note.id)} className={iconBtnClass} title="מחק">🗑</button>
                             </>
                           )}
                         </td>
@@ -669,7 +864,7 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
                     )}
                     {(!notes || notes.length === 0) && editingNoteId !== 'new' && (
                       <tr>
-                        <td colSpan={3} style={{ ...TEXT.xs, color: C.textDisabled, textAlign: 'center', padding: SP[3] }}>עדיין אין שורות</td>
+                        <td colSpan={3} className="p-3 text-center text-xs text-subtle-foreground">עדיין אין שורות</td>
                       </tr>
                     )}
                   </tbody>
@@ -679,13 +874,13 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
           </div>
 
           {/* ── Improvement tasks ── */}
-          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4] }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: SP[3] }}>
-              <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textSecondary }}>משימות שיפור</div>
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-sm font-semibold text-muted-foreground">משימות שיפור</div>
               {canEditImprovements && editingTaskId === null && (
                 <button
                   onClick={startAddTask}
-                  style={{ padding: '4px 12px', background: C.bgNested, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', color: C.textSecondary, ...TEXT.xs, fontWeight: WEIGHT.semibold }}
+                  className="cursor-pointer rounded-md border border-border bg-muted px-3 py-1 font-sans text-xs font-semibold text-muted-foreground"
                 >
                   + הוסף שורה
                 </button>
@@ -693,14 +888,14 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
             </div>
 
             {tasksLoading ? (
-              <div style={{ ...TEXT.xs, color: C.textMuted, padding: SP[2] }}>טוען...</div>
+              <div className="p-2 text-xs text-subtle-foreground">טוען...</div>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', ...TEXT.xs, minWidth: '720px' }}>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] border-collapse text-xs">
                   <thead>
-                    <tr style={{ background: C.bgNested }}>
+                    <tr className="bg-muted">
                       {['שיפורים נדרשים', 'פיתוחים עיקריים', 'אחריות', 'סטטוס', ''].map(h => (
-                        <th key={h} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: WEIGHT.semibold, color: C.textSecondary, borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                        <th key={h} className="border-b border-border px-2 py-1.5 text-end font-semibold text-muted-foreground">{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -709,17 +904,17 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
                       <ImprovementTaskEditRow key={task.id} draft={taskDraft} setDraft={setTaskDraft} saving={savingTask} onSave={saveTask} onCancel={() => setEditingTaskId(null)} />
                     ) : (
                       <tr key={task.id}>
-                        <td style={{ ...itemCellStyle, whiteSpace: 'pre-wrap' }}>{task.requiredImprovement || '—'}</td>
-                        <td style={{ ...itemCellStyle, whiteSpace: 'pre-wrap' }}>{task.mainDevelopments || '—'}</td>
-                        <td style={itemCellStyle}>{task.responsibility || '—'}</td>
-                        <td style={itemCellStyle}>
-                          <span style={{ color: statusLabel(task.status).color, fontWeight: WEIGHT.semibold }}>{statusLabel(task.status).label}</span>
+                        <td className={`${itemCellClass} whitespace-pre-wrap`}>{task.requiredImprovement || '—'}</td>
+                        <td className={`${itemCellClass} whitespace-pre-wrap`}>{task.mainDevelopments || '—'}</td>
+                        <td className={itemCellClass}>{task.responsibility || '—'}</td>
+                        <td className={itemCellClass}>
+                          <span className="font-semibold" style={{ color: statusLabel(task.status).color }}>{statusLabel(task.status).label}</span>
                         </td>
-                        <td style={{ ...itemCellStyle, whiteSpace: 'nowrap' }}>
+                        <td className={`${itemCellClass} whitespace-nowrap`}>
                           {canEditImprovements && editingTaskId === null && (
                             <>
-                              <button onClick={() => startEditTask(task)} style={iconBtnStyle} title="ערוך">✏️</button>
-                              <button onClick={() => deleteTask(task.id)} style={iconBtnStyle} title="מחק">🗑</button>
+                              <button onClick={() => startEditTask(task)} className={iconBtnClass} title="ערוך">✏️</button>
+                              <button onClick={() => deleteTask(task.id)} className={iconBtnClass} title="מחק">🗑</button>
                             </>
                           )}
                         </td>
@@ -730,7 +925,7 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
                     )}
                     {(!tasks || tasks.length === 0) && editingTaskId !== 'new' && (
                       <tr>
-                        <td colSpan={5} style={{ ...TEXT.xs, color: C.textDisabled, textAlign: 'center', padding: SP[3] }}>עדיין אין שורות</td>
+                        <td colSpan={5} className="p-3 text-center text-xs text-subtle-foreground">עדיין אין שורות</td>
                       </tr>
                     )}
                   </tbody>

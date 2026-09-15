@@ -304,11 +304,67 @@ export class QcRestService {
       await this.logout(config, cookie);
     }
   }
+
+  // ── Stage-0 de-risk for "create Release + Release Cycles via REST"
+  // (2026-09-15) — both probes below are READ-ONLY (no PUT/POST), same risk
+  // level as previewDefect/listAllFields: they answer "does this real QC
+  // instance support it at all" before any schema/UI work is done, same
+  // lesson as REST_FIELD (never assume ALM's documented REST shape matches
+  // THIS project's actual customization without checking).
+
+  // Asks QC's own customization API whether `entityType` (e.g. "release",
+  // "release-cycle") is a real, addressable entity type in this project, and
+  // what fields it requires — the actual question stage-0 needs answered
+  // before writing any create-Release code. A 404/empty result here means
+  // this QC instance doesn't expose that entity type over REST at all, which
+  // would block the whole "write release back to QC" plan regardless of
+  // permissions.
+  async probeEntityFields(entityType: string, userId: string): Promise<EntityFieldMeta[]> {
+    const config = await this.getConfig();
+    const qcLogin = await this.resolveQcLogin(userId);
+    const cookie = await this.loginAsUser(config, qcLogin);
+    try {
+      const url = `${config.baseUrl}/rest/domains/${encodeURIComponent(config.domain)}/projects/${encodeURIComponent(config.project)}/customization/entities/${encodeURIComponent(entityType)}/fields`;
+      const res = await this.safeRequest(
+        () => axios.get(url, { headers: { Cookie: cookie, Accept: 'application/xml' }, validateStatus: () => true }),
+        config.baseUrl,
+      );
+      if (res.status === 404) throw new BadRequestException(`סוג הישות "${entityType}" לא נמצא ב-QC (status 404) — כנראה לא נתמך/לא מוגדר בפרויקט הזה`);
+      if (res.status !== 200) throw new BadRequestException(`שגיאה בקריאת מטא-דאטה מ-QC עבור "${entityType}" (status ${res.status}): ${String(res.data).slice(0, 500)}`);
+      return parseEntityFieldsXml(res.data);
+    } finally {
+      await this.logout(config, cookie);
+    }
+  }
+
+  // Real-data read of the releases collection — confirms the read path works
+  // end-to-end (auth, domain/project scoping, XML parsing) against actual
+  // production release records, same risk level as previewDefect (reads
+  // real data, writes nothing).
+  async listReleasesRest(userId: string): Promise<Record<string, string>[]> {
+    const config = await this.getConfig();
+    const qcLogin = await this.resolveQcLogin(userId);
+    const cookie = await this.loginAsUser(config, qcLogin);
+    try {
+      const url = `${config.baseUrl}/rest/domains/${encodeURIComponent(config.domain)}/projects/${encodeURIComponent(config.project)}/releases?page-size=20`;
+      const res = await this.safeRequest(
+        () => axios.get(url, { headers: { Cookie: cookie, Accept: 'application/xml' }, validateStatus: () => true }),
+        config.baseUrl,
+      );
+      if (res.status === 404) throw new BadRequestException('אוסף ה-releases לא נמצא ב-QC REST (status 404) — ייתכן שאין תמיכה ב-endpoint הזה בגרסת QC הזו');
+      if (res.status !== 200) throw new BadRequestException(`שגיאה בקריאת releases מ-QC (status ${res.status}): ${String(res.data).slice(0, 500)}`);
+      return parseEntitiesListXml(res.data);
+    } finally {
+      await this.logout(config, cookie);
+    }
+  }
 }
 
 export interface AttachmentMeta {
   name: string; fileSize: number; owner: string; uploadDate: string; description: string;
 }
+
+export interface EntityFieldMeta { name: string; label: string; type: string; required: boolean; }
 
 function extractCookies(res: any): string {
   const raw: string[] = res.headers?.['set-cookie'] ?? [];
@@ -365,6 +421,47 @@ function parseAttachmentsXml(xml: string): AttachmentMeta[] {
     uploadDate: firstDefined(a, ['CreationTime', 'UploadDate', 'creation-time']),
     description: firstDefined(a, ['Description', 'description']),
   })).filter(a => a.name);
+}
+
+// Standard ALM/QC 11 customization-fields shape:
+// <Fields><Field Name="..." Label="..." Type="..." editable="Y" required="Y"
+// visible="Y">...</Field>...</Fields> — read defensively (multiple plausible
+// attribute-name casings) since, like parseAttachmentsXml, this hasn't been
+// verified against this specific real instance yet (that's the whole point
+// of probeEntityFields).
+function parseEntityFieldsXml(xml: string): EntityFieldMeta[] {
+  const parsed = xmlParser.parse(xml);
+  const list = parsed?.Fields?.Field ?? [];
+  const arr = Array.isArray(list) ? list : [list];
+  return arr.filter(Boolean).map((f: any) => ({
+    name: f?.['@_Name'] ?? f?.['@_name'] ?? '',
+    label: f?.['@_Label'] ?? f?.['@_label'] ?? '',
+    type: f?.['@_Type'] ?? f?.['@_type'] ?? '',
+    required: ['Y', 'y', 'true', '1'].includes(String(f?.['@_required'] ?? f?.['@_Required'] ?? '')),
+  })).filter((f: EntityFieldMeta) => f.name);
+}
+
+// Standard ALM/QC 11 entity-collection shape:
+// <Entities TotalResults="N"><Entity Type="release"><Fields><Field
+// Name="..."><Value>...</Value></Field>...</Fields></Entity>...</Entities> —
+// reuses the same per-entity field flattening as parseFields (single-entity
+// GET), applied to each <Entity> in the collection.
+function parseEntitiesListXml(xml: string): Record<string, string>[] {
+  const parsed = xmlParser.parse(xml);
+  const list = parsed?.Entities?.Entity ?? [];
+  const arr = Array.isArray(list) ? list : [list];
+  return arr.filter(Boolean).map((entity: any) => {
+    const fieldList = entity?.Fields?.Field ?? [];
+    const fields = Array.isArray(fieldList) ? fieldList : [fieldList];
+    const out: Record<string, string> = {};
+    for (const f of fields) {
+      const name = f?.['@_Name'];
+      if (!name) continue;
+      const value = Array.isArray(f.Value) ? f.Value[0] : f.Value;
+      out[name] = value != null ? String(value) : '';
+    }
+    return out;
+  });
 }
 
 function xmlEscape(s: string): string {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, RADIUS } from '../../theme';
+import { C } from '../../theme';
+import { cn } from '../../lib/utils';
 import { Card, Badge } from '../ui';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
 
@@ -31,7 +32,9 @@ interface Props { token: string; initialVersionId?: string; }
 const pct = (n: number, total: number) => total > 0 ? `${((n / total) * 100).toFixed(2)}%` : '0%';
 
 // Same 4 severities used throughout the app (CRITICAL_SEVERITIES etc.) — a
-// bare "ללא סיווג" bucket catches anything else without crashing.
+// bare "ללא סיווג" bucket catches anything else without crashing. These stay
+// as raw theme hex (not Tailwind classes) because the value is picked at
+// render time from row data, same precedent as StatusChip/PriorityChip in ui.tsx.
 const SEVERITY_COLOR: Record<string, string> = {
   'Show Stopper': C.danger, 'Severe': C.warning, 'Medium': '#e8af00', 'Low': C.textMuted, 'ללא סיווג': C.statusOpen,
 };
@@ -39,10 +42,10 @@ const SEVERITY_ORDER = ['Show Stopper', 'Severe', 'Medium', 'Low', 'ללא סי�
 
 function SeverityLegend() {
   return (
-    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', ...TEXT.xs, color: C.textMuted, marginBottom: '8px' }}>
+    <div className="mb-2 flex flex-wrap gap-2.5 text-xs text-subtle-foreground">
       {SEVERITY_ORDER.map(s => (
-        <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-          <span style={{ width: '8px', height: '8px', borderRadius: '2px', background: SEVERITY_COLOR[s], display: 'inline-block' }} />
+        <span key={s} className="inline-flex items-center gap-1">
+          <span className="inline-block h-2 w-2 rounded-sm" style={{ background: SEVERITY_COLOR[s] }} />
           {s}
         </span>
       ))}
@@ -50,11 +53,13 @@ function SeverityLegend() {
   );
 }
 
-const KpiCard: React.FC<{ label: string; value: string; sub?: string; color: string; onClick?: () => void }> = ({ label, value, sub, color, onClick }) => (
+// Colors are chosen per call-site (a fixed semantic meaning, not row data),
+// so they map onto Tailwind's semantic text tokens directly.
+const KpiCard: React.FC<{ label: string; value: string; sub?: string; colorClass: string; onClick?: () => void }> = ({ label, value, sub, colorClass, onClick }) => (
   <Card padding={4} style={{ flex: 1, minWidth: '110px', textAlign: 'center', cursor: onClick ? 'pointer' : 'default' }} onClick={onClick}>
-    <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, marginBottom: '4px', whiteSpace: 'nowrap' }}>{label}</div>
-    <div style={{ fontSize: '26px', fontWeight: WEIGHT.bold, color, fontFamily: FONT, lineHeight: 1.1 }}>{value}</div>
-    {sub && <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, marginTop: '2px' }}>{sub}</div>}
+    <div className="mb-1 whitespace-nowrap text-xs text-subtle-foreground">{label}</div>
+    <div className={cn('text-[26px] font-bold leading-[1.1]', colorClass)}>{value}</div>
+    {sub && <div className="mt-0.5 text-xs text-subtle-foreground">{sub}</div>}
   </Card>
 );
 
@@ -67,21 +72,21 @@ const BreakdownPanel: React.FC<{ title: string; total: number; rows: BreakdownRo
   const max = Math.max(1, ...rows.map(r => r.count));
   return (
     <Card padding={4} style={{ flex: 1, minWidth: '260px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, fontFamily: FONT }}>{title}</div>
+      <div className="mb-2.5 flex items-center justify-between">
+        <div className="text-sm font-semibold text-foreground">{title}</div>
         <Badge color={C.textMuted} bg={C.bgHover}>{total}</Badge>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '260px', overflowY: 'auto' }}>
-        {rows.length === 0 && <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT }}>אין נתונים</div>}
+      <div className="flex max-h-[260px] flex-col gap-1.5 overflow-y-auto">
+        {rows.length === 0 && <div className="text-xs text-subtle-foreground">אין נתונים</div>}
         {rows.map(r => (
-          <div key={r.label} onClick={() => onSelect(r.label)} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-            <div style={{ ...TEXT.xs, color: C.textSecondary, fontFamily: FONT, width: '140px', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.label}>{r.label}</div>
-            <div style={{ flex: 1, height: '14px', background: C.bgNested, borderRadius: RADIUS.sm, overflow: 'hidden', display: 'flex' }}>
+          <div key={r.label} onClick={() => onSelect(r.label)} className="flex cursor-pointer items-center gap-2">
+            <div className="w-[140px] flex-shrink-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground" title={r.label}>{r.label}</div>
+            <div className="flex h-3.5 flex-1 overflow-hidden rounded-sm bg-muted">
               {r.bySeverity.map(s => (
-                <div key={s.severity} title={`${s.severity}: ${s.count}`} style={{ width: `${(s.count / max) * 100}%`, height: '100%', background: SEVERITY_COLOR[s.severity] ?? SEVERITY_COLOR['ללא סיווג'] }} />
+                <div key={s.severity} title={`${s.severity}: ${s.count}`} style={{ width: `${(s.count / max) * 100}%`, background: SEVERITY_COLOR[s.severity] ?? SEVERITY_COLOR['ללא סיווג'] }} className="h-full" />
               ))}
             </div>
-            <div style={{ ...TEXT.xs, color: C.textPrimary, fontFamily: FONT, width: '24px', textAlign: 'left' }}>{r.count}</div>
+            <div className="w-6 text-left text-xs text-foreground">{r.count}</div>
           </div>
         ))}
       </div>
@@ -91,7 +96,7 @@ const BreakdownPanel: React.FC<{ title: string; total: number; rows: BreakdownRo
 
 const DailyTrendChart: React.FC<{ data: { date: string; count: number }[]; onPointClick?: (date: string) => void }> = ({ data, onPointClick }) => {
   if (data.length === 0) {
-    return <div style={{ ...TEXT.xs, color: C.textMuted, fontFamily: FONT, padding: '20px', textAlign: 'center' }}>אין נתוני מגמה</div>;
+    return <div className="p-5 text-center text-xs text-subtle-foreground">אין נתוני מגמה</div>;
   }
   const width = 720, height = 140, padX = 30, padY = 20;
   const max = Math.max(1, ...data.map(d => d.count));
@@ -113,9 +118,9 @@ const DailyTrendChart: React.FC<{ data: { date: string; count: number }[]; onPoi
           {/* full-height invisible hit target so the whole column is clickable */}
           <rect x={p.x - hitW / 2} y={0} width={hitW} height={height} fill="transparent" />
           <circle cx={p.x} cy={p.y} r={onPointClick ? 4 : 3} fill={C.brand} />
-          <text x={p.x} y={p.y - 8} fontSize="11" fill={C.textPrimary} textAnchor="middle" fontFamily={FONT}>{p.d.count}</text>
+          <text x={p.x} y={p.y - 8} fontSize="11" fill={C.textPrimary} textAnchor="middle">{p.d.count}</text>
           {i % labelEvery === 0 && (
-            <text x={p.x} y={height - 4} fontSize="10" fill={C.textMuted} textAnchor="middle" fontFamily={FONT}>
+            <text x={p.x} y={height - 4} fontSize="10" fill={C.textMuted} textAnchor="middle">
               {new Date(p.d.date).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })}
             </text>
           )}
@@ -160,52 +165,52 @@ export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId })
   useEffect(() => { loadDashboard(selectedVId); }, [selectedVId, loadDashboard]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px 28px', fontFamily: FONT }}>
+    <div className="flex flex-col gap-4 px-7 py-5">
       <Card>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '22px' }}>🪲</span>
-          <div style={{ fontSize: '18px', fontWeight: WEIGHT.bold, color: C.textPrimary }}>לוח באגים (QC)</div>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <span className="text-[22px]">🪲</span>
+          <div className="text-lg font-bold text-foreground">לוח באגים (QC)</div>
           {qcMock && (
-            <span style={{ fontSize: '13px', background: C.bgInProgress, color: C.statusInProgress, padding: '3px 10px', borderRadius: '10px', border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
+            <span className="rounded-[10px] border border-warning/30 bg-warning-bg px-2.5 py-0.5 text-sm text-warning">Mock — ממתין לחיבור QC</span>
           )}
         </div>
       </Card>
 
-      {loading && <div style={{ textAlign: 'center', padding: '24px', color: C.textMuted }}>טוען...</div>}
-      {error && <div style={{ textAlign: 'center', padding: '24px', color: C.danger }}>{error}</div>}
+      {loading && <div className="p-6 text-center text-subtle-foreground">טוען...</div>}
+      {error && <div className="p-6 text-center text-danger">{error}</div>}
       {!loading && !error && !selectedVId && (
-        <div style={{ textAlign: 'center', padding: '24px', color: C.textMuted }}>בחר גרסה מהתפריט הצדדי כדי להציג נתוני באגים</div>
+        <div className="p-6 text-center text-subtle-foreground">בחר גרסה מהתפריט הצדדי כדי להציג נתוני באגים</div>
       )}
 
       {!loading && !error && dashboard && (
         <>
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            <KpiCard label="תקלות שדווחו" value={String(dashboard.reported)} color={C.textPrimary}
+          <div className="flex flex-wrap gap-2.5">
+            <KpiCard label="תקלות שדווחו" value={String(dashboard.reported)} colorClass="text-foreground"
               onClick={() => setDrilldown({ filter: 'reported', title: 'כל התקלות שדווחו' })} />
-            <KpiCard label="תקלות פתוחות" value={String(dashboard.open)} sub={pct(dashboard.open, dashboard.reported)} color={C.statusInProgress}
+            <KpiCard label="תקלות פתוחות" value={String(dashboard.open)} sub={pct(dashboard.open, dashboard.reported)} colorClass="text-warning"
               onClick={() => setDrilldown({ filter: 'open', title: 'תקלות פתוחות' })} />
-            <KpiCard label="תקלות שנדחו" value={String(dashboard.rejected)} sub={pct(dashboard.rejected, dashboard.reported)} color={C.textMuted}
+            <KpiCard label="תקלות שנדחו" value={String(dashboard.rejected)} sub={pct(dashboard.rejected, dashboard.reported)} colorClass="text-subtle-foreground"
               onClick={() => setDrilldown({ filter: 'rejected', title: 'תקלות שנדחו' })} />
             {/* Production/Regression drill by BG_USER_10 = 'Production'/'Regression'
                 (spec 2026-09-07). */}
-            <KpiCard label="תקלות ייצור" value={String(dashboard.production)} sub={pct(dashboard.production, dashboard.reported)} color={C.danger}
+            <KpiCard label="תקלות ייצור" value={String(dashboard.production)} sub={pct(dashboard.production, dashboard.reported)} colorClass="text-danger"
               onClick={() => setDrilldown({ filter: 'production', title: 'תקלות ייצור (BG_USER_10 = Production)' })} />
-            <KpiCard label="תקלות רגרסיה" value={String(dashboard.regression)} sub={pct(dashboard.regression, dashboard.reported)} color={C.danger}
+            <KpiCard label="תקלות רגרסיה" value={String(dashboard.regression)} sub={pct(dashboard.regression, dashboard.reported)} colorClass="text-danger"
               onClick={() => setDrilldown({ filter: 'regression', title: 'תקלות רגרסיה (BG_USER_10 = Regression)' })} />
-            <KpiCard label="שינויים (CR)" value={String(dashboard.changes)} sub={pct(dashboard.changes, dashboard.reported)} color={C.brand}
+            <KpiCard label="שינויים (CR)" value={String(dashboard.changes)} sub={pct(dashboard.changes, dashboard.reported)} colorClass="text-primary"
               onClick={() => setDrilldown({ filter: 'changes', title: 'תקלות מסוג Change Requests' })} />
-            <KpiCard label="נפתחו מחדש" value={String(dashboard.reopen)} sub={pct(dashboard.reopen, dashboard.reported)} color={C.statusFailed}
+            <KpiCard label="נפתחו מחדש" value={String(dashboard.reopen)} sub={pct(dashboard.reopen, dashboard.reported)} colorClass="text-danger"
               onClick={() => setDrilldown({ filter: 'reopen', title: 'תקלות שנפתחו מחדש (Reopen) — לפי היסטוריה' })} />
-            <KpiCard label="נותרו ליעד" value={`${dashboard.targetOpen}/${dashboard.targetTotal}`} color={C.statusDone}
+            <KpiCard label="נותרו ליעד" value={`${dashboard.targetOpen}/${dashboard.targetTotal}`} colorClass="text-success"
               onClick={() => setDrilldown({ filter: 'target', title: 'תקלות מגרסאות קודמות שהיעד שלהן הוא גרסה זו' })} />
             {/* Mirror of "נותרו ליעד": defects opened in THIS release whose
                 BG_TARGET_REL is set — i.e. deferred forward (spec 2026-09-09). */}
-            <KpiCard label="עוברות לגרסה הבאה" value={String(dashboard.movedToNext)} sub={pct(dashboard.movedToNext, dashboard.reported)} color={C.brand}
+            <KpiCard label="עוברות לגרסה הבאה" value={String(dashboard.movedToNext)} sub={pct(dashboard.movedToNext, dashboard.reported)} colorClass="text-primary"
               onClick={() => setDrilldown({ filter: 'moved-to-next', title: 'תקלות שנפתחו בגרסה זו ומועברות לגרסה הבאה (שדה TARGET מאוכלס)' })} />
           </div>
 
           <Card>
-            <div style={{ ...TEXT.sm, fontWeight: WEIGHT.semibold, color: C.textPrimary, marginBottom: '8px' }}>דיווח יומי <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.normal }}>· לחיצה על נקודה = התקלות שדווחו באותו יום</span></div>
+            <div className="mb-2 text-sm font-semibold text-foreground">דיווח יומי <span className="text-xs font-normal text-subtle-foreground">· לחיצה על נקודה = התקלות שדווחו באותו יום</span></div>
             <DailyTrendChart
               data={dashboard.dailyReported}
               onPointClick={date => setDrilldown({
@@ -217,7 +222,7 @@ export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId })
           </Card>
 
           <SeverityLegend />
-          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          <div className="flex flex-wrap gap-3">
             <BreakdownPanel title="פתוחות לפי סטטוס" total={dashboard.open} rows={dashboard.openByStatus}
               onSelect={label => setDrilldown({ filter: 'status', value: label, title: `תקלות פתוחות — סטטוס: ${label}` })} />
             <BreakdownPanel title="פתוחות לפי סוג" total={dashboard.open} rows={dashboard.openByType}

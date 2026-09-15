@@ -803,10 +803,10 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
     <div ref={rootRef} style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
       {/* ── Greeting bar — excluded from the email copy (data-noemail); it also
           hosts the copy button, so the button never lands in the copy. ── */}
-      <div data-noemail style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '14px 20px', boxShadow: SHADOW.xs, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+      <div data-noemail className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-5 py-3.5 shadow-xs">
         <div>
-          <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{greeting}, {firstName} 👋</div>
-          <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '1px' }}>
+          <div className="text-lg font-bold text-foreground">{greeting}, {firstName} 👋</div>
+          <div className="mt-0.5 text-xs text-subtle-foreground">
             {new Date().toLocaleDateString('he-IL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </div>
         </div>
@@ -814,11 +814,8 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
           <button
             onClick={handleCopyToEmail}
             title="מעתיק את דף הבית ללוח כתוכן עשיר להדבקה במייל, עם קישור חוזר למערכת"
-            style={{
-              flexShrink: 0, background: copyState === 'done' ? C.success : copyState === 'error' ? C.danger : C.brand,
-              color: '#fff', border: 'none', borderRadius: RADIUS.md, padding: '8px 16px', cursor: 'pointer',
-              fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold,
-            }}
+            className="flex-shrink-0 cursor-pointer rounded-md border-none px-4 py-2 font-sans text-xs font-semibold text-white"
+            style={{ background: copyState === 'done' ? C.success : copyState === 'error' ? C.danger : C.brand }}
           >
             {copyState === 'done' ? '✓ הועתק — הדבק במייל' : copyState === 'error' ? '✕ ההעתקה נכשלה' : '📧 העתק דף הבית למייל'}
           </button>
@@ -932,15 +929,15 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
                   (card tint + border, above) but drops the "נמוכה/בינונית/..."
                   pill — the wording adds noise there, the tint already says it
                   (spec 2026-09-05). Still shown on the live screen. */}
-              <span data-noemail style={{ display: 'inline-block', ...TEXT.xs, fontWeight: WEIGHT.bold, color: severityColor(n.urgency), background: C.bgCard, border: `1px solid ${severityColor(n.urgency)}`, borderRadius: RADIUS.full, padding: '1px 8px', marginBottom: '4px' }}>
+              <span data-noemail className="mb-1 inline-block rounded-full bg-card px-2 py-px text-xs font-bold" style={{ color: severityColor(n.urgency), border: `1px solid ${severityColor(n.urgency)}` }}>
                 {severityLabel(n.urgency)}
               </span>
               <div style={{ ...TEXT.sm, color: C.textPrimary, whiteSpace: 'pre-wrap' as const }}>{n.text}</div>
             </div>
             {canEditNotice && (
-              <div data-noemail style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                <button onClick={() => startEditNotice(n)} style={{ background: 'transparent', border: 'none', ...TEXT.xs, color: C.brand, cursor: 'pointer', fontFamily: FONT, fontWeight: WEIGHT.semibold }}>✏️ ערוך</button>
-                <button onClick={() => deleteNotice(n.id)} disabled={savingNotice} style={{ background: 'transparent', border: 'none', ...TEXT.xs, color: C.danger, cursor: 'pointer', fontFamily: FONT, fontWeight: WEIGHT.semibold }}>🗑 מחק</button>
+              <div data-noemail className="flex flex-shrink-0 gap-2">
+                <button onClick={() => startEditNotice(n)} className="cursor-pointer border-none bg-transparent font-sans text-xs font-semibold text-primary">✏️ ערוך</button>
+                <button onClick={() => deleteNotice(n.id)} disabled={savingNotice} className="cursor-pointer border-none bg-transparent font-sans text-xs font-semibold text-danger">🗑 מחק</button>
               </div>
             )}
           </div>
@@ -948,37 +945,39 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
 
         <div data-noemail>
         {(addingNotice || editingNoticeId) ? (
-          <div style={{ background: C.bgHover, border: `1px solid ${C.borderEm}`, borderRadius: RADIUS.md, padding: '10px 12px', marginBottom: '14px' }}>
+          <div className="mb-3.5 rounded-md border border-border bg-muted px-3 py-2.5">
             <textarea
               autoFocus
               value={noticeDraft}
               onChange={e => setNoticeDraft(e.target.value)}
               placeholder="הודעה ידנית לצוותים (למשל: תזכורת לישיבת סטטוס)…"
-              style={{ width: '100%', minHeight: '54px', resize: 'vertical' as const, border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '7px 9px', ...TEXT.sm, color: C.textPrimary, fontFamily: FONT, background: C.bgCard }}
+              className="w-full min-h-[54px] resize-y rounded-sm border border-border bg-card px-2.5 py-1.5 font-sans text-sm text-foreground"
             />
-            <div style={{ display: 'flex', gap: '8px', marginTop: '8px', alignItems: 'center' }}>
-              <span style={{ ...TEXT.xs, color: C.textMuted }}>רמת דחיפות:</span>
+            <div className="mt-2 flex items-center gap-2">
+              <span className="text-xs text-subtle-foreground">רמת דחיפות:</span>
               <select
                 value={noticeUrgencyDraft}
                 onChange={e => setNoticeUrgencyDraft(e.target.value as Urgency)}
-                style={{ border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '4px 8px', ...TEXT.xs, color: C.textPrimary, fontFamily: FONT, background: C.bgCard }}
+                className="rounded-sm border border-border bg-card px-2 py-1 font-sans text-xs text-foreground"
               >
                 <option value="LOW">{severityLabel('LOW')}</option>
                 <option value="MEDIUM">{severityLabel('MEDIUM')}</option>
                 <option value="HIGH">{severityLabel('HIGH')}</option>
                 <option value="CRITICAL">{severityLabel('CRITICAL')}</option>
               </select>
-              <div style={{ flex: 1 }} />
-              <button onClick={cancelNoticeEdit} style={{ background: 'transparent', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, padding: '5px 12px', ...TEXT.xs, color: C.textMuted, cursor: 'pointer', fontFamily: FONT }}>ביטול</button>
-              <button onClick={saveNotice} disabled={savingNotice || !noticeDraft.trim()} style={{ background: C.brand, border: 'none', borderRadius: RADIUS.sm, padding: '5px 14px', ...TEXT.xs, fontWeight: WEIGHT.semibold, color: 'white', cursor: savingNotice || !noticeDraft.trim() ? 'not-allowed' : 'pointer', fontFamily: FONT, opacity: savingNotice || !noticeDraft.trim() ? 0.6 : 1 }}>{savingNotice ? '...' : 'שמור'}</button>
+              <div className="flex-1" />
+              <button onClick={cancelNoticeEdit} className="cursor-pointer rounded-sm border border-border bg-transparent px-3 py-1 font-sans text-xs text-subtle-foreground">ביטול</button>
+              <button
+                onClick={saveNotice}
+                disabled={savingNotice || !noticeDraft.trim()}
+                className={`rounded-sm border-none bg-primary px-3.5 py-1 font-sans text-xs font-semibold text-primary-foreground ${savingNotice || !noticeDraft.trim() ? 'cursor-not-allowed opacity-60' : 'cursor-pointer opacity-100'}`}
+              >{savingNotice ? '...' : 'שמור'}</button>
             </div>
           </div>
         ) : canEditNotice ? (
           <button
             onClick={startAddNotice}
-            style={{ width: '100%', marginBottom: '14px', background: 'transparent', border: `1px dashed ${C.border}`, borderRadius: RADIUS.md, padding: '8px', ...TEXT.xs, color: C.textMuted, cursor: 'pointer', fontFamily: FONT, transition: EASE.fast }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = C.brand; e.currentTarget.style.color = C.brand; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; }}
+            className="mb-3.5 w-full cursor-pointer rounded-md border border-dashed border-border bg-transparent p-2 font-sans text-xs text-subtle-foreground transition-colors duration-fast ease-out hover:border-primary hover:text-primary"
           >
             📌 + הוסף הודעה ידנית לצוותים
           </button>

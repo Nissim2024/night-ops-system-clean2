@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
+import { C } from '../../theme';
+import { cn } from '../../lib/utils';
 import { formatDate } from '../../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -13,15 +14,15 @@ interface TimelineActivities {
 
 function KpiCard({ value, label, valueColor }: { value: string; label: string; valueColor?: string }) {
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '16px 20px', flex: 1, minWidth: '140px' }}>
-      <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: valueColor ?? C.textPrimary, lineHeight: 1.2 }}>{value}</div>
-      <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>{label}</div>
+    <div className="min-w-[140px] flex-1 rounded-lg border border-border bg-card px-5 py-4">
+      <div className="text-xl font-bold leading-tight" style={{ color: valueColor ?? C.textPrimary }}>{value}</div>
+      <div className="mt-[3px] text-xs text-subtle-foreground">{label}</div>
     </div>
   );
 }
 
-const thStyle: React.CSSProperties = { padding: '10px 12px', ...TEXT.xs, fontWeight: WEIGHT.semibold, color: C.textMuted, textAlign: 'right', borderBottom: `2px solid ${C.border}` };
-const tdStyle: React.CSSProperties = { padding: '9px 12px', ...TEXT.sm, color: C.textPrimary, borderBottom: `1px solid ${C.border}` };
+const thClass = 'border-b-2 border-border px-3 py-2.5 text-right text-xs font-semibold text-subtle-foreground';
+const tdClass = 'border-b border-border px-3 py-[9px] text-sm text-foreground';
 const fmtDate = (iso: string | null) => iso ? formatDate(iso) : '—';
 
 interface Props { token: string; versionId?: string; role: string; }
@@ -44,49 +45,49 @@ export const TimelineActivitiesView: React.FC<Props> = ({ token, versionId }) =>
   useEffect(() => { load(); }, [load]);
 
   if (!versionId) {
-    return <div style={{ fontFamily: FONT, direction: 'rtl', textAlign: 'center', padding: SP[8], color: C.textMuted }}>בחר גרסה מתפריט הצד.</div>;
+    return <div className="p-8 text-center text-subtle-foreground" dir="rtl">בחר גרסה מתפריט הצד.</div>;
   }
-  if (loading && !data) return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>טוען...</div>;
-  if (!data) return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>לא ניתן לטעון נתונים עבור גרסה זו.</div>;
+  if (loading && !data) return <div className="p-6 text-subtle-foreground" dir="rtl">טוען...</div>;
+  if (!data) return <div className="p-6 text-subtle-foreground" dir="rtl">לא ניתן לטעון נתונים עבור גרסה זו.</div>;
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>🗓️ ציר זמן ופעילויות</div>
+    <div className="flex flex-col gap-4" dir="rtl">
+      <div className="text-lg font-bold text-foreground">🗓️ ציר זמן ופעילויות</div>
 
-      <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
+      <div className="flex flex-wrap gap-3">
         <KpiCard value={String(data.kpis.activities)} label="Activities" />
         <KpiCard value={String(data.kpis.delayed)} label="Delayed" valueColor={data.kpis.delayed > 0 ? C.danger : C.success} />
         <KpiCard value={String(data.kpis.upcoming)} label="Upcoming" valueColor={C.brand} />
         <KpiCard value={String(data.kpis.criticalMilestones)} label="Critical Milestones" valueColor="#e8af00" />
       </div>
 
-      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, overflowX: 'auto' }}>
+      <div className="overflow-x-auto rounded-lg border border-border bg-card">
         {data.rows.length === 0 ? (
-          <div style={{ ...TEXT.sm, color: C.textMuted, padding: SP[6], textAlign: 'center' }}>אין פעילויות רשומות לגרסה זו.</div>
+          <div className="p-6 text-center text-sm text-subtle-foreground">אין פעילויות רשומות לגרסה זו.</div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className="w-full border-collapse">
             <thead>
               <tr>
-                <th style={thStyle}>פעילות</th>
-                <th style={thStyle}>אחראי</th>
-                <th style={thStyle}>קטגוריה</th>
-                <th style={thStyle}>התחלה</th>
-                <th style={thStyle}>סיום</th>
-                <th style={thStyle}>מצב</th>
+                <th className={thClass}>פעילות</th>
+                <th className={thClass}>אחראי</th>
+                <th className={thClass}>קטגוריה</th>
+                <th className={thClass}>התחלה</th>
+                <th className={thClass}>סיום</th>
+                <th className={thClass}>מצב</th>
               </tr>
             </thead>
             <tbody>
               {data.rows.map((r, i) => (
                 <tr key={i}>
-                  <td style={tdStyle}>{r.label}</td>
-                  <td style={tdStyle}>{r.owner || '—'}</td>
-                  <td style={tdStyle}>{r.category === 'golive' ? '🚀 golive' : r.category}</td>
-                  <td style={tdStyle}>{fmtDate(r.dateStart)}</td>
-                  <td style={{ ...tdStyle, color: r.delayed ? C.danger : C.textPrimary }}>{fmtDate(r.dateEnd)}</td>
-                  <td style={tdStyle}>
-                    {r.delayed && <span style={{ color: C.danger, fontWeight: WEIGHT.semibold }}>באיחור</span>}
-                    {!r.delayed && r.upcoming && <span style={{ color: C.brand, fontWeight: WEIGHT.semibold }}>עתידי</span>}
-                    {!r.delayed && !r.upcoming && <span style={{ color: C.success, fontWeight: WEIGHT.semibold }}>בתוקף</span>}
+                  <td className={tdClass}>{r.label}</td>
+                  <td className={tdClass}>{r.owner || '—'}</td>
+                  <td className={tdClass}>{r.category === 'golive' ? '🚀 golive' : r.category}</td>
+                  <td className={tdClass}>{fmtDate(r.dateStart)}</td>
+                  <td className={cn(tdClass, r.delayed ? 'text-danger' : 'text-foreground')}>{fmtDate(r.dateEnd)}</td>
+                  <td className={tdClass}>
+                    {r.delayed && <span className="font-semibold text-danger">באיחור</span>}
+                    {!r.delayed && r.upcoming && <span className="font-semibold text-primary">עתידי</span>}
+                    {!r.delayed && !r.upcoming && <span className="font-semibold text-success">בתוקף</span>}
                   </td>
                 </tr>
               ))}

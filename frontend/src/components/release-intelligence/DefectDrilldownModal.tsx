@@ -1,153 +1,111 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS, JIRA } from '../../theme';
+import { JIRA } from '../../theme';
 import { DefectDetailScreen } from '../quality-hub/OpenProdDefectsView';
-import { hasHebrew, PersonAvatar, NameBadge, useColumnFilters, EnumFilterButton } from '../shared/defectFieldDisplay';
+import {
+  hasHebrew, PersonAvatar, NameBadge, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
+  IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, SelectColumnsDialog,
+} from '../shared/defectFieldDisplay';
 import { BackLink } from '../ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
+// Field set mirrors backend DefectDto (qc.service.ts) 1:1 — extended
+// 2026-09-14 to bring this screen's column-picker breadth and label
+// language (English, matching the reference ALM/QC "Select Columns" dialog)
+// in line with VersionOverview's TARGET-defect screen; both ultimately read
+// the same BUG table (feedback: "כל התקלות שדווחו" had far fewer columns,
+// in Hebrew, even though the underlying data is the same).
 interface Defect {
   id: string; title: string; severity: string; status: string; assignedTo: string; discoveryDate: string;
   priority: string; reporter: string; environment: string; testPhase: string; defectType: string;
-  system: string; responsibility: string; crHbrNumberReference: string; fixType: string; reason: string;
-  reopenYn: string; description: string; notes: string; targetRelease: string;
+  system: string; responsibility: string; crHbrNumberReference: string; crReferenceNumber: string;
+  fixType: string; reason: string; reopenYn: string; description: string; notes: string; targetRelease: string;
+  subject: string; qaTester: string; estimatedFixTime: string; actualFixTime: string; closedBy: string;
+  deploymentReason: string; fixedUntil: string; vendorStatus: string; responseDate: string;
+  supportReferenceNumber: string; subModule: string; fixedInProd: string; mainModule: string;
+  supportStatus: string; vendorAssignTo: string; category: string; itemType: string; estimateFixTime: string;
+  platform: string; modified: string; detectedInRelease: string; detectedInCycle: string; targetCycle: string;
+  crStatus: string; dropNumber: string; influence: string; secondaryPriority: string; releaseDefect: string;
+  businessProcess: string; foundByAutomation: string; mainBusinessProcess: string; impact: string;
+  productionReason: string; environmentComponent: string; willBeTestAtGoLive: string; deploymentCategory: string;
+  defectResponsible: string; targetReleaseReason: string; targetType: string; systemComponent: string;
+  forRegressionTest: string; escDefectResponsible: string; toBeTestedOnProd: string; deploymentDateProd: string;
+  targetScopeApproved: string;
 }
 
 type ColumnKey = keyof Defect;
 const ALL_COLUMNS: { key: ColumnKey; label: string }[] = [
-  { key: 'id', label: 'תקלה' },
-  { key: 'title', label: 'כותרת' },
-  { key: 'severity', label: 'חומרה' },
-  { key: 'status', label: 'סטטוס' },
-  { key: 'assignedTo', label: 'אחראי' },
-  { key: 'discoveryDate', label: 'תאריך גילוי' },
-  { key: 'priority', label: 'עדיפות' },
-  { key: 'reporter', label: 'מדווח' },
-  { key: 'environment', label: 'סביבה' },
-  { key: 'testPhase', label: 'שלב בדיקה' },
-  { key: 'defectType', label: 'סוג תקלה' },
-  { key: 'system', label: 'פרויקט / מערכת' },
-  { key: 'responsibility', label: 'צוות אחראי' },
-  { key: 'crHbrNumberReference', label: 'CR/HBR' },
-  { key: 'fixType', label: 'סוג תיקון' },
-  { key: 'reason', label: 'סיבה' },
-  { key: 'reopenYn', label: 'נפתח מחדש' },
-  { key: 'description', label: 'תיאור' },
-  { key: 'notes', label: 'הערות' },
-  { key: 'targetRelease', label: 'יעד (גרסה הבאה)' },
+  { key: 'id', label: 'Defect ID' },
+  { key: 'title', label: 'Title' },
+  { key: 'subject', label: 'Subject' },
+  { key: 'severity', label: 'Severity' },
+  { key: 'status', label: 'Bug Status' },
+  { key: 'assignedTo', label: 'Assigned To' },
+  { key: 'qaTester', label: 'QA' },
+  { key: 'discoveryDate', label: 'Detected on Date' },
+  { key: 'priority', label: 'Priority' },
+  { key: 'reporter', label: 'Detected By' },
+  { key: 'environment', label: 'Environment' },
+  { key: 'testPhase', label: 'Test Phase' },
+  { key: 'defectType', label: 'Bug Type' },
+  { key: 'system', label: 'Project' },
+  { key: 'responsibility', label: 'Responsibility' },
+  { key: 'crHbrNumberReference', label: 'CR/HBR Number reference' },
+  { key: 'crReferenceNumber', label: 'CR Reference Number' },
+  { key: 'fixType', label: 'Fix Type' },
+  { key: 'reason', label: 'Reason' },
+  { key: 'reopenYn', label: 'Reopen Y/N' },
+  { key: 'description', label: 'Description' },
+  { key: 'notes', label: 'Comments' },
+  { key: 'targetRelease', label: 'Target Release' },
+  { key: 'estimatedFixTime', label: 'Estimated Fix Time' },
+  { key: 'actualFixTime', label: 'Fix Time' },
+  { key: 'closedBy', label: 'Closed By' },
+  { key: 'deploymentReason', label: 'Deployment Reason' },
+  { key: 'fixedUntil', label: 'Fixed Until' },
+  { key: 'vendorStatus', label: 'Vendor Status' },
+  { key: 'responseDate', label: 'Response Date' },
+  { key: 'supportReferenceNumber', label: 'Support Reference Number' },
+  { key: 'subModule', label: 'Sub Module' },
+  { key: 'fixedInProd', label: 'Fixed in Prod' },
+  { key: 'mainModule', label: 'Main Module' },
+  { key: 'supportStatus', label: 'Support Status' },
+  { key: 'vendorAssignTo', label: 'Assign To (Vendor)' },
+  { key: 'category', label: 'Category' },
+  { key: 'itemType', label: 'Item Type' },
+  { key: 'estimateFixTime', label: 'Estimate Fix Time' },
+  { key: 'platform', label: 'Platform' },
+  { key: 'modified', label: 'Modified' },
+  { key: 'detectedInRelease', label: 'Detected in Release' },
+  { key: 'detectedInCycle', label: 'Detected in Cycle' },
+  { key: 'targetCycle', label: 'Target Cycle' },
+  { key: 'crStatus', label: 'CR Status' },
+  { key: 'dropNumber', label: 'Drop#' },
+  { key: 'influence', label: 'Influence' },
+  { key: 'secondaryPriority', label: 'Secondary Priority' },
+  { key: 'releaseDefect', label: 'Release Defect' },
+  { key: 'businessProcess', label: 'Business Process' },
+  { key: 'foundByAutomation', label: 'Found By Automation' },
+  { key: 'mainBusinessProcess', label: 'Main Business Process' },
+  { key: 'impact', label: 'Impact' },
+  { key: 'productionReason', label: 'Production Reason' },
+  { key: 'environmentComponent', label: 'Environment Component' },
+  { key: 'willBeTestAtGoLive', label: 'Will Be Test At Go Live' },
+  { key: 'deploymentCategory', label: 'Deployment Category' },
+  { key: 'defectResponsible', label: 'Defect Responsible' },
+  { key: 'targetReleaseReason', label: 'Target Release Reason' },
+  { key: 'targetType', label: 'Target Type' },
+  { key: 'systemComponent', label: 'System Component' },
+  { key: 'forRegressionTest', label: 'For Regression Test' },
+  { key: 'escDefectResponsible', label: 'Esc Defect Responsible' },
+  { key: 'toBeTestedOnProd', label: 'To Be Tested On Prod' },
+  { key: 'deploymentDateProd', label: 'Deployment Date (Prod)' },
+  { key: 'targetScopeApproved', label: 'Target Scope Approved' },
 ];
 const DEFAULT_COLUMNS: ColumnKey[] = ['id', 'title', 'severity', 'status', 'assignedTo', 'discoveryDate'];
 const COLUMNS_STORAGE_KEY = 'deploycenter_defect_drilldown_columns_v1';
 
-const columnMoveBtnStyle: React.CSSProperties = {
-  padding: '4px 10px', background: C.bgNested, color: C.textPrimary,
-  border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer',
-  fontSize: '13px', fontFamily: FONT, minWidth: '36px',
-};
-
-// Same "Select Columns" UX already established in IncidentsView.tsx's
-// SelectColumnsDialog (mirrors the reference ALM/QC dialog) — retyped here
-// for Defect. Kept as a separate copy rather than a shared generic: the two
-// column sets (ImportCandidate vs Defect) don't overlap enough to be worth
-// the added indirection of a shared generic component (2026-08-29).
-function SelectColumnsDialog({ visibleKeys, onApply, onClose }: {
-  visibleKeys: ColumnKey[]; onApply: (keys: ColumnKey[]) => void; onClose: () => void;
-}) {
-  const [visible, setVisible] = useState(
-    visibleKeys.map(k => ALL_COLUMNS.find(c => c.key === k)).filter((c): c is { key: ColumnKey; label: string } => !!c)
-  );
-  const [available, setAvailable] = useState(ALL_COLUMNS.filter(c => !visibleKeys.includes(c.key)));
-  const [selAvailable, setSelAvailable] = useState<Set<ColumnKey>>(new Set());
-  const [selVisible, setSelVisible] = useState<Set<ColumnKey>>(new Set());
-
-  const toggle = (set: Set<ColumnKey>, key: ColumnKey, setFn: (s: Set<ColumnKey>) => void) => {
-    const next = new Set(set);
-    if (next.has(key)) next.delete(key); else next.add(key);
-    setFn(next);
-  };
-
-  const moveToVisible = () => {
-    if (selAvailable.size === 0) return;
-    setVisible(v => [...v, ...available.filter(c => selAvailable.has(c.key))]);
-    setAvailable(a => a.filter(c => !selAvailable.has(c.key)));
-    setSelAvailable(new Set());
-  };
-  const moveToAvailable = () => {
-    if (selVisible.size === 0) return;
-    setAvailable(a => [...a, ...visible.filter(c => selVisible.has(c.key))]);
-    setVisible(v => v.filter(c => !selVisible.has(c.key)));
-    setSelVisible(new Set());
-  };
-  const moveAllToVisible = () => { setVisible(v => [...v, ...available]); setAvailable([]); setSelAvailable(new Set()); };
-  const moveAllToAvailable = () => { setAvailable(a => [...a, ...visible]); setVisible([]); setSelVisible(new Set()); };
-
-  const reorder = (dir: -1 | 1) => {
-    if (selVisible.size !== 1) return;
-    const key = Array.from(selVisible)[0];
-    const idx = visible.findIndex(c => c.key === key);
-    const newIdx = idx + dir;
-    if (newIdx < 0 || newIdx >= visible.length) return;
-    const next = [...visible];
-    [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
-    setVisible(next);
-  };
-
-  const listBoxStyle: React.CSSProperties = {
-    border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, height: '280px',
-    overflowY: 'auto', background: C.bgNested,
-  };
-  const itemStyle = (selected: boolean): React.CSSProperties => ({
-    padding: '4px 8px', fontSize: '13px', cursor: 'pointer',
-    background: selected ? C.brandDim : 'transparent', color: C.textPrimary,
-  });
-
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: C.bgCard, borderRadius: RADIUS.lg, padding: '20px', width: '660px', maxWidth: '94vw', boxShadow: '0 20px 48px rgba(0,0,0,.25)', fontFamily: FONT }}>
-        <div style={{ fontSize: '15px', fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: '14px', textAlign: 'right' }}>בחירת עמודות</div>
-        <div style={{ display: 'flex', gap: '10px', direction: 'ltr' }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: '12px', color: C.textMuted, marginBottom: '4px' }}>Available Columns:</div>
-            <div style={listBoxStyle}>
-              {available.map(c => (
-                <div key={c.key} onClick={() => toggle(selAvailable, c.key, setSelAvailable)} style={itemStyle(selAvailable.has(c.key))}>
-                  {c.label}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '6px' }}>
-            <button onClick={moveToVisible} style={columnMoveBtnStyle}>&gt;</button>
-            <button onClick={moveAllToVisible} style={columnMoveBtnStyle}>&gt;&gt;</button>
-            <button onClick={moveToAvailable} style={columnMoveBtnStyle}>&lt;</button>
-            <button onClick={moveAllToAvailable} style={columnMoveBtnStyle}>&lt;&lt;</button>
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <span style={{ fontSize: '12px', color: C.textMuted }}>Visible Columns:</span>
-              <div style={{ display: 'flex', gap: '4px' }}>
-                <button onClick={() => reorder(-1)} style={{ ...columnMoveBtnStyle, padding: '2px 8px' }}>↑</button>
-                <button onClick={() => reorder(1)} style={{ ...columnMoveBtnStyle, padding: '2px 8px' }}>↓</button>
-              </div>
-            </div>
-            <div style={listBoxStyle}>
-              {visible.map(c => (
-                <div key={c.key} onClick={() => toggle(selVisible, c.key, setSelVisible)} style={itemStyle(selVisible.has(c.key))}>
-                  {c.label}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-          <button onClick={onClose} style={{ padding: '8px 20px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontFamily: FONT }}>ביטול</button>
-          <button onClick={() => onApply(visible.map(c => c.key))} style={{ padding: '8px 20px', background: C.brand, color: 'white', border: 'none', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: '13px', fontWeight: WEIGHT.semibold, fontFamily: FONT }}>אישור</button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 interface Props {
   token: string;
@@ -159,96 +117,34 @@ interface Props {
   onClose: () => void;
 }
 
-const SEVERITY_COLOR: Record<string, string> = {
-  'Show Stopper': C.danger, Severe: C.danger, Medium: '#D97706', Low: C.textMuted,
-};
-
-// Local — matches this file's existing "duplicate small helpers rather than a
-// shared refactor" convention (see SEVERITY_COLOR/STATUS_COLOR). Soft pill
-// badge: the field's own colour as text over a 14%-alpha wash of it.
-function hexTint(hex: string, alpha = 0.14): string {
-  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim());
-  if (!m) return C.bgNested;
-  const n = parseInt(m[1], 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
-}
-// Jira "lozenge" — uppercase, tracked, fully rounded, colour over a light wash.
-function SoftBadge({ text, color, plain }: { text: string; color: string; plain?: boolean }) {
-  return (
-    <span style={{
-      fontSize: '11px', fontWeight: WEIGHT.bold, color, background: hexTint(color),
-      borderRadius: '999px', padding: '2px 8px', display: 'inline-block', whiteSpace: 'nowrap',
-      textTransform: plain ? 'none' : 'uppercase', letterSpacing: plain ? 0 : '0.03em',
-    }}>
-      {text}
-    </span>
-  );
-}
-
-// Jira-style priority arrows — a coloured glyph + the raw label.
-const PRIORITY_META: { test: RegExp; glyph: string; color: string }[] = [
-  { test: /highest|urgent|critical|show ?stopper|blocker|דחוף|קריטי/i, glyph: '⏫', color: C.danger },
-  { test: /high|גבוה/i,                                                glyph: '▲',  color: '#D04437' },
-  { test: /medium|normal|בינונ/i,                                      glyph: '▲',  color: '#E8930A' },
-  { test: /low|minor|נמוכ/i,                                           glyph: '▼',  color: '#2A8735' },
-  { test: /lowest|trivial/i,                                           glyph: '⏬', color: JIRA.textSubtle },
-];
-function PriorityCell({ value }: { value: string }) {
-  if (!value) return <span style={{ color: JIRA.textSubtle }}>—</span>;
-  const m = PRIORITY_META.find(p => p.test.test(value));
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', direction: 'ltr', fontSize: '12px', color: JIRA.text }}>
-      <span aria-hidden style={{ color: m?.color ?? JIRA.textSubtle, fontSize: '11px', lineHeight: 1 }}>{m?.glyph ?? '■'}</span>
-      {value}
-    </span>
-  );
-}
-
-// Per-column display widths — Title has none (absorbs the slack under auto
-// table-layout); everything else is compact and nowrap so the 6 default
-// columns fit a desktop modal with no horizontal scroll (UX spec 2026-09-06).
-const COL_WIDTH: Partial<Record<ColumnKey, string>> = {
-  id: '78px', severity: '104px', status: '116px', priority: '96px', reopenYn: '96px',
-  assignedTo: '164px', reporter: '164px', discoveryDate: '112px', responsibility: '150px',
-};
-
-// Same mapping as OpenProdDefectsView.tsx's STATUS_COLOR (kept as a separate
-// local copy, matching this file's existing SEVERITY_COLOR duplication
-// pattern rather than a shared-module refactor) — colored-background badge
-// for the status column, matching the defect-detail screen (spec confirmed
-// 2026-09-03).
-const STATUS_COLOR: Record<string, string> = {
-  New: C.statusOpen, Open: C.statusOpen,
-  Pending: C.statusInProgress, 'At Work': C.statusInProgress,
-  Fixed_Dev: C.warning, Fixed_Test: C.success, Fixed: C.success, Closed: C.success,
-  Reopen: C.danger, Rejected: C.textMuted, Canceled: C.textMuted,
-};
-const DEFAULT_STATUS_COLOR = C.textMuted;
+// Column widths are user-resizable (see useColumnWidths below) — Title is
+// the one exception, kept flexible/wrapping rather than a fixed resizable
+// width (UX spec 2026-09-06).
+const COLUMN_WIDTHS_STORAGE_KEY = 'deploycenter_defect_drilldown_column_widths_v1';
+const DEFAULT_COLUMN_WIDTH = 130;
 
 // Person fields resolve to an avatar; team/queue fields get the flat NameBadge.
 // `assignedTo` = BG_RESPONSIBLE is a TEAM/queue name in this QC instance
 // ("HOT Design Team"…), not a person — user-confirmed 2026-09-07; kept in sync
 // with OpenProdDefectsView.tsx's identical sets.
-const PERSON_BADGE_FIELDS = new Set<ColumnKey>(['reporter']);
+const PERSON_BADGE_FIELDS = new Set<ColumnKey>(['reporter', 'qaTester', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo']);
 const TEAM_BADGE_FIELDS = new Set<ColumnKey>(['assignedTo', 'responsibility']);
 // Fixed-vocabulary/status-like columns — centered rather than L/R-aligned by
 // language, since they're short enum values, not prose (spec confirmed
 // 2026-09-03).
 const STATUS_LIKE_FIELDS = new Set<ColumnKey>(['severity', 'status', 'priority', 'reopenYn']);
-function renderCellValue(key: ColumnKey, value: unknown, severity: string) {
+// Jira-style cell rendering, shared with every other defect table in the app
+// (VersionOverview's TARGET list, OpenProdDefectsView, KpiDetailView) via
+// shared/defectFieldDisplay — one consistent look everywhere (feedback
+// 2026-09-10: "אני רוצה שתעצב את כל טבלאות התקלות לפי ההנחיות" [Jira]).
+function renderCellValue(key: ColumnKey, value: unknown) {
   const s = String(value ?? '');
   if (!s) return key === 'priority' ? <PriorityCell value="" /> : '—';
   if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={s} full />;
   if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
-  // Jira issue key — a small coloured type marker + the id as a blue link.
-  if (key === 'id') return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', direction: 'ltr' }}>
-      <span aria-hidden style={{ width: '12px', height: '12px', borderRadius: '3px', background: SEVERITY_COLOR[severity] ?? JIRA.textSubtle, flexShrink: 0, display: 'inline-block' }} />
-      <span style={{ color: JIRA.blue, fontWeight: WEIGHT.semibold }}>#{s}</span>
-    </span>
-  );
-  if (key === 'status') return <SoftBadge text={s} color={STATUS_COLOR[s] ?? DEFAULT_STATUS_COLOR} />;
-  if (key === 'severity') return <SoftBadge text={s} color={SEVERITY_COLOR[severity] ?? C.textSecondary} />;
+  if (key === 'id') return <IssueKeyLink id={s} />;
+  if (key === 'status') return <StatusBadge status={s} />;
+  if (key === 'severity') return <SeverityBadge severity={s} />;
   if (key === 'priority') return <PriorityCell value={s} />;
   return s;
 }
@@ -268,6 +164,7 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: ColumnKey; dir: 'asc' | 'desc' } | null>(null);
+  const { getWidth: getColWidth, startResize } = useColumnWidths(COLUMN_WIDTHS_STORAGE_KEY, DEFAULT_COLUMN_WIDTH);
   const [showColumnPicker, setShowColumnPicker] = useState(false);
   const [columns, setColumns] = useState<ColumnKey[]>(() => {
     try {
@@ -306,16 +203,11 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
   }, [versionId, screen, filter, value, token]);
 
   const filters = useColumnFilters(defects as any, columns);
-  const [q, setQ] = useState('');
   const [hoverRow, setHoverRow] = useState<string | null>(null);
 
   const sorted = useMemo(() => {
     if (!defects) return defects;
-    const needle = q.trim().toLowerCase();
-    const filtered = defects.filter(d =>
-      filters.matches(d as any) &&
-      (!needle || `${d.id} ${d.title} ${d.assignedTo} ${d.reporter} ${d.responsibility}`.toLowerCase().includes(needle)),
-    );
+    const filtered = defects.filter(d => filters.matches(d as any));
     if (!sort) return filtered;
     const { key, dir } = sort;
     return [...filtered].sort((a, b) => {
@@ -323,7 +215,7 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
       const cmp = av.localeCompare(bv, 'he');
       return dir === 'asc' ? cmp : -cmp;
     });
-  }, [defects, sort, filters.matches, q]);
+  }, [defects, sort, filters.matches]);
 
   const toggleSort = (key: ColumnKey) => {
     setSort(prev => prev?.key === key ? (prev.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' });
@@ -349,7 +241,7 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
     // (bug reported 2026-08-29). Same fixed-overlay wrapper as the list view
     // below fixes it.
     return (
-      <div style={{ position: 'fixed', inset: 0, background: C.bgApp, zIndex: 1001, overflow: 'auto' }}>
+      <div className="fixed inset-0 z-[1001] overflow-auto bg-background">
         <DefectDetailScreen
           defectId={selectedDefectId}
           detailFields={detailFields}
@@ -366,129 +258,104 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
   // not a dialog-with-backdrop (feedback 2026-08-29: a modal read as
   // inconsistent with how the rest of the module already opens sub-screens).
   return (
-    <div style={{ position: 'fixed', inset: 0, background: C.bgApp, zIndex: 1001, display: 'flex', flexDirection: 'column', fontFamily: FONT, direction: 'rtl' }}>
-      <div style={{ background: C.bgCard, borderBottom: `1px solid ${C.border}`, padding: `${SP[3]} ${SP[5]}`, display: 'flex', alignItems: 'center', gap: SP[3], flexShrink: 0 }}>
+    <div dir="rtl" className="fixed inset-0 z-[1001] flex flex-col bg-background font-sans">
+      <div className="flex flex-shrink-0 items-center gap-3 border-b border-border bg-card px-5 py-3">
         <BackLink onClick={onClose} />
-        <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary, flex: 1 }}>🪲 {title}</div>
+        <div className="flex-1 text-lg font-bold text-foreground">🪲 {title}</div>
         <button
           onClick={() => setShowColumnPicker(true)}
-          style={{ padding: '6px 14px', background: C.bgNested, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT, ...TEXT.xs, fontWeight: WEIGHT.semibold }}
+          className="cursor-pointer rounded-md border border-border bg-muted px-3.5 py-1.5 font-sans text-xs font-semibold text-muted-foreground"
         >
           ⚙ בחירת עמודות
         </button>
       </div>
 
-      {/* ── סרגל סינון מאוחד — מחוץ למבנה הטבלה (UX spec 2026-09-06) ── */}
-      <div style={{ background: C.bgCard, borderBottom: `1px solid ${C.border}`, padding: `10px ${SP[5]}`, display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flexShrink: 0 }}>
-        <input
-          value={q}
-          onChange={e => setQ(e.target.value)}
-          placeholder="חיפוש חופשי (כותרת, מזהה, אחראי, מדווח)…"
-          style={{
-            flex: '1 1 280px', minWidth: 0, boxSizing: 'border-box', fontSize: '13px', padding: '6px 10px',
-            border: `1px solid ${C.border}`, borderRadius: RADIUS.md, fontFamily: FONT, color: C.textPrimary, background: C.bgApp,
-          }}
-        />
-        {visibleColumns.filter(c => c.key !== 'title' && filters.isEnum(c.key)).map(c => (
-          <div key={c.key} style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-            <span style={{ fontSize: '12px', color: C.textMuted, whiteSpace: 'nowrap' }}>{c.label}</span>
-            <div style={{ minWidth: '96px' }}>
-              <EnumFilterButton
-                label={c.label}
-                options={filters.distinctValues(c.key)}
-                selected={filters.enumSelected(c.key)}
-                onToggle={v => filters.toggleEnumValue(c.key, v)}
-              />
-            </div>
-          </div>
-        ))}
-        {(q || visibleColumns.some(c => filters.enumSelected(c.key).size > 0)) && (
-          <button
-            onClick={() => { setQ(''); visibleColumns.forEach(c => filters.enumSelected(c.key).forEach(v => filters.toggleEnumValue(c.key, v))); }}
-            style={{ fontSize: '12px', padding: '5px 10px', background: 'none', border: `1px solid ${C.border}`, borderRadius: RADIUS.sm, cursor: 'pointer', color: C.textSecondary, fontFamily: FONT, flexShrink: 0 }}
-          >
-            נקה סינון
-          </button>
-        )}
-      </div>
-
-      <div style={{ flex: 1, overflow: 'auto', padding: SP[5] }}>
+      {/* Table sits on its own white card surface over the page's grey
+          background (bg-background on the outer shell) — Jira's "card & panel
+          surfaces" convention (feedback 2026-09-10), matching how the
+          TARGET-defect list and OpenProdDefectsView already present theirs. */}
+      <div className="flex-1 overflow-auto p-5">
           {loading ? (
-            <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[6] }}>טוען...</div>
+            <div className="p-6 text-center text-sm text-subtle-foreground">טוען...</div>
           ) : error ? (
-            <div style={{ ...TEXT.sm, color: C.danger, textAlign: 'center', padding: SP[6] }}>⚠️ {error}</div>
+            <div className="p-6 text-center text-sm text-danger">⚠️ {error}</div>
           ) : !sorted || sorted.length === 0 ? (
-            <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[6] }}>אין תקלות ברשימה זו</div>
+            <div className="p-6 text-center text-sm text-subtle-foreground">אין תקלות ברשימה זו</div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'auto', fontSize: '13px', color: JIRA.text }}>
-              <thead>
-                <tr>
-                  {visibleColumns.map(c => (
-                    <th
-                      key={c.key}
-                      onClick={() => toggleSort(c.key)}
-                      style={{
-                        padding: '6px 10px', textAlign: 'right', fontWeight: WEIGHT.bold, color: JIRA.textSubtle,
-                        fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em',
-                        borderBottom: `2px solid ${JIRA.greyN40}`, cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none',
-                        width: COL_WIDTH[c.key], minWidth: c.key === 'title' ? '300px' : undefined,
-                      }}
-                    >
-                      {c.label}{sort?.key === c.key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map(d => (
-                  <tr
-                    key={d.id}
-                    onClick={() => setSelectedDefectId(d.id)}
-                    onMouseEnter={() => setHoverRow(d.id)}
-                    onMouseLeave={() => setHoverRow(r => (r === d.id ? null : r))}
-                    style={{ cursor: 'pointer', background: hoverRow === d.id ? JIRA.rowHover : undefined }}
-                  >
-                    {visibleColumns.map(c => {
-                      const isBadge = PERSON_BADGE_FIELDS.has(c.key) || TEAM_BADGE_FIELDS.has(c.key);
-                      const isCentered = STATUS_LIKE_FIELDS.has(c.key) || c.key === 'id';
-                      const isTitle = c.key === 'title';
-                      const raw = String(d[c.key] ?? '');
-                      const rtl = isBadge || isCentered ? false : hasHebrew(raw);
-                      return (
-                        <td
-                          key={c.key}
-                          title={isTitle ? raw : undefined}
-                          style={{
-                            padding: '8px 10px', borderBottom: `1px solid ${JIRA.greyN40}`, fontFamily: FONT,
-                            width: COL_WIDTH[c.key], minWidth: isTitle ? '300px' : undefined,
-                            // Title wraps (2-line clamp + native tooltip for the rest);
-                            // every other column stays a single compact line.
-                            ...(isTitle
-                              ? { whiteSpace: 'normal', wordBreak: 'break-word', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.4 }
-                              : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
-                            color: isBadge || c.key === 'severity' || c.key === 'id' || c.key === 'priority' ? undefined : JIRA.text,
-                            fontWeight: isTitle ? WEIGHT.semibold : WEIGHT.normal,
-                            direction: isCentered ? undefined : (rtl ? 'rtl' : 'ltr'),
-                            textAlign: isCentered ? 'center' : (rtl ? 'right' : 'left'),
-                          }}
-                        >
-                          {renderCellValue(c.key, d[c.key], d.severity)}
-                        </td>
-                      );
-                    })}
+            <div className="overflow-hidden rounded-lg bg-card" style={{ border: `1px solid ${JIRA.greyN40}` }}>
+              <table className="w-full border-collapse text-[13px]" style={{ tableLayout: 'auto', color: JIRA.text }}>
+                <thead>
+                  <tr>
+                    {visibleColumns.map(c => (
+                      <th
+                        key={c.key}
+                        onClick={() => toggleSort(c.key)}
+                        className="relative cursor-pointer select-none overflow-hidden text-ellipsis whitespace-nowrap px-2.5 py-2 text-end text-[11px] font-bold tracking-wide"
+                        style={{
+                          color: JIRA.textSubtle,
+                          borderBottom: `2px solid ${JIRA.greyN40}`,
+                          width: c.key === 'title' ? undefined : getColWidth(c.key), minWidth: c.key === 'title' ? '300px' : undefined,
+                        }}
+                      >
+                        {c.label}{sort?.key === c.key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
+                        {c.key !== 'title' && <ColumnResizeHandle onMouseDown={e => startResize(c.key, e)} />}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                  <ColumnFilterRow columns={visibleColumns} getWidth={getColWidth} filters={filters} />
+                </thead>
+                <tbody>
+                  {sorted.map(d => (
+                    <tr
+                      key={d.id}
+                      onClick={() => setSelectedDefectId(d.id)}
+                      onMouseEnter={() => setHoverRow(d.id)}
+                      onMouseLeave={() => setHoverRow(r => (r === d.id ? null : r))}
+                      className="cursor-pointer"
+                      style={{ background: hoverRow === d.id ? JIRA.rowHover : undefined }}
+                    >
+                      {visibleColumns.map(c => {
+                        const isBadge = PERSON_BADGE_FIELDS.has(c.key) || TEAM_BADGE_FIELDS.has(c.key);
+                        const isCentered = STATUS_LIKE_FIELDS.has(c.key) || c.key === 'id';
+                        const isTitle = c.key === 'title';
+                        const raw = String(d[c.key] ?? '');
+                        const rtl = isBadge || isCentered ? false : hasHebrew(raw);
+                        return (
+                          <td
+                            key={c.key}
+                            title={isTitle ? raw : undefined}
+                            className={isTitle ? 'font-semibold' : 'font-normal'}
+                            style={{
+                              padding: '8px 10px', borderBottom: `1px solid ${JIRA.greyN40}`,
+                              width: isTitle ? undefined : getColWidth(c.key), minWidth: isTitle ? '300px' : undefined,
+                              // Title wraps (2-line clamp + native tooltip for the rest);
+                              // every other column stays a single compact line.
+                              ...(isTitle
+                                ? { whiteSpace: 'normal', wordBreak: 'break-word', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.4 }
+                                : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
+                              color: isBadge || c.key === 'severity' || c.key === 'id' || c.key === 'priority' ? undefined : JIRA.text,
+                              direction: isCentered ? undefined : (rtl ? 'rtl' : 'ltr'),
+                              textAlign: isCentered ? 'center' : (rtl ? 'right' : 'left'),
+                            }}
+                          >
+                            {renderCellValue(c.key, d[c.key])}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 
-      <div style={{ padding: `${SP[3]} ${SP[5]}`, borderTop: `1px solid ${C.border}`, ...TEXT.xs, color: C.textMuted, textAlign: 'left', flexShrink: 0 }}>
+      <div className="flex-shrink-0 border-t border-border px-5 py-3 text-start text-xs text-subtle-foreground">
         {defects ? `${defects.length} תקלות` : ''}
       </div>
 
       {showColumnPicker && (
-        <SelectColumnsDialog visibleKeys={columns} onApply={applyColumns} onClose={() => setShowColumnPicker(false)} />
+        <SelectColumnsDialog allColumns={ALL_COLUMNS} visibleKeys={columns} onApply={applyColumns} onClose={() => setShowColumnPicker(false)} />
       )}
     </div>
   );

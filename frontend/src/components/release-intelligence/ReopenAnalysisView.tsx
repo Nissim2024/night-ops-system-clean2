@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
+import { C } from '../../theme';
+import { cn } from '../../lib/utils';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -14,9 +15,9 @@ interface ReopenAnalysis {
 
 function KpiCard({ value, label, valueColor, onClick }: { value: string; label: string; valueColor?: string; onClick?: () => void }) {
   return (
-    <div onClick={onClick} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '16px 20px', flex: 1, minWidth: '140px', cursor: onClick ? 'pointer' : 'default' }}>
-      <div style={{ ...TEXT.xl, fontWeight: WEIGHT.bold, color: valueColor ?? C.textPrimary, lineHeight: 1.2 }}>{value}</div>
-      <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '3px' }}>{label}</div>
+    <div onClick={onClick} className={cn('bg-card border border-border rounded-lg py-4 px-5 flex-1 min-w-[140px]', onClick ? 'cursor-pointer' : 'cursor-default')}>
+      <div className="text-xl font-bold leading-tight text-foreground" style={valueColor ? { color: valueColor } : undefined}>{value}</div>
+      <div className="text-xs text-subtle-foreground mt-[3px]">{label}</div>
     </div>
   );
 }
@@ -29,20 +30,20 @@ function KpiCard({ value, label, valueColor, onClick }: { value: string; label: 
 const BreakdownPanel: React.FC<{ title: string; rows: Bucket[]; onBarClick?: (label: string) => void }> = ({ title, rows, onBarClick }) => {
   const max = Math.max(1, ...rows.map(r => r.count));
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4], flex: 1, minWidth: '280px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: SP[3] }}>
-        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary }}>{title}</div>
-        <span style={{ ...TEXT.xs, color: C.textMuted, background: C.bgNested, borderRadius: RADIUS.full, padding: '2px 8px' }}>{rows.reduce((s, r) => s + r.count, 0)}</span>
+    <div className="bg-card border border-border rounded-lg p-4 flex-1 min-w-[280px]">
+      <div className="flex justify-between items-center mb-3">
+        <div className="text-sm font-bold text-foreground">{title}</div>
+        <span className="text-xs text-subtle-foreground bg-muted rounded-full px-2 py-0.5">{rows.reduce((s, r) => s + r.count, 0)}</span>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '240px', overflowY: 'auto' }}>
-        {rows.length === 0 && <div style={{ ...TEXT.xs, color: C.textMuted }}>אין נתונים</div>}
+      <div className="flex flex-col gap-1.5 max-h-[240px] overflow-y-auto">
+        {rows.length === 0 && <div className="text-xs text-subtle-foreground">אין נתונים</div>}
         {rows.map(r => (
-          <div key={r.label} onClick={() => onBarClick?.(r.label)} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: onBarClick ? 'pointer' : 'default' }}>
-            <div style={{ ...TEXT.xs, color: C.textSecondary, width: '160px', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.label}>{r.label}</div>
-            <div style={{ flex: 1, height: '14px', background: C.bgNested, borderRadius: RADIUS.sm, overflow: 'hidden' }}>
-              <div style={{ width: `${(r.count / max) * 100}%`, height: '100%', background: '#e8af00', borderRadius: RADIUS.sm }} />
+          <div key={r.label} onClick={() => onBarClick?.(r.label)} className={cn('flex items-center gap-2', onBarClick ? 'cursor-pointer' : 'cursor-default')}>
+            <div className="text-xs text-muted-foreground w-[160px] shrink-0 overflow-hidden text-ellipsis whitespace-nowrap" title={r.label}>{r.label}</div>
+            <div className="flex-1 h-3.5 bg-muted rounded-sm overflow-hidden">
+              <div className="h-full bg-[#e8af00] rounded-sm" style={{ width: `${(r.count / max) * 100}%` }} />
             </div>
-            <div style={{ ...TEXT.xs, color: C.textPrimary, width: '24px', textAlign: 'left' }}>{r.count}</div>
+            <div className="text-xs text-foreground w-6 text-left">{r.count}</div>
           </div>
         ))}
       </div>
@@ -71,38 +72,38 @@ export const ReopenAnalysisView: React.FC<Props> = ({ token, versionId }) => {
   useEffect(() => { load(); }, [load]);
 
   if (!versionId) {
-    return <div style={{ fontFamily: FONT, direction: 'rtl', textAlign: 'center', padding: SP[8], color: C.textMuted }}>בחר גרסה מתפריט הצד.</div>;
+    return <div className="text-center p-8 text-subtle-foreground">בחר גרסה מתפריט הצד.</div>;
   }
-  if (loading && !data) return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>טוען...</div>;
-  if (!data) return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>לא ניתן לטעון נתונים עבור גרסה זו.</div>;
+  if (loading && !data) return <div className="p-6 text-subtle-foreground">טוען...</div>;
+  if (!data) return <div className="p-6 text-subtle-foreground">לא ניתן לטעון נתונים עבור גרסה זו.</div>;
 
   return (
-    <div style={{ fontFamily: FONT, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>♻️ ניתוח Reopen</div>
+    <div className="flex flex-col gap-4">
+      <div className="text-lg font-bold text-foreground">♻️ ניתוח Reopen</div>
 
-      <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
+      <div className="flex gap-3 flex-wrap">
         <KpiCard value={`${data.kpis.reopenRate}%`} label="Reopen Rate" valueColor={data.kpis.reopenRate > 0 ? '#e8af00' : C.success} onClick={() => setDrilldown({ filter: 'reopenAll', title: 'תקלות שנפתחו מחדש (Reopen)' })} />
         <KpiCard value={String(data.kpis.criticalReopen)} label="Critical Reopen" valueColor={data.kpis.criticalReopen > 0 ? C.danger : C.success} onClick={() => setDrilldown({ filter: 'reopenCritical', title: 'תקלות Reopen — קריטיות' })} />
         <KpiCard value={String(data.kpis.productionReopen)} label="Production Reopen" valueColor={data.kpis.productionReopen > 0 ? C.danger : C.success} onClick={() => setDrilldown({ filter: 'reopenProduction', title: 'תקלות Reopen — פרודקשן' })} />
       </div>
 
-      <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap' }}>
+      <div className="flex gap-3 flex-wrap">
         <BreakdownPanel title="לפי CR" rows={data.byCr} />
         <BreakdownPanel title="לפי צוות" rows={data.byTeam} onBarClick={label => setDrilldown({ filter: 'reopenTeam', value: label, title: `תקלות Reopen — צוות: ${label}` })} />
       </div>
 
-      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: SP[4] }}>
-        <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, color: C.textPrimary, marginBottom: SP[3] }}>מגמה יומית</div>
+      <div className="bg-card border border-border rounded-lg p-4">
+        <div className="text-sm font-bold text-foreground mb-3">מגמה יומית</div>
         {data.trend.length === 0 ? (
-          <div style={{ ...TEXT.sm, color: C.textMuted, textAlign: 'center', padding: SP[4] }}>אין נתוני מגמה.</div>
+          <div className="text-sm text-subtle-foreground text-center p-4">אין נתוני מגמה.</div>
         ) : (
-          <div style={{ display: 'flex', gap: '4px', alignItems: 'flex-end', height: '80px' }}>
+          <div className="flex gap-1 items-end h-20">
             {data.trend.map((t, i) => {
               const max = Math.max(1, ...data.trend.map(x => x.count));
               return (
-                <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }} title={`${t.date}: ${t.count}`}>
-                  <div style={{ width: '100%', maxWidth: '18px', height: `${(t.count / max) * 60}px`, minHeight: '2px', background: '#e8af00', borderRadius: '2px 2px 0 0' }} />
-                  <span style={{ ...TEXT.xs, color: C.textMuted, fontSize: '10px' }}>{t.count}</span>
+                <div key={i} className="flex-1 flex flex-col items-center gap-1" title={`${t.date}: ${t.count}`}>
+                  <div className="w-full max-w-[18px] min-h-[2px] bg-[#e8af00] rounded-t-[2px]" style={{ height: `${(t.count / max) * 60}px` }} />
+                  <span className="text-subtle-foreground text-[10px] leading-[23px]">{t.count}</span>
                 </div>
               );
             })}

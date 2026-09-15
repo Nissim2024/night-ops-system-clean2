@@ -1,5 +1,4 @@
 import React from 'react';
-import { C, FONT } from '../theme';
 
 interface Props {
   children: React.ReactNode;
@@ -23,21 +22,16 @@ export class ErrorBoundary extends React.Component<Props, State> {
   render() {
     if (this.state.error) {
       return (
-        <div style={{
-          direction: 'rtl', fontFamily: FONT,
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', minHeight: '100vh',
-          background: C.bgApp, color: C.textPrimary, gap: '16px',
-        }}>
-          <div style={{ fontSize: '48px' }}>⚠️</div>
-          <h2 style={{ margin: 0, color: C.danger }}>אירעה שגיאה בלתי צפויה</h2>
-          <p style={{ color: C.textMuted, margin: 0 }}>{this.state.error.message}</p>
+        <div
+          className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background text-foreground"
+          dir="rtl"
+        >
+          <div className="text-[48px]">⚠️</div>
+          <h2 className="m-0 text-danger">אירעה שגיאה בלתי צפויה</h2>
+          <p className="m-0 text-subtle-foreground">{this.state.error.message}</p>
           <button
             onClick={() => window.location.reload()}
-            style={{
-              padding: '10px 24px', background: C.brand, color: '#fff',
-              border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '15px',
-            }}
+            className="cursor-pointer rounded-lg border-none bg-primary px-6 py-2.5 text-[15px] text-white"
           >
             טען מחדש
           </button>
