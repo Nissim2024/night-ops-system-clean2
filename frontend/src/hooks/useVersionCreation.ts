@@ -53,6 +53,12 @@ export function useVersionCreation(token: string, opts: { onCreated: (versionId:
   const headers = { Authorization: `Bearer ${token}` };
   const [newVersion, setNewVersion] = useState<NewVersionState>(EMPTY_NEW_VERSION);
   const [qcReleases, setQcReleases] = useState<QcRelease[]>([]);
+  // Version names already known from CR_LIST (sourced from Clarity) that
+  // don't exist as a Version here yet — user's request 2026-09-19: pick a
+  // planned/future version by name instead of typing it, so the name matches
+  // exactly what Clarity/CR_LIST already calls it (and what will later be
+  // used to create the matching Release in QC).
+  const [futureVersionNames, setFutureVersionNames] = useState<string[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -64,6 +70,7 @@ export function useVersionCreation(token: string, opts: { onCreated: (versionId:
   useEffect(() => {
     axios.get(`${API}/qc-releases/active`, { headers }).then(res => setQcReleases(res.data)).catch(() => {});
     axios.get(`${API}/version-templates`, { headers }).then(res => setTemplates(res.data)).catch(() => {});
+    axios.get(`${API}/version-cr-assignments/future-versions`, { headers }).then(res => setFutureVersionNames(res.data)).catch(() => {});
   }, []); // eslint-disable-line
 
   const handlePlannedStartChange = (val: string) => {
@@ -165,7 +172,7 @@ export function useVersionCreation(token: string, opts: { onCreated: (versionId:
   };
 
   return {
-    newVersion, setNewVersion, qcReleases, templates, selectedTemplateId, setSelectedTemplateId,
+    newVersion, setNewVersion, qcReleases, futureVersionNames, templates, selectedTemplateId, setSelectedTemplateId,
     importFile, setImportFile, handlePlannedStartChange,
     createEmpty, importFromFile, createFromTemplate,
     creatingTemplate, creatingFromTemplate, importing,

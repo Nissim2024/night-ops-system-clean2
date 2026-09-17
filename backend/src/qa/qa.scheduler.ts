@@ -240,21 +240,37 @@ export function buildWorkPlan(
   const planned: PlannedCycle[] = [];
   const effLeaveDaysByTester = mergeHolidaysIntoTesterMap(leaveDaysByTester, holidayDays, crs);
 
+  // cycle3LengthDays === 0 is an explicit "no Cycle 3 for this version" —
+  // distinct from undefined ("no override, compute the default ratio-based
+  // length"). Deliberately checked with === 0, not falsy, so this can't be
+  // triggered by accident. User's own framing (2026-09-19): "if there's no
+  // cycle, there shouldn't be tasks on it — it's just gone, unless someone
+  // decides to bring it back" — bringing it back is just regenerating with a
+  // positive length again, no special-casing needed for that direction.
+  const cycle3Enabled = cycle3LengthDays !== 0;
+
   const effCycle1Length = Math.max(1, cycle1LengthDays);
   const effCycle2Length = Math.max(1, cycle2LengthDays ?? Math.round(effCycle1Length * (CYCLE_EFFORT_RATIO.CYCLE_2! / CYCLE_EFFORT_RATIO.CYCLE_1!)));
-  const effCycle3Length = Math.max(1, cycle3LengthDays ?? Math.round(effCycle1Length * (CYCLE_EFFORT_RATIO.CYCLE_3! / CYCLE_EFFORT_RATIO.CYCLE_1!)));
+  const effCycle3Length = cycle3Enabled
+    ? Math.max(1, cycle3LengthDays ?? Math.round(effCycle1Length * (CYCLE_EFFORT_RATIO.CYCLE_3! / CYCLE_EFFORT_RATIO.CYCLE_1!)))
+    : 0;
 
   const cycle1End    = addWorkDays(start, effCycle1Length - 1, holidayDays);
   const cycle2Start  = nextWorkDay(cycle1End, holidayDays);
   const cycle2End    = addWorkDays(cycle2Start, effCycle2Length - 1, holidayDays);
-  const cycle3Start  = nextWorkDay(cycle2End, holidayDays);
-  const cycle3End    = addWorkDays(cycle3Start, effCycle3Length - 1, holidayDays);
+  const cycle3Start  = cycle3Enabled ? nextWorkDay(cycle2End, holidayDays) : cycle2End;
+  const cycle3End    = cycle3Enabled ? addWorkDays(cycle3Start, effCycle3Length - 1, holidayDays) : cycle2End;
 
-  const fixedBoundaries: Record<'CYCLE_1' | 'CYCLE_2' | 'CYCLE_3', { start: Date; end: Date }> = {
+  const fixedBoundaries: Partial<Record<'CYCLE_1' | 'CYCLE_2' | 'CYCLE_3', { start: Date; end: Date }>> = {
     CYCLE_1: { start, end: cycle1End },
     CYCLE_2: { start: cycle2Start, end: cycle2End },
-    CYCLE_3: { start: cycle3Start, end: cycle3End },
+    ...(cycle3Enabled ? { CYCLE_3: { start: cycle3Start, end: cycle3End } } : {}),
   };
+  // Cycle 3 disabled → it's simply not one of the core cycles being built at
+  // all (no QaCycle row, no tasks) — not "a cycle with 0 tasks". A CR whose
+  // own cycles list still names CYCLE_3 just gets nothing scheduled for that
+  // slot, same as any other cycle a CR isn't participating in.
+  const coreCycleTypes = (cycle3Enabled ? ['CYCLE_1', 'CYCLE_2', 'CYCLE_3'] : ['CYCLE_1', 'CYCLE_2']) as CycleType[];
 
   let corePointer  = start;
   // Per-tester actual finish time, carried from cycle to cycle — an overloaded
@@ -263,10 +279,10 @@ export function buildWorkPlan(
   let carryOverEnd = new Map<string, Date>();
 
   // Cycles 1–3 are sequential; each CR participates only in cycles listed in cr.cycles
-  for (const ct of ['CYCLE_1', 'CYCLE_2', 'CYCLE_3'] as CycleType[]) {
+  for (const ct of coreCycleTypes) {
     const ratio    = CYCLE_EFFORT_RATIO[ct]!;
     const cycleCrs = crs.filter(c => c.cycles.includes(ct));
-    const b        = fixedBoundaries[ct as 'CYCLE_1' | 'CYCLE_2' | 'CYCLE_3'];
+    const b        = fixedBoundaries[ct as 'CYCLE_1' | 'CYCLE_2' | 'CYCLE_3']!;
     const cycle    = scheduleSingleCycle(ct, b.start, b.end, cycleCrs, ratio, effLeaveDaysByTester, carryOverEnd);
     planned.push(cycle);
     corePointer = nextWorkDay(cycle.plannedEnd, holidayDays);
@@ -318,10 +334,10 @@ export function buildWorkPlan(
     }
   }
 
-  for (const ct of ['CYCLE_1', 'CYCLE_2', 'CYCLE_3'] as CycleType[]) {
+  for (const ct of coreCycleTypes) {
     const cycle = planned.find(p => p.cycleType === ct)!;
     if (cycle.tasks.length === 0) continue;
-    const b = fixedBoundaries[ct as 'CYCLE_1' | 'CYCLE_2' | 'CYCLE_3'];
+    const b = fixedBoundaries[ct as 'CYCLE_1' | 'CYCLE_2' | 'CYCLE_3']!;
     // Regression-fill only applies to testers who actually had CR work in
     // this specific cycle — matching the original intent (fill THEIR idle
     // time), not "assign busywork to anyone free during this window."

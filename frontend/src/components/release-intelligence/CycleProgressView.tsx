@@ -5,7 +5,12 @@ import { cn } from '../../lib/utils';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
 import { formatDate } from '../../utils/dateFormat';
 import { PersonAvatar } from '../shared/defectFieldDisplay';
-import { BackLink, Select } from '../ui';
+import { BackLink, Select, Spinner } from '../ui';
+// './ui' (this directory) resolves the bare '../ui' specifier to the legacy
+// ui.tsx file, not the newer Radix-based ui/ folder (file-before-directory
+// resolution) — Dialog only exists in the latter, so it needs the explicit
+// subpath here rather than the barrel import everything else in this file uses.
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -27,6 +32,15 @@ export interface CrCoverageRow {
   // בוטלו" specifically).
   reportedDefectsCount: number;
   stillOpenDefectsCount: number;
+  // testingStartDate: this CR's planned test-start in the QA work plan (null
+  // if it has no scheduled CR task, e.g. Stand Alone items). notStartedYet:
+  // total===0 AND that date is still in the future — the card shows a
+  // "testing starts on..." message instead of an empty gauge in that case.
+  // qualityScore: CR_QUALITY_TARGET-style score, populated ONLY when this CR
+  // is breaching its target (null otherwise) — spec 2026-09-17.
+  testingStartDate: string | null;
+  notStartedYet: boolean;
+  qualityScore: number | null;
 }
 export interface CycleTimelineItem {
   cycleType: string; plannedStart: string; plannedEnd: string; progressPct: number; state: 'done' | 'active' | 'upcoming';
@@ -52,7 +66,7 @@ const STATE_COLOR: Record<CycleTimelineItem['state'], string> = { done: C.succes
 const STATE_LABEL: Record<CycleTimelineItem['state'], string> = { done: 'הושלם', active: 'פעיל', upcoming: 'עתידי' };
 const CYCLE_LABEL: Record<string, string> = {
   CYCLE_1: 'סבב 1', CYCLE_2: 'סבב 2', CYCLE_3: 'סבב 3',
-  STAND_ALONE: 'בדיקות עצמאיות', UAT: 'UAT', REHEARSAL: 'חזרה גנרלית', GO_LIVE: 'עליה לאוויר',
+  STAND_ALONE: 'Stand Alone Items', UAT: 'UAT', REHEARSAL: 'חזרה גנרלית', GO_LIVE: 'עליה לאוויר',
 };
 // Maps computeQgSummary's keys (release-intelligence.service.ts) to the real
 // DefectDto.severity string — same open-defects-by-severity filter the
@@ -224,7 +238,7 @@ export function RadialSegmentedGauge({
         )}
       </svg>
       <div className="absolute font-bold" style={{ color: centerColor, fontSize: Math.max(13, Math.round(size / 5.5)) }}>
-        {successPct != null ? `${successPct}%` : '—'}
+        {successPct != null ? `${successPct.toFixed(2)}%` : '—'}
       </div>
     </div>
   );
@@ -331,9 +345,25 @@ function KpiCard({ value, label, valueColor }: { value: string; label: string; v
 // Full-screen per-CR coverage breakdown for one cycle — replaces the old
 // inline expand-in-card behavior per the user's explicit instruction to
 // navigate to a new screen instead (2026-07-28).
-function CycleDetailScreen({ cycle, onBack }: { cycle: CycleTimelineItem; onBack: () => void }) {
+function CycleDetailScreen({ cycle, onBack, token }: { cycle: CycleTimelineItem; onBack: () => void; token: string }) {
   const [projectFilter, setProjectFilter] = useState('');
   const [testerFilter, setTesterFilter] = useState('');
+  // UAT-only "הצג סיכום בדיקות" button (spec 2026-09-17) — RQ_USER_26 pulled
+  // on demand per CR, not prefetched for the whole cycle (avoids N Oracle
+  // round-trips for CRs nobody actually opens).
+  const [summaryModal, setSummaryModal] = useState<{ crNumber: string; crLabel: string; loading: boolean; error: string | null; text: string | null } | null>(null);
+  const openTestSummary = async (cr: CrCoverageRow) => {
+    setSummaryModal({ crNumber: cr.crNumber, crLabel: cr.crLabel, loading: true, error: null, text: null });
+    try {
+      const res = await axios.get(`${API}/qc/cr-test-summary`, {
+        params: { crNumber: cr.crNumber },
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setSummaryModal({ crNumber: cr.crNumber, crLabel: cr.crLabel, loading: false, error: null, text: res.data ?? null });
+    } catch (e: any) {
+      setSummaryModal({ crNumber: cr.crNumber, crLabel: cr.crLabel, loading: false, error: e?.response?.data?.message || e.message || 'שגיאה בטעינת הסיכום', text: null });
+    }
+  };
   const projectOptions = Array.from(new Set(cycle.crCoverage.map(cr => cr.project).filter((p): p is string => !!p))).sort();
   const testerOptions = Array.from(new Set(cycle.crCoverage.map(cr => cr.tester).filter((t): t is string => !!t))).sort();
   const filteredCrCoverage = cycle.crCoverage.filter(cr =>
@@ -378,7 +408,7 @@ function CycleDetailScreen({ cycle, onBack }: { cycle: CycleTimelineItem; onBack
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' }}>
           {filteredCrCoverage.map(cr => {
             const hasData = cr.total > 0;
-            const successPct = hasData ? Math.round((cr.passed / cr.total) * 100) : null;
+            const successPct = hasData ? Math.round((cr.passed / cr.total) * 10000) / 100 : null;
             const openDefectsTotal = Object.values(cr.defectsBySeverity).reduce((s, n) => s + n, 0);
             return (
               <div key={cr.crNumber} className="bg-card border border-border rounded-lg p-3 flex flex-col items-center gap-2 text-center">
@@ -388,18 +418,27 @@ function CycleDetailScreen({ cycle, onBack }: { cycle: CycleTimelineItem; onBack
                   <span className="line-clamp-1">{cr.crLabel.replace(/^\d+\s*-\s*/, '')}</span>
                 </div>
 
-                {/* Gauge is the card's dominant visual (feedback 2026-09-14:
-                    "יותר מרשומות" — chose the big-gauge layout over the
-                    earlier compact side-by-side one). Per-status breakdown
-                    that used to sit below as its own text line is now on
-                    each ring segment's own hover tooltip instead. */}
-                <RadialSegmentedGauge
-                  passed={cr.passed} failed={cr.failed} blocked={cr.blocked}
-                  notCompleted={cr.notCompleted} notRun={cr.notRun} notReady={cr.notReady}
-                  notApplicable={cr.notApplicable} notRelevant={cr.notRelevant}
-                  total={cr.total} targetPct={cycle.qgTargetPct} successPct={successPct}
-                  size={96}
-                />
+                {/* notStartedYet (2026-09-17): an empty 0% gauge read as "no
+                    progress / at risk" for a CR whose testing window simply
+                    hasn't opened yet — show the scheduled start date instead
+                    of a misleading gauge. */}
+                {cr.notStartedYet && cr.testingStartDate ? (
+                  <div className="flex flex-col items-center justify-center gap-1 py-4" style={{ width: 96, height: 96 }}>
+                    <span className="text-xl">⏳</span>
+                    <span className="text-xs text-subtle-foreground">בדיקות יחלו ב-{formatDate(cr.testingStartDate)}</span>
+                  </div>
+                ) : (
+                  // Gauge is the card's dominant visual (feedback 2026-09-14:
+                  // "יותר מרשומות" — chose the big-gauge layout over the
+                  // earlier compact side-by-side one).
+                  <RadialSegmentedGauge
+                    passed={cr.passed} failed={cr.failed} blocked={cr.blocked}
+                    notCompleted={cr.notCompleted} notRun={cr.notRun} notReady={cr.notReady}
+                    notApplicable={cr.notApplicable} notRelevant={cr.notRelevant}
+                    total={cr.total} targetPct={cycle.qgTargetPct} successPct={successPct}
+                    size={96}
+                  />
+                )}
 
                 {(cr.project || cr.tester) && (
                   <div className="flex gap-2 flex-wrap justify-center text-xs text-subtle-foreground">
@@ -410,33 +449,91 @@ function CycleDetailScreen({ cycle, onBack }: { cycle: CycleTimelineItem; onBack
 
                 <div className="flex items-center gap-3 flex-wrap justify-center">
                   <DaysRemainingBadge days={cr.daysRemaining} />
-                  {/* stillOpenDefectsCount/reportedDefectsCount — new per the
-                      user's explicit request (2026-09-14): how many defects
-                      were ever reported against this CR, and how many of
-                      those are still not Closed and not Canceled (narrower
+                  {/* stillOpenDefectsCount/reportedDefectsCount — how many
+                      defects were ever reported against this CR, and how many
+                      of those are still not Closed and not Canceled (narrower
                       than this screen's usual "open" — Rejected/Fixed count
-                      as still-open here, unlike elsewhere). Severity
-                      breakdown of the currently-open subset is in the title
-                      tooltip rather than its own chip row, to keep the card
-                      compact. */}
+                      as still-open here, unlike elsewhere). */}
                   {cr.reportedDefectsCount > 0 && (
                     <span
                       className="inline-flex items-center gap-1 text-xs font-semibold rounded-full py-0.5 px-[9px] whitespace-nowrap"
                       style={{ color: C.danger, background: `${C.danger}14`, border: `1px solid ${C.danger}40` }}
-                      title={openDefectsTotal > 0
-                        ? Object.entries(cr.defectsBySeverity).filter(([, n]) => n > 0)
-                            .map(([key, n]) => `${CR_DEFECT_SEVERITY_META[key].label}: ${n}`).join(' · ')
-                        : undefined}
                     >
                       🐞 {cr.stillOpenDefectsCount}/{cr.reportedDefectsCount}
                     </span>
                   )}
+                  {/* Quality score chip — only rendered when qualityByCr flagged
+                      this CR as breaching target (spec 2026-09-17: "רק כאשר
+                      הוא חורג"), never for a CR that meets it. */}
+                  {cr.qualityScore != null && (
+                    <span
+                      className="inline-flex items-center gap-1 text-xs font-semibold rounded-full py-0.5 px-[9px] whitespace-nowrap"
+                      style={{ color: '#e8af00', background: '#e8af0014', border: '1px solid #e8af0040' }}
+                      title="מדד איכות CR חורג מהיעד (0.15)"
+                    >
+                      🎯 {cr.qualityScore.toFixed(2)}
+                    </span>
+                  )}
                 </div>
+
+                {/* Visible severity breakdown of currently-open defects — was
+                    hover-tooltip-only, moved into the card itself per the
+                    user's explicit request (2026-09-17: "בדומה לתצוגה 5
+                    Severe 13 Medium 8 Low"). */}
+                {openDefectsTotal > 0 && (
+                  <div className="flex flex-wrap justify-center gap-x-2 gap-y-0.5 text-xs text-subtle-foreground">
+                    {Object.entries(cr.defectsBySeverity).filter(([, n]) => n > 0).map(([key, n]) => (
+                      <span key={key} style={{ whiteSpace: 'nowrap' }}>
+                        <span className="font-bold" style={{ color: CR_DEFECT_SEVERITY_META[key].color }}>{n}</span>
+                        {' '}{CR_DEFECT_SEVERITY_META[key].label}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Only on UAT cycle CR cards, per the user's explicit scope
+                    (2026-09-17) — RQ_USER_26 is a UAT-stage sign-off field,
+                    not meaningful for the earlier core cycles. */}
+                {cycle.cycleType === 'UAT' && (
+                  <button
+                    onClick={() => openTestSummary(cr)}
+                    className="text-xs font-semibold text-primary bg-transparent border-none cursor-pointer hover:underline"
+                  >
+                    📋 הצג סיכום בדיקות
+                  </button>
+                )}
               </div>
             );
           })}
         </div>
       )}
+
+      <Dialog open={!!summaryModal} onOpenChange={(open: boolean) => !open && setSummaryModal(null)}>
+        <DialogContent className="max-w-2xl w-[90vw] max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>📋 סיכום בדיקות — {summaryModal?.crNumber}{summaryModal?.crLabel ? ` — ${summaryModal.crLabel.replace(/^\d+\s*-\s*/, '')}` : ''}</DialogTitle>
+          </DialogHeader>
+          {summaryModal?.loading && (
+            <div className="flex items-center justify-center gap-2 py-8 text-sm text-subtle-foreground">
+              <Spinner /> טוען סיכום מ-QC...
+            </div>
+          )}
+          {summaryModal?.error && (
+            <div className="bg-danger-bg border border-danger/25 rounded-md p-3 text-sm text-danger whitespace-pre-wrap">
+              {summaryModal.error}
+            </div>
+          )}
+          {!summaryModal?.loading && !summaryModal?.error && (
+            summaryModal?.text ? (
+              <div className="bg-muted border border-border rounded-lg p-4 text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                {summaryModal.text}
+              </div>
+            ) : (
+              <div className="text-sm text-subtle-foreground text-center py-6">אין סיכום בדיקות עבור CR זה.</div>
+            )
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -460,7 +557,7 @@ export const CyclesPanel: React.FC<{ data: CycleProgress; token: string; version
 
   const selectedCycle = selectedCycleType ? data.timeline.find(t => t.cycleType === selectedCycleType) : null;
   if (selectedCycle) {
-    return <CycleDetailScreen cycle={selectedCycle} onBack={() => setSelectedCycleType(null)} />;
+    return <CycleDetailScreen cycle={selectedCycle} onBack={() => setSelectedCycleType(null)} token={token} />;
   }
 
   return (

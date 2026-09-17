@@ -290,7 +290,10 @@ export class QaWorkPlanService {
     const holidayDays = await this.loadHolidayDays();
     const effectiveCycle1Length = cycle1LengthDays && cycle1LengthDays > 0 ? cycle1LengthDays : 12;
     const effectiveCycle2Length = cycle2LengthDays && cycle2LengthDays > 0 ? cycle2LengthDays : undefined;
-    const effectiveCycle3Length = cycle3LengthDays && cycle3LengthDays > 0 ? cycle3LengthDays : undefined;
+    // === 0 (not falsy) is the explicit "no Cycle 3" signal buildWorkPlan
+    // checks for — must survive as a real 0 here, not collapse to undefined
+    // like every other "not set" case (2026-09-19).
+    const effectiveCycle3Length = cycle3LengthDays === 0 ? 0 : (cycle3LengthDays && cycle3LengthDays > 0 ? cycle3LengthDays : undefined);
 
     // 6. Run scheduler
     const plannedCycles: PlannedCycle[] = buildWorkPlan(
@@ -306,11 +309,13 @@ export class QaWorkPlanService {
       plannedCycles.find(c => c.cycleType === 'CYCLE_2')!.plannedEnd,
       holidayDays,
     );
-    const appliedCycle3Length = countWorkDays(
-      plannedCycles.find(c => c.cycleType === 'CYCLE_3')!.plannedStart,
-      plannedCycles.find(c => c.cycleType === 'CYCLE_3')!.plannedEnd,
-      holidayDays,
-    );
+    // CYCLE_3 may legitimately not exist in plannedCycles at all now (disabled
+    // via effectiveCycle3Length === 0) — 0 here means exactly that, not "0
+    // work days in an existing cycle" (2026-09-19).
+    const cycle3Planned = plannedCycles.find(c => c.cycleType === 'CYCLE_3');
+    const appliedCycle3Length = cycle3Planned
+      ? countWorkDays(cycle3Planned.plannedStart, cycle3Planned.plannedEnd, holidayDays)
+      : 0;
 
     // 7. Persist — delete existing plan for this version first
     let newPlanId = '';
@@ -406,6 +411,20 @@ export class QaWorkPlanService {
     }
 
     const cycle1StartMoved = plan.cycle1Start.getTime() !== cycle1Start.getTime();
+
+    // Turning Cycle 3 on/off (0 work days = disabled, 2026-09-19) structurally
+    // adds or removes a whole cycle — a different operation from reflowing
+    // dates on cycles that already exist, which is all cascadeFromCycle below
+    // is built to do (per this function's own doc comment: it never
+    // re-partitions which CRs sit where). Route that change through "יצירת
+    // תוכנית מחדש" (generateWorkPlan) instead, which already rebuilds from
+    // scratch and handles the cycle's presence/absence correctly.
+    const wasCycle3Enabled = (plan.cycle3LengthDays ?? 0) > 0;
+    if (cycle3LengthDays !== undefined && (cycle3LengthDays > 0) !== wasCycle3Enabled) {
+      throw new BadRequestException(
+        'הפעלה או ביטול של סבב 3 (אורך 0) משנים אילו סבבים קיימים בתוכנית, לא רק את התאריכים שלהם — יש לבצע זאת דרך "יצירת תוכנית מחדש", לא דרך שמירת הגדרות.',
+      );
+    }
 
     const effCycle1Length = cycle1LengthDays ?? plan.cycle1LengthDays ?? 12;
     const effCycle2Length = cycle2LengthDays ?? plan.cycle2LengthDays ?? undefined;

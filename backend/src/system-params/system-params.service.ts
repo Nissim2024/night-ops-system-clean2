@@ -163,6 +163,24 @@ const DEFAULT_PARAMS = [
     label: 'QC REST API: Project',
     type: 'text',
   },
+  // Bug found 2026-09-16: updateStatus() had been writing to REST field
+  // "status" (BG_STATUS, ALM's native field) this whole time, but this org's
+  // real business workflow — every KPI and report — runs on the custom field
+  // BG_USER_04 ("Bug Status"), not BG_STATUS. Deliberately a SystemParam, not
+  // a hardcoded constant like REST_FIELD: unlike 'status'/'name'/'dev-comments'
+  // (verified against real QC 2026-08-29 through 09-07), this field's REST
+  // name has NOT been confirmed against the real instance yet — guessing it
+  // risks writing to yet another wrong field. Leave empty until confirmed via
+  // the "🔍 הצג את כל שמות השדות" diagnostic (find the field whose value
+  // matches the defect's real Bug Status in QC's own UI, copy its REST name
+  // here). updateStatus() refuses with a clear error while this is empty,
+  // rather than silently falling back to the known-wrong BG_STATUS.
+  {
+    key: 'QC_REST_BUG_STATUS_FIELD',
+    value: '',
+    label: 'QC REST: שם שדה ה-REST של BG_USER_04 (Bug Status האמיתי, לא BG_STATUS) — לגלות דרך "הצג את כל שמות השדות" בכלי הכתיבה ל-QC לפני מילוי',
+    type: 'text',
+  },
   // Separate from the write-back connection above — a real QC Admin
   // credential, held for future QC-side administrative operations (e.g.
   // account provisioning/configuration via QC's own admin API), NOT used

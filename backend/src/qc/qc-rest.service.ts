@@ -22,7 +22,7 @@ const REST_FIELD = { id: 'id', title: 'name', status: 'status', comments: 'dev-c
 // a real defect other teams depend on).
 const COMMENT_FIELD = REST_FIELD.comments;
 
-interface QcRestConfig { baseUrl: string; domain: string; project: string; }
+interface QcRestConfig { baseUrl: string; domain: string; project: string; bugStatusField: string; }
 
 // Standalone REST integration — deliberately NOT sharing anything with
 // qc.service.ts's Oracle connection. That connection is a direct read-only
@@ -36,16 +36,17 @@ export class QcRestService {
   private readonly logger = new Logger(QcRestService.name);
 
   private async getConfig(): Promise<QcRestConfig> {
-    const keys = ['QC_REST_BASE_URL', 'QC_REST_DOMAIN', 'QC_REST_PROJECT'];
+    const keys = ['QC_REST_BASE_URL', 'QC_REST_DOMAIN', 'QC_REST_PROJECT', 'QC_REST_BUG_STATUS_FIELD'];
     const rows = await prisma.systemParam.findMany({ where: { key: { in: keys } } });
     const byKey = new Map(rows.map(r => [r.key, r.value?.trim() ?? '']));
     const baseUrl = byKey.get('QC_REST_BASE_URL') ?? '';
     const domain = byKey.get('QC_REST_DOMAIN') ?? '';
     const project = byKey.get('QC_REST_PROJECT') ?? '';
+    const bugStatusField = byKey.get('QC_REST_BUG_STATUS_FIELD') ?? '';
     if (!baseUrl || !domain || !project) {
       throw new BadRequestException('חיבור QC REST לא מוגדר במלואו בפרמטרי המערכת (Base URL / Domain / Project)');
     }
-    return { baseUrl: baseUrl.replace(/\/+$/, ''), domain, project };
+    return { baseUrl: baseUrl.replace(/\/+$/, ''), domain, project, bugStatusField };
   }
 
   // Every write-back action authenticates as the ACTING USER's own QC
@@ -125,6 +126,30 @@ export class QcRestService {
     return `${config.baseUrl}/rest/domains/${encodeURIComponent(config.domain)}/projects/${encodeURIComponent(config.project)}/defects/${encodeURIComponent(defectId)}`;
   }
 
+  private collectionUrl(config: QcRestConfig): string {
+    return `${config.baseUrl}/rest/domains/${encodeURIComponent(config.domain)}/projects/${encodeURIComponent(config.project)}/defects`;
+  }
+
+  private releasesCollectionUrl(config: QcRestConfig): string {
+    return `${config.baseUrl}/rest/domains/${encodeURIComponent(config.domain)}/projects/${encodeURIComponent(config.project)}/releases`;
+  }
+
+  // Mirrors releasesCollectionUrl's own shape — real releases read back from
+  // listReleasesRest carry a flat `parent-id` pointing at their Release
+  // Folder (not a nested URL path), so release-cycles are assumed to follow
+  // the same flat-collection-plus-parent-id convention (`parent-id` on a
+  // cycle = the Release ID, per probeEntityFields('release-cycle')'s own
+  // label for that field: "Release ID") — UNVERIFIED until the create test
+  // below actually runs, same as everything else in this file that hasn't
+  // been tried against the real instance yet.
+  private releaseCyclesCollectionUrl(config: QcRestConfig): string {
+    return `${config.baseUrl}/rest/domains/${encodeURIComponent(config.domain)}/projects/${encodeURIComponent(config.project)}/release-cycles`;
+  }
+
+  private releaseFoldersCollectionUrl(config: QcRestConfig): string {
+    return `${config.baseUrl}/rest/domains/${encodeURIComponent(config.domain)}/projects/${encodeURIComponent(config.project)}/release-folders`;
+  }
+
   // Diagnostic — every field REST actually returns for this defect, real
   // REST field names (not DB column names). Exists because BG_DEV_COMMENTS
   // (the real Oracle column) turned out not to be the REST field name QC
@@ -153,7 +178,12 @@ export class QcRestService {
 
   // Read-only preview — title/status/current comment value, for the test
   // page to show "here's what's there today" before anyone appends anything.
-  async previewDefect(defectId: string, userId: string): Promise<{ id: string; title: string; status: string; comments: string }> {
+  // "status" shown here is BG_USER_04 (the org's real Bug Status — see
+  // QC_REST_BUG_STATUS_FIELD) once configured; falls back to ALM's native
+  // BG_STATUS only so the preview still shows *something* before that's set,
+  // clearly labeled so it's never mistaken for the real field (bug found
+  // 2026-09-16 — updateStatus() used to write to native BG_STATUS by mistake).
+  async previewDefect(defectId: string, userId: string): Promise<{ id: string; title: string; status: string; statusFieldIsConfirmed: boolean; comments: string }> {
     const config = await this.getConfig();
     const qcLogin = await this.resolveQcLogin(userId);
     const cookie = await this.loginAsUser(config, qcLogin);
@@ -165,10 +195,12 @@ export class QcRestService {
       if (res.status === 404) throw new BadRequestException(`תקלה ${defectId} לא נמצאה ב-QC`);
       if (res.status !== 200) throw new BadRequestException(`שגיאה בקריאת תקלה מ-QC (status ${res.status}): ${String(res.data).slice(0, 300)}`);
       const fields = parseFields(res.data);
+      const statusFieldIsConfirmed = !!config.bugStatusField;
       return {
         id: defectId,
         title: fields[REST_FIELD.title] ?? '',
-        status: fields[REST_FIELD.status] ?? '',
+        status: (statusFieldIsConfirmed ? fields[config.bugStatusField] : fields[REST_FIELD.status]) ?? '',
+        statusFieldIsConfirmed,
         comments: fields[COMMENT_FIELD] ?? '',
       };
     } finally {
@@ -209,11 +241,15 @@ export class QcRestService {
     }
   }
 
-  // Updates BG_STATUS (REST field "status") directly. Unlike appendComment
-  // (which only ever grows a low-risk free-text field), this writes a
-  // workflow-sensitive field, so: the new value is validated against the
-  // caller-supplied allowed list when given, the previous value is read first
-  // and returned for an undo/confirmation, and a stamped line is appended to
+  // Updates BG_USER_04 ("Bug Status") — the org's REAL business-workflow
+  // status field, which every KPI/report actually runs on. NOT BG_STATUS
+  // (ALM's native field) — this method wrote to BG_STATUS by mistake from
+  // when it first shipped until the bug was found and confirmed 2026-09-16.
+  // Refuses outright while QC_REST_BUG_STATUS_FIELD isn't configured, rather
+  // than falling back to the known-wrong field. Unlike appendComment (which
+  // only ever grows a low-risk free-text field), this writes a
+  // workflow-sensitive field, so: the previous value is read first and
+  // returned for an undo/confirmation, and a stamped line is appended to
   // dev-comments so the change is traceable in QC's own history too
   // (spec 2026-09-07: "לאפשר לעדכן את שדה הסטטוס ... ישירות ב-QC").
   async updateStatus(
@@ -224,6 +260,14 @@ export class QcRestService {
   ): Promise<{ oldStatus: string; newStatus: string }> {
     if (!newStatus?.trim()) throw new BadRequestException('יש לבחור סטטוס');
     const config = await this.getConfig();
+    if (!config.bugStatusField) {
+      throw new BadRequestException(
+        'שדה ה-Bug Status האמיתי (BG_USER_04) עדיין לא הוגדר ב-SystemParam ' +
+        '(QC_REST_BUG_STATUS_FIELD). יש לגלות את שם ה-REST field שלו דרך "🔍 הצג ' +
+        'את כל שמות השדות" ולמלא אותו ב-AdminPanel לפני עדכון סטטוס — כדי לא לכתוב ' +
+        'שוב בטעות ל-BG_STATUS (השדה הלא-נכון).'
+      );
+    }
     const qcLogin = await this.resolveQcLogin(userId);
     const cookie = await this.loginAsUser(config, qcLogin);
     try {
@@ -234,7 +278,7 @@ export class QcRestService {
       if (getRes.status === 404) throw new BadRequestException(`תקלה ${defectId} לא נמצאה ב-QC`);
       if (getRes.status !== 200) throw new BadRequestException(`שגיאה בקריאת תקלה מ-QC (status ${getRes.status})`);
       const fields = parseFields(getRes.data);
-      const oldStatus = fields[REST_FIELD.status] ?? '';
+      const oldStatus = fields[config.bugStatusField] ?? '';
       if (oldStatus === newStatus.trim()) return { oldStatus, newStatus: oldStatus };
 
       const currentComments = fields[COMMENT_FIELD] ?? '';
@@ -244,7 +288,7 @@ export class QcRestService {
 
       const putRes = await axios.put(
         this.entityUrl(config, defectId),
-        buildFieldsPayload({ [REST_FIELD.status]: newStatus.trim(), [COMMENT_FIELD]: mergedComments }),
+        buildFieldsPayload({ [config.bugStatusField]: newStatus.trim(), [COMMENT_FIELD]: mergedComments }),
         { headers: { Cookie: cookie, 'Content-Type': 'application/xml', Accept: 'application/xml' }, validateStatus: () => true },
       );
       if (putRes.status >= 300) {
@@ -358,13 +402,292 @@ export class QcRestService {
       await this.logout(config, cookie);
     }
   }
+
+  // Real screenshots (2026-09-18) show new releases live under a year-named
+  // folder (Releases → 2026 → ITv07-2026) — this is the `parent-id` every real
+  // release we read back carried but couldn't explain until now. `release-
+  // folders` is confirmed as a real REST entity name from production Jenkins
+  // code (com.hot.qcupdater.enums.Entity), but never queried by us before —
+  // this answers the still-open question from spec-qc-full-integration.md §9:
+  // what's the real folder ID for "2026" (or whichever year), so release
+  // creation can resolve the right `parent-id` instead of guessing. Optional
+  // `query` uses the same `{field['value']}` syntax confirmed in that same
+  // Jenkins code (e.g. `{name['2026']}` to find one folder by name).
+  async listReleaseFoldersRest(userId: string, query?: string): Promise<Record<string, string>[]> {
+    const config = await this.getConfig();
+    const qcLogin = await this.resolveQcLogin(userId);
+    const cookie = await this.loginAsUser(config, qcLogin);
+    try {
+      const qs = query ? `?query=${encodeURIComponent(query)}` : '?page-size=100';
+      const res = await axios.get(`${this.releaseFoldersCollectionUrl(config)}${qs}`, {
+        headers: { Cookie: cookie, Accept: 'application/xml' },
+        validateStatus: () => true,
+      });
+      if (res.status === 404) throw new BadRequestException('אוסף ה-release-folders לא נמצא ב-QC REST (status 404)');
+      if (res.status !== 200) throw new BadRequestException(`שגיאה בקריאת release-folders מ-QC (status ${res.status}): ${String(res.data).slice(0, 500)}`);
+      return parseEntitiesListXml(res.data);
+    } finally {
+      await this.logout(config, cookie);
+    }
+  }
+
+  // ── Defect "lab" — generic raw field read/write (2026-09-16) ────────────
+  // ADMIN-only (gated in qc.controller.ts, not just action:qc_write) end-to-end
+  // testing tool: create a real defect / edit arbitrary fields on a real one,
+  // using whatever REST field names the admin already found via "🔍 הצג את כל
+  // שמות השדות". Deliberately generic (no field allowlist, no fixed form) —
+  // the real Create/Edit screens (per docs/spec-defects-module.md) come once
+  // this lab has confirmed which fields/values QC's REST actually accepts;
+  // building a polished form now, before that's known, would just mean
+  // rebuilding it. Every write here still goes through the same per-user
+  // qcLogin identity as the rest of this file — no shared account.
+
+  // Generalizes updateStatus/appendComment's single-field PUT to an arbitrary
+  // field map — confirms ALM REST's PUT-of-an-Entity is field-level merge
+  // (only included fields are touched), not a full-resource replace, since
+  // that's exactly what those two methods already rely on.
+  async updateFieldsRaw(defectId: string, fields: Record<string, string>, userId: string): Promise<{ ok: true; putStatus: number }> {
+    if (!fields || Object.keys(fields).length === 0) throw new BadRequestException('יש להזין לפחות שדה אחד');
+    const config = await this.getConfig();
+    const qcLogin = await this.resolveQcLogin(userId);
+    const cookie = await this.loginAsUser(config, qcLogin);
+    try {
+      const putRes = await axios.put(
+        this.entityUrl(config, defectId),
+        buildFieldsPayload(fields),
+        { headers: { Cookie: cookie, 'Content-Type': 'application/xml', Accept: 'application/xml' }, validateStatus: () => true },
+      );
+      if (putRes.status >= 300) {
+        throw new BadRequestException(`עדכון השדות נכשל ב-QC (status ${putRes.status}): ${String(putRes.data).slice(0, 800)}`);
+      }
+      return { ok: true, putStatus: putRes.status };
+    } finally {
+      await this.logout(config, cookie);
+    }
+  }
+
+  // POST to the defects COLLECTION (not an entity URL) — creates a new real
+  // defect in production QC. UNVERIFIED against this instance (same status as
+  // attachments were before listAttachments was tried for real): the exact
+  // required-fields set, and whether QC's response body carries the new ID
+  // directly or only via a Location header, are exactly what this lab call is
+  // for finding out. Tries both: parses the response body for an `id` field,
+  // falls back to the Location header's trailing path segment.
+  async createDefectRaw(fields: Record<string, string>, userId: string): Promise<{ id: string | null; raw: Record<string, string>; postStatus: number }> {
+    if (!fields || Object.keys(fields).length === 0) throw new BadRequestException('יש להזין לפחות שדה אחד');
+    const config = await this.getConfig();
+    const qcLogin = await this.resolveQcLogin(userId);
+    const cookie = await this.loginAsUser(config, qcLogin);
+    try {
+      const postRes = await axios.post(
+        this.collectionUrl(config),
+        buildFieldsPayload(fields),
+        { headers: { Cookie: cookie, 'Content-Type': 'application/xml', Accept: 'application/xml' }, validateStatus: () => true },
+      );
+      if (postRes.status >= 300) {
+        throw new BadRequestException(`יצירת התקלה ב-QC נכשלה (status ${postRes.status}): ${String(postRes.data).slice(0, 800)}`);
+      }
+      const raw = typeof postRes.data === 'string' && postRes.data.trim().startsWith('<')
+        ? parseFields(postRes.data)
+        : {};
+      const locationHeader = (postRes.headers?.['location'] as string) || '';
+      const idFromLocation = locationHeader.split('/').filter(Boolean).pop() || null;
+      return { id: raw[REST_FIELD.id] || idFromLocation, raw, postStatus: postRes.status };
+    } finally {
+      await this.logout(config, cookie);
+    }
+  }
+
+  // Stage-0's actual remaining question (2026-09-16): permission is confirmed
+  // (acting QC user has release-create rights) and the `release` entity is
+  // confirmed readable — the only thing left unverified is whether this ALM
+  // instance's classic REST API supports POST-creating one at all. One-shot
+  // test create, same pattern as createDefectRaw (generic fields, no
+  // allowlist — real releases in this project carry a `parent-id`, i.e. a
+  // Release Folder, which real creation will very likely require even though
+  // the field-metadata probe reported everything as non-required). Caller is
+  // expected to use an obviously-named test value (e.g.
+  // "DEPLOYCENTER_TEST_DELETE_ME") and delete it manually via QC UI after.
+  async createReleaseRaw(fields: Record<string, string>, userId: string): Promise<{ id: string | null; raw: Record<string, string>; postStatus: number }> {
+    if (!fields || Object.keys(fields).length === 0) throw new BadRequestException('יש להזין לפחות שדה אחד');
+    const config = await this.getConfig();
+    const qcLogin = await this.resolveQcLogin(userId);
+    const cookie = await this.loginAsUser(config, qcLogin);
+    try {
+      const postRes = await axios.post(
+        this.releasesCollectionUrl(config),
+        buildFieldsPayload(fields, 'release'),
+        { headers: { Cookie: cookie, 'Content-Type': 'application/xml', Accept: 'application/xml' }, validateStatus: () => true },
+      );
+      if (postRes.status >= 300) {
+        throw new BadRequestException(`יצירת ה-Release ב-QC נכשלה (status ${postRes.status}): ${String(postRes.data).slice(0, 800)}`);
+      }
+      const raw = typeof postRes.data === 'string' && postRes.data.trim().startsWith('<')
+        ? parseFields(postRes.data)
+        : {};
+      const locationHeader = (postRes.headers?.['location'] as string) || '';
+      const idFromLocation = locationHeader.split('/').filter(Boolean).pop() || null;
+      return { id: raw[REST_FIELD.id] || idFromLocation, raw, postStatus: postRes.status };
+    } finally {
+      await this.logout(config, cookie);
+    }
+  }
+
+  // ── Production orchestration (2026-09-18) — the real feature behind stage 2
+  // of spec-qc-full-integration.md §3.5. Deliberately NOT wired into any
+  // live user-facing trigger yet ("approve plan" → publish) — reachable only
+  // through the lab's confirm-before-send button below, until it's actually
+  // been run once against real QC. User's own call (2026-09-18): build the
+  // whole chain now rather than one probe per deploy cycle, since testing
+  // only happens where QC is reachable and each round-trip costs real days —
+  // but every write still stays behind the same explicit-confirm lab gate as
+  // everything else here, so an unverified guess can't reach real users
+  // before a human has watched it work once.
+
+  // Finds the year-named release-folder every real release we read back
+  // lives under (confirmed via screenshot 2026-09-18: Releases → 2026 →
+  // ITv07-2026); creates it if missing — same find-or-create principle as
+  // the VBScript's createProjectList (checks rootNode.Children by name,
+  // AddChild if not found). UNVERIFIED: whether POST against release-folders
+  // behaves the same as POST against releases (assumed, not yet tried).
+  async findOrCreateReleaseFolder(year: string, userId: string): Promise<{ id: string; created: boolean }> {
+    const config = await this.getConfig();
+    const qcLogin = await this.resolveQcLogin(userId);
+    const cookie = await this.loginAsUser(config, qcLogin);
+    try {
+      const getRes = await axios.get(
+        `${this.releaseFoldersCollectionUrl(config)}?query=${encodeURIComponent(`{name['${year}']}`)}`,
+        { headers: { Cookie: cookie, Accept: 'application/xml' }, validateStatus: () => true },
+      );
+      if (getRes.status === 200) {
+        const rows = parseEntitiesListXml(getRes.data);
+        const existing = rows.find(r => r[REST_FIELD.title] === year);
+        if (existing?.[REST_FIELD.id]) return { id: existing[REST_FIELD.id], created: false };
+      }
+      const postRes = await axios.post(
+        this.releaseFoldersCollectionUrl(config),
+        buildFieldsPayload({ [REST_FIELD.title]: year }, 'release-folder'),
+        { headers: { Cookie: cookie, 'Content-Type': 'application/xml', Accept: 'application/xml' }, validateStatus: () => true },
+      );
+      if (postRes.status >= 300) {
+        throw new BadRequestException(`יצירת תיקיית שנה "${year}" ב-QC נכשלה (status ${postRes.status}): ${String(postRes.data).slice(0, 500)}`);
+      }
+      const raw = typeof postRes.data === 'string' && postRes.data.trim().startsWith('<') ? parseFields(postRes.data) : {};
+      const idFromLocation = ((postRes.headers?.['location'] as string) || '').split('/').filter(Boolean).pop() || null;
+      const id = raw[REST_FIELD.id] || idFromLocation;
+      if (!id) throw new BadRequestException('תיקיית השנה נוצרה ב-QC אך לא זוהה ID בתשובה — בדוק ידנית ב-QC UI');
+      return { id, created: true };
+    } finally {
+      await this.logout(config, cookie);
+    }
+  }
+
+  // Named, confirmed-field wrapper over createReleaseRaw (§3.2: name,
+  // start-date, end-date, user-01=Release Type ["IT", confirmed via
+  // screenshot], user-03=Production Date, parent-id=year folder).
+  async createReleaseProd(input: {
+    name: string; startDate: string; endDate: string; productionDate?: string; description?: string; parentFolderId: string;
+  }, userId: string): Promise<{ id: string | null; raw: Record<string, string> }> {
+    const fields: Record<string, string> = {
+      [REST_FIELD.title]: input.name,
+      'start-date': input.startDate,
+      'end-date': input.endDate,
+      'parent-id': input.parentFolderId,
+      'user-01': 'IT',
+    };
+    if (input.description) fields['description'] = input.description;
+    if (input.productionDate) fields['user-03'] = input.productionDate;
+    const { id, raw } = await this.createReleaseRaw(fields, userId);
+    return { id, raw };
+  }
+
+  // Named, confirmed-field wrapper over createReleaseCycleRaw (§3.2:
+  // parent-id=Release ID, user-01/02/03=QG Threshold High/Medium/Low, same
+  // numbering already used against Oracle's RCYC_USER_01/02/03).
+  async createReleaseCycleProd(input: {
+    name: string; startDate: string; endDate: string; releaseId: string;
+    environment?: string; thresholdHigh?: string; thresholdMedium?: string; thresholdLow?: string;
+  }, userId: string): Promise<{ id: string | null; raw: Record<string, string> }> {
+    const fields: Record<string, string> = {
+      [REST_FIELD.title]: input.name,
+      'start-date': input.startDate,
+      'end-date': input.endDate,
+      'parent-id': input.releaseId,
+    };
+    if (input.environment) fields['user-04'] = input.environment;
+    if (input.thresholdHigh) fields['user-01'] = input.thresholdHigh;
+    if (input.thresholdMedium) fields['user-02'] = input.thresholdMedium;
+    if (input.thresholdLow) fields['user-03'] = input.thresholdLow;
+    const { id, raw } = await this.createReleaseCycleRaw(fields, userId);
+    return { id, raw };
+  }
+
+  // The whole chain in one call: resolve/create year folder → create release
+  // under it → create every requested cycle under the release. Stops at the
+  // first failure (a half-created Release with some cycles missing is a real
+  // possibility if this throws partway through — surfaced via whichever
+  // cycle's error message, not silently swallowed).
+  async createReleaseWithCycles(input: {
+    releaseName: string; startDate: string; endDate: string; productionDate?: string; year: string;
+    cycles: { name: string; startDate: string; endDate: string; environment?: string; thresholdHigh?: string; thresholdMedium?: string; thresholdLow?: string }[];
+  }, userId: string): Promise<{
+    folder: { id: string; created: boolean };
+    release: { id: string | null; raw: Record<string, string> };
+    cycles: { name: string; id: string | null; raw: Record<string, string> }[];
+  }> {
+    const folder = await this.findOrCreateReleaseFolder(input.year, userId);
+    const release = await this.createReleaseProd({
+      name: input.releaseName, startDate: input.startDate, endDate: input.endDate,
+      productionDate: input.productionDate, parentFolderId: folder.id,
+    }, userId);
+    if (!release.id) {
+      throw new BadRequestException('ה-Release נוצר אך לא זוהה ID בתשובה מ-QC — לא ניתן להמשיך ליצירת הסבבים תחתיו. בדוק ידנית ב-QC UI.');
+    }
+    const cycles: { name: string; id: string | null; raw: Record<string, string> }[] = [];
+    for (const c of input.cycles) {
+      const created = await this.createReleaseCycleProd({ ...c, releaseId: release.id }, userId);
+      cycles.push({ name: c.name, id: created.id, raw: created.raw });
+    }
+    return { folder, release, cycles };
+  }
+
+  // Same one-shot test as createReleaseRaw, for release-cycle — the other
+  // half of stage-0's actual open question. Expected required field:
+  // `parent-id` = the Release ID this cycle belongs to (per
+  // probeEntityFields('release-cycle')'s own label for parent-id: "Release
+  // ID") — caller should pass the ID of a real release (e.g. one just
+  // created via createReleaseRaw) here.
+  async createReleaseCycleRaw(fields: Record<string, string>, userId: string): Promise<{ id: string | null; raw: Record<string, string>; postStatus: number }> {
+    if (!fields || Object.keys(fields).length === 0) throw new BadRequestException('יש להזין לפחות שדה אחד');
+    const config = await this.getConfig();
+    const qcLogin = await this.resolveQcLogin(userId);
+    const cookie = await this.loginAsUser(config, qcLogin);
+    try {
+      const postRes = await axios.post(
+        this.releaseCyclesCollectionUrl(config),
+        buildFieldsPayload(fields, 'release-cycle'),
+        { headers: { Cookie: cookie, 'Content-Type': 'application/xml', Accept: 'application/xml' }, validateStatus: () => true },
+      );
+      if (postRes.status >= 300) {
+        throw new BadRequestException(`יצירת ה-Release Cycle ב-QC נכשלה (status ${postRes.status}): ${String(postRes.data).slice(0, 800)}`);
+      }
+      const raw = typeof postRes.data === 'string' && postRes.data.trim().startsWith('<')
+        ? parseFields(postRes.data)
+        : {};
+      const locationHeader = (postRes.headers?.['location'] as string) || '';
+      const idFromLocation = locationHeader.split('/').filter(Boolean).pop() || null;
+      return { id: raw[REST_FIELD.id] || idFromLocation, raw, postStatus: postRes.status };
+    } finally {
+      await this.logout(config, cookie);
+    }
+  }
 }
 
 export interface AttachmentMeta {
   name: string; fileSize: number; owner: string; uploadDate: string; description: string;
 }
 
-export interface EntityFieldMeta { name: string; label: string; type: string; required: boolean; }
+export interface EntityFieldMeta { name: string; label: string; type: string; required: boolean; raw: Record<string, string> | string; }
 
 function extractCookies(res: any): string {
   const raw: string[] = res.headers?.['set-cookie'] ?? [];
@@ -423,22 +746,34 @@ function parseAttachmentsXml(xml: string): AttachmentMeta[] {
   })).filter(a => a.name);
 }
 
-// Standard ALM/QC 11 customization-fields shape:
-// <Fields><Field Name="..." Label="..." Type="..." editable="Y" required="Y"
-// visible="Y">...</Field>...</Fields> — read defensively (multiple plausible
-// attribute-name casings) since, like parseAttachmentsXml, this hasn't been
-// verified against this specific real instance yet (that's the whole point
-// of probeEntityFields).
+// Standard ALM/QC 11 customization-fields shape — PARTIALLY confirmed
+// 2026-09-16 against the real instance: Name/Label DO come through as
+// attributes exactly as assumed, but Type/required came back empty for every
+// field on both `release` and `release-cycle` — meaning either this
+// instance's schema doesn't expose them under the attribute names guessed
+// here, or doesn't expose them at all for this entity type. Rather than
+// guess a second time (same lesson as REST_FIELD's dev-comments saga),
+// `raw` below dumps every attribute AND every child-element text this
+// specific `<Field>` actually has, so the next real probe run shows the
+// truth directly instead of forcing it through a fixed shape.
 function parseEntityFieldsXml(xml: string): EntityFieldMeta[] {
   const parsed = xmlParser.parse(xml);
   const list = parsed?.Fields?.Field ?? [];
   const arr = Array.isArray(list) ? list : [list];
-  return arr.filter(Boolean).map((f: any) => ({
-    name: f?.['@_Name'] ?? f?.['@_name'] ?? '',
-    label: f?.['@_Label'] ?? f?.['@_label'] ?? '',
-    type: f?.['@_Type'] ?? f?.['@_type'] ?? '',
-    required: ['Y', 'y', 'true', '1'].includes(String(f?.['@_required'] ?? f?.['@_Required'] ?? '')),
-  })).filter((f: EntityFieldMeta) => f.name);
+  return arr.filter(Boolean).map((f: any) => {
+    const raw: Record<string, string> = {};
+    for (const [k, v] of Object.entries(f ?? {})) {
+      if (v == null) continue;
+      raw[k] = Array.isArray(v) ? v.map(String).join(' | ') : typeof v === 'object' ? JSON.stringify(v) : String(v);
+    }
+    return {
+      name: f?.['@_Name'] ?? f?.['@_name'] ?? '',
+      label: f?.['@_Label'] ?? f?.['@_label'] ?? '',
+      type: f?.['@_Type'] ?? f?.['@_type'] ?? f?.Type ?? '',
+      required: ['Y', 'y', 'true', '1'].includes(String(f?.['@_required'] ?? f?.['@_Required'] ?? f?.Required ?? f?.Mandatory ?? '')),
+      raw,
+    };
+  }).filter((f: EntityFieldMeta) => f.name);
 }
 
 // Standard ALM/QC 11 entity-collection shape:
@@ -473,9 +808,9 @@ function xmlEscape(s: string): string {
     .replace(/'/g, '&apos;');
 }
 
-function buildFieldsPayload(fields: Record<string, string>): string {
+function buildFieldsPayload(fields: Record<string, string>, entityType: string = 'defect'): string {
   const fieldsXml = Object.entries(fields)
     .map(([name, value]) => `<Field Name="${xmlEscape(name)}"><Value>${xmlEscape(value)}</Value></Field>`)
     .join('');
-  return `<?xml version="1.0" encoding="UTF-8"?><Entity Type="defect"><Fields>${fieldsXml}</Fields></Entity>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><Entity Type="${xmlEscape(entityType)}"><Fields>${fieldsXml}</Fields></Entity>`;
 }

@@ -17,6 +17,14 @@ const BLUE_BG = 'rgba(69,115,210,0.10)';
 // ── Cycle display config ───────────────────────────────────────────────────────
 
 const ALL_CYCLES = ['CYCLE_1', 'CYCLE_2', 'CYCLE_3', 'STAND_ALONE', 'UAT', 'REHEARSAL', 'GO_LIVE'] as const;
+// Stand Alone is mutually exclusive ONLY with these — testing the same CR on
+// both a core cycle AND the SA track double-books the tester's time (the
+// scheduler builds a full-effort task on each track independently, confirmed
+// 2026-09-14). UAT/REHEARSAL/GO_LIVE are separate downstream phases every CR
+// still goes through regardless of which track tested it — bug found
+// 2026-09-19: the picker below wiped UAT (and everything else) whenever SA
+// was checked, when only the core-cycle exclusion was ever intended.
+const CORE_CYCLES = ['CYCLE_1', 'CYCLE_2', 'CYCLE_3'] as const;
 
 const CYCLE_INFO: Record<string, { label: string; fullLabel: string; color: string; bg: string }> = {
   CYCLE_1:     { label: 'ס1',  fullLabel: 'סבב 1',          color: '#1565c0', bg: 'rgba(21,101,192,0.13)'  },
@@ -863,7 +871,11 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
         setTestingEnd(toInputDate(plan.testingEnd));
         if (plan.cycle1LengthDays) setCycle1LengthDays(plan.cycle1LengthDays);
         if (plan.cycle2LengthDays) setCycle2LengthDays(plan.cycle2LengthDays);
-        if (plan.cycle3LengthDays) setCycle3LengthDays(plan.cycle3LengthDays);
+        // != null, not truthy — 0 is a real, legitimate value here ("no Cycle
+        // 3"), not "unset" (bug found 2026-09-19: a loaded plan with Cycle 3
+        // disabled would silently keep showing the previous/default length
+        // in this input instead of 0).
+        if (plan.cycle3LengthDays != null) setCycle3LengthDays(plan.cycle3LengthDays);
       }
     } catch {
       // 403 from QA-admin-only endpoints — silently leave state empty
@@ -1167,7 +1179,12 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   ) => {
     const newSA = !currentSA;
     if (asg) {
-      const newCycles = newSA ? ['STAND_ALONE'] : ['CYCLE_1', 'CYCLE_2', 'CYCLE_3'];
+      // Preserve any already-selected non-core cycle (UAT/REHEARSAL/GO_LIVE)
+      // across the flip — same fix as the checkbox picker (2026-09-19), this
+      // toggle used to always reset to exactly one of the two core-vs-SA
+      // defaults, silently dropping UAT if it had been set.
+      const nonCore = (asg.cycles ?? []).filter(c => !(CORE_CYCLES as readonly string[]).includes(c) && c !== 'STAND_ALONE');
+      const newCycles = newSA ? ['STAND_ALONE', ...nonCore] : ['CYCLE_1', 'CYCLE_2', 'CYCLE_3', ...nonCore];
       patchAssignment(asg.id, cr.crNumber, { isStandAlone: newSA, cycles: newCycles });
     } else {
       try {
@@ -2163,12 +2180,12 @@ CRים אלה לא ייכללו בתוכנית העבודה.
         )}
 
         <label className="flex flex-none flex-col gap-1">
-          <span className="text-xs font-bold uppercase tracking-wider text-subtle-foreground" title="גבול קבוע לסבב 3, בלתי תלוי בסבב 1/2">
-            אורך סבב 3 (ימי עבודה)
+          <span className="text-xs font-bold uppercase tracking-wider text-subtle-foreground" title="גבול קבוע לסבב 3, בלתי תלוי בסבב 1/2. 0 = אין סבב 3 לגרסה הזו (רק דרך 'יצירת תוכנית מחדש')">
+            אורך סבב 3 (ימי עבודה, 0 = ללא)
           </span>
           <input
-            type="number" min={1} value={cycle3LengthDays}
-            onChange={e => setCycle3LengthDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
+            type="number" min={0} value={cycle3LengthDays}
+            onChange={e => setCycle3LengthDays(Math.max(0, parseInt(e.target.value, 10) || 0))}
             className="w-[90px] rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none"
           />
         </label>
@@ -3106,20 +3123,27 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                         className="cursor-pointer"
                         style={{ accentColor: info.color }}
                         onChange={() => {
-                          // Stand Alone and the core cycles are mutually
-                          // exclusive — a CR is tested on exactly one track,
-                          // never both (confirmed 2026-09-14; previously
-                          // nothing here prevented checking e.g. CYCLE_1 and
-                          // STAND_ALONE together, which silently double-
-                          // booked the tester's time — the scheduler builds
-                          // a full-effort task on each track independently).
+                          // Stand Alone and the CORE cycles (1/2/3) are
+                          // mutually exclusive — a CR is tested on exactly one
+                          // core-vs-SA track, never both (confirmed
+                          // 2026-09-14; double-booked the tester's time
+                          // otherwise, since the scheduler builds a
+                          // full-effort task on each track independently).
+                          // UAT/REHEARSAL/GO_LIVE are separate downstream
+                          // phases every CR still goes through regardless of
+                          // track — checking STAND_ALONE must NOT wipe them
+                          // (bug found 2026-09-19: it used to reset to
+                          // exactly ['STAND_ALONE'], dropping UAT if it was
+                          // already selected).
                           let newCycles: string[];
                           if (selected) {
                             newCycles = effectiveCycles.filter(c => c !== ct);
                           } else if (ct === 'STAND_ALONE') {
-                            newCycles = ['STAND_ALONE'];
-                          } else {
+                            newCycles = [...effectiveCycles.filter(c => !(CORE_CYCLES as readonly string[]).includes(c)), ct];
+                          } else if ((CORE_CYCLES as readonly string[]).includes(ct)) {
                             newCycles = [...effectiveCycles.filter(c => c !== 'STAND_ALONE'), ct];
+                          } else {
+                            newCycles = [...effectiveCycles, ct];
                           }
                           patchAssignment(asg.id, cr.crNumber, { cycles: newCycles });
                         }}

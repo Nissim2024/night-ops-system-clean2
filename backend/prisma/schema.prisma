@@ -886,6 +886,11 @@ model QaCycle {
   plannedStart DateTime
   plannedEnd   DateTime
   notes        String?
+  // Real QC RELEASE_CYCLES.RCYC_CYCLE_ID once this cycle is written to QC
+  // ("צור ב-QC" step, spec-qc-full-integration.md §3.4) — generic across every
+  // cycleType, unlike QcRelease's goLiveCycleId/rehearsalCycleId which only
+  // ever covered two specific ones. Null until published.
+  qcCycleId    Int?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

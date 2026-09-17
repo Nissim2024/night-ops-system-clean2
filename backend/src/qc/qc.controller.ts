@@ -93,6 +93,11 @@ export class QcController {
     return this.qcService.setOpenProdDefectsConfig(body);
   }
 
+  @Get('cr-test-summary')
+  getCrTestSummary(@Query('crNumber') crNumber: string) {
+    return this.qcService.getCrTestSummary(crNumber);
+  }
+
   @Get('cr-items')
   getCrItems(
     @Query('releaseId') releaseId?: string,
@@ -143,6 +148,58 @@ export class QcController {
   async listRestReleases(@Request() req: any) {
     await this.requireQcWrite(req);
     return this.qcRestService.listReleasesRest(req.user.sub);
+  }
+
+  @Get('rest-test/release-folders')
+  async listRestReleaseFolders(@Request() req: any, @Query('q') q?: string) {
+    await this.requireQcWrite(req);
+    return this.qcRestService.listReleaseFoldersRest(req.user.sub, q);
+  }
+
+  // ── Defect "lab" (2026-09-16) — generic create/edit, ADMIN-only. Hard role
+  // gate (not just action:qc_write, which any role can be granted) since this
+  // writes arbitrary fields / creates real defects in production QC with no
+  // allowlist — a deliberately wider blast radius than the narrow tools above,
+  // meant for end-to-end discovery before the real Create/Edit screens are
+  // built (docs/spec-defects-module.md).
+  @Patch('rest-test/defect/:id/fields')
+  async updateRestFields(@Request() req: any, @Param('id') id: string, @Body('fields') fields: Record<string, string>) {
+    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול לערוך שדות מכלי המעבדה');
+    return this.qcRestService.updateFieldsRaw(id, fields, req.user.sub);
+  }
+
+  @Post('rest-test/defect')
+  async createRestDefect(@Request() req: any, @Body('fields') fields: Record<string, string>) {
+    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול ליצור תקלה חדשה מכלי המעבדה');
+    return this.qcRestService.createDefectRaw(fields, req.user.sub);
+  }
+
+  // Stage-0 final test (2026-09-16): permission + entity-readability already
+  // confirmed manually — this is the one-shot POST test to settle whether
+  // release creation is supported via REST at all. ADMIN-only, same as the
+  // defect lab above.
+  @Post('rest-test/release')
+  async createRestRelease(@Request() req: any, @Body('fields') fields: Record<string, string>) {
+    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול ליצור Release מכלי המעבדה');
+    return this.qcRestService.createReleaseRaw(fields, req.user.sub);
+  }
+
+  @Post('rest-test/release-cycle')
+  async createRestReleaseCycle(@Request() req: any, @Body('fields') fields: Record<string, string>) {
+    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול ליצור Release Cycle מכלי המעבדה');
+    return this.qcRestService.createReleaseCycleRaw(fields, req.user.sub);
+  }
+
+  // Production orchestration test (2026-09-18) — the real create-Release+
+  // Cycles flow with auto-resolved parent folder, still only reachable
+  // through this ADMIN-gated lab endpoint until confirmed working live.
+  @Post('rest-test/release-orchestration')
+  async createReleaseOrchestration(@Request() req: any, @Body() body: {
+    releaseName: string; startDate: string; endDate: string; productionDate?: string; year: string;
+    cycles: { name: string; startDate: string; endDate: string; environment?: string; thresholdHigh?: string; thresholdMedium?: string; thresholdLow?: string }[];
+  }) {
+    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול להריץ את בדיקת ה-orchestration');
+    return this.qcRestService.createReleaseWithCycles(body, req.user.sub);
   }
 
   // ── Defect attachments (spec confirmed 2026-09-03) — read-only, so no

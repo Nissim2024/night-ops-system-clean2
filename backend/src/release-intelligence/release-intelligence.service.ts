@@ -179,8 +179,8 @@ export class ReleaseIntelligenceService {
     const coreExecuted = coreCrCoverage.reduce((s, cc) => s + executedScriptCount(cc), 0);
     const corePassed = coreCrCoverage.reduce((s, cc) => s + cc.passed, 0);
     // executed% (ran) and passed% (ran AND passed) across the 3 core cycles.
-    const coveragePct = coreTotal > 0 ? Math.round((coreExecuted / coreTotal) * 100) : 0;
-    const passedPct = coreTotal > 0 ? Math.round((corePassed / coreTotal) * 100) : 0;
+    const coveragePct = coreTotal > 0 ? Math.round((coreExecuted / coreTotal) * 10000) / 100 : 0;
+    const passedPct = coreTotal > 0 ? Math.round((corePassed / coreTotal) * 10000) / 100 : 0;
 
     // Critical defects — open, severity Show Stopper (see CRITICAL_SEVERITIES)
     const openDefects = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
@@ -495,6 +495,20 @@ export class ReleaseIntelligenceService {
       // status and QA-arrival lateness are computed client-side from the
       // team-status / cr-assignments endpoints the Home already calls.
       reviewMeetingTime: version.reviewMeetingTime,
+      // Bug found 2026-09-17: qgPass is purely severity-count math (0 open
+      // Show Stopper/Severe trivially satisfies "<= threshold"), so a version
+      // that hasn't started testing at all — nothing has run, nothing COULD
+      // have violated the gate yet — showed "Quality Gate: PASS", read by
+      // Nissim as a real pass. testingStarted (coreTotal > 0, same flag
+      // already gating the coverage/pass-rate blockers above) lets the
+      // frontend show "not evaluated yet" instead of a misleading PASS.
+      testingStarted: coreTotal > 0,
+      // Forecast card fix (2026-09-17): a COMPLETED version's daysToGoLive
+      // goes negative (plannedStart is in the past) and reads as "N days
+      // overdue" — the frontend swaps to "in production since <date>" using
+      // these two instead once the version is actually done.
+      versionStatus: version.status,
+      productionSinceDate: version.actualStart ? version.actualStart.toISOString() : null,
     };
   }
 
@@ -568,7 +582,7 @@ export class ReleaseIntelligenceService {
     // Version-wide coverage/pass-rate (no per-CR bridge available for Oracle test results)
     const totalPlanned = coverage.reduce((s, c) => s + (c.planned || 0), 0);
     const totalPassed = coverage.reduce((s, c) => s + (c.passed || 0), 0);
-    const coveragePct = totalPlanned > 0 ? Math.round((totalPassed / totalPlanned) * 100) : 0;
+    const coveragePct = totalPlanned > 0 ? Math.round((totalPassed / totalPlanned) * 10000) / 100 : 0;
 
     // Defect counts per CR — bridged via CR_REFERENCE_NUMBER's "{crNumber} - {title}" shape
     const byCrFromLabel = (rows: { label: string; count: number }[] | undefined) => {
@@ -1059,7 +1073,7 @@ export class ReleaseIntelligenceService {
       bucket.blocked += row.blocked; bucket.notCompleted += row.notCompleted; bucket.notReady += row.notReady;
       bucket.notApplicable += row.notApplicable; bucket.notRelevant += row.notRelevant; bucket.total += row.total;
     };
-    const withPct = (c: ScopedCounts) => ({ ...c, coveragePct: c.total > 0 ? Math.round((executedScriptCount(c) / c.total) * 100) : 0 });
+    const withPct = (c: ScopedCounts) => ({ ...c, coveragePct: c.total > 0 ? Math.round((executedScriptCount(c) / c.total) * 10000) / 100 : 0 });
 
     // Same CYCLE_1/2/3 vs "stand alone" split cycleNameMatches uses elsewhere
     // in this file, just classifying a raw Oracle cycle name directly instead
@@ -1118,7 +1132,7 @@ export class ReleaseIntelligenceService {
         failed: rows.reduce((s, c) => s + c.failed, 0),
         blocked: rows.reduce((s, c) => s + c.blocked, 0),
         notReady: rows.reduce((s, c) => s + c.notReady, 0),
-        coveragePct: total > 0 ? Math.round((executed / total) * 100) : 0,
+        coveragePct: total > 0 ? Math.round((executed / total) * 10000) / 100 : 0,
       };
     };
 
@@ -1195,7 +1209,7 @@ export class ReleaseIntelligenceService {
     // taking down the whole screen with "לא ניתן לטעון נתונים עבור גרסה זו"
     // (found live in production, 2026-08-02 — getCrCoverage/getCycleQgTargets
     // were the only two of these four calls NOT wrapped like this).
-    const [coverageRows, qgTargets, defectsByCycle, cycleTestTotals] = await Promise.all([
+    const [coverageRows, qgTargets, defectsByCycle, cycleTestTotals, crQualityScores] = await Promise.all([
       this.qcService.getCrCoverage(versionCrNumbers, versionId).catch((): CrCoverageDto[] => []),
       this.qcService.getCycleQgTargets(versionId).catch((): CycleQgTargetDto[] => []),
       this.qcService.getDefectsByCycle(versionId).catch((): DefectByCycleDto[] => []),
@@ -1204,7 +1218,12 @@ export class ReleaseIntelligenceService {
       // Oracle's disabled or the release isn't linked yet; the per-cycle
       // fallback below then behaves exactly as it did before this existed.
       this.qcService.getCycleTestTotals(versionId).catch((): CycleTestTotalsDto[] => []),
+      // Per-CR quality score (2026-09-17: "אם אפשר להציג בכרטיסיה את מדד
+      // האיכות של ה-CR רק כאשר הוא חורג") — joined into each crCoverage row
+      // below so the card can show it ONLY when meetsTarget is false.
+      this.getCrQualityScores(versionId).catch((): Awaited<ReturnType<typeof this.getCrQualityScores>> => []),
     ]);
+    const qualityByCr = new Map(crQualityScores.map(q => [q.crNumber, q]));
 
     const timeline = cycles.map(c => {
       const total = c.plannedEnd.getTime() - c.plannedStart.getTime();
@@ -1261,6 +1280,21 @@ export class ReleaseIntelligenceService {
           const stillOpenDefectsCount = defects.filter(d =>
             d.crReferenceNumber === row.crNumber && !['Closed', 'Canceled'].includes(d.status)
           ).length;
+          // Planned test-start date for this CR in THIS cycle — c.tasks is
+          // already scoped to the current cycle (c IS one element of
+          // workPlan.cycles), so no cross-cycle lookup needed, unlike
+          // getOverview's own plannedStartByCr (spec 2026-09-17: "אם CR עדיין
+          // לא הגיע זמנו לבדיקות להציג הודעה בדיקות יחלו ב-[...]"). null when
+          // there's no scheduled CR task at all (e.g. Stand Alone items,
+          // which aren't scheduled the same way).
+          const crTask = c.tasks.find(t => t.taskType === 'CR' && t.crNumber === row.crNumber && !t.isArchived && t.isActive);
+          const testingStartDate = crTask?.plannedStart ? crTask.plannedStart.toISOString() : null;
+          const notStartedYet = row.total === 0 && !!crTask?.plannedStart && crTask.plannedStart.getTime() > now;
+          // Quality score only surfaced when it's BREACHING target — the card
+          // shouldn't show a number for every CR, just the ones worth flagging
+          // (spec 2026-09-17).
+          const quality = qualityByCr.get(row.crNumber);
+          const qualityScore = quality && quality.meetsTarget === false ? quality.score : null;
           return {
             crNumber: row.crNumber, crLabel: `${row.crNumber} - ${row.crTitle}`,
             passed: row.passed, failed: row.failed, notRun: row.notRun,
@@ -1275,6 +1309,7 @@ export class ReleaseIntelligenceService {
             project: projectByCr.get(row.crNumber) ?? null,
             tester: testerNames.length > 0 ? testerNames.join(' + ') : null,
             daysRemaining, defectsBySeverity, reportedDefectsCount, stillOpenDefectsCount,
+            testingStartDate, notStartedYet, qualityScore,
           };
         });
       const crs = crCoverage.map(cc => ({ crNumber: cc.crNumber, crLabel: cc.crLabel }));
@@ -1304,8 +1339,8 @@ export class ReleaseIntelligenceService {
       // Kept as two separate numbers per the user's explicit request — they'd
       // been conflated (the target was compared against coverage, i.e. against
       // "did it run" rather than "did it pass") (spec confirmed 2026-08-31).
-      const coveragePct = totalTests > 0 ? Math.round((executedTests / totalTests) * 100) : null;
-      const successPct = totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : null;
+      const coveragePct = totalTests > 0 ? Math.round((executedTests / totalTests) * 10000) / 100 : null;
+      const successPct = totalTests > 0 ? Math.round((passedTests / totalTests) * 10000) / 100 : null;
 
       // Real QG target for this cycle (RELEASE_CYCLES.QG_HIGH) — shown as a
       // marker on the success bar, not baked into the bar's own fill color,
@@ -1802,7 +1837,7 @@ export class ReleaseIntelligenceService {
   // row from CR_LIST's "Actuals" column); a CR with no effort data can't be
   // scored and is left out of the result entirely, not counted as pass or fail.
   async getCrQualityScores(versionId: string): Promise<{
-    crNumber: string; crLabel: string; defectCount: number; actualEffortDays: number; score: number; meetsTarget: boolean;
+    crNumber: string; crLabel: string; defectCount: number; actualEffortDays: number | null; score: number | null; meetsTarget: boolean | null;
   }[]> {
     const [defects, vcaRows] = await Promise.all([
       this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
@@ -1820,17 +1855,23 @@ export class ReleaseIntelligenceService {
       }
     }
 
-    return Array.from(byCr.values())
-      .filter(cr => cr.actualEffortDays != null && cr.actualEffortDays > 0)
-      .map(cr => {
-        const crDefects = defects.filter(d => isCrQualityDefect(d, cr.crNumber));
-        const weightedSum = crDefects.reduce((s, d) => s + (CR_QUALITY_SEVERITY_WEIGHT[d.severity] ?? 0), 0);
-        const score = weightedSum / (cr.actualEffortDays as number);
-        return {
-          crNumber: cr.crNumber, crLabel: cr.crLabel, defectCount: crDefects.length,
-          actualEffortDays: cr.actualEffortDays as number, score, meetsTarget: score <= CR_QUALITY_TARGET,
-        };
-      });
+    // Bug found 2026-09-17: CRs with no actualEffortDays filled in yet used to
+    // be silently dropped from this list entirely (can't divide by a missing
+    // denominator) — Nissim found real CRs breaching the 0.15 target that
+    // never showed up on the Home page's "סיכוני איכות" card because of this,
+    // with no indication anything was excluded. Now every CR in scope is
+    // returned; score/meetsTarget are null (not "false"/0) when effort data
+    // is missing, so the frontend can show "לא ניתן לחשב" instead of either
+    // silently hiding the CR or wrongly counting it as passing.
+    return Array.from(byCr.values()).map(cr => {
+      const crDefects = defects.filter(d => isCrQualityDefect(d, cr.crNumber));
+      const hasEffort = cr.actualEffortDays != null && cr.actualEffortDays > 0;
+      const score = hasEffort ? crDefects.reduce((s, d) => s + (CR_QUALITY_SEVERITY_WEIGHT[d.severity] ?? 0), 0) / (cr.actualEffortDays as number) : null;
+      return {
+        crNumber: cr.crNumber, crLabel: cr.crLabel, defectCount: crDefects.length,
+        actualEffortDays: cr.actualEffortDays, score, meetsTarget: score == null ? null : score <= CR_QUALITY_TARGET,
+      };
+    });
   }
 
   // ── Risk CRUD — spec section 23 ─────────────────────────────────────────────

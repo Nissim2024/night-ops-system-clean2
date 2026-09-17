@@ -10,6 +10,16 @@ const MANAGERS  = ['RELEASE_MANAGER', 'ADMIN'];
 export class VersionCrAssignmentsController {
   constructor(private service: VersionCrAssignmentsService) {}
 
+  // Backs the version-creation picker (2026-09-19) — version names that
+  // already appear in CR_LIST (sourced from Clarity) but don't exist as a
+  // Version in DeployCenter yet. Any authenticated user can list these (same
+  // read as CR_LIST already exposes elsewhere) — no MANAGERS/LEADS_UP gate,
+  // this is read-only and not version-scoped.
+  @Get('future-versions')
+  listFutureVersions() {
+    return this.service.listFutureVersionNames();
+  }
+
   @Get('version/:versionId')
   findForVersion(
     @Param('versionId') versionId: string,

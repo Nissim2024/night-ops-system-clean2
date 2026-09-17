@@ -5,6 +5,7 @@ import { CyclesPanel, CycleProgress } from './CycleProgressView';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
 import { KpiTile, RiskRow } from '../HomeDashboard';
 import { DefectIdBadge } from '../shared/defectFieldDisplay';
+import { formatDate } from '../../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -257,6 +258,58 @@ function convertFlexToTable(el: HTMLElement) {
   el.replaceWith(wrapper);
 }
 
+// Root cause found 2026-09-17 (real screenshot of a pasted email: the top
+// KPI ribbon survived intact, but the whole CyclesPanel/CycleCard grid below
+// it pasted as bare unstyled stacked text — no card borders, no side-by-side
+// layout, nothing). This file's OWN components (KpiTile, RiskRow's header)
+// carry their display:flex/grid, border, background etc. as literal inline
+// `style={{...}}` — visible to layoutToTables' and the color-flattening
+// pass's `getAttribute('style')` regex matching below. CyclesPanel/CycleCard
+// (CycleProgressView.tsx) were rebuilt in the Tailwind migration using
+// `className="flex ... border ... bg-card"` instead — ALL of that lives in
+// compiled Tailwind CSS classes, which never travel with a clipboard paste
+// (only inline styles do) and were never inline to begin with, so this whole
+// pipeline never even saw them as containers needing conversion.
+//
+// Fix: before layoutToTables runs, walk the LIVE tree (computed styles only
+// resolve on an attached, laid-out element — the clone is detached) and bake
+// the specific longhand properties the rest of this pipeline reads into
+// literal inline style text on the CLONE's corresponding node (cloneNode(true)
+// is a structural mirror, so the same querySelectorAll('*') order lines up
+// 1:1). Skips any element that already carries its own inline `display:` —
+// this file's already-tuned inline-style components are left byte-for-byte
+// unchanged; only the gap left by Tailwind-only elements is filled.
+const TAILWIND_SNAPSHOT_PROPS: [string, keyof CSSStyleDeclaration][] = [
+  ['display', 'display'], ['flex-direction', 'flexDirection'], ['gap', 'gap'],
+  ['justify-content', 'justifyContent'], ['align-items', 'alignItems'],
+  ['border-top-width', 'borderTopWidth'], ['border-top-style', 'borderTopStyle'], ['border-top-color', 'borderTopColor'],
+  ['border-width', 'borderWidth'], ['border-style', 'borderStyle'], ['border-color', 'borderColor'],
+  ['border-radius', 'borderRadius'], ['background-color', 'backgroundColor'],
+  ['padding-top', 'paddingTop'], ['padding-bottom', 'paddingBottom'], ['padding-left', 'paddingLeft'], ['padding-right', 'paddingRight'],
+  ['color', 'color'], ['font-size', 'fontSize'], ['font-weight', 'fontWeight'], ['text-align', 'textAlign'], ['line-height', 'lineHeight'],
+];
+function snapshotTailwindStyles(liveRoot: HTMLElement, cloneRoot: HTMLElement) {
+  const liveEls = liveRoot.querySelectorAll<HTMLElement>('*');
+  const cloneEls = cloneRoot.querySelectorAll<HTMLElement>('*');
+  liveEls.forEach((liveEl, i) => {
+    const cloneEl = cloneEls[i];
+    if (!cloneEl) return;
+    const existingStyle = cloneEl.getAttribute('style') || '';
+    if (/display\s*:/.test(existingStyle)) return; // already inline-styled — untouched
+    const cs = getComputedStyle(liveEl);
+    const isLayoutContainer = cs.display === 'flex' || cs.display === 'grid';
+    const hasVisibleBorder = cs.borderTopWidth !== '0px' && cs.borderTopStyle !== 'none';
+    const hasBackground = cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent';
+    if (!isLayoutContainer && !hasVisibleBorder && !hasBackground) return; // plain text node wrapper — nothing to gain
+    const parts = TAILWIND_SNAPSHOT_PROPS.map(([cssProp, jsProp]) => {
+      const value = String(cs[jsProp] ?? '');
+      if (!value || value === 'none' || value === 'normal' || value === '0px' || value === 'rgba(0, 0, 0, 0)') return '';
+      return `${cssProp}:${value}`;
+    }).filter(Boolean).join(';');
+    if (parts) cloneEl.setAttribute('style', existingStyle ? `${existingStyle};${parts}` : parts);
+  });
+}
+
 // Runs the grid pass then the flex pass over a static snapshot of the tree —
 // nodes are moved (not copied) into the new tables, so a later pass still
 // finds them via root.contains(). NOT el.isConnected: `root` (the clone) is
@@ -336,6 +389,10 @@ function flattenColor(raw: string): string {
 // a link now.
 function buildEmailHtml(sourceEl: HTMLElement, opts: { href: string; title: string; subtitle?: string }): string {
   const clone = sourceEl.cloneNode(true) as HTMLElement;
+  // Must run BEFORE the [data-noemail] removal below — it relies on the
+  // live/clone trees having identical structure (same querySelectorAll('*')
+  // order) to line up computed styles with the right clone node.
+  snapshotTailwindStyles(sourceEl, clone);
   clone.querySelectorAll('[data-noemail]').forEach(n => n.remove());
   layoutToTables(clone);
   clone.querySelectorAll<HTMLElement>('[style]').forEach(el => {
@@ -463,11 +520,26 @@ interface Overview {
   worstCr: { crNumber: string; count: number } | null;
   oldestCriticalDefectAgeDays: number | null;
   reviewMeetingTime: string | null;
+  // coreTotal > 0 on the backend — whether any core-cycle test execution has
+  // happened yet. Used to stop the readiness/coverage cards from reading
+  // "PASS"/"partial coverage" when the version simply hasn't started
+  // (bug found 2026-09-17).
+  testingStarted: boolean;
+  versionStatus: string;
+  productionSinceDate: string | null;
 }
 interface DefectRow { id: string; title: string; severity: string; status: string; discoveryDate: string; targetRelease?: string; }
 interface CrAssignmentRow { id: string; crNumber: string; crLabel: string | null; qaArrivalDate: string | null; qaReceived: boolean; }
 interface TeamPlanStatusRow { teamId: string; teamName: string; total: number; draft: number; submitted: number; returned: number; approved: number; allDone: boolean; }
-interface CrQualityRow { crNumber: string; crLabel: string; defectCount: number; actualEffortDays: number; score: number; meetsTarget: boolean; }
+interface CrQualityRow {
+  crNumber: string; crLabel: string; defectCount: number;
+  // actualEffortDays/score/meetsTarget are null when this CR has no actual
+  // effort filled in yet — "can't compute", not "passing" (bug found
+  // 2026-09-17: these CRs used to be silently dropped from the list
+  // entirely, hiding real target-breaching CRs that just hadn't had their
+  // effort filled in).
+  actualEffortDays: number | null; score: number | null; meetsTarget: boolean | null;
+}
 
 // score = Σ(defectCount × severityWeight) / actualEffortDays; a CR "meets the
 // target" when score <= CR_QUALITY_TARGET — same constant and formula as
@@ -490,6 +562,9 @@ const FORECAST_LABEL: Record<string, { label: string; color: string }> = {
 function coverageShort(o: Overview): { text: string; tone: 'ok' | 'warn' } {
   if (o.blockedCrs.length > 0) return { text: `⛔ ${o.blockedCrs.length} CR-ים חסומים`, tone: 'warn' };
   if (o.overdueUnstartedCrs.length > 0) return { text: `⚠ ${o.overdueUnstartedCrs.length} CR-ים בפיגור התחלה`, tone: 'warn' };
+  // Bug found 2026-09-17: with no core-cycle execution at all yet, 0%
+  // coverage isn't "partial" — the version simply hasn't started.
+  if (!o.testingStarted) return { text: '⏳ הגרסה טרם החלה', tone: 'warn' };
   if (!o.forecastPace) return o.coveragePct >= 80 ? { text: '✓ כיסוי תקין', tone: 'ok' } : { text: '⚠ כיסוי חלקי', tone: 'warn' };
   switch (o.forecastStatus) {
     case 'ON_TRACK': return { text: '✓ בקצב', tone: 'ok' };
@@ -626,7 +701,7 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
         aging && aging.count > 0
           ? `• ${aging.count} תקלות חורגות מזמן הטיפול (ממוצע חריגה: ${aging.avgOverageDays} ימים)` : '',
         ...cyclesEndingSoonUnmet.map(c =>
-          `• ${CYCLE_LABEL[c.cycleType] ?? c.cycleType} עומד להסתיים וטרם עומד ביעד (${c.successPct}% מתוך ${c.qgTargetPct}%)`),
+          `• ${CYCLE_LABEL[c.cycleType] ?? c.cycleType} עומד להסתיים וטרם עומד ביעד (${c.successPct?.toFixed(2)}% מתוך ${c.qgTargetPct}%)`),
         overdueArrivalCrs.length > 0 ? `• ${overdueArrivalCrs.length} CR-ים חורגים ממועד הקבלה ל-QA` : '',
         (() => {
           const parts: string[] = [];
@@ -645,8 +720,8 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
         new Date().toLocaleString('he-IL', { dateStyle: 'medium', timeStyle: 'short' }),
         '',
         overview ? `מדד מוכנות הגרסה: ${overview.healthScore} (${HEALTH_REC[overview.healthRecommendation].label})` : '',
-        overview ? `שער איכות: ${overview.qgPass ? 'PASS' : 'FAIL'}` : '',
-        overview ? `כיסוי בדיקות: ${overview.coveragePct}%` : '',
+        overview ? `שער איכות: ${!overview.testingStarted ? 'הגרסה טרם החלה' : overview.qgPass ? 'PASS' : 'FAIL'}` : '',
+        overview ? `כיסוי בדיקות: ${overview.coveragePct.toFixed(2)}%` : '',
         `תקלות פתוחות: ${openDefectsCount}${overview && overview.criticalDefects > 0 ? ` (מתוכן ${overview.criticalDefects} קריטיות)` : ''}`,
         overview && overview.daysToGoLive != null ? `ימים לעלייה לאוויר: ${overview.daysToGoLive}` : '',
         alertLines.length > 0 ? `\n— סיכונים ופעילויות —\n${alertLines.join('\n')}` : '',
@@ -764,7 +839,13 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
     [crAssignments],
   );
   const teamsNotSubmitted = useMemo(() => teamPlanStatus.filter(t => !t.allDone), [teamPlanStatus]);
-  const failingCrs = useMemo(() => crQuality.filter(r => !r.meetsTarget), [crQuality]);
+  const failingCrs = useMemo(() => crQuality.filter(r => r.meetsTarget === false), [crQuality]);
+  // Bug found 2026-09-17: CRs with no actualEffortDays filled in were being
+  // silently excluded from crQuality entirely — real breaching CRs went
+  // invisible with no sign anything was missing. Now they come back with
+  // meetsTarget: null; surfaced as a distinct count so a real gap is visible
+  // instead of silent.
+  const unscoredCrs = useMemo(() => crQuality.filter(r => r.meetsTarget === null), [crQuality]);
 
   if (!versionId) {
     return <div style={{ fontFamily: FONT, direction: 'rtl', textAlign: 'center', padding: SP[8], color: C.textMuted }}>בחר גרסה מתפריט הצד.</div>;
@@ -779,8 +860,19 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
   // out — they aren't a risk to this version, so they're kept out of the
   // headline count and surfaced separately (spec 2026-09-07 §1).
   const openDefects = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
-  const movedToNextCount = openDefects.filter(d => !!(d.targetRelease || '').trim()).length;
+  const movedToNextDefects = useMemo(() => openDefects.filter(d => !!(d.targetRelease || '').trim()), [openDefects]);
+  const movedToNextCount = movedToNextDefects.length;
   const openDefectsCount = openDefects.length - movedToNextCount;
+  // Severity breakdown of the "moved to future handling" subset specifically
+  // — separate from qgSummary (which covers ALL open defects) — per the
+  // user's explicit request (2026-09-17) to show it as its own line under
+  // that specific count, same visual language as SeverityCountLine.
+  const movedToNextBySeverity = useMemo(() => ({
+    showStopper: { count: movedToNextDefects.filter(d => d.severity === 'Show Stopper').length, threshold: 0 },
+    severe: { count: movedToNextDefects.filter(d => d.severity === 'Severe').length, threshold: 0 },
+    medium: { count: movedToNextDefects.filter(d => d.severity === 'Medium').length, threshold: 0 },
+    low: { count: movedToNextDefects.filter(d => d.severity === 'Low').length, threshold: 0 },
+  }), [movedToNextDefects]);
   const reviewMeeting = overview?.reviewMeetingTime ? new Date(overview.reviewMeetingTime) : null;
   // Calendar-day offset of the review meeting (-1 = yesterday, 0 = today,
   // 1 = tomorrow). Scheduled notices only show in the [day before .. day
@@ -834,8 +926,8 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
               icon="🩺" accent={HEALTH_REC[overview.healthRecommendation].color} moduleLabel="מדד מוכנות"
               moduleLabelColor={C.moduleTracking}
               value={String(overview.healthScore)} label={HEALTH_REC[overview.healthRecommendation].label}
-              sub={overview.qgPass ? '✓ Quality Gate: PASS' : '✗ Quality Gate: FAIL'}
-              subTone={overview.qgPass ? 'ok' : 'warn'}
+              sub={!overview.testingStarted ? '⏳ Quality Gate: הגרסה טרם החלה' : overview.qgPass ? '✓ Quality Gate: PASS' : '✗ Quality Gate: FAIL'}
+              subTone={!overview.testingStarted ? 'warn' : overview.qgPass ? 'ok' : 'warn'}
               footer={
                 (overview.readinessReasons && overview.readinessReasons.length > 0) ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
@@ -849,7 +941,7 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
             {/* כיסוי — % + progress bar, no parenthetical label */}
             <KpiTile
               icon="✅" accent={C.moduleTracking} moduleLabel="כיסוי בדיקות"
-              value={`${overview.coveragePct}%`} label=""
+              value={`${overview.coveragePct.toFixed(2)}%`} label=""
               sub={coverageShort(overview).text}
               subTone={coverageShort(overview).tone}
               onClick={() => onNavigate?.('coverage-readiness')}
@@ -869,24 +961,37 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                   <SeverityCountLine qgSummary={overview.qgSummary} />
                   {movedToNextCount > 0 && (
-                    <span
-                      onClick={e => { e.stopPropagation(); setMovedDrilldown(true); }}
-                      style={{ ...TEXT.xs, color: C.brand, fontWeight: WEIGHT.semibold, cursor: 'pointer' }}
-                    >
-                      🔀 {movedToNextCount} תקלות הועברו לגרסה הבאה ←
-                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                      <span
+                        onClick={e => { e.stopPropagation(); setMovedDrilldown(true); }}
+                        style={{ ...TEXT.xs, color: C.brand, fontWeight: WEIGHT.semibold, cursor: 'pointer' }}
+                      >
+                        🔀 {movedToNextCount} תקלות שעוברות לטיפול עתידי ←
+                      </span>
+                      <SeverityCountLine qgSummary={movedToNextBySeverity} />
+                    </div>
                   )}
                 </div>
               }
               onClick={() => onNavigate?.('bug-dashboard')}
             />
-            {/* תחזית — days + terse pace chip only (calc text removed) */}
-            <KpiTile
-              icon="📈" accent={C.moduleTracking} moduleLabel="תחזית"
-              value={overview.daysToGoLive != null ? String(overview.daysToGoLive) : '—'} label="ימים לעלייה לאוויר"
-              sub={forecast ? `${overview.forecastStatus === 'ON_TRACK' ? '✓' : '⚠'} ${forecast.label}` : null}
-              subTone={overview.forecastStatus === 'ON_TRACK' ? 'ok' : 'warn'}
-            />
+            {/* תחזית — days + terse pace chip only (calc text removed).
+                Bug found 2026-09-17: a COMPLETED version's daysToGoLive goes
+                negative (plannedStart is in the past) and read as "N days
+                overdue" — show when it actually went to production instead. */}
+            {overview.versionStatus === 'COMPLETED' ? (
+              <KpiTile
+                icon="📈" accent={C.success} moduleLabel="תחזית"
+                value="✓" label={overview.productionSinceDate ? `בייצור מתאריך ${formatDate(overview.productionSinceDate)}` : 'הגרסה בייצור'}
+              />
+            ) : (
+              <KpiTile
+                icon="📈" accent={C.moduleTracking} moduleLabel="תחזית"
+                value={overview.daysToGoLive != null ? String(overview.daysToGoLive) : '—'} label="ימים לעלייה לאוויר"
+                sub={forecast ? `${overview.forecastStatus === 'ON_TRACK' ? '✓' : '⚠'} ${forecast.label}` : null}
+                subTone={overview.forecastStatus === 'ON_TRACK' ? 'ok' : 'warn'}
+              />
+            )}
             {/* סיכוני איכות — merged risks + CR-quality (both are release-risk mgmt) */}
             <KpiTile
               icon="⚠️"
@@ -901,6 +1006,11 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
               }
               subTone={(overview.openRisksCount > 0 || failingCrs.length > 0) ? 'warn' : 'ok'}
               onClick={() => onNavigate?.('risks')}
+              footer={unscoredCrs.length > 0 ? (
+                <span style={{ ...TEXT.xs, color: C.textMuted }} title={unscoredCrs.map(r => r.crNumber).join(', ')}>
+                  ⓘ {unscoredCrs.length} CR-ים לא ניתנים לחישוב (חסר Effort בפועל)
+                </span>
+              ) : undefined}
             />
           </div>
         </div>
@@ -1021,7 +1131,7 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
             key={c.cycleType}
             icon="⏳" urgent module="release-intelligence"
             title={`${CYCLE_LABEL[c.cycleType] ?? c.cycleType} עומד להסתיים וטרם עומד ביעד`}
-            desc={`${c.successPct}% הצלחה מתוך יעד ${c.qgTargetPct}%`}
+            desc={`${c.successPct?.toFixed(2)}% הצלחה מתוך יעד ${c.qgTargetPct}%`}
             onClick={() => onNavigate?.('cycle-progress')}
           />
         ))}
@@ -1089,7 +1199,7 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
             icon="🎯" urgent module="release-intelligence"
             title={`${failingCrs.length} CR-ים לא עומדים ביעד איכות הפיתוח`}
             desc="כמות תקלות גבוהה יחסית להיקף הפיתוח — נדרשת רגרסיה מלאה ל-CR"
-            detail={failingCrs.map(r => `${r.crNumber}${r.crLabel ? ' — ' + r.crLabel : ''} (ציון: ${r.score.toFixed(2)})`)}
+            detail={failingCrs.map(r => `${r.crNumber}${r.crLabel ? ' — ' + r.crLabel : ''} (ציון: ${(r.score as number).toFixed(2)})`)}
             expanded={crQualityExpanded}
             onToggle={() => setCrQualityExpanded(v => !v)}
           />

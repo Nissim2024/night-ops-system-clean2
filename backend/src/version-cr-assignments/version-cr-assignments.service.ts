@@ -201,6 +201,67 @@ export class VersionCrAssignmentsService {
     return parsed;
   }
 
+  // Distinct values of the "גרסה" (Version) column across the WHOLE sheet —
+  // not scoped to one already-created Version like parseExcelAssignments is.
+  // Backs the version-creation picker (user's request 2026-09-19): CR_LIST is
+  // sourced from Clarity and already lists CRs against future/planned
+  // version names before those versions exist anywhere in DeployCenter or
+  // QC — this is that same file, just read for "which names appear" instead
+  // of "which CRs belong to a specific known version".
+  async listKnownVersionNames(): Promise<string[]> {
+    const sheet = await this.loadSheet();
+    const names = new Set<string>();
+    for (let i = sheet.headerRowIdx + 1; i < sheet.rows.length; i++) {
+      const v = String((sheet.rows[i] as any[])[sheet.verCol] ?? '').trim();
+      if (v) names.add(v);
+    }
+    // Bug found 2026-09-19 (real screenshot): plain string .sort() put
+    // "ITv1-2018" between "ITv09-2024" and "ITv10-2017" (lexicographic, not
+    // numeric — "-" sorts before "0"), and the CR_LIST sheet apparently
+    // carries version names going back to 2017 (old, long-finished releases,
+    // years before this system tracked anything) mixed in with real
+    // upcoming ones. Parse the trailing "-YYYY" as year and the number
+    // right before it for a real chronological sort, and drop anything not
+    // from the current year onward — a "future versions" picker has no
+    // business offering a name from 2017.
+    const parsed = Array.from(names).map(name => {
+      const m = /^(.*?)(\d+)-(\d{4})$/.exec(name);
+      return { name, num: m ? parseInt(m[2], 10) : null, year: m ? parseInt(m[3], 10) : null };
+    });
+    const currentYear = new Date().getFullYear();
+    return parsed
+      // ERP releases share this same CR_LIST sheet under their own version
+      // names (confirmed 2026-09-19: they literally start with "ERP") — a
+      // different system this DeployCenter instance doesn't manage.
+      .filter(p => !/^ERP/i.test(p.name))
+      .filter(p => p.year != null && p.year >= currentYear)
+      .sort((a, b) => (a.year! - b.year!) || (a.num! - b.num!))
+      .map(p => p.name);
+  }
+
+  // "Future" = appears in CR_LIST but not yet created anywhere — checked
+  // against BOTH sources, not just one (bug found 2026-09-19: originally only
+  // checked local Version rows, so a name QC's own Oracle sync had already
+  // pulled into QcRelease — a real, already-existing release, just with no
+  // local Version built for it yet — would have wrongly shown up as
+  // "future"). A local Version with no QcRelease yet (mid-flight under the
+  // reversed create-flow) is excluded too, since "create" for it already
+  // happened locally. QcRelease itself stays fully visible elsewhere (the
+  // existing "── QC ──" group in VersionWizard's own dropdown) — this only
+  // narrows what counts as "still to create", it doesn't hide anything.
+  async listFutureVersionNames(): Promise<string[]> {
+    const [known, existingVersions, existingQcReleases] = await Promise.all([
+      this.listKnownVersionNames(),
+      prisma.version.findMany({ select: { name: true } }),
+      prisma.qcRelease.findMany({ select: { relName: true } }),
+    ]);
+    const existingNames = new Set([
+      ...existingVersions.map(v => v.name.trim()),
+      ...existingQcReleases.map(r => r.relName.trim()),
+    ]);
+    return known.filter(n => !existingNames.has(n));
+  }
+
   // ── Private: parse CR_LIST Excel and return eligible assignments ──────────────
   private async parseExcelAssignments(versionId: string): Promise<{
     assignments: {

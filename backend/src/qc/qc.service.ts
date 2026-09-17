@@ -549,6 +549,21 @@ const REQ_HIERARCHY_SQL = `
   FROM REQ
 `;
 
+// Test Summary — free-text field the CR's OWN top-level requirement row
+// carries (same row RQ_USER_02 = CR_NUMBER lives on, per REQ_HIERARCHY_SQL's
+// own comment — not a per-leaf-test field, a once-per-CR rollup). Direct
+// WHERE on RQ_USER_02 rather than the full unscoped hierarchy scan
+// REQ_HIERARCHY_SQL does, since we already know the exact CR number and
+// don't need to walk any father chain here. UNVERIFIED against this real
+// instance yet (2026-09-17) — same status attachments/release-create were in
+// before their first real test: built to spec, not yet confirmed the field
+// name/table shape holds for RQ_USER_26 the way it does for RQ_USER_02.
+const CR_TEST_SUMMARY_SQL = `
+  SELECT RQ_USER_26 AS TEST_SUMMARY
+  FROM REQ
+  WHERE RQ_USER_02 = :crNumber
+`;
+
 // Release-wide (not cycle-scoped): a defect isn't tied to one specific test
 // cycle the way test coverage is, so filtering by BG_DETECTED_IN_RCYC (as
 // this query used to, alongside a BG_USER_05 = 'Sanity Test' phase filter)
@@ -2397,7 +2412,7 @@ export class QcService {
         const executed = executedScriptCount(counts);
         return {
           crNumber: v.crNumber, crTitle: v.crTitle, releaseName: v.releaseName, cycleName: v.cycleName,
-          ...counts, total, coveragePct: total > 0 ? Math.round((executed / total) * 100) : 0,
+          ...counts, total, coveragePct: total > 0 ? Math.round((executed / total) * 10000) / 100 : 0,
         };
       });
     } catch (err: any) {
@@ -3275,6 +3290,29 @@ export class QcService {
       }));
     } catch (err: any) {
       this.logger.error(`Oracle getDefectFieldHistory: ${err.message}`);
+      throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
+  }
+
+  // Backs the UAT cycle's "הצג סיכום בדיקות" button (spec 2026-09-17) — RQ_USER_26
+  // ("Test Summary") on the CR's own requirement row. Returns null (not '')
+  // when there's nothing to show, so the frontend can tell "no summary
+  // written yet" apart from "query returned an empty string".
+  async getCrTestSummary(crNumber: string): Promise<string | null> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) return null;
+
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const result = await conn.execute(CR_TEST_SUMMARY_SQL, { crNumber });
+      const row = (result.rows ?? [])[0] as any;
+      const summary = row?.TEST_SUMMARY;
+      return summary ? String(summary) : null;
+    } catch (err: any) {
+      this.logger.error(`Oracle getCrTestSummary: ${err.message}`);
       throw err;
     } finally {
       if (conn) await conn.close().catch(() => {});

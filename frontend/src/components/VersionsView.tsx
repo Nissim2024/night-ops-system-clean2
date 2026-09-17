@@ -233,6 +233,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
           newVersion={vc.newVersion}
           setNewVersion={vc.setNewVersion}
           qcReleases={vc.qcReleases}
+          futureVersionNames={vc.futureVersionNames}
           templates={vc.templates}
           selectedTemplateId={vc.selectedTemplateId}
           setSelectedTemplateId={vc.setSelectedTemplateId}

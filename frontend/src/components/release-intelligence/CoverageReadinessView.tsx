@@ -156,7 +156,7 @@ export const CoverageReadinessView: React.FC<Props> = ({ token, versionId }) => 
         <KpiCard value={String(kpis.failed)} label="Failed" valueColor={kpis.failed > 0 ? C.danger : C.success} />
         <KpiCard value={String(kpis.blocked)} label="Blocked" valueColor={kpis.blocked > 0 ? '#e8af00' : C.success} />
         <KpiCard value={String(kpis.notReady)} label="Not Ready" />
-        <KpiCard value={`${kpis.coveragePct}%`} label="Coverage %" valueColor={C.brand} />
+        <KpiCard value={`${kpis.coveragePct.toFixed(2)}%`} label="Coverage %" valueColor={C.brand} />
       </div>
 
       <input

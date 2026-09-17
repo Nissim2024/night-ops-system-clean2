@@ -55,6 +55,7 @@ interface Props {
   newVersion: NewVersionState;
   setNewVersion: React.Dispatch<React.SetStateAction<NewVersionState>>;
   qcReleases: QcRelease[];
+  futureVersionNames: string[];
   templates: Template[];
   selectedTemplateId: string;
   setSelectedTemplateId: (id: string) => void;
@@ -89,7 +90,7 @@ const INPUT_CLASS = 'box-border w-full rounded-md border-2 border-border bg-mute
 const validClass = (ok: boolean) => (ok ? 'border-success' : 'border-danger');
 
 export const VersionWizard: React.FC<Props> = ({
-  newVersion, setNewVersion, qcReleases, templates, selectedTemplateId, setSelectedTemplateId,
+  newVersion, setNewVersion, qcReleases, futureVersionNames, templates, selectedTemplateId, setSelectedTemplateId,
   importFile, setImportFile, onPlannedStartChange,
   onCreateEmpty, onCreateFromTemplate, onImportFromFile,
   creatingTemplate, creatingFromTemplate, importing,
@@ -239,11 +240,18 @@ export const VersionWizard: React.FC<Props> = ({
                 </label>
                 <div className="flex gap-1.5">
                   <select
-                    value={newVersion.qcReleaseId || '__manual__'}
+                    value={newVersion.qcReleaseId || (futureVersionNames.includes(newVersion.name) ? `__future__${newVersion.name}` : '__manual__')}
                     onChange={e => {
                       const val = e.target.value;
                       if (val === '__manual__') {
                         setNewVersion(v => ({ ...v, qcReleaseId: '', name: v.qcReleaseId ? '' : v.name }));
+                      } else if (val.startsWith('__future__')) {
+                        // Not yet in QC by definition (that's what "future" means
+                        // here) — behaves like manual naming, just pre-filled from
+                        // CR_LIST instead of free-typed (user's request 2026-09-19:
+                        // the name must match Clarity/CR_LIST exactly, since it's
+                        // what later gets used to create the matching Release in QC).
+                        setNewVersion(v => ({ ...v, qcReleaseId: '', name: val.slice('__future__'.length) }));
                       } else {
                         const rel = qcReleases.find(r => r.id === val);
                         setNewVersion(v => ({ ...v, qcReleaseId: val, name: rel?.relName || v.name }));
@@ -252,6 +260,10 @@ export const VersionWizard: React.FC<Props> = ({
                     className="max-w-[150px] shrink-0 rounded-md border-2 border-border bg-muted px-2 py-[9px] text-sm text-foreground"
                   >
                     <option value="__manual__">✏️ ידנית</option>
+                    {futureVersionNames.length > 0 && <option disabled>── עתידיות (CR_LIST) ──</option>}
+                    {futureVersionNames.map(n => (
+                      <option key={n} value={`__future__${n}`}>{n}</option>
+                    ))}
                     {qcReleases.length > 0 && <option disabled>── QC ──</option>}
                     {[...qcReleases]
                       .sort((a, b) => {

@@ -427,7 +427,9 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
       }
       if (wpRes.data?.cycle1LengthDays) setCycle1LengthDays(wpRes.data.cycle1LengthDays);
       if (wpRes.data?.cycle2LengthDays) setCycle2LengthDays(wpRes.data.cycle2LengthDays);
-      if (wpRes.data?.cycle3LengthDays) setCycle3LengthDays(wpRes.data.cycle3LengthDays);
+      // != null, not truthy — 0 is a real value ("no Cycle 3"), not "unset"
+      // (same bug as QaAssignmentView, fixed 2026-09-19).
+      if (wpRes.data?.cycle3LengthDays != null) setCycle3LengthDays(wpRes.data.cycle3LengthDays);
       // Purely visual — same urgent/priorityTestDate flags QaAssignmentView shows,
       // just surfaced here too so it's clear at a glance why a task already sits
       // first in its tester's queue (sortOrder already handles the actual ordering).
@@ -994,11 +996,11 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
                 className="mt-1 block w-[90px] rounded-md border border-border px-3 py-2 text-sm text-foreground"
               />
             </label>
-            <label className="flex flex-col text-xs font-medium text-muted-foreground" title="גבול קבוע לסבב 3, בלתי תלוי בסבב 1/2">
-              אורך סבב 3 (ימי עבודה)
+            <label className="flex flex-col text-xs font-medium text-muted-foreground" title="גבול קבוע לסבב 3, בלתי תלוי בסבב 1/2. 0 = אין סבב 3 לגרסה הזו">
+              אורך סבב 3 (ימי עבודה, 0 = ללא)
               <input
-                type="number" min={1} value={cycle3LengthDays}
-                onChange={e => setCycle3LengthDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                type="number" min={0} value={cycle3LengthDays}
+                onChange={e => setCycle3LengthDays(Math.max(0, parseInt(e.target.value, 10) || 0))}
                 className="mt-1 block w-[90px] rounded-md border border-border px-3 py-2 text-sm text-foreground"
               />
             </label>
