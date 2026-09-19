@@ -11,6 +11,11 @@ export const ALL_PERMISSIONS = [
   'action:import', 'action:gonogo', 'action:task_status', 'action:open_task_for_execution',
   'action:user_manage', 'action:override_version_edit', 'action:select_all_tasks', 'action:template_delete',
   'action:qa_leave_request', 'action:qa_manage', 'action:qc_write',
+  // Split out of action:qc_write (docs/spec-defects-module.md §9, 2026-09-18)
+  // — "can append a comment / change status" is a materially smaller blast
+  // radius than "can open a new defect in QC" or "can edit arbitrary
+  // fields", so each gets its own grantable permission.
+  'action:qc_defect_create', 'action:qc_defect_edit_extended', 'action:qc_attachment_upload',
 ];
 
 const DEFAULTS: Record<string, string[]> = {
@@ -22,7 +27,12 @@ const DEFAULTS: Record<string, string[]> = {
   // QA-team members still get them via the isQaTeamMember check in ManagerDashboard
   // regardless of this role-level grant (see canAccessQa/canAccessReleaseIntelligence).
   TEAM_LEAD:       ['screen:handoff','screen:timeline','screen:night','screen:summary','screen:prep','action:task_status','action:qa_leave_request','action:qa_manage'],
-  EMPLOYEE:        ['action:task_status'],
+  // action:qc_defect_create granted here by default — user's explicit call
+  // (2026-09-18): "every QA" can open a new defect, and QA testers are
+  // EMPLOYEE-role users (per QaAssignment.userId) in this app's role model,
+  // not a distinct "QA" role. Still adjustable per-role at runtime in
+  // AdminPanel like every other permission here.
+  EMPLOYEE:        ['action:task_status', 'action:qc_defect_create'],
   VIEWER:          ['screen:timeline','screen:night','screen:summary'],
 };
 

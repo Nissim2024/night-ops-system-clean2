@@ -276,6 +276,10 @@ export function DetailGroupsDialog({
     return map;
   });
   const [newCategoryName, setNewCategoryName] = useState('');
+  // Field search (2026-09-18) — the field vocabulary here runs ~70 entries;
+  // scrolling a flat list to find one was the friction point flagged by the
+  // user. Filters by label only (the visible text), case-insensitive.
+  const [search, setSearch] = useState('');
 
   const resetToDefault = () => {
     setCategories(defaultGroups.map(g => g.title));
@@ -320,6 +324,18 @@ export function DetailGroupsDialog({
     onApply(result);
   };
 
+  // Grouped-by-current-category rendering (2026-09-18, replacing one flat
+  // ~70-row list) — each field still keeps its own per-row <select> to move
+  // it, but seeing what's already together makes the picker legible instead
+  // of an undifferentiated scroll. "— הסתר —" collects hidden/unassigned
+  // fields at the end, same label as the per-row option for it.
+  const term = search.trim().toLowerCase();
+  const filteredColumns = term ? allColumns.filter(c => c.label.toLowerCase().includes(term)) : allColumns;
+  const visibleGroups = categories
+    .map(cat => ({ cat, fields: filteredColumns.filter(c => assignment[c.key] === cat) }))
+    .filter(g => g.fields.length > 0);
+  const hiddenFields = filteredColumns.filter(c => !assignment[c.key]);
+
   return (
     <div onClick={onClose} className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/50">
       <div onClick={e => e.stopPropagation()} className="flex max-h-[86vh] w-[640px] max-w-[94vw] flex-col rounded-lg bg-card p-5 shadow-[0_20px_48px_rgba(0,0,0,.25)] [direction:rtl]">
@@ -327,17 +343,22 @@ export function DetailGroupsDialog({
         <div className="mb-3.5 text-xs text-subtle-foreground">לכל שדה בחרו קטגוריה (או "הסתר") — ניתן גם להוסיף, לשנות שם, או למחוק קטגוריות.</div>
 
         <div className="mb-3.5 flex flex-wrap gap-1.5 border-b border-border pb-3.5">
-          {categories.map(cat => (
-            <div key={cat} className="flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-[3px]">
-              <input
-                defaultValue={cat}
-                onBlur={e => renameCategory(cat, e.target.value)}
-                className="border-none bg-transparent text-xs text-foreground"
-                style={{ width: `${Math.max(cat.length, 4)}ch` }}
-              />
-              <button onClick={() => removeCategory(cat)} className="cursor-pointer border-none bg-transparent p-0 text-xs text-danger">✕</button>
-            </div>
-          ))}
+          {categories.map(cat => {
+            const count = allColumns.filter(c => assignment[c.key] === cat).length;
+            const { bg, color } = teamColor(cat);
+            return (
+              <div key={cat} className="flex items-center gap-1.5 rounded-full border border-border px-2 py-1" style={{ background: bg }}>
+                <input
+                  defaultValue={cat}
+                  onBlur={e => renameCategory(cat, e.target.value)}
+                  className="border-none bg-transparent text-xs font-semibold"
+                  style={{ width: `${Math.max(cat.length, 4)}ch`, color }}
+                />
+                <span className="text-[11px] font-semibold opacity-70" style={{ color }}>{count}</span>
+                <button onClick={() => removeCategory(cat)} className="cursor-pointer border-none bg-transparent p-0 text-xs leading-none text-danger">✕</button>
+              </div>
+            );
+          })}
           <div className="flex gap-1">
             <input
               value={newCategoryName}
@@ -350,20 +371,76 @@ export function DetailGroupsDialog({
           </div>
         </div>
 
-        <div className="flex flex-1 flex-col gap-1 overflow-y-auto">
-          {allColumns.map(c => (
-            <div key={c.key} className="flex items-center justify-between gap-2.5 px-0.5 py-1">
-              <span className="text-[13px] text-muted-foreground">{c.label}</span>
-              <select
-                value={assignment[c.key] ?? ''}
-                onChange={e => setAssignment(a => ({ ...a, [c.key]: e.target.value || null }))}
-                className="min-w-[150px] rounded-sm border border-border px-1.5 py-[3px] text-xs"
-              >
-                <option value="">— הסתר —</option>
-                {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-              </select>
+        <div className="relative mb-2.5">
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="🔍 חיפוש שדה..."
+            className="w-full rounded-md border border-border px-3 py-1.5 text-[13px]"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute left-2 top-1/2 -translate-y-1/2 cursor-pointer border-none bg-transparent p-0 text-xs text-subtle-foreground"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-1 flex-col gap-3 overflow-y-auto">
+          {filteredColumns.length === 0 && (
+            <div className="py-6 text-center text-xs text-subtle-foreground">לא נמצאו שדות תואמים</div>
+          )}
+          {visibleGroups.map(({ cat, fields }) => {
+            const { color } = teamColor(cat);
+            return (
+              <div key={cat}>
+                <div className="mb-1 flex items-center gap-1.5 text-[11px] font-bold tracking-wide" style={{ color }}>
+                  <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+                  {cat} · {fields.length}
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  {fields.map(c => (
+                    <div key={c.key} className="flex items-center justify-between gap-2.5 rounded-md px-1.5 py-1 hover:bg-muted">
+                      <span className="text-[13px] text-muted-foreground">{c.label}</span>
+                      <select
+                        value={assignment[c.key] ?? ''}
+                        onChange={e => setAssignment(a => ({ ...a, [c.key]: e.target.value || null }))}
+                        className="min-w-[150px] rounded-sm border border-border px-1.5 py-[3px] text-xs"
+                      >
+                        <option value="">— הסתר —</option>
+                        {categories.map(cat2 => <option key={cat2} value={cat2}>{cat2}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          {hiddenFields.length > 0 && (
+            <div>
+              <div className="mb-1 flex items-center gap-1.5 text-[11px] font-bold tracking-wide text-subtle-foreground">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+                — הסתר — · {hiddenFields.length}
+              </div>
+              <div className="flex flex-col gap-0.5">
+                {hiddenFields.map(c => (
+                  <div key={c.key} className="flex items-center justify-between gap-2.5 rounded-md px-1.5 py-1 opacity-60 hover:bg-muted hover:opacity-100">
+                    <span className="text-[13px] text-muted-foreground">{c.label}</span>
+                    <select
+                      value=""
+                      onChange={e => setAssignment(a => ({ ...a, [c.key]: e.target.value || null }))}
+                      className="min-w-[150px] rounded-sm border border-border px-1.5 py-[3px] text-xs"
+                    >
+                      <option value="">— הסתר —</option>
+                      {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
+          )}
         </div>
 
         <div className="mt-4 flex items-center justify-between gap-2 border-t border-border pt-3">
@@ -793,6 +870,19 @@ export function useColumnFilters(allRows: Record<string, unknown>[] | null | und
     return true;
   }, [textTerms, enumSel]);
 
+  // Exposed for "saved views" (2026-09-18, docs/spec-defects-module.md §11)
+  // — serializable snapshot/restore of the filter state, additive only (no
+  // change to any existing caller's behavior). Sets are turned into arrays
+  // for JSON-friendliness on the way out, and back on the way in.
+  const getFilterState = useCallback((): SavedFilterState => ({
+    textTerms,
+    enumSel: Object.fromEntries(Object.entries(enumSel).map(([k, v]) => [k, Array.from(v)])),
+  }), [textTerms, enumSel]);
+  const setFilterState = useCallback((state: SavedFilterState) => {
+    setTextTerms(state.textTerms ?? {});
+    setEnumSel(Object.fromEntries(Object.entries(state.enumSel ?? {}).map(([k, v]) => [k, new Set(v)])));
+  }, []);
+
   return {
     isEnum,
     distinctValues: (key: string) => distinctMap[key] ?? [],
@@ -801,7 +891,14 @@ export function useColumnFilters(allRows: Record<string, unknown>[] | null | und
     enumSelected: (key: string) => enumSel[key] ?? new Set<string>(),
     toggleEnumValue,
     matches,
+    getFilterState,
+    setFilterState,
   };
+}
+
+export interface SavedFilterState {
+  textTerms: Record<string, string>;
+  enumSel: Record<string, string[]>;
 }
 
 export type ColumnFiltersApi = ReturnType<typeof useColumnFilters>;

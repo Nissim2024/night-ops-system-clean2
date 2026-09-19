@@ -42,7 +42,7 @@ const ALL_COLUMNS: { key: ColumnKey; label: string }[] = [
   { key: 'severity', label: 'Severity' },
   { key: 'status', label: 'Bug Status' },
   { key: 'assignedTo', label: 'Assigned To' },
-  { key: 'qaTester', label: 'QA' },
+  { key: 'qaTester', label: 'Tester' },
   { key: 'discoveryDate', label: 'Detected on Date' },
   { key: 'priority', label: 'Priority' },
   { key: 'reporter', label: 'Detected By' },
@@ -124,11 +124,12 @@ const COLUMN_WIDTHS_STORAGE_KEY = 'deploycenter_defect_drilldown_column_widths_v
 const DEFAULT_COLUMN_WIDTH = 130;
 
 // Person fields resolve to an avatar; team/queue fields get the flat NameBadge.
-// `assignedTo` = BG_RESPONSIBLE is a TEAM/queue name in this QC instance
-// ("HOT Design Team"…), not a person — user-confirmed 2026-09-07; kept in sync
-// with OpenProdDefectsView.tsx's identical sets.
-const PERSON_BADGE_FIELDS = new Set<ColumnKey>(['reporter', 'qaTester', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo']);
-const TEAM_BADGE_FIELDS = new Set<ColumnKey>(['assignedTo', 'responsibility']);
+// `assignedTo`/BG_RESPONSIBLE was treated as team/queue here (user-confirmed
+// 2026-09-07) — reversed 2026-09-18, user confirmed it does hold a person's
+// name after seeing real resolved values live; kept in sync with
+// OpenProdDefectsView.tsx's identical sets.
+const PERSON_BADGE_FIELDS = new Set<ColumnKey>(['reporter', 'assignedTo', 'qaTester', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo']);
+const TEAM_BADGE_FIELDS = new Set<ColumnKey>(['responsibility']);
 // Fixed-vocabulary/status-like columns — centered rather than L/R-aligned by
 // language, since they're short enum values, not prose (spec confirmed
 // 2026-09-03).

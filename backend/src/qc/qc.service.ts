@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
+import { getAllowedTransitions } from './qc-workflow-transitions';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
@@ -371,6 +372,12 @@ export interface BugDashboardDto {
   openBySeverity: { label: string; count: number }[];
   reopenByCr: { label: string; count: number }[];
   criticalByCr: { label: string; count: number }[];
+  // Longest-open still-open defects (oldest DETECTED_ON_DATE first), capped —
+  // added 2026-09-19 per user request for an actionable "what to triage next"
+  // list rather than another aggregate chart. Same `open` row set every other
+  // breakdown above is computed from, so its total is never inconsistent with
+  // the "open" KPI tile.
+  oldestOpen: { id: string; title: string; severity: string; status: string; discoveryDate: string; ageDays: number }[];
 }
 
 // ── SQL Queries ───────────────────────────────────────────────────────────────
@@ -1529,6 +1536,28 @@ const REOPENED_DEFECT_IDS_SQL = `
     AND defect.BG_USER_05 = 'System Test'
 `;
 
+// Latest real reopen timestamp per defect (2026-09-19, spec-2026-09-19-aging) —
+// backs the "oldest still-open" list's age calculation: the clock restarts
+// from the most recent reopen instead of running from the original detection
+// date the whole time. Deliberately does NOT reuse REOPENED_DEFECT_IDS_SQL's
+// extra filters (BG_USER_29/BG_USER_04/BG_USER_05) — those narrow it to match
+// QC's own curated "Reopened Defects KPI" Favorite, but a real reopen that
+// falls outside that KPI's filter is still a real reopen for age-reset
+// purposes, so excluding it here would silently under-reset an age. UNVERIFIED
+// against the real instance — same audit-log tables as DEFECT_FIELD_HISTORY_SQL
+// and REOPENED_DEFECT_IDS_SQL, just grouped/maxed instead of one row per change.
+const LATEST_REOPEN_TIME_SQL = `
+  SELECT defect.BG_BUG_ID AS DEFECT_ID, MAX(audit_log.AU_TIME) AS REOPEN_TIME
+  FROM BUG defect
+  INNER JOIN AUDIT_LOG audit_log ON defect.BG_BUG_ID = audit_log.AU_ENTITY_ID
+  INNER JOIN AUDIT_PROPERTIES audit_property ON audit_log.AU_ACTION_ID = audit_property.AP_ACTION_ID
+  WHERE audit_log.AU_ENTITY_TYPE = 'BUG'
+    AND audit_property.AP_PROPERTY_NAME = 'Bug Status'
+    AND audit_property.AP_NEW_VALUE = 'Reopen'
+    AND defect.BG_DETECTED_IN_REL = :releaseId
+  GROUP BY defect.BG_BUG_ID
+`;
+
 // ── Mock data (used when ORACLE_ENABLED=false) ────────────────────────────────
 
 const MOCK_COVERAGE: TestCoverageDto[] = [
@@ -2105,24 +2134,54 @@ function bugRawRowToDefectDto(r: BugRawRow): DefectDto {
   };
 }
 
-function computeBugDashboard(rows: BugRawRow[], reopenedIds: Set<string>, targetRows: BugRawRow[] = []): BugDashboardDto {
-  const isOpen = (status: string | null) => !['Closed', 'Canceled'].includes(status ?? '');
+function computeBugDashboard(
+  rows: BugRawRow[], reopenedIds: Set<string>, targetRows: BugRawRow[] = [], reopenTimes: Map<string, Date> = new Map(),
+): BugDashboardDto {
+  // BG_TARGET_REL set = it's been decided this defect won't be handled in the
+  // current version at all (deferred to a later release) — used both to
+  // exclude it from "open" below and, status-agnostically, for "עוברות
+  // לגרסה הבאה" (spec 2026-09-09).
+  const hasTarget = (r: BugRawRow) => r.TARGET_REL != null && String(r.TARGET_REL).trim() !== '';
+
+  // "Open" — unchanged, still just Closed/Canceled excluded. This is the
+  // definition behind the "תקלות פתוחות" KPI and all 4 breakdown panels, and
+  // release-intelligence.service.ts's own bug-dashboard drill-down mirrors it
+  // exactly — changing it here alone would make the drilldown list disagree
+  // with the KPI it was clicked from.
+  const isOpen = (r: BugRawRow) => !['Closed', 'Canceled'].includes(r.DEFECT_STATUS ?? '');
   const notNewOrCanceled = (status: string | null) => !['New', 'Canceled'].includes(status ?? '');
 
-  const open = rows.filter(r => isOpen(r.DEFECT_STATUS));
+  // Narrower "still stuck, needs attention now" predicate — 2026-09-19,
+  // user-confirmed, scoped ONLY to the "oldest still-open" aging list below
+  // (not the general "open" definition, which stays as-is per the user's
+  // follow-up: "הכוונה הייתה לספור תקלות ותיקות לפי ההגדרה הזו"). On top of
+  // Closed/Canceled: Fixed_Dev ("טופלה, ממתינה להעברה לבדיקות") and Fixed_Test
+  // ("הוטמעה בסביבה, טרם נבדקה") are dev-side-done, not "stuck" work anymore;
+  // a defect with BG_TARGET_REL set was explicitly deferred out of this
+  // version, so it's not something to chase down in it either.
+  const isStuckOpen = (r: BugRawRow) => {
+    const status = (r.DEFECT_STATUS ?? '').trim().toLowerCase();
+    if (['closed', 'canceled', 'fixed_dev', 'fixed_test'].includes(status)) return false;
+    if (hasTarget(r)) return false;
+    return true;
+  };
+
+  const open = rows.filter(isOpen);
   const rejected = rows.filter(r => r.DEFECT_STATUS === 'Canceled');
   const reopen = rows.filter(r => reopenedIds.has(String(r.DEFECT_ID)));
   const changes = rows.filter(r => r.DEFECT_TYPE === 'Change Requests');
   const production = rows.filter(r => r.CATEGORY_REF === 'Production' && notNewOrCanceled(r.DEFECT_STATUS));
   const regression = rows.filter(r => r.CATEGORY_REF === 'Regression' && notNewOrCanceled(r.DEFECT_STATUS));
   // TARGET = defects from earlier releases carried into this one (targetRows);
-  // "left" = of those, still not resolved.
+  // "left" = of those, still not resolved. Kept as the original Closed/
+  // Canceled-only definition — these rows are already the "targeted at this
+  // version" set, so the "has a target" exclusion above doesn't apply the
+  // same way here; not part of what was asked to change.
   const targeted = targetRows;
   const targetOpen = targeted.filter(r => !['Closed', 'Canceled'].includes(r.DEFECT_STATUS ?? ''));
   // "עוברות לגרסה הבאה" — the mirror of TARGET: defects opened in THIS release
   // (rows are already BG_DETECTED_IN_REL-scoped) whose BG_TARGET_REL is set,
   // i.e. deferred to a later release (spec 2026-09-09). Status-agnostic.
-  const hasTarget = (r: BugRawRow) => r.TARGET_REL != null && String(r.TARGET_REL).trim() !== '';
   const movedToNext = rows.filter(hasTarget);
 
   const groupCount = (items: BugRawRow[], keyFn: (r: BugRawRow) => string | null) => {
@@ -2170,6 +2229,33 @@ function computeBugDashboard(rows: BugRawRow[], reopenedIds: Set<string>, target
     .map(([date, count]) => ({ date, count }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const oldestOpen = rows
+    .filter(isStuckOpen)
+    .filter(r => !!r.DETECTED_ON_DATE && !isNaN(new Date(r.DETECTED_ON_DATE).getTime()))
+    .map(r => {
+      const detected = new Date(r.DETECTED_ON_DATE!);
+      // Age resets from the LATEST real reopen (user-confirmed 2026-09-19):
+      // if this defect was ever reopened, "how long has it been open" means
+      // "since that reopen", not since its original detection date. Guard
+      // against a reopen timestamp somehow predating detection (bad data) —
+      // never let the "restart" push the age further back than the original.
+      const reopenedAt = reopenTimes.get(String(r.DEFECT_ID));
+      const openSince = reopenedAt && reopenedAt.getTime() > detected.getTime() ? reopenedAt : detected;
+      const dto = bugRawRowToDefectDto(r);
+      return {
+        id: dto.id,
+        title: dto.title,
+        severity: r.SEVERITY || 'ללא סיווג',
+        status: r.DEFECT_STATUS ?? '',
+        discoveryDate: dto.discoveryDate,
+        ageDays: Math.max(0, Math.floor((now - openSince.getTime()) / MS_PER_DAY)),
+      };
+    })
+    .sort((a, b) => b.ageDays - a.ageDays)
+    .slice(0, 8);
+
   return {
     reported:   rows.length,
     open:       open.length,
@@ -2192,6 +2278,7 @@ function computeBugDashboard(rows: BugRawRow[], reopenedIds: Set<string>, target
     reopenByCr:           groupCount(reopen, r => r.CR_REFERENCE_NUMBER),
     // "קריטי" = Show Stopper only (user-confirmed 2026-09-09)
     criticalByCr:         groupCount(open.filter(r => (r.SEVERITY ?? '') === 'Show Stopper'), r => r.CR_REFERENCE_NUMBER),
+    oldestOpen,
   };
 }
 
@@ -2200,7 +2287,17 @@ function computeBugDashboard(rows: BugRawRow[], reopenedIds: Set<string>, target
 // documented approximation for demo/dev only; real Oracle mode uses the real
 // audit-log query via getReopenedDefectIds.
 const MOCK_REOPENED_BUG_IDS = new Set(MOCK_BUG_ROWS.filter(r => r.DEFECT_STATUS === 'Reopen').map(r => String(r.DEFECT_ID)));
-const MOCK_BUG_DASHBOARD: BugDashboardDto = computeBugDashboard(MOCK_BUG_ROWS, MOCK_REOPENED_BUG_IDS, MOCK_BUG_TARGET_ROWS);
+// Same "no separate mock audit-log dataset" approximation as MOCK_REOPENED_BUG_IDS
+// above, for the reopen TIMESTAMP this time — 5 days after detection is an
+// arbitrary but plausible stand-in, purely so dev mode has something non-empty
+// to exercise the age-reset logic with; real Oracle mode uses LATEST_REOPEN_TIME_SQL.
+const MOCK_REOPEN_TIMES = new Map<string, Date>(
+  MOCK_BUG_ROWS.filter(r => r.DEFECT_STATUS === 'Reopen' && r.DETECTED_ON_DATE).map(r => {
+    const detected = new Date(r.DETECTED_ON_DATE!);
+    return [String(r.DEFECT_ID), new Date(detected.getTime() + 5 * 24 * 60 * 60 * 1000)];
+  }),
+);
+const MOCK_BUG_DASHBOARD: BugDashboardDto = computeBugDashboard(MOCK_BUG_ROWS, MOCK_REOPENED_BUG_IDS, MOCK_BUG_TARGET_ROWS, MOCK_REOPEN_TIMES);
 
 // Defect person-fields hold raw QC login strings (e.g. "hsupport"), not
 // "First Last" names. QC's USERS.USER_NAME is synced into User.qcLogin by
@@ -2727,6 +2824,32 @@ export class QcService {
     }
   }
 
+  // Latest real reopen timestamp per defect (2026-09-19) — backs the
+  // "oldest still-open" list's age-reset-on-reopen rule. See
+  // LATEST_REOPEN_TIME_SQL's own comment for why this doesn't reuse
+  // REOPENED_DEFECT_IDS_SQL's narrower KPI-matching filters.
+  private async getLatestReopenTimes(relId: number): Promise<Map<string, Date>> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) return MOCK_REOPEN_TIMES;
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const result = await conn.execute(LATEST_REOPEN_TIME_SQL, { releaseId: relId });
+      const map = new Map<string, Date>();
+      for (const r of (result.rows ?? []) as any[]) {
+        if (!r.REOPEN_TIME) continue;
+        const d = new Date(r.REOPEN_TIME);
+        if (!isNaN(d.getTime())) map.set(String(r.DEFECT_ID), d);
+      }
+      return map;
+    } catch (err: any) {
+      this.logger.error(`Oracle getLatestReopenTimes: ${err.message}`);
+      throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
+  }
+
   // Public wrapper — getReopenedDefectIds/getRelId are both private (used
   // internally by getBugDashboard), but release-intelligence.service.ts's
   // drill-down dispatcher needs the same real audit-log reopen set to filter
@@ -2753,6 +2876,20 @@ export class QcService {
     // Unknown KPI name (not yet mapped) — fail open with the unfiltered list
     // rather than silently hiding real data behind a filter that doesn't exist.
     return filter ? defects.filter(filter) : defects;
+  }
+
+  // Direct-by-relId defect list (2026-09-18, historical QC releases browse) —
+  // deliberately a separate method rather than reusing getDefects(versionId)
+  // internals, to avoid any risk of regressing the just-fixed Version-based
+  // drill-down: a historical release browsed this way usually has NO local
+  // Version row at all (that's the whole point — QC-only releases that
+  // predate this tool), so there's nothing to resolve a versionId from.
+  // Every real defect query in this file only ever keys on relId under the
+  // hood anyway (see getRelId) — this just skips the Version indirection.
+  async getDefectsByRelId(relId: number): Promise<DefectDto[]> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) return MOCK_DEFECTS;
+    return this.runDefectsQuery(DEFECTS_SQL, { releaseId: relId });
   }
 
   // Real Go-Live/production incidents for a release — used by the Incidents/
@@ -3084,15 +3221,17 @@ export class QcService {
     let conn: any;
     try {
       conn = await oracleConnect();
-      const [result, targetResult, reopenedIds] = await Promise.all([
+      const [result, targetResult, reopenedIds, reopenTimes] = await Promise.all([
         conn.execute(BUG_DASHBOARD_SQL, { releaseId: relId }),
         conn.execute(BUG_DASHBOARD_TARGET_SQL, { releaseId: relId }),
         this.getReopenedDefectIds(relId),
+        this.getLatestReopenTimes(relId),
       ]);
       return computeBugDashboard(
         (result.rows ?? []) as BugRawRow[],
         reopenedIds,
         (targetResult.rows ?? []) as BugRawRow[],
+        reopenTimes,
       );
     } catch (err: any) {
       this.logger.error(`Oracle getBugDashboard: ${err.message}`);
@@ -3371,5 +3510,22 @@ export class QcService {
       });
     }
     return this.getOpenProdDefectsConfig();
+  }
+
+  // Real workflow-aware status transitions (docs/spec-defects-module.md §4,
+  // 2026-09-18) — replaces guessing at a hardcoded status list. Resolves the
+  // acting user's DeployCenter team(s) to their configured QC group name(s)
+  // (Team.qcGroupName, admin-set — see project memory
+  // project-qc-workflow-transitions-2026-09-18 for why this is a static
+  // mapping and not a live QC lookup), then looks up the real transition
+  // rules transcribed from QC's own admin UI. `hasMapping: false` tells the
+  // caller none of the user's teams have a QC group configured yet, so it
+  // should fall back to the old free-text status field instead of showing
+  // an empty/wrong dropdown.
+  async getAllowedStatusTransitions(userId: string, currentStatus: string): Promise<{ hasMapping: boolean; allowed: string[] }> {
+    const memberships = await prisma.teamMember.findMany({ where: { userId }, include: { team: { select: { qcGroupName: true } } } });
+    const qcGroupNames = Array.from(new Set(memberships.map(m => m.team.qcGroupName).filter((g): g is string => !!g)));
+    if (qcGroupNames.length === 0) return { hasMapping: false, allowed: [] };
+    return { hasMapping: true, allowed: getAllowedTransitions(qcGroupNames, currentStatus) };
   }
 }

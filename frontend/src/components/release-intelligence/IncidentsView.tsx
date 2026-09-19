@@ -66,7 +66,7 @@ interface ImportCandidate {
 const IMPORT_CANDIDATE_COLUMNS: { key: keyof ImportCandidate; label: string }[] = [
   { key: 'qcDefectId', label: 'Defect ID' },
   { key: 'assignedTo', label: 'Assigned To' },
-  { key: 'qaTester', label: 'QA' },
+  { key: 'qaTester', label: 'Tester' },
   { key: 'crReferenceNumber', label: 'CR Reference Number' },
   { key: 'system', label: 'Project' },
   { key: 'subject', label: 'Subject' },

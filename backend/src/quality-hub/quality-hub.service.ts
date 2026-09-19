@@ -695,6 +695,16 @@ export class QualityHubService {
   // historical releases in RELEASES_KPI_SCORES.xlsx go back to 2017 and only
   // ever existed as aggregate Excel rows, with no corresponding Version/QC
   // release in this app at all.
+  //
+  // Bug found 2026-09-18: this used to require `rel.goLiveCycleId ??
+  // rel.rehearsalCycleId` to be set, but qc.service.ts's whole defect-query
+  // chain (getDefectsForKpi -> getDefects -> getRelId) only ever reads
+  // `qcRelease.relId` — it never touches either cycle id for this
+  // (non-cycle-scoped) path. The cycle-id check was gating on a field the
+  // actual query doesn't need, so drill-down silently hid itself for every
+  // release whose QcRelease sync hadn't happened to also populate those two
+  // specific cycle types (Dress Rehearsal/Go Live) — which, in this dev DB,
+  // was every single one. Fixed to check what the query actually needs.
   async getQcLinkForRelease(releaseName: string): Promise<{ versionId: string; hasQcData: boolean } | null> {
     const version = await prisma.version.findFirst({
       where: { name: releaseName },
@@ -702,7 +712,7 @@ export class QualityHubService {
     });
     if (!version) return null;
     const rel = (version as any).qcRelease;
-    const hasQcData = !!(rel && (rel.goLiveCycleId ?? rel.rehearsalCycleId));
+    const hasQcData = !!rel?.relId;
     return { versionId: version.id, hasQcData };
   }
 }

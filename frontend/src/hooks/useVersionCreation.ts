@@ -46,9 +46,15 @@ const subtractWorkingDays = (from: string, days: number): string => {
 };
 
 // Shared state + handlers behind the VersionWizard UI (manual / from-template /
-// Excel-import creation) — used by VersionsView's "יצירת תוכנית הטמעה" and
-// HomeDashboard's equivalent buttons (deployments module only; version
-// creation was removed from the ניהול גרסה module 2026-07-27).
+// Excel-import) — used by VersionsView's "יצירת תוכנית הטמעה" and
+// HomeDashboard's equivalent buttons, to fill in an already-created version
+// (targetVersionId) with dates/phases/tasks. Bare version *creation* itself
+// now lives in ניהול גרסה (VersionManagementModuleView's own instance of this
+// hook, using createFromCrListName only) — reversing the 2026-07-27 decision
+// that had removed it from there (product decision, 2026-09, once ניהול
+// גרסה existed as its own module). The create* functions here still accept
+// no targetVersionId as a fallback for any caller that needs to create a
+// version directly.
 export function useVersionCreation(token: string, opts: { onCreated: (versionId: string) => void; onListChanged?: () => void }) {
   const headers = { Authorization: `Bearer ${token}` };
   const [newVersion, setNewVersion] = useState<NewVersionState>(EMPTY_NEW_VERSION);
@@ -103,30 +109,79 @@ export function useVersionCreation(token: string, opts: { onCreated: (versionId:
     newVersion.qaEnd
   );
 
-  const createEmpty = async () => {
-    if (!formComplete) return;
-    setCreatingTemplate(true);
+  // Bare-minimum creation for "ניהול גרסה"'s own picker — a name from
+  // CR_LIST and nothing else. The backend never actually required more than
+  // `name` (versions.service.ts::create()); everything else here was only a
+  // frontend gate (`formComplete` above), which this path skips entirely by
+  // design (product decision reversal, 2026-09 — see plan doc).
+  const [creatingMinimal, setCreatingMinimal] = useState(false);
+  const createFromCrListName = async (name: string) => {
+    if (!name.trim()) return;
+    setCreatingMinimal(true);
     try {
-      const res = await axios.post(`${API}/versions`, {
-        ...newVersion,
-        qcReleaseId: newVersion.qcReleaseId || undefined,
-      }, { headers });
+      const res = await axios.post(`${API}/versions`, { name: name.trim() }, { headers });
       const versionId = res.data.id;
       syncCrsInBackground(versionId);
-      reset();
       opts.onListChanged?.();
       opts.onCreated(versionId);
+    } catch (err: any) { setActionError(err?.response?.data?.message || 'שגיאה ביצירת גרסה'); }
+    finally { setCreatingMinimal(false); }
+  };
+
+  // Only the fields VersionWizard's later steps actually collect when filling
+  // in an already-created version — deliberately excludes name/description
+  // (owned by ניהול גרסה's creation step) and qcReleaseId (not even accepted
+  // by versions.service.ts::updateFields), so this can never rename or
+  // re-describe the version it's patching.
+  const datesPayload = () => ({
+    plannedStart: newVersion.plannedStart || undefined,
+    plannedEnd: newVersion.plannedEnd || undefined,
+    reviewMeetingTime: newVersion.reviewMeetingTime || undefined,
+    workPlanMeetingTime: newVersion.workPlanMeetingTime || undefined,
+    integrationStart: newVersion.integrationStart || undefined,
+    integrationEnd: newVersion.integrationEnd || undefined,
+    qaStart: newVersion.qaStart || undefined,
+    qaEnd: newVersion.qaEnd || undefined,
+    plannedRehearsalStart: newVersion.plannedRehearsalStart || undefined,
+    plannedRehearsalEnd: newVersion.plannedRehearsalEnd || undefined,
+  });
+
+  // targetVersionId: when set, these three fill in an EXISTING version
+  // (created via ניהול גרסה's CR_LIST picker) instead of creating a new one —
+  // PATCH the dates / apply-to-existing-version, same endpoints VersionsView's
+  // own "Empty DRAFT: build deployment plan" panel already uses independent
+  // of creation. Omitted, they fall back to the original create-a-new-version
+  // behavior (kept for any caller that still needs it).
+  const createEmpty = async (targetVersionId?: string) => {
+    if (!targetVersionId && !formComplete) return;
+    setCreatingTemplate(true);
+    try {
+      let versionId = targetVersionId;
+      if (targetVersionId) {
+        await axios.patch(`${API}/versions/${targetVersionId}`, datesPayload(), { headers });
+      } else {
+        const res = await axios.post(`${API}/versions`, {
+          ...newVersion,
+          qcReleaseId: newVersion.qcReleaseId || undefined,
+        }, { headers });
+        versionId = res.data.id;
+        syncCrsInBackground(versionId!);
+      }
+      reset();
+      opts.onListChanged?.();
+      opts.onCreated(versionId!);
     } catch (err: any) { setActionError(err?.response?.data?.message || 'שגיאה ביצירת גרסה'); }
     finally { setCreatingTemplate(false); }
   };
 
-  const importFromFile = async () => {
-    if (!importFile || !newVersion.name.trim()) return;
+  const importFromFile = async (targetVersionId?: string) => {
+    if (!importFile || (!targetVersionId && !newVersion.name.trim())) return;
     setImporting(true);
     try {
       const formData = new FormData();
       formData.append('file', importFile);
-      formData.append('versionName', newVersion.name);
+      if (targetVersionId) formData.append('existingVersionId', targetVersionId);
+      else formData.append('versionName', newVersion.name);
       if (newVersion.plannedStart) formData.append('plannedStart', newVersion.plannedStart.slice(0, 10));
       if (newVersion.qcReleaseId) formData.append('qcReleaseId', newVersion.qcReleaseId);
       if (newVersion.integrationStart) formData.append('integrationStart', newVersion.integrationStart);
@@ -149,23 +204,30 @@ export function useVersionCreation(token: string, opts: { onCreated: (versionId:
     } finally { setImporting(false); }
   };
 
-  const createFromTemplate = async () => {
+  const createFromTemplate = async (targetVersionId?: string) => {
     if (!selectedTemplateId) { setActionError('יש לבחור תבנית לפני יצירה'); return; }
-    if (!newVersion.name.trim()) { setActionError('נדרש שם גרסה לפני יצירה'); return; }
-    if (!newVersion.plannedStart) { setActionError('נדרש תאריך ושעת התחלה מתוכנן לפני יצירה'); return; }
-    if (!newVersion.plannedEnd) { setActionError('נדרש תאריך ושעת סיום מתוכנן לפני יצירה'); return; }
+    if (!targetVersionId) {
+      if (!newVersion.name.trim()) { setActionError('נדרש שם גרסה לפני יצירה'); return; }
+      if (!newVersion.plannedStart) { setActionError('נדרש תאריך ושעת התחלה מתוכנן לפני יצירה'); return; }
+      if (!newVersion.plannedEnd) { setActionError('נדרש תאריך ושעת סיום מתוכנן לפני יצירה'); return; }
+    }
     setCreatingFromTemplate(true);
     try {
-      const res = await axios.post(`${API}/versions`, {
-        ...newVersion,
-        qcReleaseId: newVersion.qcReleaseId || undefined,
-      }, { headers });
-      const versionId = res.data.id;
+      let versionId = targetVersionId;
+      if (targetVersionId) {
+        await axios.patch(`${API}/versions/${targetVersionId}`, datesPayload(), { headers });
+      } else {
+        const res = await axios.post(`${API}/versions`, {
+          ...newVersion,
+          qcReleaseId: newVersion.qcReleaseId || undefined,
+        }, { headers });
+        versionId = res.data.id;
+        syncCrsInBackground(versionId!);
+      }
       await axios.post(`${API}/version-templates/${selectedTemplateId}/apply-to-version/${versionId}`, {}, { headers });
-      syncCrsInBackground(versionId);
       reset();
       opts.onListChanged?.();
-      opts.onCreated(versionId);
+      opts.onCreated(versionId!);
     } catch (err: any) {
       setActionError(err?.response?.data?.message || 'שגיאה ביצירה מתבנית');
     } finally { setCreatingFromTemplate(false); }
@@ -175,6 +237,7 @@ export function useVersionCreation(token: string, opts: { onCreated: (versionId:
     newVersion, setNewVersion, qcReleases, futureVersionNames, templates, selectedTemplateId, setSelectedTemplateId,
     importFile, setImportFile, handlePlannedStartChange,
     createEmpty, importFromFile, createFromTemplate,
+    createFromCrListName, creatingMinimal,
     creatingTemplate, creatingFromTemplate, importing,
     actionError, setActionError, reset,
   };

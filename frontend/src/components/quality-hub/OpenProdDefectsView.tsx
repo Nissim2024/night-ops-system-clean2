@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, JIRA } from '../../theme';
-import { Card, Badge, BackLink } from '../ui';
+import { Card, Badge, BackLink, Modal, Button, TextField } from '../ui';
+import { FieldRow, FieldRowsEditor } from '../QcWriteTestPanel';
 import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL } from './openProdDefectsFields';
 import {
   hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroupsDialog, DetailGroup,
   FieldChangeHistorySection, AttachmentsSection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
-  IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, SEVERITY_COLOR, SelectColumnsDialog,
+  IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, SEVERITY_COLOR, SelectColumnsDialog, SavedFilterState,
 } from '../shared/defectFieldDisplay';
 import { formatDate, formatDateTime } from '../../utils/dateFormat';
 import { cn } from '../../lib/utils';
@@ -51,12 +52,13 @@ interface Props { token: string; }
 // Person-owner fields render as an avatar (resolved name if a login happens
 // to match a synced User.qcLogin, else the raw login degrades to a single
 // letter + itself); team/queue fields get the flat NameBadge instead.
-// `assignedTo` = BG_RESPONSIBLE holds a TEAM/queue name in this QC instance
-// ("HOT Design Team", "NETC-DT team"…), NOT a person — user-confirmed
-// 2026-09-07, matches the DTO comment on qaTester (BG_USER_37 is "distinct
-// from assignedTo/BG_RESPONSIBLE, which is a team/queue, not a person").
-const PERSON_BADGE_FIELDS = new Set(['qaTester', 'detectedBy', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo']);
-const TEAM_BADGE_FIELDS = new Set(['assignedTo', 'responsibility']);
+// `assignedTo`/BG_RESPONSIBLE was previously treated as a team/queue field
+// here (user-confirmed 2026-09-07) — reversed 2026-09-18 after the user saw
+// real resolved values ("Yael Morgenstern Teff") in the live detail screen
+// and confirmed it does hold a person's name, matching `responsibility`
+// which stays the one genuine team field.
+const PERSON_BADGE_FIELDS = new Set(['assignedTo', 'qaTester', 'detectedBy', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo']);
+const TEAM_BADGE_FIELDS = new Set(['responsibility']);
 
 // title/description/notes always render in their own fixed spots (the big
 // title line and the side-by-side text boxes) — never offered in the
@@ -64,6 +66,16 @@ const TEAM_BADGE_FIELDS = new Set(['assignedTo', 'responsibility']);
 const DETAIL_GROUPS_FIXED_FIELDS = new Set(['title', 'description', 'notes']);
 const DETAIL_GROUPS_STORAGE_KEY = 'deploycenter_openprod_defect_detail_groups';
 const OPENPROD_TABLE_COLUMNS_STORAGE_KEY = 'deploycenter_openprod_defect_table_columns_v1';
+// Saved views (docs/spec-defects-module.md §11) — named presets of
+// columns+sort+filters, per-browser like every other picker here.
+const OPENPROD_SAVED_VIEWS_STORAGE_KEY = 'deploycenter_openprod_defect_saved_views_v1';
+interface SavedView {
+  name: string;
+  columns: string[];
+  sortKey: string | null;
+  sortDir: 'asc' | 'desc';
+  filterState: SavedFilterState;
+}
 
 // Same 6-category layout as VersionOverview's TARGET-defect detail screen —
 // DETAIL_FIELDS' key set overlaps almost entirely with TargetDefect's, so
@@ -135,30 +147,61 @@ const QC_STATUS_OPTIONS = ['New', 'Open', 'At Work', 'Fixed_Dev', 'Fixed_Test', 
 // through /qc/rest-test/* which authenticates as the acting user's own QC
 // identity; a 403 (no action:qc_write permission or no linked qcLogin) is
 // rendered as a quiet inline note instead of an input form.
-const QcWriteBackPanel: React.FC<{ defectId: string; token: string; currentStatus: string }> = ({ defectId, token, currentStatus }) => {
+// The Tier 2 ("safe") field set confirmed with the user 2026-09-18
+// (docs/spec-defects-module.md §6) — business keys match exactly what
+// qc-rest.service.ts::updateDefectTier2Fields expects; the real REST field
+// name behind each is configured separately (SystemParam, empty until
+// discovered) and stays entirely server-side.
+const TIER2_FIELDS: { key: string; label: string }[] = [
+  { key: 'assignedTo', label: 'Assigned To' },
+  { key: 'priority', label: 'Priority' },
+  { key: 'severity', label: 'Severity' },
+  { key: 'estimatedFixTime', label: 'Estimated Fix Time' },
+  { key: 'subModule', label: 'Sub Module' },
+  { key: 'mainModule', label: 'Main Module' },
+];
+
+// Real closed value-lists confirmed from live Oracle reads (SEVERITY_COLOR /
+// PriorityCell already used app-wide for these exact same values — see
+// shared/defectFieldDisplay.tsx) — 2026-09-18 fix: these two fields were
+// plain free-text inputs below even though QC itself only accepts one of a
+// fixed set. Assigned To / Sub Module / Main Module have no confirmed real
+// value list yet (project tree / dynamic user list) — stay free text until
+// Tuesday's QC metadata probe.
+const TIER2_FIELD_OPTIONS: Record<string, string[]> = {
+  severity: ['Show Stopper', 'Severe', 'Medium', 'Low'],
+  priority: ['High', 'Medium', 'Low'],
+};
+
+// Fields the sidebar's inline double-click editor (2026-09-19 spec, see
+// project-inline-defect-field-editor memory) may open — deliberately the
+// exact same set QcWriteBackPanel already writes (status + the 6 Tier2
+// fields), never the read-only display-only fields, since those have no
+// confirmed REST field name yet (blocked until Tuesday's QC probe).
+const INLINE_EDITABLE_FIELDS = new Set(['status', ...TIER2_FIELDS.map(f => f.key)]);
+
+// `blocked`/`allowedTransitions` are now owned by the parent DefectDetailScreen
+// (2026-09-19) — the new inline sidebar editor needs the exact same two
+// pieces of state to gate its own "✏️ ערוך" button and status dropdown, so
+// they're fetched once and passed down instead of each surface probing QC
+// independently.
+const QcWriteBackPanel: React.FC<{
+  defectId: string; token: string; currentStatus: string; currentValues: Record<string, string>;
+  blocked: string | null; allowedTransitions: string[] | null;
+}> = ({ defectId, token, currentStatus, currentValues, blocked, allowedTransitions }) => {
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const [status, setStatus] = useState(currentStatus);
   const [note, setNote] = useState('');
   const [savingStatus, setSavingStatus] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
-  const [blocked, setBlocked] = useState<string | null>(null);
+  const [tier2Values, setTier2Values] = useState<Record<string, string>>(currentValues);
+  const [savingTier2, setSavingTier2] = useState(false);
+  const [tier2Msg, setTier2Msg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  useEffect(() => { setTier2Values(currentValues); }, [currentValues]);
 
   useEffect(() => { setStatus(currentStatus); }, [currentStatus]);
-
-  // Probe write permission once so we don't render a form the user can't use.
-  useEffect(() => {
-    let alive = true;
-    axios.get(`${API}/qc/rest-test/defect/${encodeURIComponent(defectId)}`, { headers })
-      .then(() => { if (alive) setBlocked(null); })
-      .catch(err => {
-        if (!alive) return;
-        const code = err?.response?.status;
-        if (code === 403 || code === 400) setBlocked(err?.response?.data?.message || 'אין הרשאת כתיבה ל-QC');
-        // other errors (500/timeout) — leave the form visible, the action itself will report
-      });
-    return () => { alive = false; };
-  }, [defectId, headers]);
 
   const saveStatus = async () => {
     if (!status.trim() || status.trim() === currentStatus.trim()) return;
@@ -183,6 +226,29 @@ const QcWriteBackPanel: React.FC<{ defectId: string; token: string; currentStatu
     } finally { setSavingNote(false); }
   };
 
+  // Only sends fields that actually changed from what QC last reported —
+  // avoids re-writing (and re-triggering any workflow side-effect on) a
+  // field the user didn't touch. A per-field REST-name mapping that's still
+  // unconfigured surfaces as a clear inline error from the backend (never
+  // silently skipped), same as the status/note actions above.
+  const saveTier2 = async () => {
+    const changed: Record<string, string> = {};
+    for (const f of TIER2_FIELDS) {
+      const next = (tier2Values[f.key] ?? '').trim();
+      const prev = (currentValues[f.key] ?? '').trim();
+      if (next !== prev) changed[f.key] = next;
+    }
+    if (Object.keys(changed).length === 0) return;
+    setSavingTier2(true); setTier2Msg(null);
+    try {
+      await axios.patch(`${API}/qc/defects/${encodeURIComponent(defectId)}/fields`, { fields: changed }, { headers });
+      setTier2Msg({ kind: 'ok', text: `עודכן ב-QC: ${Object.keys(changed).join(', ')}` });
+    } catch (err: any) {
+      setTier2Msg({ kind: 'err', text: err?.response?.data?.message || 'עדכון השדות נכשל' });
+    } finally { setSavingTier2(false); }
+  };
+  const tier2Dirty = TIER2_FIELDS.some(f => (tier2Values[f.key] ?? '').trim() !== (currentValues[f.key] ?? '').trim());
+
   const inputClass = 'w-full box-border px-2.5 py-2 rounded-sm border border-border text-sm bg-card text-foreground';
   const btnClass = 'px-4 py-[7px] bg-primary text-white border-none rounded-sm cursor-pointer text-[13px] font-semibold';
 
@@ -193,18 +259,35 @@ const QcWriteBackPanel: React.FC<{ defectId: string; token: string; currentStatu
     // forces dir="ltr" on itself for its own macro layout — see
     // DefectDetailScreen).
     <section dir="rtl" className="mt-6 border border-border rounded-md bg-muted px-[18px] py-4">
-      <div className={`${DETAIL_SECTION_HEADING_CLASS} text-subtle-foreground`}>✏️ עדכון ישיר ל-QC</div>
+      <div className={`${DETAIL_SECTION_HEADING_CLASS} text-subtle-foreground`}>
+        ✏️ עדכון ישיר ל-QC <span className="font-normal opacity-70">(גיבוי — ניתן גם לערוך ישירות בסרגל הצד)</span>
+      </div>
       {blocked ? (
         <div className="text-[13px] text-subtle-foreground leading-relaxed">{blocked}</div>
       ) : (
         <div className="flex flex-col gap-4">
           <div>
-            <label className="text-[13px] text-subtle-foreground block mb-1.5">סטטוס תקלה</label>
+            <label className="text-[13px] text-subtle-foreground block mb-1.5">
+              סטטוס תקלה{allowedTransitions && <span className="text-success"> · לפי workflow אמיתי של הצוות שלך</span>}
+            </label>
             <div className="flex gap-2 items-center flex-wrap">
-              <input list="qc-status-options" value={status} onChange={e => setStatus(e.target.value)} className={`${inputClass} flex-1 min-w-[160px]`} dir="ltr" />
-              <datalist id="qc-status-options">
-                {QC_STATUS_OPTIONS.map(s => <option key={s} value={s} />)}
-              </datalist>
+              {allowedTransitions ? (
+                allowedTransitions.length > 0 ? (
+                  <select value={status} onChange={e => setStatus(e.target.value)} className={`${inputClass} flex-1 min-w-[160px]`} dir="ltr">
+                    <option value={currentStatus}>{currentStatus} (נוכחי)</option>
+                    {allowedTransitions.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                ) : (
+                  <div className="text-[13px] text-subtle-foreground flex-1">אין מעבר סטטוס אפשרי מ-"{currentStatus}" לצוות שלך</div>
+                )
+              ) : (
+                <>
+                  <input list="qc-status-options" value={status} onChange={e => setStatus(e.target.value)} className={`${inputClass} flex-1 min-w-[160px]`} dir="ltr" />
+                  <datalist id="qc-status-options">
+                    {QC_STATUS_OPTIONS.map(s => <option key={s} value={s} />)}
+                  </datalist>
+                </>
+              )}
               <button onClick={saveStatus} disabled={savingStatus || !status.trim() || status.trim() === currentStatus.trim()} className={`${btnClass} ${(savingStatus || status.trim() === currentStatus.trim()) ? 'opacity-50' : 'opacity-100'}`}>
                 {savingStatus ? 'מעדכן…' : 'עדכן סטטוס'}
               </button>
@@ -224,9 +307,170 @@ const QcWriteBackPanel: React.FC<{ defectId: string; token: string; currentStatu
               {msg.text}
             </div>
           )}
+
+          <div className="border-t border-border pt-4">
+            <div className="text-[13px] text-subtle-foreground mb-2.5">שדות נוספים (Assigned To / Priority / Severity / Estimated Fix Time / Sub Module / Main Module)</div>
+            <div className="grid grid-cols-2 gap-3">
+              {TIER2_FIELDS.map(f => {
+                const options = TIER2_FIELD_OPTIONS[f.key];
+                return (
+                  <div key={f.key}>
+                    <label className="text-[13px] text-subtle-foreground block mb-1.5">{f.label}</label>
+                    {options ? (
+                      <select
+                        value={tier2Values[f.key] ?? ''}
+                        onChange={e => setTier2Values(prev => ({ ...prev, [f.key]: e.target.value }))}
+                        className={inputClass}
+                        dir="ltr"
+                      >
+                        <option value="">—</option>
+                        {options.map(o => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        value={tier2Values[f.key] ?? ''}
+                        onChange={e => setTier2Values(prev => ({ ...prev, [f.key]: e.target.value }))}
+                        className={inputClass}
+                        dir="ltr"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-2.5 flex items-center gap-2.5">
+              <button onClick={saveTier2} disabled={savingTier2 || !tier2Dirty} className={`${btnClass} ${(savingTier2 || !tier2Dirty) ? 'opacity-50' : 'opacity-100'}`}>
+                {savingTier2 ? 'מעדכן…' : 'שמור שינויים ב-QC'}
+              </button>
+              {tier2Msg && (
+                <div className={`text-[13px] font-semibold ${tier2Msg.kind === 'ok' ? 'text-success' : 'text-danger'}`}>
+                  {tier2Msg.text}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </section>
+  );
+};
+
+// New-defect creation (docs/spec-defects-module.md §5, 2026-09-18) — every
+// QA can open this (action:qc_defect_create), but the form is deliberately a
+// generic REST-field-name editor, NOT a polished "title/description/
+// severity/..." form: the real required-field set and REST field names for
+// this QC instance are still unconfirmed (§11 step 1, the metadata probe,
+// blocked until real QC access). The one confirmed-safe field is `name`
+// (the summary/title) — everything else goes through the same free-text
+// field-name rows already used in the admin lab (QcWriteTestPanel), so a
+// real attempt can be made now without pretending to know fields we don't.
+const CreateDefectModal: React.FC<{ token: string; open: boolean; onClose: () => void; onCreated: (id: string) => void }> = ({ token, open, onClose, onCreated }) => {
+  const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+  const [title, setTitle] = useState('');
+  const [extraRows, setExtraRows] = useState<FieldRow[]>([{ name: '', value: '' }]);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reset = () => { setTitle(''); setExtraRows([{ name: '', value: '' }]); setError(null); };
+
+  const create = async () => {
+    if (!title.trim()) { setError('יש להזין כותרת (Summary)'); return; }
+    setCreating(true); setError(null);
+    try {
+      const fields: Record<string, string> = { name: title.trim() };
+      for (const row of extraRows) {
+        if (row.name.trim()) fields[row.name.trim()] = row.value;
+      }
+      const res = await axios.post(`${API}/qc/defects`, { fields }, { headers });
+      if (!res.data?.id) {
+        setError('התקלה נוצרה ב-QC אך לא זוהה מזהה בתשובה — בדוק ידנית ב-QC UI');
+        return;
+      }
+      reset();
+      onCreated(res.data.id);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'יצירת התקלה נכשלה');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={() => { reset(); onClose(); }} title="תקלה חדשה ב-QC" width={620}>
+      <div className="flex flex-col gap-4" dir="rtl">
+        <div className="text-[13px] text-subtle-foreground leading-relaxed">
+          השדה "כותרת" בלבד מאומת. שאר השדות (חומרה, CR מקושר, שלב בדיקה וכו') נכתבים
+          לפי שם ה-REST האמיתי שלהם — לגלות אותם דרך "🔍 הצג את כל שמות השדות" (מסך הניהול)
+          לפני שממלאים, אחרת הכתיבה עלולה להיכשל או להיכתב לשדה הלא-נכון.
+        </div>
+        <div>
+          <label className="text-[13px] text-subtle-foreground block mb-1.5">כותרת (Summary)</label>
+          <TextField value={title} onChange={e => setTitle(e.target.value)} fullWidth />
+        </div>
+        <div>
+          <label className="text-[13px] text-subtle-foreground block mb-1.5">שדות נוספים (אופציונלי)</label>
+          <FieldRowsEditor rows={extraRows} onChange={setExtraRows} />
+        </div>
+        {error && <div className="text-[13px] font-semibold text-danger">{error}</div>}
+        <div className="flex justify-end gap-2.5">
+          <Button variant="outline" onClick={() => { reset(); onClose(); }}>ביטול</Button>
+          <Button onClick={create} disabled={creating || !title.trim()}>{creating ? 'יוצר…' : 'צור תקלה ב-QC'}</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
+// Inline sidebar editor (spec 2026-09-19) — swapped in for one field's
+// display span on double-click while the sidebar is in edit mode. Renders a
+// select for a closed value-list (status via allowedTransitions, else the
+// old datalist fallback; severity/priority via TIER2_FIELD_OPTIONS), a plain
+// text input otherwise. A select commits immediately on change (choosing IS
+// finishing); a text input commits on blur/Enter and reverts on Escape
+// without saving — `onCommit` itself is a no-op if the value didn't actually
+// change (see commitInlineField).
+const InlineFieldEditor: React.FC<{
+  fieldKey: string; initialValue: string; currentStatus: string; allowedTransitions: string[] | null;
+  onCommit: (value: string) => void; onCancel: () => void;
+}> = ({ fieldKey, initialValue, currentStatus, allowedTransitions, onCommit, onCancel }) => {
+  const [value, setValue] = useState(initialValue);
+  const fieldClass = 'w-full box-border px-1.5 py-1 rounded-sm border border-border text-[13px] bg-card text-foreground';
+
+  if (fieldKey === 'status') {
+    if (allowedTransitions) {
+      return (
+        <select autoFocus value={value} onChange={e => onCommit(e.target.value)} onBlur={onCancel}
+          onKeyDown={e => { if (e.key === 'Escape') onCancel(); }} className={fieldClass} dir="ltr">
+          <option value={currentStatus}>{currentStatus} (נוכחי)</option>
+          {allowedTransitions.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      );
+    }
+    return (
+      <>
+        <input autoFocus list="qc-status-options-inline" value={value} onChange={e => setValue(e.target.value)}
+          onBlur={() => onCommit(value)} onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }}
+          className={fieldClass} dir="ltr" />
+        <datalist id="qc-status-options-inline">{QC_STATUS_OPTIONS.map(s => <option key={s} value={s} />)}</datalist>
+      </>
+    );
+  }
+
+  const options = TIER2_FIELD_OPTIONS[fieldKey];
+  if (options) {
+    return (
+      <select autoFocus value={value} onChange={e => onCommit(e.target.value)} onBlur={onCancel}
+        onKeyDown={e => { if (e.key === 'Escape') onCancel(); }} className={fieldClass} dir="ltr">
+        <option value="">—</option>
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    );
+  }
+
+  return (
+    <input autoFocus value={value} onChange={e => setValue(e.target.value)}
+      onBlur={() => onCommit(value)} onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }}
+      className={fieldClass} dir="ltr" />
   );
 };
 
@@ -259,6 +503,95 @@ export const DefectDetailScreen: React.FC<{
       .finally(() => setDetailLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defectId, token]);
+
+  const currentStatus = String(detail?.status ?? '');
+
+  // Lifted 2026-09-19 from QcWriteBackPanel — the new inline sidebar editor
+  // below needs the exact same write-permission probe and workflow-transition
+  // list to gate its own "✏️ ערוך" button and status editor, so both surfaces
+  // share one fetch each instead of two independent ones.
+  const [blocked, setBlocked] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    axios.get(`${API}/qc/rest-test/defect/${encodeURIComponent(defectId)}`, { headers })
+      .then(() => { if (alive) setBlocked(null); })
+      .catch(err => {
+        if (!alive) return;
+        const code = err?.response?.status;
+        if (code === 403 || code === 400) setBlocked(err?.response?.data?.message || 'אין הרשאת כתיבה ל-QC');
+      });
+    return () => { alive = false; };
+  }, [defectId, headers]);
+
+  const [allowedTransitions, setAllowedTransitions] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!currentStatus) { setAllowedTransitions(null); return; }
+    let alive = true;
+    axios.get(`${API}/qc/defects/allowed-transitions`, { headers, params: { currentStatus } })
+      .then(r => { if (alive) setAllowedTransitions(r.data?.hasMapping ? r.data.allowed : null); })
+      .catch(() => { if (alive) setAllowedTransitions(null); });
+    return () => { alive = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStatus, defectId]);
+
+  // Inline sidebar field editor (spec 2026-09-19) — one "✏️ ערוך" toggle puts
+  // the writable fields (INLINE_EDITABLE_FIELDS) into an editable state;
+  // double-clicking one opens its own editor in place (select for a closed
+  // value-list, text otherwise); one "💾 שמור" batches every pending field
+  // into the minimum number of PATCH calls. The older "עדכון ישיר ל-QC" panel
+  // below stays as a fallback (user's explicit call) rather than being removed.
+  const [editMode, setEditMode] = useState(false);
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [pendingEdits, setPendingEdits] = useState<Record<string, string>>({});
+  const [savingInline, setSavingInline] = useState(false);
+  const [inlineMsg, setInlineMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  useEffect(() => {
+    // A freshly opened/changed defect starts clean — no stale edits carried
+    // over from whatever was previously viewed.
+    setEditMode(false); setEditingField(null); setPendingEdits({}); setInlineMsg(null);
+  }, [defectId]);
+
+  const cancelInlineEdit = () => {
+    if (Object.keys(pendingEdits).length > 0 && !window.confirm('לבטל את השינויים שלא נשמרו?')) return;
+    setEditMode(false); setEditingField(null); setPendingEdits({}); setInlineMsg(null);
+  };
+
+  const commitInlineField = (key: string, value: string) => {
+    const original = String((detail as any)?.[key] ?? '');
+    setPendingEdits(prev => {
+      const next = { ...prev };
+      if (value.trim() === original.trim()) delete next[key]; else next[key] = value;
+      return next;
+    });
+    setEditingField(null);
+  };
+
+  const saveInlineEdits = async () => {
+    if (Object.keys(pendingEdits).length === 0) return;
+    setSavingInline(true); setInlineMsg(null);
+    const errors: string[] = [];
+    const { status: pendingStatus, ...restFields } = pendingEdits;
+    if (pendingStatus !== undefined) {
+      try {
+        await axios.patch(`${API}/qc/rest-test/defect/${encodeURIComponent(defectId)}/status`, { status: pendingStatus }, { headers });
+      } catch (err: any) {
+        errors.push(err?.response?.data?.message || 'עדכון הסטטוס נכשל');
+      }
+    }
+    if (Object.keys(restFields).length > 0) {
+      try {
+        await axios.patch(`${API}/qc/defects/${encodeURIComponent(defectId)}/fields`, { fields: restFields }, { headers });
+      } catch (err: any) {
+        errors.push(err?.response?.data?.message || 'עדכון השדות נכשל');
+      }
+    }
+    setSavingInline(false);
+    if (errors.length > 0) { setInlineMsg({ kind: 'err', text: errors.join(' · ') }); return; }
+    setDetail(prev => (prev ? ({ ...prev, ...pendingEdits } as DefectFullDetail) : prev));
+    setPendingEdits({});
+    setEditMode(false);
+  };
 
   // The admin-configured field pool (AdminPanel's "עמודות תקלות ייצור" panel)
   // decides which fields are even available; the per-user category picker
@@ -310,7 +643,28 @@ export const DefectDetailScreen: React.FC<{
       {/* ── סרגל פעולות עליון — כפתורי משנה קומפקטיים ── */}
       <div className="flex items-center justify-between mb-[18px]">
         <BackLink onClick={onBack} label="חזרה לטבלה" />
-        <button onClick={() => setShowGroupsPicker(true)} className={DETAIL_TOP_BTN_CLASS}>⚙ התאמת שדות</button>
+        <div className="flex items-center gap-2">
+          {inlineMsg && (
+            <span className={`text-[13px] font-semibold ${inlineMsg.kind === 'ok' ? 'text-success' : 'text-danger'}`}>{inlineMsg.text}</span>
+          )}
+          {!blocked && (
+            editMode ? (
+              <>
+                <button onClick={cancelInlineEdit} className={DETAIL_TOP_BTN_CLASS}>ביטול</button>
+                <button
+                  onClick={saveInlineEdits}
+                  disabled={savingInline || Object.keys(pendingEdits).length === 0}
+                  className={`px-3.5 py-1.5 rounded-md border-none cursor-pointer text-[13px] font-semibold bg-primary text-white ${(savingInline || Object.keys(pendingEdits).length === 0) ? 'opacity-50' : 'opacity-100'}`}
+                >
+                  {savingInline ? 'שומר…' : `💾 שמור${Object.keys(pendingEdits).length > 0 ? ` (${Object.keys(pendingEdits).length})` : ''}`}
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setEditMode(true)} className={DETAIL_TOP_BTN_CLASS}>✏️ ערוך</button>
+            )
+          )}
+          <button onClick={() => setShowGroupsPicker(true)} className={DETAIL_TOP_BTN_CLASS}>⚙ התאמת שדות</button>
+        </div>
       </div>
 
       {detailLoading && <div className="text-center p-10 text-subtle-foreground">טוען...</div>}
@@ -335,7 +689,14 @@ export const DefectDetailScreen: React.FC<{
               (feedback 2026-09-14: "כל התוויות משמאל הערכים מימין לתווית"). */}
           <aside
             dir="rtl"
-            className="flex-[0_0_300px] max-w-[300px] self-start rounded-lg overflow-hidden"
+            // Widened 300→380px (main content correspondingly narrowed below)
+            // and the label column changed from a 40%-capped percentage to
+            // max-content (2026-09-18) — long English labels ("Environment
+            // Component", "CR/HBR Number reference") were wrapping to a
+            // second line at the old width/ratio; max-content sizes the
+            // label column to whatever the longest visible label needs, so
+            // it never wraps regardless of aside width.
+            className="flex-[0_0_380px] max-w-[380px] self-start rounded-lg overflow-hidden"
             style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}` }}
           >
             {(() => {
@@ -349,21 +710,49 @@ export const DefectDetailScreen: React.FC<{
                   </div>
                   <div className="flex flex-col gap-2">
                     {group.fields.map(key => {
-                      const raw = String(detail[key] ?? '');
+                      const isDirty = pendingEdits[key] !== undefined;
+                      const displayValue = isDirty ? pendingEdits[key] : String(detail[key] ?? '');
                       const isAtomic = PERSON_BADGE_FIELDS.has(key) || TEAM_BADGE_FIELDS.has(key)
                         || key === 'id' || key === 'status' || key === 'severity' || key === 'priority' || key === 'secondaryPriority';
-                      const valRtl = !isAtomic && (!raw || hasHebrew(raw));
+                      const valRtl = !isAtomic && (!displayValue || hasHebrew(displayValue));
+                      const isEditable = editMode && INLINE_EDITABLE_FIELDS.has(key);
+                      const isEditingThis = editingField === key;
                       // Side-by-side (label ⟷ value) to keep the panel short — user
-                      // pref 2026-09-08; the Jira brief allowed "מעליה/לצידה".
+                      // pref 2026-09-08; the Jira brief allowed "מעליה/לצידה". A
+                      // dashed outline marks which fields double-click opens while
+                      // in edit mode (spec 2026-09-19); a dot flags an edit that's
+                      // committed locally but not yet sent to QC via "💾 שמור".
                       return (
-                        <div key={key} className="grid gap-2 items-start" style={{ gridTemplateColumns: '1fr minmax(64px, 40%)' }}>
-                          <span
-                            className="text-[13px] font-medium min-w-0 flex items-center flex-wrap gap-1 justify-end break-words"
-                            style={{ color: JIRA.text, direction: 'rtl', unicodeBidi: valRtl ? 'normal' : 'plaintext' }}
-                          >
-                            {renderFieldValue(key, detail[key])}
-                          </span>
-                          <span className="text-[11px] font-semibold tracking-wide text-left pt-0.5" style={{ color: JIRA.textSubtle }}>
+                        <div
+                          key={key}
+                          onDoubleClick={() => { if (isEditable && !isEditingThis) setEditingField(key); }}
+                          className="grid gap-2 items-start rounded-sm px-1 py-0.5 -mx-1"
+                          style={{
+                            gridTemplateColumns: 'minmax(0,1fr) max-content',
+                            border: isEditable && !isEditingThis ? `1px dashed ${JIRA.blue}` : '1px solid transparent',
+                            cursor: isEditable && !isEditingThis ? 'pointer' : undefined,
+                            background: isDirty ? '#fffbe6' : undefined,
+                          }}
+                        >
+                          {isEditingThis ? (
+                            <InlineFieldEditor
+                              fieldKey={key}
+                              initialValue={displayValue}
+                              currentStatus={currentStatus}
+                              allowedTransitions={allowedTransitions}
+                              onCommit={v => commitInlineField(key, v)}
+                              onCancel={() => setEditingField(null)}
+                            />
+                          ) : (
+                            <span
+                              className="text-[13px] font-medium min-w-0 flex items-center flex-wrap gap-1 justify-end break-words"
+                              style={{ color: JIRA.text, direction: 'rtl', unicodeBidi: valRtl ? 'normal' : 'plaintext' }}
+                            >
+                              {isDirty && <span title="שינוי לא שמור" style={{ color: JIRA.blue }}>●</span>}
+                              {renderFieldValue(key, displayValue)}
+                            </span>
+                          )}
+                          <span className="whitespace-nowrap text-[11px] font-semibold tracking-wide text-left pt-0.5" style={{ color: JIRA.textSubtle }}>
                             {DETAIL_FIELD_LABEL[key] ?? key}
                           </span>
                         </div>
@@ -398,7 +787,7 @@ export const DefectDetailScreen: React.FC<{
               כרטיסים תואמים. תיאור/הערות כבר לא צריכים תיבה לבנה משלהם
               (הייתה יוצרת תיבה בתוך תיבה) — רק המרווח הפנימי נשאר. */}
           <div
-            className="flex-[1_1_560px] min-w-0 flex flex-col gap-6 rounded-lg px-6 py-5"
+            className="flex-[1_1_480px] min-w-0 flex flex-col gap-6 rounded-lg px-6 py-5"
             style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}` }}
           >
 
@@ -454,7 +843,17 @@ export const DefectDetailScreen: React.FC<{
             <QcWriteBackPanel
               defectId={defectId}
               token={token}
-              currentStatus={String(detail.status ?? '')}
+              currentStatus={currentStatus}
+              currentValues={{
+                assignedTo: String(detail.assignedTo ?? ''),
+                priority: String(detail.priority ?? ''),
+                severity: String(detail.severity ?? ''),
+                estimatedFixTime: String(detail.estimatedFixTime ?? ''),
+                subModule: String(detail.subModule ?? ''),
+                mainModule: String(detail.mainModule ?? ''),
+              }}
+              blocked={blocked}
+              allowedTransitions={allowedTransitions}
             />
           </div>
         </div>
@@ -734,6 +1133,40 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
   const [config, setConfig] = useState<OpenProdDefectsConfig | null>(null);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  // Bulk status update (docs/spec-defects-module.md §11, lowest priority —
+  // kept deliberately simple: free-text/datalist target status, not trying
+  // to compute a unified allowed-transition set across rows that may each
+  // be at a different current status.
+  const [selectedDefectIds, setSelectedDefectIds] = useState<Set<string>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState('');
+  const [bulkApplying, setBulkApplying] = useState(false);
+  const toggleSelected = (id: string) => setSelectedDefectIds(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const applyBulkStatus = async () => {
+    if (!bulkStatus.trim() || selectedDefectIds.size === 0) return;
+    setBulkApplying(true);
+    try {
+      const res = await axios.post(
+        `${API}/qc/defects/bulk-status`,
+        { defectIds: Array.from(selectedDefectIds), newStatus: bulkStatus.trim() },
+        { headers },
+      );
+      const { updated, failed } = res.data as { updated: any[]; failed: { defectId: string; error: string }[] };
+      const lines = [`עודכנו בהצלחה: ${updated.length}`];
+      if (failed.length > 0) lines.push(`נכשלו: ${failed.length}\n${failed.map(f => `${f.defectId}: ${f.error}`).join('\n')}`);
+      window.alert(lines.join('\n\n'));
+      setSelectedDefectIds(new Set());
+      setBulkStatus('');
+    } catch (e: any) {
+      window.alert(e?.response?.data?.message ?? 'עדכון קבוצתי נכשל');
+    } finally {
+      setBulkApplying(false);
+    }
+  };
 
   useEffect(() => {
     axios.get(`${API}/qc/status`, { headers })
@@ -824,6 +1257,36 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
   const { getWidth: getMonthColWidth, startResize: startMonthColResize } = useColumnWidths('deploycenter_openprod_defect_column_widths');
   const monthFilters = useColumnFilters(baseRows as any, tableColumns);
 
+  // Saved views — capture/restore columns+sort+filters together as one named
+  // preset. Storage only (no server sync) — per-browser like every other
+  // picker in this screen.
+  const [savedViews, setSavedViews] = useState<SavedView[]>(() => {
+    try {
+      const saved = localStorage.getItem(OPENPROD_SAVED_VIEWS_STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch { /* ignore malformed storage */ }
+    return [];
+  });
+  const [showSavedViews, setShowSavedViews] = useState(false);
+  const persistSavedViews = (views: SavedView[]) => {
+    setSavedViews(views);
+    try { localStorage.setItem(OPENPROD_SAVED_VIEWS_STORAGE_KEY, JSON.stringify(views)); } catch { /* ignore quota errors */ }
+  };
+  const saveCurrentView = () => {
+    const name = window.prompt('שם לתצוגה השמורה:');
+    if (!name?.trim()) return;
+    const view: SavedView = { name: name.trim(), columns: tableColumns, sortKey, sortDir, filterState: monthFilters.getFilterState() };
+    persistSavedViews([...savedViews.filter(v => v.name !== view.name), view]);
+  };
+  const loadSavedView = (view: SavedView) => {
+    setUserTableColumns(view.columns);
+    setSortKey(view.sortKey as any);
+    setSortDir(view.sortDir);
+    monthFilters.setFilterState(view.filterState);
+    setShowSavedViews(false);
+  };
+  const deleteSavedView = (name: string) => persistSavedViews(savedViews.filter(v => v.name !== name));
+
   const sortedMonthRows = useMemo(() => {
     const filtered = baseRows.filter(r => monthFilters.matches(r as any));
     if (!sortKey) return filtered;
@@ -853,17 +1316,83 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
       <div className="flex flex-col gap-4 px-7 py-5">
         <div className="flex items-center justify-between">
           <BackLink onClick={() => setTableOpen(false)} label="חזרה לסקירה" />
-          <button onClick={() => setShowTableColumnPicker(true)} className={DETAIL_TOP_BTN_CLASS}>⚙ בחירת עמודות</button>
+          <div className="flex items-center gap-2 relative">
+            <button onClick={() => setShowCreateModal(true)} className={DETAIL_TOP_BTN_CLASS}>+ תקלה חדשה</button>
+            <button onClick={() => setShowTableColumnPicker(true)} className={DETAIL_TOP_BTN_CLASS}>⚙ בחירת עמודות</button>
+            <button onClick={() => setShowSavedViews(s => !s)} className={DETAIL_TOP_BTN_CLASS}>👁 תצוגות שמורות</button>
+            {showSavedViews && (
+              <div
+                className="absolute top-full left-0 mt-1 w-64 rounded-md bg-card shadow-lg z-10 p-2"
+                style={{ border: `1px solid ${JIRA.greyN40}` }}
+              >
+                <button onClick={saveCurrentView} className="w-full text-right px-2 py-1.5 text-xs font-semibold text-primary cursor-pointer hover:bg-muted rounded-sm">
+                  + שמור תצוגה נוכחית
+                </button>
+                {savedViews.length === 0 ? (
+                  <div className="px-2 py-1.5 text-xs text-subtle-foreground">אין תצוגות שמורות עדיין</div>
+                ) : (
+                  <div className="mt-1 flex flex-col gap-0.5">
+                    {savedViews.map(v => (
+                      <div key={v.name} className="flex items-center justify-between gap-1 rounded-sm px-2 py-1.5 hover:bg-muted">
+                        <button onClick={() => loadSavedView(v)} className="text-xs text-foreground cursor-pointer text-right flex-1">{v.name}</button>
+                        <button onClick={() => deleteSavedView(v.name)} title="מחק" className="text-xs text-danger cursor-pointer">✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
+        <CreateDefectModal
+          token={token}
+          open={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          onCreated={(id) => { setShowCreateModal(false); setDetailDefectId(id); }}
+        />
         <Card>
           <div className="text-sm font-semibold text-foreground mb-2.5">
             תקלות פתוחות — {activeMonth ?? '—'}{presetSeverity ? ` — חומרה: ${presetSeverity}` : ''} ({baseRows.length}) — לחץ על כותרת עמודה למיון, לחץ על שורה לפרטים מלאים
           </div>
+          {selectedDefectIds.size > 0 && (
+            <div className="mb-2.5 flex flex-wrap items-center gap-2.5 rounded-md bg-muted px-3 py-2">
+              <span className="text-[13px] font-semibold text-foreground">{selectedDefectIds.size} תקלות נבחרו</span>
+              <input
+                list="qc-status-options"
+                value={bulkStatus}
+                onChange={e => setBulkStatus(e.target.value)}
+                placeholder="סטטוס יעד"
+                dir="ltr"
+                className="w-[160px] rounded-sm border border-border bg-card px-2 py-1 text-xs text-foreground"
+              />
+              <button
+                onClick={applyBulkStatus}
+                disabled={bulkApplying || !bulkStatus.trim()}
+                className={`px-3 py-1 rounded-sm border-none text-xs font-semibold text-white ${(bulkApplying || !bulkStatus.trim()) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                style={{ background: JIRA.blue }}
+              >
+                {bulkApplying ? 'מעדכן…' : 'עדכן סטטוס לנבחרים'}
+              </button>
+              <button onClick={() => setSelectedDefectIds(new Set())} className="px-3 py-1 rounded-sm border border-border bg-card text-xs cursor-pointer">
+                נקה בחירה
+              </button>
+              <datalist id="qc-status-options">
+                {QC_STATUS_OPTIONS.map(s => <option key={s} value={s} />)}
+              </datalist>
+            </div>
+          )}
           <div className="bg-card rounded-lg overflow-hidden" style={{ border: `1px solid ${JIRA.greyN40}` }}>
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-xs" style={{ tableLayout: 'fixed' }}>
                 <thead>
                   <tr>
+                    <th className="px-2 py-2 text-center" style={{ borderBottom: `2px solid ${JIRA.greyN40}`, width: 32 }}>
+                      <input
+                        type="checkbox"
+                        checked={sortedMonthRows.length > 0 && sortedMonthRows.every(r => selectedDefectIds.has(r.defectId))}
+                        onChange={e => setSelectedDefectIds(e.target.checked ? new Set(sortedMonthRows.map(r => r.defectId)) : new Set())}
+                      />
+                    </th>
                     {tableColumns.map(key => (
                       <th
                         key={key}
@@ -896,6 +1425,9 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
                       onMouseEnter={e => (e.currentTarget.style.background = JIRA.rowHover)}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                     >
+                      <td className="px-2 py-[7px] text-center" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }} onClick={e => e.stopPropagation()}>
+                        <input type="checkbox" checked={selectedDefectIds.has(r.defectId)} onChange={() => toggleSelected(r.defectId)} />
+                      </td>
                       {tableColumns.map(key => {
                         const value = (r as any)[key];
                         const isDefectCol = key === 'defectId';
@@ -921,7 +1453,7 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
                     </tr>
                   ))}
                   {sortedMonthRows.length === 0 && (
-                    <tr><td colSpan={tableColumns.length} className="p-3.5 text-center text-subtle-foreground">אין תקלות פתוחות בחודש זה</td></tr>
+                    <tr><td colSpan={tableColumns.length + 1} className="p-3.5 text-center text-subtle-foreground">אין תקלות פתוחות בחודש זה</td></tr>
                   )}
                 </tbody>
               </table>

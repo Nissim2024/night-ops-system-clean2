@@ -65,6 +65,7 @@ export class ImportController {
     @Body('qaEnd') qaEndStr: string,
     @Body('plannedRehearsalStart') plannedRehearsalStartStr: string,
     @Body('plannedRehearsalEnd') plannedRehearsalEndStr: string,
+    @Body('existingVersionId') existingVersionId: string,
     @Request() req: any,
   ) {
     requireRole(req, MANAGERS, 'רק מנהל לילה יכול לייבא קובץ');
@@ -80,7 +81,7 @@ export class ImportController {
       throw new BadRequestException('סוג קובץ לא חוקי — יש להעלות קובץ Excel בלבד (.xlsx / .xls)');
     }
 
-    if (!versionName) {
+    if (!versionName && !existingVersionId) {
       return { success: false, message: 'שם גרסה חסר' };
     }
 
@@ -106,8 +107,10 @@ export class ImportController {
         qaEnd,
         plannedRehearsalStart,
         plannedRehearsalEnd,
+        existingVersionId || undefined,
       );
     } catch (err: any) {
+      if (err instanceof BadRequestException) throw err;
       console.error('Import error:', err);
       // Return a safe message — never expose raw exception details to the client
       return { success: false, message: 'שגיאה בעיבוד הקובץ. ודא שהפורמט תקין.' };

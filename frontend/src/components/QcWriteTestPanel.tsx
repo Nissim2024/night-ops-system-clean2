@@ -7,7 +7,7 @@ import { Button, TextField, TextArea } from './ui';
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 interface DefectPreview { id: string; title: string; status: string; statusFieldIsConfirmed: boolean; comments: string; }
-interface FieldRow { name: string; value: string; }
+export interface FieldRow { name: string; value: string; }
 const emptyRows = (n: number): FieldRow[] => Array.from({ length: n }, () => ({ name: '', value: '' }));
 
 // Test tool for the QC REST write-back integration (spec confirmed
@@ -22,7 +22,7 @@ const emptyRows = (n: number): FieldRow[] => Array.from({ length: n }, () => ({ 
 // free-text field names (not a dropdown), since the real REST field names for
 // most custom BG_USER_XX fields aren't confirmed for this instance yet; find
 // them via "🔍 הצג את כל שמות השדות" above and paste in here.
-const FieldRowsEditor: React.FC<{ rows: FieldRow[]; onChange: (rows: FieldRow[]) => void }> = ({ rows, onChange }) => (
+export const FieldRowsEditor: React.FC<{ rows: FieldRow[]; onChange: (rows: FieldRow[]) => void }> = ({ rows, onChange }) => (
   <div className="flex flex-col gap-2">
     {rows.map((row, i) => (
       <div key={i} className="flex gap-2 items-center">
@@ -210,6 +210,27 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
   };
 
   const [customEntityType, setCustomEntityType] = useState('requirement');
+
+  // Picklist values (2026-09-19) — separate from probeEntity('defect') above:
+  // entity-fields at most tells you a field IS a value-list (and maybe a
+  // list id/name), not what the actual allowed values are. This hits QC's
+  // separate Project Lists customization collection instead — UNVERIFIED
+  // against this real instance, same "raw" defensive shape as the fields
+  // probe, so a wrong tag-name guess still surfaces the real response.
+  const [listsProbeLoading, setListsProbeLoading] = useState(false);
+  const [listsProbe, setListsProbe] = useState<{ result?: any; error?: string } | null>(null);
+  const probeLists = async () => {
+    setListsProbeLoading(true);
+    setListsProbe(null);
+    try {
+      const res = await axios.get(`${API}/qc/rest-test/lists`, { headers });
+      setListsProbe({ result: res.data });
+    } catch (e: any) {
+      setListsProbe({ error: e?.response?.data?.message || e.message || 'שגיאה בבדיקת רשימות ערכים מול QC' });
+    } finally {
+      setListsProbeLoading(false);
+    }
+  };
 
   const probeEntity = async (type: string) => {
     setEntityProbeLoading(true);
@@ -514,6 +535,9 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
           <Button variant="secondary" onClick={() => probeEntity('release-cycle')} disabled={entityProbeLoading}>
             בדוק שדות ישות "release-cycle"
           </Button>
+          <Button variant="secondary" onClick={() => probeEntity('defect')} disabled={entityProbeLoading}>
+            בדוק שדות ישות "defect"
+          </Button>
           <Button variant="secondary" onClick={() => probeEntity('releases-list')} disabled={entityProbeLoading}>
             קרא רשימת releases אמיתית
           </Button>
@@ -539,6 +563,29 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
             {JSON.stringify(entityProbe.result, null, 2)}
           </pre>
         )}
+
+        <div className="border-t border-border pt-3 flex flex-col gap-2">
+          <div className="text-sm font-bold text-foreground">📋 רשימות ערכים (Picklists) — מה הערכים האמיתיים של כל שדה עם רשימה?</div>
+          <div className="text-xs text-subtle-foreground">
+            שדות עם רשימה (Severity/Priority/Status/וכו') לרוב מפנים למזהה רשימה בלבד ב-"בדוק שדות ישות" למעלה —
+            זה קורא לאוסף הרשימות הנפרד של QC ומחזיר את הערכים עצמם. חדש, לא מאומת עדיין מול המופע האמיתי.
+          </div>
+          <div>
+            <Button variant="secondary" onClick={probeLists} disabled={listsProbeLoading}>
+              {listsProbeLoading ? 'בודק...' : 'הבא את כל רשימות הערכים מ-QC'}
+            </Button>
+          </div>
+          {listsProbe?.error && (
+            <div className="bg-danger-bg border border-danger/25 rounded-md p-3 text-sm text-danger whitespace-pre-wrap">
+              {listsProbe.error}
+            </div>
+          )}
+          {listsProbe?.result !== undefined && (
+            <pre className="bg-muted border border-border rounded-md p-3 text-xs text-foreground whitespace-pre-wrap max-h-[300px] overflow-auto" dir="ltr">
+              {JSON.stringify(listsProbe.result, null, 2)}
+            </pre>
+          )}
+        </div>
 
         <div className="border-t border-border pt-3 flex flex-col gap-2">
           <div className="text-sm font-bold text-foreground">🔍 בדיקת release-folders — לאיזו תיקייה נכנס Release חדש?</div>

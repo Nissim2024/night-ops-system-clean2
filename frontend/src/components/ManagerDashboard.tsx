@@ -13,6 +13,7 @@ import { GoNoGoView } from './release-intelligence/GoNoGoView';
 import { IncidentsView } from './release-intelligence/IncidentsView';
 import { OpenProdDefectsView } from './quality-hub/OpenProdDefectsView';
 import { NewVsTargetDefectsView } from './quality-hub/NewVsTargetDefectsView';
+import { QcReleaseHistoryView } from './quality-hub/QcReleaseHistoryView';
 import { ReleaseOverviewView } from './quality-hub/ReleaseOverviewView';
 import { KpiMatrixView } from './quality-hub/KpiMatrixView';
 import { ImprovementTrackingView } from './quality-hub/ImprovementTrackingView';
@@ -742,7 +743,6 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           showAdmin={payload.role === 'ADMIN'}
           onAdminClick={() => { setActiveModule('deployments'); setActiveTab('admin'); }}
           activeTab={activeTab}
-          onNewVersionClick={['ADMIN', 'RELEASE_MANAGER'].includes(payload.role) ? () => { setSelectedVersionId(''); setVersionFilter('inactive'); setActiveModule('deployments'); setActiveTab('list'); setOpenNewVersionForm(true); } : undefined}
           activeModule={activeModule}
           onModuleChange={m => {
             if (m === 'version-management' && !canAccessVersionManagement) return;
@@ -868,6 +868,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           )}
           {activeModule === 'quality-hub' && activeQhView === 'new-vs-target-defects' && (
             <NewVsTargetDefectsView token={token} />
+          )}
+          {activeModule === 'quality-hub' && activeQhView === 'qc-release-history' && (
+            <QcReleaseHistoryView token={token} />
           )}
 
           {activeModule === 'deployments' && (<>

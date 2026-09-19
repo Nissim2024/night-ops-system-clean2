@@ -171,6 +171,7 @@ export class ImportService {
     qaEnd?: Date,
     plannedRehearsalStart?: Date,
     plannedRehearsalEnd?: Date,
+    existingVersionId?: string,
   ): Promise<{ success: boolean; message: string; stats: any }> {
 
     const workbook = XLSX.read(buffer, { type: 'buffer', cellStyles: true, cellDates: true });
@@ -255,26 +256,62 @@ export class ImportService {
     const teamMap: Record<string, string> = {};
     teams.forEach(t => { teamMap[t.name] = t.id; });
 
-    const version = await (prisma.version.create as any)({
-      data: {
-        name: versionName,
-        description: `יובא מקובץ Excel`,
-        status: 'DRAFT',
-        createdBy,
-        importedFileName: fileName || undefined,
-        plannedStart: versionPlannedStart || undefined,
-        qcReleaseId: qcReleaseId || undefined,
-        integrationStart: integrationStart || undefined,
-        integrationEnd: integrationEnd || undefined,
-        qaStart: qaStart || undefined,
-        qaEnd: qaEnd || undefined,
-        plannedRehearsalStart: plannedRehearsalStart || undefined,
-        plannedRehearsalEnd: plannedRehearsalEnd || undefined,
-      },
-    });
+    // "מודול ניהול גרסה" now owns creating the bare version row (picked from
+    // CR_LIST — see version-cr-assignments.service.ts::listFutureVersionNames);
+    // this import only fills in an EXISTING one when existingVersionId is
+    // given, instead of always creating a fresh version by name (product
+    // decision reversal, 2026-09 — see project memory / plan doc).
+    let version: { id: string; name: string };
+    if (existingVersionId) {
+      const target = await prisma.version.findUnique({
+        where: { id: existingVersionId },
+        include: { phases: { select: { id: true }, take: 1 } },
+      });
+      if (!target) throw new BadRequestException('הגרסה שנבחרה לא נמצאה');
+      if (target.status !== 'DRAFT') throw new BadRequestException('ניתן לייבא רק לגרסה בסטטוס טיוטה (DRAFT)');
+      if (target.phases.length > 0) throw new BadRequestException('לגרסה הזו כבר יש תוכנית הטמעה — ייבוא היה דורס אותה');
+      version = await (prisma.version.update as any)({
+        where: { id: existingVersionId },
+        data: {
+          importedFileName: fileName || undefined,
+          plannedStart: versionPlannedStart || undefined,
+          qcReleaseId: qcReleaseId || undefined,
+          integrationStart: integrationStart || undefined,
+          integrationEnd: integrationEnd || undefined,
+          qaStart: qaStart || undefined,
+          qaEnd: qaEnd || undefined,
+          plannedRehearsalStart: plannedRehearsalStart || undefined,
+          plannedRehearsalEnd: plannedRehearsalEnd || undefined,
+        },
+      });
+    } else {
+      version = await (prisma.version.create as any)({
+        data: {
+          name: versionName,
+          description: `יובא מקובץ Excel`,
+          status: 'DRAFT',
+          createdBy,
+          importedFileName: fileName || undefined,
+          plannedStart: versionPlannedStart || undefined,
+          qcReleaseId: qcReleaseId || undefined,
+          integrationStart: integrationStart || undefined,
+          integrationEnd: integrationEnd || undefined,
+          qaStart: qaStart || undefined,
+          qaEnd: qaEnd || undefined,
+          plannedRehearsalStart: plannedRehearsalStart || undefined,
+          plannedRehearsalEnd: plannedRehearsalEnd || undefined,
+        },
+      });
+    }
 
+    // skipDuplicates: existingVersionId already has these rows from its own
+    // creation in ניהול גרסה (versions.service.ts::create() makes one
+    // TeamSubmission per active team up front) — re-inserting the same
+    // (versionId, teamId) pairs here would otherwise violate the unique
+    // constraint.
     await prisma.teamSubmission.createMany({
       data: teams.map(t => ({ versionId: version.id, teamId: t.id })),
+      skipDuplicates: true,
     });
 
     let currentPhase: any    = null;

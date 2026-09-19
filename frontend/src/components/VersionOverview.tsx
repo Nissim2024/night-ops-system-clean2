@@ -3,10 +3,16 @@ import axios from 'axios';
 import { C, JIRA } from '../theme';
 import { VersionStatusChip, BackLink } from './ui';
 import {
-  hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroupsDialog, DetailGroup,
-  FieldChangeHistorySection, AttachmentsSection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
+  hasHebrew, NameBadge, PersonAvatar, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
   IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, SelectColumnsDialog,
 } from './shared/defectFieldDisplay';
+// Reused as-is (spec 2026-09-18: "הטופס צריך להיראות בדיוק כמו הטופס במודול
+// ניהול בדיקות") — DefectDetailScreen fetches by defect ID alone with no
+// TARGET/open-prod distinction in the query, so it works unmodified here and
+// gives TARGET defects the same live QC edit form (status/Tier2 fields,
+// attachments, history) the QA module already has, instead of a second,
+// read-only, drifting copy.
+import { DefectDetailScreen } from './quality-hub/OpenProdDefectsView';
 import { formatDateTime } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -63,7 +69,7 @@ interface TargetDefect {
 const TARGET_DEFECT_COLUMNS: { key: keyof TargetDefect; label: string }[] = [
   { key: 'id', label: 'Defect ID' },
   { key: 'assignedTo', label: 'Assigned To' },
-  { key: 'qaTester', label: 'QA' },
+  { key: 'qaTester', label: 'Tester' },
   { key: 'crReferenceNumber', label: 'CR Reference Number' },
   { key: 'system', label: 'Project' },
   { key: 'subject', label: 'Subject' },
@@ -141,82 +147,36 @@ const DEFAULT_TARGET_DEFECT_COLUMNS: (keyof TargetDefect)[] = [
 const TARGET_DEFECT_COLUMNS_STORAGE_KEY = 'deploycenter_target_defect_columns';
 
 // Person-owner fields resolve their raw QC login (e.g. "guyp") to a real
-// name via qcUserNames and render as an avatar; `responsibility` is the team
-// field and keeps the flat color-badge treatment (spec confirmed 2026-08-30).
+// name via qcUserNames and render as an avatar. `assignedTo`/BG_RESPONSIBLE
+// briefly went through a "it's a team, not a person" correction earlier
+// 2026-09-18 (matching quality-hub/release-intelligence's then-current
+// treatment) — reversed back the same day once the user saw a real resolved
+// full name ("Yael Morgenstern Teff") in the live detail screen and
+// confirmed assignedTo does hold a person; quality-hub/release-intelligence
+// were updated to match (`responsibility` is the one genuine team field).
 const PERSON_BADGE_FIELDS = new Set<keyof TargetDefect>([
   'assignedTo', 'qaTester', 'detectedBy', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo',
 ]);
 const TEAM_BADGE_FIELDS = new Set<keyof TargetDefect>(['responsibility']);
+// Center-aligned badge-like cells — same field set/logic as DefectDrilldownModal
+// (the QA module's own defect table), so both tables read identically.
+const TARGET_STATUS_LIKE_FIELDS = new Set<keyof TargetDefect>(['severity', 'status', 'priority', 'secondaryPriority', 'reopenYn']);
 // Jira-style id/severity/status — shared with every other defect table in the
 // app (feedback 2026-09-10: one consistent look, not a per-file duplicate).
 function renderTargetDefectValue(key: keyof TargetDefect, value: unknown, qcUserNames?: Record<string, string>) {
   const s = String(value ?? '');
   if (!s) return '—';
-  if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={qcUserNames?.[s.toLowerCase()] ?? s} />;
+  // `full` — every other defect table in the app passes this (shows "First
+  // Last"); this was the one call site missing it, silently showing only the
+  // first name here while everywhere else showed the full name (found
+  // 2026-09-19 auditing every person-field render site).
+  if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={qcUserNames?.[s.toLowerCase()] ?? s} full />;
   if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
   if (key === 'id') return <IssueKeyLink id={s} />;
   if (key === 'status') return <StatusBadge status={s} />;
   if (key === 'severity') return <SeverityBadge severity={s} />;
   if (key === 'priority' || key === 'secondaryPriority') return <PriorityCell value={s} />;
   return s;
-}
-
-// Field-detail form grouping for the defect-detail screen — logical reading
-// order (identification → description/notes → detection → ownership → fix →
-// target/release → business impact), not the flat column-picker order.
-// description/notes are handled separately as large free-text blocks, not
-// part of any group's grid.
-const TARGET_DETAIL_GROUPS_STORAGE_KEY = 'deploycenter_target_defect_detail_groups';
-
-// summary/description/notes always render in their own fixed spots (title
-// line, and the side-by-side boxes) — never offered in the category picker,
-// so they can't be reassigned/hidden like the other fields (spec confirmed
-// 2026-08-30).
-const DETAIL_GROUPS_FIXED_FIELDS = new Set<keyof TargetDefect>(['summary', 'description', 'notes']);
-const DETAIL_GROUPS_ASSIGNABLE_COLUMNS = TARGET_DEFECT_COLUMNS.filter(c => !DETAIL_GROUPS_FIXED_FIELDS.has(c.key));
-
-const DEFAULT_TARGET_DEFECT_DETAIL_GROUPS: DetailGroup[] = [
-  {
-    title: 'זיהוי',
-    fields: ['id', 'status', 'severity', 'priority', 'defectType', 'category', 'itemType'],
-  },
-  {
-    title: 'גילוי',
-    fields: [
-      'detectedBy', 'detectedOnDate', 'detectedInRelease', 'detectedInCycle',
-      'reproducible', 'environment', 'platform', 'subModule', 'mainModule', 'systemComponent',
-    ],
-  },
-  {
-    title: 'אחריות',
-    fields: ['assignedTo', 'qaTester', 'responsibility', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo', 'vendorStatus'],
-  },
-  {
-    title: 'טיפול ותיקון',
-    fields: [
-      'fixType', 'estimatedFixTime', 'actualFixTime', 'fixedUntil', 'fixedInProd',
-      'closedBy', 'reopenYn', 'supportStatus', 'supportReferenceNumber', 'responseDate',
-    ],
-  },
-  {
-    title: 'יעד וגרסה',
-    fields: [
-      'targetRelease', 'targetCycle', 'targetType', 'targetReleaseReason', 'targetScopeApproved',
-      'crStatus', 'crReferenceNumber', 'crHbrNumberReference', 'dropNumber', 'releaseDefect',
-    ],
-  },
-  {
-    title: 'השפעה עסקית',
-    fields: [
-      'impact', 'influence', 'businessProcess', 'mainBusinessProcess', 'deploymentCategory',
-      'deploymentReason', 'productionReason', 'toBeTestedOnProd', 'deploymentDateProd',
-      'willBeTestAtGoLive', 'forRegressionTest', 'foundByAutomation', 'secondaryPriority', 'modified',
-    ],
-  },
-];
-
-function targetDefectFieldLabel(key: keyof TargetDefect): string {
-  return TARGET_DEFECT_COLUMNS.find(c => c.key === key)?.label ?? key;
 }
 
 interface TargetSummary {
@@ -354,20 +314,6 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
     setTargetDefectColumns(keys);
     localStorage.setItem(TARGET_DEFECT_COLUMNS_STORAGE_KEY, JSON.stringify(keys));
     setShowColumnPicker(false);
-  };
-
-  const [detailGroups, setDetailGroups] = useState<DetailGroup[]>(() => {
-    try {
-      const saved = localStorage.getItem(TARGET_DETAIL_GROUPS_STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch { /* ignore malformed storage */ }
-    return DEFAULT_TARGET_DEFECT_DETAIL_GROUPS;
-  });
-  const [showDetailGroupsPicker, setShowDetailGroupsPicker] = useState(false);
-  const applyDetailGroups = (groups: DetailGroup[]) => {
-    setDetailGroups(groups);
-    localStorage.setItem(TARGET_DETAIL_GROUPS_STORAGE_KEY, JSON.stringify(groups));
-    setShowDetailGroupsPicker(false);
   };
 
   const [targetDefectSort, setTargetDefectSort] = useState<{ key: keyof TargetDefect; dir: 'asc' | 'desc' } | null>(null);
@@ -544,7 +490,12 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
         </div>
       )}
 
-      {/* ── TARGET defects list screen ── */}
+      {/* ── TARGET defects list screen — restyled 2026-09-18 to match the QA ──
+          management module's own defect table exactly (DefectDrilldownModal):
+          no horizontal scroll (auto table-layout + a fixed-width "summary"
+          column that wraps instead), centered id/severity/status/priority
+          cells, single card surface. Same underlying column-picker/filter/
+          sort/resize state as before — only the table markup changed. */}
       {screen.type === 'target-list' && (
         <div>
           <BackButton onClick={goBack} />
@@ -563,22 +514,34 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
             ) : targetSummary.defects.length === 0 ? (
               <div className="p-8 text-center text-subtle-foreground">אין תקלות TARGET בגרסה זו</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full table-fixed border-collapse text-[13px]" dir="rtl">
+              // overflow-x-auto (not overflow-hidden) — DefectDrilldownModal gets away
+              // with overflow-hidden here only because ITS outer shell has a separate
+              // `overflow-auto` ancestor; this card has no such ancestor, so
+              // overflow-hidden would silently clip every column past the viewport with
+              // no way to reach it (caught live-testing 2026-09-18 — the default TARGET
+              // column set is 21 columns, ~3050px wide).
+              <div className="overflow-x-auto rounded-lg bg-card" style={{ border: `1px solid ${JIRA.greyN40}` }}>
+                <table className="w-full border-collapse text-[13px]" style={{ tableLayout: 'auto', color: JIRA.text }} dir="rtl">
                   <thead>
                     <tr>
-                      {targetDefectColumns.map(key => (
-                        <th
-                          key={key}
-                          onClick={() => toggleTargetDefectSort(key)}
-                          className="sticky top-0 cursor-pointer select-none overflow-hidden text-ellipsis whitespace-nowrap border-b-2 px-2.5 py-2 text-right text-[11px] font-bold tracking-wide"
-                          style={{ color: JIRA.textSubtle, borderBottomColor: JIRA.greyN40, background: C.bgCard, width: getTargetColWidth(key) }}
-                        >
-                          {TARGET_DEFECT_COLUMNS.find(c => c.key === key)?.label ?? key}
-                          {targetDefectSort?.key === key ? (targetDefectSort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
-                          <ColumnResizeHandle onMouseDown={e => startTargetColResize(key, e)} />
-                        </th>
-                      ))}
+                      {targetDefectColumns.map(key => {
+                        const isTitle = key === 'summary';
+                        return (
+                          <th
+                            key={key}
+                            onClick={() => toggleTargetDefectSort(key)}
+                            className="relative cursor-pointer select-none overflow-hidden text-ellipsis whitespace-nowrap px-2.5 py-2 text-end text-[11px] font-bold tracking-wide"
+                            style={{
+                              color: JIRA.textSubtle, borderBottom: `2px solid ${JIRA.greyN40}`,
+                              width: isTitle ? undefined : getTargetColWidth(key), minWidth: isTitle ? '300px' : undefined,
+                            }}
+                          >
+                            {TARGET_DEFECT_COLUMNS.find(c => c.key === key)?.label ?? key}
+                            {targetDefectSort?.key === key ? (targetDefectSort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
+                            {!isTitle && <ColumnResizeHandle onMouseDown={e => startTargetColResize(key, e)} />}
+                          </th>
+                        );
+                      })}
                     </tr>
                     <ColumnFilterRow
                       columns={targetDefectColumns.map(key => ({ key, label: TARGET_DEFECT_COLUMNS.find(c => c.key === key)?.label ?? key }))}
@@ -597,15 +560,25 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
                         style={{ background: hoverTargetRow === d.id ? JIRA.rowHover : undefined }}
                       >
                         {targetDefectColumns.map(key => {
+                          const isBadge = PERSON_BADGE_FIELDS.has(key) || TEAM_BADGE_FIELDS.has(key);
+                          const isCentered = TARGET_STATUS_LIKE_FIELDS.has(key) || key === 'id';
+                          const isTitle = key === 'summary';
                           const raw = String(d[key] ?? '');
-                          const rtl = hasHebrew(raw);
+                          const rtl = isBadge || isCentered ? false : hasHebrew(raw);
                           return (
                             <td
                               key={key}
-                              className="overflow-hidden text-ellipsis whitespace-nowrap border-b px-2.5 py-2"
+                              title={isTitle ? raw : undefined}
+                              className={isTitle ? 'font-semibold' : 'font-normal'}
                               style={{
-                                color: JIRA.text, borderBottomColor: JIRA.greyN40, width: getTargetColWidth(key),
-                                direction: rtl ? 'rtl' : 'ltr', textAlign: rtl ? 'right' : 'left',
+                                padding: '8px 10px', borderBottom: `1px solid ${JIRA.greyN40}`,
+                                width: isTitle ? undefined : getTargetColWidth(key), minWidth: isTitle ? '300px' : undefined,
+                                ...(isTitle
+                                  ? { whiteSpace: 'normal', wordBreak: 'break-word', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.4 }
+                                  : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
+                                color: isBadge || key === 'severity' || key === 'id' || key === 'priority' ? undefined : JIRA.text,
+                                direction: isCentered ? undefined : (rtl ? 'rtl' : 'ltr'),
+                                textAlign: isCentered ? 'center' : (rtl ? 'right' : 'left'),
                               }}
                             >
                               {renderTargetDefectValue(key, d[key], targetSummary.qcUserNames)}
@@ -631,111 +604,22 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
         />
       )}
 
-      {showDetailGroupsPicker && (
-        <DetailGroupsDialog
-          allColumns={DETAIL_GROUPS_ASSIGNABLE_COLUMNS}
-          groups={detailGroups}
-          defaultGroups={DEFAULT_TARGET_DEFECT_DETAIL_GROUPS}
-          onApply={applyDetailGroups}
-          onClose={() => setShowDetailGroupsPicker(false)}
+      {/* ── TARGET defect detail screen — reuses the SAME shared component as ──
+          the QA management module's own defect detail screen (spec 2026-09-18:
+          "הטופס צריך להיראות בדיוק כמו הטופס במודול ניהול בדיקות"), instead of
+          a second, drifting, read-only custom layout. DefectDetailScreen
+          fetches by defect ID alone (DEFECT_BY_ID_SQL has no TARGET/open-prod
+          distinction), so it works unmodified for a TARGET defect — this also
+          gives TARGET defects live QC status/field editing (QcWriteBackPanel)
+          for the first time. */}
+      {screen.type === 'target-defect-detail' && (
+        <DefectDetailScreen
+          defectId={screen.defectId}
+          detailFields={[]}
+          token={token}
+          onBack={goBack}
         />
       )}
-
-      {/* ── TARGET defect detail screen — logical field groups, description/ ──
-          notes get large RTL-preserved free-text boxes (both may contain
-          long Hebrew text with residual entities from the source system). */}
-      {screen.type === 'target-defect-detail' && (() => {
-        const d = (targetSummary?.defects ?? []).find(x => x.id === screen.defectId);
-        return (
-          <div>
-            <div className="flex items-center justify-between">
-              <BackButton onClick={goBack} />
-              <button
-                onClick={() => setShowDetailGroupsPicker(true)}
-                className="mb-4 cursor-pointer rounded-md border border-border bg-muted px-3.5 py-1.5 text-[13px] text-muted-foreground"
-              >
-                ⚙ התאמת שדות וקטגוריות
-              </button>
-            </div>
-            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-              {!d ? (
-                <div className="p-8 text-center text-subtle-foreground">תקלה לא נמצאה</div>
-              ) : (
-                <div className="flex flex-col gap-4">
-                  <div className="flex items-center gap-2 text-[17px] font-bold text-foreground">
-                    🎯 תקלה <IssueKeyLink id={d.id} /> — {d.summary || d.subject || d.title || '—'}
-                  </div>
-
-                  {/* Category groups — moved right under the title (spec 2026-08-30):
-                      order is now title → categories → description+notes.
-                      Filter out summary/description/notes defensively: they're excluded
-                      from the picker going forward, but a group saved to localStorage
-                      before that exclusion existed could still list them, which would
-                      render them a second time inline here on top of their fixed
-                      side-by-side box below (bug reported 2026-08-30). */}
-                  {detailGroups
-                    .map(group => ({ ...group, fields: group.fields.filter(k => !DETAIL_GROUPS_FIXED_FIELDS.has(k as keyof TargetDefect)) }))
-                    .filter(group => group.fields.length > 0)
-                    .map(group => (
-                    <div key={group.title} className="border-t border-border pt-3">
-                      <div className="mb-2 text-sm font-bold text-subtle-foreground">{group.title}</div>
-                      <div className="grid gap-x-4 gap-y-2 text-sm" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
-                        {(group.fields as (keyof TargetDefect)[]).map(key => (
-                          // direction:ltr (not just inherited rtl) — label and value are two
-                          // separate spans, and the page's rtl base direction lets the Unicode
-                          // bidi algorithm flip their order whenever the value is a neutral/atomic
-                          // run (empty "—", a colored badge, a date with an embedded Hebrew month
-                          // name) — plain single-language text happened to stay glued together by
-                          // luck. Forcing ltr keeps "Label: value" order stable for every value
-                          // shape, since these labels are always English. textAlign:left per
-                          // spec (bug fixed / alignment changed 2026-08-30).
-                          <div key={key} className="text-left" dir="ltr">
-                            <span className="text-subtle-foreground">{targetDefectFieldLabel(key)}: </span>
-                            <span className="text-muted-foreground">{renderTargetDefectValue(key, d[key], targetSummary?.qcUserNames)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Description + Notes — side by side (each wraps to its own row
-                      below ~380px so they don't get squeezed on a narrow window). */}
-                  <div className="flex flex-wrap gap-4 border-t border-border pt-3">
-                    <div className="min-w-[280px] flex-[1_1_380px]">
-                      <div className="mb-1.5 text-sm font-bold text-subtle-foreground">תיאור</div>
-                      <div
-                        className="max-h-80 min-h-[110px] overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted px-3.5 py-3 text-[15px] leading-[1.7] text-foreground"
-                        dir="rtl"
-                      >
-                        {d.description || '—'}
-                      </div>
-                    </div>
-
-                    <div className="min-w-[280px] flex-[1_1_380px]">
-                      <div className="mb-1.5 text-sm font-bold text-subtle-foreground">הערות</div>
-                      <div className="max-h-80 min-h-[110px] overflow-y-auto rounded-md border border-border bg-muted px-3.5 py-3 text-[15px] leading-[1.7] text-foreground">
-                        {renderNotesField(d.notes)}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Attachments — same shared section as OpenProdDefectsView's
-                      defect-detail screen (spec confirmed 2026-09-03). */}
-                  <AttachmentsSection defectId={d.id} token={token} />
-
-                  {/* Change history — end of form, filterable by which field changed
-                      (spec confirmed 2026-08-30). Shared with every other defect-detail
-                      screen via FieldChangeHistorySection. Data source: QC's AUDIT_LOG/
-                      AUDIT_PROPERTIES tables (see DEFECT_FIELD_HISTORY_SQL) — real
-                      Oracle query untested against this live instance; mock fallback
-                      only covers defect 62034. */}
-                  <FieldChangeHistorySection defectId={d.id} token={token} />
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
 
       {/* ── CR detail screen ── */}
       {screen.type === 'cr-detail' && (

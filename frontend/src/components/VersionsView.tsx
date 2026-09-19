@@ -67,6 +67,7 @@ interface Version {
   lastNightAt?: string;
   isArchived?: boolean;
   archivedAt?: string;
+  _count?: { phases: number };
 }
 
 
@@ -232,8 +233,9 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
         <VersionWizard
           newVersion={vc.newVersion}
           setNewVersion={vc.setNewVersion}
-          qcReleases={vc.qcReleases}
-          futureVersionNames={vc.futureVersionNames}
+          existingVersions={versions
+            .filter(v => !v.isArchived && v.status === 'DRAFT' && (v._count?.phases ?? 0) === 0)
+            .map(v => ({ id: v.id, name: v.name }))}
           templates={vc.templates}
           selectedTemplateId={vc.selectedTemplateId}
           setSelectedTemplateId={vc.setSelectedTemplateId}

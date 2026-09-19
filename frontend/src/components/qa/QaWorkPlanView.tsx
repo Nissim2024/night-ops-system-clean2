@@ -21,6 +21,7 @@ interface Version {
   plannedEnd: string | null;
   qaStart: string | null;
   qaEnd: string | null;
+  qcReleaseId?: string | null;
 }
 
 interface CycleTask {
@@ -368,9 +369,27 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
   const [restoringTask, setRestoringTask] = useState<string | null>(null);
   // Approved-season holiday dates (yyyy-mm-dd) — see isWorkDay above.
   const [holidayDays, setHolidayDays]     = useState<Set<string>>(new Set());
+  // Kill-switch for publishing Release+Cycles to real QC on plan approval
+  // (docs/spec-qc-full-integration.md §3.5 stage 2) — off by default, read
+  // once so approve() knows whether to offer the follow-up confirm at all.
+  const [qcPublishEnabled, setQcPublishEnabled] = useState(false);
+  const [publishingToQc, setPublishingToQc] = useState(false);
 
   useEffect(() => {
     ax.get(`${API}/qa/testers`).then(r => setAllTesters(r.data ?? [])).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Silent, best-effort — RELEASE_MANAGER/ADMIN only per the endpoint's own
+  // guard; any other role (e.g. TEAM_LEAD viewing this screen) simply never
+  // sees the QC-publish confirm, same as if the flag were off.
+  useEffect(() => {
+    ax.get(`${API}/system-params`)
+      .then(r => {
+        const flag = (r.data as { key: string; value: string }[]).find(p => p.key === 'QC_REST_RELEASE_PUBLISH_ENABLED');
+        setQcPublishEnabled((flag?.value ?? '').trim().toLowerCase() === 'true');
+      })
+      .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -544,9 +563,95 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
     try {
       await ax.post(`${API}/qa/workplan/approve`, { versionId });
       setWorkPlan(prev => prev ? { ...prev, status: 'APPROVED' } : null);
+      // Plan approval itself is never blocked by QC — this is a secondary,
+      // fully optional follow-up offered only once the plan is real
+      // (spec-qc-full-integration.md §3.1: cycle dates are only final at
+      // this point). Declining or a later failure leaves the version simply
+      // "not yet linked" — see promptPublishToQc's own retry note.
+      const current = versions.find(v => v.id === versionId);
+      if (qcPublishEnabled && current && !current.qcReleaseId) promptPublishToQc(current);
     } catch (e: any) {
       dialog.alert(e?.response?.data?.message ?? 'שגיאה', 'שגיאה', 'danger');
     }
+  };
+
+  // Explicit confirm-before-send, same pattern as every other real QC write
+  // in this codebase (qc-rest.service.ts) — previews exactly what will be
+  // created before sending. Re-openable any time from the same button (not
+  // gated to the one-shot moment right after approval): declining here or a
+  // technical failure are the same state, nothing is lost, and the version
+  // stays eligible for another attempt later.
+  const promptPublishToQc = (current: Version) => {
+    if (!workPlan) return;
+    const cycleLines = workPlan.cycles
+      .map(c => `  · ${CYCLE_LABEL[c.cycleType] ?? c.cycleType}: ${fmtDate(c.plannedStart)} – ${fmtDate(c.plannedEnd)}`)
+      .join('\n');
+    const message =
+      `ליצור את הגרסה הבאה ב-QC?\n\n` +
+      `שם: ${current.name}\n` +
+      `תאריך עלייה לאוויר: ${fmtDate(current.plannedStart)}\n\n` +
+      `סבבים:\n${cycleLines}\n\n` +
+      `הפעולה נכתבת ב-QC מזוהה עם המשתמש שלך (qcLogin אישי).`;
+    setConfirmDialog({
+      title: 'יצירת גרסה ב-QC',
+      message,
+      variant: 'info',
+      confirmLabel: 'צור ב-QC',
+      cancelLabel: 'לא עכשיו',
+      onConfirm: async () => {
+        setPublishingToQc(true);
+        try {
+          const r = await ax.post(`${API}/qc/releases/version/${versionId}/publish`);
+          setVersions(prev => prev.map(v => v.id === versionId ? { ...v, qcReleaseId: r.data.relId ? String(r.data.relId) : v.qcReleaseId } : v));
+          dialog.alert(`הגרסה נוצרה ב-QC בהצלחה (Release ID ${r.data.relId}).`, 'הצלחה', 'success');
+        } catch (e: any) {
+          dialog.alert(
+            (e?.response?.data?.message ?? 'שגיאה ביצירת הגרסה ב-QC') + '\n\nניתן לנסות שוב מאוחר יותר — שום דבר לא נפגע.',
+            'שגיאה',
+            'danger',
+          );
+        } finally {
+          setPublishingToQc(false);
+        }
+      },
+      onCancel: () => {},
+    });
+  };
+
+  // Reschedule-after-publish path — pushes current dates onto an
+  // already-created Release+Cycles, never re-creates. Available any time the
+  // plan is approved and already linked, not just right after a date change.
+  const syncDatesToQc = async () => {
+    setPublishingToQc(true);
+    try {
+      const r = await ax.post(`${API}/qc/releases/version/${versionId}/sync-dates`);
+      dialog.alert(`תאריכים עודכנו ב-QC (${(r.data.updated as string[]).length} רשומות).`, 'הצלחה', 'success');
+    } catch (e: any) {
+      dialog.alert(e?.response?.data?.message ?? 'שגיאה בעדכון תאריכים ב-QC', 'שגיאה', 'danger');
+    } finally {
+      setPublishingToQc(false);
+    }
+  };
+
+  // Persistent QC status/action — same button whether this is the first
+  // attempt, a retry after decline/failure, or a later date-sync. Rendered
+  // in both action-bar layouts below.
+  const renderQcAction = () => {
+    if (!qcPublishEnabled || workPlan?.status !== 'APPROVED') return null;
+    const current = versions.find(v => v.id === versionId);
+    if (!current) return null;
+    if (current.qcReleaseId) {
+      return (
+        <button onClick={syncDatesToQc} disabled={publishingToQc} className={wpBtnClass('info', publishingToQc)}>
+          {publishingToQc ? 'מעדכן...' : '🔄 עדכן תאריכים ב-QC'}
+        </button>
+      );
+    }
+    return (
+      <button onClick={() => promptPublishToQc(current)} disabled={publishingToQc} className={wpBtnClass('indigo', publishingToQc)}>
+        {publishingToQc ? 'יוצר...' : '☁ צור ב-QC'}
+      </button>
+    );
   };
 
   // Deactivating a task frees up its slot in the tester's queue, so the
@@ -835,6 +940,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
               {workPlan.status === 'APPROVED' && (
                 <button onClick={loadChangeLog} className={wpBtnClass('indigo')}>🕘 יומן שינויים</button>
               )}
+              {renderQcAction()}
               <button onClick={loadArchive} className={wpBtnClass('gray')}>📦 ארכיון</button>
               <button onClick={() => setShowGenForm(f => !f)} className={wpBtnClass('warning')}>↺ יצור מחדש</button>
               <button onClick={revertToOriginal} disabled={reverting} className={wpBtnClass('gray', reverting)}>{reverting ? 'מחשב...' : '⟲ חזור למקור'}</button>
@@ -854,6 +960,7 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           {workPlan.status === 'APPROVED' && (
             <button onClick={loadChangeLog} className={wpBtnClass('indigo')}>🕘 יומן שינויים</button>
           )}
+          {renderQcAction()}
           <button onClick={loadArchive} className={wpBtnClass('gray')}>📦 ארכיון</button>
           <button onClick={() => setShowGenForm(f => !f)} className={wpBtnClass('warning')}>↺ יצור מחדש</button>
           <button onClick={revertToOriginal} disabled={reverting} className={wpBtnClass('gray', reverting)}>{reverting ? 'מחשב...' : '⟲ חזור לתוכנית המקורית'}</button>

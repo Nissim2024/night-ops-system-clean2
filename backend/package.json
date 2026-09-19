@@ -37,7 +37,9 @@
     "export-data": "cross-env NODE_ENV=prod npx ts-node scripts/export-data.ts",
     "import-data": "cross-env NODE_ENV=prod npx ts-node scripts/import-data.ts",
     "seed-default": "cross-env NODE_ENV=prod npx ts-node scripts/seed-default.ts",
-    "validate-production": "cross-env NODE_ENV=prod npx ts-node scripts/validate-production.ts"
+    "validate-production": "cross-env NODE_ENV=prod npx ts-node scripts/validate-production.ts",
+    "mock-qc": "npx ts-node scripts/mock-qc-server.ts",
+    "smoke-test-qc": "npx ts-node scripts/smoke-test-qc-rest.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.2",

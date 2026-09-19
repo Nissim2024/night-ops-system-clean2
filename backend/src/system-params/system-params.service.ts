@@ -181,6 +181,74 @@ const DEFAULT_PARAMS = [
     label: 'QC REST: שם שדה ה-REST של BG_USER_04 (Bug Status האמיתי, לא BG_STATUS) — לגלות דרך "הצג את כל שמות השדות" בכלי הכתיבה ל-QC לפני מילוי',
     type: 'text',
   },
+  // ── Defects module Tier 2 field mapping (docs/spec-defects-module.md §6,
+  // 2026-09-18) — same "don't guess, discover via the lab, refuse while
+  // empty" pattern as QC_REST_BUG_STATUS_FIELD above. These 6 fields were
+  // confirmed with the user as the initial Tier-2 ("safe", non-workflow-
+  // sensitive) allowlist; their real REST field names are NOT confirmed
+  // against this instance yet — each stays empty, and the PATCH endpoint
+  // that uses them refuses per-field while its mapping is unset, rather
+  // than guessing (exactly the REST_FIELD/dev-comments lesson).
+  {
+    key: 'QC_REST_FIELD_ASSIGNED_TO',
+    value: '',
+    label: 'QC REST: שם שדה ה-REST של "Assigned To" — לגלות דרך "🔍 הצג את כל שמות השדות" לפני מילוי',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_FIELD_PRIORITY',
+    value: '',
+    label: 'QC REST: שם שדה ה-REST של "Priority" — לגלות דרך "🔍 הצג את כל שמות השדות" לפני מילוי',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_FIELD_SEVERITY',
+    value: '',
+    label: 'QC REST: שם שדה ה-REST של "Severity" — לגלות דרך "🔍 הצג את כל שמות השדות" לפני מילוי',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_FIELD_ESTIMATED_FIX_TIME',
+    value: '',
+    label: 'QC REST: שם שדה ה-REST של "Estimated Fix Time" — לגלות דרך "🔍 הצג את כל שמות השדות" לפני מילוי',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_FIELD_SUB_MODULE',
+    value: '',
+    label: 'QC REST: שם שדה ה-REST של "Sub Module" — לגלות דרך "🔍 הצג את כל שמות השדות" לפני מילוי',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_FIELD_MAIN_MODULE',
+    value: '',
+    label: 'QC REST: שם שדה ה-REST של "Main Module" — לגלות דרך "🔍 הצג את כל שמות השדות" לפני מילוי',
+    type: 'text',
+  },
+  // Kill-switch for the first real (non-lab) QC REST write path — publishing
+  // an approved QA work plan's Release+Cycles to real QC and syncing their
+  // dates afterward (docs/spec-qc-full-integration.md §3.5 stage 2). Off by
+  // default: every step of that orchestration is unverified against
+  // production QC (2026-09-18) — flipping this on is the explicit signal
+  // that it's safe to reach the real "צור ב-QC"/"עדכן תאריכים ב-QC" actions,
+  // independent of the always-available ADMIN-only rest-test lab.
+  {
+    key: 'QC_REST_RELEASE_PUBLISH_ENABLED',
+    value: 'false',
+    label: 'QC REST: אפשר יצירת/עדכון Release+Cycles אמיתיים ב-QC מתהליך אישור תוכנית QA (true/false) — כבוי כברירת מחדל עד אימות בייצור',
+    type: 'boolean',
+  },
+  // Separate kill-switch from the release/cycle one above — REQ creation is
+  // a materially less-verified surface (5-level folder tree, ~20-field
+  // mapping, none of it tried against real QC), so it gets its own
+  // independent on/off so a bad REQ assumption can be switched off without
+  // touching release/cycle publishing.
+  {
+    key: 'QC_REST_REQ_PUBLISH_ENABLED',
+    value: 'false',
+    label: 'QC REST: אפשר יצירת Requirements (REQ) אמיתיים ב-QC מטאב שיבוץ בודקים (true/false) — כבוי כברירת מחדל עד אימות בייצור',
+    type: 'boolean',
+  },
   // Separate from the write-back connection above — a real QC Admin
   // credential, held for future QC-side administrative operations (e.g.
   // account provisioning/configuration via QC's own admin API), NOT used

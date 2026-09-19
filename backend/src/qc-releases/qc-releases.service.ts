@@ -43,13 +43,23 @@ async function getOracleDb() {
   return { oracledb, cfg };
 }
 
+// Historical cutoff widened 2026-09-18 (user request: browse all releases
+// back to the start of 2022, not just the rolling 360-day window this query
+// originally used for the "active releases" picker). Only the date bound
+// changed — cycle-name filter ('Dress Rehearsal','Go Live') is untouched,
+// since findOrCreateFolder-style drill-down only needs relId, not cycle ids,
+// per the getQcLinkForRelease fix earlier today. UNVERIFIED against real
+// Oracle — this only changes a WHERE clause bound, same query shape already
+// running in production, but the actual historical sync run itself needs
+// real Oracle access (Tuesday) to execute and populate the table.
+const QC_RELEASES_HISTORY_START = "TO_DATE('2022-01-01','YYYY-MM-DD')";
 const QC_RELEASES_SQL = `
   select rr.rel_id, rr.rel_parent_id, rr.rel_name, rr.rel_start_date, rr.rel_end_date, rr.rel_user_01,
          rc.rcyc_id, rc.rcyc_name, rc.rcyc_start_date, rr.rel_user_03
   from releases rr, release_cycles rc
   where rr.rel_id=rc.rcyc_parent_id
     and rc.rcyc_name in ('Dress Rehearsal','Go Live')
-    and rr.rel_start_date>sysdate-360
+    and rr.rel_start_date > ${QC_RELEASES_HISTORY_START}
   order by rc.rcyc_start_date desc
 `;
 
@@ -234,7 +244,13 @@ export class QcReleasesService implements OnModuleInit {
   }
 
   async findAll() {
-    return prisma.qcRelease.findMany({ orderBy: { relStartDate: 'desc' } });
+    // `versions` included (2026-09-18, historical releases browse) so
+    // callers can tell "already linked to a local Version" apart from
+    // "QC-only, predates this tool" without a second round-trip.
+    return prisma.qcRelease.findMany({
+      orderBy: { relStartDate: 'desc' },
+      include: { versions: { select: { id: true, name: true } } },
+    });
   }
 
   async toggleActive(id: string) {

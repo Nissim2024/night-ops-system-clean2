@@ -85,6 +85,11 @@ export const KpiMatrixView: React.FC<Props> = ({ token, role, initialRelease }) 
   const [sortKey, setSortKey] = useState<SortKey>('kpiOrder');
   const [sortAsc, setSortAsc] = useState(true);
   const [detailKpi, setDetailKpi] = useState<string | null>(null);
+  // Clicking the Total-Defects/severity cells specifically (not the rest of
+  // the row) should land straight on the expanded defect list, not just the
+  // KPI detail screen with a "🪲 צפה בתקלות" button still to click (user
+  // feedback 2026-09-18: "אני רוצה ממש דריל משורת הסיכום העליונה").
+  const [autoOpenDrilldown, setAutoOpenDrilldown] = useState(false);
 
   useEffect(() => {
     axios.get(`${API}/quality-hub/releases`, { headers })
@@ -120,7 +125,13 @@ export const KpiMatrixView: React.FC<Props> = ({ token, role, initialRelease }) 
   };
 
   if (detailKpi) {
-    return <KpiDetailView token={token} role={role} kpiName={detailKpi} releaseName={selected} onBack={() => setDetailKpi(null)} />;
+    return (
+      <KpiDetailView
+        token={token} role={role} kpiName={detailKpi} releaseName={selected}
+        autoOpenDrilldown={autoOpenDrilldown}
+        onBack={() => { setDetailKpi(null); setAutoOpenDrilldown(false); }}
+      />
+    );
   }
 
   if (releases.length === 0 && !loading) {
@@ -208,8 +219,18 @@ export const KpiMatrixView: React.FC<Props> = ({ token, role, initialRelease }) 
                   <td className={`px-3 py-2.5 text-sm font-semibold border border-border ${scoreColorClass(r.relativeScorePct)}`}>{fmtPct(r.relativeScorePct)}</td>
                   <td className="px-3 py-2.5 text-sm text-foreground border border-border">{fmtPct(r.contributionPct)}</td>
                   <td className={`px-3 py-2.5 text-sm font-semibold border border-border ${r.scoreLostPct != null && r.scoreLostPct < 0 ? 'text-danger' : 'text-success'}`}>{fmtPct(r.scoreLostPct)}</td>
-                  <td className="px-3 py-2.5 text-sm font-semibold text-foreground border border-border">{totalDefects(r.severity)}</td>
-                  <td className="px-3 py-2.5 text-xs text-subtle-foreground border border-border">
+                  <td
+                    className="px-3 py-2.5 text-sm font-semibold text-foreground border border-border underline decoration-dotted cursor-pointer"
+                    title="דריל ישיר לרשימת התקלות של ה-KPI הזה"
+                    onClick={e => { e.stopPropagation(); setAutoOpenDrilldown(true); setDetailKpi(r.kpiName); }}
+                  >
+                    {totalDefects(r.severity)}
+                  </td>
+                  <td
+                    className="px-3 py-2.5 text-xs text-subtle-foreground border border-border underline decoration-dotted cursor-pointer"
+                    title="דריל ישיר לרשימת התקלות של ה-KPI הזה"
+                    onClick={e => { e.stopPropagation(); setAutoOpenDrilldown(true); setDetailKpi(r.kpiName); }}
+                  >
                     {fmtCount(r.severity.showStopper)} / {fmtCount(r.severity.severe)} / {fmtCount(r.severity.medium)} / {fmtCount(r.severity.low)}
                   </td>
                 </tr>

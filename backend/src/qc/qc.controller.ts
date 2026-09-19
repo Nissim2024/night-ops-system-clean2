@@ -27,6 +27,13 @@ export class QcController {
     if (!allowed) throw new ForbiddenException('אין לך הרשאה להשתמש בכלי הכתיבה ל-QC — פנה למנהל מערכת');
   }
 
+  // Split-out permissions (docs/spec-defects-module.md §9, 2026-09-18) —
+  // separate blast radius from action:qc_write (status/comment only).
+  private async requirePermission(req: any, key: string, msg: string) {
+    const allowed = await this.permissionsService.hasPermission(req.user.role, key);
+    if (!allowed) throw new ForbiddenException(msg);
+  }
+
   @Get('status')
   getStatus() {
     return this.qcService.getStatus();
@@ -127,13 +134,13 @@ export class QcController {
   @Post('rest-test/defect/:id/append-note')
   async appendRestNote(@Request() req: any, @Param('id') id: string, @Body('note') note: string) {
     await this.requireQcWrite(req);
-    return this.qcRestService.appendComment(id, note, req.user.email ?? req.user.sub ?? 'DeployCenter', req.user.sub);
+    return this.qcRestService.appendComment(id, note, req.user.sub);
   }
 
   @Patch('rest-test/defect/:id/status')
   async updateRestStatus(@Request() req: any, @Param('id') id: string, @Body('status') status: string) {
     await this.requireQcWrite(req);
-    return this.qcRestService.updateStatus(id, status, req.user.email ?? req.user.sub ?? 'DeployCenter', req.user.sub);
+    return this.qcRestService.updateStatus(id, status, req.user.sub);
   }
 
   // ── Stage-0 de-risk (2026-09-15): can this QC instance's REST API create
@@ -142,6 +149,14 @@ export class QcController {
   async probeEntityFields(@Request() req: any, @Param('type') type: string) {
     await this.requireQcWrite(req);
     return this.qcRestService.probeEntityFields(type, req.user.sub);
+  }
+
+  // Picklist values (2026-09-19) — read-only, same risk level as the field-
+  // names probe above; see qc-rest.service.ts::probeProjectLists.
+  @Get('rest-test/lists')
+  async probeProjectLists(@Request() req: any) {
+    await this.requireQcWrite(req);
+    return this.qcRestService.probeProjectLists(req.user.sub);
   }
 
   @Get('rest-test/releases')
@@ -200,6 +215,127 @@ export class QcController {
   }) {
     requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול להריץ את בדיקת ה-orchestration');
     return this.qcRestService.createReleaseWithCycles(body, req.user.sub);
+  }
+
+  // Gap-fill lab routes (2026-09-18) — read cycles under an existing release,
+  // and update an already-created release/cycle's dates+QG. Same ADMIN-only
+  // gate as the other structural (non-defect) lab tools above.
+  @Get('rest-test/release/:id/cycles')
+  async listRestReleaseCycles(@Request() req: any, @Param('id') id: string) {
+    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול לקרוא סבבים מכלי המעבדה');
+    return this.qcRestService.listReleaseCyclesRest(id, req.user.sub);
+  }
+
+  @Patch('rest-test/release/:id')
+  async updateRestRelease(@Request() req: any, @Param('id') id: string, @Body('fields') fields: Record<string, string>) {
+    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול לעדכן Release מכלי המעבדה');
+    return this.qcRestService.updateReleaseRaw(id, fields, req.user.sub);
+  }
+
+  @Patch('rest-test/release-cycle/:id')
+  async updateRestReleaseCycle(@Request() req: any, @Param('id') id: string, @Body('fields') fields: Record<string, string>) {
+    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול לעדכן Release Cycle מכלי המעבדה');
+    return this.qcRestService.updateReleaseCycleRaw(id, fields, req.user.sub);
+  }
+
+  // ── Production endpoints (2026-09-18, spec-qc-full-integration.md §7.4) —
+  // first real (non-`rest-test`) write paths. Gated the same way as the lab
+  // (action:qc_write) plus their own SystemParam kill-switch
+  // (QC_REST_RELEASE_PUBLISH_ENABLED, checked inside the service) so a bad
+  // assumption about the real QC schema can be switched off without a
+  // rollback. Intended caller: an explicit confirm-modal in the QA work-plan
+  // approval flow / version screen — never triggered silently.
+  @Post('releases/version/:versionId/publish')
+  async publishVersionRelease(@Request() req: any, @Param('versionId') versionId: string) {
+    await this.requireQcWrite(req);
+    return this.qcRestService.publishVersionRelease(versionId, req.user.sub);
+  }
+
+  @Post('releases/version/:versionId/sync-dates')
+  async syncVersionReleaseDates(@Request() req: any, @Param('versionId') versionId: string) {
+    await this.requireQcWrite(req);
+    return this.qcRestService.syncVersionReleaseDates(versionId, req.user.sub);
+  }
+
+  // ── REQ lab tools (2026-09-18) — same ADMIN-only gate as the other
+  // structural creation lab tools, since this can create real folders/leaves
+  // in production QC with no allowlist.
+  @Post('rest-test/folder')
+  async findOrCreateRestFolder(@Request() req: any, @Body() body: { collection: string; entityType: string; name: string; parentId: string | null }) {
+    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול ליצור תיקייה מכלי המעבדה');
+    return this.qcRestService.findOrCreateFolder(body.collection, body.entityType, body.name, body.parentId, req.user.sub);
+  }
+
+  @Post('rest-test/requirement')
+  async createRestRequirement(@Request() req: any, @Body() body: { fields: Record<string, string>; refFields?: Record<string, { id: string; label: string }> }) {
+    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול ליצור Requirement מכלי המעבדה');
+    return this.qcRestService.createRequirementRaw(body.fields, body.refFields ?? {}, req.user.sub);
+  }
+
+  // ── REQ production endpoints ──────────────────────────────────────────
+  @Post('requirements/assignment/:assignmentId/publish')
+  async publishCrRequirement(@Request() req: any, @Param('assignmentId') assignmentId: string) {
+    await this.requireQcWrite(req);
+    return this.qcRestService.publishCrRequirement(assignmentId, req.user.sub);
+  }
+
+  @Post('requirements/version/:versionId/publish-pending')
+  async publishPendingReqs(@Request() req: any, @Param('versionId') versionId: string) {
+    await this.requireQcWrite(req);
+    return this.qcRestService.publishPendingReqsForVersion(versionId, req.user.sub);
+  }
+
+  // Bulk status update (§11, lowest priority) — same action:qc_write gate as
+  // the single-defect status update it wraps (not the create/edit-extended
+  // permissions, since this doesn't touch new fields, just loops the
+  // existing status action).
+  @Post('defects/bulk-status')
+  async bulkUpdateDefectStatus(@Request() req: any, @Body() body: { defectIds: string[]; newStatus: string }) {
+    await this.requireQcWrite(req);
+    return this.qcRestService.bulkUpdateStatus(body.defectIds, body.newStatus, req.user.sub);
+  }
+
+  // ── Defects module (2026-09-18, docs/spec-defects-module.md) — clean
+  // production namespace (§10), separate from /qc/rest-test/*. Each gated by
+  // its own split-out permission (§9), not the broad action:qc_write.
+
+  // Tier 2 — the 6 "safe" fields (§6), business keys translated through
+  // SystemParam-configured REST names (see updateDefectTier2Fields's own
+  // comment) — refuses per-field while any mapping is still unconfigured,
+  // never guesses.
+  @Patch('defects/:id/fields')
+  async updateDefectFields(@Request() req: any, @Param('id') id: string, @Body('fields') fields: Record<string, string>) {
+    await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה מורחבים — פנה למנהל מערכת');
+    return this.qcRestService.updateDefectTier2Fields(id, fields, req.user.sub);
+  }
+
+  // Defect creation (§5) — wraps the same createDefectRaw the admin lab
+  // already uses, but permission-gated for "every QA" instead of ADMIN-only.
+  // Still generic (no fixed required-field form) since the real minimal
+  // required set for this QC instance isn't confirmed yet (§11 step 1, the
+  // metadata probe) — the caller supplies whatever fields it has.
+  @Post('defects')
+  async createDefect(@Request() req: any, @Body('fields') fields: Record<string, string>) {
+    await this.requirePermission(req, 'action:qc_defect_create', 'אין לך הרשאה לפתוח תקלה חדשה ב-QC — פנה למנהל מערכת');
+    return this.qcRestService.createDefectRaw(fields, req.user.sub);
+  }
+
+  // Historical QC releases browse (2026-09-18) — defects for a QcRelease
+  // that has no local Version at all (the whole point of browsing releases
+  // that predate this tool), keyed directly by the real Oracle relId
+  // instead of a versionId.
+  @Get('defects-by-relid')
+  getDefectsByRelId(@Query('relId') relId: string) {
+    return this.qcService.getDefectsByRelId(Number(relId));
+  }
+
+  // Real workflow-aware next-status options (§4) — resolved from the acting
+  // user's team(s) → Team.qcGroupName → the transcribed real QC transition
+  // rules. No permission gate beyond being logged in: this only reveals
+  // which statuses are reachable, it doesn't write anything.
+  @Get('defects/allowed-transitions')
+  getAllowedStatusTransitions(@Request() req: any, @Query('currentStatus') currentStatus: string) {
+    return this.qcService.getAllowedStatusTransitions(req.user.sub, currentStatus ?? '');
   }
 
   // ── Defect attachments (spec confirmed 2026-09-03) — read-only, so no

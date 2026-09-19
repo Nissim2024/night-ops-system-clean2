@@ -63,7 +63,7 @@ const DEFECT_COLUMNS: { key: DefectColumnKey; label: string }[] = [
   { key: 'severity', label: 'Severity' },
   { key: 'status', label: 'Bug Status' },
   { key: 'assignedTo', label: 'Assigned To' },
-  { key: 'qaTester', label: 'QA' },
+  { key: 'qaTester', label: 'Tester' },
   { key: 'discoveryDate', label: 'Detected on Date' },
   { key: 'priority', label: 'Priority' },
   { key: 'reporter', label: 'Detected By' },
@@ -124,8 +124,8 @@ const DEFECT_COLUMNS: { key: DefectColumnKey; label: string }[] = [
 ];
 const DEFAULT_DEFECT_COLUMNS: DefectColumnKey[] = ['id', 'title', 'severity', 'status', 'assignedTo', 'discoveryDate'];
 const DEFECT_COLUMNS_STORAGE_KEY = 'deploycenter_kpi_defect_columns_v1';
-const PERSON_BADGE_FIELDS = new Set<DefectColumnKey>(['reporter', 'qaTester', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo']);
-const TEAM_BADGE_FIELDS = new Set<DefectColumnKey>(['assignedTo', 'responsibility']);
+const PERSON_BADGE_FIELDS = new Set<DefectColumnKey>(['reporter', 'assignedTo', 'qaTester', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo']);
+const TEAM_BADGE_FIELDS = new Set<DefectColumnKey>(['responsibility']);
 function renderDefectCell(key: DefectColumnKey, value: unknown) {
   const s = String(value ?? '');
   if (!s) return key === 'priority' ? <PriorityCell value="" /> : '—';
@@ -308,9 +308,9 @@ function GradeTrendChart({ points }: { points: { releaseName: string; value: num
   );
 }
 
-interface Props { token: string; role: string; kpiName: string; releaseName: string; onBack: () => void; }
+interface Props { token: string; role: string; kpiName: string; releaseName: string; onBack: () => void; autoOpenDrilldown?: boolean; }
 
-export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseName, onBack }) => {
+export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseName, onBack, autoOpenDrilldown }) => {
   const headers = { Authorization: `Bearer ${token}` };
   const [data, setData] = useState<KpiDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -384,6 +384,21 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
     setShowDefects(true);
     ensureDefectsLoaded();
   };
+
+  // Arrived here via a direct click on the matrix row's Total-Defects/
+  // severity cell (KpiMatrixView) — skip the intermediate "🪲 צפה בתקלות"
+  // click and land straight on the expanded list, same as if the user had
+  // clicked it themselves. Guarded on qcLink resolving (async) and only
+  // fires once, since toggleDefects() would otherwise re-collapse the list
+  // if this effect re-ran after the user manually toggled it closed.
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (!autoOpenDrilldown || autoOpenedRef.current) return;
+    if (!qcLink?.hasQcData || !hasDefectDrillDown) return;
+    autoOpenedRef.current = true;
+    toggleDefects();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenDrilldown, qcLink, hasDefectDrillDown]);
   // Drill-down from a severity KpiCard (feedback 2026-09-14: "לאפשר דריל
   // מכל מקום שבו יש ספירה של תקלות לפי severity") — same defect list
   // toggleDefects already fetches (one KPI-scoped fetch either way), just

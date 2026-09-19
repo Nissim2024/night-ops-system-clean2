@@ -4,11 +4,14 @@ import { C } from '../../theme';
 import { cn } from '../../lib/utils';
 import { Card, Badge } from '../ui';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
+import { DefectDetailScreen } from '../quality-hub/OpenProdDefectsView';
+import { hasHebrew, StatusBadge, SeverityBadge } from '../shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 interface SeverityCount { severity: string; count: number; }
 interface BreakdownRow { label: string; count: number; bySeverity: SeverityCount[]; }
+interface OldestOpenRow { id: string; title: string; severity: string; status: string; discoveryDate: string; ageDays: number; }
 interface BugDashboardDto {
   reported: number;
   open: number;
@@ -25,6 +28,7 @@ interface BugDashboardDto {
   openByResponsibility: BreakdownRow[];
   openByCr: BreakdownRow[];
   openByStatus: BreakdownRow[];
+  oldestOpen: OldestOpenRow[];
 }
 
 interface Props { token: string; initialVersionId?: string; }
@@ -68,31 +72,79 @@ const KpiCard: React.FC<{ label: string; value: string; sub?: string; colorClass
 // also answers "how bad", not just "how many" (spec confirmed 2026-09-04).
 // Rows are click targets into the exact defect list behind them, same
 // drill-down convention every other screen in this module already uses.
-const BreakdownPanel: React.FC<{ title: string; total: number; rows: BreakdownRow[]; onSelect: (label: string) => void }> = ({ title, total, rows, onSelect }) => {
+//
+// Sizing is controlled entirely by the caller now (no inline flex/minWidth
+// here) — 2026-09-19 redesign put "לפי CR" in its own wide column and the
+// other three in a narrower stacked column, so a fixed self-opinionated size
+// would fight whichever wrapper each one ends up in.
+//
+// Labels used to be a fixed 140px, single-line, ellipsis-truncated (spec
+// 2026-08-30-era) — CR names and responsibility/team strings are often much
+// longer than that, so most of the list was unreadable without hovering for
+// the tooltip. Labels now wrap up to full width (`wide` gets more of the
+// row; `compact` keeps a smaller share since its column is narrower) —
+// wrapping instead of clipping is the actual fix (spec 2026-09-19: "שים לב
+// שניתן לראות את רוב המלל בצורה ידידותית"); the title tooltip stays as a
+// harmless fallback.
+const BreakdownPanel: React.FC<{ title: string; total: number; rows: BreakdownRow[]; onSelect: (label: string) => void; wide?: boolean }> = ({ title, total, rows, onSelect, wide }) => {
   const max = Math.max(1, ...rows.map(r => r.count));
   return (
-    <Card padding={4} style={{ flex: 1, minWidth: '260px' }}>
+    <Card padding={4}>
       <div className="mb-2.5 flex items-center justify-between">
         <div className="text-sm font-semibold text-foreground">{title}</div>
         <Badge color={C.textMuted} bg={C.bgHover}>{total}</Badge>
       </div>
-      <div className="flex max-h-[260px] flex-col gap-1.5 overflow-y-auto">
+      <div className={cn('flex flex-col gap-2 overflow-y-auto', wide ? 'max-h-[440px]' : 'max-h-[220px]')}>
         {rows.length === 0 && <div className="text-xs text-subtle-foreground">אין נתונים</div>}
         {rows.map(r => (
-          <div key={r.label} onClick={() => onSelect(r.label)} className="flex cursor-pointer items-center gap-2">
-            <div className="w-[140px] flex-shrink-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground" title={r.label}>{r.label}</div>
-            <div className="flex h-3.5 flex-1 overflow-hidden rounded-sm bg-muted">
+          <div key={r.label} onClick={() => onSelect(r.label)} className="flex cursor-pointer items-start gap-2">
+            <div className={cn('flex-shrink-0 break-words text-xs leading-snug text-muted-foreground', wide ? 'w-[38%]' : 'w-[46%]')} title={r.label}>
+              {r.label}
+            </div>
+            <div className="mt-0.5 flex h-3.5 flex-1 overflow-hidden rounded-sm bg-muted">
               {r.bySeverity.map(s => (
                 <div key={s.severity} title={`${s.severity}: ${s.count}`} style={{ width: `${(s.count / max) * 100}%`, background: SEVERITY_COLOR[s.severity] ?? SEVERITY_COLOR['ללא סיווג'] }} className="h-full" />
               ))}
             </div>
-            <div className="w-6 text-left text-xs text-foreground">{r.count}</div>
+            <div className="mt-0.5 w-6 flex-shrink-0 text-left text-xs text-foreground">{r.count}</div>
           </div>
         ))}
       </div>
     </Card>
   );
 };
+
+// "Oldest still-open" (spec 2026-09-19, user's pick over a severity-summary
+// chart and an open-vs-closed trend — most actionable of the three: tells
+// you what to triage next instead of another aggregate view). Deliberately a
+// compact list, not a chart, so it sits quietly in the left column instead of
+// competing for space. Clicking a row opens the real defect detail screen
+// directly (same shared DefectDetailScreen every other defect click in the
+// app uses) rather than going through the filter-based drilldown modal,
+// since there's already exactly one specific defect ID to jump to.
+const OldestOpenPanel: React.FC<{ rows: OldestOpenRow[]; onSelect: (id: string) => void }> = ({ rows, onSelect }) => (
+  <Card padding={4}>
+    <div className="mb-2.5 flex items-center justify-between">
+      <div className="text-sm font-semibold text-foreground">התקלות הפתוחות הכי ותיקות</div>
+      <Badge color={C.textMuted} bg={C.bgHover}>{rows.length}</Badge>
+    </div>
+    <div className="flex flex-col gap-1.5">
+      {rows.length === 0 && <div className="text-xs text-subtle-foreground">אין תקלות פתוחות</div>}
+      {rows.map(r => (
+        <div key={r.id} onClick={() => onSelect(r.id)} className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-muted">
+          <div className="w-11 flex-shrink-0 text-left text-xs font-bold text-danger">{r.ageDays}י׳</div>
+          <div className={cn('min-w-0 flex-1 break-words text-xs text-foreground', hasHebrew(r.title) ? 'text-right' : 'text-left')} title={r.title}>
+            {r.title}
+          </div>
+          <div className="flex flex-shrink-0 items-center gap-1">
+            <SeverityBadge severity={r.severity} />
+            <StatusBadge status={r.status} />
+          </div>
+        </div>
+      ))}
+    </div>
+  </Card>
+);
 
 const DailyTrendChart: React.FC<{ data: { date: string; count: number }[]; onPointClick?: (date: string) => void }> = ({ data, onPointClick }) => {
   if (data.length === 0) {
@@ -140,6 +192,7 @@ export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId })
   const [error, setError] = useState<string | null>(null);
   const [qcMock, setQcMock] = useState(true);
   const [drilldown, setDrilldown] = useState<{ filter: string; value?: string; title: string } | null>(null);
+  const [selectedDefectId, setSelectedDefectId] = useState<string | null>(null);
 
   useEffect(() => {
     axios.get(`${API}/qc/status`, { headers })
@@ -163,6 +216,17 @@ export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId })
   }, [headers]);
 
   useEffect(() => { loadDashboard(selectedVId); }, [selectedVId, loadDashboard]);
+
+  if (selectedDefectId) {
+    return (
+      <DefectDetailScreen
+        defectId={selectedDefectId}
+        detailFields={[]}
+        token={token}
+        onBack={() => setSelectedDefectId(null)}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4 px-7 py-5">
@@ -209,6 +273,32 @@ export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId })
               onClick={() => setDrilldown({ filter: 'moved-to-next', title: 'תקלות שנפתחו בגרסה זו ומועברות לגרסה הבאה (שדה TARGET מאוכלס)' })} />
           </div>
 
+          <SeverityLegend />
+          {/* 2026-09-19 redesign: "לפי CR" is the long/wide one (often many
+              distinct CR values) — its own wide column on the right; the
+              other three stack in a narrower column on the left. Page is
+              RTL, and in a plain flex row the FIRST child renders on the
+              right — so the CR column comes first in DOM order below. */}
+          <div className="flex flex-wrap gap-4 items-start">
+            <div style={{ flex: '1.4 1 420px', minWidth: '380px' }}>
+              <BreakdownPanel wide title="פתוחות לפי CR" total={dashboard.open} rows={dashboard.openByCr}
+                onSelect={label => setDrilldown({ filter: 'cr', value: label, title: `תקלות פתוחות — CR: ${label}` })} />
+            </div>
+            <div className="flex flex-col gap-3" style={{ flex: '1 1 320px', minWidth: '300px' }}>
+              <BreakdownPanel title="פתוחות לפי סטטוס" total={dashboard.open} rows={dashboard.openByStatus}
+                onSelect={label => setDrilldown({ filter: 'status', value: label, title: `תקלות פתוחות — סטטוס: ${label}` })} />
+              <BreakdownPanel title="פתוחות לפי סוג" total={dashboard.open} rows={dashboard.openByType}
+                onSelect={label => setDrilldown({ filter: 'type', value: label, title: `תקלות פתוחות — סוג: ${label}` })} />
+              <BreakdownPanel title="פתוחות לפי אחראי" total={dashboard.open} rows={dashboard.openByResponsibility}
+                onSelect={label => setDrilldown({ filter: 'responsibility', value: label, title: `תקלות פתוחות — אחראי: ${label}` })} />
+              <OldestOpenPanel rows={dashboard.oldestOpen} onSelect={setSelectedDefectId} />
+            </div>
+          </div>
+
+          {/* Daily report moved below the breakdowns (spec 2026-09-19: "הדיווח
+              היומי תופס המון שטח, אפשר להוריד למטה") — it's a single wide
+              trend line, lower priority to see first than the open-defect
+              breakdowns above. */}
           <Card>
             <div className="mb-2 text-sm font-semibold text-foreground">דיווח יומי <span className="text-xs font-normal text-subtle-foreground">· לחיצה על נקודה = התקלות שדווחו באותו יום</span></div>
             <DailyTrendChart
@@ -220,18 +310,6 @@ export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId })
               })}
             />
           </Card>
-
-          <SeverityLegend />
-          <div className="flex flex-wrap gap-3">
-            <BreakdownPanel title="פתוחות לפי סטטוס" total={dashboard.open} rows={dashboard.openByStatus}
-              onSelect={label => setDrilldown({ filter: 'status', value: label, title: `תקלות פתוחות — סטטוס: ${label}` })} />
-            <BreakdownPanel title="פתוחות לפי סוג" total={dashboard.open} rows={dashboard.openByType}
-              onSelect={label => setDrilldown({ filter: 'type', value: label, title: `תקלות פתוחות — סוג: ${label}` })} />
-            <BreakdownPanel title="פתוחות לפי אחראי" total={dashboard.open} rows={dashboard.openByResponsibility}
-              onSelect={label => setDrilldown({ filter: 'responsibility', value: label, title: `תקלות פתוחות — אחראי: ${label}` })} />
-            <BreakdownPanel title="פתוחות לפי CR" total={dashboard.open} rows={dashboard.openByCr}
-              onSelect={label => setDrilldown({ filter: 'cr', value: label, title: `תקלות פתוחות — CR: ${label}` })} />
-          </div>
         </>
       )}
 

@@ -847,22 +847,19 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
   // instead of silent.
   const unscoredCrs = useMemo(() => crQuality.filter(r => r.meetsTarget === null), [crQuality]);
 
-  if (!versionId) {
-    return <div style={{ fontFamily: FONT, direction: 'rtl', textAlign: 'center', padding: SP[8], color: C.textMuted }}>בחר גרסה מתפריט הצד.</div>;
-  }
-  if (loading && !overview) {
-    return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>טוען...</div>;
-  }
-
-  const forecast = overview ? FORECAST_LABEL[overview.forecastStatus] : null;
-
   // Defects deferred to a later release (Target set) were analysed and pushed
   // out — they aren't a risk to this version, so they're kept out of the
   // headline count and surfaced separately (spec 2026-09-07 §1).
+  //
+  // Moved above the early returns below (2026-09-18 fix): these were
+  // useMemo calls placed AFTER the `if (!versionId) return` / `if (loading)
+  // return` checks, which is a real "Rendered fewer hooks than expected"
+  // bug — on a render that takes an early return, React never reaches
+  // these hooks at all, so the hook count differs from a render that does.
+  // `defects` defaults to `[]` and CLOSED_DEFECT_STATUSES is a module
+  // constant, so computing this before versionId/loading are known is safe.
   const openDefects = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
   const movedToNextDefects = useMemo(() => openDefects.filter(d => !!(d.targetRelease || '').trim()), [openDefects]);
-  const movedToNextCount = movedToNextDefects.length;
-  const openDefectsCount = openDefects.length - movedToNextCount;
   // Severity breakdown of the "moved to future handling" subset specifically
   // — separate from qgSummary (which covers ALL open defects) — per the
   // user's explicit request (2026-09-17) to show it as its own line under
@@ -873,6 +870,17 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
     medium: { count: movedToNextDefects.filter(d => d.severity === 'Medium').length, threshold: 0 },
     low: { count: movedToNextDefects.filter(d => d.severity === 'Low').length, threshold: 0 },
   }), [movedToNextDefects]);
+
+  if (!versionId) {
+    return <div style={{ fontFamily: FONT, direction: 'rtl', textAlign: 'center', padding: SP[8], color: C.textMuted }}>בחר גרסה מתפריט הצד.</div>;
+  }
+  if (loading && !overview) {
+    return <div style={{ fontFamily: FONT, direction: 'rtl', padding: SP[6], color: C.textMuted }}>טוען...</div>;
+  }
+
+  const forecast = overview ? FORECAST_LABEL[overview.forecastStatus] : null;
+  const movedToNextCount = movedToNextDefects.length;
+  const openDefectsCount = openDefects.length - movedToNextCount;
   const reviewMeeting = overview?.reviewMeetingTime ? new Date(overview.reviewMeetingTime) : null;
   // Calendar-day offset of the review meeting (-1 = yesterday, 0 = today,
   // 1 = tomorrow). Scheduled notices only show in the [day before .. day

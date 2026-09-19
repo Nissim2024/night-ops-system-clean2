@@ -129,6 +129,14 @@ model Team {
   active       Boolean  @default(true)
   requiresPlan Boolean  @default(true)
   createdAt    DateTime @default(now())
+  // Real QC group name (Project Customization > Groups and Permissions,
+  // e.g. "QATesters_New"/"Developer_New"/"HotSupport") this DeployCenter
+  // team corresponds to — admin-configured, manual by design (see
+  // project memory project-qc-workflow-transitions-2026-09-18: no live QC
+  // lookup exists for group membership, so this static mapping stands in
+  // for one). Null = this team has no configured QC-workflow mapping; the
+  // defects module falls back to the old free-text status field in that case.
+  qcGroupName  String?
 
   members              TeamMember[]
   assignedTasks        Task[]                @relation("taskAssignedTeam")
@@ -831,6 +839,12 @@ model QaAssignment {
   standAloneDueDate         DateTime? // optional early deadline for a Stand Alone CR — pulls it ahead of other SA work for this tester
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
+  // Real QC `requirement` id once this CR is published to QC as a
+  // Requirement (docs/spec-qc-full-integration.md §4, stage 2) — null until
+  // published. Requires the version's Release+Cycles to already exist in QC
+  // first (Version.qcReleaseId / QaCycle.qcCycleId set) — see
+  // publishCrRequirement in qc-rest.service.ts.
+  qcReqId                   Int?
 
   version       Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
   user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)

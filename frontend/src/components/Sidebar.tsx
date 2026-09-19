@@ -13,7 +13,6 @@ interface Props {
   showAdmin?: boolean;
   onAdminClick?: () => void;
   activeTab?: string;
-  onNewVersionClick?: () => void;
   versionFilter?: string;
   onVersionFilterChange?: (f: any) => void;
   // ── Module switcher ──────────────────────────────────────────────────
@@ -87,6 +86,7 @@ const QH_VIEWS = [
   { key: 'improvement-tracking', label: 'משימות שיפור', icon: '✅' },
   { key: 'open-prod-defects', label: 'תקלות ייצור פתוחות', icon: '📆' },
   { key: 'new-vs-target-defects', label: 'יחס תקלות חדשות ביצור', icon: '📈' },
+  { key: 'qc-release-history', label: 'עיון בגרסאות QC', icon: '🗄️' },
 ];
 
 function versionGroup(v: any): string {
@@ -213,7 +213,6 @@ export const Sidebar: React.FC<Props> = ({
   myTasksActive, onMyTasksClick,
   showAdmin, onAdminClick,
   activeTab,
-  onNewVersionClick,
   activeModule = 'deployments',
   onModuleChange,
   activeVmView = 'overview',
@@ -498,25 +497,6 @@ export const Sidebar: React.FC<Props> = ({
           <div className="px-2 pb-1 pt-1.5 text-[13px] font-bold uppercase tracking-[0.08em]" style={{ color: 'rgba(255,255,255,0.35)' }}>
             ניהול גרסה
           </div>
-          {/* Previously wired (onNewVersionClick prop existed, handler
-              worked) but never actually rendered anywhere — the only ways to
-              reach the create form were burying it behind an already-selected
-              version's progress-chain first stage, or the fully-empty-state
-              screen. Fixed 2026-08-27 per direct user report: couldn't find
-              it in production at all. Placed under this module specifically
-              per follow-up request (not as a global always-visible button). */}
-          {onNewVersionClick && (
-            <button
-              onClick={onNewVersionClick}
-              className="mb-1.5 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md p-2.5 text-sm font-semibold transition-[background] duration-fast ease-out"
-              style={{ background: 'rgba(56,139,253,0.15)', border: '1px solid rgba(56,139,253,0.35)', color: '#6ba8ff' }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(56,139,253,0.25)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(56,139,253,0.15)'; }}
-            >
-              <span className="text-sm leading-none">+</span>
-              גרסה חדשה
-            </button>
-          )}
           {VM_VIEWS.map(view => {
             const isActive = activeVmView === view.key;
             const isHov    = hoveredItem === view.key;

@@ -60,6 +60,7 @@ interface Version {
   integrationEnd:   string | null;
   qaStart:          string | null;
   qaEnd:            string | null;
+  qcReleaseId?:     string | null;
 }
 
 interface CrRec {
@@ -154,6 +155,7 @@ interface Assignment {
   secondaryUser:     { id: string; fullName: string; email: string } | null;
   secondaryParticipationPct: number | null;
   standAloneDueDate: string | null;
+  qcReqId?: number | null;
 }
 
 interface ScoreBreakdown {
@@ -662,6 +664,19 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   useEffect(() => {
     if (initialVersionId) setSelectedVId(initialVersionId);
   }, [initialVersionId]);
+
+  // Silent, best-effort — RELEASE_MANAGER/ADMIN only per the endpoint's own
+  // guard; any other role simply never sees the REQ-publish button, same as
+  // if the flag were off.
+  useEffect(() => {
+    axios.get(`${API}/system-params`, { headers })
+      .then(r => {
+        const flag = (r.data as { key: string; value: string }[]).find(p => p.key === 'QC_REST_REQ_PUBLISH_ENABLED');
+        setQcReqPublishEnabled((flag?.value ?? '').trim().toLowerCase() === 'true');
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [activeTab, setActiveTab]       = useState<'assignments' | 'workplan' | 'activity'>('assignments');
   const [crs, setCrs]                   = useState<CrRec[]>([]);
   const [assignments, setAssignments]   = useState<Assignment[]>([]);
@@ -674,6 +689,10 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   // archive its work-plan task(s) directly, without needing the workplan tab.
   const [cycleTasksByCr, setCycleTasksByCr] = useState<Map<string, { id: string }[]>>(new Map());
   const [archivingCr, setArchivingCr] = useState<string | null>(null);
+  // Kill-switch for publishing CRs as real QC Requirements
+  // (docs/spec-qc-full-integration.md §4, stage 2) — off by default.
+  const [qcReqPublishEnabled, setQcReqPublishEnabled] = useState(false);
+  const [publishingReqs, setPublishingReqs] = useState(false);
   const [syncDiff, setSyncDiff]             = useState<SyncDiff | null>(null);
   const [excludedAddedCrs, setExcludedAddedCrs] = useState<Set<string>>(new Set());
   // syncDiff.added has one entry per (CR, team) pair — the same CR can span
@@ -1061,6 +1080,41 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
   };
 
   // ── Auto-assign all unassigned CRs ───────────────────────────────────────────
+
+  // Publishes every CR in this version not yet published as a QC
+  // Requirement — idempotent (only touches assignments with qcReqId still
+  // null), safe to press again after adding/changing assignments. Requires
+  // the version to already be published to QC (stage 1) — the button itself
+  // is disabled until then, but the backend enforces this too either way.
+  const publishReqs = () => {
+    const pendingCount = assignments.filter(a => !a.qcReqId).length;
+    if (pendingCount === 0) {
+      dialog.alert('כל ה-CR-ים המשובצים כבר קיימים כ-Requirement ב-QC.', 'אין מה לפרסם', 'info');
+      return;
+    }
+    setConfirmDialog({
+      title: 'יצירת Requirements ב-QC',
+      message: `ליצור REQ ב-QC עבור ${pendingCount} CR-ים משובצים שעדיין אין להם אחד?\n\nהפעולה נכתבת ב-QC מזוהה עם המשתמש שלך (qcLogin אישי). CR-ים שכבר פורסמו לא ייווצרו מחדש.`,
+      variant: 'info',
+      confirmLabel: 'צור REQ',
+      cancelLabel: 'ביטול',
+      onConfirm: async () => {
+        setPublishingReqs(true);
+        try {
+          const r = await axios.post(`${API}/qc/requirements/version/${selectedVId}/publish-pending`, {}, { headers });
+          const { created, failed } = r.data as { created: { crNumber: string; reqId: number }[]; failed: { crNumber: string; error: string }[] };
+          const lines = [`נוצרו בהצלחה: ${created.length}`];
+          if (failed.length > 0) lines.push(`נכשלו: ${failed.length}\n${failed.map(f => `${f.crNumber}: ${f.error}`).join('\n')}`);
+          dialog.alert(lines.join('\n\n'), failed.length > 0 ? 'הושלם עם שגיאות' : 'הצלחה', failed.length > 0 ? 'warning' : 'success');
+        } catch (e: any) {
+          dialog.alert(e?.response?.data?.message ?? 'שגיאה ביצירת ה-Requirements ב-QC', 'שגיאה', 'danger');
+        } finally {
+          setPublishingReqs(false);
+        }
+      },
+      onCancel: () => {},
+    });
+  };
 
   const autoAssignAll = async () => {
     // Sort by CR number so the processing order is deterministic and matches
@@ -2258,6 +2312,19 @@ CRים אלה לא ייכללו בתוכנית העבודה.
             >
               {generating ? '⏳ מחשב...' : planExists ? '🔁 בנה מחדש מאפס' : '📋 צור תוכנית עבודה'}
             </button>
+            {qcReqPublishEnabled && (
+              <button
+                disabled={publishingReqs || !selectedVersion?.qcReleaseId || assignments.length === 0}
+                onClick={publishReqs}
+                title={!selectedVersion?.qcReleaseId ? 'יש ליצור קודם את הגרסה ב-QC (Release+Cycles) לפני יצירת REQ' : 'יוצר Requirement ב-QC לכל CR משובץ שעדיין אין לו אחד'}
+                className={cn(
+                  'whitespace-nowrap rounded-md border-0 bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors duration-100 ease-out',
+                  (publishingReqs || !selectedVersion?.qcReleaseId || assignments.length === 0) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+                )}
+              >
+                {publishingReqs ? '⏳ יוצר...' : '☁ צור/סנכרן REQ ב-QC'}
+              </button>
+            )}
           </div>
         )}
       </div>

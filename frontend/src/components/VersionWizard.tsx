@@ -44,27 +44,25 @@ interface NewVersionState {
   qcReleaseId: string;
 }
 
-interface QcRelease {
-  id: string; relId: number; relName: string;
-  goLiveDate?: string; rehearsalDate?: string; filterDate?: string; relEndDate?: string;
-}
-
 interface Template { id: string; name: string; description?: string; }
+
+// A version already created in "ניהול גרסה" (DRAFT, no phases yet) — this
+// wizard fills in ITS plan, it no longer creates the version itself.
+interface ExistingVersion { id: string; name: string; }
 
 interface Props {
   newVersion: NewVersionState;
   setNewVersion: React.Dispatch<React.SetStateAction<NewVersionState>>;
-  qcReleases: QcRelease[];
-  futureVersionNames: string[];
+  existingVersions: ExistingVersion[];
   templates: Template[];
   selectedTemplateId: string;
   setSelectedTemplateId: (id: string) => void;
   importFile: File | null;
   setImportFile: (f: File | null) => void;
   onPlannedStartChange: (val: string) => void;
-  onCreateEmpty: () => void;
-  onCreateFromTemplate: () => void;
-  onImportFromFile: () => void;
+  onCreateEmpty: (targetVersionId: string) => void;
+  onCreateFromTemplate: (targetVersionId: string) => void;
+  onImportFromFile: (targetVersionId: string) => void;
   creatingTemplate: boolean;
   creatingFromTemplate: boolean;
   importing: boolean;
@@ -73,8 +71,8 @@ interface Props {
   onClose: () => void;
 }
 
-// שלב ראשון: פרטי הגרסה | שלב שני: תאריכי בדיקות (אינטגרציה+QA) | שלב שלישי: תאריכי פגישות | שלב רביעי: פעילויות (חזרה+ליל הטמעה) | שלב חמישי: אישור
-const STEP_LABELS = ['פרטי גרסה', 'תאריכי בדיקות', 'תאריכי פגישות', 'פעילויות', 'אישור'];
+// שלב ראשון: בחירת גרסה + שיטה | שלב שני: תאריכי בדיקות (אינטגרציה+QA) | שלב שלישי: תאריכי פגישות | שלב רביעי: פעילויות (חזרה+ליל הטמעה) | שלב חמישי: אישור
+const STEP_LABELS = ['בחירת גרסה', 'תאריכי בדיקות', 'תאריכי פגישות', 'פעילויות', 'אישור'];
 
 // ── Style objects for DateField/DateTimeField/DateRangeField — the deliberate
 // exception (those components only accept `style`, not `className`). ──
@@ -90,7 +88,7 @@ const INPUT_CLASS = 'box-border w-full rounded-md border-2 border-border bg-mute
 const validClass = (ok: boolean) => (ok ? 'border-success' : 'border-danger');
 
 export const VersionWizard: React.FC<Props> = ({
-  newVersion, setNewVersion, qcReleases, futureVersionNames, templates, selectedTemplateId, setSelectedTemplateId,
+  newVersion, setNewVersion, existingVersions, templates, selectedTemplateId, setSelectedTemplateId,
   importFile, setImportFile, onPlannedStartChange,
   onCreateEmpty, onCreateFromTemplate, onImportFromFile,
   creatingTemplate, creatingFromTemplate, importing,
@@ -98,14 +96,15 @@ export const VersionWizard: React.FC<Props> = ({
 }) => {
   const [step, setStep] = useState(0);
   const [method, setMethod] = useState<Method>('manual');
+  const [targetVersionId, setTargetVersionId] = useState('');
+  const selectedVersion = existingVersions.find(v => v.id === targetVersionId) ?? null;
 
   const busy = creatingTemplate || creatingFromTemplate || importing;
   const LAST_STEP = STEP_LABELS.length - 1;
 
   // ── Per-step validity ──────────────────────────────────────────────────────
   const step0Valid =
-    !!newVersion.name.trim() &&
-    (method !== 'manual' || !!newVersion.description.trim()) &&
+    !!targetVersionId &&
     (method !== 'template' || !!selectedTemplateId) &&
     (method !== 'excel' || !!importFile);
   const step1Valid = method !== 'manual' || !!(newVersion.integrationStart && newVersion.integrationEnd && newVersion.qaStart && newVersion.qaEnd);
@@ -116,16 +115,16 @@ export const VersionWizard: React.FC<Props> = ({
   const canProceed = [step0Valid, step1Valid, step2Valid, step3Valid, true][step];
 
   const handleFinish = () => {
-    if (method === 'manual') onCreateEmpty();
-    else if (method === 'template') onCreateFromTemplate();
-    else onImportFromFile();
+    if (!targetVersionId) return;
+    if (method === 'manual') onCreateEmpty(targetVersionId);
+    else if (method === 'template') onCreateFromTemplate(targetVersionId);
+    else onImportFromFile(targetVersionId);
   };
 
   const missingLabels = (() => {
     if (step === 0) {
       return [
-        !newVersion.name.trim() && 'שם גרסה',
-        method === 'manual' && !newVersion.description.trim() && 'תיאור',
+        !targetVersionId && 'בחירת גרסה',
         method === 'template' && !selectedTemplateId && 'בחירת תבנית',
         method === 'excel' && !importFile && 'בחירת קובץ Excel',
       ].filter(Boolean) as string[];
@@ -156,7 +155,7 @@ export const VersionWizard: React.FC<Props> = ({
         <div className="flex shrink-0 items-center justify-between bg-gradient-to-br from-[#1a2332] to-[#2d4a7a] px-7 pb-4 pt-[18px] text-white">
           <div>
             <div className="text-[17px] font-bold tracking-[0.3px]">📋 יצירת תוכנית הטמעה</div>
-            <div className="mt-[3px] text-sm text-[#94a3b8]">{newVersion.name || 'ללא שם עדיין'}</div>
+            <div className="mt-[3px] text-sm text-[#94a3b8]">{selectedVersion?.name || 'טרם נבחרה גרסה'}</div>
           </div>
           <button onClick={onClose} className="cursor-pointer rounded-md border border-[rgba(255,255,255,0.2)] bg-[rgba(255,255,255,0.12)] px-3.5 py-[7px] text-[15px] text-white">
             ✕ ביטול
@@ -204,14 +203,31 @@ export const VersionWizard: React.FC<Props> = ({
             </div>
           )}
 
-          {/* ── שלב 1: פרטי גרסה + בחירת שיטה ── */}
+          {/* ── שלב 1: בחירת גרסה קיימת + שיטת בניית התוכנית ── */}
           {step === 0 && (
             <div className="flex flex-col gap-[18px]">
               <div>
-                <label className={LABEL_CLASS}>איך רוצים ליצור את הגרסה?</label>
+                <label className={LABEL_CLASS}>
+                  גרסה <span className="text-danger">*</span>
+                  {existingVersions.length === 0 && (
+                    <span className="ms-1.5 text-[13px] font-normal text-warning">(אין גרסאות ממתינות — צור גרסה קודם במודול ניהול גרסה)</span>
+                  )}
+                </label>
+                <select
+                  value={targetVersionId}
+                  onChange={e => setTargetVersionId(e.target.value)}
+                  className={cn(INPUT_CLASS, validClass(!!targetVersionId))}
+                >
+                  <option value="">בחר גרסה שנוצרה בניהול גרסה...</option>
+                  {existingVersions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className={LABEL_CLASS}>איך לבנות את התוכנית?</label>
                 <div className="grid grid-cols-3 gap-2.5">
                   {([
-                    { key: 'manual',   icon: '✏️', label: 'ידנית', desc: 'הזן פרטים ובנה תוכנית בהמשך' },
+                    { key: 'manual',   icon: '✏️', label: 'ידנית', desc: 'הגדר תאריכים, בנה שלבים ומשימות בהמשך' },
                     { key: 'template', icon: '📋', label: 'מתבנית שמורה', desc: 'שכפל מבנה מתבנית קיימת' },
                     { key: 'excel',    icon: '📤', label: 'ייבוא מ-Excel', desc: 'טען קובץ GoLive עם התוכנית המלאה' },
                   ] as const).map(opt => (
@@ -230,75 +246,6 @@ export const VersionWizard: React.FC<Props> = ({
                   ))}
                 </div>
               </div>
-
-              <div>
-                <label className={LABEL_CLASS}>
-                  שם גרסה <span className="text-danger">*</span>
-                  {qcReleases.length === 0 && (
-                    <span className="ms-1.5 text-[13px] font-normal text-warning">(סנכרן גרסאות QC מ-AdminPanel)</span>
-                  )}
-                </label>
-                <div className="flex gap-1.5">
-                  <select
-                    value={newVersion.qcReleaseId || (futureVersionNames.includes(newVersion.name) ? `__future__${newVersion.name}` : '__manual__')}
-                    onChange={e => {
-                      const val = e.target.value;
-                      if (val === '__manual__') {
-                        setNewVersion(v => ({ ...v, qcReleaseId: '', name: v.qcReleaseId ? '' : v.name }));
-                      } else if (val.startsWith('__future__')) {
-                        // Not yet in QC by definition (that's what "future" means
-                        // here) — behaves like manual naming, just pre-filled from
-                        // CR_LIST instead of free-typed (user's request 2026-09-19:
-                        // the name must match Clarity/CR_LIST exactly, since it's
-                        // what later gets used to create the matching Release in QC).
-                        setNewVersion(v => ({ ...v, qcReleaseId: '', name: val.slice('__future__'.length) }));
-                      } else {
-                        const rel = qcReleases.find(r => r.id === val);
-                        setNewVersion(v => ({ ...v, qcReleaseId: val, name: rel?.relName || v.name }));
-                      }
-                    }}
-                    className="max-w-[150px] shrink-0 rounded-md border-2 border-border bg-muted px-2 py-[9px] text-sm text-foreground"
-                  >
-                    <option value="__manual__">✏️ ידנית</option>
-                    {futureVersionNames.length > 0 && <option disabled>── עתידיות (CR_LIST) ──</option>}
-                    {futureVersionNames.map(n => (
-                      <option key={n} value={`__future__${n}`}>{n}</option>
-                    ))}
-                    {qcReleases.length > 0 && <option disabled>── QC ──</option>}
-                    {[...qcReleases]
-                      .sort((a, b) => {
-                        if (a.goLiveDate && b.goLiveDate) return new Date(a.goLiveDate).getTime() - new Date(b.goLiveDate).getTime();
-                        if (a.goLiveDate) return -1;
-                        if (b.goLiveDate) return 1;
-                        return a.relName.localeCompare(b.relName, 'he');
-                      })
-                      .map(r => (
-                        <option key={r.id} value={r.id}>
-                          {r.relName}{r.goLiveDate ? ` — ${formatDMY(r.goLiveDate)}` : r.relEndDate ? ` — ${formatDMY(r.relEndDate)}` : ''}
-                        </option>
-                      ))}
-                  </select>
-                  <input
-                    value={newVersion.name}
-                    onChange={e => setNewVersion(v => ({ ...v, name: e.target.value, qcReleaseId: '' }))}
-                    placeholder="לדוגמה: ITv04-2026"
-                    className={cn(INPUT_CLASS, 'min-w-0 flex-1', newVersion.qcReleaseId ? 'border-success' : 'border-border')}
-                  />
-                </div>
-              </div>
-
-              {method === 'manual' && (
-                <div>
-                  <label className={LABEL_CLASS}>תיאור <span className="text-danger">*</span></label>
-                  <textarea
-                    value={newVersion.description}
-                    onChange={e => setNewVersion({ ...newVersion, description: e.target.value })}
-                    placeholder="תיאור קצר של הגרסה"
-                    rows={3}
-                    className={cn(INPUT_CLASS, 'resize-y [font-family:inherit]', validClass(!!newVersion.description.trim()))}
-                  />
-                </div>
-              )}
 
               {method === 'template' && (
                 <div>
@@ -439,8 +386,7 @@ export const VersionWizard: React.FC<Props> = ({
                 שיטת יצירה: <strong className="text-foreground">{method === 'manual' ? 'ידנית' : method === 'template' ? 'מתבנית שמורה' : 'ייבוא מ-Excel'}</strong>
               </div>
               {[
-                ['שם גרסה', newVersion.name],
-                ...(method === 'manual' ? [['תיאור', newVersion.description]] : []),
+                ['גרסה', selectedVersion?.name || '—'],
                 ...(method === 'template' ? [['תבנית', templates.find(t => t.id === selectedTemplateId)?.name || '—']] : []),
                 ...(method === 'excel' ? [['קובץ', importFile?.name || '—']] : []),
                 ['תחילת אינטגרציה', formatDMY(newVersion.integrationStart)],
@@ -500,7 +446,7 @@ export const VersionWizard: React.FC<Props> = ({
                 busy ? 'cursor-not-allowed bg-subtle-foreground' : 'cursor-pointer bg-success'
               )}
             >
-              {busy ? 'יוצר...' : '✓ צור גרסה'}
+              {busy ? 'בונה תוכנית...' : '✓ בנה תוכנית הטמעה'}
             </button>
           )}
         </div>

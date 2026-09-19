@@ -158,6 +158,10 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
   const [editTeamName, setEditTeamName]     = useState('');
   const [editTeamDesc, setEditTeamDesc]     = useState('');
   const [editTeamApps, setEditTeamApps]     = useState<string[]>([]);
+  // Real QC group name for workflow-aware status transitions
+  // (docs/spec-defects-module.md §4) — see project memory
+  // project-qc-workflow-transitions-2026-09-18 for why this is manual.
+  const [editTeamQcGroup, setEditTeamQcGroup] = useState('');
   const [savingEditTeam, setSavingEditTeam] = useState(false);
 
   const [resetUserId, setResetUserId]   = useState<string | null>(null);
@@ -594,6 +598,7 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
     setEditTeamName(t.name);
     setEditTeamDesc(t.description || '');
     setEditTeamApps(t.apps || []);
+    setEditTeamQcGroup(t.qcGroupName || '');
   };
 
   const saveTeamEdit = async (e: React.FormEvent) => {
@@ -602,7 +607,7 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
     setSavingEditTeam(true);
     setError(null);
     try {
-      await axios.patch(`${API}/teams/${editingTeamId}`, { name: editTeamName, description: editTeamDesc, apps: editTeamApps }, { headers });
+      await axios.patch(`${API}/teams/${editingTeamId}`, { name: editTeamName, description: editTeamDesc, apps: editTeamApps, qcGroupName: editTeamQcGroup.trim() || null }, { headers });
       setEditingTeamId(null);
       fetchAll();
     } catch (e: any) {
@@ -1101,6 +1106,13 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
                               <label style={labelStyle}>תיאור</label>
                               <input style={inputStyle} value={editTeamDesc}
                                 onChange={e => setEditTeamDesc(e.target.value)} />
+                            </div>
+                            <div style={{ marginBottom: '12px' }}>
+                              <label style={labelStyle} title='שם הקבוצה המדויק ב-QC (Project Customization → Groups and Permissions), למשל "QATesters_New" — קובע אילו מעברי סטטוס תקלה יוצעו לחברי הצוות הזה. השאר ריק אם לא רלוונטי.'>
+                                שם קבוצת QC (למעברי סטטוס תקלה)
+                              </label>
+                              <input style={{ ...inputStyle, direction: 'ltr', textAlign: 'left' }} value={editTeamQcGroup}
+                                onChange={e => setEditTeamQcGroup(e.target.value)} placeholder="לדוגמה: QATesters_New" />
                             </div>
                             <div style={{ marginBottom: '12px' }}>
                               <label style={{ ...labelStyle, marginBottom: '6px' }}>מערכות אחראיות</label>
