@@ -4,6 +4,7 @@ import { JIRA } from '../../theme';
 import { Card, TextField } from '../ui';
 import { IssueKeyLink, StatusBadge, SeverityBadge } from '../shared/defectFieldDisplay';
 import { formatDate } from '../../utils/dateFormat';
+import { QcBugDashboardView } from '../release-intelligence/QcBugDashboardView';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -52,6 +53,13 @@ export const QcReleaseHistoryView: React.FC<Props> = ({ token }) => {
   const [selected, setSelected] = useState<QcReleaseRow | null>(null);
   const [defects, setDefects] = useState<DefectRow[] | null>(null);
   const [defectsLoading, setDefectsLoading] = useState(false);
+  // Bug Dashboard tab (2026-09-20) — reuses QcBugDashboardView in its
+  // relId-direct mode (see that component's own Props comment) so a QC-only
+  // historical release gets real aggregate KPI numbers/charts too, not just
+  // the raw defect list this screen already showed. Quality Hub itself
+  // needed no equivalent work — its own release picker is already
+  // name-keyed and independent of Version (confirmed 2026-09-20).
+  const [tab, setTab] = useState<'defects' | 'bug-dashboard'>('defects');
 
   useEffect(() => {
     axios.get(`${API}/qc-releases`, { headers })
@@ -68,6 +76,7 @@ export const QcReleaseHistoryView: React.FC<Props> = ({ token }) => {
 
   const openRelease = (r: QcReleaseRow) => {
     setSelected(r);
+    setTab('defects');
     setDefects(null);
     setDefectsLoading(true);
     axios.get(`${API}/qc/defects-by-relid`, { headers, params: { relId: r.relId } })
@@ -82,46 +91,69 @@ export const QcReleaseHistoryView: React.FC<Props> = ({ token }) => {
         <button onClick={() => setSelected(null)} className="self-start text-sm font-semibold text-primary cursor-pointer bg-transparent border-none">
           → חזרה לרשימת הגרסאות
         </button>
-        <Card>
-          <div className="text-base font-bold text-foreground mb-1">{selected.relName}</div>
-          <div className="text-xs text-subtle-foreground mb-3">
-            {formatDate(selected.relStartDate)} – {formatDate(selected.relEndDate)}
-            {selected.versions.length > 0 && (
-              <span> · מקושרת לגרסת DeployCenter: {selected.versions.map(v => v.name).join(', ')}</span>
-            )}
-            {selected.versions.length === 0 && <span> · אין גרסת DeployCenter מקושרת (רק QC)</span>}
-          </div>
-          {defectsLoading ? (
-            <div className="text-sm text-subtle-foreground py-4 text-center">טוען תקלות…</div>
-          ) : !defects || defects.length === 0 ? (
-            <div className="text-sm text-subtle-foreground py-4 text-center">אין תקלות זמינות לגרסה זו</div>
-          ) : (
-            <div className="overflow-x-auto rounded-md" style={{ border: `1px solid ${JIRA.greyN40}` }}>
-              <table className="w-full border-collapse text-xs">
-                <thead>
-                  <tr className="bg-muted">
-                    {['תקלה', 'כותרת', 'חומרה', 'סטטוס', 'אחריות', 'שויך ל', 'תאריך גילוי'].map(h => (
-                      <th key={h} className="px-2 py-2 text-right font-bold text-muted-foreground" style={{ borderBottom: `2px solid ${JIRA.greyN40}` }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {defects.map(d => (
-                    <tr key={d.id}>
-                      <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}><IssueKeyLink id={d.id} /></td>
-                      <td className="px-2 py-1.5 max-w-[280px] truncate" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }} title={d.title}>{d.title}</td>
-                      <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}><SeverityBadge severity={d.severity} /></td>
-                      <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}><StatusBadge status={d.status} /></td>
-                      <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}>{d.responsibility || '—'}</td>
-                      <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}>{d.assignedTo || '—'}</td>
-                      <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}>{d.discoveryDate || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setTab('defects')}
+            className="rounded-md border px-3.5 py-1.5 text-[13px] cursor-pointer"
+            style={tab === 'defects' ? { background: '#1D4ED8', color: '#fff', borderColor: '#1D4ED8' } : { background: 'transparent', color: JIRA.textSubtle, borderColor: JIRA.greyN40 }}
+          >
+            תקלות
+          </button>
+          <button
+            onClick={() => setTab('bug-dashboard')}
+            className="rounded-md border px-3.5 py-1.5 text-[13px] cursor-pointer"
+            style={tab === 'bug-dashboard' ? { background: '#1D4ED8', color: '#fff', borderColor: '#1D4ED8' } : { background: 'transparent', color: JIRA.textSubtle, borderColor: JIRA.greyN40 }}
+          >
+            🪲 לוח באגים
+          </button>
+        </div>
+
+        {tab === 'defects' && (
+          <Card>
+            <div className="text-base font-bold text-foreground mb-1">{selected.relName}</div>
+            <div className="text-xs text-subtle-foreground mb-3">
+              {formatDate(selected.relStartDate)} – {formatDate(selected.relEndDate)}
+              {selected.versions.length > 0 && (
+                <span> · מקושרת לגרסת DeployCenter: {selected.versions.map(v => v.name).join(', ')}</span>
+              )}
+              {selected.versions.length === 0 && <span> · אין גרסת DeployCenter מקושרת (רק QC)</span>}
             </div>
-          )}
-        </Card>
+            {defectsLoading ? (
+              <div className="text-sm text-subtle-foreground py-4 text-center">טוען תקלות…</div>
+            ) : !defects || defects.length === 0 ? (
+              <div className="text-sm text-subtle-foreground py-4 text-center">אין תקלות זמינות לגרסה זו</div>
+            ) : (
+              <div className="overflow-x-auto rounded-md" style={{ border: `1px solid ${JIRA.greyN40}` }}>
+                <table className="w-full border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-muted">
+                      {['תקלה', 'כותרת', 'חומרה', 'סטטוס', 'אחריות', 'שויך ל', 'תאריך גילוי'].map(h => (
+                        <th key={h} className="px-2 py-2 text-right font-bold text-muted-foreground" style={{ borderBottom: `2px solid ${JIRA.greyN40}` }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {defects.map(d => (
+                      <tr key={d.id}>
+                        <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}><IssueKeyLink id={d.id} /></td>
+                        <td className="px-2 py-1.5 max-w-[280px] truncate" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }} title={d.title}>{d.title}</td>
+                        <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}><SeverityBadge severity={d.severity} /></td>
+                        <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}><StatusBadge status={d.status} /></td>
+                        <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}>{d.responsibility || '—'}</td>
+                        <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}>{d.assignedTo || '—'}</td>
+                        <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}>{d.discoveryDate || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        )}
+
+        {tab === 'bug-dashboard' && (
+          <QcBugDashboardView token={token} initialRelId={selected.relId} />
+        )}
       </div>
     );
   }

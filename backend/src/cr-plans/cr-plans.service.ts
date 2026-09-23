@@ -547,8 +547,20 @@ export class CrPlansService {
   }
 
   async getDashboardStats(versionId: string) {
-    const plans = await prisma.crPlan.findMany({ where: { versionId }, select: { submissionStatus: true, notNeededForPlan: true } });
-    const crNumbers = await prisma.crPlan.findMany({ where: { versionId }, select: { crNumber: true }, distinct: ['crNumber'] });
+    // removedByTeam: false — a soft-removed plan (CR unassigned from that team,
+    // e.g. via re-sync) must not keep inflating these counts once it's gone
+    // from every screen the team/manager can actually see.
+    // Exempt-team exclusion (requiresPlan: false, e.g. QA Team) mirrors
+    // findForVersion's filter — QA's leftover CrPlan rows aren't part of this
+    // screen's concept of "a team's CR plan" at all (that's the separate QA
+    // Workplan module) and were inflating total/approved by 20+ rows here
+    // while never appearing in the actual plan list (2026-09-20 audit —
+    // originally misdiagnosed as a removedByTeam gap; root cause is this).
+    const exemptTeams = await prisma.team.findMany({ where: { requiresPlan: false }, select: { id: true } });
+    const exemptTeamIds = exemptTeams.map(t => t.id);
+    const notExempt = exemptTeamIds.length > 0 ? { teamId: { notIn: exemptTeamIds } } : {};
+    const plans = await prisma.crPlan.findMany({ where: { versionId, removedByTeam: false, ...notExempt }, select: { submissionStatus: true, notNeededForPlan: true } });
+    const crNumbers = await prisma.crPlan.findMany({ where: { versionId, removedByTeam: false, ...notExempt }, select: { crNumber: true }, distinct: ['crNumber'] });
     const total    = crNumbers.length;
     const draft    = plans.filter((p: any) => p.submissionStatus === 'DRAFT' && !p.notNeededForPlan).length;
     const submitted = plans.filter((p: any) => p.submissionStatus === 'SUBMITTED').length;
@@ -686,8 +698,17 @@ export class CrPlansService {
       if (!membership) return [];
       filterTeamId = membership.teamId;
     }
-    const plans = await prisma.crPlan.findMany({
-      where: { versionId, ...(filterTeamId ? { teamId: filterTeamId } : {}) },
+    // Exempt teams (requiresPlan: false, e.g. QA Team) never appear in
+    // findForVersion's plan list — a leftover CrPlan row for one shouldn't
+    // show up as a phantom "team" here either (was inflating totals by 20+
+    // rows for QA specifically before this fix — 2026-09-20 audit).
+    const exemptRowsForPlans: any[] = await prisma.$queryRawUnsafe(`SELECT id FROM "Team" WHERE "requiresPlan" = false`);
+    const exemptTeamIdsForPlans = new Set(exemptRowsForPlans.map((r: any) => String(r.id)));
+    // removedByTeam: false — same reasoning as getDashboardStats above: a
+    // soft-removed plan shouldn't count toward a team's total/approved/"all
+    // done" state once it no longer appears in that team's actual task list.
+    const plansRaw = await prisma.crPlan.findMany({
+      where: { versionId, removedByTeam: false, ...(filterTeamId ? { teamId: filterTeamId } : {}) },
       select: {
         teamId: true,
         crNumber: true,
@@ -696,6 +717,7 @@ export class CrPlansService {
         team: { select: { name: true } },
       },
     });
+    const plans = plansRaw.filter(p => !exemptTeamIdsForPlans.has(p.teamId));
 
     // TARGET CRs are approved via TargetCrReview.approved, entirely separate from
     // CrPlan.submissionStatus — without this, a team whose only remaining CR is an
@@ -711,8 +733,7 @@ export class CrPlansService {
     // teams that already have a CrPlan row. A team that never opened the
     // screen at all previously vanished from this list entirely, making
     // "all teams done" true the moment the one team that DID engage finished.
-    const exemptRows: any[] = await prisma.$queryRawUnsafe(`SELECT id FROM "Team" WHERE "requiresPlan" = false`);
-    const exemptTeamIds = new Set(exemptRows.map((r: any) => String(r.id)));
+    const exemptTeamIds = exemptTeamIdsForPlans;
     const assignmentRows = await prisma.versionCrAssignment.findMany({
       where: { versionId, syncStatus: { not: 'REMOVED' } },
       select: { teamId: true },

@@ -861,7 +861,11 @@ export class VersionCrAssignmentsService {
       }
     }
 
-    // Per-team breakdown (exclude QA Team — it's shown via qaEffort)
+    // Per-team breakdown — includes QA Team like every other team, so this
+    // chart's bars sum to the same totalEstimateDays shown above it (that
+    // total has always included QA; excluding QA's own row here used to make
+    // the chart silently sum to less than the displayed total — 2026-09-20
+    // audit finding).
     // When teamEstimateDays is available: use per-team values.
     // Fallback: show CRs per team using the CR's total estimateDays as the display value.
     const teamMap: Record<string, {
@@ -870,7 +874,6 @@ export class VersionCrAssignmentsService {
     }> = {};
 
     for (const r of rows) {
-      if (r.teamId === qaTeamId) continue;
       const teamDays = r.teamEstimateDays ?? 0;
       const displayDays = teamDays > 0 ? teamDays : (crEstimateMap[r.crNumber] ?? 0);
       if (displayDays <= 0) continue;

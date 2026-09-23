@@ -78,16 +78,19 @@ export class TasksController {
   ) {
     requireRole(req, TASK_EXECUTORS, 'אין הרשאה לעדכון סטטוס משימה');
 
-    // TEAM_LEAD and EMPLOYEE may only update tasks belonging to their own team(s)
+    // TEAM_LEAD and EMPLOYEE may only update tasks belonging to their own team(s).
+    // A task with no assignedTeamId at all is nobody's to update via this path
+    // (previously fell through with no check at all — 2026-09-26 audit).
     if (['TEAM_LEAD', 'EMPLOYEE'].includes(req.user.role)) {
       const task = await prisma.task.findUnique({ where: { id }, select: { assignedTeamId: true } });
-      if (task?.assignedTeamId) {
-        const membership = await prisma.teamMember.findFirst({
-          where: { userId: req.user.sub, teamId: task.assignedTeamId },
-        });
-        if (!membership) {
-          throw new ForbiddenException('אין הרשאה לעדכן משימה של צוות אחר');
-        }
+      if (!task?.assignedTeamId) {
+        throw new ForbiddenException('אין הרשאה לעדכן משימה ללא צוות משויך');
+      }
+      const membership = await prisma.teamMember.findFirst({
+        where: { userId: req.user.sub, teamId: task.assignedTeamId },
+      });
+      if (!membership) {
+        throw new ForbiddenException('אין הרשאה לעדכן משימה של צוות אחר');
       }
     }
 

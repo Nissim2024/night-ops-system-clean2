@@ -16,8 +16,8 @@ interface Props {
   versionFilter?: string;
   onVersionFilterChange?: (f: any) => void;
   // ── Module switcher ──────────────────────────────────────────────────
-  activeModule?: 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub';
-  onModuleChange?: (m: 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub') => void;
+  activeModule?: 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub' | 'defects';
+  onModuleChange?: (m: 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub' | 'defects') => void;
   activeVmView?: string;
   onVmViewChange?: (v: string) => void;
   canAccessVersionManagement?: boolean;
@@ -249,6 +249,7 @@ export const Sidebar: React.FC<Props> = ({
   const isQa          = activeModule === 'qa';
   const isRi           = activeModule === 'release-intelligence';
   const isQh           = activeModule === 'quality-hub';
+  const isDefects      = activeModule === 'defects';
 
   return (
     <div
@@ -272,6 +273,7 @@ export const Sidebar: React.FC<Props> = ({
             { key: 'deployments' as const,         label: 'הטמעות',      icon: '🌙', active: isDeployments, show: true },
             { key: 'release-intelligence' as const, label: 'ניהול בדיקות', icon: '🧠', active: isRi,        show: canAccessReleaseIntelligence },
             { key: 'quality-hub' as const,         label: 'איכות גרסה',  icon: '🏆', active: isQh,          show: canAccessQualityHub },
+            { key: 'defects' as const,             label: 'תקלות',       icon: '🪲', active: isDefects,     show: true },
           ].filter(m => m.show).map(m => (
             <button
               key={m.key}

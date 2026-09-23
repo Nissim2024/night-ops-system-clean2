@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Query, Param, Body, Request, Res, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Query, Param, Body, Request, Res, UseGuards, ForbiddenException, BadRequestException, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 import { QcService } from './qc.service';
@@ -62,6 +63,26 @@ export class QcController {
   @Get('bug-dashboard')
   getBugDashboard(@Query('versionId') versionId: string) {
     return this.qcService.getBugDashboard(versionId);
+  }
+
+  // System-wide dashboard for the general Defects module (2026-09-22) — every
+  // defect in the QC instance, all statuses, no version/release scope.
+  @Get('all-defects-dashboard')
+  getAllDefectsDashboard() {
+    return this.qcService.getAllDefectsDashboard();
+  }
+
+  @Get('all-defects-filtered')
+  getAllDefectsFiltered(@Query('field') field: string, @Query('value') value: string) {
+    return this.qcService.getAllDefectsFiltered(field, value);
+  }
+
+  // relId-direct (2026-09-20) — QC-only historical releases have no local
+  // Version to key off of; mirrors defects-by-relid's bypass of the
+  // Version-scoped path entirely.
+  @Get('bug-dashboard-by-rel')
+  getBugDashboardByRel(@Query('relId') relId: string) {
+    return this.qcService.getBugDashboardByRelId(Number(relId));
   }
 
   @Get('open-production-defects-history')
@@ -157,6 +178,17 @@ export class QcController {
   async probeProjectLists(@Request() req: any) {
     await this.requireQcWrite(req);
     return this.qcRestService.probeProjectLists(req.user.sub);
+  }
+
+  // Site Administration probe (2026-09-23) — ADMIN-only, not the general
+  // action:qc_write gate: this authenticates with the shared QC_ADMIN_
+  // USERNAME/PASSWORD credential rather than the caller's own qcLogin, so
+  // access to it is a system-administration decision, not a QC-write-
+  // permission one. Read-only; see qc-rest.service.ts::probeSiteAdmin.
+  @Get('rest-test/site-admin/:segment')
+  async probeSiteAdmin(@Request() req: any, @Param('segment') segment: string) {
+    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול לבדוק Site Administration מול QC');
+    return this.qcRestService.probeSiteAdmin(segment);
   }
 
   @Get('rest-test/releases')
@@ -309,15 +341,28 @@ export class QcController {
     return this.qcRestService.updateDefectTier2Fields(id, fields, req.user.sub);
   }
 
-  // Defect creation (§5) — wraps the same createDefectRaw the admin lab
-  // already uses, but permission-gated for "every QA" instead of ADMIN-only.
-  // Still generic (no fixed required-field form) since the real minimal
-  // required set for this QC instance isn't confirmed yet (§11 step 1, the
-  // metadata probe) — the caller supplies whatever fields it has.
+  // Defect creation (§5), permission-gated for "every QA" instead of
+  // ADMIN-only. 2026-09-20: the frontend now sends `title` + the 6 mapped
+  // Tier2 business fields + 2 reference-type fields (Target Release/Detected
+  // Cycle, same discover-then-configure pattern as editing) instead of only
+  // raw REST field names — `createDefectWithFields` does the
+  // business-key→REST-name translation. `fields` (legacy shape: raw REST
+  // names only) is kept for backward compat with the admin lab / any caller
+  // that still wants the fully generic path.
   @Post('defects')
-  async createDefect(@Request() req: any, @Body('fields') fields: Record<string, string>) {
+  async createDefect(
+    @Request() req: any,
+    @Body('title') title?: string,
+    @Body('businessFields') businessFields?: Record<string, string>,
+    @Body('businessRefFields') businessRefFields?: Record<string, { id: string; label: string }>,
+    @Body('rawFields') rawFields?: Record<string, string>,
+    @Body('fields') legacyFields?: Record<string, string>,
+  ) {
     await this.requirePermission(req, 'action:qc_defect_create', 'אין לך הרשאה לפתוח תקלה חדשה ב-QC — פנה למנהל מערכת');
-    return this.qcRestService.createDefectRaw(fields, req.user.sub);
+    if (title) {
+      return this.qcRestService.createDefectWithFields(title, businessFields ?? {}, businessRefFields ?? {}, rawFields ?? {}, req.user.sub);
+    }
+    return this.qcRestService.createDefectRaw(legacyFields ?? {}, req.user.sub);
   }
 
   // Historical QC releases browse (2026-09-18) — defects for a QcRelease
@@ -362,5 +407,22 @@ export class QcController {
       'Content-Disposition': `inline; filename="${ascii}"; filename*=UTF-8''${encoded}`,
     });
     res.send(data);
+  }
+
+  // Upload (2026-09-22, user request: "חסר אפשרות לצרף קבצים" in the
+  // create-defect form). Gated by the same permission as opening a new
+  // defect — reusable against ANY defect id, so this also unlocks
+  // attaching a file to an EXISTING defect later without further backend
+  // work, even though today's ask is specifically the create form.
+  @Post('defect/:id/attachments')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadAttachment(
+    @Request() req: any,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    await this.requirePermission(req, 'action:qc_defect_create', 'אין לך הרשאה לצרף קבצים לתקלה — פנה למנהל מערכת');
+    if (!file) throw new BadRequestException('לא התקבל קובץ');
+    return this.qcRestService.uploadAttachment(id, file.originalname, file.buffer, file.mimetype, req.user.sub);
   }
 }

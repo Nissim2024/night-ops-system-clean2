@@ -21,6 +21,16 @@ export class ReleaseIntelligenceController {
     return this.service.getOverview(versionId);
   }
 
+  @Get('defect-create-defaults/:versionId')
+  getDefectCreateDefaults(@Param('versionId') versionId: string, @Request() req: any) {
+    return this.service.getDefectCreateDefaults(versionId, req.user.sub);
+  }
+
+  @Get('defect-create-responsibility-options/:versionId/:crNumber')
+  getResponsibilityOptionsForCr(@Param('versionId') versionId: string, @Param('crNumber') crNumber: string) {
+    return this.service.getResponsibilityOptionsForCr(versionId, crNumber);
+  }
+
   @Get('daily-qa/:versionId')
   getDailyQaManagement(@Param('versionId') versionId: string, @Query('targetDay') targetDay?: string) {
     const override = targetDay === 'today' || targetDay === 'tomorrow' ? targetDay : undefined;

@@ -5,6 +5,7 @@ import { cn } from '../../lib/utils';
 import { Card, Badge } from '../ui';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
 import { DefectDetailScreen } from '../quality-hub/OpenProdDefectsView';
+import { CreateDefectScreen } from '../quality-hub/CreateDefectScreen';
 import { hasHebrew, StatusBadge, SeverityBadge } from '../shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -31,7 +32,16 @@ interface BugDashboardDto {
   oldestOpen: OldestOpenRow[];
 }
 
-interface Props { token: string; initialVersionId?: string; }
+// `initialRelId` (2026-09-20) — an alternative entry point for a QC-only
+// historical release with no local Version at all (see QcReleaseHistoryView).
+// Mutually exclusive with `initialVersionId` in practice; when relId-driven,
+// the KPI-tile/breakdown-row drilldown modal naturally no-ops (it's gated on
+// `selectedVId`, which stays empty in this mode) rather than crashing — that
+// modal goes through the Version-scoped release-intelligence dispatcher,
+// which has no equivalent for a relId with no Version. The "oldest still-open"
+// list's click-through still works fully in this mode: it opens a defect by
+// id directly, no Version needed.
+interface Props { token: string; initialVersionId?: string; initialRelId?: number; }
 
 const pct = (n: number, total: number) => total > 0 ? `${((n / total) * 100).toFixed(2)}%` : '0%';
 
@@ -182,10 +192,12 @@ const DailyTrendChart: React.FC<{ data: { date: string; count: number }[]; onPoi
   );
 };
 
-export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId }) => {
+export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId, initialRelId }) => {
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   // The version is driven entirely by the sidebar picker (BRD 2026-09-07 §4) —
   // no in-page selector anymore (spec 2026-09-07: "הסר את בורר הגרסאות מדף לוח הבאגים").
+  // relId mode (QC-only historical release) leaves this empty on purpose —
+  // see the drilldown-modal gate below and the Props comment above.
   const selectedVId = initialVersionId ?? '';
   const [dashboard, setDashboard] = useState<BugDashboardDto | null>(null);
   const [loading, setLoading] = useState(false);
@@ -193,6 +205,7 @@ export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId })
   const [qcMock, setQcMock] = useState(true);
   const [drilldown, setDrilldown] = useState<{ filter: string; value?: string; title: string } | null>(null);
   const [selectedDefectId, setSelectedDefectId] = useState<string | null>(null);
+  const [showCreateScreen, setShowCreateScreen] = useState(false);
 
   useEffect(() => {
     axios.get(`${API}/qc/status`, { headers })
@@ -200,12 +213,15 @@ export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId })
       .catch(() => setQcMock(true));
   }, [headers]);
 
-  const loadDashboard = useCallback(async (vId: string) => {
-    if (!vId) { setDashboard(null); return; }
+  const loadDashboard = useCallback(async (vId: string, relId?: number) => {
+    if (!vId && !relId) { setDashboard(null); return; }
     setLoading(true);
     setError(null);
     try {
-      const res = await axios.get(`${API}/qc/bug-dashboard?versionId=${vId}`, { headers });
+      const url = relId
+        ? `${API}/qc/bug-dashboard-by-rel?relId=${relId}`
+        : `${API}/qc/bug-dashboard?versionId=${vId}`;
+      const res = await axios.get(url, { headers });
       setDashboard(res.data);
     } catch (err: any) {
       setError(err?.response?.data?.message || 'שגיאה בטעינת נתוני QC');
@@ -215,7 +231,18 @@ export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId })
     }
   }, [headers]);
 
-  useEffect(() => { loadDashboard(selectedVId); }, [selectedVId, loadDashboard]);
+  useEffect(() => { loadDashboard(selectedVId, initialRelId); }, [selectedVId, initialRelId, loadDashboard]);
+
+  if (showCreateScreen) {
+    return (
+      <CreateDefectScreen
+        token={token}
+        initialVersionId={selectedVId || undefined}
+        onBack={() => setShowCreateScreen(false)}
+        onCreated={(id) => { setShowCreateScreen(false); setSelectedDefectId(id); }}
+      />
+    );
+  }
 
   if (selectedDefectId) {
     return (
@@ -237,12 +264,20 @@ export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId })
           {qcMock && (
             <span className="rounded-[10px] border border-warning/30 bg-warning-bg px-2.5 py-0.5 text-sm text-warning">Mock — ממתין לחיבור QC</span>
           )}
+          {selectedVId && (
+            <button
+              onClick={() => setShowCreateScreen(true)}
+              className="mr-auto cursor-pointer rounded-md bg-primary px-3.5 py-1.5 text-[13px] font-semibold text-primary-foreground"
+            >
+              + תקלה חדשה ב-QC
+            </button>
+          )}
         </div>
       </Card>
 
       {loading && <div className="p-6 text-center text-subtle-foreground">טוען...</div>}
       {error && <div className="p-6 text-center text-danger">{error}</div>}
-      {!loading && !error && !selectedVId && (
+      {!loading && !error && !selectedVId && !initialRelId && (
         <div className="p-6 text-center text-subtle-foreground">בחר גרסה מהתפריט הצדדי כדי להציג נתוני באגים</div>
       )}
 

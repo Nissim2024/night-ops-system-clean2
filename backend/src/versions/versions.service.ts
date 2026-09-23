@@ -603,8 +603,11 @@ async addTask(subPhaseId: string, data: {
     // CR_REVIEW → REFINING: involved teams must have submitted and CrPlans must be approved
     // force=true lets a manager override this check
     if (version.status === VersionStatus.CR_REVIEW && status === VersionStatus.REFINING && !force) {
+      // removedByTeam: false — a team whose only CR assignment was soft-removed
+      // (re-sync, etc.) must not still be treated as "involved" and required to
+      // submit/approve a plan for work it no longer has (2026-09-20 audit).
       const involvedPlans = await (prisma.crPlan as any).findMany({
-        where: { versionId: id },
+        where: { versionId: id, removedByTeam: false },
         distinct: ['teamId'],
         select: { teamId: true },
       });
@@ -639,8 +642,17 @@ async addTask(subPhaseId: string, data: {
         select: { crNumber: true },
       });
       const activeCrNumbers = new Set(activeAssignments.map((a: any) => a.crNumber));
+      // Exempt teams (requiresPlan: false, e.g. QA Team) are excluded here too —
+      // a QA-only leftover CrPlan row with planApproved: false must not block a
+      // CR whose actual (non-exempt) team plan is already fully approved
+      // (same requiresPlan semantics as the involvedTeamIds check above).
+      const exemptTeamsForRefining = await prisma.team.findMany({ where: { requiresPlan: false }, select: { id: true } });
+      const exemptTeamIdsForRefining = exemptTeamsForRefining.map(t => t.id);
       const unapprovedPlans = await prisma.crPlan.findMany({
-        where: { versionId: id, planApproved: false, notNeededForPlan: false },
+        where: {
+          versionId: id, removedByTeam: false, planApproved: false, notNeededForPlan: false,
+          ...(exemptTeamIdsForRefining.length > 0 ? { teamId: { notIn: exemptTeamIdsForRefining } } : {}),
+        },
         distinct: ['crNumber'] as any,
         select: { crNumber: true },
       });
@@ -653,13 +665,17 @@ async addTask(subPhaseId: string, data: {
 
     // REFINING → REVIEW: all active CRs must be approved by CR Manager
     if (version.status === VersionStatus.REFINING && status === VersionStatus.REVIEW && !force) {
+      // Same exempt-team exclusion as the CR_REVIEW→REFINING gate above.
+      const exemptTeamsForReview = await prisma.team.findMany({ where: { requiresPlan: false }, select: { id: true } });
+      const exemptTeamIdsForReview = exemptTeamsForReview.map(t => t.id);
+      const notExemptForReview = exemptTeamIdsForReview.length > 0 ? { teamId: { notIn: exemptTeamIdsForReview } } : {};
       const unapproved = await (prisma.crPlan as any).findFirst({
-        where: { versionId: id, crManagerApproved: false, notNeededForPlan: false },
+        where: { versionId: id, removedByTeam: false, crManagerApproved: false, notNeededForPlan: false, ...notExemptForReview },
         select: { crNumber: true },
       });
       if (unapproved) {
         const pending = await (prisma.crPlan as any).findMany({
-          where: { versionId: id, crManagerApproved: false, notNeededForPlan: false },
+          where: { versionId: id, removedByTeam: false, crManagerApproved: false, notNeededForPlan: false, ...notExemptForReview },
           distinct: ['crNumber'],
           select: { crNumber: true },
         });

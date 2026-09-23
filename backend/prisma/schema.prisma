@@ -138,6 +138,19 @@ model Team {
   // defects module falls back to the old free-text status field in that case.
   qcGroupName  String?
 
+  // Same manual-mapping precedent as qcGroupName, but for the create-defect
+  // form's Responsibility/Environment Component fields (2026-09-22): this
+  // DeployCenter team's real QC "Responsibility" (BG_USER_03) value and its
+  // real QC "Environment Component" value(s) — neither one is derivable from
+  // any live QC lookup, and the two vocabularies don't line up 1:1 with our
+  // own team names (confirmed against 1139 real historical defects: e.g.
+  // QC's "NETC-DT team" vs our "NETC Team", "CRM Team" vs "CRM Dev Team").
+  // Null/empty = not mapped yet — the create-defect form's Responsibility/
+  // Environment Component dropdowns simply omit that team/have no options
+  // for it until an admin fills this in, rather than guessing.
+  qcResponsibilityValue  String?
+  qcEnvironmentComponents String[] @default([])
+
   members              TeamMember[]
   assignedTasks        Task[]                @relation("taskAssignedTeam")
   phases               Phase[]

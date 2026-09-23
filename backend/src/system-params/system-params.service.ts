@@ -176,9 +176,13 @@ const DEFAULT_PARAMS = [
   // here). updateStatus() refuses with a clear error while this is empty,
   // rather than silently falling back to the known-wrong BG_STATUS.
   {
+    // Confirmed 2026-09-20 — user-explicit: "due to a historical mistake we
+    // used the wrong [native] status field; continue with the field that's
+    // actually been maintained for years" (BG_USER_04). Same "user-NN" REST
+    // naming convention already confirmed for Sub/Main Module the same day.
     key: 'QC_REST_BUG_STATUS_FIELD',
-    value: '',
-    label: 'QC REST: שם שדה ה-REST של BG_USER_04 (Bug Status האמיתי, לא BG_STATUS) — לגלות דרך "הצג את כל שמות השדות" בכלי הכתיבה ל-QC לפני מילוי',
+    value: 'user-04',
+    label: 'QC REST: שם שדה ה-REST של BG_USER_04 (Bug Status האמיתי, לא BG_STATUS) — מאומת 2026-09-20 (user-04)',
     type: 'text',
   },
   // ── Defects module Tier 2 field mapping (docs/spec-defects-module.md §6,
@@ -190,39 +194,127 @@ const DEFAULT_PARAMS = [
   // that uses them refuses per-field while its mapping is unset, rather
   // than guessing (exactly the REST_FIELD/dev-comments lesson).
   {
+    // Confirmed 2026-09-20 from a real "list-all-fields" REST dump on live
+    // defect #47000 — "owner" is the only one of the 6 NOT a verbatim or
+    // already-known-mapping match (the others are exact string matches or
+    // rely on our already-trusted BG_USER_14/16 mapping); it's a plausible
+    // real ALM/QC convention (Assigned To ↔ owner) but this specific dump
+    // only shows one defect where owner and detected-by happen to be the
+    // same person, so it doesn't disambiguate on its own. Kept non-empty
+    // because it's the best evidence we have, but flag it for a quick
+    // double-check against a defect where Assigned To and Detected By
+    // visibly differ before trusting a real write through it.
     key: 'QC_REST_FIELD_ASSIGNED_TO',
-    value: '',
-    label: 'QC REST: שם שדה ה-REST של "Assigned To" — לגלות דרך "🔍 הצג את כל שמות השדות" לפני מילוי',
+    value: 'owner',
+    label: 'QC REST: שם שדה ה-REST של "Assigned To" — "owner" מאומת חלקית (2026-09-20), לוודא מול תקלה שבה Assigned To שונה מ-Detected By',
     type: 'text',
   },
   {
+    // Confirmed 2026-09-20 — verbatim field name in a real REST field dump.
     key: 'QC_REST_FIELD_PRIORITY',
-    value: '',
-    label: 'QC REST: שם שדה ה-REST של "Priority" — לגלות דרך "🔍 הצג את כל שמות השדות" לפני מילוי',
+    value: 'priority',
+    label: 'QC REST: שם שדה ה-REST של "Priority" — מאומת 2026-09-20 מדאמפ שדות אמיתי',
     type: 'text',
   },
   {
+    // Confirmed 2026-09-20 — verbatim field name in a real REST field dump.
     key: 'QC_REST_FIELD_SEVERITY',
-    value: '',
-    label: 'QC REST: שם שדה ה-REST של "Severity" — לגלות דרך "🔍 הצג את כל שמות השדות" לפני מילוי',
+    value: 'severity',
+    label: 'QC REST: שם שדה ה-REST של "Severity" — מאומת 2026-09-20 מדאמפ שדות אמיתי',
     type: 'text',
   },
   {
+    // Confirmed 2026-09-20 — verbatim field name in a real REST field dump.
     key: 'QC_REST_FIELD_ESTIMATED_FIX_TIME',
-    value: '',
-    label: 'QC REST: שם שדה ה-REST של "Estimated Fix Time" — לגלות דרך "🔍 הצג את כל שמות השדות" לפני מילוי',
+    value: 'estimated-fix-time',
+    label: 'QC REST: שם שדה ה-REST של "Estimated Fix Time" — מאומת 2026-09-20 מדאמפ שדות אמיתי',
     type: 'text',
   },
   {
+    // Confirmed 2026-09-20 — the real dump exposes generic fields as
+    // "user-NN"; BG_USER_14 = Sub Module was already a trusted mapping used
+    // throughout this codebase (mapRowToTargetDefect etc.), so "user-14" is
+    // that same column's real REST name.
     key: 'QC_REST_FIELD_SUB_MODULE',
-    value: '',
-    label: 'QC REST: שם שדה ה-REST של "Sub Module" — לגלות דרך "🔍 הצג את כל שמות השדות" לפני מילוי',
+    value: 'user-14',
+    label: 'QC REST: שם שדה ה-REST של "Sub Module" — מאומת 2026-09-20 (user-14 = BG_USER_14)',
     type: 'text',
   },
   {
+    // Same reasoning as Sub Module — BG_USER_16 = Main Module already trusted.
     key: 'QC_REST_FIELD_MAIN_MODULE',
+    value: 'user-16',
+    label: 'QC REST: שם שדה ה-REST של "Main Module" — מאומת 2026-09-20 (user-16 = BG_USER_16)',
+    type: 'text',
+  },
+  // Reference-type creation fields (2026-09-20) — Target Release / Detected
+  // Cycle for the create-defect form's "default to the version/cycle we're
+  // on now" behavior. UNCONFIRMED for the defect/BUG entity: `target-rel` is
+  // confirmed for Requirement entities (buildRequirementPayload), but classic
+  // QC's REST field names aren't guaranteed uniform across entity types —
+  // left empty rather than assumed, per the same discipline as every other
+  // QC_REST_FIELD_* param. A likely value to try once real QC access exists:
+  // "target-rel".
+  {
+    key: 'QC_REST_FIELD_TARGET_RELEASE',
     value: '',
-    label: 'QC REST: שם שדה ה-REST של "Main Module" — לגלות דרך "🔍 הצג את כל שמות השדות" לפני מילוי',
+    label: 'QC REST: שם שדה ה-REST (סוג הפניה) של "Target Release" בתקלה — לא מאומת, נסה "target-rel"',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_FIELD_DETECTED_CYCLE',
+    value: '',
+    label: 'QC REST: שם שדה ה-REST (סוג הפניה) של "Detected in Cycle" בתקלה — לא מאומת',
+    type: 'text',
+  },
+  // "Detected in Release" (BG_DETECTED_IN_REL) — a NEW defect's own release,
+  // distinct from QC_REST_FIELD_TARGET_RELEASE above (BG_TARGET_REL, for
+  // deferring an EXISTING defect forward). Same reference-type field shape.
+  {
+    key: 'QC_REST_FIELD_DETECTED_RELEASE',
+    value: '',
+    label: 'QC REST: שם שדה ה-REST (סוג הפניה) של "Detected in Release" בתקלה — לא מאומת, נסה "detected-in-rel"',
+    type: 'text',
+  },
+  // Plain (non-reference) creation fields for the redesigned create-defect
+  // form (2026-09-22, project-defect-create-form-redesign-2026-09-22
+  // memory) — all unconfirmed, same "user-NN" pattern already confirmed for
+  // Sub Module/Main Module is a reasonable guess for these too, but none has
+  // been seen in a real REST dump yet.
+  {
+    key: 'QC_REST_FIELD_RESPONSIBILITY',
+    value: '',
+    label: 'QC REST: שם שדה ה-REST של "Responsibility" בתקלה — לא מאומת, נסה "user-03"',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_FIELD_BUG_TYPE',
+    value: '',
+    label: 'QC REST: שם שדה ה-REST של "Bug Type" בתקלה — לא מאומת, נסה "user-06"',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_FIELD_TEST_PHASE',
+    value: '',
+    label: 'QC REST: שם שדה ה-REST של "Test Phase" בתקלה — לא מאומת, נסה "user-05"',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_FIELD_ENVIRONMENT',
+    value: '',
+    label: 'QC REST: שם שדה ה-REST של "Environment" בתקלה — לא מאומת, נסה "user-02"',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_FIELD_ENVIRONMENT_COMPONENT',
+    value: '',
+    label: 'QC REST: שם שדה ה-REST של "Environment Component" בתקלה — לא מאומת, נסה "user-49"',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_FIELD_CR_HBR_REFERENCE',
+    value: '',
+    label: 'QC REST: שם שדה ה-REST של "CR / HBR Number reference" בתקלה — לא מאומת, נסה "user-10"',
     type: 'text',
   },
   // Kill-switch for the first real (non-lab) QC REST write path — publishing
@@ -249,17 +341,54 @@ const DEFAULT_PARAMS = [
     label: 'QC REST: אפשר יצירת Requirements (REQ) אמיתיים ב-QC מטאב שיבוץ בודקים (true/false) — כבוי כברירת מחדל עד אימות בייצור',
     type: 'boolean',
   },
+  // Test Plan / Test Lab kill-switches (2026-09-23, admin-screen QC
+  // infrastructure prep — user request: "prepare in the admin screen
+  // everything needed to use QC across all its modules"). No feature screens
+  // exist yet for either module — these flags exist so a future writer knows
+  // where to check before reaching real QC, same discipline as Release/REQ
+  // above. The generic collectionUrlFor/probeEntityFields/buildFieldsPayload
+  // primitives in qc-rest.service.ts already work against ANY entity-type
+  // segment (tests/test-folders/design-steps for Test Plan; test-sets/
+  // test-set-folders/test-instances/runs for Test Lab) with zero new code —
+  // confirmed via the "בדיקת כתיבה ל-QC" tab's free-text entity-fields
+  // prober — so what's missing today is real field-name discovery + an
+  // actual write flow, not REST plumbing.
+  {
+    key: 'QC_REST_TESTPLAN_PUBLISH_ENABLED',
+    value: 'false',
+    label: 'QC REST: אפשר כתיבה אמיתית ל-Test Plan (תסריטי בדיקה/צעדים) ב-QC (true/false) — אין עדיין מסך תכונה; כבוי כברירת מחדל',
+    type: 'boolean',
+  },
+  {
+    key: 'QC_REST_TESTLAB_PUBLISH_ENABLED',
+    value: 'false',
+    label: 'QC REST: אפשר כתיבה אמיתית ל-Test Lab (Test Sets/Instances/Runs) ב-QC (true/false) — אין עדיין מסך תכונה; כבוי כברירת מחדל',
+    type: 'boolean',
+  },
+  // Site Administration is architecturally separate from every other QC_REST_*
+  // flow here: it's not domain/project-scoped (rest/site-admin/... vs
+  // rest/domains/.../projects/...) and per-user qcLogin empty-password auth
+  // doesn't apply — it needs a real site-admin-privileged account, which is
+  // exactly what QC_ADMIN_USERNAME/PASSWORD below were already reserved for.
+  // Off by default — no consuming write flow exists yet, only the read-only
+  // probe in the "בדיקת כתיבה ל-QC" tab.
+  {
+    key: 'QC_SITE_ADMIN_ENABLED',
+    value: 'false',
+    label: 'QC REST: אפשר גישה ל-Site Administration API (דומיינים/פרויקטים/משתמשים ברמת האתר) — דורש QC Admin Username/Password למטה',
+    type: 'boolean',
+  },
   // Separate from the write-back connection above — a real QC Admin
   // credential, held for future QC-side administrative operations (e.g.
   // account provisioning/configuration via QC's own admin API), NOT used
   // anywhere in the defect write-back flow, which deliberately never
-  // authenticates as a shared account (spec confirmed 2026-09-02). No
-  // consuming code yet — storage only, until a specific admin operation is
-  // built against it.
+  // authenticates as a shared account (spec confirmed 2026-09-02). Now also
+  // used by the read-only Site Administration probe above once
+  // QC_SITE_ADMIN_ENABLED is turned on (2026-09-23).
   {
     key: 'QC_ADMIN_USERNAME',
     value: '',
-    label: 'QC Admin: שם משתמש (לפעולות ניהול עתידיות מול QC — לא בשימוש כיום בכתיבת תקלות)',
+    label: 'QC Admin: שם משתמש (ל-Site Administration ולפעולות ניהול עתידיות מול QC — לא בשימוש בכתיבת תקלות)',
     type: 'text',
   },
   {

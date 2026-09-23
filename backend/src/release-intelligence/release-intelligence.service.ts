@@ -1010,7 +1010,14 @@ export class ReleaseIntelligenceService {
 
     const rows = baseRows.map(r => {
       let status: 'HEALTHY' | 'AT_RISK' | 'CRITICAL' = 'HEALTHY';
-      if (r.criticalDefects > 0 || r.isDelayed || r.reopen > 1) status = 'CRITICAL';
+      // r.progressPct is schedule-TIME-elapsed (elapsedDays/totalDays against
+      // the QA workplan's planned dates), not verified test completion — a CR
+      // whose window fully elapsed with zero measured coverage is a red flag,
+      // not evidence of health. Previously this read as "100% progress →
+      // healthy" even while coveragePct sat at 0%, directly contradicting the
+      // Overview health score for the same version (2026-09-20 audit finding).
+      const scheduleElapsedWithNoCoverage = r.progressPct >= 100 && r.coveragePct === 0;
+      if (r.criticalDefects > 0 || r.isDelayed || r.reopen > 1 || scheduleElapsedWithNoCoverage) status = 'CRITICAL';
       else if (r.openDefects > 0 || r.reopen === 1 || r.progressPct < 50) status = 'AT_RISK';
       return {
         crNumber: r.crNumber,
@@ -1140,6 +1147,102 @@ export class ReleaseIntelligenceService {
       kpis: { core: scopeKpis('core'), sa: scopeKpis('sa') },
       crRows,
     };
+  }
+
+  // ── Defect-creation defaults (2026-09-20, extended 2026-09-22) — "which
+  // release/cycle are we currently on" (pre-fills Target Release/Detected
+  // Cycle) plus, given a userId, "which CRs is THIS tester assigned to in
+  // this release" for the CR/HBR reference field's dropdown — the create
+  // form's own story-order design (co-designed with the user via a mockup,
+  // see project-defect-create-form-redesign-2026-09-22 memory) needs both.
+  // Reuses getCycleProgress's own timeline+state('active') definition for
+  // "current cycle" rather than inventing a second date-range check — this
+  // audit already found enough places computing the same concept
+  // differently.
+  async getDefectCreateDefaults(versionId: string, userId?: string) {
+    const version = await prisma.version.findUnique({
+      where: { id: versionId },
+      select: { name: true, qcRelease: { select: { relId: true, relName: true } } },
+    });
+    if (!version) throw new BadRequestException('גרסה לא נמצאה');
+
+    const targetRelease = version.qcRelease
+      ? { id: String(version.qcRelease.relId), label: version.qcRelease.relName || version.name }
+      : null;
+
+    const cycleProgress = await this.getCycleProgress(versionId).catch(() => null);
+    const activeCycle = (cycleProgress?.timeline ?? []).find((t: any) => t.state === 'active') ?? null;
+
+    let currentCycle: { cycleType: string; qcCycleId: string | null; label: string } | null = null;
+    if (activeCycle) {
+      const cycleRow = await prisma.qaCycle.findFirst({
+        where: { workPlan: { versionId }, cycleType: activeCycle.cycleType },
+        select: { qcCycleId: true },
+      });
+      currentCycle = {
+        cycleType: activeCycle.cycleType,
+        qcCycleId: cycleRow?.qcCycleId != null ? String(cycleRow.qcCycleId) : null,
+        label: activeCycle.cycleType,
+      };
+    }
+
+    // CR/HBR reference options — this tester's own CRs in this release
+    // (primary OR secondary tester on the QaAssignment row), plus the two
+    // fixed non-CR-specific options every other screen in this app already
+    // treats as CR/HBR-reference-shaped values (BG_USER_10's own overloaded
+    // convention: a linked CR/HBR number OR literally "Production"/
+    // "Regression" — see qc.service.ts's MOCK_BUG_ROWS comment). Real CRs
+    // sort first (most relevant), the two fixed options last.
+    let crOptions: { id: string; label: string }[] = [];
+    if (userId) {
+      const myAssignments = await prisma.qaAssignment.findMany({
+        where: { versionId, OR: [{ userId }, { secondaryTesterId: userId }] },
+        select: { crNumber: true, crLabel: true },
+        orderBy: { crNumber: 'asc' },
+      });
+      const seen = new Set<string>();
+      for (const a of myAssignments) {
+        if (seen.has(a.crNumber)) continue;
+        seen.add(a.crNumber);
+        crOptions.push({ id: a.crNumber, label: a.crLabel ? `${a.crNumber} — ${a.crLabel}` : a.crNumber });
+      }
+    }
+    crOptions.push({ id: 'regression', label: 'Regression — בדיקות רגרסיה כלליות (לא CR ספציפי)' });
+    crOptions.push({ id: 'production', label: 'Production — תקלת ייצור (לא CR ספציפי)' });
+
+    return { targetRelease, currentCycle, crOptions };
+  }
+
+  // ── Responsibility/Assigned-To/Environment-Component cascade (2026-09-22)
+  // — for a given CR, which real DeployCenter teams are actually involved
+  // (via VersionCrAssignment), narrowed to only the ones an admin has
+  // mapped to a real QC Responsibility value (Team.qcResponsibilityValue —
+  // see project-defect-create-form-redesign-2026-09-22 memory: QC's real
+  // vocabulary doesn't line up 1:1 with our team names, so an unmapped team
+  // is correctly omitted here rather than shown with a guessed value).
+  // crNumber may be 'regression'/'production' (the two fixed CR-list
+  // options, which aren't real VersionCrAssignment rows) — those have no
+  // team involvement to derive, so this simply returns an empty list for
+  // them and the form's Responsibility field stays a plain "no options yet".
+  async getResponsibilityOptionsForCr(versionId: string, crNumber: string) {
+    if (crNumber === 'regression' || crNumber === 'production') return [];
+    const assignments = await prisma.versionCrAssignment.findMany({
+      where: { versionId, crNumber, syncStatus: { not: 'REMOVED' } },
+      select: { team: { select: { id: true, name: true, qcResponsibilityValue: true, qcEnvironmentComponents: true } } },
+    });
+    const seen = new Set<string>();
+    const options: { teamId: string; teamName: string; qcResponsibilityValue: string; environmentComponents: string[] }[] = [];
+    for (const a of assignments) {
+      const t = a.team;
+      if (!t.qcResponsibilityValue || seen.has(t.id)) continue;
+      seen.add(t.id);
+      options.push({
+        teamId: t.id, teamName: t.name,
+        qcResponsibilityValue: t.qcResponsibilityValue,
+        environmentComponents: t.qcEnvironmentComponents,
+      });
+    }
+    return options;
   }
 
   // ── Cycle Progress & QG — spec section 17 ───────────────────────────────────

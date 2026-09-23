@@ -15,6 +15,7 @@ import { OpenProdDefectsView } from './quality-hub/OpenProdDefectsView';
 import { NewVsTargetDefectsView } from './quality-hub/NewVsTargetDefectsView';
 import { QcReleaseHistoryView } from './quality-hub/QcReleaseHistoryView';
 import { ReleaseOverviewView } from './quality-hub/ReleaseOverviewView';
+import { DefectsHubView } from './DefectsHubView';
 import { KpiMatrixView } from './quality-hub/KpiMatrixView';
 import { ImprovementTrackingView } from './quality-hub/ImprovementTrackingView';
 import { ReleaseComparisonView } from './quality-hub/ReleaseComparisonView';
@@ -105,7 +106,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
   const [warRoomRefresh, setWarRoomRefresh]      = useState(0);
   const [myTeamId, setMyTeamId]                 = useState('');
   const [openNewVersionForm, setOpenNewVersionForm] = useState(false);
-  const [activeModule, setActiveModule] = useState<'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub'>('deployments');
+  const [activeModule, setActiveModule] = useState<'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub' | 'defects'>('deployments');
   const [activeVmView, setActiveVmView]  = useState('overview');
   const [activeQaView, setActiveQaView]  = useState('assignment');
   const [activeRiView, setActiveRiView]  = useState('home');
@@ -584,8 +585,10 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           {/* Quality Hub browses its own independent, name-only "releases" (some
               with no real Version/lifecycle at all) via its own in-module
               selectors — echoing the globally-selected Version here would
-              suggest a relationship between the two that doesn't exist. */}
-          {selectedVersion && activeModule !== 'quality-hub' && (
+              suggest a relationship between the two that doesn't exist. Same
+              reasoning for the general Defects module (2026-09-22): it shows
+              every defect across every release, not scoped to one Version. */}
+          {selectedVersion && activeModule !== 'quality-hub' && activeModule !== 'defects' && (
             <>
               <div style={{ width: '1px', height: '20px', background: C.border }} />
               <span
@@ -871,6 +874,10 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           )}
           {activeModule === 'quality-hub' && activeQhView === 'qc-release-history' && (
             <QcReleaseHistoryView token={token} />
+          )}
+
+          {activeModule === 'defects' && (
+            <DefectsHubView token={token} />
           )}
 
           {activeModule === 'deployments' && (<>

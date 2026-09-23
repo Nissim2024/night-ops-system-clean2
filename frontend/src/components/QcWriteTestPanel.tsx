@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { formatDateTime } from '../utils/dateFormat';
 import { DefectIdBadge } from './shared/defectFieldDisplay';
@@ -48,6 +48,91 @@ export const FieldRowsEditor: React.FC<{ rows: FieldRow[]; onChange: (rows: Fiel
     </Button>
   </div>
 );
+
+// Module status matrix (2026-09-23, admin-screen QC infrastructure prep —
+// user request: "prepare in the admin screen everything needed to use QC
+// across all its modules"). Purely a read of already-existing SystemParams —
+// no new backend endpoint — so the admin can see at a glance which modules
+// have their connection/credentials/kill-switch ready, without hunting
+// through the flat "פרמטרים" tab's alphabetical list.
+type ParamRow = { key: string; value: string };
+const paramVal = (params: ParamRow[], key: string) => params.find(p => p.key === key)?.value ?? '';
+const isOn = (params: ParamRow[], key: string) => paramVal(params, key) === 'true';
+
+const ModuleStatusMatrix: React.FC<{ token: string }> = ({ token }) => {
+  const [params, setParams] = useState<ParamRow[] | null>(null);
+  useEffect(() => {
+    axios.get(`${API}/system-params`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setParams(r.data))
+      .catch(() => setParams([]));
+  }, [token]);
+  if (!params) return null;
+
+  const connectionReady = !!(paramVal(params, 'QC_REST_BASE_URL') && paramVal(params, 'QC_REST_DOMAIN') && paramVal(params, 'QC_REST_PROJECT'));
+  const siteAdminCredsReady = !!(paramVal(params, 'QC_ADMIN_USERNAME') && paramVal(params, 'QC_ADMIN_PASSWORD'));
+
+  const rows: { label: string; status: 'live' | 'ready' | 'off' | 'blocked'; note: string }[] = [
+    {
+      label: 'תקלות (Defects)',
+      status: connectionReady ? 'live' : 'blocked',
+      note: connectionReady ? 'פעיל — יצירה/עדכון סטטוס/הערות/קבצים מצורפים' : 'חסר חיבור בסיסי (Base URL/Domain/Project)',
+    },
+    {
+      label: 'דרישות (Requirements)',
+      status: !connectionReady ? 'blocked' : isOn(params, 'QC_REST_REQ_PUBLISH_ENABLED') ? 'live' : 'ready',
+      note: isOn(params, 'QC_REST_REQ_PUBLISH_ENABLED') ? 'מופעל (QC_REST_REQ_PUBLISH_ENABLED=true)' : 'בנוי, כבוי — הפעל ב-QC_REST_REQ_PUBLISH_ENABLED',
+    },
+    {
+      label: 'ניהול — Release/Cycle (Management)',
+      status: !connectionReady ? 'blocked' : isOn(params, 'QC_REST_RELEASE_PUBLISH_ENABLED') ? 'live' : 'ready',
+      note: isOn(params, 'QC_REST_RELEASE_PUBLISH_ENABLED') ? 'מופעל (QC_REST_RELEASE_PUBLISH_ENABLED=true)' : 'בנוי, כבוי — הפעל ב-QC_REST_RELEASE_PUBLISH_ENABLED',
+    },
+    {
+      label: 'Test Plan (כתיבת/עדכון תסריטים)',
+      status: !connectionReady ? 'blocked' : 'off',
+      note: 'אין עדיין מסך תכונה — רק בדיקת שדות זמינה למטה (test/test-folder/design-step)',
+    },
+    {
+      label: 'Test Lab (הרצת תסריטים)',
+      status: !connectionReady ? 'blocked' : 'off',
+      note: 'אין עדיין מסך תכונה — רק בדיקת שדות זמינה למטה (test-set/test-instance/run)',
+    },
+    {
+      label: 'Site Administration',
+      status: !siteAdminCredsReady ? 'blocked' : isOn(params, 'QC_SITE_ADMIN_ENABLED') ? 'ready' : 'off',
+      note: !siteAdminCredsReady ? 'חסר QC_ADMIN_USERNAME/PASSWORD' : isOn(params, 'QC_SITE_ADMIN_ENABLED') ? 'מופעל לבדיקה בלבד — הפעל ב-QC_SITE_ADMIN_ENABLED' : 'מוגדר, כבוי — הפעל ב-QC_SITE_ADMIN_ENABLED',
+    },
+  ];
+
+  const badge = (status: typeof rows[number]['status']) => {
+    const map = {
+      live: { bg: 'bg-success-bg', text: 'text-success', label: '✅ פעיל' },
+      ready: { bg: 'bg-warning-bg', text: 'text-warning', label: '🟡 בנוי, כבוי' },
+      off: { bg: 'bg-muted', text: 'text-subtle-foreground', label: '⚪ תשתית בלבד' },
+      blocked: { bg: 'bg-danger-bg', text: 'text-danger', label: '⛔ חסרה הגדרה' },
+    } as const;
+    const s = map[status];
+    return <span className={`${s.bg} ${s.text} rounded-full px-2.5 py-0.5 text-xs font-bold whitespace-nowrap`}>{s.label}</span>;
+  };
+
+  return (
+    <div className="bg-card border border-border rounded-lg p-4 flex flex-col gap-2">
+      <div className="text-sm font-bold text-foreground">📊 מצב אינטגרציית QC לפי מודול</div>
+      <div className="flex flex-col gap-1.5">
+        {rows.map(r => (
+          <div key={r.label} className="flex items-center gap-2 flex-wrap py-1 border-b border-border last:border-b-0">
+            <div className="min-w-[220px] text-sm font-medium text-foreground">{r.label}</div>
+            {badge(r.status)}
+            <div className="text-xs text-subtle-foreground">{r.note}</div>
+          </div>
+        ))}
+      </div>
+      <div className="text-xs text-subtle-foreground mt-1">
+        הגדרות חיבור, קרדנציאלים ומתגי ההפעלה נערכים בטאב "⚙️ פרמטרים". בדיקות שדות/חיבור בפועל למטה.
+      </div>
+    </div>
+  );
+};
 
 export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
   const headers = { Authorization: `Bearer ${token}` };
@@ -257,6 +342,27 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
   const [folderQuery, setFolderQuery] = useState("{name['2026']}");
   const [folderProbeLoading, setFolderProbeLoading] = useState(false);
   const [folderProbe, setFolderProbe] = useState<{ result?: any; error?: string } | null>(null);
+  // Site Administration probe (2026-09-23) — architecturally separate from
+  // every probe above: not domain/project-scoped, authenticates with the
+  // shared QC_ADMIN_USERNAME/PASSWORD (Site Admin privilege), gated
+  // ADMIN-only server-side (not the general action:qc_write permission).
+  // Read-only; no write flow exists yet for this module.
+  const [siteAdminSegment, setSiteAdminSegment] = useState('domains');
+  const [siteAdminLoading, setSiteAdminLoading] = useState(false);
+  const [siteAdminProbe, setSiteAdminProbe] = useState<{ segment: string; result?: string; error?: string } | null>(null);
+  const probeSiteAdmin = async (segment: string) => {
+    setSiteAdminLoading(true);
+    setSiteAdminProbe({ segment });
+    try {
+      const res = await axios.get(`${API}/qc/rest-test/site-admin/${encodeURIComponent(segment)}`, { headers });
+      setSiteAdminProbe({ segment, result: typeof res.data === 'string' ? res.data : JSON.stringify(res.data, null, 2) });
+    } catch (e: any) {
+      setSiteAdminProbe({ segment, error: e?.response?.data?.message || e.message || 'שגיאה בבדיקת Site Administration מול QC' });
+    } finally {
+      setSiteAdminLoading(false);
+    }
+  };
+
   const probeReleaseFolders = async () => {
     setFolderProbeLoading(true);
     setFolderProbe(null);
@@ -323,6 +429,8 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
 
   return (
     <div className="flex flex-col gap-4 max-w-[760px]">
+      <ModuleStatusMatrix token={token} />
+
       <div className="bg-danger-bg border border-danger/25 rounded-lg p-4 text-sm text-danger">
         ⚠️ כלי זה כותב ל-QC <strong>אמיתי בייצור</strong>, מזוהה מול QC כמשתמש ה-QC המקושר לחשבון שלך (ללא שמירת סיסמה). הוא רק מוסיף שורה ל"הערות פיתוח" הקיימות — לעולם לא מוחק/דורס. כל שליחה דורשת אישור מפורש.
       </div>
@@ -541,6 +649,42 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
           <Button variant="secondary" onClick={() => probeEntity('releases-list')} disabled={entityProbeLoading}>
             קרא רשימת releases אמיתית
           </Button>
+          <Button variant="secondary" onClick={() => probeEntity('requirement')} disabled={entityProbeLoading}>
+            בדוק שדות ישות "requirement"
+          </Button>
+        </div>
+        {/* Test Plan / Test Lab presets (2026-09-23, admin-screen QC
+            infrastructure prep) — no feature screens exist for either module
+            yet; these just make the entity types discoverable without the
+            admin needing to already know QC's exact REST segment names.
+            Uses the exact same generic probeEntity() as every button above —
+            zero new backend code needed for this to work. */}
+        <div className="text-xs font-bold text-subtle-foreground mt-1">Test Plan (תסריטי בדיקה)</div>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="secondary" onClick={() => probeEntity('test')} disabled={entityProbeLoading}>
+            בדוק שדות ישות "test"
+          </Button>
+          <Button variant="secondary" onClick={() => probeEntity('test-folder')} disabled={entityProbeLoading}>
+            בדוק שדות ישות "test-folder"
+          </Button>
+          <Button variant="secondary" onClick={() => probeEntity('design-step')} disabled={entityProbeLoading}>
+            בדוק שדות ישות "design-step"
+          </Button>
+        </div>
+        <div className="text-xs font-bold text-subtle-foreground mt-1">Test Lab (הרצת תסריטים)</div>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="secondary" onClick={() => probeEntity('test-set')} disabled={entityProbeLoading}>
+            בדוק שדות ישות "test-set"
+          </Button>
+          <Button variant="secondary" onClick={() => probeEntity('test-set-folder')} disabled={entityProbeLoading}>
+            בדוק שדות ישות "test-set-folder"
+          </Button>
+          <Button variant="secondary" onClick={() => probeEntity('test-instance')} disabled={entityProbeLoading}>
+            בדוק שדות ישות "test-instance"
+          </Button>
+          <Button variant="secondary" onClick={() => probeEntity('run')} disabled={entityProbeLoading}>
+            בדוק שדות ישות "run"
+          </Button>
         </div>
         {/* Generic prober (2026-09-18) — next modules per spec-qc-full-
             integration.md need entity types we haven't guessed yet
@@ -583,6 +727,42 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
           {listsProbe?.result !== undefined && (
             <pre className="bg-muted border border-border rounded-md p-3 text-xs text-foreground whitespace-pre-wrap max-h-[300px] overflow-auto" dir="ltr">
               {JSON.stringify(listsProbe.result, null, 2)}
+            </pre>
+          )}
+        </div>
+
+        <div className="border-t border-border pt-3 flex flex-col gap-2">
+          <div className="text-sm font-bold text-foreground">🏛️ Site Administration — דומיינים/פרויקטים/משתמשים ברמת האתר</div>
+          <div className="text-xs text-subtle-foreground">
+            נפרד מכל שאר הבדיקות למעלה: לא בטווח דומיין/פרויקט, ומתחבר עם משתמש/סיסמת QC Admin (בפרמטרי המערכת) ולא עם ה-qcLogin שלך.
+            דורש שגם QC_SITE_ADMIN_ENABLED וגם QC_ADMIN_USERNAME/PASSWORD מוגדרים. קריאות GET בלבד.
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="secondary" onClick={() => probeSiteAdmin('domains')} disabled={siteAdminLoading}>
+              בדוק "domains"
+            </Button>
+            <Button variant="secondary" onClick={() => probeSiteAdmin('projects')} disabled={siteAdminLoading}>
+              בדוק "projects"
+            </Button>
+            <Button variant="secondary" onClick={() => probeSiteAdmin('site-users')} disabled={siteAdminLoading}>
+              בדוק "site-users"
+            </Button>
+          </div>
+          <div className="flex gap-2 items-center">
+            <TextField value={siteAdminSegment} onChange={e => setSiteAdminSegment(e.target.value)} placeholder="נתיב site-admin (למשל: domains)" className="w-[220px]" dir="ltr" />
+            <Button variant="secondary" onClick={() => siteAdminSegment.trim() && probeSiteAdmin(siteAdminSegment.trim())} disabled={siteAdminLoading || !siteAdminSegment.trim()}>
+              בדוק (כללי)
+            </Button>
+          </div>
+          {siteAdminLoading && <div className="text-sm text-subtle-foreground">בודק מול QC...</div>}
+          {siteAdminProbe?.error && (
+            <div className="bg-danger-bg border border-danger/25 rounded-md p-3 text-sm text-danger whitespace-pre-wrap">
+              [{siteAdminProbe.segment}] {siteAdminProbe.error}
+            </div>
+          )}
+          {siteAdminProbe?.result !== undefined && (
+            <pre className="bg-muted border border-border rounded-md p-3 text-xs text-foreground whitespace-pre-wrap max-h-[300px] overflow-auto" dir="ltr">
+              {siteAdminProbe.result}
             </pre>
           )}
         </div>

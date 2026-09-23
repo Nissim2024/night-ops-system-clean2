@@ -162,6 +162,8 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
   // (docs/spec-defects-module.md §4) — see project memory
   // project-qc-workflow-transitions-2026-09-18 for why this is manual.
   const [editTeamQcGroup, setEditTeamQcGroup] = useState('');
+  const [editTeamQcResponsibility, setEditTeamQcResponsibility] = useState('');
+  const [editTeamQcEnvComponents, setEditTeamQcEnvComponents] = useState('');
   const [savingEditTeam, setSavingEditTeam] = useState(false);
 
   const [resetUserId, setResetUserId]   = useState<string | null>(null);
@@ -599,6 +601,8 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
     setEditTeamDesc(t.description || '');
     setEditTeamApps(t.apps || []);
     setEditTeamQcGroup(t.qcGroupName || '');
+    setEditTeamQcResponsibility(t.qcResponsibilityValue || '');
+    setEditTeamQcEnvComponents((t.qcEnvironmentComponents || []).join(', '));
   };
 
   const saveTeamEdit = async (e: React.FormEvent) => {
@@ -607,7 +611,12 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
     setSavingEditTeam(true);
     setError(null);
     try {
-      await axios.patch(`${API}/teams/${editingTeamId}`, { name: editTeamName, description: editTeamDesc, apps: editTeamApps, qcGroupName: editTeamQcGroup.trim() || null }, { headers });
+      await axios.patch(`${API}/teams/${editingTeamId}`, {
+        name: editTeamName, description: editTeamDesc, apps: editTeamApps,
+        qcGroupName: editTeamQcGroup.trim() || null,
+        qcResponsibilityValue: editTeamQcResponsibility.trim() || null,
+        qcEnvironmentComponents: editTeamQcEnvComponents.split(',').map(s => s.trim()).filter(Boolean),
+      }, { headers });
       setEditingTeamId(null);
       fetchAll();
     } catch (e: any) {
@@ -1113,6 +1122,20 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
                               </label>
                               <input style={{ ...inputStyle, direction: 'ltr', textAlign: 'left' }} value={editTeamQcGroup}
                                 onChange={e => setEditTeamQcGroup(e.target.value)} placeholder="לדוגמה: QATesters_New" />
+                            </div>
+                            <div style={{ marginBottom: '12px' }}>
+                              <label style={labelStyle} title='הערך האמיתי של שדה Responsibility (BG_USER_03) ב-QC עבור הצוות הזה — לא בהכרח זהה לשם הצוות באפליקציה (למשל QC "NETC-DT team" מול הצוות שלנו "NETC Team"). קובע את רשימת הבחירה בטופס פתיחת תקלה חדשה. השאר ריק אם לא ידוע — הצוות פשוט לא יופיע ברשימה עד שימולא.'>
+                                ערך Responsibility אמיתי ב-QC (לטופס פתיחת תקלה)
+                              </label>
+                              <input style={{ ...inputStyle, direction: 'ltr', textAlign: 'left' }} value={editTeamQcResponsibility}
+                                onChange={e => setEditTeamQcResponsibility(e.target.value)} placeholder="לדוגמה: NETC-DT team" />
+                            </div>
+                            <div style={{ marginBottom: '12px' }}>
+                              <label style={labelStyle} title="ערכי Environment Component ב-QC ששייכים לצוות הזה, מופרדים בפסיק — קובע את רשימת הבחירה בטופס פתיחת תקלה חדשה לאחר בחירת הצוות. השאר ריק אם לא ידוע.">
+                                ערכי Environment Component (מופרד בפסיק)
+                              </label>
+                              <input style={{ ...inputStyle, direction: 'ltr', textAlign: 'left' }} value={editTeamQcEnvComponents}
+                                onChange={e => setEditTeamQcEnvComponents(e.target.value)} placeholder="לדוגמה: CRM, WEB-HOT" />
                             </div>
                             <div style={{ marginBottom: '12px' }}>
                               <label style={{ ...labelStyle, marginBottom: '6px' }}>מערכות אחראיות</label>

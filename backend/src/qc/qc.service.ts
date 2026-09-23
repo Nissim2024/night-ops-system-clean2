@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -2134,6 +2134,181 @@ function bugRawRowToDefectDto(r: BugRawRow): DefectDto {
   };
 }
 
+// ── All Defects (general defects module, 2026-09-22) ────────────────────────
+// System-wide, ALL-status dashboard — no version/release scope at all, unlike
+// every other defect view in this file (all of which are release-scoped via
+// BG_DETECTED_IN_REL = :releaseId). Deliberately a narrow, CLOB-free SELECT
+// (unlike DEFECTS_SQL_SELECT's 60+ columns incl. description/comments via
+// DBMS_LOB.SUBSTR) since this can return every defect in the whole QC
+// instance's history — fetching full descriptions for every row here would be
+// wasteful for a dashboard that only needs breakdown counts. UNVERIFIED
+// against real data volume: if this instance's BUG table is large enough that
+// an unbounded scan is slow in practice, the fix is a WHERE BG_DETECTION_DATE
+// >= :sinceDate bound here — not attempted yet since real row counts aren't
+// known.
+export interface DefectBreakdownRow { label: string; count: number; }
+export interface AllDefectsDashboardDto {
+  total: number;
+  open: number;
+  closed: number;
+  criticalOpen: number;
+  reopenCount: number;
+  byStatus: DefectBreakdownRow[];
+  bySeverity: DefectBreakdownRow[];
+  byMainModule: DefectBreakdownRow[];
+  byResponsibility: DefectBreakdownRow[];
+  byDetectedRelease: DefectBreakdownRow[];
+  monthlyTrend: { month: string; count: number }[];
+}
+
+interface AllDefectsRawRow {
+  DEFECT_ID: string | number;
+  DEFECT_STATUS: string | null;
+  SEVERITY: string | null;
+  MAIN_MODULE: string | null;
+  RESPONSIBILITY: string | null;
+  REOPEN_YN: string | null;
+  DETECTED_IN_RELEASE: string | null;
+  DETECTED_ON_DATE: string | Date | null;
+  TITLE?: string | null;
+}
+
+const ALL_DEFECTS_DASHBOARD_COLUMNS = `
+    BG_BUG_ID                AS DEFECT_ID,
+    BG_USER_04                AS DEFECT_STATUS,
+    BG_SEVERITY                AS SEVERITY,
+    BG_USER_16                AS MAIN_MODULE,
+    BG_USER_03                AS RESPONSIBILITY,
+    BG_USER_29                AS REOPEN_YN,
+    detected_rel.REL_NAME        AS DETECTED_IN_RELEASE,
+    BG_DETECTION_DATE            AS DETECTED_ON_DATE,
+    NVL(BG_SUMMARY, BG_SUBJECT)      AS TITLE`;
+
+const ALL_DEFECTS_DASHBOARD_SQL = `
+  SELECT${ALL_DEFECTS_DASHBOARD_COLUMNS}
+  FROM BUG
+  LEFT JOIN RELEASES detected_rel ON detected_rel.REL_ID = BUG.BG_DETECTED_IN_REL
+`;
+
+// Drill-down list behind one breakdown-panel bar (e.g. "Severity = Show
+// Stopper") — same lightweight column set as the dashboard query (no CLOBs),
+// plus TITLE, filtered to one dimension and capped at 300 rows (FETCH
+// FIRST — standard since Oracle 12c; UNVERIFIED against this instance, same
+// as everything else querying real Oracle in this file for the first time).
+// The column each filterField maps to must stay a fixed allowlist below —
+// never interpolate the field name itself from caller input.
+const ALL_DEFECTS_FILTER_COLUMNS: Record<string, string> = {
+  status: 'BG_USER_04',
+  severity: 'BG_SEVERITY',
+  mainModule: 'BG_USER_16',
+  responsibility: 'BG_USER_03',
+  detectedInRelease: 'detected_rel.REL_NAME',
+};
+function buildAllDefectsFilteredSql(filterField: string): string {
+  const column = ALL_DEFECTS_FILTER_COLUMNS[filterField];
+  if (!column) throw new BadRequestException(`שדה סינון לא מוכר: ${filterField}`);
+  return `
+    SELECT${ALL_DEFECTS_DASHBOARD_COLUMNS}
+    FROM BUG
+    LEFT JOIN RELEASES detected_rel ON detected_rel.REL_ID = BUG.BG_DETECTED_IN_REL
+    WHERE ${column} = :value
+    FETCH FIRST 300 ROWS ONLY
+  `;
+}
+
+// Dedicated mock fixture (not reusing MOCK_BUG_ROWS, which lacks MAIN_MODULE
+// and spans only ~2 weeks) — spans several months and releases so the
+// monthly trend chart and by-release breakdown have something real to show.
+const MOCK_ALL_DEFECTS_ROWS: AllDefectsRawRow[] = [
+  { DEFECT_ID: 1,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Medium',       MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv02-2026', DETECTED_ON_DATE: '2026-03-11' },
+  { DEFECT_ID: 2,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Low',          MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'תשתיות', REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv02-2026', DETECTED_ON_DATE: '2026-03-19' },
+  { DEFECT_ID: 3,  DEFECT_STATUS: 'Canceled',  SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'בדיקות', REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv03-2026', DETECTED_ON_DATE: '2026-04-08' },
+  { DEFECT_ID: 4,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Severe',       MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'פיתוח', REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv03-2026', DETECTED_ON_DATE: '2026-04-22' },
+  { DEFECT_ID: 5,  DEFECT_STATUS: 'Fixed_Test',SEVERITY: 'Show Stopper', MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv04-2026', DETECTED_ON_DATE: '2026-05-14' },
+  { DEFECT_ID: 6,  DEFECT_STATUS: 'Open',      SEVERITY: 'Medium',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv04-2026', DETECTED_ON_DATE: '2026-05-27' },
+  { DEFECT_ID: 7,  DEFECT_STATUS: 'Reopen',    SEVERITY: 'Severe',       MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'בדיקות', REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv05-2026', DETECTED_ON_DATE: '2026-06-09' },
+  { DEFECT_ID: 8,  DEFECT_STATUS: 'At Work',   SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv05-2026', DETECTED_ON_DATE: '2026-06-18' },
+  { DEFECT_ID: 9,  DEFECT_STATUS: 'Fixed_Dev', SEVERITY: 'Medium',       MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'ניהול', REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-07-02' },
+  { DEFECT_ID: 10, DEFECT_STATUS: 'Open',      SEVERITY: 'Show Stopper', MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-07-15' },
+  { DEFECT_ID: 11, DEFECT_STATUS: 'Open',      SEVERITY: 'Severe',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-08-05' },
+  { DEFECT_ID: 12, DEFECT_STATUS: 'Pending',   SEVERITY: 'Medium',       MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'בדיקות', REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-08-21' },
+  { DEFECT_ID: 13, DEFECT_STATUS: 'Open',      SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv07-2026', DETECTED_ON_DATE: '2026-09-02' },
+  { DEFECT_ID: 14, DEFECT_STATUS: 'Reopen',    SEVERITY: 'Show Stopper', MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'פיתוח', REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv07-2026', DETECTED_ON_DATE: '2026-09-10' },
+  { DEFECT_ID: 15, DEFECT_STATUS: 'New',       SEVERITY: 'Medium',       MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'בדיקות', REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv08-2026', DETECTED_ON_DATE: '2026-09-18' },
+  { DEFECT_ID: 16, DEFECT_STATUS: 'Open',      SEVERITY: 'Severe',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv08-2026', DETECTED_ON_DATE: '2026-09-20' },
+];
+
+export interface AllDefectsListRow {
+  id: string;
+  title: string;
+  status: string;
+  severity: string;
+  mainModule: string;
+  responsibility: string;
+  detectedInRelease: string;
+  discoveryDate: string;
+}
+function allDefectsRawRowToListRow(r: AllDefectsRawRow): AllDefectsListRow {
+  return {
+    id: String(r.DEFECT_ID),
+    title: r.TITLE || `תקלה #${r.DEFECT_ID}`,
+    status: r.DEFECT_STATUS ?? '',
+    severity: r.SEVERITY ?? '',
+    mainModule: r.MAIN_MODULE ?? '',
+    responsibility: r.RESPONSIBILITY ?? '',
+    detectedInRelease: r.DETECTED_IN_RELEASE ?? '',
+    discoveryDate: r.DETECTED_ON_DATE ? new Date(r.DETECTED_ON_DATE).toLocaleDateString('he-IL') : '',
+  };
+}
+
+function computeAllDefectsDashboard(rows: AllDefectsRawRow[]): AllDefectsDashboardDto {
+  const isOpen = (r: AllDefectsRawRow) => !['Closed', 'Canceled'].includes(r.DEFECT_STATUS ?? '');
+  const open = rows.filter(isOpen);
+  const closed = rows.filter(r => !isOpen(r));
+  const criticalOpen = open.filter(r => r.SEVERITY === 'Show Stopper').length;
+  const reopenCount = rows.filter(r =>
+    (r.REOPEN_YN ?? '').trim().toUpperCase() === 'Y' || r.DEFECT_STATUS === 'Reopen',
+  ).length;
+
+  const groupCount = (keyFn: (r: AllDefectsRawRow) => string | null): DefectBreakdownRow[] => {
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      const key = keyFn(r) || 'ללא סיווג';
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count);
+  };
+
+  const monthCounts = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.DETECTED_ON_DATE) continue;
+    const d = new Date(r.DETECTED_ON_DATE);
+    if (isNaN(d.getTime())) continue;
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    monthCounts.set(key, (monthCounts.get(key) ?? 0) + 1);
+  }
+  const monthlyTrend = Array.from(monthCounts.entries())
+    .map(([month, count]) => ({ month, count }))
+    .sort((a, b) => a.month.localeCompare(b.month))
+    .slice(-12);
+
+  return {
+    total: rows.length,
+    open: open.length,
+    closed: closed.length,
+    criticalOpen,
+    reopenCount,
+    byStatus: groupCount(r => r.DEFECT_STATUS),
+    bySeverity: groupCount(r => r.SEVERITY),
+    byMainModule: groupCount(r => r.MAIN_MODULE),
+    byResponsibility: groupCount(r => r.RESPONSIBILITY),
+    byDetectedRelease: groupCount(r => r.DETECTED_IN_RELEASE).slice(0, 10),
+    monthlyTrend,
+  };
+}
+
 function computeBugDashboard(
   rows: BugRawRow[], reopenedIds: Set<string>, targetRows: BugRawRow[] = [], reopenTimes: Map<string, Date> = new Map(),
 ): BugDashboardDto {
@@ -3208,6 +3383,56 @@ export class QcService {
     }
   }
 
+  // System-wide, all-status dashboard for the general Defects module
+  // (2026-09-22) — see computeAllDefectsDashboard's own comment for the
+  // scoping/performance caveat (unbounded query, unverified at real volume).
+  async getAllDefectsDashboard(): Promise<AllDefectsDashboardDto> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) return computeAllDefectsDashboard(MOCK_ALL_DEFECTS_ROWS);
+
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const result = await conn.execute(ALL_DEFECTS_DASHBOARD_SQL);
+      return computeAllDefectsDashboard((result.rows ?? []) as AllDefectsRawRow[]);
+    } catch (err: any) {
+      this.logger.error(`Oracle getAllDefectsDashboard: ${err.message}`);
+      throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
+  }
+
+  // Drill-down behind one breakdown-panel bar on the general Defects module.
+  // filterField is validated against a fixed allowlist (ALL_DEFECTS_FILTER_
+  // COLUMNS) before touching SQL — never interpolated from caller input
+  // directly.
+  async getAllDefectsFiltered(filterField: string, value: string): Promise<AllDefectsListRow[]> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) {
+      const keyOf: Record<string, keyof AllDefectsRawRow> = {
+        status: 'DEFECT_STATUS', severity: 'SEVERITY', mainModule: 'MAIN_MODULE',
+        responsibility: 'RESPONSIBILITY', detectedInRelease: 'DETECTED_IN_RELEASE',
+      };
+      const key = keyOf[filterField];
+      if (!key) throw new BadRequestException(`שדה סינון לא מוכר: ${filterField}`);
+      return MOCK_ALL_DEFECTS_ROWS.filter(r => r[key] === value).map(allDefectsRawRowToListRow);
+    }
+
+    const sql = buildAllDefectsFilteredSql(filterField);
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const result = await conn.execute(sql, { value });
+      return ((result.rows ?? []) as AllDefectsRawRow[]).map(allDefectsRawRowToListRow);
+    } catch (err: any) {
+      this.logger.error(`Oracle getAllDefectsFiltered: ${err.message}`);
+      throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
+  }
+
   async getBugDashboard(versionId: string): Promise<BugDashboardDto> {
     const { enabled } = await getOracleConfig();
     if (!enabled) return MOCK_BUG_DASHBOARD;
@@ -3217,6 +3442,21 @@ export class QcService {
       this.logger.warn(`No QC release linked to version ${versionId}`);
       return computeBugDashboard([], new Set());
     }
+    return this.getBugDashboardByRelId(relId);
+  }
+
+  // relId-direct variant (2026-09-20) — same pattern as getDefectsByRelId:
+  // bypasses Version/getRelId entirely so a QC-only historical release (no
+  // local Version row at all) can get a real Bug Dashboard. BUG_DASHBOARD_SQL
+  // was already relId-driven under the hood; getBugDashboard just resolved
+  // versionId→relId first. Callers that DO have a versionId should keep using
+  // getBugDashboard (it still returns MOCK_BUG_DASHBOARD when Oracle is
+  // disabled, which this method deliberately does NOT — a relId came from a
+  // real synced QcRelease row, so falling back to the versionId-flavored mock
+  // here would be misleading rather than helpful).
+  async getBugDashboardByRelId(relId: number): Promise<BugDashboardDto> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) return computeBugDashboard([], new Set());
 
     let conn: any;
     try {
@@ -3234,7 +3474,7 @@ export class QcService {
         reopenTimes,
       );
     } catch (err: any) {
-      this.logger.error(`Oracle getBugDashboard: ${err.message}`);
+      this.logger.error(`Oracle getBugDashboardByRelId: ${err.message}`);
       throw err;
     } finally {
       if (conn) await conn.close().catch(() => {});

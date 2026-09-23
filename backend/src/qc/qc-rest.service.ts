@@ -377,6 +377,38 @@ export class QcRestService {
     }
   }
 
+  // Upload (2026-09-22, requested for the create-defect form — user: "חסר
+  // אפשרות לצרף קבצים"). Symmetric with listAttachments/downloadAttachment
+  // above — same standard HP ALM/QC 11 REST convention (an attachment is an
+  // AtomPub media resource: POST the raw bytes to the parent entity's
+  // /attachments collection with a `Slug` header naming the file, not a
+  // multipart body). UNVERIFIED against this real QC instance, same status
+  // as list/download were before they were tried for real — built to ship
+  // now per the same "build now, correct once real behavior is observed"
+  // instruction, not blocked on a diagnostic first. If this instance's real
+  // API differs, the fix is localized to this one method.
+  async uploadAttachment(defectId: string, fileName: string, fileBuffer: Buffer, contentType: string, userId: string): Promise<{ ok: true }> {
+    const config = await this.getConfig();
+    const qcLogin = await this.resolveQcLogin(userId);
+    const cookie = await this.loginAsUser(config, qcLogin);
+    try {
+      const res = await axios.post(`${this.entityUrl(config, defectId)}/attachments`, fileBuffer, {
+        headers: {
+          Cookie: cookie,
+          'Content-Type': contentType || 'application/octet-stream',
+          Slug: encodeURIComponent(fileName),
+        },
+        validateStatus: () => true,
+      });
+      if (res.status >= 300) {
+        throw new BadRequestException(`העלאת הקובץ "${fileName}" ל-QC נכשלה (status ${res.status}): ${String(res.data).slice(0, 300)}`);
+      }
+      return { ok: true };
+    } finally {
+      await this.logout(config, cookie);
+    }
+  }
+
   // ── Stage-0 de-risk for "create Release + Release Cycles via REST"
   // (2026-09-15) — both probes below are READ-ONLY (no PUT/POST), same risk
   // level as previewDefect/listAllFields: they answer "does this real QC
@@ -433,6 +465,78 @@ export class QcRestService {
       return parseProjectListsXml(res.data);
     } finally {
       await this.logout(config, cookie);
+    }
+  }
+
+  // Site Administration (2026-09-23, admin-screen QC infrastructure prep) —
+  // architecturally separate from every other method in this file: not
+  // domain/project-scoped (rest/site-admin/... rather than
+  // rest/domains/.../projects/...), and authenticates with a real shared
+  // admin password (QC_ADMIN_USERNAME/PASSWORD), not the per-user empty-
+  // password qcLogin convention every other method here uses — an ordinary
+  // tester account is very unlikely to hold site-admin privileges. Read-only
+  // by design (same risk level as probeEntityFields/probeProjectLists above);
+  // no write flow exists yet. Returns the raw XML text rather than attempting
+  // to parse it into a specific shape — Site Admin's response shapes
+  // (domains/projects/site-users/...) are unverified against this instance,
+  // same "don't assume tag names" discipline as everywhere else in this file.
+  private async getSiteAdminConfig(): Promise<{ baseUrl: string; username: string; password: string }> {
+    const keys = ['QC_REST_BASE_URL', 'QC_SITE_ADMIN_ENABLED', 'QC_ADMIN_USERNAME', 'QC_ADMIN_PASSWORD'];
+    const rows = await prisma.systemParam.findMany({ where: { key: { in: keys } } });
+    const byKey = new Map(rows.map(r => [r.key, r.value?.trim() ?? '']));
+    const baseUrl = byKey.get('QC_REST_BASE_URL') ?? '';
+    const enabled = byKey.get('QC_SITE_ADMIN_ENABLED') === 'true';
+    const username = byKey.get('QC_ADMIN_USERNAME') ?? '';
+    const password = byKey.get('QC_ADMIN_PASSWORD') ?? '';
+    if (!enabled) throw new BadRequestException('גישת Site Administration כבויה — הפעל QC_SITE_ADMIN_ENABLED בפרמטרי המערכת');
+    if (!baseUrl || !username || !password) {
+      throw new BadRequestException('Site Administration לא מוגדר במלואו — נדרשים QC_REST_BASE_URL, QC_ADMIN_USERNAME, QC_ADMIN_PASSWORD');
+    }
+    return { baseUrl: baseUrl.replace(/\/+$/, ''), username, password };
+  }
+
+  private async loginAsSiteAdmin(baseUrl: string, username: string, password: string): Promise<string> {
+    const authRes = await this.safeRequest(
+      () => axios.get(`${baseUrl}/authentication-point/authenticate`, {
+        auth: { username, password },
+        validateStatus: () => true,
+      }),
+      baseUrl,
+    );
+    if (authRes.status !== 200) {
+      throw new BadRequestException(`התחברות Site Admin (${username}) נכשלה מול QC (status ${authRes.status}) — בדוק שם משתמש/סיסמה בפרמטרי המערכת`);
+    }
+    const ssoCookies = extractCookies(authRes);
+    const sessionRes = await this.safeRequest(
+      () => axios.post(`${baseUrl}/rest/site-session`, null, {
+        headers: { Cookie: ssoCookies },
+        validateStatus: () => true,
+      }),
+      baseUrl,
+    );
+    if (sessionRes.status >= 300) {
+      throw new BadRequestException(`יצירת session ל-Site Admin מול QC נכשלה (status ${sessionRes.status})`);
+    }
+    return mergeCookies(ssoCookies, extractCookies(sessionRes));
+  }
+
+  async probeSiteAdmin(segment: string): Promise<string> {
+    const { baseUrl, username, password } = await this.getSiteAdminConfig();
+    const cookie = await this.loginAsSiteAdmin(baseUrl, username, password);
+    try {
+      const url = `${baseUrl}/rest/site-admin/${encodeURIComponent(segment)}`;
+      const res = await this.safeRequest(
+        () => axios.get(url, { headers: { Cookie: cookie, Accept: 'application/xml' }, validateStatus: () => true }),
+        baseUrl,
+      );
+      if (res.status === 404) throw new BadRequestException(`נתיב Site Admin "${segment}" לא נמצא (status 404) — ייתכן ששם ה-segment שגוי או שאין תמיכה בגרסת QC זו`);
+      if (res.status !== 200) throw new BadRequestException(`שגיאה בקריאת Site Admin "${segment}" מ-QC (status ${res.status}): ${String(res.data).slice(0, 500)}`);
+      return String(res.data);
+    } finally {
+      await axios.get(`${baseUrl}/authentication-point/logout`, {
+        headers: { Cookie: cookie },
+        validateStatus: () => true,
+      }).catch(err => this.logger.warn(`QC Site Admin logout failed (non-fatal): ${err.message}`));
     }
   }
 
@@ -532,12 +636,41 @@ export class QcRestService {
   // QC write. The allowlist itself is enforced server-side (only these 6
   // business keys are ever accepted), independent of the SystemParam values,
   // so no caller can smuggle an arbitrary REST field name through this path.
+  // Reference-type creation fields (2026-09-20, corrected 2026-09-22) —
+  // these are QC entity-LINK fields, not plain text (see
+  // buildFieldsPayload's ValueReferenceValue form). `detectedRelease` is
+  // "Detected in Release" (BG_DETECTED_IN_REL) — which release/cycle a NEW
+  // defect was found in. `targetVersion`/QC_REST_FIELD_TARGET_RELEASE is a
+  // DIFFERENT real field (BG_TARGET_REL — deferring an EXISTING defect to a
+  // future release) kept for that separate future use, but the
+  // create-defect form's "default to the version we're on" behavior was
+  // wrongly wired to it originally — it belongs on detectedRelease instead
+  // (caught during the create-form mockup design, project-defect-create-
+  // form-redesign-2026-09-22 memory). Unlike target-rel/target-rcyc's
+  // confirmed use on Requirements, none of these REST field names are
+  // confirmed for the defect/BUG entity specifically, so every SystemParam
+  // here starts empty (same discover-then-configure discipline).
+  private static readonly TIER2_REF_FIELD_PARAM_KEYS: Record<string, string> = {
+    detectedRelease: 'QC_REST_FIELD_DETECTED_RELEASE',
+    targetVersion: 'QC_REST_FIELD_TARGET_RELEASE',
+    detectedCycle: 'QC_REST_FIELD_DETECTED_CYCLE',
+  };
+
   private static readonly TIER2_FIELD_PARAM_KEYS: Record<string, string> = {
     assignedTo: 'QC_REST_FIELD_ASSIGNED_TO',
     priority: 'QC_REST_FIELD_PRIORITY',
     severity: 'QC_REST_FIELD_SEVERITY',
     estimatedFixTime: 'QC_REST_FIELD_ESTIMATED_FIX_TIME',
     subModule: 'QC_REST_FIELD_SUB_MODULE',
+    // Added 2026-09-22 for the redesigned create-defect form (see
+    // project-defect-create-form-redesign-2026-09-22 memory) — all 6
+    // unconfirmed, same discipline as everything above.
+    responsibility: 'QC_REST_FIELD_RESPONSIBILITY',
+    bugType: 'QC_REST_FIELD_BUG_TYPE',
+    testPhase: 'QC_REST_FIELD_TEST_PHASE',
+    environment: 'QC_REST_FIELD_ENVIRONMENT',
+    environmentComponent: 'QC_REST_FIELD_ENVIRONMENT_COMPONENT',
+    crHbrReference: 'QC_REST_FIELD_CR_HBR_REFERENCE',
     mainModule: 'QC_REST_FIELD_MAIN_MODULE',
   };
 
@@ -573,15 +706,21 @@ export class QcRestService {
   // directly or only via a Location header, are exactly what this lab call is
   // for finding out. Tries both: parses the response body for an `id` field,
   // falls back to the Location header's trailing path segment.
-  async createDefectRaw(fields: Record<string, string>, userId: string): Promise<{ id: string | null; raw: Record<string, string>; postStatus: number }> {
-    if (!fields || Object.keys(fields).length === 0) throw new BadRequestException('יש להזין לפחות שדה אחד');
+  async createDefectRaw(
+    fields: Record<string, string>,
+    userId: string,
+    refFields: Record<string, { id: string; label: string }> = {},
+  ): Promise<{ id: string | null; raw: Record<string, string>; postStatus: number }> {
+    if ((!fields || Object.keys(fields).length === 0) && Object.keys(refFields).length === 0) {
+      throw new BadRequestException('יש להזין לפחות שדה אחד');
+    }
     const config = await this.getConfig();
     const qcLogin = await this.resolveQcLogin(userId);
     const cookie = await this.loginAsUser(config, qcLogin);
     try {
       const postRes = await axios.post(
         this.collectionUrl(config),
-        buildFieldsPayload(fields),
+        buildFieldsPayload(fields, 'defect', refFields),
         { headers: { Cookie: cookie, 'Content-Type': 'application/xml; charset=utf-8', Accept: 'application/xml' }, validateStatus: () => true },
       );
       if (postRes.status >= 300) {
@@ -596,6 +735,77 @@ export class QcRestService {
     } finally {
       await this.logout(config, cookie);
     }
+  }
+
+  // ── Defect creation with mapped business fields (2026-09-20) — extends the
+  // Tier2-editing pattern (same TIER2_FIELD_PARAM_KEYS map, same
+  // discover-then-configure-then-write discipline) to the creation form, so
+  // the polished "new defect" modal can offer real dropdowns for Severity/
+  // Priority/Main Module/Sub Module/Assigned To instead of a raw REST-field-
+  // name editor for those. `title` maps to the one field already proven safe
+  // (native `name`). `businessRefFields` covers Target Release/Detected Cycle
+  // (reference-type fields — needs both a numeric QC id and a display label,
+  // see TIER2_REF_FIELD_PARAM_KEYS), typically pre-filled by the caller from
+  // "the version/cycle we're currently on" (release-intelligence's
+  // getDefectCreateDefaults) but always overridable. `rawFields` stays as the
+  // escape hatch for anything not yet mapped (description, detected-by,
+  // environment, ...) — real REST names for those are still unconfirmed
+  // against this QC instance, so the caller types them explicitly rather
+  // than us guessing. Left unfilled, a business field is simply omitted (not
+  // required to open a defect); only a *filled* business field whose REST
+  // name isn't configured yet is rejected, so opening a bare "title-only"
+  // defect always works even before the rest of the mapping is confirmed.
+  async createDefectWithFields(
+    title: string,
+    businessFields: Record<string, string>,
+    businessRefFields: Record<string, { id: string; label: string }>,
+    rawFields: Record<string, string>,
+    userId: string,
+  ): Promise<{ id: string | null; raw: Record<string, string>; postStatus: number }> {
+    if (!title?.trim()) throw new BadRequestException('יש להזין כותרת (Summary)');
+    const unknownKeys = Object.keys(businessFields).filter(k => !(k in QcRestService.TIER2_FIELD_PARAM_KEYS));
+    if (unknownKeys.length > 0) {
+      throw new BadRequestException(`שדה/ות לא מוכרים (מותר רק: ${Object.keys(QcRestService.TIER2_FIELD_PARAM_KEYS).join(', ')}): ${unknownKeys.join(', ')}`);
+    }
+    const unknownRefKeys = Object.keys(businessRefFields ?? {}).filter(k => !(k in QcRestService.TIER2_REF_FIELD_PARAM_KEYS));
+    if (unknownRefKeys.length > 0) {
+      throw new BadRequestException(`שדה/ות הפניה לא מוכרים (מותר רק: ${Object.keys(QcRestService.TIER2_REF_FIELD_PARAM_KEYS).join(', ')}): ${unknownRefKeys.join(', ')}`);
+    }
+    const paramKeys = Object.values(QcRestService.TIER2_FIELD_PARAM_KEYS);
+    const refParamKeys = Object.values(QcRestService.TIER2_REF_FIELD_PARAM_KEYS);
+    const [rows, refRows] = await Promise.all([
+      prisma.systemParam.findMany({ where: { key: { in: paramKeys } } }),
+      prisma.systemParam.findMany({ where: { key: { in: refParamKeys } } }),
+    ]);
+    const restFieldByParamKey = new Map(rows.map(r => [r.key, (r.value ?? '').trim()]));
+    const refRestFieldByParamKey = new Map(refRows.map(r => [r.key, (r.value ?? '').trim()]));
+
+    const fields: Record<string, string> = { [REST_FIELD.title]: title.trim() };
+    const unconfigured: string[] = [];
+    for (const [businessKey, value] of Object.entries(businessFields)) {
+      if (!value?.trim()) continue;
+      const paramKey = QcRestService.TIER2_FIELD_PARAM_KEYS[businessKey];
+      const restName = restFieldByParamKey.get(paramKey);
+      if (!restName) { unconfigured.push(businessKey); continue; }
+      fields[restName] = value.trim();
+    }
+    const refFields: Record<string, { id: string; label: string }> = {};
+    for (const [businessKey, refVal] of Object.entries(businessRefFields ?? {})) {
+      if (!refVal?.id) continue;
+      const paramKey = QcRestService.TIER2_REF_FIELD_PARAM_KEYS[businessKey];
+      const restName = refRestFieldByParamKey.get(paramKey);
+      if (!restName) { unconfigured.push(businessKey); continue; }
+      refFields[restName] = refVal;
+    }
+    if (unconfigured.length > 0) {
+      throw new BadRequestException(
+        `שם שדה ה-REST האמיתי עדיין לא הוגדר עבור: ${unconfigured.join(', ')}. יש לגלות אותו דרך "🔍 הצג את כל שמות השדות" ולמלא ב-AdminPanel, או להשאיר את השדה ריק.`,
+      );
+    }
+    for (const [name, value] of Object.entries(rawFields ?? {})) {
+      if (name.trim()) fields[name.trim()] = value;
+    }
+    return this.createDefectRaw(fields, userId, refFields);
   }
 
   // Stage-0's actual remaining question (2026-09-16): permission is confirmed
@@ -1113,7 +1323,7 @@ export class QcRestService {
       const url = this.collectionUrlFor(config, 'requirements');
       const postRes = await axios.post(
         url,
-        buildRequirementPayload(fields, refFields),
+        buildFieldsPayload(fields, 'requirement', refFields),
         { headers: { Cookie: cookie, 'Content-Type': 'application/xml; charset=utf-8', Accept: 'application/xml' }, validateStatus: () => true },
       );
       if (postRes.status >= 300) {
@@ -1444,25 +1654,25 @@ function xmlEscape(s: string): string {
 // Content-Type header, misreading every multi-byte UTF-8 Hebrew character.
 // The corruption is stored in QC itself, not a display artifact — a missing
 // charset here silently corrupts real production data on every write.
-function buildFieldsPayload(fields: Record<string, string>, entityType: string = 'defect'): string {
-  const fieldsXml = Object.entries(fields)
-    .map(([name, value]) => `<Field Name="${xmlEscape(name)}"><Value>${xmlEscape(value)}</Value></Field>`)
-    .join('');
-  return `<?xml version="1.0" encoding="UTF-8"?><Entity Type="${xmlEscape(entityType)}"><Fields>${fieldsXml}</Fields></Entity>`;
-}
-
-// Same shape as buildFieldsPayload, plus the special ValueReferenceValue
-// form spec-qc-full-integration.md §4.2 documents for reference-type fields
-// (target-rel/target-rcyc — a Requirement's link to a Release/Cycle):
+// refFields adds the special ValueReferenceValue form spec-qc-full-
+// integration.md §4.2 documents for reference-type fields (target-rel/
+// target-rcyc — a link to a Release/Cycle):
 // <Field Name="target-rel"><Value ValueReferenceValue="378">ITv07-2026</Value></Field>
-// UNVERIFIED against real QC — this format is read from Java source, never
-// tried against this instance.
-function buildRequirementPayload(fields: Record<string, string>, refFields: Record<string, { id: string; label: string }>): string {
+// UNVERIFIED against real QC for ANY entity type — read from Java source,
+// never tried against this instance. Originally requirement-only
+// (buildRequirementPayload); generalized 2026-09-20 so defect creation's
+// Target Release/Detected Cycle fields can use the same reference-value
+// shape instead of assuming a defect will accept a plain string there.
+function buildFieldsPayload(
+  fields: Record<string, string>,
+  entityType: string = 'defect',
+  refFields: Record<string, { id: string; label: string }> = {},
+): string {
   const plainXml = Object.entries(fields)
     .map(([name, value]) => `<Field Name="${xmlEscape(name)}"><Value>${xmlEscape(value)}</Value></Field>`)
     .join('');
   const refXml = Object.entries(refFields)
     .map(([name, { id, label }]) => `<Field Name="${xmlEscape(name)}"><Value ValueReferenceValue="${xmlEscape(id)}">${xmlEscape(label)}</Value></Field>`)
     .join('');
-  return `<?xml version="1.0" encoding="UTF-8"?><Entity Type="requirement"><Fields>${plainXml}${refXml}</Fields></Entity>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><Entity Type="${xmlEscape(entityType)}"><Fields>${plainXml}${refXml}</Fields></Entity>`;
 }

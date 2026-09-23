@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, JIRA } from '../../theme';
-import { Card, Badge, BackLink, Modal, Button, TextField } from '../ui';
-import { FieldRow, FieldRowsEditor } from '../QcWriteTestPanel';
+import { Card, Badge, BackLink } from '../ui';
 import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL } from './openProdDefectsFields';
 import {
   hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroupsDialog, DetailGroup,
@@ -11,6 +10,7 @@ import {
 } from '../shared/defectFieldDisplay';
 import { formatDate, formatDateTime } from '../../utils/dateFormat';
 import { cn } from '../../lib/utils';
+import { CreateDefectScreen } from './CreateDefectScreen';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -355,71 +355,6 @@ const QcWriteBackPanel: React.FC<{
   );
 };
 
-// New-defect creation (docs/spec-defects-module.md §5, 2026-09-18) — every
-// QA can open this (action:qc_defect_create), but the form is deliberately a
-// generic REST-field-name editor, NOT a polished "title/description/
-// severity/..." form: the real required-field set and REST field names for
-// this QC instance are still unconfirmed (§11 step 1, the metadata probe,
-// blocked until real QC access). The one confirmed-safe field is `name`
-// (the summary/title) — everything else goes through the same free-text
-// field-name rows already used in the admin lab (QcWriteTestPanel), so a
-// real attempt can be made now without pretending to know fields we don't.
-const CreateDefectModal: React.FC<{ token: string; open: boolean; onClose: () => void; onCreated: (id: string) => void }> = ({ token, open, onClose, onCreated }) => {
-  const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
-  const [title, setTitle] = useState('');
-  const [extraRows, setExtraRows] = useState<FieldRow[]>([{ name: '', value: '' }]);
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const reset = () => { setTitle(''); setExtraRows([{ name: '', value: '' }]); setError(null); };
-
-  const create = async () => {
-    if (!title.trim()) { setError('יש להזין כותרת (Summary)'); return; }
-    setCreating(true); setError(null);
-    try {
-      const fields: Record<string, string> = { name: title.trim() };
-      for (const row of extraRows) {
-        if (row.name.trim()) fields[row.name.trim()] = row.value;
-      }
-      const res = await axios.post(`${API}/qc/defects`, { fields }, { headers });
-      if (!res.data?.id) {
-        setError('התקלה נוצרה ב-QC אך לא זוהה מזהה בתשובה — בדוק ידנית ב-QC UI');
-        return;
-      }
-      reset();
-      onCreated(res.data.id);
-    } catch (err: any) {
-      setError(err?.response?.data?.message || 'יצירת התקלה נכשלה');
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  return (
-    <Modal open={open} onClose={() => { reset(); onClose(); }} title="תקלה חדשה ב-QC" width={620}>
-      <div className="flex flex-col gap-4" dir="rtl">
-        <div className="text-[13px] text-subtle-foreground leading-relaxed">
-          השדה "כותרת" בלבד מאומת. שאר השדות (חומרה, CR מקושר, שלב בדיקה וכו') נכתבים
-          לפי שם ה-REST האמיתי שלהם — לגלות אותם דרך "🔍 הצג את כל שמות השדות" (מסך הניהול)
-          לפני שממלאים, אחרת הכתיבה עלולה להיכשל או להיכתב לשדה הלא-נכון.
-        </div>
-        <div>
-          <label className="text-[13px] text-subtle-foreground block mb-1.5">כותרת (Summary)</label>
-          <TextField value={title} onChange={e => setTitle(e.target.value)} fullWidth />
-        </div>
-        <div>
-          <label className="text-[13px] text-subtle-foreground block mb-1.5">שדות נוספים (אופציונלי)</label>
-          <FieldRowsEditor rows={extraRows} onChange={setExtraRows} />
-        </div>
-        {error && <div className="text-[13px] font-semibold text-danger">{error}</div>}
-        <div className="flex justify-end gap-2.5">
-          <Button variant="outline" onClick={() => { reset(); onClose(); }}>ביטול</Button>
-          <Button onClick={create} disabled={creating || !title.trim()}>{creating ? 'יוצר…' : 'צור תקלה ב-QC'}</Button>
-        </div>
-      </div>
-    </Modal>
-  );
-};
 
 // Inline sidebar editor (spec 2026-09-19) — swapped in for one field's
 // display span on double-click while the sidebar is in edit mode. Renders a
@@ -673,42 +608,35 @@ export const DefectDetailScreen: React.FC<{
       )}
 
       {!detailLoading && detail && (
-        // Explicit dir="ltr" + aside listed FIRST so the layout order is
-        // deterministic: the field panel (1st child) on the left, main
-        // content (2nd child) on the right (feedback 2026-09-14: the panel
-        // should be on the left, not the right — corrected from an earlier
-        // pass that had this backwards). On wrap, main stays on top and the
-        // panel drops below it.
-        <div className="flex flex-wrap items-start gap-7" dir="ltr">
-          {/* ══ סרגל צד (Issue panel) — רקע אפור Atlassian, תווית קטנה מעל הערך ══ */}
-          {/* dir="rtl" — the panel's own chrome (group titles, attachments
-              heading, history button) is untranslated Hebrew UI text with no
-              per-element direction marking of its own. Combined with an RTL
-              grid, listing the value span before the label span in each row
-              below places the label on the left and the value on the right
-              (feedback 2026-09-14: "כל התוויות משמאל הערכים מימין לתווית"). */}
-          <aside
-            dir="rtl"
-            // Widened 300→380px (main content correspondingly narrowed below)
-            // and the label column changed from a 40%-capped percentage to
-            // max-content (2026-09-18) — long English labels ("Environment
-            // Component", "CR/HBR Number reference") were wrapping to a
-            // second line at the old width/ratio; max-content sizes the
-            // label column to whatever the longest visible label needs, so
-            // it never wraps regardless of aside width.
-            className="flex-[0_0_380px] max-w-[380px] self-start rounded-lg overflow-hidden"
-            style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}` }}
-          >
+        // Redesigned 2026-09-22 to match the create-defect form's visual
+        // language (co-designed with the user via a mockup — see
+        // project-defect-create-form-redesign-2026-09-22 memory): symmetric
+        // equal-size boxes, one per field group, in a responsive grid, full
+        // page width — instead of the old fixed-380px single-column sidebar
+        // (which stacked every group in one tall list). Layout-only change:
+        // every field row's own JSX below (dirty-state, double-click
+        // editing, bidi handling) is untouched from before this redesign.
+        // The old dir="ltr" trick on the outer wrapper existed only to force
+        // the sidebar-then-main ordering in a 2-column flex row (feedback
+        // 2026-09-14) — no longer needed now that groups stack vertically
+        // above the main content instead of sitting beside it, so this whole
+        // section is plain dir="rtl" like the rest of the app.
+        <div className="flex flex-col gap-6" dir="rtl">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
             {(() => {
               const groups = detailGroups
                 .map(g => ({ ...g, fields: g.fields.filter(k => detail[k] !== undefined) }))
                 .filter(g => g.fields.length > 0);
-              return groups.map((group, gi) => (
-                <div key={group.title} className="px-4 py-3" style={{ borderBottom: gi < groups.length - 1 ? `1px solid ${JIRA.greyN40}` : 'none' }}>
-                  <div className="text-[11px] font-bold tracking-wide mb-2.5" style={{ color: JIRA.textSubtle }}>
+              return groups.map(group => (
+                <div
+                  key={group.title}
+                  className="rounded-xl overflow-hidden px-6 py-6"
+                  style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}`, height: '100%' }}
+                >
+                  <div className="text-sm font-bold tracking-wide mb-3" style={{ color: JIRA.textSubtle }}>
                     {group.title}
                   </div>
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-4">
                     {group.fields.map(key => {
                       const isDirty = pendingEdits[key] !== undefined;
                       const displayValue = isDirty ? pendingEdits[key] : String(detail[key] ?? '');
@@ -717,23 +645,27 @@ export const DefectDetailScreen: React.FC<{
                       const valRtl = !isAtomic && (!displayValue || hasHebrew(displayValue));
                       const isEditable = editMode && INLINE_EDITABLE_FIELDS.has(key);
                       const isEditingThis = editingField === key;
-                      // Side-by-side (label ⟷ value) to keep the panel short — user
-                      // pref 2026-09-08; the Jira brief allowed "מעליה/לצידה". A
-                      // dashed outline marks which fields double-click opens while
-                      // in edit mode (spec 2026-09-19); a dot flags an edit that's
-                      // committed locally but not yet sent to QC via "💾 שמור".
+                      // Label above value, matching CreateDefectScreen's Field
+                      // component (switched from the prior side-by-side row per
+                      // user request 2026-09-22, to bring visual parity between
+                      // the create and detail screens). A dashed outline marks
+                      // which fields double-click opens while in edit mode (spec
+                      // 2026-09-19); a dot flags an edit that's committed locally
+                      // but not yet sent to QC via "💾 שמור".
                       return (
                         <div
                           key={key}
                           onDoubleClick={() => { if (isEditable && !isEditingThis) setEditingField(key); }}
-                          className="grid gap-2 items-start rounded-sm px-1 py-0.5 -mx-1"
+                          className="flex flex-col gap-1.5 rounded-sm px-1 py-0.5 -mx-1"
                           style={{
-                            gridTemplateColumns: 'minmax(0,1fr) max-content',
                             border: isEditable && !isEditingThis ? `1px dashed ${JIRA.blue}` : '1px solid transparent',
                             cursor: isEditable && !isEditingThis ? 'pointer' : undefined,
                             background: isDirty ? '#fffbe6' : undefined,
                           }}
                         >
+                          <span className="text-xs font-bold tracking-wide" style={{ color: JIRA.textSubtle, direction: 'ltr', textAlign: 'left' }}>
+                            {DETAIL_FIELD_LABEL[key] ?? key}
+                          </span>
                           {isEditingThis ? (
                             <InlineFieldEditor
                               fieldKey={key}
@@ -745,16 +677,13 @@ export const DefectDetailScreen: React.FC<{
                             />
                           ) : (
                             <span
-                              className="text-[13px] font-medium min-w-0 flex items-center flex-wrap gap-1 justify-end break-words"
+                              className="text-[13px] font-medium min-w-0 flex items-center flex-wrap gap-1 break-words"
                               style={{ color: JIRA.text, direction: 'rtl', unicodeBidi: valRtl ? 'normal' : 'plaintext' }}
                             >
                               {isDirty && <span title="שינוי לא שמור" style={{ color: JIRA.blue }}>●</span>}
                               {renderFieldValue(key, displayValue)}
                             </span>
                           )}
-                          <span className="whitespace-nowrap text-[11px] font-semibold tracking-wide text-left pt-0.5" style={{ color: JIRA.textSubtle }}>
-                            {DETAIL_FIELD_LABEL[key] ?? key}
-                          </span>
                         </div>
                       );
                     })}
@@ -762,32 +691,13 @@ export const DefectDetailScreen: React.FC<{
                 </div>
               ));
             })()}
+          </div>
 
-            {/* קבצים מצורפים — האינדיקציה + הרשימה בתוך החלונית */}
-            <div className="px-4 py-3" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}>
-              <AttachmentsSection defectId={defectId} token={token} />
-            </div>
-
-            {/* היסטוריית שינויים — כפתור שפותח את הטבלה בחלון מודאלי */}
-            <div className="px-4 py-3">
-              <button
-                onClick={() => setHistoryModalOpen(true)}
-                className="w-full flex items-center justify-between bg-transparent border-none cursor-pointer p-0 text-[13px] font-bold"
-                style={{ color: JIRA.blue }}
-              >
-                <span>🕘 היסטוריית שינויים</span>
-                <span aria-hidden>←</span>
-              </button>
-            </div>
-          </aside>
-
-          {/* ══ תוכן מרכזי (≈70%) — צד ימין ══ */}
-          {/* מסגרת לבנה אחידה לכל האזור (feedback 2026-09-14) — תואמת את
-              המסגרת הלבנה של החלונית משמאל, כך ששני הצדדים נראים כזוג
-              כרטיסים תואמים. תיאור/הערות כבר לא צריכים תיבה לבנה משלהם
-              (הייתה יוצרת תיבה בתוך תיבה) — רק המרווח הפנימי נשאר. */}
+          {/* ══ תוכן מרכזי — כותרת, תיאור, הערות, קבצים, היסטוריה, כתיבה ל-QC ══ */}
+          {/* מסגרת לבנה אחידה, עכשיו ברוחב מלא מתחת לרשת הקבוצות במקום לצידה
+              (2026-09-22) — תואמת את אותה שפה חזותית כמו טופס פתיחת התקלה. */}
           <div
-            className="flex-[1_1_480px] min-w-0 flex flex-col gap-6 rounded-lg px-6 py-5"
+            className="min-w-0 flex flex-col gap-6 rounded-lg px-6 py-5"
             style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}` }}
           >
 
@@ -838,6 +748,22 @@ export const DefectDetailScreen: React.FC<{
                 </section>
               );
             })()}
+
+            {/* קבצים מצורפים + היסטוריית שינויים — הועברו לכאן מהחלונית
+                הישנה (2026-09-22): לא באמת "קבוצת שדות", אז לא שייכים
+                לרשת הקבוצות הסימטרית שמעל. */}
+            <section>
+              <div className={DETAIL_SECTION_HEADING_CLASS} style={{ color: JIRA.textSubtle }}>קבצים מצורפים</div>
+              <AttachmentsSection defectId={defectId} token={token} />
+            </section>
+            <button
+              onClick={() => setHistoryModalOpen(true)}
+              className="flex w-full items-center justify-between bg-transparent border-none cursor-pointer p-0 text-[13px] font-bold"
+              style={{ color: JIRA.blue }}
+            >
+              <span>🕘 היסטוריית שינויים</span>
+              <span aria-hidden>←</span>
+            </button>
 
             {/* עדכון ישיר ל-QC — פתוח כברירת מחדל (spec 2026-09-07) */}
             <QcWriteBackPanel
@@ -1133,7 +1059,7 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
   const [config, setConfig] = useState<OpenProdDefectsConfig | null>(null);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showCreateScreen, setShowCreateScreen] = useState(false);
   // Bulk status update (docs/spec-defects-module.md §11, lowest priority —
   // kept deliberately simple: free-text/datalist target status, not trying
   // to compute a unified allowed-transition set across rows that may each
@@ -1298,6 +1224,16 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
     });
   }, [baseRows, sortKey, sortDir, monthFilters.matches]);
 
+  if (showCreateScreen) {
+    return (
+      <CreateDefectScreen
+        token={token}
+        onBack={() => setShowCreateScreen(false)}
+        onCreated={(id) => { setShowCreateScreen(false); setDetailDefectId(id); }}
+      />
+    );
+  }
+
   if (detailDefectId) {
     return (
       <DefectDetailScreen
@@ -1317,7 +1253,7 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
         <div className="flex items-center justify-between">
           <BackLink onClick={() => setTableOpen(false)} label="חזרה לסקירה" />
           <div className="flex items-center gap-2 relative">
-            <button onClick={() => setShowCreateModal(true)} className={DETAIL_TOP_BTN_CLASS}>+ תקלה חדשה</button>
+            <button onClick={() => setShowCreateScreen(true)} className={DETAIL_TOP_BTN_CLASS}>+ תקלה חדשה</button>
             <button onClick={() => setShowTableColumnPicker(true)} className={DETAIL_TOP_BTN_CLASS}>⚙ בחירת עמודות</button>
             <button onClick={() => setShowSavedViews(s => !s)} className={DETAIL_TOP_BTN_CLASS}>👁 תצוגות שמורות</button>
             {showSavedViews && (
@@ -1344,12 +1280,6 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
             )}
           </div>
         </div>
-        <CreateDefectModal
-          token={token}
-          open={showCreateModal}
-          onClose={() => setShowCreateModal(false)}
-          onCreated={(id) => { setShowCreateModal(false); setDetailDefectId(id); }}
-        />
         <Card>
           <div className="text-sm font-semibold text-foreground mb-2.5">
             תקלות פתוחות — {activeMonth ?? '—'}{presetSeverity ? ` — חומרה: ${presetSeverity}` : ''} ({baseRows.length}) — לחץ על כותרת עמודה למיון, לחץ על שורה לפרטים מלאים
