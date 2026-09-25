@@ -345,7 +345,7 @@ function KpiCard({ value, label, valueColor }: { value: string; label: string; v
 // Full-screen per-CR coverage breakdown for one cycle — replaces the old
 // inline expand-in-card behavior per the user's explicit instruction to
 // navigate to a new screen instead (2026-07-28).
-function CycleDetailScreen({ cycle, onBack, token }: { cycle: CycleTimelineItem; onBack: () => void; token: string }) {
+function CycleDetailScreen({ cycle, onBack, token, versionId }: { cycle: CycleTimelineItem; onBack: () => void; token: string; versionId: string }) {
   const [projectFilter, setProjectFilter] = useState('');
   const [testerFilter, setTesterFilter] = useState('');
   // UAT-only "הצג סיכום בדיקות" button (spec 2026-09-17) — RQ_USER_26 pulled
@@ -356,7 +356,7 @@ function CycleDetailScreen({ cycle, onBack, token }: { cycle: CycleTimelineItem;
     setSummaryModal({ crNumber: cr.crNumber, crLabel: cr.crLabel, loading: true, error: null, text: null });
     try {
       const res = await axios.get(`${API}/qc/cr-test-summary`, {
-        params: { crNumber: cr.crNumber },
+        params: { crNumber: cr.crNumber, versionId },
         headers: { Authorization: `Bearer ${token}` },
       });
       setSummaryModal({ crNumber: cr.crNumber, crLabel: cr.crLabel, loading: false, error: null, text: res.data ?? null });
@@ -557,7 +557,7 @@ export const CyclesPanel: React.FC<{ data: CycleProgress; token: string; version
 
   const selectedCycle = selectedCycleType ? data.timeline.find(t => t.cycleType === selectedCycleType) : null;
   if (selectedCycle) {
-    return <CycleDetailScreen cycle={selectedCycle} onBack={() => setSelectedCycleType(null)} token={token} />;
+    return <CycleDetailScreen cycle={selectedCycle} onBack={() => setSelectedCycleType(null)} token={token} versionId={versionId} />;
   }
 
   return (
