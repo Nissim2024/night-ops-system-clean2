@@ -604,6 +604,38 @@ const QG_SEVERITY_META: Record<string, { label: string; color: string }> = {
 // count-vs-threshold view isn't shown anywhere else anymore; PASS/FAIL on the
 // readiness card carries the gate verdict). Non-zero Show Stopper/Severe go
 // red+bold (spec 2026-09-07).
+// Compact drillable severity pills for the aging ("beyond the clock" / ⏱)
+// card's two rows (fixes-batch E.2, spec from the user's own mockup: rounded
+// pill per non-zero severity, one row for the full aging set and one for
+// open-only). Same colored-badge visual already used for risk-notice
+// severity tags in this file (rounded-full border+bg), applied to defect
+// severity via QG_SEVERITY_META instead of the risk-severity palette.
+function SeverityPillsRow({ bySeverity, onPillClick }: {
+  bySeverity: Record<string, { count: number; threshold: number }>;
+  onPillClick: (severityLabel: string) => void;
+}) {
+  const entries = Object.entries(bySeverity).filter(([k, v]) => QG_SEVERITY_META[k] && v.count > 0);
+  if (entries.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+      {entries.map(([k, v]) => {
+        const meta = QG_SEVERITY_META[k];
+        return (
+          <button
+            key={k}
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onPillClick(meta.label); }}
+            className="inline-flex cursor-pointer items-center rounded-full border bg-card px-2 py-px text-xs font-bold transition-opacity hover:opacity-80"
+            style={{ color: meta.color, borderColor: `${meta.color}66` }}
+          >
+            {v.count} {meta.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function SeverityCountLine({ qgSummary }: { qgSummary: Record<string, { count: number; threshold: number }> }) {
   // Only the non-zero severities — keeps it to one short line in a ~180px card
   // (spec example: "3 Severe · 11 Medium · 6 Low").
@@ -646,13 +678,17 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
   const [overview, setOverview] = useState<Overview | null>(null);
   const [cycleData, setCycleData] = useState<CycleProgress | null>(null);
   const [defects, setDefects] = useState<DefectRow[]>([]);
-  const [aging, setAging] = useState<{ count: number; avgAgingDays: number; avgOverageDays: number; thresholdDays: number } | null>(null);
+  const [aging, setAging] = useState<{
+    count: number; avgAgingDays: number; avgOverageDays: number; thresholdDays: number;
+    bySeverity?: Record<string, { count: number; threshold: number }>;
+    openOnlyBySeverity?: Record<string, { count: number; threshold: number }>;
+  } | null>(null);
   const [crAssignments, setCrAssignments] = useState<CrAssignmentRow[]>([]);
   const [crQuality, setCrQuality] = useState<CrQualityRow[]>([]);
   const [teamPlanStatus, setTeamPlanStatus] = useState<TeamPlanStatusRow[]>([]);
   const [notices, setNotices] = useState<VersionNotice[]>([]);
   const [loading, setLoading] = useState(false);
-  const [agingDrilldown, setAgingDrilldown] = useState(false);
+  const [agingDrilldown, setAgingDrilldown] = useState<{ filter: 'aging' | 'agingOpenOnly'; value?: string; title: string } | null>(null);
   const [showStopperDrilldown, setShowStopperDrilldown] = useState(false);
   const [movedDrilldown, setMovedDrilldown] = useState(false);
   const [notReceivedExpanded, setNotReceivedExpanded] = useState(false);
@@ -986,8 +1022,17 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
             {/* תחזית — days + terse pace chip only (calc text removed).
                 Bug found 2026-09-17: a COMPLETED version's daysToGoLive goes
                 negative (plannedStart is in the past) and read as "N days
-                overdue" — show when it actually went to production instead. */}
-            {overview.versionStatus === 'COMPLETED' ? (
+                overdue" — show when it actually went to production instead.
+                Widened 2026-09-23 (fixes-batch F): MORNING_AFTER is ALSO
+                "already live" (versions.service.ts's ACTIVE→MORNING_AFTER
+                transition is the go-live/deployment-night step itself,
+                COMPLETED is a later, separate close-out) — a version sitting
+                in MORNING_AFTER was still falling into the raw-negative
+                branch below and showing e.g. "-9 ... ✓ בקצב", which is what
+                was actually reported. ACTIVE deliberately excluded — a
+                version can still be mid-deployment-night in that status, not
+                yet confirmed live. */}
+            {(overview.versionStatus === 'COMPLETED' || overview.versionStatus === 'MORNING_AFTER') ? (
               <KpiTile
                 icon="📈" accent={C.success} moduleLabel="תחזית"
                 value="✓" label={overview.productionSinceDate ? `בייצור מתאריך ${formatDate(overview.productionSinceDate)}` : 'הגרסה בייצור'}
@@ -1130,8 +1175,32 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
             icon="⏱" urgent module="release-intelligence"
             title={`${aging.count} תקלות חורגות מזמן הטיפול`}
             desc={`מעל ${aging.thresholdDays} ימים • ממוצע חריגה: ${aging.avgOverageDays} ימים מעבר ליעד`}
-            onClick={() => setAgingDrilldown(true)}
-          />
+            onClick={() => setAgingDrilldown({ filter: 'aging', title: 'תקלות חורגות מזמן הטיפול' })}
+          >
+            {/* E.2: two drillable severity-pill rows — total (all non-closed
+                aging defects) and open-only (literal status "Open" among
+                them), per the user's own mockup spec. */}
+            {aging.bySeverity && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ ...TEXT.xs, color: C.textMuted, flexShrink: 0 }}>סה״כ:</span>
+                  <SeverityPillsRow
+                    bySeverity={aging.bySeverity}
+                    onPillClick={(sev) => setAgingDrilldown({ filter: 'aging', value: sev, title: `תקלות חורגות מזמן הטיפול — ${sev}` })}
+                  />
+                </div>
+                {aging.openOnlyBySeverity && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ ...TEXT.xs, color: C.textMuted, flexShrink: 0 }}>פתוחות בלבד:</span>
+                    <SeverityPillsRow
+                      bySeverity={aging.openOnlyBySeverity}
+                      onPillClick={(sev) => setAgingDrilldown({ filter: 'agingOpenOnly', value: sev, title: `תקלות חורגות מזמן הטיפול (פתוחות בלבד) — ${sev}` })}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </RiskRow>
         )}
 
         {cyclesEndingSoonUnmet.map(c => (
@@ -1216,8 +1285,9 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
 
       {agingDrilldown && (
         <DefectDrilldownModal
-          token={token} versionId={versionId} screen="status-board" filter="aging"
-          title="תקלות חורגות מזמן הטיפול" onClose={() => setAgingDrilldown(false)}
+          token={token} versionId={versionId} screen="status-board"
+          filter={agingDrilldown.filter} value={agingDrilldown.value}
+          title={agingDrilldown.title} onClose={() => setAgingDrilldown(null)}
         />
       )}
       {showStopperDrilldown && (
