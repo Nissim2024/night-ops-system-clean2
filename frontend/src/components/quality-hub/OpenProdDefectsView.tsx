@@ -173,12 +173,6 @@ const TIER2_FIELD_OPTIONS: Record<string, string[]> = {
   priority: ['High', 'Medium', 'Low'],
 };
 
-// Fields the sidebar's inline double-click editor (2026-09-19 spec, see
-// project-inline-defect-field-editor memory) may open — deliberately the
-// exact same set QcWriteBackPanel already writes (status + the 6 Tier2
-// fields), never the read-only display-only fields, since those have no
-// confirmed REST field name yet (blocked until Tuesday's QC probe).
-const INLINE_EDITABLE_FIELDS = new Set(['status', ...TIER2_FIELDS.map(f => f.key)]);
 
 // `blocked`/`allowedTransitions` are now owned by the parent DefectDetailScreen
 // (2026-09-19) — the new inline sidebar editor needs the exact same two
@@ -366,8 +360,8 @@ const QcWriteBackPanel: React.FC<{
 // change (see commitInlineField).
 const InlineFieldEditor: React.FC<{
   fieldKey: string; initialValue: string; currentStatus: string; allowedTransitions: string[] | null;
-  onCommit: (value: string) => void; onCancel: () => void;
-}> = ({ fieldKey, initialValue, currentStatus, allowedTransitions, onCommit, onCancel }) => {
+  dynamicOptions?: string[]; onCommit: (value: string) => void; onCancel: () => void;
+}> = ({ fieldKey, initialValue, currentStatus, allowedTransitions, dynamicOptions, onCommit, onCancel }) => {
   const [value, setValue] = useState(initialValue);
   const fieldClass = 'w-full box-border px-1.5 py-1 rounded-sm border border-border text-[13px] bg-card text-foreground';
 
@@ -391,7 +385,10 @@ const InlineFieldEditor: React.FC<{
     );
   }
 
-  const options = TIER2_FIELD_OPTIONS[fieldKey];
+  // Static hardcoded lists (Severity/Priority, confirmed 2026-09-18) take
+  // priority; dynamicOptions (fetched from QcPicklistCache, fixes-batch A.6)
+  // covers everything else that has a real QC List-Id behind it.
+  const options = TIER2_FIELD_OPTIONS[fieldKey] ?? dynamicOptions;
   if (options) {
     return (
       <select autoFocus value={value} onChange={e => onCommit(e.target.value)} onBlur={onCancel}
@@ -406,6 +403,126 @@ const InlineFieldEditor: React.FC<{
     <input autoFocus value={value} onChange={e => setValue(e.target.value)}
       onBlur={() => onCommit(value)} onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }}
       className={fieldClass} dir="ltr" />
+  );
+};
+
+// Same mapping as CycleProgressView's own CYCLE_LABEL — duplicated locally
+// (rather than imported cross-module) just to label the cycle picker's
+// options in RefFieldEditor below with the same Hebrew names used everywhere
+// else in the app, instead of raw enum values like "CYCLE_1".
+const CYCLE_LABEL_FALLBACK: Record<string, string> = {
+  CYCLE_1: 'סבב 1', CYCLE_2: 'סבב 2', CYCLE_3: 'סבב 3',
+  STAND_ALONE: 'Stand Alone Items', UAT: 'UAT', REHEARSAL: 'חזרה גנרלית', GO_LIVE: 'עליה לאוויר',
+};
+
+// Editor for reference-type fields (Detected in Release/Cycle, 2026-09-23,
+// fixes-batch A.5) — unlike every other field, these need a real QC id, not
+// just display text, so double-click opens a small release/cycle picker
+// instead of a plain input. Reuses the exact same "in-flight versions" +
+// defect-create-defaults endpoints CreateDefectScreen already uses for the
+// same purpose at creation time — scoped to in-flight versions only (not an
+// arbitrary historical release picker; see project-fixes-batch-2026-09-23
+// memory for why). For "Detected in Cycle" a version must be picked first
+// (to know which cycles it has); best-effort pre-selects the version whose
+// name matches the field's current display text.
+const RefFieldEditor: React.FC<{
+  fieldKey: string; currentLabel: string; token: string;
+  onCommit: (value: { id: string; label: string } | null) => void; onCancel: () => void;
+}> = ({ fieldKey, currentLabel, token, onCommit, onCancel }) => {
+  const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+  const [versions, setVersions] = useState<{ id: string; name: string }[]>([]);
+  const [versionId, setVersionId] = useState('');
+  const [cycleOptions, setCycleOptions] = useState<{ qcCycleId: string; cycleType: string; label: string }[]>([]);
+  const [cycleQcId, setCycleQcId] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    axios.get(`${API}/versions`, { headers })
+      .then(r => {
+        const inFlight = (r.data ?? []).filter((v: any) => !['DRAFT', 'COMPLETED', 'ROLLED_BACK'].includes(v.status));
+        const list = inFlight.map((v: any) => ({ id: v.id, name: v.name }));
+        setVersions(list);
+        const guess = list.find((v: any) => currentLabel.includes(v.name) || v.name.includes(currentLabel));
+        if (guess) setVersionId(guess.id);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const loadForVersion = (vId: string) => {
+    if (!vId) { setCycleOptions([]); return; }
+    setLoading(true);
+    axios.get(`${API}/release-intelligence/defect-create-defaults/${vId}`, { headers })
+      .then(r => {
+        if (fieldKey === 'detectedInRelease' && r.data?.targetRelease) {
+          onCommit({ id: r.data.targetRelease.id, label: r.data.targetRelease.label });
+          return;
+        }
+        const opts = r.data?.cycleOptions ?? [];
+        setCycleOptions(opts);
+        const guess = opts.find((c: any) => currentLabel.includes(c.cycleType) || c.cycleType.includes(currentLabel));
+        if (guess) setCycleQcId(guess.qcCycleId);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    if (fieldKey === 'detectedInCycle' && versionId) loadForVersion(versionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [versionId]);
+
+  const selectClass = 'w-full box-border px-1.5 py-1 rounded-sm border border-border text-[13px] bg-card text-foreground';
+
+  if (fieldKey === 'detectedInRelease') {
+    return (
+      <div className="flex flex-col gap-1">
+        <select
+          autoFocus value={versionId}
+          onChange={e => { setVersionId(e.target.value); loadForVersion(e.target.value); }}
+          className={selectClass} dir="ltr"
+        >
+          <option value="">— בחר גרסה —</option>
+          {versions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+        </select>
+        <button onClick={onCancel} className="self-start text-[11px] text-subtle-foreground bg-transparent border-none cursor-pointer p-0">ביטול</button>
+      </div>
+    );
+  }
+
+  // detectedInCycle — needs a version first, then its cycle list.
+  return (
+    <div className="flex flex-col gap-1">
+      <select autoFocus value={versionId} onChange={e => setVersionId(e.target.value)} className={selectClass} dir="ltr">
+        <option value="">— בחר גרסה —</option>
+        {versions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+      </select>
+      {versionId && (
+        loading ? <span className="text-[11px] text-subtle-foreground">טוען סבבים...</span> : (
+          <select
+            value={cycleQcId}
+            onChange={e => setCycleQcId(e.target.value)}
+            className={selectClass} dir="ltr"
+          >
+            <option value="">— בחר סבב —</option>
+            {cycleOptions.map(c => <option key={c.qcCycleId} value={c.qcCycleId}>{CYCLE_LABEL_FALLBACK[c.cycleType] ?? c.cycleType}</option>)}
+          </select>
+        )
+      )}
+      <div className="flex gap-2">
+        <button
+          disabled={!cycleQcId}
+          onClick={() => {
+            const chosen = cycleOptions.find(c => c.qcCycleId === cycleQcId);
+            if (chosen) onCommit({ id: chosen.qcCycleId, label: CYCLE_LABEL_FALLBACK[chosen.cycleType] ?? chosen.cycleType });
+          }}
+          className="text-[11px] font-semibold text-primary bg-transparent border-none cursor-pointer p-0 disabled:opacity-40"
+        >
+          אישור
+        </button>
+        <button onClick={onCancel} className="text-[11px] text-subtle-foreground bg-transparent border-none cursor-pointer p-0">ביטול</button>
+      </div>
+    </div>
   );
 };
 
@@ -458,6 +575,50 @@ export const DefectDetailScreen: React.FC<{
     return () => { alive = false; };
   }, [defectId, headers]);
 
+  // Which business fields this app can actually write to a defect — fetched
+  // from the backend's own TIER2_FIELD_PARAM_KEYS (single source of truth,
+  // 2026-09-23 fixes-batch A.5) instead of a hardcoded frontend list, so
+  // double-click editing automatically covers every field the backend
+  // supports, including ones added later, without a matching frontend edit.
+  // Not defect-specific — fetched once per token, not re-fetched per defect.
+  const [editableFieldKeys, setEditableFieldKeys] = useState<Set<string>>(new Set());
+  // Reference-type editable fields (Detected in Release/Cycle) — separate
+  // set from editableFieldKeys because they need a real release/cycle
+  // picker (RefFieldEditor below), not the plain text/select InlineFieldEditor
+  // every other field uses (2026-09-23, fixes-batch A.5).
+  const [refEditableFieldKeys, setRefEditableFieldKeys] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let alive = true;
+    axios.get(`${API}/qc/defect-editable-fields`, { headers })
+      .then(r => {
+        if (!alive) return;
+        setEditableFieldKeys(new Set(['status', ...(r.data?.fields ?? [])]));
+        setRefEditableFieldKeys(new Set(r.data?.refFields ?? []));
+      })
+      .catch(() => { if (alive) setEditableFieldKeys(new Set(['status'])); });
+    return () => { alive = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  // Real closed-value-lists for the fields QC actually backs with a List-Id
+  // (fixes-batch A.6) — read from our own cache (QcPicklistCache), refreshed
+  // separately by an admin action ("🔄 רענון מטמון רשימות ערכים" in the
+  // "בדיקת כתיבה ל-QC" tab), never a live QC call from this screen itself.
+  const [fieldPicklists, setFieldPicklists] = useState<Record<string, string[]>>({});
+  useEffect(() => {
+    let alive = true;
+    axios.get(`${API}/qc/defect-field-picklists`, { headers })
+      .then(r => {
+        if (!alive) return;
+        const out: Record<string, string[]> = {};
+        for (const [key, entry] of Object.entries<any>(r.data ?? {})) if (entry?.values) out[key] = entry.values;
+        setFieldPicklists(out);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
   const [allowedTransitions, setAllowedTransitions] = useState<string[] | null>(null);
   useEffect(() => {
     if (!currentStatus) { setAllowedTransitions(null); return; }
@@ -470,7 +631,7 @@ export const DefectDetailScreen: React.FC<{
   }, [currentStatus, defectId]);
 
   // Inline sidebar field editor (spec 2026-09-19) — one "✏️ ערוך" toggle puts
-  // the writable fields (INLINE_EDITABLE_FIELDS) into an editable state;
+  // the writable fields (editableFieldKeys, fetched above) into an editable state;
   // double-clicking one opens its own editor in place (select for a closed
   // value-list, text otherwise); one "💾 שמור" batches every pending field
   // into the minimum number of PATCH calls. The older "עדכון ישיר ל-QC" panel
@@ -478,18 +639,22 @@ export const DefectDetailScreen: React.FC<{
   const [editMode, setEditMode] = useState(false);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [pendingEdits, setPendingEdits] = useState<Record<string, string>>({});
+  // Reference-field pending edits (Detected in Release/Cycle) — a real
+  // {id,label} pair, not a plain string, so it's kept in its own map rather
+  // than shoehorned into pendingEdits (2026-09-23, fixes-batch A.5).
+  const [pendingRefEdits, setPendingRefEdits] = useState<Record<string, { id: string; label: string }>>({});
   const [savingInline, setSavingInline] = useState(false);
   const [inlineMsg, setInlineMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   useEffect(() => {
     // A freshly opened/changed defect starts clean — no stale edits carried
     // over from whatever was previously viewed.
-    setEditMode(false); setEditingField(null); setPendingEdits({}); setInlineMsg(null);
+    setEditMode(false); setEditingField(null); setPendingEdits({}); setPendingRefEdits({}); setInlineMsg(null);
   }, [defectId]);
 
   const cancelInlineEdit = () => {
-    if (Object.keys(pendingEdits).length > 0 && !window.confirm('לבטל את השינויים שלא נשמרו?')) return;
-    setEditMode(false); setEditingField(null); setPendingEdits({}); setInlineMsg(null);
+    if ((Object.keys(pendingEdits).length > 0 || Object.keys(pendingRefEdits).length > 0) && !window.confirm('לבטל את השינויים שלא נשמרו?')) return;
+    setEditMode(false); setEditingField(null); setPendingEdits({}); setPendingRefEdits({}); setInlineMsg(null);
   };
 
   const commitInlineField = (key: string, value: string) => {
@@ -502,8 +667,18 @@ export const DefectDetailScreen: React.FC<{
     setEditingField(null);
   };
 
+  const commitInlineRefField = (key: string, value: { id: string; label: string } | null) => {
+    setPendingRefEdits(prev => {
+      const next = { ...prev };
+      if (!value || value.label.trim() === String((detail as any)?.[key] ?? '').trim()) delete next[key];
+      else next[key] = value;
+      return next;
+    });
+    setEditingField(null);
+  };
+
   const saveInlineEdits = async () => {
-    if (Object.keys(pendingEdits).length === 0) return;
+    if (Object.keys(pendingEdits).length === 0 && Object.keys(pendingRefEdits).length === 0) return;
     setSavingInline(true); setInlineMsg(null);
     const errors: string[] = [];
     const { status: pendingStatus, ...restFields } = pendingEdits;
@@ -521,10 +696,19 @@ export const DefectDetailScreen: React.FC<{
         errors.push(err?.response?.data?.message || 'עדכון השדות נכשל');
       }
     }
+    if (Object.keys(pendingRefEdits).length > 0) {
+      try {
+        await axios.patch(`${API}/qc/defects/${encodeURIComponent(defectId)}/ref-fields`, { refFields: pendingRefEdits }, { headers });
+      } catch (err: any) {
+        errors.push(err?.response?.data?.message || 'עדכון שדות ההפניה נכשל');
+      }
+    }
     setSavingInline(false);
     if (errors.length > 0) { setInlineMsg({ kind: 'err', text: errors.join(' · ') }); return; }
-    setDetail(prev => (prev ? ({ ...prev, ...pendingEdits } as DefectFullDetail) : prev));
+    const refUpdates = Object.fromEntries(Object.entries(pendingRefEdits).map(([k, v]) => [k, v.label]));
+    setDetail(prev => (prev ? ({ ...prev, ...pendingEdits, ...refUpdates } as DefectFullDetail) : prev));
     setPendingEdits({});
+    setPendingRefEdits({});
     setEditMode(false);
   };
 
@@ -588,10 +772,13 @@ export const DefectDetailScreen: React.FC<{
                 <button onClick={cancelInlineEdit} className={DETAIL_TOP_BTN_CLASS}>ביטול</button>
                 <button
                   onClick={saveInlineEdits}
-                  disabled={savingInline || Object.keys(pendingEdits).length === 0}
-                  className={`px-3.5 py-1.5 rounded-md border-none cursor-pointer text-[13px] font-semibold bg-primary text-white ${(savingInline || Object.keys(pendingEdits).length === 0) ? 'opacity-50' : 'opacity-100'}`}
+                  disabled={savingInline || (Object.keys(pendingEdits).length === 0 && Object.keys(pendingRefEdits).length === 0)}
+                  className={`px-3.5 py-1.5 rounded-md border-none cursor-pointer text-[13px] font-semibold bg-primary text-white ${(savingInline || (Object.keys(pendingEdits).length === 0 && Object.keys(pendingRefEdits).length === 0)) ? 'opacity-50' : 'opacity-100'}`}
                 >
-                  {savingInline ? 'שומר…' : `💾 שמור${Object.keys(pendingEdits).length > 0 ? ` (${Object.keys(pendingEdits).length})` : ''}`}
+                  {(() => {
+                    const n = Object.keys(pendingEdits).length + Object.keys(pendingRefEdits).length;
+                    return savingInline ? 'שומר…' : `💾 שמור${n > 0 ? ` (${n})` : ''}`;
+                  })()}
                 </button>
               </>
             ) : (
@@ -622,7 +809,12 @@ export const DefectDetailScreen: React.FC<{
         // above the main content instead of sitting beside it, so this whole
         // section is plain dir="rtl" like the rest of the app.
         <div className="flex flex-col gap-6" dir="rtl">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+          {/* direction: ltr here controls only the LEFT-TO-RIGHT box order
+              (זיהוי leftmost, then גילוי, continuing left→right — user
+              request 2026-09-23) — each box below restores dir="rtl" for its
+              own Hebrew title/labels/values, same technique CreateDefectScreen
+              already uses for its own fields-flow container. */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, direction: 'ltr' }}>
             {(() => {
               const groups = detailGroups
                 .map(g => ({ ...g, fields: g.fields.filter(k => detail[k] !== undefined) }))
@@ -630,6 +822,7 @@ export const DefectDetailScreen: React.FC<{
               return groups.map(group => (
                 <div
                   key={group.title}
+                  dir="rtl"
                   className="rounded-xl overflow-hidden px-6 py-6"
                   style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}`, height: '100%' }}
                 >
@@ -638,12 +831,15 @@ export const DefectDetailScreen: React.FC<{
                   </div>
                   <div className="flex flex-col gap-4">
                     {group.fields.map(key => {
-                      const isDirty = pendingEdits[key] !== undefined;
-                      const displayValue = isDirty ? pendingEdits[key] : String(detail[key] ?? '');
+                      const isRefField = refEditableFieldKeys.has(key);
+                      const isDirty = isRefField ? pendingRefEdits[key] !== undefined : pendingEdits[key] !== undefined;
+                      const displayValue = isRefField
+                        ? (pendingRefEdits[key]?.label ?? String(detail[key] ?? ''))
+                        : (pendingEdits[key] !== undefined ? pendingEdits[key] : String(detail[key] ?? ''));
                       const isAtomic = PERSON_BADGE_FIELDS.has(key) || TEAM_BADGE_FIELDS.has(key)
                         || key === 'id' || key === 'status' || key === 'severity' || key === 'priority' || key === 'secondaryPriority';
                       const valRtl = !isAtomic && (!displayValue || hasHebrew(displayValue));
-                      const isEditable = editMode && INLINE_EDITABLE_FIELDS.has(key);
+                      const isEditable = editMode && (editableFieldKeys.has(key) || isRefField);
                       const isEditingThis = editingField === key;
                       // Label above value, matching CreateDefectScreen's Field
                       // component (switched from the prior side-by-side row per
@@ -667,17 +863,28 @@ export const DefectDetailScreen: React.FC<{
                             {DETAIL_FIELD_LABEL[key] ?? key}
                           </span>
                           {isEditingThis ? (
-                            <InlineFieldEditor
-                              fieldKey={key}
-                              initialValue={displayValue}
-                              currentStatus={currentStatus}
-                              allowedTransitions={allowedTransitions}
-                              onCommit={v => commitInlineField(key, v)}
-                              onCancel={() => setEditingField(null)}
-                            />
+                            isRefField ? (
+                              <RefFieldEditor
+                                fieldKey={key}
+                                currentLabel={displayValue}
+                                token={token}
+                                onCommit={v => commitInlineRefField(key, v)}
+                                onCancel={() => setEditingField(null)}
+                              />
+                            ) : (
+                              <InlineFieldEditor
+                                fieldKey={key}
+                                initialValue={displayValue}
+                                currentStatus={currentStatus}
+                                allowedTransitions={allowedTransitions}
+                                dynamicOptions={fieldPicklists[key]}
+                                onCommit={v => commitInlineField(key, v)}
+                                onCancel={() => setEditingField(null)}
+                              />
+                            )
                           ) : (
                             <span
-                              className="text-[13px] font-medium min-w-0 flex items-center flex-wrap gap-1 break-words"
+                              className="text-[15px] font-medium min-w-0 flex items-center flex-wrap gap-1 break-words"
                               style={{ color: JIRA.text, direction: 'rtl', unicodeBidi: valRtl ? 'normal' : 'plaintext' }}
                             >
                               {isDirty && <span title="שינוי לא שמור" style={{ color: JIRA.blue }}>●</span>}
@@ -693,65 +900,62 @@ export const DefectDetailScreen: React.FC<{
             })()}
           </div>
 
-          {/* ══ תוכן מרכזי — כותרת, תיאור, הערות, קבצים, היסטוריה, כתיבה ל-QC ══ */}
-          {/* מסגרת לבנה אחידה, עכשיו ברוחב מלא מתחת לרשת הקבוצות במקום לצידה
-              (2026-09-22) — תואמת את אותה שפה חזותית כמו טופס פתיחת התקלה. */}
+          {/* ══ כותרת — שורת כותרת עצמאית, בלי חלונית, כמו בטופס פתיחת התקלה ══ */}
+          {(() => {
+            const titleText = titleShown ? (detail.title || 'ללא כותרת') : 'פרטי תקלה';
+            const titleRtl = hasHebrew(titleText);
+            return (
+              <div>
+                <div
+                  className={cn('text-xl font-semibold leading-snug break-words', titleRtl ? 'text-right [direction:rtl]' : 'text-left [direction:ltr]')}
+                  style={{ color: JIRA.text }}
+                >
+                  {titleText}
+                </div>
+                <div className="mt-2">
+                  <span className="font-semibold inline-block" style={{ color: JIRA.blue, direction: 'ltr' }}>#{defectId}</span>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* תיאור — חלונית נפרדת מההערות (הופרדו 2026-09-23 לפי בקשת המשתמש;
+              קודם שיתפו חלונית אחת) */}
+          {showDescription && (
+            <div className="rounded-xl px-6 py-6" style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}` }}>
+              <div className={DETAIL_SECTION_HEADING_CLASS} style={{ color: JIRA.textSubtle }}>{DETAIL_FIELD_LABEL.description ?? 'תיאור'}</div>
+              <div
+                className="text-[15px] leading-relaxed text-right whitespace-pre-wrap break-words max-h-[280px] overflow-y-auto"
+                style={{ color: JIRA.text }}
+              >
+                {detail.description ? decodeDefectText(String(detail.description)) : '—'}
+              </div>
+            </div>
+          )}
+
+          {/* הערות מפתח — חלונית נפרדת משלה; פיד כרונולוגי, גובה חסום עם
+              גלילה פנימית כדי שהדף עצמו לא יתארך (כותב + תאריך מודגשים, ואז
+              הגוף) */}
+          {showNotes && (() => {
+            const noteCount = String(detail.notes ?? '').split(/_{5,}/).map(s => s.trim()).filter(Boolean).length;
+            return (
+              <div className="rounded-xl px-6 py-6" style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}` }}>
+                <div className={DETAIL_SECTION_HEADING_CLASS} style={{ color: JIRA.textSubtle }}>
+                  {DETAIL_FIELD_LABEL.notes ?? 'הערות מפתח'}{noteCount > 1 ? ` · ${noteCount}` : ''}
+                </div>
+                <div className="leading-relaxed max-h-[440px] overflow-y-auto">
+                  {renderNotesField(detail.notes)}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* קבצים מצורפים + היסטוריית שינויים — נשארים יחד בחלונית אחת,
+              לא חלק מהבקשה להפרדה (זו לא "תיאור מול הערות"). */}
           <div
             className="min-w-0 flex flex-col gap-6 rounded-lg px-6 py-5"
             style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}` }}
           >
-
-            {/* כותרת */}
-            {(() => {
-              const titleText = titleShown ? (detail.title || 'ללא כותרת') : 'פרטי תקלה';
-              const titleRtl = hasHebrew(titleText);
-              return (
-                <div>
-                  <div
-                    className={cn('text-xl font-semibold leading-snug break-words', titleRtl ? 'text-right [direction:rtl]' : 'text-left [direction:ltr]')}
-                    style={{ color: JIRA.text }}
-                  >
-                    {titleText}
-                  </div>
-                  <div className="mt-2">
-                    <span className="font-semibold inline-block" style={{ color: JIRA.blue, direction: 'ltr' }}>#{defectId}</span>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* תיאור — טקסט עשיר מפוענח */}
-            {showDescription && (
-              <section>
-                <div className={DETAIL_SECTION_HEADING_CLASS} style={{ color: JIRA.textSubtle }}>{DETAIL_FIELD_LABEL.description ?? 'תיאור'}</div>
-                <div
-                  className="text-[15px] leading-relaxed text-right whitespace-pre-wrap break-words max-h-[280px] overflow-y-auto"
-                  style={{ color: JIRA.text }}
-                >
-                  {detail.description ? decodeDefectText(String(detail.description)) : '—'}
-                </div>
-              </section>
-            )}
-
-            {/* הערות מפתח — פיד כרונולוגי, גובה חסום עם גלילה פנימית כדי שהדף
-                עצמו לא יתארך (כותב + תאריך מודגשים, ואז הגוף) */}
-            {showNotes && (() => {
-              const noteCount = String(detail.notes ?? '').split(/_{5,}/).map(s => s.trim()).filter(Boolean).length;
-              return (
-                <section>
-                  <div className={DETAIL_SECTION_HEADING_CLASS} style={{ color: JIRA.textSubtle }}>
-                    {DETAIL_FIELD_LABEL.notes ?? 'הערות מפתח'}{noteCount > 1 ? ` · ${noteCount}` : ''}
-                  </div>
-                  <div className="leading-relaxed max-h-[440px] overflow-y-auto">
-                    {renderNotesField(detail.notes)}
-                  </div>
-                </section>
-              );
-            })()}
-
-            {/* קבצים מצורפים + היסטוריית שינויים — הועברו לכאן מהחלונית
-                הישנה (2026-09-22): לא באמת "קבוצת שדות", אז לא שייכים
-                לרשת הקבוצות הסימטרית שמעל. */}
             <section>
               <div className={DETAIL_SECTION_HEADING_CLASS} style={{ color: JIRA.textSubtle }}>קבצים מצורפים</div>
               <AttachmentsSection defectId={defectId} token={token} />
