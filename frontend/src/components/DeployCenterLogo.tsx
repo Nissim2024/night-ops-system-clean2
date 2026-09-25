@@ -63,29 +63,34 @@ const Owl: React.FC<OwlProps> = ({ size, body, eyes, beak, iris, glint }) => (
 
 interface Props {
   variant?: 'nav' | 'login';
+  // Light-on-dark rendering (2026-09-24) — for the login page's dark brand
+  // panel (theme.ts's C.sidebarBg), which the plain 'login' variant's
+  // near-black wordmark/grey tagline are invisible against. Same layout,
+  // colors only.
+  dark?: boolean;
 }
 
-export const DeployCenterLogo: React.FC<Props> = ({ variant = 'nav' }) => {
+export const DeployCenterLogo: React.FC<Props> = ({ variant = 'nav', dark }) => {
   if (variant === 'login') {
     return (
       <div style={{ textAlign: 'center' }}>
         <Owl
           size={84}
-          body="#2d4a7a"
+          body={dark ? '#4a72b8' : '#2d4a7a'}
           eyes="rgba(255,255,255,0.92)"
           iris="#3498db"
           beak="#e8a020"
           glint="rgba(255,255,255,0.95)"
         />
         <h1 style={{
-          color: '#1a2332', margin: '10px 0 4px', fontSize: '30px', fontWeight: '900',
+          color: dark ? '#FFFFFF' : '#1a2332', margin: '10px 0 4px', fontSize: '30px', fontWeight: '900',
           fontFamily: "'Arial Black', Arial, sans-serif", letterSpacing: '-1px',
           lineHeight: 1,
         }}>
-          Deploy<span style={{ color: '#3498db' }}>Center</span>
+          Deploy<span style={{ color: dark ? '#6EA8FF' : '#3498db' }}>Center</span>
         </h1>
-        <p style={{ color: '#777', margin: 0, fontSize: '14px', letterSpacing: '0.5px' }}>
-          מרכז שליטה ופריסה בזמן אמת
+        <p style={{ color: dark ? 'rgba(237,237,247,0.65)' : '#777', margin: 0, fontSize: '14px', letterSpacing: '0.5px' }}>
+          מתכנון גרסה ועד איכות — במקום אחד
         </p>
       </div>
     );

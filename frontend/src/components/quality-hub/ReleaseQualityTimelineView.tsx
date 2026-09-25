@@ -130,6 +130,10 @@ export const ReleaseQualityTimelineView: React.FC<Props> = ({ token }) => {
   const [barsData, setBarsData] = useState<TimelineData | null>(null);
   const [allSeries, setAllSeries] = useState<TimelineSeries[]>([]);
   const [loading, setLoading] = useState(false);
+  // Years filter defaults to the last 6 — with ~10+ years of historical data
+  // (releases going back to 2015) showing every year by default just crowds
+  // the panel; a checkbox reveals the rest on demand (2026-09-24 feedback).
+  const [showAllYears, setShowAllYears] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -146,6 +150,9 @@ export const ReleaseQualityTimelineView: React.FC<Props> = ({ token }) => {
     const s = new Set(releases.map(r => r.year).filter((y): y is number => y != null));
     return Array.from(s).sort((a, b) => b - a);
   }, [releases]);
+  const YEARS_VISIBLE_DEFAULT = 6;
+  const hasMoreYears = years.length > YEARS_VISIBLE_DEFAULT;
+  const visibleYears = showAllYears ? years : years.slice(0, YEARS_VISIBLE_DEFAULT);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -190,26 +197,38 @@ export const ReleaseQualityTimelineView: React.FC<Props> = ({ token }) => {
     <div className="flex flex-col gap-4 [direction:rtl]">
       <div className="text-lg font-bold text-foreground">📈 ציר זמן איכות גרסה</div>
 
-      <div className="flex flex-wrap gap-4">
-        <div className="rounded-lg border border-border bg-card p-3">
+      {/* Both filter panels share flex-1 (equal, symmetric width) instead of
+          the old fixed max-w/min-w pair — wider panels mean more items per
+          row, which is what actually reduces/removes their scrollbars
+          (2026-09-24 feedback), not a taller box. */}
+      <div className="flex flex-wrap items-start gap-4">
+        <div className="min-w-[280px] flex-1 rounded-lg border border-border bg-card p-3">
           <div className="mb-2 text-xs text-subtle-foreground">סינון לפי שנה</div>
-          <div className="flex max-w-[340px] flex-wrap gap-2">
-            {years.map(y => (
+          <div className="flex flex-wrap gap-2">
+            {visibleYears.map(y => (
               <label key={y} className={cn('flex cursor-pointer items-center gap-1 rounded-sm px-2 py-[3px] text-sm', selectedYears.includes(y) ? 'bg-primary-50' : 'bg-transparent')}>
                 <input type="checkbox" checked={selectedYears.includes(y)} onChange={() => toggleYear(y)} />
                 {y}
               </label>
             ))}
           </div>
-        </div>
-        <div className="min-w-[220px] max-h-[160px] overflow-y-auto rounded-lg border border-border bg-card p-3">
-          <div className="mb-2 text-xs text-subtle-foreground">או בחר גרסאות ספציפיות</div>
-          {releases.map(r => (
-            <label key={r.releaseName} className="flex cursor-pointer items-center gap-2 py-0.5 text-sm">
-              <input type="checkbox" checked={selectedReleases.includes(r.releaseName)} onChange={() => toggleRelease(r.releaseName)} />
-              {r.releaseName}
+          {hasMoreYears && (
+            <label className="mt-2 flex cursor-pointer items-center gap-1.5 border-t border-border pt-2 text-xs text-subtle-foreground">
+              <input type="checkbox" checked={showAllYears} onChange={e => setShowAllYears(e.target.checked)} />
+              הצג שנים נוספות ({years.length - YEARS_VISIBLE_DEFAULT} שנים ישנות יותר)
             </label>
-          ))}
+          )}
+        </div>
+        <div className="min-w-[280px] max-h-[200px] flex-1 overflow-y-auto rounded-lg border border-border bg-card p-3">
+          <div className="mb-2 text-xs text-subtle-foreground">או בחר גרסאות ספציפיות</div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {releases.map(r => (
+              <label key={r.releaseName} className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap text-sm">
+                <input type="checkbox" checked={selectedReleases.includes(r.releaseName)} onChange={() => toggleRelease(r.releaseName)} />
+                {r.releaseName}
+              </label>
+            ))}
+          </div>
         </div>
         {(selectedYears.length > 0 || selectedReleases.length > 0) && (
           <button
@@ -223,15 +242,19 @@ export const ReleaseQualityTimelineView: React.FC<Props> = ({ token }) => {
 
       <div className="rounded-lg border border-border bg-card p-3">
         <div className="mb-2 text-xs text-subtle-foreground">הצג מדד על גבי ציון הגרסה הכללי</div>
-        {/* flex-wrap + justify-content:center, not a grid — a grid with
-            auto-fill locks in a fixed column count sized to the container,
-            so a short last row only fills some of those columns and leaves
-            visible empty space hanging on one side (looked like an
-            unintentional line-wrap). Centering the wrap means a partial last
-            row sits centered instead, which reads as intentional at any
-            item count; a fixed button width keeps every row's columns
-            aligned (order stays source/DOM order, unchanged). */}
-        <div className="flex flex-wrap justify-center gap-2">
+        {/* Fixed 2-row grid (2026-09-24 feedback: restore the previous
+            layout/order) — columns = ceil(n/2), so however many KPIs are
+            defined always lay out as exactly two rows, filled in kpiOrder
+            (the backend already returns getKpiDefinitions() sorted
+            `orderBy: kpiOrder asc`, so DOM order here already IS the
+            intended order — this only fixes how it wraps). Previously a
+            flex-wrap wrapped into however many rows the container's current
+            width happened to produce, which drifted with viewport width
+            instead of staying at a fixed two. */}
+        <div
+          className="grid gap-2"
+          style={{ gridTemplateColumns: `repeat(${Math.max(1, Math.ceil(kpiDefs.length / 2))}, minmax(150px, 1fr))` }}
+        >
           {kpiDefs.map(k => {
             const active = selectedKpis.includes(k.kpiName);
             const color = kpiColor(k.kpiOrder);
@@ -240,7 +263,7 @@ export const ReleaseQualityTimelineView: React.FC<Props> = ({ token }) => {
                 key={k.kpiName}
                 onClick={() => toggleKpi(k.kpiName)}
                 className={cn(
-                  'flex flex-none basis-[190px] cursor-pointer items-center justify-center gap-1.5 rounded-md px-3 py-[5px] text-sm',
+                  'flex cursor-pointer items-center justify-center gap-1.5 rounded-md px-3 py-[5px] text-sm',
                   active ? 'font-bold' : 'font-normal'
                 )}
                 style={{
