@@ -117,6 +117,14 @@ interface Cycle {
   plannedEnd: string;
   notes: string | null;
   tasks: CycleTask[];
+  // QG Threshold High/Medium/Low + Environment (2026-09-23) — sent to QC as
+  // user-01/02/03/04 when "צור ב-QC" creates this cycle; QC rejects creation
+  // without them (qccore.required-field-missing on user-01). Seeded with a
+  // per-cycleType default server-side, editable here before publish.
+  qgThresholdHigh: number | null;
+  qgThresholdMedium: number | null;
+  qgThresholdLow: number | null;
+  qgEnvironment: string | null;
 }
 
 interface ChangeLogEntry {
@@ -348,6 +356,13 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
   const [onlyOverflowing, setOnlyOverflowing] = useState(false);
   const [editNotes, setEditNotes]         = useState<Record<string, string>>({});
   const [savingNotes, setSavingNotes]     = useState<Record<string, boolean>>({});
+  const [savingQg, setSavingQg]           = useState<Record<string, boolean>>({});
+  // Real QC Environment picklist (2026-09-23) — same cache as the defect
+  // edit form (List-Id 172, QcPicklistCache), reused here for the cycle QG
+  // "Environment" field's dropdown. Best-effort: a caller without
+  // action:qc_defect_edit_extended (or an empty/never-synced cache) just
+  // gets an empty list, and the field below falls back to plain text.
+  const [environmentOptions, setEnvironmentOptions] = useState<string[]>([]);
   const [togglingTasks, setTogglingTasks] = useState<Set<string>>(new Set());
   const [filterUserId, setFilterUserId]   = useState('');
   const [editingEffort, setEditingEffort] = useState<string | null>(null);
@@ -374,6 +389,10 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
   // once so approve() knows whether to offer the follow-up confirm at all.
   const [qcPublishEnabled, setQcPublishEnabled] = useState(false);
   const [publishingToQc, setPublishingToQc] = useState(false);
+
+  useEffect(() => {
+    ax.get(`${API}/qc/defect-field-picklists`).then(r => setEnvironmentOptions(r.data?.environment?.values ?? [])).catch(() => {});
+  }, []);
 
   useEffect(() => {
     ax.get(`${API}/qa/testers`).then(r => setAllTesters(r.data ?? [])).catch(() => {});
@@ -701,6 +720,23 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
       dialog.alert('שגיאה בשמירת הערות', 'שגיאה', 'danger');
     } finally {
       setSavingNotes(prev => ({ ...prev, [cycleId]: false }));
+    }
+  };
+
+  const saveQg = async (cycleId: string, data: {
+    qgThresholdHigh: number | null; qgThresholdMedium: number | null; qgThresholdLow: number | null; qgEnvironment: string | null;
+  }) => {
+    setSavingQg(prev => ({ ...prev, [cycleId]: true }));
+    try {
+      await ax.patch(`${API}/qa/workplan/cycle/${cycleId}/qg`, data);
+      setWorkPlan(prev => prev ? {
+        ...prev,
+        cycles: prev.cycles.map(c => c.id === cycleId ? { ...c, ...data } : c),
+      } : null);
+    } catch {
+      dialog.alert('שגיאה בשמירת ערכי QG', 'שגיאה', 'danger');
+    } finally {
+      setSavingQg(prev => ({ ...prev, [cycleId]: false }));
     }
   };
 
@@ -1256,6 +1292,9 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
           onNotesChange={text => setEditNotes(prev => ({ ...prev, [cycle.id]: text }))}
           onSaveNotes={() => saveNotes(cycle.id)}
           savingNotes={!!savingNotes[cycle.id]}
+          onSaveQg={data => saveQg(cycle.id, data)}
+          savingQg={!!savingQg[cycle.id]}
+          environmentOptions={environmentOptions}
           planApproved={workPlan?.status === 'APPROVED'}
           filterUserId={filterUserId}
           editingEffort={editingEffort}
@@ -2015,6 +2054,9 @@ interface CycleCardProps {
   onNotesChange:   (text: string) => void;
   onSaveNotes:     () => void;
   savingNotes:     boolean;
+  onSaveQg:        (data: { qgThresholdHigh: number | null; qgThresholdMedium: number | null; qgThresholdLow: number | null; qgEnvironment: string | null }) => void;
+  savingQg:        boolean;
+  environmentOptions: string[];
   planApproved:    boolean;
   filterUserId:    string;
   editingEffort:   string | null;
@@ -2040,7 +2082,8 @@ interface CycleCardProps {
 
 function CycleCard({
   cycle, expanded, onToggleExpand, onToggleTask,
-  togglingTasks, editNotes, onNotesChange, onSaveNotes, savingNotes, planApproved,
+  togglingTasks, editNotes, onNotesChange, onSaveNotes, savingNotes,
+  onSaveQg, savingQg, environmentOptions, planApproved,
   filterUserId, editingEffort, onEditEffort, onSaveEffort,
   assignmentMap, onOpenSecondary, onReorderTask, reorderingTask,
   allAssignments, problematicKeys,
@@ -2048,6 +2091,14 @@ function CycleCard({
   onDeleteTask, deletingTask,
   urgentCrNumbers, standAloneCycle, coreCycles, holidayDays,
 }: CycleCardProps) {
+  // Local draft for the QG Threshold/Environment inputs (2026-09-23) — a
+  // fresh instance per cycle (this component is keyed by cycle.id in the
+  // parent's .map), so plain useState here already resets correctly when
+  // switching cycles; no resync effect needed.
+  const [qgDraft, setQgDraft] = useState({
+    high: cycle.qgThresholdHigh, medium: cycle.qgThresholdMedium,
+    low: cycle.qgThresholdLow, environment: cycle.qgEnvironment,
+  });
   const accent = CYCLE_ACCENT[cycle.cycleType] ?? C.textMuted;
   const bg     = CYCLE_BG[cycle.cycleType]     ?? C.bgNested;
   const label  = CYCLE_LABEL[cycle.cycleType]  ?? cycle.cycleType;
@@ -2162,6 +2213,73 @@ function CycleCard({
       {/* Body */}
       {expanded && (
         <div className="p-4">
+          {/* QG Threshold High/Medium/Low + Environment (2026-09-23) — sent
+              to QC as user-01/02/03/04 when this cycle is created there via
+              "צור ב-QC"; QC rejects creation without them. Applies to every
+              cycle type (not just Rehearsal/Go-Live), unlike the freeform
+              notes block below. */}
+          <div className="mb-3 rounded-md border border-border bg-muted p-3">
+            <div className="mb-2 text-xs font-bold uppercase tracking-wider text-subtle-foreground">
+              QG Threshold (נשלח ל-QC ביצירת הסבב)
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="flex flex-col gap-1 text-xs text-subtle-foreground">
+                High
+                <input
+                  type="number"
+                  value={qgDraft.high ?? ''}
+                  onChange={e => setQgDraft(d => ({ ...d, high: e.target.value === '' ? null : Number(e.target.value) }))}
+                  className="w-20 rounded-md border border-border p-1.5 text-sm text-foreground"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-subtle-foreground">
+                Medium
+                <input
+                  type="number"
+                  value={qgDraft.medium ?? ''}
+                  onChange={e => setQgDraft(d => ({ ...d, medium: e.target.value === '' ? null : Number(e.target.value) }))}
+                  className="w-20 rounded-md border border-border p-1.5 text-sm text-foreground"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-subtle-foreground">
+                Low
+                <input
+                  type="number"
+                  value={qgDraft.low ?? ''}
+                  onChange={e => setQgDraft(d => ({ ...d, low: e.target.value === '' ? null : Number(e.target.value) }))}
+                  className="w-20 rounded-md border border-border p-1.5 text-sm text-foreground"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-subtle-foreground">
+                Environment
+                {environmentOptions.length > 0 ? (
+                  <select
+                    value={qgDraft.environment ?? ''}
+                    onChange={e => setQgDraft(d => ({ ...d, environment: e.target.value || null }))}
+                    className="min-w-[140px] rounded-md border border-border p-1.5 text-sm text-foreground"
+                  >
+                    <option value="">—</option>
+                    {environmentOptions.map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={qgDraft.environment ?? ''}
+                    onChange={e => setQgDraft(d => ({ ...d, environment: e.target.value || null }))}
+                    className="min-w-[140px] rounded-md border border-border p-1.5 text-sm text-foreground"
+                  />
+                )}
+              </label>
+              <button
+                onClick={() => onSaveQg({ qgThresholdHigh: qgDraft.high, qgThresholdMedium: qgDraft.medium, qgThresholdLow: qgDraft.low, qgEnvironment: qgDraft.environment })}
+                disabled={savingQg}
+                className={wpBtnClass('info', savingQg)}
+              >
+                {savingQg ? 'שומר...' : 'שמור'}
+              </button>
+            </div>
+          </div>
+
           {isRehearsalOrGoLive ? (
             <div>
               {/* Marked CRs list */}

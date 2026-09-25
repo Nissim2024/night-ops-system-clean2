@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { C, JIRA } from '../../theme';
+import { C } from '../../theme';
 import { useReleaseCount } from './releaseCountSetting';
-import { IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, PersonAvatar, NameBadge, hasHebrew, SelectColumnsDialog } from '../shared/defectFieldDisplay';
 import { BackLink } from '../ui';
+import { DefectDrilldownModal } from '../release-intelligence/DefectDrilldownModal';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -37,106 +37,6 @@ interface ProblemNote {
 }
 type ProblemDraft = { problemCharacteristics: string; defectCount: string };
 const EMPTY_PROBLEM_DRAFT: ProblemDraft = { problemCharacteristics: '', defectCount: '' };
-
-// Defect column catalog — same DefectDto shape /qc/defects-by-kpi returns
-// everywhere else in the app (DefectDrilldownModal's ALL_COLUMNS, which this
-// mirrors field-for-field — extended 2026-09-14 alongside it so no screen is
-// left with the older, narrower/Hebrew-labeled catalog). Column picker (same
-// shared dialog as every other defect table — feedback 2026-09-10) replaces
-// this screen's old fixed 6-column list.
-type DefectColumnKey =
-  | 'id' | 'title' | 'subject' | 'severity' | 'status' | 'assignedTo' | 'qaTester' | 'discoveryDate' | 'priority'
-  | 'reporter' | 'environment' | 'testPhase' | 'defectType' | 'system' | 'responsibility' | 'crHbrNumberReference'
-  | 'crReferenceNumber' | 'fixType' | 'reason' | 'reopenYn' | 'targetRelease' | 'estimatedFixTime' | 'actualFixTime'
-  | 'closedBy' | 'deploymentReason' | 'fixedUntil' | 'vendorStatus' | 'responseDate' | 'supportReferenceNumber'
-  | 'subModule' | 'fixedInProd' | 'mainModule' | 'supportStatus' | 'vendorAssignTo' | 'category' | 'itemType'
-  | 'estimateFixTime' | 'platform' | 'modified' | 'detectedInRelease' | 'detectedInCycle' | 'targetCycle'
-  | 'crStatus' | 'dropNumber' | 'influence' | 'secondaryPriority' | 'releaseDefect' | 'businessProcess'
-  | 'foundByAutomation' | 'mainBusinessProcess' | 'impact' | 'productionReason' | 'environmentComponent'
-  | 'willBeTestAtGoLive' | 'deploymentCategory' | 'defectResponsible' | 'targetReleaseReason' | 'targetType'
-  | 'systemComponent' | 'forRegressionTest' | 'escDefectResponsible' | 'toBeTestedOnProd' | 'deploymentDateProd'
-  | 'targetScopeApproved';
-const DEFECT_COLUMNS: { key: DefectColumnKey; label: string }[] = [
-  { key: 'id', label: 'Defect ID' },
-  { key: 'title', label: 'Title' },
-  { key: 'subject', label: 'Subject' },
-  { key: 'severity', label: 'Severity' },
-  { key: 'status', label: 'Bug Status' },
-  { key: 'assignedTo', label: 'Assigned To' },
-  { key: 'qaTester', label: 'Tester' },
-  { key: 'discoveryDate', label: 'Detected on Date' },
-  { key: 'priority', label: 'Priority' },
-  { key: 'reporter', label: 'Detected By' },
-  { key: 'environment', label: 'Environment' },
-  { key: 'testPhase', label: 'Test Phase' },
-  { key: 'defectType', label: 'Bug Type' },
-  { key: 'system', label: 'Project' },
-  { key: 'responsibility', label: 'Responsibility' },
-  { key: 'crHbrNumberReference', label: 'CR/HBR Number reference' },
-  { key: 'crReferenceNumber', label: 'CR Reference Number' },
-  { key: 'fixType', label: 'Fix Type' },
-  { key: 'reason', label: 'Reason' },
-  { key: 'reopenYn', label: 'Reopen Y/N' },
-  { key: 'targetRelease', label: 'Target Release' },
-  { key: 'estimatedFixTime', label: 'Estimated Fix Time' },
-  { key: 'actualFixTime', label: 'Fix Time' },
-  { key: 'closedBy', label: 'Closed By' },
-  { key: 'deploymentReason', label: 'Deployment Reason' },
-  { key: 'fixedUntil', label: 'Fixed Until' },
-  { key: 'vendorStatus', label: 'Vendor Status' },
-  { key: 'responseDate', label: 'Response Date' },
-  { key: 'supportReferenceNumber', label: 'Support Reference Number' },
-  { key: 'subModule', label: 'Sub Module' },
-  { key: 'fixedInProd', label: 'Fixed in Prod' },
-  { key: 'mainModule', label: 'Main Module' },
-  { key: 'supportStatus', label: 'Support Status' },
-  { key: 'vendorAssignTo', label: 'Assign To (Vendor)' },
-  { key: 'category', label: 'Category' },
-  { key: 'itemType', label: 'Item Type' },
-  { key: 'estimateFixTime', label: 'Estimate Fix Time' },
-  { key: 'platform', label: 'Platform' },
-  { key: 'modified', label: 'Modified' },
-  { key: 'detectedInRelease', label: 'Detected in Release' },
-  { key: 'detectedInCycle', label: 'Detected in Cycle' },
-  { key: 'targetCycle', label: 'Target Cycle' },
-  { key: 'crStatus', label: 'CR Status' },
-  { key: 'dropNumber', label: 'Drop#' },
-  { key: 'influence', label: 'Influence' },
-  { key: 'secondaryPriority', label: 'Secondary Priority' },
-  { key: 'releaseDefect', label: 'Release Defect' },
-  { key: 'businessProcess', label: 'Business Process' },
-  { key: 'foundByAutomation', label: 'Found By Automation' },
-  { key: 'mainBusinessProcess', label: 'Main Business Process' },
-  { key: 'impact', label: 'Impact' },
-  { key: 'productionReason', label: 'Production Reason' },
-  { key: 'environmentComponent', label: 'Environment Component' },
-  { key: 'willBeTestAtGoLive', label: 'Will Be Test At Go Live' },
-  { key: 'deploymentCategory', label: 'Deployment Category' },
-  { key: 'defectResponsible', label: 'Defect Responsible' },
-  { key: 'targetReleaseReason', label: 'Target Release Reason' },
-  { key: 'targetType', label: 'Target Type' },
-  { key: 'systemComponent', label: 'System Component' },
-  { key: 'forRegressionTest', label: 'For Regression Test' },
-  { key: 'escDefectResponsible', label: 'Esc Defect Responsible' },
-  { key: 'toBeTestedOnProd', label: 'To Be Tested On Prod' },
-  { key: 'deploymentDateProd', label: 'Deployment Date (Prod)' },
-  { key: 'targetScopeApproved', label: 'Target Scope Approved' },
-];
-const DEFAULT_DEFECT_COLUMNS: DefectColumnKey[] = ['id', 'title', 'severity', 'status', 'assignedTo', 'discoveryDate'];
-const DEFECT_COLUMNS_STORAGE_KEY = 'deploycenter_kpi_defect_columns_v1';
-const PERSON_BADGE_FIELDS = new Set<DefectColumnKey>(['reporter', 'assignedTo', 'qaTester', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo']);
-const TEAM_BADGE_FIELDS = new Set<DefectColumnKey>(['responsibility']);
-function renderDefectCell(key: DefectColumnKey, value: unknown) {
-  const s = String(value ?? '');
-  if (!s) return key === 'priority' ? <PriorityCell value="" /> : '—';
-  if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={s} full />;
-  if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
-  if (key === 'id') return <IssueKeyLink id={s} />;
-  if (key === 'status') return <StatusBadge status={s} />;
-  if (key === 'severity') return <SeverityBadge severity={s} />;
-  if (key === 'priority') return <PriorityCell value={s} />;
-  return s;
-}
 
 interface ImprovementTask {
   id: string;
@@ -318,29 +218,18 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
 
   // Defect-level drill-down only exists for releases with a real linked QC/
   // Oracle release — most historical releases here are Excel-only rows with
-  // no defect source to drill into.
-  const [qcLink, setQcLink] = useState<{ versionId: string; hasQcData: boolean } | null>(null);
-  const [defects, setDefects] = useState<any[] | null>(null);
-  const [showDefects, setShowDefects] = useState(false);
-  const [defectsLoading, setDefectsLoading] = useState(false);
-  const [defectsError, setDefectsError] = useState<string | null>(null);
-  const [severityFilter, setSeverityFilter] = useState<string | null>(null);
-  const [showColumnPicker, setShowColumnPicker] = useState(false);
-  const [defectColumns, setDefectColumns] = useState<DefectColumnKey[]>(() => {
-    try {
-      const saved = localStorage.getItem(DEFECT_COLUMNS_STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch { /* ignore malformed storage */ }
-    return DEFAULT_DEFECT_COLUMNS;
-  });
-  const applyDefectColumns = (keys: DefectColumnKey[]) => {
-    setDefectColumns(keys);
-    try { localStorage.setItem(DEFECT_COLUMNS_STORAGE_KEY, JSON.stringify(keys)); } catch { /* ignore quota errors */ }
-    setShowColumnPicker(false);
-  };
-  const visibleDefectColumns = defectColumns
-    .map(key => DEFECT_COLUMNS.find(c => c.key === key))
-    .filter((c): c is { key: DefectColumnKey; label: string } => !!c);
+  // no defect source to drill into. `versionId`/`relId` widened 2026-09-23
+  // (fixes-batch item I): a release with no local Version row (every release
+  // older than this app) now resolves to `relId` alone instead of returning
+  // null outright — see quality-hub.service.ts's getQcLinkForRelease.
+  const [qcLink, setQcLink] = useState<{ versionId: string | null; relId: number | null; hasQcData: boolean } | null>(null);
+  // Which defect list to show, if any — replaces the old inline table
+  // (2026-09-23, fixes-batch item J: "לבטל את טבלת התקלות ... ולהעביר את
+  // המשתמש לעמוד משלו... כמו לוח באגים") with the same shared
+  // DefectDrilldownModal every other defect list in the app already uses
+  // (full-page, column picker, sort, resize, click-through to defect
+  // detail) instead of a second, narrower reimplementation.
+  const [drilldown, setDrilldown] = useState<{ severity?: string } | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -353,9 +242,7 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
 
   useEffect(() => {
     setQcLink(null);
-    setShowDefects(false);
-    setDefects(null);
-    setDefectsError(null);
+    setDrilldown(null);
     axios.get(`${API}/quality-hub/qc-link/${encodeURIComponent(releaseName)}`, { headers })
       .then(res => setQcLink(res.data))
       .catch(() => setQcLink(null));
@@ -369,45 +256,26 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
   const KPI_WITHOUT_DEFECT_LIST = ['Average Time Resolved Defect KPI', 'Defect Resolution Time KPI'];
   const hasDefectDrillDown = !KPI_WITHOUT_DEFECT_LIST.includes(kpiName);
 
-  const ensureDefectsLoaded = () => {
-    if (defects != null || defectsError || !qcLink?.versionId) return;
-    setDefectsLoading(true);
-    setDefectsError(null);
-    axios.get(`${API}/qc/defects-by-kpi?versionId=${qcLink.versionId}&kpiName=${encodeURIComponent(kpiName)}`, { headers })
-      .then(res => setDefects(res.data ?? []))
-      .catch(e => setDefectsError(e?.response?.data?.message || e.message || 'שגיאה בטעינת התקלות'))
-      .finally(() => setDefectsLoading(false));
-  };
-  const toggleDefects = () => {
-    if (showDefects) { setShowDefects(false); return; }
-    setSeverityFilter(null);
-    setShowDefects(true);
-    ensureDefectsLoaded();
+  const drilldownEndpoint = (severity?: string) => {
+    if (!qcLink) return '';
+    const idParam = qcLink.versionId ? `versionId=${qcLink.versionId}` : `relId=${qcLink.relId}`;
+    const sevParam = severity ? `&severity=${encodeURIComponent(severity)}` : '';
+    return `${API}/qc/defects-by-kpi?${idParam}&kpiName=${encodeURIComponent(kpiName)}${sevParam}`;
   };
 
   // Arrived here via a direct click on the matrix row's Total-Defects/
   // severity cell (KpiMatrixView) — skip the intermediate "🪲 צפה בתקלות"
   // click and land straight on the expanded list, same as if the user had
   // clicked it themselves. Guarded on qcLink resolving (async) and only
-  // fires once, since toggleDefects() would otherwise re-collapse the list
-  // if this effect re-ran after the user manually toggled it closed.
+  // fires once.
   const autoOpenedRef = useRef(false);
   useEffect(() => {
     if (!autoOpenDrilldown || autoOpenedRef.current) return;
     if (!qcLink?.hasQcData || !hasDefectDrillDown) return;
     autoOpenedRef.current = true;
-    toggleDefects();
+    setDrilldown({});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoOpenDrilldown, qcLink, hasDefectDrillDown]);
-  // Drill-down from a severity KpiCard (feedback 2026-09-14: "לאפשר דריל
-  // מכל מקום שבו יש ספירה של תקלות לפי severity") — same defect list
-  // toggleDefects already fetches (one KPI-scoped fetch either way), just
-  // opened pre-filtered to that severity instead of showing everything.
-  const showDefectsForSeverity = (severity: string) => {
-    setSeverityFilter(severity);
-    setShowDefects(true);
-    ensureDefectsLoaded();
-  };
 
   const canEditImprovements = NOTE_EDITOR_ROLES.includes(role);
 
@@ -647,125 +515,26 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
                     data.liveSeverity.showStopper + data.liveSeverity.severe + data.liveSeverity.medium + data.liveSeverity.low
                   )}
                   label='סה"כ תקלות (חי)'
-                  onClick={qcLink?.hasQcData && hasDefectDrillDown ? toggleDefects : undefined}
+                  onClick={qcLink?.hasQcData && hasDefectDrillDown ? () => setDrilldown({}) : undefined}
                 />
                 <KpiCard
                   value={fmtCount(data.liveSeverity.showStopper)} label="Show Stopper (חי)" valueColor={C.danger}
-                  onClick={qcLink?.hasQcData && hasDefectDrillDown ? () => showDefectsForSeverity('Show Stopper') : undefined}
+                  onClick={qcLink?.hasQcData && hasDefectDrillDown ? () => setDrilldown({ severity: 'Show Stopper' }) : undefined}
                 />
                 <KpiCard
                   value={fmtCount(data.liveSeverity.severe)} label="Severe (חי)" valueColor="#e8af00"
-                  onClick={qcLink?.hasQcData && hasDefectDrillDown ? () => showDefectsForSeverity('Severe') : undefined}
+                  onClick={qcLink?.hasQcData && hasDefectDrillDown ? () => setDrilldown({ severity: 'Severe' }) : undefined}
                 />
                 <KpiCard
                   value={fmtCount(data.liveSeverity.medium)} label="Medium (חי)"
-                  onClick={qcLink?.hasQcData && hasDefectDrillDown ? () => showDefectsForSeverity('Medium') : undefined}
+                  onClick={qcLink?.hasQcData && hasDefectDrillDown ? () => setDrilldown({ severity: 'Medium' }) : undefined}
                 />
                 <KpiCard
                   value={fmtCount(data.liveSeverity.low)} label="Low (חי)"
-                  onClick={qcLink?.hasQcData && hasDefectDrillDown ? () => showDefectsForSeverity('Low') : undefined}
+                  onClick={qcLink?.hasQcData && hasDefectDrillDown ? () => setDrilldown({ severity: 'Low' }) : undefined}
                 />
               </div>
             </div>
-          )}
-
-          {qcLink?.hasQcData && hasDefectDrillDown && (
-            <div className="rounded-lg border border-border bg-card p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-sm font-semibold text-muted-foreground">
-                  תקלות (QC) — מסונן לפי {kpiName} — {releaseName}{severityFilter ? ` · ${severityFilter}` : ''}
-                </div>
-                <div className="flex gap-2">
-                  {showDefects && severityFilter && (
-                    <button
-                      onClick={() => setSeverityFilter(null)}
-                      className="cursor-pointer rounded-md border border-border bg-muted px-3.5 py-1.5 font-sans text-xs font-semibold text-muted-foreground"
-                    >
-                      ✕ נקה סינון חומרה
-                    </button>
-                  )}
-                  {showDefects && (
-                    <button
-                      onClick={() => setShowColumnPicker(true)}
-                      className="cursor-pointer rounded-md border border-border bg-muted px-3.5 py-1.5 font-sans text-xs font-semibold text-muted-foreground"
-                    >
-                      ⚙ בחירת עמודות
-                    </button>
-                  )}
-                  <button
-                    onClick={toggleDefects}
-                    className="cursor-pointer rounded-md border-none bg-primary px-3.5 py-1.5 font-sans text-xs font-semibold text-primary-foreground"
-                  >
-                    {showDefects ? 'הסתר' : '🪲 צפה בתקלות'}
-                  </button>
-                </div>
-              </div>
-              {showDefects && (
-                <div className="mt-3 overflow-x-auto">
-                  {defectsLoading ? (
-                    <div className="p-3 text-xs text-subtle-foreground">טוען...</div>
-                  ) : defectsError ? (
-                    <div className="p-3 text-xs text-danger">⚠️ שגיאה בטעינת התקלות: {defectsError}</div>
-                  ) : !defects || defects.length === 0 ? (
-                    <div className="p-3 text-xs text-subtle-foreground">אין תקלות זמינות לגרסה זו</div>
-                  ) : (() => {
-                    const filteredDefects = severityFilter ? defects.filter(d => d.severity === severityFilter) : defects;
-                    if (filteredDefects.length === 0) {
-                      return <div className="p-3 text-xs text-subtle-foreground">אין תקלות בחומרה {severityFilter}</div>;
-                    }
-                    return (
-                    <div className="overflow-hidden rounded-md bg-card" style={{ border: `1px solid ${JIRA.greyN40}` }}>
-                      <table className="w-full border-collapse text-xs">
-                        <thead>
-                          <tr>
-                            {visibleDefectColumns.map(c => (
-                              <th
-                                key={c.key}
-                                className="px-2 py-2 text-end text-[11px] font-bold tracking-wide"
-                                style={{ color: JIRA.textSubtle, borderBottom: `2px solid ${JIRA.greyN40}` }}
-                              >{c.label}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filteredDefects.map(d => (
-                            <tr key={d.id}>
-                              {visibleDefectColumns.map(c => {
-                                const isBadge = PERSON_BADGE_FIELDS.has(c.key) || TEAM_BADGE_FIELDS.has(c.key);
-                                const isCentered = c.key === 'id' || c.key === 'severity' || c.key === 'status' || c.key === 'priority' || c.key === 'reopenYn';
-                                const raw = String(d[c.key] ?? '');
-                                const rtl = isBadge || isCentered ? false : hasHebrew(raw);
-                                return (
-                                  <td
-                                    key={c.key}
-                                    style={{
-                                      padding: '7px 8px', borderBottom: `1px solid ${JIRA.greyN40}`, color: isBadge || c.key === 'severity' || c.key === 'id' || c.key === 'priority' ? undefined : JIRA.text,
-                                      textAlign: isCentered ? 'center' : (rtl ? 'right' : 'left'), direction: isCentered ? undefined : (rtl ? 'rtl' : 'ltr'),
-                                    }}
-                                  >
-                                    {renderDefectCell(c.key, d[c.key])}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    );
-                  })()}
-                </div>
-              )}
-            </div>
-          )}
-
-          {showColumnPicker && (
-            <SelectColumnsDialog
-              allColumns={DEFECT_COLUMNS}
-              visibleKeys={defectColumns}
-              onApply={applyDefectColumns}
-              onClose={() => setShowColumnPicker(false)}
-            />
           )}
 
           <div className="rounded-lg border border-border bg-card p-4">
@@ -949,6 +718,16 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
             )}
           </div>
         </>
+      )}
+      {drilldown && qcLink && (
+        <DefectDrilldownModal
+          token={token}
+          versionId={qcLink.versionId ?? undefined}
+          screen="quality-hub" filter="" value={undefined}
+          endpoint={drilldownEndpoint(drilldown.severity)}
+          title={`תקלות (QC) — ${kpiName} — ${releaseName}${drilldown.severity ? ` · ${drilldown.severity}` : ''}`}
+          onClose={() => setDrilldown(null)}
+        />
       )}
     </div>
   );

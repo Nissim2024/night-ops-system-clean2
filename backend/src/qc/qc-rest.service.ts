@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
 import { XMLParser } from 'fast-xml-parser';
+import { QG_CYCLE_DEFAULTS } from '../qa/qa-workplan.service';
+import { CycleType } from '../qa/qa.scheduler';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
@@ -468,6 +470,56 @@ export class QcRestService {
     }
   }
 
+  // Business-field → QC List-Id map (2026-09-23, fixes-batch A.6) — only the
+  // fields already confirmed as real LookupList types backed by a real
+  // List-Id in the 2026-09-23 field dump. Severity/Priority deliberately
+  // excluded — they're plain closed enums with no QC "List" behind them,
+  // already hardcoded in the frontend (TIER2_FIELD_OPTIONS) since 2026-09-18.
+  // environmentComponent excluded too — it's a plain String field in QC, not
+  // a LookupList, so free text is correct for it, not a picklist.
+  private static readonly FIELD_LIST_ID: Record<string, string> = {
+    responsibility: '342',
+    bugType: '410',
+    testPhase: '394',
+    environment: '172',
+    crHbrReference: '20984',
+  };
+
+  // Refreshes the QcPicklistCache table from QC's real Project Lists
+  // (2026-09-23, fixes-batch A.6) — an explicit admin action, not a live call
+  // per form render (see QcPicklistCache's own schema comment for why: every
+  // QC REST call here does a full login+logout dance). Only caches the lists
+  // this app actually maps a field to (FIELD_LIST_ID above), not every list
+  // in the project — QC projects commonly have hundreds of unrelated lists.
+  async syncQcPicklists(userId: string): Promise<{ synced: number; listIds: string[] }> {
+    const allLists = await this.probeProjectLists(userId);
+    const neededIds = new Set(Object.values(QcRestService.FIELD_LIST_ID));
+    const relevant = allLists.filter(l => neededIds.has(l.id));
+    for (const list of relevant) {
+      await prisma.qcPicklistCache.upsert({
+        where: { listId: list.id },
+        create: { listId: list.id, listName: list.name, values: list.values },
+        update: { listName: list.name, values: list.values, lastSyncAt: new Date() },
+      });
+    }
+    return { synced: relevant.length, listIds: relevant.map(l => l.id) };
+  }
+
+  // Reads the cache built by syncQcPicklists, keyed by business field name
+  // (2026-09-23, fixes-batch A.6) — what the create/edit forms actually
+  // fetch; never touches QC directly.
+  async getDefectFieldPicklists(): Promise<Record<string, { values: string[]; lastSyncAt: Date } | null>> {
+    const listIds = Object.values(QcRestService.FIELD_LIST_ID);
+    const rows = await prisma.qcPicklistCache.findMany({ where: { listId: { in: listIds } } });
+    const byListId = new Map(rows.map(r => [r.listId, r]));
+    const out: Record<string, { values: string[]; lastSyncAt: Date } | null> = {};
+    for (const [fieldKey, listId] of Object.entries(QcRestService.FIELD_LIST_ID)) {
+      const row = byListId.get(listId);
+      out[fieldKey] = row ? { values: row.values, lastSyncAt: row.lastSyncAt } : null;
+    }
+    return out;
+  }
+
   // Site Administration (2026-09-23, admin-screen QC infrastructure prep) —
   // architecturally separate from every other method in this file: not
   // domain/project-scoped (rest/site-admin/... rather than
@@ -605,15 +657,20 @@ export class QcRestService {
   // field map — confirms ALM REST's PUT-of-an-Entity is field-level merge
   // (only included fields are touched), not a full-resource replace, since
   // that's exactly what those two methods already rely on.
-  async updateFieldsRaw(defectId: string, fields: Record<string, string>, userId: string): Promise<{ ok: true; putStatus: number }> {
-    if (!fields || Object.keys(fields).length === 0) throw new BadRequestException('יש להזין לפחות שדה אחד');
+  async updateFieldsRaw(
+    defectId: string, fields: Record<string, string>, userId: string,
+    refFields?: Record<string, { id: string; label: string }>,
+  ): Promise<{ ok: true; putStatus: number }> {
+    if ((!fields || Object.keys(fields).length === 0) && (!refFields || Object.keys(refFields).length === 0)) {
+      throw new BadRequestException('יש להזין לפחות שדה אחד');
+    }
     const config = await this.getConfig();
     const qcLogin = await this.resolveQcLogin(userId);
     const cookie = await this.loginAsUser(config, qcLogin);
     try {
       const putRes = await axios.put(
         this.entityUrl(config, defectId),
-        buildFieldsPayload(fields),
+        buildFieldsPayload(fields, 'defect', refFields),
         { headers: { Cookie: cookie, 'Content-Type': 'application/xml; charset=utf-8', Accept: 'application/xml' }, validateStatus: () => true },
       );
       if (putRes.status >= 300) {
@@ -654,6 +711,14 @@ export class QcRestService {
     detectedRelease: 'QC_REST_FIELD_DETECTED_RELEASE',
     targetVersion: 'QC_REST_FIELD_TARGET_RELEASE',
     detectedCycle: 'QC_REST_FIELD_DETECTED_CYCLE',
+    // Aliases (2026-09-23, fixes-batch A.5) — same SystemParams, just the
+    // detail screen's own display-field naming (`detectedInRelease`/
+    // `detectedInCycle`, matching DEFAULT_OPEN_PROD_DETAIL_GROUPS) so the
+    // edit path doesn't have to translate key names back and forth with the
+    // create-form's `detectedRelease`/`detectedCycle`, which stay as they
+    // were to avoid touching that already-working call site.
+    detectedInRelease: 'QC_REST_FIELD_DETECTED_RELEASE',
+    detectedInCycle: 'QC_REST_FIELD_DETECTED_CYCLE',
   };
 
   private static readonly TIER2_FIELD_PARAM_KEYS: Record<string, string> = {
@@ -672,7 +737,61 @@ export class QcRestService {
     environmentComponent: 'QC_REST_FIELD_ENVIRONMENT_COMPONENT',
     crHbrReference: 'QC_REST_FIELD_CR_HBR_REFERENCE',
     mainModule: 'QC_REST_FIELD_MAIN_MODULE',
+    // Added 2026-09-23 (fixes-batch A.5) — user explicitly asked these to be
+    // inline-editable in the detail screen. All 4 real REST names already
+    // confirmed in the same field dump as everything above.
+    closedBy: 'QC_REST_FIELD_CLOSED_BY',
+    closingDate: 'QC_REST_FIELD_CLOSING_DATE',
+    detectedBy: 'QC_REST_FIELD_DETECTED_BY',
+    detectedOnDate: 'QC_REST_FIELD_DETECTED_ON_DATE',
   };
+
+  // Single source of truth for "which business fields can this app write to
+  // a defect" (2026-09-23, fixes-batch A.5) — the frontend used to hardcode
+  // its own small parallel list of editable keys, which had already drifted
+  // from this map once (see project-fixes-batch-2026-09-23 memory) and was
+  // capped at ~7 fields regardless of what this map actually supports.
+  // `refFields` is now split out separately: `detectedInRelease`/
+  // `detectedInCycle` need a real release/cycle picker on the frontend (an
+  // id, not just display text, to build a valid reference-field write) —
+  // `targetVersion` deliberately excluded even from this ref list, since
+  // there's still no edit UI/consumer for it at all (create-only field).
+  getEditableDefectFieldKeys(): { fields: string[]; refFields: string[] } {
+    return {
+      fields: Object.keys(QcRestService.TIER2_FIELD_PARAM_KEYS),
+      refFields: ['detectedInRelease', 'detectedInCycle'],
+    };
+  }
+
+  // Reference-field counterpart to updateDefectTier2Fields — same allowlist/
+  // discover-then-configure discipline, but for QC entity-link fields that
+  // need both a real id and a display label (2026-09-23, fixes-batch A.5).
+  async updateDefectTier2RefFields(
+    defectId: string, refFields: Record<string, { id: string; label: string }>, userId: string,
+  ): Promise<{ ok: true; putStatus: number }> {
+    const unknownKeys = Object.keys(refFields).filter(k => !(k in QcRestService.TIER2_REF_FIELD_PARAM_KEYS));
+    if (unknownKeys.length > 0) {
+      throw new BadRequestException(`שדה/ות הפניה לא מוכרים (מותר רק: ${Object.keys(QcRestService.TIER2_REF_FIELD_PARAM_KEYS).join(', ')}): ${unknownKeys.join(', ')}`);
+    }
+    const paramKeys = Object.values(QcRestService.TIER2_REF_FIELD_PARAM_KEYS);
+    const rows = await prisma.systemParam.findMany({ where: { key: { in: paramKeys } } });
+    const restFieldByParamKey = new Map(rows.map(r => [r.key, (r.value ?? '').trim()]));
+
+    const restRefFields: Record<string, { id: string; label: string }> = {};
+    const unconfigured: string[] = [];
+    for (const [businessKey, value] of Object.entries(refFields)) {
+      const paramKey = QcRestService.TIER2_REF_FIELD_PARAM_KEYS[businessKey];
+      const restName = restFieldByParamKey.get(paramKey);
+      if (!restName) { unconfigured.push(businessKey); continue; }
+      restRefFields[restName] = value;
+    }
+    if (unconfigured.length > 0) {
+      throw new BadRequestException(
+        `שם שדה ה-REST האמיתי עדיין לא הוגדר עבור: ${unconfigured.join(', ')}. יש לגלות אותו דרך "🔍 הצג את כל שמות השדות" ולמלא ב-AdminPanel לפני עדכון.`,
+      );
+    }
+    return this.updateFieldsRaw(defectId, {}, userId, restRefFields);
+  }
 
   async updateDefectTier2Fields(defectId: string, fields: Record<string, string>, userId: string): Promise<{ ok: true; putStatus: number }> {
     const unknownKeys = Object.keys(fields).filter(k => !(k in QcRestService.TIER2_FIELD_PARAM_KEYS));
@@ -1140,11 +1259,25 @@ export class QcRestService {
       endDate: toQcDate(endDate),
       productionDate: version.plannedStart ? toQcDate(version.plannedStart) : undefined,
       year,
-      cycles: cycles.map(c => ({
-        name: qcCycleName(c.cycleType),
-        startDate: toQcDate(c.plannedStart),
-        endDate: toQcDate(c.plannedEnd),
-      })),
+      // QG Threshold High/Medium/Low (user-01/02/03) + Environment (user-04)
+      // — 2026-09-23, fixes-batch: real QC rejects release-cycle creation
+      // without user-01 (qccore.required-field-missing), found via the
+      // user's own live test. Reads each cycle's own qg* fields (seeded with
+      // a per-cycleType default at creation, editable from the QA Work Plan
+      // screen before publish) — falls back to QG_CYCLE_DEFAULTS only for a
+      // cycle created before this feature existed (qg* still null).
+      cycles: cycles.map(c => {
+        const fallback = QG_CYCLE_DEFAULTS[c.cycleType as CycleType];
+        return {
+          name: qcCycleName(c.cycleType),
+          startDate: toQcDate(c.plannedStart),
+          endDate: toQcDate(c.plannedEnd),
+          thresholdHigh: String(c.qgThresholdHigh ?? fallback?.high ?? ''),
+          thresholdMedium: String(c.qgThresholdMedium ?? fallback?.medium ?? ''),
+          thresholdLow: String(c.qgThresholdLow ?? fallback?.low ?? ''),
+          environment: c.qgEnvironment ?? fallback?.environment ?? undefined,
+        };
+      }),
     }, userId);
 
     if (!result.release.id) {
@@ -1604,35 +1737,34 @@ function parseEntitiesListXml(xml: string): Record<string, string>[] {
   });
 }
 
-// Matches QC's own native "add comment" stamp layout, per user description
-// (2026-09-18): date+time anchored left (LTR), the acting user's name
-// anchored right (RTL), on one line, bold, then a line break before the note
-// body (which stays regular weight). Plain text has no real "alignment" —
-// the Unicode bidi marks below (U+200E LRM, U+200F RLM) isolate each segment
-// as strongly-directional so QC's own RTL-based rendering places them the
-// same way its native stamp does, rather than leaving the mixed
-// digits+Hebrew run to the bidi algorithm's default (which is what produced
-// the "reversed/garbled-looking" stamp before this fix).
+// Reverted 2026-09-23 (fixes-batch item C — comment-write regression on
+// defect 47000, confirmed real by the user: worked before, silently
+// stopped persisting since). The 2026-09-18 "bold + bidi marks" version
+// below (commit 490919fe) was NEVER verified against real QC and is the
+// prime suspect: it put literal `<b>...</b>` HTML plus invisible Unicode
+// bidi control characters (U+200E LRM, U+200F RLM) into `dev-comments`.
+// Old QC/ALM instances commonly run a workflow script on that field: if the
+// script doesn't expect markup/control characters, it can silently
+// normalize or revert the value without failing the REST call itself —
+// which matches the symptom exactly (PUT returns success, value not
+// actually saved). Back to the plain-text stamp that's known to have
+// worked (pre-2026-09-18 shape), kept in one line with the date/time via
+// pad2 (more precise than the old `toLocaleString('he-IL')`, same format
+// the rest of this file already uses for timestamps).
 //
-// Bold via literal `<b>...</b>` HTML, not a plain-text trick — `dev-comments`
-// is presumed to be a QC "long text" rich-text field (its web UI edits it
-// with a WYSIWYG toolbar in ALM/QC generally), so raw HTML in the field's
-// string value is what its own rendering interprets as formatting. This
-// nests safely inside buildFieldsPayload's XML: xmlEscape() there protects
-// the OUTER XML transport (`<Value>&lt;b&gt;...&lt;/b&gt;</Value>` on the
-// wire), and QC's XML parser decodes it back to a literal `<b>` in the
-// stored field value before its own rich-text layer ever sees it.
-// UNVERIFIED against real QC rendering (same status as the bidi marks above)
-// — if this instance's `dev-comments` turns out to be plain-text only, the
-// literal `<b>`/`</b>` characters would show up as visible text instead of
-// rendering bold. Check the admin lab before trusting this.
+// If this does NOT fix it, the other unverified change from the same
+// commit — `Content-Type: application/xml; charset=utf-8` — is next in
+// line as a suspect (see the comment on buildFieldsPayload below).
+//
+// former version, for reference:
+//   return `<b>‎${dateTime}‎    ‏${fullName}‏</b>`;
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 function buildStampLine(fullName: string): string {
   const now = new Date();
   const dateTime = `${pad2(now.getDate())}/${pad2(now.getMonth() + 1)}/${now.getFullYear()} ${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
-  return `<b>‎${dateTime}‎    ‏${fullName}‏</b>`;
+  return `[DeployCenter · ${fullName} · ${dateTime}]`;
 }
 
 function xmlEscape(s: string): string {

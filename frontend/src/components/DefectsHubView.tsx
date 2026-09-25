@@ -2,10 +2,10 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { C } from '../theme';
 import { cn } from '../lib/utils';
-import { Card, Badge, Modal } from './ui';
+import { Card, Badge } from './ui';
 import { DefectDetailScreen } from './quality-hub/OpenProdDefectsView';
 import { CreateDefectScreen } from './quality-hub/CreateDefectScreen';
-import { StatusBadge, SeverityBadge } from './shared/defectFieldDisplay';
+import { DefectDrilldownModal } from './release-intelligence/DefectDrilldownModal';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -25,13 +25,16 @@ interface AllDefectsDashboardDto {
   byDetectedRelease: BreakdownRow[];
   monthlyTrend: { month: string; count: number }[];
 }
-interface DrilldownListRow {
-  id: string; title: string; status: string; severity: string;
-  mainModule: string; responsibility: string; detectedInRelease: string; discoveryDate: string;
-}
-
-const KpiCard: React.FC<{ label: string; value: string; colorClass: string }> = ({ label, value, colorClass }) => (
-  <Card padding={4} style={{ flex: 1, minWidth: '130px', textAlign: 'center' }}>
+// onClick added 2026-09-23 (fixes-batch item B — "הכרטיסיות עצמן אינן
+// מאפשרות לחיצה בכלל") — each tile drills into the exact same compound
+// predicate that computed its own number (getAllDefectsFiltered's '__kpi__'
+// path), so the drill-down list always matches the count that was clicked.
+const KpiCard: React.FC<{ label: string; value: string; colorClass: string; onClick?: () => void }> = ({ label, value, colorClass, onClick }) => (
+  <Card
+    padding={4}
+    style={{ flex: 1, minWidth: '130px', textAlign: 'center', cursor: onClick ? 'pointer' : undefined }}
+    onClick={onClick}
+  >
     {/* Longer labels (e.g. "קריטיות פתוחות (Show Stopper)") overflow a
         130px-wide tile with nowrap — unlike Bug Dashboard's KpiCard, whose
         labels are all short enough that nowrap never broke. Wrap instead. */}
@@ -112,9 +115,10 @@ export const DefectsHubView: React.FC<Props> = ({ token }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [qcMock, setQcMock] = useState(true);
-  const [drilldown, setDrilldown] = useState<{ title: string } | null>(null);
-  const [drilldownRows, setDrilldownRows] = useState<DrilldownListRow[] | null>(null);
-  const [drilldownLoading, setDrilldownLoading] = useState(false);
+  // versionId omitted → DefectDrilldownModal's cross-version mode
+  // (2026-09-23 follow-up: reuses the shared rich drill-down table — column
+  // picker, sort, resize — instead of a separate, poorer reimplementation).
+  const [drilldown, setDrilldown] = useState<{ filter: string; value: string; title: string } | null>(null);
   const [selectedDefectId, setSelectedDefectId] = useState<string | null>(null);
   const [showCreateScreen, setShowCreateScreen] = useState(false);
 
@@ -131,16 +135,8 @@ export const DefectsHubView: React.FC<Props> = ({ token }) => {
     axios.get(`${API}/qc/status`, { headers }).then(r => setQcMock(!r.data?.enabled)).catch(() => setQcMock(true));
   }, [headers]);
 
-  const openDrilldown = (field: string, value: string, title: string) => {
-    setDrilldown({ title });
-    setDrilldownLoading(true);
-    axios.get(`${API}/qc/all-defects-filtered`, { headers, params: { field, value } })
-      .then(r => setDrilldownRows(r.data))
-      .catch(() => setDrilldownRows([]))
-      .finally(() => setDrilldownLoading(false));
-  };
-
-  const closeDrilldown = () => { setDrilldown(null); setDrilldownRows(null); };
+  const openDrilldown = (field: string, value: string, title: string) => setDrilldown({ filter: field, value, title });
+  const closeDrilldown = () => setDrilldown(null);
 
   if (showCreateScreen) {
     return (
@@ -159,6 +155,19 @@ export const DefectsHubView: React.FC<Props> = ({ token }) => {
         detailFields={[]}
         token={token}
         onBack={() => setSelectedDefectId(null)}
+      />
+    );
+  }
+
+  if (drilldown) {
+    return (
+      <DefectDrilldownModal
+        token={token}
+        screen=""
+        filter={drilldown.filter}
+        value={drilldown.value}
+        title={drilldown.title}
+        onClose={closeDrilldown}
       />
     );
   }
@@ -188,11 +197,16 @@ export const DefectsHubView: React.FC<Props> = ({ token }) => {
       {!loading && !error && dashboard && (
         <>
           <div className="flex flex-wrap gap-2.5">
-            <KpiCard label="סה״כ תקלות" value={String(dashboard.total)} colorClass="text-foreground" />
-            <KpiCard label="פתוחות" value={String(dashboard.open)} colorClass="text-warning" />
-            <KpiCard label="סגורות" value={String(dashboard.closed)} colorClass="text-subtle-foreground" />
-            <KpiCard label="קריטיות פתוחות (Show Stopper)" value={String(dashboard.criticalOpen)} colorClass="text-danger" />
-            <KpiCard label="נפתחו מחדש" value={String(dashboard.reopenCount)} colorClass="text-danger" />
+            <KpiCard label="סה״כ תקלות" value={String(dashboard.total)} colorClass="text-foreground"
+              onClick={() => openDrilldown('__kpi__', 'total', 'כל התקלות')} />
+            <KpiCard label="פתוחות" value={String(dashboard.open)} colorClass="text-warning"
+              onClick={() => openDrilldown('__kpi__', 'open', 'תקלות פתוחות')} />
+            <KpiCard label="סגורות" value={String(dashboard.closed)} colorClass="text-subtle-foreground"
+              onClick={() => openDrilldown('__kpi__', 'closed', 'תקלות סגורות')} />
+            <KpiCard label="קריטיות פתוחות (Show Stopper)" value={String(dashboard.criticalOpen)} colorClass="text-danger"
+              onClick={() => openDrilldown('__kpi__', 'criticalOpen', 'תקלות קריטיות פתוחות (Show Stopper)')} />
+            <KpiCard label="נפתחו מחדש" value={String(dashboard.reopenCount)} colorClass="text-danger"
+              onClick={() => openDrilldown('__kpi__', 'reopen', 'תקלות שנפתחו מחדש')} />
           </div>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -213,30 +227,6 @@ export const DefectsHubView: React.FC<Props> = ({ token }) => {
             <MonthlyTrendChart data={dashboard.monthlyTrend} onBarClick={() => {}} />
           </Card>
         </>
-      )}
-
-      {drilldown && (
-        <Modal open onClose={closeDrilldown} title={drilldown.title} width={640}>
-          {drilldownLoading && <div className="p-4 text-center text-subtle-foreground">טוען...</div>}
-          {!drilldownLoading && drilldownRows && (
-            <div className="flex max-h-[500px] flex-col gap-1 overflow-y-auto" dir="rtl">
-              {drilldownRows.length === 0 && <div className="p-4 text-center text-xs text-subtle-foreground">אין תקלות</div>}
-              {drilldownRows.map(r => (
-                <div
-                  key={r.id}
-                  onClick={() => { setSelectedDefectId(r.id); closeDrilldown(); }}
-                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted"
-                >
-                  <div className="min-w-0 flex-1 truncate text-xs text-foreground" title={r.title}>{r.title}</div>
-                  <div className="flex flex-shrink-0 items-center gap-1">
-                    <SeverityBadge severity={r.severity} />
-                    <StatusBadge status={r.status} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Modal>
       )}
     </div>
   );

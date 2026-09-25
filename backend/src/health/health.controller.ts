@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, HttpCode } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
+import { resolveQcFilePath, SmbAccessError } from '../qc-releases/smb-file-reader';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
@@ -43,11 +44,19 @@ async function checkOracle(): Promise<{ status: 'ok' | 'disabled' | 'error'; mes
 }
 
 async function checkCrList(): Promise<{ status: 'ok' | 'not_configured' | 'error'; message?: string }> {
-  const row = await prisma.systemParam.findFirst({
-    where: { key: { in: ['QC_RELEASES_FILE', 'EXCEL_FILE_PATH'] } },
-  }).catch(() => null);
-  const filePath = process.env.QC_RELEASES_FILE || row?.value || '';
-  if (!filePath) return { status: 'not_configured' };
+  // 2026-09-23 (fixes-batch item D): was picking an arbitrary row via
+  // findFirst with no ordering/preference between QC_RELEASES_FILE and
+  // EXCEL_FILE_PATH, so this health check could report on a DIFFERENT file
+  // than the one the CR_LIST sync engine actually reads — misleadingly
+  // showing "ok" or "error" for the wrong path. Now uses the same resolver
+  // (env → QC_RELEASES_FILE param → EXCEL_FILE_PATH param, legacy) as the
+  // real sync code, so this check reflects the file that's actually in use.
+  let filePath: string;
+  try {
+    filePath = await resolveQcFilePath(prisma);
+  } catch (err: any) {
+    return err instanceof SmbAccessError ? { status: 'not_configured' } : { status: 'error', message: err?.message ?? String(err) };
+  }
   try {
     fs.accessSync(filePath, fs.constants.R_OK);
     return { status: 'ok' };

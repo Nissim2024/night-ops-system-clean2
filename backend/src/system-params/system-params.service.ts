@@ -256,24 +256,30 @@ const DEFAULT_PARAMS = [
   // QC_REST_FIELD_* param. A likely value to try once real QC access exists:
   // "target-rel".
   {
+    // Confirmed 2026-09-23 from a real entity-fields dump (BG_TARGET_REL) —
+    // also confirmed identical ("target-rel"/RQ_TARGET_REL) on the
+    // Requirement entity in the same dump.
     key: 'QC_REST_FIELD_TARGET_RELEASE',
-    value: '',
-    label: 'QC REST: שם שדה ה-REST (סוג הפניה) של "Target Release" בתקלה — לא מאומת, נסה "target-rel"',
+    value: 'target-rel',
+    label: 'QC REST: שם שדה ה-REST (סוג הפניה) של "Target Release" בתקלה — מאומת 2026-09-23 (target-rel = BG_TARGET_REL)',
     type: 'text',
   },
   {
+    // Confirmed 2026-09-23 from a real entity-fields dump (BG_DETECTED_IN_RCYC).
     key: 'QC_REST_FIELD_DETECTED_CYCLE',
-    value: '',
-    label: 'QC REST: שם שדה ה-REST (סוג הפניה) של "Detected in Cycle" בתקלה — לא מאומת',
+    value: 'detected-in-rcyc',
+    label: 'QC REST: שם שדה ה-REST (סוג הפניה) של "Detected in Cycle" בתקלה — מאומת 2026-09-23 (detected-in-rcyc = BG_DETECTED_IN_RCYC)',
     type: 'text',
   },
   // "Detected in Release" (BG_DETECTED_IN_REL) — a NEW defect's own release,
   // distinct from QC_REST_FIELD_TARGET_RELEASE above (BG_TARGET_REL, for
   // deferring an EXISTING defect forward). Same reference-type field shape.
   {
+    // Confirmed 2026-09-23 from a real entity-fields dump — matches the
+    // "detected-in-rel" guess exactly.
     key: 'QC_REST_FIELD_DETECTED_RELEASE',
-    value: '',
-    label: 'QC REST: שם שדה ה-REST (סוג הפניה) של "Detected in Release" בתקלה — לא מאומת, נסה "detected-in-rel"',
+    value: 'detected-in-rel',
+    label: 'QC REST: שם שדה ה-REST (סוג הפניה) של "Detected in Release" בתקלה — מאומת 2026-09-23 (detected-in-rel = BG_DETECTED_IN_REL)',
     type: 'text',
   },
   // Plain (non-reference) creation fields for the redesigned create-defect
@@ -282,39 +288,83 @@ const DEFAULT_PARAMS = [
   // Sub Module/Main Module is a reasonable guess for these too, but none has
   // been seen in a real REST dump yet.
   {
+    // Confirmed 2026-09-23 from a real entity-fields dump — matches the
+    // "user-03" guess exactly.
     key: 'QC_REST_FIELD_RESPONSIBILITY',
-    value: '',
-    label: 'QC REST: שם שדה ה-REST של "Responsibility" בתקלה — לא מאומת, נסה "user-03"',
+    value: 'user-03',
+    label: 'QC REST: שם שדה ה-REST של "Responsibility" בתקלה — מאומת 2026-09-23 (user-03 = BG_USER_03)',
     type: 'text',
   },
   {
+    // Confirmed 2026-09-23 from a real entity-fields dump — matches the
+    // "user-06" guess exactly.
     key: 'QC_REST_FIELD_BUG_TYPE',
-    value: '',
-    label: 'QC REST: שם שדה ה-REST של "Bug Type" בתקלה — לא מאומת, נסה "user-06"',
+    value: 'user-06',
+    label: 'QC REST: שם שדה ה-REST של "Bug Type" בתקלה — מאומת 2026-09-23 (user-06 = BG_USER_06)',
     type: 'text',
   },
   {
+    // Confirmed 2026-09-23 from a real entity-fields dump — matches the
+    // "user-05" guess exactly.
     key: 'QC_REST_FIELD_TEST_PHASE',
-    value: '',
-    label: 'QC REST: שם שדה ה-REST של "Test Phase" בתקלה — לא מאומת, נסה "user-05"',
+    value: 'user-05',
+    label: 'QC REST: שם שדה ה-REST של "Test Phase" בתקלה — מאומת 2026-09-23 (user-05 = BG_USER_05)',
     type: 'text',
   },
   {
+    // Confirmed 2026-09-23 from a real entity-fields dump — matches the
+    // "user-02" guess exactly.
     key: 'QC_REST_FIELD_ENVIRONMENT',
-    value: '',
-    label: 'QC REST: שם שדה ה-REST של "Environment" בתקלה — לא מאומת, נסה "user-02"',
+    value: 'user-02',
+    label: 'QC REST: שם שדה ה-REST של "Environment" בתקלה — מאומת 2026-09-23 (user-02 = BG_USER_02)',
     type: 'text',
   },
   {
+    // Confirmed 2026-09-23 from a real entity-fields dump — matches the
+    // "user-49" guess exactly (QC's own label has a typo: "Componnent").
     key: 'QC_REST_FIELD_ENVIRONMENT_COMPONENT',
-    value: '',
-    label: 'QC REST: שם שדה ה-REST של "Environment Component" בתקלה — לא מאומת, נסה "user-49"',
+    value: 'user-49',
+    label: 'QC REST: שם שדה ה-REST של "Environment Component" בתקלה — מאומת 2026-09-23 (user-49 = BG_USER_49)',
     type: 'text',
   },
   {
+    // Confirmed 2026-09-23 from a real entity-fields dump — matches the
+    // "user-10" guess exactly. NOTE: a separate, different field "CR
+    // Reference Number" also exists at user-58 (BG_USER_58) — do not confuse
+    // the two; this app's create-defect form intentionally uses "CR/HBR
+    // Number reference" (user-10), matching its exact real label.
     key: 'QC_REST_FIELD_CR_HBR_REFERENCE',
-    value: '',
-    label: 'QC REST: שם שדה ה-REST של "CR / HBR Number reference" בתקלה — לא מאומת, נסה "user-10"',
+    value: 'user-10',
+    label: 'QC REST: שם שדה ה-REST של "CR / HBR Number reference" בתקלה — מאומת 2026-09-23 (user-10 = BG_USER_10, שונה מ-user-58 "CR Reference Number")',
+    type: 'text',
+  },
+  // 4 more Tier2-editable fields (2026-09-23, fixes-batch A.5 — user
+  // explicitly asked these to become editable in the detail screen, having
+  // first suggested locking them as "historical facts"). All 4 real REST
+  // names were already confirmed in the same 2026-09-23 field dump used
+  // above, just not yet wired into the editable allowlist.
+  {
+    key: 'QC_REST_FIELD_CLOSED_BY',
+    value: 'user-07',
+    label: 'QC REST: שם שדה ה-REST של "Closed By" בתקלה — מאומת 2026-09-23 (user-07 = BG_USER_07)',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_FIELD_CLOSING_DATE',
+    value: 'closing-date',
+    label: 'QC REST: שם שדה ה-REST של "Closing Date" בתקלה — מאומת 2026-09-23 (closing-date = BG_CLOSING_DATE)',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_FIELD_DETECTED_BY',
+    value: 'detected-by',
+    label: 'QC REST: שם שדה ה-REST של "Detected By" בתקלה — מאומת 2026-09-23 (detected-by = BG_DETECTED_BY)',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_FIELD_DETECTED_ON_DATE',
+    value: 'creation-time',
+    label: 'QC REST: שם שדה ה-REST של "Detected on Date" בתקלה — מאומת 2026-09-23 (creation-time = BG_DETECTION_DATE)',
     type: 'text',
   },
   // Kill-switch for the first real (non-lab) QC REST write path — publishing

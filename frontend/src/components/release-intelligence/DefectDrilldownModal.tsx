@@ -109,10 +109,27 @@ const COLUMNS_STORAGE_KEY = 'deploycenter_defect_drilldown_columns_v1';
 
 interface Props {
   token: string;
-  versionId: string;
+  // versionId omitted (2026-09-23) → cross-version mode: fetches
+  // /qc/all-defects-filtered (field=filter, value) instead of the per-version
+  // /release-intelligence/defects-drilldown/:versionId endpoint. Added for
+  // DefectsHubView's system-wide Defects module, which has no single version
+  // to scope to — reuses this component (full column picker, sort, resize)
+  // instead of a separate, poorer reimplementation (user feedback verbatim:
+  // "למה לא להשתמש במשהו טוב?"). `screen` is meaningless in this mode and
+  // ignored.
+  versionId?: string;
   screen: string;
   filter: string;
   value?: string;
+  // Full URL to fetch the defect list from directly, bypassing both the
+  // versionId and cross-version paths above (2026-09-23, fixes-batch item J)
+  // — for callers whose list doesn't come from either of those two
+  // dispatchers, e.g. Quality Hub's /qc/defects-by-kpi (keyed by versionId
+  // OR relId, not by release-intelligence's Version-only screen/filter/value
+  // scheme). When set, `screen`/`filter`/`value` are not used for fetching —
+  // kept as required/optional props unchanged so every existing caller needs
+  // no changes; pass empty strings for them from an `endpoint`-mode caller.
+  endpoint?: string;
   title: string;
   onClose: () => void;
 }
@@ -159,7 +176,7 @@ function renderCellValue(key: ColumnKey, value: unknown) {
 // browser via localStorage, same convention as IncidentsView's import-column
 // picker; sort state is session-only (not worth persisting — the filter/list
 // changes every time this opens).
-export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen, filter, value, title, onClose }) => {
+export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen, filter, value, endpoint, title, onClose }) => {
   const headers = { Authorization: `Bearer ${token}` };
   const [defects, setDefects] = useState<Defect[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -196,12 +213,17 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
   useEffect(() => {
     setLoading(true);
     setError(null);
-    axios.get(`${API}/release-intelligence/defects-drilldown/${versionId}`, { headers, params: { screen, filter, value } })
+    const request = endpoint
+      ? axios.get(endpoint, { headers })
+      : versionId
+      ? axios.get(`${API}/release-intelligence/defects-drilldown/${versionId}`, { headers, params: { screen, filter, value } })
+      : axios.get(`${API}/qc/all-defects-filtered`, { headers, params: { field: filter, value } });
+    request
       .then(res => setDefects(res.data ?? []))
       .catch(e => setError(e?.response?.data?.message || e.message || 'שגיאה בטעינת התקלות'))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [versionId, screen, filter, value, token]);
+  }, [endpoint, versionId, screen, filter, value, token]);
 
   const filters = useColumnFilters(defects as any, columns);
   const [hoverRow, setHoverRow] = useState<string | null>(null);

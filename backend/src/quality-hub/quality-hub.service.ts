@@ -496,7 +496,9 @@ export class QualityHubService {
     const link = await this.getQcLinkForRelease(releaseName);
     if (!link || !link.hasQcData) return null;
 
-    const defects = await this.qcService.getDefectsForKpi(link.versionId, kpiName);
+    const defects = link.versionId
+      ? await this.qcService.getDefectsForKpi(link.versionId, kpiName)
+      : await this.qcService.getDefectsForKpiByRelId(link.relId!, kpiName);
     const out = { showStopper: 0, severe: 0, medium: 0, low: 0 };
     for (const d of defects) {
       if (d.severity === 'Show Stopper') out.showStopper++;
@@ -646,7 +648,9 @@ export class QualityHubService {
     const link = await this.getQcLinkForRelease(releaseName);
     if (!link || !link.hasQcData) throw new BadRequestException('אין נתוני תקלות אמיתיים לגרסה זו — לא ניתן לנתח');
 
-    const defects = await this.qcService.getDefectsForKpi(link.versionId, kpiName);
+    const defects = link.versionId
+      ? await this.qcService.getDefectsForKpi(link.versionId, kpiName)
+      : await this.qcService.getDefectsForKpiByRelId(link.relId!, kpiName);
     if (defects.length === 0) throw new BadRequestException('אין תקלות התואמות KPI זה בגרסה זו');
 
     const def = await prisma.kpiDefinition.findUnique({ where: { kpiName } });
@@ -705,14 +709,29 @@ export class QualityHubService {
   // release whose QcRelease sync hadn't happened to also populate those two
   // specific cycle types (Dress Rehearsal/Go Live) — which, in this dev DB,
   // was every single one. Fixed to check what the query actually needs.
-  async getQcLinkForRelease(releaseName: string): Promise<{ versionId: string; hasQcData: boolean } | null> {
+  // Widened 2026-09-23 (fixes-batch item I): used to return null outright
+  // when no local Version row matched `releaseName` — which is EVERY release
+  // older than this app itself (versions 5-and-below in the user's own
+  // report), since a Version row only ever gets created through
+  // DeployCenter's own version-creation wizard. QcRelease rows, by contrast,
+  // are synced straight from Oracle independent of Version (see
+  // QcReleaseHistoryView's own "🗄️ עיון בגרסאות QC היסטוריות" screen, which
+  // already lists/drills into them this same way via relId). Falls back to
+  // a direct QcRelease-by-name lookup so the live-defects card/drilldown can
+  // work off `relId` alone when there's no Version — same relId-direct
+  // pattern getDefectsByRelId/getDefectsForKpiByRelId already established
+  // for QC's historical-releases browse feature.
+  async getQcLinkForRelease(releaseName: string): Promise<{ versionId: string | null; relId: number | null; hasQcData: boolean } | null> {
     const version = await prisma.version.findFirst({
       where: { name: releaseName },
       include: { qcRelease: true },
     });
-    if (!version) return null;
-    const rel = (version as any).qcRelease;
-    const hasQcData = !!rel?.relId;
-    return { versionId: version.id, hasQcData };
+    if (version) {
+      const rel = (version as any).qcRelease;
+      return { versionId: version.id, relId: rel?.relId ?? null, hasQcData: !!rel?.relId };
+    }
+    const rel = await prisma.qcRelease.findFirst({ where: { relName: releaseName } });
+    if (!rel) return null;
+    return { versionId: null, relId: rel.relId, hasQcData: true };
   }
 }

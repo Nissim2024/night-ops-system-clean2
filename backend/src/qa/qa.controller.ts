@@ -384,6 +384,14 @@ export class QaController {
     );
   }
 
+  @Patch('workplan/cycle/:id/qg')
+  updateCycleQg(
+    @Param('id') cycleId: string,
+    @Body() body: { qgThresholdHigh?: number | null; qgThresholdMedium?: number | null; qgThresholdLow?: number | null; qgEnvironment?: string | null },
+  ) {
+    return this.workPlan.updateCycleQg(cycleId, body);
+  }
+
   @Get('workplan/export')
   async exportWorkPlan(
     @Query('versionId') versionId: string,

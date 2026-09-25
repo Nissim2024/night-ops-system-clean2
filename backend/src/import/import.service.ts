@@ -1,8 +1,8 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
-import * as fs from 'fs';
 import { TEAM_COLUMNS, EXCLUDED_CR_STATUSES } from '../common/team-columns';
+import { readQcFile, resolveQcFilePath, SmbAccessError } from '../qc-releases/smb-file-reader';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
@@ -495,11 +495,16 @@ export class ImportService {
       }));
     }
 
-    // Fallback: read directly from Excel file (before first sync)
-    const param = await prisma.systemParam.findUnique({ where: { key: 'EXCEL_FILE_PATH' } });
-    const filePath = param?.value?.trim();
-    if (!filePath) throw new BadRequestException('נתיב קובץ הגשת פיתוחים לא הוגדר בפרמטרי המערכת');
-    if (!fs.existsSync(filePath)) throw new BadRequestException(`הקובץ לא נמצא בנתיב: ${filePath}`);
+    // Fallback: read directly from Excel file (before first sync). Shares
+    // resolveQcFilePath with version-cr-assignments.service.ts's loadSheet()
+    // (2026-09-23, fixes-batch item D) — was reading only the legacy
+    // EXCEL_FILE_PATH param directly, same stale-path risk fixed there.
+    let filePath: string;
+    try {
+      filePath = await resolveQcFilePath(prisma);
+    } catch (err: any) {
+      throw new BadRequestException(err instanceof SmbAccessError ? err.message : String(err?.message ?? err));
+    }
 
     const version = await prisma.version.findUnique({ where: { id: versionId }, select: { name: true } });
     if (!version) throw new BadRequestException('גרסה לא נמצאה');
@@ -509,7 +514,12 @@ export class ImportService {
     const teamCols = TEAM_COLUMNS[team.name];
     if (!teamCols || teamCols.length === 0) throw new BadRequestException(`לא הוגדרו עמודות לצוות "${team.name}" בקובץ`);
 
-    const buffer = fs.readFileSync(filePath);
+    let buffer: Buffer;
+    try {
+      buffer = readQcFile(filePath).buffer;
+    } catch (err: any) {
+      throw new BadRequestException(err instanceof SmbAccessError ? err.message : `שגיאה בקריאת קובץ CR_LIST: ${filePath}`);
+    }
     const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
@@ -653,14 +663,25 @@ export class ImportService {
   }
 
   async teamsWithoutProposals(versionId: string): Promise<{ name: string; crCount: number }[]> {
-    const param = await prisma.systemParam.findUnique({ where: { key: 'EXCEL_FILE_PATH' } });
-    const filePath = param?.value?.trim();
-    if (!filePath || !fs.existsSync(filePath)) return [];
+    // 2026-09-23 (fixes-batch item D) — same resolver as above; this call site
+    // already treats a missing/unreadable file as "no data" rather than an
+    // error (best-effort helper), so failures here stay silent by design.
+    let filePath: string;
+    try {
+      filePath = await resolveQcFilePath(prisma);
+    } catch {
+      return [];
+    }
 
     const version = await prisma.version.findUnique({ where: { id: versionId }, select: { name: true } });
     if (!version) return [];
 
-    const buffer = fs.readFileSync(filePath);
+    let buffer: Buffer;
+    try {
+      buffer = readQcFile(filePath).buffer;
+    } catch {
+      return [];
+    }
     const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });

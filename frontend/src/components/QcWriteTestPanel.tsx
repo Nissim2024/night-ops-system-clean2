@@ -317,6 +317,26 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
     }
   };
 
+  // Picklist cache refresh (2026-09-23, fixes-batch A.6) — the REAL sync used
+  // by the create/edit forms' dropdowns, distinct from the raw probe above
+  // (probeLists just dumps everything for inspection; this one actually
+  // writes the 5 mapped fields' values into QcPicklistCache so the forms can
+  // read them without ever calling QC live themselves).
+  const [picklistSyncLoading, setPicklistSyncLoading] = useState(false);
+  const [picklistSyncResult, setPicklistSyncResult] = useState<{ synced?: number; error?: string } | null>(null);
+  const syncPicklists = async () => {
+    setPicklistSyncLoading(true);
+    setPicklistSyncResult(null);
+    try {
+      const res = await axios.post(`${API}/qc/sync-picklists`, {}, { headers });
+      setPicklistSyncResult({ synced: res.data?.synced });
+    } catch (e: any) {
+      setPicklistSyncResult({ error: e?.response?.data?.message || e.message || 'שגיאה ברענון רשימות ערכים' });
+    } finally {
+      setPicklistSyncLoading(false);
+    }
+  };
+
   const probeEntity = async (type: string) => {
     setEntityProbeLoading(true);
     setEntityProbe({ type });
@@ -728,6 +748,29 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
             <pre className="bg-muted border border-border rounded-md p-3 text-xs text-foreground whitespace-pre-wrap max-h-[300px] overflow-auto" dir="ltr">
               {JSON.stringify(listsProbe.result, null, 2)}
             </pre>
+          )}
+        </div>
+
+        <div className="border-t border-border pt-3 flex flex-col gap-2">
+          <div className="text-sm font-bold text-foreground">🔄 רענון מטמון רשימות ערכים לטופס התקלה</div>
+          <div className="text-xs text-subtle-foreground">
+            מרענן את הערכים האמיתיים של Responsibility / Bug Type / Test Phase / Environment / CR-HBR Reference מ-QC ושומר אותם אצלנו —
+            זה מה שהטפסים בפועל קוראים (בלי לפנות ל-QC בכל פתיחת שדה). הפעל שוב אחרי כל שינוי ברשימות האלה ב-QC עצמו.
+          </div>
+          <div>
+            <Button variant="secondary" onClick={syncPicklists} disabled={picklistSyncLoading}>
+              {picklistSyncLoading ? 'מרענן...' : 'רענן עכשיו'}
+            </Button>
+          </div>
+          {picklistSyncResult?.error && (
+            <div className="bg-danger-bg border border-danger/25 rounded-md p-3 text-sm text-danger whitespace-pre-wrap">
+              {picklistSyncResult.error}
+            </div>
+          )}
+          {picklistSyncResult?.synced !== undefined && (
+            <div className="bg-success-bg border border-success/25 rounded-md p-3 text-sm text-success">
+              רוענו {picklistSyncResult.synced} רשימות בהצלחה
+            </div>
           )}
         </div>
 
