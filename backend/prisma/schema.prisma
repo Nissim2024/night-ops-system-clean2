@@ -157,6 +157,7 @@ model Team {
   submissions          TeamSubmission[]
   crPlans              CrPlan[]
   versionCrAssignments VersionCrAssignment[]
+  crChangeEvents       CrChangeEvent[]
 }
 
 model TeamMember {
@@ -246,6 +247,7 @@ model Version {
   goNoGoDecision       GoNoGoDecision?
   notices              VersionNotice[]
   incidents            Incident[]
+  crChangeEvents       CrChangeEvent[]
 }
 
 model Phase {
@@ -448,6 +450,25 @@ model QcRelease {
   updatedAt        DateTime  @updatedAt
 
   versions Version[]
+}
+
+// Cached copy of QC's real Project-Lists (2026-09-23, fixes-batch A.6) —
+// picklist values for closed-list defect fields (Responsibility, Bug Type,
+// Test Phase, Environment, CR/HBR reference, ...). Deliberately NOT fetched
+// live on every form render: every QC REST call in this app does a full
+// login+logout session dance, so a live call per dropdown would add real
+// latency, multiplied by however many list-backed fields are on the form.
+// Cached here instead, refreshed by an admin action (or a future scheduled
+// job) via QcRestService.syncQcPicklists — same "sync button, not live call"
+// pattern already used for Quality Hub's KPI import. Keyed by QC's own
+// List-Id (shared across fields — several unrelated fields can point at the
+// same list, e.g. List-Id 21340 backs CRM/EAI/Found By Automation).
+model QcPicklistCache {
+  id         String   @id @default(uuid())
+  listId     String   @unique
+  listName   String
+  values     String[]
+  lastSyncAt DateTime @default(now())
 }
 
 model VersionTemplate {
@@ -711,6 +732,7 @@ model VersionCrAssignment {
   actualEffortDays      Float? // numeric value of the "Actuals" column itself (0 for a checkbox-style V/X cell, a real number when the source file has one) — used for the plan-vs-actual ratio on the version-management overview
   syncedAt              DateTime  @default(now())
   syncStatus            String    @default("ACTIVE") // "ACTIVE" | "NEW" | "REMOVED"
+  sourceStatus          String? // last-seen CR_LIST "סטטוס" value for this row — persisted only to diff status across syncs into CrChangeEvent; not otherwise used
   reviewed              Boolean   @default(false) // set during the version-opening validation step
   needsAttention        Boolean   @default(false) // scope changed (NEW/REMOVED) after scopeApprovedAt was set
   isCore                Boolean   @default(false) // QA classification: core CR — independent axis from isStandAlone
@@ -729,6 +751,31 @@ model VersionCrAssignment {
   team    Team    @relation(fields: [teamId], references: [id])
 
   @@unique([versionId, crNumber, teamId])
+}
+
+// Persisted change log written by VersionCrAssignmentsService.syncApply() — one
+// row per detected diff (scope added/removed, estimate changed, status changed)
+// each time the nightly/manual CR_LIST sync runs. Unlike VersionCrAssignment's
+// live fields (which get overwritten in place on every sync), this is append-only
+// so a version's scope history survives past the next sync.
+model CrChangeEvent {
+  id             String   @id @default(uuid())
+  versionId      String
+  crNumber       String
+  crLabel        String?
+  teamId         String
+  field          String // "SCOPE_ADDED" | "SCOPE_REMOVED" | "ESTIMATE_CHANGED" | "STATUS_CHANGED"
+  oldValue       String?
+  newValue       String?
+  reason         String? // human-readable sentence, generated at write time
+  detectedAt     DateTime @default(now())
+  sourceSyncedAt DateTime // syncedAt of the sync run that produced this event
+
+  version Version @relation(fields: [versionId], references: [id])
+  team    Team    @relation(fields: [teamId], references: [id])
+
+  @@index([versionId, detectedAt])
+  @@index([versionId, crNumber])
 }
 
 // ── Leaves / Seasons ─────────────────────────────────────────────────────────
@@ -918,6 +965,18 @@ model QaCycle {
   // cycleType, unlike QcRelease's goLiveCycleId/rehearsalCycleId which only
   // ever covered two specific ones. Null until published.
   qcCycleId    Int?
+  // QG Threshold High/Medium/Low + Environment (2026-09-23) — QC's real
+  // release-cycle entity requires user-01 (QG Threshold High) at creation
+  // time; publishVersionRelease was omitting all 4 fields entirely, which is
+  // why "צור ב-QC" failed with qccore.required-field-missing on a real
+  // instance. Seeded with a per-cycleType default at creation (see
+  // QG_CYCLE_DEFAULTS in qa-workplan.service.ts, values confirmed against
+  // the user's own real QC RELEASE_CYCLES export 2026-09-23), editable
+  // afterward from the QA Work Plan screen before publishing.
+  qgThresholdHigh   Int?
+  qgThresholdMedium Int?
+  qgThresholdLow    Int?
+  qgEnvironment     String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

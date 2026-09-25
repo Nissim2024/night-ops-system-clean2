@@ -134,6 +134,19 @@ export class VersionCrAssignmentsController {
     return this.service.getScopeOverview(versionId);
   }
 
+  // Change Control / Audit screen — persisted diff log written by syncApply()
+  @Get('version/:versionId/change-events')
+  getChangeEvents(@Param('versionId') versionId: string, @Request() req: any) {
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.getChangeEvents(versionId);
+  }
+
+  @Get('version/:versionId/change-summary')
+  getChangeSummary(@Param('versionId') versionId: string, @Request() req: any) {
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.getChangeSummary(versionId);
+  }
+
   @Delete('version/:versionId')
   clearForVersion(@Param('versionId') versionId: string, @Request() req: any) {
     if (!MANAGERS.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת מנהל');

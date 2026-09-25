@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import * as fs from 'fs';
 import { TEAM_COLUMNS, EXCLUDED_CR_STATUSES, TARGET_CR_PATTERN } from '../common/team-columns';
+import { readQcFile, resolveQcFilePath, SmbAccessError } from '../qc-releases/smb-file-reader';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
@@ -151,12 +152,29 @@ export class VersionCrAssignmentsService {
   // ── Private: load raw CR_LIST sheet + resolved column indices (shared by
   // parseExcelAssignments and getChangeDetail) ──────────────────────────────
   private async loadSheet(): Promise<LoadedSheet> {
-    const param = await prisma.systemParam.findUnique({ where: { key: 'EXCEL_FILE_PATH' } });
-    const filePath = param?.value?.trim();
-    if (!filePath) throw new BadRequestException('נתיב קובץ CR_LIST לא הוגדר בפרמטרי המערכת (EXCEL_FILE_PATH)');
-    if (!fs.existsSync(filePath)) throw new BadRequestException(`הקובץ לא נמצא: ${filePath}`);
+    // 2026-09-23 (fixes-batch item D): was reading ONLY the legacy
+    // EXCEL_FILE_PATH SystemParam directly — silently ignoring QC_RELEASES_FILE
+    // (env var or SystemParam), the param the AdminPanel itself labels as the
+    // recommended one. An admin who updated QC_RELEASES_FILE believing it
+    // controlled CR_LIST would see the sync keep reading a stale/wrong path
+    // forever with no error, since the mtime/size cache faithfully "works" —
+    // it's just faithfully caching the wrong file. Now shares the exact same
+    // resolver (env → QC_RELEASES_FILE param → EXCEL_FILE_PATH param) already
+    // used by quality-hub.service.ts for the same underlying file.
+    let filePath: string;
+    try {
+      filePath = await resolveQcFilePath(prisma);
+    } catch (err: any) {
+      throw new BadRequestException(err instanceof SmbAccessError ? err.message : String(err?.message ?? err));
+    }
 
-    const stat = fs.statSync(filePath);
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(filePath);
+    } catch {
+      throw new BadRequestException(`הקובץ לא נמצא: ${filePath}`);
+    }
+
     if (
       this.sheetCache &&
       this.sheetCache.filePath === filePath &&
@@ -166,7 +184,12 @@ export class VersionCrAssignmentsService {
       return this.sheetCache.parsed;
     }
 
-    const buffer = fs.readFileSync(filePath);
+    let buffer: Buffer;
+    try {
+      buffer = readQcFile(filePath).buffer;
+    } catch (err: any) {
+      throw new BadRequestException(err instanceof SmbAccessError ? err.message : `שגיאה בקריאת קובץ CR_LIST: ${filePath}`);
+    }
     const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
@@ -266,7 +289,7 @@ export class VersionCrAssignmentsService {
   private async parseExcelAssignments(versionId: string): Promise<{
     assignments: {
       crNumber: string; crLabel: string; teamId: string; teamName: string;
-      crManager: string; crDescription: string; application: string; project: string;
+      crManager: string; crDescription: string; application: string; project: string; status: string;
       qaEffort?: number; estimateDays?: number | null; hasActual?: boolean; actualEffortDays?: number | null;
     }[];
     allTeams: { id: string; name: string }[];
@@ -369,6 +392,7 @@ export class VersionCrAssignmentsService {
           crDescription: String(row[COL_DESCRIPTION] ?? '').trim(),
           application:   appCol    !== -1 ? String(row[appCol]    ?? '').trim() : '',
           project:       projectCol !== -1 ? String(row[projectCol] ?? '').trim() : '',
+          status:        statusCol !== -1 ? String(row[statusCol] ?? '').trim() : '',
           ...(qaEffortDays !== undefined ? { qaEffort: qaEffortDays } : {}),
           teamEstimateDays: teamEstimate ?? null,
           estimateDays: crEstimateDays[crNumber] ?? null,
@@ -422,11 +446,14 @@ export class VersionCrAssignmentsService {
     const version = await prisma.version.findUnique({ where: { id: versionId }, select: { scopeApprovedAt: true } });
     const scopeAlreadyApproved = !!version?.scopeApprovedAt;
 
-    // Existing active + new records (exclude already-REMOVED ones from diff)
+    // Existing active + new records (exclude already-REMOVED ones from diff).
+    // crLabel/teamEstimateDays/qaEffort/sourceStatus are fetched here purely to
+    // diff against the freshly parsed Excel row below, for CrChangeEvent.
     const existing = await prisma.versionCrAssignment.findMany({
       where: { versionId, syncStatus: { not: 'REMOVED' } },
-      select: { id: true, crNumber: true, teamId: true },
+      select: { id: true, crNumber: true, teamId: true, crLabel: true, teamEstimateDays: true, qaEffort: true, sourceStatus: true },
     });
+    const existingByKey = new Map(existing.map(e => [`${e.crNumber}|${e.teamId}`, e]));
     const dbKeys = new Set(existing.map(e => `${e.crNumber}|${e.teamId}`));
     const existingCrNumbers = new Set(existing.map(e => e.crNumber));
 
@@ -439,17 +466,50 @@ export class VersionCrAssignmentsService {
     const now = new Date();
     let added = 0;
     let unchanged = 0;
+    const newEvents: any[] = [];
 
     // Upsert: new CRs get syncStatus='NEW', existing ones get syncStatus='ACTIVE'
     for (const a of assignments) {
-      const isNew = !dbKeys.has(`${a.crNumber}|${a.teamId}`);
+      const key = `${a.crNumber}|${a.teamId}`;
+      const existingRow = existingByKey.get(key);
+      const isNew = !existingRow;
+      const newEstimate = (a as any).teamEstimateDays ?? a.qaEffort ?? null;
+
+      if (isNew) {
+        newEvents.push({
+          versionId, crNumber: a.crNumber, crLabel: a.crLabel, teamId: a.teamId,
+          field: 'SCOPE_ADDED', oldValue: null, newValue: a.crLabel,
+          reason: 'ה-CR נוסף לתכולת הגרסה', sourceSyncedAt: now,
+        });
+      } else {
+        // Status: only compare against a real previous value — sourceStatus is
+        // new (2026-09-25) and null on every pre-existing row, so a null→value
+        // transition on the first sync after deploy is "we started recording",
+        // not a real change, and must not be logged as one.
+        if (existingRow.sourceStatus != null && existingRow.sourceStatus !== a.status) {
+          newEvents.push({
+            versionId, crNumber: a.crNumber, crLabel: a.crLabel, teamId: a.teamId,
+            field: 'STATUS_CHANGED', oldValue: existingRow.sourceStatus, newValue: a.status,
+            reason: `הסטטוס בקובץ המקור השתנה ל"${a.status}"`, sourceSyncedAt: now,
+          });
+        }
+        const oldEstimate = existingRow.teamEstimateDays ?? existingRow.qaEffort ?? null;
+        if (oldEstimate != null && newEstimate != null && Math.abs(newEstimate - oldEstimate) >= 0.05) {
+          newEvents.push({
+            versionId, crNumber: a.crNumber, crLabel: a.crLabel, teamId: a.teamId,
+            field: 'ESTIMATE_CHANGED', oldValue: String(oldEstimate), newValue: String(newEstimate),
+            reason: `ימי הפיתוח של צוות זה השתנו (${oldEstimate} ← ${newEstimate})`, sourceSyncedAt: now,
+          });
+        }
+      }
+
       await prisma.versionCrAssignment.upsert({
         where: { versionId_crNumber_teamId: { versionId, crNumber: a.crNumber, teamId: a.teamId } },
         create: {
           versionId, crNumber: a.crNumber, crLabel: a.crLabel, teamId: a.teamId,
           crManager: a.crManager || null, crDescription: a.crDescription || null,
           application: a.application || null, project: a.project || null,
-          syncedAt: now, syncStatus: 'NEW',
+          syncedAt: now, syncStatus: 'NEW', sourceStatus: a.status || null,
           needsAttention: scopeAlreadyApproved,
           ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
           teamEstimateDays: (a as any).teamEstimateDays ?? null,
@@ -460,7 +520,7 @@ export class VersionCrAssignmentsService {
           crLabel: a.crLabel, crManager: a.crManager || null,
           crDescription: a.crDescription || null, application: a.application || null,
           project: a.project || null, syncedAt: now,
-          syncStatus: 'ACTIVE',
+          syncStatus: 'ACTIVE', sourceStatus: a.status || null,
           ...(a.qaEffort !== undefined ? { qaEffort: a.qaEffort } : {}),
           teamEstimateDays: (a as any).teamEstimateDays ?? null,
           estimateDays: a.estimateDays ?? null, hasActual: a.hasActual ?? false,
@@ -483,6 +543,17 @@ export class VersionCrAssignmentsService {
         where: { id: { in: stale.map(e => e.id) } },
         data: { syncStatus: 'REMOVED', needsAttention: scopeAlreadyApproved },
       });
+      for (const e of stale) {
+        newEvents.push({
+          versionId, crNumber: e.crNumber, crLabel: e.crLabel, teamId: e.teamId,
+          field: 'SCOPE_REMOVED', oldValue: e.crLabel, newValue: null,
+          reason: 'ה-CR הוסר מתכולת הגרסה', sourceSyncedAt: now,
+        });
+      }
+    }
+
+    if (newEvents.length > 0) {
+      await prisma.crChangeEvent.createMany({ data: newEvents });
     }
 
     return { added, removed: stale.length, unchanged };
@@ -598,6 +669,48 @@ export class VersionCrAssignmentsService {
     return {
       crNumber, crLabel: row.crLabel ?? crNumber, teamName: row.team.name,
       syncStatus: row.syncStatus, reason, detail,
+    };
+  }
+
+  // ── Persisted change log (Change Control / Audit screen) ───────────────────
+  // Unlike getChangeDetail above (which recomputes a NEW/REMOVED row's reason
+  // live from the current Excel file), this reads CrChangeEvent rows written by
+  // syncApply() at the moment each diff was detected — so it survives past the
+  // next sync overwriting the underlying VersionCrAssignment values.
+  async getChangeEvents(versionId: string, limit = 200) {
+    return prisma.crChangeEvent.findMany({
+      where: { versionId },
+      orderBy: { detectedAt: 'desc' },
+      take: limit,
+      include: { team: { select: { name: true } } },
+    });
+  }
+
+  // Counts since the version's scope was approved (or since creation, if never
+  // approved) — mirrors needsAttention's own "changed after scopeApprovedAt"
+  // framing, so the summary tile matches what a manager already understands
+  // "scope changed since approval" to mean elsewhere in this module.
+  async getChangeSummary(versionId: string) {
+    const version = await prisma.version.findUnique({
+      where: { id: versionId },
+      select: { scopeApprovedAt: true, createdAt: true },
+    });
+    if (!version) throw new BadRequestException('גרסה לא נמצאה');
+    const since = version.scopeApprovedAt ?? version.createdAt;
+
+    const grouped = await prisma.crChangeEvent.groupBy({
+      by: ['field'],
+      where: { versionId, detectedAt: { gte: since } },
+      _count: true,
+    });
+    const countOf = (field: string) => grouped.find(g => g.field === field)?._count ?? 0;
+    const added = countOf('SCOPE_ADDED');
+    const removed = countOf('SCOPE_REMOVED');
+    const estimateChanges = countOf('ESTIMATE_CHANGED');
+    const statusChanges = countOf('STATUS_CHANGED');
+    return {
+      since, added, removed, estimateChanges, statusChanges,
+      total: added + removed + estimateChanges + statusChanges,
     };
   }
 

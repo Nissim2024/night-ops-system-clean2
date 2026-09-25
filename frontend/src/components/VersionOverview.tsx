@@ -206,6 +206,11 @@ function BackButton({ onClick }: { onClick: () => void }) {
 // on their wrapping <div> — StatTile itself has no onClick and never did, so
 // no click/navigation behavior changed here, only the visuals + a hover lift
 // on the wrapper that's already clickable.
+const CHANGE_FIELD_LABEL: Record<string, string> = {
+  SCOPE_ADDED: 'נוסף לתכולה', SCOPE_REMOVED: 'הוסר מהתכולה',
+  ESTIMATE_CHANGED: 'שינוי השקעה', STATUS_CHANGED: 'שינוי סטטוס',
+};
+
 function StatTile({ label, value, sub, accent }: { label: string; value: React.ReactNode; sub?: React.ReactNode; accent?: string }) {
   return (
     <div className="min-w-[140px] flex-1 rounded-lg border border-border bg-card p-3.5 shadow-xs transition-[box-shadow,border-color,transform] duration-base ease-out group-hover:-translate-y-0.5 group-hover:border-neutral-300 group-hover:shadow-md">
@@ -286,7 +291,17 @@ type Screen =
   | { type: 'target-list' }
   | { type: 'target-defect-detail'; defectId: string }
   | { type: 'cr-detail'; crNumber: string }
-  | { type: 'history'; crNumber: string; teamId: string };
+  | { type: 'history'; crNumber: string; teamId: string }
+  | { type: 'change-control' };
+
+interface ChangeEvent {
+  id: string; crNumber: string; crLabel: string | null; field: string;
+  oldValue: string | null; newValue: string | null; reason: string | null;
+  detectedAt: string; team: { name: string };
+}
+interface ChangeSummary {
+  since: string; added: number; removed: number; estimateChanges: number; statusChanges: number; total: number;
+}
 
 export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep, onDrilledInChange }) => {
   const headers = { Authorization: `Bearer ${token}` };
@@ -301,6 +316,8 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
 
   const [crDetail, setCrDetail] = useState<any | null>(null);
   const [historyDetail, setHistoryDetail] = useState<any | null>(null);
+  const [changeSummary, setChangeSummary] = useState<ChangeSummary | null>(null);
+  const [changeEvents, setChangeEvents] = useState<ChangeEvent[] | null>(null);
 
   const [targetDefectColumns, setTargetDefectColumns] = useState<(keyof TargetDefect)[]>(() => {
     try {
@@ -352,7 +369,18 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
         setTotalTests(count);
       })
       .catch(() => setTotalTests(null));
+    axios.get(`${API}/version-cr-assignments/version/${version.id}/change-summary`, { headers })
+      .then(r => setChangeSummary(r.data))
+      .catch(() => setChangeSummary(null));
   }, [version.id]); // eslint-disable-line
+
+  const openChangeControl = () => {
+    setChangeEvents(null);
+    pushScreen({ type: 'change-control' });
+    axios.get(`${API}/version-cr-assignments/version/${version.id}/change-events`, { headers })
+      .then(r => setChangeEvents(r.data))
+      .catch(() => setChangeEvents([]));
+  };
 
   const openCrDetail = (crNumber: string) => {
     setCrDetail(null);
@@ -427,6 +455,9 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
             <StatTile label="CR-ים Stand Alone" value={scope?.saCrCount ?? '—'} />
             <div onClick={() => pushScreen({ type: 'target-list' })} className="group min-w-[140px] flex-1 cursor-pointer">
               <StatTile label="סה״כ TARGET" value={targetSummary?.total ?? scope?.targetCrCount ?? '—'} accent={C.brand} />
+            </div>
+            <div onClick={openChangeControl} className="group min-w-[140px] flex-1 cursor-pointer">
+              <StatTile label="שינויים מאז אישור תכולה" value={changeSummary?.total ?? '—'} accent={C.warning} />
             </div>
             <StatTile label="סה״כ בדיקות" value={totalTests ?? '—'} />
             <StatTile
@@ -665,6 +696,48 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Change Control / Audit — persisted diff log since scope approval ── */}
+      {screen.type === 'change-control' && (
+        <div>
+          <BackButton onClick={goBack} />
+          <div className="mb-4 flex flex-wrap gap-2.5">
+            <StatTile label="נוספו לתכולה" value={changeSummary?.added ?? '—'} accent={C.success} />
+            <StatTile label="הוסרו מהתכולה" value={changeSummary?.removed ?? '—'} accent={C.danger} />
+            <StatTile label="שינויי השקעה" value={changeSummary?.estimateChanges ?? '—'} />
+            <StatTile label="שינויי סטטוס" value={changeSummary?.statusChanges ?? '—'} />
+          </div>
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <div className="mb-3 text-base font-bold text-foreground">📜 יומן שינויים</div>
+            {!changeEvents ? (
+              <div className="p-8 text-center text-subtle-foreground">טוען...</div>
+            ) : changeEvents.length === 0 ? (
+              <div className="p-8 text-center text-subtle-foreground">לא זוהו שינויים בקובץ המקור מאז תחילת המעקב</div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {changeEvents.map(e => (
+                  <div key={e.id} className="flex flex-wrap items-center gap-2.5 rounded-md border border-border bg-muted px-3 py-2.5 text-[13px]">
+                    <span className="min-w-[90px] text-subtle-foreground">{formatDateTime(e.detectedAt)}</span>
+                    <span className="min-w-[80px] font-semibold text-foreground">{e.crNumber}</span>
+                    <span className="min-w-[110px] text-muted-foreground">{e.team?.name ?? '—'}</span>
+                    <span
+                      className="rounded-full px-2.5 py-0.5 text-xs font-bold"
+                      style={
+                        e.field === 'SCOPE_ADDED' ? { color: C.success, background: C.successBg }
+                        : e.field === 'SCOPE_REMOVED' ? { color: C.danger, background: C.dangerBg }
+                        : { color: C.warning, background: C.warningBg }
+                      }
+                    >
+                      {CHANGE_FIELD_LABEL[e.field] ?? e.field}
+                    </span>
+                    <span className="flex-1 text-muted-foreground">{e.reason}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
