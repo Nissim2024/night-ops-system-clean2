@@ -8,6 +8,7 @@ const prisma = new PrismaClient({
 export const ALL_PERMISSIONS = [
   'screen:prep', 'screen:handoff', 'screen:timeline',
   'screen:night', 'screen:summary', 'screen:admin', 'screen:qa', 'screen:release-intelligence', 'screen:quality-hub',
+  'screen:defects',
   'action:import', 'action:gonogo', 'action:task_status', 'action:open_task_for_execution',
   'action:user_manage', 'action:override_version_edit', 'action:select_all_tasks', 'action:template_delete',
   'action:qa_leave_request', 'action:qa_manage', 'action:qc_write',
@@ -20,19 +21,26 @@ export const ALL_PERMISSIONS = [
 
 const DEFAULTS: Record<string, string[]> = {
   ADMIN:           [...ALL_PERMISSIONS],
-  RELEASE_MANAGER: ['screen:prep','screen:handoff','screen:timeline','screen:night','screen:summary','action:import','action:gonogo','action:task_status','action:open_task_for_execution','action:override_version_edit','action:select_all_tasks'],
-  CR_MANAGER:      [],
+  RELEASE_MANAGER: ['screen:prep','screen:handoff','screen:timeline','screen:night','screen:summary','screen:defects','action:import','action:gonogo','action:task_status','action:open_task_for_execution','action:override_version_edit','action:select_all_tasks'],
+  // screen:defects granted despite the role otherwise being unused — access-control
+  // spec 2026-09-25 (permissions Artifact doc): the Defects module previously had no
+  // gate at all, so every role that should reach it gets it explicitly from here on.
+  CR_MANAGER:      ['screen:defects'],
   // screen:qa / screen:release-intelligence deliberately excluded here — a team
   // lead who isn't on the QA team shouldn't see those modules by default; actual
   // QA-team members still get them via the isQaTeamMember check in ManagerDashboard
   // regardless of this role-level grant (see canAccessQa/canAccessReleaseIntelligence).
-  TEAM_LEAD:       ['screen:handoff','screen:timeline','screen:night','screen:summary','screen:prep','action:task_status','action:qa_leave_request','action:qa_manage'],
+  TEAM_LEAD:       ['screen:handoff','screen:timeline','screen:night','screen:summary','screen:prep','screen:defects','action:task_status','action:qa_leave_request','action:qa_manage'],
   // action:qc_defect_create granted here by default — user's explicit call
   // (2026-09-18): "every QA" can open a new defect, and QA testers are
   // EMPLOYEE-role users (per QaAssignment.userId) in this app's role model,
   // not a distinct "QA" role. Still adjustable per-role at runtime in
   // AdminPanel like every other permission here.
-  EMPLOYEE:        ['action:task_status', 'action:qc_defect_create'],
+  EMPLOYEE:        ['action:task_status', 'action:qc_defect_create', 'screen:defects'],
+  // VIEWER deliberately excluded from screen:defects by default — access-control
+  // spec 2026-09-25: viewer defect visibility should be an explicit admin choice,
+  // not on-by-default, since a viewer sees ALL defects unscoped (no team/personal
+  // filter applies to VIEWER). Admin can flip it on from the permissions matrix.
   VIEWER:          ['screen:timeline','screen:night','screen:summary'],
 };
 

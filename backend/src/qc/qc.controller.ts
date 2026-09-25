@@ -50,9 +50,22 @@ export class QcController {
     return this.qcService.getDefects(versionId, cycle);
   }
 
+  // `relId` accepted as an alternative to `versionId` (2026-09-23,
+  // fixes-batch item I/J) — Quality Hub releases with no local Version row
+  // (everything older than this app) only ever have a relId, same relId-
+  // direct pattern as /qc/defects-by-relid. `severity` is an optional
+  // post-filter (KpiDetailView's per-severity KPI cards) — kept here rather
+  // than in the service since it's a simple, generic list narrow, not a
+  // KPI-specific rule like kpiDefectFilters.
   @Get('defects-by-kpi')
-  getDefectsForKpi(@Query('versionId') versionId: string, @Query('kpiName') kpiName: string) {
-    return this.qcService.getDefectsForKpi(versionId, kpiName);
+  async getDefectsForKpi(
+    @Query('versionId') versionId: string, @Query('relId') relId: string,
+    @Query('kpiName') kpiName: string, @Query('severity') severity?: string,
+  ) {
+    const defects = relId
+      ? await this.qcService.getDefectsForKpiByRelId(Number(relId), kpiName)
+      : await this.qcService.getDefectsForKpi(versionId, kpiName);
+    return severity ? defects.filter(d => d.severity === severity) : defects;
   }
 
   @Get('cr-defect-indicators')
@@ -66,15 +79,18 @@ export class QcController {
   }
 
   // System-wide dashboard for the general Defects module (2026-09-22) — every
-  // defect in the QC instance, all statuses, no version/release scope.
+  // defect in the QC instance, all statuses, no version/release scope. Rows
+  // ARE scoped by caller role (access-control spec 2026-09-25): TEAM_LEAD sees
+  // their team's Responsibility, EMPLOYEE sees only defects assigned to them —
+  // see QcService.resolveDefectScope().
   @Get('all-defects-dashboard')
-  getAllDefectsDashboard() {
-    return this.qcService.getAllDefectsDashboard();
+  getAllDefectsDashboard(@Request() req: any) {
+    return this.qcService.getAllDefectsDashboard(req.user);
   }
 
   @Get('all-defects-filtered')
-  getAllDefectsFiltered(@Query('field') field: string, @Query('value') value: string) {
-    return this.qcService.getAllDefectsFiltered(field, value);
+  getAllDefectsFiltered(@Query('field') field: string, @Query('value') value: string, @Request() req: any) {
+    return this.qcService.getAllDefectsFiltered(field, value, req.user);
   }
 
   // relId-direct (2026-09-20) — QC-only historical releases have no local
@@ -121,9 +137,12 @@ export class QcController {
     return this.qcService.setOpenProdDefectsConfig(body);
   }
 
+  // `versionId` optional (2026-09-23) — scopes the Oracle lookup to this
+  // specific release, tried before the unscoped fallback (see
+  // getCrTestSummary's own comment for why).
   @Get('cr-test-summary')
-  getCrTestSummary(@Query('crNumber') crNumber: string) {
-    return this.qcService.getCrTestSummary(crNumber);
+  getCrTestSummary(@Query('crNumber') crNumber: string, @Query('versionId') versionId?: string) {
+    return this.qcService.getCrTestSummary(crNumber, versionId);
   }
 
   @Get('cr-items')
@@ -178,6 +197,23 @@ export class QcController {
   async probeProjectLists(@Request() req: any) {
     await this.requireQcWrite(req);
     return this.qcRestService.probeProjectLists(req.user.sub);
+  }
+
+  // Picklist cache refresh + read (2026-09-23, fixes-batch A.6) — the sync
+  // is an explicit admin action (calls QC live, so ADMIN-gated like the other
+  // rest-test tools); the read is a plain cache lookup any caller with
+  // action:qc_defect_edit_extended can hit (same gate as everything else on
+  // the defect edit form).
+  @Post('sync-picklists')
+  async syncPicklists(@Request() req: any) {
+    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול לרענן רשימות ערכים מ-QC');
+    return this.qcRestService.syncQcPicklists(req.user.sub);
+  }
+
+  @Get('defect-field-picklists')
+  async getDefectFieldPicklists(@Request() req: any) {
+    await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה מורחבים — פנה למנהל מערכת');
+    return this.qcRestService.getDefectFieldPicklists();
   }
 
   // Site Administration probe (2026-09-23) — ADMIN-only, not the general
@@ -339,6 +375,24 @@ export class QcController {
   async updateDefectFields(@Request() req: any, @Param('id') id: string, @Body('fields') fields: Record<string, string>) {
     await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה מורחבים — פנה למנהל מערכת');
     return this.qcRestService.updateDefectTier2Fields(id, fields, req.user.sub);
+  }
+
+  // Reference-field counterpart (2026-09-23, fixes-batch A.5) — Detected in
+  // Release/Cycle, which need a real QC id+label pair, not just a string.
+  @Patch('defects/:id/ref-fields')
+  async updateDefectRefFields(@Request() req: any, @Param('id') id: string, @Body('refFields') refFields: Record<string, { id: string; label: string }>) {
+    await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה מורחבים — פנה למנהל מערכת');
+    return this.qcRestService.updateDefectTier2RefFields(id, refFields, req.user.sub);
+  }
+
+  // Single source of truth for the detail screen's "which fields can I offer
+  // double-click editing on" (2026-09-23, fixes-batch A.5) — same permission
+  // as the write endpoints above, since there's no point advertising edit
+  // affordances to someone who can't actually save them.
+  @Get('defect-editable-fields')
+  async getDefectEditableFields(@Request() req: any) {
+    await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה מורחבים — פנה למנהל מערכת');
+    return this.qcRestService.getEditableDefectFieldKeys();
   }
 
   // Defect creation (§5), permission-gated for "every QA" instead of

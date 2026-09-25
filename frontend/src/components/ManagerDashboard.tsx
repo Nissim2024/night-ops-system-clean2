@@ -127,6 +127,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
   const canAccessReleaseIntelligence = isQaTeamMember || can('screen:release-intelligence');
   const canAccessQualityHub = can('screen:quality-hub');
   const canAccessVersionManagement = ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role);
+  const canAccessDefects = can('screen:defects');
 
   useSocket({
     userId: payload.sub,
@@ -752,6 +753,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
             if (m === 'qa' && !canAccessQa) return;
             if (m === 'release-intelligence' && !canAccessReleaseIntelligence) return;
             if (m === 'quality-hub' && !canAccessQualityHub) return;
+            if (m === 'defects' && !canAccessDefects) return;
             setActiveModule(m);
             // Home ('activeTab') isn't a real deployments screen — coming from
             // Home, clicking הטמעות should land on whatever tab is actually
@@ -776,6 +778,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           activeQhView={activeQhView}
           onQhViewChange={setActiveQhView}
           canAccessQualityHub={canAccessQualityHub}
+          canAccessDefects={canAccessDefects}
           showLeaves={false}
           leavesActive={activeModule === 'qa' && activeQaView === 'leaves'}
           onLeavesClick={() => { setActiveModule('qa'); setActiveQaView('leaves'); }}

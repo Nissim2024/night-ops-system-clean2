@@ -30,6 +30,7 @@ interface Props {
   activeQhView?: string;
   onQhViewChange?: (v: string) => void;
   canAccessQualityHub?: boolean;
+  canAccessDefects?: boolean;
   // ── Leaves (visible to all employees) ────────────────────────────────
   showLeaves?: boolean;
   leavesActive?: boolean;
@@ -227,6 +228,7 @@ export const Sidebar: React.FC<Props> = ({
   activeQhView = 'overview',
   onQhViewChange,
   canAccessQualityHub = false,
+  canAccessDefects = false,
   showLeaves = false,
   leavesActive = false,
   onLeavesClick,
@@ -265,7 +267,7 @@ export const Sidebar: React.FC<Props> = ({
       )}
 
       {/* ─── Module switcher ─── */}
-      {(canAccessVersionManagement || canAccessQa || canAccessReleaseIntelligence || canAccessQualityHub) && (
+      {(canAccessVersionManagement || canAccessQa || canAccessReleaseIntelligence || canAccessQualityHub || canAccessDefects) && (
         <div className="flex flex-wrap gap-1.5 px-3 pt-3">
           {[
             { key: 'version-management' as const, label: 'ניהול גרסה',  icon: '🧭', active: isVm,          show: canAccessVersionManagement },
@@ -273,7 +275,7 @@ export const Sidebar: React.FC<Props> = ({
             { key: 'deployments' as const,         label: 'הטמעות',      icon: '🌙', active: isDeployments, show: true },
             { key: 'release-intelligence' as const, label: 'ניהול בדיקות', icon: '🧠', active: isRi,        show: canAccessReleaseIntelligence },
             { key: 'quality-hub' as const,         label: 'איכות גרסה',  icon: '🏆', active: isQh,          show: canAccessQualityHub },
-            { key: 'defects' as const,             label: 'תקלות',       icon: '🪲', active: isDefects,     show: true },
+            { key: 'defects' as const,             label: 'תקלות',       icon: '🪲', active: isDefects,     show: canAccessDefects },
           ].filter(m => m.show).map(m => (
             <button
               key={m.key}

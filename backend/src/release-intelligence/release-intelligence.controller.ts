@@ -42,6 +42,14 @@ export class ReleaseIntelligenceController {
     return this.service.getYesterdayDiff(versionId);
   }
 
+  // Home-page KPI tile (access-control spec 2026-09-25) — a team lead's own
+  // team's test progress %, not the full daily-QA payload. null when the
+  // caller doesn't lead any team or that team has no CRs in this version.
+  @Get('team-progress/:versionId')
+  getTeamProgress(@Param('versionId') versionId: string, @Request() req: any) {
+    return this.service.getTeamProgress(versionId, req.user);
+  }
+
   @Get('cr-health/:versionId')
   getCrHealth(@Param('versionId') versionId: string) {
     return this.service.getCrHealth(versionId);

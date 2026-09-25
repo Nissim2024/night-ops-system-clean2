@@ -561,14 +561,40 @@ const REQ_HIERARCHY_SQL = `
 // own comment — not a per-leaf-test field, a once-per-CR rollup). Direct
 // WHERE on RQ_USER_02 rather than the full unscoped hierarchy scan
 // REQ_HIERARCHY_SQL does, since we already know the exact CR number and
-// don't need to walk any father chain here. UNVERIFIED against this real
-// instance yet (2026-09-17) — same status attachments/release-create were in
-// before their first real test: built to spec, not yet confirmed the field
-// name/table shape holds for RQ_USER_26 the way it does for RQ_USER_02.
+// don't need to walk any father chain here.
+//
+// Field name confirmed correct 2026-09-23 (user checked QC directly:
+// RQ_USER_26's real label is "Test Summary") — the empty-modal bug is NOT a
+// wrong-field-name issue. Real suspect instead: this query is UNSCOPED by
+// release, but a CR can plausibly carry more than one REQ row with the same
+// RQ_USER_02 value over its lifetime (e.g. re-included/carried into a later
+// release) — same "CR number isn't unique across releases" shape every other
+// CR-scoped query in this file already has to account for (see
+// TEST_COVERAGE_BY_REQ_SQL/CYCLE_TEST_TOTALS_SQL joining through
+// REQ_RELEASES). Unscoped `WHERE RQ_USER_02 = :crNumber` with no ORDER BY
+// just takes whatever row Oracle returns first — if only ONE of several
+// same-CR-number rows actually has a Test Summary typed in (the one for the
+// release the tester actually wrote it against), an unlucky row order
+// returns an empty result even though real data exists. UNVERIFIED which
+// exact row Oracle returns without a real multi-row repro, but release-
+// scoping is a strict narrowing (same field, same CR, one specific
+// release) with no way to make a currently-working case worse.
 const CR_TEST_SUMMARY_SQL = `
   SELECT RQ_USER_26 AS TEST_SUMMARY
   FROM REQ
   WHERE RQ_USER_02 = :crNumber
+`;
+
+// Release-scoped variant (2026-09-23) — tried FIRST when a releaseId is
+// available, falling back to the unscoped query above only if this finds
+// nothing, so a CR that only ever had one REQ row (the common case) keeps
+// working exactly as before.
+const CR_TEST_SUMMARY_SQL_SCOPED = `
+  SELECT RQ.RQ_USER_26 AS TEST_SUMMARY
+  FROM REQ RQ, REQ_RELEASES RQR
+  WHERE RQ.RQ_USER_02 = :crNumber
+    AND RQR.RQRL_REQ_ID = RQ.RQ_REQ_ID
+    AND RQR.RQRL_RELEASE_ID = :releaseId
 `;
 
 // Release-wide (not cycle-scoped): a defect isn't tied to one specific test
@@ -2167,6 +2193,7 @@ interface AllDefectsRawRow {
   SEVERITY: string | null;
   MAIN_MODULE: string | null;
   RESPONSIBILITY: string | null;
+  ASSIGNED_TO: string | null;
   REOPEN_YN: string | null;
   DETECTED_IN_RELEASE: string | null;
   DETECTED_ON_DATE: string | Date | null;
@@ -2179,6 +2206,7 @@ const ALL_DEFECTS_DASHBOARD_COLUMNS = `
     BG_SEVERITY                AS SEVERITY,
     BG_USER_16                AS MAIN_MODULE,
     BG_USER_03                AS RESPONSIBILITY,
+    BG_RESPONSIBLE                AS ASSIGNED_TO,
     BG_USER_29                AS REOPEN_YN,
     detected_rel.REL_NAME        AS DETECTED_IN_RELEASE,
     BG_DETECTION_DATE            AS DETECTED_ON_DATE,
@@ -2204,51 +2232,99 @@ const ALL_DEFECTS_FILTER_COLUMNS: Record<string, string> = {
   responsibility: 'BG_USER_03',
   detectedInRelease: 'detected_rel.REL_NAME',
 };
-function buildAllDefectsFilteredSql(filterField: string): string {
+// TRIM() on both sides (2026-09-23, fixes-batch item B) — a real production
+// report ("במודול התקלות אני לא מצליח לעשות דריל בשום אובייקט") showed the
+// breakdown panel counting real defects under a status like "Open" but the
+// same value clicked back into this filter returning zero rows. The
+// breakdown itself groups by the raw column value with no normalization
+// (computeAllDefectsDashboard's groupCount), so if the real BG_USER_04/etc.
+// value carries incidental trailing whitespace (common in hand-maintained
+// ALM picklist data), the label a user sees and clicks is byte-identical to
+// what gets sent back here — an exact `=` still can't be ruled out as the
+// culprit without real Oracle access to confirm, but TRIM() on both sides is
+// a safe hardening that costs nothing if this wasn't the actual cause and
+// fixes it outright if it was.
+// Built on DEFECTS_SQL_SELECT (2026-09-23, follow-up to the item-B fix above)
+// — NOT the lightweight ALL_DEFECTS_DASHBOARD_COLUMNS — so this drill-down
+// returns the exact same full DefectDto column breadth as every other
+// drill-down table in the app (DefectDrilldownModal's 70+ columns, real
+// column picker), instead of a separate, poorer 8-column reimplementation.
+// User feedback verbatim: "למה לא להשתמש במשהו טוב?" (why not use something
+// that's already good?) — DEFECTS_SQL_SELECT's raw column names
+// (BG_USER_04, BG_SEVERITY, detected_rel.REL_NAME, ...) are identical to the
+// lightweight query's, since both read the same BUG table — only the SELECT
+// list (and therefore what the caller gets back) differs.
+function buildAllDefectsFilteredSql(filterField: string, extraWhere = ''): string {
   const column = ALL_DEFECTS_FILTER_COLUMNS[filterField];
   if (!column) throw new BadRequestException(`שדה סינון לא מוכר: ${filterField}`);
-  return `
-    SELECT${ALL_DEFECTS_DASHBOARD_COLUMNS}
-    FROM BUG
-    LEFT JOIN RELEASES detected_rel ON detected_rel.REL_ID = BUG.BG_DETECTED_IN_REL
-    WHERE ${column} = :value
-    FETCH FIRST 300 ROWS ONLY
-  `;
+  const scopeClause = extraWhere ? ` AND ${extraWhere}` : '';
+  return `${DEFECTS_SQL_SELECT}  WHERE TRIM(${column}) = TRIM(:value)${scopeClause}\n  FETCH FIRST 300 ROWS ONLY\n`;
+}
+
+// KPI-tile drill-down (2026-09-23, fixes-batch item B — "הכרטיסיות עצמן
+// אינן מאפשרות לחיצה בכלל") — the 5 headline tiles (Total/Open/Closed/
+// Critical Open/Reopened) aren't a single field=value match like the
+// breakdown-panel bars above; each is the exact same compound predicate
+// computeAllDefectsDashboard already uses to compute the tile's own number,
+// mirrored here as SQL (real Oracle) and as a JS predicate (mock) so the
+// drill-down list is always consistent with the count the user clicked.
+const ALL_DEFECTS_KPI_WHERE: Record<string, string> = {
+  total: '1=1',
+  open: `TRIM(BG_USER_04) NOT IN ('Closed', 'Canceled')`,
+  closed: `TRIM(BG_USER_04) IN ('Closed', 'Canceled')`,
+  criticalOpen: `TRIM(BG_USER_04) NOT IN ('Closed', 'Canceled') AND TRIM(BG_SEVERITY) = 'Show Stopper'`,
+  reopen: `(UPPER(TRIM(BG_USER_29)) = 'Y' OR TRIM(BG_USER_04) = 'Reopen')`,
+};
+const ALL_DEFECTS_KPI_PREDICATE: Record<string, (r: AllDefectsRawRow) => boolean> = {
+  total: () => true,
+  open: r => !['Closed', 'Canceled'].includes((r.DEFECT_STATUS ?? '').trim()),
+  closed: r => ['Closed', 'Canceled'].includes((r.DEFECT_STATUS ?? '').trim()),
+  criticalOpen: r => !['Closed', 'Canceled'].includes((r.DEFECT_STATUS ?? '').trim()) && (r.SEVERITY ?? '').trim() === 'Show Stopper',
+  reopen: r => (r.REOPEN_YN ?? '').trim().toUpperCase() === 'Y' || (r.DEFECT_STATUS ?? '').trim() === 'Reopen',
+};
+// Also rebuilt on DEFECTS_SQL_SELECT — same reasoning as
+// buildAllDefectsFilteredSql above.
+function buildAllDefectsKpiSql(kpiKey: string, extraWhere = ''): string {
+  const where = ALL_DEFECTS_KPI_WHERE[kpiKey];
+  if (!where) throw new BadRequestException(`KPI לא מוכר: ${kpiKey}`);
+  const scopeClause = extraWhere ? ` AND ${extraWhere}` : '';
+  return `${DEFECTS_SQL_SELECT}  WHERE ${where}${scopeClause}\n  FETCH FIRST 300 ROWS ONLY\n`;
 }
 
 // Dedicated mock fixture (not reusing MOCK_BUG_ROWS, which lacks MAIN_MODULE
 // and spans only ~2 weeks) — spans several months and releases so the
 // monthly trend chart and by-release breakdown have something real to show.
+// ASSIGNED_TO here is a per-person QC login (matches User.qcLogin), not a team
+// name — confirmed with the user 2026-09-25 (access-control spec) despite an
+// older BG_RESPONSIBLE comment elsewhere in this file describing a different,
+// team/queue-shaped usage of that same raw column in other queries.
 const MOCK_ALL_DEFECTS_ROWS: AllDefectsRawRow[] = [
-  { DEFECT_ID: 1,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Medium',       MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv02-2026', DETECTED_ON_DATE: '2026-03-11' },
-  { DEFECT_ID: 2,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Low',          MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'תשתיות', REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv02-2026', DETECTED_ON_DATE: '2026-03-19' },
-  { DEFECT_ID: 3,  DEFECT_STATUS: 'Canceled',  SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'בדיקות', REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv03-2026', DETECTED_ON_DATE: '2026-04-08' },
-  { DEFECT_ID: 4,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Severe',       MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'פיתוח', REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv03-2026', DETECTED_ON_DATE: '2026-04-22' },
-  { DEFECT_ID: 5,  DEFECT_STATUS: 'Fixed_Test',SEVERITY: 'Show Stopper', MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv04-2026', DETECTED_ON_DATE: '2026-05-14' },
-  { DEFECT_ID: 6,  DEFECT_STATUS: 'Open',      SEVERITY: 'Medium',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv04-2026', DETECTED_ON_DATE: '2026-05-27' },
-  { DEFECT_ID: 7,  DEFECT_STATUS: 'Reopen',    SEVERITY: 'Severe',       MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'בדיקות', REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv05-2026', DETECTED_ON_DATE: '2026-06-09' },
-  { DEFECT_ID: 8,  DEFECT_STATUS: 'At Work',   SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv05-2026', DETECTED_ON_DATE: '2026-06-18' },
-  { DEFECT_ID: 9,  DEFECT_STATUS: 'Fixed_Dev', SEVERITY: 'Medium',       MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'ניהול', REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-07-02' },
-  { DEFECT_ID: 10, DEFECT_STATUS: 'Open',      SEVERITY: 'Show Stopper', MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-07-15' },
-  { DEFECT_ID: 11, DEFECT_STATUS: 'Open',      SEVERITY: 'Severe',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-08-05' },
-  { DEFECT_ID: 12, DEFECT_STATUS: 'Pending',   SEVERITY: 'Medium',       MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'בדיקות', REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-08-21' },
-  { DEFECT_ID: 13, DEFECT_STATUS: 'Open',      SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv07-2026', DETECTED_ON_DATE: '2026-09-02' },
-  { DEFECT_ID: 14, DEFECT_STATUS: 'Reopen',    SEVERITY: 'Show Stopper', MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'פיתוח', REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv07-2026', DETECTED_ON_DATE: '2026-09-10' },
-  { DEFECT_ID: 15, DEFECT_STATUS: 'New',       SEVERITY: 'Medium',       MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'בדיקות', REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv08-2026', DETECTED_ON_DATE: '2026-09-18' },
-  { DEFECT_ID: 16, DEFECT_STATUS: 'Open',      SEVERITY: 'Severe',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv08-2026', DETECTED_ON_DATE: '2026-09-20' },
+  { DEFECT_ID: 1,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Medium',       MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv02-2026', DETECTED_ON_DATE: '2026-03-11' },
+  { DEFECT_ID: 2,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Low',          MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'תשתיות', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv02-2026', DETECTED_ON_DATE: '2026-03-19' },
+  { DEFECT_ID: 3,  DEFECT_STATUS: 'Canceled',  SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'בדיקות', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv03-2026', DETECTED_ON_DATE: '2026-04-08' },
+  { DEFECT_ID: 4,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Severe',       MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'פיתוח', ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv03-2026', DETECTED_ON_DATE: '2026-04-22' },
+  { DEFECT_ID: 5,  DEFECT_STATUS: 'Fixed_Test',SEVERITY: 'Show Stopper', MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'raviv',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv04-2026', DETECTED_ON_DATE: '2026-05-14' },
+  { DEFECT_ID: 6,  DEFECT_STATUS: 'Open',      SEVERITY: 'Medium',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv04-2026', DETECTED_ON_DATE: '2026-05-27' },
+  { DEFECT_ID: 7,  DEFECT_STATUS: 'Reopen',    SEVERITY: 'Severe',       MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'בדיקות', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv05-2026', DETECTED_ON_DATE: '2026-06-09' },
+  { DEFECT_ID: 8,  DEFECT_STATUS: 'At Work',   SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'raviv',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv05-2026', DETECTED_ON_DATE: '2026-06-18' },
+  { DEFECT_ID: 9,  DEFECT_STATUS: 'Fixed_Dev', SEVERITY: 'Medium',       MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'ניהול', ASSIGNED_TO: 'mgabay',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-07-02' },
+  { DEFECT_ID: 10, DEFECT_STATUS: 'Open',      SEVERITY: 'Show Stopper', MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-07-15' },
+  { DEFECT_ID: 11, DEFECT_STATUS: 'Open',      SEVERITY: 'Severe',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-08-05' },
+  { DEFECT_ID: 12, DEFECT_STATUS: 'Pending',   SEVERITY: 'Medium',       MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'בדיקות', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-08-21' },
+  { DEFECT_ID: 13, DEFECT_STATUS: 'Open',      SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'raviv',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv07-2026', DETECTED_ON_DATE: '2026-09-02' },
+  { DEFECT_ID: 14, DEFECT_STATUS: 'Reopen',    SEVERITY: 'Show Stopper', MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'פיתוח', ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv07-2026', DETECTED_ON_DATE: '2026-09-10' },
+  { DEFECT_ID: 15, DEFECT_STATUS: 'New',       SEVERITY: 'Medium',       MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'בדיקות', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv08-2026', DETECTED_ON_DATE: '2026-09-18' },
+  { DEFECT_ID: 16, DEFECT_STATUS: 'Open',      SEVERITY: 'Severe',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv08-2026', DETECTED_ON_DATE: '2026-09-20' },
 ];
 
-export interface AllDefectsListRow {
-  id: string;
-  title: string;
-  status: string;
-  severity: string;
-  mainModule: string;
-  responsibility: string;
-  detectedInRelease: string;
-  discoveryDate: string;
-}
-function allDefectsRawRowToListRow(r: AllDefectsRawRow): AllDefectsListRow {
+// Mock-mode mapper for getAllDefectsFiltered (2026-09-23 follow-up) — maps
+// the lightweight MOCK_ALL_DEFECTS_ROWS fixture into a full DefectDto shape
+// (matching what the real Oracle path returns via runDefectsQuery) so the
+// frontend's rich DefectDrilldownModal always gets the right TYPE, even
+// though this dev-only mock fixture doesn't carry every one of DefectDto's
+// 70 fields — everything beyond the 8 fields the fixture actually has comes
+// back empty in mock mode only; real Oracle populates all of them for real.
+function allDefectsRawRowToDefectDto(r: AllDefectsRawRow): DefectDto {
   return {
     id: String(r.DEFECT_ID),
     title: r.TITLE || `תקלה #${r.DEFECT_ID}`,
@@ -2258,7 +2334,81 @@ function allDefectsRawRowToListRow(r: AllDefectsRawRow): AllDefectsListRow {
     responsibility: r.RESPONSIBILITY ?? '',
     detectedInRelease: r.DETECTED_IN_RELEASE ?? '',
     discoveryDate: r.DETECTED_ON_DATE ? new Date(r.DETECTED_ON_DATE).toLocaleDateString('he-IL') : '',
+    reopenYn: r.REOPEN_YN ?? '',
+    assignedTo: r.ASSIGNED_TO ?? '', system: '', description: '', reproducible: '', priority: '', reporter: '',
+    environment: '', testPhase: '', defectType: '', notes: '', crHbrNumberReference: '',
+    crReferenceNumber: '', fixType: '', reason: '', targetRelease: '', subject: '', qaTester: '',
+    estimatedFixTime: '', actualFixTime: '', closedBy: '', deploymentReason: '', fixedUntil: '',
+    vendorStatus: '', responseDate: '', supportReferenceNumber: '', subModule: '', fixedInProd: '',
+    supportStatus: '', vendorAssignTo: '', category: '', itemType: '', estimateFixTime: '',
+    platform: '', modified: '', detectedInCycle: '', targetCycle: '', crStatus: '', dropNumber: '',
+    influence: '', secondaryPriority: '', releaseDefect: '', businessProcess: '', foundByAutomation: '',
+    mainBusinessProcess: '', impact: '', productionReason: '', environmentComponent: '',
+    willBeTestAtGoLive: '', deploymentCategory: '', defectResponsible: '', targetReleaseReason: '',
+    targetType: '', systemComponent: '', forRegressionTest: '', escDefectResponsible: '',
+    toBeTestedOnProd: '', deploymentDateProd: '', targetScopeApproved: '',
   };
+}
+
+// Access-control spec 2026-09-25 — the general Defects module previously
+// applied no scoping at all (every authenticated user saw every defect).
+// TEAM_LEAD (isLead=true) sees their team's Responsibility (BG_USER_03);
+// EMPLOYEE sees only defects assigned to them personally (BG_RESPONSIBLE,
+// matched against User.qcLogin); everyone else is unrestricted.
+type DefectScope =
+  | { kind: 'all' }
+  | { kind: 'team'; values: string[] }
+  | { kind: 'personal'; qcLogin: string | null };
+
+async function resolveDefectScope(user: { sub: string; role: string }): Promise<DefectScope> {
+  if (['ADMIN', 'RELEASE_MANAGER', 'CR_MANAGER', 'VIEWER'].includes(user.role)) return { kind: 'all' };
+  if (user.role === 'TEAM_LEAD') {
+    const leaderships = await prisma.teamMember.findMany({
+      where: { userId: user.sub, isLead: true },
+      include: { team: { select: { qcResponsibilityValue: true } } },
+    });
+    const values = leaderships
+      .map(l => l.team.qcResponsibilityValue)
+      .filter((v): v is string => !!v);
+    // No team has a configured Responsibility value yet — an admin-config gap,
+    // not a security boundary to enforce strictly until it's set (same "not
+    // mapped yet" convention as qcResponsibilityValue elsewhere in this app).
+    if (values.length === 0) return { kind: 'all' };
+    return { kind: 'team', values };
+  }
+  // EMPLOYEE (and any other/future role) — personal scope only.
+  const me = await prisma.user.findUnique({ where: { id: user.sub }, select: { qcLogin: true } });
+  return { kind: 'personal', qcLogin: me?.qcLogin ?? null };
+}
+
+// SQL predicate + binds for the given scope — '' sql means unrestricted.
+// Shared by both raw-row shapes (ALL_DEFECTS_DASHBOARD_COLUMNS and the full
+// DEFECTS_SQL_SELECT) since both read the same BUG table / column names.
+function buildDefectScopeSql(scope: DefectScope): { sql: string; binds: Record<string, any> } {
+  if (scope.kind === 'all') return { sql: '', binds: {} };
+  if (scope.kind === 'team') {
+    const binds: Record<string, any> = {};
+    const placeholders = scope.values.map((v, i) => {
+      binds[`resp${i}`] = v;
+      return `:resp${i}`;
+    });
+    return { sql: `TRIM(BG_USER_03) IN (${placeholders.join(', ')})`, binds };
+  }
+  // personal — no linked qcLogin means see nothing, not everything (the exact
+  // bug this scoping fixes is "unlinked user sees all defects").
+  if (!scope.qcLogin) return { sql: '1=0', binds: {} };
+  return { sql: 'TRIM(BG_RESPONSIBLE) = TRIM(:qcLogin)', binds: { qcLogin: scope.qcLogin } };
+}
+
+function filterMockRowsByScope(rows: AllDefectsRawRow[], scope: DefectScope): AllDefectsRawRow[] {
+  if (scope.kind === 'all') return rows;
+  if (scope.kind === 'team') {
+    const set = new Set(scope.values.map(v => v.trim()));
+    return rows.filter(r => set.has((r.RESPONSIBILITY ?? '').trim()));
+  }
+  if (!scope.qcLogin) return [];
+  const login = scope.qcLogin.trim().toLowerCase();
+  return rows.filter(r => (r.ASSIGNED_TO ?? '').trim().toLowerCase() === login);
 }
 
 function computeAllDefectsDashboard(rows: AllDefectsRawRow[]): AllDefectsDashboardDto {
@@ -3067,6 +3217,29 @@ export class QcService {
     return this.runDefectsQuery(DEFECTS_SQL, { releaseId: relId });
   }
 
+  // relId-direct sibling of getDefectsForKpi (2026-09-23, fixes-batch item I
+  // — Quality Hub's live-defects cards/drilldown were hard-blocked for any
+  // release with no local Version row, e.g. every release older than this
+  // app itself). Mirrors getDefectsForKpi's logic exactly (same
+  // kpiDefectFilters map, same Reopened-KPI special case) but starts from
+  // getDefectsByRelId(relId) instead of getDefects(versionId), and resolves
+  // "reopened" straight from the given relId instead of round-tripping
+  // through getRelId(versionId) — there is no versionId to round-trip
+  // through in this path.
+  async getDefectsForKpiByRelId(relId: number, kpiName: string): Promise<DefectDto[]> {
+    if (this.KPI_WITHOUT_DEFECT_LIST.has(kpiName)) return [];
+
+    const defects = await this.getDefectsByRelId(relId);
+
+    if (kpiName === 'Reopened Defects KPI') {
+      const reopenedIds = await this.getReopenedDefectIds(relId);
+      return defects.filter(d => reopenedIds.has(d.id));
+    }
+
+    const filter = this.kpiDefectFilters[kpiName];
+    return filter ? defects.filter(filter) : defects;
+  }
+
   // Real Go-Live/production incidents for a release — used by the Incidents/
   // RCA module's QC import. Deliberately NOT getDefects() — this needs every
   // Production-phase incident regardless of which test cycle picked it up,
@@ -3386,14 +3559,17 @@ export class QcService {
   // System-wide, all-status dashboard for the general Defects module
   // (2026-09-22) — see computeAllDefectsDashboard's own comment for the
   // scoping/performance caveat (unbounded query, unverified at real volume).
-  async getAllDefectsDashboard(): Promise<AllDefectsDashboardDto> {
+  async getAllDefectsDashboard(user: { sub: string; role: string }): Promise<AllDefectsDashboardDto> {
+    const scope = await resolveDefectScope(user);
     const { enabled } = await getOracleConfig();
-    if (!enabled) return computeAllDefectsDashboard(MOCK_ALL_DEFECTS_ROWS);
+    if (!enabled) return computeAllDefectsDashboard(filterMockRowsByScope(MOCK_ALL_DEFECTS_ROWS, scope));
 
     let conn: any;
     try {
       conn = await oracleConnect();
-      const result = await conn.execute(ALL_DEFECTS_DASHBOARD_SQL);
+      const { sql: scopeSql, binds } = buildDefectScopeSql(scope);
+      const sql = scopeSql ? `${ALL_DEFECTS_DASHBOARD_SQL}\n  WHERE ${scopeSql}` : ALL_DEFECTS_DASHBOARD_SQL;
+      const result = await conn.execute(sql, binds);
       return computeAllDefectsDashboard((result.rows ?? []) as AllDefectsRawRow[]);
     } catch (err: any) {
       this.logger.error(`Oracle getAllDefectsDashboard: ${err.message}`);
@@ -3403,12 +3579,27 @@ export class QcService {
     }
   }
 
-  // Drill-down behind one breakdown-panel bar on the general Defects module.
-  // filterField is validated against a fixed allowlist (ALL_DEFECTS_FILTER_
-  // COLUMNS) before touching SQL — never interpolated from caller input
-  // directly.
-  async getAllDefectsFiltered(filterField: string, value: string): Promise<AllDefectsListRow[]> {
+  // Drill-down behind one breakdown-panel bar OR one KPI tile on the general
+  // Defects module — returns the FULL DefectDto shape (2026-09-23, follow-up
+  // to the item-B fix: user pointed out every other drill-down table in the
+  // app already has real column-picker breadth via DefectDrilldownModal, and
+  // asked "why not use something that's already good?" instead of this
+  // screen's own separate 8-column implementation). filterField is validated
+  // against a fixed allowlist (ALL_DEFECTS_FILTER_COLUMNS) before touching
+  // SQL — never interpolated from caller input directly. filterField ===
+  // '__kpi__' is the compound-predicate path for the 5 headline tiles — see
+  // ALL_DEFECTS_KPI_WHERE/_PREDICATE above.
+  async getAllDefectsFiltered(filterField: string, value: string, user: { sub: string; role: string }): Promise<DefectDto[]> {
+    const scope = await resolveDefectScope(user);
     const { enabled } = await getOracleConfig();
+    if (filterField === '__kpi__') {
+      const predicate = ALL_DEFECTS_KPI_PREDICATE[value];
+      if (!predicate) throw new BadRequestException(`KPI לא מוכר: ${value}`);
+      if (!enabled) return filterMockRowsByScope(MOCK_ALL_DEFECTS_ROWS, scope).filter(predicate).map(allDefectsRawRowToDefectDto);
+      const { sql: scopeSql, binds: scopeBinds } = buildDefectScopeSql(scope);
+      return this.runDefectsQuery(buildAllDefectsKpiSql(value, scopeSql), scopeBinds);
+    }
+
     if (!enabled) {
       const keyOf: Record<string, keyof AllDefectsRawRow> = {
         status: 'DEFECT_STATUS', severity: 'SEVERITY', mainModule: 'MAIN_MODULE',
@@ -3416,21 +3607,13 @@ export class QcService {
       };
       const key = keyOf[filterField];
       if (!key) throw new BadRequestException(`שדה סינון לא מוכר: ${filterField}`);
-      return MOCK_ALL_DEFECTS_ROWS.filter(r => r[key] === value).map(allDefectsRawRowToListRow);
+      return filterMockRowsByScope(MOCK_ALL_DEFECTS_ROWS, scope)
+        .filter(r => String(r[key] ?? '').trim() === value.trim())
+        .map(allDefectsRawRowToDefectDto);
     }
 
-    const sql = buildAllDefectsFilteredSql(filterField);
-    let conn: any;
-    try {
-      conn = await oracleConnect();
-      const result = await conn.execute(sql, { value });
-      return ((result.rows ?? []) as AllDefectsRawRow[]).map(allDefectsRawRowToListRow);
-    } catch (err: any) {
-      this.logger.error(`Oracle getAllDefectsFiltered: ${err.message}`);
-      throw err;
-    } finally {
-      if (conn) await conn.close().catch(() => {});
-    }
+    const { sql: scopeSql, binds: scopeBinds } = buildDefectScopeSql(scope);
+    return this.runDefectsQuery(buildAllDefectsFilteredSql(filterField, scopeSql), { value, ...scopeBinds });
   }
 
   async getBugDashboard(versionId: string): Promise<BugDashboardDto> {
@@ -3679,13 +3862,31 @@ export class QcService {
   // ("Test Summary") on the CR's own requirement row. Returns null (not '')
   // when there's nothing to show, so the frontend can tell "no summary
   // written yet" apart from "query returned an empty string".
-  async getCrTestSummary(crNumber: string): Promise<string | null> {
+  // `versionId` added 2026-09-23 — optional, but tried FIRST when given (see
+  // CR_TEST_SUMMARY_SQL_SCOPED's own comment for why release-scoping is the
+  // leading suspect for the empty-modal bug once the field name itself was
+  // confirmed correct). Falls back to the unscoped query so a CR with only
+  // one REQ row ever (the common case) is unaffected.
+  async getCrTestSummary(crNumber: string, versionId?: string): Promise<string | null> {
     const { enabled } = await getOracleConfig();
     if (!enabled) return null;
 
     let conn: any;
     try {
       conn = await oracleConnect();
+      const releaseId = versionId ? await this.getRelId(versionId) : null;
+      if (releaseId) {
+        const scoped = await conn.execute(CR_TEST_SUMMARY_SQL_SCOPED, { crNumber, releaseId });
+        const scopedRows = scoped.rows ?? [];
+        // A real match for THIS release was found — trust it even if its
+        // summary is empty (not yet written for this release), rather than
+        // falling through to a DIFFERENT release's possibly-stale text.
+        // Only fall back when no row links this CR to this release at all.
+        if (scopedRows.length > 0) {
+          const summary = (scopedRows[0] as any)?.TEST_SUMMARY;
+          return summary ? String(summary) : null;
+        }
+      }
       const result = await conn.execute(CR_TEST_SUMMARY_SQL, { crNumber });
       const row = (result.rows ?? [])[0] as any;
       const summary = row?.TEST_SUMMARY;

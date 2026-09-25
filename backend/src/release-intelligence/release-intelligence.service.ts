@@ -1001,6 +1001,29 @@ export class ReleaseIntelligenceService {
     };
   }
 
+  // Home-page KPI tile for a team lead (access-control spec 2026-09-25) —
+  // reuses getDailyQaManagement's per-CR progress/team mapping rather than
+  // recomputing test-execution math, and aggregates it down to the caller's
+  // own led team. null when the caller doesn't lead a team, or their team has
+  // no CRs in this version yet.
+  async getTeamProgress(versionId: string, user: { sub: string; role: string }): Promise<{ progressPct: number; crCount: number } | null> {
+    const leaderships = await prisma.teamMember.findMany({
+      where: { userId: user.sub, isLead: true },
+      select: { teamId: true },
+    });
+    if (leaderships.length === 0) return null;
+    const teamIds = new Set(leaderships.map(l => l.teamId));
+
+    const live = await this.getDailyQaManagement(versionId);
+    const myCrs = live.crs.filter(cr => cr.teams.some(t => teamIds.has(t.id)));
+    if (myCrs.length === 0) return null;
+
+    const totalPassed = myCrs.reduce((s, cr) => s + cr.passed, 0);
+    const totalScripts = myCrs.reduce((s, cr) => s + cr.total, 0);
+    const progressPct = totalScripts > 0 ? Math.round((totalPassed / totalScripts) * 100) : 0;
+    return { progressPct, crCount: myCrs.length };
+  }
+
   // ── CR Health — spec section 13 ─────────────────────────────────────────────
   // Classification is a v1 heuristic (documented, tunable — same transparency
   // pattern as the Overview health-score formula) since QaAssignment/

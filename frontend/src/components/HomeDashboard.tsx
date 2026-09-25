@@ -174,7 +174,7 @@ const PHASE_META: Record<string, {
   // Managers land on the version's own plan/schedule screen (phases, sub-phases,
   // tasks, GO/NO-GO, status-progression controls) — not the team-lead submission
   // screen, which is only relevant to TEAM_LEAD. Mirrors CR_REVIEW's split below.
-  COLLECTING:   { label: 'איסוף משימות',        icon: '📝', color: '#9C6ADE', bg: 'rgba(156,106,222,0.07)', desc: r => r === 'TEAM_LEAD' ? 'הגש את הצעות המשימות לאישור.' : isRm(r) ? 'עקב אחר שיבוץ הצוותים.'  : 'בדוק אם שובצת למשימות.',                     cta: r => r === 'TEAM_LEAD' ? 'הגש תוכניות' : 'ראה סטטוס', ctaTab: r => r === 'TEAM_LEAD' ? 'proposals' : 'list' },
+  COLLECTING:   { label: 'איסוף משימות',        icon: '📝', color: '#9C6ADE', bg: 'rgba(156,106,222,0.07)', desc: r => r === 'TEAM_LEAD' ? 'הגש את הצעות המשימות לאישור.' : isRm(r) ? 'עקב אחר שיבוץ הצוותים.'  : isViewer(r) ? 'שלב איסוף משימות — הצוותים משבצים משימות.' : 'בדוק אם שובצת למשימות.',                     cta: r => r === 'TEAM_LEAD' ? 'הגש תוכניות' : 'ראה סטטוס', ctaTab: r => r === 'TEAM_LEAD' ? 'proposals' : 'list' },
   // Managers review CR plans on the version detail page itself (team-status grid + CR list) — the
   // separate implementation-plans screen is redundant for them. Team leads still use it to submit.
   CR_REVIEW:    { label: 'סקירת CR',             icon: '🔍', color: '#E8AF00', bg: 'rgba(232,175,0,0.07)',   desc: r => r === 'TEAM_LEAD' ? 'יש להגיש תוכנית CR לאישור.' : 'צוותים מגישים תוכניות עלייה לאוויר.', cta: r => r === 'TEAM_LEAD' ? 'הגש תוכנית CR' : 'סקור תוכניות', ctaTab: r => r === 'TEAM_LEAD' ? 'implementation-plans' : 'list' },
@@ -189,6 +189,11 @@ const PHASE_META: Record<string, {
 };
 
 function isRm(r: string) { return ['RELEASE_MANAGER', 'ADMIN'].includes(r); }
+// VIEWER falls through every isRm()/TEAM_LEAD branch today with no identity
+// of its own (access-control spec 2026-09-25) — used to give it its own
+// neutral, read-only phrasing where that fallthrough reads as misleading
+// (e.g. "check if you were assigned tasks") rather than just generic.
+function isViewer(r: string) { return r === 'VIEWER'; }
 
 // Shared with ManagerDashboard's sidebar module switcher — clicking "הטמעות"
 // should land on whatever tab is actually relevant for the version's current
@@ -732,6 +737,17 @@ export const HomeDashboard: React.FC<Props> = ({
     axios.get(`${API}/task-proposals/version/${primary.id}/my-team-task-summary`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setMyTeamTaskSummary(r.data ?? null))
       .catch(() => setMyTeamTaskSummary(null));
+  }, [primary?.id, role, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Team lead's own team test-progress % (access-control spec 2026-09-25) —
+  // any team lead (dev/ops/QA), not just QA-team leads; null when the caller
+  // doesn't lead a team or that team has no CRs in this version.
+  const [teamProgress, setTeamProgress] = useState<{ progressPct: number; crCount: number } | null>(null);
+  useEffect(() => {
+    if (!primary || role !== 'TEAM_LEAD') { setTeamProgress(null); return; }
+    axios.get(`${API}/release-intelligence/team-progress/${primary.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setTeamProgress(r.data ?? null))
+      .catch(() => setTeamProgress(null));
   }, [primary?.id, role, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // QA classification progress (isCore/urgent/priorityTestDate) — meaningful
@@ -1294,6 +1310,19 @@ export const HomeDashboard: React.FC<Props> = ({
                 />
               );
             })()}
+
+            {/* Any team lead's own team progress — dev/ops/QA alike, not just QA
+                leads (access-control spec 2026-09-25: "התקדמות בדיקות" for a
+                team lead means their own team's CRs, regardless of team type). */}
+            {role === 'TEAM_LEAD' && teamProgress && (
+              <KpiTile
+                icon="📈" accent={C.success}
+                value={`${teamProgress.progressPct}%`}
+                label="התקדמות בדיקות — הצוות שלי"
+                sub={`${teamProgress.crCount} CR-ים`}
+                subTone={teamProgress.progressPct >= 80 ? 'ok' : teamProgress.progressPct < 50 ? 'warn' : 'muted'}
+              />
+            )}
 
             {homeShowQa && (() => {
               // qaSummary.totalCrs counts raw VersionCrAssignment rows (one per

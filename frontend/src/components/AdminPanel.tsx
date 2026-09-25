@@ -65,6 +65,7 @@ const PERMISSION_DEFS = [
   { key: 'screen:qa',          label: 'מסך בקרת איכות',     group: 'מסכים' },
   { key: 'screen:release-intelligence', label: 'מסך Release Intelligence', group: 'מסכים' },
   { key: 'screen:quality-hub',          label: 'מסך איכות גרסה (Quality Hub)', group: 'מסכים' },
+  { key: 'screen:defects',              label: 'מסך תקלות',                    group: 'מסכים' },
   // Deployment actions
   { key: 'action:import',                  label: 'ייבוא Excel',                       group: 'פעולות — הטמעות' },
   { key: 'action:gonogo',                  label: 'GO / NO GO',                        group: 'פעולות — הטמעות' },
@@ -78,6 +79,13 @@ const PERMISSION_DEFS = [
   // QA module
   { key: 'action:qa_leave_request', label: 'בקשת חופשה / צפייה בסטטוס',          group: 'בקרת איכות' },
   { key: 'action:qa_manage',        label: 'ניהול QA (שיבוץ / מועדים / דוחות)',   group: 'בקרת איכות' },
+  // QC write-back — split out of one blanket switch (docs/spec-defects-module.md
+  // §9) so "append a comment / change status" is a materially smaller grant than
+  // "open a new defect" or "edit arbitrary fields".
+  { key: 'action:qc_write',                label: 'כלי כתיבה ל-QC (הערות/סטטוס)',        group: 'בקרת איכות' },
+  { key: 'action:qc_defect_create',        label: 'פתיחת תקלה חדשה ב-QC',                 group: 'בקרת איכות' },
+  { key: 'action:qc_defect_edit_extended', label: 'עריכת שדות מורחבת בתקלה',              group: 'בקרת איכות' },
+  { key: 'action:qc_attachment_upload',    label: 'העלאת קובץ מצורף לתקלה',                group: 'בקרת איכות' },
 ];
 
 interface QcRelease {
