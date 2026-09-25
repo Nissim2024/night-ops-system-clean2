@@ -344,9 +344,14 @@ const MODULE_META: Record<ModuleKey, { label: string; color: string }> = {
 // a whole-module screen.
 // Exported — the release-intelligence Home page reuses this exact row for
 // its own alert strip instead of a lookalike (spec confirmed 2026-08-31).
-export function RiskRow({ icon, title, desc, urgent, module, onClick, detail, expanded, onToggle }: {
+export function RiskRow({ icon, title, desc, urgent, module, onClick, detail, expanded, onToggle, children }: {
   icon: string; title: string; desc: string; urgent?: boolean; module?: ModuleKey; onClick?: () => void;
   detail?: string[]; expanded?: boolean; onToggle?: () => void;
+  // Extra always-visible content below desc (not gated by expand/collapse)
+  // — added for the aging card's drillable severity-pill rows (fixes-batch
+  // E.2), so a caller can attach richer per-row content without RiskRow
+  // needing to know anything about severities/pills itself.
+  children?: React.ReactNode;
 }) {
   const meta = MODULE_META[module ?? 'deployments'];
   const hasDetail = !!detail && detail.length > 0;
@@ -365,6 +370,7 @@ export function RiskRow({ icon, title, desc, urgent, module, onClick, detail, ex
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ ...TEXT.sm, fontWeight: WEIGHT.medium, color: urgent ? C.danger : C.textPrimary }}>{title}</div>
           <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '2px' }}>{desc}</div>
+          {children && <div style={{ marginTop: '6px' }} onClick={e => e.stopPropagation()}>{children}</div>}
         </div>
         {hasDetail && <span style={{ ...TEXT.xs, color: C.textMuted, flexShrink: 0, marginTop: '2px' }}>{expanded ? '▲' : '▼'}</span>}
         {/* data-noemail: redundant in a single-module feed (e.g. RI Home's

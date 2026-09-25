@@ -1209,6 +1209,26 @@ export class ReleaseIntelligenceService {
       };
     }
 
+    // Every cycle in this version's own timeline with a real QC cycle id —
+    // NOT just the active one (2026-09-23, fixes-batch A.5's "Detected in
+    // Cycle" edit picker) — an existing defect may need re-pointing at any
+    // cycle of its own release, not only whichever one happens to be running
+    // right now. Same qaCycle.qcCycleId join as currentCycle above, just
+    // unfiltered by state.
+    const timelineCycles = cycleProgress?.timeline ?? [];
+    const qaCycleRows = timelineCycles.length > 0
+      ? await prisma.qaCycle.findMany({
+          where: { workPlan: { versionId }, cycleType: { in: timelineCycles.map((t: any) => t.cycleType) } },
+          select: { cycleType: true, qcCycleId: true },
+        })
+      : [];
+    const qcCycleIdByType = new Map(qaCycleRows.map(r => [r.cycleType, r.qcCycleId]));
+    const cycleOptions: { cycleType: string; qcCycleId: string; label: string }[] = [];
+    for (const t of timelineCycles as any[]) {
+      const qcCycleId = qcCycleIdByType.get(t.cycleType);
+      if (qcCycleId != null) cycleOptions.push({ cycleType: t.cycleType, qcCycleId: String(qcCycleId), label: t.cycleType });
+    }
+
     // CR/HBR reference options — this tester's own CRs in this release
     // (primary OR secondary tester on the QaAssignment row), plus the two
     // fixed non-CR-specific options every other screen in this app already
@@ -1233,7 +1253,7 @@ export class ReleaseIntelligenceService {
     crOptions.push({ id: 'regression', label: 'Regression — בדיקות רגרסיה כלליות (לא CR ספציפי)' });
     crOptions.push({ id: 'production', label: 'Production — תקלת ייצור (לא CR ספציפי)' });
 
-    return { targetRelease, currentCycle, crOptions };
+    return { targetRelease, currentCycle, crOptions, cycleOptions };
   }
 
   // ── Responsibility/Assigned-To/Environment-Component cascade (2026-09-22)
@@ -1562,6 +1582,30 @@ export class ReleaseIntelligenceService {
       ? Math.round(agingDefects.reduce((s, d) => s + Math.max(0, (parseOracleDateAgeDays(d.discoveryDate, now) ?? 0) - AGING_DEFECT_THRESHOLD_DAYS), 0) / agingDefects.length)
       : 0;
 
+    // Severity breakdown for the aging card's two pill rows (fixes-batch
+    // E.2, spec from the user's own fixes.docx: "שתי שורות — אחת כמות כללית
+    // ואחת כמות של רק הפתוחות", i.e. one row for the full aging set and one
+    // for open-only). "Total" reuses agingDefects (the existing "not closed"
+    // scope — Closed/Canceled/Rejected/Fixed all excluded via
+    // CLOSED_DEFECT_STATUSES, same as the card's own headline count/avg
+    // above). "Open-only" is a DIFFERENT, broader-than-agingDefects
+    // population per the user's own explicit rule (2026-09-23): "כל מה שהוא
+    // בסטטוס שונה מ closed ו-cancled" — i.e. only Closed/Canceled are
+    // excluded, NOT Rejected/Fixed. Deliberately computed from the full raw
+    // `defects` list rather than filtered on top of agingDefects — the
+    // latter would be a no-op (agingDefects already excludes Rejected/Fixed,
+    // so re-filtering it by "not Closed/Canceled" changes nothing and the
+    // two rows would always be numerically identical). Reuses
+    // computeQgSummary so the {count, threshold} shape and severity keys
+    // (showStopper/severe/medium/low) match every other severity breakdown
+    // already on this screen.
+    const agingOpenOnlyDefects = defects.filter(d => {
+      const age = parseOracleDateAgeDays(d.discoveryDate, now);
+      return age != null && age > AGING_DEFECT_THRESHOLD_DAYS && !['Closed', 'Canceled'].includes(d.status);
+    });
+    const agingBySeverity = this.computeQgSummary(agingDefects).qgSummary;
+    const agingOpenOnlyBySeverity = this.computeQgSummary(agingOpenOnlyDefects).qgSummary;
+
     const severeOrWorseActual = qgSummary.showStopper.count + qgSummary.severe.count;
     const severeOrWorseTarget = qgSummary.showStopper.threshold + qgSummary.severe.threshold;
 
@@ -1590,6 +1634,8 @@ export class ReleaseIntelligenceService {
         avgAgingDays,
         avgOverageDays,
         met: agingDefects.length === 0,
+        bySeverity: agingBySeverity,
+        openOnlyBySeverity: agingOpenOnlyBySeverity,
       },
       timeline: cycleProgress.timeline,
       risks: risks.filter((r: any) => r.status !== 'CLOSED').slice(0, 8),
@@ -1844,12 +1890,24 @@ export class ReleaseIntelligenceService {
       case 'status-board': {
         if (filter === 'openTotal') return open;
         if (filter === 'openSevereOrWorse') return open.filter(d => SEVERE_OR_WORSE.includes(d.severity));
-        if (filter === 'aging') {
+        if (filter === 'aging' || filter === 'agingOpenOnly') {
           const now = Date.now();
-          return open.filter(d => {
+          const isAging = (d: DefectDto) => {
             const age = parseOracleDateAgeDays(d.discoveryDate, now);
             return age != null && age > AGING_DEFECT_THRESHOLD_DAYS;
-          });
+          };
+          // E.2 pill rows — same two scopes getStatusBoard's aging.bySeverity /
+          // aging.openOnlyBySeverity are computed from (2026-09-23 user
+          // clarification), so a pill's drilldown list always matches the
+          // number on the pill. 'aging' = agingDefects' scope (open =
+          // not Closed/Canceled/Rejected/Fixed, i.e. `open` above).
+          // 'agingOpenOnly' is a DIFFERENT, broader base — the full `defects`
+          // list, only Closed/Canceled excluded — not `open` narrowed further,
+          // since that would be a no-op (open already excludes Rejected/Fixed).
+          const scoped = filter === 'agingOpenOnly'
+            ? defects.filter(d => isAging(d) && !['Closed', 'Canceled'].includes(d.status))
+            : open.filter(isAging);
+          return value ? scoped.filter(d => (d.severity || 'ללא סיווג') === value) : scoped;
         }
         return [];
       }
