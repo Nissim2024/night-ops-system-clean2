@@ -106,7 +106,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
   const [warRoomRefresh, setWarRoomRefresh]      = useState(0);
   const [myTeamId, setMyTeamId]                 = useState('');
   const [openNewVersionForm, setOpenNewVersionForm] = useState(false);
-  const [activeModule, setActiveModule] = useState<'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub' | 'defects'>('deployments');
+  const [activeModule, setActiveModule] = useState<'home' | 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub' | 'defects'>('home');
   const [activeVmView, setActiveVmView]  = useState('overview');
   const [activeQaView, setActiveQaView]  = useState('assignment');
   const [activeRiView, setActiveRiView]  = useState('home');
@@ -128,6 +128,12 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
   const canAccessQualityHub = can('screen:quality-hub');
   const canAccessVersionManagement = ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role);
   const canAccessDefects = can('screen:defects');
+  // Home page decoupled from the Deployments module (2026-09-25) — every "go
+  // home" action used to force activeModule to 'deployments' as a side effect
+  // (Home was a tab living inside it), which wrongly highlighted הטמעות in the
+  // sidebar even though Home isn't part of that module. One shared helper so
+  // every call site stays correct regardless of which module it's triggered from.
+  const goHome = () => { setActiveModule('home'); setActiveTab('home'); };
 
   useSocket({
     userId: payload.sub,
@@ -188,8 +194,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           body: `שלב הבא: ${versionStatusLabel[v.status] ?? v.status}`,
         }, 10000);
         if (selectedVersionId === v.id) {
-          setActiveModule('deployments');
-          setActiveTab('home');
+          goHome();
         }
       }
 
@@ -782,7 +787,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           showLeaves={false}
           leavesActive={activeModule === 'qa' && activeQaView === 'leaves'}
           onLeavesClick={() => { setActiveModule('qa'); setActiveQaView('leaves'); }}
-          onHomeClick={() => { setActiveModule('deployments'); setActiveTab('home'); }}
+          onHomeClick={goHome}
         />
 
         {/* Main content (second = left in RTL) */}
@@ -883,10 +888,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
             <DefectsHubView token={token} />
           )}
 
-          {activeModule === 'deployments' && (<>
-
-          {/* ── Tab: Home Dashboard ── */}
-          {activeTab === 'home' && (
+          {/* ── Module: בית — decoupled from Deployments (2026-09-25); no
+              longer a tab living inside activeModule === 'deployments' ── */}
+          {activeModule === 'home' && (
             <HomeDashboard
               versions={versions.filter(v => !v.isArchived)}
               role={payload.role}
@@ -898,16 +902,18 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
                 setVersionFilter(
                   ['ACTIVE','REHEARSAL','MORNING_AFTER'].some(s => versions.find(v=>v.id===id)?.status === s) ? 'active' : 'inactive'
                 );
+                setActiveModule('deployments');
                 setActiveTab((tab as Tab) || 'list');
               }}
               onNewVersion={['ADMIN','RELEASE_MANAGER'].includes(payload.role) ? () => {
-                setSelectedVersionId(''); setVersionFilter('inactive'); setActiveTab('list'); setOpenNewVersionForm(true);
+                setSelectedVersionId(''); setVersionFilter('inactive'); setActiveModule('deployments'); setActiveTab('list'); setOpenNewVersionForm(true);
               } : undefined}
               canAccessQa={canAccessQa}
               isQaTeamMember={isQaTeamMember}
               canAccessVersionManagement={canAccessVersionManagement}
               canAccessReleaseIntelligence={canAccessReleaseIntelligence}
               canAccessQualityHub={canAccessQualityHub}
+              canAccessDefects={canAccessDefects}
               onSwitchToQa={() => { setActiveModule('qa'); setActiveQaView('assignment'); }}
               onGoToLeaves={() => { setActiveModule('qa'); setActiveQaView('leaves'); }}
               onSwitchToModule={(m, vmView) => {
@@ -924,6 +930,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
               }}
             />
           )}
+
+          {activeModule === 'deployments' && (<>
 
           {/* ── Tab: רשימה / Hub ── */}
           {activeTab === 'list' && (() => {
@@ -984,7 +992,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
                 handleGoLive={handleGoLive}
                 handleVersionFocus={handleVersionSync}
                 onGoToAdmin={() => setActiveTab('admin')}
-                onGoHome={() => setActiveTab('home')}
+                onGoHome={goHome}
                 onNavigateTab={tab => setActiveTab(tab as Tab)}
                 autoNew={openNewVersionForm}
                 onAutoNewConsumed={() => setOpenNewVersionForm(false)}
@@ -1003,7 +1011,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
               handleGoLive={handleGoLive}
               handleVersionFocus={handleVersionSync}
               onGoToAdmin={() => setActiveTab('admin')}
-              onGoHome={() => setActiveTab('home')}
+              onGoHome={goHome}
               onNavigateTab={tab => setActiveTab(tab as Tab)}
             />
           )}
@@ -1307,7 +1315,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
                   onSummaryReady={setSummaryReady}
                   onCurrentPhaseChange={setCurrentPhaseName}
                   refreshKey={warRoomRefresh}
-                  onGoHome={() => { setActiveModule('deployments'); setActiveTab('home'); }}
+                  onGoHome={goHome}
                 />
               </div>
             ) : selectedVersion && selectedVersion.status === 'APPROVED' && selectedVersion.lastRehearsalAt ? (
@@ -1419,7 +1427,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
                 hideGoNogo={true}
                 refreshSignal={warRoomRefresh}
                 onGoToHub={() => setActiveTab('list')}
-                onGoHome={() => setActiveTab('home')}
+                onGoHome={goHome}
               />
             ) : <NoActiveVersionMessage />
           )}
@@ -1438,7 +1446,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
                 hideGoNogo={false}
                 refreshSignal={warRoomRefresh}
                 onGoToHub={() => setActiveTab('list')}
-                onGoHome={() => setActiveTab('home')}
+                onGoHome={goHome}
               />
             ) : <NoActiveVersionMessage />
           )}

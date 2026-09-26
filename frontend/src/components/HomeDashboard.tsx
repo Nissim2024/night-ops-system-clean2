@@ -7,7 +7,7 @@ import { DefectDetailScreen } from './quality-hub/OpenProdDefectsView';
 import { VersionMilestoneTimeline } from './shared/VersionMilestoneTimeline';
 import { GoLiveCountdown } from './shared/GoLiveCountdown';
 import { formatDate, formatDateTime, formatTime } from '../utils/dateFormat';
-import { DefectIdBadge } from './shared/defectFieldDisplay';
+import { DefectIdBadge, SEVERITY_COLOR, hexTint } from './shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL ?? 'http://localhost:3000';
 
@@ -137,7 +137,7 @@ interface TeamStatusRow {
   allDone: boolean;
 }
 
-export type ModuleKey = 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub';
+export type ModuleKey = 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub' | 'defects';
 
 interface Props {
   versions: any[];
@@ -153,6 +153,7 @@ interface Props {
   canAccessVersionManagement?: boolean;
   canAccessReleaseIntelligence?: boolean;
   canAccessQualityHub?: boolean;
+  canAccessDefects?: boolean;
   onSwitchToModule?: (m: ModuleKey, vmView?: string) => void;
   onGoToLeaves?: () => void;
 }
@@ -336,6 +337,7 @@ const MODULE_META: Record<ModuleKey, { label: string; color: string }> = {
   'deployments':          { label: 'הטמעות',       color: C.moduleGoLive },
   'release-intelligence': { label: 'ניהול בדיקות', color: C.moduleTracking },
   'quality-hub':          { label: 'איכות גרסה',   color: C.moduleAnalytics },
+  'defects':              { label: 'תקלות',         color: C.danger },
 };
 
 // `detail` items skip navigation entirely and expand inline instead — the
@@ -430,7 +432,7 @@ const CR_REVIEW_STAGES = ['CR_REVIEW', 'REFINING', 'REVIEW'];
 
 export const HomeDashboard: React.FC<Props> = ({
   versions, role, fullName, token, selectedVersionId, onSelectVersion, onNewVersion, onSwitchToQa, canAccessQa,
-  isQaTeamMember, canAccessVersionManagement, canAccessReleaseIntelligence, canAccessQualityHub, onSwitchToModule, onGoToLeaves,
+  isQaTeamMember, canAccessVersionManagement, canAccessReleaseIntelligence, canAccessQualityHub, canAccessDefects, onSwitchToModule, onGoToLeaves,
 }) => {
   const canCreate = isRm(role);
   const canManageLeaves = ['ADMIN', 'TEAM_LEAD'].includes(role);
@@ -686,6 +688,25 @@ export const HomeDashboard: React.FC<Props> = ({
       .then(r => setDefectsSummary(r.data?.kpis ?? null))
       .catch(() => setDefectsSummary(null));
   }, [canAccessReleaseIntelligence, primary?.id, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Defects widget, version-scoped (feedback 2026-09-26 — the first version of
+  // this widget queried a global, version-agnostic endpoint; a real team lead
+  // expected numbers scoped to the version they're standing in: total defects
+  // in THIS version regardless of team, their own team's count, and their
+  // team's open count by severity). `total` is shown to everyone who sees
+  // Home, not gated by canAccessDefects — it's a neutral version fact, not a
+  // view into the Defects module itself. The team/personal section IS gated,
+  // since it's the same data the Defects module itself shows.
+  const [homeDefects, setHomeDefects] = useState<{
+    total: number; scopeKind: 'all' | 'team' | 'personal'; scopedTotal: number; scopedOpen: number;
+    bySeverity: { label: string; count: number }[];
+  } | null>(null);
+  useEffect(() => {
+    if (!primary) { setHomeDefects(null); return; }
+    axios.get(`${API}/release-intelligence/home-defects/${primary.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setHomeDefects(r.data ?? null))
+      .catch(() => setHomeDefects(null));
+  }, [primary?.id, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Testing progress (% of planned test cases passed) — distinct from the defect
   // count, so the release-intelligence tile shows execution progress too, not just
@@ -1327,6 +1348,51 @@ export const HomeDashboard: React.FC<Props> = ({
                 label="התקדמות בדיקות — הצוות שלי"
                 sub={`${teamProgress.crCount} CR-ים`}
                 subTone={teamProgress.progressPct >= 80 ? 'ok' : teamProgress.progressPct < 50 ? 'warn' : 'muted'}
+              />
+            )}
+
+            {/* Defects, version-scoped (feedback 2026-09-26) — total is a
+                neutral version fact, shown to everyone regardless of
+                screen:defects (not a view into the module itself). */}
+            {homeDefects && (
+              <KpiTile
+                icon="🪲" accent={C.danger} moduleLabel="תקלות"
+                value={String(homeDefects.total)}
+                label="סה״כ תקלות בגרסה"
+                sub="בכל הצוותים"
+                subTone="muted"
+                onClick={canAccessDefects ? () => onSwitchToModule?.('defects') : undefined}
+              />
+            )}
+
+            {/* Caller's own team/personal slice — same data the Defects module
+                itself shows, so gated the same way (canAccessDefects). Hidden
+                for RM/ADMIN/VIEWER (scopeKind 'all' — no team of their own to
+                slice by) and for an EMPLOYEE with no linked qcLogin (scopedTotal
+                stays 0 with nothing meaningful to show). */}
+            {canAccessDefects && homeDefects && homeDefects.scopeKind !== 'all' && homeDefects.scopedTotal > 0 && (
+              <KpiTile
+                icon="🪲" accent={C.danger} moduleLabel="תקלות"
+                value={String(homeDefects.scopedTotal)}
+                label={homeDefects.scopeKind === 'team' ? 'תקלות הצוות שלי' : 'התקלות שלי'}
+                sub={homeDefects.scopedOpen > 0 ? `${homeDefects.scopedOpen} פתוחות` : 'הכל סגור'}
+                subTone={homeDefects.scopedOpen > 0 ? 'warn' : 'ok'}
+                onClick={() => onSwitchToModule?.('defects')}
+                footer={homeDefects.bySeverity.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: '5px', justifyContent: 'center' }}>
+                    {homeDefects.bySeverity.map(s => {
+                      const color = SEVERITY_COLOR[s.label] ?? C.textMuted;
+                      return (
+                        <span
+                          key={s.label}
+                          style={{ ...TEXT.xs, fontWeight: WEIGHT.semibold, color, background: hexTint(color), borderRadius: '999px', padding: '2px 8px' }}
+                        >
+                          {s.count} {s.label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
               />
             )}
 

@@ -2355,12 +2355,15 @@ function allDefectsRawRowToDefectDto(r: AllDefectsRawRow): DefectDto {
 // TEAM_LEAD (isLead=true) sees their team's Responsibility (BG_USER_03);
 // EMPLOYEE sees only defects assigned to them personally (BG_RESPONSIBLE,
 // matched against User.qcLogin); everyone else is unrestricted.
-type DefectScope =
+export type DefectScope =
   | { kind: 'all' }
   | { kind: 'team'; values: string[] }
   | { kind: 'personal'; qcLogin: string | null };
 
-async function resolveDefectScope(user: { sub: string; role: string }): Promise<DefectScope> {
+// Exported for reuse by release-intelligence.service.ts's version-scoped Home
+// widget (2026-09-26) — same scope resolution, applied there in JS against an
+// already-fetched, version-filtered DefectDto[] instead of a SQL WHERE clause.
+export async function resolveDefectScope(user: { sub: string; role: string }): Promise<DefectScope> {
   if (['ADMIN', 'RELEASE_MANAGER', 'CR_MANAGER', 'VIEWER'].includes(user.role)) return { kind: 'all' };
   if (user.role === 'TEAM_LEAD') {
     const leaderships = await prisma.teamMember.findMany({

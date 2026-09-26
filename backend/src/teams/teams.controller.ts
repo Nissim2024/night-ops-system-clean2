@@ -75,7 +75,7 @@ export class TeamsController {
   @Patch(':id')
   update(
     @Param('id') id: string,
-    @Body() body: { name?: string; description?: string; active?: boolean; requiresPlan?: boolean; apps?: string[]; qcGroupName?: string | null; qcResponsibilityValue?: string | null; qcEnvironmentComponents?: string[] },
+    @Body() body: { name?: string; description?: string; active?: boolean; requiresPlan?: boolean; apps?: string[]; qcGroupName?: string | null; qcResponsibilityValue?: string | null; qcEnvironmentComponents?: string[]; category?: 'DEV' | 'QA' | 'OPS' | null },
     @Request() req: any,
   ) {
     requireRole(req, MANAGERS, 'רק מנהל לילה יכול לעדכן פרטי צוות');

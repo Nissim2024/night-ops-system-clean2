@@ -19,6 +19,12 @@ enum Role {
   VIEWER
 }
 
+enum TeamCategory {
+  DEV
+  QA
+  OPS
+}
+
 enum TaskStatus {
   OPEN
   IN_PROGRESS
@@ -150,6 +156,14 @@ model Team {
   // for it until an admin fills this in, rather than guessing.
   qcResponsibilityValue  String?
   qcEnvironmentComponents String[] @default([])
+
+  // What kind of team this is — dev/QA/ops (2026-09-26, home-page role spec).
+  // Drives version-scoping decisions that differ by function (an Ops team's
+  // "current" version is whatever already shipped to production, not the
+  // version currently in prep/testing the way Dev/QA care about) — see
+  // resolveVersionForUser in release-intelligence.service.ts. Null = not
+  // classified yet, same "admin fills it in" convention as qcResponsibilityValue.
+  category TeamCategory?
 
   members              TeamMember[]
   assignedTasks        Task[]                @relation("taskAssignedTeam")

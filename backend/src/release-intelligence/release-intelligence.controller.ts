@@ -50,6 +50,13 @@ export class ReleaseIntelligenceController {
     return this.service.getTeamProgress(versionId, req.user);
   }
 
+  // Home-page defects widget (feedback 2026-09-26) — version-scoped total +
+  // caller's team/personal scope + open-by-severity, see service comment.
+  @Get('home-defects/:versionId')
+  getHomeDefectsSummary(@Param('versionId') versionId: string, @Request() req: any) {
+    return this.service.getHomeDefectsSummary(versionId, req.user);
+  }
+
   @Get('cr-health/:versionId')
   getCrHealth(@Param('versionId') versionId: string) {
     return this.service.getCrHealth(versionId);

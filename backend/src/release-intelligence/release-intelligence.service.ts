@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaClient } from '@prisma/client';
-import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDto, CrCoverageDto, CycleQgTargetDto, CycleTestTotalsDto, resolveDefectPersonNames, bugStatusBucket, executedScriptCount } from '../qc/qc.service';
+import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDto, CrCoverageDto, CycleQgTargetDto, CycleTestTotalsDto, resolveDefectPersonNames, bugStatusBucket, executedScriptCount, resolveDefectScope } from '../qc/qc.service';
 import { countWorkDays, nextWorkDay, isWorkDay, dateKey } from '../qa/qa.scheduler';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
@@ -27,6 +27,31 @@ function parseOracleDateAgeDays(ddMmYyyy: string, nowMs: number): number | null 
   const discovered = new Date(Number(y), Number(mo) - 1, Number(d)).getTime();
   if (Number.isNaN(discovered)) return null;
   return Math.floor((nowMs - discovered) / 86400000);
+}
+
+// "Which version does this user actually mean by 'current'?" (2026-09-26,
+// home-page role spec). Dev/QA care about the version currently in prep/
+// testing — the requestedVersionId the caller already passed in (today's
+// `primary`/`activeVersion`, which explicitly excludes COMPLETED versions).
+// An Ops person's "current" version is different: whatever already shipped
+// to production, i.e. the most recent COMPLETED version — Ops teams don't
+// live in the pre-release testing timeline the rest of the app centers on.
+// Only overrides for OPS-category teams; everyone else's requested version
+// passes through unchanged.
+async function resolveVersionForUser(user: { sub: string; role: string }, requestedVersionId: string): Promise<string> {
+  let teamIds: string[];
+  if (user.role === 'TEAM_LEAD') {
+    teamIds = (await prisma.teamMember.findMany({ where: { userId: user.sub, isLead: true }, select: { teamId: true } })).map(t => t.teamId);
+  } else if (user.role === 'EMPLOYEE') {
+    teamIds = (await prisma.teamMember.findMany({ where: { userId: user.sub }, select: { teamId: true } })).map(t => t.teamId);
+  } else {
+    return requestedVersionId; // RM/ADMIN/CR_MANAGER/VIEWER — unchanged
+  }
+  if (teamIds.length === 0) return requestedVersionId;
+  const isOps = (await prisma.team.findMany({ where: { id: { in: teamIds } }, select: { category: true } })).some(t => t.category === 'OPS');
+  if (!isOps) return requestedVersionId;
+  const prodVersion = await prisma.version.findFirst({ where: { status: 'COMPLETED' }, orderBy: { completedAt: 'desc' } });
+  return prodVersion?.id ?? requestedVersionId; // no COMPLETED version yet — fall back to whatever was requested
 }
 
 const CLOSED_DEFECT_STATUSES = ['Closed', 'Canceled', 'Rejected', 'Fixed'];
@@ -1007,6 +1032,7 @@ export class ReleaseIntelligenceService {
   // own led team. null when the caller doesn't lead a team, or their team has
   // no CRs in this version yet.
   async getTeamProgress(versionId: string, user: { sub: string; role: string }): Promise<{ progressPct: number; crCount: number } | null> {
+    versionId = await resolveVersionForUser(user, versionId);
     const leaderships = await prisma.teamMember.findMany({
       where: { userId: user.sub, isLead: true },
       select: { teamId: true },
@@ -1798,6 +1824,48 @@ export class ReleaseIntelligenceService {
       byStatus: groupCount(defects, d => d.status),
       byTeam: groupCount(open, d => d.assignedTo),
       byProject: groupCount(open, d => d.system),
+    };
+  }
+
+  // Home-page defects widget (feedback 2026-09-26 — the earlier version of this
+  // widget queried qc.service.ts's global, version-agnostic dashboard, but a
+  // team lead logging in expected version-scoped numbers: how many defects
+  // total in THIS version regardless of team, how many are their own team's,
+  // and how many of their team's are still open by severity). Reuses
+  // getDefects(versionId) (same version-scoped fetch getDefectsBreakdown above
+  // uses) and resolveDefectScope (same role→team/personal resolution
+  // qc.service.ts's global dashboard endpoint already applies), just evaluated
+  // in JS against an already-fetched list instead of a SQL WHERE clause.
+  async getHomeDefectsSummary(versionId: string, user: { sub: string; role: string }) {
+    versionId = await resolveVersionForUser(user, versionId);
+    const defects = await this.qcService.getDefects(versionId).catch((): DefectDto[] => []);
+    const total = defects.length;
+
+    const scope = await resolveDefectScope(user);
+    let scoped: DefectDto[] = [];
+    if (scope.kind === 'team') {
+      const set = new Set(scope.values.map(v => v.trim()));
+      scoped = defects.filter(d => set.has((d.responsibility ?? '').trim()));
+    } else if (scope.kind === 'personal' && scope.qcLogin) {
+      const login = scope.qcLogin.trim().toLowerCase();
+      scoped = defects.filter(d => (d.assignedTo ?? '').trim().toLowerCase() === login);
+    }
+    // scope.kind === 'all' (RM/ADMIN/VIEWER) or an unlinked EMPLOYEE → no
+    // team/personal section, `total` alone still answers the "everyone" ask.
+
+    const scopedOpen = scoped.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
+    const bySeverityMap = new Map<string, number>();
+    for (const d of scopedOpen) {
+      const key = d.severity || 'ללא סיווג';
+      bySeverityMap.set(key, (bySeverityMap.get(key) ?? 0) + 1);
+    }
+
+    return {
+      total,
+      scopeKind: scope.kind,
+      scopedTotal: scoped.length,
+      scopedOpen: scopedOpen.length,
+      bySeverity: Array.from(bySeverityMap.entries()).map(([label, count]) => ({ label, count })),
     };
   }
 

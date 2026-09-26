@@ -172,6 +172,7 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
   const [editTeamQcGroup, setEditTeamQcGroup] = useState('');
   const [editTeamQcResponsibility, setEditTeamQcResponsibility] = useState('');
   const [editTeamQcEnvComponents, setEditTeamQcEnvComponents] = useState('');
+  const [editTeamCategory, setEditTeamCategory] = useState<'' | 'DEV' | 'QA' | 'OPS'>('');
   const [savingEditTeam, setSavingEditTeam] = useState(false);
 
   const [resetUserId, setResetUserId]   = useState<string | null>(null);
@@ -611,6 +612,7 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
     setEditTeamQcGroup(t.qcGroupName || '');
     setEditTeamQcResponsibility(t.qcResponsibilityValue || '');
     setEditTeamQcEnvComponents((t.qcEnvironmentComponents || []).join(', '));
+    setEditTeamCategory(t.category || '');
   };
 
   const saveTeamEdit = async (e: React.FormEvent) => {
@@ -624,6 +626,7 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
         qcGroupName: editTeamQcGroup.trim() || null,
         qcResponsibilityValue: editTeamQcResponsibility.trim() || null,
         qcEnvironmentComponents: editTeamQcEnvComponents.split(',').map(s => s.trim()).filter(Boolean),
+        category: editTeamCategory || null,
       }, { headers });
       setEditingTeamId(null);
       fetchAll();
@@ -1146,6 +1149,18 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
                                 onChange={e => setEditTeamQcEnvComponents(e.target.value)} placeholder="לדוגמה: CRM, WEB-HOT" />
                             </div>
                             <div style={{ marginBottom: '12px' }}>
+                              <label style={labelStyle} title="קטגוריית הצוות — פיתוח / בדיקות / תפעול. קובעת התנהגות ייחודית (למשל, לאיש תפעול 'הגרסה הפעילה' היא הגרסה האחרונה שעלתה לייצור). השאר ריק אם לא סווג עדיין.">
+                                קטגוריית צוות
+                              </label>
+                              <select style={inputStyle} value={editTeamCategory}
+                                onChange={e => setEditTeamCategory(e.target.value as '' | 'DEV' | 'QA' | 'OPS')}>
+                                <option value="">— לא מסווג —</option>
+                                <option value="DEV">פיתוח</option>
+                                <option value="QA">בדיקות</option>
+                                <option value="OPS">תפעול</option>
+                              </select>
+                            </div>
+                            <div style={{ marginBottom: '12px' }}>
                               <label style={{ ...labelStyle, marginBottom: '6px' }}>מערכות אחראיות</label>
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                                 {APPS.map(a => {
@@ -1214,6 +1229,11 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
                                 style={{ padding: '3px 10px', fontSize: '13px', border: `1px solid ${t.requiresPlan !== false ? '#2980b9' : '#94a3b8'}`, borderRadius: '6px', background: t.requiresPlan !== false ? 'rgba(41,128,185,0.12)' : 'rgba(148,163,184,0.12)', color: t.requiresPlan !== false ? '#2980b9' : '#64748b', cursor: 'pointer', fontFamily: FONT }}>
                                 {t.requiresPlan !== false ? '📋 מגיש תוכנית' : '🚫 פטור מתוכנית'}
                               </button>
+                              {t.category && (
+                                <span style={{ marginRight: '6px', padding: '3px 10px', fontSize: '13px', borderRadius: '6px', fontFamily: FONT, background: t.category === 'DEV' ? 'rgba(52,152,219,0.12)' : t.category === 'QA' ? 'rgba(155,89,182,0.12)' : 'rgba(230,126,34,0.12)', color: t.category === 'DEV' ? '#2980b9' : t.category === 'QA' ? '#8e44ad' : '#d35400' }}>
+                                  {t.category === 'DEV' ? '💻 פיתוח' : t.category === 'QA' ? '🧪 בדיקות' : '⚙️ תפעול'}
+                                </span>
+                              )}
                             </div>
                             <div style={{ fontSize: '14px', color: C.textMuted, marginBottom: '8px' }}>
                               {members.length} חברים

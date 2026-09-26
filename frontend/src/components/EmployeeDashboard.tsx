@@ -10,6 +10,7 @@ import { DeployCenterLogo } from './DeployCenterLogo';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { EmployeeLeavesView } from './EmployeeLeavesView';
 import { EmployeeHomeView } from './EmployeeHomeView';
+import { EmployeeDefectsView } from './EmployeeDefectsView';
 import { QaTestersView } from './qa/QaTestersView';
 import { MyQaTasksView, MyQaTask, TargetDefectGroup } from './qa/MyQaTasksView';
 import { FocusModeModal } from './FocusModeModal';
@@ -48,12 +49,13 @@ interface Props {
   onLogout: () => void;
 }
 
-type NavView = 'home' | 'tasks' | 'leaves' | 'skills' | 'qaTasks';
+type NavView = 'home' | 'tasks' | 'leaves' | 'skills' | 'qaTasks' | 'defects';
 
 const NAV_ITEMS: { key: NavView; label: string; icon: string }[] = [
   { key: 'home',    label: 'דף הבית',           icon: '🏠' },
   { key: 'tasks',   label: 'משימות הרצה',      icon: '🌙' },
   { key: 'qaTasks', label: 'המשימות שלי (QA)', icon: '🧪' },
+  { key: 'defects', label: 'תקלות שלי',        icon: '🪲' },
   { key: 'leaves',  label: 'חופשות',            icon: '📅' },
   { key: 'skills',  label: 'מטריצת מיומנויות',  icon: '🎯' },
 ];
@@ -87,6 +89,11 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [qaSummary, setQaSummary]     = useState<{ cycles: { cycleType: string; plannedStart: string; plannedEnd: string }[] } | null>(null);
   const [targetDefectGroups, setTargetDefectGroups] = useState<TargetDefectGroup[]>([]);
   const [defectStats, setDefectStats] = useState<{ opened: number; stillOpen: number; waitingForMyVerification: number; expectedMin: number; tooFew: boolean } | null>(null);
+  const [homeDefects, setHomeDefects] = useState<{
+    total: number; scopeKind: 'all' | 'team' | 'personal'; scopedTotal: number; scopedOpen: number;
+    bySeverity: { label: string; count: number }[];
+  } | null>(null);
+  const [homeDefectsLoading, setHomeDefectsLoading] = useState(false);
   const isQaTeam = myTeam?.name?.toLowerCase().includes('qa') ?? false;
 
   const payload  = JSON.parse(atob(token.split('.')[1]));
@@ -211,6 +218,22 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
       .catch(() => setDefectStats(null));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isQaTester, activeVersion?.id, planningVersion?.id, token]);
+
+  // Employee-scoped defects summary (backend already scopes EMPLOYEE role to
+  // their personal qcLogin, and — for Ops-category teams — resolves the
+  // "current" version to the latest COMPLETED one automatically). Fetched
+  // for the "תקלות שלי" nav tab, not gated by team/role since resolveDefectScope
+  // handles that server-side.
+  useEffect(() => {
+    const versionId = activeVersion?.id ?? planningVersion?.id;
+    if (!versionId) { setHomeDefects(null); return; }
+    setHomeDefectsLoading(true);
+    axios.get(`${API}/release-intelligence/home-defects/${versionId}`, { headers })
+      .then(res => setHomeDefects(res.data ?? null))
+      .catch(() => setHomeDefects(null))
+      .finally(() => setHomeDefectsLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeVersion?.id, planningVersion?.id, token]);
 
   const openFocusMode = async () => {
     if (!activeVersion) return;
@@ -481,6 +504,15 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
 
           {/* ─── Skills matrix view ─── */}
           {activeView === 'skills' && <QaTestersView token={token} />}
+
+          {/* ─── Defects view ─── */}
+          {activeView === 'defects' && (
+            <EmployeeDefectsView
+              versionName={(activeVersion ?? planningVersion)?.name}
+              loading={homeDefectsLoading}
+              summary={homeDefects}
+            />
+          )}
 
           {/* ─── My QA tasks view ─── */}
           {activeView === 'qaTasks' && (

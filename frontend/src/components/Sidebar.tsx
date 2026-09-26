@@ -16,7 +16,7 @@ interface Props {
   versionFilter?: string;
   onVersionFilterChange?: (f: any) => void;
   // ── Module switcher ──────────────────────────────────────────────────
-  activeModule?: 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub' | 'defects';
+  activeModule?: 'home' | 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub' | 'defects';
   onModuleChange?: (m: 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub' | 'defects') => void;
   activeVmView?: string;
   onVmViewChange?: (v: string) => void;
@@ -336,22 +336,25 @@ export const Sidebar: React.FC<Props> = ({
         />
       )}
 
-      {/* ── Home button — always visible ── */}
+      {/* ── Home button — always visible, module-neutral (2026-09-25:
+           decoupled from Deployments — was checking activeTab==='home' &&
+           activeModule==='deployments', which no longer holds now that Home
+           is its own activeModule value) ── */}
       {onHomeClick && (
         <div
           onClick={onHomeClick}
           className="mt-2 flex cursor-pointer items-center gap-2.5 px-3 py-2.5 transition-[background] duration-fast ease-out"
           style={{
-            background: activeTab === 'home' && activeModule === 'deployments' ? C.sidebarBgActive : 'transparent',
-            borderRight: activeTab === 'home' && activeModule === 'deployments' ? `3px solid ${C.sidebarAccent}` : '3px solid transparent',
+            background: activeModule === 'home' ? C.sidebarBgActive : 'transparent',
+            borderRight: activeModule === 'home' ? `3px solid ${C.sidebarAccent}` : '3px solid transparent',
           }}
-          onMouseEnter={e => { if (!(activeTab === 'home' && activeModule === 'deployments')) (e.currentTarget as HTMLElement).style.background = C.sidebarBgHover; }}
-          onMouseLeave={e => { if (!(activeTab === 'home' && activeModule === 'deployments')) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+          onMouseEnter={e => { if (activeModule !== 'home') (e.currentTarget as HTMLElement).style.background = C.sidebarBgHover; }}
+          onMouseLeave={e => { if (activeModule !== 'home') (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
         >
           <span className="text-base leading-none">🏠</span>
           <span
-            className={cn('text-sm', activeTab === 'home' && activeModule === 'deployments' ? 'font-semibold' : 'font-medium')}
-            style={{ color: activeTab === 'home' && activeModule === 'deployments' ? C.sidebarText : 'rgba(255,255,255,0.78)' }}
+            className={cn('text-sm', activeModule === 'home' ? 'font-semibold' : 'font-medium')}
+            style={{ color: activeModule === 'home' ? C.sidebarText : 'rgba(255,255,255,0.78)' }}
           >
             דף הבית
           </span>
