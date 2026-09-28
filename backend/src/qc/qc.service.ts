@@ -3063,7 +3063,20 @@ export class QcService {
         targetScopeApproved:   r.TARGET_SCOPE_APPROVED    ?? '',
       }));
     } catch (err: any) {
-      this.logger.error(`Oracle getDefects: ${err.message}`);
+      // ORA-00933 reported against this query in real production (2026-09-28)
+      // couldn't be pinpointed from err.message alone — node-oracledb attaches
+      // the parser's exact character position as err.offset, not embedded in
+      // the message text, and this only logged .message. Log offset + a
+      // window of the actual SQL text around it (not the full ~9KB query) so
+      // the next syntax error is diagnosable from one log line instead of a
+      // guessing match against the source.
+      const offset = typeof err?.offset === 'number' ? err.offset : null;
+      const snippet = offset != null ? sql.slice(Math.max(0, offset - 60), offset + 60) : null;
+      this.logger.error(
+        `Oracle runDefectsQuery: ${err.message}` +
+        (offset != null ? ` | offset=${offset} errorNum=${err.errorNum ?? '?'}` : '') +
+        (snippet != null ? ` | sqlAroundOffset=${JSON.stringify(snippet)}` : ''),
+      );
       throw err;
     } finally {
       if (conn) await conn.close().catch(() => {});
