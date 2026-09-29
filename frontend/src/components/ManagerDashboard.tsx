@@ -106,7 +106,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
   const [warRoomRefresh, setWarRoomRefresh]      = useState(0);
   const [myTeamId, setMyTeamId]                 = useState('');
   const [openNewVersionForm, setOpenNewVersionForm] = useState(false);
-  const [activeModule, setActiveModule] = useState<'home' | 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub' | 'defects'>('home');
+  const [activeModule, setActiveModule] = useState<'home' | 'admin' | 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub' | 'defects'>('home');
   const [activeVmView, setActiveVmView]  = useState('overview');
   const [activeQaView, setActiveQaView]  = useState('assignment');
   const [activeRiView, setActiveRiView]  = useState('home');
@@ -721,13 +721,13 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
       )}
 
       {/* ─── Tab Bar — Admin only ─── */}
-      {activeModule === 'deployments' && payload.role === 'ADMIN' && activeTab === 'admin' && (
+      {activeModule === 'admin' && payload.role === 'ADMIN' && activeTab === 'admin' && (
         <div style={{
           background: C.headerBg, borderBottom: `1px solid ${C.border}`,
           display: 'flex', alignItems: 'center', padding: `0 ${SP[4]}`,
           flexShrink: 0, zIndex: 90, boxShadow: SHADOW.xs,
         }}>
-          <button onClick={() => setActiveTab('list')}
+          <button onClick={() => { setActiveModule('deployments'); setActiveTab('list'); }}
             style={{ padding: `12px ${SP[4]}`, background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONT, ...TEXT.sm, color: C.textMuted, display: 'flex', alignItems: 'center', gap: '5px' }}>
             ← חזור
           </button>
@@ -750,7 +750,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           myTasksActive={myTasksMode}
           onMyTasksClick={versions.some(v => ['REHEARSAL', 'ACTIVE'].includes(v.status)) ? () => { setMyTasksMode(m => !m); setActiveTab('board'); } : undefined}
           showAdmin={payload.role === 'ADMIN'}
-          onAdminClick={() => { setActiveModule('deployments'); setActiveTab('admin'); }}
+          onAdminClick={() => { setActiveModule('admin'); setActiveTab('admin'); }}
           activeTab={activeTab}
           activeModule={activeModule}
           onModuleChange={m => {
@@ -991,7 +991,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
                 fetchVersions={fetchVersions}
                 handleGoLive={handleGoLive}
                 handleVersionFocus={handleVersionSync}
-                onGoToAdmin={() => setActiveTab('admin')}
+                onGoToAdmin={() => { setActiveModule('admin'); setActiveTab('admin'); }}
                 onGoHome={goHome}
                 onNavigateTab={tab => setActiveTab(tab as Tab)}
                 autoNew={openNewVersionForm}
@@ -1010,7 +1010,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
               fetchVersions={fetchVersions}
               handleGoLive={handleGoLive}
               handleVersionFocus={handleVersionSync}
-              onGoToAdmin={() => setActiveTab('admin')}
+              onGoToAdmin={() => { setActiveModule('admin'); setActiveTab('admin'); }}
               onGoHome={goHome}
               onNavigateTab={tab => setActiveTab(tab as Tab)}
             />
@@ -1451,11 +1451,6 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
             ) : <NoActiveVersionMessage />
           )}
 
-          {/* ── Tab: ניהול ── */}
-          {activeTab === 'admin' && (
-            <AdminPanel token={token} onVersionsChanged={fetchVersions} />
-          )}
-
           {/* ── Tab: סיכום חזרה גנרלית ── */}
           {activeTab === 'summary-rehearsal' && (
             noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
@@ -1577,6 +1572,14 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           )}
 
           </>)}
+
+          {/* ── Tab: ניהול — its own activeModule ('admin'), same pattern as
+              Home; not nested under activeModule==='deployments' so the
+              sidebar doesn't keep showing the Deployments version-picker/
+              phase-chain while viewing Admin (2026-09-29 feedback). ── */}
+          {activeTab === 'admin' && (
+            <AdminPanel token={token} onVersionsChanged={fetchVersions} />
+          )}
         </div>
       </div>
 

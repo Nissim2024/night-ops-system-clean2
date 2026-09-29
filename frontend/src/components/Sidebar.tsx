@@ -16,7 +16,7 @@ interface Props {
   versionFilter?: string;
   onVersionFilterChange?: (f: any) => void;
   // ── Module switcher ──────────────────────────────────────────────────
-  activeModule?: 'home' | 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub' | 'defects';
+  activeModule?: 'home' | 'admin' | 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub' | 'defects';
   onModuleChange?: (m: 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub' | 'defects') => void;
   activeVmView?: string;
   onVmViewChange?: (v: string) => void;
