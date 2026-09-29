@@ -628,13 +628,13 @@ const DEFECTS_SQL_SELECT = `
     BG_USER_04                                                                         AS DEFECT_STATUS,
     BG_USER_05                                                                         AS TEST_PHASE,
     BG_USER_06                                                                         AS DEFECT_TYPE,
-    -- Added for KPI-filtered drill-down (Quality Hub) — same BG_USER_XX slots
+    -- Added for KPI-filtered drill-down (Quality Hub) - same BG_USER_XX slots
     -- already used elsewhere in this file (TARGET_CR_DEFECTS_SQL etc.), kept
     -- consistent rather than re-derived.
     BG_USER_03                                                                         AS RESPONSIBILITY,
     BG_USER_10                                                                         AS CR_HBR_NUMBER_REFERENCE,
     -- Same BG_USER_58 already used everywhere else in this file for real
-    -- defect↔CR linkage (TARGET_CR_DEFECTS_SQL etc.) — CR_HBR_NUMBER_REFERENCE
+    -- defect-CR linkage (TARGET_CR_DEFECTS_SQL etc.) - CR_HBR_NUMBER_REFERENCE
     -- above is a different, separate field (a combined CR/HBR display string),
     -- not a substitute for this one (spec confirmed 2026-09-01).
     BG_USER_58                                                                         AS CR_REFERENCE_NUMBER,
@@ -642,10 +642,10 @@ const DEFECTS_SQL_SELECT = `
     BG_USER_17                                                                         AS REASON,
     BG_USER_29                                                                         AS REOPEN_YN,
     RT.REL_NAME                                                                        AS TARGET_RELEASE,
-    -- Extended fields (2026-09-14) — same BG_USER_XX slots as
+    -- Extended fields (2026-09-14) - same BG_USER_XX slots as
     -- TARGET_CR_DEFECTS_SQL below, added so this DTO's column-picker offers
-    -- the same breadth as the TARGET-defect screen's (feedback: "כל התקלות
-    -- שדווחו" had far fewer Select-Columns options than TARGET even though
+    -- the same breadth as the TARGET-defect screen's (reported defects had
+    -- far fewer Select-Columns options than TARGET even though
     -- both read the same BUG table).
     BG_ESTIMATED_FIX_TIME                                                              AS ESTIMATED_FIX_TIME,
     BG_ACTUAL_FIX_TIME                                                                 AS ACTUAL_FIX_TIME,
@@ -885,7 +885,7 @@ const TARGET_CR_DEFECTS_SQL = `
     BG_SUBJECT AS SUBJECT,
     BG_SUMMARY AS SUMMARY,
     REGEXP_REPLACE(DBMS_LOB.SUBSTR(BUG.BG_DESCRIPTION, 4000, 1), '<[^>]*>', '') AS Defect_Description,
-    -- BG_DEV_COMMENTS ("notes") — same HTML-entity cleanup chain as DEFECTS_SQL's
+    -- BG_DEV_COMMENTS ("notes") - same HTML-entity cleanup chain as DEFECTS_SQL's
     -- DEFECT_COMMENTS, since dev comments come through with the same raw
     -- &gt;/&lt;/&nbsp;/&amp;/&quot; entities and repeated-space runs that break
     -- readability (especially for Hebrew text) if left undecoded.
@@ -1360,7 +1360,7 @@ WITH qc_defects_history AS (
         defect.BG_USER_10           AS area,
         defect.BG_USER_06           AS bug_type,
         defect.BG_USER_33           AS fix_type,
-        -- Additional identity/ownership fields — same real BUG columns already
+        -- Additional identity/ownership fields - same real BUG columns already
         -- used for the detail screen (DEFECT_BY_ID_SQL), added here so the
         -- table's admin-configurable column pool isn't limited to the ~14
         -- fields this snapshot query originally selected.
