@@ -1035,15 +1035,20 @@ const BreakdownPanel: React.FC<{ title: string; total: number; rows: { label: st
         <div className="text-sm font-semibold text-foreground">{title}</div>
         <Badge color={C.textMuted} bg={C.bgHover}>{total}</Badge>
       </div>
-      <div className="flex flex-col gap-1.5 max-h-[340px] overflow-y-auto">
+      {/* Row layout matches DefectsHubView's BreakdownPanel (2026-09-29 fix,
+          applied here too): content-sized label instead of a fixed width so
+          short labels hug the bar instead of leaving a gap, and
+          scrollbarGutter reserves space so the RTL-left scrollbar doesn't
+          overlap the count column. */}
+      <div className="flex flex-col gap-1.5 max-h-[340px] overflow-y-auto pl-2" style={{ scrollbarGutter: 'stable' }}>
         {rows.length === 0 && <div className="text-xs text-subtle-foreground">אין נתונים</div>}
         {rows.map(r => (
           <div key={r.label} className="flex items-center gap-2">
-            <div className="text-xs text-muted-foreground w-[140px] shrink-0 overflow-hidden text-ellipsis whitespace-nowrap" title={r.label}>{r.label}</div>
-            <div className="flex-1 h-3.5 bg-muted rounded-sm overflow-hidden">
+            <div className="text-xs text-muted-foreground max-w-[40%] shrink-0 truncate" title={r.label}>{r.label}</div>
+            <div className="min-w-0 flex-1 h-3.5 bg-muted rounded-sm overflow-hidden">
               <div className="h-full bg-primary rounded-sm" style={{ width: `${(r.count / max) * 100}%` }} />
             </div>
-            <div className="text-xs text-foreground w-6 text-left">{r.count}</div>
+            <div className="text-xs text-foreground w-6 shrink-0 text-left">{r.count}</div>
           </div>
         ))}
       </div>

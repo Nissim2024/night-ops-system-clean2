@@ -104,14 +104,18 @@ const BreakdownPanel: React.FC<{ title: string; total: number; rows: BreakdownRo
         <div className="text-sm font-semibold text-foreground">{title}</div>
         <Badge color={C.textMuted} bg={C.bgHover}>{total}</Badge>
       </div>
-      <div className={cn('flex flex-col gap-2 overflow-y-auto', wide ? 'max-h-[440px]' : 'max-h-[220px]')}>
+      {/* Label stays a wider break-words column here on purpose (spec
+          2026-09-19 — long CR/team names need it), unlike the truncating
+          content-sized label used everywhere else; only the scrollbar-overlap
+          half of the 2026-09-29 fix applies to this one. */}
+      <div className={cn('flex flex-col gap-2 overflow-y-auto pl-2', wide ? 'max-h-[440px]' : 'max-h-[220px]')} style={{ scrollbarGutter: 'stable' }}>
         {rows.length === 0 && <div className="text-xs text-subtle-foreground">אין נתונים</div>}
         {rows.map(r => (
           <div key={r.label} onClick={() => onSelect(r.label)} className="flex cursor-pointer items-start gap-2">
             <div className={cn('flex-shrink-0 break-words text-xs leading-snug text-muted-foreground', wide ? 'w-[38%]' : 'w-[46%]')} title={r.label}>
               {r.label}
             </div>
-            <div className="mt-0.5 flex h-3.5 flex-1 overflow-hidden rounded-sm bg-muted">
+            <div className="mt-0.5 flex h-3.5 min-w-0 flex-1 overflow-hidden rounded-sm bg-muted">
               {r.bySeverity.map(s => (
                 <div key={s.severity} title={`${s.severity}: ${s.count}`} style={{ width: `${(s.count / max) * 100}%`, background: SEVERITY_COLOR[s.severity] ?? SEVERITY_COLOR['ללא סיווג'] }} className="h-full" />
               ))}
