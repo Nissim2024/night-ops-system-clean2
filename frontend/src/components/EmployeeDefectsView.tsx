@@ -3,6 +3,13 @@ import { SEVERITY_COLOR, hexTint } from './shared/defectFieldDisplay';
 
 interface Props {
   versionName?: string | null;
+  // True when the backend resolved a DIFFERENT version than whatever's
+  // selected in the sidebar picker — currently only Ops employees, whose
+  // defects always come from the latest COMPLETED (production) version
+  // regardless of what's picked elsewhere. Without this, an Ops employee
+  // switching versions would see the picker say one version while this
+  // screen silently kept showing production — confusing with no explanation.
+  overridden?: boolean;
   loading: boolean;
   summary: {
     total: number;
@@ -17,7 +24,7 @@ interface Props {
 // on HomeDashboard — same data (getHomeDefectsSummary), same visual language
 // (severity pills via SEVERITY_COLOR/hexTint), just a full-page view instead
 // of a small tile, since employees have no Home widget space reserved for it.
-export const EmployeeDefectsView: React.FC<Props> = ({ versionName, loading, summary }) => {
+export const EmployeeDefectsView: React.FC<Props> = ({ versionName, overridden, loading, summary }) => {
   if (loading) {
     return (
       <div className="text-center p-20 text-subtle-foreground">
@@ -42,7 +49,11 @@ export const EmployeeDefectsView: React.FC<Props> = ({ versionName, loading, sum
   return (
     <div className="max-w-2xl">
       <h2 className="text-lg font-bold text-foreground mb-1">🪲 תקלות{versionName ? ` — ${versionName}` : ''}</h2>
-      <p className="text-sm text-subtle-foreground mb-5">נתוני התקלות מוצגים עבור הגרסה הרלוונטית לתפקידך.</p>
+      <p className="text-sm text-subtle-foreground mb-5">
+        {overridden
+          ? 'נתוני תקלות מוצגים עבור הגרסה שכבר עלתה לייצור (COMPLETED האחרונה) — לא הגרסה שנבחרה למעלה.'
+          : 'נתוני התקלות מוצגים עבור הגרסה הרלוונטית לתפקידך.'}
+      </p>
 
       <div className="flex gap-4 flex-wrap">
         <div className="flex-1 min-w-[220px] rounded-lg border border-border bg-card px-5 py-4">

@@ -1842,7 +1842,18 @@ export class ReleaseIntelligenceService {
   // qc.service.ts's global dashboard endpoint already applies), just evaluated
   // in JS against an already-fetched list instead of a SQL WHERE clause.
   async getHomeDefectsSummary(versionId: string, user: { sub: string; role: string }) {
+    const requestedVersionId = versionId;
     versionId = await resolveVersionForUser(user, versionId);
+    // The caller (e.g. an Ops employee's picker selection) has no way to
+    // know resolveVersionForUser silently swapped in a different version —
+    // caught live 2026-09-29: EmployeeDefectsView's header showed whichever
+    // version the picker/auto-default had selected, while the numbers
+    // underneath were actually for the resolved (COMPLETED, for Ops)
+    // version. Returning which version was really used lets the frontend
+    // show the truth instead of a mismatched label.
+    const resolvedVersion = versionId !== requestedVersionId
+      ? await prisma.version.findUnique({ where: { id: versionId }, select: { id: true, name: true } })
+      : null;
     const defects = await this.qcService.getDefects(versionId).catch((): DefectDto[] => []);
     const total = defects.length;
 
@@ -1871,6 +1882,9 @@ export class ReleaseIntelligenceService {
       scopedTotal: scoped.length,
       scopedOpen: scopedOpen.length,
       bySeverity: Array.from(bySeverityMap.entries()).map(([label, count]) => ({ label, count })),
+      // null when the requested version was used as-is (the common case) —
+      // only set when resolveVersionForUser actually overrode it.
+      resolvedVersion,
     };
   }
 

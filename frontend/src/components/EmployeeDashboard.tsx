@@ -115,6 +115,11 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [homeDefects, setHomeDefects] = useState<{
     total: number; scopeKind: 'all' | 'team' | 'personal'; scopedTotal: number; scopedOpen: number;
     bySeverity: { label: string; count: number }[];
+    // Set only when the backend actually overrode the requested version
+    // (the Ops "latest COMPLETED" defects rule) — see EmployeeDefectsView,
+    // which uses this instead of effectiveVersion?.name so the header never
+    // shows a version that doesn't match the numbers underneath it.
+    resolvedVersion: { id: string; name: string } | null;
   } | null>(null);
   const [homeDefectsLoading, setHomeDefectsLoading] = useState(false);
   // Prefer the real Team.category (2026-09-29 fix) — name-matching alone
@@ -563,7 +568,8 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
           {/* ─── Defects view ─── */}
           {activeView === 'defects' && (
             <EmployeeDefectsView
-              versionName={effectiveVersion?.name}
+              versionName={homeDefects?.resolvedVersion?.name ?? effectiveVersion?.name}
+              overridden={!!homeDefects?.resolvedVersion}
               loading={homeDefectsLoading}
               summary={homeDefects}
             />
