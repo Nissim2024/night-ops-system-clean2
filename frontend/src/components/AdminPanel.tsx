@@ -103,7 +103,7 @@ interface QcRelease {
 }
 
 export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
-  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'versions' | 'ldap' | 'oracle' | 'email' | 'notifications' | 'quality-hub' | 'open-prod-defects-config' | 'qc-write-test'>('users');
+  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'versions' | 'ldap' | 'oracle' | 'email' | 'notifications' | 'qc-rest' | 'quality-hub' | 'open-prod-defects-config' | 'qc-write-test'>('users');
   const { allPermissions, updateRole, saving: permSaving } = usePermissions();
   const [users, setUsers]     = useState<any[]>([]);
   const [teams, setTeams]     = useState<any[]>([]);
@@ -679,10 +679,92 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
     { key: 'oracle',        label: 'QC Oracle',     icon: '🗄️' },
     { key: 'email',         label: 'מייל',          icon: '📧' },
     { key: 'notifications', label: 'התראות',        icon: '🔔' },
+    { key: 'qc-rest',       label: 'QC REST',       icon: '🔗' },
     { key: 'quality-hub',   label: 'איכות גרסה',    icon: '🏆' },
     { key: 'open-prod-defects-config', label: 'עמודות תקלות ייצור', icon: '📆' },
     { key: 'qc-write-test', label: 'בדיקת כתיבה ל-QC', icon: '✍️' },
   ] as const;
+
+  // Two-level nav (2026-09-29, "admin screen is a mess" feedback) — 16 flat
+  // tabs in one row, plus the params tab dumping ~40 unrelated keys into one
+  // alphabetical table, made the whole screen hard to navigate. Groups tabs
+  // into categories by what they actually configure; the category derives
+  // from whichever tab is active (no separate state to keep in sync), and
+  // clicking a category jumps to its first tab.
+  const TAB_CATEGORIES = [
+    { key: 'users',        label: 'משתמשים והרשאות',    icon: '👤', tabs: ['users', 'teams', 'permissions'] },
+    { key: 'integrations', label: 'אינטגרציות',          icon: '🔌', tabs: ['ldap', 'oracle', 'email', 'notifications', 'qc-rest', 'qc-releases', 'qc-users', 'qc-write-test'] },
+    { key: 'config',       label: 'פרמטרים ותצורה',      icon: '⚙️', tabs: ['params', 'templates', 'quality-hub', 'open-prod-defects-config'] },
+    { key: 'maintenance',  label: 'תחזוקה',              icon: '🗑️', tabs: ['versions'] },
+  ] as const;
+  const activeCategory = TAB_CATEGORIES.find(c => (c.tabs as readonly string[]).includes(tab)) ?? TAB_CATEGORIES[0];
+
+  // Shared renderer for a titled group of system-params, reused by the
+  // params tab (split into themed groups instead of one flat alphabetical
+  // table) and the qc-rest tab. Returns null when the group has no matching
+  // params, so an empty section never renders a bare title.
+  const paramGroupCard = (title: string, subtitle: string, filterFn: (key: string) => boolean) => {
+    const groupParams = systemParams.filter(p => filterFn(p.key));
+    if (groupParams.length === 0) return null;
+    return (
+      <div key={title} style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', border: `1px solid ${C.border}` }}>
+        <h3 style={{ margin: '0 0 4px', color: C.textPrimary, fontSize: '17px' }}>{title}</h3>
+        <p style={{ margin: '0 0 16px', fontSize: '14px', color: C.textMuted }}>{subtitle}</p>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: C.bgNested }}>
+              {['תיאור', 'מפתח', 'ערך נוכחי', 'פעולות'].map(h => (
+                <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: '14px', color: C.textSecondary, fontWeight: 'bold', border: `1px solid ${C.border}` }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {groupParams.map(p => (
+              <tr key={p.key} style={{ borderBottom: `1px solid ${C.border}` }}>
+                <td style={{ padding: '12px 14px', fontSize: '15px', fontWeight: 'bold', color: C.textPrimary, border: `1px solid ${C.border}` }}>{p.label}</td>
+                <td style={{ padding: '12px 14px', fontFamily: FONT_MONO, fontSize: '14px', color: C.textMuted, border: `1px solid ${C.border}` }}>{p.key}</td>
+                <td style={{ padding: '12px 14px', border: `1px solid ${C.border}`, minWidth: '260px' }}>
+                  {editingParam === p.key ? (
+                    <input
+                      autoFocus
+                      value={paramValue}
+                      onChange={e => setParamValue(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') saveParam(p.key); if (e.key === 'Escape') setEditingParam(null); }}
+                      style={{ width: '100%', padding: '6px 10px', border: `2px solid ${C.brand}`, borderRadius: '6px', fontSize: '15px', boxSizing: 'border-box', direction: 'ltr', background: C.bgNested, color: C.textPrimary, fontFamily: FONT_MONO }}
+                      placeholder="הזן ערך..."
+                    />
+                  ) : (
+                    <span style={{ fontSize: '15px', color: p.value ? C.textPrimary : C.textMuted, fontStyle: p.value ? 'normal' : 'italic', direction: 'ltr', display: 'inline-block', fontFamily: p.value ? FONT_MONO : FONT }}>
+                      {p.value || 'לא הוגדר'}
+                    </span>
+                  )}
+                </td>
+                <td style={{ padding: '10px 14px', border: `1px solid ${C.border}`, whiteSpace: 'nowrap' }}>
+                  {editingParam === p.key ? (
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button onClick={() => saveParam(p.key)} disabled={savingParam}
+                        style={{ padding: '5px 14px', background: savingParam ? C.bgHover : C.statusDone, color: savingParam ? C.textDisabled : 'white', border: 'none', borderRadius: '6px', cursor: savingParam ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold', fontFamily: FONT }}>
+                        {savingParam ? '...' : 'שמור'}
+                      </button>
+                      <button onClick={() => { setEditingParam(null); setParamError(null); }}
+                        style={{ padding: '5px 12px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontFamily: FONT }}>
+                        ביטול
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => { setEditingParam(p.key); setParamValue(p.value); setParamError(null); }}
+                      style={{ padding: '5px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontFamily: FONT }}>
+                      ✏️ ערוך
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
 
   return (
     <div style={{ direction: 'rtl', fontFamily: FONT }}>
@@ -706,8 +788,31 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
             </p>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: SP[1], flexWrap: 'wrap' }}>
-          {ADMIN_TABS.map(t => {
+        {/* Category row — coarse grouping, always visible */}
+        <div style={{ display: 'flex', gap: SP[1], flexWrap: 'wrap', marginBottom: SP[2] }}>
+          {TAB_CATEGORIES.map(cat => {
+            const isActive = activeCategory.key === cat.key;
+            return (
+              <button key={cat.key} onClick={() => setTab(cat.tabs[0] as any)} style={{
+                display: 'flex', alignItems: 'center', gap: SP[1],
+                padding: '8px 16px',
+                borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: FONT,
+                border: `1px solid ${isActive ? C.brand : C.border}`,
+                background: isActive ? C.brand : C.bgNested,
+                color: isActive ? 'white' : C.textSecondary,
+                ...TEXT.sm, fontWeight: WEIGHT.bold,
+                transition: EASE.fast,
+              }}>
+                <span style={{ fontSize: '15px' }}>{cat.icon}</span>
+                {cat.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Sub-tab row — only the tabs belonging to the active category */}
+        <div style={{ display: 'flex', gap: SP[1], flexWrap: 'wrap', paddingTop: SP[2], borderTop: `1px solid ${C.border}` }}>
+          {ADMIN_TABS.filter(t => (activeCategory.tabs as readonly string[]).includes(t.key)).map(t => {
             const isActive = tab === t.key;
             return (
               <button key={t.key} onClick={() => setTab(t.key as any)} style={{
@@ -2368,6 +2473,37 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
             );
           })()}
 
+          {/* ── QC REST TAB ── */}
+          {/* Pulled out of the params catch-all (2026-09-29, "admin screen is
+              a mess" feedback) — QC_REST_* alone was ~25 of the ~40 params in
+              that one flat table, dwarfing everything else in it. Same
+              grouping the backend already implies via key naming: base
+              connection, per-field mappings, and publish-enabled flags. */}
+          {tab === 'qc-rest' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {paramGroupCard(
+                '🔗 חיבור בסיסי',
+                'הגדרות החיבור ל-QC REST API — כתובת, דומיין ופרויקט.',
+                key => ['QC_REST_BASE_URL', 'QC_REST_DOMAIN', 'QC_REST_PROJECT', 'QC_REST_BUG_STATUS_FIELD'].includes(key),
+              )}
+              {paramGroupCard(
+                '🧩 מיפוי שדות',
+                'התאמה בין שדות DeployCenter לשמות השדות האמיתיים ב-QC (BG_USER_XX).',
+                key => key.startsWith('QC_REST_FIELD_'),
+              )}
+              {paramGroupCard(
+                '📤 דגלי פרסום',
+                'הפעלה/כיבוי של כתיבה חזרה ל-QC לכל סוג ישות בנפרד.',
+                key => key.startsWith('QC_REST_') && key.endsWith('_PUBLISH_ENABLED'),
+              )}
+              {paramGroupCard(
+                '🔑 QC Site Admin',
+                'פרטי גישה לניהול משתמשים/הרשאות ב-QC (נפרד מהחיבור הרגיל ל-REST).',
+                key => ['QC_SITE_ADMIN_ENABLED', 'QC_ADMIN_USERNAME', 'QC_ADMIN_PASSWORD'].includes(key),
+              )}
+            </div>
+          )}
+
           {/* ── QUALITY HUB TAB ── */}
           {tab === 'quality-hub' && (() => {
             const uploadCard = (opts: {
@@ -2501,74 +2637,60 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
           )}
 
           {/* ── SYSTEM PARAMS TAB ── */}
-          {tab === 'params' && (
+          {tab === 'params' && (() => {
+            // Themed groups instead of one alphabetical table mixing every
+            // domain together (2026-09-29 feedback). LDAP/Oracle/Email/
+            // Notifications/QC-REST already have their own tabs and are
+            // excluded here; "אחר" is a safety net so a future param that
+            // doesn't fit any group below still shows up somewhere instead
+            // of silently vanishing.
+            const CATEGORIZED_KEYS = new Set([
+              'QC_RELEASES_FILE', 'EXCEL_FILE_PATH', 'QA_EXPORT_PATH', 'QUALITY_KPI_SCORES_FILE',
+              'CR_LIST_SYNC_TIME', 'QUALITY_KPI_SYNC_TIME', 'DAILY_QA_SNAPSHOT_TIME', 'DAILY_QA_STANDUP_CUTOFF',
+              'SUMMARY_OVERRUN_THRESHOLD_MINS', 'QA_EFFORT_THRESHOLD_DAYS', 'QA_SECOND_TESTER_THRESHOLD_DAYS',
+              'DEFAULT_TEST_DURATION_MINUTES', 'FORECAST_ALERT_DAYS', 'RELEASE_QUALITY_TARGET_SCORE',
+              'WIZARD_AUTO_OPEN', 'USER_DEPS_CROSS_PHASE',
+              'APP_PUBLIC_URL', 'ANTHROPIC_API_KEY',
+            ]);
+            const EXCLUDED_PREFIXES = ['EMAIL_', 'LDAP_', 'TEAMS_', 'TELEGRAM_', 'ORACLE_', 'QC_REST_', 'QC_SITE_ADMIN_', 'QC_ADMIN_', 'OPEN_PROD_DEFECTS_'];
+            const isExcluded = (key: string) => EXCLUDED_PREFIXES.some(pre => key.startsWith(pre));
+            return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', border: `1px solid ${C.border}` }}>
-              <h3 style={{ margin: '0 0 4px', color: C.textPrimary }}>⚙️ פרמטרי מערכת</h3>
-              <p style={{ margin: '0 0 20px', fontSize: '15px', color: C.textMuted }}>הגדרות גלובליות השולטות בתהליכים במערכת</p>
-              {paramError && (
-                <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', fontSize: '15px', color: C.statusFailed }}>
-                  ⚠️ {paramError}
-                </div>
-              )}
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ background: C.bgNested }}>
-                    {['תיאור', 'מפתח', 'ערך נוכחי', 'פעולות'].map(h => (
-                      <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: '14px', color: C.textSecondary, fontWeight: 'bold', border: `1px solid ${C.border}` }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {systemParams.filter(p => !p.key.startsWith('EMAIL_') && !p.key.startsWith('LDAP_') && !p.key.startsWith('TEAMS_') && !p.key.startsWith('TELEGRAM_') && !p.key.startsWith('ORACLE_')).map(p => (
-                    <tr key={p.key} style={{ borderBottom: `1px solid ${C.border}` }}>
-                      <td style={{ padding: '12px 14px', fontSize: '15px', fontWeight: 'bold', color: C.textPrimary, border: `1px solid ${C.border}` }}>{p.label}</td>
-                      <td style={{ padding: '12px 14px', fontFamily: FONT_MONO, fontSize: '14px', color: C.textMuted, border: `1px solid ${C.border}` }}>{p.key}</td>
-                      <td style={{ padding: '12px 14px', border: `1px solid ${C.border}`, minWidth: '260px' }}>
-                        {editingParam === p.key ? (
-                          <input
-                            autoFocus
-                            value={paramValue}
-                            onChange={e => setParamValue(e.target.value)}
-                            onKeyDown={e => { if (e.key === 'Enter') saveParam(p.key); if (e.key === 'Escape') setEditingParam(null); }}
-                            style={{ width: '100%', padding: '6px 10px', border: `2px solid ${C.brand}`, borderRadius: '6px', fontSize: '15px', boxSizing: 'border-box', direction: 'ltr', background: C.bgNested, color: C.textPrimary, fontFamily: FONT_MONO }}
-                            placeholder="הזן ערך..."
-                          />
-                        ) : (
-                          <span style={{ fontSize: '15px', color: p.value ? C.textPrimary : C.textMuted, fontStyle: p.value ? 'normal' : 'italic', direction: 'ltr', display: 'inline-block', fontFamily: p.value ? FONT_MONO : FONT }}>
-                            {p.value || 'לא הוגדר'}
-                          </span>
-                        )}
-                      </td>
-                      <td style={{ padding: '10px 14px', border: `1px solid ${C.border}`, whiteSpace: 'nowrap' }}>
-                        {editingParam === p.key ? (
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <button onClick={() => saveParam(p.key)} disabled={savingParam}
-                              style={{ padding: '5px 14px', background: savingParam ? C.bgHover : C.statusDone, color: savingParam ? C.textDisabled : 'white', border: 'none', borderRadius: '6px', cursor: savingParam ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold', fontFamily: FONT }}>
-                              {savingParam ? '...' : 'שמור'}
-                            </button>
-                            <button onClick={() => { setEditingParam(null); setParamError(null); }}
-                              style={{ padding: '5px 12px', background: C.bgHover, color: C.textSecondary, border: `1px solid ${C.border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontFamily: FONT }}>
-                              ביטול
-                            </button>
-                          </div>
-                        ) : (
-                          <button onClick={() => { setEditingParam(p.key); setParamValue(p.value); setParamError(null); }}
-                            style={{ padding: '5px 14px', background: C.brand, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontFamily: FONT }}>
-                            ✏️ ערוך
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                  {systemParams.length === 0 && (
-                    <tr>
-                      <td colSpan={4} style={{ padding: '30px', textAlign: 'center', color: C.textMuted, fontSize: '15px' }}>אין פרמטרים מוגדרים</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+            {paramError && (
+              <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', fontSize: '15px', color: C.statusFailed }}>
+                ⚠️ {paramError}
+              </div>
+            )}
+            {paramGroupCard(
+              '📁 נתיבי קבצים וייבוא',
+              'נתיבים לקבצים שהמערכת קוראת מהם (Excel, ייצוא QA, ציוני איכות).',
+              key => ['QC_RELEASES_FILE', 'EXCEL_FILE_PATH', 'QA_EXPORT_PATH', 'QUALITY_KPI_SCORES_FILE'].includes(key),
+            )}
+            {paramGroupCard(
+              '⏰ תזמון משימות רקע',
+              'שעות/מועדים שבהם המערכת מריצה משימות אוטומטיות (סנכרון, סנפשוט יומי).',
+              key => ['CR_LIST_SYNC_TIME', 'QUALITY_KPI_SYNC_TIME', 'DAILY_QA_SNAPSHOT_TIME', 'DAILY_QA_STANDUP_CUTOFF'].includes(key),
+            )}
+            {paramGroupCard(
+              '🎯 ספי איכות ובדיקות',
+              'ערכי סף שקובעים מתי המערכת מדגישה חריגה או מסמנת סיכון.',
+              key => ['SUMMARY_OVERRUN_THRESHOLD_MINS', 'QA_EFFORT_THRESHOLD_DAYS', 'QA_SECOND_TESTER_THRESHOLD_DAYS', 'DEFAULT_TEST_DURATION_MINUTES', 'FORECAST_ALERT_DAYS', 'RELEASE_QUALITY_TARGET_SCORE'].includes(key),
+            )}
+            {paramGroupCard(
+              '🔀 התנהגות מערכת',
+              'דגלי הפעלה/כיבוי לתכונות אופציונליות.',
+              key => ['WIZARD_AUTO_OPEN', 'USER_DEPS_CROSS_PHASE'].includes(key),
+            )}
+            {paramGroupCard(
+              '🌐 כללי',
+              'הגדרות שלא שייכות לקטגוריה ספציפית.',
+              key => ['APP_PUBLIC_URL', 'ANTHROPIC_API_KEY'].includes(key),
+            )}
+            {paramGroupCard(
+              '❓ אחר',
+              'פרמטרים שטרם קוטלגו לקבוצה — לא אמורים להצטבר כאן; אם משהו מופיע, כדאי לשייך אותו לקבוצה מתאימה.',
+              key => !CATEGORIZED_KEYS.has(key) && !isExcluded(key),
+            )}
 
             {/* ─ Params help section ─ */}
             <div style={{ background: C.bgNested, borderRadius: '12px', padding: '20px 24px', border: `1px solid ${C.border}`, fontSize: '15px', color: C.textSecondary, lineHeight: '1.8' }}>
@@ -2608,7 +2730,8 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
               </div>
             </div>
             </div>
-          )}
+            );
+          })()}
         </>
       )}
     </div>
