@@ -1576,8 +1576,13 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           {/* ── Tab: ניהול — its own activeModule ('admin'), same pattern as
               Home; not nested under activeModule==='deployments' so the
               sidebar doesn't keep showing the Deployments version-picker/
-              phase-chain while viewing Admin (2026-09-29 feedback). ── */}
-          {activeTab === 'admin' && (
+              phase-chain while viewing Admin (2026-09-29 feedback). Gated on
+              activeModule too, not just activeTab — activeTab doesn't reset
+              on its own when switching modules via the sidebar pills, so
+              activeTab==='admin' alone kept rendering this under every other
+              module once the user had visited Admin once (caught live,
+              2026-09-29 follow-up report). ── */}
+          {activeModule === 'admin' && activeTab === 'admin' && (
             <AdminPanel token={token} onVersionsChanged={fetchVersions} />
           )}
         </div>
