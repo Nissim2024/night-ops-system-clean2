@@ -11,6 +11,7 @@ import { usePushNotifications } from '../hooks/usePushNotifications';
 import { EmployeeLeavesView } from './EmployeeLeavesView';
 import { EmployeeHomeView } from './EmployeeHomeView';
 import { EmployeeDefectsView } from './EmployeeDefectsView';
+import { VersionSwitcher } from './shared/VersionSwitcher';
 import { QaTestersView } from './qa/QaTestersView';
 import { MyQaTasksView, MyQaTask, TargetDefectGroup } from './qa/MyQaTasksView';
 import { FocusModeModal } from './FocusModeModal';
@@ -74,6 +75,24 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [refreshKey, setRefreshKey]       = useState(0);
   const [taskStats, setTaskStats]         = useState({ done: 0, inProgress: 0, open: 0, waiting: 0, blocked: 0, total: 0 });
   const [planningVersion, setPlanningVersion] = useState<any>(null);
+  // Version switcher (2026-09-29 feedback — employees had no way to work on
+  // a version other than whichever activeVersion/planningVersion auto-picked
+  // for them). allVersions is every non-archived version (per-team relevance
+  // filtering was considered and explicitly declined — simpler, and matches
+  // ManagerDashboard's own default "not archived" grouping). manualVersion,
+  // when set, overrides the smart default for the rest of THIS session only
+  // — never persisted, so the next login always starts back at the smart
+  // pick. Does not affect the Ops "latest COMPLETED" defects override, which
+  // stays server-side in getHomeDefectsSummary regardless of what's selected
+  // here (that's a defects-only rule, not a general version pin).
+  const [allVersions, setAllVersions] = useState<any[]>([]);
+  const [manualVersion, setManualVersion] = useState<any>(null);
+  const effectiveVersion = manualVersion ?? activeVersion ?? planningVersion;
+  // "Live" here means the effective version is actually executing — the
+  // Tasks board / Focus Mode / progress stats only make sense then. Distinct
+  // from effectiveVersion itself, which (via the manual picker) can now be
+  // any non-archived status, including a closed one the picker offers.
+  const effectiveIsLive = !!effectiveVersion && ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(effectiveVersion.status);
   const [seasonReminder, setSeasonReminder] = useState<{ id: string; name: string } | null>(null);
   const [activeView, setActiveView]       = useState<NavView>('home');
   const [hoveredNav, setHoveredNav]       = useState<NavView | null>(null);
@@ -155,60 +174,71 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
     } catch { /* silent */ }
   };
 
+  // Re-fetch task stats when the effective version changes — originally this
+  // only ran once, for the auto-detected active version, at initial load;
+  // now that a manual pick can also become the effective version, this needs
+  // to be reactive too, or switching versions would leave stale numbers on
+  // screen from whatever was active at login.
+  useEffect(() => {
+    if (effectiveIsLive && effectiveVersion?.id) fetchTaskStats(effectiveVersion.id);
+    else setTaskStats({ done: 0, inProgress: 0, open: 0, waiting: 0, blocked: 0, total: 0 });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveIsLive, effectiveVersion?.id]);
+
   // Runbook steps assigned specifically to this employee (any version, upcoming
   // ones only) — surfaced on Home per the "the employee assigned to the task
   // should see it" requirement, independent of team-lead/admin visibility.
   useEffect(() => {
-    const versionId = activeVersion?.id ?? planningVersion?.id;
+    const versionId = effectiveVersion?.id;
     if (!versionId) { setMyRunbookSteps([]); return; }
     axios.get(`${API}/runbook/${versionId}/upcoming`, { headers })
       .then(res => setMyRunbookSteps((res.data ?? []).filter((e: any) => e.employeeUserId === payload.sub)))
       .catch(() => setMyRunbookSteps([]));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeVersion?.id, planningVersion?.id, token]);
+  }, [effectiveVersion?.id, token]);
 
   // Manual, RM/ADMIN-authored notices for the current version — read-only here
   // (only RM/ADMIN can add/edit, from HomeDashboard), just displayed.
   const [homeNotices, setHomeNotices] = useState<{ id: string; text: string; urgency: string }[]>([]);
   useEffect(() => {
-    const versionId = activeVersion?.id ?? planningVersion?.id;
+    const versionId = effectiveVersion?.id;
     if (!versionId) { setHomeNotices([]); return; }
     axios.get(`${API}/versions/${versionId}/notices`, { headers })
       .then(res => setHomeNotices(res.data ?? []))
       .catch(() => setHomeNotices([]));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeVersion?.id, planningVersion?.id, token]);
+  }, [effectiveVersion?.id, token]);
 
   // QA work-plan tasks assigned specifically to this employee for the current
   // version — separate from the general night-execution Task model above.
   // `isTester` gates whether the "המשימות שלי (QA)" nav tab even shows, since
   // being a QA tester (TesterProfile) is independent of team/role.
   useEffect(() => {
-    const versionId = activeVersion?.id ?? planningVersion?.id;
+    const versionId = effectiveVersion?.id;
     if (!versionId) { setIsQaTester(false); setMyQaTasks([]); return; }
     axios.get(`${API}/qa/me/tasks?versionId=${versionId}`, { headers })
       .then(res => { setIsQaTester(!!res.data?.isTester); setMyQaTasks(res.data?.tasks ?? []); })
       .catch(() => { setIsQaTester(false); setMyQaTasks([]); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeVersion?.id, planningVersion?.id, token]);
+  }, [effectiveVersion?.id, token]);
 
   // QA cycle dates (for the milestone timeline on Home) — only fetched for an
   // actual QA tester, matching the scope of this addition (the tester's own
   // dashboard, not a general change for every employee).
   useEffect(() => {
-    const versionId = activeVersion?.id ?? planningVersion?.id;
+    const versionId = effectiveVersion?.id;
     if (!isQaTester || !versionId) { setQaSummary(null); return; }
     axios.get(`${API}/qa-stats/summary?versionId=${versionId}`, { headers })
       .then(res => setQaSummary(res.data))
       .catch(() => setQaSummary(null));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isQaTester, activeVersion?.id, planningVersion?.id, token]);
+  }, [isQaTester, effectiveVersion?.id, token]);
 
   // TARGET CR defects assigned to me + my own defect-reporting stats — fetched
   // once here so both the home-page KPI summary and the "המשימות שלי (QA)"
   // tab's detail list share the same data instead of double-fetching.
   useEffect(() => {
-    const versionId = activeVersion?.id ?? planningVersion?.id;
+    const versionId = effectiveVersion?.id;
     if (!isQaTester || !versionId) { setTargetDefectGroups([]); setDefectStats(null); return; }
     axios.get(`${API}/target-cr/my-defects?versionId=${versionId}`, { headers })
       .then(res => setTargetDefectGroups(res.data ?? []))
@@ -217,7 +247,7 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
       .then(res => setDefectStats(res.data))
       .catch(() => setDefectStats(null));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isQaTester, activeVersion?.id, planningVersion?.id, token]);
+  }, [isQaTester, effectiveVersion?.id, token]);
 
   // Employee-scoped defects summary (backend already scopes EMPLOYEE role to
   // their personal qcLogin, and — for Ops-category teams — resolves the
@@ -225,7 +255,7 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
   // for the "תקלות שלי" nav tab, not gated by team/role since resolveDefectScope
   // handles that server-side.
   useEffect(() => {
-    const versionId = activeVersion?.id ?? planningVersion?.id;
+    const versionId = effectiveVersion?.id;
     if (!versionId) { setHomeDefects(null); return; }
     setHomeDefectsLoading(true);
     axios.get(`${API}/release-intelligence/home-defects/${versionId}`, { headers })
@@ -233,14 +263,14 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
       .catch(() => setHomeDefects(null))
       .finally(() => setHomeDefectsLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeVersion?.id, planningVersion?.id, token]);
+  }, [effectiveVersion?.id, token]);
 
   const openFocusMode = async () => {
-    if (!activeVersion) return;
+    if (!effectiveIsLive || !effectiveVersion) return;
     setFocusMode(true);
     setFocusLoading(true);
     try {
-      const res = await axios.get(`${API}/versions/${activeVersion.id}`, { headers });
+      const res = await axios.get(`${API}/versions/${effectiveVersion.id}`, { headers });
       const all: any[] = [];
       for (const ph of (res.data.phases ?? []))
         for (const sub of (ph.subPhases ?? []))
@@ -270,13 +300,14 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
           t.members?.some((m: any) => m.userId === userId || m.user?.id === userId)
         );
         setMyTeam(team || null);
-        const allVersions: any[] = versionsRes.data;
-        const active = allVersions.find((v: any) => ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(v.status));
+        const fetchedVersions: any[] = versionsRes.data;
+        setAllVersions(fetchedVersions.filter((v: any) => !v.isArchived));
+        const active = fetchedVersions.find((v: any) => ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(v.status));
         setActiveVersion(active || null);
-        if (active) {
-          fetchTaskStats(active.id);
-        } else {
-          const candidates = allVersions.filter((v: any) =>
+        // taskStats fetch itself now lives in the effectiveVersion-reactive
+        // effect below, so it re-runs on a manual version switch too.
+        if (!active) {
+          const candidates = fetchedVersions.filter((v: any) =>
             !v.isArchived && PLANNING_STATUS_ORDER.includes(v.status)
           );
           // Several versions can be "in planning" at once (e.g. one still DRAFT while
@@ -344,7 +375,7 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
       {/* ── Focus Mode overlay ── */}
       {focusMode && !focusLoading && (
         <FocusModeModal
-          phaseLabel={activeVersion?.name}
+          phaseLabel={effectiveVersion?.name}
           tasks={myFocusTasks}
           updatingTaskId={updatingFocusTaskId}
           onAction={updateFocusTask}
@@ -366,7 +397,7 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
           </div>
 
           {/* Focus Mode */}
-          {activeVersion && (
+          {effectiveIsLive && (
             <button
               onClick={openFocusMode}
               title="פתח מצב הרצה — המשימות שלי"
@@ -409,8 +440,8 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
       </div>
 
       {/* ─── Progress chain ─── */}
-      {activeVersion && activeView === 'tasks' && (
-        <VersionProgressChain versionStatus={activeVersion.status} />
+      {effectiveIsLive && activeView === 'tasks' && (
+        <VersionProgressChain versionStatus={effectiveVersion.status} />
       )}
 
       {/* ─── Body ─── */}
@@ -421,6 +452,17 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
           {IS_TEST && (
             <div className="mx-3 mt-3 bg-warning/15 border border-warning/30 text-[#d4a017] text-sm font-bold text-center px-2 py-1.5 rounded-md tracking-wider uppercase">⚡ TEST</div>
           )}
+
+          {/* Version switcher — same component ManagerDashboard's Sidebar
+              uses (2026-09-29 feedback: employees had no way to work on a
+              version other than whichever one auto-selected for them).
+              Manual pick is session-only; next login resets to the smart
+              default. */}
+          <VersionSwitcher
+            versions={allVersions}
+            selectedVersionId={effectiveVersion?.id}
+            onVersionChange={id => setManualVersion(allVersions.find(v => v.id === id) ?? null)}
+          />
 
           {/* Nav section label */}
           <div className="pt-4 px-3 pb-2 text-[13px] font-bold text-white/35 tracking-wider uppercase">
@@ -480,8 +522,8 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
           {activeView === 'home' && !loading && (
             <EmployeeHomeView
               fullName={fullName}
-              activeVersion={activeVersion}
-              planningVersion={planningVersion}
+              activeVersion={effectiveIsLive ? effectiveVersion : null}
+              planningVersion={effectiveIsLive ? null : effectiveVersion}
               taskStats={taskStats}
               seasonReminder={seasonReminder}
               teamName={myTeam?.name}
@@ -508,7 +550,7 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
           {/* ─── Defects view ─── */}
           {activeView === 'defects' && (
             <EmployeeDefectsView
-              versionName={(activeVersion ?? planningVersion)?.name}
+              versionName={effectiveVersion?.name}
               loading={homeDefectsLoading}
               summary={homeDefects}
             />
@@ -518,8 +560,8 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
           {activeView === 'qaTasks' && (
             <MyQaTasksView
               tasks={myQaTasks}
-              versionName={(activeVersion ?? planningVersion)?.name}
-              versionId={(activeVersion ?? planningVersion)?.id}
+              versionName={effectiveVersion?.name}
+              versionId={effectiveVersion?.id}
               token={token}
               fullName={fullName}
               targetDefectGroups={targetDefectGroups}
@@ -534,12 +576,12 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
             </div>
           ) : myTeam ? (
             <>
-              {activeVersion ? (
+              {effectiveIsLive ? (
                 <>
                   {/* Progress graph */}
                   <div className="bg-[linear-gradient(135deg,#1a2332_0%,#2d4a7a_100%)] rounded-xl px-6 py-5 mb-5 text-white">
                     <div className="flex justify-between mb-1.5 text-[15px]">
-                      <span>התקדמות כללית — {activeVersion.name}</span>
+                      <span>התקדמות כללית — {effectiveVersion.name}</span>
                       <span>{taskStats.done}/{taskStats.total} משימות ({taskStats.total > 0 ? Math.round((taskStats.done / taskStats.total) * 100) : 0}%)</span>
                     </div>
                     <div className="bg-white/20 rounded-lg h-3 overflow-hidden">
@@ -564,7 +606,7 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
                       ))}
                     </div>
                   </div>
-                  <TeamView token={token} teamId={myTeam.id} teamName={myTeam.name} versionId={activeVersion.id} userId={payload.sub} userName={fullName} refreshKey={refreshKey} hideAddTask hideFocusMode />
+                  <TeamView token={token} teamId={myTeam.id} teamName={myTeam.name} versionId={effectiveVersion.id} userId={payload.sub} userName={fullName} refreshKey={refreshKey} hideAddTask hideFocusMode />
                 </>
               ) : (
                 <div className="text-center p-20 text-subtle-foreground bg-card rounded-2xl border border-border">

@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState } from 'react';
 import { C, versionStatusColor, versionStatusLabel, lifecyclePhaseLabel, lifecyclePhaseColor, lifecyclePhaseGroup } from '../theme';
 import { cn } from '../lib/utils';
 import pkg from '../../package.json';
+import { VersionSwitcher } from './shared/VersionSwitcher';
 const APP_VERSION: string = pkg.version;
 
 interface Props {
@@ -112,103 +113,6 @@ function versionPhaseColor(v: any): string {
   return versionStatusColor[v.status] ?? C.sidebarTextMuted;
 }
 
-// ── Quick version switcher (button → small modal) — replaces the native
-//    <select> that clashed with the dark sidebar (spec 2026-09-08). Groups by
-//    status (בפעילות / בתכנון / סגורות / ארכיון), click a row to switch.
-const VersionPickerModal: React.FC<{
-  versions: any[];
-  selectedVersionId?: string;
-  onPick: (id: string) => void;
-  onClose: () => void;
-}> = ({ versions, selectedVersionId, onPick, onClose }) => {
-  const [q, setQ] = useState('');
-  const showSearch = versions.length > 6;
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  const needle = q.trim().toLowerCase();
-  const groupsWithItems = useMemo(() => GROUPS.map(g => ({
-    group: g,
-    items: versions
-      .filter(v => versionGroup(v) === g.id)
-      .filter(v => !needle || String(v.name).toLowerCase().includes(needle))
-      .sort((a, b) => String(b.name).localeCompare(String(a.name), 'he')),
-  })).filter(x => x.items.length > 0), [versions, needle]);
-
-  return (
-    <div
-      onClick={onClose}
-      className="fixed inset-0 z-[4000] flex items-start justify-center px-4 pb-4 pt-[10vh] [direction:rtl]"
-      style={{ background: 'rgba(10,11,26,0.55)' }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        className="flex max-h-[68vh] w-[360px] max-w-[92vw] flex-col overflow-hidden rounded-lg bg-card shadow-[0_24px_60px_rgba(0,0,0,0.35)]"
-      >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
-          <div className="text-sm font-bold text-foreground">בחירת גרסה</div>
-          <button onClick={onClose} className="cursor-pointer border-none bg-transparent px-1.5 py-0.5 text-base leading-none text-subtle-foreground">✕</button>
-        </div>
-
-        {showSearch && (
-          <div className="px-4 pb-1 pt-2.5">
-            <input
-              autoFocus
-              value={q}
-              onChange={e => setQ(e.target.value)}
-              placeholder="חיפוש גרסה..."
-              className="box-border w-full rounded-md border border-border bg-background px-2.5 py-2 text-[13px] text-foreground [direction:rtl]"
-            />
-          </div>
-        )}
-
-        <div className="overflow-y-auto px-2 pb-2.5 pt-1.5">
-          {groupsWithItems.length === 0 && (
-            <div className="p-6 text-center text-[13px] text-subtle-foreground">לא נמצאו גרסאות</div>
-          )}
-          {groupsWithItems.map(({ group, items }) => (
-            <div key={group.id} className="mb-1.5">
-              <div className="flex items-center gap-1.5 px-2.5 pb-1 pt-2 text-[11px] font-bold uppercase tracking-[0.04em] text-subtle-foreground">
-                <span className="text-[13px]">{group.icon}</span><span>{group.label}</span>
-                <span className="font-normal text-subtle-foreground">· {items.length}</span>
-              </div>
-              {items.map(v => {
-                const isSel = v.id === selectedVersionId;
-                const sColor = versionPhaseColor(v);
-                const sLabel = versionPhaseLabel(v);
-                return (
-                  <button
-                    key={v.id}
-                    onClick={() => { onPick(v.id); onClose(); }}
-                    className="mb-0.5 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-right [direction:rtl]"
-                    style={{
-                      background: isSel ? C.bgHover : 'transparent',
-                      border: `1px solid ${isSel ? C.border : 'transparent'}`,
-                    }}
-                    onMouseEnter={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = C.bgNested; }}
-                    onMouseLeave={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-                  >
-                    <span className="h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: sColor }} />
-                    <div className="min-w-0 flex-1">
-                      <div className={cn('overflow-hidden text-ellipsis whitespace-nowrap text-sm text-foreground', isSel ? 'font-bold' : 'font-medium')}>{v.name}</div>
-                      <div className="text-xs" style={{ color: sColor }}>{sLabel}</div>
-                    </div>
-                    {isSel && <span className="text-[13px] font-bold text-primary">✓</span>}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-};
-
 export const Sidebar: React.FC<Props> = ({
   versions = [], selectedVersionId, onVersionChange,
   myTasksActive, onMyTasksClick,
@@ -239,7 +143,6 @@ export const Sidebar: React.FC<Props> = ({
   const [versionsOpen, setVersionsOpen] = useState(true);
   const [hoveredVer, setHoveredVer] = useState<string | null>(null);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
-  const [verPickerOpen, setVerPickerOpen] = useState(false);
 
   const grouped: Record<string, any[]> = { active: [], planning: [], closed: [], archived: [] };
   for (const v of versions) grouped[versionGroup(v)].push(v);
@@ -300,40 +203,12 @@ export const Sidebar: React.FC<Props> = ({
 
       {/* ── Quick version switcher — button opens a small modal picker; switch
            versions from any screen in one click, no round-trip to Home
-           (spec 2026-09-07 §4; button+modal redesign 2026-09-08) ── */}
-      {onVersionChange && versions.length > 0 && (() => {
-        const cur = versions.find(v => v.id === selectedVersionId);
-        const curColor = cur ? versionPhaseColor(cur) : C.sidebarTextMuted;
-        const curLabel = cur ? versionPhaseLabel(cur) : '';
-        return (
-          <div className="px-3 pt-3">
-            <button
-              onClick={() => setVerPickerOpen(true)}
-              className="box-border flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-right transition-[background] duration-fast ease-out [direction:rtl]"
-              style={{ background: C.sidebarBgActive, color: C.sidebarText, border: `1px solid ${C.sidebarBorder}` }}
-              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = C.sidebarBgHover}
-              onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = C.sidebarBgActive}
-            >
-              <span className="h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: curColor }} />
-              <span className="min-w-0 flex-1">
-                <span className="block overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-semibold">
-                  {cur ? cur.name : 'בחר גרסה'}
-                </span>
-                {curLabel && <span className="block text-[11px]" style={{ color: 'rgba(255,255,255,0.55)' }}>{curLabel}</span>}
-              </span>
-              <span className="shrink-0 text-xs" style={{ color: 'rgba(255,255,255,0.45)' }}>▾</span>
-            </button>
-          </div>
-        );
-      })()}
-
-      {verPickerOpen && onVersionChange && (
-        <VersionPickerModal
-          versions={versions}
-          selectedVersionId={selectedVersionId}
-          onPick={onVersionChange}
-          onClose={() => setVerPickerOpen(false)}
-        />
+           (spec 2026-09-07 §4; button+modal redesign 2026-09-08). Extracted
+           to shared/VersionSwitcher.tsx (2026-09-29) so EmployeeDashboard can
+           reuse the exact same component instead of employees having no way
+           to switch versions at all. ── */}
+      {onVersionChange && versions.length > 0 && (
+        <VersionSwitcher versions={versions} selectedVersionId={selectedVersionId} onVersionChange={onVersionChange} />
       )}
 
       {/* ── Home button — always visible, module-neutral (2026-09-25:
