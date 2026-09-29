@@ -30,14 +30,20 @@ function parseOracleDateAgeDays(ddMmYyyy: string, nowMs: number): number | null 
 }
 
 // "Which version does this user actually mean by 'current'?" (2026-09-26,
-// home-page role spec). Dev/QA care about the version currently in prep/
-// testing — the requestedVersionId the caller already passed in (today's
-// `primary`/`activeVersion`, which explicitly excludes COMPLETED versions).
-// An Ops person's "current" version is different: whatever already shipped
-// to production, i.e. the most recent COMPLETED version — Ops teams don't
-// live in the pre-release testing timeline the rest of the app centers on.
-// Only overrides for OPS-category teams; everyone else's requested version
-// passes through unchanged.
+// home-page role spec; scope narrowed 2026-09-29 — see below). Dev/QA care
+// about the version currently in prep/testing — the requestedVersionId the
+// caller already passed in (today's `primary`/`activeVersion`, which
+// explicitly excludes COMPLETED versions). An Ops person's "current" version
+// is different ONLY for defects: whatever already shipped to production,
+// i.e. the most recent COMPLETED version. Every other module an Ops person
+// touches (tasks, team progress, etc.) uses the same active/planning
+// resolution as every other team — this is NOT a general "Ops sees a
+// different version everywhere" rule, so call this ONLY from defects-
+// specific endpoints (getHomeDefectsSummary), never from general ones like
+// getTeamProgress (caught live: an Ops team lead's CR/test-progress KPI was
+// silently pinned to a stale COMPLETED version instead of what they were
+// actually working on). Only overrides for OPS-category teams; everyone
+// else's requested version passes through unchanged.
 async function resolveVersionForUser(user: { sub: string; role: string }, requestedVersionId: string): Promise<string> {
   let teamIds: string[];
   if (user.role === 'TEAM_LEAD') {
@@ -1032,7 +1038,6 @@ export class ReleaseIntelligenceService {
   // own led team. null when the caller doesn't lead a team, or their team has
   // no CRs in this version yet.
   async getTeamProgress(versionId: string, user: { sub: string; role: string }): Promise<{ progressPct: number; crCount: number } | null> {
-    versionId = await resolveVersionForUser(user, versionId);
     const leaderships = await prisma.teamMember.findMany({
       where: { userId: user.sub, isLead: true },
       select: { teamId: true },
