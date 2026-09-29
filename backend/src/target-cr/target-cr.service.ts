@@ -146,6 +146,11 @@ export class TargetCrService {
   //     days (VersionCrAssignment.estimateDays), at a rate of 1 expected
   //     defect per dev-day — a CR with no known estimate contributes 0, and if
   //     the total is 0 the warning never fires (nothing to compare against).
+  //
+  // Two more personal alerts added 2026-09-29 (role-by-role home-page review,
+  // tester questions): underCoveredCrs and staleVerifications. Both reuse
+  // data this method already fetches (crNumbers, estimateByCr, mine) rather
+  // than adding new round-trips.
   async getMyDefectStats(versionId: string, user: { sub: string; role: string }) {
     const [tasks, me] = await Promise.all([
       prisma.qaCycleTask.findMany({
@@ -156,17 +161,44 @@ export class TargetCrService {
     ]);
     const crNumbers = Array.from(new Set(tasks.map(t => t.crNumber)));
 
-    let expectedMin = 0;
+    const estimateByCr = new Map<string, number>();
     if (crNumbers.length > 0) {
       const vcas = await prisma.versionCrAssignment.findMany({
         where: { versionId, crNumber: { in: crNumbers } },
         select: { crNumber: true, estimateDays: true },
       });
-      const estimateByCr = new Map<string, number>();
       for (const v of vcas) {
         if (!estimateByCr.has(v.crNumber) && v.estimateDays != null) estimateByCr.set(v.crNumber, v.estimateDays);
       }
-      expectedMin = Math.round(Array.from(estimateByCr.values()).reduce((sum, d) => sum + d, 0));
+    }
+    const expectedMin = Math.round(Array.from(estimateByCr.values()).reduce((sum, d) => sum + d, 0));
+
+    // Scenario-coverage check (spec 2026-09-29, user's own words: "לבדוק את
+    // מספר הימים שהושקעו בפיתוח CR... ולראות אם כמות התרחישים שנכתבו עבורו
+    // משקפים התייחסות ראויה") — expected minimum scenario count per CR is
+    // its dev-effort days × SCENARIOS_PER_DEV_DAY (2, user-confirmed
+    // threshold), compared against the real written-scenario count from
+    // getCrCoverage (QC_REQUIRMENTS_COVERAGE's per-CR "total"). A CR with no
+    // known estimate is skipped — nothing to compare against, same
+    // "unknown ≠ violation" rule as expectedMin above.
+    const SCENARIOS_PER_DEV_DAY = 2;
+    const underCoveredCrs: { crNumber: string; crLabel: string; scenarioCount: number; expectedMinScenarios: number; devDays: number }[] = [];
+    if (crNumbers.length > 0) {
+      const coverage = await this.qcService.getCrCoverage(crNumbers, versionId).catch(() => [] as { crNumber: string; crTitle: string; total: number }[]);
+      const scenarioCountByCr = new Map<string, number>();
+      const labelByCr = new Map<string, string>();
+      for (const c of coverage) {
+        scenarioCountByCr.set(c.crNumber, (scenarioCountByCr.get(c.crNumber) ?? 0) + c.total);
+        if (!labelByCr.has(c.crNumber)) labelByCr.set(c.crNumber, c.crTitle);
+      }
+      for (const [crNumber, devDays] of estimateByCr) {
+        if (devDays <= 0) continue;
+        const expectedMinScenarios = Math.round(devDays * SCENARIOS_PER_DEV_DAY);
+        const scenarioCount = scenarioCountByCr.get(crNumber) ?? 0;
+        if (scenarioCount < expectedMinScenarios) {
+          underCoveredCrs.push({ crNumber, crLabel: labelByCr.get(crNumber) ?? '', scenarioCount, expectedMinScenarios, devDays });
+        }
+      }
     }
 
     const allDefects = await this.qcService.getMyReportedDefects(versionId);
@@ -177,9 +209,29 @@ export class TargetCrService {
     const stillOpen = mine.filter(d => !CLOSED_STATUSES.has(d.status)).length;
     const waitingForMyVerification = mine.filter(d => d.status === 'Fixed_Test').length;
 
+    // Stale-verification alert (spec 2026-09-29, user-confirmed thresholds):
+    // Show Stopper defects sitting in Fixed_Test over 1 day, everything else
+    // over 2 days. BG_VTS ("modified") is a proxy for "when it entered
+    // Fixed_Test" — see ReportedDefectDto's own comment for why there's no
+    // real state-transition timestamp to use instead.
+    const STALE_VERIFICATION_THRESHOLD_DAYS: Record<string, number> = { 'Show Stopper': 1 };
+    const DEFAULT_STALE_THRESHOLD_DAYS = 2;
+    const now = Date.now();
+    const staleVerifications = mine
+      .filter(d => d.status === 'Fixed_Test' && d.modified)
+      .map(d => {
+        const daysWaiting = Math.floor((now - new Date(d.modified as string).getTime()) / 86400000);
+        const threshold = STALE_VERIFICATION_THRESHOLD_DAYS[d.severity] ?? DEFAULT_STALE_THRESHOLD_DAYS;
+        return { id: d.id, severity: d.severity, daysWaiting, threshold };
+      })
+      .filter(d => d.daysWaiting >= d.threshold)
+      .sort((a, b) => b.daysWaiting - a.daysWaiting);
+
     return {
       opened, stillOpen, waitingForMyVerification, expectedMin,
       tooFew: expectedMin > 0 && opened < expectedMin,
+      underCoveredCrs,
+      staleVerifications,
     };
   }
 

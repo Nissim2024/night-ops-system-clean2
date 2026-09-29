@@ -107,13 +107,26 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
   const [myQaTasks, setMyQaTasks]     = useState<MyQaTask[]>([]);
   const [qaSummary, setQaSummary]     = useState<{ cycles: { cycleType: string; plannedStart: string; plannedEnd: string }[] } | null>(null);
   const [targetDefectGroups, setTargetDefectGroups] = useState<TargetDefectGroup[]>([]);
-  const [defectStats, setDefectStats] = useState<{ opened: number; stillOpen: number; waitingForMyVerification: number; expectedMin: number; tooFew: boolean } | null>(null);
+  const [defectStats, setDefectStats] = useState<{
+    opened: number; stillOpen: number; waitingForMyVerification: number; expectedMin: number; tooFew: boolean;
+    underCoveredCrs: { crNumber: string; crLabel: string; scenarioCount: number; expectedMinScenarios: number; devDays: number }[];
+    staleVerifications: { id: string; severity: string; daysWaiting: number; threshold: number }[];
+  } | null>(null);
   const [homeDefects, setHomeDefects] = useState<{
     total: number; scopeKind: 'all' | 'team' | 'personal'; scopedTotal: number; scopedOpen: number;
     bySeverity: { label: string; count: number }[];
   } | null>(null);
   const [homeDefectsLoading, setHomeDefectsLoading] = useState(false);
-  const isQaTeam = myTeam?.name?.toLowerCase().includes('qa') ?? false;
+  // Prefer the real Team.category (2026-09-29 fix) — name-matching alone
+  // missed any QA team not literally named "...QA..." and, worse, would
+  // wrongly include a non-QA team that happens to have "qa" in its name.
+  // Kept as an OR, not a straight swap: several real QA-ish teams (e.g. the
+  // "QA-CRM"/"QA-DBA"/"QA-EAI" teams found during the category-seeding pass)
+  // were never classified with category='QA' and would silently lose leave
+  // access if name-matching were dropped outright. Once an admin finishes
+  // classifying every team, the name check becomes a no-op safety net rather
+  // than the primary signal.
+  const isQaTeam = myTeam?.category === 'QA' || (myTeam?.name?.toLowerCase().includes('qa') ?? false);
 
   const payload  = JSON.parse(atob(token.split('.')[1]));
   const fullName = localStorage.getItem('deploycenter_fullName') || payload.fullName || 'עובד';

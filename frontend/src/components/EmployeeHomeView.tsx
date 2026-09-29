@@ -65,7 +65,11 @@ interface Props {
   myQaTasks?: MyQaTask[];
   qaSummary?: { cycles: { cycleType: string; plannedStart: string; plannedEnd: string }[] } | null;
   targetDefectGroups?: TargetDefectGroup[];
-  defectStats?: { opened: number; stillOpen: number; waitingForMyVerification: number; expectedMin: number; tooFew: boolean } | null;
+  defectStats?: {
+    opened: number; stillOpen: number; waitingForMyVerification: number; expectedMin: number; tooFew: boolean;
+    underCoveredCrs: { crNumber: string; crLabel: string; scenarioCount: number; expectedMinScenarios: number; devDays: number }[];
+    staleVerifications: { id: string; severity: string; daysWaiting: number; threshold: number }[];
+  } | null;
   onGoToTasks: () => void;
   onGoToLeaves: () => void;
   onGoToQaTasks?: () => void;
@@ -125,6 +129,27 @@ export const EmployeeHomeView: React.FC<Props> = ({
       desc: `המשימה שלך${step.team ? ` · ${step.team}` : ''}`,
       urgent: dayLabel === 'היום',
       onClick: onGoToTasks,
+    });
+  }
+
+  // Two tester-specific alerts (spec 2026-09-29): both only ever have data
+  // when isQaTester (EmployeeDashboard only fetches defectStats for a real
+  // tester), so no extra isQaTester gate needed here.
+  if ((defectStats?.staleVerifications?.length ?? 0) > 0) {
+    const oldest = defectStats!.staleVerifications[0];
+    actions.push({
+      icon: '⏰', title: `${defectStats!.staleVerifications.length} תקלות ממתינות לבדיקתך זמן רב מדי`,
+      desc: `הוותיקה ביותר: ${oldest.daysWaiting} ימים בסטטוס Fixed_Test (${oldest.severity}, סף: ${oldest.threshold} ${oldest.threshold === 1 ? 'יום' : 'ימים'}).`,
+      urgent: true,
+      onClick: onGoToQaTasks ?? onGoToTasks,
+    });
+  }
+  if ((defectStats?.underCoveredCrs?.length ?? 0) > 0) {
+    const worst = [...defectStats!.underCoveredCrs].sort((a, b) => (a.scenarioCount / Math.max(1, a.expectedMinScenarios)) - (b.scenarioCount / Math.max(1, b.expectedMinScenarios)))[0];
+    actions.push({
+      icon: '📉', title: `${defectStats!.underCoveredCrs.length} CR-ים עם כיסוי תרחישים חסר`,
+      desc: `לדוגמה CR ${worst.crNumber}: ${worst.scenarioCount} תרחישים נכתבו מתוך ${worst.expectedMinScenarios} צפויים (${worst.devDays} ימי פיתוח).`,
+      onClick: onGoToQaTasks ?? onGoToTasks,
     });
   }
 
@@ -324,6 +349,27 @@ export const EmployeeHomeView: React.FC<Props> = ({
                           </div>
                         ))}
                       </div>
+
+                      {/* ── Stale verifications (spec 2026-09-29) ── */}
+                      {defectStats.staleVerifications.length > 0 && (
+                        <div className="mt-2.5 rounded-md bg-danger/10 px-3 py-2 text-xs text-danger" style={{ border: `1px solid ${C.danger}33` }}>
+                          ⏰ {defectStats.staleVerifications.length} תקלות ממתינות לבדיקתך מעבר לסף: {defectStats.staleVerifications.slice(0, 3).map(d => `#${d.id} (${d.daysWaiting}י׳)`).join(', ')}
+                          {defectStats.staleVerifications.length > 3 ? ` ועוד ${defectStats.staleVerifications.length - 3}` : ''}
+                        </div>
+                      )}
+
+                      {/* ── Under-covered CRs (spec 2026-09-29) — scenario count vs
+                          dev-effort days, SCENARIOS_PER_DEV_DAY=2 ── */}
+                      {defectStats.underCoveredCrs.length > 0 && (
+                        <div className="mt-2.5 rounded-md bg-warning/10 px-3 py-2 text-xs text-warning" style={{ border: `1px solid ${C.warning}33` }}>
+                          <div className="mb-1 font-semibold">📉 כיסוי תרחישים חסר ביחס להיקף הפיתוח:</div>
+                          {defectStats.underCoveredCrs.map(cr => (
+                            <div key={cr.crNumber}>
+                              CR {cr.crNumber}{cr.crLabel ? ` — ${cr.crLabel}` : ''}: {cr.scenarioCount} מתוך {cr.expectedMinScenarios} תרחישים צפויים ({cr.devDays} ימי פיתוח)
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </>
                   )}
                   {targetTotal > 0 && (
