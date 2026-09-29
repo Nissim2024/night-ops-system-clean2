@@ -23,6 +23,7 @@ interface AllDefectsDashboardDto {
   byMainModule: BreakdownRow[];
   byResponsibility: BreakdownRow[];
   byDetectedRelease: BreakdownRow[];
+  byEnvironmentComponent: BreakdownRow[];
   monthlyTrend: { month: string; count: number }[];
 }
 // onClick added 2026-09-23 (fixes-batch item B — "הכרטיסיות עצמן אינן
@@ -47,6 +48,19 @@ const KpiCard: React.FC<{ label: string; value: string; colorClass: string; onCl
 // this dashboard's own breakdowns already include a dedicated "לפי חומרה"
 // panel, so segmenting every other panel by severity too would be redundant
 // rather than additive here.
+//
+// Row layout (2026-09-29 feedback — "פס הגלילה מצד שמאל לפעמים מסתיר את
+// הנתונים... יש רווח גדול וריק בין עמודת הנושא לגרף עצמו"): the label used
+// to be a FIXED w-[42%] column, so a short label (e.g. "Low") left most of
+// that 42% empty before the bar started — that's the gap. Switched to
+// content-sized (max-w cap only, no fixed width) so short labels hug the
+// bar and only long ones actually use the full cap. Also switched from
+// break-words (multi-line, uneven row heights) to truncate (single line +
+// ellipsis, full text still on hover via title). The scroll container's
+// native scrollbar renders on the physical left in this RTL app — right on
+// top of the count column, which sat flush against that edge — so the
+// count column now gets its own end margin and the container reserves
+// scrollbar space via scrollbarGutter instead of letting it overlap content.
 const BreakdownPanel: React.FC<{ title: string; rows: BreakdownRow[]; onSelect: (label: string) => void }> = ({ title, rows, onSelect }) => {
   const max = Math.max(1, ...rows.map(r => r.count));
   const total = rows.reduce((s, r) => s + r.count, 0);
@@ -56,14 +70,14 @@ const BreakdownPanel: React.FC<{ title: string; rows: BreakdownRow[]; onSelect: 
         <div className="text-sm font-semibold text-foreground">{title}</div>
         <Badge color={C.textMuted} bg={C.bgHover}>{total}</Badge>
       </div>
-      <div className="flex max-h-[260px] flex-col gap-2 overflow-y-auto">
+      <div className="flex max-h-[260px] flex-col gap-2 overflow-y-auto pl-2" style={{ scrollbarGutter: 'stable' }}>
         {rows.length === 0 && <div className="text-xs text-subtle-foreground">אין נתונים</div>}
         {rows.map(r => (
           <div key={r.label} onClick={() => onSelect(r.label)} className="flex cursor-pointer items-center gap-2">
-            <div className="w-[42%] flex-shrink-0 break-words text-xs leading-snug text-muted-foreground" title={r.label}>
+            <div className="max-w-[40%] flex-shrink-0 truncate text-xs text-muted-foreground" title={r.label}>
               {r.label}
             </div>
-            <div className="flex h-3.5 flex-1 overflow-hidden rounded-sm bg-muted">
+            <div className="flex h-3.5 min-w-0 flex-1 overflow-hidden rounded-sm bg-muted">
               <div style={{ width: `${(r.count / max) * 100}%`, background: C.brand }} className="h-full" />
             </div>
             <div className="w-8 flex-shrink-0 text-left text-xs text-foreground">{r.count}</div>
@@ -220,6 +234,8 @@ export const DefectsHubView: React.FC<Props> = ({ token }) => {
               onSelect={label => openDrilldown('responsibility', label, `תקלות — אחראי: ${label}`)} />
             <BreakdownPanel title="לפי גרסה שבה זוהתה" rows={dashboard.byDetectedRelease}
               onSelect={label => openDrilldown('detectedInRelease', label, `תקלות — גרסה: ${label}`)} />
+            <BreakdownPanel title="לפי רכיב סביבה" rows={dashboard.byEnvironmentComponent}
+              onSelect={label => openDrilldown('environmentComponent', label, `תקלות — רכיב סביבה: ${label}`)} />
           </div>
 
           <Card>

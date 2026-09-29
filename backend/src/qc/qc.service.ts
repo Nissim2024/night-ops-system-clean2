@@ -2184,6 +2184,7 @@ export interface AllDefectsDashboardDto {
   byMainModule: DefectBreakdownRow[];
   byResponsibility: DefectBreakdownRow[];
   byDetectedRelease: DefectBreakdownRow[];
+  byEnvironmentComponent: DefectBreakdownRow[];
   monthlyTrend: { month: string; count: number }[];
 }
 
@@ -2197,6 +2198,7 @@ interface AllDefectsRawRow {
   REOPEN_YN: string | null;
   DETECTED_IN_RELEASE: string | null;
   DETECTED_ON_DATE: string | Date | null;
+  ENVIRONMENT_COMPONENT: string | null;
   TITLE?: string | null;
 }
 
@@ -2210,6 +2212,7 @@ const ALL_DEFECTS_DASHBOARD_COLUMNS = `
     BG_USER_29                AS REOPEN_YN,
     detected_rel.REL_NAME        AS DETECTED_IN_RELEASE,
     BG_DETECTION_DATE            AS DETECTED_ON_DATE,
+    BG_USER_49                AS ENVIRONMENT_COMPONENT,
     NVL(BG_SUMMARY, BG_SUBJECT)      AS TITLE`;
 
 const ALL_DEFECTS_DASHBOARD_SQL = `
@@ -2231,6 +2234,7 @@ const ALL_DEFECTS_FILTER_COLUMNS: Record<string, string> = {
   mainModule: 'BG_USER_16',
   responsibility: 'BG_USER_03',
   detectedInRelease: 'detected_rel.REL_NAME',
+  environmentComponent: 'BG_USER_49',
 };
 // TRIM() on both sides (2026-09-23, fixes-batch item B) — a real production
 // report ("במודול התקלות אני לא מצליח לעשות דריל בשום אובייקט") showed the
@@ -2299,22 +2303,22 @@ function buildAllDefectsKpiSql(kpiKey: string, extraWhere = ''): string {
 // older BG_RESPONSIBLE comment elsewhere in this file describing a different,
 // team/queue-shaped usage of that same raw column in other queries.
 const MOCK_ALL_DEFECTS_ROWS: AllDefectsRawRow[] = [
-  { DEFECT_ID: 1,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Medium',       MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv02-2026', DETECTED_ON_DATE: '2026-03-11' },
-  { DEFECT_ID: 2,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Low',          MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'תשתיות', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv02-2026', DETECTED_ON_DATE: '2026-03-19' },
-  { DEFECT_ID: 3,  DEFECT_STATUS: 'Canceled',  SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'בדיקות', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv03-2026', DETECTED_ON_DATE: '2026-04-08' },
-  { DEFECT_ID: 4,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Severe',       MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'פיתוח', ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv03-2026', DETECTED_ON_DATE: '2026-04-22' },
-  { DEFECT_ID: 5,  DEFECT_STATUS: 'Fixed_Test',SEVERITY: 'Show Stopper', MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'raviv',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv04-2026', DETECTED_ON_DATE: '2026-05-14' },
-  { DEFECT_ID: 6,  DEFECT_STATUS: 'Open',      SEVERITY: 'Medium',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv04-2026', DETECTED_ON_DATE: '2026-05-27' },
-  { DEFECT_ID: 7,  DEFECT_STATUS: 'Reopen',    SEVERITY: 'Severe',       MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'בדיקות', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv05-2026', DETECTED_ON_DATE: '2026-06-09' },
-  { DEFECT_ID: 8,  DEFECT_STATUS: 'At Work',   SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'raviv',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv05-2026', DETECTED_ON_DATE: '2026-06-18' },
-  { DEFECT_ID: 9,  DEFECT_STATUS: 'Fixed_Dev', SEVERITY: 'Medium',       MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'ניהול', ASSIGNED_TO: 'mgabay',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-07-02' },
-  { DEFECT_ID: 10, DEFECT_STATUS: 'Open',      SEVERITY: 'Show Stopper', MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-07-15' },
-  { DEFECT_ID: 11, DEFECT_STATUS: 'Open',      SEVERITY: 'Severe',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-08-05' },
-  { DEFECT_ID: 12, DEFECT_STATUS: 'Pending',   SEVERITY: 'Medium',       MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'בדיקות', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-08-21' },
-  { DEFECT_ID: 13, DEFECT_STATUS: 'Open',      SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'raviv',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv07-2026', DETECTED_ON_DATE: '2026-09-02' },
-  { DEFECT_ID: 14, DEFECT_STATUS: 'Reopen',    SEVERITY: 'Show Stopper', MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'פיתוח', ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv07-2026', DETECTED_ON_DATE: '2026-09-10' },
-  { DEFECT_ID: 15, DEFECT_STATUS: 'New',       SEVERITY: 'Medium',       MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'בדיקות', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv08-2026', DETECTED_ON_DATE: '2026-09-18' },
-  { DEFECT_ID: 16, DEFECT_STATUS: 'Open',      SEVERITY: 'Severe',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv08-2026', DETECTED_ON_DATE: '2026-09-20' },
+  { DEFECT_ID: 1,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Medium',       MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv02-2026', DETECTED_ON_DATE: '2026-03-11', ENVIRONMENT_COMPONENT: 'WEB' },
+  { DEFECT_ID: 2,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Low',          MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'תשתיות', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv02-2026', DETECTED_ON_DATE: '2026-03-19', ENVIRONMENT_COMPONENT: 'DB' },
+  { DEFECT_ID: 3,  DEFECT_STATUS: 'Canceled',  SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'בדיקות', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv03-2026', DETECTED_ON_DATE: '2026-04-08', ENVIRONMENT_COMPONENT: 'WEB' },
+  { DEFECT_ID: 4,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Severe',       MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'פיתוח', ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv03-2026', DETECTED_ON_DATE: '2026-04-22', ENVIRONMENT_COMPONENT: 'API' },
+  { DEFECT_ID: 5,  DEFECT_STATUS: 'Fixed_Test',SEVERITY: 'Show Stopper', MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'raviv',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv04-2026', DETECTED_ON_DATE: '2026-05-14', ENVIRONMENT_COMPONENT: 'APP' },
+  { DEFECT_ID: 6,  DEFECT_STATUS: 'Open',      SEVERITY: 'Medium',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv04-2026', DETECTED_ON_DATE: '2026-05-27', ENVIRONMENT_COMPONENT: 'IVR-PLATFORM' },
+  { DEFECT_ID: 7,  DEFECT_STATUS: 'Reopen',    SEVERITY: 'Severe',       MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'בדיקות', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv05-2026', DETECTED_ON_DATE: '2026-06-09', ENVIRONMENT_COMPONENT: 'DB' },
+  { DEFECT_ID: 8,  DEFECT_STATUS: 'At Work',   SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'raviv',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv05-2026', DETECTED_ON_DATE: '2026-06-18', ENVIRONMENT_COMPONENT: 'WEB' },
+  { DEFECT_ID: 9,  DEFECT_STATUS: 'Fixed_Dev', SEVERITY: 'Medium',       MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'ניהול', ASSIGNED_TO: 'mgabay',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-07-02', ENVIRONMENT_COMPONENT: 'API' },
+  { DEFECT_ID: 10, DEFECT_STATUS: 'Open',      SEVERITY: 'Show Stopper', MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-07-15', ENVIRONMENT_COMPONENT: 'APP' },
+  { DEFECT_ID: 11, DEFECT_STATUS: 'Open',      SEVERITY: 'Severe',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-08-05', ENVIRONMENT_COMPONENT: 'IVR-PLATFORM' },
+  { DEFECT_ID: 12, DEFECT_STATUS: 'Pending',   SEVERITY: 'Medium',       MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'בדיקות', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-08-21', ENVIRONMENT_COMPONENT: 'DB' },
+  { DEFECT_ID: 13, DEFECT_STATUS: 'Open',      SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'raviv',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv07-2026', DETECTED_ON_DATE: '2026-09-02', ENVIRONMENT_COMPONENT: 'WEB' },
+  { DEFECT_ID: 14, DEFECT_STATUS: 'Reopen',    SEVERITY: 'Show Stopper', MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'פיתוח', ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv07-2026', DETECTED_ON_DATE: '2026-09-10', ENVIRONMENT_COMPONENT: 'API' },
+  { DEFECT_ID: 15, DEFECT_STATUS: 'New',       SEVERITY: 'Medium',       MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'בדיקות', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv08-2026', DETECTED_ON_DATE: '2026-09-18', ENVIRONMENT_COMPONENT: 'APP' },
+  { DEFECT_ID: 16, DEFECT_STATUS: 'Open',      SEVERITY: 'Severe',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv08-2026', DETECTED_ON_DATE: '2026-09-20', ENVIRONMENT_COMPONENT: 'IVR-PLATFORM' },
 ];
 
 // Mock-mode mapper for getAllDefectsFiltered (2026-09-23 follow-up) — maps
@@ -2343,7 +2347,7 @@ function allDefectsRawRowToDefectDto(r: AllDefectsRawRow): DefectDto {
     supportStatus: '', vendorAssignTo: '', category: '', itemType: '', estimateFixTime: '',
     platform: '', modified: '', detectedInCycle: '', targetCycle: '', crStatus: '', dropNumber: '',
     influence: '', secondaryPriority: '', releaseDefect: '', businessProcess: '', foundByAutomation: '',
-    mainBusinessProcess: '', impact: '', productionReason: '', environmentComponent: '',
+    mainBusinessProcess: '', impact: '', productionReason: '', environmentComponent: r.ENVIRONMENT_COMPONENT ?? '',
     willBeTestAtGoLive: '', deploymentCategory: '', defectResponsible: '', targetReleaseReason: '',
     targetType: '', systemComponent: '', forRegressionTest: '', escDefectResponsible: '',
     toBeTestedOnProd: '', deploymentDateProd: '', targetScopeApproved: '',
@@ -2458,6 +2462,7 @@ function computeAllDefectsDashboard(rows: AllDefectsRawRow[]): AllDefectsDashboa
     byMainModule: groupCount(r => r.MAIN_MODULE),
     byResponsibility: groupCount(r => r.RESPONSIBILITY),
     byDetectedRelease: groupCount(r => r.DETECTED_IN_RELEASE).slice(0, 10),
+    byEnvironmentComponent: groupCount(r => r.ENVIRONMENT_COMPONENT).slice(0, 10),
     monthlyTrend,
   };
 }
@@ -3620,6 +3625,7 @@ export class QcService {
       const keyOf: Record<string, keyof AllDefectsRawRow> = {
         status: 'DEFECT_STATUS', severity: 'SEVERITY', mainModule: 'MAIN_MODULE',
         responsibility: 'RESPONSIBILITY', detectedInRelease: 'DETECTED_IN_RELEASE',
+        environmentComponent: 'ENVIRONMENT_COMPONENT',
       };
       const key = keyOf[filterField];
       if (!key) throw new BadRequestException(`שדה סינון לא מוכר: ${filterField}`);
