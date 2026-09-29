@@ -1861,7 +1861,10 @@ export class ReleaseIntelligenceService {
     let scoped: DefectDto[] = [];
     if (scope.kind === 'team') {
       const set = new Set(scope.values.map(v => v.trim()));
-      scoped = defects.filter(d => set.has((d.responsibility ?? '').trim()));
+      // d.responsibility can hold several teams joined by ';' on one defect
+      // (e.g. "CRM Team;TopTech Dev Team") — exact equality missed every
+      // defect where the team lead's team was combined with another.
+      scoped = defects.filter(d => (d.responsibility ?? '').split(';').some(t => set.has(t.trim())));
     } else if (scope.kind === 'personal' && scope.qcLogin) {
       const login = scope.qcLogin.trim().toLowerCase();
       scoped = defects.filter(d => (d.assignedTo ?? '').trim().toLowerCase() === login);

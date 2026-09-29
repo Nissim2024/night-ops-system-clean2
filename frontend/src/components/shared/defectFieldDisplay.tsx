@@ -26,6 +26,16 @@ export function hasHebrew(s: string): boolean {
   return false;
 }
 
+// QC's Responsibility field (BG_USER_03) holds multiple teams joined by ';'
+// when a defect spans more than one team (e.g. "CRM Team;TopTech Dev Team").
+// Any filter/breakdown built from the raw string must split on this, or a
+// combined-team row silently disappears from that team's own filter option
+// (found 2026-09-29: the two Quality Hub Responsibility filters listed every
+// raw combination as its own option instead of one entry per real team).
+export function splitTeams(raw: string | null | undefined): string[] {
+  return (raw ?? '').split(';').map(s => s.trim()).filter(Boolean);
+}
+
 // Stable hash-per-name palette — canonical source is VersionsView.tsx's
 // deployment-plan team badges (feedback 2026-09-14: the defect-table
 // "אחראי" badge used a different 8-color palette that didn't match the

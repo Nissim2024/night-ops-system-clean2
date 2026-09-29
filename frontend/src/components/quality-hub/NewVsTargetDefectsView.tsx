@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { C, WEIGHT } from '../../theme';
 import { Card, Select } from '../ui';
+import { splitTeams } from '../shared/defectFieldDisplay';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -258,9 +259,11 @@ export const NewVsTargetDefectsView: React.FC<Props> = ({ token }) => {
     rows.map(r => parseRelease(r.detectedRelName ?? r.targetRelName ?? '')?.year).filter((y): y is number => !!y)
   )).sort((a, b) => b - a).map(String), [rows]);
 
+  // One option per real team, not per raw combination (a row's responsibility
+  // can be "CRM Team;TopTech Dev Team" when a defect spans two teams).
   const responsibilityOptions = useMemo(() => Array.from(new Set(
-    rows.map(r => r.responsibility).filter(Boolean)
-  )).sort() as string[], [rows]);
+    rows.flatMap(r => splitTeams(r.responsibility))
+  )).sort(), [rows]);
 
   // Only the responsibility filter narrows the ROW set — year filtering is
   // applied separately, per release, below. (Bug found 2026-09-24: the old
@@ -270,7 +273,7 @@ export const NewVsTargetDefectsView: React.FC<Props> = ({ token }) => {
   // targeted at an earlier release pulled that unrelated earlier release
   // onto the x-axis too. Filtering by year "leaked" bars from other years.)
   const responsibilityFilteredRows = useMemo(() => rows.filter(r =>
-    !fResponsibility || r.responsibility === fResponsibility
+    !fResponsibility || splitTeams(r.responsibility).includes(fResponsibility)
   ), [rows, fResponsibility]);
 
   const releaseMatchesYear = (releaseName: string | null) =>

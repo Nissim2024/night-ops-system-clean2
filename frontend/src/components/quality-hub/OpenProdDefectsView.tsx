@@ -6,7 +6,7 @@ import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LAB
 import {
   hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroupsDialog, DetailGroup,
   FieldChangeHistorySection, AttachmentsSection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
-  IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, SEVERITY_COLOR, SelectColumnsDialog, SavedFilterState,
+  IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, SEVERITY_COLOR, SelectColumnsDialog, SavedFilterState, splitTeams,
 } from '../shared/defectFieldDisplay';
 import { formatDate, formatDateTime } from '../../utils/dateFormat';
 import { cn } from '../../lib/utils';
@@ -1244,6 +1244,21 @@ function groupCount(items: OpenProdDefectMonthRow[], keyFn: (r: OpenProdDefectMo
     .sort((a, b) => b.count - a.count);
 }
 
+// Same as groupCount, but for a field that can hold several ';'-joined team
+// names on one row (responsibility) — each real team gets its own bar
+// instead of one bar per raw combination.
+function groupCountByTeam(items: OpenProdDefectMonthRow[], keyFn: (r: OpenProdDefectMonthRow) => string | null) {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const teams = splitTeams(keyFn(item));
+    const keys = teams.length > 0 ? teams : ['ללא סיווג'];
+    for (const key of keys) counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
 export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const [rows, setRows] = useState<OpenProdDefectMonthRow[]>([]);
@@ -1325,14 +1340,16 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
   }, [headers]);
 
   // ── Filter option lists (derived from the full dataset, not the filtered one) ──
-  const responsibilityOptions = useMemo(() => Array.from(new Set(rows.map(r => r.responsibility).filter(Boolean))).sort() as string[], [rows]);
+  // One option per real team, not per raw combination (a row's responsibility
+  // can be "CRM Team;TopTech Dev Team" when a defect spans two teams).
+  const responsibilityOptions = useMemo(() => Array.from(new Set(rows.flatMap(r => splitTeams(r.responsibility)))).sort(), [rows]);
   const statusOptions         = useMemo(() => Array.from(new Set(rows.map(r => r.statusAtMonth).filter(Boolean))).sort() as string[], [rows]);
   const yearOptions           = useMemo(() => Array.from(new Set(rows.map(r => r.monthLabel.slice(0, 4)).filter(Boolean))).sort() as string[], [rows]);
   const fixTypeOptions        = useMemo(() => Array.from(new Set(rows.map(r => r.fixType).filter(Boolean))).sort() as string[], [rows]);
   const bugTypeOptions        = useMemo(() => Array.from(new Set(rows.map(r => r.bugType).filter(Boolean))).sort() as string[], [rows]);
 
   const filteredRows = useMemo(() => rows.filter(r =>
-    (fResponsibility.length === 0 || fResponsibility.includes(r.responsibility || '')) &&
+    (fResponsibility.length === 0 || splitTeams(r.responsibility).some(t => fResponsibility.includes(t))) &&
     (fStatus.length === 0 || fStatus.includes(r.statusAtMonth || '')) &&
     (fYear.length === 0 || fYear.some(y => r.monthLabel.startsWith(y))) &&
     (fFixType.length === 0 || fFixType.includes(r.fixType || '')) &&
@@ -1651,7 +1668,7 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
 
           <div className="flex gap-3 flex-wrap">
             <BreakdownPanel title="לפי אזור" total={monthRows.length} rows={groupCount(monthRows, r => r.area)} />
-            <BreakdownPanel title="לפי צוות" total={monthRows.length} rows={groupCount(monthRows, r => r.responsibility)} />
+            <BreakdownPanel title="לפי צוות" total={monthRows.length} rows={groupCountByTeam(monthRows, r => r.responsibility)} />
             <BreakdownPanel title="לפי סוג תקלה" total={monthRows.length} rows={groupCount(monthRows, r => r.bugType)} />
           </div>
         </>

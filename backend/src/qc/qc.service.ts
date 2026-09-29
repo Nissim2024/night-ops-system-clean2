@@ -2413,11 +2413,17 @@ function buildDefectScopeSql(scope: DefectScope): { sql: string; binds: Record<s
   if (scope.kind === 'all') return { sql: '', binds: {} };
   if (scope.kind === 'team') {
     const binds: Record<string, any> = {};
-    const placeholders = scope.values.map((v, i) => {
+    // BG_USER_03 can hold several teams joined by ';' on one defect (e.g.
+    // "CRM Team;TopTech Dev Team") — an exact IN match silently dropped every
+    // defect where the team lead's team was combined with another (found
+    // 2026-09-29 while fixing the same bug in the Responsibility filter
+    // dropdowns). Wrapping both sides in ';' delimiters and matching as a
+    // substring finds the team whether it's alone or combined.
+    const conditions = scope.values.map((v, i) => {
       binds[`resp${i}`] = v;
-      return `:resp${i}`;
+      return `(';' || TRIM(BG_USER_03) || ';') LIKE ('%;' || :resp${i} || ';%')`;
     });
-    return { sql: `TRIM(BG_USER_03) IN (${placeholders.join(', ')})`, binds };
+    return { sql: `(${conditions.join(' OR ')})`, binds };
   }
   // personal — no linked qcLogin means see nothing, not everything (the exact
   // bug this scoping fixes is "unlinked user sees all defects").
@@ -2429,7 +2435,7 @@ function filterMockRowsByScope(rows: AllDefectsRawRow[], scope: DefectScope): Al
   if (scope.kind === 'all') return rows;
   if (scope.kind === 'team') {
     const set = new Set(scope.values.map(v => v.trim()));
-    return rows.filter(r => set.has((r.RESPONSIBILITY ?? '').trim()));
+    return rows.filter(r => (r.RESPONSIBILITY ?? '').split(';').some(t => set.has(t.trim())));
   }
   if (!scope.qcLogin) return [];
   const login = scope.qcLogin.trim().toLowerCase();
@@ -2450,6 +2456,22 @@ function computeAllDefectsDashboard(rows: AllDefectsRawRow[]): AllDefectsDashboa
     for (const r of rows) {
       const key = keyFn(r) || 'ללא סיווג';
       counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count);
+  };
+
+  // Same as groupCount, but for RESPONSIBILITY (BG_USER_03), which can hold
+  // several teams joined by ';' on one row — each real team gets counted
+  // instead of every raw combination becoming its own bar.
+  const groupCountByTeam = (keyFn: (r: AllDefectsRawRow) => string | null): DefectBreakdownRow[] => {
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      const raw = keyFn(r);
+      const teams = raw ? raw.split(';').map(s => s.trim()).filter(Boolean) : [];
+      const keys = teams.length > 0 ? teams : ['ללא סיווג'];
+      for (const key of keys) counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return Array.from(counts.entries())
       .map(([label, count]) => ({ label, count }))
@@ -2478,7 +2500,7 @@ function computeAllDefectsDashboard(rows: AllDefectsRawRow[]): AllDefectsDashboa
     byStatus: groupCount(r => r.DEFECT_STATUS),
     bySeverity: groupCount(r => r.SEVERITY),
     byMainModule: groupCount(r => r.MAIN_MODULE),
-    byResponsibility: groupCount(r => r.RESPONSIBILITY),
+    byResponsibility: groupCountByTeam(r => r.RESPONSIBILITY),
     byDetectedRelease: groupCount(r => r.DETECTED_IN_RELEASE).slice(0, 10),
     byEnvironmentComponent: groupCount(r => r.ENVIRONMENT_COMPONENT).slice(0, 10),
     monthlyTrend,
@@ -2568,6 +2590,31 @@ function computeBugDashboard(
       .sort((a, b) => b.count - a.count);
   };
 
+  // Same as groupCountBySeverity, but for RESPONSIBILITY_U3 (BG_USER_03),
+  // which can hold several teams joined by ';' on one row — each real team
+  // is counted instead of every raw combination becoming its own bar.
+  const groupCountBySeverityByTeam = (items: BugRawRow[], keyFn: (r: BugRawRow) => string | null) => {
+    const buckets = new Map<string, Map<string, number>>();
+    for (const item of items) {
+      const raw = keyFn(item);
+      const teams = raw ? raw.split(';').map(s => s.trim()).filter(Boolean) : [];
+      const keys = teams.length > 0 ? teams : ['ללא סיווג'];
+      const severity = item.SEVERITY || 'ללא סיווג';
+      for (const key of keys) {
+        const sevCounts = buckets.get(key) ?? new Map<string, number>();
+        sevCounts.set(severity, (sevCounts.get(severity) ?? 0) + 1);
+        buckets.set(key, sevCounts);
+      }
+    }
+    return Array.from(buckets.entries())
+      .map(([label, sevCounts]) => ({
+        label,
+        count: Array.from(sevCounts.values()).reduce((s, c) => s + c, 0),
+        bySeverity: Array.from(sevCounts.entries()).map(([severity, count]) => ({ severity, count })),
+      }))
+      .sort((a, b) => b.count - a.count);
+  };
+
   const dailyCounts = new Map<string, number>();
   for (const r of rows) {
     if (!r.DETECTED_ON_DATE) continue;
@@ -2621,7 +2668,7 @@ function computeBugDashboard(
     dailyReported,
     openByType:           groupCountBySeverity(open, r => r.DEFECT_TYPE),
     // BG_USER_03 (RESPONSIBILITY_U3), NOT BG_RESPONSIBLE — spec 2026-09-07
-    openByResponsibility: groupCountBySeverity(open, r => r.RESPONSIBILITY_U3),
+    openByResponsibility: groupCountBySeverityByTeam(open, r => r.RESPONSIBILITY_U3),
     // BG_USER_10 (CATEGORY_REF), NOT BG_USER_58 — spec 2026-09-07
     openByCr:             groupCountBySeverity(open, r => r.CATEGORY_REF),
     openByStatus:         groupCountBySeverity(open, r => bugStatusBucket(r.DEFECT_STATUS)),
