@@ -22,6 +22,18 @@ export class TargetCrController {
     return this.service.getMyDefectStats(versionId, req.user);
   }
 
+  // Self-scoped raw list for a home-page stat-tile drill-down (EmployeeHomeView
+  // → DefectDrilldownModal in `endpoint` mode) — same hard req.user scoping as
+  // the two routes above, never a client-supplied identity.
+  @Get('my-defects-list')
+  getMyDefectsList(
+    @Query('versionId') versionId: string,
+    @Query('bucket') bucket: 'opened' | 'stillOpen' | 'waitingForVerification',
+    @Request() req: any,
+  ) {
+    return this.service.getMyDefectsList(versionId, bucket, req.user);
+  }
+
   @Get('version/:versionId/status')
   getStatusForTeam(
     @Param('versionId') versionId: string,

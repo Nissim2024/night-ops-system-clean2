@@ -7,10 +7,16 @@ const prisma = new PrismaClient({
 
 export const ALL_PERMISSIONS = [
   'screen:prep', 'screen:handoff', 'screen:timeline',
-  'screen:night', 'screen:summary', 'screen:admin', 'screen:qa', 'screen:release-intelligence', 'screen:quality-hub',
+  'screen:night', 'screen:summary', 'screen:qa', 'screen:release-intelligence', 'screen:quality-hub',
   'screen:defects',
   'action:import', 'action:gonogo', 'action:task_status', 'action:open_task_for_execution',
   'action:user_manage', 'action:override_version_edit', 'action:select_all_tasks', 'action:template_delete',
+  // TEAM_LEAD-only: lets a team lead see every team's tasks in the live
+  // execution board instead of just their own (ManagerDashboard's TeamView
+  // teamId scoping) — added to the grantable set 2026-09-30 (permissions-
+  // gap audit): the frontend already gated on this key but it was never in
+  // ALL_PERMISSIONS, so no admin could ever actually grant it.
+  'action:view_all_teams',
   'action:qa_leave_request', 'action:qa_manage', 'action:qc_write',
   // Split out of action:qc_write (docs/spec-defects-module.md §9, 2026-09-18)
   // — "can append a comment / change status" is a materially smaller blast

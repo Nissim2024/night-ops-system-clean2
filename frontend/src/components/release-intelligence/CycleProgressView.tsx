@@ -406,105 +406,12 @@ function CycleDetailScreen({ cycle, onBack, token, versionId }: { cycle: CycleTi
         // (feedback 2026-09-14) — as many cards per row as fit at ≥240px
         // each, wrapping to more rows rather than shrinking or scrolling.
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' }}>
-          {filteredCrCoverage.map(cr => {
-            const hasData = cr.total > 0;
-            const successPct = hasData ? Math.round((cr.passed / cr.total) * 10000) / 100 : null;
-            const openDefectsTotal = Object.values(cr.defectsBySeverity).reduce((s, n) => s + n, 0);
-            return (
-              <div key={cr.crNumber} className="bg-card border border-border rounded-lg p-3 flex flex-col items-center gap-2 text-center">
-                <div className="w-full text-sm font-semibold text-foreground min-w-0" title={`${cr.crNumber} — ${cr.crLabel.replace(/^\d+\s*-\s*/, '')}`}>
-                  <span className="font-bold">{cr.crNumber}</span>
-                  {' — '}
-                  <span className="line-clamp-1">{cr.crLabel.replace(/^\d+\s*-\s*/, '')}</span>
-                </div>
-
-                {/* notStartedYet (2026-09-17): an empty 0% gauge read as "no
-                    progress / at risk" for a CR whose testing window simply
-                    hasn't opened yet — show the scheduled start date instead
-                    of a misleading gauge. */}
-                {cr.notStartedYet && cr.testingStartDate ? (
-                  <div className="flex flex-col items-center justify-center gap-1 py-4" style={{ width: 96, height: 96 }}>
-                    <span className="text-xl">⏳</span>
-                    <span className="text-xs text-subtle-foreground">בדיקות יחלו ב-{formatDate(cr.testingStartDate)}</span>
-                  </div>
-                ) : (
-                  // Gauge is the card's dominant visual (feedback 2026-09-14:
-                  // "יותר מרשומות" — chose the big-gauge layout over the
-                  // earlier compact side-by-side one).
-                  <RadialSegmentedGauge
-                    passed={cr.passed} failed={cr.failed} blocked={cr.blocked}
-                    notCompleted={cr.notCompleted} notRun={cr.notRun} notReady={cr.notReady}
-                    notApplicable={cr.notApplicable} notRelevant={cr.notRelevant}
-                    total={cr.total} targetPct={cycle.qgTargetPct} successPct={successPct}
-                    size={96}
-                  />
-                )}
-
-                {(cr.project || cr.tester) && (
-                  <div className="flex gap-2 flex-wrap justify-center text-xs text-subtle-foreground">
-                    {cr.project && <span className="truncate">📁 {cr.project}</span>}
-                    {cr.tester && <span className="inline-flex items-center gap-1">בודק: <PersonAvatar name={cr.tester} full /></span>}
-                  </div>
-                )}
-
-                <div className="flex items-center gap-3 flex-wrap justify-center">
-                  <DaysRemainingBadge days={cr.daysRemaining} />
-                  {/* stillOpenDefectsCount/reportedDefectsCount — how many
-                      defects were ever reported against this CR, and how many
-                      of those are still not Closed and not Canceled (narrower
-                      than this screen's usual "open" — Rejected/Fixed count
-                      as still-open here, unlike elsewhere). */}
-                  {cr.reportedDefectsCount > 0 && (
-                    <span
-                      className="inline-flex items-center gap-1 text-xs font-semibold rounded-full py-0.5 px-[9px] whitespace-nowrap"
-                      style={{ color: C.danger, background: `${C.danger}14`, border: `1px solid ${C.danger}40` }}
-                    >
-                      🐞 {cr.stillOpenDefectsCount}/{cr.reportedDefectsCount}
-                    </span>
-                  )}
-                  {/* Quality score chip — only rendered when qualityByCr flagged
-                      this CR as breaching target (spec 2026-09-17: "רק כאשר
-                      הוא חורג"), never for a CR that meets it. */}
-                  {cr.qualityScore != null && (
-                    <span
-                      className="inline-flex items-center gap-1 text-xs font-semibold rounded-full py-0.5 px-[9px] whitespace-nowrap"
-                      style={{ color: '#e8af00', background: '#e8af0014', border: '1px solid #e8af0040' }}
-                      title="מדד איכות CR חורג מהיעד (0.15)"
-                    >
-                      🎯 {cr.qualityScore.toFixed(2)}
-                    </span>
-                  )}
-                </div>
-
-                {/* Visible severity breakdown of currently-open defects — was
-                    hover-tooltip-only, moved into the card itself per the
-                    user's explicit request (2026-09-17: "בדומה לתצוגה 5
-                    Severe 13 Medium 8 Low"). */}
-                {openDefectsTotal > 0 && (
-                  <div className="flex flex-wrap justify-center gap-x-2 gap-y-0.5 text-xs text-subtle-foreground">
-                    {Object.entries(cr.defectsBySeverity).filter(([, n]) => n > 0).map(([key, n]) => (
-                      <span key={key} style={{ whiteSpace: 'nowrap' }}>
-                        <span className="font-bold" style={{ color: CR_DEFECT_SEVERITY_META[key].color }}>{n}</span>
-                        {' '}{CR_DEFECT_SEVERITY_META[key].label}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {/* Only on UAT cycle CR cards, per the user's explicit scope
-                    (2026-09-17) — RQ_USER_26 is a UAT-stage sign-off field,
-                    not meaningful for the earlier core cycles. */}
-                {cycle.cycleType === 'UAT' && (
-                  <button
-                    onClick={() => openTestSummary(cr)}
-                    className="text-xs font-semibold text-primary bg-transparent border-none cursor-pointer hover:underline"
-                  >
-                    📋 הצג סיכום בדיקות
-                  </button>
-                )}
-              </div>
-            );
-          })}
+          {filteredCrCoverage.map(cr => (
+            <CrCoverageCard
+              key={cr.crNumber} cr={cr} qgTargetPct={cycle.qgTargetPct}
+              showTestSummaryButton={cycle.cycleType === 'UAT'} onShowTestSummary={openTestSummary}
+            />
+          ))}
         </div>
       )}
 
@@ -534,6 +441,115 @@ function CycleDetailScreen({ cycle, onBack, token, versionId }: { cycle: CycleTi
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// One per-CR gauge card — extracted 2026-09-30 so the tester's own home page
+// (EmployeeHomeView) can show the exact same visual for just their own
+// assigned (cycle, CR) pairs instead of a plain text list (spec confirmed:
+// "בדיוק כמו בתמונה השנייה"). `showTestSummaryButton`/`onShowTestSummary` are
+// omitted by that caller — the UAT sign-off summary stays a manager-side
+// feature here, not duplicated.
+export function CrCoverageCard({ cr, qgTargetPct, showTestSummaryButton, onShowTestSummary }: {
+  cr: CrCoverageRow; qgTargetPct: number | null;
+  showTestSummaryButton?: boolean; onShowTestSummary?: (cr: CrCoverageRow) => void;
+}) {
+  const hasData = cr.total > 0;
+  const successPct = hasData ? Math.round((cr.passed / cr.total) * 10000) / 100 : null;
+  const openDefectsTotal = Object.values(cr.defectsBySeverity).reduce((s, n) => s + n, 0);
+  return (
+    <div className="bg-card border border-border rounded-lg p-3 flex flex-col items-center gap-2 text-center">
+      <div className="w-full text-sm font-semibold text-foreground min-w-0" title={`${cr.crNumber} — ${cr.crLabel.replace(/^\d+\s*-\s*/, '')}`}>
+        <span className="font-bold">{cr.crNumber}</span>
+        {' — '}
+        <span className="line-clamp-1">{cr.crLabel.replace(/^\d+\s*-\s*/, '')}</span>
+      </div>
+
+      {/* notStartedYet (2026-09-17): an empty 0% gauge read as "no
+          progress / at risk" for a CR whose testing window simply
+          hasn't opened yet — show the scheduled start date instead
+          of a misleading gauge. */}
+      {cr.notStartedYet && cr.testingStartDate ? (
+        <div className="flex flex-col items-center justify-center gap-1 py-4" style={{ width: 96, height: 96 }}>
+          <span className="text-xl">⏳</span>
+          <span className="text-xs text-subtle-foreground">בדיקות יחלו ב-{formatDate(cr.testingStartDate)}</span>
+        </div>
+      ) : (
+        // Gauge is the card's dominant visual (feedback 2026-09-14:
+        // "יותר מרשומות" — chose the big-gauge layout over the
+        // earlier compact side-by-side one).
+        <RadialSegmentedGauge
+          passed={cr.passed} failed={cr.failed} blocked={cr.blocked}
+          notCompleted={cr.notCompleted} notRun={cr.notRun} notReady={cr.notReady}
+          notApplicable={cr.notApplicable} notRelevant={cr.notRelevant}
+          total={cr.total} targetPct={qgTargetPct} successPct={successPct}
+          size={96}
+        />
+      )}
+
+      {(cr.project || cr.tester) && (
+        <div className="flex gap-2 flex-wrap justify-center text-xs text-subtle-foreground">
+          {cr.project && <span className="truncate">📁 {cr.project}</span>}
+          {cr.tester && <span className="inline-flex items-center gap-1">בודק: <PersonAvatar name={cr.tester} full /></span>}
+        </div>
+      )}
+
+      <div className="flex items-center gap-3 flex-wrap justify-center">
+        <DaysRemainingBadge days={cr.daysRemaining} />
+        {/* stillOpenDefectsCount/reportedDefectsCount — how many
+            defects were ever reported against this CR, and how many
+            of those are still not Closed and not Canceled (narrower
+            than this screen's usual "open" — Rejected/Fixed count
+            as still-open here, unlike elsewhere). */}
+        {cr.reportedDefectsCount > 0 && (
+          <span
+            className="inline-flex items-center gap-1 text-xs font-semibold rounded-full py-0.5 px-[9px] whitespace-nowrap"
+            style={{ color: C.danger, background: `${C.danger}14`, border: `1px solid ${C.danger}40` }}
+          >
+            🐞 {cr.stillOpenDefectsCount}/{cr.reportedDefectsCount}
+          </span>
+        )}
+        {/* Quality score chip — only rendered when qualityByCr flagged
+            this CR as breaching target (spec 2026-09-17: "רק כאשר
+            הוא חורג"), never for a CR that meets it. */}
+        {cr.qualityScore != null && (
+          <span
+            className="inline-flex items-center gap-1 text-xs font-semibold rounded-full py-0.5 px-[9px] whitespace-nowrap"
+            style={{ color: '#e8af00', background: '#e8af0014', border: '1px solid #e8af0040' }}
+            title="מדד איכות CR חורג מהיעד (0.15)"
+          >
+            🎯 {cr.qualityScore.toFixed(2)}
+          </span>
+        )}
+      </div>
+
+      {/* Visible severity breakdown of currently-open defects — was
+          hover-tooltip-only, moved into the card itself per the
+          user's explicit request (2026-09-17: "בדומה לתצוגה 5
+          Severe 13 Medium 8 Low"). */}
+      {openDefectsTotal > 0 && (
+        <div className="flex flex-wrap justify-center gap-x-2 gap-y-0.5 text-xs text-subtle-foreground">
+          {Object.entries(cr.defectsBySeverity).filter(([, n]) => n > 0).map(([key, n]) => (
+            <span key={key} style={{ whiteSpace: 'nowrap' }}>
+              <span className="font-bold" style={{ color: CR_DEFECT_SEVERITY_META[key].color }}>{n}</span>
+              {' '}{CR_DEFECT_SEVERITY_META[key].label}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Only on UAT cycle CR cards, per the user's explicit scope
+          (2026-09-17) — RQ_USER_26 is a UAT-stage sign-off field,
+          not meaningful for the earlier core cycles. */}
+      {showTestSummaryButton && onShowTestSummary && (
+        <button
+          onClick={() => onShowTestSummary(cr)}
+          className="text-xs font-semibold text-primary bg-transparent border-none cursor-pointer hover:underline"
+        >
+          📋 הצג סיכום בדיקות
+        </button>
+      )}
     </div>
   );
 }

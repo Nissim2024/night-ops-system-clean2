@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { VersionProgressChain } from './VersionProgressChain';
 import { C, severityColor, severityLabel } from '../theme';
 import { RUNBOOKS } from './qa/RunbookModal';
 import { MyQaTask, TargetDefectGroup } from './qa/MyQaTasksView';
 import { VersionMilestoneTimeline } from './shared/VersionMilestoneTimeline';
 import { GoLiveCountdown } from './shared/GoLiveCountdown';
+import { DefectDrilldownModal } from './release-intelligence/DefectDrilldownModal';
+
+const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 const CYCLE_LABEL: Record<string, string> = {
   CYCLE_1: 'סבב 1', CYCLE_2: 'סבב 2', CYCLE_3: 'סבב 3',
@@ -53,6 +55,7 @@ function ActionItem({ icon, title, desc, urgent, onClick }: { icon: string; titl
 }
 
 interface Props {
+  token: string;
   fullName: string;
   activeVersion: any | null;
   planningVersion: any | null;
@@ -77,7 +80,7 @@ interface Props {
 }
 
 export const EmployeeHomeView: React.FC<Props> = ({
-  fullName, activeVersion, planningVersion, taskStats, seasonReminder, teamName,
+  token, fullName, activeVersion, planningVersion, taskStats, seasonReminder, teamName,
   homeNotices, myRunbookSteps, isQaTester, myQaTasks, qaSummary, targetDefectGroups, defectStats,
   onGoToTasks, onGoToLeaves, onGoToQaTasks, onOpenFocusMode,
 }) => {
@@ -85,10 +88,24 @@ export const EmployeeHomeView: React.FC<Props> = ({
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'בוקר טוב' : hour < 17 ? 'שלום' : hour < 21 ? 'ערב טוב' : 'לילה טוב';
   const [tasksExpanded, setTasksExpanded] = useState(false);
+  // Drill-down from any defect stat tile → the actual defect list, reusing
+  // the same DefectDrilldownModal + DefectDetailScreen every other defect
+  // count in the app opens (spec 2026-09-30, tester feedback: "צריך לאפשר
+  // בהן דריל לרשימת התקלות"). `endpoint` is a full, ready-to-fetch URL —
+  // built per-tile below — rather than the versionId/screen/filter scheme,
+  // since these buckets are self-scoped server-side (target-cr.controller's
+  // req.user), not generic KPI filters.
+  const [drilldown, setDrilldown] = useState<{ title: string; endpoint: string } | null>(null);
 
   const primary = activeVersion ?? planningVersion;
   const ph = primary ? (PHASE_META[primary.status] ?? PHASE_META['DRAFT']) : null;
   const isLiveNow = activeVersion && ['ACTIVE', 'REHEARSAL'].includes(activeVersion.status);
+
+  const openDefectDrilldown = (title: string, bucket: string) => {
+    if (!primary) return;
+    const params = new URLSearchParams({ versionId: primary.id, bucket });
+    setDrilldown({ title, endpoint: `${API}/target-cr/my-defects-list?${params.toString()}` });
+  };
 
   const actions: { icon: string; title: string; desc: string; urgent?: boolean; onClick: () => void }[] = [];
   if (seasonReminder) {
@@ -166,8 +183,12 @@ export const EmployeeHomeView: React.FC<Props> = ({
 
       {/* ── Hero banner — one dark card (matches the manager's HomeDashboard
           hero) holding the version name/phase/CTA plus, for QA testers, the
-          pinned notice, milestone timeline and go-live countdown — not a
-          separate card per piece. */}
+          milestone timeline and go-live countdown — not a separate card per
+          piece. Notices moved out to their own dedicated panel below (spec
+          2026-09-30: they were getting buried here, mixed into decoration
+          rather than reading as an announcements area) and the pre-live
+          "פרטי גרסה" button was removed — it was a mislabeled duplicate of
+          the same onGoToTasks the action-item cards below already trigger. */}
       {primary && ph ? (
         <div
           className="rounded-lg px-6 py-5 shadow-md"
@@ -182,40 +203,22 @@ export const EmployeeHomeView: React.FC<Props> = ({
               <div className="mb-1.5 text-sm font-semibold text-white/85">{ph.icon} {ph.label}</div>
               <div className="text-xs text-white/60">{ph.desc}</div>
             </div>
-            <div className="flex flex-shrink-0 flex-col items-start gap-2">
-              {isLiveNow ? (
+            {isLiveNow && (
+              <div className="flex flex-shrink-0 flex-col items-start gap-2">
                 <button
                   onClick={onOpenFocusMode}
                   className="cursor-pointer whitespace-nowrap rounded-md border-none bg-white px-5 py-2.5 font-sans text-sm font-semibold text-[#14152A]"
                 >
                   ⚡ המשימות שלי
                 </button>
-              ) : (
-                <button
-                  onClick={onGoToTasks}
-                  className="cursor-pointer whitespace-nowrap rounded-md border border-white/35 bg-transparent px-4 py-1.5 font-sans text-xs text-white"
-                >
-                  פרטי גרסה
-                </button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* QA-tester-only enrichment, scoped to their dashboard — not a
               general change for every employee. */}
           {isQaTester && (
             <>
-              {(homeNotices ?? []).map(n => (
-                <div key={n.id} className="mt-2.5 flex items-start gap-2 rounded-md border border-white/16 bg-white/[.08] px-3 py-2 text-sm text-white">
-                  <span className="flex-shrink-0">📌</span>
-                  <div className="min-w-0 flex-1">
-                    <span className="mb-1 inline-block rounded-full bg-white px-2 py-px text-xs font-bold" style={{ color: severityColor(n.urgency) }}>
-                      {severityLabel(n.urgency)}
-                    </span>
-                    <div className="whitespace-pre-wrap">{n.text}</div>
-                  </div>
-                </div>
-              ))}
               <VersionMilestoneTimeline version={primary} cycles={qaSummary?.cycles} />
               <GoLiveCountdown plannedStart={primary.plannedStart} status={primary.status} />
             </>
@@ -231,8 +234,29 @@ export const EmployeeHomeView: React.FC<Props> = ({
         </div>
       )}
 
-      {/* ── Progress chain ── */}
-      {primary && !isLiveNow && <VersionProgressChain versionStatus={primary.status} />}
+      {/* ── Notices — a dedicated announcements panel, not decoration mixed
+          into the hero card (spec 2026-09-30, tester feedback: "למה להציג
+          הודעות בחלק של החלונית ולא באיזור ההודעות?"). Same RM/ADMIN-authored
+          VersionNotice rows the manager's HomeDashboard pins above its own
+          feed — this is that same dedicated-panel treatment for the tester. ── */}
+      {isQaTester && (homeNotices ?? []).length > 0 && (
+        <div className="rounded-lg border border-border bg-card px-5 py-[18px]">
+          <div className="mb-2.5 text-sm font-bold text-foreground">📌 הודעות</div>
+          <div className="flex flex-col gap-2">
+            {homeNotices!.map(n => (
+              <div key={n.id} className="flex items-start gap-2 rounded-md px-3 py-2 text-sm" style={{ background: `${severityColor(n.urgency)}14`, border: `1px solid ${severityColor(n.urgency)}40` }}>
+                <span className="flex-shrink-0">📌</span>
+                <div className="min-w-0 flex-1">
+                  <span className="mb-1 inline-block rounded-full px-2 py-px text-xs font-bold text-white" style={{ background: severityColor(n.urgency) }}>
+                    {severityLabel(n.urgency)}
+                  </span>
+                  <div className="whitespace-pre-wrap text-foreground">{n.text}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Stats row (only while a run is actually live) ── */}
       {isLiveNow && (
@@ -339,11 +363,15 @@ export const EmployeeHomeView: React.FC<Props> = ({
                       )}
                       <div className="flex">
                         {[
-                          { value: defectStats.opened, label: 'תקלות שפתחתי', color: C.textPrimary },
-                          { value: defectStats.stillOpen, label: 'עדיין פתוחות', color: defectStats.stillOpen > 0 ? C.warning : C.textPrimary },
-                          { value: defectStats.waitingForMyVerification, label: 'ממתינות לבדיקתי', color: defectStats.waitingForMyVerification > 0 ? C.brand : C.textPrimary },
+                          { value: defectStats.opened, label: 'תקלות שפתחתי', color: C.textPrimary, bucket: 'opened' },
+                          { value: defectStats.stillOpen, label: 'עדיין פתוחות', color: defectStats.stillOpen > 0 ? C.warning : C.textPrimary, bucket: 'stillOpen' },
+                          { value: defectStats.waitingForMyVerification, label: 'ממתינות לבדיקתי', color: defectStats.waitingForMyVerification > 0 ? C.brand : C.textPrimary, bucket: 'waitingForVerification' },
                         ].map((s, i) => (
-                          <div key={s.label} className={`flex-1 px-2 text-center ${i > 0 ? 'border-s border-border' : ''}`}>
+                          <div
+                            key={s.label}
+                            onClick={() => s.value > 0 && openDefectDrilldown(s.label, s.bucket)}
+                            className={`flex-1 px-2 text-center ${i > 0 ? 'border-s border-border' : ''} ${s.value > 0 ? 'cursor-pointer' : ''}`}
+                          >
                             <div className="text-xl font-bold leading-tight" style={{ color: s.color }}>{s.value}</div>
                             <div className="mt-1 text-xs text-subtle-foreground">{s.label}</div>
                           </div>
@@ -373,8 +401,12 @@ export const EmployeeHomeView: React.FC<Props> = ({
                     </>
                   )}
                   {targetTotal > 0 && (
-                    <div className={`text-xs text-subtle-foreground ${defectStats ? 'mt-2.5' : 'mt-0'}`}>
+                    <div
+                      onClick={onGoToQaTasks}
+                      className={`text-xs text-subtle-foreground ${defectStats ? 'mt-2.5' : 'mt-0'} ${onGoToQaTasks ? 'cursor-pointer hover:text-foreground' : ''}`}
+                    >
                       🎯 {targetTotal} תקלות TARGET משויכות אליי · {targetOpen} עדיין פתוחות
+                      {onGoToQaTasks && <span className="font-semibold text-primary"> — לרשימה המלאה ←</span>}
                     </div>
                   )}
                 </div>
@@ -391,6 +423,17 @@ export const EmployeeHomeView: React.FC<Props> = ({
           <div className="mb-2 text-xs text-subtle-foreground">מה מומלץ לבדוק עכשיו</div>
           {actions.map((a, i) => <ActionItem key={i} {...a} />)}
         </div>
+      )}
+
+      {drilldown && (
+        <DefectDrilldownModal
+          token={token}
+          screen=""
+          filter=""
+          endpoint={drilldown.endpoint}
+          title={drilldown.title}
+          onClose={() => setDrilldown(null)}
+        />
       )}
     </div>
   );

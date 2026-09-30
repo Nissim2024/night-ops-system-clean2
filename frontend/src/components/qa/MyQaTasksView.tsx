@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { formatDate } from '../../utils/dateFormat';
 import { IssueKeyLink, StatusBadge, SeverityBadge } from '../shared/defectFieldDisplay';
+import { CrCoverageCard, CycleProgress } from '../release-intelligence/CycleProgressView';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -116,6 +117,21 @@ export const MyQaTasksView: React.FC<Props> = ({ tasks, versionName, versionId, 
   const [crDetail, setCrDetail]         = useState<CrDetail | null>(null);
   const [crDetailLoading, setCrDetailLoading] = useState(false);
 
+  // Real per-CR test-execution gauges (spec 2026-09-30, tester feedback: "בדף
+  // המשימות שלי" — moved here from the home page after the first pass landed
+  // it there by mistake). Same CrCoverageCard the manager's cycle-progress
+  // screen uses; any authenticated role can call the endpoint, filtered below
+  // to just this cycle's own CR numbers rather than every CR in the release.
+  const [cycleProgress, setCycleProgress] = useState<CycleProgress | null>(null);
+  useEffect(() => {
+    if (!versionId) { setCycleProgress(null); return; }
+    axios.get(`${API}/release-intelligence/cycle-progress/${versionId}`, { headers })
+      .then(res => setCycleProgress(res.data))
+      .catch(() => setCycleProgress(null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [versionId, token]);
+  const coverageByCycleType = new Map((cycleProgress?.timeline ?? []).map(c => [c.cycleType, c]));
+
   // Activity-board entries (project milestones/events — a separate concept
   // from QA testing tasks) whose free-text owner-employee name matches this
   // tester, so they see anything specifically assigned to them there too.
@@ -210,6 +226,29 @@ export const MyQaTasksView: React.FC<Props> = ({ tasks, versionName, versionId, 
                 );
               })}
             </div>
+
+            {/* ── Real per-CR test-execution coverage for this cycle's own
+                CRs (spec 2026-09-30: "בדיוק כמו בתמונה השנייה... לוחות
+                הזמנים של כל CR"). Silently omitted when QC has no coverage
+                data for any of this cycle's CRs yet — the flat task list
+                above already covers the "what am I assigned to" question on
+                its own, so an extra empty-state message here would be noise
+                on every cycle that simply hasn't started reporting yet. ── */}
+            {(() => {
+              const crNumbersInCycle = new Set(grouped.get(ct)!.map(t => t.crNumber));
+              const coverage = (coverageByCycleType.get(ct)?.crCoverage ?? []).filter(cr => crNumbersInCycle.has(cr.crNumber));
+              if (coverage.length === 0) return null;
+              return (
+                <div className="border-t border-border bg-muted/40 p-3">
+                  <div className="mb-2 text-xs font-bold text-muted-foreground">📊 התקדמות בדיקות (מ-QC)</div>
+                  <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
+                    {coverage.map(cr => (
+                      <CrCoverageCard key={cr.crNumber} cr={cr} qgTargetPct={coverageByCycleType.get(ct)!.qgTargetPct} />
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         ))
       )}

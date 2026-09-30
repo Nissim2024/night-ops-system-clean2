@@ -261,9 +261,12 @@ export type GoLiveIncidentDto = TargetDefectDto;
 // tester-name match is a JS-side free-text comparison, same as elsewhere.
 export interface ReportedDefectDto {
   id: string;
+  title: string;
   detectedBy: string;
   status: string;
   severity: string;
+  assignedTo: string;
+  discoveryDate: string | Date | null;
   // Real "when did this change to its current status" timestamp doesn't
   // exist on BUG — BG_VTS ("Modified") is the closest proxy: last-touched
   // time, which for a defect sitting in Fixed_Test almost always IS the
@@ -1277,11 +1280,14 @@ function mapRowToTargetDefect(r: any): TargetDefectDto {
 // free-text-name-matching reasoning as BG_RESPONSIBLE elsewhere in this file).
 const MY_REPORTED_DEFECTS_SQL = `
   SELECT
-    BG_BUG_ID       AS DEFECT_ID,
-    BG_DETECTED_BY  AS DETECTED_BY,
-    BG_USER_04      AS DEFECT_STATUS,
-    BG_SEVERITY     AS SEVERITY,
-    BG_VTS          AS MODIFIED
+    BG_BUG_ID                AS DEFECT_ID,
+    BG_SUBJECT                AS TITLE,
+    BG_DETECTED_BY            AS DETECTED_BY,
+    BG_USER_04                AS DEFECT_STATUS,
+    BG_SEVERITY               AS SEVERITY,
+    BG_RESPONSIBLE            AS ASSIGNED_TO,
+    BG_DETECTION_DATE         AS DETECTED_ON_DATE,
+    BG_VTS                    AS MODIFIED
   FROM BUG
   WHERE BG_DETECTED_IN_REL = :releaseId
 `;
@@ -1937,15 +1943,19 @@ function buildMockReportedDefects(): ReportedDefectDto[] {
   const reporters = ['Cohen, Dana', 'Levi, Yossi', 'Peretz, Nissim', 'Mizrahi, Tal'];
   const statuses = ['Open', 'Fixed_Dev', 'Fixed_Test', 'Closed', 'Reopen'];
   const severities = ['Show Stopper', 'Severe', 'Medium', 'Low'];
+  const titles = ['תקלה בטעינת מסך', 'שגיאת ולידציה בטופס', 'קריסה בשמירה', 'תצוגה שגויה בדוח', 'בעיית הרשאות'];
   const now = Date.now();
   // A spread of "modified" ages (0 to ~4.5 days back) so the stale-
   // verification alert has something real to flag in dev/mock mode — a
   // Fixed_Test row aged past its severity's threshold should show up.
   return Array.from({ length: 20 }, (_, i) => ({
     id: String(2000 + i),
+    title: titles[i % titles.length],
     detectedBy: reporters[i % reporters.length],
     status: statuses[i % statuses.length],
     severity: severities[i % severities.length],
+    assignedTo: reporters[(i + 1) % reporters.length],
+    discoveryDate: new Date(now - i * 12 * 3600000).toISOString(),
     modified: new Date(now - i * 6 * 3600000).toISOString(),
   }));
 }
@@ -3594,11 +3604,14 @@ export class QcService {
       conn = await oracleConnect();
       const result = await conn.execute(MY_REPORTED_DEFECTS_SQL, { releaseId: relId });
       return (result.rows ?? []).map((r: any): ReportedDefectDto => ({
-        id:         String(r.DEFECT_ID),
-        detectedBy: r.DETECTED_BY   ?? '',
-        status:     r.DEFECT_STATUS ?? '',
-        severity:   r.SEVERITY      ?? '',
-        modified:   r.MODIFIED      ?? null,
+        id:             String(r.DEFECT_ID),
+        title:          r.TITLE             ?? '',
+        detectedBy:     r.DETECTED_BY       ?? '',
+        status:         r.DEFECT_STATUS     ?? '',
+        severity:       r.SEVERITY          ?? '',
+        assignedTo:     r.ASSIGNED_TO       ?? '',
+        discoveryDate:  r.DETECTED_ON_DATE  ?? null,
+        modified:       r.MODIFIED          ?? null,
       }));
     } catch (err: any) {
       this.logger.error(`Oracle getMyReportedDefects: ${err.message}`);

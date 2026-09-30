@@ -61,7 +61,6 @@ const PERMISSION_DEFS = [
   { key: 'screen:timeline',    label: 'מסך ציר זמן',        group: 'מסכים' },
   { key: 'screen:night',       label: 'מסך לילה (חמ"ל)',    group: 'מסכים' },
   { key: 'screen:summary',     label: 'מסך סיכום',          group: 'מסכים' },
-  { key: 'screen:admin',       label: 'מסך ניהול',          group: 'מסכים' },
   { key: 'screen:qa',          label: 'מסך בקרת איכות',     group: 'מסכים' },
   { key: 'screen:release-intelligence', label: 'מסך Release Intelligence', group: 'מסכים' },
   { key: 'screen:quality-hub',          label: 'מסך איכות גרסה (Quality Hub)', group: 'מסכים' },
@@ -73,6 +72,7 @@ const PERMISSION_DEFS = [
   { key: 'action:open_task_for_execution', label: 'פתיחת משימה לביצוע (מנהל לילה)',  group: 'פעולות — הטמעות' },
   { key: 'action:override_version_edit',   label: 'עריכת גרסה לאחר אישור (override)', group: 'פעולות — הטמעות' },
   { key: 'action:select_all_tasks',        label: 'בחר הכל משימות',                   group: 'פעולות — הטמעות' },
+  { key: 'action:view_all_teams',          label: 'ראש צוות: צפייה בכל הצוותים (לא רק הצוות שלו)', group: 'פעולות — הטמעות' },
   // System management
   { key: 'action:user_manage',    label: 'ניהול משתמשים',        group: 'פעולות — ניהול' },
   { key: 'action:template_delete', label: 'מחיקת תבנית גרסה',   group: 'פעולות — ניהול' },
@@ -1542,7 +1542,7 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
                     { role: 'RELEASE_MANAGER', label: 'מנהל הטמעות', desc: 'ניהול גרסאות ותוכניות לילה — יצירה, עדכון, קבלת החלטת GO/NO-GO.' },
                     { role: 'CR_MANAGER', label: 'מנהל CR', desc: 'ניהול תוכניות CR — אישור ועדכון תוכניות צוותים.' },
                     { role: 'TEAM_LEAD', label: 'ראש צוות', desc: 'הגשת תוכנית צוות, עדכון סטטוס משימות, אישור CR.' },
-                    { role: 'DEVELOPER', label: 'מפתח', desc: 'גישה לתצוגת משימות ועדכון סטטוס אישי.' },
+                    { role: 'EMPLOYEE', label: 'עובד', desc: 'גישה לתצוגת משימות ועדכון סטטוס אישי.' },
                     { role: 'VIEWER', label: 'צופה', desc: 'קריאה בלבד — אין יכולת עדכון.' },
                   ].map(r => (
                     <div key={r.role} style={{ background: C.bgCard, borderRadius: '8px', padding: '10px 14px', border: `1px solid ${C.border}` }}>

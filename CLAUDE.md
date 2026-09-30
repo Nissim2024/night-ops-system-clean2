@@ -67,9 +67,12 @@ Key modules and their responsibilities:
 Auth roles (enforced in controllers via inline `requireRole()`):
 - `ADMIN` — full access
 - `RELEASE_MANAGER` — version management, approvals, summary
+- `CR_MANAGER` — cross-team CR plan/review approval (cr-plans, target-cr, version-cr-assignments); documented here 2026-09-30, it already existed in the Prisma `Role` enum and in `RolePermissions`/AdminPanel
 - `TEAM_LEAD` — submit for own team, task proposals, task CRUD
 - `EMPLOYEE` — task status updates (no cross-team check — known security gap)
 - `VIEWER` — read-only
+
+The runtime-editable `RolePermissions` table (AdminPanel's "🔐 הרשאות" tab) is a **separate, mostly disconnected** authorization layer from the `requireRole()` calls above: outside of QC write-back (`action:qc_write`/`qc_defect_create`/`qc_defect_edit_extended`/`qc_attachment_upload`, gated via `PermissionsService` in `qc.controller.ts`), no backend endpoint actually consults it — every other `requireRole()` check uses its own hardcoded role-array literal, unaffected by what an admin configures in that tab. Toggling most permissions there only changes what the frontend chooses to render (`can()` fails closed), not what the server will accept.
 
 ### Frontend structure
 

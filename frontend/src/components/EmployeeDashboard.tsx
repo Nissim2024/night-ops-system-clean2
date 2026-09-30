@@ -457,8 +457,12 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
         </div>
       </div>
 
-      {/* ─── Progress chain ─── */}
-      {effectiveIsLive && activeView === 'tasks' && (
+      {/* ─── Progress chain — lives on the tasks page regardless of live
+          status (moved off the home page 2026-09-30, tester feedback: "למה
+          להציג את שרשרת ההתקדמות של ההטמעות בדף הבית ולא בדף משימות
+          ההטמעה?") — pre-live it's the only thing telling the tester where
+          the version stands; live, it sits above the task board as before. ─── */}
+      {!!effectiveVersion && activeView === 'tasks' && (
         <VersionProgressChain versionStatus={effectiveVersion.status} />
       )}
 
@@ -539,6 +543,7 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
           {/* ─── Home view ─── */}
           {activeView === 'home' && !loading && (
             <EmployeeHomeView
+              token={token}
               fullName={fullName}
               activeVersion={effectiveIsLive ? effectiveVersion : null}
               planningVersion={effectiveIsLive ? null : effectiveVersion}
@@ -631,7 +636,7 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
                 <div className="text-center p-20 text-subtle-foreground bg-card rounded-2xl border border-border">
                   <div className="text-6xl">🌙</div>
                   <h2 className="text-foreground mt-4">אין הרצה פעילה כרגע</h2>
-                  <p className="text-subtle-foreground">סטטוס הגרסה ופרטים נוספים זמינים ב<span onClick={() => setActiveView('home')} className="text-primary cursor-pointer font-bold">דף הבית</span>.</p>
+                  <p className="text-subtle-foreground">לוח המשימות ייפתח כשההרצה תתחיל — שלב ההכנה מוצג למעלה.</p>
                 </div>
               )}
             </>

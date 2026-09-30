@@ -235,6 +235,33 @@ export class TargetCrService {
     };
   }
 
+  // ── Raw defect list for a home-page stat-tile drill-down ────────────────────
+  // Backs DefectDrilldownModal's `endpoint` mode from EmployeeHomeView — same
+  // "mine" resolution as getMyDefectStats above (kept as a second Oracle call
+  // rather than a shared cache: this only runs on an explicit user click, and
+  // duplicating the ~20-line filter is simpler than threading a shared result
+  // through two independently-triggered HTTP requests).
+  async getMyDefectsList(
+    versionId: string,
+    bucket: 'opened' | 'stillOpen' | 'waitingForVerification',
+    user: { sub: string; role: string },
+  ) {
+    const me = await prisma.user.findUnique({ where: { id: user.sub }, select: { fullName: true } });
+    const allDefects = await this.qcService.getMyReportedDefects(versionId);
+    const myName = me?.fullName ?? '';
+    const mine = allDefects.filter(d => this.namesLikelyMatch(d.detectedBy, myName));
+    const CLOSED_STATUSES = new Set(['Closed', 'Canceled']);
+
+    let filtered = mine;
+    if (bucket === 'stillOpen') filtered = mine.filter(d => !CLOSED_STATUSES.has(d.status));
+    else if (bucket === 'waitingForVerification') filtered = mine.filter(d => d.status === 'Fixed_Test');
+
+    return filtered.map(d => ({
+      id: d.id, title: d.title, severity: d.severity, status: d.status,
+      assignedTo: d.assignedTo, discoveryDate: d.discoveryDate,
+    }));
+  }
+
   // Lightweight bulk read for a team's own TARGET-CR list (e.g. TeamLeadProposalView's
   // "done" status per CR) — approval lives on TargetCrReview, entirely separate from
   // CrPlan.submissionStatus, so the regular submitted/approved check never reflects
