@@ -63,6 +63,40 @@ const VersionPickerModal: React.FC<{
       .sort((a, b) => String(b.name).localeCompare(String(a.name), 'he')),
   })).filter(x => x.items.length > 0), [versions, needle]);
 
+  // Historical QC versions sit apart from the working versions: below a
+  // divider, collapsed by default — opened when the current pick is one of
+  // them, or while searching (so a match is never hidden).
+  const regularGroups = groupsWithItems.filter(x => x.group.id !== 'historical');
+  const historical = groupsWithItems.find(x => x.group.id === 'historical');
+  const [histOpen, setHistOpen] = useState(() => versions.some(v => v.id === selectedVersionId && v.isQcHistorical));
+  const histExpanded = histOpen || !!needle;
+
+  const renderItems = (items: any[]) => items.map(v => {
+    const isSel = v.id === selectedVersionId;
+    const sColor = versionPhaseColor(v);
+    const sLabel = versionPhaseLabel(v);
+    return (
+      <button
+        key={v.id}
+        onClick={() => { onPick(v.id); onClose(); }}
+        className="mb-0.5 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-right [direction:rtl]"
+        style={{
+          background: isSel ? C.bgHover : 'transparent',
+          border: `1px solid ${isSel ? C.border : 'transparent'}`,
+        }}
+        onMouseEnter={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = C.bgNested; }}
+        onMouseLeave={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+      >
+        <span className="h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: sColor }} />
+        <div className="min-w-0 flex-1">
+          <div className={cn('overflow-hidden text-ellipsis whitespace-nowrap text-sm text-foreground', isSel ? 'font-bold' : 'font-medium')}>{v.name}</div>
+          <div className="text-xs" style={{ color: sColor }}>{sLabel}</div>
+        </div>
+        {isSel && <span className="text-[13px] font-bold text-primary">✓</span>}
+      </button>
+    );
+  });
+
   return (
     <div
       onClick={onClose}
@@ -94,39 +128,34 @@ const VersionPickerModal: React.FC<{
           {groupsWithItems.length === 0 && (
             <div className="p-6 text-center text-[13px] text-subtle-foreground">לא נמצאו גרסאות</div>
           )}
-          {groupsWithItems.map(({ group, items }) => (
+          {regularGroups.map(({ group, items }) => (
             <div key={group.id} className="mb-1.5">
               <div className="flex items-center gap-1.5 px-2.5 pb-1 pt-2 text-[11px] font-bold uppercase tracking-[0.04em] text-subtle-foreground">
                 <span className="text-[13px]">{group.icon}</span><span>{group.label}</span>
                 <span className="font-normal text-subtle-foreground">· {items.length}</span>
               </div>
-              {items.map(v => {
-                const isSel = v.id === selectedVersionId;
-                const sColor = versionPhaseColor(v);
-                const sLabel = versionPhaseLabel(v);
-                return (
-                  <button
-                    key={v.id}
-                    onClick={() => { onPick(v.id); onClose(); }}
-                    className="mb-0.5 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-right [direction:rtl]"
-                    style={{
-                      background: isSel ? C.bgHover : 'transparent',
-                      border: `1px solid ${isSel ? C.border : 'transparent'}`,
-                    }}
-                    onMouseEnter={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = C.bgNested; }}
-                    onMouseLeave={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-                  >
-                    <span className="h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: sColor }} />
-                    <div className="min-w-0 flex-1">
-                      <div className={cn('overflow-hidden text-ellipsis whitespace-nowrap text-sm text-foreground', isSel ? 'font-bold' : 'font-medium')}>{v.name}</div>
-                      <div className="text-xs" style={{ color: sColor }}>{sLabel}</div>
-                    </div>
-                    {isSel && <span className="text-[13px] font-bold text-primary">✓</span>}
-                  </button>
-                );
-              })}
+              {renderItems(items)}
             </div>
           ))}
+
+          {historical && (
+            <div
+              className="mt-3 pt-3"
+              style={regularGroups.length > 0 ? { borderTop: `2px dashed ${C.textMuted}` } : undefined}
+            >
+              <button
+                onClick={() => setHistOpen(o => !o)}
+                className="flex w-full cursor-pointer items-center gap-1.5 rounded-md border-none bg-muted px-2.5 py-2 text-right text-[12px] font-bold text-muted-foreground [direction:rtl]"
+                title={histExpanded ? 'קפל גרסאות היסטוריות' : 'הצג גרסאות היסטוריות'}
+              >
+                <span className="text-[13px]">{historical.group.icon}</span>
+                <span className="flex-1">גרסאות היסטוריות (QC)</span>
+                <span className="font-normal">{historical.items.length}</span>
+                <span className="text-[11px]">{histExpanded ? '▾' : '▸'}</span>
+              </button>
+              {histExpanded && <div className="pt-1">{renderItems(historical.items)}</div>}
+            </div>
+          )}
         </div>
       </div>
     </div>
