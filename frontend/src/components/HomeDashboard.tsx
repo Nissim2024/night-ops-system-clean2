@@ -488,6 +488,10 @@ export const HomeDashboard: React.FC<Props> = ({
   const greeting = hour < 12 ? 'בוקר טוב' : hour < 17 ? 'שלום' : hour < 21 ? 'ערב טוב' : 'לילה טוב';
 
   const isLiveNow = primary && ['ACTIVE', 'REHEARSAL'].includes(primary.status);
+  // Finished (closed / historical QC) — tiles show facts only, no "action
+  // needed" prompts (pending scope approval, plan not built, …) that no
+  // longer apply (user decision 2026-10-01).
+  const isFinished = !!primary && ['COMPLETED', 'ROLLED_BACK'].includes(primary.status);
   const isMorningAfterNow = primary?.status === 'MORNING_AFTER';
 
   const myUserId = (() => { try { return JSON.parse(atob(token.split('.')[1])).sub; } catch { return null; } })();
@@ -1316,7 +1320,7 @@ export const HomeDashboard: React.FC<Props> = ({
               // than scope" number the same way instead of leaving it opaque.
               const crsWithoutTasks = estimateStats?.crsWithoutTasks ?? [];
               const taskGapText = (() => {
-                if (crsWithoutTasks.length === 0) return null;
+                if (isFinished || crsWithoutTasks.length === 0) return null;
                 const byReason = new Map<string, number>();
                 for (const c of crsWithoutTasks) byReason.set(c.reason, (byReason.get(c.reason) ?? 0) + 1);
                 return `⚠ ${crsWithoutTasks.length} ללא משימה עדיין: ` + Array.from(byReason.entries()).map(([r, n]) => `${n} ${r}`).join(', ');
@@ -1326,8 +1330,10 @@ export const HomeDashboard: React.FC<Props> = ({
                   icon="🧭" accent={C.moduleRelease} moduleLabel={MODULE_META['version-management'].label}
                   value={estimateStats && (estimateStats as any).crCount != null ? String((estimateStats as any).crCount) : '—'}
                   label="CR-ים בתכולה"
-                  sub={primary?.scopeApprovedAt ? '✓ תכולה אושרה' : scopeAttentionCount > 0 ? `⚠ ${scopeAttentionCount} דורשים אישור מחדש` : 'ממתין לאישור תכולה'}
-                  subTone={primary?.scopeApprovedAt && scopeAttentionCount === 0 ? 'ok' : 'warn'}
+                  sub={isFinished
+                    ? (primary?.scopeApprovedAt ? '✓ תכולה אושרה' : 'הגרסה הסתיימה')
+                    : primary?.scopeApprovedAt ? '✓ תכולה אושרה' : scopeAttentionCount > 0 ? `⚠ ${scopeAttentionCount} דורשים אישור מחדש` : 'ממתין לאישור תכולה'}
+                  subTone={isFinished ? (primary?.scopeApprovedAt ? 'ok' : 'muted') : primary?.scopeApprovedAt && scopeAttentionCount === 0 ? 'ok' : 'warn'}
                   sideStat={targetDefectStats && targetDefectStats.total > 0 ? { icon: '🎯', value: `${targetDefectStats.fixedCount}/${targetDefectStats.total}`, label: 'תקלות TARGET תוקנו' } : null}
                   footer={
                     estimateStats
@@ -1430,14 +1436,16 @@ export const HomeDashboard: React.FC<Props> = ({
                   }
                   label={assignmentStarted ? 'משימות משובצות לבדיקות' : 'CR-ים סווגו (core/עדיפות)'}
                   sub={
-                    assignmentStarted
+                    isFinished
+                      ? (assignmentStarted ? 'הגרסה הסתיימה' : 'לא נוהל שיבוץ בדיקות במערכת')
+                      : assignmentStarted
                       ? [
                           qaSummary!.priorityCount > 0 ? `⚠ ${qaSummary!.priorityCount} בעדיפות דחופה` : (qaSummary!.hasWorkPlan ? '✓ לוח פעילויות מוכן' : 'לוח פעילויות טרם נבנה'),
                           unassignedReason,
                         ].filter(Boolean).join(' · ')
                       : hasClassification ? 'שיבוץ לבודקים טרם החל' : 'ממתין לתכולה'
                   }
-                  subTone={assignmentStarted ? (qaSummary!.priorityCount > 0 ? 'warn' : qaSummary!.hasWorkPlan ? 'ok' : 'muted') : 'muted'}
+                  subTone={isFinished ? 'muted' : assignmentStarted ? (qaSummary!.priorityCount > 0 ? 'warn' : qaSummary!.hasWorkPlan ? 'ok' : 'muted') : 'muted'}
                   footer={estimateStats ? `📊 נפח הגרסה ${estimateStats.qaFilteredEstimateDays} ימים` : null}
                   onClick={onSwitchToQa}
                 />
@@ -1456,6 +1464,7 @@ export const HomeDashboard: React.FC<Props> = ({
                 // the team-submission status below, which doesn't mean much
                 // before there's even a plan to submit against.
                 const planBuilt = (primary._count?.phases ?? 0) > 0;
+                if (isFinished) return planBuilt ? '✓ הגרסה הסתיימה' : 'לא נוהלה תוכנית הטמעה במערכת';
                 if (!planBuilt) return isRm(role) ? '+ טרם נבנתה תוכנית — לחץ לבנייה' : 'טרם נבנתה תוכנית הטמעה';
                 // PHASE_META['APPROVED'] always reads "תוכנית מאושרת" (plan
                 // approved) — accurate before the first rehearsal, but stale
@@ -1471,15 +1480,15 @@ export const HomeDashboard: React.FC<Props> = ({
                   ? `⚠ ממתין ל: ${missing.map(t => t.teamName).join(', ')}`
                   : `⚠ ${missing.length} צוותים טרם השלימו הגשה`;
               })()}
-              subTone={(primary._count?.phases ?? 0) === 0 ? 'warn' : (teamStatus.length > 0 && teamStatus.every(t => t.allDone) ? 'ok' : 'warn')}
+              subTone={isFinished ? ((primary._count?.phases ?? 0) > 0 ? 'ok' : 'muted') : (primary._count?.phases ?? 0) === 0 ? 'warn' : (teamStatus.length > 0 && teamStatus.every(t => t.allDone) ? 'ok' : 'warn')}
               footer={(() => {
                 if (primary.status === 'MORNING_AFTER' && taskSchedule && taskSchedule.morningFollowup > 0) {
                   return `☀️ ${taskSchedule.morningFollowup} משימות דורשות מעקב בוקר`;
                 }
-                if (isRm(role) && pendingConversionCount > 0) return `🔄 ${pendingConversionCount} הצעות מאושרות ממתינות לשיבוץ לתוכנית`;
+                if (!isFinished && isRm(role) && pendingConversionCount > 0) return `🔄 ${pendingConversionCount} הצעות מאושרות ממתינות לשיבוץ לתוכנית`;
                 if (role === 'TEAM_LEAD' && myTeamTaskSummary) {
                   const base = `👥 ${myTeamTaskSummary.assignedTotal} משימות משוייכות לצוות שלך`;
-                  return myTeamTaskSummary.pendingScheduling > 0 ? `${base} · ${myTeamTaskSummary.pendingScheduling} ממתינות לשיבוץ` : base;
+                  return !isFinished && myTeamTaskSummary.pendingScheduling > 0 ? `${base} · ${myTeamTaskSummary.pendingScheduling} ממתינות לשיבוץ` : base;
                 }
                 if (livePhases.length > 0) return `${livePhases.filter(p => p.state === 'done').length}/${livePhases.length} שלבים הושלמו`;
                 if (reviewMeetingTime && reviewMeetingTime.getTime() > Date.now()) {
