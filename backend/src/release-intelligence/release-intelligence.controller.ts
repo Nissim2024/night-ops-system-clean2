@@ -89,6 +89,16 @@ export class ReleaseIntelligenceController {
     return this.service.getReopenAnalysisByRelId(Number(relId));
   }
 
+  @Get('historical-defects-drilldown/:relId')
+  getHistoricalDefectsDrilldown(
+    @Param('relId') relId: string,
+    @Query('screen') screen: string,
+    @Query('filter') filter: string,
+    @Query('value') value?: string,
+  ) {
+    return this.service.getHistoricalDefectsDrilldown(Number(relId), screen, filter, value);
+  }
+
   @Get('status-board/:versionId')
   getStatusBoard(@Param('versionId') versionId: string) {
     return this.service.getStatusBoard(versionId);

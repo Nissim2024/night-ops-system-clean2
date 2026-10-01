@@ -161,6 +161,37 @@ function cycleNameMatches(cycleType: string, realCycleName: string): boolean {
   }
 }
 
+// Drill-down filters for the Defects and Reopen Analysis screens — mirror
+// buildDefectsBreakdown/buildReopenAnalysis exactly. Shared by the versionId
+// and relId (historical release) drill-down paths.
+function filterDefectsBreakdownOrReopen(defects: DefectDto[], screen: 'defects' | 'reopen-analysis', filter: string, value?: string): DefectDto[] {
+  if (screen === 'reopen-analysis') {
+    const reopen = defects.filter(d => d.status === 'Reopen');
+    if (filter === 'reopenAll') return reopen;
+    if (filter === 'reopenCritical') return reopen.filter(d => CRITICAL_SEVERITIES.includes(d.severity));
+    if (filter === 'reopenProduction') return reopen.filter(d => (d.environment || '').toLowerCase().includes('prod'));
+    if (filter === 'reopenTeam') return reopen.filter(d => (d.assignedTo || 'ללא סיווג') === value);
+    return [];
+  }
+  const open = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
+  if (filter === 'kpi') {
+    if (value === 'open') return open;
+    if (value === 'fixed') return defects.filter(d => ['Fixed_Dev', 'Fixed_Test', 'Fixed'].includes(d.status));
+    if (value === 'closed') return defects.filter(d => d.status === 'Closed');
+    if (value === 'rejected') return defects.filter(d => d.status === 'Canceled');
+    if (value === 'reopen') return defects.filter(d => d.status === 'Reopen');
+    return [];
+  }
+  if (filter === 'severity') return open.filter(d => (d.severity || 'ללא סיווג') === value);
+  if (filter === 'status') return defects.filter(d => (d.status || 'ללא סיווג') === value);
+  if (filter === 'team') return open.filter(d => (d.assignedTo || 'ללא סיווג') === value);
+  if (filter === 'project') return open.filter(d => (d.system || 'ללא סיווג') === value);
+  // Open defects deferred to a later release (BG_TARGET_REL set) — excluded
+  // from the Home open-defects count, listed here (spec 2026-09-07 §1).
+  if (filter === 'target-moved') return open.filter(d => !!(d.targetRelease || '').trim());
+  return [];
+}
+
 @Injectable()
 export class ReleaseIntelligenceService {
   private qcService = new QcService();
@@ -2139,29 +2170,24 @@ export class ReleaseIntelligenceService {
     return resolveDefectPersonNames(await this.getDefectsDrilldownRaw(versionId, screen, filter, value));
   }
 
+  // relId-direct drill-down for the two historical-release screens
+  // (getDefectsBreakdownByRelId / getReopenAnalysisByRelId) — same filter
+  // helper as the versionId path, over the same getDefectsByRelId list those
+  // aggregates count, so a clicked number and its list always agree.
+  async getHistoricalDefectsDrilldown(relId: number, screen: string, filter: string, value?: string): Promise<DefectDto[]> {
+    if (screen !== 'defects' && screen !== 'reopen-analysis') return [];
+    const defects = await this.qcService.getDefectsByRelId(relId).catch((): DefectDto[] => []);
+    return resolveDefectPersonNames(filterDefectsBreakdownOrReopen(defects, screen, filter, value));
+  }
+
   private async getDefectsDrilldownRaw(versionId: string, screen: string, filter: string, value?: string): Promise<DefectDto[]> {
     const defects = await this.qcService.getDefects(versionId).catch((): DefectDto[] => []);
     const open = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
 
     switch (screen) {
-      case 'defects': {
-        if (filter === 'kpi') {
-          if (value === 'open') return open;
-          if (value === 'fixed') return defects.filter(d => ['Fixed_Dev', 'Fixed_Test', 'Fixed'].includes(d.status));
-          if (value === 'closed') return defects.filter(d => d.status === 'Closed');
-          if (value === 'rejected') return defects.filter(d => d.status === 'Canceled');
-          if (value === 'reopen') return defects.filter(d => d.status === 'Reopen');
-          return [];
-        }
-        if (filter === 'severity') return open.filter(d => (d.severity || 'ללא סיווג') === value);
-        if (filter === 'status') return defects.filter(d => (d.status || 'ללא סיווג') === value);
-        if (filter === 'team') return open.filter(d => (d.assignedTo || 'ללא סיווג') === value);
-        if (filter === 'project') return open.filter(d => (d.system || 'ללא סיווג') === value);
-        // Open defects deferred to a later release (BG_TARGET_REL set) — excluded
-        // from the Home open-defects count, listed here (spec 2026-09-07 §1).
-        if (filter === 'target-moved') return open.filter(d => !!(d.targetRelease || '').trim());
-        return [];
-      }
+      case 'defects':
+      case 'reopen-analysis':
+        return filterDefectsBreakdownOrReopen(defects, screen, filter, value);
       case 'status-board': {
         if (filter === 'openTotal') return open;
         if (filter === 'openSevereOrWorse') return open.filter(d => SEVERE_OR_WORSE.includes(d.severity));
@@ -2192,14 +2218,6 @@ export class ReleaseIntelligenceService {
           const idsInCycle = new Set(defectsByCycle.filter(d => cycleNameMatches(value, d.detectedInCycle)).map(d => d.id));
           return defects.filter(d => idsInCycle.has(d.id));
         }
-        return [];
-      }
-      case 'reopen-analysis': {
-        const reopen = defects.filter(d => d.status === 'Reopen');
-        if (filter === 'reopenAll') return reopen;
-        if (filter === 'reopenCritical') return reopen.filter(d => CRITICAL_SEVERITIES.includes(d.severity));
-        if (filter === 'reopenProduction') return reopen.filter(d => (d.environment || '').toLowerCase().includes('prod'));
-        if (filter === 'reopenTeam') return reopen.filter(d => (d.assignedTo || 'ללא סיווג') === value);
         return [];
       }
       case 'home': {

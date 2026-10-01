@@ -4,6 +4,14 @@ import { DefectDrilldownModal } from './DefectDrilldownModal';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
+// relId-mode drill-down URL — same screen/filter/value scheme as the
+// versionId dispatcher, served by /release-intelligence/historical-defects-drilldown.
+export function historicalDrilldownUrl(relId: number, screen: string, filter: string, value?: string): string {
+  const params = new URLSearchParams({ screen, filter });
+  if (value != null) params.set('value', value);
+  return `${API}/release-intelligence/historical-defects-drilldown/${relId}?${params.toString()}`;
+}
+
 interface Bucket { label: string; count: number; }
 interface Defects {
   kpis: { open: number; fixed: number; closed: number; rejected: number; reopen: number };
@@ -58,27 +66,33 @@ interface Props {
   // instead of landing on the KPI overview and requiring a second click
   // (spec confirmed 2026-08-31).
   autoOpenDrilldown?: { filter: string; value?: string; title: string } | null;
+  // Historical QC release with no local Version (QcReleaseHistoryView) —
+  // fetches and drills down by relId instead of versionId.
+  relId?: number;
 }
 
-export const DefectsView: React.FC<Props> = ({ token, versionId, autoOpenDrilldown }) => {
+export const DefectsView: React.FC<Props> = ({ token, versionId, autoOpenDrilldown, relId }) => {
   const headers = { Authorization: `Bearer ${token}` };
   const [data, setData] = useState<Defects | null>(null);
   const [loading, setLoading] = useState(false);
   const [drilldown, setDrilldown] = useState<{ filter: string; value?: string; title: string } | null>(autoOpenDrilldown ?? null);
 
   const load = useCallback(() => {
-    if (!versionId) { setData(null); return; }
+    if (!versionId && relId == null) { setData(null); return; }
     setLoading(true);
-    axios.get(`${API}/release-intelligence/defects/${versionId}`, { headers })
+    const url = relId != null
+      ? `${API}/release-intelligence/historical-defects/${relId}`
+      : `${API}/release-intelligence/defects/${versionId}`;
+    axios.get(url, { headers })
       .then(res => setData(res.data))
       .catch(() => setData(null))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [versionId, token]);
+  }, [versionId, relId, token]);
 
   useEffect(() => { load(); }, [load]);
 
-  if (!versionId) {
+  if (!versionId && relId == null) {
     return <div className="text-center p-8 text-subtle-foreground">בחר גרסה מתפריט הצד.</div>;
   }
   if (loading && !data) return <div className="p-6 text-subtle-foreground">טוען...</div>;
@@ -110,6 +124,7 @@ export const DefectsView: React.FC<Props> = ({ token, versionId, autoOpenDrilldo
           screen="defects"
           filter={drilldown.filter}
           value={drilldown.value}
+          endpoint={relId != null ? historicalDrilldownUrl(relId, 'defects', drilldown.filter, drilldown.value) : undefined}
           title={drilldown.title}
           onClose={() => setDrilldown(null)}
         />

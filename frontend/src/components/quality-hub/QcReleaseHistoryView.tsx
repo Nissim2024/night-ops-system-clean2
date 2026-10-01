@@ -6,6 +6,8 @@ import { IssueKeyLink, StatusBadge, SeverityBadge } from '../shared/defectFieldD
 import { formatDate } from '../../utils/dateFormat';
 import { QcBugDashboardView } from '../release-intelligence/QcBugDashboardView';
 import { CyclesPanel, CycleProgress } from '../release-intelligence/CycleProgressView';
+import { DefectsView } from '../release-intelligence/DefectsView';
+import { ReopenAnalysisView } from '../release-intelligence/ReopenAnalysisView';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -67,7 +69,7 @@ export const QcReleaseHistoryView: React.FC<Props> = ({ token }) => {
   // endpoint. Real cycle dates/QG targets/coverage/responsible-tester, all
   // sourced from Oracle by relId alone — see that endpoint's own comment for
   // exactly what is and isn't real here.
-  const [tab, setTab] = useState<'defects' | 'bug-dashboard' | 'cycle-progress'>('defects');
+  const [tab, setTab] = useState<'defects' | 'bug-dashboard' | 'cycle-progress' | 'defects-breakdown' | 'reopen'>('defects');
   const [cycleProgress, setCycleProgress] = useState<CycleProgress | null>(null);
   const [cycleProgressLoading, setCycleProgressLoading] = useState(false);
 
@@ -134,6 +136,20 @@ export const QcReleaseHistoryView: React.FC<Props> = ({ token }) => {
           >
             📊 התקדמות סבבים
           </button>
+          <button
+            onClick={() => setTab('defects-breakdown')}
+            className="rounded-md border px-3.5 py-1.5 text-[13px] cursor-pointer"
+            style={tab === 'defects-breakdown' ? { background: '#1D4ED8', color: '#fff', borderColor: '#1D4ED8' } : { background: 'transparent', color: JIRA.textSubtle, borderColor: JIRA.greyN40 }}
+          >
+            🐞 פירוט תקלות
+          </button>
+          <button
+            onClick={() => setTab('reopen')}
+            className="rounded-md border px-3.5 py-1.5 text-[13px] cursor-pointer"
+            style={tab === 'reopen' ? { background: '#1D4ED8', color: '#fff', borderColor: '#1D4ED8' } : { background: 'transparent', color: JIRA.textSubtle, borderColor: JIRA.greyN40 }}
+          >
+            ♻️ ניתוח Reopen
+          </button>
         </div>
 
         {tab === 'defects' && (
@@ -191,6 +207,16 @@ export const QcReleaseHistoryView: React.FC<Props> = ({ token }) => {
           ) : (
             <CyclesPanel data={cycleProgress} token={token} relId={selected.relId} />
           )
+        )}
+
+        {/* Same screens the manager's ניהול בדיקות module shows for a local
+            Version, fed by relId (historical-defects / historical-reopen-analysis). */}
+        {tab === 'defects-breakdown' && (
+          <DefectsView token={token} role="" relId={selected.relId} />
+        )}
+
+        {tab === 'reopen' && (
+          <ReopenAnalysisView token={token} role="" relId={selected.relId} />
         )}
       </div>
     );

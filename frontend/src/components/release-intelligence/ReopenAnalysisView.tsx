@@ -3,6 +3,7 @@ import axios from 'axios';
 import { C } from '../../theme';
 import { cn } from '../../lib/utils';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
+import { historicalDrilldownUrl } from './DefectsView';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -56,27 +57,31 @@ const BreakdownPanel: React.FC<{ title: string; rows: Bucket[]; onBarClick?: (la
   );
 };
 
-interface Props { token: string; versionId?: string; role: string; }
+// relId: historical QC release with no local Version (QcReleaseHistoryView).
+interface Props { token: string; versionId?: string; role: string; relId?: number; }
 
-export const ReopenAnalysisView: React.FC<Props> = ({ token, versionId }) => {
+export const ReopenAnalysisView: React.FC<Props> = ({ token, versionId, relId }) => {
   const headers = { Authorization: `Bearer ${token}` };
   const [data, setData] = useState<ReopenAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [drilldown, setDrilldown] = useState<{ filter: string; value?: string; title: string } | null>(null);
 
   const load = useCallback(() => {
-    if (!versionId) { setData(null); return; }
+    if (!versionId && relId == null) { setData(null); return; }
     setLoading(true);
-    axios.get(`${API}/release-intelligence/reopen-analysis/${versionId}`, { headers })
+    const url = relId != null
+      ? `${API}/release-intelligence/historical-reopen-analysis/${relId}`
+      : `${API}/release-intelligence/reopen-analysis/${versionId}`;
+    axios.get(url, { headers })
       .then(res => setData(res.data))
       .catch(() => setData(null))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [versionId, token]);
+  }, [versionId, relId, token]);
 
   useEffect(() => { load(); }, [load]);
 
-  if (!versionId) {
+  if (!versionId && relId == null) {
     return <div className="text-center p-8 text-subtle-foreground">בחר גרסה מתפריט הצד.</div>;
   }
   if (loading && !data) return <div className="p-6 text-subtle-foreground">טוען...</div>;
@@ -123,6 +128,7 @@ export const ReopenAnalysisView: React.FC<Props> = ({ token, versionId }) => {
           screen="reopen-analysis"
           filter={drilldown.filter}
           value={drilldown.value}
+          endpoint={relId != null ? historicalDrilldownUrl(relId, 'reopen-analysis', drilldown.filter, drilldown.value) : undefined}
           title={drilldown.title}
           onClose={() => setDrilldown(null)}
         />
