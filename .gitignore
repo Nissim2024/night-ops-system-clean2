@@ -15,3 +15,24 @@ frontend/frontend-restart.log
 # Real QC export data used to seed dev-mode mock fallbacks — contains real
 # customer numbers and employee names in free-text fields, never commit.
 backend/src/qc/seed-data/
+
+# Release build artifacts — Docker image tarballs (~300MB each) and DB data
+# exports (real data). Release scripts/docs/templates stay tracked.
+*.tar
+deploycenter-data-export.json
+
+# Local AI-tooling state (ruflo/claude-flow/agentdb) — machine-specific, not project code.
+.claude-flow/
+.swarm/
+.claude/agents/
+.claude/commands/
+.claude/helpers/
+.claude/settings.json
+ruvector.db
+agentdb.rvf
+agentdb.rvf.lock
+claude-flow.config.json
+.mcp.json
+
+# Playwright run screenshots (regenerated every run)
+playwright-tests/screenshots/
