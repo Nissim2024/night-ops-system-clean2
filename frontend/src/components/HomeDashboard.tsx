@@ -473,12 +473,13 @@ export const HomeDashboard: React.FC<Props> = ({
     [versions]
   );
   const inProgressVersions = activeVersions.filter(v => !['COMPLETED', 'ROLLED_BACK'].includes(v.status));
-  // primary = whichever version is selected in the sidebar, as long as it's
-  // still in progress — falls back to the most urgent one (by STATUS_PRIORITY)
-  // when nothing valid is selected, so Home actually follows sidebar clicks
-  // instead of always pinning to the single "most urgent" version.
-  const selectedInProgress = selectedVersionId ? inProgressVersions.find(v => v.id === selectedVersionId) : undefined;
-  const primary = selectedInProgress ?? inProgressVersions[0] ?? null;
+  // primary = whichever version is selected in the sidebar — including a
+  // finished one (closed / historical QC): previously a finished pick was
+  // silently swapped for the most urgent in-progress version, so Home showed
+  // e.g. ITv06 under a header reading ITv05 (user report 2026-10-01). Falls
+  // back to the most urgent in-progress version only when nothing is selected.
+  const selectedVersion = selectedVersionId ? activeVersions.find(v => v.id === selectedVersionId) : undefined;
+  const primary = selectedVersion ?? inProgressVersions[0] ?? null;
   const others  = inProgressVersions.filter(v => v.id !== primary?.id);
   const allDone = activeVersions.length > 0 && inProgressVersions.length === 0;
 
@@ -1190,7 +1191,7 @@ export const HomeDashboard: React.FC<Props> = ({
       {!primary && !allDone && <EmptyState canCreate={canCreate} onNewVersion={onNewVersion} />}
 
       {/* ── All versions completed — show compact notice + history ── */}
-      {allDone && (
+      {allDone && !primary && (
         <div style={{ padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Notice bar */}
           <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '14px' }}>
