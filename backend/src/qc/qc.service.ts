@@ -402,13 +402,22 @@ export interface BugDashboardDto {
 // mapped via the user's own RELEASE_CYCLES export query: RCYC_USER_01 = QG
 // High, RCYC_USER_02 = QG Medium, RCYC_USER_03 = QG Low (RCYC_USER_04 is
 // Environment, unused here).
+// rcyc_start_date/rcyc_end_date — standard ALM RELEASE_CYCLES columns (same
+// naming convention as RELEASES.REL_START_DATE/REL_END_DATE, already
+// confirmed real in qc-releases.service.ts) — added 2026-10-01 so a
+// historical/relId-only release (no local QaWorkPlan to read cycle dates
+// from) can still show a real planned start/end per cycle. UNVERIFIED
+// against real Oracle like every other RCYC_* column here until a live run
+// confirms it.
 const RELEASE_CYCLES_QG_SQL = `
   SELECT
     rr.rel_name    AS RELEASE_NAME,
     rc.rcyc_name   AS CYCLE_NAME,
     rc.rcyc_user_01 AS QG_HIGH,
     rc.rcyc_user_02 AS QG_MEDIUM,
-    rc.rcyc_user_03 AS QG_LOW
+    rc.rcyc_user_03 AS QG_LOW,
+    rc.rcyc_start_date AS CYCLE_START,
+    rc.rcyc_end_date   AS CYCLE_END
   FROM releases rr, release_cycles rc
   WHERE rr.rel_id = rc.rcyc_parent_id
     AND rr.rel_id = :releaseId
@@ -493,7 +502,8 @@ const TEST_COVERAGE_BY_REQ_SQL = `
     RCYC.RCYC_NAME    AS CYCLE_NAME,
     RR.REL_NAME       AS RELEASE_NAME,
     TS.TS_TEST_ID     AS TEST_ID,
-    TS.TS_EXEC_STATUS AS EXEC_STATUS
+    TS.TS_EXEC_STATUS AS EXEC_STATUS,
+    RQ.RQ_USER_05     AS RESPONSIBLE
   FROM
     TEST TS, REQ_COVER RC, REQ RQ, REQ_RELEASES RQR, REQ_CYCLES RQC, RELEASE_CYCLES RCYC, RELEASES RR
   WHERE
@@ -1831,6 +1841,13 @@ export interface CrCoverageDto {
   passed: number; failed: number; notRun: number; blocked: number; notCompleted: number; notReady: number;
   notApplicable: number; notRelevant: number;
   total: number; coveragePct: number;
+  // RQ_USER_05 ("Responsible") per requirement under this CR/cycle — the
+  // real QC-native owner, distinct from our own QaAssignment (who WE
+  // scheduled to test it). Added 2026-10-01 for historical/relId-only
+  // releases, which have no QaAssignment row at all; joined with " + " when
+  // a CR/cycle bucket spans requirements with more than one distinct
+  // responsible. '' when every requirement's RQ_USER_05 was empty.
+  responsible: string;
 }
 
 // Cycle-wide, CR-agnostic totals — see CYCLE_TEST_TOTALS_SQL's own comment
@@ -1848,7 +1865,9 @@ function loadRealCrCoverage(): CrCoverageDto[] | null {
   try {
     const filePath = path.join(process.cwd(), 'src', 'qc', 'seed-data', 'test-coverage.local.json');
     const raw = fs.readFileSync(filePath, 'utf-8');
-    realCrCoverageCache = JSON.parse(raw) as CrCoverageDto[];
+    // Normalize: the seed file predates `responsible` — default old rows to ''.
+    const parsed = JSON.parse(raw) as Partial<CrCoverageDto>[];
+    realCrCoverageCache = parsed.map(r => ({ responsible: '', ...r } as CrCoverageDto));
   } catch {
     realCrCoverageCache = null;
   }
@@ -1862,6 +1881,10 @@ function loadRealCrCoverage(): CrCoverageDto[] | null {
 // not a flat 100% everywhere.
 export interface CycleQgTargetDto {
   releaseName: string; cycleName: string; qgHigh: number; qgMedium: number; qgLow: number;
+  // Real cycle planned dates (RCYC_START_DATE/END_DATE) — added 2026-10-01
+  // for historical/relId-only releases, which have no local QaWorkPlan to
+  // read cycle dates from. null in mock mode (no seed data carries these yet).
+  cycleStart: Date | null; cycleEnd: Date | null;
 }
 let realCycleQgTargetsCache: CycleQgTargetDto[] | null | undefined;
 function loadRealCycleQgTargets(): CycleQgTargetDto[] | null {
@@ -1869,7 +1892,10 @@ function loadRealCycleQgTargets(): CycleQgTargetDto[] | null {
   try {
     const filePath = path.join(process.cwd(), 'src', 'qc', 'seed-data', 'cycle-qg-targets.local.json');
     const raw = fs.readFileSync(filePath, 'utf-8');
-    realCycleQgTargetsCache = JSON.parse(raw) as CycleQgTargetDto[];
+    // Normalize: the seed file predates cycleStart/cycleEnd, so old rows
+    // simply don't have them — default to null rather than leaving undefined.
+    const parsed = JSON.parse(raw) as Partial<CycleQgTargetDto>[];
+    realCycleQgTargetsCache = parsed.map(r => ({ cycleStart: null, cycleEnd: null, ...r } as CycleQgTargetDto));
   } catch {
     realCycleQgTargetsCache = null;
   }
@@ -2805,6 +2831,14 @@ export class QcService {
     return (version as any)?.qcRelease?.relId ?? null;
   }
 
+  // Mock-mode only: seed files are keyed by release *name*, not relId — the
+  // relId-direct methods below use this to scope the seed to one release
+  // (live Oracle scopes by releaseId in SQL instead).
+  private async mockReleaseName(relId: number): Promise<string | null> {
+    const rel = await prisma.qcRelease.findUnique({ where: { relId }, select: { relName: true } });
+    return rel?.relName ?? null;
+  }
+
   async getStatus(): Promise<{ enabled: boolean }> {
     const { enabled } = await getOracleConfig();
     return { enabled };
@@ -2832,6 +2866,23 @@ export class QcService {
 
     const relId = await this.getRelId(versionId);
     if (!relId) return [];
+    return this.getCrCoverageByRelId(crNumbers, relId);
+  }
+
+  // relId-direct variant (2026-10-01, same pattern as getDefectsByRelId) —
+  // for a historical release with no local Version to resolve a relId from.
+  // getCrCoverage above is now a thin wrapper around this for the normal
+  // (local-Version) path.
+  async getCrCoverageByRelId(crNumbers: string[], relId: number): Promise<CrCoverageDto[]> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) {
+      const real = loadRealCrCoverage();
+      if (!real) return [];
+      // Empty crNumbers = every CR in the release, same as the live path below.
+      const relName = await this.mockReleaseName(relId);
+      const wanted = crNumbers.length > 0 ? new Set(crNumbers) : null;
+      return real.filter(c => c.releaseName === relName && (!wanted || wanted.has(c.crNumber)));
+    }
 
     let conn: any;
     try {
@@ -2872,6 +2923,7 @@ export class QcService {
         tests: Map<string, string>; // testId -> exec status; a Map key dedupes
         // a test that satisfies multiple requirements under the same CR into
         // one entry, however many raw rows it contributed above.
+        responsible: Set<string>;
       };
       const byKey = new Map<string, Bucket>();
 
@@ -2886,11 +2938,12 @@ export class QcService {
           existing = {
             crNumber: resolved.crNumber,
             crTitle: resolved.reqName.replace(new RegExp(`^${resolved.crNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`), ''),
-            releaseName: r.RELEASE_NAME ?? '', cycleName, tests: new Map(),
+            releaseName: r.RELEASE_NAME ?? '', cycleName, tests: new Map(), responsible: new Set(),
           };
           byKey.set(key, existing);
         }
         existing.tests.set(String(r.TEST_ID), r.EXEC_STATUS ?? '');
+        if (r.RESPONSIBLE) existing.responsible.add(String(r.RESPONSIBLE));
       }
 
       // N/A and Not Relevant count toward "executed" (2026-08-03 product
@@ -2918,10 +2971,11 @@ export class QcService {
         return {
           crNumber: v.crNumber, crTitle: v.crTitle, releaseName: v.releaseName, cycleName: v.cycleName,
           ...counts, total, coveragePct: total > 0 ? Math.round((executed / total) * 10000) / 100 : 0,
+          responsible: Array.from(v.responsible).join(' + '),
         };
       });
     } catch (err: any) {
-      this.logger.error(`Oracle getCrCoverage: ${err.message}`);
+      this.logger.error(`Oracle getCrCoverageByRelId: ${err.message}`);
       throw err;
     } finally {
       if (conn) await conn.close().catch(() => {});
@@ -2941,6 +2995,14 @@ export class QcService {
 
     const relId = await this.getRelId(versionId);
     if (!relId) return [];
+    return this.getCycleTestTotalsByRelId(relId);
+  }
+
+  // relId-direct variant (2026-10-01) — see getCycleQgTargetsByRelId's
+  // comment, same reasoning. getCycleTestTotals above is now a thin wrapper.
+  async getCycleTestTotalsByRelId(relId: number): Promise<CycleTestTotalsDto[]> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) return [];
 
     let conn: any;
     try {
@@ -2959,7 +3021,7 @@ export class QcService {
         notRelevant:   Number(r.NOT_RELEVANT),
       }));
     } catch (err: any) {
-      this.logger.error(`Oracle getCycleTestTotals: ${err.message}`);
+      this.logger.error(`Oracle getCycleTestTotalsByRelId: ${err.message}`);
       throw err;
     } finally {
       if (conn) await conn.close().catch(() => {});
@@ -2979,6 +3041,19 @@ export class QcService {
 
     const relId = await this.getRelId(versionId);
     if (!relId) return [];
+    return this.getCycleQgTargetsByRelId(relId);
+  }
+
+  // relId-direct variant (2026-10-01, same pattern as getDefectsByRelId/
+  // getBugDashboardByRelId) — for a historical release with no local Version
+  // to resolve a relId from in the first place. getCycleQgTargets above is
+  // now a thin wrapper around this.
+  async getCycleQgTargetsByRelId(relId: number): Promise<CycleQgTargetDto[]> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) {
+      const relName = await this.mockReleaseName(relId);
+      return (loadRealCycleQgTargets() ?? []).filter(t => t.releaseName === relName);
+    }
 
     let conn: any;
     try {
@@ -2990,9 +3065,11 @@ export class QcService {
         qgHigh:      Number(r.QG_HIGH   ?? 0),
         qgMedium:    Number(r.QG_MEDIUM ?? 0),
         qgLow:       Number(r.QG_LOW    ?? 0),
+        cycleStart:  r.CYCLE_START ?? null,
+        cycleEnd:    r.CYCLE_END   ?? null,
       }));
     } catch (err: any) {
-      this.logger.error(`Oracle getCycleQgTargets: ${err.message}`);
+      this.logger.error(`Oracle getCycleQgTargetsByRelId: ${err.message}`);
       throw err;
     } finally {
       if (conn) await conn.close().catch(() => {});
@@ -3307,10 +3384,17 @@ export class QcService {
   // predate this tool), so there's nothing to resolve a versionId from.
   // Every real defect query in this file only ever keys on relId under the
   // hood anyway (see getRelId) — this just skips the Version indirection.
-  async getDefectsByRelId(relId: number): Promise<DefectDto[]> {
+  // cycleName (2026-10-01, historical cycle-level defect navigation):
+  // optional post-filter to just the defects detected in one specific real
+  // QC cycle — reuses getDefectsByCycleByRelId's id→cycle map rather than a
+  // second SQL query, same join DEFECTS_BY_CYCLE_SQL already does.
+  async getDefectsByRelId(relId: number, cycleName?: string): Promise<DefectDto[]> {
     const { enabled } = await getOracleConfig();
-    if (!enabled) return MOCK_DEFECTS;
-    return this.runDefectsQuery(DEFECTS_SQL, { releaseId: relId });
+    const defects = enabled ? await this.runDefectsQuery(DEFECTS_SQL, { releaseId: relId }) : MOCK_DEFECTS;
+    if (!cycleName) return defects;
+    const byCycle = await this.getDefectsByCycleByRelId(relId).catch((): DefectByCycleDto[] => []);
+    const idsInCycle = new Set(byCycle.filter(d => d.detectedInCycle === cycleName).map(d => d.id));
+    return defects.filter(d => idsInCycle.has(d.id));
   }
 
   // relId-direct sibling of getDefectsForKpi (2026-09-23, fixes-batch item I
@@ -3639,6 +3723,18 @@ export class QcService {
 
     const relId = await this.getRelId(versionId);
     if (!relId) return [];
+    return this.getDefectsByCycleByRelId(relId);
+  }
+
+  // relId-direct variant (2026-10-01) — for a historical release with no
+  // local Version to resolve a relId from. No mock-mode fallback: the
+  // offline seed here is keyed by release NAME (loadRealTargetDefects),
+  // which getDefectsByCycle above already resolves from the local Version —
+  // there's no local Version in this path to get a name from, and no relId
+  // key on that seed file to look up instead.
+  async getDefectsByCycleByRelId(relId: number): Promise<DefectByCycleDto[]> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) return [];
 
     let conn: any;
     try {
@@ -3650,7 +3746,7 @@ export class QcService {
         status: r.DEFECT_STATUS ?? '',
       }));
     } catch (err: any) {
-      this.logger.error(`Oracle getDefectsByCycle: ${err.message}`);
+      this.logger.error(`Oracle getDefectsByCycleByRelId: ${err.message}`);
       throw err;
     } finally {
       if (conn) await conn.close().catch(() => {});

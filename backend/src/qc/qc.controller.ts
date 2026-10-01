@@ -424,8 +424,8 @@ export class QcController {
   // that predate this tool), keyed directly by the real Oracle relId
   // instead of a versionId.
   @Get('defects-by-relid')
-  getDefectsByRelId(@Query('relId') relId: string) {
-    return this.qcService.getDefectsByRelId(Number(relId));
+  getDefectsByRelId(@Query('relId') relId: string, @Query('cycleName') cycleName?: string) {
+    return this.qcService.getDefectsByRelId(Number(relId), cycleName);
   }
 
   // Real workflow-aware next-status options (§4) — resolved from the acting

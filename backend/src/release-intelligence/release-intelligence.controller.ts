@@ -72,6 +72,23 @@ export class ReleaseIntelligenceController {
     return this.service.getCycleProgress(versionId);
   }
 
+  // Historical/relId-only variant (2026-10-01) — for a QC release with no
+  // local Version at all, same pattern as qc.controller's defects-by-relid.
+  @Get('historical-cycle-progress/:relId')
+  getHistoricalCycleProgress(@Param('relId') relId: string) {
+    return this.service.getHistoricalCycleProgress(Number(relId));
+  }
+
+  @Get('historical-defects/:relId')
+  getHistoricalDefectsBreakdown(@Param('relId') relId: string) {
+    return this.service.getDefectsBreakdownByRelId(Number(relId));
+  }
+
+  @Get('historical-reopen-analysis/:relId')
+  getHistoricalReopenAnalysis(@Param('relId') relId: string) {
+    return this.service.getReopenAnalysisByRelId(Number(relId));
+  }
+
   @Get('status-board/:versionId')
   getStatusBoard(@Param('versionId') versionId: string) {
     return this.service.getStatusBoard(versionId);

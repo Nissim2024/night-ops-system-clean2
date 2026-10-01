@@ -304,9 +304,12 @@ function CycleCard({ c, onShowDetail, onShowDefects }: { c: CycleTimelineItem; o
         </div>
       </div>
 
-      <div className="text-xs text-subtle-foreground flex items-center gap-1 whitespace-nowrap">
-        🕐 {countdown === 'הסתיים' ? countdown : `${c.state === 'upcoming' ? 'נפתח בעוד' : 'נסגר בעוד'} ${countdown}`}
-      </div>
+      {/* No end date (historical release whose QC cycle has no dates) — no countdown to show. */}
+      {c.plannedEnd && (
+        <div className="text-xs text-subtle-foreground flex items-center gap-1 whitespace-nowrap">
+          🕐 {countdown === 'הסתיים' ? countdown : `${c.state === 'upcoming' ? 'נפתח בעוד' : 'נסגר בעוד'} ${countdown}`}
+        </div>
+      )}
 
       {/* One bar, every status its own color segment (success/failure/blocked/
           not-completed/not-run/not-ready), QG target marked as a line over it
@@ -345,7 +348,7 @@ function KpiCard({ value, label, valueColor }: { value: string; label: string; v
 // Full-screen per-CR coverage breakdown for one cycle — replaces the old
 // inline expand-in-card behavior per the user's explicit instruction to
 // navigate to a new screen instead (2026-07-28).
-function CycleDetailScreen({ cycle, onBack, token, versionId }: { cycle: CycleTimelineItem; onBack: () => void; token: string; versionId: string }) {
+function CycleDetailScreen({ cycle, onBack, token, versionId }: { cycle: CycleTimelineItem; onBack: () => void; token: string; versionId?: string }) {
   const [projectFilter, setProjectFilter] = useState('');
   const [testerFilter, setTesterFilter] = useState('');
   // UAT-only "הצג סיכום בדיקות" button (spec 2026-09-17) — RQ_USER_26 pulled
@@ -409,7 +412,7 @@ function CycleDetailScreen({ cycle, onBack, token, versionId }: { cycle: CycleTi
           {filteredCrCoverage.map(cr => (
             <CrCoverageCard
               key={cr.crNumber} cr={cr} qgTargetPct={cycle.qgTargetPct}
-              showTestSummaryButton={cycle.cycleType === 'UAT'} onShowTestSummary={openTestSummary}
+              showTestSummaryButton={cycle.cycleType === 'UAT' && !!versionId} onShowTestSummary={openTestSummary}
             />
           ))}
         </div>
@@ -567,9 +570,14 @@ interface Props { token: string; versionId?: string; role: string; }
 // single fetch and passes it down, so embedding this doesn't double the
 // network round-trip when the full screen also needs the same data for its
 // KPI row / QG Summary.
-export const CyclesPanel: React.FC<{ data: CycleProgress; token: string; versionId: string }> = ({ data, token, versionId }) => {
+// relId (2026-10-01): historical/relId-only mode — same screen, no local
+// Version at all. Swaps the defect drilldown's dispatch target from the
+// versionId-scoped release-intelligence endpoint (no relId equivalent) to
+// the plain /qc/defects-by-relid endpoint (its own cycleName filter, added
+// alongside this feature) via DefectDrilldownModal's `endpoint` mode.
+export const CyclesPanel: React.FC<{ data: CycleProgress; token: string; versionId?: string; relId?: number }> = ({ data, token, versionId, relId }) => {
   const [selectedCycleType, setSelectedCycleType] = useState<string | null>(null);
-  const [drilldown, setDrilldown] = useState<{ screen: string; filter: string; value?: string; title: string } | null>(null);
+  const [drilldown, setDrilldown] = useState<{ screen: string; filter: string; value?: string; title: string; endpoint?: string } | null>(null);
 
   const selectedCycle = selectedCycleType ? data.timeline.find(t => t.cycleType === selectedCycleType) : null;
   if (selectedCycle) {
@@ -596,7 +604,9 @@ export const CyclesPanel: React.FC<{ data: CycleProgress; token: string; version
             {data.timeline.map(c => (
               <CycleCard
                 key={c.cycleType} c={c} onShowDetail={setSelectedCycleType}
-                onShowDefects={cycleType => setDrilldown({ screen: 'cycle-progress', filter: 'cycleDefects', value: cycleType, title: `תקלות שדווחו — ${CYCLE_LABEL[cycleType] ?? cycleType}` })}
+                onShowDefects={cycleType => relId
+                  ? setDrilldown({ screen: '', filter: '', title: `תקלות שדווחו — ${CYCLE_LABEL[cycleType] ?? cycleType}`, endpoint: `${API}/qc/defects-by-relid?relId=${relId}&cycleName=${encodeURIComponent(cycleType)}` })
+                  : setDrilldown({ screen: 'cycle-progress', filter: 'cycleDefects', value: cycleType, title: `תקלות שדווחו — ${CYCLE_LABEL[cycleType] ?? cycleType}` })}
               />
             ))}
           </div>
@@ -606,10 +616,11 @@ export const CyclesPanel: React.FC<{ data: CycleProgress; token: string; version
       {drilldown && (
         <DefectDrilldownModal
           token={token}
-          versionId={versionId}
+          versionId={relId ? undefined : versionId}
           screen={drilldown.screen}
           filter={drilldown.filter}
           value={drilldown.value}
+          endpoint={drilldown.endpoint}
           title={drilldown.title}
           onClose={() => setDrilldown(null)}
         />

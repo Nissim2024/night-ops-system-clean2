@@ -1579,6 +1579,164 @@ export class ReleaseIntelligenceService {
     };
   }
 
+  // ── Historical cycle progress — same shape getCycleProgress returns (so
+  // the frontend's existing CyclesPanel/CrCoverageCard render it unchanged),
+  // but assembled entirely from Oracle by relId, with NO local Version/
+  // QaWorkPlan/VersionCrAssignment involved at all (2026-10-01, "navigate a
+  // historical release exactly like any other version"). Every piece here is
+  // real QC data:
+  //   - cycle list + dates: derived from whichever cycle names actually show
+  //     up in the QG-targets/test-totals/coverage queries, with real
+  //     RCYC_START_DATE/END_DATE (see getCycleQgTargetsByRelId) — there's no
+  //     local QaWorkPlan to read a cycle list from in this path.
+  //   - per-CR coverage + "responsible": getCrCoverageByRelId, now carrying
+  //     RQ_USER_05 (the real QC-native requirement owner) as `tester`,
+  //     replacing our own QaAssignment (a scheduling decision that only
+  //     exists for a release actually run through DeployCenter).
+  //   - defects/severity/counts: getDefectsByRelId, same CR-matching the
+  //     live path uses.
+  // Deliberately NOT populated (see this module's own docs): `project`
+  // (comes from our VersionCrAssignment, not Oracle), `daysRemaining`/
+  // `testingStartDate`/`qualityScore` (deadline/scheduling concepts that
+  // don't apply to a release that already happened and was never scheduled
+  // here) — left at neutral defaults rather than faked.
+  async getHistoricalCycleProgress(relId: number) {
+    const [qgTargets, testTotals, coverageRows, defectsByCycle, defects] = await Promise.all([
+      this.qcService.getCycleQgTargetsByRelId(relId).catch((): CycleQgTargetDto[] => []),
+      this.qcService.getCycleTestTotalsByRelId(relId).catch((): CycleTestTotalsDto[] => []),
+      this.qcService.getCrCoverageByRelId([], relId).catch((): CrCoverageDto[] => []),
+      this.qcService.getDefectsByCycleByRelId(relId).catch((): DefectByCycleDto[] => []),
+      this.qcService.getDefectsByRelId(relId).catch((): DefectDto[] => []),
+    ]);
+
+    const openDefects = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
+    const { qgSummary, qgPass } = this.computeQgSummary(openDefects);
+
+    const cycleNames = new Set<string>();
+    for (const t of qgTargets) if (t.cycleName) cycleNames.add(t.cycleName);
+    for (const t of testTotals) if (t.cycleName) cycleNames.add(t.cycleName);
+    for (const c of coverageRows) if (c.cycleName) cycleNames.add(c.cycleName);
+
+    const qgByCycle = new Map(qgTargets.map(t => [t.cycleName, t]));
+    const totalsByCycle = new Map(testTotals.map(t => [t.cycleName, t]));
+    const now = Date.now();
+
+    // Business sequence — real cycle start date first when QC has one, else by
+    // name (QC's own spellings vary: "Dress Rehessal", "Stand Alone Item(s)").
+    const nameRank = (n: string): number => {
+      const s = n.toLowerCase();
+      const m = s.match(/^cycle\s*(\d+)/);
+      if (m) return Number(m[1]);
+      if (s.startsWith('stand alone')) return 10;
+      if (s.startsWith('uat')) return 11;
+      if (s.startsWith('dress')) return 12;
+      if (s.startsWith('go live')) return 13;
+      return 14;
+    };
+    const startOf = (n: string) => {
+      const d = qgByCycle.get(n)?.cycleStart;
+      return d ? new Date(d).getTime() : null;
+    };
+    const orderedCycleNames = Array.from(cycleNames).sort((a, b) => {
+      const sa = startOf(a), sb = startOf(b);
+      if (sa != null && sb != null && sa !== sb) return sa - sb;
+      return nameRank(a) - nameRank(b);
+    });
+
+    const timeline = orderedCycleNames.map(cycleName => {
+      const qg = qgByCycle.get(cycleName);
+      const cycleTotals = totalsByCycle.get(cycleName);
+      const crCoverageRaw = coverageRows.filter(c => c.cycleName === cycleName);
+
+      const crCoverage = crCoverageRaw.map(c => {
+        const crDefects = openDefects.filter(d => d.crReferenceNumber === c.crNumber);
+        const defectsBySeverity = {
+          showStopper: crDefects.filter(d => d.severity === 'Show Stopper').length,
+          severe: crDefects.filter(d => d.severity === 'Severe').length,
+          medium: crDefects.filter(d => d.severity === 'Medium').length,
+          low: crDefects.filter(d => d.severity === 'Low').length,
+        };
+        const reportedDefectsCount = defects.filter(d => d.crReferenceNumber === c.crNumber).length;
+        const stillOpenDefectsCount = defects.filter(d =>
+          d.crReferenceNumber === c.crNumber && !['Closed', 'Canceled'].includes(d.status)
+        ).length;
+        return {
+          crNumber: c.crNumber, crLabel: `${c.crNumber} - ${c.crTitle}`,
+          passed: c.passed, failed: c.failed, notRun: c.notRun, blocked: c.blocked,
+          notCompleted: c.notCompleted, notReady: c.notReady,
+          notApplicable: c.notApplicable, notRelevant: c.notRelevant,
+          total: c.total, coveragePct: c.coveragePct,
+          project: null, tester: c.responsible || null,
+          // No scheduling concept for a release never run through
+          // DeployCenter — 0/null rather than a fabricated deadline.
+          daysRemaining: 0, defectsBySeverity, reportedDefectsCount, stillOpenDefectsCount,
+          testingStartDate: null, notStartedYet: false, qualityScore: null,
+        };
+      });
+
+      const totalTests = cycleTotals ? cycleTotals.total : crCoverage.reduce((s, cc) => s + cc.total, 0);
+      const executedTests = cycleTotals ? executedScriptCount(cycleTotals) : crCoverage.reduce((s, cc) => s + executedScriptCount(cc), 0);
+      const passedTests = cycleTotals ? cycleTotals.passed : crCoverage.reduce((s, cc) => s + cc.passed, 0);
+      const coveragePct = totalTests > 0 ? Math.round((executedTests / totalTests) * 10000) / 100 : null;
+      const successPct = totalTests > 0 ? Math.round((passedTests / totalTests) * 10000) / 100 : null;
+      const qgTargetPct = qg?.qgHigh ?? null;
+
+      const plannedStart = qg?.cycleStart ?? null;
+      const plannedEnd = qg?.cycleEnd ?? null;
+      const pastEnd = plannedEnd ? now > new Date(plannedEnd).getTime() : true; // unknown end date → treat as already happened
+      const canEvaluateQg = qgTargetPct != null && successPct != null;
+      const qgReached = canEvaluateQg && (successPct as number) >= (qgTargetPct as number);
+      // No end date at all → nothing says the cycle is still running; a
+      // missed QG then reads as "done, below target", not "active".
+      const state: 'done' | 'active' | 'upcoming' =
+        plannedStart && now < new Date(plannedStart).getTime() ? 'upcoming'
+        : !plannedEnd ? 'done'
+        : pastEnd && (canEvaluateQg ? qgReached : true) ? 'done'
+        : 'active';
+
+      const defectCount = defectsByCycle.filter(d => d.detectedInCycle === cycleName).length;
+      const scriptCounts = cycleTotals ?? crCoverage.reduce((acc, cr) => ({
+        total: acc.total + cr.total, passed: acc.passed + cr.passed, failed: acc.failed + cr.failed,
+        blocked: acc.blocked + cr.blocked, notCompleted: acc.notCompleted + cr.notCompleted,
+        notRun: acc.notRun + cr.notRun, notReady: acc.notReady + cr.notReady,
+        notApplicable: acc.notApplicable + cr.notApplicable, notRelevant: acc.notRelevant + cr.notRelevant,
+        cycleName: '',
+      }), { total: 0, passed: 0, failed: 0, blocked: 0, notCompleted: 0, notRun: 0, notReady: 0, notApplicable: 0, notRelevant: 0, cycleName: '' });
+
+      return {
+        // The real QC cycle name goes straight into `cycleType` — the
+        // frontend's CYCLE_LABEL lookup already falls back to the raw
+        // string for any key it doesn't recognize (our own enum values),
+        // so a real name like "Dress Rehearsal" or "Cycle 1" just displays
+        // as-is with no mapping needed.
+        cycleType: cycleName,
+        plannedStart: plannedStart ? new Date(plannedStart).toISOString() : '',
+        plannedEnd: plannedEnd ? new Date(plannedEnd).toISOString() : '',
+        progressPct: state === 'done' ? 100 : state === 'upcoming' ? 0 : 50,
+        state, crCount: crCoverage.length, testerCount: 0, defectCount,
+        crs: crCoverage.map(cc => ({ crNumber: cc.crNumber, crLabel: cc.crLabel })),
+        testers: [],
+        coveragePct, successPct, crCoverage, qgTargetPct,
+        scriptCounts: {
+          total: scriptCounts.total, passed: scriptCounts.passed, failed: scriptCounts.failed,
+          blocked: scriptCounts.blocked, notCompleted: scriptCounts.notCompleted, notRun: scriptCounts.notRun,
+          notReady: scriptCounts.notReady, notApplicable: scriptCounts.notApplicable, notRelevant: scriptCounts.notRelevant,
+        },
+      };
+    }).sort((a, b) => (a.plannedStart || '').localeCompare(b.plannedStart || ''));
+
+    const currentCycle = timeline.find(t => t.state === 'active') ?? null;
+    const overallProgressPct = timeline.length > 0
+      ? Math.round(timeline.reduce((s, t) => s + t.progressPct, 0) / timeline.length)
+      : 0;
+
+    return {
+      kpis: { currentCycle: currentCycle?.cycleType ?? '—', qgStatus: qgPass ? 'PASS' : 'FAIL', progressPct: overallProgressPct },
+      qgSummary,
+      timeline,
+    };
+  }
+
   // ── Status Board — dense at-a-glance view for the release-intelligence
   // module home. Deliberately built entirely out of existing aggregations
   // (getCycleProgress, computeQgSummary, listRisks, getAlerts) rather than
@@ -1807,7 +1965,19 @@ export class ReleaseIntelligenceService {
   // simplification, same precedent as Coverage/Pass-Rate elsewhere in this module).
   async getDefectsBreakdown(versionId: string) {
     const defects = await this.qcService.getDefects(versionId).catch((): DefectDto[] => []);
+    return this.buildDefectsBreakdown(defects);
+  }
 
+  // relId-direct sibling (2026-10-01, "navigate a historical release exactly
+  // like any other version") — this screen is pure Oracle aggregation
+  // (groupCount over a DefectDto[]), so it only ever needed a different
+  // source for the list itself.
+  async getDefectsBreakdownByRelId(relId: number) {
+    const defects = await this.qcService.getDefectsByRelId(relId).catch((): DefectDto[] => []);
+    return this.buildDefectsBreakdown(defects);
+  }
+
+  private buildDefectsBreakdown(defects: DefectDto[]) {
     const groupCount = (items: DefectDto[], keyFn: (d: DefectDto) => string) => {
       const counts = new Map<string, number>();
       for (const d of items) {
@@ -1900,6 +2070,21 @@ export class ReleaseIntelligenceService {
       this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
       this.qcService.getBugDashboard(versionId).catch((): BugDashboardDto | null => null),
     ]);
+    return this.buildReopenAnalysis(defects, bugDashboard);
+  }
+
+  // relId-direct sibling (2026-10-01) — same reasoning as
+  // getDefectsBreakdownByRelId; getBugDashboardByRelId already existed
+  // (2026-09-20, historical QC releases browse).
+  async getReopenAnalysisByRelId(relId: number) {
+    const [defects, bugDashboard] = await Promise.all([
+      this.qcService.getDefectsByRelId(relId).catch((): DefectDto[] => []),
+      this.qcService.getBugDashboardByRelId(relId).catch((): BugDashboardDto | null => null),
+    ]);
+    return this.buildReopenAnalysis(defects, bugDashboard);
+  }
+
+  private buildReopenAnalysis(defects: DefectDto[], bugDashboard: BugDashboardDto | null) {
     const reopen = defects.filter(d => d.status === 'Reopen');
     const reopenRate = defects.length > 0 ? Math.round((reopen.length / defects.length) * 100) : 0;
     const criticalReopen = reopen.filter(d => CRITICAL_SEVERITIES.includes(d.severity)).length;

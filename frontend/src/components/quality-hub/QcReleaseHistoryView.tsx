@@ -5,6 +5,7 @@ import { Card, TextField } from '../ui';
 import { IssueKeyLink, StatusBadge, SeverityBadge } from '../shared/defectFieldDisplay';
 import { formatDate } from '../../utils/dateFormat';
 import { QcBugDashboardView } from '../release-intelligence/QcBugDashboardView';
+import { CyclesPanel, CycleProgress } from '../release-intelligence/CycleProgressView';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -59,7 +60,16 @@ export const QcReleaseHistoryView: React.FC<Props> = ({ token }) => {
   // the raw defect list this screen already showed. Quality Hub itself
   // needed no equivalent work — its own release picker is already
   // name-keyed and independent of Version (confirmed 2026-09-20).
-  const [tab, setTab] = useState<'defects' | 'bug-dashboard'>('defects');
+  // Cycle Progress tab (2026-10-01, "navigate a historical release exactly
+  // like any other version") — reuses CyclesPanel exactly as the manager's
+  // live Cycle Progress screen does, fed by /release-intelligence/
+  // historical-cycle-progress/:relId instead of the versionId-scoped
+  // endpoint. Real cycle dates/QG targets/coverage/responsible-tester, all
+  // sourced from Oracle by relId alone — see that endpoint's own comment for
+  // exactly what is and isn't real here.
+  const [tab, setTab] = useState<'defects' | 'bug-dashboard' | 'cycle-progress'>('defects');
+  const [cycleProgress, setCycleProgress] = useState<CycleProgress | null>(null);
+  const [cycleProgressLoading, setCycleProgressLoading] = useState(false);
 
   useEffect(() => {
     axios.get(`${API}/qc-releases`, { headers })
@@ -79,10 +89,21 @@ export const QcReleaseHistoryView: React.FC<Props> = ({ token }) => {
     setTab('defects');
     setDefects(null);
     setDefectsLoading(true);
+    setCycleProgress(null);
     axios.get(`${API}/qc/defects-by-relid`, { headers, params: { relId: r.relId } })
       .then(res => setDefects(res.data ?? []))
       .catch(() => setDefects([]))
       .finally(() => setDefectsLoading(false));
+  };
+
+  const openCycleProgressTab = (r: QcReleaseRow) => {
+    setTab('cycle-progress');
+    if (cycleProgress) return; // already fetched for this release
+    setCycleProgressLoading(true);
+    axios.get(`${API}/release-intelligence/historical-cycle-progress/${r.relId}`, { headers })
+      .then(res => setCycleProgress(res.data))
+      .catch(() => setCycleProgress(null))
+      .finally(() => setCycleProgressLoading(false));
   };
 
   if (selected) {
@@ -105,6 +126,13 @@ export const QcReleaseHistoryView: React.FC<Props> = ({ token }) => {
             style={tab === 'bug-dashboard' ? { background: '#1D4ED8', color: '#fff', borderColor: '#1D4ED8' } : { background: 'transparent', color: JIRA.textSubtle, borderColor: JIRA.greyN40 }}
           >
             🪲 לוח באגים
+          </button>
+          <button
+            onClick={() => openCycleProgressTab(selected)}
+            className="rounded-md border px-3.5 py-1.5 text-[13px] cursor-pointer"
+            style={tab === 'cycle-progress' ? { background: '#1D4ED8', color: '#fff', borderColor: '#1D4ED8' } : { background: 'transparent', color: JIRA.textSubtle, borderColor: JIRA.greyN40 }}
+          >
+            📊 התקדמות סבבים
           </button>
         </div>
 
@@ -153,6 +181,16 @@ export const QcReleaseHistoryView: React.FC<Props> = ({ token }) => {
 
         {tab === 'bug-dashboard' && (
           <QcBugDashboardView token={token} initialRelId={selected.relId} />
+        )}
+
+        {tab === 'cycle-progress' && (
+          cycleProgressLoading ? (
+            <div className="text-sm text-subtle-foreground py-4 text-center">טוען התקדמות סבבים…</div>
+          ) : !cycleProgress || cycleProgress.timeline.length === 0 ? (
+            <div className="text-sm text-subtle-foreground py-4 text-center">אין נתוני כיסוי בדיקות זמינים ב-QC לגרסה זו.</div>
+          ) : (
+            <CyclesPanel data={cycleProgress} token={token} relId={selected.relId} />
+          )
         )}
       </div>
     );
