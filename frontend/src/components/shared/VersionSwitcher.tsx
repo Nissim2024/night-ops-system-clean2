@@ -18,8 +18,11 @@ const GROUPS: Group[] = [
   { id: 'closed',   label: 'סגורות',  icon: '✅', statuses: ['COMPLETED', 'ROLLED_BACK'] },
   { id: 'archived', label: 'ארכיון',  icon: '📦', statuses: [], isArchived: true },
   // QC releases opened on demand from "עיון בגרסאות QC" (Version.isQcHistorical)
-  { id: 'historical', label: 'היסטוריות (QC)', icon: '🗄️', statuses: [] },
+  { id: 'historical', label: 'מ-QC (לא נוהלו במערכת)', icon: '🗄️', statuses: [] },
 ];
+
+// Groups shown under the collapsible "היסטוריה" section of the picker.
+const HISTORY_GROUP_IDS = ['closed', 'archived', 'historical'];
 
 function versionGroup(v: any): string {
   if (v.isQcHistorical) return 'historical';
@@ -63,12 +66,17 @@ const VersionPickerModal: React.FC<{
       .sort((a, b) => String(b.name).localeCompare(String(a.name), 'he')),
   })).filter(x => x.items.length > 0), [versions, needle]);
 
-  // Historical QC versions sit apart from the working versions: below a
-  // divider, collapsed by default — opened when the current pick is one of
-  // them, or while searching (so a match is never hidden).
-  const regularGroups = groupsWithItems.filter(x => x.group.id !== 'historical');
-  const historical = groupsWithItems.find(x => x.group.id === 'historical');
-  const [histOpen, setHistOpen] = useState(() => versions.some(v => v.id === selectedVersionId && v.isQcHistorical));
+  // Everything finished — closed, archived, historical QC — sits apart from
+  // the working versions: one "היסטוריה" section below a divider, collapsed
+  // by default; opened when the current pick is in it, or while searching
+  // (so a match is never hidden).
+  const regularGroups = groupsWithItems.filter(x => !HISTORY_GROUP_IDS.includes(x.group.id));
+  const historyGroups = groupsWithItems.filter(x => HISTORY_GROUP_IDS.includes(x.group.id));
+  const historyCount = historyGroups.reduce((s, x) => s + x.items.length, 0);
+  const [histOpen, setHistOpen] = useState(() => {
+    const cur = versions.find(v => v.id === selectedVersionId);
+    return !!cur && HISTORY_GROUP_IDS.includes(versionGroup(cur));
+  });
   const histExpanded = histOpen || !!needle;
 
   const renderItems = (items: any[]) => items.map(v => {
@@ -138,7 +146,7 @@ const VersionPickerModal: React.FC<{
             </div>
           ))}
 
-          {historical && (
+          {historyGroups.length > 0 && (
             <div
               className="mt-3 pt-3"
               style={regularGroups.length > 0 ? { borderTop: `2px dashed ${C.textMuted}` } : undefined}
@@ -146,14 +154,22 @@ const VersionPickerModal: React.FC<{
               <button
                 onClick={() => setHistOpen(o => !o)}
                 className="flex w-full cursor-pointer items-center gap-1.5 rounded-md border-none bg-muted px-2.5 py-2 text-right text-[12px] font-bold text-muted-foreground [direction:rtl]"
-                title={histExpanded ? 'קפל גרסאות היסטוריות' : 'הצג גרסאות היסטוריות'}
+                title={histExpanded ? 'קפל היסטוריה' : 'הצג גרסאות שהסתיימו'}
               >
-                <span className="text-[13px]">{historical.group.icon}</span>
-                <span className="flex-1">גרסאות היסטוריות (QC)</span>
-                <span className="font-normal">{historical.items.length}</span>
+                <span className="text-[13px]">🕘</span>
+                <span className="flex-1">היסטוריה</span>
+                <span className="font-normal">{historyCount}</span>
                 <span className="text-[11px]">{histExpanded ? '▾' : '▸'}</span>
               </button>
-              {histExpanded && <div className="pt-1">{renderItems(historical.items)}</div>}
+              {histExpanded && historyGroups.map(({ group, items }) => (
+                <div key={group.id} className="mb-1">
+                  <div className="flex items-center gap-1.5 px-2.5 pb-1 pt-2 text-[11px] font-bold text-subtle-foreground">
+                    <span className="text-[13px]">{group.icon}</span><span>{group.label}</span>
+                    <span className="font-normal">· {items.length}</span>
+                  </div>
+                  {renderItems(items)}
+                </div>
+              ))}
             </div>
           )}
         </div>
