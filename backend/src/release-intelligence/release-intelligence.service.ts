@@ -157,8 +157,19 @@ function cycleNameMatches(cycleType: string, realCycleName: string): boolean {
     case 'GO_LIVE': return n === 'go live';
     case 'REHEARSAL': return n.startsWith('dress reh');
     case 'STAND_ALONE': return n.startsWith('stand alone');
-    default: return false;
+    // A historical version's cycle with no CycleType equivalent (e.g.
+    // "Cycle 0") keeps its raw QC name as cycleType — match it literally.
+    default: return n === cycleType.trim().toLowerCase();
   }
+}
+
+// Inverse of cycleNameMatches: a raw QC cycle name → DeployCenter CycleType,
+// or the raw name itself when there's no equivalent (e.g. "Cycle 0").
+function qcCycleNameToCycleType(realCycleName: string): string {
+  for (const t of ['CYCLE_1', 'CYCLE_2', 'CYCLE_3', 'STAND_ALONE', 'UAT', 'REHEARSAL', 'GO_LIVE']) {
+    if (cycleNameMatches(t, realCycleName)) return t;
+  }
+  return realCycleName;
 }
 
 // Drill-down filters for the Defects and Reopen Analysis screens — mirror
@@ -1150,8 +1161,16 @@ export class ReleaseIntelligenceService {
       if (row.project && !projectByCr.has(row.crNumber)) projectByCr.set(row.crNumber, row.project);
     }
 
+    // Historical QC release (isQcHistorical): no local CR assignments exist —
+    // the CR list is every CR with test coverage in that QC release.
+    const historicalRelId = version.isQcHistorical
+      ? (await prisma.qcRelease.findUnique({ where: { id: version.qcReleaseId ?? '' }, select: { relId: true } }))?.relId ?? null
+      : null;
     const [coverageRows, defects] = await Promise.all([
-      this.qcService.getCrCoverage(versionCrNumbers, versionId).catch((): CrCoverageDto[] => []),
+      (historicalRelId != null
+        ? this.qcService.getCrCoverageByRelId([], historicalRelId)
+        : this.qcService.getCrCoverage(versionCrNumbers, versionId)
+      ).catch((): CrCoverageDto[] => []),
       this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
     ]);
 
@@ -1358,6 +1377,19 @@ export class ReleaseIntelligenceService {
       prisma.user.findMany({ select: { id: true, fullName: true } }),
       prisma.version.findUnique({ where: { id: versionId }, include: { qcRelease: true } }),
     ]);
+    // Historical QC release opened as a Version (isQcHistorical): there's no
+    // QaWorkPlan to read cycles from — take them straight from QC by relId,
+    // same shape, so every screen built on getCycleProgress (RI Home, status
+    // board, Daily QA, Cycle Progress) works on it unchanged.
+    if (!workPlan && (version as any)?.isQcHistorical && (version as any)?.qcRelease?.relId) {
+      // Rename QC's cycle names to DeployCenter's CycleType values so all
+      // downstream logic keyed on them (CORE_CYCLE_TYPES coverage/readiness,
+      // the frontend's CYCLE_LABEL, cycleNameMatches drill-downs) applies.
+      const historical = await this.getHistoricalCycleProgress((version as any).qcRelease.relId);
+      const timeline = historical.timeline.map(t => ({ ...t, cycleType: qcCycleNameToCycleType(t.cycleType) }));
+      const current = timeline.find(t => t.state === 'active');
+      return { ...historical, kpis: { ...historical.kpis, currentCycle: current?.cycleType ?? '—' }, timeline };
+    }
     const openDefects = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
     const { qgSummary, qgPass } = this.computeQgSummary(openDefects);
     const nameById = new Map(users.map(u => [u.id, u.fullName]));
@@ -1701,7 +1733,7 @@ export class ReleaseIntelligenceService {
           // No scheduling concept for a release never run through
           // DeployCenter — 0/null rather than a fabricated deadline.
           daysRemaining: 0, defectsBySeverity, reportedDefectsCount, stillOpenDefectsCount,
-          testingStartDate: null, notStartedYet: false, qualityScore: null,
+          testingStartDate: null as string | null, notStartedYet: false, qualityScore: null as number | null,
         };
       });
 
@@ -1741,8 +1773,13 @@ export class ReleaseIntelligenceService {
         // so a real name like "Dress Rehearsal" or "Cycle 1" just displays
         // as-is with no mapping needed.
         cycleType: cycleName,
-        plannedStart: plannedStart ? new Date(plannedStart).toISOString() : '',
-        plannedEnd: plannedEnd ? new Date(plannedEnd).toISOString() : '',
+        // Typed Date to match getCycleProgress's work-plan shape (this is also
+        // its isQcHistorical fallback). May be null when QC has no cycle
+        // dates — safe: downstream date math only runs on CORE_CYCLE_TYPES
+        // ('CYCLE_1'…), never matched by QC's own names ('Cycle 1'…), and
+        // the frontend treats a null date as "no date".
+        plannedStart: (plannedStart ? new Date(plannedStart) : null) as Date,
+        plannedEnd: (plannedEnd ? new Date(plannedEnd) : null) as Date,
         progressPct: state === 'done' ? 100 : state === 'upcoming' ? 0 : 50,
         state, crCount: crCoverage.length, testerCount: 0, defectCount,
         crs: crCoverage.map(cc => ({ crNumber: cc.crNumber, crLabel: cc.crLabel })),
@@ -1754,7 +1791,7 @@ export class ReleaseIntelligenceService {
           notReady: scriptCounts.notReady, notApplicable: scriptCounts.notApplicable, notRelevant: scriptCounts.notRelevant,
         },
       };
-    }).sort((a, b) => (a.plannedStart || '').localeCompare(b.plannedStart || ''));
+    }); // already ordered via orderedCycleNames (start date, then business sequence)
 
     const currentCycle = timeline.find(t => t.state === 'active') ?? null;
     const overallProgressPct = timeline.length > 0

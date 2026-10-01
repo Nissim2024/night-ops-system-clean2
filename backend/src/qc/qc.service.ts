@@ -1865,9 +1865,11 @@ function loadRealCrCoverage(): CrCoverageDto[] | null {
   try {
     const filePath = path.join(process.cwd(), 'src', 'qc', 'seed-data', 'test-coverage.local.json');
     const raw = fs.readFileSync(filePath, 'utf-8');
-    // Normalize: the seed file predates `responsible` — default old rows to ''.
+    // Normalize: the seed file predates `responsible` and the N/A / Not
+    // Relevant counts — default them so sums don't turn into NaN (which
+    // serializes as null and crashed Coverage & Readiness's toFixed).
     const parsed = JSON.parse(raw) as Partial<CrCoverageDto>[];
-    realCrCoverageCache = parsed.map(r => ({ responsible: '', ...r } as CrCoverageDto));
+    realCrCoverageCache = parsed.map(r => ({ responsible: '', notApplicable: 0, notRelevant: 0, ...r } as CrCoverageDto));
   } catch {
     realCrCoverageCache = null;
   }

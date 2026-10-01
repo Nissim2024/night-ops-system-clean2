@@ -36,6 +36,20 @@ export class QcReleasesController {
     }
   }
 
+  // Any signed-in non-viewer may open a historical release — it only adds a
+  // read-only COMPLETED Version pointing at existing QC data.
+  @Post(':relId/open-as-version')
+  async openAsVersion(@Param('relId') relId: string, @Request() req: any) {
+    if (req.user.role === 'VIEWER') {
+      throw new HttpException('אין הרשאה', HttpStatus.FORBIDDEN);
+    }
+    try {
+      return await this.service.openAsVersion(Number(relId), req.user.sub);
+    } catch (err: any) {
+      throw new HttpException(err.message, HttpStatus.BAD_REQUEST);
+    }
+  }
+
   @Patch(':id/toggle')
   toggleActive(@Param('id') id: string) {
     return this.service.toggleActive(id);

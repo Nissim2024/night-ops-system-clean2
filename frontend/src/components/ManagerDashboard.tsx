@@ -61,6 +61,9 @@ import { Avatar, Badge, VersionStatusChip, BackLink } from './ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
+// 'historical' = a QC release opened as a read-only Version (isQcHistorical).
+type VersionCategory = 'active' | 'inactive' | 'archived' | 'historical';
+
 interface Props {
   token: string;
   onLogout: () => void;
@@ -97,7 +100,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
   const [summaryReady, setSummaryReady]             = useState(false);
   const [currentPhaseName, setCurrentPhaseName] = useState<string | null>(null);
   const [archiveLoading, setArchiveLoading]     = useState(false);
-  const [versionFilter, setVersionFilter]       = useState<'active' | 'inactive' | 'archived'>('active');
+  const [versionFilter, setVersionFilter]       = useState<VersionCategory>('active');
   const [blockerReasons, setBlockerReasons]     = useState<Record<string, string>>({});
   const [savingReason, setSavingReason]         = useState<string | null>(null);
   const [activeRunPhase, setActiveRunPhase]     = useState<number>(1);
@@ -297,8 +300,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
     if (filtered.length === 0) {
       // No versions in this category — clear selection
       setSelectedVersionId('');
-    } else if (versionFilter === 'archived') {
-      // Archive: only keep current if it's in the list; never auto-pick
+    } else if (versionFilter === 'archived' || versionFilter === 'historical') {
+      // Archive / historical: only keep current if it's in the list; never auto-pick
       if (!filtered.some((v: any) => v.id === selectedVersionId)) {
         setSelectedVersionId('');
       }
@@ -451,7 +454,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
 
   const ACTIVE_STATUSES = ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'];
 
-  const versionCategory = (v: any): 'active' | 'inactive' | 'archived' => {
+  const versionCategory = (v: any): VersionCategory => {
+    if (v.isQcHistorical) return 'historical';
     if (v.isArchived) return 'archived';
     if (ACTIVE_STATUSES.includes(v.status)) return 'active';
     return 'inactive'; // כולל COMPLETED ו-ROLLED_BACK שטרם עברו לארכיון
@@ -515,7 +519,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
   const isMorningAfter = vStatus === 'MORNING_AFTER';
 
   // True when a version-specific tab should show NoVersionsForFilter instead of content
-  const noVersionGuard = filteredVersions.length === 0 || (versionFilter === 'archived' && !selectedVersionId);
+  const noVersionGuard = filteredVersions.length === 0 || ((versionFilter === 'archived' || versionFilter === 'historical') && !selectedVersionId);
 
   const isExecution = ['ACTIVE', 'REHEARSAL', 'MORNING_AFTER'].includes(vStatus ?? '');
   const hasRun = !!(selectedVersion?.lastRehearsalAt ||
@@ -793,6 +797,16 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
         {/* Main content (second = left in RTL) */}
         <div style={{ flex: 1, padding: '24px', overflowY: 'auto', minWidth: 0, minHeight: 0, background: C.bgApp }}>
 
+          {/* Historical QC release opened as a Version — explains up front why
+              DeployCenter-only screens (work plan, risks, runbook, night) are
+              empty, so they don't read as broken. */}
+          {selectedVersion?.isQcHistorical && ['release-intelligence', 'version-management', 'qa', 'deployments'].includes(activeModule) && (
+            <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderInlineStart: `4px solid ${C.brand}`, borderRadius: '8px', padding: '10px 14px', marginBottom: SP[3], fontSize: '13px', color: C.textPrimary }}>
+              🗄️ <b>{selectedVersion.name}</b> — גרסה היסטורית מ-QC, לקריאה בלבד.
+              <span style={{ color: C.textMuted }}> נתוני QC (תקלות, סבבים, כיסוי) אמיתיים; תוכנית עבודה, סיכונים, ראנבוק וליל הטמעה לא נוהלו במערכת ולכן ריקים.</span>
+            </div>
+          )}
+
           {/* ── Module: ניהול גרסה ── */}
           {activeModule === 'version-management' && (
             <VersionManagementModuleView
@@ -881,7 +895,18 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
             <NewVsTargetDefectsView token={token} />
           )}
           {activeModule === 'quality-hub' && activeQhView === 'qc-release-history' && (
-            <QcReleaseHistoryView token={token} />
+            <QcReleaseHistoryView
+              token={token}
+              // Opened (or already-linked) Version → refresh the list, select
+              // it, and land on the Release Intelligence home — the richest
+              // QC-backed view; every other menu then works on it as usual.
+              onOpenVersion={async (versionId) => {
+                await fetchVersions();
+                setSelectedVersionId(versionId);
+                setActiveModule('release-intelligence');
+                setActiveRiView('home');
+              }}
+            />
           )}
 
           {activeModule === 'defects' && (
@@ -1655,11 +1680,12 @@ const emptyCardStyle: React.CSSProperties = {
   background: C.bgCard, borderRadius: '12px', border: `1px solid ${C.border}`,
 };
 
-const NoVersionsForFilter: React.FC<{ filter: 'active' | 'inactive' | 'archived' }> = ({ filter }) => {
+const NoVersionsForFilter: React.FC<{ filter: VersionCategory }> = ({ filter }) => {
   const config = {
     active:   { icon: '🟢', title: 'אין גרסאות פעילות כרגע', sub: 'לא קיימת גרסה במצב ACTIVE, REHEARSAL או MORNING_AFTER.\nעבור למסך הכנה כדי להפעיל גרסה.' },
     inactive: { icon: '📋', title: 'אין גרסאות בשלב תכנון', sub: 'צור גרסה חדשה ממסך הכנה כדי להתחיל.' },
     archived: { icon: '📦', title: 'בחר גרסה מהארכיון', sub: 'בחר גרסה מהתפריט הנפתח בכותרת כדי לצפות בנתוניה.' },
+    historical: { icon: '🗄️', title: 'בחר גרסה היסטורית', sub: 'גרסאות היסטוריות נפתחות מ"איכות גרסה" ← "עיון בגרסאות QC" ← "פתח כגרסה מלאה".' },
   }[filter];
   return (
     <div style={emptyCardStyle}>

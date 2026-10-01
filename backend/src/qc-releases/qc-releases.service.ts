@@ -249,8 +249,41 @@ export class QcReleasesService implements OnModuleInit {
     // "QC-only, predates this tool" without a second round-trip.
     return prisma.qcRelease.findMany({
       orderBy: { relStartDate: 'desc' },
-      include: { versions: { select: { id: true, name: true } } },
+      include: { versions: { select: { id: true, name: true, isQcHistorical: true } } },
     });
+  }
+
+  // Opens a QC release that was never run through DeployCenter as a real
+  // (read-only, COMPLETED) Version, so every versionId-keyed screen works on
+  // it unchanged — QC data via qcRelease, DeployCenter-only data (work plan,
+  // risks, runbook, night) simply absent. Idempotent: a release already
+  // linked to any Version (historical or wizard-built) returns that Version.
+  async openAsVersion(relId: number, userId: string) {
+    const release = await prisma.qcRelease.findUnique({
+      where: { relId },
+      include: { versions: { select: { id: true, name: true, isQcHistorical: true }, orderBy: { createdAt: 'asc' } } },
+    });
+    if (!release) throw new Error('לא נמצאה גרסת QC');
+    if (release.versions.length > 0) return { ...release.versions[0], created: false };
+
+    const version = await prisma.version.create({
+      data: {
+        name: release.relName,
+        description: 'גרסה היסטורית מ-QC — נפתחה לעיון בלבד',
+        status: 'COMPLETED',
+        isQcHistorical: true,
+        createdBy: userId,
+        qcReleaseId: release.id,
+        qaStart: release.relStartDate,
+        qaEnd: release.relEndDate,
+        plannedStart: release.goLiveDate ?? release.relEndDate,
+        plannedRehearsalStart: release.rehearsalDate,
+        completedAt: release.goLiveDate ?? release.relEndDate,
+      },
+      select: { id: true, name: true, isQcHistorical: true },
+    });
+    this.logger.log(`Opened QC release ${release.relName} (relId ${relId}) as historical version ${version.id}`);
+    return { ...version, created: true };
   }
 
   async toggleActive(id: string) {

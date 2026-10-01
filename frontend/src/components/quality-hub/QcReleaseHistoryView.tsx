@@ -35,7 +35,7 @@ interface QcReleaseRow {
   goLiveDate: string | null;
   rehearsalDate: string | null;
   active: boolean;
-  versions: { id: string; name: string }[];
+  versions: { id: string; name: string; isQcHistorical?: boolean }[];
 }
 
 interface DefectRow {
@@ -48,7 +48,12 @@ interface DefectRow {
   responsibility: string;
 }
 
-interface Props { token: string; }
+interface Props {
+  token: string;
+  // Opens the release as a full Version (POST /qc-releases/:relId/open-as-version)
+  // and hands its id to the host to select + navigate to it.
+  onOpenVersion?: (versionId: string) => void;
+}
 
 interface DefectsBreakdown {
   kpis: { open: number; fixed: number; closed: number; rejected: number; reopen: number };
@@ -74,7 +79,7 @@ const SEVERITY_ORDER: { key: string; label: string }[] = [
 
 // Always-visible identity of the open release — shown above the tabs on
 // every tab, so it's never ambiguous which release the numbers belong to.
-const ReleaseHeader: React.FC<{ release: QcReleaseRow; onBack: () => void }> = ({ release, onBack }) => (
+const ReleaseHeader: React.FC<{ release: QcReleaseRow; onBack: () => void; onOpenAsVersion?: () => void; opening?: boolean }> = ({ release, onBack, onOpenAsVersion, opening }) => (
   <div className="bg-card border border-border rounded-lg px-5 py-4 flex items-center justify-between gap-4 flex-wrap" style={{ borderInlineStart: `4px solid ${C.brand}` }}>
     <div className="min-w-0">
       <div className="text-xs text-subtle-foreground mb-0.5">🗄️ גרסת QC נבחרת</div>
@@ -89,9 +94,22 @@ const ReleaseHeader: React.FC<{ release: QcReleaseRow; onBack: () => void }> = (
           : <span>QC בלבד (אין גרסת DeployCenter)</span>}
       </div>
     </div>
-    <button onClick={onBack} className="rounded-md border border-border bg-transparent px-3.5 py-1.5 text-[13px] text-foreground cursor-pointer whitespace-nowrap">
-      → החלפת גרסה
-    </button>
+    <div className="flex gap-2 flex-wrap">
+      {onOpenAsVersion && (
+        <button
+          onClick={onOpenAsVersion}
+          disabled={opening}
+          className="rounded-md border-none px-3.5 py-1.5 text-[13px] font-semibold text-white cursor-pointer whitespace-nowrap disabled:opacity-60"
+          style={{ background: C.brand }}
+          title="פותח את הגרסה בכל תפריטי המערכת (ניהול בדיקות, איכות, תקלות…) — לקריאה בלבד"
+        >
+          {opening ? 'פותח…' : release.versions.length > 0 ? '↗ עבור לגרסה במערכת' : '🚀 פתח כגרסה מלאה'}
+        </button>
+      )}
+      <button onClick={onBack} className="rounded-md border border-border bg-transparent px-3.5 py-1.5 text-[13px] text-foreground cursor-pointer whitespace-nowrap">
+        → החלפת גרסה
+      </button>
+    </div>
   </div>
 );
 
@@ -244,7 +262,7 @@ const ReleaseOverview: React.FC<{
   );
 };
 
-export const QcReleaseHistoryView: React.FC<Props> = ({ token }) => {
+export const QcReleaseHistoryView: React.FC<Props> = ({ token, onOpenVersion }) => {
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const [releases, setReleases] = useState<QcReleaseRow[] | null>(null);
   const [search, setSearch] = useState('');
@@ -307,10 +325,28 @@ export const QcReleaseHistoryView: React.FC<Props> = ({ token }) => {
       .catch(() => setBreakdown(null));
   };
 
+  const [opening, setOpening] = useState(false);
+  const [openError, setOpenError] = useState<string | null>(null);
+  const openAsVersion = () => {
+    if (!selected || !onOpenVersion) return;
+    setOpening(true);
+    setOpenError(null);
+    axios.post(`${API}/qc-releases/${selected.relId}/open-as-version`, {}, { headers })
+      .then(res => onOpenVersion(res.data.id))
+      .catch(e => setOpenError(e?.response?.data?.message || 'פתיחת הגרסה נכשלה'))
+      .finally(() => setOpening(false));
+  };
+
   if (selected) {
     return (
       <div className="flex flex-col gap-4 px-1 py-1" dir="rtl">
-        <ReleaseHeader release={selected} onBack={() => setSelected(null)} />
+        <ReleaseHeader
+          release={selected}
+          onBack={() => setSelected(null)}
+          onOpenAsVersion={onOpenVersion ? openAsVersion : undefined}
+          opening={opening}
+        />
+        {openError && <div className="text-xs text-danger">{openError}</div>}
 
         <div className="flex gap-2 flex-wrap">
           {TABS.map(t => (

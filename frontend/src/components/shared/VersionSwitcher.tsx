@@ -17,9 +17,12 @@ const GROUPS: Group[] = [
   { id: 'planning', label: 'בתכנון',  icon: '📝', statuses: ['DRAFT', 'COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED'] },
   { id: 'closed',   label: 'סגורות',  icon: '✅', statuses: ['COMPLETED', 'ROLLED_BACK'] },
   { id: 'archived', label: 'ארכיון',  icon: '📦', statuses: [], isArchived: true },
+  // QC releases opened on demand from "עיון בגרסאות QC" (Version.isQcHistorical)
+  { id: 'historical', label: 'היסטוריות (QC)', icon: '🗄️', statuses: [] },
 ];
 
 function versionGroup(v: any): string {
+  if (v.isQcHistorical) return 'historical';
   if (v.isArchived) return 'archived';
   if (v.lifecycle?.phase && lifecyclePhaseGroup[v.lifecycle.phase]) return lifecyclePhaseGroup[v.lifecycle.phase];
   if (['REHEARSAL', 'ACTIVE', 'MORNING_AFTER'].includes(v.status)) return 'active';

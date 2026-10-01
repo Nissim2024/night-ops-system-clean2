@@ -48,6 +48,8 @@ const GROUPS: Group[] = [
   { id: 'planning', label: 'בתכנון',  icon: '📝', statuses: ['DRAFT', 'COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED'] },
   { id: 'closed',   label: 'סגורות',  icon: '✅', statuses: ['COMPLETED', 'ROLLED_BACK'] },
   { id: 'archived', label: 'ארכיון',  icon: '📦', statuses: [], isArchived: true },
+  // QC releases opened on demand from "עיון בגרסאות QC" (Version.isQcHistorical)
+  { id: 'historical', label: 'היסטוריות (QC)', icon: '🗄️', statuses: [] },
 ];
 
 const QA_VIEWS = [
@@ -92,6 +94,7 @@ const QH_VIEWS = [
 ];
 
 function versionGroup(v: any): string {
+  if (v.isQcHistorical) return 'historical';
   if (v.isArchived) return 'archived';
   // Prefer the cross-module lifecycle phase (backend: version-lifecycle.ts);
   // fall back to the deployment-night status when it isn't present.
@@ -144,7 +147,7 @@ export const Sidebar: React.FC<Props> = ({
   const [hoveredVer, setHoveredVer] = useState<string | null>(null);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
 
-  const grouped: Record<string, any[]> = { active: [], planning: [], closed: [], archived: [] };
+  const grouped: Record<string, any[]> = Object.fromEntries(GROUPS.map(g => [g.id, [] as any[]]));
   for (const v of versions) grouped[versionGroup(v)].push(v);
 
   const toggle = (id: string) => setOpen(prev => ({ ...prev, [id]: !prev[id] }));

@@ -232,6 +232,12 @@ model Version {
   // never migrated — per explicit product decision, only new versions get
   // the new behavior.
   datesLockedToWorkPlan Boolean       @default(false)
+  // Opened on demand from a QC release that was never run through
+  // DeployCenter ("עיון בגרסאות QC" → "פתח כגרסה", 2026-10-01). Always
+  // COMPLETED; QC-sourced screens (defects, cycle progress, coverage) read
+  // real data via qcRelease, DeployCenter-only data (work plan, risks,
+  // runbook, night) simply doesn't exist for it.
+  isQcHistorical        Boolean       @default(false)
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
 
