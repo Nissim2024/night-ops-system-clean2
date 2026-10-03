@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
+import { BackLink } from '../ui';
 import { KpiDetailView } from './KpiDetailView';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -73,9 +74,9 @@ function StackedBar({ relativeScorePct }: { relativeScorePct: number | null }) {
   );
 }
 
-interface Props { token: string; role: string; initialRelease?: string; }
+interface Props { token: string; role: string; initialRelease?: string; onBackToOverview?: (releaseName: string) => void; }
 
-export const KpiMatrixView: React.FC<Props> = ({ token, role, initialRelease }) => {
+export const KpiMatrixView: React.FC<Props> = ({ token, role, initialRelease, onBackToOverview }) => {
   const headers = { Authorization: `Bearer ${token}` };
   const [releases, setReleases] = useState<ReleaseSummary[]>([]);
   const [selected, setSelected] = useState<string>('');
@@ -164,6 +165,10 @@ export const KpiMatrixView: React.FC<Props> = ({ token, role, initialRelease }) 
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Back to the Overview of the release picked here (user ask 2026-10-03). */}
+      {onBackToOverview && selected && (
+        <BackLink onClick={() => onBackToOverview(selected)} label={`חזרה לסקירה — ${selected}`} />
+      )}
       <div className="flex justify-between items-center flex-wrap gap-2">
         <div className="text-lg font-bold text-foreground">📊 מטריצת KPI</div>
         <div className="flex gap-2 items-center">

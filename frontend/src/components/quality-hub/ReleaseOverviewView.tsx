@@ -99,9 +99,9 @@ function ScoreBarChart({ points, selected, targetScore, onSelectRelease }: { poi
   );
 }
 
-interface Props { token: string; role: string; onSelectRelease?: (releaseName: string) => void; }
+interface Props { token: string; role: string; onSelectRelease?: (releaseName: string) => void; initialRelease?: string; }
 
-export const ReleaseOverviewView: React.FC<Props> = ({ token, onSelectRelease }) => {
+export const ReleaseOverviewView: React.FC<Props> = ({ token, onSelectRelease, initialRelease }) => {
   const headers = { Authorization: `Bearer ${token}` };
   const [releases, setReleases] = useState<ReleaseSummary[]>([]);
   const [selected, setSelected] = useState<string>('');
@@ -114,7 +114,10 @@ export const ReleaseOverviewView: React.FC<Props> = ({ token, onSelectRelease })
     axios.get(`${API}/quality-hub/releases`, { headers })
       .then(res => {
         setReleases(res.data);
-        if (res.data.length > 0) setSelected(res.data[0].releaseName);
+        if (res.data.length > 0) {
+          const wanted = initialRelease && res.data.some((r: ReleaseSummary) => r.releaseName === initialRelease) ? initialRelease : res.data[0].releaseName;
+          setSelected(wanted);
+        }
       })
       .catch(() => setReleases([]));
   // eslint-disable-next-line react-hooks/exhaustive-deps

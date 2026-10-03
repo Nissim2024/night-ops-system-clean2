@@ -5,7 +5,7 @@ import { cn } from '../../lib/utils';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
-interface ReleaseSummary { releaseName: string; totalScore: number; year: number | null; }
+interface ReleaseSummary { releaseName: string; totalScore: number; year: number | null; inProduction: boolean; }
 interface KpiDef { kpiName: string; kpiOrder: number; }
 interface TimelinePoint { releaseName: string; value: number | null; }
 interface TimelineData { metric: string; points: TimelinePoint[]; }
@@ -146,10 +146,23 @@ export const ReleaseQualityTimelineView: React.FC<Props> = ({ token }) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
+  // Only versions already in production (user ask 2026-10-03) — the bars
+  // themselves are filtered server-side the same way.
+  const productionReleases = useMemo(() => releases.filter(r => r.inProduction), [releases]);
   const years = useMemo(() => {
-    const s = new Set(releases.map(r => r.year).filter((y): y is number => y != null));
+    const s = new Set(productionReleases.map(r => r.year).filter((y): y is number => y != null));
     return Array.from(s).sort((a, b) => b - a);
-  }, [releases]);
+  }, [productionReleases]);
+  // Picking years narrows the specific-version list to those years, so a
+  // specific version can be chosen from within them.
+  const releaseOptions = useMemo(
+    () => selectedYears.length ? productionReleases.filter(r => r.year != null && selectedYears.includes(r.year)) : productionReleases,
+    [productionReleases, selectedYears],
+  );
+  useEffect(() => {
+    const allowed = new Set(releaseOptions.map(r => r.releaseName));
+    setSelectedReleases(prev => prev.every(n => allowed.has(n)) ? prev : prev.filter(n => allowed.has(n)));
+  }, [releaseOptions]);
   const YEARS_VISIBLE_DEFAULT = 6;
   const hasMoreYears = years.length > YEARS_VISIBLE_DEFAULT;
   const visibleYears = showAllYears ? years : years.slice(0, YEARS_VISIBLE_DEFAULT);
@@ -220,9 +233,14 @@ export const ReleaseQualityTimelineView: React.FC<Props> = ({ token }) => {
           )}
         </div>
         <div className="min-w-[280px] max-h-[200px] flex-1 overflow-y-auto rounded-lg border border-border bg-card p-3">
-          <div className="mb-2 text-xs text-subtle-foreground">או בחר גרסאות ספציפיות</div>
+          <div className="mb-2 text-xs text-subtle-foreground">
+            {selectedYears.length > 0
+              ? `בחר גרסאות ספציפיות מתוך ${[...selectedYears].sort((a, b) => b - a).join(', ')}`
+              : 'או בחר גרסאות ספציפיות'}
+            <span className="ms-1">· גרסאות בייצור בלבד</span>
+          </div>
           <div className="flex flex-wrap gap-x-3 gap-y-1">
-            {releases.map(r => (
+            {releaseOptions.map(r => (
               <label key={r.releaseName} className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap text-sm">
                 <input type="checkbox" checked={selectedReleases.includes(r.releaseName)} onChange={() => toggleRelease(r.releaseName)} />
                 {r.releaseName}

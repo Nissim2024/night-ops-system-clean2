@@ -58,6 +58,9 @@ export interface ReleaseSummary {
   releaseName: string;
   totalScore: number; // 0-100
   year: number | null;
+  // Already deployed to production (user ask 2026-10-03: the score bar
+  // charts show only released versions) — see productionStatusByName().
+  inProduction: boolean;
 }
 
 // Same prompt-construction style as incidents.service.ts's buildAnalyzePrompt
@@ -249,13 +252,38 @@ export class QualityHubService {
     for (const r of rows) {
       byRelease.set(r.releaseName, (byRelease.get(r.releaseName) ?? 0) + (r.calcScore ?? 0));
     }
+    const inProd = await this.productionStatusByName(Array.from(byRelease.keys()));
     const releases: ReleaseSummary[] = Array.from(byRelease.entries()).map(([releaseName, totalFraction]) => ({
       releaseName,
       totalScore: pct(totalFraction) ?? 0,
       year: parseReleaseName(releaseName)?.year ?? null,
+      inProduction: inProd.get(releaseName) ?? true,
     }));
     releases.sort((a, b) => compareReleasesDesc(a.releaseName, b.releaseName));
     return releases;
+  }
+
+  // "In production" per release name: a local Version whose night actually
+  // ran (ACTIVE / MORNING_AFTER / COMPLETED) or a historical QC version;
+  // otherwise the QC release's go-live date having passed; neither known →
+  // true (old releases that only exist as imported KPI scores already went live).
+  private async productionStatusByName(names: string[]): Promise<Map<string, boolean>> {
+    const [versions, qcReleases] = await Promise.all([
+      prisma.version.findMany({ where: { name: { in: names } }, select: { name: true, status: true, isQcHistorical: true } }),
+      prisma.qcRelease.findMany({ where: { relName: { in: names } }, select: { relName: true, goLiveDate: true } }),
+    ]);
+    const LIVE = new Set(['ACTIVE', 'MORNING_AFTER', 'COMPLETED']);
+    const now = Date.now();
+    const map = new Map<string, boolean>();
+    for (const q of qcReleases) if (q.goLiveDate) map.set(q.relName, q.goLiveDate.getTime() <= now);
+    // A local Version is the stronger signal — it overrides the QC date.
+    const byVersion = new Map<string, boolean>();
+    for (const v of versions) {
+      const live = v.isQcHistorical || LIVE.has(v.status);
+      byVersion.set(v.name, (byVersion.get(v.name) ?? false) || live);
+    }
+    for (const [name, live] of byVersion) map.set(name, live);
+    return map;
   }
 
   getKpiDefinitions() {
@@ -368,7 +396,7 @@ export class QualityHubService {
 
   async getTimeline(opts: { releaseNames?: string[]; years?: number[]; kpiName?: string; valueField?: 'relativeScore' | 'grade' }) {
     const allReleases = await this.getReleases();
-    let filtered = allReleases;
+    let filtered = allReleases.filter(r => r.inProduction);
     if (opts.releaseNames?.length) {
       const set = new Set(opts.releaseNames);
       filtered = filtered.filter(r => set.has(r.releaseName));
@@ -414,7 +442,7 @@ export class QualityHubService {
   // No filter given → defaults to the most recent 12 releases (the deck's rolling window).
   async getOverviewChart(opts: { releaseNames?: string[]; years?: number[]; count?: number } = {}) {
     const allReleases = await this.getReleases();
-    let filtered = allReleases;
+    let filtered = allReleases.filter(r => r.inProduction);
     if (opts.releaseNames?.length) {
       const set = new Set(opts.releaseNames);
       filtered = filtered.filter(r => set.has(r.releaseName));

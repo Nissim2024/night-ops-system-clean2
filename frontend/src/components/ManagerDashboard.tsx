@@ -870,11 +870,15 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
             <ReleaseOverviewView
               token={token}
               role={payload.role}
+              initialRelease={qhKpiMatrixRelease}
               onSelectRelease={(releaseName) => { setQhKpiMatrixRelease(releaseName); setActiveQhView('kpi-matrix'); }}
             />
           )}
           {activeModule === 'quality-hub' && activeQhView === 'kpi-matrix' && (
-            <KpiMatrixView token={token} role={payload.role} initialRelease={qhKpiMatrixRelease} />
+            <KpiMatrixView
+              token={token} role={payload.role} initialRelease={qhKpiMatrixRelease}
+              onBackToOverview={(releaseName) => { setQhKpiMatrixRelease(releaseName); setActiveQhView('overview'); }}
+            />
           )}
           {activeModule === 'quality-hub' && activeQhView === 'comparison' && (
             <ReleaseComparisonView token={token} role={payload.role} />
