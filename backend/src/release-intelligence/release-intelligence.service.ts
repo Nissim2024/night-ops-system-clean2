@@ -175,13 +175,27 @@ function qcCycleNameToCycleType(realCycleName: string): string {
 // Drill-down filters for the Defects and Reopen Analysis screens — mirror
 // buildDefectsBreakdown/buildReopenAnalysis exactly. Shared by the versionId
 // and relId (historical release) drill-down paths.
+// Responsibility (BG_USER_03) = the team handling the defect — can hold several
+// teams joined by ';'. Assigned To (BG_RESPONSIBLE) is a PERSON (QC login),
+// never a team (user-confirmed 2026-10-03) — so every "by team" grouping and
+// its drill-down goes through this, not assignedTo.
+function responsibilityTeams(d: DefectDto): string[] {
+  const teams = (d.responsibility ?? '').split(';').map(t => t.trim()).filter(Boolean);
+  return teams.length > 0 ? teams : ['ללא סיווג'];
+}
+function groupByTeam(items: DefectDto[]) {
+  const counts = new Map<string, number>();
+  for (const d of items) for (const t of responsibilityTeams(d)) counts.set(t, (counts.get(t) ?? 0) + 1);
+  return Array.from(counts.entries()).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
+}
+
 function filterDefectsBreakdownOrReopen(defects: DefectDto[], screen: 'defects' | 'reopen-analysis', filter: string, value?: string): DefectDto[] {
   if (screen === 'reopen-analysis') {
     const reopen = defects.filter(d => d.status === 'Reopen');
     if (filter === 'reopenAll') return reopen;
     if (filter === 'reopenCritical') return reopen.filter(d => CRITICAL_SEVERITIES.includes(d.severity));
     if (filter === 'reopenProduction') return reopen.filter(d => (d.environment || '').toLowerCase().includes('prod'));
-    if (filter === 'reopenTeam') return reopen.filter(d => (d.assignedTo || 'ללא סיווג') === value);
+    if (filter === 'reopenTeam') return reopen.filter(d => responsibilityTeams(d).includes(value ?? ''));
     return [];
   }
   const open = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
@@ -195,7 +209,7 @@ function filterDefectsBreakdownOrReopen(defects: DefectDto[], screen: 'defects' 
   }
   if (filter === 'severity') return open.filter(d => (d.severity || 'ללא סיווג') === value);
   if (filter === 'status') return defects.filter(d => (d.status || 'ללא סיווג') === value);
-  if (filter === 'team') return open.filter(d => (d.assignedTo || 'ללא סיווג') === value);
+  if (filter === 'team') return open.filter(d => responsibilityTeams(d).includes(value ?? ''));
   if (filter === 'project') return open.filter(d => (d.system || 'ללא סיווג') === value);
   // Open defects deferred to a later release (BG_TARGET_REL set) — excluded
   // from the Home open-defects count, listed here (spec 2026-09-07 §1).
@@ -2191,9 +2205,8 @@ export class ReleaseIntelligenceService {
   }
 
   // ── Defects — spec section 15 ────────────────────────────────────────────────
-  // "By Vendor" has no distinct backing field on DefectDto in this data model
-  // — aliased to the same assignedTo grouping as "By Team" (documented
-  // simplification, same precedent as Coverage/Pass-Rate elsewhere in this module).
+  // "By Team" groups by Responsibility (BG_USER_03, the handling team) — see
+  // responsibilityTeams(); Assigned To is a person, not a team.
   async getDefectsBreakdown(versionId: string) {
     const defects = await this.qcService.getDefects(versionId).catch((): DefectDto[] => []);
     return this.buildDefectsBreakdown(defects);
@@ -2228,7 +2241,7 @@ export class ReleaseIntelligenceService {
       kpis: { open: open.length, fixed: fixed.length, closed: closed.length, rejected: rejected.length, reopen: reopen.length },
       bySeverity: groupCount(open, d => d.severity),
       byStatus: groupCount(defects, d => d.status),
-      byTeam: groupCount(open, d => d.assignedTo),
+      byTeam: groupByTeam(open),
       byProject: groupCount(open, d => d.system),
     };
   }
@@ -2329,7 +2342,7 @@ export class ReleaseIntelligenceService {
       }
       return Array.from(counts.entries()).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
     };
-    const byTeam = groupCount(reopen, d => d.assignedTo);
+    const byTeam = groupByTeam(reopen);
 
     const dailyCounts = new Map<string, number>();
     for (const d of reopen) {

@@ -1,6 +1,6 @@
 import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { QcService, TargetDefectDto } from '../qc/qc.service';
+import { QcService, TargetDefectDto, getQcUserDirectory } from '../qc/qc.service';
 import { CrPlansService } from '../cr-plans/cr-plans.service';
 import { TARGET_CR_PATTERN } from '../common/team-columns';
 
@@ -139,7 +139,8 @@ export class TargetCrService {
   // ── Self-scoped: a QA tester's own defect-reporting stats ───────────────────
   // "Defects I reported" — filtered by Oracle's BG_DETECTED_BY (the person who
   // found/logged the bug), a different field from BG_USER_37/qaTester (TARGET
-  // defect assignment) and BG_RESPONSIBLE/assignedTo (team queue). Confirmed
+  // defect assignment) and BG_RESPONSIBLE/assignedTo (the person the fix is
+  // assigned to — the handling team is BG_USER_03/responsibility). Confirmed
   // with the user (2026-07-24):
   //   - "Fixed_Test" = fixed by dev, waiting for the tester to verify/retest.
   //   - "too few defects" threshold = sum of each assigned CR's own dev-effort
@@ -374,11 +375,20 @@ export class TargetCrService {
       }
     }
     if (logins.size === 0) return {};
-    const users = await prisma.user.findMany({
-      where: { qcLogin: { in: Array.from(logins), mode: 'insensitive' } },
-      select: { qcLogin: true, fullName: true },
-    });
+    const [users, directory] = await Promise.all([
+      prisma.user.findMany({
+        where: { qcLogin: { in: Array.from(logins), mode: 'insensitive' } },
+        select: { qcLogin: true, fullName: true },
+      }),
+      getQcUserDirectory(),
+    ]);
+    // QC's own user directory covers people with no DeployCenter account
+    // (2026-10-03); a DeployCenter account's name still wins.
     const map: Record<string, string> = {};
+    for (const login of logins) {
+      const name = directory.get(login);
+      if (name) map[login] = name;
+    }
     for (const u of users) {
       if (u.qcLogin) map[u.qcLogin.toLowerCase()] = u.fullName;
     }

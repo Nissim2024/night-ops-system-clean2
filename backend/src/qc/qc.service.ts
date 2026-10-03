@@ -167,7 +167,7 @@ export interface CrItemDto {
 export interface TargetDefectDto {
   id: string;                    // BG_BUG_ID
   assignedTo: string;            // BG_RESPONSIBLE
-  qaTester: string;              // BG_USER_37 — the specific QA tester this TARGET defect belongs to (distinct from assignedTo/BG_RESPONSIBLE, which is a team/queue, not a person)
+  qaTester: string;              // BG_USER_37 — the specific QA tester this TARGET defect belongs to (distinct from assignedTo/BG_RESPONSIBLE = the person the fix is assigned to; the handling TEAM is responsibility/BG_USER_03 — user-confirmed 2026-10-03)
   crReferenceNumber: string;     // BG_USER_58
   system: string;                // BG_PROJECT — the "area"/system a defect belongs to, used for the version-management overview's by-area treemap
   title: string;                 // BG_SUMMARY || BG_SUBJECT
@@ -887,7 +887,7 @@ const NEW_VS_TARGET_DEFECTS_SQL = `
 // rather than in SQL, since row counts per release are small (~100-500).
 // Defects for one CR within one release, for the TARGET-CR gate screen —
 // team-name matching happens in JS (computeTargetDefects) since Oracle's
-// BG_RESPONSIBLE free text ("CRM Team", "NETC-DT team"...) doesn't map
+// BG_USER_03 / Responsibility free text ("CRM Team", "NETC-DT team"...) doesn't map
 // cleanly to a SQL-side equality/LIKE against our own Team.name values.
 // Scoped by release only — a TARGET CR is a catch-all for a team's release
 // defects, not a single feature tied to one CR number, so BG_USER_58 (the
@@ -1649,7 +1649,7 @@ const EMPTY_EXTENDED_DEFECT_FIELDS = {
 const MOCK_DEFECTS: DefectDto[] = [
   {
     ...EMPTY_EXTENDED_DEFECT_FIELDS,
-    id: '7727', assignedTo: 'NC Team', system: 'NC', title: 'רשומות כפולות בממשק בנקים',
+    id: '7727', assignedTo: 'odelyac', system: 'NC', title: 'רשומות כפולות בממשק בנקים',
     description: 'בממשק הבנקים נוצרו רשומות כפולות עבור אותו לקוח.',
     reproducible: 'Y', severity: 'Severe', priority: 'High', reporter: 'innad',
     discoveryDate: '22/02/2011', environment: 'NC-Prod', status: 'Open',
@@ -1658,7 +1658,7 @@ const MOCK_DEFECTS: DefectDto[] = [
   },
   {
     ...EMPTY_EXTENDED_DEFECT_FIELDS,
-    id: '8247', assignedTo: 'CRM Team', system: 'NC', title: 'רישום כפול של אירוע אישור הוראת קבע ב-CRM',
+    id: '8247', assignedTo: 'maamona', system: 'NC', title: 'רישום כפול של אירוע אישור הוראת קבע ב-CRM',
     description: 'בעת קליטת אישור הוראת קבע מהבנק נרשמים מספר אירועים ב-CRM.',
     reproducible: 'Y', severity: 'Low', priority: 'Medium', reporter: 'avia',
     discoveryDate: '05/04/2011', environment: 'Crm Prod', status: 'Canceled',
@@ -1667,7 +1667,7 @@ const MOCK_DEFECTS: DefectDto[] = [
   },
   {
     ...EMPTY_EXTENDED_DEFECT_FIELDS,
-    id: '7884', assignedTo: 'NC Team', system: 'ISPIT', title: 'קובץ רענונים של HotNet נוצר ריק',
+    id: '7884', assignedTo: 'yossif', system: 'ISPIT', title: 'קובץ רענונים של HotNet נוצר ריק',
     description: 'תהליך יצירת קובץ הרענונים הסתיים בהצלחה אך הקובץ שנוצר היה ריק.',
     reproducible: 'Y', severity: 'Show Stopper', priority: 'Low', reporter: 'avia',
     discoveryDate: '08/03/2011', environment: 'NC-Mig-Prod', status: 'Open',
@@ -1676,7 +1676,7 @@ const MOCK_DEFECTS: DefectDto[] = [
   },
   {
     ...EMPTY_EXTENDED_DEFECT_FIELDS,
-    id: '12697', assignedTo: 'SSO Team', system: 'SSO', title: 'לא נשלח מייל לאחר הסרה מרשימת דיוור',
+    id: '12697', assignedTo: 'annal', system: 'SSO', title: 'לא נשלח מייל לאחר הסרה מרשימת דיוור',
     description: 'משתמש לא קיבל מייל אישור לאחר סימון הסרה מרשימת הדיוור.',
     reproducible: 'Y', severity: 'Severe', priority: 'High', reporter: 'vladimirs',
     discoveryDate: '22/05/2012', environment: 'MY HOT Test', status: 'Open',
@@ -1954,7 +1954,8 @@ function buildMockTargetDefects(crNumber: string, releaseName?: string): TargetD
   ];
   return Array.from({ length: 6 }, (_, i) => ({
     id: String(1000 + i),
-    assignedTo: teams[i % teams.length],
+    // Assigned To = a person's QC login; the team lives in responsibility.
+    assignedTo: ['yossif', 'annal', 'idany', 'hsupport', 'shaul', 'evanar'][i % 6],
     qaTester: testers[i % testers.length],
     crReferenceNumber: `${crNumber} - TARGET`,
     system: systems[i % systems.length],
@@ -2085,33 +2086,33 @@ interface BugRawRow {
 // has something to show in dev. RESPONSIBILITY_U3 (BG_USER_03) is the
 // department/group field, distinct from BG_RESPONSIBLE (ASSIGNED_TO).
 const MOCK_BUG_ROWS: BugRawRow[] = [
-  { DEFECT_ID: 1, ASSIGNED_TO: 'CRM Team',     RESPONSIBILITY_U3: 'פיתוח',   DEFECT_STATUS: 'Open',     DEFECT_TYPE: 'Functional',      CATEGORY_REF: 'HBR-13057',   CR_REFERENCE_NUMBER: '13057 - חיוב תחזוקה בפרוקסי כ',   TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-14', SEVERITY: 'Severe' },
-  { DEFECT_ID: 2, ASSIGNED_TO: 'CRM Team',     RESPONSIBILITY_U3: 'פיתוח',   DEFECT_STATUS: 'At Work',  DEFECT_TYPE: 'Functional',      CATEGORY_REF: 'HBR-13036',   CR_REFERENCE_NUMBER: '13036 - נתונת דאשת הספסק ד',       TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-21', SEVERITY: 'Medium' },
-  { DEFECT_ID: 3, ASSIGNED_TO: 'Website HOT',  RESPONSIBILITY_U3: 'תשתיות',  DEFECT_STATUS: 'Fixed_Dev',DEFECT_TYPE: 'Setup',           CATEGORY_REF: 'HBR-13052',   CR_REFERENCE_NUMBER: '13052 - HBO ניתוח ם',              TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-24', SEVERITY: 'Low' },
-  { DEFECT_ID: 4, ASSIGNED_TO: 'SHOB Dev Team',RESPONSIBILITY_U3: 'פיתוח',   DEFECT_STATUS: 'Pending',  DEFECT_TYPE: 'Setup',           CATEGORY_REF: 'HBR-13054',   CR_REFERENCE_NUMBER: '13054 - שיפור התהליך רץ פי',        TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-25', SEVERITY: 'Show Stopper' },
-  { DEFECT_ID: 5, ASSIGNED_TO: 'HOT Design Team', RESPONSIBILITY_U3: 'ספק',  DEFECT_STATUS: 'Rejected', DEFECT_TYPE: 'Change Requests', CATEGORY_REF: 'HBR-13084',   CR_REFERENCE_NUMBER: '13084 - (לעמק) ONT תחיקה ב',        TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-28', SEVERITY: 'Medium' },
-  { DEFECT_ID: 6, ASSIGNED_TO: 'HOT Setup Team', RESPONSIBILITY_U3: 'תשתיות', DEFECT_STATUS: 'Open',   DEFECT_TYPE: 'Change Requests', CATEGORY_REF: 'HBR-13118',   CR_REFERENCE_NUMBER: '13118 - כתובת 2 ד תיוב סוב',        TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-29', SEVERITY: 'Low' },
-  { DEFECT_ID: 7, ASSIGNED_TO: 'BEZEQ',        RESPONSIBILITY_U3: 'ספק',     DEFECT_STATUS: 'Canceled', DEFECT_TYPE: 'GUI',             CATEGORY_REF: 'HBR-13131',   CR_REFERENCE_NUMBER: '13131 - ניתוח קדים ל',              TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-30', SEVERITY: 'Low' },
-  { DEFECT_ID: 8, ASSIGNED_TO: 'ETL Team',     RESPONSIBILITY_U3: 'פיתוח',   DEFECT_STATUS: 'Canceled', DEFECT_TYPE: 'DB Issue',        CATEGORY_REF: 'HBR-13048',   CR_REFERENCE_NUMBER: '13048 - שולוגיאתו לק',              TARGET_REL: '374', DETECTED_ON_DATE: '2026-07-01', SEVERITY: 'Medium' },
-  { DEFECT_ID: 9, ASSIGNED_TO: 'Marketing Web',RESPONSIBILITY_U3: 'ניהול',   DEFECT_STATUS: 'Fixed_Test', DEFECT_TYPE: 'Design',        CATEGORY_REF: 'HBR-13075',   CR_REFERENCE_NUMBER: '13075 - CRM General Production',   TARGET_REL: '374', DETECTED_ON_DATE: '2026-07-02', SEVERITY: 'Low' },
-  { DEFECT_ID: 10, ASSIGNED_TO: 'NETC-DT team', RESPONSIBILITY_U3: 'בדיקות', DEFECT_STATUS: 'Reopen',  DEFECT_TYPE: 'Environment Issue', CATEGORY_REF: 'HBR-13131',  CR_REFERENCE_NUMBER: '13131 - Regression',               TARGET_REL: '374', DETECTED_ON_DATE: '2026-07-05', SEVERITY: 'Severe' },
-  { DEFECT_ID: 11, ASSIGNED_TO: 'Project Manager', RESPONSIBILITY_U3: 'ניהול', DEFECT_STATUS: 'Reopen', DEFECT_TYPE: 'Functional',   CATEGORY_REF: 'HBR-13057',   CR_REFERENCE_NUMBER: '13057 - חיוב תחזוקה בפרוקסי כ',   TARGET_REL: '374', DETECTED_ON_DATE: '2026-07-06', SEVERITY: 'Show Stopper' },
-  { DEFECT_ID: 12, ASSIGNED_TO: 'CRM Team',    RESPONSIBILITY_U3: 'פיתוח',   DEFECT_STATUS: 'Open',     DEFECT_TYPE: 'Functional',      CATEGORY_REF: 'Production',  CR_REFERENCE_NUMBER: '13036 - נתונת דאשת הספסק ד',       TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-17', SEVERITY: 'Severe' },
-  { DEFECT_ID: 13, ASSIGNED_TO: 'HOT Design Team', RESPONSIBILITY_U3: 'תשתיות', DEFECT_STATUS: 'At Work', DEFECT_TYPE: 'Setup',       CATEGORY_REF: 'Production',  CR_REFERENCE_NUMBER: '13052 - HBO ניתוח ם',              TARGET_REL: null,  DETECTED_ON_DATE: '2026-06-20', SEVERITY: 'Low' },
-  { DEFECT_ID: 14, ASSIGNED_TO: 'HOT Setup Team', RESPONSIBILITY_U3: 'תשתיות', DEFECT_STATUS: 'Fixed_Dev', DEFECT_TYPE: 'GUI',        CATEGORY_REF: 'Production',  CR_REFERENCE_NUMBER: '13084 - (לעמק) ONT תחיקה ב',        TARGET_REL: null,  DETECTED_ON_DATE: '2026-06-23', SEVERITY: 'Medium' },
-  { DEFECT_ID: 15, ASSIGNED_TO: 'CRM Team',    RESPONSIBILITY_U3: 'בדיקות',  DEFECT_STATUS: 'Open',     DEFECT_TYPE: 'Functional',      CATEGORY_REF: 'Regression',  CR_REFERENCE_NUMBER: '13131 - Regression',               TARGET_REL: null,  DETECTED_ON_DATE: '2026-06-26', SEVERITY: 'Show Stopper' },
-  { DEFECT_ID: 16, ASSIGNED_TO: 'NETC-DT team', RESPONSIBILITY_U3: 'בדיקות', DEFECT_STATUS: 'At Work', DEFECT_TYPE: 'Environment Issue', CATEGORY_REF: 'Regression', CR_REFERENCE_NUMBER: '13048 - שולוגיאתו לק',           TARGET_REL: null,  DETECTED_ON_DATE: '2026-06-27', SEVERITY: 'Medium' },
-  { DEFECT_ID: 17, ASSIGNED_TO: 'HOT Design Team', RESPONSIBILITY_U3: 'ספק', DEFECT_STATUS: 'Fixed_Dev', DEFECT_TYPE: 'Change Requests', CATEGORY_REF: 'Regression', CR_REFERENCE_NUMBER: '13140 - שולוגיאתו',       TARGET_REL: null,  DETECTED_ON_DATE: '2026-07-01', SEVERITY: 'Low' },
-  { DEFECT_ID: 18, ASSIGNED_TO: 'CRM Team',    RESPONSIBILITY_U3: 'פיתוח',   DEFECT_STATUS: 'Closed',   DEFECT_TYPE: 'Functional',      CATEGORY_REF: 'HBR-13036',   CR_REFERENCE_NUMBER: '13036 - נתונת דאשת הספסק ד',       TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-14', SEVERITY: 'Severe' },
+  { DEFECT_ID: 1, ASSIGNED_TO: 'yossif',     RESPONSIBILITY_U3: 'CRM Team',   DEFECT_STATUS: 'Open',     DEFECT_TYPE: 'Functional',      CATEGORY_REF: 'HBR-13057',   CR_REFERENCE_NUMBER: '13057 - חיוב תחזוקה בפרוקסי כ',   TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-14', SEVERITY: 'Severe' },
+  { DEFECT_ID: 2, ASSIGNED_TO: 'annal',     RESPONSIBILITY_U3: 'CRM Team',   DEFECT_STATUS: 'At Work',  DEFECT_TYPE: 'Functional',      CATEGORY_REF: 'HBR-13036',   CR_REFERENCE_NUMBER: '13036 - נתונת דאשת הספסק ד',       TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-21', SEVERITY: 'Medium' },
+  { DEFECT_ID: 3, ASSIGNED_TO: 'idany',  RESPONSIBILITY_U3: 'Website HOT',  DEFECT_STATUS: 'Fixed_Dev',DEFECT_TYPE: 'Setup',           CATEGORY_REF: 'HBR-13052',   CR_REFERENCE_NUMBER: '13052 - HBO ניתוח ם',              TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-24', SEVERITY: 'Low' },
+  { DEFECT_ID: 4, ASSIGNED_TO: 'shaul',RESPONSIBILITY_U3: 'SHOB Dev Team',   DEFECT_STATUS: 'Pending',  DEFECT_TYPE: 'Setup',           CATEGORY_REF: 'HBR-13054',   CR_REFERENCE_NUMBER: '13054 - שיפור התהליך רץ פי',        TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-25', SEVERITY: 'Show Stopper' },
+  { DEFECT_ID: 5, ASSIGNED_TO: 'evanar', RESPONSIBILITY_U3: 'HOT Design Team',  DEFECT_STATUS: 'Rejected', DEFECT_TYPE: 'Change Requests', CATEGORY_REF: 'HBR-13084',   CR_REFERENCE_NUMBER: '13084 - (לעמק) ONT תחיקה ב',        TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-28', SEVERITY: 'Medium' },
+  { DEFECT_ID: 6, ASSIGNED_TO: 'hsupport', RESPONSIBILITY_U3: 'HOT Setup Team', DEFECT_STATUS: 'Open',   DEFECT_TYPE: 'Change Requests', CATEGORY_REF: 'HBR-13118',   CR_REFERENCE_NUMBER: '13118 - כתובת 2 ד תיוב סוב',        TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-29', SEVERITY: 'Low' },
+  { DEFECT_ID: 7, ASSIGNED_TO: 'odelyac',        RESPONSIBILITY_U3: 'BEZEQ',     DEFECT_STATUS: 'Canceled', DEFECT_TYPE: 'GUI',             CATEGORY_REF: 'HBR-13131',   CR_REFERENCE_NUMBER: '13131 - ניתוח קדים ל',              TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-30', SEVERITY: 'Low' },
+  { DEFECT_ID: 8, ASSIGNED_TO: 'maamona',     RESPONSIBILITY_U3: 'ETL Team',   DEFECT_STATUS: 'Canceled', DEFECT_TYPE: 'DB Issue',        CATEGORY_REF: 'HBR-13048',   CR_REFERENCE_NUMBER: '13048 - שולוגיאתו לק',              TARGET_REL: '374', DETECTED_ON_DATE: '2026-07-01', SEVERITY: 'Medium' },
+  { DEFECT_ID: 9, ASSIGNED_TO: 'yossif',RESPONSIBILITY_U3: 'Marketing Web',   DEFECT_STATUS: 'Fixed_Test', DEFECT_TYPE: 'Design',        CATEGORY_REF: 'HBR-13075',   CR_REFERENCE_NUMBER: '13075 - CRM General Production',   TARGET_REL: '374', DETECTED_ON_DATE: '2026-07-02', SEVERITY: 'Low' },
+  { DEFECT_ID: 10, ASSIGNED_TO: 'annal', RESPONSIBILITY_U3: 'NETC-DT team', DEFECT_STATUS: 'Reopen',  DEFECT_TYPE: 'Environment Issue', CATEGORY_REF: 'HBR-13131',  CR_REFERENCE_NUMBER: '13131 - Regression',               TARGET_REL: '374', DETECTED_ON_DATE: '2026-07-05', SEVERITY: 'Severe' },
+  { DEFECT_ID: 11, ASSIGNED_TO: 'idany', RESPONSIBILITY_U3: 'Project Manager', DEFECT_STATUS: 'Reopen', DEFECT_TYPE: 'Functional',   CATEGORY_REF: 'HBR-13057',   CR_REFERENCE_NUMBER: '13057 - חיוב תחזוקה בפרוקסי כ',   TARGET_REL: '374', DETECTED_ON_DATE: '2026-07-06', SEVERITY: 'Show Stopper' },
+  { DEFECT_ID: 12, ASSIGNED_TO: 'shaul',    RESPONSIBILITY_U3: 'CRM Team',   DEFECT_STATUS: 'Open',     DEFECT_TYPE: 'Functional',      CATEGORY_REF: 'Production',  CR_REFERENCE_NUMBER: '13036 - נתונת דאשת הספסק ד',       TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-17', SEVERITY: 'Severe' },
+  { DEFECT_ID: 13, ASSIGNED_TO: 'evanar', RESPONSIBILITY_U3: 'HOT Design Team', DEFECT_STATUS: 'At Work', DEFECT_TYPE: 'Setup',       CATEGORY_REF: 'Production',  CR_REFERENCE_NUMBER: '13052 - HBO ניתוח ם',              TARGET_REL: null,  DETECTED_ON_DATE: '2026-06-20', SEVERITY: 'Low' },
+  { DEFECT_ID: 14, ASSIGNED_TO: 'hsupport', RESPONSIBILITY_U3: 'HOT Setup Team', DEFECT_STATUS: 'Fixed_Dev', DEFECT_TYPE: 'GUI',        CATEGORY_REF: 'Production',  CR_REFERENCE_NUMBER: '13084 - (לעמק) ONT תחיקה ב',        TARGET_REL: null,  DETECTED_ON_DATE: '2026-06-23', SEVERITY: 'Medium' },
+  { DEFECT_ID: 15, ASSIGNED_TO: 'odelyac',    RESPONSIBILITY_U3: 'CRM Team',  DEFECT_STATUS: 'Open',     DEFECT_TYPE: 'Functional',      CATEGORY_REF: 'Regression',  CR_REFERENCE_NUMBER: '13131 - Regression',               TARGET_REL: null,  DETECTED_ON_DATE: '2026-06-26', SEVERITY: 'Show Stopper' },
+  { DEFECT_ID: 16, ASSIGNED_TO: 'maamona', RESPONSIBILITY_U3: 'NETC-DT team', DEFECT_STATUS: 'At Work', DEFECT_TYPE: 'Environment Issue', CATEGORY_REF: 'Regression', CR_REFERENCE_NUMBER: '13048 - שולוגיאתו לק',           TARGET_REL: null,  DETECTED_ON_DATE: '2026-06-27', SEVERITY: 'Medium' },
+  { DEFECT_ID: 17, ASSIGNED_TO: 'yossif', RESPONSIBILITY_U3: 'HOT Design Team', DEFECT_STATUS: 'Fixed_Dev', DEFECT_TYPE: 'Change Requests', CATEGORY_REF: 'Regression', CR_REFERENCE_NUMBER: '13140 - שולוגיאתו',       TARGET_REL: null,  DETECTED_ON_DATE: '2026-07-01', SEVERITY: 'Low' },
+  { DEFECT_ID: 18, ASSIGNED_TO: 'annal',    RESPONSIBILITY_U3: 'CRM Team',   DEFECT_STATUS: 'Closed',   DEFECT_TYPE: 'Functional',      CATEGORY_REF: 'HBR-13036',   CR_REFERENCE_NUMBER: '13036 - נתונת דאשת הספסק ד',       TARGET_REL: '374', DETECTED_ON_DATE: '2026-06-14', SEVERITY: 'Severe' },
 ];
 
 // TARGET card mock — defects "detected in an earlier release, targeted at this
 // one". Kept small; real Oracle mode uses BUG_DASHBOARD_TARGET_SQL.
 const MOCK_BUG_TARGET_ROWS: BugRawRow[] = [
-  { DEFECT_ID: 101, ASSIGNED_TO: 'CRM Team',   RESPONSIBILITY_U3: 'פיתוח',  DEFECT_STATUS: 'Open',      DEFECT_TYPE: 'Functional', CATEGORY_REF: 'HBR-12980', CR_REFERENCE_NUMBER: '12980 - תיקון גרסה קודמת', TARGET_REL: 'CURRENT', DETECTED_ON_DATE: '2026-04-11', SEVERITY: 'Severe' },
-  { DEFECT_ID: 102, ASSIGNED_TO: 'NC Team',    RESPONSIBILITY_U3: 'בדיקות', DEFECT_STATUS: 'Fixed_Test',DEFECT_TYPE: 'Setup',      CATEGORY_REF: 'HBR-12981', CR_REFERENCE_NUMBER: '12981 - העברת חוב', TARGET_REL: 'CURRENT', DETECTED_ON_DATE: '2026-04-22', SEVERITY: 'Medium' },
-  { DEFECT_ID: 103, ASSIGNED_TO: 'EAI Team',   RESPONSIBILITY_U3: 'תשתיות', DEFECT_STATUS: 'At Work',   DEFECT_TYPE: 'DB Issue',   CATEGORY_REF: 'HBR-12982', CR_REFERENCE_NUMBER: '12982 - ממשק בנקים', TARGET_REL: 'CURRENT', DETECTED_ON_DATE: '2026-05-03', SEVERITY: 'Show Stopper' },
-  { DEFECT_ID: 104, ASSIGNED_TO: 'CRM Team',   RESPONSIBILITY_U3: 'פיתוח',  DEFECT_STATUS: 'Closed',    DEFECT_TYPE: 'Functional', CATEGORY_REF: 'HBR-12983', CR_REFERENCE_NUMBER: '12983 - דוח חיובים', TARGET_REL: 'CURRENT', DETECTED_ON_DATE: '2026-05-19', SEVERITY: 'Low' },
+  { DEFECT_ID: 101, ASSIGNED_TO: 'idany',   RESPONSIBILITY_U3: 'CRM Team',  DEFECT_STATUS: 'Open',      DEFECT_TYPE: 'Functional', CATEGORY_REF: 'HBR-12980', CR_REFERENCE_NUMBER: '12980 - תיקון גרסה קודמת', TARGET_REL: 'CURRENT', DETECTED_ON_DATE: '2026-04-11', SEVERITY: 'Severe' },
+  { DEFECT_ID: 102, ASSIGNED_TO: 'shaul',    RESPONSIBILITY_U3: 'NC Team', DEFECT_STATUS: 'Fixed_Test',DEFECT_TYPE: 'Setup',      CATEGORY_REF: 'HBR-12981', CR_REFERENCE_NUMBER: '12981 - העברת חוב', TARGET_REL: 'CURRENT', DETECTED_ON_DATE: '2026-04-22', SEVERITY: 'Medium' },
+  { DEFECT_ID: 103, ASSIGNED_TO: 'evanar',   RESPONSIBILITY_U3: 'EAI Team', DEFECT_STATUS: 'At Work',   DEFECT_TYPE: 'DB Issue',   CATEGORY_REF: 'HBR-12982', CR_REFERENCE_NUMBER: '12982 - ממשק בנקים', TARGET_REL: 'CURRENT', DETECTED_ON_DATE: '2026-05-03', SEVERITY: 'Show Stopper' },
+  { DEFECT_ID: 104, ASSIGNED_TO: 'hsupport',   RESPONSIBILITY_U3: 'CRM Team',  DEFECT_STATUS: 'Closed',    DEFECT_TYPE: 'Functional', CATEGORY_REF: 'HBR-12983', CR_REFERENCE_NUMBER: '12983 - דוח חיובים', TARGET_REL: 'CURRENT', DETECTED_ON_DATE: '2026-05-19', SEVERITY: 'Low' },
 ];
 
 // ── Helper ────────────────────────────────────────────────────────────────────
@@ -2359,22 +2360,22 @@ function buildAllDefectsKpiSql(kpiKey: string, extraWhere = ''): string {
 // older BG_RESPONSIBLE comment elsewhere in this file describing a different,
 // team/queue-shaped usage of that same raw column in other queries.
 const MOCK_ALL_DEFECTS_ROWS: AllDefectsRawRow[] = [
-  { DEFECT_ID: 1,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Medium',       MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv02-2026', DETECTED_ON_DATE: '2026-03-11', ENVIRONMENT_COMPONENT: 'WEB' },
-  { DEFECT_ID: 2,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Low',          MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'תשתיות', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv02-2026', DETECTED_ON_DATE: '2026-03-19', ENVIRONMENT_COMPONENT: 'DB' },
-  { DEFECT_ID: 3,  DEFECT_STATUS: 'Canceled',  SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'בדיקות', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv03-2026', DETECTED_ON_DATE: '2026-04-08', ENVIRONMENT_COMPONENT: 'WEB' },
-  { DEFECT_ID: 4,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Severe',       MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'פיתוח', ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv03-2026', DETECTED_ON_DATE: '2026-04-22', ENVIRONMENT_COMPONENT: 'API' },
-  { DEFECT_ID: 5,  DEFECT_STATUS: 'Fixed_Test',SEVERITY: 'Show Stopper', MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'raviv',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv04-2026', DETECTED_ON_DATE: '2026-05-14', ENVIRONMENT_COMPONENT: 'APP' },
-  { DEFECT_ID: 6,  DEFECT_STATUS: 'Open',      SEVERITY: 'Medium',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv04-2026', DETECTED_ON_DATE: '2026-05-27', ENVIRONMENT_COMPONENT: 'IVR-PLATFORM' },
-  { DEFECT_ID: 7,  DEFECT_STATUS: 'Reopen',    SEVERITY: 'Severe',       MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'בדיקות', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv05-2026', DETECTED_ON_DATE: '2026-06-09', ENVIRONMENT_COMPONENT: 'DB' },
-  { DEFECT_ID: 8,  DEFECT_STATUS: 'At Work',   SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'raviv',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv05-2026', DETECTED_ON_DATE: '2026-06-18', ENVIRONMENT_COMPONENT: 'WEB' },
-  { DEFECT_ID: 9,  DEFECT_STATUS: 'Fixed_Dev', SEVERITY: 'Medium',       MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'ניהול', ASSIGNED_TO: 'mgabay',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-07-02', ENVIRONMENT_COMPONENT: 'API' },
-  { DEFECT_ID: 10, DEFECT_STATUS: 'Open',      SEVERITY: 'Show Stopper', MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-07-15', ENVIRONMENT_COMPONENT: 'APP' },
-  { DEFECT_ID: 11, DEFECT_STATUS: 'Open',      SEVERITY: 'Severe',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-08-05', ENVIRONMENT_COMPONENT: 'IVR-PLATFORM' },
-  { DEFECT_ID: 12, DEFECT_STATUS: 'Pending',   SEVERITY: 'Medium',       MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'בדיקות', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-08-21', ENVIRONMENT_COMPONENT: 'DB' },
-  { DEFECT_ID: 13, DEFECT_STATUS: 'Open',      SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'פיתוח',  ASSIGNED_TO: 'raviv',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv07-2026', DETECTED_ON_DATE: '2026-09-02', ENVIRONMENT_COMPONENT: 'WEB' },
-  { DEFECT_ID: 14, DEFECT_STATUS: 'Reopen',    SEVERITY: 'Show Stopper', MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'פיתוח', ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv07-2026', DETECTED_ON_DATE: '2026-09-10', ENVIRONMENT_COMPONENT: 'API' },
-  { DEFECT_ID: 15, DEFECT_STATUS: 'New',       SEVERITY: 'Medium',       MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'בדיקות', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv08-2026', DETECTED_ON_DATE: '2026-09-18', ENVIRONMENT_COMPONENT: 'APP' },
-  { DEFECT_ID: 16, DEFECT_STATUS: 'Open',      SEVERITY: 'Severe',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'תשתיות', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv08-2026', DETECTED_ON_DATE: '2026-09-20', ENVIRONMENT_COMPONENT: 'IVR-PLATFORM' },
+  { DEFECT_ID: 1,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Medium',       MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'CRM Team',  ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv02-2026', DETECTED_ON_DATE: '2026-03-11', ENVIRONMENT_COMPONENT: 'WEB' },
+  { DEFECT_ID: 2,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Low',          MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'NETC-DT team', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv02-2026', DETECTED_ON_DATE: '2026-03-19', ENVIRONMENT_COMPONENT: 'DB' },
+  { DEFECT_ID: 3,  DEFECT_STATUS: 'Canceled',  SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'OSS Team', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv03-2026', DETECTED_ON_DATE: '2026-04-08', ENVIRONMENT_COMPONENT: 'WEB' },
+  { DEFECT_ID: 4,  DEFECT_STATUS: 'Closed',    SEVERITY: 'Severe',       MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'CRM Team', ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv03-2026', DETECTED_ON_DATE: '2026-04-22', ENVIRONMENT_COMPONENT: 'API' },
+  { DEFECT_ID: 5,  DEFECT_STATUS: 'Fixed_Test',SEVERITY: 'Show Stopper', MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'CRM Team',  ASSIGNED_TO: 'raviv',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv04-2026', DETECTED_ON_DATE: '2026-05-14', ENVIRONMENT_COMPONENT: 'APP' },
+  { DEFECT_ID: 6,  DEFECT_STATUS: 'Open',      SEVERITY: 'Medium',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'NETC-DT team', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv04-2026', DETECTED_ON_DATE: '2026-05-27', ENVIRONMENT_COMPONENT: 'IVR-PLATFORM' },
+  { DEFECT_ID: 7,  DEFECT_STATUS: 'Reopen',    SEVERITY: 'Severe',       MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'OSS Team', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv05-2026', DETECTED_ON_DATE: '2026-06-09', ENVIRONMENT_COMPONENT: 'DB' },
+  { DEFECT_ID: 8,  DEFECT_STATUS: 'At Work',   SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'CRM Team',  ASSIGNED_TO: 'raviv',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv05-2026', DETECTED_ON_DATE: '2026-06-18', ENVIRONMENT_COMPONENT: 'WEB' },
+  { DEFECT_ID: 9,  DEFECT_STATUS: 'Fixed_Dev', SEVERITY: 'Medium',       MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'HOT Design Team', ASSIGNED_TO: 'mgabay',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-07-02', ENVIRONMENT_COMPONENT: 'API' },
+  { DEFECT_ID: 10, DEFECT_STATUS: 'Open',      SEVERITY: 'Show Stopper', MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'CRM Team',  ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-07-15', ENVIRONMENT_COMPONENT: 'APP' },
+  { DEFECT_ID: 11, DEFECT_STATUS: 'Open',      SEVERITY: 'Severe',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'NETC-DT team', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-08-05', ENVIRONMENT_COMPONENT: 'IVR-PLATFORM' },
+  { DEFECT_ID: 12, DEFECT_STATUS: 'Pending',   SEVERITY: 'Medium',       MAIN_MODULE: 'Billing',  RESPONSIBILITY: 'OSS Team', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv06-2026', DETECTED_ON_DATE: '2026-08-21', ENVIRONMENT_COMPONENT: 'DB' },
+  { DEFECT_ID: 13, DEFECT_STATUS: 'Open',      SEVERITY: 'Low',          MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'CRM Team',  ASSIGNED_TO: 'raviv',   REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv07-2026', DETECTED_ON_DATE: '2026-09-02', ENVIRONMENT_COMPONENT: 'WEB' },
+  { DEFECT_ID: 14, DEFECT_STATUS: 'Reopen',    SEVERITY: 'Show Stopper', MAIN_MODULE: 'Provisioning', RESPONSIBILITY: 'CRM Team', ASSIGNED_TO: 'dlevi',   REOPEN_YN: 'Y', DETECTED_IN_RELEASE: 'ITv07-2026', DETECTED_ON_DATE: '2026-09-10', ENVIRONMENT_COMPONENT: 'API' },
+  { DEFECT_ID: 15, DEFECT_STATUS: 'New',       SEVERITY: 'Medium',       MAIN_MODULE: 'CRM',      RESPONSIBILITY: 'OSS Team', ASSIGNED_TO: 'ymizrahi',REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv08-2026', DETECTED_ON_DATE: '2026-09-18', ENVIRONMENT_COMPONENT: 'APP' },
+  { DEFECT_ID: 16, DEFECT_STATUS: 'Open',      SEVERITY: 'Severe',       MAIN_MODULE: 'IVR',      RESPONSIBILITY: 'NETC-DT team', ASSIGNED_TO: 'ncohen',  REOPEN_YN: 'N', DETECTED_IN_RELEASE: 'ITv08-2026', DETECTED_ON_DATE: '2026-09-20', ENVIRONMENT_COMPONENT: 'IVR-PLATFORM' },
 ];
 
 // Mock-mode mapper for getAllDefectsFiltered (2026-09-23 follow-up) — maps
@@ -2748,6 +2749,50 @@ const DEFECT_PERSON_FIELDS = [
   'assignedTo', 'qaTester', 'detectedBy', 'closedBy', 'reporter',
   'defectResponsible', 'escDefectResponsible', 'vendorAssignTo',
 ];
+// Full QC user directory (login → full name) for people who have no
+// DeployCenter account — developers, generic users, former employees (user
+// report 2026-10-03: defect tables showed raw logins like "avia"). Same Site
+// Admin USERS table syncQcUsers() reads, but unfiltered (any project, active
+// or not, with or without email). Cached in memory: 12h after a successful
+// load, 10min after a failure. Empty when Oracle is disabled (dev).
+const QC_USER_DIRECTORY_SQL = `
+  SELECT USER_NAME, FULL_NAME
+  FROM QCSITEADMIN11_DB.USERS
+  WHERE USER_NAME IS NOT NULL AND FULL_NAME IS NOT NULL
+`;
+let qcDirectoryCache: { map: Map<string, string>; expiresAt: number } | null = null;
+let qcDirectoryLoading: Promise<Map<string, string>> | null = null;
+export async function getQcUserDirectory(): Promise<Map<string, string>> {
+  if (qcDirectoryCache && qcDirectoryCache.expiresAt > Date.now()) return qcDirectoryCache.map;
+  if (qcDirectoryLoading) return qcDirectoryLoading;
+  qcDirectoryLoading = (async () => {
+    const map = new Map<string, string>();
+    let ok = false;
+    const { enabled } = await getOracleConfig().catch(() => ({ enabled: false }));
+    if (enabled) {
+      let conn: any;
+      try {
+        conn = await oracleConnect();
+        const result = await conn.execute(QC_USER_DIRECTORY_SQL);
+        for (const r of (result.rows ?? []) as any[]) {
+          const login = String(r.USER_NAME ?? '').trim().toLowerCase();
+          const name = String(r.FULL_NAME ?? '').trim();
+          if (login && name) map.set(login, name);
+        }
+        ok = true;
+      } catch {
+        // Fall back to logins as-is; retry soon rather than in 12h.
+      } finally {
+        if (conn) await conn.close().catch(() => {});
+      }
+    }
+    qcDirectoryCache = { map, expiresAt: Date.now() + (ok ? 12 * 3600_000 : 10 * 60_000) };
+    qcDirectoryLoading = null;
+    return map;
+  })();
+  return qcDirectoryLoading;
+}
+
 export async function resolveDefectPersonNames<T extends Record<string, any>>(rows: T[]): Promise<T[]> {
   if (rows.length === 0) return rows;
   const logins = new Set<string>();
@@ -2758,13 +2803,21 @@ export async function resolveDefectPersonNames<T extends Record<string, any>>(ro
     }
   }
   if (logins.size === 0) return rows;
-  const users = await prisma.user.findMany({
-    where: { qcLogin: { in: Array.from(logins), mode: 'insensitive' } },
-    select: { qcLogin: true, fullName: true },
-  });
-  if (users.length === 0) return rows;
+  const [users, directory] = await Promise.all([
+    prisma.user.findMany({
+      where: { qcLogin: { in: Array.from(logins), mode: 'insensitive' } },
+      select: { qcLogin: true, fullName: true },
+    }),
+    getQcUserDirectory(),
+  ]);
+  // A DeployCenter account's own name wins; the QC directory fills the rest.
   const map: Record<string, string> = {};
+  for (const login of logins) {
+    const name = directory.get(login);
+    if (name) map[login] = name;
+  }
   for (const u of users) if (u.qcLogin) map[u.qcLogin.toLowerCase()] = u.fullName;
+  if (Object.keys(map).length === 0) return rows;
   return rows.map(r => {
     const clone: any = { ...r };
     for (const f of DEFECT_PERSON_FIELDS) {
