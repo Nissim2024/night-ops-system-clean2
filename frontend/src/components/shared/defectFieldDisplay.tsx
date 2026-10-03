@@ -958,14 +958,17 @@ export function EnumFilterButton({ label, options, selected, onToggle }: {
 }
 
 export function ColumnFilterRow({
-  columns, getWidth, filters,
+  columns, getWidth, filters, leadingCell,
 }: {
   columns: { key: string; label: string }[];
   getWidth: (key: string) => number;
   filters: ColumnFiltersApi;
+  // An empty first cell — for tables with a leading checkbox column.
+  leadingCell?: boolean;
 }) {
   return (
     <tr className="bg-card">
+      {leadingCell && <th className="border-b border-border" />}
       {columns.map(c => (
         <th key={c.key} style={{ width: getWidth(c.key) }} className="border-b border-border px-1.5 py-1">
           {filters.isEnum(c.key) ? (

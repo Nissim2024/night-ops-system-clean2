@@ -132,6 +132,17 @@ interface Props {
   endpoint?: string;
   title: string;
   onClose: () => void;
+  // Optional multi-select mode (2026-10-03, IncidentsView's "בחר תקלות
+  // לתחקור"): the SAME list — columns, picker, sort, filters, row click into
+  // the defect — plus a checkbox column and an action button. Absent → the
+  // list behaves exactly as before.
+  selection?: {
+    selectedIds: string[];
+    onChange: (ids: string[]) => void;
+    actionLabel: string;
+    onConfirm: () => void;
+    busy?: boolean;
+  };
 }
 
 // Column widths are user-resizable (see useColumnWidths below) — Title is
@@ -176,7 +187,7 @@ function renderCellValue(key: ColumnKey, value: unknown) {
 // browser via localStorage, same convention as IncidentsView's import-column
 // picker; sort state is session-only (not worth persisting — the filter/list
 // changes every time this opens).
-export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen, filter, value, endpoint, title, onClose }) => {
+export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen, filter, value, endpoint, title, onClose, selection }) => {
   const headers = { Authorization: `Bearer ${token}` };
   const [defects, setDefects] = useState<Defect[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -291,6 +302,20 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
         >
           ⚙ בחירת עמודות
         </button>
+        {selection && (
+          <>
+            <button onClick={onClose} className="cursor-pointer rounded-md border border-border bg-transparent px-4 py-1.5 font-sans text-xs text-subtle-foreground">
+              ביטול
+            </button>
+            <button
+              onClick={selection.onConfirm}
+              disabled={selection.selectedIds.length === 0 || selection.busy}
+              className={`rounded-md border-none px-5 py-1.5 font-sans text-xs font-bold text-white ${selection.selectedIds.length === 0 || selection.busy ? 'cursor-not-allowed bg-subtle-foreground' : 'cursor-pointer bg-primary'}`}
+            >
+              {selection.busy ? '⏳ ' : ''}{selection.actionLabel} ({selection.selectedIds.length})
+            </button>
+          </>
+        )}
       </div>
 
       {/* Table sits on its own white card surface over the page's grey
@@ -309,6 +334,23 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
               <table className="w-full border-collapse text-[13px]" style={{ tableLayout: 'auto', color: JIRA.text }}>
                 <thead>
                   <tr>
+                    {selection && (() => {
+                      // Select-all acts on the rows currently shown (after column filters).
+                      const shownIds = (sorted ?? []).map(d => d.id);
+                      const allShown = shownIds.length > 0 && shownIds.every(id => selection.selectedIds.includes(id));
+                      return (
+                        <th className="w-9 px-2.5 py-2 text-center" style={{ borderBottom: `2px solid ${JIRA.greyN40}` }}>
+                          <input
+                            type="checkbox"
+                            checked={allShown}
+                            title={allShown ? 'בטל בחירה' : 'בחר הכל'}
+                            onChange={() => selection.onChange(allShown
+                              ? selection.selectedIds.filter(id => !shownIds.includes(id))
+                              : Array.from(new Set([...selection.selectedIds, ...shownIds])))}
+                          />
+                        </th>
+                      );
+                    })()}
                     {visibleColumns.map(c => (
                       <th
                         key={c.key}
@@ -325,7 +367,7 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
                       </th>
                     ))}
                   </tr>
-                  <ColumnFilterRow columns={visibleColumns} getWidth={getColWidth} filters={filters} />
+                  <ColumnFilterRow columns={visibleColumns} getWidth={getColWidth} filters={filters} leadingCell={!!selection} />
                 </thead>
                 <tbody>
                   {sorted.map(d => (
@@ -335,8 +377,19 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
                       onMouseEnter={() => setHoverRow(d.id)}
                       onMouseLeave={() => setHoverRow(r => (r === d.id ? null : r))}
                       className="cursor-pointer"
-                      style={{ background: hoverRow === d.id ? JIRA.rowHover : undefined }}
+                      style={{ background: selection?.selectedIds.includes(d.id) ? JIRA.blueBg : hoverRow === d.id ? JIRA.rowHover : undefined }}
                     >
+                      {selection && (
+                        <td className="w-9 px-2.5 text-center" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }} onClick={e => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selection.selectedIds.includes(d.id)}
+                            onChange={() => selection.onChange(selection.selectedIds.includes(d.id)
+                              ? selection.selectedIds.filter(id => id !== d.id)
+                              : [...selection.selectedIds, d.id])}
+                          />
+                        </td>
+                      )}
                       {visibleColumns.map(c => {
                         const isBadge = PERSON_BADGE_FIELDS.has(c.key) || TEAM_BADGE_FIELDS.has(c.key);
                         const isCentered = STATUS_LIKE_FIELDS.has(c.key) || c.key === 'id';
@@ -375,6 +428,7 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
 
       <div className="flex-shrink-0 border-t border-border px-5 py-3 text-start text-xs text-subtle-foreground">
         {defects ? `${defects.length} תקלות` : ''}
+        {selection && selection.selectedIds.length > 0 && ` · ${selection.selectedIds.length} נבחרו`}
       </div>
 
       {showColumnPicker && (

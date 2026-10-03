@@ -1,7 +1,7 @@
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaClient } from '@prisma/client';
-import { QcService } from '../qc/qc.service';
+import { QcService, resolveDefectPersonNames } from '../qc/qc.service';
 import { ROOT_CAUSE_TAXONOMY, ROOT_CAUSE_CATEGORIES } from './root-cause-taxonomy';
 import { GUIDED_TREE_NODES, GUIDED_TREE_LEAVES, GUIDED_TREE_START, buildAutoFiveWhy, GuidedTreePathEntry } from './guided-investigation-tree';
 
@@ -126,9 +126,30 @@ export class IncidentsService {
       prisma.incident.findMany({ where: { versionId }, select: { qcDefectId: true } }),
     ]);
     const already = new Set(existing.map(e => e.qcDefectId));
-    return defects
+    // Same row shape + name resolution as every other defect list
+    // (DefectDrilldownModal) — the import picker IS that list, plus selection
+    // (user ask 2026-10-03). TargetDefectDto names two fields differently:
+    // detectedBy → reporter, detectedOnDate → discoveryDate. qcDefectId kept
+    // for older callers.
+    // detectedOnDate can arrive pre-formatted by Oracle's Hebrew NLS, e.g.
+    // "29-מרץ    -2026" (padded month name) — normalize to DD/MM/YYYY like
+    // the rest of the defect lists.
+    const HE_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+    const EN_MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    const fmtDate = (v: unknown) => {
+      if (!v) return '';
+      const parts = String(v).replace(/\s+/g, '').split('-');
+      if (parts.length === 3 && /^\d{1,2}$/.test(parts[0]) && /^\d{4}$/.test(parts[2])) {
+        const idx = HE_MONTHS.indexOf(parts[1]) >= 0 ? HE_MONTHS.indexOf(parts[1]) : EN_MONTHS.indexOf(parts[1].toUpperCase());
+        if (idx >= 0) return `${parts[0].padStart(2, '0')}/${String(idx + 1).padStart(2, '0')}/${parts[2]}`;
+      }
+      const d = new Date(v as string);
+      return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString('he-IL');
+    };
+    const rows = defects
       .filter(d => !already.has(d.id))
-      .map(({ id, ...rest }) => ({ qcDefectId: id, ...rest }));
+      .map(d => ({ ...d, qcDefectId: d.id, reporter: d.detectedBy, discoveryDate: fmtDate(d.detectedOnDate) }));
+    return resolveDefectPersonNames(rows);
   }
 
   async importFromQc(versionId: string, qcDefectIds: string[], createdByName: string) {
