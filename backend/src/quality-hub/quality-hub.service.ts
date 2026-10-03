@@ -58,8 +58,8 @@ export interface ReleaseSummary {
   releaseName: string;
   totalScore: number; // 0-100
   year: number | null;
-  // Already deployed to production (user ask 2026-10-03: the score bar
-  // charts show only released versions) — see productionStatusByName().
+  // Go-live date already passed (user ask 2026-10-03: the score bar charts
+  // show only versions in production) — see productionStatusByName().
   inProduction: boolean;
 }
 
@@ -263,26 +263,23 @@ export class QualityHubService {
     return releases;
   }
 
-  // "In production" per release name: a local Version whose night actually
-  // ran (ACTIVE / MORNING_AFTER / COMPLETED) or a historical QC version;
-  // otherwise the QC release's go-live date having passed; neither known →
-  // true (old releases that only exist as imported KPI scores already went live).
+  // "In production" per release name = its GO-LIVE DATE has passed (user
+  // decision 2026-10-03: go-live dates only, never the deployment-plan
+  // status). Date source: the local Version's go-live (plannedStart), else
+  // the QC release's goLiveDate; neither known → true (old releases that
+  // only exist as imported KPI scores already went live).
   private async productionStatusByName(names: string[]): Promise<Map<string, boolean>> {
     const [versions, qcReleases] = await Promise.all([
-      prisma.version.findMany({ where: { name: { in: names } }, select: { name: true, status: true, isQcHistorical: true } }),
+      prisma.version.findMany({ where: { name: { in: names } }, select: { name: true, plannedStart: true } }),
       prisma.qcRelease.findMany({ where: { relName: { in: names } }, select: { relName: true, goLiveDate: true } }),
     ]);
-    const LIVE = new Set(['ACTIVE', 'MORNING_AFTER', 'COMPLETED']);
+    const goLive = new Map<string, Date>();
+    for (const q of qcReleases) if (q.goLiveDate) goLive.set(q.relName, q.goLiveDate);
+    // The version's own go-live date takes precedence over QC's.
+    for (const v of versions) if (v.plannedStart) goLive.set(v.name, v.plannedStart);
     const now = Date.now();
     const map = new Map<string, boolean>();
-    for (const q of qcReleases) if (q.goLiveDate) map.set(q.relName, q.goLiveDate.getTime() <= now);
-    // A local Version is the stronger signal — it overrides the QC date.
-    const byVersion = new Map<string, boolean>();
-    for (const v of versions) {
-      const live = v.isQcHistorical || LIVE.has(v.status);
-      byVersion.set(v.name, (byVersion.get(v.name) ?? false) || live);
-    }
-    for (const [name, live] of byVersion) map.set(name, live);
+    for (const [name, date] of goLive) map.set(name, date.getTime() <= now);
     return map;
   }
 
