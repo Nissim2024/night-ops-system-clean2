@@ -54,6 +54,20 @@ function ActionItem({ icon, title, desc, urgent, onClick }: { icon: string; titl
   );
 }
 
+// The tester's own plan-vs-actual slice (GET /release-intelligence/my-plan-status).
+export interface MyPlanStatus {
+  cycleType: string | null;
+  todayIsWorkDay: boolean;
+  todayDataAvailable: boolean;
+  pastTodayCheckHour: boolean;
+  me: {
+    expected: number; executed: number; total: number; gap: number; gapPct: number | null;
+    status: 'AHEAD' | 'ON_TRACK' | 'AT_RISK' | 'BEHIND' | 'NOT_STARTED' | 'NO_SCENARIOS';
+    plannedToday: number; executedToday: number | null; crCount: number;
+    defects: { reported: number; stillOpen: number; awaitingRetest: number; targetAwaitingRetest: number };
+  } | null;
+}
+
 interface Props {
   token: string;
   fullName: string;
@@ -73,6 +87,7 @@ interface Props {
     underCoveredCrs: { crNumber: string; crLabel: string; scenarioCount: number; expectedMinScenarios: number; devDays: number }[];
     staleVerifications: { id: string; severity: string; daysWaiting: number; threshold: number }[];
   } | null;
+  planStatus?: MyPlanStatus | null;
   onGoToTasks: () => void;
   onGoToLeaves: () => void;
   onGoToQaTasks?: () => void;
@@ -81,7 +96,7 @@ interface Props {
 
 export const EmployeeHomeView: React.FC<Props> = ({
   token, fullName, activeVersion, planningVersion, taskStats, seasonReminder, teamName,
-  homeNotices, myRunbookSteps, isQaTester, myQaTasks, qaSummary, targetDefectGroups, defectStats,
+  homeNotices, myRunbookSteps, isQaTester, myQaTasks, qaSummary, targetDefectGroups, defectStats, planStatus,
   onGoToTasks, onGoToLeaves, onGoToQaTasks, onOpenFocusMode,
 }) => {
   const firstName = fullName.split(' ')[0] || fullName;
@@ -146,6 +161,41 @@ export const EmployeeHomeView: React.FC<Props> = ({
       desc: `המשימה שלך${step.team ? ` · ${step.team}` : ''}`,
       urgent: dayLabel === 'היום',
       onClick: onGoToTasks,
+    });
+  }
+
+  // Plan-vs-actual alerts (spec 2026-10-03, user's wording): behind the work
+  // plan to date, and — once part of the work day has passed — nothing run
+  // today, or today's runs short of today's planned amount.
+  const myPlan = planStatus?.me;
+  if (myPlan && (myPlan.status === 'BEHIND' || myPlan.status === 'AT_RISK')) {
+    actions.push({
+      icon: '📉',
+      title: myPlan.status === 'BEHIND' ? 'לפי התוכנית אתה בפיגור' : 'לפי התוכנית אתה בסיכון לפיגור',
+      desc: `הרצת ${myPlan.executed} תרחישים מתוך ${myPlan.expected} מצופים עד היום לפי תוכנית העבודה (פער ${Math.abs(myPlan.gap)}${myPlan.gapPct != null ? `, ${Math.abs(myPlan.gapPct)}%` : ''}).`,
+      urgent: myPlan.status === 'BEHIND',
+      onClick: onGoToQaTasks ?? onGoToTasks,
+    });
+  }
+  if (myPlan && planStatus!.todayIsWorkDay && planStatus!.todayDataAvailable && planStatus!.pastTodayCheckHour
+      && myPlan.plannedToday > 0 && myPlan.executedToday != null && myPlan.executedToday < myPlan.plannedToday) {
+    actions.push(myPlan.executedToday === 0
+      ? {
+          icon: '⏸️', title: 'היום לא הרצת תרחישים בכלל',
+          desc: `לפי תוכנית העבודה מתוכננים לך היום ${myPlan.plannedToday} תרחישים.`,
+          urgent: true, onClick: onGoToQaTasks ?? onGoToTasks,
+        }
+      : {
+          icon: '⚠️', title: 'כמות התרחישים שהרצת היום אינה תואמת לתוכנית העבודה',
+          desc: `הרצת היום ${myPlan.executedToday} מתוך ${myPlan.plannedToday} מתוכננים.`,
+          onClick: onGoToQaTasks ?? onGoToTasks,
+        });
+  }
+  if (myPlan && myPlan.defects.targetAwaitingRetest > 0) {
+    actions.push({
+      icon: '🎯', title: `${myPlan.defects.targetAwaitingRetest} תקלות TARGET ממתינות לאימות שלך`,
+      desc: 'תקלות TARGET שמשויכות אליך תוקנו וממתינות לבדיקה חוזרת — כדאי לשבץ אותן בתוכנית היום.',
+      onClick: onGoToQaTasks ?? onGoToTasks,
     });
   }
 

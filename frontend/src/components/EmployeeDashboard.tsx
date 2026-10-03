@@ -9,7 +9,7 @@ import { playTaskReady } from '../utils/sound';
 import { DeployCenterLogo } from './DeployCenterLogo';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { EmployeeLeavesView } from './EmployeeLeavesView';
-import { EmployeeHomeView } from './EmployeeHomeView';
+import { EmployeeHomeView, MyPlanStatus } from './EmployeeHomeView';
 import { EmployeeDefectsView } from './EmployeeDefectsView';
 import { VersionSwitcher } from './shared/VersionSwitcher';
 import { QaTestersView } from './qa/QaTestersView';
@@ -112,6 +112,9 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
     underCoveredCrs: { crNumber: string; crLabel: string; scenarioCount: number; expectedMinScenarios: number; devDays: number }[];
     staleVerifications: { id: string; severity: string; daysWaiting: number; threshold: number }[];
   } | null>(null);
+  // Tester's own plan-vs-actual (spec 2026-10-03) — drives the "behind plan" /
+  // "nothing run today" alerts on their home page.
+  const [planStatus, setPlanStatus] = useState<MyPlanStatus | null>(null);
   const [homeDefects, setHomeDefects] = useState<{
     total: number; scopeKind: 'all' | 'team' | 'personal'; scopedTotal: number; scopedOpen: number;
     bySeverity: { label: string; count: number }[];
@@ -257,7 +260,10 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
   // tab's detail list share the same data instead of double-fetching.
   useEffect(() => {
     const versionId = effectiveVersion?.id;
-    if (!isQaTester || !versionId) { setTargetDefectGroups([]); setDefectStats(null); return; }
+    if (!isQaTester || !versionId) { setTargetDefectGroups([]); setDefectStats(null); setPlanStatus(null); return; }
+    axios.get(`${API}/release-intelligence/my-plan-status/${versionId}`, { headers })
+      .then(res => setPlanStatus(res.data))
+      .catch(() => setPlanStatus(null));
     axios.get(`${API}/target-cr/my-defects?versionId=${versionId}`, { headers })
       .then(res => setTargetDefectGroups(res.data ?? []))
       .catch(() => setTargetDefectGroups([]));
@@ -557,6 +563,7 @@ export const EmployeeDashboard: React.FC<Props> = ({ token, onLogout }) => {
               qaSummary={qaSummary}
               targetDefectGroups={targetDefectGroups}
               defectStats={defectStats}
+              planStatus={planStatus}
               onGoToTasks={() => setActiveView('tasks')}
               onGoToLeaves={() => setActiveView('leaves')}
               onGoToQaTasks={() => setActiveView('qaTasks')}

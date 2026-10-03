@@ -37,6 +37,17 @@ export class ReleaseIntelligenceController {
     return this.service.getDailyQaManagement(versionId, override);
   }
 
+  @Get('daily-qa/:versionId/plan-vs-actual')
+  getPlanVsActual(@Param('versionId') versionId: string, @Query('cycle') cycle?: string) {
+    return this.service.getPlanVsActual(versionId, cycle);
+  }
+
+  // Self-scoped (req.user) — the tester's own plan status for their home page.
+  @Get('my-plan-status/:versionId')
+  getMyPlanStatus(@Param('versionId') versionId: string, @Request() req: any) {
+    return this.service.getMyPlanStatus(versionId, req.user.sub);
+  }
+
   @Get('daily-qa/:versionId/yesterday-diff')
   getYesterdayDiff(@Param('versionId') versionId: string) {
     return this.service.getYesterdayDiff(versionId);

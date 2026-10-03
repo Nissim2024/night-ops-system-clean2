@@ -962,6 +962,169 @@ export class ReleaseIntelligenceService {
     };
   }
 
+  // ── Plan vs actual — scenario execution against the QA work plan ─────────
+  // (spec 2026-10-03). "Expected" comes from the plan itself: each CR's
+  // QaCycleTask window(s) in the cycle, scenarios spread evenly over its work
+  // days. Expected-to-date counts work days through END OF YESTERDAY — a
+  // morning standup shouldn't count today's not-yet-done work as a gap;
+  // today is tracked separately (plannedToday vs executedToday). "Executed"
+  // = executedScriptCount (same "ran" definition as coverage everywhere).
+  // Status by gap vs expected: ≤ -20% BEHIND, ≤ -10% AT_RISK, ≥ +10% AHEAD.
+  async getPlanVsActual(versionId: string, cycleTypeParam?: string) {
+    const [workPlan, cycleProgress, holidayDates, prevSnapshot, users, reported, targetDefects] = await Promise.all([
+      prisma.qaWorkPlan.findUnique({
+        where: { versionId },
+        include: { cycles: { include: { tasks: { where: { isArchived: false, isActive: true, taskType: { not: 'REGRESSION' } } } } } },
+      }),
+      this.getCycleProgress(versionId),
+      prisma.seasonDate.findMany({ where: { season: { forcesOff: true } }, select: { date: true } }),
+      prisma.dailyQaSnapshot.findFirst({ where: { versionId }, orderBy: { snapshotDate: 'desc' } }),
+      prisma.user.findMany({ select: { id: true, fullName: true } }),
+      this.qcService.getMyReportedDefects(versionId).catch(() => [] as { id: string; detectedBy: string; status: string; severity: string; modified: string | null }[]),
+      this.qcService.getTargetCrDefects(versionId, '').catch(() => [] as { id: string; qaTester: string; status: string }[]),
+    ]);
+    const holidays = new Set(holidayDates.map(d => dateKey(d.date)));
+    const nameById = new Map(users.map(u => [u.id, u.fullName]));
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+    const todayIsWorkDay = isWorkDay(today, holidays);
+
+    const coreCycles = (workPlan?.cycles ?? [])
+      .filter(c => CORE_CYCLE_TYPES.includes(c.cycleType))
+      .sort((a, b) => a.plannedStart.getTime() - b.plannedStart.getTime());
+    const activeCycleType = cycleProgress.timeline.find(t => CORE_CYCLE_TYPES.includes(t.cycleType) && t.state === 'active')?.cycleType;
+    const selectedType = (cycleTypeParam && coreCycles.some(c => c.cycleType === cycleTypeParam))
+      ? cycleTypeParam
+      : activeCycleType ?? coreCycles.find(c => c.plannedStart <= today && c.plannedEnd >= today)?.cycleType ?? coreCycles[0]?.cycleType ?? null;
+    const cycle = coreCycles.find(c => c.cycleType === selectedType) ?? null;
+    const cycleTimeline = cycleProgress.timeline.find(t => t.cycleType === selectedType);
+    const coverageByCr = new Map((cycleTimeline?.crCoverage ?? []).map(cc => [cc.crNumber, cc]));
+
+    // "Executed today": live core-cycle passed+failed vs the last nightly
+    // DailyQaSnapshot (23:00) — only trusted when that snapshot is from
+    // yesterday or today, otherwise the delta would span several days.
+    const snapshotFresh = !!prevSnapshot && prevSnapshot.snapshotDate.getTime() >= yesterday.getTime();
+    const prevProgress = (snapshotFresh ? prevSnapshot!.crProgress : null) as Record<string, { passed: number; failed: number }> | null;
+    const liveRanByCr = new Map<string, number>();
+    for (const t of cycleProgress.timeline.filter(t => CORE_CYCLE_TYPES.includes(t.cycleType))) {
+      for (const cc of t.crCoverage) liveRanByCr.set(cc.crNumber, (liveRanByCr.get(cc.crNumber) ?? 0) + cc.passed + cc.failed);
+    }
+
+    const statusOf = (expected: number, executed: number, total: number, windowEnded: boolean) => {
+      if (total === 0) return 'NO_SCENARIOS' as const;
+      if (expected <= 0) return executed > 0 ? 'AHEAD' as const : 'NOT_STARTED' as const;
+      const gapPct = (executed - expected) / expected;
+      if (windowEnded && executed < total && gapPct > -0.1) return 'AT_RISK' as const;
+      return gapPct <= -0.2 ? 'BEHIND' as const : gapPct <= -0.1 ? 'AT_RISK' as const : gapPct >= 0.1 ? 'AHEAD' as const : 'ON_TRACK' as const;
+    };
+    const pct = (executed: number, expected: number) => expected > 0 ? Math.round(((executed - expected) / expected) * 100) : null;
+
+    type CycleTask = NonNullable<typeof cycle>['tasks'][number];
+    const tasksByCr = new Map<string, CycleTask[]>();
+    for (const t of cycle?.tasks ?? []) {
+      const list = tasksByCr.get(t.crNumber) ?? [];
+      list.push(t);
+      tasksByCr.set(t.crNumber, list);
+    }
+
+    const crs = Array.from(tasksByCr.entries()).map(([crNumber, tasks]) => {
+      const windowStart = new Date(Math.min(...tasks.map(t => t.plannedStart.getTime())));
+      const windowEnd = new Date(Math.max(...tasks.map(t => t.plannedEnd.getTime())));
+      const windowDays = Math.max(1, countWorkDays(windowStart, windowEnd, holidays));
+      const elapsedDays = yesterday < windowStart ? 0 : countWorkDays(windowStart, yesterday < windowEnd ? yesterday : windowEnd, holidays);
+      const cov = coverageByCr.get(crNumber);
+      const total = cov?.total ?? 0;
+      const executed = cov ? executedScriptCount(cov) : 0;
+      const expected = Math.round(total * Math.min(1, elapsedDays / windowDays));
+      const todayInWindow = todayIsWorkDay && today >= new Date(new Date(windowStart).setHours(0, 0, 0, 0)) && today <= windowEnd;
+      const plannedToday = todayInWindow ? Math.ceil(total / windowDays) : 0;
+      const prev = prevProgress?.[crNumber];
+      const executedToday = prev ? Math.max(0, (liveRanByCr.get(crNumber) ?? 0) - (prev.passed + prev.failed)) : null;
+      const primary = tasks.find(t => t.isPrimary) ?? tasks[0];
+      const windowEnded = windowEnd < today;
+      return {
+        crNumber, crLabel: cov?.crLabel ?? primary.crLabel ?? crNumber,
+        testerId: primary.userId, tester: nameById.get(primary.userId) ?? '—',
+        windowStart, windowEnd, total, expected, executed, passed: cov?.passed ?? 0,
+        gap: executed - expected, gapPct: pct(executed, expected),
+        status: statusOf(expected, executed, total, windowEnded),
+        plannedToday, executedToday,
+      };
+    }).sort((a, b) => (a.gap - b.gap));
+
+    const sum = (rows: typeof crs) => {
+      const total = rows.reduce((s, r) => s + r.total, 0);
+      const expected = rows.reduce((s, r) => s + r.expected, 0);
+      const executed = rows.reduce((s, r) => s + r.executed, 0);
+      const plannedToday = rows.reduce((s, r) => s + r.plannedToday, 0);
+      const todayKnown = rows.some(r => r.executedToday != null);
+      return {
+        total, expected, executed, passed: rows.reduce((s, r) => s + r.passed, 0),
+        gap: executed - expected, gapPct: pct(executed, expected),
+        status: statusOf(expected, executed, total, rows.length > 0 && rows.every(r => r.windowEnd < today)),
+        plannedToday, executedToday: todayKnown ? rows.reduce((s, r) => s + (r.executedToday ?? 0), 0) : null,
+      };
+    };
+
+    // Per tester — scenario plan vs actual, plus the defect load that also
+    // eats into their time: defects they reported still open, the ones
+    // waiting on their retest (Fixed_Test), and TARGET defects assigned to
+    // them waiting on retest (user ask 2026-10-03: "מוודא שהוא מספיק לבדוק
+    // אותן"). Matched by name — same best-effort token match target-cr uses.
+    const norm = (s: string) => (s ?? '').toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean).sort().join(' ');
+    const byTester = new Map<string, typeof crs>();
+    for (const r of crs) {
+      const list = byTester.get(r.testerId) ?? [];
+      list.push(r);
+      byTester.set(r.testerId, list);
+    }
+    const testers = Array.from(byTester.entries()).map(([testerId, rows]) => {
+      const name = nameById.get(testerId) ?? '—';
+      const key = norm(name);
+      const mine = reported.filter(d => norm(d.detectedBy) === key);
+      const targetMine = targetDefects.filter(d => norm(d.qaTester) === key);
+      return {
+        testerId, tester: name, crCount: rows.length, ...sum(rows),
+        crs: rows.map(r => ({ crNumber: r.crNumber, crLabel: r.crLabel, status: r.status, expected: r.expected, executed: r.executed, total: r.total })),
+        defects: {
+          reported: mine.length,
+          stillOpen: mine.filter(d => !['Closed', 'Canceled'].includes(d.status)).length,
+          awaitingRetest: mine.filter(d => d.status === 'Fixed_Test').length,
+          targetAwaitingRetest: targetMine.filter(d => d.status === 'Fixed_Test').length,
+        },
+      };
+    }).sort((a, b) => a.gap - b.gap);
+
+    return {
+      cycles: coreCycles.map(c => ({ cycleType: c.cycleType, plannedStart: c.plannedStart, plannedEnd: c.plannedEnd })),
+      cycleType: selectedType,
+      asOf: new Date(),
+      todayIsWorkDay,
+      todayDataAvailable: snapshotFresh,
+      summary: { crCount: crs.length, ...sum(crs) },
+      crs,
+      testers,
+    };
+  }
+
+  // Self-scoped slice of getPlanVsActual for the tester's own home page.
+  async getMyPlanStatus(versionId: string, userId: string) {
+    const [data, cutoffParam] = await Promise.all([
+      this.getPlanVsActual(versionId),
+      prisma.systemParam.findUnique({ where: { key: 'DAILY_QA_STANDUP_CUTOFF' } }),
+    ]);
+    const me = data.testers.find(t => t.testerId === userId) ?? null;
+    const cutoffHour = Number((cutoffParam?.value ?? DAILY_QA_STANDUP_CUTOFF_DEFAULT).split(':')[0]) || 12;
+    return {
+      cycleType: data.cycleType,
+      todayIsWorkDay: data.todayIsWorkDay,
+      todayDataAvailable: data.todayDataAvailable,
+      // "Today" warnings only make sense once part of the work day has passed.
+      pastTodayCheckHour: new Date().getHours() >= cutoffHour,
+      me,
+    };
+  }
+
   // ── "What Changed Since Yesterday" — Daily QA spec's headline feature.
   // Live rollups can't diff against a point they never stored, so a daily
   // snapshot job (below) writes a compact DailyQaSnapshot once/day; this

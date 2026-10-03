@@ -5,6 +5,7 @@ import { cn } from '../../lib/utils';
 import { formatDate } from '../../utils/dateFormat';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
 import { PersonAvatar } from '../shared/defectFieldDisplay';
+import { PlanVsActualPanel } from './PlanVsActualPanel';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -603,6 +604,9 @@ export const DailyQaManagementView: React.FC<Props> = ({ token, versionId, role 
         <KpiCard value={String(summary.crsAtRisk)} label="CR-ים בסיכון" color={summary.crsAtRisk > 0 ? C.danger : C.success} onClick={() => scrollToSection('daily-crs')} />
         <KpiCard value={String(summary.testersNoProgress)} label="בודקים ללא התקדמות" color={summary.testersNoProgress > 0 ? C.danger : C.success} onClick={() => scrollToSection('daily-heatmap')} />
       </div>
+
+      {/* ── תכנון מול ביצוע — הרצת תרחישים מול תוכנית העבודה (סיכום / CR / בודק) ── */}
+      <PlanVsActualPanel token={token} versionId={versionId!} />
 
       {/* ── אזור 2: Heat Map לבודקים ── */}
       <div id="daily-heatmap">
