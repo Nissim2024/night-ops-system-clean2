@@ -527,6 +527,7 @@ interface Overview {
   testingStarted: boolean;
   versionStatus: string;
   productionSinceDate: string | null;
+  isLive?: boolean;
 }
 interface DefectRow { id: string; title: string; severity: string; status: string; discoveryDate: string; targetRelease?: string; environment?: string; }
 interface CrAssignmentRow { id: string; crNumber: string; crLabel: string | null; qaArrivalDate: string | null; qaReceived: boolean; }
@@ -1038,7 +1039,9 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
                 was actually reported. ACTIVE deliberately excluded — a
                 version can still be mid-deployment-night in that status, not
                 yet confirmed live. */}
-            {(overview.versionStatus === 'COMPLETED' || overview.versionStatus === 'MORNING_AFTER') ? (
+            {/* 2026-10-04: also live once the go-live date has passed (isLive) -
+                historical versions rarely advance status. */}
+            {(overview.isLive || overview.versionStatus === 'COMPLETED' || overview.versionStatus === 'MORNING_AFTER') ? (
               <KpiTile
                 icon="📈" accent={C.success} moduleLabel="תחזית"
                 value="✓" label={overview.productionSinceDate ? `בייצור מתאריך ${formatDate(overview.productionSinceDate)}` : 'הגרסה בייצור'}

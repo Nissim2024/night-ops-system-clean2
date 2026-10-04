@@ -377,6 +377,12 @@ export class ReleaseIntelligenceService {
     const daysToGoLive = version.plannedStart
       ? Math.ceil((new Date(version.plannedStart).getTime() - Date.now()) / 86400000)
       : null;
+    // Already in production: closed out (MORNING_AFTER/COMPLETED) OR its
+    // go-live date is behind us (user ask 2026-10-04 - historical versions
+    // rarely advance status, and showed a negative day count). A live
+    // version has nothing left to forecast, so the forecast drops out of
+    // readiness entirely (see softScore / blockers below).
+    const isLive = ['COMPLETED', 'MORNING_AFTER'].includes(version.status) || (daysToGoLive != null && daysToGoLive < 0);
 
     // ── Forecast — two independent checks, shown as two separate indicators
     // on the same card (spec confirmed 2026-09-02), replacing the old single
@@ -393,7 +399,7 @@ export class ReleaseIntelligenceService {
       status: 'ON_TRACK' | 'AT_RISK' | 'BEHIND_PLAN'; cycleType: string; isLastCycle: boolean;
       remainingScenarios: number; hoursRequired: number; hoursRemaining: number;
     } | null = null;
-    if (activeCoreCycle) {
+    if (activeCoreCycle && !isLive) {
       const remainingScenarios = activeCoreCycle.crCoverage.reduce((s, cc) => s + Math.max(0, cc.total - cc.passed - cc.failed), 0);
       const isLastCycle = activeCoreCycle.cycleType === CORE_CYCLE_TYPES[CORE_CYCLE_TYPES.length - 1];
       const deadline = isLastCycle ? version.plannedStart : activeCoreCycle.plannedEnd;
@@ -420,7 +426,7 @@ export class ReleaseIntelligenceService {
       status: 'ON_TRACK' | 'AT_RISK' | 'BEHIND_PLAN'; openDefects: number; expectedFixable: number;
       avgFixesPerDay: number; sampleVersions: number;
     } | null = null;
-    if (historicalRate && daysToGoLive != null && daysToGoLive > 0) {
+    if (!isLive && historicalRate && daysToGoLive != null && daysToGoLive > 0) {
       const expectedFixable = historicalRate.avgFixesPerDay * daysToGoLive;
       const ratio = expectedFixable > 0 ? openDefects.length / expectedFixable : (openDefects.length > 0 ? Infinity : 0);
       const status: 'ON_TRACK' | 'AT_RISK' | 'BEHIND_PLAN' = ratio > 1 ? 'BEHIND_PLAN' : ratio > 0.8 ? 'AT_RISK' : 'ON_TRACK';
@@ -469,12 +475,14 @@ export class ReleaseIntelligenceService {
       + highRiskCrs * HIGH_RISK_CR_WEIGHT;
     const riskAxis = Math.max(0, 100 - riskWeight);
 
-    const softScore = Math.round(
+    // Live version: forecast axis left out, the other weights re-normalized.
+    const forecastWeight = isLive ? 0 : READINESS_WEIGHTS.forecast;
+    const softScore = Math.round((
         READINESS_WEIGHTS.defects  * defectsAxis
       + READINESS_WEIGHTS.coverage * coverageAxis
-      + READINESS_WEIGHTS.forecast * forecastAxis
-      + READINESS_WEIGHTS.risk     * riskAxis,
-    );
+      + forecastWeight             * forecastAxis
+      + READINESS_WEIGHTS.risk     * riskAxis
+    ) / (READINESS_WEIGHTS.defects + READINESS_WEIGHTS.coverage + forecastWeight + READINESS_WEIGHTS.risk));
 
     // Hard blockers — each caps the final score; the score also carries the
     // human-readable reason(s) it landed where it did.
@@ -496,7 +504,7 @@ export class ReleaseIntelligenceService {
       ceilings.push(READINESS_CEILING.passRateCriticallyLow);
       readinessBlockers.push(`אחוז הצלחה ${passedPct}% (מתחת ל-${READINESS_PASSRATE_FLOOR_PCT}%)`);
     }
-    if (forecastStatus === 'BEHIND_PLAN') {
+    if (!isLive && forecastStatus === 'BEHIND_PLAN') {
       ceilings.push(READINESS_CEILING.forecastBehind);
       readinessBlockers.push('התחזית מצביעה על חריגה מלוח הזמנים');
     }
@@ -513,7 +521,7 @@ export class ReleaseIntelligenceService {
     // never empty and never just repeats one thing).
     const AXIS_LABEL: Record<string, string> = { defects: 'תקלות', coverage: 'כיסוי והצלחה', forecast: 'תחזית', risk: 'סיכון' };
     const axesSorted = ([
-      ['defects', defectsAxis], ['coverage', coverageAxis], ['forecast', forecastAxis], ['risk', riskAxis],
+      ['defects', defectsAxis], ['coverage', coverageAxis], ...(isLive ? [] : [['forecast', forecastAxis]]), ['risk', riskAxis],
     ] as [string, number][]).sort((a, b) => a[1] - b[1]);
     const readinessReasons = [
       ...readinessBlockers.map(b => `⛔ ${b}`),
@@ -616,7 +624,11 @@ export class ReleaseIntelligenceService {
       // overdue" — the frontend swaps to "in production since <date>" using
       // these two instead once the version is actually done.
       versionStatus: version.status,
-      productionSinceDate: version.actualStart ? version.actualStart.toISOString() : null,
+      isLive,
+      // actual deployment when recorded, else the planned go-live date
+      productionSinceDate: version.actualStart
+        ? version.actualStart.toISOString()
+        : (isLive && version.plannedStart ? new Date(version.plannedStart).toISOString() : null),
     };
   }
 
