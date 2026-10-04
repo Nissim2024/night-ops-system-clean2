@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useLayoutEffect, useRef } from 'react';
 import axios from 'axios';
 import { C } from '../../theme';
 import { cn } from '../../lib/utils';
@@ -125,6 +125,67 @@ const BreakdownPanel: React.FC<{ title: string; total: number; rows: BreakdownRo
         ))}
       </div>
     </Card>
+  );
+};
+
+// Two-column layout that fills itself without a hole under the shorter
+// column (user ask 2026-10-04). The pinned panel ("לפי CR") stays first in
+// the wide column; every other panel, in order, goes to whichever column is
+// currently shorter. Heights are measured once per `layoutKey` (new data)
+// and the arrangement is then frozen — a panel's height depends on its
+// column's width, so re-balancing on every resize could flip-flop. On a
+// narrow screen the columns wrap into one, as before.
+const BalancedColumns: React.FC<{
+  panels: { key: string; node: React.ReactNode }[];
+  pinnedWide: string;
+  layoutKey: string;
+}> = ({ panels, pinnedWide, layoutKey }) => {
+  const refs = useRef<Record<string, HTMLDivElement | null>>({});
+  const defaultNarrow = panels.filter(p => p.key !== pinnedWide).map(p => p.key);
+  const [wideKeys, setWideKeys] = useState<string[]>([pinnedWide]);
+  const [narrowKeys, setNarrowKeys] = useState<string[]>(defaultNarrow);
+  const measuredFor = useRef<string | null>(null);
+
+  // New data → back to the default split, then measure it below.
+  useLayoutEffect(() => {
+    setWideKeys([pinnedWide]);
+    setNarrowKeys(defaultNarrow);
+    measuredFor.current = null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutKey]);
+
+  useLayoutEffect(() => {
+    if (measuredFor.current === layoutKey) return;
+    // Measure only the default split (wide = pinned alone), so every panel's
+    // height is taken in a known column — not mid-reset from the old layout.
+    if (wideKeys.length !== 1 || wideKeys[0] !== pinnedWide || narrowKeys.length !== defaultNarrow.length) return;
+    const h = (k: string) => refs.current[k]?.offsetHeight ?? 0;
+    if (panels.some(p => !refs.current[p.key])) return;
+    const GAP = 12;
+    const wide = [pinnedWide];
+    const narrow: string[] = [];
+    let hWide = h(pinnedWide);
+    let hNarrow = 0;
+    for (const p of panels) {
+      if (p.key === pinnedWide) continue;
+      if (hNarrow <= hWide) { narrow.push(p.key); hNarrow += h(p.key) + GAP; }
+      else { wide.push(p.key); hWide += h(p.key) + GAP; }
+    }
+    measuredFor.current = layoutKey;
+    setWideKeys(wide);
+    setNarrowKeys(narrow);
+  });
+
+  const render = (keys: string[]) => keys.map(k => {
+    const p = panels.find(x => x.key === k);
+    return p ? <div key={k} ref={el => { refs.current[k] = el; }}>{p.node}</div> : null;
+  });
+
+  return (
+    <div className="flex flex-wrap items-start gap-4">
+      <div className="flex flex-col gap-3" style={{ flex: '1.4 1 420px', minWidth: '380px' }}>{render(wideKeys)}</div>
+      <div className="flex flex-col gap-3" style={{ flex: '1 1 320px', minWidth: '300px' }}>{render(narrowKeys)}</div>
+    </div>
   );
 };
 
@@ -318,21 +379,21 @@ export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId, i
               other three stack in a narrower column on the left. Page is
               RTL, and in a plain flex row the FIRST child renders on the
               right — so the CR column comes first in DOM order below. */}
-          <div className="flex flex-wrap gap-4 items-start">
-            <div style={{ flex: '1.4 1 420px', minWidth: '380px' }}>
-              <BreakdownPanel wide title="פתוחות לפי CR" total={dashboard.open} rows={dashboard.openByCr}
-                onSelect={label => setDrilldown({ filter: 'cr', value: label, title: `תקלות פתוחות — CR: ${label}` })} />
-            </div>
-            <div className="flex flex-col gap-3" style={{ flex: '1 1 320px', minWidth: '300px' }}>
-              <BreakdownPanel title="פתוחות לפי סטטוס" total={dashboard.open} rows={dashboard.openByStatus}
-                onSelect={label => setDrilldown({ filter: 'status', value: label, title: `תקלות פתוחות — סטטוס: ${label}` })} />
-              <BreakdownPanel title="פתוחות לפי סוג" total={dashboard.open} rows={dashboard.openByType}
-                onSelect={label => setDrilldown({ filter: 'type', value: label, title: `תקלות פתוחות — סוג: ${label}` })} />
-              <BreakdownPanel title="פתוחות לפי אחראי" total={dashboard.open} rows={dashboard.openByResponsibility}
-                onSelect={label => setDrilldown({ filter: 'responsibility', value: label, title: `תקלות פתוחות — אחראי: ${label}` })} />
-              <OldestOpenPanel rows={dashboard.oldestOpen} onSelect={setSelectedDefectId} />
-            </div>
-          </div>
+          <BalancedColumns
+            layoutKey={`${initialRelId ?? selectedVId}-${dashboard.open}-${dashboard.openByCr.length}-${dashboard.oldestOpen.length}`}
+            pinnedWide="cr"
+            panels={[
+              { key: 'cr', node: <BreakdownPanel wide title="פתוחות לפי CR" total={dashboard.open} rows={dashboard.openByCr}
+                  onSelect={label => setDrilldown({ filter: 'cr', value: label, title: `תקלות פתוחות — CR: ${label}` })} /> },
+              { key: 'status', node: <BreakdownPanel title="פתוחות לפי סטטוס" total={dashboard.open} rows={dashboard.openByStatus}
+                  onSelect={label => setDrilldown({ filter: 'status', value: label, title: `תקלות פתוחות — סטטוס: ${label}` })} /> },
+              { key: 'type', node: <BreakdownPanel title="פתוחות לפי סוג" total={dashboard.open} rows={dashboard.openByType}
+                  onSelect={label => setDrilldown({ filter: 'type', value: label, title: `תקלות פתוחות — סוג: ${label}` })} /> },
+              { key: 'responsibility', node: <BreakdownPanel title="פתוחות לפי אחראי" total={dashboard.open} rows={dashboard.openByResponsibility}
+                  onSelect={label => setDrilldown({ filter: 'responsibility', value: label, title: `תקלות פתוחות — אחראי: ${label}` })} /> },
+              { key: 'oldest', node: <OldestOpenPanel rows={dashboard.oldestOpen} onSelect={setSelectedDefectId} /> },
+            ]}
+          />
 
           {/* Daily report moved below the breakdowns (spec 2026-09-19: "הדיווח
               היומי תופס המון שטח, אפשר להוריד למטה") — it's a single wide
