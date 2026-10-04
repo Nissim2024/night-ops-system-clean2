@@ -110,9 +110,12 @@ function decodeDefectText(raw: string): string {
 
 // id/status/severity/priority — shared Jira treatment with every other
 // defect table/detail screen in the app (feedback 2026-09-10).
+// Display-only marker for an empty field (user choice 2026-10-04) - never sent to QC.
+const NOT_SET = <span className="italic font-normal" style={{ color: JIRA.textSubtle, opacity: 0.7 }}>Not set</span>;
+
 function renderFieldValue(key: string, value: unknown) {
   const s = value === null || value === undefined ? '' : String(value);
-  if (!s) return '—';
+  if (!s) return NOT_SET;
   if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={s} full />;
   if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
   if (key === 'id') return <IssueKeyLink id={s} />;
@@ -947,8 +950,8 @@ export const DefectDetailScreen: React.FC<{
                       style={{ color: JIRA.text, ...VALUE_BOX_STYLE }}
                     >
                       {sec.key === 'description'
-                        ? <div className="text-[15px] text-right whitespace-pre-wrap break-words">{detail.description ? decodeDefectText(String(detail.description)) : '—'}</div>
-                        : renderNotesField(detail.notes)}
+                        ? <div className="text-[15px] text-right whitespace-pre-wrap break-words">{detail.description ? decodeDefectText(String(detail.description)) : NOT_SET}</div>
+                        : (String(detail.notes ?? '').replace(/_{5,}/g, '').trim() ? renderNotesField(detail.notes) : NOT_SET)}
                     </div>
                   </section>
                 );
