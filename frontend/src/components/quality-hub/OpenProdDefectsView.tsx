@@ -733,7 +733,7 @@ export const DefectDetailScreen: React.FC<{
   // Panels come from the admin-designed layout for this user (team -> role ->
   // default, AdminPanel "תבנית טופס תקלה", 2026-10-04) - replaces the old
   // per-browser localStorage picker. No layout set anywhere -> built-in panels.
-  const [serverLayout, setServerLayout] = useState<{ panels: { name: string; fields: string[] }[] } | null>(null);
+  const [serverLayout, setServerLayout] = useState<{ panels: { name: string; fields: string[]; wide?: string[] }[] } | null>(null);
   useEffect(() => {
     let alive = true;
     axios.get(`${API}/qc/defect-form-layout`, { headers })
@@ -743,7 +743,7 @@ export const DefectDetailScreen: React.FC<{
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
   const detailGroups: DetailGroup[] = serverLayout
-    ? serverLayout.panels.map(pn => ({ title: pn.name, fields: pn.fields }))
+    ? serverLayout.panels.map(pn => ({ title: pn.name, fields: pn.fields, wide: pn.wide }))
     : defaultGroups;
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   // Long-text boxes open to full height on demand (less scrolling, user ask 2026-10-04).
@@ -808,7 +808,7 @@ export const DefectDetailScreen: React.FC<{
             const titleText = titleShown ? (detail.title || 'ללא כותרת') : 'פרטי תקלה';
             const titleRtl = hasHebrew(titleText);
             return (
-              <div className="rounded-xl px-6 py-5" style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}` }}>
+              <div className="rounded-xl px-6 py-5" style={{ background: '#fff' }}>
                 <label className="text-xs font-bold text-subtle-foreground block" style={{ direction: 'ltr', textAlign: 'left' }}>Title</label>
                 <div className="mt-1.5 flex items-center gap-3 px-3 py-2" style={VALUE_BOX_STYLE}>
                   <span className="font-semibold shrink-0" style={{ color: JIRA.blue, direction: 'ltr' }}>#{defectId}</span>
@@ -838,7 +838,7 @@ export const DefectDetailScreen: React.FC<{
                   key={group.title}
                   dir="rtl"
                   className="rounded-xl overflow-hidden px-6 py-6"
-                  style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}`, height: '100%' }}
+                  style={{ background: '#fff', height: '100%' }}
                 >
                   <div className="text-sm font-bold mb-3 text-foreground">
                     {group.title}
@@ -870,6 +870,8 @@ export const DefectDetailScreen: React.FC<{
                           onDoubleClick={() => { if (isEditable && !isEditingThis) setEditingField(key); }}
                           className="flex max-w-full flex-col items-start gap-1.5 rounded-sm px-1 py-0.5"
                           style={{
+                            // full-row field (template's ↔ toggle): long values get their own line
+                            flexBasis: group.wide?.includes(key) ? '100%' : undefined,
                             border: isEditable && !isEditingThis ? `1px dashed ${JIRA.blue}` : '1px solid transparent',
                             cursor: isEditable && !isEditingThis ? 'pointer' : undefined,
                             background: isDirty ? '#fffbe6' : undefined,
@@ -923,7 +925,7 @@ export const DefectDetailScreen: React.FC<{
               each opens to full height on demand so long text needs as
               little scrolling as possible (user ask 2026-10-04). */}
           {(showDescription || showNotes) && (
-            <div className="flex flex-col gap-5 rounded-xl px-6 py-5" style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}` }}>
+            <div className="flex flex-col gap-5 rounded-xl px-6 py-5" style={{ background: '#fff' }}>
               {([
                 showDescription && { key: 'description' as const, label: DETAIL_FIELD_LABEL.description ?? 'Description', max: 'max-h-[280px]' },
                 showNotes && { key: 'notes' as const, label: DETAIL_FIELD_LABEL.notes ?? 'Comments', max: 'max-h-[440px]' },
@@ -963,7 +965,7 @@ export const DefectDetailScreen: React.FC<{
               לא חלק מהבקשה להפרדה (זו לא "תיאור מול הערות"). */}
           <div
             className="min-w-0 flex flex-col gap-6 rounded-lg px-6 py-5"
-            style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}` }}
+            style={{ background: '#fff' }}
           >
             <section>
               <div className={DETAIL_SECTION_HEADING_CLASS} style={{ color: JIRA.textSubtle }}>קבצים מצורפים</div>

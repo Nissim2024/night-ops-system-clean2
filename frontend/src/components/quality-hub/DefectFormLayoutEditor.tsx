@@ -11,7 +11,7 @@ const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${win
 // resolveDefectFormLayout). The editor mirrors the form itself: panels and
 // fields flow left-to-right, so "first" = leftmost, exactly as rendered.
 
-interface Panel { name: string; fields: string[]; }
+interface Panel { name: string; fields: string[]; wide?: string[]; }
 interface Layout { panels: Panel[]; }
 interface Layouts { default: Layout | null; roles: Record<string, Layout>; teams: Record<string, Layout>; }
 interface TeamRow { id: string; name: string; }
@@ -22,9 +22,10 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 const builtinLayout = (): Layout => ({
-  panels: DEFAULT_OPEN_PROD_DETAIL_GROUPS.map(g => ({ name: g.title, fields: [...g.fields] })),
+  panels: DEFAULT_OPEN_PROD_DETAIL_GROUPS.map(g => ({ name: g.title, fields: [...g.fields], wide: [...(g.wide ?? [])] })),
 });
-const cloneLayout = (l: Layout): Layout => ({ panels: l.panels.map(p => ({ name: p.name, fields: [...p.fields] })) });
+const cloneLayout = (l: Layout): Layout => ({ panels: l.panels.map(p => ({ name: p.name, fields: [...p.fields], wide: [...(p.wide ?? [])] })) });
+const toggleWide = (p: Panel, f: string) => { const w = p.wide ?? []; p.wide = w.includes(f) ? w.filter(x => x !== f) : [...w, f]; };
 
 const btn = 'cursor-pointer rounded-sm border border-border bg-card px-1.5 py-0.5 text-[11px] text-muted-foreground disabled:cursor-default disabled:opacity-30';
 
@@ -169,19 +170,26 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
                 <div className="flex flex-wrap gap-1.5" style={{ direction: 'ltr' }}>
                   {p.fields.length === 0 && <span className="text-xs text-subtle-foreground" dir="rtl">אין שדות בחלונית</span>}
                   {p.fields.map((f, fi) => (
-                    <div key={f} className="inline-flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-1 text-xs">
+                    <div key={f} className="inline-flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-1 text-xs"
+                      style={p.wide?.includes(f) ? { flexBasis: '100%' } : undefined}>
                       <button className={btn} title="מוקדם יותר" disabled={fi === 0}
                         onClick={() => update(l => { const a = l.panels[pi].fields; [a[fi - 1], a[fi]] = [a[fi], a[fi - 1]]; })}>◀</button>
                       <span className="font-semibold text-foreground">{label(f)}</span>
                       <button className={btn} title="מאוחר יותר" disabled={fi === p.fields.length - 1}
                         onClick={() => update(l => { const a = l.panels[pi].fields; [a[fi + 1], a[fi]] = [a[fi], a[fi + 1]]; })}>▶</button>
+                      <button
+                        className={btn}
+                        title={p.wide?.includes(f) ? 'שורה מלאה — לחץ לביטול' : 'תן לשדה שורה מלאה בחלונית (לערכים ארוכים)'}
+                        style={p.wide?.includes(f) ? { background: '#DEEBFF', color: '#0052CC', borderColor: '#0052CC' } : undefined}
+                        onClick={() => update(l => toggleWide(l.panels[pi], f))}
+                      >↔</button>
                       {draft.panels.length > 1 && (
                         <select
                           value=""
                           title="העבר לחלונית אחרת"
                           onChange={e => {
                             const to = Number(e.target.value);
-                            update(l => { l.panels[pi].fields.splice(fi, 1); l.panels[to].fields.push(f); });
+                            update(l => { const wasWide = !!l.panels[pi].wide?.includes(f); l.panels[pi].fields.splice(fi, 1); l.panels[to].fields.push(f); if (wasWide) { toggleWide(l.panels[pi], f); toggleWide(l.panels[to], f); } });
                           }}
                           className="max-w-[22px] cursor-pointer rounded-sm border border-border bg-card text-[11px]"
                         >

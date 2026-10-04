@@ -2833,7 +2833,7 @@ export async function resolveDefectPersonNames<T extends Record<string, any>>(ro
 // Defect detail-form layouts (see QcService.getDefectFormLayouts). Key keeps
 // the OPEN_PROD_DEFECTS_ prefix so AdminPanel's generic Params tab hides it.
 const DEFECT_FORM_LAYOUTS_KEY = 'OPEN_PROD_DEFECTS_FORM_LAYOUTS';
-export interface DefectFormLayout { panels: { name: string; fields: string[] }[]; }
+export interface DefectFormLayout { panels: { name: string; fields: string[]; wide?: string[] }[]; }
 export interface DefectFormLayouts {
   default: DefectFormLayout | null;
   roles: Record<string, DefectFormLayout>;
@@ -4210,10 +4210,12 @@ export class QcService {
       if (!l || !Array.isArray(l.panels)) return null;
       const panels = l.panels
         .filter((p: any) => p && typeof p.name === 'string' && Array.isArray(p.fields))
-        .map((p: any) => ({
-          name: p.name.trim().slice(0, 60) || 'חלונית',
-          fields: Array.from(new Set((p.fields as any[]).filter(f => typeof f === 'string' && /^[A-Za-z0-9_]{1,60}$/.test(f)))),
-        }));
+        .map((p: any) => {
+          const fields: string[] = Array.from(new Set((p.fields as any[]).filter(f => typeof f === 'string' && /^[A-Za-z0-9_]{1,60}$/.test(f))));
+          // full-row fields: only ones actually in this panel
+          const wide = Array.isArray(p.wide) ? fields.filter(f => p.wide.includes(f)) : [];
+          return { name: p.name.trim().slice(0, 60) || 'חלונית', fields, ...(wide.length ? { wide } : {}) };
+        });
       return { panels };
     };
     const cleanMap = (m: any) => Object.fromEntries(

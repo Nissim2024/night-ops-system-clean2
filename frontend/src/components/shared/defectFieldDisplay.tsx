@@ -260,7 +260,7 @@ export function renderNotesField(raw: string | null | undefined) {
   );
 }
 
-export interface DetailGroup { title: string; fields: string[] }
+export interface DetailGroup { title: string; fields: string[]; wide?: string[] }
 
 const columnMoveBtnClass = 'min-w-[36px] cursor-pointer rounded-sm border border-border bg-muted px-2.5 py-1 text-[13px] text-foreground';
 
