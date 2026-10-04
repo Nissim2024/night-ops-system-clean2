@@ -172,6 +172,17 @@ function qcCycleNameToCycleType(realCycleName: string): string {
   return realCycleName;
 }
 
+// Per-CR defect lists behind the cycle-detail CR card's two counts (user ask
+// 2026-10-04) — the exact predicates that compute reportedDefectsCount /
+// stillOpenDefectsCount in getCycleProgress / getHistoricalCycleProgress, so
+// a clicked count and its list always agree. null = not one of these filters.
+function filterCrDefectCounts(defects: DefectDto[], filter: string, value?: string): DefectDto[] | null {
+  if (!value) return null;
+  if (filter === 'crReported') return defects.filter(d => d.crReferenceNumber === value);
+  if (filter === 'crStillOpen') return defects.filter(d => d.crReferenceNumber === value && !['Closed', 'Canceled'].includes(d.status));
+  return null;
+}
+
 // Drill-down filters for the Defects and Reopen Analysis screens — mirror
 // buildDefectsBreakdown/buildReopenAnalysis exactly. Shared by the versionId
 // and relId (historical release) drill-down paths.
@@ -2388,8 +2399,9 @@ export class ReleaseIntelligenceService {
   // helper as the versionId path, over the same getDefectsByRelId list those
   // aggregates count, so a clicked number and its list always agree.
   async getHistoricalDefectsDrilldown(relId: number, screen: string, filter: string, value?: string): Promise<DefectDto[]> {
-    if (screen !== 'defects' && screen !== 'reopen-analysis') return [];
+    if (screen !== 'defects' && screen !== 'reopen-analysis' && screen !== 'cycle-progress') return [];
     const defects = await this.qcService.getDefectsByRelId(relId).catch((): DefectDto[] => []);
+    if (screen === 'cycle-progress') return resolveDefectPersonNames(filterCrDefectCounts(defects, filter, value) ?? []);
     return resolveDefectPersonNames(filterDefectsBreakdownOrReopen(defects, screen, filter, value));
   }
 
@@ -2426,6 +2438,8 @@ export class ReleaseIntelligenceService {
         return [];
       }
       case 'cycle-progress': {
+        const crList = filterCrDefectCounts(defects, filter, value);
+        if (crList) return crList;
         if (filter === 'cycleDefects' && value) {
           const defectsByCycle = await this.qcService.getDefectsByCycle(versionId).catch((): DefectByCycleDto[] => []);
           const idsInCycle = new Set(defectsByCycle.filter(d => cycleNameMatches(value, d.detectedInCycle)).map(d => d.id));

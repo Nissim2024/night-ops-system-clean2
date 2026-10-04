@@ -348,8 +348,16 @@ function KpiCard({ value, label, valueColor }: { value: string; label: string; v
 // Full-screen per-CR coverage breakdown for one cycle — replaces the old
 // inline expand-in-card behavior per the user's explicit instruction to
 // navigate to a new screen instead (2026-07-28).
-function CycleDetailScreen({ cycle, onBack, token, versionId }: { cycle: CycleTimelineItem; onBack: () => void; token: string; versionId?: string }) {
+function CycleDetailScreen({ cycle, onBack, token, versionId, relId }: { cycle: CycleTimelineItem; onBack: () => void; token: string; versionId?: string; relId?: number }) {
   const [projectFilter, setProjectFilter] = useState('');
+  // Per-CR "נפתחו" / "פתוחות" counts → the defect list behind them (user ask
+  // 2026-10-04). Same predicates as the counts (cycle-progress screen,
+  // crReported / crStillOpen); a historical relId-only release goes through
+  // historical-defects-drilldown instead of the versionId dispatcher.
+  const [crDrilldown, setCrDrilldown] = useState<{ filter: 'crReported' | 'crStillOpen'; cr: CrCoverageRow } | null>(null);
+  const crDrillEndpoint = (filter: string, crNumber: string) => relId != null
+    ? `${API}/release-intelligence/historical-defects-drilldown/${relId}?${new URLSearchParams({ screen: 'cycle-progress', filter, value: crNumber }).toString()}`
+    : undefined;
   const [testerFilter, setTesterFilter] = useState('');
   // UAT-only "הצג סיכום בדיקות" button (spec 2026-09-17) — RQ_USER_26 pulled
   // on demand per CR, not prefetched for the whole cycle (avoids N Oracle
@@ -413,9 +421,23 @@ function CycleDetailScreen({ cycle, onBack, token, versionId }: { cycle: CycleTi
             <CrCoverageCard
               key={cr.crNumber} cr={cr} qgTargetPct={cycle.qgTargetPct}
               showTestSummaryButton={cycle.cycleType === 'UAT' && !!versionId} onShowTestSummary={openTestSummary}
+              onShowCrDefects={(versionId || relId != null) ? (c, kind) => setCrDrilldown({ filter: kind, cr: c }) : undefined}
             />
           ))}
         </div>
+      )}
+
+      {crDrilldown && (
+        <DefectDrilldownModal
+          token={token}
+          versionId={versionId}
+          screen="cycle-progress"
+          filter={crDrilldown.filter}
+          value={crDrilldown.cr.crNumber}
+          endpoint={crDrillEndpoint(crDrilldown.filter, crDrilldown.cr.crNumber)}
+          title={`${crDrilldown.filter === 'crReported' ? 'תקלות שנפתחו' : 'תקלות פתוחות'} — CR ${crDrilldown.cr.crNumber}`}
+          onClose={() => setCrDrilldown(null)}
+        />
       )}
 
       <Dialog open={!!summaryModal} onOpenChange={(open: boolean) => !open && setSummaryModal(null)}>
@@ -454,9 +476,11 @@ function CycleDetailScreen({ cycle, onBack, token, versionId }: { cycle: CycleTi
 // "בדיוק כמו בתמונה השנייה"). `showTestSummaryButton`/`onShowTestSummary` are
 // omitted by that caller — the UAT sign-off summary stays a manager-side
 // feature here, not duplicated.
-export function CrCoverageCard({ cr, qgTargetPct, showTestSummaryButton, onShowTestSummary }: {
+export function CrCoverageCard({ cr, qgTargetPct, showTestSummaryButton, onShowTestSummary, onShowCrDefects }: {
   cr: CrCoverageRow; qgTargetPct: number | null;
   showTestSummaryButton?: boolean; onShowTestSummary?: (cr: CrCoverageRow) => void;
+  // Click-through for the "נפתחו" / "פתוחות" counts; absent → plain numbers.
+  onShowCrDefects?: (cr: CrCoverageRow, kind: 'crReported' | 'crStillOpen') => void;
 }) {
   const hasData = cr.total > 0;
   const successPct = hasData ? Math.round((cr.passed / cr.total) * 10000) / 100 : null;
@@ -500,19 +524,35 @@ export function CrCoverageCard({ cr, qgTargetPct, showTestSummaryButton, onShowT
 
       <div className="flex items-center gap-3 flex-wrap justify-center">
         <DaysRemainingBadge days={cr.daysRemaining} />
-        {/* stillOpenDefectsCount/reportedDefectsCount — how many
-            defects were ever reported against this CR, and how many
-            of those are still not Closed and not Canceled (narrower
-            than this screen's usual "open" — Rejected/Fixed count
-            as still-open here, unlike elsewhere). */}
-        {cr.reportedDefectsCount > 0 && (
-          <span
-            className="inline-flex items-center gap-1 text-xs font-semibold rounded-full py-0.5 px-[9px] whitespace-nowrap"
-            style={{ color: C.danger, background: `${C.danger}14`, border: `1px solid ${C.danger}40` }}
-          >
-            🐞 {cr.stillOpenDefectsCount}/{cr.reportedDefectsCount}
-          </span>
-        )}
+      </div>
+
+      {/* Defects opened against this CR (any status) and how many of those
+          are still open (not Closed / Canceled) — always shown, labeled,
+          and each one drills into its defect list (user ask 2026-10-04;
+          replaces an unlabeled "🐞 open/reported" chip). */}
+      <div className="flex items-center gap-2 justify-center">
+        {([
+          { kind: 'crReported' as const, label: 'נפתחו', n: cr.reportedDefectsCount, color: C.textPrimary },
+          { kind: 'crStillOpen' as const, label: 'פתוחות', n: cr.stillOpenDefectsCount, color: cr.stillOpenDefectsCount > 0 ? C.danger : C.success },
+        ]).map(x => {
+          const clickable = !!onShowCrDefects && x.n > 0;
+          return (
+            <button
+              key={x.kind}
+              type="button"
+              disabled={!clickable}
+              onClick={clickable ? () => onShowCrDefects!(cr, x.kind) : undefined}
+              title={clickable ? `הצג את ה${x.label === 'נפתחו' ? 'תקלות שנפתחו' : 'תקלות הפתוחות'} של CR ${cr.crNumber}` : undefined}
+              className={cn('inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-0.5 text-xs whitespace-nowrap', clickable ? 'cursor-pointer hover:border-primary' : 'cursor-default')}
+            >
+              <span className="text-subtle-foreground">🐞 {x.label}:</span>
+              <span className={cn('font-bold', clickable && 'underline')} style={{ color: x.color }}>{x.n}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex items-center gap-3 flex-wrap justify-center">
         {/* Quality score chip — only rendered when qualityByCr flagged
             this CR as breaching target (spec 2026-09-17: "רק כאשר
             הוא חורג"), never for a CR that meets it. */}
@@ -581,7 +621,7 @@ export const CyclesPanel: React.FC<{ data: CycleProgress; token: string; version
 
   const selectedCycle = selectedCycleType ? data.timeline.find(t => t.cycleType === selectedCycleType) : null;
   if (selectedCycle) {
-    return <CycleDetailScreen cycle={selectedCycle} onBack={() => setSelectedCycleType(null)} token={token} versionId={versionId} />;
+    return <CycleDetailScreen cycle={selectedCycle} onBack={() => setSelectedCycleType(null)} token={token} versionId={versionId} relId={relId} />;
   }
 
   return (
