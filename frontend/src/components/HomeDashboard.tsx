@@ -821,7 +821,8 @@ export const HomeDashboard: React.FC<Props> = ({
   useEffect(() => {
     if (!canAccessReleaseIntelligence || !primary) { setDefectsList([]); return; }
     axios.get(`${API}/qc/defects?versionId=${primary.id}`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => setDefectsList(Array.isArray(r.data) ? r.data : []))
+      // production-environment defects are out of the testing metrics (2026-10-04) - same as the tile above
+      .then(r => setDefectsList(Array.isArray(r.data) ? r.data.filter((d: any) => !/prod/i.test(d?.environment ?? '')) : []))
       .catch(() => setDefectsList([]));
   }, [canAccessReleaseIntelligence, primary?.id, token]); // eslint-disable-line react-hooks/exhaustive-deps
 

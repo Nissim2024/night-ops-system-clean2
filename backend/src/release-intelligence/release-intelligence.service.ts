@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaClient } from '@prisma/client';
-import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDto, CrCoverageDto, CycleQgTargetDto, CycleTestTotalsDto, resolveDefectPersonNames, bugStatusBucket, executedScriptCount, resolveDefectScope } from '../qc/qc.service';
+import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDto, CrCoverageDto, CycleQgTargetDto, CycleTestTotalsDto, resolveDefectPersonNames, bugStatusBucket, executedScriptCount, resolveDefectScope, isProductionEnvironment } from '../qc/qc.service';
 import { countWorkDays, nextWorkDay, isWorkDay, dateKey } from '../qa/qa.scheduler';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
@@ -205,7 +205,6 @@ function filterDefectsBreakdownOrReopen(defects: DefectDto[], screen: 'defects' 
     const reopen = defects.filter(d => d.status === 'Reopen');
     if (filter === 'reopenAll') return reopen;
     if (filter === 'reopenCritical') return reopen.filter(d => CRITICAL_SEVERITIES.includes(d.severity));
-    if (filter === 'reopenProduction') return reopen.filter(d => (d.environment || '').toLowerCase().includes('prod'));
     if (filter === 'reopenTeam') return reopen.filter(d => responsibilityTeams(d).includes(value ?? ''));
     return [];
   }
@@ -233,13 +232,24 @@ export class ReleaseIntelligenceService {
   private qcService = new QcService();
   private readonly logger = new Logger(ReleaseIntelligenceService.name);
 
+  // Every defect this module counts or lists - production-environment defects
+  // left out (see isProductionEnvironment). The one exception is the Home
+  // page's own "production defects since go-live" line (drill-down 'home' /
+  // 'productionDefects'), which reads qcService.getDefects directly.
+  private async getTestingDefects(versionId: string): Promise<DefectDto[]> {
+    return (await this.qcService.getDefects(versionId)).filter(d => !isProductionEnvironment(d.environment));
+  }
+  private async getTestingDefectsByRelId(relId: number): Promise<DefectDto[]> {
+    return (await this.qcService.getDefectsByRelId(relId)).filter(d => !isProductionEnvironment(d.environment));
+  }
+
   // ── Overview aggregator — spec section 11 ──────────────────────────────────
   async getOverview(versionId: string) {
     const version = await prisma.version.findUnique({ where: { id: versionId } });
     if (!version) throw new BadRequestException('גרסה לא נמצאה');
 
     const [defects, openRisks, crPlans, params, cycleProgress, crAssignments, workPlan] = await Promise.all([
-      this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
+      this.getTestingDefects(versionId).catch((): DefectDto[] => []),
       // A risk stays "open" until it's CLOSED — MITIGATED ("בטיפול") still
       // counts against readiness (spec 2026-09-06).
       prisma.releaseRisk.findMany({ where: { versionId, status: { not: 'CLOSED' } } }),
@@ -750,7 +760,7 @@ export class ReleaseIntelligenceService {
     const [version, cycleProgress, defects, crAssignments, releaseHealth, prevSnapshot, holidayDates, cutoffParam] = await Promise.all([
       prisma.version.findUnique({ where: { id: versionId }, select: { plannedStart: true } }),
       this.getCycleProgress(versionId),
-      this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
+      this.getTestingDefects(versionId).catch((): DefectDto[] => []),
       prisma.versionCrAssignment.findMany({
         where: { versionId, syncStatus: { not: 'REMOVED' } },
         select: { crNumber: true, teamId: true, team: { select: { name: true } } },
@@ -1359,7 +1369,7 @@ export class ReleaseIntelligenceService {
         ? this.qcService.getCrCoverageByRelId([], historicalRelId)
         : this.qcService.getCrCoverage(versionCrNumbers, versionId)
       ).catch((): CrCoverageDto[] => []),
-      this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
+      this.getTestingDefects(versionId).catch((): DefectDto[] => []),
     ]);
 
     const emptyCounts = () => ({
@@ -1561,7 +1571,7 @@ export class ReleaseIntelligenceService {
   async getCycleProgress(versionId: string) {
     const [workPlan, defects, users, version] = await Promise.all([
       prisma.qaWorkPlan.findUnique({ where: { versionId }, include: { cycles: { include: { tasks: true } } } }),
-      this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
+      this.getTestingDefects(versionId).catch((): DefectDto[] => []),
       prisma.user.findMany({ select: { id: true, fullName: true } }),
       prisma.version.findUnique({ where: { id: versionId }, include: { qcRelease: true } }),
     ]);
@@ -1857,7 +1867,7 @@ export class ReleaseIntelligenceService {
       this.qcService.getCycleTestTotalsByRelId(relId).catch((): CycleTestTotalsDto[] => []),
       this.qcService.getCrCoverageByRelId([], relId).catch((): CrCoverageDto[] => []),
       this.qcService.getDefectsByCycleByRelId(relId).catch((): DefectByCycleDto[] => []),
-      this.qcService.getDefectsByRelId(relId).catch((): DefectDto[] => []),
+      this.getTestingDefectsByRelId(relId).catch((): DefectDto[] => []),
     ]);
 
     const openDefects = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
@@ -2002,7 +2012,7 @@ export class ReleaseIntelligenceService {
   async getStatusBoard(versionId: string) {
     const [cycleProgress, defects, risks, alerts] = await Promise.all([
       this.getCycleProgress(versionId),
-      this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
+      this.getTestingDefects(versionId).catch((): DefectDto[] => []),
       this.listRisks(versionId),
       this.getAlerts(versionId),
     ]);
@@ -2219,7 +2229,7 @@ export class ReleaseIntelligenceService {
   // "By Team" groups by Responsibility (BG_USER_03, the handling team) — see
   // responsibilityTeams(); Assigned To is a person, not a team.
   async getDefectsBreakdown(versionId: string) {
-    const defects = await this.qcService.getDefects(versionId).catch((): DefectDto[] => []);
+    const defects = await this.getTestingDefects(versionId).catch((): DefectDto[] => []);
     return this.buildDefectsBreakdown(defects);
   }
 
@@ -2228,7 +2238,7 @@ export class ReleaseIntelligenceService {
   // (groupCount over a DefectDto[]), so it only ever needed a different
   // source for the list itself.
   async getDefectsBreakdownByRelId(relId: number) {
-    const defects = await this.qcService.getDefectsByRelId(relId).catch((): DefectDto[] => []);
+    const defects = await this.getTestingDefectsByRelId(relId).catch((): DefectDto[] => []);
     return this.buildDefectsBreakdown(defects);
   }
 
@@ -2279,7 +2289,7 @@ export class ReleaseIntelligenceService {
     const resolvedVersion = versionId !== requestedVersionId
       ? await prisma.version.findUnique({ where: { id: versionId }, select: { id: true, name: true } })
       : null;
-    const defects = await this.qcService.getDefects(versionId).catch((): DefectDto[] => []);
+    const defects = await this.getTestingDefects(versionId).catch((): DefectDto[] => []);
     const total = defects.length;
 
     const scope = await resolveDefectScope(user);
@@ -2322,7 +2332,7 @@ export class ReleaseIntelligenceService {
   // the `environment` field containing "prod" (documented simplification).
   async getReopenAnalysis(versionId: string) {
     const [defects, bugDashboard] = await Promise.all([
-      this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
+      this.getTestingDefects(versionId).catch((): DefectDto[] => []),
       this.qcService.getBugDashboard(versionId).catch((): BugDashboardDto | null => null),
     ]);
     return this.buildReopenAnalysis(defects, bugDashboard);
@@ -2333,7 +2343,7 @@ export class ReleaseIntelligenceService {
   // (2026-09-20, historical QC releases browse).
   async getReopenAnalysisByRelId(relId: number) {
     const [defects, bugDashboard] = await Promise.all([
-      this.qcService.getDefectsByRelId(relId).catch((): DefectDto[] => []),
+      this.getTestingDefectsByRelId(relId).catch((): DefectDto[] => []),
       this.qcService.getBugDashboardByRelId(relId).catch((): BugDashboardDto | null => null),
     ]);
     return this.buildReopenAnalysis(defects, bugDashboard);
@@ -2343,7 +2353,6 @@ export class ReleaseIntelligenceService {
     const reopen = defects.filter(d => d.status === 'Reopen');
     const reopenRate = defects.length > 0 ? Math.round((reopen.length / defects.length) * 100) : 0;
     const criticalReopen = reopen.filter(d => CRITICAL_SEVERITIES.includes(d.severity)).length;
-    const productionReopen = reopen.filter(d => (d.environment || '').toLowerCase().includes('prod')).length;
 
     const groupCount = (items: DefectDto[], keyFn: (d: DefectDto) => string) => {
       const counts = new Map<string, number>();
@@ -2370,7 +2379,7 @@ export class ReleaseIntelligenceService {
       });
 
     return {
-      kpis: { reopenRate, criticalReopen, productionReopen },
+      kpis: { reopenRate, criticalReopen },
       byCr: bugDashboard?.reopenByCr ?? [],
       byTeam,
       trend,
@@ -2400,13 +2409,13 @@ export class ReleaseIntelligenceService {
   // aggregates count, so a clicked number and its list always agree.
   async getHistoricalDefectsDrilldown(relId: number, screen: string, filter: string, value?: string): Promise<DefectDto[]> {
     if (screen !== 'defects' && screen !== 'reopen-analysis' && screen !== 'cycle-progress') return [];
-    const defects = await this.qcService.getDefectsByRelId(relId).catch((): DefectDto[] => []);
+    const defects = await this.getTestingDefectsByRelId(relId).catch((): DefectDto[] => []);
     if (screen === 'cycle-progress') return resolveDefectPersonNames(filterCrDefectCounts(defects, filter, value) ?? []);
     return resolveDefectPersonNames(filterDefectsBreakdownOrReopen(defects, screen, filter, value));
   }
 
   private async getDefectsDrilldownRaw(versionId: string, screen: string, filter: string, value?: string): Promise<DefectDto[]> {
-    const defects = await this.qcService.getDefects(versionId).catch((): DefectDto[] => []);
+    const defects = await this.getTestingDefects(versionId).catch((): DefectDto[] => []);
     const open = defects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
 
     switch (screen) {
@@ -2449,6 +2458,12 @@ export class ReleaseIntelligenceService {
       }
       case 'home': {
         if (filter === 'crQuality' && value) return defects.filter(d => isCrQualityDefect(d, value));
+        // "production defects since go-live" line - the defects every other
+        // metric here leaves out, so read unfiltered.
+        if (filter === 'productionDefects') {
+          const all = await this.qcService.getDefects(versionId).catch((): DefectDto[] => []);
+          return all.filter(d => isProductionEnvironment(d.environment));
+        }
         return [];
       }
       case 'daily-qa': {
@@ -2544,7 +2559,7 @@ export class ReleaseIntelligenceService {
     crNumber: string; crLabel: string; defectCount: number; actualEffortDays: number | null; score: number | null; meetsTarget: boolean | null;
   }[]> {
     const [defects, vcaRows] = await Promise.all([
-      this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
+      this.getTestingDefects(versionId).catch((): DefectDto[] => []),
       prisma.versionCrAssignment.findMany({ where: { versionId, syncStatus: { not: 'REMOVED' } } }),
     ]);
 

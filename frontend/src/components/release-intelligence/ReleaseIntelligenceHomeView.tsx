@@ -528,7 +528,7 @@ interface Overview {
   versionStatus: string;
   productionSinceDate: string | null;
 }
-interface DefectRow { id: string; title: string; severity: string; status: string; discoveryDate: string; targetRelease?: string; }
+interface DefectRow { id: string; title: string; severity: string; status: string; discoveryDate: string; targetRelease?: string; environment?: string; }
 interface CrAssignmentRow { id: string; crNumber: string; crLabel: string | null; qaArrivalDate: string | null; qaReceived: boolean; }
 interface TeamPlanStatusRow { teamId: string; teamName: string; total: number; draft: number; submitted: number; returned: number; approved: number; allDone: boolean; }
 interface CrQualityRow {
@@ -691,6 +691,10 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
   const [agingDrilldown, setAgingDrilldown] = useState<{ filter: 'aging' | 'agingOpenOnly'; value?: string; title: string } | null>(null);
   const [showStopperDrilldown, setShowStopperDrilldown] = useState(false);
   const [movedDrilldown, setMovedDrilldown] = useState(false);
+  // Production-environment defects are out of every metric in this module
+  // (user rule 2026-10-04); only their count is shown, as a pointer.
+  const [prodDefectCount, setProdDefectCount] = useState(0);
+  const [prodDrilldown, setProdDrilldown] = useState(false);
   const [notReceivedExpanded, setNotReceivedExpanded] = useState(false);
   const [teamPlansExpanded, setTeamPlansExpanded] = useState(false);
   const [crQualityExpanded, setCrQualityExpanded] = useState(false);
@@ -783,7 +787,7 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
   };
 
   useEffect(() => {
-    if (!versionId) { setOverview(null); setCycleData(null); setDefects([]); setAging(null); setCrAssignments([]); setCrQuality([]); setTeamPlanStatus([]); return; }
+    if (!versionId) { setProdDefectCount(0); setOverview(null); setCycleData(null); setDefects([]); setAging(null); setCrAssignments([]); setCrQuality([]); setTeamPlanStatus([]); return; }
     setLoading(true);
     Promise.all([
       axios.get(`${API}/release-intelligence/overview/${versionId}`, { headers }).then(r => r.data).catch(() => null),
@@ -801,7 +805,9 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
     ]).then(([ov, cp, defs, sb, vca, crq, tps]) => {
       setOverview(ov);
       setCycleData(cp);
-      setDefects(defs);
+      const isProd = (d: DefectRow) => /prod/i.test(d.environment ?? '');
+      setDefects((defs as DefectRow[]).filter(d => !isProd(d)));
+      setProdDefectCount((defs as DefectRow[]).filter(isProd).length);
       setAging(sb?.aging ?? null);
       setCrAssignments(vca);
       setCrQuality(crq);
@@ -1066,6 +1072,18 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
               ) : undefined}
             />
           </div>
+          {prodDefectCount > 0 && (
+            <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: '8px' }}>
+              ⓘ תקלות ייצור שנפתחו מאז עליית הגרסה:{' '}
+              <button
+                onClick={() => setProdDrilldown(true)}
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: C.moduleTracking, fontWeight: WEIGHT.bold, textDecoration: 'underline', font: 'inherit' }}
+              >
+                {prodDefectCount}
+              </button>
+              {' '}— אינן נספרות במדדי המודול
+            </div>
+          )}
         </div>
       )}
 
@@ -1294,6 +1312,12 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
         <DefectDrilldownModal
           token={token} versionId={versionId} screen="defects" filter="severity" value="Show Stopper"
           title="תקלות Show Stopper פתוחות" onClose={() => setShowStopperDrilldown(false)}
+        />
+      )}
+      {prodDrilldown && (
+        <DefectDrilldownModal
+          token={token} versionId={versionId} screen="home" filter="productionDefects"
+          title="תקלות ייצור שנפתחו מאז עליית הגרסה" onClose={() => setProdDrilldown(false)}
         />
       )}
       {movedDrilldown && (

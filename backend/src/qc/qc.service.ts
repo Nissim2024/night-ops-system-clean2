@@ -70,6 +70,15 @@ export function executedScriptCount(c: {
     + (c.notCompleted ?? 0) + (c.notApplicable ?? 0) + (c.notRelevant ?? 0);
 }
 
+// Production-environment defect (Environment / BG_USER_02 contains "prod").
+// The testing-management module leaves these out of every metric: once a
+// version is live, production keeps opening defects against it until the
+// next one ships, and they're no part of the go-live decision (user rule
+// 2026-10-04 - environment is the only criterion).
+export function isProductionEnvironment(env: string | null | undefined): boolean {
+  return /prod/i.test(env ?? '');
+}
+
 export interface DefectDto {
   id: string;
   assignedTo: string;
@@ -1338,6 +1347,7 @@ const DEFECTS_BY_CYCLE_SQL = `
   FROM BUG
   LEFT JOIN RELEASE_CYCLES detected_rcyc ON detected_rcyc.RCYC_ID = BUG.BG_DETECTED_IN_RCYC
   WHERE BG_DETECTED_IN_REL = :releaseId
+    AND UPPER(NVL(BG_USER_02, ' ')) NOT LIKE '%PROD%'
 `;
 
 const BUG_DASHBOARD_SQL = `
@@ -1355,6 +1365,7 @@ const BUG_DASHBOARD_SQL = `
     NVL(BG_SUMMARY, BG_SUBJECT) AS TITLE
   FROM BUG
   WHERE BG_DETECTED_IN_REL = :releaseId
+    AND UPPER(NVL(BG_USER_02, ' ')) NOT LIKE '%PROD%'
 `;
 
 // TARGET card — defects opened in a PREVIOUS release whose BG_TARGET_REL points
@@ -3827,7 +3838,7 @@ export class QcService {
       const real = loadRealTargetDefects();
       if (!real || !releaseName) return [];
       return real
-        .filter(d => d.detectedInRelease === releaseName)
+        .filter(d => d.detectedInRelease === releaseName && !isProductionEnvironment(d.environment))
         .map(d => ({ id: d.id, detectedInCycle: d.detectedInCycle, status: d.status }));
     }
 

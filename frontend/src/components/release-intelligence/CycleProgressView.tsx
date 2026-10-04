@@ -645,7 +645,7 @@ export const CyclesPanel: React.FC<{ data: CycleProgress; token: string; version
               <CycleCard
                 key={c.cycleType} c={c} onShowDetail={setSelectedCycleType}
                 onShowDefects={cycleType => relId
-                  ? setDrilldown({ screen: '', filter: '', title: `תקלות שדווחו — ${CYCLE_LABEL[cycleType] ?? cycleType}`, endpoint: `${API}/qc/defects-by-relid?relId=${relId}&cycleName=${encodeURIComponent(cycleType)}` })
+                  ? setDrilldown({ screen: '', filter: '', title: `תקלות שדווחו — ${CYCLE_LABEL[cycleType] ?? cycleType}`, endpoint: `${API}/qc/defects-by-relid?relId=${relId}&cycleName=${encodeURIComponent(cycleType)}&excludeProd=1` })
                   : setDrilldown({ screen: 'cycle-progress', filter: 'cycleDefects', value: cycleType, title: `תקלות שדווחו — ${CYCLE_LABEL[cycleType] ?? cycleType}` })}
               />
             ))}

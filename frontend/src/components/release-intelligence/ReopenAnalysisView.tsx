@@ -10,7 +10,7 @@ const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${win
 interface Bucket { label: string; count: number; }
 interface TrendPoint { date: string; count: number; }
 interface ReopenAnalysis {
-  kpis: { reopenRate: number; criticalReopen: number; productionReopen: number };
+  kpis: { reopenRate: number; criticalReopen: number };
   byCr: Bucket[]; byTeam: Bucket[]; trend: TrendPoint[];
 }
 
@@ -94,7 +94,6 @@ export const ReopenAnalysisView: React.FC<Props> = ({ token, versionId, relId })
       <div className="flex gap-3 flex-wrap">
         <KpiCard value={`${data.kpis.reopenRate}%`} label="Reopen Rate" valueColor={data.kpis.reopenRate > 0 ? '#e8af00' : C.success} onClick={() => setDrilldown({ filter: 'reopenAll', title: 'תקלות שנפתחו מחדש (Reopen)' })} />
         <KpiCard value={String(data.kpis.criticalReopen)} label="Critical Reopen" valueColor={data.kpis.criticalReopen > 0 ? C.danger : C.success} onClick={() => setDrilldown({ filter: 'reopenCritical', title: 'תקלות Reopen — קריטיות' })} />
-        <KpiCard value={String(data.kpis.productionReopen)} label="Production Reopen" valueColor={data.kpis.productionReopen > 0 ? C.danger : C.success} onClick={() => setDrilldown({ filter: 'reopenProduction', title: 'תקלות Reopen — פרודקשן' })} />
       </div>
 
       <div className="flex gap-3 flex-wrap">

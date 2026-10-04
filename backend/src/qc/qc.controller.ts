@@ -2,7 +2,7 @@ import { Controller, Get, Post, Patch, Put, Query, Param, Body, Request, Res, Us
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
-import { QcService } from './qc.service';
+import { QcService, isProductionEnvironment } from './qc.service';
 import { QcRestService } from './qc-rest.service';
 import { PermissionsService } from '../permissions/permissions.service';
 
@@ -442,8 +442,10 @@ export class QcController {
   // that predate this tool), keyed directly by the real Oracle relId
   // instead of a versionId.
   @Get('defects-by-relid')
-  getDefectsByRelId(@Query('relId') relId: string, @Query('cycleName') cycleName?: string) {
-    return this.qcService.getDefectsByRelId(Number(relId), cycleName);
+  async getDefectsByRelId(@Query('relId') relId: string, @Query('cycleName') cycleName?: string, @Query('excludeProd') excludeProd?: string) {
+    const defects = await this.qcService.getDefectsByRelId(Number(relId), cycleName);
+    // testing-module drill-downs: same production exclusion as the counts they open from
+    return excludeProd === '1' ? defects.filter(d => !isProductionEnvironment(d.environment)) : defects;
   }
 
   // Real workflow-aware next-status options (§4) — resolved from the acting
