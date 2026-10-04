@@ -3,6 +3,7 @@ import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, severityColor, severityBg, severityLabel } from '../../theme';
 import { CyclesPanel, CycleProgress } from './CycleProgressView';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
+import { buildRiHomeEmailHtml, EmailTile, EmailAlert, EmailTone } from './riHomeEmail';
 import { KpiTile, RiskRow } from '../HomeDashboard';
 import { DefectIdBadge } from '../shared/defectFieldDisplay';
 import { formatDate } from '../../utils/dateFormat';
@@ -11,437 +12,8 @@ const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${win
 
 function isRm(r: string) { return ['RELEASE_MANAGER', 'ADMIN'].includes(r); }
 
-// Email clients (Outlook's Word engine especially) don't render flexbox or
-// CSS grid — a straight DOM clone of a flex/grid-based page collapses to one
-// column. These two rebuild every such container as an HTML <table> (the one
-// layout mechanism every client actually supports), preserving row/column
-// arrangement, gap-as-padding, and alignment, so the pasted copy keeps the
-// same side-by-side structure as the live page.
-// 2, not 4 like the live screen: the table's row grouping (how many <td>s per
-// <tr>) is baked into the HTML at copy time and can't reflow per-viewer like
-// a real page — there's no JS running for someone reading the pasted email,
-// and a `<style>` media query to shrink it on mobile wouldn't survive anyway
-// (Gmail/Outlook's paste-into-compose sanitizer strips <style> blocks, which
-// is the same reason this whole file rebuilds flex/grid as literal <table>s
-// instead of relying on CSS). A fixed 2-column grid is the one layout that's
-// legible on both a phone and a desktop reading pane without needing either.
-const EMAIL_GRID_COLS = 2;
-// The live FONT stack leads with 'Rubik' then system-ui/-apple-system — Outlook's
-// Word engine can't resolve those tokens and falls back to Times New Roman, so
-// the email came out serif. This stack is all real, widely-installed families.
-const EMAIL_FONT = "'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
-// Light page ground behind the white cards — without it (a plain white email)
-// the cards' thin borders don't read as cards, which is how the dashboard's
-// grey app background reads in the real UI.
-const EMAIL_PAGE_BG = '#f4f5f7';
-
-// The flex/grid container itself often carries real decoration too — card
-// background, border, border-radius, padding, position:relative (the anchor
-// for an absolutely-positioned corner badge). Replacing it outright with a
-// bare <table> silently drops all of that (and un-anchors any absolutely
-// positioned child, which then floats relative to some ancestor further up
-// and overlaps unrelated content). Strip only the flex/grid-specific
-// properties and keep the rest on a wrapping <div> around the new table.
-function nonLayoutStyle(style: string): string {
-  return style
-    .replace(/display:\s*(flex|grid);?/g, '')
-    .replace(/flex-direction:\s*[\w-]+;?/g, '')
-    .replace(/flex-wrap:\s*[\w-]+;?/g, '')
-    .replace(/justify-content:\s*[\w-]+;?/g, '')
-    .replace(/align-items:\s*[\w-]+;?/g, '')
-    .replace(/grid-template-columns:[^;]+;?/g, '')
-    .replace(/gap:\s*[\d.]+px;?/g, '');
-}
-
-// A "flex container with zero element children" isn't necessarily empty — a
-// KpiTile icon chip (display:flex purely to self-center a single emoji) or
-// CyclesPanel's countdown line (display:flex around a template-literal string)
-// hold their entire content as bare TEXT nodes, which Array.from(el.children)
-// never sees (.children is element-only). Discarding "childless" elements
-// outright silently ate that text — every KpiTile icon and the countdown
-// label were vanishing. Move every child NODE (text included) into the
-// wrapper instead, and approximate flex's centering for a small fixed-size
-// box (line-height == its own height) since display:flex itself is gone.
-function preserveEmptyFlexLeaf(el: HTMLElement, wrapper: HTMLElement, style: string) {
-  while (el.firstChild) wrapper.appendChild(el.firstChild);
-  const centered = /justify-content:\s*center/.test(style) && /align-items:\s*center/.test(style);
-  const heightM = style.match(/height:\s*(\d+)px/);
-  if (centered && heightM) {
-    wrapper.setAttribute('style', (wrapper.getAttribute('style') || '') + `;text-align:center;line-height:${heightM[1]}px;`);
-  }
-  el.replaceWith(wrapper);
-}
-
-function convertGridToTable(el: HTMLElement, _cols: number) {
-  const children = Array.from(el.children) as HTMLElement[];
-  const wrapper = document.createElement('div');
-  wrapper.setAttribute('style', nonLayoutStyle(el.getAttribute('style') || ''));
-  if (children.length === 0) { preserveEmptyFlexLeaf(el, wrapper, el.getAttribute('style') || ''); return; }
-  const table = document.createElement('table');
-  table.setAttribute('dir', 'rtl');
-  table.setAttribute('role', 'presentation');
-  table.setAttribute('width', '100%');
-  table.setAttribute('cellpadding', '0');
-  table.setAttribute('cellspacing', '0');
-  table.setAttribute('border', '0');
-  // One flat row, one <td> per card — the single structure Outlook's Word
-  // engine renders reliably (spec 2026-09-06: "כל כרטיסיות הסבבים בשורה
-  // אחת... כרטיסיות הסטטוס בשורה שנייה"). No row-chunking, no wrap. On a
-  // wide desktop/Outlook pane the cards share the width evenly; on a phone
-  // min-width keeps each card legible and the mail just scrolls sideways
-  // (media-query stacking wouldn't survive Gmail's paste or Word anyway).
-  table.style.cssText = 'border-collapse:collapse;width:100%;';
-  const tr = document.createElement('tr');
-  const w = Math.max(1, Math.round(100 / children.length));
-  for (const child of children) {
-    const td = document.createElement('td');
-    td.style.cssText = `width:${w}%;min-width:150px;vertical-align:top;padding:6px;`;
-    td.appendChild(child);
-    tr.appendChild(td);
-  }
-  table.appendChild(tr);
-  wrapper.appendChild(table);
-  el.replaceWith(wrapper);
-}
-
-function convertFlexToTable(el: HTMLElement) {
-  const style = el.getAttribute('style') || '';
-  const children = Array.from(el.children) as HTMLElement[];
-  const wrapStyle = nonLayoutStyle(style);
-  // A flex container that carries a border or background IS a card — wrap it
-  // in a <table><td> (not a <div>) so Outlook's Word engine actually paints
-  // the fill + border. `mount` is what we drop the built inner table into and
-  // then put back in place of the original element; `wrapper` is that outer
-  // node.
-  const isCard = /border|background/.test(wrapStyle);
-  let wrapper: HTMLElement;
-  let mount: HTMLElement;
-  if (isCard) {
-    const wt = document.createElement('table');
-    wt.setAttribute('role', 'presentation');
-    wt.setAttribute('width', '100%');
-    wt.setAttribute('dir', 'rtl');
-    wt.setAttribute('cellpadding', '0');
-    wt.setAttribute('cellspacing', '0');
-    wt.setAttribute('border', '0');
-    wt.style.cssText = 'border-collapse:separate;width:100%';
-    const wtr = document.createElement('tr');
-    mount = document.createElement('td');
-    mount.setAttribute('style', wrapStyle);
-    wtr.appendChild(mount);
-    wt.appendChild(wtr);
-    wrapper = wt;
-  } else {
-    wrapper = document.createElement('div');
-    wrapper.setAttribute('style', wrapStyle);
-    mount = wrapper;
-  }
-  if (children.length === 0) {
-    // empty leaf (icon chip etc.) — always a plain div, never a card
-    const dv = document.createElement('div');
-    dv.setAttribute('style', wrapStyle);
-    preserveEmptyFlexLeaf(el, dv, style);
-    return;
-  }
-  const isColumn = /flex-direction:\s*column/.test(style);
-  const gapM = style.match(/gap:\s*([\d.]+)px/);
-  const gap = gapM ? parseFloat(gapM[1]) : 0;
-  const alignM = (style.match(/align-items:\s*([\w-]+)/) || [])[1];
-  const valign = alignM === 'flex-end' ? 'bottom' : alignM === 'center' ? 'middle' : 'top';
-  const spaceBetween = /justify-content:\s*space-between/.test(style);
-  // A row is only a compact, shrink-to-fit-and-center cluster (KpiTile's own
-  // internal icon+label / value rows) when it explicitly says so via
-  // justify-content:center. Everything else — including a plain content row
-  // with no justify-content at all, e.g. RiskRow's icon+text+badge line — is
-  // meant to fill its parent, same as an ordinary flex row defaults to; giving
-  // it the same shrink+center treatment is what made it read as "centered".
-  const centered = /justify-content:\s*center/.test(style);
-
-  const table = document.createElement('table');
-  table.setAttribute('dir', 'rtl');
-  table.setAttribute('role', 'presentation');
-  table.setAttribute('cellpadding', '0');
-  table.setAttribute('cellspacing', '0');
-  table.setAttribute('border', '0');
-  // max-width:100% on the shrink-wrap (margin:0 auto) branch matters once a
-  // column gets narrow (2-col mobile grid): without it the table renders at
-  // its natural content width and overflows past the card edge instead of
-  // being capped — which is what a nowrap+ellipsis label inside it (e.g.
-  // KpiTile's icon+moduleLabel row) actually needs in order to ellipsize at
-  // all, since text-overflow only fires once something bounds the box.
-  //
-  // isColumn additionally gets table-layout:fixed — found live at the 2-col
-  // mobile width: a KpiTile's vertical row-stack is exactly one column, but
-  // with table-layout:auto a *width:100%* table is still only a floor, not a
-  // ceiling — per the auto-table-layout algorithm, if any single row's own
-  // min-content (e.g. the severity-bar row's nowrap labels/badges) exceeds
-  // that 100%, the whole table grows to fit it, dragging every OTHER row in
-  // the same card along — a card's whole "sub" text line ended up overflowing
-  // past its own card's edge into the neighboring card even though nothing
-  // about that particular line was too wide on its own. table-layout:fixed
-  // makes width:100% a hard cap instead: an overlong nested row can still
-  // overflow, but only itself, locally — it no longer stretches the card.
-  // A short "label ↔ value" space-between row (the health-score breakdown,
-  // the per-cycle QG targets) reads as one paired unit. In a wide card
-  // (~630px) a full-width row flings the value to the far edge, ~500px from
-  // its label — aligned in columns but detached. Cap those so the value
-  // stays near its label; a header row (longer title … badge/arrow) keeps
-  // full width so the title isn't squeezed. The cap hugs the RTL start (no
-  // margin:auto) so the pair sits against the card's right edge.
-  const isCompactPair = spaceBetween && children.length === 2
-    && (children[0].textContent || '').trim().length <= 22
-    && (children[children.length - 1].textContent || '').trim().length <= 22;
-  table.style.cssText = 'border-collapse:collapse;' + (
-    isColumn ? 'width:100%;table-layout:fixed;' :
-    isCompactPair ? 'width:100%;max-width:300px;' :
-    (spaceBetween || !centered) ? 'width:100%;' :
-    'margin:0 auto;max-width:100%;'
-  );
-
-  if (isColumn) {
-    children.forEach((child, i) => {
-      const tr = document.createElement('tr');
-      const td = document.createElement('td');
-      if (i > 0 && gap) td.style.paddingTop = `${gap}px`;
-      td.appendChild(child);
-      tr.appendChild(td);
-      table.appendChild(tr);
-    });
-  } else {
-    const tr = document.createElement('tr');
-    // A child the source page marked flex:1 (e.g. RiskRow's/a manual notice's
-    // growing text column next to a fixed-size icon; or two equal-width stat
-    // blocks like "CR-ים" / "תקלות שדווחו") is meant to absorb the width its
-    // fixed-size siblings don't need. When every child in the row shares that
-    // marker (an even split, not "one grows, the rest are fixed"), giving
-    // each of them width:100% is invalid HTML — multiple 100%-width columns
-    // in the same row — and browsers resolve it inconsistently; split the
-    // 100% evenly across them instead.
-    const growFlags = children.map(c => /\bflex:\s*1\b/.test(c.getAttribute('style') || ''));
-    const growCount = growFlags.filter(Boolean).length;
-    const evenSplit = growCount > 1;
-    children.forEach((child, i) => {
-      // space-between with a first + rest pattern (header rows: label …
-      // arrow/button) — a full-width spacer cell pushes everything after it
-      // to the far side. No explicit width on it: an empty cell with no
-      // content already has zero min-content-width, so on a width:100% table
-      // the layout engine gives it whatever's left AFTER the real (non-empty)
-      // columns get their natural size — asking for width:100% on the cell
-      // itself over-constrains the row and squeezes the real columns instead.
-      if (i === 1 && spaceBetween) tr.appendChild(document.createElement('td'));
-      const td = document.createElement('td');
-      const widthStyle = !growFlags[i] ? '' : evenSplit ? `width:${Math.round(100 / growCount)}%;` : 'width:100%;';
-      // Pin the two ends of a space-between row to their outer edges. The
-      // whole KpiTile inherits text-align:center, and auto table-layout, when
-      // the row is wider than its content, widens the label/value cells
-      // rather than the (max-content:0) empty spacer between them — so a
-      // centered label/value then floats mid-cell instead of hugging the card
-      // edge, and consecutive rows with different-width values stop lining up
-      // (QG's per-cycle target list, found live 2026-09-05). right = RTL
-      // start, left = RTL end; physical values, not start/end, for old-client
-      // safety — every one of these tables is dir="rtl".
-      const alignStyle = spaceBetween
-        ? (i === 0 ? 'text-align:right;' : i === children.length - 1 ? 'text-align:left;' : '')
-        : '';
-      // No blanket white-space:nowrap here — it's an inherited CSS property, so
-      // it would force every descendant span/div to stop wrapping too (e.g. a
-      // KpiTile's own multi-line label text), not just this cell's direct
-      // content. Elements that actually need nowrap (short labels) already
-      // carry it in their own inline style from the live page.
-      td.style.cssText = `vertical-align:${valign};${widthStyle}${alignStyle}` + (i > 0 && !spaceBetween && gap ? `padding-inline-start:${gap}px;` : '');
-      td.appendChild(child);
-      tr.appendChild(td);
-    });
-    table.appendChild(tr);
-  }
-  mount.appendChild(table);
-  el.replaceWith(wrapper);
-}
-
-// Root cause found 2026-09-17 (real screenshot of a pasted email: the top
-// KPI ribbon survived intact, but the whole CyclesPanel/CycleCard grid below
-// it pasted as bare unstyled stacked text — no card borders, no side-by-side
-// layout, nothing). This file's OWN components (KpiTile, RiskRow's header)
-// carry their display:flex/grid, border, background etc. as literal inline
-// `style={{...}}` — visible to layoutToTables' and the color-flattening
-// pass's `getAttribute('style')` regex matching below. CyclesPanel/CycleCard
-// (CycleProgressView.tsx) were rebuilt in the Tailwind migration using
-// `className="flex ... border ... bg-card"` instead — ALL of that lives in
-// compiled Tailwind CSS classes, which never travel with a clipboard paste
-// (only inline styles do) and were never inline to begin with, so this whole
-// pipeline never even saw them as containers needing conversion.
-//
-// Fix: before layoutToTables runs, walk the LIVE tree (computed styles only
-// resolve on an attached, laid-out element — the clone is detached) and bake
-// the specific longhand properties the rest of this pipeline reads into
-// literal inline style text on the CLONE's corresponding node (cloneNode(true)
-// is a structural mirror, so the same querySelectorAll('*') order lines up
-// 1:1). Skips any element that already carries its own inline `display:` —
-// this file's already-tuned inline-style components are left byte-for-byte
-// unchanged; only the gap left by Tailwind-only elements is filled.
-const TAILWIND_SNAPSHOT_PROPS: [string, keyof CSSStyleDeclaration][] = [
-  ['display', 'display'], ['flex-direction', 'flexDirection'], ['gap', 'gap'],
-  ['justify-content', 'justifyContent'], ['align-items', 'alignItems'],
-  ['border-top-width', 'borderTopWidth'], ['border-top-style', 'borderTopStyle'], ['border-top-color', 'borderTopColor'],
-  ['border-width', 'borderWidth'], ['border-style', 'borderStyle'], ['border-color', 'borderColor'],
-  ['border-radius', 'borderRadius'], ['background-color', 'backgroundColor'],
-  ['padding-top', 'paddingTop'], ['padding-bottom', 'paddingBottom'], ['padding-left', 'paddingLeft'], ['padding-right', 'paddingRight'],
-  ['color', 'color'], ['font-size', 'fontSize'], ['font-weight', 'fontWeight'], ['text-align', 'textAlign'], ['line-height', 'lineHeight'],
-];
-function snapshotTailwindStyles(liveRoot: HTMLElement, cloneRoot: HTMLElement) {
-  const liveEls = liveRoot.querySelectorAll<HTMLElement>('*');
-  const cloneEls = cloneRoot.querySelectorAll<HTMLElement>('*');
-  liveEls.forEach((liveEl, i) => {
-    const cloneEl = cloneEls[i];
-    if (!cloneEl) return;
-    const existingStyle = cloneEl.getAttribute('style') || '';
-    if (/display\s*:/.test(existingStyle)) return; // already inline-styled — untouched
-    const cs = getComputedStyle(liveEl);
-    const isLayoutContainer = cs.display === 'flex' || cs.display === 'grid';
-    const hasVisibleBorder = cs.borderTopWidth !== '0px' && cs.borderTopStyle !== 'none';
-    const hasBackground = cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent';
-    if (!isLayoutContainer && !hasVisibleBorder && !hasBackground) return; // plain text node wrapper — nothing to gain
-    const parts = TAILWIND_SNAPSHOT_PROPS.map(([cssProp, jsProp]) => {
-      const value = String(cs[jsProp] ?? '');
-      if (!value || value === 'none' || value === 'normal' || value === '0px' || value === 'rgba(0, 0, 0, 0)') return '';
-      return `${cssProp}:${value}`;
-    }).filter(Boolean).join(';');
-    if (parts) cloneEl.setAttribute('style', existingStyle ? `${existingStyle};${parts}` : parts);
-  });
-}
-
-// Runs the grid pass then the flex pass over a static snapshot of the tree —
-// nodes are moved (not copied) into the new tables, so a later pass still
-// finds them via root.contains(). NOT el.isConnected: `root` (the clone) is
-// never attached to `document`, so isConnected is false for every node in it
-// from the start, regardless of any conversion — it only tracks attachment to
-// a Document, not membership in this detached working tree.
-function layoutToTables(root: HTMLElement) {
-  const all = Array.from(root.querySelectorAll<HTMLElement>('*'));
-  for (const el of all) {
-    if (!root.contains(el)) continue;
-    if (/display:\s*grid/.test(el.getAttribute('style') || '')) convertGridToTable(el, EMAIL_GRID_COLS);
-  }
-  for (const el of all) {
-    if (!root.contains(el)) continue;
-    if (/display:\s*flex/.test(el.getAttribute('style') || '')) convertFlexToTable(el);
-  }
-}
-
-// oklch(L C H) → #rrggbb. Done by hand rather than via getComputedStyle
-// because not every browser build resolves oklch in computed styles (some
-// hand it back verbatim), and the whole point is to emit something Word can
-// read. Standard Oklab→linear-sRGB matrix + sRGB gamma. Cached per string.
-const _colorCache = new Map<string, string>();
-function resolveModernColor(fn: string): string {
-  const cached = _colorCache.get(fn);
-  if (cached) return cached;
-  let out = '#4b5563';
-  const m = /^oklch\(\s*([\d.]+%?)\s+([\d.]+)\s+([\d.]+)/i.exec(fn);
-  if (m) {
-    const L = m[1].endsWith('%') ? parseFloat(m[1]) / 100 : parseFloat(m[1]);
-    const C = parseFloat(m[2]);
-    const H = (parseFloat(m[3]) * Math.PI) / 180;
-    const a = C * Math.cos(H), b = C * Math.sin(H);
-    const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-    const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-    const s_ = L - 0.0894841775 * a - 1.291485548 * b;
-    const l = l_ ** 3, mm = m_ ** 3, s = s_ ** 3;
-    const lin = [
-      4.0767416621 * l - 3.3077115913 * mm + 0.2309699292 * s,
-      -1.2684380046 * l + 2.6097574011 * mm - 0.3413193965 * s,
-      -0.0041960863 * l - 0.7034186147 * mm + 1.707614701 * s,
-    ];
-    const hex = lin.map(c => {
-      const g = c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
-      return Math.max(0, Math.min(255, Math.round(g * 255))).toString(16).padStart(2, '0');
-    }).join('');
-    out = `#${hex}`;
-  }
-  _colorCache.set(fn, out);
-  return out;
-}
-
-// Every colour Outlook's Word engine can't parse — oklch/lab/lch (the
-// theme's module colour is oklch), color-mix(), and functional-alpha
-// rgba() — flattened to a plain hex/rgb. Word silently drops an
-// unrecognised colour, which is a big part of why the card accents, tints
-// and muted greys vanish there and it collapses to "plain text".
-function flattenColor(raw: string): string {
-  return raw
-    .replace(/\b(?:oklch|oklab|lch|lab)\([^)]*\)/g, resolveModernColor)
-    .replace(/color-mix\([^)]*\)/g, '#f4f4f5')
-    .replace(/rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)/g, (_m, r, g, b, a) => {
-      const A = Math.max(0, Math.min(1, parseFloat(a)));
-      const mix = (c: string) => Math.round(parseInt(c, 10) * A + 255 * (1 - A));
-      const hex = (n: number) => n.toString(16).padStart(2, '0');
-      return `#${hex(mix(r))}${hex(mix(g))}${hex(mix(b))}`;
-    });
-}
-
-// Serialize a live DOM subtree into email-paste-safe HTML: drop [data-noemail]
-// nodes (the greeting bar, notice composer, edit/delete, the copy button
-// itself), rebuild every flex/grid container as a <table> (Outlook's Word
-// renderer ignores flex/grid → without this everything just stacks), flatten
-// alpha/color-mix colours to opaque hex, and wrap the whole block in a
-// presentation <table> (Word doesn't block-render a bare <a>, so the old
-// whole-body link left the frame/padding off there). Only "פתח במערכת →" is
-// a link now.
-function buildEmailHtml(sourceEl: HTMLElement, opts: { href: string; title: string; subtitle?: string }): string {
-  const clone = sourceEl.cloneNode(true) as HTMLElement;
-  // Must run BEFORE the [data-noemail] removal below — it relies on the
-  // live/clone trees having identical structure (same querySelectorAll('*')
-  // order) to line up computed styles with the right clone node.
-  snapshotTailwindStyles(sourceEl, clone);
-  clone.querySelectorAll('[data-noemail]').forEach(n => n.remove());
-  layoutToTables(clone);
-  clone.querySelectorAll<HTMLElement>('[style]').forEach(el => {
-    let s = el.getAttribute('style') || '';
-    s = flattenColor(s)
-      .replace(/cursor:\s*pointer/g, 'cursor:default')
-      // any font-family (they all lead with 'Rubk',system-ui,… → Times in Word)
-      .replace(/font-family\s*:[^;]+/gi, `font-family:${EMAIL_FONT}`);
-    // A nowrap+ellipsis label (e.g. KpiTile's moduleLabel) only actually
-    // truncates in the live page because its flex parent carries min-width:0,
-    // letting the flex item shrink below its own content size — flexbox-only
-    // behavior with no table equivalent. In the table rebuild the same nowrap
-    // instead makes the cell's min-content un-shrinkable, so at the 2-column
-    // mobile width it overflows the card rather than ellipsizing (confirmed
-    // live: table max-width doesn't help — table-layout:auto still grows past
-    // it to fit an unbreakable nowrap run). Only in the email copy, let this
-    // specific combination wrap onto a second line instead — plain overflow
-    // (not ellipsis) is what a table can actually guarantee here, and a
-    // wrapped label beats one bleeding past its card.
-    if (/overflow:\s*hidden/.test(s) && /text-overflow:\s*ellipsis/.test(s)) {
-      s = s.replace(/white-space:\s*nowrap;?/g, 'white-space:normal;');
-    }
-    el.setAttribute('style', s);
-  });
-  Array.from(clone.children).forEach(c => {
-    const el = c as HTMLElement;
-    el.setAttribute('style', (el.getAttribute('style') || '') + ';margin-bottom:16px');
-  });
-  const stamp = new Date().toLocaleString('he-IL', { dateStyle: 'medium', timeStyle: 'short' });
-  // Full width — fills the mail reading pane, no max-width/centering (user
-  // 2026-09-06: capping it just left "המון שטח פנוי משני צידי התוכן" on a
-  // wide desktop). The internal grids are width:100% too, and the
-  // label↔value rows that used to spread in a wide card are now capped
-  // locally (convertFlexToTable's isCompactPair) — so full-width no longer
-  // means "flung apart".
-  // Presentation table wrapper — not a bare <a>. Word renders <a> inline, so
-  // padding/border/width on it were being dropped in Outlook. width as an
-  // attribute AND in CSS (Word prefers the attribute).
-  return `<table role="presentation" dir="rtl" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;width:100%;font-family:${EMAIL_FONT};direction:rtl;background:${EMAIL_PAGE_BG}">`
-    + `<tr><td style="padding:16px;font-family:${EMAIL_FONT};color:#1f2937">`
-    + `<table role="presentation" dir="rtl" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;width:100%;padding-bottom:12px;margin-bottom:16px;border-bottom:1px solid #e5e7eb;font-family:${EMAIL_FONT}"><tr>`
-    + `<td style="vertical-align:baseline"><div style="font-size:16px;font-weight:700;color:#1f2937">${opts.title}</div>`
-    + `<div style="font-size:12px;color:#6b7280;margin-top:2px">${opts.subtitle ? `${opts.subtitle} · ` : ''}${stamp}</div></td>`
-    + `<td style="vertical-align:baseline;text-align:left;font-size:13px;font-weight:600;white-space:nowrap"><a href="${opts.href}" style="color:#2563eb;text-decoration:none">פתח במערכת →</a></td>`
-    + `</tr></table>`
-    + clone.innerHTML
-    + `<div style="margin-top:20px;padding-top:12px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;text-align:center">הופק על ידי DeployCenter</div>`
-    + `</td></tr></table>`;
-}
+// Email copy content is built from data in ./riHomeEmail (Outlook-safe);
+// the old DOM-clone-and-convert pipeline was removed 2026-10-04.
 
 // Rich-HTML clipboard copy that also works where navigator.clipboard.write is
 // blocked (some managed browsers, headless): select a hidden contenteditable
@@ -723,16 +295,90 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
       .catch(() => {});
   }, [role, headers]);
 
+  // Same content as the "תמונת מצב" tiles, as data for the Outlook-safe email.
+  const buildEmailTiles = (o: Overview): EmailTile[] => {
+    const live = isLiveVersion(o);
+    const sevLine = (q: Record<string, { count: number; threshold: number }>) => Object.entries(q)
+      .filter(([k, v]) => QG_SEVERITY_META[k] && v.count > 0)
+      .map(([k, v]) => `${v.count} ${QG_SEVERITY_META[k].label}`).join(' · ') || 'אין תקלות פתוחות';
+    const moved = openDefects.filter(d => !!(d.targetRelease || '').trim());
+    const failing = crQuality.filter(r => r.meetsTarget === false);
+    const recTone: EmailTone = o.healthRecommendation === 'GO' ? 'ok' : o.healthRecommendation === 'NO_GO' ? 'bad' : 'warn';
+    const cov = coverageShort(o);
+    return [
+      live
+        ? { icon: '🩺', title: 'מדד מוכנות', value: '✓', label: 'הגרסה בייצור', sub: 'המדד אינו רלוונטי לאחר העלייה לאוויר', subTone: 'ok', accent: 'ok' }
+        : {
+          icon: '🩺', title: 'מדד מוכנות', value: String(o.healthScore), label: HEALTH_REC[o.healthRecommendation].label, accent: recTone,
+          sub: !o.testingStarted ? '⏳ Quality Gate: הגרסה טרם החלה' : o.qgPass ? '✓ Quality Gate: PASS' : '✗ Quality Gate: FAIL',
+          subTone: !o.testingStarted ? 'warn' : o.qgPass ? 'ok' : 'bad',
+          lines: (o.readinessReasons ?? []).map(r => ({ text: r, tone: r.startsWith('⛔') ? 'bad' as const : 'muted' as const })),
+        },
+      {
+        icon: '✅', title: 'כיסוי בדיקות', value: `${o.coveragePct.toFixed(2)}%`, label: '', accent: 'brand',
+        sub: cov.text, subTone: cov.tone, bar: { pct: o.coveragePct, tone: o.coveragePct >= 80 ? 'ok' : 'warn' },
+      },
+      {
+        icon: '🐞', title: 'תקלות', value: String(openDefects.length - moved.length), label: 'תקלות פתוחות', accent: 'brand',
+        sub: o.criticalDefects > 0 ? `⚠ ${o.criticalDefects} קריטיות` : '✓ אין תקלות קריטיות', subTone: o.criticalDefects > 0 ? 'bad' : 'ok',
+        lines: [
+          { text: sevLine(o.qgSummary) },
+          ...(moved.length > 0 ? [{ text: `🔀 ${moved.length} תקלות שעוברות לטיפול עתידי`, tone: 'brand' as const }] : []),
+        ],
+      },
+      live
+        ? { icon: '📈', title: 'תחזית', value: '✓', label: o.productionSinceDate ? `בייצור מתאריך ${formatDate(o.productionSinceDate)}` : 'הגרסה בייצור', accent: 'ok' }
+        : {
+          icon: '📈', title: 'תחזית', value: o.daysToGoLive != null ? String(o.daysToGoLive) : '—', label: 'ימים לעלייה לאוויר', accent: 'brand',
+          sub: FORECAST_LABEL[o.forecastStatus] ? `${o.forecastStatus === 'ON_TRACK' ? '✓' : '⚠'} ${FORECAST_LABEL[o.forecastStatus].label}` : undefined,
+          subTone: o.forecastStatus === 'ON_TRACK' ? 'ok' : 'warn',
+        },
+      {
+        icon: '⚠️', title: 'סיכוני איכות', value: String(o.openRisksCount), label: 'סיכונים פתוחים', accent: failing.length > 0 ? 'bad' : 'brand',
+        sub: failing.length > 0 ? `⚠ ${failing.length} CR-ים חורגים מיעד האיכות` : (o.topRisks[0] ? `⚠ ${o.topRisks[0].title}` : '✓ אין סיכונים פתוחים'),
+        subTone: (o.openRisksCount > 0 || failing.length > 0) ? 'warn' : 'ok',
+        lines: [{ text: `🎯 ${failing.length}/${crQuality.length} CR חורגים מיעד` }],
+      },
+    ];
+  };
+
+  // The "סיכונים ופעילויות" strip as rows: notices, risks, aging, cycles, CRs.
+  const buildEmailAlerts = (): EmailAlert[] => {
+    const RISK_SEV_HE: Record<string, string> = { CRITICAL: 'קריטי', HIGH: 'גבוה', MEDIUM: 'בינוני', LOW: 'נמוך' };
+    const out: EmailAlert[] = [
+      ...notices.map(n => ({ text: `📌 ${n.text}`, tone: (n.urgency === 'HIGH' || n.urgency === 'CRITICAL' ? 'bad' : n.urgency === 'MEDIUM' ? 'warn' : 'brand') as EmailTone })),
+      ...(overview?.topRisks ?? []).map(r => ({
+        text: `סיכון ${RISK_SEV_HE[r.severity] ?? r.severity}${r.status === 'MITIGATED' ? ' (בטיפול)' : ''}: ${r.title}`,
+        tone: (r.severity === 'CRITICAL' || r.severity === 'HIGH' ? 'bad' : 'warn') as EmailTone,
+      })),
+    ];
+    if (aging && aging.count > 0) out.push({ text: `⏱ ${aging.count} תקלות חורגות מזמן הטיפול`, detail: `מעל ${aging.thresholdDays} ימים · ממוצע חריגה: ${aging.avgOverageDays} ימים`, tone: 'bad' });
+    for (const c of cyclesEndingSoonUnmet) {
+      out.push({ text: `⏳ ${CYCLE_LABEL[c.cycleType] ?? c.cycleType} עומד להסתיים וטרם עומד ביעד`, detail: `${c.successPct?.toFixed(2)}% הצלחה מתוך יעד ${c.qgTargetPct}%`, tone: 'bad' });
+    }
+    if (overdueArrivalCrs.length > 0) out.push({ text: `${overdueArrivalCrs.length} CR-ים חורגים ממועד הקבלה ל-QA`, tone: 'warn' });
+    if (teamsNotSubmitted.length > 0) out.push({ text: `${teamsNotSubmitted.length} צוותים טרם הגישו תוכנית CR`, tone: 'warn' });
+    return out;
+  };
+
   const handleCopyToEmail = async () => {
     if (!rootRef.current || !versionId) return;
     try {
       const base = (appUrl || window.location.origin).replace(/\/+$/, '');
       const href = `${base}/?go=ri-home&versionId=${encodeURIComponent(versionId)}`;
       const reportTitle = versionName ? `סטטוס בדיקות גרסה ${versionName}` : 'סטטוס בדיקות גרסה';
-      const html = buildEmailHtml(rootRef.current, {
-        href,
-        title: reportTitle,
-        subtitle: '',
+      const stamp = new Date().toLocaleString('he-IL', { dateStyle: 'medium', timeStyle: 'short' });
+      const html = buildRiHomeEmailHtml({
+        title: reportTitle, stamp, href,
+        tiles: overview ? buildEmailTiles(overview) : [],
+        note: prodDefectCount > 0 ? `תקלות ייצור שנפתחו מאז עליית הגרסה: ${prodDefectCount} — אינן נספרות במדדי המודול` : undefined,
+        cycles: (cycleData?.timeline ?? []).map(c => ({
+          name: CYCLE_LABEL[c.cycleType] ?? c.cycleType,
+          dates: `${formatDate(c.plannedStart)} — ${formatDate(c.plannedEnd)}`,
+          state: c.state, crCount: c.crCount, defectCount: c.defectCount,
+          successPct: c.successPct, targetPct: c.qgTargetPct, progressPct: c.progressPct,
+        })),
+        alerts: buildEmailAlerts(),
       });
       // Plain-text fallback for clients that don't render the HTML — a
       // standalone summary, not just 3 numbers. Mirrors the HTML's headline
