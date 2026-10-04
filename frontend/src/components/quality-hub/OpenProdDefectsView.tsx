@@ -851,7 +851,7 @@ export const DefectDetailScreen: React.FC<{
                         : (pendingEdits[key] !== undefined ? pendingEdits[key] : String(detail[key] ?? ''));
                       const isAtomic = PERSON_BADGE_FIELDS.has(key) || TEAM_BADGE_FIELDS.has(key)
                         || key === 'id' || key === 'status' || key === 'severity' || key === 'priority' || key === 'secondaryPriority';
-                      const valRtl = !isAtomic && (!displayValue || hasHebrew(displayValue));
+                      const valRtl = !isAtomic && !!displayValue && hasHebrew(displayValue);
                       const isEditable = editMode && (editableFieldKeys.has(key) || isRefField);
                       const isEditingThis = editingField === key;
                       // Label above value, matching CreateDefectScreen's Field
@@ -896,9 +896,12 @@ export const DefectDetailScreen: React.FC<{
                               />
                             )
                           ) : (
+                            // self-stretch: box is at least as wide as its label
+                            // (wider when the value is longer); text sits on the
+                            // label's side unless the value is Hebrew.
                             <span
-                              className="inline-flex min-w-[2.75rem] max-w-full items-center flex-wrap gap-1 break-words px-2.5 py-1.5 text-[13px] font-medium"
-                              style={{ color: JIRA.text, direction: 'rtl', unicodeBidi: valRtl ? 'normal' : 'plaintext', ...VALUE_BOX_STYLE }}
+                              className="inline-flex min-w-[2.75rem] max-w-full self-stretch items-center flex-wrap gap-1 break-words px-2.5 py-1.5 text-[13px] font-medium"
+                              style={{ color: JIRA.text, direction: valRtl ? 'rtl' : 'ltr', ...VALUE_BOX_STYLE }}
                             >
                               {isDirty && <span title="שינוי לא שמור" style={{ color: JIRA.blue }}>●</span>}
                               {renderFieldValue(key, displayValue)}
