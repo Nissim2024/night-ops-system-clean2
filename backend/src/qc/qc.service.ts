@@ -2280,9 +2280,11 @@ const ALL_DEFECTS_DASHBOARD_SQL = `
 
 // Drill-down list behind one breakdown-panel bar (e.g. "Severity = Show
 // Stopper") — same lightweight column set as the dashboard query (no CLOBs),
-// plus TITLE, filtered to one dimension and capped at 300 rows (FETCH
-// FIRST — standard since Oracle 12c; UNVERIFIED against this instance, same
-// as everything else querying real Oracle in this file for the first time).
+// plus TITLE, filtered to one dimension and capped at 300 rows via ROWNUM —
+// NOT `FETCH FIRST n ROWS ONLY`: that is Oracle 12c+ syntax, and the real QC
+// instance rejected it with ORA-00933 at exactly that clause (production
+// logs, 2026-10-04). ROWNUM works on every version, and with no ORDER BY in
+// these queries the rows returned are the same.
 // The column each filterField maps to must stay a fixed allowlist below —
 // never interpolate the field name itself from caller input.
 const ALL_DEFECTS_FILTER_COLUMNS: Record<string, string> = {
@@ -2319,7 +2321,7 @@ function buildAllDefectsFilteredSql(filterField: string, extraWhere = ''): strin
   const column = ALL_DEFECTS_FILTER_COLUMNS[filterField];
   if (!column) throw new BadRequestException(`שדה סינון לא מוכר: ${filterField}`);
   const scopeClause = extraWhere ? ` AND ${extraWhere}` : '';
-  return `${DEFECTS_SQL_SELECT}  WHERE TRIM(${column}) = TRIM(:value)${scopeClause}\n  FETCH FIRST 300 ROWS ONLY\n`;
+  return `${DEFECTS_SQL_SELECT}  WHERE TRIM(${column}) = TRIM(:value)${scopeClause}\n  AND ROWNUM <= 300\n`;
 }
 
 // KPI-tile drill-down (2026-09-23, fixes-batch item B — "הכרטיסיות עצמן
@@ -2349,7 +2351,7 @@ function buildAllDefectsKpiSql(kpiKey: string, extraWhere = ''): string {
   const where = ALL_DEFECTS_KPI_WHERE[kpiKey];
   if (!where) throw new BadRequestException(`KPI לא מוכר: ${kpiKey}`);
   const scopeClause = extraWhere ? ` AND ${extraWhere}` : '';
-  return `${DEFECTS_SQL_SELECT}  WHERE ${where}${scopeClause}\n  FETCH FIRST 300 ROWS ONLY\n`;
+  return `${DEFECTS_SQL_SELECT}  WHERE (${where})${scopeClause}\n  AND ROWNUM <= 300\n`;
 }
 
 // Dedicated mock fixture (not reusing MOCK_BUG_ROWS, which lacks MAIN_MODULE
