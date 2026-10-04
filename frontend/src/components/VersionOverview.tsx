@@ -54,7 +54,8 @@ interface TargetDefect {
   reason: string; supportStatus: string; vendorAssignTo: string; category: string;
   itemType: string; estimateFixTime: string; platform: string; modified: string;
   detectedInRelease: string; detectedInCycle: string; targetRelease: string; targetCycle: string;
-  crStatus: string; dropNumber: string; reopenYn: string; influence: string; fixType: string;
+  crStatus: string; dropNumber: string; reopenYn: string;
+  detectedApkVersion: string; detectedHotAppApk: string; targetHotAppApk: string; influence: string; fixType: string;
   qaTester: string; secondaryPriority: string; releaseDefect: string; businessProcess: string;
   foundByAutomation: string; mainBusinessProcess: string; impact: string; productionReason: string;
   environmentComponent: string; willBeTestAtGoLive: string; deploymentCategory: string;
@@ -112,6 +113,9 @@ const TARGET_DEFECT_COLUMNS: { key: keyof TargetDefect; label: string }[] = [
   { key: 'targetCycle', label: 'Target Cycle' },
   { key: 'crStatus', label: 'CR Status' },
   { key: 'dropNumber', label: 'Drop#' },
+  { key: 'detectedApkVersion', label: 'Detected At APK Version' },
+  { key: 'detectedHotAppApk', label: 'Detected in HOT APP APK' },
+  { key: 'targetHotAppApk', label: 'Target HOT APP APK' },
   { key: 'reopenYn', label: 'Reopen Y/N' },
   { key: 'influence', label: 'Influence' },
   { key: 'fixType', label: 'Fix Type' },

@@ -129,6 +129,9 @@ export interface DefectDto {
   targetCycle: string;
   crStatus: string;
   dropNumber: string;
+  detectedApkVersion: string;   // BG_USER_30
+  detectedHotAppApk: string;    // BG_USER_41
+  targetHotAppApk: string;      // BG_USER_42
   influence: string;
   secondaryPriority: string;
   releaseDefect: string;
@@ -212,6 +215,9 @@ export interface TargetDefectDto {
   targetCycle: string;           // BG_TARGET_RCYC, resolved to RELEASE_CYCLES.RCYC_NAME
   crStatus: string;              // BG_USER_27
   dropNumber: string;            // BG_USER_28
+  detectedApkVersion: string;    // BG_USER_30 "Detected At APK Version"
+  detectedHotAppApk: string;     // BG_USER_41 "Detected in HOT APP APK"
+  targetHotAppApk: string;       // BG_USER_42 "Target HOT APP APK"
   reopenYn: string;               // BG_USER_29
   influence: string;             // BG_USER_31
   fixType: string;               // BG_USER_33
@@ -329,6 +335,9 @@ export interface OpenProdDefectMonthDto {
   estimatedFixTime: string | null;
   actualFixTime: string | null;
   deploymentReason: string | null;
+  detectedApkVersion: string | null;
+  detectedHotAppApk: string | null;
+  targetHotAppApk: string | null;
 }
 
 export interface DefectStatusHistoryDto {
@@ -692,6 +701,9 @@ const DEFECTS_SQL_SELECT = `
     target_rcyc.RCYC_NAME                                                              AS TARGET_CYCLE,
     BG_USER_27                                                                         AS CR_STATUS,
     BG_USER_28                                                                         AS DROP_NUMBER,
+    BG_USER_30                                                                         AS DETECTED_APK_VERSION,
+    BG_USER_41                                                                         AS DETECTED_HOT_APP_APK,
+    BG_USER_42                                                                         AS TARGET_HOT_APP_APK,
     BG_USER_31                                                                         AS INFLUENCE,
     BG_USER_37                                                                         AS QA_TESTER,
     BG_USER_39                                                                         AS SECONDARY_PRIORITY,
@@ -822,6 +834,9 @@ const GO_LIVE_INCIDENTS_SQL = `
     target_rcyc.RCYC_NAME AS Target_Cycle,
     BG_USER_27 AS CR_Status,
     BG_USER_28 AS "Drop#",
+    BG_USER_30 AS DETECTED_APK_VERSION,
+    BG_USER_41 AS DETECTED_HOT_APP_APK,
+    BG_USER_42 AS TARGET_HOT_APP_APK,
     BG_USER_29 AS Reopen_Y_N,
     BG_USER_31 AS Influence,
     BG_USER_33 AS Fix_Type,
@@ -966,6 +981,9 @@ const TARGET_CR_DEFECTS_SQL = `
     target_rcyc.RCYC_NAME AS Target_Cycle,
     BG_USER_27 AS CR_Status,
     BG_USER_28 AS "Drop#",
+    BG_USER_30 AS DETECTED_APK_VERSION,
+    BG_USER_41 AS DETECTED_HOT_APP_APK,
+    BG_USER_42 AS TARGET_HOT_APP_APK,
     BG_USER_29 AS Reopen_Y_N,
     BG_USER_31 AS Influence,
     BG_USER_33 AS Fix_Type,
@@ -1073,6 +1091,9 @@ const CR_DEFECT_INDICATORS_SQL = `
     target_rcyc.RCYC_NAME AS Target_Cycle,
     BG_USER_27 AS CR_Status,
     BG_USER_28 AS "Drop#",
+    BG_USER_30 AS DETECTED_APK_VERSION,
+    BG_USER_41 AS DETECTED_HOT_APP_APK,
+    BG_USER_42 AS TARGET_HOT_APP_APK,
     BG_USER_29 AS Reopen_Y_N,
     BG_USER_31 AS Influence,
     BG_USER_33 AS Fix_Type,
@@ -1176,6 +1197,9 @@ const DEFECT_BY_ID_SQL = `
     target_rcyc.RCYC_NAME AS Target_Cycle,
     BG_USER_27 AS CR_Status,
     BG_USER_28 AS "Drop#",
+    BG_USER_30 AS DETECTED_APK_VERSION,
+    BG_USER_41 AS DETECTED_HOT_APP_APK,
+    BG_USER_42 AS TARGET_HOT_APP_APK,
     BG_USER_29 AS Reopen_Y_N,
     BG_USER_31 AS Influence,
     BG_USER_33 AS Fix_Type,
@@ -1260,6 +1284,9 @@ function mapRowToTargetDefect(r: any): TargetDefectDto {
     targetCycle:            r.TARGET_CYCLE            ?? '',
     crStatus:               r.CR_STATUS               ?? '',
     dropNumber:             r['Drop#']                ?? '',
+    detectedApkVersion:     r.DETECTED_APK_VERSION    ?? '',
+    detectedHotAppApk:      r.DETECTED_HOT_APP_APK    ?? '',
+    targetHotAppApk:        r.TARGET_HOT_APP_APK      ?? '',
     reopenYn:               r.REOPEN_Y_N              ?? '',
     influence:              r.INFLUENCE               ?? '',
     fixType:                r.FIX_TYPE                ?? '',
@@ -1369,6 +1396,7 @@ const DEFAULT_OPEN_PROD_DEFECTS_DETAIL_FIELDS = [
   'id', 'title', 'status', 'severity', 'priority', 'assignedTo', 'qaTester', 'system', 'responsibility',
   'testPhase', 'detectedBy', 'detectedOnDate', 'description', 'notes', 'reproducible', 'environment',
   'fixType', 'crReferenceNumber', 'detectedInRelease', 'detectedInCycle',
+  'detectedApkVersion', 'detectedHotAppApk', 'targetHotAppApk',
 ];
 
 const OPEN_PROD_DEFECTS_HISTORY_SQL = `
@@ -1403,6 +1431,9 @@ WITH qc_defects_history AS (
         defect.BG_ESTIMATED_FIX_TIME AS estimated_fix_time,
         defect.BG_ACTUAL_FIX_TIME   AS actual_fix_time,
         defect.BG_USER_08           AS deployment_reason,
+        defect.BG_USER_30           AS detected_apk_version,
+        defect.BG_USER_41           AS detected_hot_app_apk,
+        defect.BG_USER_42           AS target_hot_app_apk,
         audit_property.AP_NEW_VALUE AS status,
         audit_log.AU_TIME           AS change_time
     FROM BUG defect
@@ -1438,7 +1469,10 @@ bug_attributes AS (
         MAX(closed_by)          KEEP (DENSE_RANK FIRST ORDER BY change_time) AS closed_by,
         MAX(estimated_fix_time) KEEP (DENSE_RANK FIRST ORDER BY change_time) AS estimated_fix_time,
         MAX(actual_fix_time)    KEEP (DENSE_RANK FIRST ORDER BY change_time) AS actual_fix_time,
-        MAX(deployment_reason)  KEEP (DENSE_RANK FIRST ORDER BY change_time) AS deployment_reason
+        MAX(deployment_reason)  KEEP (DENSE_RANK FIRST ORDER BY change_time) AS deployment_reason,
+        MAX(detected_apk_version) KEEP (DENSE_RANK FIRST ORDER BY change_time) AS detected_apk_version,
+        MAX(detected_hot_app_apk) KEEP (DENSE_RANK FIRST ORDER BY change_time) AS detected_hot_app_apk,
+        MAX(target_hot_app_apk)   KEEP (DENSE_RANK FIRST ORDER BY change_time) AS target_hot_app_apk
     FROM qc_defects_history
     GROUP BY defect
 ),
@@ -1472,7 +1506,8 @@ open_with_history AS (
         a.release_id, a.severity, a.priority, a.responsibility, a.current_status,
         a.test_phase, a.detected_by, a.detected_date, a.reopen_yn, a.area, a.bug_type, a.fix_type,
         a.title, a.assigned_to, a.qa_tester, a.environment, a.sub_module, a.main_module,
-        a.cr_reference_number, a.platform, a.closed_by, a.estimated_fix_time, a.actual_fix_time, a.deployment_reason
+        a.cr_reference_number, a.platform, a.closed_by, a.estimated_fix_time, a.actual_fix_time, a.deployment_reason,
+        a.detected_apk_version, a.detected_hot_app_apk, a.target_hot_app_apk
     FROM status_snapshot s
     JOIN bug_attributes a ON s.defect = a.defect
     WHERE
@@ -1490,7 +1525,8 @@ open_without_history AS (
         b.BG_USER_02 AS environment, b.BG_USER_14 AS sub_module, b.BG_USER_16 AS main_module,
         b.BG_USER_58 AS cr_reference_number, b.BG_USER_24 AS platform, b.BG_USER_07 AS closed_by,
         b.BG_ESTIMATED_FIX_TIME AS estimated_fix_time, b.BG_ACTUAL_FIX_TIME AS actual_fix_time,
-        b.BG_USER_08 AS deployment_reason
+        b.BG_USER_08 AS deployment_reason,
+        b.BG_USER_30 AS detected_apk_version, b.BG_USER_41 AS detected_hot_app_apk, b.BG_USER_42 AS target_hot_app_apk
     FROM BUG b
     JOIN months m ON m.month_start >= TRUNC(b.BG_DETECTION_DATE, 'MM')
     WHERE b.BG_USER_04 NOT IN ('Closed', 'Canceled')
@@ -1505,14 +1541,17 @@ SELECT month_start AS MONTH_DATE, TO_CHAR(month_start, 'YYYY-MM') AS MONTH_LABEL
     title AS TITLE, assigned_to AS ASSIGNED_TO, qa_tester AS QA_TESTER, environment AS ENVIRONMENT,
     sub_module AS SUB_MODULE, main_module AS MAIN_MODULE, cr_reference_number AS CR_REFERENCE_NUMBER,
     platform AS PLATFORM, closed_by AS CLOSED_BY, estimated_fix_time AS ESTIMATED_FIX_TIME,
-    actual_fix_time AS ACTUAL_FIX_TIME, deployment_reason AS DEPLOYMENT_REASON
+    actual_fix_time AS ACTUAL_FIX_TIME, deployment_reason AS DEPLOYMENT_REASON,
+    detected_apk_version AS DETECTED_APK_VERSION, detected_hot_app_apk AS DETECTED_HOT_APP_APK,
+    target_hot_app_apk AS TARGET_HOT_APP_APK
 FROM open_with_history
 UNION ALL
 SELECT month_start, TO_CHAR(month_start, 'YYYY-MM'), defect, last_status, current_status,
     release_id, severity, priority, responsibility, test_phase, detected_by, detected_date,
     reopen_yn, area, bug_type, fix_type,
     title, assigned_to, qa_tester, environment, sub_module, main_module,
-    cr_reference_number, platform, closed_by, estimated_fix_time, actual_fix_time, deployment_reason
+    cr_reference_number, platform, closed_by, estimated_fix_time, actual_fix_time, deployment_reason,
+    detected_apk_version, detected_hot_app_apk, target_hot_app_apk
 FROM open_without_history
 `;
 
@@ -1639,7 +1678,7 @@ const EMPTY_EXTENDED_DEFECT_FIELDS = {
   fixedUntil: '', vendorStatus: '', responseDate: '', supportReferenceNumber: '', subModule: '', fixedInProd: '',
   mainModule: '', supportStatus: '', vendorAssignTo: '', category: '', itemType: '', estimateFixTime: '',
   platform: '', modified: '', detectedInRelease: '', detectedInCycle: '', targetCycle: '', crStatus: '',
-  dropNumber: '', influence: '', secondaryPriority: '', releaseDefect: '', businessProcess: '',
+  dropNumber: '', detectedApkVersion: '', detectedHotAppApk: '', targetHotAppApk: '', influence: '', secondaryPriority: '', releaseDefect: '', businessProcess: '',
   foundByAutomation: '', mainBusinessProcess: '', impact: '', productionReason: '', environmentComponent: '',
   willBeTestAtGoLive: '', deploymentCategory: '', defectResponsible: '', targetReleaseReason: '', targetType: '',
   systemComponent: '', forRegressionTest: '', escDefectResponsible: '', toBeTestedOnProd: '', deploymentDateProd: '',
@@ -1771,6 +1810,7 @@ function buildMockOpenProdDefectsHistory(): OpenProdDefectMonthDto[] {
         estimatedFixTime: d.estimatedFixTime,
         actualFixTime: d.actualFixTime,
         deploymentReason: d.deploymentReason,
+        detectedApkVersion: null, detectedHotAppApk: null, targetHotAppApk: null,
       });
     }
   }
@@ -1933,7 +1973,7 @@ function buildMockTargetDefects(crNumber: string, releaseName?: string): TargetD
     responseDate: '', supportReferenceNumber: '', subModule: '', fixedInProd: '',
     mainModule: '', reason: '', supportStatus: '', vendorAssignTo: '', category: '',
     itemType: '', estimateFixTime: '', platform: '', modified: '', detectedInRelease: '',
-    detectedInCycle: '', targetRelease: '', targetCycle: '', crStatus: '', dropNumber: '',
+    detectedInCycle: '', targetRelease: '', targetCycle: '', crStatus: '', dropNumber: '', detectedApkVersion: '', detectedHotAppApk: '', targetHotAppApk: '',
     reopenYn: '', influence: '', fixType: '', secondaryPriority: '', releaseDefect: '',
     businessProcess: '', foundByAutomation: '', mainBusinessProcess: '', impact: '',
     productionReason: '', environmentComponent: '', willBeTestAtGoLive: '',
@@ -2404,7 +2444,7 @@ function allDefectsRawRowToDefectDto(r: AllDefectsRawRow): DefectDto {
     estimatedFixTime: '', actualFixTime: '', closedBy: '', deploymentReason: '', fixedUntil: '',
     vendorStatus: '', responseDate: '', supportReferenceNumber: '', subModule: '', fixedInProd: '',
     supportStatus: '', vendorAssignTo: '', category: '', itemType: '', estimateFixTime: '',
-    platform: '', modified: '', detectedInCycle: '', targetCycle: '', crStatus: '', dropNumber: '',
+    platform: '', modified: '', detectedInCycle: '', targetCycle: '', crStatus: '', dropNumber: '', detectedApkVersion: '', detectedHotAppApk: '', targetHotAppApk: '',
     influence: '', secondaryPriority: '', releaseDefect: '', businessProcess: '', foundByAutomation: '',
     mainBusinessProcess: '', impact: '', productionReason: '', environmentComponent: r.ENVIRONMENT_COMPONENT ?? '',
     willBeTestAtGoLive: '', deploymentCategory: '', defectResponsible: '', targetReleaseReason: '',
@@ -3265,6 +3305,9 @@ export class QcService {
         targetCycle:           r.TARGET_CYCLE             ?? '',
         crStatus:              r.CR_STATUS                ?? '',
         dropNumber:            r.DROP_NUMBER              ?? '',
+        detectedApkVersion:    r.DETECTED_APK_VERSION     ?? '',
+        detectedHotAppApk:     r.DETECTED_HOT_APP_APK     ?? '',
+        targetHotAppApk:       r.TARGET_HOT_APP_APK       ?? '',
         influence:             r.INFLUENCE                ?? '',
         secondaryPriority:     r.SECONDARY_PRIORITY       ?? '',
         releaseDefect:         r.RELEASE_DEFECT           ?? '',
@@ -4044,6 +4087,9 @@ export class QcService {
         estimatedFixTime:   r.ESTIMATED_FIX_TIME ?? null,
         actualFixTime:      r.ACTUAL_FIX_TIME ?? null,
         deploymentReason:   r.DEPLOYMENT_REASON ?? null,
+        detectedApkVersion: r.DETECTED_APK_VERSION ?? null,
+        detectedHotAppApk:  r.DETECTED_HOT_APP_APK ?? null,
+        targetHotAppApk:    r.TARGET_HOT_APP_APK ?? null,
       }));
     } catch (err: any) {
       this.logger.error(`Oracle getOpenProductionDefectsHistory: ${err.message}`);

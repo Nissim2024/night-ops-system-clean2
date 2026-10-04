@@ -26,7 +26,8 @@ interface Defect {
   supportReferenceNumber: string; subModule: string; fixedInProd: string; mainModule: string;
   supportStatus: string; vendorAssignTo: string; category: string; itemType: string; estimateFixTime: string;
   platform: string; modified: string; detectedInRelease: string; detectedInCycle: string; targetCycle: string;
-  crStatus: string; dropNumber: string; influence: string; secondaryPriority: string; releaseDefect: string;
+  crStatus: string; dropNumber: string; influence: string;
+  detectedApkVersion: string; detectedHotAppApk: string; targetHotAppApk: string; secondaryPriority: string; releaseDefect: string;
   businessProcess: string; foundByAutomation: string; mainBusinessProcess: string; impact: string;
   productionReason: string; environmentComponent: string; willBeTestAtGoLive: string; deploymentCategory: string;
   defectResponsible: string; targetReleaseReason: string; targetType: string; systemComponent: string;
@@ -82,6 +83,9 @@ const ALL_COLUMNS: { key: ColumnKey; label: string }[] = [
   { key: 'targetCycle', label: 'Target Cycle' },
   { key: 'crStatus', label: 'CR Status' },
   { key: 'dropNumber', label: 'Drop#' },
+  { key: 'detectedApkVersion', label: 'Detected At APK Version' },
+  { key: 'detectedHotAppApk', label: 'Detected in HOT APP APK' },
+  { key: 'targetHotAppApk', label: 'Target HOT APP APK' },
   { key: 'influence', label: 'Influence' },
   { key: 'secondaryPriority', label: 'Secondary Priority' },
   { key: 'releaseDefect', label: 'Release Defect' },

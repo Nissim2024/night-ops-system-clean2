@@ -483,6 +483,10 @@ export class QcRestService {
     testPhase: '394',
     environment: '172',
     crHbrReference: '20984',
+    // APK LookupLists (field dump 2026-09-23). Target HOT APP APK's List-Id
+    // wasn't captured - free text until it's known.
+    detectedApkVersion: '21224',
+    detectedHotAppApk: '21833',
   };
 
   // Refreshes the QcPicklistCache table from QC's real Project Lists
@@ -744,6 +748,10 @@ export class QcRestService {
     closingDate: 'QC_REST_FIELD_CLOSING_DATE',
     detectedBy: 'QC_REST_FIELD_DETECTED_BY',
     detectedOnDate: 'QC_REST_FIELD_DETECTED_ON_DATE',
+    // APK fields (2026-10-04) - REST names from the real defect field dump.
+    detectedApkVersion: 'QC_REST_FIELD_DETECTED_APK_VERSION',
+    detectedHotAppApk: 'QC_REST_FIELD_DETECTED_HOT_APP_APK',
+    targetHotAppApk: 'QC_REST_FIELD_TARGET_HOT_APP_APK',
   };
 
   // Single source of truth for "which business fields can this app write to

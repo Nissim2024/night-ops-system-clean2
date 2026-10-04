@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, JIRA } from '../../theme';
 import { Card, Badge, BackLink } from '../ui';
-import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS } from './openProdDefectsFields';
+import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, BUILTIN_ALWAYS_SHOWN_FIELDS } from './openProdDefectsFields';
 import {
   hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroup,
   FieldChangeHistorySection, AttachmentsSection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
@@ -163,6 +163,8 @@ const TIER2_FIELDS: { key: string; label: string }[] = [
 // fixed set. Assigned To / Sub Module / Main Module have no confirmed real
 // value list yet (project tree / dynamic user list) — stay free text until
 // Tuesday's QC metadata probe.
+const FREE_ENTRY_LIST_FIELDS = new Set(['detectedApkVersion', 'detectedHotAppApk', 'targetHotAppApk']);
+
 const TIER2_FIELD_OPTIONS: Record<string, string[]> = {
   severity: ['Show Stopper', 'Severe', 'Medium', 'Low'],
   priority: ['High', 'Medium', 'Low'],
@@ -383,6 +385,20 @@ const InlineFieldEditor: React.FC<{
   // Static hardcoded lists (Severity/Priority, confirmed 2026-09-18) take
   // priority; dynamicOptions (fetched from QcPicklistCache, fixes-batch A.6)
   // covers everything else that has a real QC List-Id behind it.
+  // APK fields: QC accepts values outside the list (Verify=false) and new
+  // versions show up all the time - type freely, list as suggestions.
+  if (FREE_ENTRY_LIST_FIELDS.has(fieldKey)) {
+    const listId = `qc-free-list-${fieldKey}`;
+    return (
+      <>
+        <input autoFocus list={listId} value={value} onChange={e => setValue(e.target.value)}
+          onBlur={() => onCommit(value)} onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }}
+          className={fieldClass} dir="ltr" />
+        <datalist id={listId}>{(dynamicOptions ?? []).map(o => <option key={o} value={o} />)}</datalist>
+      </>
+    );
+  }
+
   const options = TIER2_FIELD_OPTIONS[fieldKey] ?? dynamicOptions;
   if (options) {
     return (
@@ -724,7 +740,8 @@ export const DefectDetailScreen: React.FC<{
   // NOT the full picker vocabulary (which would fill the panel with empty
   // "—" rows). The "התאמת שדות" dialog is where the rest live.
   const defaultGroups = useMemo(() => {
-    const allowed = new Set(fieldsToShow);
+    // + fields added after an admin saved the old field list (APK, 2026-10-04)
+    const allowed = new Set([...fieldsToShow, ...BUILTIN_ALWAYS_SHOWN_FIELDS]);
     return DEFAULT_OPEN_PROD_DETAIL_GROUPS
       .map(g => ({ ...g, fields: g.fields.filter(k => allowed.has(k)) }))
       .filter(g => g.fields.length > 0);

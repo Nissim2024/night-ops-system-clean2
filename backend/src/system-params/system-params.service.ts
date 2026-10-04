@@ -367,6 +367,25 @@ const DEFAULT_PARAMS = [
     label: 'QC REST: שם שדה ה-REST של "Detected on Date" בתקלה — מאומת 2026-09-23 (creation-time = BG_DETECTION_DATE)',
     type: 'text',
   },
+  // APK fields (2026-10-04) - names from the real defect field dump.
+  {
+    key: 'QC_REST_FIELD_DETECTED_APK_VERSION',
+    value: 'user-30',
+    label: 'QC REST: שם שדה ה-REST של "Detected At APK Version" בתקלה (user-30 = BG_USER_30)',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_FIELD_DETECTED_HOT_APP_APK',
+    value: 'user-41',
+    label: 'QC REST: שם שדה ה-REST של "Detected in HOT APP APK" בתקלה (user-41 = BG_USER_41)',
+    type: 'text',
+  },
+  {
+    key: 'QC_REST_FIELD_TARGET_HOT_APP_APK',
+    value: 'user-42',
+    label: 'QC REST: שם שדה ה-REST של "Target HOT APP APK" בתקלה (user-42 = BG_USER_42)',
+    type: 'text',
+  },
   // Kill-switch for the first real (non-lab) QC REST write path — publishing
   // an approved QA work plan's Release+Cycles to real QC and syncing their
   // dates afterward (docs/spec-qc-full-integration.md §3.5 stage 2). Off by

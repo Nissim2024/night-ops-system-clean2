@@ -36,6 +36,9 @@ export const TABLE_COLUMN_FIELDS: FieldDef[] = [
   { key: 'estimatedFixTime', label: 'Estimated Fix Time' },
   { key: 'actualFixTime',   label: 'Fix Time' },
   { key: 'deploymentReason', label: 'Deployment Reason' },
+  { key: 'detectedApkVersion', label: 'Detected At APK Version' },
+  { key: 'detectedHotAppApk', label: 'Detected in HOT APP APK' },
+  { key: 'targetHotAppApk', label: 'Target HOT APP APK' },
 ];
 
 // Matches TargetDefectDto (backend qc.service.ts) — the full real BUG-table
@@ -99,6 +102,9 @@ export const DETAIL_FIELDS: FieldDef[] = [
   { key: 'targetReleaseReason',     label: 'Target Release Reason' },
   { key: 'targetScopeApproved',     label: 'Target Scope Approved' },
   { key: 'dropNumber',              label: 'Drop#' },
+  { key: 'detectedApkVersion',      label: 'Detected At APK Version' },
+  { key: 'detectedHotAppApk',       label: 'Detected in HOT APP APK' },
+  { key: 'targetHotAppApk',         label: 'Target HOT APP APK' },
   { key: 'reopenYn',                label: 'Reopen Y/N' },
   { key: 'influence',               label: 'Influence' },
   { key: 'impact',                  label: 'Impact' },
@@ -121,10 +127,14 @@ export const DETAIL_FIELD_LABEL: Record<string, string> = Object.fromEntries(DET
 // `wide` = fields that take a full row of their panel (long values).
 export const DEFAULT_OPEN_PROD_DETAIL_GROUPS: { title: string; fields: string[]; wide?: string[] }[] = [
   { title: 'זיהוי', fields: ['id', 'status', 'severity', 'priority', 'secondaryPriority', 'defectType', 'category', 'itemType'] },
-  { title: 'גילוי', fields: ['detectedBy', 'detectedOnDate', 'detectedInRelease', 'detectedInCycle', 'reproducible', 'environment', 'environmentComponent', 'system', 'platform', 'subModule', 'mainModule', 'systemComponent'] },
+  { title: 'גילוי', fields: ['detectedBy', 'detectedOnDate', 'detectedInRelease', 'detectedInCycle', 'detectedApkVersion', 'detectedHotAppApk', 'reproducible', 'environment', 'environmentComponent', 'system', 'platform', 'subModule', 'mainModule', 'systemComponent'] },
   { title: 'אחריות', fields: ['assignedTo', 'qaTester', 'responsibility', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo', 'vendorStatus'] },
   { title: 'טיפול ותיקון', fields: ['fixType', 'estimatedFixTime', 'actualFixTime', 'estimateFixTime', 'fixedUntil', 'fixedInProd', 'closedBy', 'reopenYn', 'supportStatus', 'supportReferenceNumber', 'responseDate'] },
-  { title: 'יעד וגרסה', fields: ['targetRelease', 'targetCycle', 'targetType', 'targetReleaseReason', 'targetScopeApproved', 'crStatus', 'crReferenceNumber', 'crHbrNumberReference', 'dropNumber', 'releaseDefect'], wide: ['crHbrNumberReference'] },
+  { title: 'יעד וגרסה', fields: ['targetRelease', 'targetCycle', 'targetHotAppApk', 'targetType', 'targetReleaseReason', 'targetScopeApproved', 'crStatus', 'crReferenceNumber', 'crHbrNumberReference', 'dropNumber', 'releaseDefect'], wide: ['crHbrNumberReference'] },
   { title: 'השפעה עסקית', fields: ['impact', 'influence', 'businessProcess', 'mainBusinessProcess', 'deploymentCategory', 'deploymentReason', 'productionReason', 'toBeTestedOnProd', 'deploymentDateProd', 'willBeTestAtGoLive', 'forRegressionTest', 'foundByAutomation', 'modified'] },
 ];
 export const DEFECT_FORM_FIXED_FIELDS = new Set(['title', 'description', 'notes']);
+
+// Shown in the built-in panels even when an older saved detail-field list
+// (OpenProdDefectsConfigPanel) predates them.
+export const BUILTIN_ALWAYS_SHOWN_FIELDS = ['detectedApkVersion', 'detectedHotAppApk', 'targetHotAppApk'];
