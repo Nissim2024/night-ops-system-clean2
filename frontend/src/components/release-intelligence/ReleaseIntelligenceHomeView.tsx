@@ -3,7 +3,7 @@ import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, severityColor, severityBg, severityLabel } from '../../theme';
 import { CyclesPanel, CycleProgress } from './CycleProgressView';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
-import { buildRiHomeEmailHtml, EmailTile, EmailAlert, EmailTone } from './riHomeEmail';
+import { buildRiHomeEmailHtml, buildCrSections, EmailTile, EmailAlert, EmailTone } from './riHomeEmail';
 import { KpiTile, RiskRow } from '../HomeDashboard';
 import { DefectIdBadge } from '../shared/defectFieldDisplay';
 import { formatDate } from '../../utils/dateFormat';
@@ -378,6 +378,7 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
           state: c.state, crCount: c.crCount, defectCount: c.defectCount,
           successPct: c.successPct, targetPct: c.qgTargetPct, progressPct: c.progressPct,
         })),
+        crSections: buildCrSections(cycleData?.timeline ?? [], ct => CYCLE_LABEL[ct] ?? ct, formatDate),
         alerts: buildEmailAlerts(),
       });
       // Plain-text fallback for clients that don't render the HTML — a
