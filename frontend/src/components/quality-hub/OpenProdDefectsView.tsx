@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, JIRA } from '../../theme';
 import { Card, Badge, BackLink } from '../ui';
-import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL } from './openProdDefectsFields';
+import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS } from './openProdDefectsFields';
 import {
-  hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroupsDialog, DetailGroup,
+  hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroup,
   FieldChangeHistorySection, AttachmentsSection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
   IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, SEVERITY_COLOR, SelectColumnsDialog, SavedFilterState, splitTeams,
 } from '../shared/defectFieldDisplay';
@@ -63,8 +63,6 @@ const TEAM_BADGE_FIELDS = new Set(['responsibility']);
 // title/description/notes always render in their own fixed spots (the big
 // title line and the side-by-side text boxes) — never offered in the
 // category picker.
-const DETAIL_GROUPS_FIXED_FIELDS = new Set(['title', 'description', 'notes']);
-const DETAIL_GROUPS_STORAGE_KEY = 'deploycenter_openprod_defect_detail_groups';
 const OPENPROD_TABLE_COLUMNS_STORAGE_KEY = 'deploycenter_openprod_defect_table_columns_v1';
 // Saved views (docs/spec-defects-module.md §11) — named presets of
 // columns+sort+filters, per-browser like every other picker here.
@@ -81,15 +79,6 @@ interface SavedView {
 // DETAIL_FIELDS' key set overlaps almost entirely with TargetDefect's, so
 // the same grouping logic (identification → detection → ownership → fix →
 // target/release → business impact) applies here too (spec 2026-08-30).
-const DEFAULT_OPEN_PROD_DETAIL_GROUPS: DetailGroup[] = [
-  { title: 'זיהוי', fields: ['id', 'status', 'severity', 'priority', 'secondaryPriority', 'defectType', 'category', 'itemType'] },
-  { title: 'גילוי', fields: ['detectedBy', 'detectedOnDate', 'detectedInRelease', 'detectedInCycle', 'reproducible', 'environment', 'environmentComponent', 'system', 'platform', 'subModule', 'mainModule', 'systemComponent'] },
-  { title: 'אחריות', fields: ['assignedTo', 'qaTester', 'responsibility', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo', 'vendorStatus'] },
-  { title: 'טיפול ותיקון', fields: ['fixType', 'estimatedFixTime', 'actualFixTime', 'estimateFixTime', 'fixedUntil', 'fixedInProd', 'closedBy', 'reopenYn', 'supportStatus', 'supportReferenceNumber', 'responseDate'] },
-  { title: 'יעד וגרסה', fields: ['targetRelease', 'targetCycle', 'targetType', 'targetReleaseReason', 'targetScopeApproved', 'crStatus', 'crReferenceNumber', 'crHbrNumberReference', 'dropNumber', 'releaseDefect'] },
-  { title: 'השפעה עסקית', fields: ['impact', 'influence', 'businessProcess', 'mainBusinessProcess', 'deploymentCategory', 'deploymentReason', 'productionReason', 'toBeTestedOnProd', 'deploymentDateProd', 'willBeTestAtGoLive', 'forRegressionTest', 'foundByAutomation', 'modified'] },
-];
-
 // Real calendar date/timestamp fields among DETAIL_FIELDS — everything else
 // with "time" in its label (estimatedFixTime/actualFixTime/estimateFixTime)
 // is actually a duration in HOURS (see qc.service.ts's BG_ESTIMATED_FIX_TIME
@@ -135,6 +124,9 @@ function renderFieldValue(key: string, value: unknown) {
   return s;
 }
 
+// Value box of the defect view form - same look as the create form's inputs.
+// Inline on purpose: a stylesheet reset zeroes Tailwind's `border` here.
+const VALUE_BOX_STYLE: React.CSSProperties = { border: `1px solid ${JIRA.greyN40}`, background: '#fff', borderRadius: 3 };
 const DETAIL_TOP_BTN_CLASS = 'px-3.5 py-1.5 bg-muted text-muted-foreground border border-border rounded-md cursor-pointer text-[13px]';
 const DETAIL_SECTION_HEADING_CLASS = 'text-xs font-bold mb-2 tracking-wide';
 
@@ -725,10 +717,6 @@ export const DefectDetailScreen: React.FC<{
   // subset — user-flagged 2026-09-07 ("לא כל השדות מופיעים ברשימה"). Empty
   // fields are still auto-hidden from the actual panel (detail[k] !== undefined),
   // so surfacing them all in the picker is safe.
-  const allColumns = useMemo(
-    () => DETAIL_FIELDS.filter(f => !DETAIL_GROUPS_FIXED_FIELDS.has(f.key)).map(f => ({ key: f.key, label: DETAIL_FIELD_LABEL[f.key] ?? f.key })),
-    [],
-  );
   // Default groups stay lean — only the admin-configured / default field set,
   // NOT the full picker vocabulary (which would fill the panel with empty
   // "—" rows). The "התאמת שדות" dialog is where the rest live.
@@ -739,20 +727,24 @@ export const DefectDetailScreen: React.FC<{
       .filter(g => g.fields.length > 0);
   }, [fieldsToShow]);
 
-  const [detailGroups, setDetailGroups] = useState<DetailGroup[]>(() => {
-    try {
-      const saved = localStorage.getItem(DETAIL_GROUPS_STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch { /* ignore malformed storage */ }
-    return defaultGroups;
-  });
-  const [showGroupsPicker, setShowGroupsPicker] = useState(false);
+  // Panels come from the admin-designed layout for this user (team -> role ->
+  // default, AdminPanel "תבנית טופס תקלה", 2026-10-04) - replaces the old
+  // per-browser localStorage picker. No layout set anywhere -> built-in panels.
+  const [serverLayout, setServerLayout] = useState<{ panels: { name: string; fields: string[] }[] } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    axios.get(`${API}/qc/defect-form-layout`, { headers })
+      .then(r => { if (alive) setServerLayout(r.data?.layout ?? null); })
+      .catch(() => { if (alive) setServerLayout(null); });
+    return () => { alive = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+  const detailGroups: DetailGroup[] = serverLayout
+    ? serverLayout.panels.map(pn => ({ title: pn.name, fields: pn.fields }))
+    : defaultGroups;
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
-  const applyDetailGroups = (groups: DetailGroup[]) => {
-    setDetailGroups(groups);
-    localStorage.setItem(DETAIL_GROUPS_STORAGE_KEY, JSON.stringify(groups));
-    setShowGroupsPicker(false);
-  };
+  // Long-text boxes open to full height on demand (less scrolling, user ask 2026-10-04).
+  const [expandedText, setExpandedText] = useState<{ description: boolean; notes: boolean }>({ description: false, notes: false });
 
   const showDescription = fieldsToShow.includes('description');
   const showNotes = fieldsToShow.includes('notes');
@@ -785,7 +777,6 @@ export const DefectDetailScreen: React.FC<{
               <button onClick={() => setEditMode(true)} className={DETAIL_TOP_BTN_CLASS}>✏️ ערוך</button>
             )
           )}
-          <button onClick={() => setShowGroupsPicker(true)} className={DETAIL_TOP_BTN_CLASS}>⚙ התאמת שדות</button>
         </div>
       </div>
 
@@ -808,7 +799,27 @@ export const DefectDetailScreen: React.FC<{
         // 2026-09-14) — no longer needed now that groups stack vertically
         // above the main content instead of sitting beside it, so this whole
         // section is plain dir="rtl" like the rest of the app.
-        <div className="flex flex-col gap-6" dir="rtl">
+        <div className="flex flex-col gap-4" dir="rtl">
+          {/* Title in its own card at the top, as in the create form. */}
+          {(() => {
+            const titleText = titleShown ? (detail.title || 'ללא כותרת') : 'פרטי תקלה';
+            const titleRtl = hasHebrew(titleText);
+            return (
+              <div className="rounded-xl px-6 py-5" style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}` }}>
+                <label className="text-xs font-bold text-subtle-foreground block" style={{ direction: 'ltr', textAlign: 'left' }}>Title</label>
+                <div className="mt-1.5 flex items-center gap-3 px-3 py-2" style={VALUE_BOX_STYLE}>
+                  <span className="font-semibold shrink-0" style={{ color: JIRA.blue, direction: 'ltr' }}>#{defectId}</span>
+                  <span
+                    className={cn('min-w-0 flex-1 text-[15px] font-semibold leading-snug break-words', titleRtl ? 'text-right [direction:rtl]' : 'text-left [direction:ltr]')}
+                    style={{ color: JIRA.text }}
+                  >
+                    {titleText}
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* direction: ltr here controls only the LEFT-TO-RIGHT box order
               (זיהוי leftmost, then גילוי, continuing left→right — user
               request 2026-09-23) — each box below restores dir="rtl" for its
@@ -826,10 +837,12 @@ export const DefectDetailScreen: React.FC<{
                   className="rounded-xl overflow-hidden px-6 py-6"
                   style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}`, height: '100%' }}
                 >
-                  <div className="text-sm font-bold tracking-wide mb-3" style={{ color: JIRA.textSubtle }}>
+                  <div className="text-sm font-bold mb-3 text-foreground">
                     {group.title}
                   </div>
-                  <div className="flex flex-col gap-4">
+                  {/* Fields flow side by side and wrap at the panel's width,
+                      each sized to its value - create-form layout (2026-10-04). */}
+                  <div className="flex flex-wrap items-end gap-x-4 gap-y-3" style={{ direction: 'ltr', justifyContent: 'flex-start' }}>
                     {group.fields.map(key => {
                       const isRefField = refEditableFieldKeys.has(key);
                       const isDirty = isRefField ? pendingRefEdits[key] !== undefined : pendingEdits[key] !== undefined;
@@ -852,7 +865,7 @@ export const DefectDetailScreen: React.FC<{
                         <div
                           key={key}
                           onDoubleClick={() => { if (isEditable && !isEditingThis) setEditingField(key); }}
-                          className="flex flex-col gap-1.5 rounded-sm px-1 py-0.5 -mx-1"
+                          className="flex max-w-full flex-col items-start gap-1.5 rounded-sm px-1 py-0.5"
                           style={{
                             border: isEditable && !isEditingThis ? `1px dashed ${JIRA.blue}` : '1px solid transparent',
                             cursor: isEditable && !isEditingThis ? 'pointer' : undefined,
@@ -884,8 +897,8 @@ export const DefectDetailScreen: React.FC<{
                             )
                           ) : (
                             <span
-                              className="text-[15px] font-medium min-w-0 flex items-center flex-wrap gap-1 break-words"
-                              style={{ color: JIRA.text, direction: 'rtl', unicodeBidi: valRtl ? 'normal' : 'plaintext' }}
+                              className="inline-flex min-w-[2.75rem] max-w-full items-center flex-wrap gap-1 break-words px-2.5 py-1.5 text-[13px] font-medium"
+                              style={{ color: JIRA.text, direction: 'rtl', unicodeBidi: valRtl ? 'normal' : 'plaintext', ...VALUE_BOX_STYLE }}
                             >
                               {isDirty && <span title="שינוי לא שמור" style={{ color: JIRA.blue }}>●</span>}
                               {renderFieldValue(key, displayValue)}
@@ -900,55 +913,45 @@ export const DefectDetailScreen: React.FC<{
             })()}
           </div>
 
-          {/* ══ כותרת — שורת כותרת עצמאית, בלי חלונית, כמו בטופס פתיחת התקלה ══ */}
-          {(() => {
-            const titleText = titleShown ? (detail.title || 'ללא כותרת') : 'פרטי תקלה';
-            const titleRtl = hasHebrew(titleText);
-            return (
-              <div>
-                <div
-                  className={cn('text-xl font-semibold leading-snug break-words', titleRtl ? 'text-right [direction:rtl]' : 'text-left [direction:ltr]')}
-                  style={{ color: JIRA.text }}
-                >
-                  {titleText}
-                </div>
-                <div className="mt-2">
-                  <span className="font-semibold inline-block" style={{ color: JIRA.blue, direction: 'ltr' }}>#{defectId}</span>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* תיאור — חלונית נפרדת מההערות (הופרדו 2026-09-23 לפי בקשת המשתמש;
-              קודם שיתפו חלונית אחת) */}
-          {showDescription && (
-            <div className="rounded-xl px-6 py-6" style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}` }}>
-              <div className={DETAIL_SECTION_HEADING_CLASS} style={{ color: JIRA.textSubtle }}>{DETAIL_FIELD_LABEL.description ?? 'תיאור'}</div>
-              <div
-                className="text-[15px] leading-relaxed text-right whitespace-pre-wrap break-words max-h-[280px] overflow-y-auto"
-                style={{ color: JIRA.text }}
-              >
-                {detail.description ? decodeDefectText(String(detail.description)) : '—'}
-              </div>
+          {/* Description + Comments share one card, as in the create form;
+              each opens to full height on demand so long text needs as
+              little scrolling as possible (user ask 2026-10-04). */}
+          {(showDescription || showNotes) && (
+            <div className="flex flex-col gap-5 rounded-xl px-6 py-5" style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}` }}>
+              {([
+                showDescription && { key: 'description' as const, label: DETAIL_FIELD_LABEL.description ?? 'Description', max: 'max-h-[280px]' },
+                showNotes && { key: 'notes' as const, label: DETAIL_FIELD_LABEL.notes ?? 'Comments', max: 'max-h-[440px]' },
+              ].filter(Boolean) as { key: 'description' | 'notes'; label: string; max: string }[]).map(sec => {
+                const expanded = expandedText[sec.key];
+                const noteCount = sec.key === 'notes' ? String(detail.notes ?? '').split(/_{5,}/).map(x => x.trim()).filter(Boolean).length : 0;
+                return (
+                  <section key={sec.key}>
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <label className="text-xs font-bold text-subtle-foreground" style={{ direction: 'ltr', textAlign: 'left' }}>
+                        {sec.label}{noteCount > 1 ? ` · ${noteCount}` : ''}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedText(prev => ({ ...prev, [sec.key]: !prev[sec.key] }))}
+                        className="cursor-pointer border-none bg-transparent p-0 text-xs font-semibold"
+                        style={{ color: JIRA.blue }}
+                      >
+                        {expanded ? '⤡ צמצם' : '⤢ הרחב'}
+                      </button>
+                    </div>
+                    <div
+                      className={cn('px-3 py-2 leading-relaxed', !expanded && `${sec.max} overflow-y-auto`)}
+                      style={{ color: JIRA.text, ...VALUE_BOX_STYLE }}
+                    >
+                      {sec.key === 'description'
+                        ? <div className="text-[15px] text-right whitespace-pre-wrap break-words">{detail.description ? decodeDefectText(String(detail.description)) : '—'}</div>
+                        : renderNotesField(detail.notes)}
+                    </div>
+                  </section>
+                );
+              })}
             </div>
           )}
-
-          {/* הערות מפתח — חלונית נפרדת משלה; פיד כרונולוגי, גובה חסום עם
-              גלילה פנימית כדי שהדף עצמו לא יתארך (כותב + תאריך מודגשים, ואז
-              הגוף) */}
-          {showNotes && (() => {
-            const noteCount = String(detail.notes ?? '').split(/_{5,}/).map(s => s.trim()).filter(Boolean).length;
-            return (
-              <div className="rounded-xl px-6 py-6" style={{ background: '#fff', border: `1px solid ${JIRA.greyN40}` }}>
-                <div className={DETAIL_SECTION_HEADING_CLASS} style={{ color: JIRA.textSubtle }}>
-                  {DETAIL_FIELD_LABEL.notes ?? 'הערות מפתח'}{noteCount > 1 ? ` · ${noteCount}` : ''}
-                </div>
-                <div className="leading-relaxed max-h-[440px] overflow-y-auto">
-                  {renderNotesField(detail.notes)}
-                </div>
-              </div>
-            );
-          })()}
 
           {/* קבצים מצורפים + היסטוריית שינויים — נשארים יחד בחלונית אחת,
               לא חלק מהבקשה להפרדה (זו לא "תיאור מול הערות"). */}
@@ -1007,15 +1010,6 @@ export const DefectDetailScreen: React.FC<{
         </div>
       )}
 
-      {showGroupsPicker && (
-        <DetailGroupsDialog
-          allColumns={allColumns}
-          groups={detailGroups}
-          defaultGroups={defaultGroups}
-          onApply={applyDetailGroups}
-          onClose={() => setShowGroupsPicker(false)}
-        />
-      )}
     </div>
   );
 };

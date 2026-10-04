@@ -114,3 +114,16 @@ export const DETAIL_FIELDS: FieldDef[] = [
 
 export const TABLE_FIELD_LABEL: Record<string, string> = Object.fromEntries(TABLE_COLUMN_FIELDS.map(f => [f.key, f.label]));
 export const DETAIL_FIELD_LABEL: Record<string, string> = Object.fromEntries(DETAIL_FIELDS.map(f => [f.key, f.label]));
+
+// Built-in panels of the defect view/update form - used when no admin layout
+// is set, and as the starting point in AdminPanel's "תבנית טופס תקלה" editor.
+// title/description/notes are rendered outside the panels.
+export const DEFAULT_OPEN_PROD_DETAIL_GROUPS: { title: string; fields: string[] }[] = [
+  { title: 'זיהוי', fields: ['id', 'status', 'severity', 'priority', 'secondaryPriority', 'defectType', 'category', 'itemType'] },
+  { title: 'גילוי', fields: ['detectedBy', 'detectedOnDate', 'detectedInRelease', 'detectedInCycle', 'reproducible', 'environment', 'environmentComponent', 'system', 'platform', 'subModule', 'mainModule', 'systemComponent'] },
+  { title: 'אחריות', fields: ['assignedTo', 'qaTester', 'responsibility', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo', 'vendorStatus'] },
+  { title: 'טיפול ותיקון', fields: ['fixType', 'estimatedFixTime', 'actualFixTime', 'estimateFixTime', 'fixedUntil', 'fixedInProd', 'closedBy', 'reopenYn', 'supportStatus', 'supportReferenceNumber', 'responseDate'] },
+  { title: 'יעד וגרסה', fields: ['targetRelease', 'targetCycle', 'targetType', 'targetReleaseReason', 'targetScopeApproved', 'crStatus', 'crReferenceNumber', 'crHbrNumberReference', 'dropNumber', 'releaseDefect'] },
+  { title: 'השפעה עסקית', fields: ['impact', 'influence', 'businessProcess', 'mainBusinessProcess', 'deploymentCategory', 'deploymentReason', 'productionReason', 'toBeTestedOnProd', 'deploymentDateProd', 'willBeTestAtGoLive', 'forRegressionTest', 'foundByAutomation', 'modified'] },
+];
+export const DEFECT_FORM_FIXED_FIELDS = new Set(['title', 'description', 'notes']);

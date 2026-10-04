@@ -2830,6 +2830,16 @@ export async function resolveDefectPersonNames<T extends Record<string, any>>(ro
   });
 }
 
+// Defect detail-form layouts (see QcService.getDefectFormLayouts). Key keeps
+// the OPEN_PROD_DEFECTS_ prefix so AdminPanel's generic Params tab hides it.
+const DEFECT_FORM_LAYOUTS_KEY = 'OPEN_PROD_DEFECTS_FORM_LAYOUTS';
+export interface DefectFormLayout { panels: { name: string; fields: string[] }[]; }
+export interface DefectFormLayouts {
+  default: DefectFormLayout | null;
+  roles: Record<string, DefectFormLayout>;
+  teams: Record<string, DefectFormLayout>;
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 @Injectable()
@@ -4179,6 +4189,58 @@ export class QcService {
   // selection + order for the table and its per-defect detail screen. Stored
   // as SystemParam JSON (same mechanism as LDAP/Email settings), not a new
   // table — this is a single global config object, not a list of records.
+  // ── Defect view/update form layout (user ask 2026-10-04) ────────────────
+  // Admin-designed panels (name + ordered fields) for the defect detail
+  // screen, per scope: one default, plus optional per-role and per-team
+  // overrides. A user gets team → role → default (user's chosen precedence);
+  // none set → null, and the screen falls back to its built-in panels.
+  async getDefectFormLayouts(): Promise<DefectFormLayouts> {
+    const row = await prisma.systemParam.findUnique({ where: { key: DEFECT_FORM_LAYOUTS_KEY } });
+    if (!row) return { default: null, roles: {}, teams: {} };
+    try {
+      const parsed = JSON.parse(row.value);
+      return { default: parsed.default ?? null, roles: parsed.roles ?? {}, teams: parsed.teams ?? {} };
+    } catch {
+      return { default: null, roles: {}, teams: {} };
+    }
+  }
+
+  async setDefectFormLayouts(body: DefectFormLayouts) {
+    const clean = (l: any): DefectFormLayout | null => {
+      if (!l || !Array.isArray(l.panels)) return null;
+      const panels = l.panels
+        .filter((p: any) => p && typeof p.name === 'string' && Array.isArray(p.fields))
+        .map((p: any) => ({
+          name: p.name.trim().slice(0, 60) || 'חלונית',
+          fields: Array.from(new Set((p.fields as any[]).filter(f => typeof f === 'string' && /^[A-Za-z0-9_]{1,60}$/.test(f)))),
+        }));
+      return { panels };
+    };
+    const cleanMap = (m: any) => Object.fromEntries(
+      Object.entries(m ?? {}).map(([k, v]) => [k, clean(v)]).filter(([, v]) => v !== null),
+    );
+    const value: DefectFormLayouts = { default: clean(body?.default), roles: cleanMap(body?.roles), teams: cleanMap(body?.teams) };
+    await prisma.systemParam.upsert({
+      where: { key: DEFECT_FORM_LAYOUTS_KEY },
+      create: { key: DEFECT_FORM_LAYOUTS_KEY, label: 'תבניות טופס תצוגת תקלה', value: JSON.stringify(value) },
+      update: { value: JSON.stringify(value) },
+    });
+    return value;
+  }
+
+  async resolveDefectFormLayout(user: { sub: string; role: string }) {
+    const [all, memberships] = await Promise.all([
+      this.getDefectFormLayouts(),
+      prisma.teamMember.findMany({ where: { userId: user.sub }, select: { teamId: true, team: { select: { name: true } } } }),
+    ]);
+    for (const m of memberships) {
+      if (all.teams[m.teamId]) return { layout: all.teams[m.teamId], scope: 'team' as const, scopeName: m.team.name };
+    }
+    if (all.roles[user.role]) return { layout: all.roles[user.role], scope: 'role' as const, scopeName: user.role };
+    if (all.default) return { layout: all.default, scope: 'default' as const, scopeName: null };
+    return { layout: null, scope: 'builtin' as const, scopeName: null };
+  }
+
   async getOpenProdDefectsConfig(): Promise<{ tableColumns: string[]; detailFields: string[] }> {
     const [tableRow, detailRow] = await Promise.all([
       prisma.systemParam.findUnique({ where: { key: 'OPEN_PROD_DEFECTS_TABLE_COLUMNS' } }),

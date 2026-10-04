@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Query, Param, Body, Request, Res, UseGuards, ForbiddenException, BadRequestException, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Put, Query, Param, Body, Request, Res, UseGuards, ForbiddenException, BadRequestException, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
@@ -129,6 +129,24 @@ export class QcController {
   @Get('open-prod-defects-config')
   getOpenProdDefectsConfig() {
     return this.qcService.getOpenProdDefectsConfig();
+  }
+
+  // Defect view/update form layout — resolved for the caller (team → role →
+  // default), plus the full per-scope config for the admin editor.
+  @Get('defect-form-layout')
+  getMyDefectFormLayout(@Request() req: any) {
+    return this.qcService.resolveDefectFormLayout(req.user);
+  }
+
+  @Get('defect-form-layouts')
+  getDefectFormLayouts() {
+    return this.qcService.getDefectFormLayouts();
+  }
+
+  @Put('defect-form-layouts')
+  setDefectFormLayouts(@Body() body: any, @Request() req: any) {
+    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול לעדכן את תבנית טופס התקלה');
+    return this.qcService.setDefectFormLayouts(body);
   }
 
   @Patch('open-prod-defects-config')
