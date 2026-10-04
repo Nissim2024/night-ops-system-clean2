@@ -529,6 +529,10 @@ interface Overview {
   productionSinceDate: string | null;
   isLive?: boolean;
 }
+// In production: closed out, or its go-live date has passed (backend isLive).
+const isLiveVersion = (o: { isLive?: boolean; versionStatus?: string }) =>
+  !!o.isLive || o.versionStatus === 'COMPLETED' || o.versionStatus === 'MORNING_AFTER';
+
 interface DefectRow { id: string; title: string; severity: string; status: string; discoveryDate: string; targetRelease?: string; environment?: string; }
 interface CrAssignmentRow { id: string; crNumber: string; crLabel: string | null; qaArrivalDate: string | null; qaReceived: boolean; }
 interface TeamPlanStatusRow { teamId: string; teamName: string; total: number; draft: number; submitted: number; returned: number; approved: number; allDone: boolean; }
@@ -760,11 +764,13 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
         reportTitle,
         new Date().toLocaleString('he-IL', { dateStyle: 'medium', timeStyle: 'short' }),
         '',
-        overview ? `מדד מוכנות הגרסה: ${overview.healthScore} (${HEALTH_REC[overview.healthRecommendation].label})` : '',
+        overview ? (isLiveVersion(overview)
+          ? `מדד מוכנות הגרסה: הגרסה בייצור${overview.productionSinceDate ? ` מתאריך ${formatDate(overview.productionSinceDate)}` : ''}`
+          : `מדד מוכנות הגרסה: ${overview.healthScore} (${HEALTH_REC[overview.healthRecommendation].label})`) : '',
         overview ? `שער איכות: ${!overview.testingStarted ? 'הגרסה טרם החלה' : overview.qgPass ? 'PASS' : 'FAIL'}` : '',
         overview ? `כיסוי בדיקות: ${overview.coveragePct.toFixed(2)}%` : '',
         `תקלות פתוחות: ${openDefectsCount}${overview && overview.criticalDefects > 0 ? ` (מתוכן ${overview.criticalDefects} קריטיות)` : ''}`,
-        overview && overview.daysToGoLive != null ? `ימים לעלייה לאוויר: ${overview.daysToGoLive}` : '',
+        overview && overview.daysToGoLive != null && !isLiveVersion(overview) ? `ימים לעלייה לאוויר: ${overview.daysToGoLive}` : '',
         alertLines.length > 0 ? `\n— סיכונים ופעילויות —\n${alertLines.join('\n')}` : '',
         `\nפתח במערכת: ${href}`,
       ].filter(Boolean).join('\n');
@@ -972,7 +978,17 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
         <div>
           <h2 style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: '4px 0 -4px' }}>תמונת מצב</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(178px, 1fr))', gap: '12px', marginTop: '12px' }}>
-            {/* מוכנות — הציון המגודר + QG + הסיבות שהוא נמצא איפה שהוא */}
+            {/* מוכנות — הציון המגודר + QG + הסיבות שהוא נמצא איפה שהוא.
+                Live version (2026-10-04): the decision is behind us - no score. */}
+            {isLiveVersion(overview) ? (
+              <KpiTile
+                icon="🩺" accent={C.success} moduleLabel="מדד מוכנות"
+                moduleLabelColor={C.moduleTracking}
+                value="✓" label="הגרסה בייצור"
+                sub="המדד אינו רלוונטי לאחר העלייה לאוויר"
+                subTone="ok"
+              />
+            ) : (
             <KpiTile
               icon="🩺" accent={HEALTH_REC[overview.healthRecommendation].color} moduleLabel="מדד מוכנות"
               moduleLabelColor={C.moduleTracking}
@@ -989,6 +1005,7 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
                 ) : undefined
               }
             />
+            )}
             {/* כיסוי — % + progress bar, no parenthetical label */}
             <KpiTile
               icon="✅" accent={C.moduleTracking} moduleLabel="כיסוי בדיקות"
@@ -1041,7 +1058,7 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
                 yet confirmed live. */}
             {/* 2026-10-04: also live once the go-live date has passed (isLive) -
                 historical versions rarely advance status. */}
-            {(overview.isLive || overview.versionStatus === 'COMPLETED' || overview.versionStatus === 'MORNING_AFTER') ? (
+            {isLiveVersion(overview) ? (
               <KpiTile
                 icon="📈" accent={C.success} moduleLabel="תחזית"
                 value="✓" label={overview.productionSinceDate ? `בייצור מתאריך ${formatDate(overview.productionSinceDate)}` : 'הגרסה בייצור'}
