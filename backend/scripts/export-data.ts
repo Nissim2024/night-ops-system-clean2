@@ -50,7 +50,10 @@ async function main() {
       prisma.team.findMany({ orderBy: { createdAt: 'asc' } }),
       prisma.teamMember.findMany(),
       prisma.rolePermissions.findMany(),
-      prisma.systemParam.findMany({ orderBy: { key: 'asc' } }),
+      // PERMISSIONS_* (team grants + one-time migration flags) are per-environment
+      // state: shipping dev's would mark prod's permission migrations as done and
+      // carry dev team ids - prod must run its own (2026-10-05).
+      prisma.systemParam.findMany({ where: { NOT: { key: { startsWith: 'PERMISSIONS_' } } }, orderBy: { key: 'asc' } }),
       prisma.versionTemplate.findMany({ orderBy: { createdAt: 'asc' } }),
       prisma.skill.findMany({ orderBy: { createdAt: 'asc' } }),
       prisma.testerProfile.findMany({ orderBy: { createdAt: 'asc' } }),
