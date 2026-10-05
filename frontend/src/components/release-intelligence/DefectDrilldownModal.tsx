@@ -146,7 +146,13 @@ interface Props {
     onConfirm: () => void;
     busy?: boolean;
   };
+  // Cross-version mode (no versionId / endpoint) is server-paged, newest
+  // first (2026-10-05) - with the defects module's year / release filters
+  // and an optional search (defect id or title text).
+  crossVersion?: { years?: number[]; releases?: string[]; search?: string };
 }
+
+const PAGE_SIZE = 100;
 
 // Column widths are user-resizable (see useColumnWidths below) — Title is
 // the one exception, kept flexible/wrapping rather than a fixed resizable
@@ -190,10 +196,15 @@ function renderCellValue(key: ColumnKey, value: unknown) {
 // browser via localStorage, same convention as IncidentsView's import-column
 // picker; sort state is session-only (not worth persisting — the filter/list
 // changes every time this opens).
-export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen, filter, value, endpoint, title, onClose, selection }) => {
+export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen, filter, value, endpoint, title, onClose, selection, crossVersion }) => {
   const headers = { Authorization: `Bearer ${token}` };
   const [defects, setDefects] = useState<Defect[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const paged = !endpoint && !versionId;
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [searchInput, setSearchInput] = useState(crossVersion?.search ?? '');
+  const [search, setSearch] = useState(crossVersion?.search ?? '');
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: ColumnKey; dir: 'asc' | 'desc' } | null>(null);
   const { getWidth: getColWidth, startResize } = useColumnWidths(COLUMN_WIDTHS_STORAGE_KEY, DEFAULT_COLUMN_WIDTH);
@@ -231,13 +242,20 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
       ? axios.get(endpoint, { headers })
       : versionId
       ? axios.get(`${API}/release-intelligence/defects-drilldown/${versionId}`, { headers, params: { screen, filter, value } })
-      : axios.get(`${API}/qc/all-defects-filtered`, { headers, params: { field: filter, value } });
+      : axios.get(`${API}/qc/all-defects-list`, { headers, params: {
+          field: filter, value, page, pageSize: PAGE_SIZE, search: search || undefined,
+          years: crossVersion?.years?.length ? crossVersion.years.join(',') : undefined,
+          releases: crossVersion?.releases?.length ? crossVersion.releases.join(',') : undefined,
+        } });
     request
-      .then(res => setDefects(res.data ?? []))
+      .then(res => {
+        if (paged) { setDefects(res.data?.rows ?? []); setTotal(res.data?.total ?? 0); }
+        else setDefects(res.data ?? []);
+      })
       .catch(e => setError(e?.response?.data?.message || e.message || 'שגיאה בטעינת התקלות'))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [endpoint, versionId, screen, filter, value, token]);
+  }, [endpoint, versionId, screen, filter, value, token, page, search, crossVersion?.years?.join(','), crossVersion?.releases?.join(',')]);
 
   const filters = useColumnFilters(defects as any, columns);
   const [hoverRow, setHoverRow] = useState<string | null>(null);
@@ -430,7 +448,27 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
         </div>
 
       <div className="flex-shrink-0 border-t border-border px-5 py-3 text-start text-xs text-subtle-foreground">
-        {defects ? `${defects.length} תקלות` : ''}
+        {paged ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <form onSubmit={e => { e.preventDefault(); setPage(1); setSearch(searchInput.trim()); }} className="flex items-center gap-1.5">
+              <input value={searchInput} onChange={e => setSearchInput(e.target.value)} placeholder="חיפוש: מספר תקלה או טקסט בכותרת"
+                className="w-[240px] rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground" />
+              <button type="submit" className="cursor-pointer rounded-md border border-border bg-card px-2 py-1 text-xs">🔍 חפש</button>
+              {search && <button type="button" onClick={() => { setSearchInput(''); setSearch(''); setPage(1); }} className="cursor-pointer border-none bg-transparent text-xs text-primary">נקה</button>}
+            </form>
+            <span>
+              {total === 0 ? '0 תקלות' : `מציג ${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, total)} מתוך ${total.toLocaleString()} תקלות · מהחדשה לישנה`}
+            </span>
+            <div className="flex items-center gap-1">
+              <button type="button" disabled={page <= 1 || loading} onClick={() => setPage(p => p - 1)}
+                className="cursor-pointer rounded-md border border-border bg-card px-2 py-0.5 text-xs disabled:cursor-default disabled:opacity-40">› הקודם</button>
+              <span className="px-1">עמוד {page} מתוך {Math.max(1, Math.ceil(total / PAGE_SIZE))}</span>
+              <button type="button" disabled={page * PAGE_SIZE >= total || loading} onClick={() => setPage(p => p + 1)}
+                className="cursor-pointer rounded-md border border-border bg-card px-2 py-0.5 text-xs disabled:cursor-default disabled:opacity-40">הבא ‹</button>
+            </div>
+            <span className="text-[11px]">מיון וסינון בכותרות העמודות חלים על העמוד המוצג</span>
+          </div>
+        ) : (defects ? `${defects.length} תקלות` : '')}
         {selection && selection.selectedIds.length > 0 && ` · ${selection.selectedIds.length} נבחרו`}
       </div>
 

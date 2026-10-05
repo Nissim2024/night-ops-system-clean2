@@ -2534,6 +2534,24 @@ function filterMockRowsByScope(rows: AllDefectsRawRow[], scope: DefectScope): Al
   return rows.filter(r => (r.ASSIGNED_TO ?? '').trim().toLowerCase() === login);
 }
 
+// Defects module filters (user ask 2026-10-05): detection year(s) and
+// detected-in release(s). Empty = no restriction.
+export interface DefectsHubFilter { years?: number[]; releases?: string[] }
+function rowYear(r: AllDefectsRawRow): number | null {
+  if (!r.DETECTED_ON_DATE) return null;
+  const d = new Date(r.DETECTED_ON_DATE as any);
+  return isNaN(d.getTime()) ? null : d.getFullYear();
+}
+function matchesHubFilter(r: AllDefectsRawRow, f: DefectsHubFilter): boolean {
+  if (f.years?.length && !f.years.includes(rowYear(r) ?? -1)) return false;
+  if (f.releases?.length && !f.releases.includes(String(r.DETECTED_IN_RELEASE ?? '').trim())) return false;
+  return true;
+}
+const MOCK_FILTER_KEY: Record<string, keyof AllDefectsRawRow> = {
+  status: 'DEFECT_STATUS', severity: 'SEVERITY', mainModule: 'MAIN_MODULE',
+  responsibility: 'RESPONSIBILITY', detectedInRelease: 'DETECTED_IN_RELEASE', environmentComponent: 'ENVIRONMENT_COMPONENT',
+};
+
 function computeAllDefectsDashboard(rows: AllDefectsRawRow[]): AllDefectsDashboardDto {
   const isOpen = (r: AllDefectsRawRow) => !['Closed', 'Canceled'].includes(r.DEFECT_STATUS ?? '');
   const open = rows.filter(isOpen);
@@ -2580,8 +2598,7 @@ function computeAllDefectsDashboard(rows: AllDefectsRawRow[]): AllDefectsDashboa
   }
   const monthlyTrend = Array.from(monthCounts.entries())
     .map(([month, count]) => ({ month, count }))
-    .sort((a, b) => a.month.localeCompare(b.month))
-    .slice(-12);
+    .sort((a, b) => a.month.localeCompare(b.month));
 
   return {
     total: rows.length,
@@ -2593,8 +2610,8 @@ function computeAllDefectsDashboard(rows: AllDefectsRawRow[]): AllDefectsDashboa
     bySeverity: groupCount(r => r.SEVERITY),
     byMainModule: groupCount(r => r.MAIN_MODULE),
     byResponsibility: groupCountByTeam(r => r.RESPONSIBILITY),
-    byDetectedRelease: groupCount(r => r.DETECTED_IN_RELEASE).slice(0, 10),
-    byEnvironmentComponent: groupCount(r => r.ENVIRONMENT_COMPONENT).slice(0, 10),
+    byDetectedRelease: groupCount(r => r.DETECTED_IN_RELEASE),
+    byEnvironmentComponent: groupCount(r => r.ENVIRONMENT_COMPONENT),
     monthlyTrend,
   };
 }
@@ -3957,10 +3974,89 @@ export class QcService {
   // System-wide, all-status dashboard for the general Defects module
   // (2026-09-22) — see computeAllDefectsDashboard's own comment for the
   // scoping/performance caveat (unbounded query, unverified at real volume).
-  async getAllDefectsDashboard(user: { sub: string; role: string }): Promise<AllDefectsDashboardDto> {
+  async getAllDefectsDashboard(user: { sub: string; role: string }, filter: DefectsHubFilter = {}): Promise<AllDefectsDashboardDto & { options: { years: number[]; releases: string[] } }> {
+    const rows = await this.getAllDefectsRawRows(user);
+    const years = new Set<number>(), releases = new Set<string>();
+    for (const r of rows) {
+      const y = rowYear(r);
+      if (y) years.add(y);
+      if (r.DETECTED_IN_RELEASE) releases.add(String(r.DETECTED_IN_RELEASE).trim());
+    }
+    return {
+      ...computeAllDefectsDashboard(rows.filter(r => matchesHubFilter(r, filter))),
+      options: { years: Array.from(years).sort((a, b) => b - a), releases: Array.from(releases).sort((a, b) => b.localeCompare(a)) },
+    };
+  }
+
+  // Defects module list (2026-10-05): server-side paging, newest first
+  // (BG_BUG_ID desc), the same year / release filters as the dashboard, and a
+  // search (defect id, or text in the title). Replaces the old 300-row cap
+  // with no ORDER BY, which returned an arbitrary slice - a defect that
+  // certainly exists in QC "wasn't there". Pre-12c Oracle: ROWNUM paging.
+  async getAllDefectsPage(user: { sub: string; role: string }, q: {
+    field?: string; value?: string; kpi?: string; search?: string; page?: number; pageSize?: number;
+  } & DefectsHubFilter): Promise<{ rows: DefectDto[]; total: number; page: number; pageSize: number }> {
+    const page = Math.max(1, Math.floor(Number(q.page) || 1));
+    const pageSize = Math.min(500, Math.max(10, Math.floor(Number(q.pageSize) || 100)));
+    if (q.field && q.field !== '__kpi__' && !ALL_DEFECTS_FILTER_COLUMNS[q.field]) throw new BadRequestException(`שדה סינון לא מוכר: ${q.field}`);
+    const kpi = q.field === '__kpi__' ? q.value : q.kpi;
+    if (kpi && !ALL_DEFECTS_KPI_WHERE[kpi]) throw new BadRequestException(`KPI לא מוכר: ${kpi}`);
+    const search = (q.search ?? '').trim();
     const scope = await resolveDefectScope(user);
     const { enabled } = await getOracleConfig();
-    if (!enabled) return computeAllDefectsDashboard(filterMockRowsByScope(MOCK_ALL_DEFECTS_ROWS, scope));
+
+    if (!enabled) {
+      let rows = filterMockRowsByScope(MOCK_ALL_DEFECTS_ROWS, scope).filter(r => matchesHubFilter(r, q));
+      if (kpi) rows = rows.filter(ALL_DEFECTS_KPI_PREDICATE[kpi]);
+      if (q.field && q.field !== '__kpi__') {
+        const key = MOCK_FILTER_KEY[q.field];
+        rows = rows.filter(r => String((r as any)[key] ?? '').trim() === String(q.value ?? '').trim());
+      }
+      if (search) rows = rows.filter(r => /^\d+$/.test(search) ? String(r.DEFECT_ID) === search : String(r.TITLE ?? '').toLowerCase().includes(search.toLowerCase()));
+      rows = [...rows].sort((a, b) => Number(b.DEFECT_ID) - Number(a.DEFECT_ID));
+      return { rows: rows.slice((page - 1) * pageSize, page * pageSize).map(allDefectsRawRowToDefectDto), total: rows.length, page, pageSize };
+    }
+
+    const conds: string[] = [];
+    const binds: Record<string, any> = {};
+    if (q.field && q.field !== '__kpi__') { conds.push(`TRIM(${ALL_DEFECTS_FILTER_COLUMNS[q.field]}) = TRIM(:fv)`); binds.fv = q.value ?? ''; }
+    if (kpi) conds.push(`(${ALL_DEFECTS_KPI_WHERE[kpi]})`);
+    (q.years ?? []).forEach((y, i) => { binds[`y${i}`] = y; });
+    if ((q.years ?? []).length) conds.push(`EXTRACT(YEAR FROM BG_DETECTION_DATE) IN (${q.years!.map((_, i) => `:y${i}`).join(', ')})`);
+    (q.releases ?? []).forEach((r, i) => { binds[`r${i}`] = r; });
+    if ((q.releases ?? []).length) conds.push(`TRIM(detected_rel.REL_NAME) IN (${q.releases!.map((_, i) => `TRIM(:r${i})`).join(', ')})`);
+    if (search) {
+      if (/^\d+$/.test(search)) { conds.push('BG_BUG_ID = :sid'); binds.sid = Number(search); }
+      else { conds.push('UPPER(NVL(BG_SUMMARY, BG_SUBJECT)) LIKE :sq'); binds.sq = `%${search.toUpperCase()}%`; }
+    }
+    const { sql: scopeSql, binds: scopeBinds } = buildDefectScopeSql(scope);
+    if (scopeSql) conds.push(scopeSql);
+    Object.assign(binds, scopeBinds);
+    const where = conds.length ? `  WHERE ${conds.join('\n    AND ')}\n` : '';
+
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const countRes = await conn.execute(
+        `SELECT COUNT(*) AS CNT FROM BUG\n  LEFT JOIN RELEASES detected_rel ON detected_rel.REL_ID = BUG.BG_DETECTED_IN_REL\n${where}`, binds);
+      const total = Number((countRes.rows ?? [])[0]?.CNT ?? 0);
+      const lo = (page - 1) * pageSize, hi = page * pageSize;
+      const pageSql = `SELECT * FROM (SELECT q.*, ROWNUM AS RN__ FROM (\n${DEFECTS_SQL_SELECT}${where}  ORDER BY BG_BUG_ID DESC\n) q WHERE ROWNUM <= :hi__) WHERE RN__ > :lo__\n`;
+      const rows = await this.runDefectsQuery(pageSql, { ...binds, hi__: hi, lo__: lo });
+      return { rows, total, page, pageSize };
+    } catch (err: any) {
+      this.logger.error(`Oracle getAllDefectsPage: ${err.message}`);
+      throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
+  }
+
+  // The user's whole scope of defect rows (dashboard columns), any release.
+  private async getAllDefectsRawRows(user: { sub: string; role: string }): Promise<AllDefectsRawRow[]> {
+    const scope = await resolveDefectScope(user);
+    const { enabled } = await getOracleConfig();
+    if (!enabled) return filterMockRowsByScope(MOCK_ALL_DEFECTS_ROWS, scope);
 
     let conn: any;
     try {
@@ -3968,9 +4064,9 @@ export class QcService {
       const { sql: scopeSql, binds } = buildDefectScopeSql(scope);
       const sql = scopeSql ? `${ALL_DEFECTS_DASHBOARD_SQL}\n  WHERE ${scopeSql}` : ALL_DEFECTS_DASHBOARD_SQL;
       const result = await conn.execute(sql, binds);
-      return computeAllDefectsDashboard((result.rows ?? []) as AllDefectsRawRow[]);
+      return (result.rows ?? []) as AllDefectsRawRow[];
     } catch (err: any) {
-      this.logger.error(`Oracle getAllDefectsDashboard: ${err.message}`);
+      this.logger.error(`Oracle getAllDefectsRawRows: ${err.message}`);
       throw err;
     } finally {
       if (conn) await conn.close().catch(() => {});

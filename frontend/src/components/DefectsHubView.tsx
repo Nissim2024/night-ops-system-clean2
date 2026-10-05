@@ -13,6 +13,7 @@ interface Props { token: string; }
 
 interface BreakdownRow { label: string; count: number; }
 interface AllDefectsDashboardDto {
+  options?: { years: number[]; releases: string[] };   // filter choices (user's whole scope)
   total: number;
   open: number;
   closed: number;
@@ -93,11 +94,12 @@ const BreakdownPanel: React.FC<{ title: string; rows: BreakdownRow[]; onSelect: 
 // meaningful granularity, not individual days.
 const MonthlyTrendChart: React.FC<{ data: { month: string; count: number }[]; onBarClick: (month: string) => void }> = ({ data, onBarClick }) => {
   if (data.length === 0) return <div className="p-5 text-center text-xs text-subtle-foreground">אין נתוני מגמה</div>;
-  const width = 720, height = 140, padX = 30, padY = 20;
+  const width = Math.max(720, data.length * 26), height = 140, padX = 30, padY = 20;
   const max = Math.max(1, ...data.map(d => d.count));
   const barW = (width - padX * 2) / data.length;
   return (
-    <svg width="100%" viewBox={`0 0 ${width} ${height}`} style={{ overflow: 'visible' }}>
+    <div className="overflow-x-auto">
+    <svg width={data.length > 28 ? width : '100%'} viewBox={`0 0 ${width} ${height}`} style={{ overflow: 'visible' }}>
       {data.map((d, i) => {
         const h = ((height - padY * 2) * d.count) / max;
         const x = padX + i * barW;
@@ -112,6 +114,7 @@ const MonthlyTrendChart: React.FC<{ data: { month: string; count: number }[]; on
         );
       })}
     </svg>
+    </div>
   );
 };
 
@@ -132,17 +135,27 @@ export const DefectsHubView: React.FC<Props> = ({ token }) => {
   // versionId omitted → DefectDrilldownModal's cross-version mode
   // (2026-09-23 follow-up: reuses the shared rich drill-down table — column
   // picker, sort, resize — instead of a separate, poorer reimplementation).
-  const [drilldown, setDrilldown] = useState<{ filter: string; value: string; title: string } | null>(null);
+  const [drilldown, setDrilldown] = useState<{ filter: string; value: string; title: string; search?: string } | null>(null);
+  // Filters (user ask 2026-10-05): detection year(s) + detected-in release(s);
+  // they scope the KPIs, every chart and every drill-down list.
+  const [years, setYears] = useState<number[]>([]);
+  const [releases, setReleases] = useState<string[]>([]);
+  const [releasePickerOpen, setReleasePickerOpen] = useState(false);
+  const [releaseQuery, setReleaseQuery] = useState('');
+  const [search, setSearch] = useState('');
   const [selectedDefectId, setSelectedDefectId] = useState<string | null>(null);
   const [showCreateScreen, setShowCreateScreen] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true); setError(null);
-    axios.get(`${API}/qc/all-defects-dashboard`, { headers })
+    axios.get(`${API}/qc/all-defects-dashboard`, { headers, params: {
+      years: years.length ? years.join(',') : undefined,
+      releases: releases.length ? releases.join(',') : undefined,
+    } })
       .then(r => setDashboard(r.data))
       .catch(err => setError(err?.response?.data?.message || 'שגיאה בטעינת נתוני תקלות'))
       .finally(() => setLoading(false));
-  }, [headers]);
+  }, [headers, years, releases]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -181,6 +194,7 @@ export const DefectsHubView: React.FC<Props> = ({ token }) => {
         filter={drilldown.filter}
         value={drilldown.value}
         title={drilldown.title}
+        crossVersion={{ years, releases, search: drilldown.search }}
         onClose={closeDrilldown}
       />
     );
@@ -202,6 +216,47 @@ export const DefectsHubView: React.FC<Props> = ({ token }) => {
           >
             + תקלה חדשה ב-QC
           </button>
+        </div>
+      </Card>
+
+      <Card>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-xs font-semibold text-subtle-foreground">שנה:</span>
+          {(dashboard?.options?.years ?? []).map(y => (
+            <button key={y} onClick={() => setYears(prev => prev.includes(y) ? prev.filter(v => v !== y) : [...prev, y])}
+              className={`cursor-pointer rounded-full border px-2.5 py-0.5 text-xs font-semibold ${years.includes(y) ? 'border-primary bg-primary text-white' : 'border-border bg-card text-foreground'}`}>
+              {y}
+            </button>
+          ))}
+          <span className="ms-3 text-xs font-semibold text-subtle-foreground">גרסה:</span>
+          <div className="relative">
+            <button onClick={() => setReleasePickerOpen(o => !o)}
+              className="cursor-pointer rounded-md border border-border bg-card px-2.5 py-1 text-xs text-foreground">
+              {releases.length === 0 ? 'כל הגרסאות' : releases.length === 1 ? releases[0] : `${releases.length} גרסאות`} ▾
+            </button>
+            {releasePickerOpen && (
+              <div className="absolute z-20 mt-1 flex max-h-[320px] w-[260px] flex-col gap-1 overflow-y-auto rounded-md border border-border bg-card p-2 shadow-lg">
+                <input autoFocus value={releaseQuery} onChange={e => setReleaseQuery(e.target.value)} placeholder="חפש גרסה…"
+                  className="mb-1 rounded-sm border border-border px-2 py-1 text-xs" />
+                {(dashboard?.options?.releases ?? []).filter(r => r.toLowerCase().includes(releaseQuery.toLowerCase())).map(r => (
+                  <label key={r} className="flex cursor-pointer items-center gap-2 text-xs text-foreground">
+                    <input type="checkbox" checked={releases.includes(r)}
+                      onChange={() => setReleases(prev => prev.includes(r) ? prev.filter(v => v !== r) : [...prev, r])} />
+                    {r}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+          {(years.length > 0 || releases.length > 0) && (
+            <button onClick={() => { setYears([]); setReleases([]); }} className="cursor-pointer border-none bg-transparent text-xs text-primary">נקה סינון</button>
+          )}
+          <form className="ms-auto flex items-center gap-1.5"
+            onSubmit={e => { e.preventDefault(); if (search.trim()) setDrilldown({ filter: '__kpi__', value: 'total', title: `חיפוש: ${search.trim()}`, search: search.trim() }); }}>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="חיפוש תקלה: מספר או טקסט"
+              className="w-[220px] rounded-md border border-border bg-card px-2 py-1 text-xs" />
+            <button type="submit" className="cursor-pointer rounded-md border border-border bg-card px-2.5 py-1 text-xs">🔍 חפש</button>
+          </form>
         </div>
       </Card>
 

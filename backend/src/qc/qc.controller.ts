@@ -8,6 +8,13 @@ import { QcService, isProductionEnvironment, getQcPersonDirectory } from './qc.s
 import { QcRestService } from './qc-rest.service';
 import { PermissionsService } from '../permissions/permissions.service';
 
+// "2025,2026" / "ITv01-2026,ITv02-2026" query strings -> defects module filter
+function parseHubFilter(years?: string, releases?: string) {
+  const ys = (years ?? '').split(',').map(v => Number(v.trim())).filter(n => Number.isInteger(n) && n > 1990 && n < 2100);
+  const rs = (releases ?? '').split(',').map(v => v.trim()).filter(Boolean).slice(0, 200);
+  return { years: ys, releases: rs };
+}
+
 function requireRole(req: any, roles: string[], msg = 'אין הרשאה לבצע פעולה זו') {
   if (!roles.includes(req.user.role)) throw new ForbiddenException(msg);
 }
@@ -88,9 +95,24 @@ export class QcController {
   // see QcService.resolveDefectScope().
   @ModuleAccess('module:defects')
   @Get('all-defects-dashboard')
-  getAllDefectsDashboard(@Request() req: any) {
-    return this.qcService.getAllDefectsDashboard(req.user);
+  getAllDefectsDashboard(@Request() req: any, @Query('years') years?: string, @Query('releases') releases?: string) {
+    return this.qcService.getAllDefectsDashboard(req.user, parseHubFilter(years, releases));
   }
+  // Paged, newest-first defects list for the defects module (2026-10-05).
+  @ModuleAccess('module:defects')
+  @Get('all-defects-list')
+  getAllDefectsList(
+    @Request() req: any,
+    @Query('field') field?: string, @Query('value') value?: string, @Query('kpi') kpi?: string,
+    @Query('search') search?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string,
+    @Query('years') years?: string, @Query('releases') releases?: string,
+  ) {
+    return this.qcService.getAllDefectsPage(req.user, {
+      field, value, kpi, search, page: Number(page) || 1, pageSize: Number(pageSize) || 100,
+      ...parseHubFilter(years, releases),
+    });
+  }
+
 
   @ModuleAccess('module:defects')
 
