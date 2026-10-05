@@ -23,6 +23,16 @@ describe('permission catalog', () => {
     expect(qa).not.toContain('action:qa_manage');
   });
 
+  it('an action alone does not open its module', () => {
+    const out = expandGrants(['action:qa_leave_request']);
+    expect(out).toContain('action:qa_leave_request');
+    expect(out).not.toContain('partial:module:qa');
+  });
+
+  it('the removed "ביצוע" screen is dropped from stored grants', () => {
+    expect(normalizeGrants(['screen:handoff', 'screen:prep'])).toEqual(['screen:prep']);
+  });
+
   it('unknown keys are dropped', () => {
     expect(normalizeGrants(['nope', 'action:gonogo'])).toEqual(['action:gonogo']);
   });

@@ -4,6 +4,8 @@ import {
 } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 import { LeavesService } from './leaves.service';
+import { PermissionsService } from '../permissions/permissions.service';
+const permissions = new PermissionsService();
 
 @UseGuards(JwtGuard)
 @Controller('leaves')
@@ -51,15 +53,17 @@ export class LeavesController {
   // ── My requests (employee) ───────────────────────────────────────────────────
 
   @Get('my-requests')
-  getMyRequests(@Request() req: any) {
+  async getMyRequests(@Request() req: any) {
+    if (!(await permissions.userHas(req.user, 'action:qa_leave_request'))) throw new ForbiddenException('אין לך הרשאה לבקשות חופשה');
     return this.svc.getMyRequests(req.user.sub);
   }
 
   @Post('requests')
-  submitRequest(
+  async submitRequest(
     @Request() req: any,
     @Body() body: { seasonId?: string; date: string; kind: string; reason?: string; groupId?: string },
   ) {
+    if (!(await permissions.userHas(req.user, 'action:qa_leave_request'))) throw new ForbiddenException('אין לך הרשאה להגיש בקשת חופשה');
     return this.svc.submitRequest(req.user.sub, body);
   }
 

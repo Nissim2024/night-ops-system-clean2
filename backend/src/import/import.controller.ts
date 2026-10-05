@@ -5,6 +5,8 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ImportService } from './import.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
+import { PermissionsService } from '../permissions/permissions.service';
+const permissions = new PermissionsService();
 
 const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
 
@@ -68,7 +70,7 @@ export class ImportController {
     @Body('existingVersionId') existingVersionId: string,
     @Request() req: any,
   ) {
-    requireRole(req, MANAGERS, 'רק מנהל לילה יכול לייבא קובץ');
+    if (!(await permissions.userHas(req.user, 'action:import'))) throw new ForbiddenException('אין לך הרשאה לייבא קובץ — פנה למנהל מערכת');
 
     if (!file) {
       return { success: false, message: 'לא נבחר קובץ' };

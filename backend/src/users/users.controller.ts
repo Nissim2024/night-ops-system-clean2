@@ -1,6 +1,8 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request, ForbiddenException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
+import { PermissionsService } from '../permissions/permissions.service';
+const permissions = new PermissionsService();
 
 const ADMINS = ['ADMIN'];
 const LEADS_UP = ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN'];
@@ -21,56 +23,56 @@ export class UsersController {
   }
 
   @Post()
-  create(@Body() body: {
+  async create(@Body() body: {
     fullName: string;
     email: string;
     password: string;
     phone?: string;
     role?: string;
   }, @Request() req: any) {
-    requireRole(req, ADMINS, 'רק מנהל מערכת יכול ליצור משתמשים');
+    if (!(await permissions.userHas(req.user, 'action:user_manage'))) throw new ForbiddenException('אין לך הרשאה לניהול משתמשים');
     return this.usersService.create(body);
   }
 
   @Patch(':id')
-  update(
+  async update(
     @Param('id') id: string,
     @Body() body: { fullName?: string; role?: string; active?: boolean; phone?: string; qcLogin?: string | null },
     @Request() req: any,
   ) {
-    requireRole(req, ADMINS, 'רק מנהל מערכת יכול לעדכן פרטי משתמש');
+    if (!(await permissions.userHas(req.user, 'action:user_manage'))) throw new ForbiddenException('אין לך הרשאה לניהול משתמשים');
     return this.usersService.update(id, body);
   }
 
   @Patch(':id/team')
-  setTeam(
+  async setTeam(
     @Param('id') id: string,
     @Body() body: { teamId: string | null },
     @Request() req: any,
   ) {
-    requireRole(req, ADMINS, 'רק מנהל מערכת יכול לשייך משתמש לצוות');
+    if (!(await permissions.userHas(req.user, 'action:user_manage'))) throw new ForbiddenException('אין לך הרשאה לניהול משתמשים');
     return this.usersService.setTeam(id, body.teamId);
   }
 
   @Patch(':id/password')
-  resetPassword(
+  async resetPassword(
     @Param('id') id: string,
     @Body() body: { newPassword: string },
     @Request() req: any,
   ) {
-    requireRole(req, ADMINS, 'רק מנהל מערכת יכול לאפס סיסמה');
+    if (!(await permissions.userHas(req.user, 'action:user_manage'))) throw new ForbiddenException('אין לך הרשאה לניהול משתמשים');
     return this.usersService.resetPassword(id, body.newPassword);
   }
 
   @Delete(':id')
-  deleteUser(@Param('id') id: string, @Request() req: any) {
-    requireRole(req, ADMINS, 'רק מנהל מערכת יכול למחוק משתמשים');
+  async deleteUser(@Param('id') id: string, @Request() req: any) {
+    if (!(await permissions.userHas(req.user, 'action:user_manage'))) throw new ForbiddenException('אין לך הרשאה לניהול משתמשים');
     return this.usersService.delete(id, req.user.sub);
   }
 
   @Post('sync-qc')
-  syncQcUsers(@Request() req: any) {
-    requireRole(req, ADMINS, 'רק מנהל מערכת יכול לסנכרן משתמשי QC');
+  async syncQcUsers(@Request() req: any) {
+    if (!(await permissions.userHas(req.user, 'action:user_manage'))) throw new ForbiddenException('אין לך הרשאה לניהול משתמשים');
     return this.usersService.syncQcUsers();
   }
 }

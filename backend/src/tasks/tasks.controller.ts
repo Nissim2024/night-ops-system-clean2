@@ -15,6 +15,8 @@ import {
 import { TasksService } from './tasks.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 import { TaskStatus, Priority, PrismaClient } from '@prisma/client';
+import { PermissionsService } from '../permissions/permissions.service';
+const permissions = new PermissionsService();
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
@@ -76,7 +78,7 @@ export class TasksController {
     @Body() body: { status: TaskStatus; blockedReason?: string; failedReason?: string; blockedSeverity?: string },
     @Request() req: any,
   ) {
-    requireRole(req, TASK_EXECUTORS, 'אין הרשאה לעדכון סטטוס משימה');
+    if (!(await permissions.userHas(req.user, 'action:task_status'))) throw new ForbiddenException('אין הרשאה לעדכון סטטוס משימה');
 
     // TEAM_LEAD and EMPLOYEE may only update tasks belonging to their own team(s).
     // A task with no assignedTeamId at all is nobody's to update via this path

@@ -838,7 +838,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           )}
 
           {/* ── Module: ניהול QA ── */}
-          {activeModule === 'qa' && <QaModulePlaceholder view={activeQaView} token={token} role={payload.role} isQaMember={canAccessQa} isQaTeamMember={isQaTeamMember} isQaTeamLead={isQaTeamLead} initialVersionId={selectedVersionId || undefined} />}
+          {activeModule === 'qa' && <QaModulePlaceholder view={activeQaView} token={token} role={payload.role} isQaMember={canAccessQa} isQaTeamMember={isQaTeamMember} isQaTeamLead={isQaTeamLead} canQaManage={can('action:qa_manage')} initialVersionId={selectedVersionId || undefined} />}
 
           {/* ── Module: Release Intelligence ── */}
           {/* Fixed "back to Home" bar — every RI screen is one click away from
@@ -1737,7 +1737,7 @@ const QA_VIEW_META: Record<string, { icon: string; title: string; sub: string }>
   assignment: { icon: '🎯', title: 'תכנון ושיבוץ',    sub: 'שיבוץ בודקים ותכנון סבבי בדיקות' },
 };
 
-const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string; isQaMember?: boolean; isQaTeamMember?: boolean; isQaTeamLead?: boolean; initialVersionId?: string }> = ({ view, token, role, isQaMember, isQaTeamMember, isQaTeamLead, initialVersionId }) => {
+const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string; isQaMember?: boolean; isQaTeamMember?: boolean; isQaTeamLead?: boolean; canQaManage?: boolean; initialVersionId?: string }> = ({ view, token, role, isQaMember, canQaManage, isQaTeamMember, isQaTeamLead, initialVersionId }) => {
   // Leaves board is accessible to all authenticated users; QA module views are for QA team members and ADMIN
   if (view !== 'leaves' && role !== 'ADMIN' && !isQaMember) {
     return (
@@ -1748,10 +1748,10 @@ const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string;
       </div>
     );
   }
-  // Assignment view uses QaAdminGuard on the backend — ADMIN, or whoever
-  // actually leads the QA team itself, on top of whatever their own base
-  // role is (e.g. a RELEASE_MANAGER — "מנהל הלילה" — who also leads QA).
-  if (view === 'assignment' && role !== 'ADMIN' && !isQaTeamLead) {
+  // Assignment view uses QaAdminGuard on the backend = permission
+  // action:qa_manage (role or team grant; QA team leads got it as a team
+  // LEAD grant when it moved into the permissions table, 2026-10-05).
+  if (view === 'assignment' && role !== 'ADMIN' && !canQaManage) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '12px', color: C.textMuted }}>
         <div style={{ fontSize: '48px' }}>🔒</div>

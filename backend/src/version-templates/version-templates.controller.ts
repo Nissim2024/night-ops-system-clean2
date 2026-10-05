@@ -1,6 +1,8 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body, Request, UseGuards, ForbiddenException } from '@nestjs/common';
 import { VersionTemplatesService } from './version-templates.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
+import { PermissionsService } from '../permissions/permissions.service';
+const permissions = new PermissionsService();
 
 const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
 
@@ -45,8 +47,8 @@ export class VersionTemplatesController {
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string, @Request() req: any) {
-    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול למחוק תבנית');
+  async remove(@Param('id') id: string, @Request() req: any) {
+    if (!(await permissions.userHas(req.user, 'action:template_delete'))) throw new ForbiddenException('אין לך הרשאה למחוק תבנית גרסה');
     return this.service.remove(id);
   }
 }

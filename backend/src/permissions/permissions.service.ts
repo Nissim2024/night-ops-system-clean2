@@ -17,12 +17,27 @@ const screens = (id: string) => PERMISSION_CATALOG.find(m => m.id === id)!.items
 const DEFAULTS: Record<string, string[]> = {
   ADMIN:           [...MODULE_KEYS],
   RELEASE_MANAGER: ['module:version-management', ...screens('deployments'), 'action:import', 'action:gonogo', 'action:task_status',
-                    'action:open_task_for_execution', 'action:override_version_edit', 'action:select_all_tasks', 'defects:view'],
-  CR_MANAGER:      ['defects:view'],
-  TEAM_LEAD:       [...screens('deployments'), 'action:task_status', 'action:qa_leave_request', 'action:qa_manage', 'defects:view'],
-  EMPLOYEE:        ['action:task_status', 'action:qc_defect_create', 'defects:view'],
-  VIEWER:          ['screen:timeline', 'screen:night', 'screen:summary'],
+                    'action:open_task_for_execution', 'action:override_version_edit', 'action:select_all_tasks', 'defects:view',
+                    'action:qa_leave_request'],
+  CR_MANAGER:      ['defects:view', 'action:qa_leave_request'],
+  TEAM_LEAD:       [...screens('deployments'), 'action:task_status', 'action:qa_leave_request', 'defects:view'],
+  EMPLOYEE:        ['action:task_status', 'action:qc_defect_create', 'action:qc_attachment_upload', 'defects:view', 'action:qa_leave_request'],
+  VIEWER:          ['screen:timeline', 'screen:night', 'screen:summary', 'action:qa_leave_request'],
 };
+
+// Six actions that used to be decided by hardcoded role lists in the
+// controllers, not by this table (2026-10-05, user chose to make the table
+// the single source of truth). Grants are set ONCE to exactly what those
+// hardcoded rules allowed, so nothing changes until an admin edits them.
+const WIRED_ACTIONS_V3: Record<string, string[]> = {
+  'action:import':          ['RELEASE_MANAGER'],                               // was MANAGERS
+  'action:task_status':     ['EMPLOYEE', 'TEAM_LEAD', 'RELEASE_MANAGER'],      // was TASK_EXECUTORS
+  'action:user_manage':     [],                                                // was ADMIN only
+  'action:template_delete': [],                                                // was ADMIN only
+  'action:qa_manage':       [],                                                // was ADMIN + QA team lead (team grant below)
+  'action:qa_leave_request': ['RELEASE_MANAGER', 'CR_MANAGER', 'TEAM_LEAD', 'EMPLOYEE', 'VIEWER'], // was open to all
+};
+const ACTIONS_MIGRATED_KEY = 'PERMISSIONS_ACTIONS_V3_MIGRATED';
 
 // Team grants (user ask 2026-10-05: "לפי צוות ולפי תפקיד"): per team, keys for
 // all its members, for its leads only, and for non-lead members only. A
@@ -159,6 +174,47 @@ export class PermissionsService {
       if (!exists) await prisma.rolePermissions.create({ data: { role: role as Role, permissions } });
     }
     await this.migrateToCatalogOnce();
+    await this.migrateWiredActionsOnce();
+  }
+
+  // See WIRED_ACTIONS_V3. Also: attachment upload used to ride on
+  // qc_defect_create - whoever had that gets qc_attachment_upload; QA team
+  // leads ("qa" in the team name, same rule QaAdminGuard used) get qa_manage
+  // as a team LEAD grant.
+  private async migrateWiredActionsOnce() {
+    const done = await prisma.systemParam.findUnique({ where: { key: ACTIONS_MIGRATED_KEY } });
+    if (done?.value === 'true') return;
+    const rows = await prisma.rolePermissions.findMany();
+    for (const row of rows) {
+      if (row.role === 'ADMIN') continue;
+      const keys = new Set(normalizeGrants(row.permissions as string[]));
+      for (const [action, roles] of Object.entries(WIRED_ACTIONS_V3)) {
+        if (roles.includes(row.role)) keys.add(action); else keys.delete(action);
+      }
+      if (keys.has('action:qc_defect_create')) keys.add('action:qc_attachment_upload');
+      await prisma.rolePermissions.update({ where: { role: row.role }, data: { permissions: Array.from(keys) } });
+    }
+    const grants = await this.readTeamGrants();
+    const teams = await prisma.team.findMany({ select: { id: true, name: true } });
+    for (const t of teams) {
+      const g = grants[t.id] ?? emptyGrant();
+      for (const bucket of ['ALL', 'LEAD', 'MEMBER'] as const) {
+        if (g[bucket].includes('action:qc_defect_create') && !g[bucket].includes('action:qc_attachment_upload')) g[bucket].push('action:qc_attachment_upload');
+      }
+      if (String(t.name ?? '').toLowerCase().includes('qa') && !g.LEAD.includes('action:qa_manage')) g.LEAD.push('action:qa_manage');
+      if (g.ALL.length + g.LEAD.length + g.MEMBER.length > 0) grants[t.id] = g;
+    }
+    await prisma.systemParam.upsert({
+      where: { key: TEAM_GRANTS_KEY },
+      update: { value: JSON.stringify(grants) },
+      create: { key: TEAM_GRANTS_KEY, label: 'הרשאות לפי צוות', value: JSON.stringify(grants), type: 'text' },
+    });
+    await prisma.systemParam.upsert({
+      where: { key: ACTIONS_MIGRATED_KEY },
+      update: { value: 'true' },
+      create: { key: ACTIONS_MIGRATED_KEY, label: 'פעולות הועברו לטבלת ההרשאות', value: 'true', type: 'text' },
+    });
+    clearEffectiveCache();
   }
 
   // One-time move of existing grants onto the catalog (2026-10-05), keeping

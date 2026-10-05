@@ -1,26 +1,18 @@
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { PermissionsService } from '../permissions/permissions.service';
 
-const prisma = new PrismaClient();
+const permissions = new PermissionsService();
 
+// QA admin area = permission action:qa_manage (AdminPanel → הרשאות → ניהול QA).
+// The old hardcoded "lead of a team with 'qa' in its name" rule is now a team
+// LEAD grant, migrated once (PermissionsService.migrateWiredActionsOnce), so
+// it can be changed from the table like any other grant. ADMIN always passes.
 @Injectable()
 export class QaAdminGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const { user } = context.switchToHttp().getRequest();
-    if (!user) throw new ForbiddenException('גישה לאזור QA מותרת למנהלי מערכת בלבד');
-    if (user.role === 'ADMIN') return true;
-
-    // Whoever leads the QA team gets the same access as ADMIN here, ON TOP
-    // of whatever their own base role is — e.g. a RELEASE_MANAGER ("מנהל
-    // הלילה") who is also QA team lead shouldn't be blocked just because
-    // their primary role isn't TEAM_LEAD. isLead is required so this stays
-    // scoped to the QA team's actual lead, not just any member of it (same
-    // "qa" name-substring heuristic used client-side to detect the team).
-    const membership = await prisma.teamMember.findFirst({
-      where: { userId: user.sub, isLead: true, team: { name: { contains: 'qa', mode: 'insensitive' } } },
-    });
-    if (membership) return true;
-
-    throw new ForbiddenException('גישה לאזור QA מותרת למנהלי מערכת בלבד');
+    if (!user) throw new ForbiddenException('גישה לאזור ניהול QA מותרת למורשים בלבד');
+    if (await permissions.userHas(user, 'action:qa_manage')) return true;
+    throw new ForbiddenException('אין לך הרשאת ניהול QA — פנה למנהל מערכת');
   }
 }

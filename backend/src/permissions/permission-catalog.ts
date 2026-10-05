@@ -26,7 +26,7 @@ export const PERMISSION_CATALOG: CatalogModule[] = [
   {
     id: 'deployments', key: 'module:deployments', label: 'הטמעות', icon: '🌙',
     items: [
-      s('screen:prep', 'הכנה'), s('screen:handoff', 'ביצוע'), s('screen:timeline', 'ציר זמן'),
+      s('screen:prep', 'הכנה'), s('screen:timeline', 'ציר זמן'),
       s('screen:night', 'לילה (חמ"ל)'), s('screen:summary', 'סיכום'),
       a('action:import', 'ייבוא Excel'), a('action:gonogo', 'GO / NO GO'), a('action:task_status', 'שינוי סטטוס משימה'),
       a('action:open_task_for_execution', 'פתיחת משימה לביצוע (מנהל לילה)'),
@@ -71,6 +71,7 @@ export const PERMISSION_CATALOG: CatalogModule[] = [
 export const MODULE_KEYS = PERMISSION_CATALOG.map(m => m.key);
 export const ALL_CATALOG_KEYS: string[] = PERMISSION_CATALOG.flatMap(m => [m.key, ...m.items.map(i => i.key)]);
 const MODULE_OF = new Map<string, string>(PERMISSION_CATALOG.flatMap(m => m.items.map(i => [i.key, m.key] as [string, string])));
+const KIND_OF = new Map<string, string>(PERMISSION_CATALOG.flatMap(m => m.items.map(i => [i.key, i.kind] as [string, string])));
 
 // Pre-catalog keys -> what they actually gave. They opened a module's
 // SCREENS only - never its actions (an EMPLOYEE's old screen:defects must not
@@ -92,8 +93,10 @@ export function normalizeGrants(keys: string[]): string[] {
 }
 
 // Granted keys → everything they imply: a module key brings all its
-// components; a component brings its module key's "partial" marker
-// (`module:x` stays out, but `partial:module:x` lets the UI show the module).
+// components; a SCREEN brings its module's "partial" marker
+// (`partial:module:x` = the module shows in the UI and its API is open).
+// An ACTION alone doesn't open its module - e.g. everyone may request leave
+// (qa_leave_request) without seeing ניהול QA.
 export function expandGrants(keys: string[]): string[] {
   const out = new Set<string>();
   for (const k of normalizeGrants(keys)) {
@@ -101,7 +104,7 @@ export function expandGrants(keys: string[]): string[] {
     const mod = PERMISSION_CATALOG.find(m => m.key === k);
     if (mod) mod.items.forEach(i => out.add(i.key));
     const parent = MODULE_OF.get(k);
-    if (parent) out.add(`partial:${parent}`);
+    if (parent && KIND_OF.get(k) === 'screen') out.add(`partial:${parent}`);
   }
   for (const m of PERMISSION_CATALOG) if (out.has(m.key)) out.add(`partial:${m.key}`);
   return Array.from(out);

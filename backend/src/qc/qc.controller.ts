@@ -508,7 +508,7 @@ export class QcController {
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    await this.requirePermission(req, 'action:qc_defect_create', 'אין לך הרשאה לצרף קבצים לתקלה — פנה למנהל מערכת');
+    await this.requirePermission(req, 'action:qc_attachment_upload', 'אין לך הרשאה לצרף קבצים לתקלה — פנה למנהל מערכת');
     if (!file) throw new BadRequestException('לא התקבל קובץ');
     return this.qcRestService.uploadAttachment(id, file.originalname, file.buffer, file.mimetype, req.user.sub);
   }
