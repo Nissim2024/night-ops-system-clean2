@@ -127,11 +127,14 @@ async function main() {
       imported.teamMembers++;
     }
 
-    // ── 4. RolePermissions ────────────────────────────────────────────────────
+    // ── 4. RolePermissions — create only, never overwrite ────────────────────
+    // This import runs on EVERY container boot when SEED_DATA_FILE is set, so
+    // an update here reverted whatever an admin changed in the permissions
+    // screen on the target at the next restart (2026-10-05).
     for (const rp of rolePermissions) {
       await prisma.rolePermissions.upsert({
         where: { role: rp.role },
-        update: { permissions: rp.permissions },
+        update: {},
         create: { role: rp.role, permissions: rp.permissions },
       });
       imported.rolePermissions++;
