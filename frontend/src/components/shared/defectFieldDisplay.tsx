@@ -108,11 +108,20 @@ export function DefectIdBadge({ id }: { id: string | number }) {
   );
 }
 
-// Avatar-circle + first-name, matching the implementation-plan module's
-// pattern (ui.tsx's Avatar). Only reads well when `name` is a real "First
-// Last" string — a raw QC login (no space) degrades gracefully to a single
-// letter + the login itself.
-export function PersonAvatar({ name, full = false }: { name: string; full?: boolean }) {
+// Every QC person field (Assigned To = BG_RESPONSIBLE, Tester, Detected By,
+// Closed By, ...) - one set for every defect table, so a column renders as a
+// person in all of them (2026-10-05: each table kept its own copy and
+// Detected By was missing from the drill-down one). Names arrive already
+// resolved from logins (backend PersonNamesInterceptor).
+export const PERSON_FIELDS = new Set<string>([
+  'assignedTo', 'qaTester', 'detectedBy', 'closedBy', 'reporter',
+  'defectResponsible', 'escDefectResponsible', 'vendorAssignTo',
+]);
+
+// Avatar-circle + full name - the one way a person is shown (user ask
+// 2026-10-05: "האווטאר אינו אחיד"). `full={false}` (first name only) is kept
+// for tight spots that opt in explicitly.
+export function PersonAvatar({ name, full = true }: { name: string; full?: boolean }) {
   return (
     <span className="inline-flex items-center gap-1.5 [direction:ltr]">
       <Avatar name={name} size={20} />

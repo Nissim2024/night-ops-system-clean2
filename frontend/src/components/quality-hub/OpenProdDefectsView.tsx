@@ -6,8 +6,7 @@ import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LAB
 import {
   hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroup,
   FieldChangeHistorySection, AttachmentsSection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
-  IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, SEVERITY_COLOR, SelectColumnsDialog, SavedFilterState, splitTeams,
-} from '../shared/defectFieldDisplay';
+  IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, SEVERITY_COLOR, SelectColumnsDialog, SavedFilterState, splitTeams, PERSON_FIELDS } from '../shared/defectFieldDisplay';
 import { formatDate, formatDateTime } from '../../utils/dateFormat';
 import { cn } from '../../lib/utils';
 import { CreateDefectScreen } from './CreateDefectScreen';
@@ -57,7 +56,7 @@ interface Props { token: string; }
 // real resolved values ("Yael Morgenstern Teff") in the live detail screen
 // and confirmed it does hold a person's name, matching `responsibility`
 // which stays the one genuine team field.
-const PERSON_BADGE_FIELDS = new Set(['assignedTo', 'qaTester', 'detectedBy', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo']);
+const PERSON_BADGE_FIELDS: Set<string> = PERSON_FIELDS;
 const TEAM_BADGE_FIELDS = new Set(['responsibility']);
 
 // title/description/notes always render in their own fixed spots (the big
@@ -1621,6 +1620,7 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
                             {isDefectCol ? (value ? <IssueKeyLink id={value} /> : '—')
                               : isSeverityCol ? <SeverityBadge severity={value ?? ''} />
                               : isStatusCol ? <StatusBadge status={value ?? ''} />
+                              : PERSON_BADGE_FIELDS.has(key) && value ? <PersonAvatar name={String(value)} />
                               : (value ?? '—')}
                           </td>
                         );

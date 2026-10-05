@@ -4,8 +4,7 @@ import { C, JIRA } from '../theme';
 import { VersionStatusChip, BackLink } from './ui';
 import {
   hasHebrew, NameBadge, PersonAvatar, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
-  IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, SelectColumnsDialog,
-} from './shared/defectFieldDisplay';
+  IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, SelectColumnsDialog, PERSON_FIELDS } from './shared/defectFieldDisplay';
 // Reused as-is (spec 2026-09-18: "הטופס צריך להיראות בדיוק כמו הטופס במודול
 // ניהול בדיקות") — DefectDetailScreen fetches by defect ID alone with no
 // TARGET/open-prod distinction in the query, so it works unmodified here and
@@ -158,9 +157,7 @@ const TARGET_DEFECT_COLUMNS_STORAGE_KEY = 'deploycenter_target_defect_columns';
 // full name ("Yael Morgenstern Teff") in the live detail screen and
 // confirmed assignedTo does hold a person; quality-hub/release-intelligence
 // were updated to match (`responsibility` is the one genuine team field).
-const PERSON_BADGE_FIELDS = new Set<keyof TargetDefect>([
-  'assignedTo', 'qaTester', 'detectedBy', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo',
-]);
+const PERSON_BADGE_FIELDS: Set<string> = PERSON_FIELDS;
 const TEAM_BADGE_FIELDS = new Set<keyof TargetDefect>(['responsibility']);
 // Center-aligned badge-like cells — same field set/logic as DefectDrilldownModal
 // (the QA module's own defect table), so both tables read identically.

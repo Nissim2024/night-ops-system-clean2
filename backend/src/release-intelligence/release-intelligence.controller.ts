@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, UseGuards, ForbiddenException, UseInterceptors } from '@nestjs/common';
+import { PersonNamesInterceptor } from '../qc/person-names.interceptor';
 import { ReleaseIntelligenceService } from './release-intelligence.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 
@@ -12,6 +13,7 @@ function requireRole(req: any, roles: string[], msg = 'אין הרשאה לבצ�
 }
 
 @UseGuards(JwtGuard)
+@UseInterceptors(PersonNamesInterceptor)
 @Controller('release-intelligence')
 export class ReleaseIntelligenceController {
   constructor(private service: ReleaseIntelligenceService) {}

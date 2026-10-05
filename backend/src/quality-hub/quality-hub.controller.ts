@@ -3,6 +3,7 @@ import {
   UploadedFile, UseInterceptors, Request, UseGuards,
   ForbiddenException, BadRequestException,
 } from '@nestjs/common';
+import { PersonNamesInterceptor } from '../qc/person-names.interceptor';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { QualityHubService } from './quality-hub.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
@@ -39,6 +40,7 @@ function parseYearList(v?: string): number[] | undefined {
 }
 
 @UseGuards(JwtGuard)
+@UseInterceptors(PersonNamesInterceptor)
 @Controller('quality-hub')
 export class QualityHubController {
   constructor(private service: QualityHubService) {}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { C, JIRA } from '../../theme';
 import { Card, TextField } from '../ui';
-import { IssueKeyLink, StatusBadge, SeverityBadge } from '../shared/defectFieldDisplay';
+import { IssueKeyLink, StatusBadge, SeverityBadge, PersonAvatar } from '../shared/defectFieldDisplay';
 import { formatDate } from '../../utils/dateFormat';
 import { QcBugDashboardView } from '../release-intelligence/QcBugDashboardView';
 import { CyclesPanel, CycleProgress } from '../release-intelligence/CycleProgressView';
@@ -396,7 +396,7 @@ export const QcReleaseHistoryView: React.FC<Props> = ({ token, onOpenVersion }) 
                         <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}><SeverityBadge severity={d.severity} /></td>
                         <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}><StatusBadge status={d.status} /></td>
                         <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}>{d.responsibility || '—'}</td>
-                        <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}>{d.assignedTo || '—'}</td>
+                        <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}>{d.assignedTo ? <PersonAvatar name={d.assignedTo} /> : '—'}</td>
                         <td className="px-2 py-1.5" style={{ borderBottom: `1px solid ${JIRA.greyN40}` }}>{d.discoveryDate || '—'}</td>
                       </tr>
                     ))}

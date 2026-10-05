@@ -4,8 +4,7 @@ import { JIRA } from '../../theme';
 import { DefectDetailScreen } from '../quality-hub/OpenProdDefectsView';
 import {
   hasHebrew, PersonAvatar, NameBadge, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
-  IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, SelectColumnsDialog,
-} from '../shared/defectFieldDisplay';
+  IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, SelectColumnsDialog, PERSON_FIELDS } from '../shared/defectFieldDisplay';
 import { BackLink } from '../ui';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -160,7 +159,7 @@ const DEFAULT_COLUMN_WIDTH = 130;
 // 2026-09-07) — reversed 2026-09-18, user confirmed it does hold a person's
 // name after seeing real resolved values live; kept in sync with
 // OpenProdDefectsView.tsx's identical sets.
-const PERSON_BADGE_FIELDS = new Set<ColumnKey>(['reporter', 'assignedTo', 'qaTester', 'closedBy', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo']);
+const PERSON_BADGE_FIELDS: Set<string> = PERSON_FIELDS;
 const TEAM_BADGE_FIELDS = new Set<ColumnKey>(['responsibility']);
 // Fixed-vocabulary/status-like columns — centered rather than L/R-aligned by
 // language, since they're short enum values, not prose (spec confirmed

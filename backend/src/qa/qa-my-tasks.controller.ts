@@ -1,4 +1,5 @@
-import { Controller, Get, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards, Request, UseInterceptors } from '@nestjs/common';
+import { PersonNamesInterceptor } from '../qc/person-names.interceptor';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 import { QaWorkPlanService } from './qa-workplan.service';
 
@@ -8,6 +9,7 @@ import { QaWorkPlanService } from './qa-workplan.service';
 // rights) can see their own assigned testing tasks without gaining any
 // visibility into the rest of the work plan or anyone else's assignments.
 @UseGuards(JwtGuard)
+@UseInterceptors(PersonNamesInterceptor)
 @Controller('qa/me')
 export class QaMyTasksController {
   constructor(private readonly workPlan: QaWorkPlanService) {}

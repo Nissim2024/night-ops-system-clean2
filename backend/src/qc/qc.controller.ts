@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Patch, Put, Query, Param, Body, Request, Res, UseGuards, ForbiddenException, BadRequestException, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { PersonNamesInterceptor } from './person-names.interceptor';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
@@ -10,6 +11,7 @@ function requireRole(req: any, roles: string[], msg = 'אין הרשאה לבצ�
   if (!roles.includes(req.user.role)) throw new ForbiddenException(msg);
 }
 
+@UseInterceptors(PersonNamesInterceptor)
 @Controller('qc')
 @UseGuards(JwtGuard)
 export class QcController {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { formatDate } from '../../utils/dateFormat';
-import { IssueKeyLink, StatusBadge, SeverityBadge } from '../shared/defectFieldDisplay';
+import { IssueKeyLink, StatusBadge, SeverityBadge, PersonAvatar } from '../shared/defectFieldDisplay';
 import { CrCoverageCard, CycleProgress } from '../release-intelligence/CycleProgressView';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -302,8 +302,8 @@ export const MyQaTasksView: React.FC<Props> = ({ tasks, versionName, versionId, 
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-subtle-foreground">
                         {d.status && <StatusBadge status={d.status} />}
                         {d.severity && <SeverityBadge severity={d.severity} />}
-                        {d.assignedTo && <span>צוות: {d.assignedTo}</span>}
-                        {d.qaTester && <span>בודק QA: {d.qaTester}</span>}
+                        {d.assignedTo && <span className="inline-flex items-center gap-1">מטופל ע"י: <PersonAvatar name={d.assignedTo} /></span>}
+                        {d.qaTester && <span className="inline-flex items-center gap-1">בודק QA: <PersonAvatar name={d.qaTester} /></span>}
                       </div>
                     </div>
                   </div>

@@ -535,8 +535,11 @@ const AVATAR_COLORS = ['#4573D2','#37C47A','#9C6ADE','#E8AF00','#F06A6A','#42B0C
 export const Avatar: React.FC<{ name: string; size?: number; color?: string; style?: React.CSSProperties }> = ({
   name, size = 28, color, style,
 }) => {
-  const initials = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-  const bg = color ?? AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length];
+  const words = (name || '?').trim().split(/\s+/).filter(w => /\p{L}/u.test(w));
+  const initials = (words.length > 1 ? words[0][0] + words[words.length - 1][0] : (words[0] ?? '?').slice(0, 1)).toUpperCase();
+  let h = 0;
+  for (const ch of (name || '').trim().toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const bg = color ?? AVATAR_COLORS[h % AVATAR_COLORS.length];
   return (
     <div
       className="flex shrink-0 items-center justify-center rounded-full font-semibold text-white"

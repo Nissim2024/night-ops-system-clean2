@@ -1,4 +1,5 @@
-import { Controller, Get, Patch, Body, Param, Query, Request, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Patch, Body, Param, Query, Request, UseGuards, ForbiddenException, UseInterceptors } from '@nestjs/common';
+import { PersonNamesInterceptor } from '../qc/person-names.interceptor';
 import { TargetCrService } from './target-cr.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 
@@ -6,6 +7,7 @@ const LEADS_UP = ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN'];
 const CR_APPROVERS = ['RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'];
 
 @UseGuards(JwtGuard)
+@UseInterceptors(PersonNamesInterceptor)
 @Controller('target-cr')
 export class TargetCrController {
   constructor(private service: TargetCrService) {}

@@ -1,12 +1,13 @@
 import {
   Controller, Get, Post, Patch, Param,
   UseGuards, Request,
-  HttpException, HttpStatus,
-} from '@nestjs/common';
+  HttpException, HttpStatus, UseInterceptors } from '@nestjs/common';
+import { PersonNamesInterceptor } from '../qc/person-names.interceptor';
 import { QcReleasesService } from './qc-releases.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 
 @UseGuards(JwtGuard)
+@UseInterceptors(PersonNamesInterceptor)
 @Controller('qc-releases')
 export class QcReleasesController {
   constructor(private readonly service: QcReleasesService) {}

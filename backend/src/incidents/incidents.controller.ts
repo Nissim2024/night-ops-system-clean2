@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, Request, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query, Request, UseGuards, ForbiddenException, UseInterceptors } from '@nestjs/common';
+import { PersonNamesInterceptor } from '../qc/person-names.interceptor';
 import { IncidentsService } from './incidents.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 
@@ -6,6 +7,7 @@ const LEADS_UP = ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN'];
 const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
 
 @UseGuards(JwtGuard)
+@UseInterceptors(PersonNamesInterceptor)
 @Controller('incidents')
 export class IncidentsController {
   constructor(private service: IncidentsService) {}

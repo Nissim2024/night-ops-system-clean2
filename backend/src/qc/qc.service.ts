@@ -2802,6 +2802,7 @@ const DEFECT_PERSON_FIELDS = [
   'assignedTo', 'qaTester', 'detectedBy', 'closedBy', 'reporter',
   'defectResponsible', 'escDefectResponsible', 'vendorAssignTo',
 ];
+const PERSON_FIELD_SET = new Set(DEFECT_PERSON_FIELDS);
 // Full QC user directory (login → full name) for people who have no
 // DeployCenter account — developers, generic users, former employees (user
 // report 2026-10-03: defect tables showed raw logins like "avia"). Same Site
@@ -2833,8 +2834,10 @@ export async function getQcUserDirectory(): Promise<Map<string, string>> {
           if (login && name) map.set(login, name);
         }
         ok = true;
-      } catch {
-        // Fall back to logins as-is; retry soon rather than in 12h.
+      } catch (err: any) {
+        // Fall back to logins as-is; retry soon rather than in 12h. Logged:
+        // a silent failure here is indistinguishable from "no names" in prod.
+        new Logger('QcUserDirectory').warn(`QC user directory load failed - person fields stay as logins: ${err?.message ?? err}`);
       } finally {
         if (conn) await conn.close().catch(() => {});
       }
@@ -2844,6 +2847,58 @@ export async function getQcUserDirectory(): Promise<Map<string, string>> {
     return map;
   })();
   return qcDirectoryLoading;
+}
+
+// login -> full name for a set of logins: a DeployCenter account's own name
+// wins, the QC directory fills the rest.
+async function personNameMap(logins: Set<string>): Promise<Record<string, string>> {
+  const [users, directory] = await Promise.all([
+    prisma.user.findMany({
+      where: { qcLogin: { in: Array.from(logins), mode: 'insensitive' } },
+      select: { qcLogin: true, fullName: true },
+    }),
+    getQcUserDirectory(),
+  ]);
+  const map: Record<string, string> = {};
+  for (const login of logins) {
+    const name = directory.get(login);
+    if (name) map[login] = name;
+  }
+  for (const u of users) if (u.qcLogin && u.fullName) map[u.qcLogin.toLowerCase()] = u.fullName;
+  return map;
+}
+
+// Whole-response variant for PersonNamesInterceptor: walks arrays and plain
+// objects at any depth and swaps every DEFECT_PERSON_FIELDS value that is a
+// known login. Anything else (Dates, Buffers, streams) passes through as-is;
+// input is never mutated.
+const isPlainObject = (v: any) => v !== null && typeof v === 'object' && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null);
+export async function resolvePersonNamesDeep<T>(data: T): Promise<T> {
+  const logins = new Set<string>();
+  const collect = (v: any) => {
+    if (Array.isArray(v)) { for (const x of v) collect(x); return; }
+    if (!isPlainObject(v)) return;
+    for (const [k, x] of Object.entries(v)) {
+      if (PERSON_FIELD_SET.has(k) && typeof x === 'string' && x.trim()) logins.add(x.trim().toLowerCase());
+      else if (x && typeof x === 'object') collect(x);
+    }
+  };
+  collect(data);
+  if (logins.size === 0) return data;
+  const map = await personNameMap(logins);
+  if (Object.keys(map).length === 0) return data;
+  const swap = (v: any): any => {
+    if (Array.isArray(v)) return v.map(swap);
+    if (!isPlainObject(v)) return v;
+    const out: any = {};
+    for (const [k, x] of Object.entries(v)) {
+      out[k] = PERSON_FIELD_SET.has(k) && typeof x === 'string'
+        ? (map[x.trim().toLowerCase()] ?? x)
+        : (x && typeof x === 'object' ? swap(x) : x);
+    }
+    return out;
+  };
+  return swap(data);
 }
 
 export async function resolveDefectPersonNames<T extends Record<string, any>>(rows: T[]): Promise<T[]> {
@@ -2856,20 +2911,7 @@ export async function resolveDefectPersonNames<T extends Record<string, any>>(ro
     }
   }
   if (logins.size === 0) return rows;
-  const [users, directory] = await Promise.all([
-    prisma.user.findMany({
-      where: { qcLogin: { in: Array.from(logins), mode: 'insensitive' } },
-      select: { qcLogin: true, fullName: true },
-    }),
-    getQcUserDirectory(),
-  ]);
-  // A DeployCenter account's own name wins; the QC directory fills the rest.
-  const map: Record<string, string> = {};
-  for (const login of logins) {
-    const name = directory.get(login);
-    if (name) map[login] = name;
-  }
-  for (const u of users) if (u.qcLogin) map[u.qcLogin.toLowerCase()] = u.fullName;
+  const map = await personNameMap(logins);
   if (Object.keys(map).length === 0) return rows;
   return rows.map(r => {
     const clone: any = { ...r };
