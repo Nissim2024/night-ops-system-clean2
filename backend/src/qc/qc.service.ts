@@ -3321,6 +3321,26 @@ export class QcService {
     return this.runDefectsQuery(DEFECTS_SQL_ONE_CYCLE, { releaseId: relId, cycleId });
   }
 
+  // Full DefectDto rows (DEFECTS_SQL_SELECT columns) for a set of defect ids,
+  // any release. Chunked under Oracle's 1000-item IN limit. Empty when Oracle
+  // is disabled (dev mock) - callers keep what they already had.
+  async getDefectsByIds(ids: string[]): Promise<DefectDto[]> {
+    const nums = Array.from(new Set(ids.map(i => Number(i)).filter(n => Number.isFinite(n))));
+    if (nums.length === 0) return [];
+    const { enabled } = await getOracleConfig();
+    if (!enabled) return [];
+    const out: DefectDto[] = [];
+    for (let i = 0; i < nums.length; i += 500) {
+      const chunk = nums.slice(i, i + 500);
+      const binds: Record<string, number> = {};
+      chunk.forEach((n, j) => { binds[`id${j}`] = n; });
+      const sql = `${DEFECTS_SQL_SELECT}  WHERE BG_BUG_ID IN (${chunk.map((_, j) => `:id${j}`).join(', ')})
+`;
+      out.push(...await this.runDefectsQuery(sql, binds));
+    }
+    return out;
+  }
+
   private async runDefectsQuery(sql: string, params: Record<string, any>): Promise<DefectDto[]> {
     let conn: any;
     try {

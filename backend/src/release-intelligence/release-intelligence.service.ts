@@ -2412,7 +2412,28 @@ export class ReleaseIntelligenceService {
   async getDefectsDrilldown(versionId: string, screen: string, filter: string, value?: string): Promise<DefectDto[]> {
     // Translate QC login strings on person-fields (assignedTo/reporter/…) to
     // real names for the whole drilldown list at once (spec 2026-09-06).
-    return resolveDefectPersonNames(await this.getDefectsDrilldownRaw(versionId, screen, filter, value));
+    const rows = await this.getDefectsDrilldownRaw(versionId, screen, filter, value);
+    return resolveDefectPersonNames(screen === 'bug-dashboard' ? await this.withFullDefectFields(rows) : rows);
+  }
+
+  // Bug Dashboard buckets are picked from BUG_DASHBOARD_SQL's short row set
+  // (~11 columns), so a chart drill-down came back with Detected By, Priority,
+  // Environment, Tester ... empty while the KPI-card drill-downs (full
+  // DEFECTS_SQL) had them (user report 2026-10-05). Keep the bucket's
+  // membership, take every field from the full row; a value the full row
+  // lacks keeps the short row's.
+  private async withFullDefectFields(rows: DefectDto[]): Promise<DefectDto[]> {
+    if (rows.length === 0) return rows;
+    const full = await this.qcService.getDefectsByIds(rows.map(r => r.id)).catch((): DefectDto[] => []);
+    if (full.length === 0) return rows;
+    const byId = new Map(full.map(d => [d.id, d]));
+    return rows.map(r => {
+      const f = byId.get(r.id);
+      if (!f) return r;
+      const merged: any = { ...r };
+      for (const [k, v] of Object.entries(f)) if (v !== '' && v !== null && v !== undefined) merged[k] = v;
+      return merged as DefectDto;
+    });
   }
 
   // relId-direct drill-down for the two historical-release screens
