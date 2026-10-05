@@ -92,6 +92,16 @@ function extractCrNumber(raw: string | null | undefined): string | null {
   return match ? match[0] : null;
 }
 
+// An investigation has started once the incident left NEW or anything was
+// added to it - RCA, evidence, action items, chat, or manual triage fields.
+function investigationStarted(
+  r: { status: string; rca?: unknown; evidence?: unknown[]; actions?: unknown[]; affectedUsersCount?: number | null; customerFacing?: boolean | null; downtimeMinutes?: number | null },
+  chatCount: number,
+): boolean {
+  return r.status !== 'NEW' || !!r.rca || (r.evidence?.length ?? 0) > 0 || (r.actions?.length ?? 0) > 0 || chatCount > 0
+    || r.affectedUsersCount != null || r.customerFacing != null || r.downtimeMinutes != null;
+}
+
 @Injectable()
 export class IncidentsService {
   private readonly logger = new Logger(IncidentsService.name);
@@ -101,16 +111,33 @@ export class IncidentsService {
   // ── List / import from QC ─────────────────────────────────────────────────
 
   async listForVersion(versionId: string, status?: string) {
-    return prisma.incident.findMany({
+    const rows = await prisma.incident.findMany({
       where: { versionId, ...(status ? { status: status as any } : {}) },
       include: {
         evidence: { select: { id: true, type: true } },
         rca: { select: { id: true, method: true, rootCause: true } },
         actions: { select: { id: true, status: true, team: true } },
         group: { select: { id: true, reason: true } },
+        _count: { select: { chatMessages: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
+    return rows.map(({ _count, ...r }) => ({ ...r, canRemove: !investigationStarted(r, _count.chatMessages) }));
+  }
+
+  // Remove a defect picked for investigation by mistake (user ask
+  // 2026-10-05) - only while nothing has been done on it yet.
+  async removeIncident(id: string) {
+    const r = await prisma.incident.findUnique({
+      where: { id },
+      include: { evidence: { select: { id: true } }, rca: { select: { id: true } }, actions: { select: { id: true } }, _count: { select: { chatMessages: true } } },
+    });
+    if (!r) throw new NotFoundException('התקלה לא נמצאה');
+    if (investigationStarted(r, r._count.chatMessages)) {
+      throw new BadRequestException('לא ניתן להסיר תקלה שכבר החל בה תחקיר');
+    }
+    await prisma.incident.delete({ where: { id } });
+    return { removed: true };
   }
 
   // Candidates for import — QC defects for this version not yet turned into

@@ -8,6 +8,7 @@ import { BackLink } from '../ui';
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 export interface IncidentRow {
+  canRemove?: boolean;   // no investigation work yet - may be removed (server-computed)
   id: string;
   qcDefectId: string;
   title: string;
@@ -313,6 +314,25 @@ export const IncidentsView: React.FC<Props> = ({ token, versionId, role }) => {
                   <span className={`text-xs font-bold rounded-full px-2.5 py-[3px] ${STATUS_BADGE_CLASS[inc.status]}`}>
                     {STATUS_LABEL[inc.status]}
                   </span>
+                  {/* remove a defect picked by mistake - only before any
+                      investigation work (server enforces too, 2026-10-05) */}
+                  {inc.canRemove && ['ADMIN', 'RELEASE_MANAGER', 'TEAM_LEAD'].includes(role) && (
+                    <button
+                      type="button"
+                      title="הסר מרשימת התחקור (לא בוצע בה תחקיר)"
+                      onClick={async e => {
+                        e.stopPropagation();
+                        if (!window.confirm(`להסיר את תקלה ${inc.qcDefectId} מרשימת התחקור?`)) return;
+                        try {
+                          await axios.delete(`${API}/incidents/${inc.id}`, { headers });
+                          load();
+                        } catch (err: any) {
+                          window.alert(err?.response?.data?.message || 'ההסרה נכשלה');
+                        }
+                      }}
+                      className="cursor-pointer rounded-sm border border-border bg-card px-1.5 py-0.5 text-xs text-muted-foreground hover:border-danger hover:text-danger"
+                    >🗑</button>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 pe-5 text-xs text-subtle-foreground flex-wrap">
                   {facts.length > 0 ? facts.map((f, fi) => <span key={fi}>{f}</span>) : <span className="italic">אין פרטי השפעה עסקית — למלא בזמן התחקיר</span>}

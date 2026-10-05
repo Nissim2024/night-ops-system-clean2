@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, Request, UseGuards, ForbiddenException, UseInterceptors } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Request, UseGuards, ForbiddenException, UseInterceptors } from '@nestjs/common';
 import { ModuleAccess, ModuleAccessGuard } from '../permissions/module-access.guard';
 import { PersonNamesInterceptor } from '../qc/person-names.interceptor';
 import { IncidentsService } from './incidents.service';
@@ -89,6 +89,13 @@ export class IncidentsController {
   createGroup(@Param('versionId') versionId: string, @Body() body: { reason: string; incidentIds: string[] }, @Request() req: any) {
     if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
     return this.service.createGroupFromSuggestion(versionId, body.reason, body.incidentIds);
+  }
+
+  // only while no investigation was done on it (service enforces)
+  @Delete(':id')
+  remove(@Param('id') id: string, @Request() req: any) {
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.removeIncident(id);
   }
 
   @Get(':id')
