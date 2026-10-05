@@ -83,8 +83,10 @@ describe('buildRiHomeEmailHtml', () => {
     expect(html).not.toMatch(/border-radius|box-shadow|<style|class=/i);
     expect(html).not.toMatch(/\b(oklch|oklab|lab|lch|color-mix|rgba|hsl)\(/i);
     expect(html).not.toMatch(/var\(--/);
-    // Word pads table cells only - spacing on a <div> must be margin
-    expect(html).not.toMatch(/<div style="[^"]*padding/);
+    // Word keeps text formatting on <td>, not reliably on <div> (Outlook paste review)
+    expect(html).not.toMatch(/<div/i);
+    // no parentheses around numbers - Word mirrors them in RTL text
+    expect(html).not.toMatch(/\(יעד/);
   });
 
   it('has no interactive leftovers — only the one "open in system" link', () => {

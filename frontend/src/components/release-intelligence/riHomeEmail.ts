@@ -9,7 +9,9 @@
 //   badge / pill           → cell with bgcolor
 //   oklch / rgba colours   → fixed hex palette below
 //   buttons, arrows, links → dropped (only "פתח במערכת →" stays a link)
-//   padding on <div>       → margin (Word only pads table cells)
+//   text in <div>          → one table row per line (Word keeps size,
+//                            colour, alignment and spacing on a <td>)
+//   "(יעד 90%)" in RTL     → value over target, no parentheses (Word mirrors them)
 // Because nothing here reads the page, a UI redesign can't break the email.
 // riHomeEmail.test.ts guards the Outlook-safe rules.
 
@@ -157,18 +159,37 @@ function bar(pct: number, tone: EmailTone): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:8px"><tr>${cells}</tr></table>`;
 }
 
+// Every line of text is its own table row (2026-10-05, Outlook paste
+// review): Word keeps font size / colour / alignment / spacing set on a <td>,
+// but not reliably on a <div> - tile values came out small and right-aligned,
+// and the production-defects note collided with the next heading.
+const textRow = (html: string, css: string, align: 'right' | 'center' | 'left' = 'right') =>
+  `<tr><td align="${align}" dir="rtl" style="font-family:${FONT};text-align:${align};${css}">${html}</td></tr>`;
+const stack = (rows: string[]) =>
+  `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;width:100%">${rows.join('')}</table>`;
+const heading = (text: string, padTop = 18) =>
+  stack([textRow(text, `padding:${padTop}px 0 8px;font-size:15px;font-weight:700;color:${EMAIL_COLOR.text}`)]);
+
 function tile(t: EmailTile): string {
   const accent = EMAIL_COLOR[t.accent];
   const rows = [
-    `<div style="font-size:13px;font-weight:700;color:${EMAIL_COLOR.brand}">${esc(t.icon)} ${esc(t.title)}</div>`,
-    `<div style="font-size:24px;font-weight:700;color:${EMAIL_COLOR.text};margin-top:6px">${esc(t.value)}</div>`,
-    t.label ? `<div style="font-size:13px;font-weight:600;color:${EMAIL_COLOR.text}">${esc(t.label)}</div>` : '',
-    t.sub ? `<div style="font-size:12px;color:${EMAIL_COLOR[t.subTone ?? 'muted']};margin-top:6px">${esc(t.sub)}</div>` : '',
-    t.bar ? bar(t.bar.pct, t.bar.tone) : '',
-    ...(t.lines ?? []).map(l => `<div style="font-size:12px;color:${EMAIL_COLOR[l.tone ?? 'muted']};margin-top:4px">${esc(l.text)}</div>`),
-  ].join('');
+    textRow(`${esc(t.icon)} ${esc(t.title)}`, `font-size:13px;font-weight:700;color:${EMAIL_COLOR.brand}`, 'center'),
+    textRow(esc(t.value), `padding-top:6px;font-size:26px;line-height:30px;font-weight:700;color:${EMAIL_COLOR.text}`, 'center'),
+    t.label ? textRow(esc(t.label), `font-size:13px;font-weight:600;color:${EMAIL_COLOR.text}`, 'center') : '',
+    t.sub ? textRow(esc(t.sub), `padding-top:6px;font-size:12px;color:${EMAIL_COLOR[t.subTone ?? 'muted']}`, 'center') : '',
+    t.bar ? `<tr><td style="padding-top:8px">${bar(t.bar.pct, t.bar.tone)}</td></tr>` : '',
+    ...(t.lines ?? []).map(l => textRow(esc(l.text), `padding-top:4px;font-size:12px;color:${EMAIL_COLOR[l.tone ?? 'muted']}`, 'center')),
+  ];
   return `<td width="20%" valign="top" bgcolor="#ffffff" align="center" `
-    + `style="background:#ffffff;border:1px solid ${EMAIL_COLOR.border};border-top:4px solid ${accent};padding:12px 8px;text-align:center;font-family:${FONT}">${rows}</td>`;
+    + `style="background:#ffffff;border:1px solid ${EMAIL_COLOR.border};border-top:4px solid ${accent};padding:12px 8px;text-align:center;font-family:${FONT}">${stack(rows)}</td>`;
+}
+
+// "63%" over "יעד 90%" - no parentheses: in right-to-left text Word mirrors
+// them ("(יעד 90%)" pasted as ")90% יעד63%(").
+function successCell(pct: number | null, target: number | null, below: boolean, empty: string): string {
+  if (pct == null) return `<span style="color:${EMAIL_COLOR.muted}">${empty}</span>`;
+  return `<span style="font-weight:700;color:${below ? EMAIL_COLOR.bad : EMAIL_COLOR.ok}">${Math.round(pct)}%</span>`
+    + (target != null ? `<br><span style="font-size:11px;color:${EMAIL_COLOR.muted}">יעד ${target}%</span>` : '');
 }
 
 function cyclesTable(cycles: EmailCycle[]): string {
@@ -179,13 +200,9 @@ function cyclesTable(cycles: EmailCycle[]): string {
     const st = STATE[c.state];
     const badge = `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="${st.bg}" style="background:${st.bg};color:${st.fg};font-size:12px;font-weight:700;padding:2px 10px;font-family:${FONT}">${st.label}</td></tr></table>`;
     const below = c.successPct != null && c.targetPct != null && c.successPct < c.targetPct && c.state !== 'upcoming';
-    const success = c.successPct == null
-      ? `<span style="color:${EMAIL_COLOR.muted}">אין נתונים</span>`
-      : `<span style="color:${below ? EMAIL_COLOR.bad : EMAIL_COLOR.ok};font-weight:700">${c.successPct.toFixed(0)}%</span>`
-        + (c.targetPct != null ? `<span style="color:${EMAIL_COLOR.muted}"> (יעד ${c.targetPct}%)</span>` : '');
-    return `<tr>${td(`<b>${esc(c.name)}</b>`)}${td(esc(c.dates), ';white-space:nowrap')}${td(badge)}${td(String(c.crCount))}${td(String(c.defectCount))}${td(success)}</tr>`;
+    return `<tr>${td(`<b>${esc(c.name)}</b>`)}${td(esc(c.dates), ';white-space:nowrap')}${td(badge)}${td(String(c.crCount))}${td(String(c.defectCount))}${td(successCell(c.successPct, c.targetPct, below, 'אין נתונים'))}</tr>`;
   }).join('');
-  return `<div style="font-size:15px;font-weight:700;color:${EMAIL_COLOR.text};margin:18px 0 8px;font-family:${FONT}">סבבים</div>`
+  return heading('סבבים')
     + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="border-collapse:collapse;width:100%;background:#ffffff;border:1px solid ${EMAIL_COLOR.border}">`
     + `<tr>${th('סבב')}${th('תאריכים')}${th('מצב')}${th('CR-ים')}${th('תקלות שדווחו')}${th('אחוז הצלחה')}</tr>${rows}</table>`;
 }
@@ -194,10 +211,8 @@ function crSectionsHtml(sections: EmailCrSection[]): string {
   if (sections.length === 0) return '';
   const th = (s: string) => `<th align="right" bgcolor="#f9fafb" style="background:#f9fafb;border-bottom:1px solid ${EMAIL_COLOR.border};padding:6px 8px;font-size:12px;font-weight:700;color:${EMAIL_COLOR.muted};text-align:right;font-family:${FONT}">${s}</th>`;
   const td = (s: string, extra = '') => `<td align="right" valign="middle" style="border-bottom:1px solid ${EMAIL_COLOR.border};padding:6px 8px;font-size:13px;color:${EMAIL_COLOR.text};text-align:right;font-family:${FONT}${extra}">${s}</td>`;
-  const cr = (r: EmailCrRow) => td(`<b>${esc(r.crNumber)}</b>${r.crLabel ? `<br><span style="font-size:12px;color:${EMAIL_COLOR.muted}">${esc(r.crLabel)}</span>` : ''}`);
-  const success = (r: EmailCrRow) => r.successPct == null
-    ? `<span style="color:${EMAIL_COLOR.muted}">—</span>`
-    : `<span style="font-weight:700;color:${r.targetPct != null && r.successPct < r.targetPct ? EMAIL_COLOR.bad : EMAIL_COLOR.ok}">${r.successPct}%</span>`;
+  const cr = (r: EmailCrRow) => td(`<b>${esc(r.crNumber)}</b>${r.crLabel ? `<br><span style="font-size:12px;color:${EMAIL_COLOR.muted}">${esc(r.crLabel.replace(/^\d+\s*-\s*/, ''))}</span>` : ''}`);
+  const success = (r: EmailCrRow) => successCell(r.successPct, null, r.targetPct != null && r.successPct != null && r.successPct < r.targetPct, '—');
   const defects = (r: EmailCrRow) => `<span style="font-weight:700;color:${r.openDefects > 0 ? EMAIL_COLOR.bad : EMAIL_COLOR.ok}">${r.openDefects}</span><span style="color:${EMAIL_COLOR.muted}"> / ${r.reportedDefects}</span>`;
   const executed = (r: EmailCrRow) => r.executedPct == null ? `<span style="color:${EMAIL_COLOR.muted}">—</span>`
     : `${Math.round(r.executedPct)}%${bar(r.executedPct, r.executedPct >= 80 ? 'ok' : 'brand')}`;
@@ -206,46 +221,51 @@ function crSectionsHtml(sections: EmailCrSection[]): string {
       ? `${th('CR')}${th('סבב')}${th('מתאריך')}`
       : sec.kind === 'past'
         ? `${th('CR')}${th('סבב')}${th('בודק')}${th('הצלחה')}${th('תקלות פתוחות / נפתחו')}`
-        : `${th('CR')}${th('בודק')}${th('תרחישים (עברו / נכשלו / סה"כ)')}${th('בוצע')}${th('הצלחה')}${th('תקלות פתוחות / נפתחו')}`;
+        : `${th('CR')}${th('בודק')}${th('עברו')}${th('נכשלו')}${th('סה"כ')}${th('בוצע')}${th('הצלחה')}${th('תקלות פתוחות / נפתחו')}`;
     const rows = sec.rows.map(r => `<tr>${
       sec.kind === 'planned'
         ? cr(r) + td(esc(r.cycleName)) + td(esc(r.cycleStart), ';white-space:nowrap')
         : sec.kind === 'past'
           ? cr(r) + td(esc(r.cycleName)) + td(esc(r.tester ?? '—')) + td(success(r)) + td(defects(r))
-          : cr(r) + td(esc(r.tester ?? '—')) + td(`${r.passed} / ${r.failed} / ${r.total}`, ';white-space:nowrap') + td(executed(r), ';width:90px') + td(success(r)) + td(defects(r))
+          : cr(r) + td(esc(r.tester ?? '—')) + td(String(r.passed)) + td(String(r.failed)) + td(String(r.total)) + td(executed(r), ';width:90px') + td(success(r)) + td(defects(r))
     }</tr>`).join('');
-    return `<div style="font-size:13px;font-weight:700;color:${EMAIL_COLOR.brand};margin:12px 0 6px;font-family:${FONT}">${esc(sec.title)} (${sec.rows.length})</div>`
+    return stack([textRow(`${esc(sec.title)} (${sec.rows.length})`, `padding:12px 0 6px;font-size:13px;font-weight:700;color:${EMAIL_COLOR.brand}`)])
       + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="border-collapse:collapse;width:100%;background:#ffffff;border:1px solid ${EMAIL_COLOR.border}"><tr>${head}</tr>${rows}</table>`;
   };
-  return `<div style="font-size:15px;font-weight:700;color:${EMAIL_COLOR.text};margin:18px 0 0;font-family:${FONT}">פירוט CR-ים לפי סבבים</div>`
-    + sections.map(table).join('');
+  return heading('פירוט CR-ים לפי סבבים', 18) + sections.map(table).join('');
 }
 
 function alertsTable(alerts: EmailAlert[]): string {
   if (alerts.length === 0) return '';
   const rows = alerts.map(a => `<tr>`
-    + `<td width="18" valign="top" style="padding:8px 0 8px 6px;font-size:14px;color:${EMAIL_COLOR[a.tone]};font-family:${FONT}">&#9679;</td>`
+    + `<td width="18" valign="top" style="padding:8px 6px 8px 0;font-size:14px;color:${EMAIL_COLOR[a.tone]};font-family:${FONT}">&#9679;</td>`
     + `<td valign="top" style="border-bottom:1px solid ${EMAIL_COLOR.border};padding:8px 0;font-family:${FONT}">`
-    + `<div style="font-size:13px;font-weight:600;color:${EMAIL_COLOR.text}">${esc(a.text)}</div>`
-    + (a.detail ? `<div style="font-size:12px;color:${EMAIL_COLOR.muted};margin-top:2px">${esc(a.detail)}</div>` : '')
+    + stack([
+      textRow(esc(a.text), `font-size:13px;font-weight:600;color:${EMAIL_COLOR.text}`),
+      a.detail ? textRow(esc(a.detail), `padding-top:2px;font-size:12px;color:${EMAIL_COLOR.muted}`) : '',
+    ])
     + `</td></tr>`).join('');
-  return `<div style="font-size:15px;font-weight:700;color:${EMAIL_COLOR.text};margin:18px 0 8px;font-family:${FONT}">📌 סיכונים ופעילויות</div>`
-    + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="border-collapse:collapse;width:100%;background:#ffffff;border:1px solid ${EMAIL_COLOR.border};padding:0 12px">${rows}</table>`;
+  return heading('📌 סיכונים ופעילויות')
+    + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="border-collapse:collapse;width:100%;background:#ffffff;border:1px solid ${EMAIL_COLOR.border}">${rows}</table>`;
 }
 
 export function buildRiHomeEmailHtml(d: RiHomeEmailData): string {
   const header = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;width:100%;border-bottom:1px solid ${EMAIL_COLOR.border}"><tr>`
-    + `<td align="right" valign="bottom" style="padding-bottom:10px;font-family:${FONT}"><div style="font-size:18px;font-weight:700;color:${EMAIL_COLOR.text}">${esc(d.title)}</div>`
-    + `<div style="font-size:12px;color:${EMAIL_COLOR.muted};margin-top:2px">${esc(d.stamp)}</div></td>`
+    + `<td align="right" valign="bottom" style="padding-bottom:10px;font-family:${FONT}">`
+    + stack([
+      textRow(esc(d.title), `font-size:18px;font-weight:700;color:${EMAIL_COLOR.text}`),
+      textRow(esc(d.stamp), `padding-top:2px;font-size:12px;color:${EMAIL_COLOR.muted}`),
+    ])
+    + `</td>`
     + `<td align="left" valign="bottom" style="padding-bottom:10px;font-size:13px;font-weight:600;white-space:nowrap;font-family:${FONT}"><a href="${esc(d.href)}" style="color:#2563eb;text-decoration:none">פתח במערכת →</a></td>`
     + `</tr></table>`;
   const tiles = d.tiles.length === 0 ? '' :
-    `<div style="font-size:15px;font-weight:700;color:${EMAIL_COLOR.text};margin:16px 0 4px;font-family:${FONT}">תמונת מצב</div>`
+    heading('תמונת מצב', 16)
     + `<table role="presentation" width="100%" cellpadding="0" cellspacing="8" border="0" style="width:100%"><tr>${d.tiles.map(tile).join('')}</tr></table>`;
-  const note = d.note ? `<div style="font-size:12px;color:${EMAIL_COLOR.muted};margin:2px 8px 0;font-family:${FONT}">ⓘ ${esc(d.note)}</div>` : '';
+  const note = d.note ? stack([textRow(`ⓘ ${esc(d.note)}`, `padding:2px 8px 0;font-size:12px;color:${EMAIL_COLOR.muted}`)]) : '';
   return `<table role="presentation" dir="rtl" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${EMAIL_COLOR.page}" style="border-collapse:collapse;width:100%;direction:rtl;background:${EMAIL_COLOR.page};font-family:${FONT}">`
     + `<tr><td dir="rtl" align="right" style="padding:16px;direction:rtl;text-align:right;font-family:${FONT};color:${EMAIL_COLOR.text}">`
     + header + tiles + note + cyclesTable(d.cycles) + crSectionsHtml(d.crSections ?? []) + alertsTable(d.alerts)
-    + `<div style="margin-top:20px;font-size:11px;color:#9ca3af;text-align:center;font-family:${FONT}">הופק על ידי DeployCenter</div>`
+    + stack([textRow('הופק על ידי DeployCenter', 'padding-top:20px;font-size:11px;color:#9ca3af', 'center')])
     + `</td></tr></table>`;
 }
