@@ -750,7 +750,21 @@ export const DefectDetailScreen: React.FC<{
   // decides how to show/group whichever of those are available — same
   // separation of concerns as the TARGET-defect screen's two independent
   // pickers (spec confirmed 2026-08-30).
-  const fieldsToShow = detailFields.length > 0 ? detailFields : DETAIL_FIELDS.map(f => f.key);
+  // Same field set wherever the form is opened from (user report 2026-10-05:
+  // the bug dashboard's oldest-open list, the defects module and version
+  // overview passed [] and got every field, drill-downs passed the saved
+  // list). The form reads the saved list itself; a caller's non-empty list
+  // still wins.
+  const [savedDetailFields, setSavedDetailFields] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (detailFields.length > 0) return;
+    axios.get(`${API}/qc/open-prod-defects-config`, { headers })
+      .then(r => setSavedDetailFields(Array.isArray(r.data?.detailFields) ? r.data.detailFields : []))
+      .catch(() => setSavedDetailFields([]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, detailFields.length]);
+  const effectiveDetailFields = detailFields.length > 0 ? detailFields : (savedDetailFields ?? []);
+  const fieldsToShow = effectiveDetailFields.length > 0 ? effectiveDetailFields : DETAIL_FIELDS.map(f => f.key);
   const titleShown = fieldsToShow.includes('title');
   // The "התאמת שדות" dialog offers the FULL field vocabulary (every
   // TargetDefectDto column), not just the admin-configured `detailFields`
