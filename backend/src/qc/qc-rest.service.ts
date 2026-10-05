@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { XMLParser } from 'fast-xml-parser';
 import { QG_CYCLE_DEFAULTS } from '../qa/qa-workplan.service';
 import { CycleType } from '../qa/qa.scheduler';
+import { getQcPersonDirectory } from './qc.service';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
@@ -764,6 +765,41 @@ export class QcRestService {
   // id, not just display text, to build a valid reference-field write) —
   // `targetVersion` deliberately excluded even from this ref list, since
   // there's still no edit UI/consumer for it at all (create-only field).
+  // QC person fields must be written as LOGINS, never as the full names the
+  // UI shows (user rule 2026-10-05). Every business-key write path
+  // (update + create) and the raw-REST-name escape hatch run through this.
+  private static readonly PERSON_FIELD_KEYS = new Set(['assignedTo', 'detectedBy', 'closedBy']);
+
+  // A value -> its QC login. Accepts a known login, "Full Name (login)" (the
+  // people picker's format), or a full name that matches exactly one person.
+  // An unknown login-shaped value passes through (QC itself validates its
+  // users list, and our directory may be partial); an unknown or ambiguous
+  // full name is refused - nothing is written.
+  private async toQcLogin(value: string, fieldKey: string): Promise<string> {
+    const v = (value ?? '').trim();
+    if (!v) return v;
+    const people = await getQcPersonDirectory();
+    const byLogin = new Map(people.map(p => [p.login.toLowerCase(), p.login]));
+    const tagged = /\(([^()\s]+)\)\s*$/.exec(v);
+    if (tagged && byLogin.has(tagged[1].toLowerCase())) return byLogin.get(tagged[1].toLowerCase())!;
+    if (byLogin.has(v.toLowerCase())) return byLogin.get(v.toLowerCase())!;
+    const sameName = people.filter(p => p.fullName.trim().toLowerCase() === v.toLowerCase());
+    if (sameName.length === 1) return sameName[0].login;
+    if (sameName.length > 1) {
+      throw new BadRequestException(`השם "${v}" (${fieldKey}) תואם לכמה משתמשי QC: ${sameName.map(p => p.login).join(', ')} — בחר את המשתמש מהרשימה`);
+    }
+    if (/^[A-Za-z0-9._\-]+$/.test(v)) return v;
+    throw new BadRequestException(`לא נמצא משתמש QC עבור "${v}" (${fieldKey}) — בחר משתמש מהרשימה. לא נכתב דבר ל-QC.`);
+  }
+
+  private async personFieldsToLogins(fields: Record<string, string>): Promise<Record<string, string>> {
+    const out = { ...fields };
+    for (const k of Object.keys(out)) {
+      if (QcRestService.PERSON_FIELD_KEYS.has(k) && out[k]?.trim()) out[k] = await this.toQcLogin(out[k], k);
+    }
+    return out;
+  }
+
   getEditableDefectFieldKeys(): { fields: string[]; refFields: string[] } {
     return {
       fields: Object.keys(QcRestService.TIER2_FIELD_PARAM_KEYS),
@@ -806,6 +842,7 @@ export class QcRestService {
     if (unknownKeys.length > 0) {
       throw new BadRequestException(`שדה/ות לא מוכרים (מותר רק: ${Object.keys(QcRestService.TIER2_FIELD_PARAM_KEYS).join(', ')}): ${unknownKeys.join(', ')}`);
     }
+    fields = await this.personFieldsToLogins(fields);
     const paramKeys = Object.values(QcRestService.TIER2_FIELD_PARAM_KEYS);
     const rows = await prisma.systemParam.findMany({ where: { key: { in: paramKeys } } });
     const restFieldByParamKey = new Map(rows.map(r => [r.key, (r.value ?? '').trim()]));
@@ -906,6 +943,24 @@ export class QcRestService {
     ]);
     const restFieldByParamKey = new Map(rows.map(r => [r.key, (r.value ?? '').trim()]));
     const refRestFieldByParamKey = new Map(refRows.map(r => [r.key, (r.value ?? '').trim()]));
+
+    // Person fields as QC logins; Detected By defaults to the creator's own
+    // login (written explicitly rather than left to QC's default).
+    businessFields = await this.personFieldsToLogins(businessFields);
+    const detectedByRest = restFieldByParamKey.get(QcRestService.TIER2_FIELD_PARAM_KEYS.detectedBy);
+    if (!businessFields.detectedBy?.trim() && detectedByRest && !(rawFields ?? {})[detectedByRest]?.trim()) {
+      businessFields = { ...businessFields, detectedBy: await this.resolveQcLogin(userId) };
+    }
+    // raw REST names of person fields (escape hatch) get the same guard
+    const personRestNames = new Map<string, string>();
+    for (const k of QcRestService.PERSON_FIELD_KEYS) {
+      const rest = restFieldByParamKey.get(QcRestService.TIER2_FIELD_PARAM_KEYS[k]);
+      if (rest) personRestNames.set(rest, k);
+    }
+    for (const [name, value] of Object.entries(rawFields ?? {})) {
+      const k = personRestNames.get(name.trim());
+      if (k && value?.trim()) rawFields = { ...rawFields, [name]: await this.toQcLogin(value, k) };
+    }
 
     const fields: Record<string, string> = { [REST_FIELD.title]: title.trim() };
     const unconfigured: string[] = [];

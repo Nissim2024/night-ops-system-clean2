@@ -22,7 +22,7 @@ const ENVIRONMENT_OPTIONS = ['Production', 'Test', 'Integration', 'Plike', 'Dev'
 interface RefValue { id: string; label: string; }
 interface CrOption { id: string; label: string; }
 interface ResponsibilityOption { teamId: string; teamName: string; qcResponsibilityValue: string; environmentComponents: string[]; }
-interface TeamMemberRow { userId: string; user: { id: string; fullName: string } }
+interface TeamMemberRow { userId: string; user: { id: string; fullName: string; qcLogin?: string | null } }
 interface VersionOption { id: string; name: string; status: string; }
 
 // Section box, symmetric with its siblings via the parent grid's row-stretch
@@ -179,6 +179,8 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
     try {
       const businessFields: Record<string, string> = { severity, priority, bugType, testPhase, environment };
       if (envComponent) businessFields.environmentComponent = envComponent;
+      const member = teamMembers.find(m => m.userId === memberId);
+      if (member) businessFields.assignedTo = member.user?.qcLogin ? `${memberName(member)} (${member.user.qcLogin})` : memberName(member);
       if (selectedTeamOption) businessFields.responsibility = selectedTeamOption.qcResponsibilityValue;
       if (crId) businessFields.crHbrReference = crId === 'regression' || crId === 'production'
         ? crId.charAt(0).toUpperCase() + crId.slice(1)

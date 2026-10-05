@@ -115,7 +115,7 @@ const NOT_SET = <span className="italic font-normal" style={{ color: JIRA.textSu
 function renderFieldValue(key: string, value: unknown) {
   const s = value === null || value === undefined ? '' : String(value);
   if (!s) return NOT_SET;
-  if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={s} full />;
+  if (PERSON_BADGE_FIELDS.has(key)) return <PersonAvatar name={s.replace(/\s*\([^()]*\)\s*$/, '') || s} />;
   if (TEAM_BADGE_FIELDS.has(key)) return <NameBadge name={s} />;
   if (key === 'id') return <IssueKeyLink id={s} />;
   if (key === 'status') return <StatusBadge status={s} />;
@@ -357,7 +357,8 @@ const QcWriteBackPanel: React.FC<{
 const InlineFieldEditor: React.FC<{
   fieldKey: string; initialValue: string; currentStatus: string; allowedTransitions: string[] | null;
   dynamicOptions?: string[]; onCommit: (value: string) => void; onCancel: () => void;
-}> = ({ fieldKey, initialValue, currentStatus, allowedTransitions, dynamicOptions, onCommit, onCancel }) => {
+  personOptions?: { login: string; fullName: string }[];
+}> = ({ fieldKey, initialValue, currentStatus, allowedTransitions, dynamicOptions, onCommit, onCancel, personOptions }) => {
   const [value, setValue] = useState(initialValue);
   const fieldClass = 'w-full box-border px-1.5 py-1 rounded-sm border border-border text-[13px] bg-card text-foreground';
 
@@ -384,6 +385,21 @@ const InlineFieldEditor: React.FC<{
   // Static hardcoded lists (Severity/Priority, confirmed 2026-09-18) take
   // priority; dynamicOptions (fetched from QcPicklistCache, fixes-batch A.6)
   // covers everything else that has a real QC List-Id behind it.
+  // Person fields: pick a person; the value is "Full Name (login)" and the
+  // server writes only the login to QC (QcRestService.toQcLogin, 2026-10-05).
+  if (PERSON_FIELDS.has(fieldKey)) {
+    const listId = `qc-people-${fieldKey}`;
+    return (
+      <>
+        <input autoFocus list={listId} value={value} placeholder="חפש שם או משתמש…"
+          onChange={e => setValue(e.target.value)} onFocus={e => e.target.select()}
+          onBlur={() => onCommit(value)} onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }}
+          className={fieldClass} dir="ltr" />
+        <datalist id={listId}>{(personOptions ?? []).map(p => <option key={p.login} value={`${p.fullName} (${p.login})`} />)}</datalist>
+      </>
+    );
+  }
+
   // APK fields: QC accepts values outside the list (Verify=false) and new
   // versions show up all the time - type freely, list as suggestions.
   if (FREE_ENTRY_LIST_FIELDS.has(fieldKey)) {
@@ -647,6 +663,12 @@ export const DefectDetailScreen: React.FC<{
   // into the minimum number of PATCH calls. The older "עדכון ישיר ל-QC" panel
   // below stays as a fallback (user's explicit call) rather than being removed.
   const [editMode, setEditMode] = useState(false);
+  const [personDirectory, setPersonDirectory] = useState<{ login: string; fullName: string }[]>([]);
+  useEffect(() => {
+    if (!editMode || personDirectory.length > 0) return;
+    axios.get(`${API}/qc/person-directory`, { headers }).then(r => setPersonDirectory(r.data ?? [])).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editMode]);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [pendingEdits, setPendingEdits] = useState<Record<string, string>>({});
   // Reference-field pending edits (Detected in Release/Cycle) — a real
@@ -912,6 +934,7 @@ export const DefectDetailScreen: React.FC<{
                                 currentStatus={currentStatus}
                                 allowedTransitions={allowedTransitions}
                                 dynamicOptions={fieldPicklists[key]}
+                                personOptions={personDirectory}
                                 onCommit={v => commitInlineField(key, v)}
                                 onCancel={() => setEditingField(null)}
                               />

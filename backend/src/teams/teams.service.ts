@@ -12,7 +12,7 @@ export class TeamsService {
       include: {
         members: {
           include: {
-            user: { select: { id: true, fullName: true, email: true, role: true } },
+            user: { select: { id: true, fullName: true, email: true, role: true, qcLogin: true } },
           },
         },
         _count: { select: { assignedTasks: true } },
@@ -31,7 +31,7 @@ export class TeamsService {
       include: {
         members: {
           include: {
-            user: { select: { id: true, fullName: true, email: true, role: true } },
+            user: { select: { id: true, fullName: true, email: true, role: true, qcLogin: true } },
           },
         },
         assignedTasks: {

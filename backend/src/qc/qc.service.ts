@@ -2849,6 +2849,24 @@ export async function getQcUserDirectory(): Promise<Map<string, string>> {
   return qcDirectoryLoading;
 }
 
+// Everyone a QC person field can hold, as { login, fullName } - the QC
+// directory plus DeployCenter users with a linked qcLogin (their own name
+// wins). Feeds the defect form's people picker and the write-back guard that
+// turns a name back into a login (QcRestService.toQcLogin).
+export async function getQcPersonDirectory(): Promise<{ login: string; fullName: string }[]> {
+  const [users, directory] = await Promise.all([
+    prisma.user.findMany({ where: { qcLogin: { not: null } }, select: { qcLogin: true, fullName: true } }),
+    getQcUserDirectory(),
+  ]);
+  const byLogin = new Map<string, { login: string; fullName: string }>();
+  for (const [login, fullName] of directory) byLogin.set(login, { login, fullName });
+  for (const u of users) {
+    const login = (u.qcLogin ?? '').trim();
+    if (login) byLogin.set(login.toLowerCase(), { login, fullName: (u.fullName || '').trim() || login });
+  }
+  return Array.from(byLogin.values()).sort((a, b) => a.fullName.localeCompare(b.fullName));
+}
+
 // login -> full name for a set of logins: a DeployCenter account's own name
 // wins, the QC directory fills the rest.
 async function personNameMap(logins: Set<string>): Promise<Record<string, string>> {

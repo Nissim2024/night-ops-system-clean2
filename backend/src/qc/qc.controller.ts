@@ -3,7 +3,7 @@ import { PersonNamesInterceptor } from './person-names.interceptor';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
-import { QcService, isProductionEnvironment } from './qc.service';
+import { QcService, isProductionEnvironment, getQcPersonDirectory } from './qc.service';
 import { QcRestService } from './qc-rest.service';
 import { PermissionsService } from '../permissions/permissions.service';
 
@@ -409,6 +409,13 @@ export class QcController {
   // double-click editing on" (2026-09-23, fixes-batch A.5) — same permission
   // as the write endpoints above, since there's no point advertising edit
   // affordances to someone who can't actually save them.
+  // People a QC person field can hold (login + full name) - the defect
+  // form's picker. Values written back are logins (QcRestService.toQcLogin).
+  @Get('person-directory')
+  getPersonDirectory() {
+    return getQcPersonDirectory();
+  }
+
   @Get('defect-editable-fields')
   async getDefectEditableFields(@Request() req: any) {
     await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה מורחבים — פנה למנהל מערכת');
