@@ -100,8 +100,26 @@ const CR_QUALITY_TARGET = 0.15;
 const CR_QUALITY_SEVERITY_WEIGHT: Record<string, number> = {
   'Show Stopper': 1, 'Severe': 0.8, 'Medium': 0.5, 'Low': 0.05,
 };
+// Which CR a defect belongs to (user report 2026-10-05: every CR card showed
+// 0 defects in production). In real QC the link is CR/HBR Number reference
+// (BG_USER_10, "13083 - name") - filled on ~all defects and already what the
+// TARGET-CR indicators query matches on (BG_USER_10 LIKE :crNumber || ' %');
+// CR Reference Number (BG_USER_58) is rarely set and also "number - name".
+// Compare leading CR numbers, BG_USER_10 first.
+function crNum(v: string | null | undefined): string | null {
+  const m = /^\s*(\d+)/.exec(v ?? '');
+  return m ? m[1] : null;
+}
+export function defectCr(d: DefectDto): string | null {
+  return crNum(d.crHbrNumberReference) ?? crNum(d.crReferenceNumber);
+}
+function isDefectOfCr(d: DefectDto, crNumber: string | null | undefined): boolean {
+  const n = crNum(crNumber) ?? (crNumber ?? '').trim();
+  return !!n && defectCr(d) === n;
+}
+
 function isCrQualityDefect(d: DefectDto, crNumber: string): boolean {
-  return d.crReferenceNumber === crNumber
+  return isDefectOfCr(d, crNumber)
     && d.status !== 'Canceled'
     && !(d.environment || '').toUpperCase().includes('PROD');
 }
@@ -178,8 +196,8 @@ function qcCycleNameToCycleType(realCycleName: string): string {
 // a clicked count and its list always agree. null = not one of these filters.
 function filterCrDefectCounts(defects: DefectDto[], filter: string, value?: string): DefectDto[] | null {
   if (!value) return null;
-  if (filter === 'crReported') return defects.filter(d => d.crReferenceNumber === value);
-  if (filter === 'crStillOpen') return defects.filter(d => d.crReferenceNumber === value && !['Closed', 'Canceled'].includes(d.status));
+  if (filter === 'crReported') return defects.filter(d => isDefectOfCr(d, value));
+  if (filter === 'crStillOpen') return defects.filter(d => isDefectOfCr(d, value) && !['Closed', 'Canceled'].includes(d.status));
   return null;
 }
 
@@ -307,7 +325,7 @@ export class ReleaseIntelligenceService {
       .map(cc => ({
         crNumber: cc.crNumber, crLabel: cc.crLabel, cycleType: cc.cycleType, blockedCount: cc.blocked,
         reasonDefects: openDefects
-          .filter(d => d.crReferenceNumber === cc.crNumber && d.priority === TEST_BLOCKER_PRIORITY && d.status !== 'Fixed_Test')
+          .filter(d => isDefectOfCr(d, cc.crNumber) && d.priority === TEST_BLOCKER_PRIORITY && d.status !== 'Fixed_Test')
           .map(d => ({ id: d.id, title: d.title })),
       }))
       .filter(cr => cr.reasonDefects.length > 0);
@@ -355,8 +373,9 @@ export class ReleaseIntelligenceService {
     // count with no sense of concentration (spec confirmed 2026-09-04).
     const openDefectsByCrCount = new Map<string, number>();
     for (const d of openDefects) {
-      if (!d.crReferenceNumber) continue;
-      openDefectsByCrCount.set(d.crReferenceNumber, (openDefectsByCrCount.get(d.crReferenceNumber) ?? 0) + 1);
+      const cr = defectCr(d);
+      if (!cr) continue;
+      openDefectsByCrCount.set(cr, (openDefectsByCrCount.get(cr) ?? 0) + 1);
     }
     let worstCr: { crNumber: string; count: number } | null = null;
     for (const [crNumber, count] of openDefectsByCrCount) {
@@ -873,11 +892,12 @@ export class ReleaseIntelligenceService {
     // since an unknown age shouldn't silently hide a real blocker.
     const blockerAgeByCr = new Map<string, number>();
     for (const d of openDefects) {
-      if (d.priority !== TEST_BLOCKER_PRIORITY || !d.crReferenceNumber) continue;
+      const blockerCr = defectCr(d);
+      if (d.priority !== TEST_BLOCKER_PRIORITY || !blockerCr) continue;
       const age = parseOracleDateAgeDays(d.discoveryDate, now);
       if (age == null) continue;
-      const existing = blockerAgeByCr.get(d.crReferenceNumber);
-      if (existing == null || age > existing) blockerAgeByCr.set(d.crReferenceNumber, age);
+      const existing = blockerAgeByCr.get(blockerCr);
+      if (existing == null || age > existing) blockerAgeByCr.set(blockerCr, age);
     }
 
     const RISK_RANK = { HIGH: 2, MEDIUM: 1, LOW: 0 } as const;
@@ -1428,7 +1448,7 @@ export class ReleaseIntelligenceService {
     // hover-tooltip use as the Cycle Progress cards, scoped to the broader
     // CLOSED_DEFECT_STATUSES "open" definition like everywhere else.
     const crRows = Array.from(byCr.values()).map(e => {
-      const crDefects = defects.filter(d => d.crReferenceNumber === e.crNumber);
+      const crDefects = defects.filter(d => isDefectOfCr(d, e.crNumber));
       const openDefects = crDefects.filter(d => !CLOSED_DEFECT_STATUSES.includes(d.status));
       return {
         crNumber: e.crNumber, crLabel: e.crLabel, project: projectByCr.get(e.crNumber) ?? null,
@@ -1712,7 +1732,7 @@ export class ReleaseIntelligenceService {
           // count) — reuses openDefects/CLOSED_DEFECT_STATUSES already
           // computed above for the cycle's own qgSummary (spec confirmed
           // 2026-09-02).
-          const crDefects = openDefects.filter(d => d.crReferenceNumber === row.crNumber);
+          const crDefects = openDefects.filter(d => isDefectOfCr(d, row.crNumber));
           const defectsBySeverity = {
             showStopper: crDefects.filter(d => d.severity === 'Show Stopper').length,
             severe: crDefects.filter(d => d.severity === 'Severe').length,
@@ -1726,9 +1746,9 @@ export class ReleaseIntelligenceService {
           // two statuses per the user's own wording, NOT this file's broader
           // CLOSED_DEFECT_STATUSES (which also excludes Rejected/Fixed) — a
           // narrower definition than "open" everywhere else in this file.
-          const reportedDefectsCount = defects.filter(d => d.crReferenceNumber === row.crNumber).length;
+          const reportedDefectsCount = defects.filter(d => isDefectOfCr(d, row.crNumber)).length;
           const stillOpenDefectsCount = defects.filter(d =>
-            d.crReferenceNumber === row.crNumber && !['Closed', 'Canceled'].includes(d.status)
+            isDefectOfCr(d, row.crNumber) && !['Closed', 'Canceled'].includes(d.status)
           ).length;
           // Planned test-start date for this CR in THIS cycle — c.tasks is
           // already scoped to the current cycle (c IS one element of
@@ -1739,6 +1759,9 @@ export class ReleaseIntelligenceService {
           // which aren't scheduled the same way).
           const crTask = c.tasks.find(t => t.taskType === 'CR' && t.crNumber === row.crNumber && !t.isArchived && t.isActive);
           const testingStartDate = crTask?.plannedStart ? crTask.plannedStart.toISOString() : null;
+          // the CR's own test window end in this cycle (its task's end, else
+          // the same deadline daysRemaining counts down to) - shown on the card
+          const testingEndDate: string | null = (crTask?.plannedEnd ?? deadline) ? new Date(crTask?.plannedEnd ?? deadline).toISOString() : null;
           const notStartedYet = row.total === 0 && !!crTask?.plannedStart && crTask.plannedStart.getTime() > now;
           // Quality score only surfaced when it's BREACHING target — the card
           // shouldn't show a number for every CR, just the ones worth flagging
@@ -1759,7 +1782,7 @@ export class ReleaseIntelligenceService {
             project: projectByCr.get(row.crNumber) ?? null,
             tester: testerNames.length > 0 ? testerNames.join(' + ') : null,
             daysRemaining, defectsBySeverity, reportedDefectsCount, stillOpenDefectsCount,
-            testingStartDate, notStartedYet, qualityScore,
+            testingStartDate, testingEndDate, notStartedYet, qualityScore,
           };
         });
       const crs = crCoverage.map(cc => ({ crNumber: cc.crNumber, crLabel: cc.crLabel }));
@@ -1922,16 +1945,16 @@ export class ReleaseIntelligenceService {
       const crCoverageRaw = coverageRows.filter(c => c.cycleName === cycleName);
 
       const crCoverage = crCoverageRaw.map(c => {
-        const crDefects = openDefects.filter(d => d.crReferenceNumber === c.crNumber);
+        const crDefects = openDefects.filter(d => isDefectOfCr(d, c.crNumber));
         const defectsBySeverity = {
           showStopper: crDefects.filter(d => d.severity === 'Show Stopper').length,
           severe: crDefects.filter(d => d.severity === 'Severe').length,
           medium: crDefects.filter(d => d.severity === 'Medium').length,
           low: crDefects.filter(d => d.severity === 'Low').length,
         };
-        const reportedDefectsCount = defects.filter(d => d.crReferenceNumber === c.crNumber).length;
+        const reportedDefectsCount = defects.filter(d => isDefectOfCr(d, c.crNumber)).length;
         const stillOpenDefectsCount = defects.filter(d =>
-          d.crReferenceNumber === c.crNumber && !['Closed', 'Canceled'].includes(d.status)
+          isDefectOfCr(d, c.crNumber) && !['Closed', 'Canceled'].includes(d.status)
         ).length;
         return {
           crNumber: c.crNumber, crLabel: `${c.crNumber} - ${c.crTitle}`,
@@ -1943,7 +1966,7 @@ export class ReleaseIntelligenceService {
           // No scheduling concept for a release never run through
           // DeployCenter — 0/null rather than a fabricated deadline.
           daysRemaining: 0, defectsBySeverity, reportedDefectsCount, stillOpenDefectsCount,
-          testingStartDate: null as string | null, notStartedYet: false, qualityScore: null as number | null,
+          testingStartDate: null as string | null, testingEndDate: null as string | null, notStartedYet: false, qualityScore: null as number | null,
         };
       });
 
@@ -2515,7 +2538,7 @@ export class ReleaseIntelligenceService {
         // Executive-summary "Critical Defects" card counts Show Stopper only
         // (getDailyQaManagement's criticalDefectsCount) — match it exactly.
         if (filter === 'critical') return open.filter(d => d.severity === 'Show Stopper');
-        if (filter === 'cr' && value) return open.filter(d => d.crReferenceNumber === value);
+        if (filter === 'cr' && value) return open.filter(d => isDefectOfCr(d, value));
         if (filter === 'tester' && value) {
           const cycleProgress = await this.getCycleProgress(versionId);
           const crNumbers = new Set(
@@ -2525,7 +2548,7 @@ export class ReleaseIntelligenceService {
               .filter(cc => (cc.tester ?? '').split(' + ').includes(value))
               .map(cc => cc.crNumber),
           );
-          return open.filter(d => d.crReferenceNumber && crNumbers.has(d.crReferenceNumber));
+          return open.filter(d => { const cr = defectCr(d); return !!cr && (crNumbers.has(cr) || Array.from(crNumbers).some(n => crNum(n) === cr)); });
         }
         return [];
       }

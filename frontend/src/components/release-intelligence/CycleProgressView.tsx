@@ -39,6 +39,7 @@ export interface CrCoverageRow {
   // qualityScore: CR_QUALITY_TARGET-style score, populated ONLY when this CR
   // is breaching its target (null otherwise) — spec 2026-09-17.
   testingStartDate: string | null;
+  testingEndDate?: string | null;
   notStartedYet: boolean;
   qualityScore: number | null;
 }
@@ -492,6 +493,12 @@ export function CrCoverageCard({ cr, qgTargetPct, showTestSummaryButton, onShowT
         {' — '}
         <span className="line-clamp-1">{cr.crLabel.replace(/^\d+\s*-\s*/, '')}</span>
       </div>
+      {/* the CR's test window in this cycle (user ask 2026-10-05) */}
+      {(cr.testingStartDate || cr.testingEndDate) && (
+        <div className="text-xs text-subtle-foreground [direction:ltr]">
+          📅 {cr.testingStartDate ? formatDate(cr.testingStartDate) : '?'} – {cr.testingEndDate ? formatDate(cr.testingEndDate) : '?'}
+        </div>
+      )}
 
       {/* notStartedYet (2026-09-17): an empty 0% gauge read as "no
           progress / at risk" for a CR whose testing window simply
@@ -530,7 +537,7 @@ export function CrCoverageCard({ cr, qgTargetPct, showTestSummaryButton, onShowT
           are still open (not Closed / Canceled) — always shown, labeled,
           and each one drills into its defect list (user ask 2026-10-04;
           replaces an unlabeled "🐞 open/reported" chip). */}
-      <div className="flex items-center gap-2 justify-center">
+      <div className="grid w-full grid-cols-2 gap-1.5">
         {([
           { kind: 'crReported' as const, label: 'נפתחו', n: cr.reportedDefectsCount, color: C.textPrimary },
           { kind: 'crStillOpen' as const, label: 'פתוחות', n: cr.stillOpenDefectsCount, color: cr.stillOpenDefectsCount > 0 ? C.danger : C.success },
@@ -543,10 +550,10 @@ export function CrCoverageCard({ cr, qgTargetPct, showTestSummaryButton, onShowT
               disabled={!clickable}
               onClick={clickable ? () => onShowCrDefects!(cr, x.kind) : undefined}
               title={clickable ? `הצג את ה${x.label === 'נפתחו' ? 'תקלות שנפתחו' : 'תקלות הפתוחות'} של CR ${cr.crNumber}` : undefined}
-              className={cn('inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-0.5 text-xs whitespace-nowrap', clickable ? 'cursor-pointer hover:border-primary' : 'cursor-default')}
+              className={cn('flex min-w-0 flex-col items-center rounded-md border border-border bg-muted px-1 py-1', clickable ? 'cursor-pointer hover:border-primary' : 'cursor-default')}
             >
-              <span className="text-subtle-foreground">🐞 {x.label}:</span>
-              <span className={cn('font-bold', clickable && 'underline')} style={{ color: x.color }}>{x.n}</span>
+              <span className="text-[11px] leading-tight text-subtle-foreground">🐞 {x.label}</span>
+              <span className={cn('text-sm font-bold leading-tight', clickable && 'underline')} style={{ color: x.color }}>{x.n}</span>
             </button>
           );
         })}
