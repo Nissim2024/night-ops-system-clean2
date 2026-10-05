@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Patch, Put, Query, Param, Body, Request, Res, UseGuards, ForbiddenException, BadRequestException, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { ModuleAccess, ModuleAccessGuard } from '../permissions/module-access.guard';
 import { PersonNamesInterceptor } from './person-names.interceptor';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
@@ -13,7 +14,7 @@ function requireRole(req: any, roles: string[], msg = 'אין הרשאה לבצ�
 
 @UseInterceptors(PersonNamesInterceptor)
 @Controller('qc')
-@UseGuards(JwtGuard)
+@UseGuards(JwtGuard, ModuleAccessGuard)
 export class QcController {
   constructor(
     private readonly qcService: QcService,
@@ -26,14 +27,14 @@ export class QcController {
   // permissions), replacing the earlier hardcoded ADMIN-only check (spec
   // confirmed 2026-09-02).
   private async requireQcWrite(req: any) {
-    const allowed = await this.permissionsService.hasPermission(req.user.role, 'action:qc_write');
+    const allowed = await this.permissionsService.userHas(req.user, 'action:qc_write');
     if (!allowed) throw new ForbiddenException('אין לך הרשאה להשתמש בכלי הכתיבה ל-QC — פנה למנהל מערכת');
   }
 
   // Split-out permissions (docs/spec-defects-module.md §9, 2026-09-18) —
   // separate blast radius from action:qc_write (status/comment only).
   private async requirePermission(req: any, key: string, msg: string) {
-    const allowed = await this.permissionsService.hasPermission(req.user.role, key);
+    const allowed = await this.permissionsService.userHas(req.user, key);
     if (!allowed) throw new ForbiddenException(msg);
   }
 
@@ -85,10 +86,13 @@ export class QcController {
   // ARE scoped by caller role (access-control spec 2026-09-25): TEAM_LEAD sees
   // their team's Responsibility, EMPLOYEE sees only defects assigned to them —
   // see QcService.resolveDefectScope().
+  @ModuleAccess('module:defects')
   @Get('all-defects-dashboard')
   getAllDefectsDashboard(@Request() req: any) {
     return this.qcService.getAllDefectsDashboard(req.user);
   }
+
+  @ModuleAccess('module:defects')
 
   @Get('all-defects-filtered')
   getAllDefectsFiltered(@Query('field') field: string, @Query('value') value: string, @Request() req: any) {

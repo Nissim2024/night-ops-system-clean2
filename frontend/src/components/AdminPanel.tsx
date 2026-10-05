@@ -1,6 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { usePermissions } from '../context/PermissionsContext';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { C, FONT, FONT_MONO, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE } from '../theme';
 import { Card, Badge, Button, TextField, Select, Toggle, SectionHeader, Avatar, TabBar, EmptyState, Divider, Alert } from './ui';
@@ -8,6 +7,7 @@ import { cleanHtmlText } from '../utils/textSanitize';
 import { formatDate } from '../utils/dateFormat';
 import { VersionCard } from './VersionsView';
 import { OpenProdDefectsConfigPanel } from './quality-hub/OpenProdDefectsConfigPanel';
+import { PermissionsMatrix } from './PermissionsMatrix';
 import { DefectFormLayoutEditor } from './quality-hub/DefectFormLayoutEditor';
 import { QcWriteTestPanel } from './QcWriteTestPanel';
 
@@ -55,39 +55,6 @@ interface Props {
 
 const emptyUser = { fullName: '', email: '', password: '', phone: '', role: 'EMPLOYEE', teamId: '', qcLogin: '' };
 
-const PERMISSION_DEFS = [
-  // Screens
-  { key: 'screen:prep',        label: 'מסך הכנה',           group: 'מסכים' },
-  { key: 'screen:handoff',     label: 'מסך ביצוע',          group: 'מסכים' },
-  { key: 'screen:timeline',    label: 'מסך ציר זמן',        group: 'מסכים' },
-  { key: 'screen:night',       label: 'מסך לילה (חמ"ל)',    group: 'מסכים' },
-  { key: 'screen:summary',     label: 'מסך סיכום',          group: 'מסכים' },
-  { key: 'screen:qa',          label: 'מסך בקרת איכות',     group: 'מסכים' },
-  { key: 'screen:release-intelligence', label: 'מסך Release Intelligence', group: 'מסכים' },
-  { key: 'screen:quality-hub',          label: 'מסך איכות גרסה (Quality Hub)', group: 'מסכים' },
-  { key: 'screen:defects',              label: 'מסך תקלות',                    group: 'מסכים' },
-  // Deployment actions
-  { key: 'action:import',                  label: 'ייבוא Excel',                       group: 'פעולות — הטמעות' },
-  { key: 'action:gonogo',                  label: 'GO / NO GO',                        group: 'פעולות — הטמעות' },
-  { key: 'action:task_status',             label: 'שינוי סטטוס משימה',                group: 'פעולות — הטמעות' },
-  { key: 'action:open_task_for_execution', label: 'פתיחת משימה לביצוע (מנהל לילה)',  group: 'פעולות — הטמעות' },
-  { key: 'action:override_version_edit',   label: 'עריכת גרסה לאחר אישור (override)', group: 'פעולות — הטמעות' },
-  { key: 'action:select_all_tasks',        label: 'בחר הכל משימות',                   group: 'פעולות — הטמעות' },
-  { key: 'action:view_all_teams',          label: 'ראש צוות: צפייה בכל הצוותים (לא רק הצוות שלו)', group: 'פעולות — הטמעות' },
-  // System management
-  { key: 'action:user_manage',    label: 'ניהול משתמשים',        group: 'פעולות — ניהול' },
-  { key: 'action:template_delete', label: 'מחיקת תבנית גרסה',   group: 'פעולות — ניהול' },
-  // QA module
-  { key: 'action:qa_leave_request', label: 'בקשת חופשה / צפייה בסטטוס',          group: 'בקרת איכות' },
-  { key: 'action:qa_manage',        label: 'ניהול QA (שיבוץ / מועדים / דוחות)',   group: 'בקרת איכות' },
-  // QC write-back — split out of one blanket switch (docs/spec-defects-module.md
-  // §9) so "append a comment / change status" is a materially smaller grant than
-  // "open a new defect" or "edit arbitrary fields".
-  { key: 'action:qc_write',                label: 'כלי כתיבה ל-QC (הערות/סטטוס)',        group: 'בקרת איכות' },
-  { key: 'action:qc_defect_create',        label: 'פתיחת תקלה חדשה ב-QC',                 group: 'בקרת איכות' },
-  { key: 'action:qc_defect_edit_extended', label: 'עריכת שדות מורחבת בתקלה',              group: 'בקרת איכות' },
-  { key: 'action:qc_attachment_upload',    label: 'העלאת קובץ מצורף לתקלה',                group: 'בקרת איכות' },
-];
 
 interface QcRelease {
   id: string;
@@ -105,7 +72,6 @@ interface QcRelease {
 
 export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
   const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'versions' | 'ldap' | 'oracle' | 'email' | 'notifications' | 'qc-rest' | 'quality-hub' | 'open-prod-defects-config' | 'defect-form-layout' | 'qc-write-test'>('users');
-  const { allPermissions, updateRole, saving: permSaving } = usePermissions();
   const [users, setUsers]     = useState<any[]>([]);
   const [teams, setTeams]     = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1533,34 +1499,8 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
             </div>
           )}
 
-          {/* ── PERMISSIONS TAB ── */}
-          {tab === 'permissions' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '16px 20px', border: `1px solid ${C.border}`, fontSize: '15px', color: C.textSecondary, lineHeight: '1.7' }}>
-                <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '8px' }}>תפקידים במערכת</strong>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '10px' }}>
-                  {[
-                    { role: 'ADMIN', label: 'מנהל מערכת', desc: 'גישה מלאה לכל הפונקציות. יכול לנהל משתמשים, תפקידים ופרמטרים.' },
-                    { role: 'RELEASE_MANAGER', label: 'מנהל הטמעות', desc: 'ניהול גרסאות ותוכניות לילה — יצירה, עדכון, קבלת החלטת GO/NO-GO.' },
-                    { role: 'CR_MANAGER', label: 'מנהל CR', desc: 'ניהול תוכניות CR — אישור ועדכון תוכניות צוותים.' },
-                    { role: 'TEAM_LEAD', label: 'ראש צוות', desc: 'הגשת תוכנית צוות, עדכון סטטוס משימות, אישור CR.' },
-                    { role: 'EMPLOYEE', label: 'עובד', desc: 'גישה לתצוגת משימות ועדכון סטטוס אישי.' },
-                    { role: 'VIEWER', label: 'צופה', desc: 'קריאה בלבד — אין יכולת עדכון.' },
-                  ].map(r => (
-                    <div key={r.role} style={{ background: C.bgCard, borderRadius: '8px', padding: '10px 14px', border: `1px solid ${C.border}` }}>
-                      <div style={{ fontWeight: 'bold', fontSize: '15px', color: C.textPrimary }}>{r.label}</div>
-                      <div style={{ fontSize: '13px', color: C.brand, fontFamily: FONT_MONO, marginBottom: '4px' }}>{r.role}</div>
-                      <div style={{ fontSize: '14px', color: C.textMuted }}>{r.desc}</div>
-                    </div>
-                  ))}
-                </div>
-                <p style={{ margin: '10px 0 0', fontSize: '14px', color: C.textMuted }}>
-                  מטריצת ההרשאות מאפשרת לשנות אילו פעולות כל תפקיד יכול לבצע. לחץ על תא כדי להפעיל/לכבות הרשאה, ואז "שמור" לשורת התפקיד.
-                </p>
-              </div>
-              <PermissionsTab allPermissions={allPermissions} updateRole={updateRole} saving={permSaving} />
-            </div>
-          )}
+          {/* ── PERMISSIONS TAB — module/component tree, by role and by team (2026-10-05) ── */}
+          {tab === 'permissions' && <PermissionsMatrix token={token} />}
 
           {/* ── TEMPLATES TAB ── */}
           {tab === 'templates' && (() => {
@@ -2659,7 +2599,7 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
               'WIZARD_AUTO_OPEN', 'USER_DEPS_CROSS_PHASE',
               'APP_PUBLIC_URL', 'ANTHROPIC_API_KEY',
             ]);
-            const EXCLUDED_PREFIXES = ['EMAIL_', 'LDAP_', 'TEAMS_', 'TELEGRAM_', 'ORACLE_', 'QC_REST_', 'QC_SITE_ADMIN_', 'QC_ADMIN_', 'OPEN_PROD_DEFECTS_'];
+            const EXCLUDED_PREFIXES = ['EMAIL_', 'LDAP_', 'TEAMS_', 'TELEGRAM_', 'ORACLE_', 'QC_REST_', 'QC_SITE_ADMIN_', 'QC_ADMIN_', 'OPEN_PROD_DEFECTS_', 'PERMISSIONS_'];
             const isExcluded = (key: string) => EXCLUDED_PREFIXES.some(pre => key.startsWith(pre));
             return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -2747,118 +2687,3 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
 
 // ─── Permissions matrix component ────────────────────────────────────────────
 
-const PermissionsTab: React.FC<{
-  allPermissions: Record<string, string[]>;
-  updateRole: (role: string, permissions: string[]) => Promise<void>;
-  saving: boolean;
-}> = ({ allPermissions, updateRole, saving }) => {
-  const [local, setLocal] = useState<Record<string, string[]>>({});
-
-  useEffect(() => {
-    setLocal(JSON.parse(JSON.stringify(allPermissions)));
-  }, [allPermissions]);
-
-  const toggle = (role: string, perm: string) => {
-    setLocal(prev => {
-      const cur = prev[role] ?? [];
-      const next = cur.includes(perm) ? cur.filter(p => p !== perm) : [...cur, perm];
-      return { ...prev, [role]: next };
-    });
-  };
-
-  const save = async (role: string) => {
-    await updateRole(role, local[role] ?? []);
-  };
-
-  const groups = ['מסכים', 'פעולות — הטמעות', 'פעולות — ניהול', 'בקרת איכות'];
-
-  const thStyle: React.CSSProperties = {
-    padding: '10px 14px', fontSize: '14px', fontWeight: 'bold',
-    color: C.textSecondary, textAlign: 'center', borderBottom: `2px solid ${C.border}`,
-    whiteSpace: 'nowrap', background: C.bgNested,
-  };
-  const tdStyle: React.CSSProperties = {
-    padding: '8px 14px', textAlign: 'center', borderBottom: `1px solid ${C.border}`,
-  };
-
-  return (
-    <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', border: `1px solid ${C.border}` }}>
-      <div style={{ marginBottom: '16px' }}>
-        <h3 style={{ margin: '0 0 4px', color: C.textPrimary }}>🔐 ניהול הרשאות לפי תפקיד</h3>
-        <p style={{ margin: 0, fontSize: '15px', color: C.textMuted }}>סמן / בטל סימון ולחץ "שמור" בשורת התפקיד</p>
-      </div>
-
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', direction: 'rtl' }}>
-          <thead>
-            <tr>
-              <th style={{ ...thStyle, textAlign: 'right', minWidth: '180px' }}>הרשאה</th>
-              {ROLES.map(role => (
-                <th key={role} style={thStyle}>
-                  <div style={{ color: ROLE_COLORS[role], fontWeight: 'bold' }}>{ROLE_LABELS[role]}</div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {groups.map(group => (
-              <React.Fragment key={group}>
-                <tr>
-                  <td colSpan={ROLES.length + 1} style={{
-                    padding: '10px 14px', background: C.bgNested,
-                    fontSize: '13px', fontWeight: 'bold', color: C.textMuted,
-                    textTransform: 'uppercase', letterSpacing: '1px',
-                  }}>
-                    {group}
-                  </td>
-                </tr>
-                {PERMISSION_DEFS.filter(p => p.group === group).map(perm => (
-                  <tr key={perm.key}
-                    onMouseEnter={e => (e.currentTarget.style.background = C.bgHover)}
-                    onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                    <td style={{ ...tdStyle, textAlign: 'right', fontSize: '15px', color: C.textSecondary, fontWeight: '500' }}>
-                      {perm.label}
-                    </td>
-                    {ROLES.map(role => {
-                      const checked = (local[role] ?? []).includes(perm.key);
-                      return (
-                        <td key={role} style={tdStyle}>
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggle(role, perm.key)}
-                            style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: ROLE_COLORS[role] }}
-                          />
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </React.Fragment>
-            ))}
-
-            <tr>
-              <td style={{ ...tdStyle, fontSize: '14px', color: C.textMuted }}>שמירה</td>
-              {ROLES.map(role => (
-                <td key={role} style={tdStyle}>
-                  <button
-                    onClick={() => save(role)}
-                    disabled={saving}
-                    style={{
-                      padding: '5px 12px', fontSize: '14px', border: 'none',
-                      borderRadius: '6px', cursor: saving ? 'not-allowed' : 'pointer',
-                      background: ROLE_COLORS[role], color: 'white', fontWeight: 'bold',
-                      opacity: saving ? 0.6 : 1, fontFamily: FONT,
-                    }}
-                  >
-                    שמור
-                  </button>
-                </td>
-              ))}
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-};

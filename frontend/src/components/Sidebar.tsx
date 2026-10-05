@@ -3,6 +3,7 @@ import { C, versionStatusColor, versionStatusLabel, lifecyclePhaseLabel, lifecyc
 import { cn } from '../lib/utils';
 import pkg from '../../package.json';
 import { VersionSwitcher } from './shared/VersionSwitcher';
+import { usePermissions } from '../context/PermissionsContext';
 const APP_VERSION: string = pkg.version;
 
 interface Props {
@@ -32,6 +33,7 @@ interface Props {
   onQhViewChange?: (v: string) => void;
   canAccessQualityHub?: boolean;
   canAccessDefects?: boolean;
+  canAccessDeployments?: boolean;
   // ── Leaves (visible to all employees) ────────────────────────────────
   showLeaves?: boolean;
   leavesActive?: boolean;
@@ -52,14 +54,14 @@ const GROUPS: Group[] = [
   { id: 'historical', label: 'היסטוריות (QC)', icon: '🗄️', statuses: [] },
 ];
 
-const QA_VIEWS = [
+export const QA_VIEWS = [
   { key: 'assignment', label: 'תכנון ושיבוץ',         icon: '🎯' },
   { key: 'testers',    label: 'בודקים',              icon: '👥' },
   { key: 'skills',     label: 'מטריצת סקילים',        icon: '🧠' },
   { key: 'leaves',     label: 'חופשות',               icon: '📅' },
 ];
 
-const VM_VIEWS = [
+export const VM_VIEWS = [
   { key: 'overview', label: 'סקירה כללית',      icon: '📊' },
   { key: 'manage',   label: 'ניהול תכולה',      icon: '📋' },
   { key: 'changes',  label: 'ניהול שינויים',    icon: '🔄' },
@@ -70,7 +72,7 @@ const VM_VIEWS = [
 // (thin readouts covered by cycle-progress / QA work-plan / the Home strip).
 // The backing endpoints (overview, status-board, …) are still used by the Home
 // view; only the standalone screens were dropped.
-const RI_VIEWS = [
+export const RI_VIEWS = [
   { key: 'home', label: 'דף הבית', icon: '🏠' },
   { key: 'risks', label: 'ניהול סיכונים', icon: '⚠️' },
   { key: 'suggested-risks', label: 'הצעות סיכונים (AI)', icon: '💡' },
@@ -81,7 +83,7 @@ const RI_VIEWS = [
   { key: 'incidents', label: 'תקלות ו-RCA', icon: '🧯' },
 ];
 
-const QH_VIEWS = [
+export const QH_VIEWS = [
   { key: 'overview', label: 'סקירה כללית', icon: '📊' },
   { key: 'kpi-matrix', label: 'מטריצת KPI', icon: '📋' },
   { key: 'comparison', label: 'השוואת גרסאות', icon: '⚖️' },
@@ -136,6 +138,7 @@ export const Sidebar: React.FC<Props> = ({
   onQhViewChange,
   canAccessQualityHub = false,
   canAccessDefects = false,
+  canAccessDeployments = true,
   showLeaves = false,
   leavesActive = false,
   onLeavesClick,
@@ -145,6 +148,8 @@ export const Sidebar: React.FC<Props> = ({
   const [open, setOpen] = useState<Record<string, boolean>>(defaultOpen);
   const [versionsOpen, setVersionsOpen] = useState(true);
   const [hoveredVer, setHoveredVer] = useState<string | null>(null);
+  // each module's screens filtered by their own permission (catalog keys vm:/qa:/ri:/qh:)
+  const { can } = usePermissions();
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
 
   const grouped: Record<string, any[]> = Object.fromEntries(GROUPS.map(g => [g.id, [] as any[]]));
@@ -178,7 +183,7 @@ export const Sidebar: React.FC<Props> = ({
           {[
             { key: 'version-management' as const, label: 'ניהול גרסה',  icon: '🧭', active: isVm,          show: canAccessVersionManagement },
             { key: 'qa' as const,                  label: 'ניהול QA',    icon: '👥', active: isQa,          show: canAccessQa },
-            { key: 'deployments' as const,         label: 'הטמעות',      icon: '🌙', active: isDeployments, show: true },
+            { key: 'deployments' as const,         label: 'הטמעות',      icon: '🌙', active: isDeployments, show: canAccessDeployments },
             { key: 'release-intelligence' as const, label: 'ניהול בדיקות', icon: '🧠', active: isRi,        show: canAccessReleaseIntelligence },
             { key: 'quality-hub' as const,         label: 'איכות גרסה',  icon: '🏆', active: isQh,          show: canAccessQualityHub },
             { key: 'defects' as const,             label: 'תקלות',       icon: '🪲', active: isDefects,     show: canAccessDefects },
@@ -382,7 +387,7 @@ export const Sidebar: React.FC<Props> = ({
           <div className="px-2 pb-1 pt-1.5 text-[13px] font-bold uppercase tracking-[0.08em]" style={{ color: 'rgba(255,255,255,0.35)' }}>
             ניהול גרסה
           </div>
-          {VM_VIEWS.map(view => {
+          {VM_VIEWS.filter(v => can(`vm:${v.key}`)).map(view => {
             const isActive = activeVmView === view.key;
             const isHov    = hoveredItem === view.key;
             return (
@@ -417,7 +422,7 @@ export const Sidebar: React.FC<Props> = ({
           <div className="px-2 pb-1 pt-1.5 text-[13px] font-bold uppercase tracking-[0.08em]" style={{ color: 'rgba(255,255,255,0.35)' }}>
             ניהול QA
           </div>
-          {QA_VIEWS.map(view => {
+          {QA_VIEWS.filter(v => can(`qa:${v.key}`)).map(view => {
             const isActive = activeQaView === view.key;
             const isHov    = hoveredItem === view.key;
             return (
@@ -452,7 +457,7 @@ export const Sidebar: React.FC<Props> = ({
           <div className="px-2 pb-1 pt-1.5 text-[13px] font-bold uppercase tracking-[0.08em]" style={{ color: 'rgba(255,255,255,0.35)' }}>
             ניהול בדיקות
           </div>
-          {RI_VIEWS.map(view => {
+          {RI_VIEWS.filter(v => can(`ri:${v.key}`)).map(view => {
             const isActive = activeRiView === view.key;
             const isHov    = hoveredItem === view.key;
             return (
@@ -487,7 +492,7 @@ export const Sidebar: React.FC<Props> = ({
           <div className="px-2 pb-1 pt-1.5 text-[13px] font-bold uppercase tracking-[0.08em]" style={{ color: 'rgba(255,255,255,0.35)' }}>
             Quality Hub
           </div>
-          {QH_VIEWS.map(view => {
+          {QH_VIEWS.filter(v => can(`qh:${v.key}`)).map(view => {
             const isActive = activeQhView === view.key;
             const isHov    = hoveredItem === view.key;
             return (

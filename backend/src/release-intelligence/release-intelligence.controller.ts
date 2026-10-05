@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, UseGuards, ForbiddenException, UseInterceptors } from '@nestjs/common';
+import { ModuleAccess, ModuleAccessGuard } from '../permissions/module-access.guard';
 import { PersonNamesInterceptor } from '../qc/person-names.interceptor';
 import { ReleaseIntelligenceService } from './release-intelligence.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
@@ -12,21 +13,28 @@ function requireRole(req: any, roles: string[], msg = 'אין הרשאה לבצ�
   if (!roles.includes(req.user.role)) throw new ForbiddenException(msg);
 }
 
-@UseGuards(JwtGuard)
+@UseGuards(JwtGuard, ModuleAccessGuard)
 @UseInterceptors(PersonNamesInterceptor)
+@ModuleAccess('module:release-intelligence')
 @Controller('release-intelligence')
 export class ReleaseIntelligenceController {
   constructor(private service: ReleaseIntelligenceService) {}
+
+  @ModuleAccess()
 
   @Get('overview/:versionId')
   getOverview(@Param('versionId') versionId: string) {
     return this.service.getOverview(versionId);
   }
 
+  @ModuleAccess('module:release-intelligence', 'module:defects')
+
   @Get('defect-create-defaults/:versionId')
   getDefectCreateDefaults(@Param('versionId') versionId: string, @Request() req: any) {
     return this.service.getDefectCreateDefaults(versionId, req.user.sub);
   }
+
+  @ModuleAccess('module:release-intelligence', 'module:defects')
 
   @Get('defect-create-responsibility-options/:versionId/:crNumber')
   getResponsibilityOptionsForCr(@Param('versionId') versionId: string, @Param('crNumber') crNumber: string) {
@@ -45,6 +53,7 @@ export class ReleaseIntelligenceController {
   }
 
   // Self-scoped (req.user) — the tester's own plan status for their home page.
+  @ModuleAccess()
   @Get('my-plan-status/:versionId')
   getMyPlanStatus(@Param('versionId') versionId: string, @Request() req: any) {
     return this.service.getMyPlanStatus(versionId, req.user.sub);
@@ -58,6 +67,7 @@ export class ReleaseIntelligenceController {
   // Home-page KPI tile (access-control spec 2026-09-25) — a team lead's own
   // team's test progress %, not the full daily-QA payload. null when the
   // caller doesn't lead any team or that team has no CRs in this version.
+  @ModuleAccess()
   @Get('team-progress/:versionId')
   getTeamProgress(@Param('versionId') versionId: string, @Request() req: any) {
     return this.service.getTeamProgress(versionId, req.user);
@@ -65,6 +75,7 @@ export class ReleaseIntelligenceController {
 
   // Home-page defects widget (feedback 2026-09-26) — version-scoped total +
   // caller's team/personal scope + open-by-severity, see service comment.
+  @ModuleAccess()
   @Get('home-defects/:versionId')
   getHomeDefectsSummary(@Param('versionId') versionId: string, @Request() req: any) {
     return this.service.getHomeDefectsSummary(versionId, req.user);
@@ -80,6 +91,8 @@ export class ReleaseIntelligenceController {
     return this.service.getCoverageReadiness(versionId);
   }
 
+  @ModuleAccess('module:release-intelligence', 'module:qa')
+
   @Get('cycle-progress/:versionId')
   getCycleProgress(@Param('versionId') versionId: string) {
     return this.service.getCycleProgress(versionId);
@@ -87,20 +100,27 @@ export class ReleaseIntelligenceController {
 
   // Historical/relId-only variant (2026-10-01) — for a QC release with no
   // local Version at all, same pattern as qc.controller's defects-by-relid.
+  @ModuleAccess('module:release-intelligence', 'module:quality-hub')
   @Get('historical-cycle-progress/:relId')
   getHistoricalCycleProgress(@Param('relId') relId: string) {
     return this.service.getHistoricalCycleProgress(Number(relId));
   }
+
+  @ModuleAccess('module:release-intelligence', 'module:quality-hub')
 
   @Get('historical-defects/:relId')
   getHistoricalDefectsBreakdown(@Param('relId') relId: string) {
     return this.service.getDefectsBreakdownByRelId(Number(relId));
   }
 
+  @ModuleAccess('module:release-intelligence', 'module:quality-hub')
+
   @Get('historical-reopen-analysis/:relId')
   getHistoricalReopenAnalysis(@Param('relId') relId: string) {
     return this.service.getReopenAnalysisByRelId(Number(relId));
   }
+
+  @ModuleAccess('module:release-intelligence', 'module:quality-hub')
 
   @Get('historical-defects-drilldown/:relId')
   getHistoricalDefectsDrilldown(
@@ -137,6 +157,8 @@ export class ReleaseIntelligenceController {
     return this.service.getForecastTracking(versionId);
   }
 
+  @ModuleAccess()
+
   @Get('defects/:versionId')
   getDefectsBreakdown(@Param('versionId') versionId: string) {
     return this.service.getDefectsBreakdown(versionId);
@@ -146,6 +168,8 @@ export class ReleaseIntelligenceController {
   getReopenAnalysis(@Param('versionId') versionId: string) {
     return this.service.getReopenAnalysis(versionId);
   }
+
+  @ModuleAccess()
 
   @Get('defects-drilldown/:versionId')
   getDefectsDrilldown(

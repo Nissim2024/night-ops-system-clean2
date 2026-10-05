@@ -28,7 +28,7 @@ import { WarRoom } from './WarRoom';
 import { NightSummary } from './NightSummary';
 import { RehearsalBoardView } from './RehearsalBoardView';
 import { TeamView } from './TeamView';
-import { Sidebar } from './Sidebar';
+import { Sidebar, VM_VIEWS, QA_VIEWS, RI_VIEWS, QH_VIEWS } from './Sidebar';
 import { useSocket } from '../hooks/useSocket';
 import { TimelineView } from './TimelineView';
 import { AdminPanel } from './AdminPanel';
@@ -126,11 +126,27 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
   const headers  = { Authorization: `Bearer ${token}` };
   const { can } = usePermissions();
   const push = usePushNotifications(token);
-  const canAccessQa = isQaTeamMember || can('screen:qa');
-  const canAccessReleaseIntelligence = isQaTeamMember || can('screen:release-intelligence');
-  const canAccessQualityHub = can('screen:quality-hub');
-  const canAccessVersionManagement = ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role);
-  const canAccessDefects = can('screen:defects');
+  // Module access = any part of the module granted (role + team grants,
+  // AdminPanel → הרשאות, 2026-10-05). The old hardcoded "QA team member sees
+  // QA + ניהול בדיקות" and "RM/ADMIN see ניהול גרסה" rules are now ordinary
+  // grants (migrated server-side), so nothing here is special-cased.
+  const canAccessQa = can('partial:module:qa');
+  const canAccessReleaseIntelligence = can('partial:module:release-intelligence');
+  const canAccessQualityHub = can('partial:module:quality-hub');
+  const canAccessVersionManagement = can('partial:module:version-management');
+  const canAccessDefects = can('defects:view');
+  const canAccessDeployments = can('partial:module:deployments');
+  useEffect(() => {
+    const keep = (prefix: string, views: { key: string }[], active: string, set: (k: string) => void) => {
+      const allowed = views.filter(v => can(`${prefix}:${v.key}`));
+      if (allowed.length > 0 && !allowed.some(v => v.key === active)) set(allowed[0].key);
+    };
+    keep('vm', VM_VIEWS, activeVmView, setActiveVmView);
+    keep('qa', QA_VIEWS, activeQaView, setActiveQaView);
+    keep('ri', RI_VIEWS, activeRiView, setActiveRiView);
+    keep('qh', QH_VIEWS, activeQhView, setActiveQhView);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [can, activeVmView, activeQaView, activeRiView, activeQhView]);
   // Home page decoupled from the Deployments module (2026-09-25) — every "go
   // home" action used to force activeModule to 'deployments' as a side effect
   // (Home was a tab living inside it), which wrongly highlighted הטמעות in the
@@ -778,6 +794,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           activeVmView={activeVmView}
           onVmViewChange={setActiveVmView}
           canAccessVersionManagement={canAccessVersionManagement}
+          canAccessDeployments={canAccessDeployments}
           activeQaView={activeQaView}
           onQaViewChange={setActiveQaView}
           canAccessQa={canAccessQa}

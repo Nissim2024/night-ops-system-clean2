@@ -3,6 +3,7 @@ import {
   UploadedFile, UseInterceptors, Request, UseGuards,
   ForbiddenException, BadRequestException,
 } from '@nestjs/common';
+import { ModuleAccess, ModuleAccessGuard } from '../permissions/module-access.guard';
 import { PersonNamesInterceptor } from '../qc/person-names.interceptor';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { QualityHubService } from './quality-hub.service';
@@ -39,8 +40,9 @@ function parseYearList(v?: string): number[] | undefined {
   return list.map(Number).filter(n => Number.isFinite(n));
 }
 
-@UseGuards(JwtGuard)
+@UseGuards(JwtGuard, ModuleAccessGuard)
 @UseInterceptors(PersonNamesInterceptor)
+@ModuleAccess('module:quality-hub')
 @Controller('quality-hub')
 export class QualityHubController {
   constructor(private service: QualityHubService) {}
@@ -79,6 +81,8 @@ export class QualityHubController {
     return this.service.importFromServerPath();
   }
 
+  @ModuleAccess()
+
   @Get('releases')
   getReleases() {
     return this.service.getReleases();
@@ -88,6 +92,8 @@ export class QualityHubController {
   getKpiDefinitions() {
     return this.service.getKpiDefinitions();
   }
+
+  @ModuleAccess()
 
   @Get('overview/:releaseName')
   getOverview(@Param('releaseName') releaseName: string) {

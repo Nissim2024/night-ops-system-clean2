@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Patch, Body, Param, Query, Request, UseGuards, ForbiddenException, UseInterceptors } from '@nestjs/common';
+import { ModuleAccess, ModuleAccessGuard } from '../permissions/module-access.guard';
 import { PersonNamesInterceptor } from '../qc/person-names.interceptor';
 import { IncidentsService } from './incidents.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
@@ -6,8 +7,9 @@ import { JwtGuard } from '../auth/jwt/jwt.guard';
 const LEADS_UP = ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN'];
 const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
 
-@UseGuards(JwtGuard)
+@UseGuards(JwtGuard, ModuleAccessGuard)
 @UseInterceptors(PersonNamesInterceptor)
+@ModuleAccess('module:release-intelligence', 'module:defects')
 @Controller('incidents')
 export class IncidentsController {
   constructor(private service: IncidentsService) {}
