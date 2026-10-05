@@ -2234,6 +2234,20 @@ export function bugStatusBucket(status: string | null | undefined): string {
 // are populated; the rest default to '' (the drill-down table only shows
 // id/title/severity/status/owner/date, and a row click re-fetches the full
 // detail by id anyway).
+// "YYYY-MM-DD" of a detection date, LOCAL day. One function for the Bug
+// Dashboard's daily chart and its day drill-down (user report 2026-10-05:
+// clicking a point listed nothing) - the chart keyed by toISOString() (UTC:
+// an Israeli-midnight Oracle DATE fell on the previous day) while the drill
+// sliced String(Date) ("Mon Oct 05 ...") and could never match. Strings that
+// already start with a date (mock rows) are taken as-is.
+export function localIsoDay(v: string | Date | null | undefined): string {
+  if (!v) return '';
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
+  const d = v instanceof Date ? v : new Date(v);
+  if (isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function bugRawRowToDefectDto(r: BugRawRow): DefectDto {
   const cr = r.CR_REFERENCE_NUMBER ?? '';
   // TITLE (BG_SUMMARY/BG_SUBJECT) is the real per-defect title. CR_REFERENCE_NUMBER
@@ -2252,7 +2266,7 @@ function bugRawRowToDefectDto(r: BugRawRow): DefectDto {
     severity: r.SEVERITY ?? '',
     priority: '',
     reporter: '',
-    discoveryDate: r.DETECTED_ON_DATE ? String(r.DETECTED_ON_DATE).slice(0, 10) : '',
+    discoveryDate: localIsoDay(r.DETECTED_ON_DATE),
     environment: '',
     status: r.DEFECT_STATUS ?? '',
     testPhase: '',
@@ -2726,10 +2740,8 @@ function computeBugDashboard(
 
   const dailyCounts = new Map<string, number>();
   for (const r of rows) {
-    if (!r.DETECTED_ON_DATE) continue;
-    const d = new Date(r.DETECTED_ON_DATE);
-    if (isNaN(d.getTime())) continue;
-    const key = d.toISOString().slice(0, 10);
+    const key = localIsoDay(r.DETECTED_ON_DATE);
+    if (!key) continue;
     dailyCounts.set(key, (dailyCounts.get(key) ?? 0) + 1);
   }
   const dailyReported = Array.from(dailyCounts.entries())
