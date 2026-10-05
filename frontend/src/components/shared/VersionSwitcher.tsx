@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { BrandedDialog } from '../ui/BrandedDialog';
 import { C, versionStatusColor, versionStatusLabel, lifecyclePhaseLabel, lifecyclePhaseColor, lifecyclePhaseGroup } from '../../theme';
 import { cn } from '../../lib/utils';
 
@@ -51,12 +52,6 @@ const VersionPickerModal: React.FC<{
   const [q, setQ] = useState('');
   const showSearch = versions.length > 6;
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   const needle = q.trim().toLowerCase();
   const groupsWithItems = useMemo(() => GROUPS.map(g => ({
     group: g,
@@ -87,10 +82,10 @@ const VersionPickerModal: React.FC<{
       <button
         key={v.id}
         onClick={() => { onPick(v.id); onClose(); }}
-        className="mb-0.5 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-right [direction:rtl]"
+        className="mb-0.5 flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-right [direction:rtl]"
         style={{
-          background: isSel ? C.bgHover : 'transparent',
-          border: `1px solid ${isSel ? C.border : 'transparent'}`,
+          background: isSel ? C.bgActive : 'transparent',
+          border: `1px solid ${isSel ? C.brand : 'transparent'}`,
         }}
         onMouseEnter={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = C.bgNested; }}
         onMouseLeave={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
@@ -105,76 +100,89 @@ const VersionPickerModal: React.FC<{
     );
   });
 
+  const cur = versions.find(v => v.id === selectedVersionId);
   return (
-    <div
-      onClick={onClose}
-      className="fixed inset-0 z-[4000] flex items-start justify-center px-4 pb-4 pt-[10vh] [direction:rtl]"
-      style={{ background: 'rgba(10,11,26,0.55)' }}
+    <BrandedDialog
+      onClose={onClose}
+      title="בחירת גרסה"
+      subtitle={`${versions.length} גרסאות במערכת`}
+      icon="🗂️"
+      width={420}
+      align="top"
+      maxHeight="78vh"
+      zIndex={4000}
+      bodyClassName="p-0 flex flex-col"
     >
-      <div
-        onClick={e => e.stopPropagation()}
-        className="flex max-h-[68vh] w-[360px] max-w-[92vw] flex-col overflow-hidden rounded-lg bg-card shadow-[0_24px_60px_rgba(0,0,0,0.35)]"
-      >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
-          <div className="text-sm font-bold text-foreground">בחירת גרסה</div>
-          <button onClick={onClose} className="cursor-pointer border-none bg-transparent px-1.5 py-0.5 text-base leading-none text-subtle-foreground">✕</button>
+      {cur && (
+        <div className="flex items-center gap-2.5 border-b border-border px-4 py-3" style={{ background: C.brandDim }}>
+          <span className="h-[10px] w-[10px] shrink-0 rounded-full" style={{ background: versionPhaseColor(cur) }} />
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-semibold" style={{ color: C.textMuted }}>הגרסה הנוכחית</div>
+            <div className="overflow-hidden text-ellipsis whitespace-nowrap text-[15px] font-bold text-foreground">{cur.name}</div>
+          </div>
+          <span className="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold" style={{ color: versionPhaseColor(cur), background: C.bgCard, border: `1px solid ${C.border}` }}>
+            {versionPhaseLabel(cur)}
+          </span>
         </div>
+      )}
 
-        {showSearch && (
-          <div className="px-4 pb-1 pt-2.5">
+      {showSearch && (
+        <div className="px-4 pb-1 pt-3">
+          <div className="relative">
+            <span className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-[13px]" style={{ color: C.textMuted }}>🔍</span>
             <input
               autoFocus
               value={q}
               onChange={e => setQ(e.target.value)}
               placeholder="חיפוש גרסה..."
-              className="box-border w-full rounded-md border border-border bg-background px-2.5 py-2 text-[13px] text-foreground [direction:rtl]"
+              className="box-border w-full rounded-md border border-border bg-background py-2 pe-2.5 ps-8 text-[14px] text-foreground outline-none [direction:rtl] focus:border-primary"
             />
           </div>
-        )}
-
-        <div className="overflow-y-auto px-2 pb-2.5 pt-1.5">
-          {groupsWithItems.length === 0 && (
-            <div className="p-6 text-center text-[13px] text-subtle-foreground">לא נמצאו גרסאות</div>
-          )}
-          {regularGroups.map(({ group, items }) => (
-            <div key={group.id} className="mb-1.5">
-              <div className="flex items-center gap-1.5 px-2.5 pb-1 pt-2 text-[11px] font-bold uppercase tracking-[0.04em] text-subtle-foreground">
-                <span className="text-[13px]">{group.icon}</span><span>{group.label}</span>
-                <span className="font-normal text-subtle-foreground">· {items.length}</span>
-              </div>
-              {renderItems(items)}
-            </div>
-          ))}
-
-          {historyGroups.length > 0 && (
-            <div
-              className="mt-3 pt-3"
-              style={regularGroups.length > 0 ? { borderTop: `2px dashed ${C.textMuted}` } : undefined}
-            >
-              <button
-                onClick={() => setHistOpen(o => !o)}
-                className="flex w-full cursor-pointer items-center gap-1.5 rounded-md border-none bg-muted px-2.5 py-2 text-right text-[12px] font-bold text-muted-foreground [direction:rtl]"
-                title={histExpanded ? 'קפל היסטוריה' : 'הצג גרסאות שהסתיימו'}
-              >
-                <span className="text-[13px]">🕘</span>
-                <span className="flex-1">היסטוריה</span>
-                <span className="font-normal">{historyCount}</span>
-                <span className="text-[11px]">{histExpanded ? '▾' : '▸'}</span>
-              </button>
-              {histExpanded && historyGroups.map(({ group, items }) => (
-                <div key={group.id} className="mb-1">
-                  <div className="flex items-center gap-1.5 px-2.5 pb-1 pt-2 text-[11px] font-bold text-subtle-foreground">
-                    <span className="text-[13px]">{group.icon}</span><span>{group.label}</span>
-                    <span className="font-normal">· {items.length}</span>
-                  </div>
-                  {renderItems(items)}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
+      )}
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-1.5">
+        {groupsWithItems.length === 0 && (
+          <div className="p-6 text-center text-[13px] text-subtle-foreground">לא נמצאו גרסאות</div>
+        )}
+        {regularGroups.map(({ group, items }) => (
+          <div key={group.id} className="mb-1.5">
+            <div className="flex items-center gap-1.5 px-2.5 pb-1 pt-2 text-[12px] font-bold tracking-[0.02em] text-subtle-foreground">
+              <span className="text-[13px]">{group.icon}</span><span>{group.label}</span>
+              <span className="rounded-full bg-muted px-1.5 text-[11px] font-semibold">{items.length}</span>
+            </div>
+            {renderItems(items)}
+          </div>
+        ))}
+
+        {historyGroups.length > 0 && (
+          <div
+            className="mt-3 pt-3"
+            style={regularGroups.length > 0 ? { borderTop: `1px dashed ${C.borderEm}` } : undefined}
+          >
+            <button
+              onClick={() => setHistOpen(o => !o)}
+              className="flex w-full cursor-pointer items-center gap-1.5 rounded-md border-none bg-muted px-2.5 py-2 text-right text-[12px] font-bold text-muted-foreground [direction:rtl]"
+              title={histExpanded ? 'קפל היסטוריה' : 'הצג גרסאות שהסתיימו'}
+            >
+              <span className="text-[13px]">🕘</span>
+              <span className="flex-1">היסטוריה</span>
+              <span className="font-normal">{historyCount}</span>
+              <span className="text-[11px]">{histExpanded ? '▾' : '▸'}</span>
+            </button>
+            {histExpanded && historyGroups.map(({ group, items }) => (
+              <div key={group.id} className="mb-1">
+                <div className="flex items-center gap-1.5 px-2.5 pb-1 pt-2 text-[12px] font-bold text-subtle-foreground">
+                  <span className="text-[13px]">{group.icon}</span><span>{group.label}</span>
+                  <span className="rounded-full bg-muted px-1.5 text-[11px] font-semibold">{items.length}</span>
+                </div>
+                {renderItems(items)}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-    </div>
+    </BrandedDialog>
   );
 };
 

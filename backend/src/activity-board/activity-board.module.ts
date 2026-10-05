@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { EmailModule } from '../email/email.module';
+import { PermissionsModule } from '../permissions/permissions.module';
 import { ActivityBoardController } from './activity-board.controller';
 import { ActivityBoardService } from './activity-board.service';
 
@@ -11,6 +12,7 @@ import { ActivityBoardService } from './activity-board.service';
       signOptions: { expiresIn: '8h' },
     }),
     EmailModule,
+    PermissionsModule,
   ],
   controllers: [ActivityBoardController],
   providers:   [ActivityBoardService],

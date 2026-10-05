@@ -273,7 +273,8 @@ export const Sidebar: React.FC<Props> = ({
             ניהול גרסה
           </div>
           {VM_VIEWS.filter(v => can(`vm:${v.key}`)).map(view => {
-            const isActive = activeVmView === view.key;
+            // 'open' / 'approve' are step jumps inside ניהול תכולה
+            const isActive = activeVmView === view.key || (view.key === 'manage' && ['open', 'approve'].includes(activeVmView));
             const isHov    = hoveredItem === view.key;
             return (
               <button key={view.key}

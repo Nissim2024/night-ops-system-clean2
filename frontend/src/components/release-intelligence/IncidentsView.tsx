@@ -4,6 +4,7 @@ import { RcaWizardModal } from './RcaWizardModal';
 import { DefectIdBadge } from '../shared/defectFieldDisplay';
 import { DefectDrilldownModal } from './DefectDrilldownModal';
 import { BackLink } from '../ui';
+import { useDialog } from '../../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -158,6 +159,7 @@ const CategoryBreakdownView: React.FC<{
 interface Props { token: string; versionId?: string; role: string; }
 
 export const IncidentsView: React.FC<Props> = ({ token, versionId, role }) => {
+  const dialog = useDialog();
   const headers = { Authorization: `Bearer ${token}` };
   const [incidents, setIncidents] = useState<IncidentRow[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
@@ -212,7 +214,7 @@ export const IncidentsView: React.FC<Props> = ({ token, versionId, role }) => {
       setShowImport(false);
       load();
     } catch (e: any) {
-      alert(e?.response?.data?.message || 'שגיאה בייבוא');
+      dialog.alert(e?.response?.data?.message || 'שגיאה בייבוא', 'שגיאה', 'danger');
     }
     setImporting(false);
   };
@@ -322,12 +324,12 @@ export const IncidentsView: React.FC<Props> = ({ token, versionId, role }) => {
                       title="הסר מרשימת התחקור (לא בוצע בה תחקיר)"
                       onClick={async e => {
                         e.stopPropagation();
-                        if (!window.confirm(`להסיר את תקלה ${inc.qcDefectId} מרשימת התחקור?`)) return;
+                        if (!await dialog.confirm(`להסיר את תקלה ${inc.qcDefectId} מרשימת התחקור?`, 'הסרה מרשימת התחקור', 'danger')) return;
                         try {
                           await axios.delete(`${API}/incidents/${inc.id}`, { headers });
                           load();
                         } catch (err: any) {
-                          window.alert(err?.response?.data?.message || 'ההסרה נכשלה');
+                          dialog.alert(err?.response?.data?.message || 'ההסרה נכשלה', 'שגיאה', 'danger');
                         }
                       }}
                       className="cursor-pointer rounded-sm border border-border bg-card px-1.5 py-0.5 text-xs text-muted-foreground hover:border-danger hover:text-danger"

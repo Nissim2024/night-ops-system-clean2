@@ -4,6 +4,7 @@ import { C } from '../../theme';
 import { cn } from '../../lib/utils';
 import { Select } from '../ui';
 import { useDialog } from '../../context/DialogContext';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from '../ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -655,13 +656,10 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
 
       {/* ── Add Skill Modal ── */}
       {showAddSkill && (
-        <div className="fixed inset-0 z-[3000] flex items-center justify-center" style={{ background: C.bgOverlay }}
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center" style={{ background: DIALOG_OVERLAY_BG }}
           onClick={e => { if (e.target === e.currentTarget) { setShowAddSkill(false); setNewSkillName(''); } }}>
-          <div className="bg-card rounded-3xl w-[400px] max-w-[94vw] overflow-hidden" style={{ boxShadow: '0 24px 64px rgba(0,0,0,0.35)' }}>
-            <div className="py-4 px-5 border-b border-border flex items-center justify-between">
-              <span className="text-lg font-bold">הוספת סקיל חדש</span>
-              <button onClick={() => { setShowAddSkill(false); setNewSkillName(''); }} className="bg-transparent border-none cursor-pointer text-subtle-foreground text-lg">✕</button>
-            </div>
+          <div className="bg-card rounded-xl w-[400px] max-w-[94vw] overflow-hidden" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+            <DialogBrandBar icon="🧠" title="הוספת סקיל חדש" onClose={() => { setShowAddSkill(false); setNewSkillName(''); }} />
             <div className="p-5">
               <label className="block text-sm font-semibold mb-2">שם הסקיל</label>
               <input
@@ -715,13 +713,10 @@ export const QaSkillsView: React.FC<Props> = ({ token }) => {
 
       {/* ── Add Tester Modal ── */}
       {showAddTester && (
-        <div className="fixed inset-0 z-[3000] flex items-center justify-center" style={{ background: C.bgOverlay }}
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center" style={{ background: DIALOG_OVERLAY_BG }}
           onClick={e => { if (e.target === e.currentTarget) setShowAddTester(false); }}>
-          <div className="bg-card rounded-3xl w-[400px] max-w-[94vw] overflow-hidden" style={{ boxShadow: '0 24px 64px rgba(0,0,0,0.35)' }}>
-            <div className="py-4 px-5 border-b border-border flex items-center justify-between">
-              <span className="text-lg font-bold">הוספת בודק</span>
-              <button onClick={() => setShowAddTester(false)} className="bg-transparent border-none cursor-pointer text-subtle-foreground text-lg">✕</button>
-            </div>
+          <div className="bg-card rounded-xl w-[400px] max-w-[94vw] overflow-hidden" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+            <DialogBrandBar icon="👤" title="הוספת בודק" onClose={() => setShowAddTester(false)} />
             <div className="p-5">
               {/* Team filter */}
               <label className="block text-sm font-semibold mb-2">סנן לפי צוות</label>

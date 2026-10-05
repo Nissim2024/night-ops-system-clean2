@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { DateField, DateRangeField } from './DatePicker';
 import { formatDate } from '../utils/dateFormat';
+import { useDialog } from '../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -94,11 +95,11 @@ const isSeasonLocked = (dates: SeasonDate[]): boolean => {
 // Returns the (optional) cancellation reason if the user wants to proceed,
 // or undefined if they backed out. An approved leave gets an extra confirm
 // step since cancelling it is more consequential than a still-pending one.
-function confirmCancelReason(req: LeaveRequest): string | undefined {
+async function confirmCancelReason(dialog: ReturnType<typeof useDialog>, req: LeaveRequest): Promise<string | undefined> {
   if (req.status === 'APPROVED') {
-    if (!window.confirm('החופשה כבר אושרה. לבטל אותה בכל זאת?')) return undefined;
+    if (!await dialog.confirm('החופשה כבר אושרה. לבטל אותה בכל זאת?', 'ביטול חופשה מאושרת', 'warning')) return undefined;
   }
-  return window.prompt('סיבת ביטול (לא חובה):') ?? undefined;
+  return (await dialog.prompt({ title: 'ביטול חופשה', label: 'סיבת ביטול', placeholder: 'לא חובה', optional: true, confirmLabel: 'בטל חופשה', variant: 'warning' })) ?? undefined;
 }
 
 // Explicit literal class lookups (never string-interpolated with a runtime
@@ -182,6 +183,7 @@ const dateInputStyleNested: React.CSSProperties = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
+  const dialog = useDialog();
   const headers = { Authorization: `Bearer ${token}` };
 
   const [seasons, setSeasons]       = useState<Season[]>([]);
@@ -236,7 +238,7 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
       if (existing && existing.kind === kind && existing.status !== 'CANCELLED') {
         // cancel — clicking a range that shares a groupId cancels the whole
         // range on the server, so refetch instead of patching just this row.
-        const reason = confirmCancelReason(existing);
+        const reason = await confirmCancelReason(dialog, existing);
         if (reason === undefined) { setSaving(null); return; }
         await axios.delete(`${API}/leaves/requests/${existing.id}`, { headers, data: { reason } });
         await load();
@@ -299,7 +301,7 @@ export const EmployeeLeavesView: React.FC<Props> = ({ token }) => {
   };
 
   const cancelFree = async (r: LeaveRequest) => {
-    const reason = confirmCancelReason(r);
+    const reason = await confirmCancelReason(dialog, r);
     if (reason === undefined) return;
     await axios.delete(`${API}/leaves/requests/${r.id}`, { headers, data: { reason } });
     await load();

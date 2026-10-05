@@ -8,6 +8,7 @@ import { useDialog } from '../../context/DialogContext';
 import { DateField } from '../DatePicker';
 import { formatDate as fmtDateShared, formatDateTime as fmtDateTimeShared } from '../../utils/dateFormat';
 import { cn } from '../../lib/utils';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from '../ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -622,7 +623,12 @@ function CycleChip({ cycleType }: { cycleType: string }) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-interface Props { token: string; initialVersionId?: string; }
+interface Props {
+  token: string;
+  initialVersionId?: string;
+  /** Deep link (e.g. from ניהול בדיקות → ציר זמן ופעילויות "עריכה בלוח"); `n` re-triggers on repeat clicks. */
+  initialTab?: { tab: 'assignments' | 'workplan' | 'activity'; n: number };
+}
 
 interface PickerPos { crNumber: string; top?: number; bottom?: number; right: number; maxH?: number; }
 
@@ -642,7 +648,7 @@ function computeAnchoredPos(crNumber: string, buttonEl: HTMLElement, width: numb
     : { crNumber, bottom: window.innerHeight - rect.top + 4, right: safeRight, maxH: Math.max(spaceAbove, 160) };
 }
 
-export default function QaAssignmentView({ token, initialVersionId }: Props) {
+export default function QaAssignmentView({ token, initialVersionId, initialTab }: Props) {
   const dialog  = useDialog();
   const headers   = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const userRole  = useMemo(() => { try { return JSON.parse(atob(token.split('.')[1])).role as string; } catch { return ''; } }, [token]);
@@ -677,7 +683,8 @@ export default function QaAssignmentView({ token, initialVersionId }: Props) {
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [activeTab, setActiveTab]       = useState<'assignments' | 'workplan' | 'activity'>('assignments');
+  const [activeTab, setActiveTab]       = useState<'assignments' | 'workplan' | 'activity'>(initialTab?.tab ?? 'assignments');
+  useEffect(() => { if (initialTab) setActiveTab(initialTab.tab); }, [initialTab]);
   const [crs, setCrs]                   = useState<CrRec[]>([]);
   const [assignments, setAssignments]   = useState<Assignment[]>([]);
   const [loading, setLoading]           = useState(false);
@@ -2490,12 +2497,9 @@ CRים אלה לא ייכללו בתוכנית העבודה.
 
       {/* ── Sync diff modal ── */}
       {syncDiff && (
-        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/45 p-4">
-          <div className="flex max-h-[80vh] w-full max-w-[560px] flex-col rounded-xl border border-border bg-card shadow-xl [direction:rtl]">
-            <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <span className="text-lg font-bold text-foreground">🔄 תצוגה מקדימה של סנכרון</span>
-              <button onClick={() => setSyncDiff(null)} className="cursor-pointer border-0 bg-transparent text-lg text-subtle-foreground">✕</button>
-            </div>
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4" style={{ background: DIALOG_OVERLAY_BG }}>
+          <div className="flex max-h-[80vh] w-full max-w-[560px] flex-col overflow-hidden rounded-xl bg-card [direction:rtl]" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+            <DialogBrandBar icon="🔄" title="תצוגה מקדימה של סנכרון" onClose={() => setSyncDiff(null)} />
             <div className="flex shrink-0 gap-3 border-b border-border px-5 py-3">
               <span className="rounded-full bg-success-bg px-3 py-[3px] text-sm font-bold text-success">+{addedGrouped.filter(g => !excludedAddedCrs.has(g.crNumber)).length} חדשים</span>
               <span className="rounded-full bg-danger-bg px-3 py-[3px] text-sm font-bold text-danger">−{syncDiff.removed.length} הוסרו</span>
@@ -3443,21 +3447,11 @@ CRים אלה לא ייכללו בתוכנית העבודה.
 
       {/* ── CR detail modal ── */}
       {crDetailFor && (
-        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/45 p-4"
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4" style={{ background: DIALOG_OVERLAY_BG }}
           onClick={() => { setCrDetailFor(null); setCrDetail(null); }}>
-          <div className="flex max-h-[85vh] w-full max-w-[1010px] flex-col rounded-xl border border-border bg-card shadow-xl [direction:rtl]"
+          <div className="flex max-h-[85vh] w-full max-w-[1010px] flex-col overflow-hidden rounded-xl bg-card [direction:rtl]" style={{ boxShadow: DIALOG_PANEL_SHADOW }}
             onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <div className="flex items-center gap-3">
-                <span className="text-lg font-bold text-foreground">📄 פרטי CR {crDetailFor}</span>
-                {crDetail?.versionName && (
-                  <span className="rounded-full bg-primary-50 px-3 py-0.5 text-xs font-semibold text-primary">
-                    {crDetail.versionName}
-                  </span>
-                )}
-              </div>
-              <button onClick={() => { setCrDetailFor(null); setCrDetail(null); }} className="cursor-pointer border-0 bg-transparent text-lg text-subtle-foreground">✕</button>
-            </div>
+            <DialogBrandBar icon="📄" title={`פרטי CR ${crDetailFor}`} subtitle={crDetail?.versionName} onClose={() => { setCrDetailFor(null); setCrDetail(null); }} />
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
               {crDetailLoading ? (
                 <div className="p-6 text-center text-sm text-subtle-foreground">⏳ טוען...</div>

@@ -112,6 +112,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
   const [activeModule, setActiveModule] = useState<'home' | 'admin' | 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub' | 'defects'>('home');
   const [activeVmView, setActiveVmView]  = useState('overview');
   const [activeQaView, setActiveQaView]  = useState('assignment');
+  // Deep link into QA → תכנון ושיבוץ's inner tab (QaAssignmentView initialTab)
+  const [qaAssignmentTab, setQaAssignmentTab] = useState<{ tab: 'assignments' | 'workplan' | 'activity'; n: number } | undefined>(undefined);
   const [activeRiView, setActiveRiView]  = useState('home');
   // One-shot drilldown intent carried from Home's "תקלות פתוחות" tile into
   // DefectsView, so it opens straight into the filtered list instead of
@@ -134,14 +136,22 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
   const canAccessReleaseIntelligence = can('partial:module:release-intelligence');
   const canAccessQualityHub = can('partial:module:quality-hub');
   const canAccessVersionManagement = can('partial:module:version-management');
+  // Detail screen's "אשר תכולה" jump — the COLLECTING→CR_REVIEW prerequisites live there.
+  const goToScopeApproval = canAccessVersionManagement
+    ? (step: 'open' | 'approve') => { setActiveModule('version-management'); setActiveVmView(step); }
+    : undefined;
   const canAccessDefects = can('defects:view');
   const canAccessDeployments = can('partial:module:deployments');
   useEffect(() => {
-    const keep = (prefix: string, views: { key: string }[], active: string, set: (k: string) => void) => {
+    const keep = (prefix: string, views: { key: string }[], active: string, set: (k: string) => void, alias: Record<string, string> = {}) => {
       const allowed = views.filter(v => can(`${prefix}:${v.key}`));
-      if (allowed.length > 0 && !allowed.some(v => v.key === active)) set(allowed[0].key);
+      const key = alias[active] ?? active;
+      if (allowed.length > 0 && !allowed.some(v => v.key === key)) set(allowed[0].key);
     };
-    keep('vm', VM_VIEWS, activeVmView, setActiveVmView);
+    // 'open' / 'approve' are step jumps into ניהול תכולה's VersionOpeningModule
+    // (Home's "קבע תאריכי גרסה", the detail screen's "אשר תכולה") — not menu
+    // items, so without the alias they were reset to the overview on arrival.
+    keep('vm', VM_VIEWS, activeVmView, setActiveVmView, { open: 'manage', approve: 'manage' });
     keep('qa', QA_VIEWS, activeQaView, setActiveQaView);
     keep('ri', RI_VIEWS, activeRiView, setActiveRiView);
     keep('qh', QH_VIEWS, activeQhView, setActiveQhView);
@@ -895,7 +905,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           )}
 
           {/* ── Module: ניהול QA ── */}
-          {activeModule === 'qa' && <QaModulePlaceholder view={activeQaView} token={token} role={payload.role} isQaMember={canAccessQa} isQaTeamMember={isQaTeamMember} isQaTeamLead={isQaTeamLead} canQaManage={can('action:qa_manage')} initialVersionId={selectedVersionId || undefined} />}
+          {activeModule === 'qa' && <QaModulePlaceholder view={activeQaView} token={token} role={payload.role} isQaMember={canAccessQa} isQaTeamMember={isQaTeamMember} isQaTeamLead={isQaTeamLead} canQaManage={can('action:qa_manage')} initialVersionId={selectedVersionId || undefined} initialTab={qaAssignmentTab} />}
 
           {/* ── Module: Release Intelligence ── */}
           {/* Fixed "back to Home" bar — every RI screen is one click away from
@@ -924,7 +934,15 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
             <CycleProgressView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'timeline-activities' && (
-            <TimelineActivitiesView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+            <TimelineActivitiesView
+              token={token}
+              versionId={selectedVersionId || undefined}
+              role={payload.role}
+              myFullName={fullName}
+              onEditBoard={canAccessQa && can('qa:assignment')
+                ? () => { setActiveModule('qa'); setActiveQaView('assignment'); setQaAssignmentTab({ tab: 'activity', n: Date.now() }); }
+                : undefined}
+            />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'bug-dashboard' && (
             <QcBugDashboardView token={token} initialVersionId={selectedVersionId || undefined} />
@@ -1120,6 +1138,10 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
                 onGoToAdmin={() => { setActiveModule('admin'); setActiveTab('admin'); }}
                 onGoHome={goHome}
                 onNavigateTab={tab => setActiveTab(tab as Tab)}
+                onGoToScopeApproval={goToScopeApproval}
+                // With a version selected this tab IS the "פרטים ותוכנית" screen (the
+                // side menu highlights it) — no "back to version list" there either.
+                hideBack={!!selectedVersionId}
                 autoNew={openNewVersionForm}
                 onAutoNewConsumed={() => setOpenNewVersionForm(false)}
               />
@@ -1139,6 +1161,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
               onGoToAdmin={() => { setActiveModule('admin'); setActiveTab('admin'); }}
               onGoHome={goHome}
               onNavigateTab={tab => setActiveTab(tab as Tab)}
+              onGoToScopeApproval={goToScopeApproval}
+              hideBack
             />
           )}
 
@@ -1796,7 +1820,7 @@ const QA_VIEW_META: Record<string, { icon: string; title: string; sub: string }>
   assignment: { icon: '🎯', title: 'תכנון ושיבוץ',    sub: 'שיבוץ בודקים ותכנון סבבי בדיקות' },
 };
 
-const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string; isQaMember?: boolean; isQaTeamMember?: boolean; isQaTeamLead?: boolean; canQaManage?: boolean; initialVersionId?: string }> = ({ view, token, role, isQaMember, canQaManage, isQaTeamMember, isQaTeamLead, initialVersionId }) => {
+const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string; isQaMember?: boolean; isQaTeamMember?: boolean; isQaTeamLead?: boolean; canQaManage?: boolean; initialVersionId?: string; initialTab?: { tab: 'assignments' | 'workplan' | 'activity'; n: number } }> = ({ view, token, role, isQaMember, canQaManage, isQaTeamMember, isQaTeamLead, initialVersionId, initialTab }) => {
   // Leaves board is accessible to all authenticated users; QA module views are for QA team members and ADMIN
   if (view !== 'leaves' && role !== 'ADMIN' && !isQaMember) {
     return (
@@ -1822,7 +1846,7 @@ const QaModulePlaceholder: React.FC<{ view: string; token: string; role: string;
   if (view === 'leaves')     return <QaLeavesView role={role} token={token} />;
   if (view === 'testers')    return <QaTestersView token={token} />;
   if (view === 'skills')     return <QaSkillsView token={token} />;
-  if (view === 'assignment') return <QaAssignmentView token={token} initialVersionId={initialVersionId} />;
+  if (view === 'assignment') return <QaAssignmentView token={token} initialVersionId={initialVersionId} initialTab={initialTab} />;
 
   const meta = QA_VIEW_META[view] ?? { icon: '👥', title: 'ניהול QA', sub: '' };
   return (
@@ -1853,7 +1877,9 @@ const ListTabContent: React.FC<{
   onNavigateTab?: (tab: string) => void;
   autoNew?: boolean;
   onAutoNewConsumed?: () => void;
-}> = ({ token, selectedVersionId, selectedVersion, versionFilter, fetchVersions, handleGoLive, handleVersionFocus, onGoToAdmin, onGoHome, onNavigateTab, autoNew, onAutoNewConsumed }) => (
+  hideBack?: boolean;
+  onGoToScopeApproval?: (step: 'open' | 'approve') => void;
+}> = ({ token, selectedVersionId, selectedVersion, versionFilter, fetchVersions, handleGoLive, handleVersionFocus, onGoToAdmin, onGoHome, onNavigateTab, autoNew, onAutoNewConsumed, hideBack, onGoToScopeApproval }) => (
   <VersionsView
     key={selectedVersionId || versionFilter + (autoNew ? '-new' : '')}
     token={token}
@@ -1865,5 +1891,7 @@ const ListTabContent: React.FC<{
     onNavigateTab={onNavigateTab}
     initialSelectedId={selectedVersionId}
     autoNew={autoNew}
+    hideBack={hideBack}
+    onGoToScopeApproval={onGoToScopeApproval}
   />
 );

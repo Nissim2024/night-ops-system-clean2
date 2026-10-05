@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW } from '../../theme';
+import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { cn } from '../../lib/utils';
 import { useDialog } from '../../context/DialogContext';
 import { ConfirmDialog, DialogConfig } from '../ConfirmDialog';
 import { DateField } from '../DatePicker';
 import { formatDate as fmtDateShared, formatDateTime as fmtDateTimeShared } from '../../utils/dateFormat';
 import { Select, Modal } from '../ui';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from '../ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -2777,7 +2778,7 @@ function SecondaryPanel({ crNumber, data, loading, assigning, hasExistingSeconda
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 1000,
-      backgroundColor: 'rgba(0,0,0,0.45)',
+      backgroundColor: DIALOG_OVERLAY_BG,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
     }} onClick={onClose}>
       <div
@@ -2787,24 +2788,18 @@ function SecondaryPanel({ crNumber, data, loading, assigning, hasExistingSeconda
           padding: SP[6],
           width: 580, maxWidth: '95vw',
           maxHeight: '80vh', overflowY: 'auto',
-          boxShadow: SHADOW.lg,
+          boxShadow: DIALOG_PANEL_SHADOW,
           direction: 'rtl',
         }}
         onClick={e => e.stopPropagation()}
       >
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[4] }}>
-          <div>
-            <h3 style={{ margin: 0, ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
-              שיבוץ בודק שני
-            </h3>
-            <p style={{ margin: `${SP[1]} 0 0`, ...TEXT.sm, color: C.textMuted }}>
-              CR: {crNumber}
-              {data?.crLabel && ` — ${data.crLabel}`}
-            </p>
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', ...TEXT.lg, color: C.textMuted, padding: SP[1] }}>✕</button>
-        </div>
+        <DialogBrandBar
+          icon="👥"
+          title="שיבוץ בודק שני"
+          subtitle={`CR: ${crNumber}${data?.crLabel ? ` — ${data.crLabel}` : ''}`}
+          onClose={onClose}
+          style={{ margin: `-${SP[6]} -${SP[6]} ${SP[4]}`, position: 'sticky', top: `-${SP[6]}`, zIndex: 2 }}
+        />
 
         {loading && (
           <div style={{ textAlign: 'center', padding: SP[8], color: C.textMuted }}>טוען הצעות...</div>

@@ -7,6 +7,7 @@ import { useDialog } from '../context/DialogContext';
 import { DateTimeField } from './DatePicker';
 import { formatDateTime as fmtDateTimeShared } from '../utils/dateFormat';
 import { cn } from '../lib/utils';
+import { DialogBrandBar } from './ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -328,15 +329,15 @@ export const TaskDetailPanel: React.FC<Props> = ({
   return (
     <div className="flex h-full w-full flex-col overflow-hidden rounded-xl bg-card">
 
-      {/* Header */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-4 py-3">
-        <span className="flex-1 text-sm font-semibold text-muted-foreground">
-          {isAdd ? '+ משימה חדשה' : 'פרטי משימה'}
-        </span>
-        {saving && <span className="text-xs text-subtle-foreground">שומר...</span>}
-        {saveOk && <span className="text-xs text-success">✓ נשמר</span>}
-        <button onClick={onClose} className="cursor-pointer border-none bg-transparent p-1 text-xl leading-none text-subtle-foreground">✕</button>
-      </div>
+      {/* Header — shared dialog brand bar */}
+      <DialogBrandBar
+        icon={isAdd ? '➕' : '📝'}
+        title={isAdd ? 'משימה חדשה' : 'פרטי משימה'}
+        onClose={onClose}
+        actions={(saving || saveOk) ? (
+          <span className="text-xs font-semibold" style={{ color: saveOk ? '#4ADE80' : '#8B8EA8' }}>{saveOk ? '✓ נשמר' : 'שומר...'}</span>
+        ) : undefined}
+      />
 
       {/* Body */}
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">

@@ -10,6 +10,8 @@ import {
 import { formatDate, formatDateTime } from '../../utils/dateFormat';
 import { cn } from '../../lib/utils';
 import { CreateDefectScreen } from './CreateDefectScreen';
+import { useDialog } from '../../context/DialogContext';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from '../ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -568,6 +570,7 @@ const RefFieldEditor: React.FC<{
 export const DefectDetailScreen: React.FC<{
   defectId: string; detailFields: string[]; token: string; onBack: () => void;
 }> = ({ defectId, detailFields, token, onBack }) => {
+  const dialog = useDialog();
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const [detail, setDetail] = useState<DefectFullDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(true);
@@ -684,8 +687,8 @@ export const DefectDetailScreen: React.FC<{
     setEditMode(false); setEditingField(null); setPendingEdits({}); setPendingRefEdits({}); setInlineMsg(null);
   }, [defectId]);
 
-  const cancelInlineEdit = () => {
-    if ((Object.keys(pendingEdits).length > 0 || Object.keys(pendingRefEdits).length > 0) && !window.confirm('לבטל את השינויים שלא נשמרו?')) return;
+  const cancelInlineEdit = async () => {
+    if ((Object.keys(pendingEdits).length > 0 || Object.keys(pendingRefEdits).length > 0) && !await dialog.confirm('לבטל את השינויים שלא נשמרו?', 'ביטול שינויים', 'warning')) return;
     setEditMode(false); setEditingField(null); setPendingEdits({}); setPendingRefEdits({}); setInlineMsg(null);
   };
 
@@ -1056,16 +1059,16 @@ export const DefectDetailScreen: React.FC<{
       {historyModalOpen && (
         <div
           onClick={() => setHistoryModalOpen(false)}
-          className="fixed inset-0 bg-black/50 z-[5000] flex items-center justify-center p-6"
+          className="fixed inset-0 z-[5000] flex items-center justify-center p-6"
+          style={{ background: DIALOG_OVERLAY_BG }}
         >
           <div
             onClick={e => e.stopPropagation()}
-            className="bg-card rounded-lg px-5 py-[18px] w-[760px] max-w-[96vw] max-h-[86vh] overflow-y-auto shadow-xl"
+            className="bg-card rounded-xl px-5 py-[18px] w-[760px] max-w-[96vw] max-h-[86vh] overflow-y-auto"
+            style={{ boxShadow: DIALOG_PANEL_SHADOW }}
           >
-            <div className="flex items-center justify-between mb-2.5">
-              <div className="text-[15px] font-bold text-foreground">היסטוריית שינויים — תקלה {defectId}</div>
-              <button onClick={() => setHistoryModalOpen(false)} className="bg-transparent border-none cursor-pointer text-lg text-subtle-foreground leading-none">✕</button>
-            </div>
+            <DialogBrandBar icon="🕘" title={`היסטוריית שינויים — תקלה ${defectId}`} onClose={() => setHistoryModalOpen(false)}
+              style={{ margin: '-18px -20px 12px', position: 'sticky', top: '-18px', zIndex: 2 }} />
             <FieldChangeHistorySection defectId={defectId} token={token} defaultOpen />
           </div>
         </div>
@@ -1315,6 +1318,7 @@ function groupCountByTeam(items: OpenProdDefectMonthRow[], keyFn: (r: OpenProdDe
 }
 
 export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
+  const dialog = useDialog();
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const [rows, setRows] = useState<OpenProdDefectMonthRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1363,11 +1367,11 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
       const { updated, failed } = res.data as { updated: any[]; failed: { defectId: string; error: string }[] };
       const lines = [`עודכנו בהצלחה: ${updated.length}`];
       if (failed.length > 0) lines.push(`נכשלו: ${failed.length}\n${failed.map(f => `${f.defectId}: ${f.error}`).join('\n')}`);
-      window.alert(lines.join('\n\n'));
+      dialog.alert(lines.join('\n\n'), 'עדכון קבוצתי', failed.length > 0 ? 'warning' : 'success');
       setSelectedDefectIds(new Set());
       setBulkStatus('');
     } catch (e: any) {
-      window.alert(e?.response?.data?.message ?? 'עדכון קבוצתי נכשל');
+      dialog.alert(e?.response?.data?.message ?? 'עדכון קבוצתי נכשל', 'שגיאה', 'danger');
     } finally {
       setBulkApplying(false);
     }
@@ -1479,8 +1483,8 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
     setSavedViews(views);
     try { localStorage.setItem(OPENPROD_SAVED_VIEWS_STORAGE_KEY, JSON.stringify(views)); } catch { /* ignore quota errors */ }
   };
-  const saveCurrentView = () => {
-    const name = window.prompt('שם לתצוגה השמורה:');
+  const saveCurrentView = async () => {
+    const name = await dialog.prompt({ title: 'שמירת תצוגה', label: 'שם לתצוגה השמורה', placeholder: 'למשל: פתוחות קריטיות', confirmLabel: 'שמור' });
     if (!name?.trim()) return;
     const view: SavedView = { name: name.trim(), columns: tableColumns, sortKey, sortDir, filterState: monthFilters.getFilterState() };
     persistSavedViews([...savedViews.filter(v => v.name !== view.name), view]);

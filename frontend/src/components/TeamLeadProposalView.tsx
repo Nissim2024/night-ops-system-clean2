@@ -8,6 +8,7 @@ import { Button } from './ui';
 import { cleanHtmlText } from '../utils/textSanitize';
 import { formatDateTime } from '../utils/dateFormat';
 import { DefectIdBadge } from './shared/defectFieldDisplay';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from './ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -539,20 +540,22 @@ const TaskWizardModal: React.FC<{
   const wizTypeMeta = type ? WIZARD_TYPES.find(t => t.type === type) : null;
 
   return (
-    <div className="fixed inset-0 z-[6000] flex items-center justify-center" style={{ background: C.bgOverlay }}
-      onClick={onCancel}>
+    // Wizard — no backdrop-click close (would discard the in-progress steps)
+    <div className="fixed inset-0 z-[6000] flex items-center justify-center" style={{ background: DIALOG_OVERLAY_BG }}>
       <div onClick={e => e.stopPropagation()}
-        className="flex max-h-[86vh] w-[92vw] max-w-[600px] flex-col rounded-xl bg-card shadow-lg">
+        className="flex max-h-[86vh] w-[92vw] max-w-[600px] flex-col overflow-hidden rounded-xl bg-card" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+        <DialogBrandBar
+          icon="➕"
+          title={stepIdx === -1 ? 'הוספת משימה — שלב 1: סוג המשימה' : `שלב ${stepIdx + 2}: ${steps[stepIdx]?.label}`}
+          onClose={onCancel}
+        />
 
-        <div className="shrink-0 px-6 pt-5">
-          <div className="mb-[10px] flex items-center gap-2">
+        <div className="shrink-0 px-6 pt-4">
+          <div className="flex items-center gap-2">
             <span className="rounded-sm px-[10px] py-[3px] font-mono text-xs font-bold" style={{ color: GOLIVE, background: `${GOLIVE}1e` }}>{crNumber}</span>
             {wizTypeMeta && (
               <span className="rounded-full px-[11px] py-[3px] text-[11px] font-bold" style={{ background: `${C.brand}1e`, color: C.brand }}>{wizTypeMeta.icon} {wizTypeMeta.label}</span>
             )}
-          </div>
-          <div className="text-[17px] font-bold text-foreground">
-            {stepIdx === -1 ? 'הוספת משימה — שלב 1: סוג המשימה' : `שלב ${stepIdx + 2}: ${steps[stepIdx]?.label}`}
           </div>
         </div>
 
@@ -1583,14 +1586,10 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
   // ── Form modal ─────────────────────────────────────────────────────────────
   const renderForm = () => (
-    <div className="fixed inset-0 z-[3000] bg-[--overlay] [--overlay:theme(colors.black/45%)]" dir="rtl"
+    <div className="fixed inset-0 z-[3000]" style={{ background: DIALOG_OVERLAY_BG }} dir="rtl"
       onClick={e => { if (e.target === e.currentTarget) cancelForm(); }}>
-      <div className="fixed left-1/2 top-1/2 flex max-h-[84vh] w-[760px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl bg-card shadow-floating">
-        {/* Panel header */}
-        <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-5 py-4">
-          <button onClick={cancelForm} className="rounded px-1.5 py-0.5 text-xl leading-none text-subtle-foreground">✕</button>
-          <span className="text-base font-bold text-foreground">{editId ? 'עריכת משימה' : 'פרטי משימה'}</span>
-        </div>
+      <div className="fixed left-1/2 top-1/2 flex max-h-[84vh] w-[760px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl bg-card" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+        <DialogBrandBar icon={editId ? '✏️' : '📝'} title={editId ? 'עריכת משימה' : 'פרטי משימה'} onClose={cancelForm} />
 
         {/* Scrollable body */}
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
@@ -2965,14 +2964,10 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
       {/* Cross-team plan preview — read-only, only ever shown for a SUBMITTED/APPROVED plan */}
       {teamPreview && (
-        <div dir="rtl" onClick={() => setTeamPreview(null)} className="fixed inset-0 z-[4000] flex items-center justify-center" style={{ background: C.bgOverlay }}>
-          <div onClick={e => e.stopPropagation()} className="max-h-[85vh] w-[95vw] max-w-[560px] overflow-y-auto rounded-3xl bg-card px-7 py-6 shadow-xl">
-            <div className="mb-1 flex items-center justify-between">
-              <div className="text-[17px] font-bold text-foreground">
-                תוכנית {teamPreview.teamName}
-              </div>
-              <button onClick={() => setTeamPreview(null)} className="cursor-pointer border-none bg-transparent px-1.5 py-0.5 text-lg text-subtle-foreground">✕</button>
-            </div>
+        <div dir="rtl" onClick={() => setTeamPreview(null)} className="fixed inset-0 z-[4000] flex items-center justify-center" style={{ background: DIALOG_OVERLAY_BG }}>
+          <div onClick={e => e.stopPropagation()} className="max-h-[85vh] w-[95vw] max-w-[560px] overflow-y-auto rounded-xl bg-card px-7 py-6" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+            <DialogBrandBar icon="📋" title={`תוכנית ${teamPreview.teamName}`} onClose={() => setTeamPreview(null)}
+              style={{ margin: '-24px -28px 12px', position: 'sticky', top: '-24px', zIndex: 2 }} />
 
             {teamPreview.loading && (
               <div className="p-[30px] text-center text-sm text-subtle-foreground">טוען...</div>
@@ -3082,14 +3077,15 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
 
       {/* Extract-tasks modal */}
       {extractModal && (
-        <div dir="rtl" className="fixed inset-0 z-[4000] flex items-center justify-center" style={{ background: C.bgOverlay }}>
-          <div className="max-h-[85vh] w-[95vw] max-w-[560px] overflow-y-auto rounded-3xl bg-card px-7 py-6 shadow-xl">
-            <div className="mb-1 text-[17px] font-bold text-foreground">
-              ⚡ הפק משימות מ{extractModal.sourceLabel}
-            </div>
-            <div className="mb-4 text-sm text-subtle-foreground">
-              CR {extractModal.crNumber} — בחר אילו שורות להפוך למשימות לביצוע
-            </div>
+        <div dir="rtl" className="fixed inset-0 z-[4000] flex items-center justify-center" style={{ background: DIALOG_OVERLAY_BG }}>
+          <div className="max-h-[85vh] w-[95vw] max-w-[560px] overflow-y-auto rounded-xl bg-card px-7 py-6" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+            <DialogBrandBar
+              icon="⚡"
+              title={`הפק משימות מ${extractModal.sourceLabel}`}
+              subtitle={`CR ${extractModal.crNumber} — בחר אילו שורות להפוך למשימות לביצוע`}
+              onClose={() => setExtractModal(null)}
+              style={{ margin: '-24px -28px 16px', position: 'sticky', top: '-24px', zIndex: 2 }}
+            />
 
             <div className="mb-5 flex flex-col gap-2">
               {extractModal.items.map((item, i) => (

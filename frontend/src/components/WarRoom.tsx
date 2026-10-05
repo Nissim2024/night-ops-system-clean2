@@ -6,6 +6,8 @@ import { C, statusColor, statusBg, severityColor, severityBg, severityLabel } fr
 import { cn } from '../lib/utils';
 import { formatDateTime, formatTime } from '../utils/dateFormat';
 import { FocusModeModal } from './FocusModeModal';
+import { useDialog } from '../context/DialogContext';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from './ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -168,6 +170,7 @@ const GoNoGoPanel: React.FC<GoNoPanelProps> = ({ env, label, status, details, en
 };
 
 export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehearsal = false, hideGoNogo = false, onTeamClick, onlineUsers = [], onVersionEnded, refreshSignal, onGoToHub, onGoHome }) => {
+  const dialog = useDialog();
   const { can } = usePermissions();
   const [version, setVersion] = useState<any>(null);
   const [teams, setTeams] = useState<any[]>([]);
@@ -291,7 +294,7 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
       await fetchData(true);
     } catch (err: any) {
       console.error(err);
-      window.alert(err?.response?.data?.message || 'שגיאה בעדכון סטטוס המשימה');
+      dialog.alert(err?.response?.data?.message || 'שגיאה בעדכון סטטוס המשימה', 'שגיאה', 'danger');
     }
     finally { setUpdatingTaskId(null); }
   };
@@ -491,7 +494,7 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
       // silently swallowed here before — the dropdown just snapped back with
       // no explanation, which is how a blocked phase-4 task looked like it
       // "didn't work" instead of "isn't allowed yet."
-      window.alert(err?.response?.data?.message || 'שגיאה בעדכון סטטוס המשימה');
+      dialog.alert(err?.response?.data?.message || 'שגיאה בעדכון סטטוס המשימה', 'שגיאה', 'danger');
     }
     finally { setUpdatingTaskId(null); }
   };
@@ -1198,18 +1201,15 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
 
       {/* ── דיאלוג סיבת חסימה ── */}
       {blockingTask && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)' }}
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center" style={{ background: DIALOG_OVERLAY_BG }}
           onClick={() => setBlockingTask(null)}
         >
           <div
-            className="rounded-2xl py-7 px-8 min-w-[380px] max-w-[480px] border bg-card"
-            style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.6)', borderColor: C.border }}
+            className="overflow-hidden rounded-xl py-7 px-8 min-w-[380px] max-w-[480px] bg-card"
+            style={{ boxShadow: DIALOG_PANEL_SHADOW }}
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center gap-2.5 mb-2">
-              <span className="text-[22px]">🚨</span>
-              <h3 className="m-0 text-[17px]" style={{ color: C.statusFailed }}>סיבת חסימה</h3>
-            </div>
+            <DialogBrandBar icon="🚨" title="סיבת חסימה" onClose={() => setBlockingTask(null)} style={{ margin: '-28px -32px 16px' }} />
             <p className="mb-4 mt-0 text-[15px] text-subtle-foreground">
               משימה: <strong className="text-foreground">{blockingTask.title}</strong>
             </p>
@@ -1266,18 +1266,15 @@ export const WarRoom: React.FC<Props> = ({ token, versionId, versionName, isRehe
       )}
 
       {waivingTask && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)' }}
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center" style={{ background: DIALOG_OVERLAY_BG }}
           onClick={() => setWaivingTask(null)}
         >
           <div
-            className="rounded-2xl py-7 px-8 min-w-[380px] max-w-[480px] border bg-card"
-            style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.6)', borderColor: C.border }}
+            className="overflow-hidden rounded-xl py-7 px-8 min-w-[380px] max-w-[480px] bg-card"
+            style={{ boxShadow: DIALOG_PANEL_SHADOW }}
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center gap-2.5 mb-2">
-              <span className="text-[22px]">🎭</span>
-              <h3 className="m-0 text-[17px]" style={{ color: '#8b5cf6' }}>אישור דילוג GO/NO-GO</h3>
-            </div>
+            <DialogBrandBar icon="🎭" title="אישור דילוג GO/NO-GO" onClose={() => setWaivingTask(null)} style={{ margin: '-28px -32px 16px' }} />
             <p className="mb-4 mt-0 text-[15px] text-subtle-foreground">
               משימה: <strong className="text-foreground">{waivingTask.title}</strong><br />
               פעולה זו נרשמת בהיסטוריה — נא נמק מדוע ניתן להמשיך למרות שהמשימה נכשלה.

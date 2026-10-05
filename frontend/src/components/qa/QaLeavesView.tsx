@@ -3,6 +3,7 @@ import axios from 'axios';
 import { QaSeasonsView } from './QaSeasonsView';
 import { DateField } from '../DatePicker';
 import { formatDate } from '../../utils/dateFormat';
+import { useDialog } from '../../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -113,6 +114,7 @@ type FilterStatus = 'all' | ApprovalStatus;
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
+  const dialog = useDialog();
   const isAdmin = role === 'ADMIN' || role === 'TEAM_LEAD'; // can view team/all requests + approve/decline
   const isFullAdmin = role === 'ADMIN'; // season/holiday definitions stay admin-only
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -166,8 +168,8 @@ export const QaLeavesView: React.FC<Props> = ({ role, token }) => {
   // Reload rather than patch locally: the backend cascades to every sibling
   // row sharing the range's groupId (see LeavesService.applyCancellation).
   const cancelRow = async (row: DisplayRow) => {
-    if (row.status === 'APPROVED' && !window.confirm('לבטל חופשה שכבר אושרה לעובד?')) return;
-    const reason = window.prompt('סיבת ביטול (לא חובה):');
+    if (row.status === 'APPROVED' && !await dialog.confirm('לבטל חופשה שכבר אושרה לעובד?', 'ביטול חופשה מאושרת', 'warning')) return;
+    const reason = await dialog.prompt({ title: 'ביטול חופשה', label: 'סיבת ביטול', placeholder: 'לא חובה', optional: true, confirmLabel: 'בטל חופשה', variant: 'warning' });
     if (reason === null) return;
     setSaving(row.key);
     try {

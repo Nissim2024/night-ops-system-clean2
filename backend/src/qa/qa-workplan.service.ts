@@ -233,7 +233,7 @@ export class QaWorkPlanService {
   // ── Sync the version's own dates from the QA cascade ────────────────────────
   // Only for versions created after 2026-07-24 (datesLockedToWorkPlan=true —
   // see schema comment and versions.service.ts's create()): once a QA work
-  // plan exists, integrationStart/End, qaStart/End and plannedRehearsalStart/End
+  // plan exists, qaStart/End and plannedRehearsalStart/End
   // are no longer independently editable — they're whatever the QA cascade
   // currently computes. Called after every operation that can move cycle
   // dates (generate, settings save, and — via cascadeFromCycle —
@@ -249,10 +249,8 @@ export class QaWorkPlanService {
   // this sync.
   // Legacy versions (datesLockedToWorkPlan=false) are untouched — this is a
   // no-op for every version that existed before this feature shipped.
-  private async syncVersionDatesFromWorkPlan(
-    workPlanId: string,
-    extra?: { integrationStart?: Date; integrationEnd?: Date },
-  ) {
+  // integrationStart/End are not touched here — they're owned by ניהול גרסה.
+  private async syncVersionDatesFromWorkPlan(workPlanId: string) {
     const plan = await prisma.qaWorkPlan.findUnique({ where: { id: workPlanId }, select: { versionId: true } });
     if (!plan) return;
     const version = await prisma.version.findUnique({ where: { id: plan.versionId }, select: { datesLockedToWorkPlan: true, plannedStart: true } as any });
@@ -265,7 +263,7 @@ export class QaWorkPlanService {
     const rehearsal = byType.get('REHEARSAL');
     const goLive    = byType.get('GO_LIVE');
 
-    const data: any = { ...extra };
+    const data: any = {};
     if (cycle1) data.qaStart = cycle1.plannedStart;
     if (lastCore) data.qaEnd = lastCore.plannedEnd;
     if (rehearsal) { data.plannedRehearsalStart = rehearsal.plannedStart; data.plannedRehearsalEnd = rehearsal.plannedEnd; }
@@ -286,8 +284,6 @@ export class QaWorkPlanService {
     cycle1LengthDays?: number,
     cycle2LengthDays?: number,
     cycle3LengthDays?: number,
-    integrationStart?: Date,
-    integrationEnd?: Date,
   ) {
     // 1. Validate version exists
     const version = await prisma.version.findUnique({ where: { id: versionId } });
@@ -395,7 +391,7 @@ export class QaWorkPlanService {
       }
     });
 
-    await this.syncVersionDatesFromWorkPlan(newPlanId, { integrationStart, integrationEnd });
+    await this.syncVersionDatesFromWorkPlan(newPlanId);
 
     const result = await this.getWorkPlan(versionId);
     return { workPlan: result, unassignedCrs: unassigned };

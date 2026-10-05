@@ -4,6 +4,8 @@ import { C, JIRA } from '../../theme';
 import { Avatar } from '../ui';
 import { formatDateTime } from '../../utils/dateFormat';
 import { cn } from '../../lib/utils';
+import { useDialog } from '../../context/DialogContext';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from '../ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -356,9 +358,9 @@ export function DetailGroupsDialog({
   const hiddenFields = filteredColumns.filter(c => !assignment[c.key]);
 
   return (
-    <div onClick={onClose} className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/50">
-      <div onClick={e => e.stopPropagation()} className="flex max-h-[86vh] w-[640px] max-w-[94vw] flex-col rounded-lg bg-card p-5 shadow-[0_20px_48px_rgba(0,0,0,.25)] [direction:rtl]">
-        <div className="mb-1 text-sm font-bold text-foreground">התאמת שדות וקטגוריות בטופס פרטי התקלה</div>
+    <div onClick={onClose} className="fixed inset-0 z-[5000] flex items-center justify-center" style={{ background: DIALOG_OVERLAY_BG }}>
+      <div onClick={e => e.stopPropagation()} className="flex max-h-[86vh] w-[640px] max-w-[94vw] flex-col overflow-hidden rounded-xl bg-card p-5 [direction:rtl]" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+        <DialogBrandBar icon="🧩" title="התאמת שדות וקטגוריות בטופס פרטי התקלה" onClose={onClose} style={{ margin: '-20px -20px 14px' }} />
         <div className="mb-3.5 text-xs text-subtle-foreground">לכל שדה בחרו קטגוריה (או "הסתר") — ניתן גם להוסיף, לשנות שם, או למחוק קטגוריות.</div>
 
         <div className="mb-3.5 flex flex-wrap gap-1.5 border-b border-border pb-3.5">
@@ -628,12 +630,9 @@ function AttachmentPreviewModal({ defectId, fileName, token, onClose }: { defect
   }, [defectId, fileName, token]);
 
   return (
-    <div onClick={onClose} className="fixed inset-0 z-[6000] flex items-center justify-center bg-black/60 p-6">
-      <div onClick={e => e.stopPropagation()} className="flex h-[85vh] w-[90vw] max-w-[900px] flex-col rounded-lg bg-card p-4 shadow-[0_20px_48px_rgba(0,0,0,.3)]">
-        <div className="mb-2.5 flex items-center justify-between">
-          <div className="text-left text-sm font-bold text-foreground [direction:ltr]">{fileName}</div>
-          <button onClick={onClose} className="cursor-pointer border-none bg-transparent text-lg text-subtle-foreground">✕</button>
-        </div>
+    <div onClick={onClose} className="fixed inset-0 z-[6000] flex items-center justify-center p-6" style={{ background: DIALOG_OVERLAY_BG }}>
+      <div onClick={e => e.stopPropagation()} className="flex h-[85vh] w-[90vw] max-w-[900px] flex-col overflow-hidden rounded-xl bg-card p-4" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+        <DialogBrandBar icon="📎" title={<span className="[direction:ltr] [unicode-bidi:plaintext]">{fileName}</span>} onClose={onClose} style={{ margin: '-16px -16px 10px' }} />
         <div className={cn('flex flex-1 justify-center overflow-auto rounded-md bg-muted', content?.kind === 'text' ? 'items-stretch' : 'items-center')}>
           {error && <div className="p-5 text-[13px] text-danger">{error}</div>}
           {!error && !content && <div className="p-5 text-[13px] text-subtle-foreground">טוען...</div>}
@@ -651,6 +650,7 @@ function AttachmentPreviewModal({ defectId, fileName, token, onClose }: { defect
 }
 
 export function AttachmentsSection({ defectId, token }: { defectId: string; token: string }) {
+  const dialog = useDialog();
   const [attachments, setAttachments] = useState<DefectAttachment[] | null>(null);
   const [previewFile, setPreviewFile] = useState<string | null>(null);
 
@@ -676,7 +676,7 @@ export function AttachmentsSection({ defectId, token }: { defectId: string; toke
       a.remove();
       URL.revokeObjectURL(url);
     } catch {
-      window.alert('שגיאה בהורדת הקובץ מ-QC');
+      dialog.alert('שגיאה בהורדת הקובץ מ-QC', 'שגיאה', 'danger');
     }
   };
 
@@ -1069,9 +1069,9 @@ export function SelectColumnsDialog<K extends string>({
     cn('cursor-pointer px-2 py-1 text-[13px] text-foreground', selected ? 'bg-primary/10' : 'bg-transparent');
 
   return (
-    <div onClick={onClose} className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50">
-      <div onClick={e => e.stopPropagation()} className="w-[660px] max-w-[94vw] rounded-lg bg-card p-5 shadow-[0_20px_48px_rgba(0,0,0,.25)]">
-        <div className="mb-3.5 text-right text-sm font-bold text-foreground">בחירת עמודות</div>
+    <div onClick={onClose} className="fixed inset-0 z-[2000] flex items-center justify-center" style={{ background: DIALOG_OVERLAY_BG }}>
+      <div onClick={e => e.stopPropagation()} className="w-[660px] max-w-[94vw] overflow-hidden rounded-xl bg-card p-5" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+        <DialogBrandBar icon="⚙" title="בחירת עמודות" onClose={onClose} style={{ margin: '-20px -20px 14px' }} />
         <div className="flex gap-2.5 [direction:ltr]">
           <div className="flex-1">
             <div className="mb-1 text-xs text-subtle-foreground">Available Columns:</div>

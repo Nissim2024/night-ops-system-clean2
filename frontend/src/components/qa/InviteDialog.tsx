@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from '../ui';
 import { formatDateTime, formatTime } from '../../utils/dateFormat';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from '../ui/BrandedDialog';
 
 export type InviteTeamMember = { id: string; fullName: string; email: string };
 export type InviteTeamOption = { id: string; name: string; members: InviteTeamMember[] };
@@ -99,27 +100,18 @@ export function InviteDialog({ title, subtitle, startISO, endISO, teams, preSele
     <div
       dir="rtl"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-      className="fixed inset-0 z-[2100] flex items-center justify-center bg-black/55"
+      className="fixed inset-0 z-[2100] flex items-center justify-center"
+      style={{ background: DIALOG_OVERLAY_BG }}
     >
-      <div className="w-[92vw] max-w-[480px] overflow-hidden rounded-xl bg-card shadow-xl">
-        <div className="bg-primary px-5 py-4 text-white">
-          <div className="flex items-center gap-2">
-            <span className="text-[22px]">📅</span>
-            <div className="text-base font-bold">קביעת פגישה ביומן</div>
-          </div>
-          <div className="mt-1 text-xs opacity-90">
-            {title}{subtitle ? ` · ${subtitle}` : ''}
-          </div>
-          {startISO && endISO && (
-            <div className="mt-0.5 text-xs opacity-85">
-              {formatDateTime(startISO)}
-              {' – '}
-              {formatTime(endISO)}
-            </div>
-          )}
-        </div>
+      <div className="w-[92vw] max-w-[480px] overflow-hidden rounded-xl bg-card" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+        <DialogBrandBar icon="📅" title="קביעת פגישה ביומן" subtitle={`${title}${subtitle ? ` · ${subtitle}` : ''}`} onClose={onClose} />
 
         <div className="flex flex-col gap-3 p-5">
+          {startISO && endISO && (
+            <div className="rounded-md bg-muted px-3 py-2 text-sm font-semibold text-foreground">
+              🕒 {formatDateTime(startISO)}{' – '}{formatTime(endISO)}
+            </div>
+          )}
           <div className="text-sm font-semibold text-foreground">בחר משתתפים לזימון:</div>
 
           <div className="flex gap-2">

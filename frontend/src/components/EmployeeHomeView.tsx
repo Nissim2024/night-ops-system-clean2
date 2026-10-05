@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
+import RunbookModal, { RUNBOOKS, getRunbookTrigger, RunbookTrigger } from './qa/RunbookModal';
+import { CAT_LABELS, useMyActivityTasks } from './qa/activityBoardShared';
 import { C, severityColor, severityLabel } from '../theme';
-import { RUNBOOKS } from './qa/RunbookModal';
 import { MyQaTask, TargetDefectGroup } from './qa/MyQaTasksView';
 import { VersionMilestoneTimeline } from './shared/VersionMilestoneTimeline';
 import { GoLiveCountdown } from './shared/GoLiveCountdown';
@@ -111,8 +112,12 @@ export const EmployeeHomeView: React.FC<Props> = ({
   // since these buckets are self-scoped server-side (target-cr.controller's
   // req.user), not generic KPI filters.
   const [drilldown, setDrilldown] = useState<{ title: string; endpoint: string } | null>(null);
+  const [runbookItem, setRunbookItem] = useState<{ trigger: RunbookTrigger; dateStartISO: string } | null>(null);
 
   const primary = activeVersion ?? planningVersion;
+  // Activity-board entries assigned to me (QA module's לוח פעילויות) — same
+  // personal-task rules as the manager Home (activityBoardShared.tsx).
+  const { tasks: myActivityTasks, markDone: markActivityDone } = useMyActivityTasks(token, primary?.id, fullName);
   const ph = primary ? (PHASE_META[primary.status] ?? PHASE_META['DRAFT']) : null;
   const isLiveNow = activeVersion && ['ACTIVE', 'REHEARSAL'].includes(activeVersion.status);
 
@@ -123,6 +128,17 @@ export const EmployeeHomeView: React.FC<Props> = ({
   };
 
   const actions: { icon: string; title: string; desc: string; urgent?: boolean; onClick: () => void }[] = [];
+  for (const { a, task } of myActivityTasks) {
+    const trigger = task.dueNow ? getRunbookTrigger(a.activityKey) : null;
+    actions.push({
+      icon: trigger ? '▶' : '📌',
+      title: `המשימה שלך: ${task.text}`,
+      desc: [a.owner, CAT_LABELS[a.category as keyof typeof CAT_LABELS]].filter(Boolean).join(' · ')
+        + (trigger ? ' · לחץ להפעלת Runbook' : ' · לחץ לסימון כבוצע'),
+      urgent: task.urgent,
+      onClick: trigger ? () => setRunbookItem({ trigger, dateStartISO: a.dateStart! }) : () => markActivityDone(a),
+    });
+  }
   if (seasonReminder) {
     actions.push({
       icon: '🌴', title: `עונת חופשות "${seasonReminder.name}" פתוחה להגשה`,
@@ -483,6 +499,17 @@ export const EmployeeHomeView: React.FC<Props> = ({
           endpoint={drilldown.endpoint}
           title={drilldown.title}
           onClose={() => setDrilldown(null)}
+        />
+      )}
+
+      {runbookItem && primary && (
+        <RunbookModal
+          trigger={runbookItem.trigger}
+          dateStartISO={runbookItem.dateStartISO}
+          versionId={primary.id}
+          token={token}
+          startInRunMode
+          onClose={() => setRunbookItem(null)}
         />
       )}
     </div>

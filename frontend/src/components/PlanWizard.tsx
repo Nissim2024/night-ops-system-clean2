@@ -9,6 +9,7 @@ import { DateField, DateTimeField } from './DatePicker';
 import { C } from '../theme';
 import { cn } from '../lib/utils';
 import { formatTime } from '../utils/dateFormat';
+import { DialogBrandBar, DIALOG_PANEL_SHADOW } from './ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -854,22 +855,10 @@ export function PlanWizard({ version, token, users, teams, onClose, onRefresh }:
     <div className="fixed inset-0 z-[3000]" dir="rtl">
       <div className="absolute inset-0 backdrop-blur-[2px]" style={{ background: C.bgOverlay }} />
 
-      <div className="relative z-[1] mx-auto flex max-w-[860px] flex-col overflow-hidden rounded-2xl bg-card shadow-md" style={{ margin: '32px auto', maxHeight: 'calc(100vh - 64px)' }}>
+      <div className="relative z-[1] mx-auto flex max-w-[860px] flex-col overflow-hidden rounded-xl bg-card" style={{ margin: '32px auto', maxHeight: 'calc(100vh - 64px)', boxShadow: DIALOG_PANEL_SHADOW }}>
 
-        {/* ── Header — light, matches the app's other modal headers ── */}
-        <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-6 py-4">
-          <div>
-            <div className="text-[17px] font-bold text-foreground">🔧 הכן תוכנית</div>
-            <div className="mt-0.5 text-sm text-subtle-foreground">{version.name}</div>
-          </div>
-          <button
-            onClick={onClose}
-            title="סגור"
-            className="cursor-pointer border-none bg-transparent p-1 text-lg leading-none text-subtle-foreground transition-colors duration-fast ease-out hover:text-danger"
-          >
-            ✕
-          </button>
-        </div>
+        {/* ── Header — shared dialog brand bar ── */}
+        <DialogBrandBar icon="🔧" title="הכן תוכנית" subtitle={version.name} onClose={onClose} />
 
         {/* ── Progress bar — connected step chain, consistent with the app's other stage-chain components ── */}
         <div className="shrink-0 border-b border-border bg-muted px-6 py-4">

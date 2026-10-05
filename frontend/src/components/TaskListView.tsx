@@ -11,6 +11,7 @@ import { useDialog } from '../context/DialogContext';
 import { Avatar, StatusChip, Spinner, VersionStatusChip } from './ui';
 import { TaskDetailPanel } from './TaskDetailPanel';
 import { formatDate as fmtDateShared, formatTime as fmtTimeShared } from '../utils/dateFormat';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from './ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -720,11 +721,9 @@ export const TaskListView: React.FC<Props> = ({ token, versionId, versionName, v
 
       {/* ── Convert proposals result dialog ── */}
       {convertResult && (
-        <div className="fixed inset-0 flex items-center justify-center z-[200]" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={() => setConvertResult(null)}>
-          <div onClick={e => e.stopPropagation()} className="bg-card rounded-lg p-6 min-w-[340px] max-w-[480px] w-[90%] shadow-lg">
-            <h3 className="mb-4 mt-0 text-lg font-bold text-foreground">
-              תוצאות שיבוץ הצעות
-            </h3>
+        <div className="fixed inset-0 flex items-center justify-center z-[200]" style={{ background: DIALOG_OVERLAY_BG }} onClick={() => setConvertResult(null)}>
+          <div onClick={e => e.stopPropagation()} className="bg-card rounded-xl p-6 min-w-[340px] max-w-[480px] w-[90%] overflow-hidden" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+            <DialogBrandBar icon="📥" title="תוצאות שיבוץ הצעות" onClose={() => setConvertResult(null)} style={{ margin: '-24px -24px 16px' }} />
 
             {/* Created */}
             <div

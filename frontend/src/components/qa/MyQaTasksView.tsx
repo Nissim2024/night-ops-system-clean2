@@ -3,6 +3,7 @@ import axios from 'axios';
 import { formatDate } from '../../utils/dateFormat';
 import { IssueKeyLink, StatusBadge, SeverityBadge, PersonAvatar } from '../shared/defectFieldDisplay';
 import { CrCoverageCard, CycleProgress } from '../release-intelligence/CycleProgressView';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from '../ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -317,30 +318,17 @@ export const MyQaTasksView: React.FC<Props> = ({ tasks, versionName, versionId, 
       {/* ── CR detail modal ── */}
       {crDetailFor && (
         <div
-          className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/45 p-4"
+          className="fixed inset-0 z-[2000] flex items-center justify-center p-4"
+          style={{ background: DIALOG_OVERLAY_BG }}
           onClick={() => { setCrDetailFor(null); setCrDetail(null); }}
         >
           <div
             dir="rtl"
-            className="flex max-h-[85vh] w-full max-w-[720px] flex-col rounded-xl border border-border bg-card shadow-xl"
+            className="flex max-h-[85vh] w-full max-w-[720px] flex-col overflow-hidden rounded-xl bg-card"
+            style={{ boxShadow: DIALOG_PANEL_SHADOW }}
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <div className="flex items-center gap-3">
-                <span className="text-lg font-bold text-foreground">📄 פרטי CR {crDetailFor}</span>
-                {crDetail?.versionName && (
-                  <span className="rounded-full bg-primary-50 px-3 py-0.5 text-xs font-semibold text-primary">
-                    {crDetail.versionName}
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={() => { setCrDetailFor(null); setCrDetail(null); }}
-                className="cursor-pointer border-none bg-transparent text-lg text-subtle-foreground hover:text-foreground"
-              >
-                ✕
-              </button>
-            </div>
+            <DialogBrandBar icon="📄" title={`פרטי CR ${crDetailFor}`} subtitle={crDetail?.versionName} onClose={() => { setCrDetailFor(null); setCrDetail(null); }} />
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
               {crDetailLoading ? (
                 <div className="p-6 text-center text-sm text-subtle-foreground">⏳ טוען...</div>

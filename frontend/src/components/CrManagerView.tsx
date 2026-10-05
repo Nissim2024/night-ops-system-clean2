@@ -4,6 +4,7 @@ import { C, versionStatusColor, versionStatusBg, versionStatusLabel } from '../t
 import { useDialog } from '../context/DialogContext';
 import { cleanHtmlText } from '../utils/textSanitize';
 import { formatDateTime } from '../utils/dateFormat';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from './ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -227,14 +228,12 @@ export const CrManagerView: React.FC<Props> = ({ token }) => {
       {returnModal && (
         <div
           dir="rtl"
-          className="fixed inset-0 z-[3000] flex items-center justify-center bg-[rgba(20,21,42,0.45)]"
+          className="fixed inset-0 z-[3000] flex items-center justify-center"
+          style={{ background: DIALOG_OVERLAY_BG }}
           onClick={e => { if (e.target === e.currentTarget) { setReturnModal(null); setReturnNote(''); } }}
         >
-          <div className="w-[460px] max-w-[94vw] overflow-hidden rounded-3xl bg-card shadow-xl">
-            <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <span className="text-lg font-bold">החזרת תוכנית לתיקון</span>
-              <button onClick={() => { setReturnModal(null); setReturnNote(''); }} className="cursor-pointer border-none bg-transparent text-lg text-subtle-foreground">✕</button>
-            </div>
+          <div className="w-[460px] max-w-[94vw] overflow-hidden rounded-xl bg-card" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+            <DialogBrandBar icon="↩️" title="החזרת תוכנית לתיקון" onClose={() => { setReturnModal(null); setReturnNote(''); }} />
             <div className="p-5">
               <div className="mb-3 text-sm text-muted-foreground">
                 <strong>CR:</strong> {returnModal.crNumber} &nbsp;|&nbsp; <strong>צוות:</strong> {returnModal.teamName}

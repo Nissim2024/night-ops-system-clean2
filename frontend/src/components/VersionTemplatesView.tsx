@@ -4,6 +4,7 @@ import { C, FONT } from '../theme';
 import { formatDate } from '../utils/dateFormat';
 import { cleanHtmlText } from '../utils/textSanitize';
 import { usePermissions } from '../context/PermissionsContext';
+import { useDialog } from '../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -11,6 +12,7 @@ const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${win
 // module's menu can show it too ("תבניות גרסה"), where templates are actually
 // used. Delete follows the permissions table (action:template_delete).
 export const VersionTemplatesView: React.FC<{ token: string }> = ({ token }) => {
+  const dialog = useDialog();
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const { can } = usePermissions();
   const [templates, setTemplates] = useState<any[]>([]);
@@ -32,7 +34,7 @@ export const VersionTemplatesView: React.FC<{ token: string }> = ({ token }) => 
   useEffect(() => { load(); }, [load]);
 
   const remove = async (id: string) => {
-    if (!window.confirm('למחוק את התבנית?')) return;
+    if (!await dialog.confirm('למחוק את התבנית? לא ניתן לשחזר לאחר המחיקה.', 'מחיקת תבנית', 'danger')) return;
     setDeletingId(id);
     try {
       await axios.delete(`${API}/version-templates/${id}`, { headers });

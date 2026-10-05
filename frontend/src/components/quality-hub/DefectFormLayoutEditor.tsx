@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, DEFECT_FORM_FIXED_FIELDS } from './openProdDefectsFields';
+import { useDialog } from '../../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -30,6 +31,7 @@ const toggleWide = (p: Panel, f: string) => { const w = p.wide ?? []; p.wide = w
 const btn = 'cursor-pointer rounded-sm border border-border bg-card px-1.5 py-0.5 text-[11px] text-muted-foreground disabled:cursor-default disabled:opacity-30';
 
 export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) => {
+  const dialog = useDialog();
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const [layouts, setLayouts] = useState<Layouts | null>(null);
   const [teams, setTeams] = useState<TeamRow[]>([]);
@@ -65,8 +67,8 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
     ? 'התבנית המובנית של המערכת'
     : layouts?.default ? 'תבנית ברירת המחדל' : 'התבנית המובנית של המערכת';
 
-  const changeScope = (next: string) => {
-    if (dirty && !window.confirm('יש שינויים שלא נשמרו. לעבור בכל זאת?')) return;
+  const changeScope = async (next: string) => {
+    if (dirty && !await dialog.confirm('יש שינויים שלא נשמרו. לעבור בכל זאת?', 'שינויים שלא נשמרו', 'warning')) return;
     setScope(next);
   };
 
@@ -164,7 +166,7 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
                   <button className={btn} title="הזז ימינה (מאוחר יותר)" disabled={pi === draft.panels.length - 1}
                     onClick={() => update(l => { [l.panels[pi + 1], l.panels[pi]] = [l.panels[pi], l.panels[pi + 1]]; })}>▶</button>
                   <button className={btn} title="מחק חלונית (השדות יחזרו לרשימת הזמינים)"
-                    onClick={() => { if (p.fields.length === 0 || window.confirm(`למחוק את "${p.name}"?`)) update(l => { l.panels.splice(pi, 1); }); }}>🗑</button>
+                    onClick={async () => { if (p.fields.length === 0 || await dialog.confirm(`למחוק את "${p.name}"? השדות יחזרו לרשימת הזמינים.`, 'מחיקת חלונית', 'danger')) update(l => { l.panels.splice(pi, 1); }); }}>🗑</button>
                 </div>
 
                 <div className="flex flex-wrap gap-1.5" style={{ direction: 'ltr' }}>
@@ -238,7 +240,7 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
             )}
             {scopeHasOwn(scope) && (
               <button
-                onClick={() => { if (window.confirm('למחוק את התבנית הייעודית? הסקופ יחזור לרשת.')) save(null); }}
+                onClick={async () => { if (await dialog.confirm('למחוק את התבנית הייעודית? הסקופ יחזור לרשת.', 'מחיקת תבנית', 'danger')) save(null); }}
                 className="cursor-pointer rounded-md border border-border bg-card px-3 py-2 text-sm text-danger"
               >
                 מחק תבנית לסקופ זה

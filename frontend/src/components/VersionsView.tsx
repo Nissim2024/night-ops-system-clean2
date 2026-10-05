@@ -12,12 +12,13 @@ import { CrPlanReviewPanel } from './CrPlanReviewPanel';
 import { DateField, DateTimeField } from './DatePicker';
 import { FEATURES } from '../featureFlags';
 import { cn } from '../lib/utils';
-import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE,
+import { C, FONT, TEXT, WEIGHT, SP, RADIUS, EASE,
          versionStatusColor, versionStatusBg, versionStatusLabel, statusColor } from '../theme';
 import { Button, Card, VersionStatusChip, Badge, SectionHeader, EmptyState, Divider, Alert, Avatar, StatusChip } from './ui';
 import { TaskDetailPanel } from './TaskDetailPanel';
 import { cleanHtmlText } from '../utils/textSanitize';
 import { teamColor } from './shared/defectFieldDisplay';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from './ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -81,11 +82,15 @@ interface Props {
   onNavigateTab?: (tab: string) => void;
   initialSelectedId?: string;
   autoNew?: boolean;
+  /** Hide the detail screen's "back to version list" button — the version picker and side menu already cover it. */
+  hideBack?: boolean;
+  /** Opens ניהול גרסה → אישור תכולה. COLLECTING→CR_REVIEW is gated server-side on integrationStart + scopeApprovedAt, both owned by that step. Omitted = no access to the module. */
+  onGoToScopeApproval?: (step: 'open' | 'approve') => void;
 }
 
 const EMPTY_TASK = { title: '', assignedUserName: '', crNumber: '', application: '', environment: 'BOTH', notes: '', dependencyNote: '', duration: '', plannedStart: '', plannedEnd: '', _durationMins: '' };
 
-export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLive, onVersionFocus, onGoHome, onGoToAdmin, onNavigateTab, initialSelectedId, autoNew }) => {
+export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLive, onVersionFocus, onGoHome, onGoToAdmin, onNavigateTab, initialSelectedId, autoNew, hideBack, onGoToScopeApproval }) => {
   const [versions, setVersions] = useState<Version[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -159,12 +164,13 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
           version={selected}
           token={token}
           userRole={userRole}
-          onBack={() => { setSelected(null); fetchVersions(); }}
+          onBack={hideBack ? undefined : () => { setSelected(null); fetchVersions(); }}
           onRefresh={() => fetchVersion(selected.id)}
           onStatusChange={(status, force) => updateStatus(selected.id, status, force)}
           onGoLive={onGoLive}
           showDepToast={showDepToastOuter}
           onNavigateTab={onNavigateTab}
+          onGoToScopeApproval={onGoToScopeApproval}
         />
         {depToastOuter && depToastOuter.length > 0 && (
           <div className="fixed bottom-6 end-6 z-[99999] flex max-w-[340px] flex-col gap-2 pointer-events-auto">
@@ -235,7 +241,7 @@ export const VersionsView: React.FC<Props> = ({ token, onVersionsChanged, onGoLi
           setNewVersion={vc.setNewVersion}
           existingVersions={versions
             .filter(v => !v.isArchived && v.status === 'DRAFT' && (v._count?.phases ?? 0) === 0)
-            .map(v => ({ id: v.id, name: v.name }))}
+            .map(v => ({ id: v.id, name: v.name, integrationStart: v.integrationStart, integrationEnd: v.integrationEnd }))}
           templates={vc.templates}
           selectedTemplateId={vc.selectedTemplateId}
           setSelectedTemplateId={vc.setSelectedTemplateId}
@@ -447,13 +453,14 @@ const VersionDetail: React.FC<{
   version: any;
   token: string;
   userRole: string;
-  onBack: () => void;
+  onBack?: () => void;
   onRefresh: () => void;
   onStatusChange: (s: string, force?: boolean) => Promise<void>;
   onGoLive?: (versionId: string, versionName: string, isRehearsal: boolean) => void;
   showDepToast?: (affected: any[]) => void;
   onNavigateTab?: (tab: string) => void;
-}> = ({ version, token, userRole, onBack, onRefresh, onStatusChange, onGoLive, showDepToast, onNavigateTab }) => {
+  onGoToScopeApproval?: (step: 'open' | 'approve') => void;
+}> = ({ version, token, userRole, onBack, onRefresh, onStatusChange, onGoLive, showDepToast, onNavigateTab, onGoToScopeApproval }) => {
   const headers = { Authorization: `Bearer ${token}` };
   const isManager = ['RELEASE_MANAGER', 'ADMIN'].includes(userRole);
   const { can } = usePermissions();
@@ -1056,9 +1063,8 @@ const VersionDetail: React.FC<{
 
   const saveQaDates = async () => {
     try {
+      // Integration dates are owned by ניהול גרסה (2026-10-05) — only QA dates here
       await axios.patch(`${API}/versions/${version.id}`, {
-        integrationStart: qaDatesValue.integrationStart || null,
-        integrationEnd:   qaDatesValue.integrationEnd   || null,
         qaStart:          qaDatesValue.qaStart           || null,
         qaEnd:            qaDatesValue.qaEnd             || null,
       }, { headers });
@@ -1493,14 +1499,21 @@ const VersionDetail: React.FC<{
     ? 'הפעל פעילות ההטמעה'
     : NEXT_LABEL[version.status];
 
+  // COLLECTING → CR_REVIEW is rejected server-side until integrationStart is set
+  // and scope is approved — both happen in ניהול גרסה → אישור תכולה, whose own
+  // button also advances the status. Send the user there instead of letting
+  // this button fail with an error.
+  const scopeGateMissing = version.status === 'COLLECTING'
+    ? [!version.integrationStart && 'תאריך תחילת אינטגרציה', !version.scopeApprovedAt && 'אישור תכולה'].filter(Boolean) as string[]
+    : [];
+
   return (
     <div>
       {/* ── Force-advance confirmation dialog ── */}
       {forceDialog && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ background: C.bgOverlay }}>
-          <div className="w-[90%] max-w-[480px] rounded-2xl border border-border bg-card p-[28px_32px] shadow-[0_28px_72px_rgba(20,21,42,.18)]">
-            <div className="mb-2.5 text-[22px]">⚠️</div>
-            <div className="mb-2.5 text-[17px] font-bold text-foreground">קיימות חסימות לפני המעבר</div>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ background: DIALOG_OVERLAY_BG }}>
+          <div className="w-[90%] max-w-[480px] overflow-hidden rounded-xl bg-card p-[28px_32px]" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+            <DialogBrandBar icon="⚠️" title="קיימות חסימות לפני המעבר" onClose={() => setForceDialog(null)} style={{ margin: '-28px -32px 18px' }} />
             <div className="mb-[18px] rounded-lg border border-warning/27 bg-warning-bg p-[10px_14px] text-[15px] font-bold text-warning">
               {forceDialog.details}
             </div>
@@ -1524,7 +1537,7 @@ const VersionDetail: React.FC<{
       <div className="mb-5 rounded-xl border border-border bg-card p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
-            <button onClick={onBack} className="cursor-pointer rounded-lg border border-border bg-muted px-4 py-2 text-[15px] text-muted-foreground">→ חזור</button>
+            {onBack && <button onClick={onBack} className="cursor-pointer rounded-lg border border-border bg-muted px-4 py-2 text-[15px] text-muted-foreground">→ חזור</button>}
             <div>
               <h2 className="m-0 text-foreground">{version.name}</h2>
               {version.description && <p className="mt-1 mb-0 text-[15px] text-muted-foreground">{version.description}</p>}
@@ -1613,7 +1626,20 @@ const VersionDetail: React.FC<{
                 {statusLoading ? '...' : 'הפעל ללא חזרה →'}
               </button>
             )}
-            {nextStatus && (
+            {scopeGateMissing.length > 0 && (
+              <div className="flex flex-col items-end gap-1">
+                <button
+                  onClick={() => onGoToScopeApproval?.(version.integrationStart ? 'approve' : 'open')}
+                  disabled={!onGoToScopeApproval}
+                  title={onGoToScopeApproval ? undefined : 'אין לך הרשאה למודול ניהול גרסה'}
+                  className={cn('rounded-lg border-none px-5 py-2.5 text-[15px] font-bold text-white', onGoToScopeApproval ? 'cursor-pointer' : 'cursor-not-allowed')}
+                  style={{ background: onGoToScopeApproval ? STATUS_COLORS.CR_REVIEW : '#aaa' }}>
+                  {version.integrationStart ? 'אשר תכולה ←' : 'הזן תאריכים ואשר תכולה ←'}
+                </button>
+                <span className="text-xs text-warning">לפני סקירת CR חסר: {scopeGateMissing.join(', ')}</span>
+              </div>
+            )}
+            {nextStatus && scopeGateMissing.length === 0 && (
               <button
                 onClick={async () => {
                   if (nextStatus === 'REFINING') {
@@ -1831,8 +1857,6 @@ const VersionDetail: React.FC<{
             {editingQaDates ? (
               <>
                 {([
-                  { key: 'integrationStart', label: 'תחילת אינטגרציה' },
-                  { key: 'integrationEnd',   label: 'סיום אינטגרציה' },
                   { key: 'qaStart',          label: 'תחילת QA' },
                   { key: 'qaEnd',            label: 'סיום QA' },
                 ] as { key: keyof typeof qaDatesValue; label: string }[]).map(({ key, label }) => (
@@ -1850,14 +1874,15 @@ const VersionDetail: React.FC<{
               </>
             ) : (
               <>
-                {version.integrationStart && (
-                  <span className="text-muted-foreground">🔧 {fmtDateShared(version.integrationStart)} → {version.integrationEnd ? fmtDateShared(version.integrationEnd) : '—'}</span>
-                )}
+                <span className="text-muted-foreground" title="נקבע במודול ניהול גרסה → פתיחת גרסה">
+                  🔧 {version.integrationStart ? `${fmtDateShared(version.integrationStart)} → ${version.integrationEnd ? fmtDateShared(version.integrationEnd) : '—'}` : 'אינטגרציה: לא הוזן'}
+                  <span className="ms-1 text-xs text-subtle-foreground">(מניהול גרסה)</span>
+                </span>
                 {version.qaStart && (
                   <span className="text-muted-foreground">🧪 {fmtDateShared(version.qaStart)} → {version.qaEnd ? fmtDateShared(version.qaEnd) : '—'}</span>
                 )}
-                {!version.integrationStart && !version.qaStart && (
-                  <span className="italic text-subtle-foreground">לא הוגדרו תאריכים</span>
+                {!version.qaStart && (
+                  <span className="italic text-subtle-foreground">QA: לא הוגדרו תאריכים</span>
                 )}
                 <button
                   onClick={() => {
@@ -3116,17 +3141,16 @@ const VersionDetail: React.FC<{
 
       {/* ── דיאלוג אישור העברת משימה ── */}
       {moveConfirm && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/45">
-          <div dir="rtl" className="w-[90%] max-w-[420px] rounded-2xl bg-white p-[28px_32px] shadow-[0_8px_32px_rgba(0,0,0,0.25)]">
-            <div className="mb-3 text-center text-[28px]">🚚</div>
-            <h3 className="m-0 mb-2.5 text-center text-[#1a2332]">העברת משימה</h3>
-            <p className="m-0 mb-5 text-center text-[15px] leading-relaxed text-neutral-700">
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center" style={{ background: DIALOG_OVERLAY_BG }}>
+          <div dir="rtl" className="w-[90%] max-w-[420px] overflow-hidden rounded-xl bg-card p-[28px_32px]" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+            <DialogBrandBar icon="🚚" title="העברת משימה" onClose={() => setMoveConfirm(null)} style={{ margin: '-28px -32px 20px' }} />
+            <p className="m-0 mb-5 text-center text-[15px] leading-relaxed text-muted-foreground">
               להעביר את <strong>"{moveConfirm.taskTitle}"</strong><br />
               לתת-שלב <strong>"{moveConfirm.targetSubName}"</strong>?
             </p>
             <div className="flex justify-center gap-2.5">
-              <button onClick={confirmMove} className="cursor-pointer rounded-lg border-none bg-[#2d4a7a] px-6 py-[9px] text-[15px] font-bold text-white">אשר העברה</button>
-              <button onClick={() => setMoveConfirm(null)} className="cursor-pointer rounded-lg border-none bg-neutral-100 px-6 py-[9px] text-[15px] text-neutral-800">ביטול</button>
+              <button onClick={confirmMove} className="cursor-pointer rounded-lg border-none bg-primary px-6 py-[9px] text-[15px] font-bold text-white">אשר העברה</button>
+              <button onClick={() => setMoveConfirm(null)} className="cursor-pointer rounded-lg border border-border bg-card px-6 py-[9px] text-[15px] text-muted-foreground">ביטול</button>
             </div>
           </div>
         </div>
@@ -3157,10 +3181,11 @@ const VersionDetail: React.FC<{
         const totalOverrunTasks = overrunTaskIds.size;
 
         return (
-          <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50">
-            <div dir="rtl" className="max-h-[92vh] min-w-[560px] max-w-[800px] overflow-y-auto rounded-2xl bg-white p-[28px_32px] shadow-[0_8px_40px_rgba(0,0,0,0.3)]">
-              <h3 className="m-0 mb-1 text-[#1a2332]">📅 הכן ותזמן</h3>
-              <p className="m-0 mb-4 text-[15px] text-neutral-600">
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center" style={{ background: DIALOG_OVERLAY_BG }}>
+            <div dir="rtl" className="max-h-[92vh] min-w-[560px] max-w-[800px] overflow-y-auto rounded-xl bg-card p-[28px_32px]" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+              <DialogBrandBar icon="📅" title="הכן ותזמן" onClose={() => { setRescheduleOpen(false); setReschPreview(null); setReschEditingId(null); }}
+                style={{ margin: '-28px -32px 16px', position: 'sticky', top: '-28px', zIndex: 5 }} />
+              <p className="m-0 mb-4 text-[15px] text-muted-foreground">
                 הכן תלויות ומבנה, ואז הגדר שעות לכל שלב כדי לחשב את תוכנית הביצוע.
               </p>
 
@@ -3495,10 +3520,10 @@ const VersionDetail: React.FC<{
         };
 
         return (
-          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/45">
-            <div dir="rtl" className="w-[460px] max-w-[95vw] rounded-2xl bg-white p-7 shadow-[0_8px_32px_rgba(0,0,0,0.25)]">
-              <h3 className="m-0 mb-1.5 text-lg text-[#1a2332]">💾 שמירת תבנית</h3>
-              <p className="m-0 mb-5 text-[15px] text-neutral-600">
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center" style={{ background: DIALOG_OVERLAY_BG }}>
+            <div dir="rtl" className="w-[460px] max-w-[95vw] overflow-hidden rounded-xl bg-card p-7" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+              <DialogBrandBar icon="💾" title="שמירת תבנית" onClose={() => setSaveTemplateOpen(false)} style={{ margin: '-28px -28px 16px' }} />
+              <p className="m-0 mb-5 text-[15px] text-muted-foreground">
                 שומר עותק מלא של הגרסה כולל שמות עובדים, צוותים ותלויות.
               </p>
 
@@ -3603,9 +3628,9 @@ const VersionDetail: React.FC<{
         };
 
         return (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: 'white', borderRadius: '14px', padding: '28px', width: '480px', maxWidth: '95vw', boxShadow: '0 8px 32px rgba(0,0,0,0.25)', direction: 'rtl' }}>
-              <h3 style={{ margin: '0 0 20px', color: '#1a2332', fontSize: '18px' }}>🔄 החלפת עובד במשימות</h3>
+          <div style={{ position: 'fixed', inset: 0, background: DIALOG_OVERLAY_BG, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ background: C.bgCard, borderRadius: RADIUS.lg, padding: '28px', width: '480px', maxWidth: '95vw', boxShadow: DIALOG_PANEL_SHADOW, direction: 'rtl', overflow: 'hidden' }}>
+              <DialogBrandBar icon="🔄" title="החלפת עובד במשימות" onClose={() => setReassignOpen(false)} style={{ margin: '-28px -28px 20px' }} />
 
               {!reassignResult ? (
                 <>
@@ -3704,15 +3729,9 @@ const VersionDetail: React.FC<{
       {/* ── פאנל סקירת הגשת צוות ── */}
       {teamPanelOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 3000, direction: 'rtl' }}>
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,20,40,0.6)' }} onClick={closeTeamPanel} />
+          <div style={{ position: 'absolute', inset: 0, background: DIALOG_OVERLAY_BG }} onClick={closeTeamPanel} />
           <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: '800px', maxWidth: '95vw', background: 'white', boxShadow: '-8px 0 32px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', background: '#1a2332', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-              <div>
-                <div style={{ fontWeight: 'bold', fontSize: '17px' }}>📋 סקירת הגשת משימות</div>
-                <div style={{ fontSize: '14px', color: '#94a3b8', marginTop: '2px' }}>{teamPanelOpen.teamName} — {version.name}</div>
-              </div>
-              <button onClick={closeTeamPanel} style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '15px' }}>✕ סגור</button>
-            </div>
+            <DialogBrandBar icon="📋" title="סקירת הגשת משימות" subtitle={`${teamPanelOpen.teamName} — ${version.name}`} onClose={closeTeamPanel} />
             <div style={{ flex: 1, overflowY: 'auto' }}>
               <TeamLeadProposalView
                 token={token}
@@ -3749,7 +3768,7 @@ const VersionDetail: React.FC<{
           <>
             <div
               onClick={() => { setSelectedTask(null); setSelectedTaskSubId(undefined); }}
-              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 499 }}
+              style={{ position: 'fixed', inset: 0, background: DIALOG_OVERLAY_BG, zIndex: 499 }}
             />
             <div style={{
               position: 'fixed',
@@ -3814,26 +3833,23 @@ const VersionDetail: React.FC<{
 
         return (
           <div
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}
+            style={{ position: 'fixed', inset: 0, background: DIALOG_OVERLAY_BG, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}
             onClick={() => setShowAssignPreview(false)}
           >
             <div
               onClick={e => e.stopPropagation()}
               style={{
-                background: C.bgCard, borderRadius: RADIUS.xl, padding: `${SP[5]} ${SP[6]}`,
+                background: C.bgCard, borderRadius: RADIUS.lg, padding: `${SP[5]} ${SP[6]}`,
                 minWidth: '580px', maxWidth: '740px', width: '92%', maxHeight: '87vh',
                 display: 'flex', flexDirection: 'column', gap: SP[4],
-                boxShadow: SHADOW.lg, direction: 'rtl', fontFamily: FONT,
-                border: `1px solid ${C.border}`,
+                boxShadow: DIALOG_PANEL_SHADOW, direction: 'rtl', fontFamily: FONT, overflow: 'hidden',
               }}
             >
+              <DialogBrandBar icon="📋" title="שיבוץ הצעות — תצוגה מקדימה" onClose={() => setShowAssignPreview(false)} style={{ margin: `-${SP[5]} -${SP[6]} 0` }} />
               {/* Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: SP[4] }}>
                 <div>
-                  <div style={{ ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary, letterSpacing: '-0.3px' }}>
-                    📋 שיבוץ הצעות — תצוגה מקדימה
-                  </div>
-                  <div style={{ ...TEXT.sm, color: C.textMuted, marginTop: SP[1] }}>
+                  <div style={{ ...TEXT.sm, color: C.textMuted }}>
                     {previewItems.length} הצעות •{' '}
                     <span style={{ color: checkedCount > 0 ? '#2e7d32' : C.textMuted, fontWeight: WEIGHT.semibold }}>{checkedCount} מסומנות לשיבוץ</span>
                   </div>
@@ -4007,17 +4023,15 @@ const VersionDetail: React.FC<{
       {/* ── Convert proposals result dialog ── */}
       {convertResult && (
         <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+          position: 'fixed', inset: 0, background: DIALOG_OVERLAY_BG,
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300,
         }} onClick={() => setConvertResult(null)}>
           <div onClick={e => e.stopPropagation()} style={{
             background: C.bgCard, borderRadius: RADIUS.lg, padding: SP[6],
-            minWidth: '340px', maxWidth: '480px', width: '90%',
-            boxShadow: SHADOW.lg, direction: 'rtl', fontFamily: FONT,
+            minWidth: '340px', maxWidth: '480px', width: '90%', overflow: 'hidden',
+            boxShadow: DIALOG_PANEL_SHADOW, direction: 'rtl', fontFamily: FONT,
           }}>
-            <h3 style={{ margin: `0 0 ${SP[4]} 0`, ...TEXT.lg, fontWeight: WEIGHT.bold, color: C.textPrimary }}>
-              תוצאות שיבוץ הצעות
-            </h3>
+            <DialogBrandBar icon="📥" title="תוצאות שיבוץ הצעות" onClose={() => setConvertResult(null)} style={{ margin: `-${SP[6]} -${SP[6]} ${SP[4]}` }} />
             <div style={{
               display: 'flex', alignItems: 'center', gap: SP[2],
               padding: `${SP[2]} ${SP[3]}`, borderRadius: convertResult.tasks.length > 0 ? `${RADIUS.md} ${RADIUS.md} 0 0` : RADIUS.md,

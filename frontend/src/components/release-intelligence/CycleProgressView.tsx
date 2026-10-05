@@ -6,11 +6,7 @@ import { DefectDrilldownModal } from './DefectDrilldownModal';
 import { formatDate } from '../../utils/dateFormat';
 import { PersonAvatar } from '../shared/defectFieldDisplay';
 import { BackLink, Select, Spinner } from '../ui';
-// './ui' (this directory) resolves the bare '../ui' specifier to the legacy
-// ui.tsx file, not the newer Radix-based ui/ folder (file-before-directory
-// resolution) — Dialog only exists in the latter, so it needs the explicit
-// subpath here rather than the barrel import everything else in this file uses.
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { BrandedDialog } from '../ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -441,11 +437,15 @@ function CycleDetailScreen({ cycle, onBack, token, versionId, relId }: { cycle: 
         />
       )}
 
-      <Dialog open={!!summaryModal} onOpenChange={(open: boolean) => !open && setSummaryModal(null)}>
-        <DialogContent className="max-w-2xl w-[90vw] max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>📋 סיכום בדיקות — {summaryModal?.crNumber}{summaryModal?.crLabel ? ` — ${summaryModal.crLabel.replace(/^\d+\s*-\s*/, '')}` : ''}</DialogTitle>
-          </DialogHeader>
+      <BrandedDialog
+        open={!!summaryModal}
+        onClose={() => setSummaryModal(null)}
+        icon="📋"
+        title={`סיכום בדיקות — ${summaryModal?.crNumber ?? ''}`}
+        subtitle={summaryModal?.crLabel ? summaryModal.crLabel.replace(/^\d+\s*-\s*/, '') : undefined}
+        width={672}
+        maxHeight="80vh"
+      >
           {summaryModal?.loading && (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-subtle-foreground">
               <Spinner /> טוען סיכום מ-QC...
@@ -465,8 +465,7 @@ function CycleDetailScreen({ cycle, onBack, token, versionId, relId }: { cycle: 
               <div className="text-sm text-subtle-foreground text-center py-6">אין סיכום בדיקות עבור CR זה.</div>
             )
           )}
-        </DialogContent>
-      </Dialog>
+      </BrandedDialog>
     </div>
   );
 }

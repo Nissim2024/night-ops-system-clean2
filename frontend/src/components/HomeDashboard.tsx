@@ -8,6 +8,8 @@ import { VersionMilestoneTimeline } from './shared/VersionMilestoneTimeline';
 import { GoLiveCountdown } from './shared/GoLiveCountdown';
 import { formatDate, formatDateTime, formatTime } from '../utils/dateFormat';
 import { DefectIdBadge, SEVERITY_COLOR, hexTint } from './shared/defectFieldDisplay';
+import { useDialog } from '../context/DialogContext';
+import { CAT_LABELS, describeMyActivity, isMyActivity } from './qa/activityBoardShared';
 
 const API = process.env.REACT_APP_API_URL ?? 'http://localhost:3000';
 
@@ -434,6 +436,7 @@ export const HomeDashboard: React.FC<Props> = ({
   versions, role, fullName, token, selectedVersionId, onSelectVersion, onNewVersion, onSwitchToQa, canAccessQa,
   isQaTeamMember, canAccessVersionManagement, canAccessReleaseIntelligence, canAccessQualityHub, canAccessDefects, onSwitchToModule, onGoToLeaves,
 }) => {
+  const dialog = useDialog();
   const canCreate = isRm(role);
   const canManageLeaves = ['ADMIN', 'TEAM_LEAD'].includes(role);
   // TEAM_LEAD gets a blanket screen:qa role permission (for QA-team leads
@@ -542,7 +545,7 @@ export const HomeDashboard: React.FC<Props> = ({
 
   const deleteNotice = async (id: string) => {
     if (!primary) return;
-    if (!window.confirm('למחוק את ההודעה? לא ניתן לשחזר לאחר המחיקה.')) return;
+    if (!await dialog.confirm('למחוק את ההודעה? לא ניתן לשחזר לאחר המחיקה.', 'מחיקת הודעה', 'danger')) return;
     setSavingNotice(true);
     try {
       await axios.delete(`${API}/versions/${primary.id}/notices/${id}`, { headers: { Authorization: `Bearer ${token}` } });
@@ -571,8 +574,8 @@ export const HomeDashboard: React.FC<Props> = ({
   // also map to a runbook (refresh/version-transfer activities) get a direct
   // "launch" link that opens straight into run mode.
   const [activityBoard, setActivityBoard] = useState<{
-    activityKey: string; label: string; category: string; owner: string; ownerEmployee: string;
-    dateStart: string | null; dateEnd: string | null;
+    id: string; activityKey: string; label: string; category: string; owner: string; ownerEmployee: string;
+    dateStart: string | null; dateEnd: string | null; isRelevant?: boolean; doneAt?: string | null;
   }[]>([]);
   const [runbookItem, setRunbookItem] = useState<{ trigger: RunbookTrigger; dateStartISO: string } | null>(null);
   // Real completion status per activityKey, for the subset that has a runbook
@@ -581,12 +584,35 @@ export const HomeDashboard: React.FC<Props> = ({
   // otherwise falls back on.
   const [runbookCompletion, setRunbookCompletion] = useState<Record<string, boolean>>({});
 
+  // Loaded for everyone now (was release-manager/admin only): any user can
+  // be an activity's assigned employee, and their own entries show as
+  // personal tasks (myActivityTasks below). The overview reminders stay RM-only.
+  const [activityBoardNonce, setActivityBoardNonce] = useState(0);
   useEffect(() => {
-    if (!primary?.id || !isRm(role)) { setActivityBoard([]); return; }
+    if (!primary?.id) { setActivityBoard([]); return; }
     axios.get(`${API}/activity-board/${primary.id}`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(res => setActivityBoard(res.data ?? []))
+      .then(res => setActivityBoard((res.data ?? []).filter((a: any) => a.isRelevant !== false)))
       .catch(() => setActivityBoard([]));
-  }, [primary?.id, role, token]);
+  }, [primary?.id, role, token, activityBoardNonce]);
+
+  const myActivityTasks = useMemo(() => {
+    const now = new Date();
+    return activityBoard
+      .filter(a => isMyActivity(a, fullName))
+      .map(a => ({ a, task: describeMyActivity(a, now) }))
+      .filter((x): x is { a: typeof activityBoard[number]; task: NonNullable<ReturnType<typeof describeMyActivity>> } => x.task !== null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activityBoard, fullName]);
+
+  const markActivityDone = async (a: { id: string; label: string }) => {
+    if (!await dialog.confirm(`לסמן את "${a.label}" כבוצע?`, 'סימון פעילות כבוצעה', 'success')) return;
+    try {
+      await axios.patch(`${API}/activity-board/entry/${a.id}/done`, { done: true }, { headers: { Authorization: `Bearer ${token}` } });
+      setActivityBoardNonce(n => n + 1);
+    } catch (err: any) {
+      dialog.alert(err?.response?.data?.message || 'שגיאה בסימון הפעילות', 'שגיאה', 'danger');
+    }
+  };
 
   // Only checked for activities that actually have a runbook (getRunbookTrigger
   // non-null) — everything else keeps relying purely on the calendar heuristic.
@@ -617,7 +643,7 @@ export const HomeDashboard: React.FC<Props> = ({
   const activityReminders = useMemo(() => {
     const now = new Date();
     return activityBoard
-      .map(a => ({ a, reminder: describeActivityReminder(a, now, runbookCompletion[a.activityKey]) }))
+      .map(a => ({ a, reminder: describeActivityReminder(a, now, runbookCompletion[a.activityKey] || !!a.doneAt) }))
       .filter((x): x is { a: typeof activityBoard[number]; reminder: ActivityReminder } => x.reminder !== null);
   }, [activityBoard, runbookCompletion]);
 
@@ -975,6 +1001,22 @@ export const HomeDashboard: React.FC<Props> = ({
     const tl = role === 'TEAM_LEAD';
     const list: { icon: string; title: string; desc: string; urgent?: boolean; tab?: string; onClick?: () => void; module?: ModuleKey; detail?: string[] }[] = [];
 
+    // The user's own activity-board assignments — first, they're personal.
+    for (const { a, task } of myActivityTasks) {
+      const trigger = task.dueNow ? getRunbookTrigger(a.activityKey) : null;
+      list.push({
+        icon: trigger ? '▶' : '📌',
+        title: `המשימה שלך: ${task.text}`,
+        desc: [a.owner, CAT_LABELS[a.category as keyof typeof CAT_LABELS]].filter(Boolean).join(' · ')
+          + (trigger ? ' · לחץ להפעלת Runbook' : ' · לחץ לסימון כבוצע'),
+        urgent: task.urgent,
+        module: 'qa', // the activity board lives in ניהול QA
+        onClick: trigger
+          ? () => setRunbookItem({ trigger, dateStartISO: a.dateStart! })
+          : () => markActivityDone(a),
+      });
+    }
+
     if (canManageLeaves && pendingLeaveCount > 0) {
       list.push({
         icon: '🏖', title: `${pendingLeaveCount} בקשות חופשה ממתינות לאישור`,
@@ -1142,6 +1184,10 @@ export const HomeDashboard: React.FC<Props> = ({
     // runbookCompletion above), not just the calendar cutoff.
     if (rm) {
       for (const { a, reminder } of activityReminders) {
+        // The user's own, not-yet-done activity is already listed above as a
+        // personal task — don't also show the calendar-guess reminder, which
+        // can contradict it (e.g. "התקיימה היום" after 17:00 while it's still open).
+        if (isMyActivity(a, fullName) && !a.doneAt) continue;
         const trigger = (!reminder.done && reminder.dueNow) ? getRunbookTrigger(a.activityKey) : null;
         list.push({
           icon: reminder.done ? '✅' : trigger ? '▶' : '🗓',
@@ -1154,7 +1200,7 @@ export const HomeDashboard: React.FC<Props> = ({
     }
 
     return list;
-  }, [primary, role, canManageLeaves, pendingLeaveCount, onGoToLeaves, nextPhaseInfo, firstPhaseInfo, upcomingRunbookSteps, myUserId, onSwitchToQa, activityReminders, homeShowQa, qaSummary, canAccessVersionManagement, scopeAttentionCount, scopeAttentionCrs, onSwitchToModule, onSelectVersion, canAccessReleaseIntelligence, criticalDefectsCount, canAccessQualityHub, qualityScore, showTeamStatus, teamStatus, isCollecting, reviewIsApproaching, myTeamSummary]);
+  }, [primary, role, canManageLeaves, pendingLeaveCount, onGoToLeaves, nextPhaseInfo, firstPhaseInfo, upcomingRunbookSteps, myUserId, onSwitchToQa, activityReminders, myActivityTasks, fullName, homeShowQa, qaSummary, canAccessVersionManagement, scopeAttentionCount, scopeAttentionCrs, onSwitchToModule, onSelectVersion, canAccessReleaseIntelligence, criticalDefectsCount, canAccessQualityHub, qualityScore, showTeamStatus, teamStatus, isCollecting, reviewIsApproaching, myTeamSummary]);
 
   // Stats — only count non-terminal versions as "in progress"
   const totalVersions  = inProgressVersions.length;

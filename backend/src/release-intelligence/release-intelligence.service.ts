@@ -2136,30 +2136,56 @@ export class ReleaseIntelligenceService {
   }
 
   // ── Timeline & Activities — spec section 18 ─────────────────────────────────
-  // "Critical Milestones" = activities in the 'golive' category — the only
-  // category value in this app's data with a clear "milestone" meaning
-  // (frontend/src/components/qa/QaActivityPlanView.tsx also special-cases it).
+  // Read-only view of the QA module's activity board (same ActivityBoardEntry
+  // rows). "Critical Milestones" = activities in the 'golive' category — the
+  // only category value with a clear "milestone" meaning.
+  // Status (2026-10-05): DONE when marked "בוצע"; otherwise by calendar day —
+  // DELAYED only once the end DAY has fully passed (an activity ending today
+  // isn't late yet), IN_PROGRESS while today is inside [start, end], UPCOMING
+  // before start. Before the done flag existed every past activity read as
+  // "באיחור", which made the count meaningless.
   async getTimelineActivities(versionId: string) {
     const activities = await prisma.activityBoardEntry.findMany({
       where: { versionId, isRelevant: true },
-      orderBy: { dateStart: 'asc' },
+      orderBy: [{ dateStart: 'asc' }, { sortOrder: 'asc' }],
     });
-    const now = Date.now();
-    const rows = activities.map(a => ({
-      label: a.label,
-      owner: a.owner,
-      category: a.category,
-      dateStart: a.dateStart,
-      dateEnd: a.dateEnd,
-      delayed: !!a.dateEnd && a.dateEnd.getTime() < now,
-      upcoming: !!a.dateStart && a.dateStart.getTime() > now,
-    }));
+    const dayKey = (d: Date) => d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+    const today = dayKey(new Date());
+    const rows = activities.map(a => {
+      const startK = a.dateStart ? dayKey(a.dateStart) : null;
+      const endK = a.dateEnd ? dayKey(a.dateEnd) : startK;
+      const status: 'DONE' | 'DELAYED' | 'IN_PROGRESS' | 'UPCOMING' | 'UNSCHEDULED' =
+        a.doneAt ? 'DONE'
+        : endK == null ? 'UNSCHEDULED'
+        : endK < today ? 'DELAYED'
+        : startK != null && startK <= today ? 'IN_PROGRESS'
+        : 'UPCOMING';
+      return {
+        id: a.id,
+        activityKey: a.activityKey,
+        label: a.label,
+        owner: a.owner,
+        ownerEmployee: a.ownerEmployee,
+        notes: a.notes,
+        category: a.category,
+        dateStart: a.dateStart,
+        dateEnd: a.dateEnd,
+        doneAt: a.doneAt,
+        doneBy: a.doneBy,
+        status,
+        // kept for older callers
+        delayed: status === 'DELAYED',
+        upcoming: status === 'UPCOMING',
+      };
+    });
 
     return {
       kpis: {
         activities: rows.length,
-        delayed: rows.filter(r => r.delayed).length,
-        upcoming: rows.filter(r => r.upcoming).length,
+        done: rows.filter(r => r.status === 'DONE').length,
+        delayed: rows.filter(r => r.status === 'DELAYED').length,
+        inProgress: rows.filter(r => r.status === 'IN_PROGRESS').length,
+        upcoming: rows.filter(r => r.status === 'UPCOMING').length,
         criticalMilestones: rows.filter(r => r.category === 'golive').length,
       },
       rows,

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { C, statusColor } from '../theme';
 import { formatTime } from '../utils/dateFormat';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from './ui/BrandedDialog';
 
 const TERMINAL = ['DONE', 'FAILED', 'ROLLED_BACK'];
 const STATUS_LABEL: Record<string, string> = {
@@ -218,32 +219,25 @@ export const FocusModeModal: React.FC<FocusModeModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-foreground/45 z-[20000] flex items-center justify-center"
+      className="fixed inset-0 z-[20000] flex items-center justify-center"
+      style={{ background: DIALOG_OVERLAY_BG }}
       onClick={onClose}
     >
       <div
-        className="w-full max-w-[860px] h-[90vh] mx-4 flex flex-col bg-background rounded-xl shadow-lg overflow-hidden border border-border"
+        className="w-full max-w-[860px] h-[90vh] mx-4 flex flex-col bg-background rounded-xl overflow-hidden"
+        style={{ boxShadow: DIALOG_PANEL_SHADOW }}
         onClick={e => e.stopPropagation()}
       >
+        <DialogBrandBar icon="⚡" title="מצב הרצה" subtitle={phaseLabel || undefined} onClose={onClose} />
         {/* Header — big, unambiguous title with the phase as a clear subtitle */}
         <div className="bg-primary px-[22px] py-[18px] shrink-0 shadow-sm">
           <div className="flex items-center gap-3.5">
-            <span className="text-[28px]">⚡</span>
             <div className="flex-1 min-w-0">
-              <div className="text-[22px] font-bold text-white leading-tight">מצב הרצה</div>
-              {phaseLabel && (
-                <div className="text-base text-white/85 mt-0.5 font-medium">
-                  {phaseLabel}
-                </div>
-              )}
+              <div className="text-[20px] font-bold text-white leading-tight">{phaseLabel || 'כל המשימות'}</div>
             </div>
             <span className="text-[17px] font-bold text-white bg-white/[.18] px-3.5 py-[5px] rounded-md whitespace-nowrap">
               {done}/{total}
             </span>
-            <button onClick={onClose}
-              className="bg-white/[.18] border-none text-white cursor-pointer text-xl w-[34px] h-[34px] rounded-md flex items-center justify-center shrink-0">
-              ×
-            </button>
           </div>
           <label className="flex items-center gap-2 cursor-pointer text-[15px] text-white/85 select-none mt-3">
             <input type="checkbox" checked={nearOnly} onChange={e => setNearOnly(e.target.checked)}

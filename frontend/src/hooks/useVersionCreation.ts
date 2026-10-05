@@ -138,8 +138,7 @@ export function useVersionCreation(token: string, opts: { onCreated: (versionId:
     plannedEnd: newVersion.plannedEnd || undefined,
     reviewMeetingTime: newVersion.reviewMeetingTime || undefined,
     workPlanMeetingTime: newVersion.workPlanMeetingTime || undefined,
-    integrationStart: newVersion.integrationStart || undefined,
-    integrationEnd: newVersion.integrationEnd || undefined,
+    // integrationStart/End deliberately absent — owned by ניהול גרסה (2026-10-05)
     qaStart: newVersion.qaStart || undefined,
     qaEnd: newVersion.qaEnd || undefined,
     plannedRehearsalStart: newVersion.plannedRehearsalStart || undefined,
@@ -184,8 +183,9 @@ export function useVersionCreation(token: string, opts: { onCreated: (versionId:
       else formData.append('versionName', newVersion.name);
       if (newVersion.plannedStart) formData.append('plannedStart', newVersion.plannedStart.slice(0, 10));
       if (newVersion.qcReleaseId) formData.append('qcReleaseId', newVersion.qcReleaseId);
-      if (newVersion.integrationStart) formData.append('integrationStart', newVersion.integrationStart);
-      if (newVersion.integrationEnd) formData.append('integrationEnd', newVersion.integrationEnd);
+      // Integration dates belong to ניהול גרסה — never overwrite an existing version's
+      if (!targetVersionId && newVersion.integrationStart) formData.append('integrationStart', newVersion.integrationStart);
+      if (!targetVersionId && newVersion.integrationEnd) formData.append('integrationEnd', newVersion.integrationEnd);
       if (newVersion.qaStart) formData.append('qaStart', newVersion.qaStart);
       if (newVersion.qaEnd) formData.append('qaEnd', newVersion.qaEnd);
       if (newVersion.plannedRehearsalStart) formData.append('plannedRehearsalStart', newVersion.plannedRehearsalStart);

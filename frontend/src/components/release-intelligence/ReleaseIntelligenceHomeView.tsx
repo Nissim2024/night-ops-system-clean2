@@ -7,6 +7,7 @@ import { buildRiHomeEmailHtml, buildCrSections, EmailTile, EmailAlert, EmailTone
 import { KpiTile, RiskRow } from '../HomeDashboard';
 import { DefectIdBadge } from '../shared/defectFieldDisplay';
 import { formatDate } from '../../utils/dateFormat';
+import { useDialog } from '../../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -247,6 +248,7 @@ interface Props { token: string; versionId?: string; versionName?: string; role:
 // and alert is backed by data the module already computes elsewhere — no new
 // backend endpoints (spec confirmed 2026-08-31).
 export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId, versionName, role, fullName, onNavigate }) => {
+  const dialog = useDialog();
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const firstName = fullName.split(' ')[0] || fullName;
   const hour = new Date().getHours();
@@ -500,7 +502,7 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
 
   const deleteNotice = async (id: string) => {
     if (!versionId) return;
-    if (!window.confirm('למחוק את ההודעה? לא ניתן לשחזר לאחר המחיקה.')) return;
+    if (!await dialog.confirm('למחוק את ההודעה? לא ניתן לשחזר לאחר המחיקה.', 'מחיקת הודעה', 'danger')) return;
     setSavingNotice(true);
     try {
       await axios.delete(`${API}/versions/${versionId}/notices/${id}`, { headers });

@@ -813,13 +813,16 @@ async addTask(subPhaseId: string, data: {
     return prisma.version.update({ where: { id }, data });
   }
 
-  // integrationStart/End, qaStart/End and plannedRehearsalStart/End are owned by
-  // the QA work plan (qa-workplan.service.ts's syncVersionDatesFromWorkPlan)
-  // once one exists for a datesLockedToWorkPlan version — see schema comment.
-  // Keyed here so updateFields can reject direct edits instead of silently
-  // fighting the QA sync for whichever write happens to run last.
+  // qaStart/End and plannedRehearsalStart/End are owned by the QA work plan
+  // (qa-workplan.service.ts's syncVersionDatesFromWorkPlan) once one exists for
+  // a datesLockedToWorkPlan version — see schema comment. Keyed here so
+  // updateFields can reject direct edits instead of silently fighting the QA
+  // sync for whichever write happens to run last.
+  // integrationStart/End are NOT in this list (product decision 2026-10-05):
+  // they're entered in ניהול גרסה → פתיחת גרסה and every other module reads
+  // them from the version. The QA plan never computed them — locking them only
+  // left them with no editor at all once a QA plan existed.
   private static readonly QA_SYNCED_DATE_FIELDS: Record<string, string> = {
-    integrationStart: 'תחילת אינטגרציה', integrationEnd: 'סיום אינטגרציה',
     qaStart: 'תחילת QA', qaEnd: 'סיום QA',
     plannedRehearsalStart: 'תחילת חזרה', plannedRehearsalEnd: 'סיום חזרה',
   };

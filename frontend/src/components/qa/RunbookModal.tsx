@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C } from '../../theme';
 import { formatDate } from '../../utils/dateFormat';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from '../ui/BrandedDialog';
 
 const API  = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 const BLUE = '#4573D2';
@@ -465,29 +466,26 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
     <div
       dir="rtl"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-      className="fixed inset-0 z-[2000] flex items-start justify-center overflow-y-auto bg-black/55 pt-8"
+      className="fixed inset-0 z-[2000] flex items-start justify-center overflow-y-auto pt-8"
+      style={{ background: DIALOG_OVERLAY_BG }}
     >
-      <div className="mb-8 flex max-h-[92vh] w-[96vw] max-w-[1180px] flex-col overflow-hidden rounded-xl bg-card shadow-xl">
+      <div className="mb-8 flex max-h-[92vh] w-[96vw] max-w-[1180px] flex-col overflow-hidden rounded-xl bg-card" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
 
-        {/* ── Header ── */}
-        <div className="flex flex-wrap items-center gap-3 bg-primary px-5 py-4">
-          <span className="text-2xl">📋</span>
-          <div className="min-w-0 flex-1">
-            <div className="text-xl font-bold text-white">
-              {isInt                          ? 'היערכות לבדיקות אינטגרציה'
+        <DialogBrandBar
+          icon="📋"
+          title={isInt                          ? 'היערכות לבדיקות אינטגרציה'
                : isQa                         ? 'היערכות לבדיקות QA'
                : trigger === 'REFRESH_DRY_RUN'  ? 'היערכות לחזרה גנרלית'
                : trigger === 'REFRESH_PLIKE'    ? 'סביבת PLIKE — רענון ויישור גרסה'
                : trigger === 'REFRESH_TRAIN'    ? 'סביבת TRAIN — רענון ויישור גרסה'
-               : ''}
-            </div>
-            <div className="mt-1 text-sm text-white/85">
-              {def.title}
-              {' · '}
-              <span className="font-semibold">{def.envLabel}</span>
-              {dateStartISO ? ` · ${fmtDate(dateStartISO)}` : ''}
-            </div>
-          </div>
+               : def.title}
+          subtitle={`${def.title} · ${def.envLabel}${dateStartISO ? ` · ${fmtDate(dateStartISO)}` : ''}`}
+          onClose={onClose}
+        />
+
+        {/* ── Toolbar ── */}
+        <div className="flex flex-wrap items-center gap-3 bg-primary px-5 py-3">
+          <div className="min-w-0 flex-1" />
 
           <div className="rounded-full bg-white/[.18] px-3.5 py-1 text-[17px] font-bold text-white">
             {runMode ? doneCount : staffed}/{steps.length}
@@ -551,7 +549,6 @@ export default function RunbookModal({ trigger, dateStartISO, versionId, token, 
               {saved ? '✓ נשמר' : saving ? 'שומר…' : '💾 שמור'}
             </button>
           )}
-          <button onClick={onClose} className="flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-full border-none bg-white/[.18] font-sans text-base leading-none text-white">✕</button>
         </div>
 
         {/* ── Run-mode filter bar ── */}

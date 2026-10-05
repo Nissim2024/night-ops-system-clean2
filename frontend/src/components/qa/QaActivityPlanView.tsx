@@ -3,6 +3,7 @@ import axios from 'axios';
 import { C, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, FONT } from '../../theme';
 import RunbookModal, { getRunbookTrigger, RunbookTrigger } from './RunbookModal';
 import { InviteDialog, InviteTeamOption } from './InviteDialog';
+import { CAT_LABELS, activityStatus, ActivityStatusBadge, DoneToggleButton } from './activityBoardShared';
 import { DateField } from '../DatePicker';
 import { formatDate } from '../../utils/dateFormat';
 import { useDialog } from '../../context/DialogContext';
@@ -42,20 +43,11 @@ interface ActivityItem {
   isRelevant:     boolean;
   isCustom:       boolean;
   highlight?:     'golive' | 'billing';
+  doneAt?:        string | null;
+  doneBy?:        string | null;
 }
 
-type Category = 'meeting' | 'refresh' | 'deployment' | 'testing' | 'golive' | 'billing' | 'other';
-
-const CAT_LABELS: Record<Category | 'all', string> = {
-  all:        'הכל',
-  meeting:    'פגישות',
-  refresh:    'רענונים',
-  deployment: 'העברות גרסה',
-  testing:    'בדיקות',
-  golive:     'עלייה לאוויר',
-  billing:    'בילינג',
-  other:      'אחר',
-};
+// Categories / status / badge shared with ניהול בדיקות's "ציר זמן ופעילויות"
 
 
 // ── Work-day helpers (ראשון–חמישי) ────────────────────────────────────────────
@@ -129,6 +121,8 @@ function savedToItem(e: any): ActivityItem {
     category:       e.category  ?? 'other',
     isRelevant:     e.isRelevant ?? true,
     isCustom:       e.isCustom  ?? false,
+    doneAt:         e.doneAt ?? null,
+    doneBy:         e.doneBy ?? null,
     highlight:      e.category === 'golive'  ? 'golive'
                   : e.category === 'billing' ? 'billing'
                   : undefined,
@@ -517,8 +511,6 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
   const [workPlan,         setWorkPlan]         = useState<WorkPlan | null>(null);
   const [loadingPlan,      setLoadingPlan]      = useState(false);
   const [holidayDays,      setHolidayDays]      = useState<Set<string>>(new Set());
-  const [integrationStart, setIntegrationStart] = useState('');
-  const [integrationEnd,   setIntegrationEnd]   = useState('');
   const [manualDelay,      setManualDelay]      = useState(0);
   const [envInt,           setEnvInt]           = useState<EnvName>('אינטגרציה');
   const [envQA,            setEnvQA]            = useState<EnvName>('טסט');
@@ -579,17 +571,12 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Pre-fill integration dates from version ───────────────────────────────
-  useEffect(() => {
-    if (versionIntegrationStart) {
-      const d = new Date(versionIntegrationStart);
-      setIntegrationStart(d.toISOString().split('T')[0]);
-    }
-    if (versionIntegrationEnd) {
-      const d = new Date(versionIntegrationEnd);
-      setIntegrationEnd(d.toISOString().split('T')[0]);
-    }
-  }, [versionIntegrationStart, versionIntegrationEnd]);
+  // ── Integration dates — inherited from the version, read-only here ─────────
+  // Entered in ניהול גרסה → פתיחת גרסה only (2026-10-05); this board used to
+  // have its own editors that PATCHed them back, which the server rejected for
+  // QA-plan-governed versions — taking the meeting-date sync down with it.
+  const integrationStart = versionIntegrationStart ? new Date(versionIntegrationStart).toISOString().split('T')[0] : '';
+  const integrationEnd   = versionIntegrationEnd   ? new Date(versionIntegrationEnd).toISOString().split('T')[0]   : '';
 
   // ── Fetch work plan ──────────────────────────────────────────────────────────
 
@@ -682,9 +669,6 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
       const versionPatch: Record<string, string | null> = {};
       if (crReview?.dateStartISO) versionPatch.reviewMeetingTime   = crReview.dateStartISO;
       if (runbook?.dateStartISO)  versionPatch.workPlanMeetingTime = runbook.dateStartISO;
-      // Sync integration/QA dates if changed in the board UI
-      if (integrationStart) versionPatch.integrationStart = integrationStart;
-      if (integrationEnd)   versionPatch.integrationEnd   = integrationEnd;
       if (Object.keys(versionPatch).length > 0) {
         await axios.patch(`${API}/versions/${versionId}`, versionPatch, { headers }).catch(() => {});
       }
@@ -728,6 +712,22 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
     const patch = { owner, ownerEmployee: emp };
     setActivities(prev => prev.map(a => a.id === item.id ? { ...a, ...patch } : a));
     if (item.dbId) handlePatchEntry(item.dbId, patch as any);
+  };
+
+  // "בוצע" — server-side so it survives the board's delete+recreate save
+  // (activity-board.service.ts saveBoard carries it over by activityKey).
+  const [doneBusyId, setDoneBusyId] = useState<string | null>(null);
+  const handleToggleDone = async (item: ActivityItem) => {
+    if (!item.dbId) return;
+    setDoneBusyId(item.id);
+    try {
+      const res = await axios.patch(`${API}/activity-board/entry/${item.dbId}/done`, { done: !item.doneAt }, { headers });
+      setActivities(prev => prev.map(a => a.id === item.id ? { ...a, doneAt: res.data.doneAt, doneBy: res.data.doneBy } : a));
+    } catch (err: any) {
+      dialog.alert(err?.response?.data?.message || 'שגיאה בעדכון סטטוס הביצוע', 'שגיאה', 'danger');
+    } finally {
+      setDoneBusyId(null);
+    }
   };
 
   const handleToggleRelevant = (item: ActivityItem) => {
@@ -857,6 +857,9 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
         <div style={{ ...TEXT.sm, fontWeight: WEIGHT.bold, marginBottom: SP[3], color: C.textPrimary }}>
           פרמטרי תוכנית
         </div>
+        <div style={{ ...TEXT.xs, color: C.textMuted, marginTop: `-${SP[2]}`, marginBottom: SP[3] }}>
+          תאריכי האינטגרציה נלקחים מהגרסה — לשינוי: ניהול גרסה → פתיחת גרסה.
+        </div>
 
         {/* ── שורה 1: תאריכים ────────────────────────────────────────────────── */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[4], alignItems: 'flex-end', marginBottom: SP[3] }}>
@@ -866,15 +869,16 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
             <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.bold, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               תחילת אינטגרציה
             </span>
-            <DateField
-              value={integrationStart}
-              onChange={v => { setIntegrationStart(v); setComputed(false); }}
+            <span
+              title="נקבע במודול ניהול גרסה → פתיחת גרסה"
               style={{
                 padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: `1px solid ${C.border}`,
-                background: C.bgNested, color: C.textPrimary, fontFamily: FONT, ...TEXT.sm,
-                outline: 'none', cursor: 'pointer',
+                background: C.bgNested, color: integrationStart ? C.textPrimary : C.textMuted, fontFamily: FONT, ...TEXT.sm,
+                cursor: 'not-allowed', minWidth: '120px',
               }}
-            />
+            >
+              {integrationStart ? integrationStart.split('-').reverse().join('/') : 'לא הוזן'}
+            </span>
           </label>
 
           {/* Integration End */}
@@ -882,15 +886,16 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
             <span style={{ ...TEXT.xs, color: C.textMuted, fontWeight: WEIGHT.bold, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               סיום אינטגרציה *
             </span>
-            <DateField
-              value={integrationEnd}
-              onChange={v => { setIntegrationEnd(v); setComputed(false); }}
+            <span
+              title="נקבע במודול ניהול גרסה → פתיחת גרסה"
               style={{
                 padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: `1px solid ${C.border}`,
-                background: C.bgNested, color: C.textPrimary, fontFamily: FONT, ...TEXT.sm,
-                outline: 'none', cursor: 'pointer',
+                background: C.bgNested, color: integrationEnd ? C.textPrimary : C.textMuted, fontFamily: FONT, ...TEXT.sm,
+                cursor: 'not-allowed', minWidth: '120px',
               }}
-            />
+            >
+              {integrationEnd ? integrationEnd.split('-').reverse().join('/') : 'לא הוזן'}
+            </span>
           </label>
 
           {/* Manual delay */}
@@ -1137,11 +1142,11 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
 
           {/* Table header */}
           <div style={{
-            display: 'grid', gridTemplateColumns: '120px 120px 1fr 110px 130px 168px',
+            display: 'grid', gridTemplateColumns: '136px 136px 1fr 110px 130px 84px 196px',
             padding: `${SP[2]} ${SP[4]}`, borderBottom: `1px solid ${C.border}`,
             background: C.bgNested,
           }}>
-            {['תאריך התחלה', 'תאריך סיום', 'פעילות', 'צוות אחראי', 'שם עובד', ''].map((h, i) => (
+            {['תאריך התחלה', 'תאריך סיום', 'פעילות', 'צוות אחראי', 'שם עובד', 'מצב', ''].map((h, i) => (
               <div key={i} style={{ ...TEXT.xs, fontWeight: WEIGHT.bold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</div>
             ))}
           </div>
@@ -1221,7 +1226,7 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
                     /* Normal view row */
                     <div
                       onClick={() => { if (inlineId === a.id) { setInlineId(null); return; } setExpandedId(expanded ? null : a.id); }}
-                      style={{ display: 'grid', gridTemplateColumns: '120px 120px 1fr 110px 130px 168px', padding: `${SP[2]} ${SP[4]}`, cursor: 'pointer', transition: EASE.fast, alignItems: 'center' }}
+                      style={{ display: 'grid', gridTemplateColumns: '136px 136px 1fr 110px 130px 84px 196px', padding: `${SP[2]} ${SP[4]}`, cursor: 'pointer', transition: EASE.fast, alignItems: 'center' }}
                       onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.background = C.bgHover}
                       onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background = 'transparent'}
                     >
@@ -1292,8 +1297,22 @@ export default function QaActivityPlanView({ token, versionId, versionIntegratio
                         </span>
                       )}
 
+                      <span>
+                        <ActivityStatusBadge
+                          status={activityStatus({ doneAt: a.doneAt, dateStart: a.dateStartISO || null, dateEnd: a.dateEndISO || null })}
+                          title={a.doneAt ? `סומן ע"י ${a.doneBy ?? '—'}` : undefined}
+                        />
+                      </span>
+
                       {/* Action buttons */}
                       <div style={{ display: 'flex', gap: SP[1] }} onClick={e => e.stopPropagation()}>
+                        <DoneToggleButton
+                          done={!!a.doneAt}
+                          busy={doneBusyId === a.id}
+                          disabled={!a.dbId}
+                          disabledReason="יש לשמור את הלוח תחילה"
+                          onClick={() => handleToggleDone(a)}
+                        />
                         {/* Runbook button — only for applicable activities */}
                         {(() => {
                           const trigger = getRunbookTrigger(a.id);

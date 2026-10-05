@@ -112,13 +112,14 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
     version.reviewMeetingTime, version.workPlanMeetingTime, version.submissionDeadline, version.approvalDeadline,
   ]);
 
-  // integrationStart/End + qaStart/End are owned by the QA work plan once one
+  // qaStart/End are owned by the QA work plan once one
   // exists for a datesLockedToWorkPlan version (see versions.service.ts's
   // updateFields guard, added alongside this) — direct edits are rejected
   // server-side, so mirror that here: disable the fields and drop them from
   // the save payload instead of letting the whole save fail on an unrelated
-  // field. plannedStart/reviewMeetingTime/workPlanMeetingTime/deadlines stay
-  // freely editable regardless.
+  // field. integrationStart/End (owned HERE — every other module inherits
+  // them, 2026-10-05), plannedStart/reviewMeetingTime/workPlanMeetingTime and
+  // the deadlines stay freely editable regardless.
   const [hasWorkPlan, setHasWorkPlan] = useState(false);
   useEffect(() => {
     axios.get(`${API}/qa/workplan`, { headers, params: { versionId: version.id } })
@@ -185,10 +186,10 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
         workPlanMeetingTime: dates.workPlanMeetingTime ? toUtcIso(dates.workPlanMeetingTime) : null,
         submissionDeadline: dates.submissionDeadline ? toUtcIso(dates.submissionDeadline) : null,
         approvalDeadline: dates.approvalDeadline ? toUtcIso(dates.approvalDeadline) : null,
+        integrationStart: dates.integrationStart || null,
+        integrationEnd: dates.integrationEnd || null,
       };
       if (!datesLocked) {
-        payload.integrationStart = dates.integrationStart || null;
-        payload.integrationEnd = dates.integrationEnd || null;
         payload.qaStart = dates.qaStart || null;
         payload.qaEnd = dates.qaEnd || null;
       }
@@ -370,7 +371,7 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
             <div>
               {datesLocked && (
                 <div className="mb-3.5 rounded-md border border-border bg-muted px-3 py-2 text-[13px] text-muted-foreground">
-                  ● תאריכי אינטגרציה ו-QA מנוהלים אוטומטית על ידי תוכנית העבודה של QA ואינם ניתנים לעריכה כאן — לשינוי לוח הזמנים יש לעדכן את תוכנית העבודה במודול 2 (תכנון ושיבוץ בדיקות).
+                  ● תאריכי ה-QA מנוהלים אוטומטית על ידי תוכנית העבודה של QA ואינם ניתנים לעריכה כאן — לשינוי יש לעדכן את תוכנית העבודה במודול ניהול QA. תאריכי האינטגרציה נקבעים כאן ומועברים לשאר המודולים.
                 </div>
               )}
               <div className="flex flex-col gap-[18px]">
@@ -379,11 +380,11 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
                   <div className="flex flex-wrap items-end gap-4">
                     <div>
                       <label className="mb-1.5 block text-[13px] font-semibold text-muted-foreground">תחילת בדיקות אינטגרציה</label>
-                      <DateField value={dates.integrationStart} onChange={v => setDates(d => ({ ...d, integrationStart: v }))} disabled={datesLocked} />
+                      <DateField value={dates.integrationStart} onChange={v => setDates(d => ({ ...d, integrationStart: v }))} />
                     </div>
                     <div>
                       <label className="mb-1.5 block text-[13px] font-semibold text-muted-foreground">סיום בדיקות אינטגרציה</label>
-                      <DateField value={dates.integrationEnd} onChange={v => setDates(d => ({ ...d, integrationEnd: v }))} minIso={dates.integrationStart || undefined} disabled={datesLocked} />
+                      <DateField value={dates.integrationEnd} onChange={v => setDates(d => ({ ...d, integrationEnd: v }))} minIso={dates.integrationStart || undefined} />
                     </div>
                     <div>
                       <label className="mb-1.5 block text-[13px] font-semibold text-muted-foreground">תחילת QA</label>

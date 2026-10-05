@@ -11,6 +11,7 @@ import { PermissionsMatrix } from './PermissionsMatrix';
 import { VersionTemplatesView } from './VersionTemplatesView';
 import { DefectFormLayoutEditor } from './quality-hub/DefectFormLayoutEditor';
 import { QcWriteTestPanel } from './QcWriteTestPanel';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from './ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -811,21 +812,20 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
               </div>
               {showUserForm && (
                 <div style={{
-                  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+                  position: 'fixed', inset: 0, background: DIALOG_OVERLAY_BG,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100,
                 }} onClick={e => { if (e.target === e.currentTarget) { setShowUserForm(false); setEditingUser(null); setError(null); } }}>
                   <form onSubmit={saveUser} style={{
-                    background: C.bgCard, borderRadius: '14px', padding: '28px 32px',
-                    border: `2px solid ${C.brand}`, width: '100%', maxWidth: '560px',
-                    boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
+                    background: C.bgCard, borderRadius: RADIUS.lg, padding: '28px 32px',
+                    width: '100%', maxWidth: '560px', overflow: 'hidden',
+                    boxShadow: DIALOG_PANEL_SHADOW,
                   }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                      <h3 style={{ margin: 0, color: C.textPrimary }}>
-                        {editingUser ? `✏️ עריכת ${editingUser.fullName}` : '➕ משתמש חדש'}
-                      </h3>
-                      <button type="button" onClick={() => { setShowUserForm(false); setEditingUser(null); setError(null); }}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '22px', color: C.textMuted, lineHeight: 1 }}>×</button>
-                    </div>
+                    <DialogBrandBar
+                      icon={editingUser ? '✏️' : '➕'}
+                      title={editingUser ? `עריכת ${editingUser.fullName}` : 'משתמש חדש'}
+                      onClose={() => { setShowUserForm(false); setEditingUser(null); setError(null); }}
+                      style={{ margin: '-28px -32px 20px' }}
+                    />
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '20px' }}>
                       <div>
                         <label style={labelStyle}>שם מלא *</label>
@@ -898,11 +898,11 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
 
               {resetUserId && (
                 <div style={{
-                  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+                  position: 'fixed', inset: 0, background: DIALOG_OVERLAY_BG,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
                 }}>
-                  <div style={{ background: C.bgCard, borderRadius: '12px', padding: '28px', minWidth: '340px', border: `1px solid ${C.border}` }}>
-                    <h3 style={{ margin: '0 0 16px', color: C.textPrimary }}>🔑 איפוס סיסמה</h3>
+                  <div style={{ background: C.bgCard, borderRadius: RADIUS.lg, padding: '28px', minWidth: '340px', overflow: 'hidden', boxShadow: DIALOG_PANEL_SHADOW }}>
+                    <DialogBrandBar icon="🔑" title="איפוס סיסמה" onClose={() => { setResetUserId(null); setNewPassword(''); }} style={{ margin: '-28px -28px 18px' }} />
                     <label style={labelStyle}>סיסמה חדשה</label>
                     <input type="password" style={{ ...inputStyle, marginBottom: '16px' }}
                       value={newPassword} onChange={e => setNewPassword(e.target.value)}

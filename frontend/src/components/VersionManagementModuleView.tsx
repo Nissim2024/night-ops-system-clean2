@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { VersionOpeningModule, StepKey } from './VersionOpeningModule';
 import { VersionOverview } from './VersionOverview';
-import { VersionStatusChip } from './ui';
 import { useVersionCreation } from '../hooks/useVersionCreation';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -39,27 +38,6 @@ export const VersionManagementModuleView: React.FC<Props> = ({
   const openVersions = versions.filter(v => !v.isArchived && OPEN_STATUSES.includes(v.status));
   const selectedVersion = versions.find(v => v.id === selectedVersionId) ?? null;
 
-  // Year + version filters (user ask 2026-10-04). The picker now lists every
-  // version — open, closed, historical-from-QC, archived — grouped, so the
-  // year filter has something to narrow; previously it showed open ones only.
-  const versionYear = (v: any): number | null => {
-    const m = String(v.name ?? '').match(/(\d{4})\s*$/);
-    if (m) return Number(m[1]);
-    return v.plannedStart ? new Date(v.plannedStart).getFullYear() : null;
-  };
-  const years = Array.from(new Set(versions.map(versionYear).filter((y): y is number => y != null))).sort((a, b) => b - a);
-  const [selectedYears, setSelectedYears] = useState<number[]>([]);
-  const toggleYear = (y: number) => setSelectedYears(prev => prev.includes(y) ? prev.filter(x => x !== y) : [...prev, y]);
-  const inYears = (v: any) => selectedYears.length === 0 || selectedYears.includes(versionYear(v) ?? -1);
-  const byName = (a: any, b: any) => String(b.name).localeCompare(String(a.name), 'he');
-  const pickerGroups: { label: string; items: any[] }[] = [
-    { label: 'פתוחות', items: versions.filter(v => !v.isArchived && !v.isQcHistorical && OPEN_STATUSES.includes(v.status)) },
-    { label: 'בביצוע', items: versions.filter(v => !v.isArchived && !v.isQcHistorical && ['REHEARSAL', 'ACTIVE', 'MORNING_AFTER'].includes(v.status)) },
-    { label: 'סגורות', items: versions.filter(v => !v.isArchived && !v.isQcHistorical && ['COMPLETED', 'ROLLED_BACK'].includes(v.status)) },
-    { label: 'היסטוריות (QC)', items: versions.filter(v => !v.isArchived && v.isQcHistorical) },
-    { label: 'ארכיון', items: versions.filter(v => v.isArchived) },
-  ].map(g => ({ ...g, items: g.items.filter(inYears).sort(byName) })).filter(g => g.items.length > 0);
-  const pickerCount = pickerGroups.reduce((s, g) => s + g.items.length, 0);
   // Hidden while VersionOverview's TARGET-defect list/detail screens are
   // open — they already show their own contextual header, so this picker
   // row is redundant clutter once drilled in that far (2026-08-30).
@@ -85,43 +63,11 @@ export const VersionManagementModuleView: React.FC<Props> = ({
 
   return (
     <div className="[direction:rtl]">
-      {/* ── Version picker ── */}
+      {/* ── Toolbar ── version is picked in the sidebar's global version picker;
+          the in-page year filter + version select (2026-10-04) duplicated it and
+          were removed on user request 2026-10-05. */}
       {!hideVersionPicker && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            {years.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5" title="סינון רשימת הגרסאות לפי שנה">
-                <span className="text-xs text-subtle-foreground">שנה:</span>
-                {years.map(y => (
-                  <button
-                    key={y}
-                    onClick={() => toggleYear(y)}
-                    className={`cursor-pointer rounded-full border px-2.5 py-1 text-xs font-semibold ${selectedYears.includes(y) ? 'border-primary bg-primary text-white' : 'border-border bg-card text-muted-foreground'}`}
-                  >
-                    {y}
-                  </button>
-                ))}
-                {selectedYears.length > 0 && (
-                  <button onClick={() => setSelectedYears([])} className="cursor-pointer border-none bg-transparent px-1 text-xs text-subtle-foreground underline">
-                    נקה
-                  </button>
-                )}
-              </div>
-            )}
-            <select
-              value={pickerGroups.some(g => g.items.some(v => v.id === selectedVersionId)) ? selectedVersionId : ''}
-              onChange={e => onSelectVersion(e.target.value)}
-              className="min-w-[220px] rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground"
-            >
-              <option value="">{pickerCount === 0 ? 'אין גרסאות בשנים שנבחרו' : `בחר גרסה... (${pickerCount})`}</option>
-              {pickerGroups.map(g => (
-                <optgroup key={g.label} label={g.label}>
-                  {g.items.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                </optgroup>
-              ))}
-            </select>
-            {selectedVersion && <VersionStatusChip status={selectedVersion.status} size="md" />}
-          </div>
+        <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
           <button
             onClick={() => setShowCreate(true)}
             className="cursor-pointer rounded-md border-none bg-primary px-3.5 py-2 text-sm font-bold text-white"
@@ -164,7 +110,7 @@ export const VersionManagementModuleView: React.FC<Props> = ({
 
       {!selectedVersion ? (
         <div className="p-10 text-center text-subtle-foreground">
-          {openVersions.length === 0 ? 'אין גרסאות פתוחות — לחץ "+ יצירת גרסה" למעלה כדי להתחיל.' : 'בחר גרסה מהרשימה.'}
+          {openVersions.length === 0 ? 'אין גרסאות פתוחות — לחץ "+ יצירת גרסה" למעלה כדי להתחיל.' : 'בחר גרסה בבורר הגרסאות בתפריט הצד.'}
         </div>
       ) : activeView === 'overview' ? (
         <VersionOverview

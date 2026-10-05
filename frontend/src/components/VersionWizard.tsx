@@ -10,6 +10,7 @@ import React, { useState } from 'react';
 import { C } from '../theme';
 import { cn } from '../lib/utils';
 import { DateField, DateTimeField, DateRangeField, TimeField, formatDMY } from './DatePicker';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from './ui/BrandedDialog';
 
 // formatDMY only parses bare 'YYYY-MM-DD' — split off the date part before
 // handing it a full 'YYYY-MM-DDTHH:MM' value, otherwise it silently returns ''.
@@ -48,7 +49,8 @@ interface Template { id: string; name: string; description?: string; }
 
 // A version already created in "ניהול גרסה" (DRAFT, no phases yet) — this
 // wizard fills in ITS plan, it no longer creates the version itself.
-interface ExistingVersion { id: string; name: string; }
+// integrationStart/End are shown read-only — owned by ניהול גרסה (2026-10-05)
+interface ExistingVersion { id: string; name: string; integrationStart?: string | null; integrationEnd?: string | null; }
 
 interface Props {
   newVersion: NewVersionState;
@@ -107,7 +109,7 @@ export const VersionWizard: React.FC<Props> = ({
     !!targetVersionId &&
     (method !== 'template' || !!selectedTemplateId) &&
     (method !== 'excel' || !!importFile);
-  const step1Valid = method !== 'manual' || !!(newVersion.integrationStart && newVersion.integrationEnd && newVersion.qaStart && newVersion.qaEnd);
+  const step1Valid = method !== 'manual' || !!(newVersion.qaStart && newVersion.qaEnd);
   const step2Valid = true; // meetings are always optional
   const [plannedStartDate, plannedStartTime] = (newVersion.plannedStart || '').split('T');
   const step3Valid = method === 'manual' || !!(plannedStartDate && plannedStartTime); // go-live date+time required for template/excel
@@ -131,8 +133,6 @@ export const VersionWizard: React.FC<Props> = ({
     }
     if (step === 1 && method === 'manual') {
       return [
-        !newVersion.integrationStart && 'תאריך תחילת אינטגרציה',
-        !newVersion.integrationEnd && 'תאריך סיום אינטגרציה',
         !newVersion.qaStart && 'תאריך תחילת QA',
         !newVersion.qaEnd && 'תאריך סיום QA',
       ].filter(Boolean) as string[];
@@ -148,19 +148,10 @@ export const VersionWizard: React.FC<Props> = ({
 
   return (
     <div className="fixed inset-0 z-[3000]" dir="rtl">
-      <div className="absolute inset-0 bg-[rgba(10,20,40,0.72)] backdrop-blur-[2px]" />
+      <div className="absolute inset-0 backdrop-blur-[2px]" style={{ background: DIALOG_OVERLAY_BG }} />
 
-      <div className="relative z-[1] mx-auto my-8 flex max-h-[calc(100vh-64px)] max-w-[760px] flex-col overflow-hidden rounded-2xl bg-card shadow-[0_24px_64px_rgba(0,0,0,0.45)]">
-        {/* Header */}
-        <div className="flex shrink-0 items-center justify-between bg-gradient-to-br from-[#1a2332] to-[#2d4a7a] px-7 pb-4 pt-[18px] text-white">
-          <div>
-            <div className="text-[17px] font-bold tracking-[0.3px]">📋 יצירת תוכנית הטמעה</div>
-            <div className="mt-[3px] text-sm text-[#94a3b8]">{selectedVersion?.name || 'טרם נבחרה גרסה'}</div>
-          </div>
-          <button onClick={onClose} className="cursor-pointer rounded-md border border-[rgba(255,255,255,0.2)] bg-[rgba(255,255,255,0.12)] px-3.5 py-[7px] text-[15px] text-white">
-            ✕ ביטול
-          </button>
-        </div>
+      <div className="relative z-[1] mx-auto my-8 flex max-h-[calc(100vh-64px)] max-w-[760px] flex-col overflow-hidden rounded-xl bg-card" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+        <DialogBrandBar icon="📋" title="יצירת תוכנית הטמעה" subtitle={selectedVersion?.name || 'טרם נבחרה גרסה'} onClose={onClose} />
 
         {/* Progress bar */}
         <div className="shrink-0 border-b border-[#e2e8f0] bg-[#f8fafc] px-7 py-3.5">
@@ -287,13 +278,12 @@ export const VersionWizard: React.FC<Props> = ({
           {step === 1 && (
             <div className="flex flex-col gap-[18px]">
               <div>
-                <div className={cn(LABEL_CLASS, 'mb-2.5')}>🔧 תאריכי אינטגרציה {method === 'manual' ? <span className="text-danger">*</span> : <span className="text-xs font-normal text-subtle-foreground">אופציונלי</span>}</div>
-                <DateRangeField
-                  startIso={newVersion.integrationStart}
-                  endIso={newVersion.integrationEnd}
-                  onChange={(s, e) => setNewVersion({ ...newVersion, integrationStart: s, integrationEnd: e })}
-                  style={method === 'manual' ? validBorder(!!newVersion.integrationStart) : inputStyle}
-                />
+                <div className={cn(LABEL_CLASS, 'mb-2.5')}>🔧 תאריכי אינטגרציה <span className="text-xs font-normal text-subtle-foreground">נקבעים בניהול גרסה → פתיחת גרסה</span></div>
+                <div className="rounded-md border border-border bg-muted px-3 py-2 text-[15px] text-foreground">
+                  {selectedVersion?.integrationStart
+                    ? `${formatDMY(selectedVersion.integrationStart.slice(0, 10))} → ${selectedVersion.integrationEnd ? formatDMY(selectedVersion.integrationEnd.slice(0, 10)) : '—'}`
+                    : <span className="italic text-subtle-foreground">לא הוזנו עדיין — יש להזין במודול ניהול גרסה</span>}
+                </div>
               </div>
 
               <div>
@@ -389,8 +379,8 @@ export const VersionWizard: React.FC<Props> = ({
                 ['גרסה', selectedVersion?.name || '—'],
                 ...(method === 'template' ? [['תבנית', templates.find(t => t.id === selectedTemplateId)?.name || '—']] : []),
                 ...(method === 'excel' ? [['קובץ', importFile?.name || '—']] : []),
-                ['תחילת אינטגרציה', formatDMY(newVersion.integrationStart)],
-                ['סיום אינטגרציה', formatDMY(newVersion.integrationEnd)],
+                ['תחילת אינטגרציה', formatDMY(selectedVersion?.integrationStart?.slice(0, 10) ?? '')],
+                ['סיום אינטגרציה', formatDMY(selectedVersion?.integrationEnd?.slice(0, 10) ?? '')],
                 ['תחילת QA', formatDMY(newVersion.qaStart)],
                 ['סיום QA', formatDMY(newVersion.qaEnd)],
                 ['ישיבת סקירת CR', formatDMYTime(newVersion.reviewMeetingTime)],

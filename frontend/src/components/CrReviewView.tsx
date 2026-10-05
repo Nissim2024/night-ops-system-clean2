@@ -6,6 +6,7 @@ import { C } from '../theme';
 import { cleanHtmlText } from '../utils/textSanitize';
 import { formatDate } from '../utils/dateFormat';
 import { teamColor } from './shared/defectFieldDisplay';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from './ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -900,10 +901,15 @@ const CrCard: React.FC<{
 
       {/* ── Extract modal ── */}
       {extractModalCr && (
-        <div className="fixed inset-0 bg-black/50 z-[5000] flex items-center justify-center">
-          <div className="bg-white rounded-2xl px-7 py-6 max-w-[560px] w-[95vw] max-h-[85vh] overflow-y-auto shadow-2xl">
-            <div className="font-bold text-[17px] text-foreground mb-1">⚡ הפק משימות מ{extractModalCr.sourceLabel}</div>
-            <div className="text-sm text-subtle-foreground mb-4">CR {extractModalCr.crNumber} — בחר שורות להפוך למשימות</div>
+        <div className="fixed inset-0 z-[5000] flex items-center justify-center" style={{ background: DIALOG_OVERLAY_BG }}>
+          <div className="bg-card rounded-xl px-7 py-6 max-w-[560px] w-[95vw] max-h-[85vh] overflow-y-auto" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+            <DialogBrandBar
+              icon="⚡"
+              title={`הפק משימות מ${extractModalCr.sourceLabel}`}
+              subtitle={`CR ${extractModalCr.crNumber} — בחר שורות להפוך למשימות`}
+              onClose={() => setExtractModalCr(null)}
+              style={{ margin: '-24px -28px 16px', position: 'sticky', top: '-24px', zIndex: 2 }}
+            />
             <div className="flex flex-col gap-2 mb-4">
               {extractModalCr.items.map((item, i) => (
                 <div key={i} className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg border ${item.checked ? 'bg-primary-50 border-primary-200' : 'bg-neutral-50 border-neutral-200'}`}>
@@ -944,14 +950,16 @@ const CrCard: React.FC<{
 
       {/* ── Team plan preview modal ── */}
       {teamPreview && (
-        <div className="fixed inset-0 bg-foreground/45 z-[5000] flex items-center justify-center"
+        <div className="fixed inset-0 z-[5000] flex items-center justify-center" style={{ background: DIALOG_OVERLAY_BG }}
           onClick={() => setTeamPreview(null)}>
           <div onClick={e => e.stopPropagation()}
-            className="bg-card rounded-xl px-6 py-[22px] max-w-[540px] w-[92vw] max-h-[82vh] overflow-y-auto shadow-xl">
-            <div className="flex items-center justify-between mb-3.5">
-              <div className="text-base font-extrabold text-foreground">תקציר תוכנית — {teamPreview.teamName}</div>
-              <button onClick={() => setTeamPreview(null)} className="border-none bg-transparent cursor-pointer text-lg text-subtle-foreground">✕</button>
-            </div>
+            className="bg-card rounded-xl px-6 py-[22px] max-w-[540px] w-[92vw] max-h-[82vh] overflow-y-auto" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+            <DialogBrandBar
+              icon="📋"
+              title={`תקציר תוכנית — ${teamPreview.teamName}`}
+              onClose={() => setTeamPreview(null)}
+              style={{ margin: '-22px -24px 14px', position: 'sticky', top: '-22px', zIndex: 2 }}
+            />
             {teamPreview.loading ? (
               <div className="text-center p-[30px] text-subtle-foreground">⏳ טוען…</div>
             ) : teamPreview.error ? (

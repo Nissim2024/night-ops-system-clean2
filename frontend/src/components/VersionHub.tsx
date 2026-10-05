@@ -490,7 +490,8 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                 <span className="text-[13px] text-subtle-foreground font-semibold">
                   {icon} {label}
                 </span>
-                {canEdit ? (
+                {/* Integration dates are entered only in ניהול גרסה → פתיחת גרסה (2026-10-05) */}
+                {canEdit && field !== 'integrationStart' && field !== 'integrationEnd' ? (
                   // Focus/blur border-color swap kept as imperative handlers
                   // (matches the original — a static focus-visible ring would
                   // change the interaction, not just its styling).
@@ -503,7 +504,10 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
                     onBlurCapture={e => (e.target as HTMLElement).style.borderColor = C.border}
                   />
                 ) : (
-                  <span className={`text-[15px] py-1.5 ${value ? 'text-foreground' : 'text-subtle-foreground'}`}>
+                  <span
+                    title={canEdit ? 'נקבע במודול ניהול גרסה → פתיחת גרסה' : undefined}
+                    className={`text-[15px] py-1.5 ${value ? 'text-foreground' : 'text-subtle-foreground'}`}
+                  >
                     {value ? (dateOnly ? fmtDateShared(value) : fmt(value)) : '—'}
                   </span>
                 )}

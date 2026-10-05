@@ -4,6 +4,7 @@ import { C } from '../../theme';
 import { useReleaseCount } from './releaseCountSetting';
 import { BackLink } from '../ui';
 import { DefectDrilldownModal } from '../release-intelligence/DefectDrilldownModal';
+import { useDialog } from '../../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -211,6 +212,7 @@ function GradeTrendChart({ points }: { points: { releaseName: string; value: num
 interface Props { token: string; role: string; kpiName: string; releaseName: string; onBack: () => void; autoOpenDrilldown?: boolean; }
 
 export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseName, onBack, autoOpenDrilldown }) => {
+  const dialog = useDialog();
   const headers = { Authorization: `Bearer ${token}` };
   const [data, setData] = useState<KpiDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -380,7 +382,7 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
   };
 
   const deleteNote = async (id: string) => {
-    if (!window.confirm('למחוק שורה זו?')) return;
+    if (!await dialog.confirm('למחוק שורה זו? לא ניתן לשחזר לאחר המחיקה.', 'מחיקת שורה', 'danger')) return;
     await axios.delete(`${API}/quality-hub/problem-notes/${id}`, { headers });
     loadNotes();
   };
@@ -443,7 +445,7 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
   };
 
   const deleteTask = async (id: string) => {
-    if (!window.confirm('למחוק שורה זו?')) return;
+    if (!await dialog.confirm('למחוק שורה זו? לא ניתן לשחזר לאחר המחיקה.', 'מחיקת שורה', 'danger')) return;
     await axios.delete(`${API}/quality-hub/improvement-tasks/${id}`, { headers });
     loadTasks();
   };

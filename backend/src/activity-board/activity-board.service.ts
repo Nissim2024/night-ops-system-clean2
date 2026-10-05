@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { EmailService } from '../email/email.service';
 
@@ -81,6 +81,12 @@ export class ActivityBoardService {
   }
 
   async saveBoard(versionId: string, entries: EntryInput[]) {
+    // The board is saved by delete+recreate — carry each activity's "בוצע"
+    // mark over by activityKey, or every save would silently un-done it.
+    const prevDone = new Map(
+      (await prisma.activityBoardEntry.findMany({ where: { versionId, doneAt: { not: null } }, select: { activityKey: true, doneAt: true, doneBy: true } }))
+        .map(e => [e.activityKey, e]),
+    );
     await prisma.activityBoardEntry.deleteMany({ where: { versionId } });
     if (entries.length === 0) return [];
     await prisma.activityBoardEntry.createMany({
@@ -98,6 +104,8 @@ export class ActivityBoardService {
         sortOrder:     e.sortOrder,
         isRelevant:    e.isRelevant,
         isCustom:      e.isCustom,
+        doneAt:        prevDone.get(e.activityKey)?.doneAt ?? null,
+        doneBy:        prevDone.get(e.activityKey)?.doneBy ?? null,
       })),
     });
     return prisma.activityBoardEntry.findMany({
@@ -106,10 +114,28 @@ export class ActivityBoardService {
     });
   }
 
+  // Mark / unmark an activity as done. Allowed for the activity's own
+  // assigned employee (matched by full name — that's what OwnerPicker
+  // stores in ownerEmployee) or anyone the controller already cleared as a
+  // board manager.
+  async setDone(entryId: string, done: boolean, user: { sub: string }, isBoardManager: boolean) {
+    const entry = await prisma.activityBoardEntry.findUnique({ where: { id: entryId } });
+    if (!entry) throw new NotFoundException('פעילות לא נמצאה');
+    const me = await prisma.user.findUnique({ where: { id: user.sub }, select: { fullName: true } });
+    const isOwner = !!me?.fullName && !!entry.ownerEmployee
+      && me.fullName.trim().toLowerCase() === entry.ownerEmployee.trim().toLowerCase();
+    if (!isOwner && !isBoardManager) throw new ForbiddenException('רק העובד האחראי או מנהל לוח הפעילויות יכולים לסמן ביצוע');
+    return prisma.activityBoardEntry.update({
+      where: { id: entryId },
+      data: done ? { doneAt: new Date(), doneBy: me?.fullName ?? null } : { doneAt: null, doneBy: null },
+    });
+  }
+
   async patchEntry(entryId: string, patch: EntryPatch) {
     const entry = await prisma.activityBoardEntry.findUnique({ where: { id: entryId } });
     if (!entry) throw new NotFoundException('רשומה לא נמצאה');
-    const { dateStart, dateEnd, ...rest } = patch;
+    // doneAt/doneBy only change through setDone() (ownership-checked)
+    const { dateStart, dateEnd, doneAt: _da, doneBy: _db, ...rest } = patch as EntryPatch & { doneAt?: unknown; doneBy?: unknown };
     return prisma.activityBoardEntry.update({
       where: { id: entryId },
       data: {
@@ -123,7 +149,7 @@ export class ActivityBoardService {
   async patchByKey(versionId: string, activityKey: string, patch: EntryPatch) {
     const entry = await prisma.activityBoardEntry.findFirst({ where: { versionId, activityKey } });
     if (!entry) return null;
-    const { dateStart, dateEnd, ...rest } = patch;
+    const { dateStart, dateEnd, doneAt: _da, doneBy: _db, ...rest } = patch as EntryPatch & { doneAt?: unknown; doneBy?: unknown };
     return prisma.activityBoardEntry.update({
       where: { id: entry.id },
       data: {

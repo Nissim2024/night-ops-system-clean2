@@ -1041,6 +1041,10 @@ model ActivityBoardEntry {
   sortOrder     Int       @default(0)
   isRelevant    Boolean   @default(true)
   isCustom      Boolean   @default(false)
+  // "בוצע" mark (2026-10-05) — without it every activity whose end date had
+  // passed read as "באיחור". Preserved across saveBoard's delete+recreate.
+  doneAt        DateTime?
+  doneBy        String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { formatDateTime } from '../../utils/dateFormat';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from '../ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -67,18 +68,16 @@ export const RehearsalArchivePanel: React.FC<{ token: string; versionId: string 
       </div>
 
       {openId && (
-        <div onClick={() => setOpenId(null)} className="fixed inset-0 z-[9999] flex items-center justify-center bg-foreground/45">
-          <div onClick={e => e.stopPropagation()} className="max-h-[80vh] w-[90%] max-w-[520px] overflow-y-auto rounded-2xl border border-border bg-card px-7 py-6 shadow-xl">
+        <div onClick={() => setOpenId(null)} className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ background: DIALOG_OVERLAY_BG }}>
+          <div onClick={e => e.stopPropagation()} className="max-h-[80vh] w-[90%] max-w-[520px] overflow-y-auto rounded-xl bg-card px-7 py-6" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+            <DialogBrandBar icon="🎭" title={detail ? `חזרה גנרלית #${detail.runNumber}` : 'ארכיון חזרה גנרלית'} onClose={() => setOpenId(null)}
+              style={{ margin: '-24px -28px 14px', position: 'sticky', top: '-24px', zIndex: 2 }} />
             {detailLoading ? (
               <div className="p-[30px] text-center text-subtle-foreground">טוען...</div>
             ) : !detail ? (
               <div className="p-[30px] text-center text-danger">שגיאה בטעינת הארכיון</div>
             ) : (
               <>
-                <div className="mb-1 flex items-center justify-between">
-                  <div className="text-lg font-bold text-foreground">🎭 חזרה גנרלית #{detail.runNumber}</div>
-                  <button onClick={() => setOpenId(null)} className="cursor-pointer border-none bg-transparent text-xl text-subtle-foreground">×</button>
-                </div>
                 <div className="mb-3.5 text-xs text-subtle-foreground">
                   הורצה {fmt(detail.ranAt)} · ארוכב {fmt(detail.archivedAt)}
                   {detail.sentAt && <> · נשלח {fmt(detail.sentAt)}</>}

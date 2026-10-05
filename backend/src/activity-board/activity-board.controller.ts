@@ -2,13 +2,14 @@ import { Controller, Get, Post, Patch, Delete, Body, Param, Request, UseGuards, 
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 import type { EntryInput, EntryPatch } from './activity-board.service';
 import { ActivityBoardService } from './activity-board.service';
+import { PermissionsService } from '../permissions/permissions.service';
 
 const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
 
 @UseGuards(JwtGuard)
 @Controller('activity-board')
 export class ActivityBoardController {
-  constructor(private readonly svc: ActivityBoardService) {}
+  constructor(private readonly svc: ActivityBoardService, private readonly perms: PermissionsService) {}
 
   @Get(':versionId')
   getBoard(@Param('versionId') versionId: string) {
@@ -35,6 +36,19 @@ export class ActivityBoardController {
     @Body() patch: Record<string, any>,
   ) {
     return this.svc.patchEntry(entryId, patch as EntryPatch);
+  }
+
+  // "בוצע" toggle — the assigned employee (from their home page / the
+  // timeline screen) or whoever manages the board (release manager, admin,
+  // or anyone with the QA planning screen that hosts the board).
+  @Patch('entry/:entryId/done')
+  async setDone(
+    @Param('entryId') entryId: string,
+    @Body('done') done: boolean,
+    @Request() req: any,
+  ) {
+    const isBoardManager = MANAGERS.includes(req.user.role) || await this.perms.userHas(req.user, 'qa:assignment');
+    return this.svc.setDone(entryId, !!done, req.user, isBoardManager);
   }
 
   @Patch(':versionId/by-key/:key')

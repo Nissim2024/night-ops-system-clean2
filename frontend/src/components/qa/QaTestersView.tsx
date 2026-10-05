@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { C } from '../../theme';
 import { useDialog } from '../../context/DialogContext';
+import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from '../ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -350,13 +351,10 @@ export const QaTestersView: React.FC<Props> = ({ token }) => {
 
       {/* ── Add Tester Modal ── */}
       {showAdd && (
-        <div dir="rtl" className="fixed inset-0 z-[3000] flex items-center justify-center bg-[rgba(20,21,42,0.45)]"
+        <div dir="rtl" className="fixed inset-0 z-[3000] flex items-center justify-center" style={{ background: DIALOG_OVERLAY_BG }}
           onClick={e => { if (e.target === e.currentTarget) setShowAdd(false); }}>
-          <div className="w-[420px] max-w-[94vw] overflow-hidden rounded-3xl bg-card shadow-xl">
-            <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <span className="text-lg font-bold">הוספת בודק</span>
-              <button onClick={() => setShowAdd(false)} className="cursor-pointer border-none bg-transparent text-lg text-subtle-foreground">✕</button>
-            </div>
+          <div className="w-[420px] max-w-[94vw] overflow-hidden rounded-xl bg-card" style={{ boxShadow: DIALOG_PANEL_SHADOW }}>
+            <DialogBrandBar icon="👤" title="הוספת בודק" onClose={() => setShowAdd(false)} />
             <div className="p-5">
               <label className="mb-2 block text-sm font-semibold">סנן לפי צוות</label>
               <select value={filterTeamId} onChange={e => { setFilterTeamId(e.target.value); loadAvailable(e.target.value); }}

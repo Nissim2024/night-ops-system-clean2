@@ -9,7 +9,7 @@ interface OwlProps {
   glint: string;
 }
 
-const Owl: React.FC<OwlProps> = ({ size, body, eyes, beak, iris, glint }) => (
+export const Owl: React.FC<OwlProps> = ({ size, body, eyes, beak, iris, glint }) => (
   <svg width={size} height={size} viewBox="0 0 48 52" fill="none" xmlns="http://www.w3.org/2000/svg">
     {/* Body */}
     <ellipse cx="24" cy="38" rx="14" ry="12" fill={body} />
@@ -62,7 +62,9 @@ const Owl: React.FC<OwlProps> = ({ size, body, eyes, beak, iris, glint }) => (
 );
 
 interface Props {
-  variant?: 'nav' | 'login';
+  // 'compact' (2026-10-05) — the small light-on-dark mark used in every
+  // dialog's brand bar (DialogBrandBar) — always on the dark sidebar surface.
+  variant?: 'nav' | 'login' | 'compact';
   // Light-on-dark rendering (2026-09-24) — for the login page's dark brand
   // panel (theme.ts's C.sidebarBg), which the plain 'login' variant's
   // near-black wordmark/grey tagline are invisible against. Same layout,
@@ -71,6 +73,16 @@ interface Props {
 }
 
 export const DeployCenterLogo: React.FC<Props> = ({ variant = 'nav', dark }) => {
+  if (variant === 'compact') {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '7px', direction: 'ltr', flexShrink: 0 }}>
+        <Owl size={24} body="#4a72b8" eyes="rgba(255,255,255,0.92)" iris="#3498db" beak="#e8a020" glint="rgba(255,255,255,0.95)" />
+        <span style={{ fontSize: '14px', fontWeight: 900, fontFamily: "'Arial Black', Arial, sans-serif", letterSpacing: '-0.4px', lineHeight: 1 }}>
+          <span style={{ color: '#FFFFFF' }}>Deploy</span><span style={{ color: '#6EA8FF' }}>Center</span>
+        </span>
+      </div>
+    );
+  }
   if (variant === 'login') {
     return (
       <div style={{ textAlign: 'center' }}>
