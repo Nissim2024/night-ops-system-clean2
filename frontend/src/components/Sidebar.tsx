@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { C, versionStatusColor, versionStatusLabel, lifecyclePhaseLabel, lifecyclePhaseColor, lifecyclePhaseGroup } from '../theme';
+import { C } from '../theme';
 import { cn } from '../lib/utils';
 import pkg from '../../package.json';
 import { VersionSwitcher } from './shared/VersionSwitcher';
 import { usePermissions } from '../context/PermissionsContext';
 const APP_VERSION: string = pkg.version;
+
+export interface DeployMenuItem { key: string; label: string; icon: string; enabled: boolean; reason?: string; pulse?: boolean }
+export interface DeployMenuGroup { id: string; label: string; current?: boolean; items: DeployMenuItem[] }
 
 interface Props {
   versions?: any[];
@@ -34,6 +37,9 @@ interface Props {
   canAccessQualityHub?: boolean;
   canAccessDefects?: boolean;
   canAccessDeployments?: boolean;
+  deployMenu?: DeployMenuGroup[];
+  onDeployTabChange?: (tab: string) => void;
+  deployActiveKey?: string;   // 'list' (module entry) maps to the item it shows
   // ── Leaves (visible to all employees) ────────────────────────────────
   showLeaves?: boolean;
   leavesActive?: boolean;
@@ -43,16 +49,6 @@ interface Props {
 
 const IS_TEST = process.env.REACT_APP_ENV === 'test';
 
-type Group = { id: string; label: string; icon: string; statuses: string[]; isArchived?: boolean };
-
-const GROUPS: Group[] = [
-  { id: 'active',   label: 'בפעילות', icon: '🚀', statuses: ['REHEARSAL', 'ACTIVE', 'MORNING_AFTER'] },
-  { id: 'planning', label: 'בתכנון',  icon: '📝', statuses: ['DRAFT', 'COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED'] },
-  { id: 'closed',   label: 'סגורות',  icon: '✅', statuses: ['COMPLETED', 'ROLLED_BACK'] },
-  { id: 'archived', label: 'ארכיון',  icon: '📦', statuses: [], isArchived: true },
-  // QC releases opened on demand from "עיון בגרסאות QC" (Version.isQcHistorical)
-  { id: 'historical', label: 'היסטוריות (QC)', icon: '🗄️', statuses: [] },
-];
 
 export const QA_VIEWS = [
   { key: 'assignment', label: 'תכנון ושיבוץ',         icon: '🎯' },
@@ -95,28 +91,9 @@ export const QH_VIEWS = [
   { key: 'qc-release-history', label: 'עיון בגרסאות QC', icon: '🗄️' },
 ];
 
-function versionGroup(v: any): string {
-  if (v.isQcHistorical) return 'historical';
-  if (v.isArchived) return 'archived';
-  // Prefer the cross-module lifecycle phase (backend: version-lifecycle.ts);
-  // fall back to the deployment-night status when it isn't present.
-  if (v.lifecycle?.phase && lifecyclePhaseGroup[v.lifecycle.phase]) return lifecyclePhaseGroup[v.lifecycle.phase];
-  if (['REHEARSAL', 'ACTIVE', 'MORNING_AFTER'].includes(v.status)) return 'active';
-  if (['COMPLETED', 'ROLLED_BACK'].includes(v.status)) return 'closed';
-  return 'planning';
-}
 
 // Version-wide chronological label + colour for the quick picker — the
 // lifecycle phase when available, else the deployment-night status.
-function versionPhaseLabel(v: any): string {
-  if (v.lifecycle?.phaseLabel) return v.lifecycle.phaseLabel;
-  if (v.lifecycle?.phase && lifecyclePhaseLabel[v.lifecycle.phase]) return lifecyclePhaseLabel[v.lifecycle.phase];
-  return versionStatusLabel[v.status] ?? v.status;
-}
-function versionPhaseColor(v: any): string {
-  if (v.lifecycle?.phase && lifecyclePhaseColor[v.lifecycle.phase]) return lifecyclePhaseColor[v.lifecycle.phase];
-  return versionStatusColor[v.status] ?? C.sidebarTextMuted;
-}
 
 export const Sidebar: React.FC<Props> = ({
   versions = [], selectedVersionId, onVersionChange,
@@ -139,23 +116,19 @@ export const Sidebar: React.FC<Props> = ({
   canAccessQualityHub = false,
   canAccessDefects = false,
   canAccessDeployments = true,
+  deployMenu = [],
+  onDeployTabChange,
+  deployActiveKey,
   showLeaves = false,
   leavesActive = false,
   onLeavesClick,
   onHomeClick,
 }) => {
-  const defaultOpen: Record<string, boolean> = { active: true, planning: true, closed: false, archived: false };
-  const [open, setOpen] = useState<Record<string, boolean>>(defaultOpen);
-  const [versionsOpen, setVersionsOpen] = useState(true);
-  const [hoveredVer, setHoveredVer] = useState<string | null>(null);
   // each module's screens filtered by their own permission (catalog keys vm:/qa:/ri:/qh:)
   const { can } = usePermissions();
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
 
-  const grouped: Record<string, any[]> = Object.fromEntries(GROUPS.map(g => [g.id, [] as any[]]));
-  for (const v of versions) grouped[versionGroup(v)].push(v);
 
-  const toggle = (id: string) => setOpen(prev => ({ ...prev, [id]: !prev[id] }));
 
   const isVm          = activeModule === 'version-management';
   const isDeployments = activeModule === 'deployments';
@@ -247,139 +220,51 @@ export const Sidebar: React.FC<Props> = ({
       {/* ─── Deployments: גרסאות — hidden on the Home tab, which is a cross-module
            landing page, not a Deployments sub-screen; only the module switcher
            and Home link should show there ─── */}
-      {isDeployments && activeTab !== 'home' && (<>
-
-        {/* כותרת גרסאות — רמה ראשונה */}
-        <div
-          onClick={() => setVersionsOpen(v => !v)}
-          className="flex cursor-pointer select-none items-center justify-between px-3 pb-2.5 pt-4"
-          onMouseEnter={e => (e.currentTarget as HTMLElement).style.opacity = '0.75'}
-          onMouseLeave={e => (e.currentTarget as HTMLElement).style.opacity = '1'}
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-sm leading-none" style={{ color: 'rgba(255,255,255,0.50)' }}>
-              {versionsOpen ? '▾' : '▸'}
-            </span>
-            <span className="text-base font-bold tracking-[0.01em]" style={{ color: 'rgba(255,255,255,0.90)' }}>
-              גרסאות
-            </span>
-          </div>
-        </div>
-
-        {/* 4 קבוצות */}
-        {versionsOpen && GROUPS.map(group => {
-          const items = grouped[group.id] ?? [];
-          const isOpen = open[group.id];
-          const hasSelected = items.some(v => v.id === selectedVersionId);
-
-          return (
-            <div key={group.id}>
-              <button
-                onClick={() => toggle(group.id)}
-                className="flex w-full cursor-pointer items-center gap-2.5 border-none bg-transparent px-3 py-2.5 text-right transition-[background] duration-fast ease-out [direction:rtl]"
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = C.sidebarBgHover}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
-              >
-                <span className="shrink-0 text-base leading-none">{group.icon}</span>
-                <span
-                  className="flex-1 text-sm font-semibold"
-                  style={{ color: hasSelected ? C.sidebarText : 'rgba(255,255,255,0.78)' }}
-                >
+      {/* הטמעות menu (2026-10-05): the module's screens grouped by work
+          stage, for the version picked in the picker above - replaces a
+          version list that duplicated the picker. Screens of other stages
+          stay visible but disabled, with when they open. */}
+      {isDeployments && activeTab !== 'home' && deployMenu.length > 0 && (
+        <div className="flex flex-col gap-0.5 px-3 pt-3">
+          {deployMenu.map(group => (
+            <div key={group.id} className="flex flex-col gap-0.5">
+              {group.label && (
+                <div className="flex items-center gap-1.5 px-2 pb-1 pt-2.5 text-[13px] font-bold uppercase tracking-[0.08em]"
+                  style={{ color: group.current ? C.sidebarText : 'rgba(255,255,255,0.35)' }}>
                   {group.label}
-                </span>
-                {items.length > 0 && (
-                  <span
-                    className="rounded-full px-2 py-0.5 text-sm font-semibold"
-                    style={{ color: 'rgba(255,255,255,0.55)', background: 'rgba(255,255,255,0.10)' }}
-                  >
-                    {items.length}
-                  </span>
-                )}
-                <span className="text-xs" style={{ color: 'rgba(255,255,255,0.40)' }}>
-                  {isOpen ? '▾' : '▸'}
-                </span>
-              </button>
-
-              {isOpen && (
-                <div className="pb-1">
-                  {items.length === 0 ? (
-                    <div className="py-1 ps-3 pe-[30px] text-sm" style={{ color: 'rgba(255,255,255,0.35)' }}>
-                      אין גרסאות
-                    </div>
-                  ) : items.map((v: any) => {
-                    const isSel = v.id === selectedVersionId;
-                    const isHov = hoveredVer === v.id && !isSel;
-                    const sColor = versionStatusColor[v.status] ?? C.sidebarTextMuted;
-                    const sLabel = versionStatusLabel[v.status] ?? v.status;
-                    return (
-                      <button key={v.id}
-                        onClick={() => onVersionChange?.(v.id)}
-                        onMouseEnter={() => setHoveredVer(v.id)}
-                        onMouseLeave={() => setHoveredVer(null)}
-                        className="relative mb-0.5 flex w-full items-center gap-2.5 overflow-hidden rounded-md py-2.5 ps-2 pe-[26px] text-right transition-[background] duration-fast ease-out [direction:rtl]"
-                        style={{
-                          background: isSel ? C.sidebarBgActive : isHov ? C.sidebarBgHover : 'transparent',
-                          border: isSel ? '1px solid rgba(255,255,255,0.12)' : '1px solid transparent',
-                        }}>
-                        {isSel && (
-                          <div className="absolute bottom-[15%] top-[15%] start-0 w-[3px] rounded-s-[3px] rounded-e-none" style={{ background: sColor, boxShadow: `0 0 8px ${sColor}80` }} />
-                        )}
-                        <span
-                          className="block h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{ background: sColor, boxShadow: isSel ? `0 0 8px ${sColor}90` : undefined }}
-                        />
-                        <div className="min-w-0 flex-1 text-right">
-                          <div
-                            className={cn('overflow-hidden text-ellipsis whitespace-nowrap text-sm leading-[22px]', isSel ? 'font-semibold' : 'font-medium')}
-                            style={{ color: isSel ? C.sidebarText : 'rgba(255,255,255,0.85)' }}
-                          >
-                            {v.name}
-                          </div>
-                          <div className="text-sm leading-[17px] opacity-90" style={{ color: sColor }}>
-                            {sLabel}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
+                  {group.current && <span className="rounded-full px-1.5 text-[10px] normal-case tracking-normal" style={{ background: 'rgba(255,255,255,0.14)' }}>השלב הנוכחי</span>}
                 </div>
               )}
-
-              <div className="mx-3 my-0.5 h-px opacity-50" style={{ background: C.sidebarBorder }} />
+              {group.items.map(item => {
+                const isActive = (deployActiveKey ?? activeTab) === item.key;
+                const isHov = hoveredItem === `dep-${item.key}`;
+                return (
+                  <button key={item.key}
+                    disabled={!item.enabled}
+                    title={!item.enabled ? item.reason : undefined}
+                    onClick={() => item.enabled && onDeployTabChange?.(item.key)}
+                    onMouseEnter={() => setHoveredItem(`dep-${item.key}`)}
+                    onMouseLeave={() => setHoveredItem(null)}
+                    className={cn('flex w-full items-center gap-2.5 rounded-md border-none px-2.5 py-2 text-right transition-[background] duration-fast ease-out',
+                      item.enabled ? 'cursor-pointer' : 'cursor-default')}
+                    style={{
+                      background: isActive ? C.sidebarBgActive : isHov && item.enabled ? C.sidebarBgHover : 'transparent',
+                      opacity: item.enabled ? 1 : 0.4,
+                    }}
+                  >
+                    <span className="shrink-0 text-base leading-none">{item.icon}</span>
+                    <span className={cn('flex-1 text-sm', isActive ? 'font-semibold' : 'font-medium')}
+                      style={{ color: isActive ? C.sidebarText : 'rgba(255,255,255,0.78)' }}>
+                      {item.label}
+                    </span>
+                    {item.pulse && item.enabled && <span className="h-2 w-2 shrink-0 animate-pulse rounded-full" style={{ background: C.danger }} />}
+                  </button>
+                );
+              })}
             </div>
-          );
-        })}
-
-        {/* המשימות שלי — disabled (not just silently inert) when no version is REHEARSAL/ACTIVE */}
-        <div className="px-3 pt-2">
-          <button onClick={onMyTasksClick}
-            disabled={!onMyTasksClick}
-            title={!onMyTasksClick ? 'זמין רק כשיש גרסה בחזרה גנרלית או בלילה פעיל' : undefined}
-            onMouseEnter={() => setHoveredItem('my-tasks')}
-            onMouseLeave={() => setHoveredItem(null)}
-            className={cn(
-              'flex w-full items-center gap-2.5 rounded-lg px-2 py-2.5 text-right transition-[background] duration-fast ease-out [direction:rtl]',
-              onMyTasksClick ? 'cursor-pointer' : 'cursor-not-allowed'
-            )}
-            style={{
-              opacity: onMyTasksClick ? 1 : 0.4,
-              background: myTasksActive ? 'rgba(240,106,106,0.15)' : hoveredItem === 'my-tasks' && onMyTasksClick ? C.sidebarBgHover : 'transparent',
-              border: myTasksActive ? '1px solid rgba(240,106,106,0.35)' : '1px solid transparent',
-            }}>
-            <span className="shrink-0 text-lg">👤</span>
-            <span
-              className={cn('flex-1 text-sm', myTasksActive ? 'font-semibold' : 'font-medium')}
-              style={{ color: myTasksActive ? (C.sidebarAccent ?? C.brand) : 'rgba(255,255,255,0.78)' }}
-            >
-              המשימות שלי
-            </span>
-            {myTasksActive && (
-              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: C.sidebarAccent ?? C.brand }} />
-            )}
-          </button>
+          ))}
         </div>
-
-      </>)}
+      )}
 
       {/* ─── Version Management Module nav ─── */}
       {isVm && canAccessVersionManagement && (

@@ -19,10 +19,13 @@ const DEFAULTS: Record<string, string[]> = {
   RELEASE_MANAGER: ['module:version-management', ...screens('deployments'), 'action:import', 'action:gonogo', 'action:task_status',
                     'action:open_task_for_execution', 'action:override_version_edit', 'action:select_all_tasks', 'defects:view',
                     'action:qa_leave_request'],
-  CR_MANAGER:      ['defects:view', 'action:qa_leave_request'],
-  TEAM_LEAD:       [...screens('deployments'), 'action:task_status', 'action:qa_leave_request', 'defects:view'],
-  EMPLOYEE:        ['action:task_status', 'action:qc_defect_create', 'action:qc_attachment_upload', 'defects:view', 'action:qa_leave_request'],
-  VIEWER:          ['screen:timeline', 'screen:night', 'screen:summary', 'action:qa_leave_request'],
+  CR_MANAGER:      ['defects:view', 'action:qa_leave_request', 'deploy:hub', 'deploy:board', 'deploy:overview', 'deploy:implementation-plans', 'deploy:cr-manager'],
+  TEAM_LEAD:       ['deploy:hub', 'screen:prep', 'deploy:proposals', 'deploy:implementation-plans', 'screen:night', 'deploy:board', 'deploy:overview',
+                    'screen:timeline', 'deploy:summary-rehearsal', 'screen:summary', 'action:task_status', 'action:qa_leave_request', 'defects:view'],
+  EMPLOYEE:        ['action:task_status', 'action:qc_defect_create', 'action:qc_attachment_upload', 'defects:view', 'action:qa_leave_request',
+                    'deploy:hub', 'deploy:board', 'deploy:overview'],
+  VIEWER:          ['screen:timeline', 'screen:night', 'screen:summary', 'deploy:summary-rehearsal', 'action:qa_leave_request',
+                    'deploy:hub', 'deploy:board', 'deploy:overview'],
 };
 
 // Six actions that used to be decided by hardcoded role lists in the
@@ -38,6 +41,28 @@ const WIRED_ACTIONS_V3: Record<string, string[]> = {
   'action:qa_leave_request': ['RELEASE_MANAGER', 'CR_MANAGER', 'TEAM_LEAD', 'EMPLOYEE', 'VIEWER'], // was open to all
 };
 const ACTIONS_MIGRATED_KEY = 'PERMISSIONS_ACTIONS_V3_MIGRATED';
+
+// הטמעות menu screens (2026-10-05): every screen of the module got its own
+// permission. Set ONCE to exactly what each role could open before, when
+// these screens were gated by role lists in ManagerDashboard (or not at all):
+// hub / board / overview were open to every role; proposals to TEAM_LEAD +
+// screen:prep holders; CR review / plan assignment / merged plan to RM;
+// implementation plans to RM, CR_MANAGER and TEAM_LEAD (via the version hub);
+// the CR manager board to RM + CR_MANAGER; rehearsal summary to screen:summary
+// holders. Templates were ADMIN-only (AdminPanel).
+const DEPLOY_SCREENS_MIGRATED_KEY = 'PERMISSIONS_DEPLOY_SCREENS_V4_MIGRATED';
+const DEPLOY_SCREENS_V4: { key: string; roles?: string[]; ifHas?: string; always?: boolean }[] = [
+  { key: 'deploy:hub', always: true },
+  { key: 'deploy:board', always: true },
+  { key: 'deploy:overview', always: true },
+  { key: 'deploy:proposals', roles: ['TEAM_LEAD'], ifHas: 'screen:prep' },
+  { key: 'deploy:cr-review', roles: ['RELEASE_MANAGER'] },
+  { key: 'deploy:release-assignment', roles: ['RELEASE_MANAGER'] },
+  { key: 'deploy:unified-plan', roles: ['RELEASE_MANAGER'] },
+  { key: 'deploy:implementation-plans', roles: ['RELEASE_MANAGER', 'CR_MANAGER', 'TEAM_LEAD'] },
+  { key: 'deploy:cr-manager', roles: ['RELEASE_MANAGER', 'CR_MANAGER'] },
+  { key: 'deploy:summary-rehearsal', ifHas: 'screen:summary' },
+];
 
 // Team grants (user ask 2026-10-05: "לפי צוות ולפי תפקיד"): per team, keys for
 // all its members, for its leads only, and for non-lead members only. A
@@ -175,6 +200,28 @@ export class PermissionsService {
     }
     await this.migrateToCatalogOnce();
     await this.migrateWiredActionsOnce();
+    await this.migrateDeployScreensOnce();
+  }
+
+  private async migrateDeployScreensOnce() {
+    const done = await prisma.systemParam.findUnique({ where: { key: DEPLOY_SCREENS_MIGRATED_KEY } });
+    if (done?.value === 'true') return;
+    const rows = await prisma.rolePermissions.findMany();
+    for (const row of rows) {
+      if (row.role === 'ADMIN') continue;
+      const keys = new Set(normalizeGrants(row.permissions as string[]));
+      const before = new Set(keys);
+      for (const g of DEPLOY_SCREENS_V4) {
+        if (g.always || g.roles?.includes(row.role) || (g.ifHas && before.has(g.ifHas))) keys.add(g.key);
+      }
+      await prisma.rolePermissions.update({ where: { role: row.role }, data: { permissions: Array.from(keys) } });
+    }
+    await prisma.systemParam.upsert({
+      where: { key: DEPLOY_SCREENS_MIGRATED_KEY },
+      update: { value: 'true' },
+      create: { key: DEPLOY_SCREENS_MIGRATED_KEY, label: 'מסכי הטמעות הועברו להרשאות', value: 'true', type: 'text' },
+    });
+    clearEffectiveCache();
   }
 
   // See WIRED_ACTIONS_V3. Also: attachment upload used to ride on

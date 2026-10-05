@@ -8,6 +8,7 @@ import { formatDate } from '../utils/dateFormat';
 import { VersionCard } from './VersionsView';
 import { OpenProdDefectsConfigPanel } from './quality-hub/OpenProdDefectsConfigPanel';
 import { PermissionsMatrix } from './PermissionsMatrix';
+import { VersionTemplatesView } from './VersionTemplatesView';
 import { DefectFormLayoutEditor } from './quality-hub/DefectFormLayoutEditor';
 import { QcWriteTestPanel } from './QcWriteTestPanel';
 
@@ -90,10 +91,6 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
   const [savingParam, setSavingParam]       = useState(false);
   const [paramError, setParamError]         = useState<string | null>(null);
 
-  const [templates, setTemplates]             = useState<any[]>([]);
-  const [templatesLoading, setTemplatesLoading] = useState(false);
-  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
-  const [templateError, setTemplateError]     = useState<string | null>(null);
 
   // Full-version delete/archive/restore — moved here from VersionsView per
   // product decision: once a version has real work in QA/deployments/etc,
@@ -175,30 +172,7 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
     }
   };
 
-  const fetchTemplates = async () => {
-    setTemplatesLoading(true);
-    setTemplateError(null);
-    try {
-      const res = await axios.get(`${API}/version-templates`, { headers });
-      setTemplates(res.data);
-    } catch {
-      setTemplateError('שגיאה בטעינת תבניות');
-    } finally {
-      setTemplatesLoading(false);
-    }
-  };
 
-  const deleteTemplate = async (id: string) => {
-    setDeletingTemplateId(id);
-    try {
-      await axios.delete(`${API}/version-templates/${id}`, { headers });
-      setTemplates(prev => prev.filter(t => t.id !== id));
-    } catch {
-      setTemplateError('שגיאה במחיקת התבנית');
-    } finally {
-      setDeletingTemplateId(null);
-    }
-  };
 
   const fetchAdminVersions = async () => {
     setAdminVersionsLoading(true);
@@ -1503,68 +1477,7 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
           {tab === 'permissions' && <PermissionsMatrix token={token} />}
 
           {/* ── TEMPLATES TAB ── */}
-          {tab === 'templates' && (() => {
-            if (!templates.length && !templatesLoading) fetchTemplates();
-            return (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ background: C.bgNested, borderRadius: '12px', padding: '16px 20px', border: `1px solid ${C.border}`, fontSize: '15px', color: C.textSecondary, lineHeight: '1.7' }}>
-                <strong style={{ color: C.textPrimary, display: 'block', marginBottom: '6px' }}>מהן תבניות גרסה?</strong>
-                <p style={{ margin: 0 }}>
-                  תבנית היא "צילום" של תוכנית לילה קיימת — שלבים, משימות, שיוכי צוות — שניתן להשתמש בה ליצירת גרסאות עתידיות.
-                  ליצירת תבנית: פתח גרסה קיימת ← לחץ <strong>שמור כתבנית</strong>. בעת יצירת גרסה חדשה בחר "מתבנית" ותקבל את כל המשימות מוכנות לעריכה.
-                  ניתן לנהל כאן ולמחוק תבניות ישנות.
-                </p>
-              </div>
-              <div style={{ background: C.bgCard, borderRadius: '12px', padding: '24px', border: `1px solid ${C.border}` }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                  <div>
-                    <h3 style={{ margin: '0 0 4px', color: C.textPrimary }}>📁 תבניות גרסה ({templates.length})</h3>
-                    <p style={{ margin: 0, fontSize: '15px', color: C.textMuted }}>תבניות שמורות ליצירת גרסאות עתידיות</p>
-                  </div>
-                  <button onClick={fetchTemplates} disabled={templatesLoading}
-                    style={{ padding: '8px 16px', background: C.bgHover, border: `1px solid ${C.border}`, borderRadius: '8px', cursor: 'pointer', fontSize: '15px', color: C.textSecondary, fontFamily: FONT }}>
-                    {templatesLoading ? '...' : '🔄 רענן'}
-                  </button>
-                </div>
-                {templateError && (
-                  <div style={{ background: C.bgBlocked, border: `1px solid ${C.statusFailed}44`, borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', fontSize: '15px', color: C.statusFailed }}>
-                    ⚠️ {templateError}
-                    <button onClick={() => setTemplateError(null)} style={{ marginRight: '8px', background: 'none', border: 'none', cursor: 'pointer', color: C.statusFailed, fontWeight: 'bold' }}>×</button>
-                  </div>
-                )}
-                {templatesLoading ? (
-                  <div style={{ textAlign: 'center', padding: '40px', color: C.textMuted }}>טוען תבניות...</div>
-                ) : templates.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '40px', color: C.textMuted }}>
-                    <div style={{ fontSize: '36px', marginBottom: '8px' }}>📭</div>
-                    <p>אין תבניות שמורות — שמור תבנית מגרסה קיימת</p>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {templates.map((t: any) => (
-                      <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 18px', border: `1px solid ${C.border}`, borderRadius: '10px', background: C.bgNested }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 'bold', fontSize: '16px', color: C.textPrimary }}>{t.name}</div>
-                          {t.description && <div style={{ fontSize: '14px', color: C.textMuted, marginTop: '2px' }}>{cleanHtmlText(t.description)}</div>}
-                          <div style={{ fontSize: '13px', color: C.textMuted, marginTop: '4px' }}>
-                            נוצר ע"י {t.creator?.fullName ?? '—'} · {t.createdAt ? formatDate(t.createdAt) : ''}
-                          </div>
-                        </div>
-                        <button
-                          disabled={deletingTemplateId === t.id}
-                          onClick={() => deleteTemplate(t.id)}
-                          style={{ padding: '7px 16px', background: deletingTemplateId === t.id ? C.bgHover : C.statusFailed, color: deletingTemplateId === t.id ? C.textDisabled : 'white', border: 'none', borderRadius: '8px', cursor: deletingTemplateId === t.id ? 'not-allowed' : 'pointer', fontSize: '15px', whiteSpace: 'nowrap', fontFamily: FONT }}
-                        >
-                          {deletingTemplateId === t.id ? 'מוחק...' : '🗑 מחק'}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              </div>
-            );
-          })()}
+          {tab === 'templates' && <VersionTemplatesView token={token} />}
 
           {/* ── VERSIONS TAB — full-version delete/archive/restore, moved here
                from the day-to-day versions list (VersionsView) so a manager

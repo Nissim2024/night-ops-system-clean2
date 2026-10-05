@@ -28,7 +28,7 @@ import { WarRoom } from './WarRoom';
 import { NightSummary } from './NightSummary';
 import { RehearsalBoardView } from './RehearsalBoardView';
 import { TeamView } from './TeamView';
-import { Sidebar, VM_VIEWS, QA_VIEWS, RI_VIEWS, QH_VIEWS } from './Sidebar';
+import { Sidebar, VM_VIEWS, QA_VIEWS, RI_VIEWS, QH_VIEWS, DeployMenuGroup } from './Sidebar';
 import { useSocket } from '../hooks/useSocket';
 import { TimelineView } from './TimelineView';
 import { AdminPanel } from './AdminPanel';
@@ -58,6 +58,7 @@ import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, versionStatusColor, ve
 import { formatDateTime } from '../utils/dateFormat';
 import { useDialog } from '../context/DialogContext';
 import { Avatar, Badge, VersionStatusChip, BackLink } from './ui';
+import { VersionTemplatesView } from './VersionTemplatesView';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -80,7 +81,7 @@ interface ToastItem {
 
 export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, onDeepLinkConsumed }) => {
   const appDialog = useDialog();
-  type Tab = 'home' | 'list' | 'version-detail' | 'proposals' | 'cr-review' | 'release-assignment' | 'unified-plan' | 'board' | 'overview' | 'timeline' | 'dashboard' | 'summary-rehearsal' | 'summary-night' | 'rehearsal-board' | 'admin' | 'implementation-plans' | 'cr-manager';
+  type Tab = 'home' | 'list' | 'hub' | 'templates' | 'version-detail' | 'proposals' | 'cr-review' | 'release-assignment' | 'unified-plan' | 'board' | 'overview' | 'timeline' | 'dashboard' | 'summary-rehearsal' | 'summary-night' | 'rehearsal-board' | 'admin' | 'implementation-plans' | 'cr-manager';
   const [activeTab, setActiveTab]               = useState<Tab>(() => {
     try { return JSON.parse(atob(token.split('.')[1])).role === 'CR_MANAGER' ? 'cr-manager' : 'home'; }
     catch { return 'home'; }
@@ -509,7 +510,11 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
       // 'list' (which renders VersionHub for closed versions) instead of
       // straight to 'summary-night', so they still have the Hub's nav cards
       // to reach the historical rehearsal/night board, not just the report.
-      if (payload.role === 'CR_MANAGER') setActiveTab('cr-manager');
+      // Inside the הטמעות module a version switch stays in the module, on the
+      // screen that fits the version's stage (2026-10-05: it went to 'home'
+      // while the module stayed active -> an empty page, no menu).
+      if (activeModule === 'deployments') setActiveTab(getDeploymentsTabForStatus(v.status, payload.role) as Tab);
+      else if (payload.role === 'CR_MANAGER') setActiveTab('cr-manager');
       else if (['COMPLETED', 'ROLLED_BACK'].includes(v.status)) setActiveTab('list');
       else setActiveTab('home');
       setMyTasksMode(false);
@@ -561,6 +566,61 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
   ];
 
   const crManagerTab = TABS.find(t => t.key === 'cr-manager')!;
+
+  // ── הטמעות side menu (2026-10-05) — every screen of the module, grouped by
+  // work stage, each behind its own permission (catalog deploy:* / screen:*).
+  // Stage relevance only enables / disables an item (with when it opens).
+  const POST_CR = ['CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED', 'REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'];
+  const POST_COLLECT = ['COLLECTING', ...POST_CR];
+  const st = vStatus ?? '';
+  const stageGroup = ['REHEARSAL', 'ACTIVE', 'MORNING_AFTER'].includes(st) ? 'run'
+    : ['COMPLETED', 'ROLLED_BACK'].includes(st) ? 'summary' : 'plan';
+  const DEPLOY_TAB_PERM: Partial<Record<Tab, string>> = {
+    'hub': 'deploy:hub', 'version-detail': 'screen:prep', 'proposals': 'deploy:proposals', 'cr-review': 'deploy:cr-review',
+    'release-assignment': 'deploy:release-assignment', 'unified-plan': 'deploy:unified-plan', 'implementation-plans': 'deploy:implementation-plans',
+    'dashboard': 'screen:night', 'board': 'deploy:board', 'overview': 'deploy:overview', 'timeline': 'screen:timeline',
+    'summary-rehearsal': 'deploy:summary-rehearsal', 'summary-night': 'screen:summary', 'cr-manager': 'deploy:cr-manager', 'templates': 'deploy:templates',
+  };
+  const mi = (key: string, label: string, icon: string, enabled: boolean, reason: string, pulse = false) => ({ key, label, icon, enabled, reason, pulse });
+  const deployMenu: DeployMenuGroup[] = ([
+    ...(selectedVersion ? [
+      { id: 'top', label: '', items: [mi('hub', 'מרכז הגרסה', '🏠', true, '')] },
+      { id: 'plan', label: 'תכנון', current: stageGroup === 'plan', items: [
+        mi('version-detail', 'פרטים ותוכנית', '📋', true, ''),
+        mi('proposals', 'הגשות צוותים', '📝', ['COLLECTING', 'CR_REVIEW', ...(payload.role === 'TEAM_LEAD' ? [] : ['REFINING'])].includes(st), 'זמין בשלבי איסוף משימות וסקירת CR'),
+        mi('cr-review', 'סקירת CR', '🔍', POST_CR.includes(st), 'זמין משלב סקירת CR'),
+        mi('release-assignment', 'שיבוץ לתוכנית', '📥', POST_CR.includes(st), 'זמין משלב סקירת CR'),
+        mi('unified-plan', 'תוכנית מאוחדת', '📜', POST_CR.includes(st), 'זמין משלב סקירת CR'),
+        mi('implementation-plans', 'תוכניות הטמעה', '📁', POST_COLLECT.includes(st), 'זמין משלב איסוף משימות'),
+      ] },
+      { id: 'run', label: 'ביצוע', current: stageGroup === 'run', items: [
+        mi('dashboard', 'חמ"ל — לוח בקרה', '🎛', isExecution, 'זמין בזמן חזרה גנרלית ועלייה לאוויר', true),
+        mi('board', isRehearsal ? 'ביצוע חזרה' : 'לוח ביצוע', '⬛', isExecution || ['COMPLETED', 'ROLLED_BACK'].includes(st), 'זמין מתחילת החזרה הגנרלית'),
+        mi('overview', 'סקירת צוותים', '👥', isExecution, 'זמין בזמן חזרה גנרלית ועלייה לאוויר'),
+        mi('timeline', 'ציר זמן', '⏱', !!(hasRun || selectedVersion?.plannedStart), 'זמין אחרי שנקבע מועד התחלה'),
+      ] },
+      { id: 'summary', label: 'סיכום', current: stageGroup === 'summary', items: [
+        mi('summary-rehearsal', 'סיכום חזרה', '🎭', !!selectedVersion?.lastRehearsalAt || (st === 'REHEARSAL' && summaryReady), 'זמין אחרי החזרה הגנרלית'),
+        mi('summary-night', 'סיכום לילה', '🌙', st !== 'REHEARSAL' && !!(selectedVersion?.actualStart || ['ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(st)), 'זמין מתחילת העלייה לאוויר'),
+      ] },
+    ] : []),
+    { id: 'general', label: 'כללי', items: [
+      mi('cr-manager', 'לוח מנהל CR', '🛡', true, ''),
+      mi('templates', 'תבניות גרסה', '📚', true, ''),
+      ...(['ADMIN', 'RELEASE_MANAGER'].includes(payload.role) ? [mi('__new__', 'גרסה חדשה', '➕', true, '')] : []),
+    ] },
+  ] as DeployMenuGroup[])
+    .map(g => ({ ...g, items: g.items.filter(it => it.key === '__new__' || can(DEPLOY_TAB_PERM[it.key as Tab] ?? '')) }))
+    .filter(g => g.items.length > 0);
+  const onDeployTabChange = (tab: string) => {
+    if (tab === '__new__') {
+      setSelectedVersionId(''); setVersionFilter('inactive'); setActiveTab('list'); setOpenNewVersionForm(true);
+      return;
+    }
+    setActiveTab(tab as Tab);
+  };
+  const deployTabPerm = DEPLOY_TAB_PERM[activeTab];
+  const deployTabAllowed = !deployTabPerm || can(deployTabPerm);
   const visibleTabs = [
     // CR Manager tab is always shown for CR_MANAGER (cross-version, no version selection needed)
     ...(['CR_MANAGER', 'RELEASE_MANAGER', 'ADMIN'].includes(payload.role) ? [crManagerTab] : []),
@@ -772,6 +832,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           showAdmin={payload.role === 'ADMIN'}
           onAdminClick={() => { setActiveModule('admin'); setActiveTab('admin'); }}
           activeTab={activeTab}
+          deployMenu={deployMenu}
+          deployActiveKey={activeTab === 'list' ? (['REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(vStatus ?? '') ? 'hub' : 'version-detail') : activeTab}
+          onDeployTabChange={onDeployTabChange}
           activeModule={activeModule}
           onModuleChange={m => {
             if (m === 'version-management' && !canAccessVersionManagement) return;
@@ -977,7 +1040,30 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
             />
           )}
 
-          {activeModule === 'deployments' && (<>
+          {activeModule === 'deployments' && !deployTabAllowed && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '50vh', gap: '10px', color: C.textMuted }}>
+              <div style={{ fontSize: '44px' }}>🔒</div>
+              <div style={{ fontSize: '18px', fontWeight: 700, color: C.textPrimary }}>אין לך הרשאה למסך זה</div>
+              <div style={{ fontSize: '14px' }}>ניתן לבקש הרשאה ממנהל המערכת (ניהול ← הרשאות ← הטמעות)</div>
+            </div>
+          )}
+          {activeModule === 'deployments' && deployTabAllowed && (<>
+
+          {/* ── Tab: מרכז הגרסה — the version hub for every stage ── */}
+          {activeTab === 'hub' && (selectedVersion ? (
+            <VersionHub
+              version={selectedVersion}
+              onNavigate={tab => setActiveTab(tab as any)}
+              userRole={payload.role}
+              token={token}
+              onVersionUpdated={fetchVersions}
+            />
+          ) : (
+            <div style={{ padding: '60px 24px', textAlign: 'center', color: C.textMuted }}>בחר גרסה בבורר הגרסאות.</div>
+          ))}
+
+          {/* ── Tab: תבניות גרסה ── */}
+          {activeTab === 'templates' && <div style={{ padding: '20px 28px' }}><VersionTemplatesView token={token} /></div>}
 
           {/* ── Tab: רשימה / Hub ── */}
           {activeTab === 'list' && (() => {

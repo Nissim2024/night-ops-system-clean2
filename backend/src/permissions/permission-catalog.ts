@@ -25,9 +25,18 @@ export const PERMISSION_CATALOG: CatalogModule[] = [
   },
   {
     id: 'deployments', key: 'module:deployments', label: 'הטמעות', icon: '🌙',
+    // one permission per screen of the module menu (2026-10-05) - existing
+    // keys kept where they were already enforced (screen:prep / timeline /
+    // night / summary)
     items: [
-      s('screen:prep', 'הכנה'), s('screen:timeline', 'ציר זמן'),
-      s('screen:night', 'לילה (חמ"ל)'), s('screen:summary', 'סיכום'),
+      s('deploy:hub', 'מרכז הגרסה'),
+      s('screen:prep', 'פרטים ותוכנית'), s('deploy:proposals', 'הגשות צוותים'), s('deploy:cr-review', 'סקירת CR'),
+      s('deploy:release-assignment', 'שיבוץ לתוכנית'), s('deploy:unified-plan', 'תוכנית מאוחדת'),
+      s('deploy:implementation-plans', 'תוכניות הטמעה'),
+      s('screen:night', 'חמ"ל — לוח בקרה'), s('deploy:board', 'לוח ביצוע'), s('deploy:overview', 'סקירת צוותים'),
+      s('screen:timeline', 'ציר זמן'),
+      s('deploy:summary-rehearsal', 'סיכום חזרה'), s('screen:summary', 'סיכום לילה'),
+      s('deploy:cr-manager', 'לוח מנהל CR'), s('deploy:templates', 'תבניות גרסה'),
       a('action:import', 'ייבוא Excel'), a('action:gonogo', 'GO / NO GO'), a('action:task_status', 'שינוי סטטוס משימה'),
       a('action:open_task_for_execution', 'פתיחת משימה לביצוע (מנהל לילה)'),
       a('action:override_version_edit', 'עריכת גרסה לאחר אישור (override)'),
