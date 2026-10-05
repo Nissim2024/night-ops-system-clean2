@@ -7,6 +7,7 @@ import { DefectDrilldownModal } from './DefectDrilldownModal';
 import { DefectDetailScreen } from '../quality-hub/OpenProdDefectsView';
 import { CreateDefectScreen } from '../quality-hub/CreateDefectScreen';
 import { hasHebrew, StatusBadge, SeverityBadge } from '../shared/defectFieldDisplay';
+import { historicalDrilldownUrl } from './DefectsView';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -413,7 +414,7 @@ export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId, i
         </>
       )}
 
-      {drilldown && selectedVId && (
+      {drilldown && (selectedVId || initialRelId != null) && (
         <DefectDrilldownModal
           token={token}
           versionId={selectedVId}
@@ -421,6 +422,8 @@ export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId, i
           filter={drilldown.filter}
           value={drilldown.value}
           title={drilldown.title}
+          // historical QC release (no local Version): same buckets via relId
+          endpoint={!selectedVId && initialRelId != null ? historicalDrilldownUrl(initialRelId, 'bug-dashboard', drilldown.filter, drilldown.value) : undefined}
           onClose={() => setDrilldown(null)}
         />
       )}

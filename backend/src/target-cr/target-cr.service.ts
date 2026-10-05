@@ -257,9 +257,14 @@ export class TargetCrService {
     if (bucket === 'stillOpen') filtered = mine.filter(d => !CLOSED_STATUSES.has(d.status));
     else if (bucket === 'waitingForVerification') filtered = mine.filter(d => d.status === 'Fixed_Test');
 
-    return filtered.map(d => ({
+    // Full defect rows for the drill-down table (2026-10-05: it got 6 fields,
+    // every other column showed "—"); the short row stands in when the full
+    // one isn't available (dev mock).
+    const full = await this.qcService.getDefectsByIds(filtered.map(d => d.id)).catch((): any[] => []);
+    const byId = new Map<string, any>(full.map((f: any) => [f.id, f] as [string, any]));
+    return filtered.map(d => byId.get(d.id) ?? ({
       id: d.id, title: d.title, severity: d.severity, status: d.status,
-      assignedTo: d.assignedTo, discoveryDate: d.discoveryDate,
+      assignedTo: d.assignedTo, discoveryDate: d.discoveryDate, detectedBy: d.detectedBy,
     }));
   }
 

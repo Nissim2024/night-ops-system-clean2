@@ -3505,7 +3505,7 @@ export class QcService {
   // matches the exact real QC query for "Reopened Defects KPI" (provided
   // 2026-08-27). A static reopenYn flag alone isn't what QC's own definition
   // checks, so this can't reuse the plain field-filter map above.
-  private async getReopenedDefectIds(relId: number): Promise<Set<string>> {
+  async getReopenedDefectIds(relId: number): Promise<Set<string>> {
     const { enabled } = await getOracleConfig();
     if (!enabled) {
       return new Set(MOCK_DEFECTS.filter(d => d.reopenYn === 'Y').map(d => d.id));
@@ -4072,21 +4072,28 @@ export class QcService {
   async getBugDashboardDefects(versionId: string): Promise<DefectDto[]> {
     const { enabled } = await getOracleConfig();
     if (!enabled) return MOCK_BUG_ROWS.map(bugRawRowToDefectDto);
-
     const relId = await this.getRelId(versionId);
     if (!relId) return [];
+    return this.getBugDashboardDefectsByRelId(relId);
+  }
+
+  // relId-direct (historical QC release with no local Version, 2026-10-05).
+  async getBugDashboardDefectsByRelId(relId: number): Promise<DefectDto[]> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) return [];
     let conn: any;
     try {
       conn = await oracleConnect();
       const result = await conn.execute(BUG_DASHBOARD_SQL, { releaseId: relId });
       return ((result.rows ?? []) as BugRawRow[]).map(bugRawRowToDefectDto);
     } catch (err: any) {
-      this.logger.error(`Oracle getBugDashboardDefects: ${err.message}`);
+      this.logger.error(`Oracle getBugDashboardDefectsByRelId: ${err.message}`);
       throw err;
     } finally {
       if (conn) await conn.close().catch(() => {});
     }
   }
+
 
   // Row list behind the Bug Dashboard's TARGET card — same scope as
   // BUG_DASHBOARD_TARGET_SQL (detected earlier, targeted here). Returned as
@@ -4094,21 +4101,27 @@ export class QcService {
   async getBugDashboardTargetDefects(versionId: string): Promise<DefectDto[]> {
     const { enabled } = await getOracleConfig();
     if (!enabled) return MOCK_BUG_TARGET_ROWS.map(bugRawRowToDefectDto);
-
     const relId = await this.getRelId(versionId);
     if (!relId) return [];
+    return this.getBugDashboardTargetDefectsByRelId(relId);
+  }
+
+  async getBugDashboardTargetDefectsByRelId(relId: number): Promise<DefectDto[]> {
+    const { enabled } = await getOracleConfig();
+    if (!enabled) return [];
     let conn: any;
     try {
       conn = await oracleConnect();
       const result = await conn.execute(BUG_DASHBOARD_TARGET_SQL, { releaseId: relId });
       return ((result.rows ?? []) as BugRawRow[]).map(bugRawRowToDefectDto);
     } catch (err: any) {
-      this.logger.error(`Oracle getBugDashboardTargetDefects: ${err.message}`);
+      this.logger.error(`Oracle getBugDashboardTargetDefectsByRelId: ${err.message}`);
       throw err;
     } finally {
       if (conn) await conn.close().catch(() => {});
     }
   }
+
 
   // "יחס תקלות חדשות ביצור" — cross-release, all-history (no versionId scoping,
   // same rationale as getOpenProductionDefectsHistory below).

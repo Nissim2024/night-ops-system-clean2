@@ -2441,10 +2441,18 @@ export class ReleaseIntelligenceService {
   // helper as the versionId path, over the same getDefectsByRelId list those
   // aggregates count, so a clicked number and its list always agree.
   async getHistoricalDefectsDrilldown(relId: number, screen: string, filter: string, value?: string): Promise<DefectDto[]> {
-    if (screen !== 'defects' && screen !== 'reopen-analysis' && screen !== 'cycle-progress') return [];
+    if (!['defects', 'reopen-analysis', 'cycle-progress', 'bug-dashboard'].includes(screen)) return [];
     const defects = await this.getTestingDefectsByRelId(relId).catch((): DefectDto[] => []);
+    if (screen === 'bug-dashboard') {
+      const rows = await this.bugDashboardDrill(defects, {
+        reopenedIds: () => this.qcService.getReopenedDefectIds(relId),
+        bdDefects: () => this.qcService.getBugDashboardDefectsByRelId(relId),
+        targetDefects: () => this.qcService.getBugDashboardTargetDefectsByRelId(relId),
+      }, filter, value);
+      return resolveDefectPersonNames(await this.withFullDefectFields(rows));
+    }
     if (screen === 'cycle-progress') return resolveDefectPersonNames(filterCrDefectCounts(defects, filter, value) ?? []);
-    return resolveDefectPersonNames(filterDefectsBreakdownOrReopen(defects, screen, filter, value));
+    return resolveDefectPersonNames(filterDefectsBreakdownOrReopen(defects, screen as 'defects' | 'reopen-analysis', filter, value));
   }
 
   private async getDefectsDrilldownRaw(versionId: string, screen: string, filter: string, value?: string): Promise<DefectDto[]> {
@@ -2521,66 +2529,80 @@ export class ReleaseIntelligenceService {
         }
         return [];
       }
-      case 'bug-dashboard': {
-        // Bug Dashboard's own SQL (BUG_DASHBOARD_SQL) is a separate Oracle
-        // query from this method's own `defects` (DEFECTS_SQL) — but both
-        // select BG_BUG_ID for the same release, so an id-based reopen match
-        // is exact, not best-effort. Bucket predicates below are copied
-        // verbatim from computeBugDashboard (qc.service.ts) wherever the
-        // underlying field also exists on DefectDto, so a drilled-down list
-        // can never disagree with the KPI number that was clicked.
-        //
-        // "Open" here excludes only Closed/Canceled (computeBugDashboard's
-        // own isOpen()) — narrower than this method's generic `open` above
-        // (which also drops Rejected/Fixed) — reusing that one would silently
-        // disagree with the Bug Dashboard's own Open Bugs count.
-        const bdOpen = defects.filter(d => !['Closed', 'Canceled'].includes(d.status));
-        const notNewOrCanceled = (s: string) => !['New', 'Canceled'].includes(s);
-        if (filter === 'reported') return defects;
-        if (filter === 'open') return bdOpen;
-        if (filter === 'rejected') return defects.filter(d => d.status === 'Canceled');
-        if (filter === 'changes') return defects.filter(d => d.defectType === 'Change Requests');
-        if (filter === 'reopen') {
-          const reopenedIds = await this.qcService.getReopenedDefectIdsForVersion(versionId);
-          return defects.filter(d => reopenedIds.has(d.id));
-        }
-        if (filter === 'type' && value) return bdOpen.filter(d => (d.defectType || 'ללא סיווג') === value);
-        if (filter === 'severity' && value) return bdOpen.filter(d => (d.severity || 'ללא סיווג') === value);
-        // The breakdowns/cards below key on BUG_DASHBOARD_SQL-specific columns
-        // (BG_USER_03 responsibility, BG_USER_10 category, status buckets,
-        // Production/Regression). DEFECTS_SQL exposes some of these on a
-        // DIFFERENT column and, in dev, from a disjoint mock set — so pull the
-        // Bug Dashboard's own row set here, exactly what the KPI numbers were
-        // computed from (spec 2026-09-07).
-        if (['responsibility', 'cr', 'status', 'production', 'regression', 'day', 'moved-to-next'].includes(filter)) {
-          const bdDefects = await this.qcService.getBugDashboardDefects(versionId).catch((): DefectDto[] => []);
-          const bdOpenRows = bdDefects.filter(d => !['Closed', 'Canceled'].includes(d.status));
-          if (filter === 'responsibility' && value) return bdOpenRows.filter(d => (d.responsibility || 'ללא סיווג') === value);
-          if (filter === 'cr' && value) return bdOpenRows.filter(d => (d.crHbrNumberReference || 'ללא סיווג') === value);
-          if (filter === 'status' && value) return bdOpenRows.filter(d => bugStatusBucket(d.status) === value);
-          if (filter === 'production') return bdDefects.filter(d => d.crHbrNumberReference === 'Production' && notNewOrCanceled(d.status));
-          if (filter === 'regression') return bdDefects.filter(d => d.crHbrNumberReference === 'Regression' && notNewOrCanceled(d.status));
-          // "עוברות לגרסה הבאה" — opened in this release (BUG_DASHBOARD_SQL scope)
-          // with a non-empty BG_TARGET_REL. Status-agnostic, mirrors the KPI
-          // count in computeBugDashboard (spec 2026-09-09).
-          if (filter === 'moved-to-next') return bdDefects.filter(d => !!(d.targetRelease || '').trim());
-          // "דיווח יומי" chart — every defect REPORTED on that calendar day
-          // (matches the chart's own per-day tally, which counts all rows).
-          if (filter === 'day' && value) return bdDefects.filter(d => (d.discoveryDate || '').slice(0, 10) === value);
-          return [];
-        }
-        // TARGET card — defects detected in an earlier release, targeted at this one.
-        if (filter === 'target' || filter === 'target-open') {
-          const targetDefects = await this.qcService.getBugDashboardTargetDefects(versionId).catch((): DefectDto[] => []);
-          return filter === 'target-open'
-            ? targetDefects.filter(d => !['Closed', 'Canceled'].includes(d.status))
-            : targetDefects;
-        }
-        return [];
-      }
+      case 'bug-dashboard':
+        return this.bugDashboardDrill(defects, {
+          reopenedIds: () => this.qcService.getReopenedDefectIdsForVersion(versionId),
+          bdDefects: () => this.qcService.getBugDashboardDefects(versionId),
+          targetDefects: () => this.qcService.getBugDashboardTargetDefects(versionId),
+        }, filter, value);
       default:
         return [];
     }
+  }
+
+  // Bug Dashboard drill-down buckets — shared by the versionId path and the
+  // historical relId path (2026-10-05: the historical screen's drill-downs
+  // were disabled). Row sources are injected; predicates unchanged.
+  private async bugDashboardDrill(
+    defects: DefectDto[],
+    src: { reopenedIds: () => Promise<Set<string>>; bdDefects: () => Promise<DefectDto[]>; targetDefects: () => Promise<DefectDto[]> },
+    filter: string, value?: string,
+  ): Promise<DefectDto[]> {
+    // Bug Dashboard's own SQL (BUG_DASHBOARD_SQL) is a separate Oracle
+    // query from this method's own `defects` (DEFECTS_SQL) — but both
+    // select BG_BUG_ID for the same release, so an id-based reopen match
+    // is exact, not best-effort. Bucket predicates below are copied
+    // verbatim from computeBugDashboard (qc.service.ts) wherever the
+    // underlying field also exists on DefectDto, so a drilled-down list
+    // can never disagree with the KPI number that was clicked.
+    //
+    // "Open" here excludes only Closed/Canceled (computeBugDashboard's
+    // own isOpen()) — narrower than this method's generic `open` above
+    // (which also drops Rejected/Fixed) — reusing that one would silently
+    // disagree with the Bug Dashboard's own Open Bugs count.
+    const bdOpen = defects.filter(d => !['Closed', 'Canceled'].includes(d.status));
+    const notNewOrCanceled = (s: string) => !['New', 'Canceled'].includes(s);
+    if (filter === 'reported') return defects;
+    if (filter === 'open') return bdOpen;
+    if (filter === 'rejected') return defects.filter(d => d.status === 'Canceled');
+    if (filter === 'changes') return defects.filter(d => d.defectType === 'Change Requests');
+    if (filter === 'reopen') {
+      const reopenedIds = await src.reopenedIds();
+      return defects.filter(d => reopenedIds.has(d.id));
+    }
+    if (filter === 'type' && value) return bdOpen.filter(d => (d.defectType || 'ללא סיווג') === value);
+    if (filter === 'severity' && value) return bdOpen.filter(d => (d.severity || 'ללא סיווג') === value);
+    // The breakdowns/cards below key on BUG_DASHBOARD_SQL-specific columns
+    // (BG_USER_03 responsibility, BG_USER_10 category, status buckets,
+    // Production/Regression). DEFECTS_SQL exposes some of these on a
+    // DIFFERENT column and, in dev, from a disjoint mock set — so pull the
+    // Bug Dashboard's own row set here, exactly what the KPI numbers were
+    // computed from (spec 2026-09-07).
+    if (['responsibility', 'cr', 'status', 'production', 'regression', 'day', 'moved-to-next'].includes(filter)) {
+      const bdDefects = await src.bdDefects().catch((): DefectDto[] => []);
+      const bdOpenRows = bdDefects.filter(d => !['Closed', 'Canceled'].includes(d.status));
+      if (filter === 'responsibility' && value) return bdOpenRows.filter(d => (d.responsibility || 'ללא סיווג') === value);
+      if (filter === 'cr' && value) return bdOpenRows.filter(d => (d.crHbrNumberReference || 'ללא סיווג') === value);
+      if (filter === 'status' && value) return bdOpenRows.filter(d => bugStatusBucket(d.status) === value);
+      if (filter === 'production') return bdDefects.filter(d => d.crHbrNumberReference === 'Production' && notNewOrCanceled(d.status));
+      if (filter === 'regression') return bdDefects.filter(d => d.crHbrNumberReference === 'Regression' && notNewOrCanceled(d.status));
+      // "עוברות לגרסה הבאה" — opened in this release (BUG_DASHBOARD_SQL scope)
+      // with a non-empty BG_TARGET_REL. Status-agnostic, mirrors the KPI
+      // count in computeBugDashboard (spec 2026-09-09).
+      if (filter === 'moved-to-next') return bdDefects.filter(d => !!(d.targetRelease || '').trim());
+      // "דיווח יומי" chart — every defect REPORTED on that calendar day
+      // (matches the chart's own per-day tally, which counts all rows).
+      if (filter === 'day' && value) return bdDefects.filter(d => (d.discoveryDate || '').slice(0, 10) === value);
+      return [];
+    }
+    // TARGET card — defects detected in an earlier release, targeted at this one.
+    if (filter === 'target' || filter === 'target-open') {
+      const targetDefects = await src.targetDefects().catch((): DefectDto[] => []);
+      return filter === 'target-open'
+        ? targetDefects.filter(d => !['Closed', 'Canceled'].includes(d.status))
+        : targetDefects;
+    }
+    return [];
   }
 
   // release-intelligence Home page's "CR-ים לא עומדים ביעד איכות" card — see
