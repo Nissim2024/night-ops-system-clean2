@@ -19,8 +19,8 @@ const DEFAULTS: Record<string, string[]> = {
   RELEASE_MANAGER: ['module:version-management', ...screens('deployments'), 'action:import', 'action:gonogo', 'action:task_status',
                     'action:open_task_for_execution', 'action:override_version_edit', 'action:select_all_tasks', 'defects:view',
                     'action:qa_leave_request'],
-  CR_MANAGER:      ['defects:view', 'action:qa_leave_request', 'deploy:hub', 'deploy:board', 'deploy:overview', 'deploy:implementation-plans', 'deploy:cr-manager'],
-  TEAM_LEAD:       ['deploy:hub', 'screen:prep', 'deploy:proposals', 'deploy:implementation-plans', 'screen:night', 'deploy:board', 'deploy:overview',
+  CR_MANAGER:      ['defects:view', 'action:qa_leave_request', 'deploy:hub', 'deploy:board', 'deploy:overview', 'deploy:cr-manager'],
+  TEAM_LEAD:       ['deploy:hub', 'screen:prep', 'deploy:proposals', 'screen:night', 'deploy:board', 'deploy:overview',
                     'screen:timeline', 'deploy:summary-rehearsal', 'screen:summary', 'action:task_status', 'action:qa_leave_request', 'defects:view'],
   EMPLOYEE:        ['action:task_status', 'action:qc_defect_create', 'action:qc_attachment_upload', 'defects:view', 'action:qa_leave_request',
                     'deploy:hub', 'deploy:board', 'deploy:overview'],
@@ -59,7 +59,6 @@ const DEPLOY_SCREENS_V4: { key: string; roles?: string[]; ifHas?: string; always
   { key: 'deploy:cr-review', roles: ['RELEASE_MANAGER'] },
   { key: 'deploy:release-assignment', roles: ['RELEASE_MANAGER'] },
   { key: 'deploy:unified-plan', roles: ['RELEASE_MANAGER'] },
-  { key: 'deploy:implementation-plans', roles: ['RELEASE_MANAGER', 'CR_MANAGER', 'TEAM_LEAD'] },
   { key: 'deploy:cr-manager', roles: ['RELEASE_MANAGER', 'CR_MANAGER'] },
   { key: 'deploy:summary-rehearsal', ifHas: 'screen:summary' },
 ];

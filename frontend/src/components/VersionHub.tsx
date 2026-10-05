@@ -259,12 +259,12 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
           badge: undefined as string | undefined,
           badgeColor: C.textMuted,
         }] : []),
-        ...(['RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'].includes(userRole) ? [{
-          id: 'implementation-plans',
-          icon: '📁',
-          title: 'תוכניות הטמעה',
-          subtitle: 'הגשה, סקירה ואישור תוכניות הטמעה',
-          tab: 'implementation-plans',
+        ...(userRole === 'CR_MANAGER' ? [{
+          id: 'cr-manager-board',
+          icon: '🛡',
+          title: 'לוח מנהל CR',
+          subtitle: 'סקירה ואישור תוכניות הצוותים לכל CR',
+          tab: 'cr-manager',
           enabled: ['COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED', 'REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(s),
           badge: undefined as string | undefined,
           badgeColor: C.textMuted,
@@ -362,9 +362,9 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
   ];
 
   // Restrict visible cards based on role
-  const TEAM_LEAD_CARDS = new Set(['proposals', 'implementation-plans', 'rehearsal-board', 'night-board']);
-  const TEAM_LEAD_TABS  = new Set(['proposals', 'implementation-plans', 'board']);
-  const CR_MANAGER_CARDS = new Set(['implementation-plans']);
+  const TEAM_LEAD_CARDS = new Set(['proposals', 'rehearsal-board', 'night-board']);
+  const TEAM_LEAD_TABS  = new Set(['proposals', 'board']);
+  const CR_MANAGER_CARDS = new Set(['cr-manager-board']);
   const visibleRows = ROWS.map(row => ({
     ...row,
     cards: userRole === 'TEAM_LEAD' ? row.cards.filter(c => TEAM_LEAD_CARDS.has(c.id))
@@ -373,7 +373,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
   })).filter(row => row.cards.length > 0);
   // CTA tab guard: suppress navigation when role restricts target tab
   const ctaTab = userRole === 'TEAM_LEAD' && cta?.tab && !TEAM_LEAD_TABS.has(cta.tab) ? undefined
-               : userRole === 'CR_MANAGER' && cta?.tab && cta.tab !== 'implementation-plans' ? undefined
+               : userRole === 'CR_MANAGER' && cta?.tab && cta.tab !== 'cr-manager' ? undefined
                : cta?.tab;
 
   return (

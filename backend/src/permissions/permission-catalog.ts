@@ -32,7 +32,6 @@ export const PERMISSION_CATALOG: CatalogModule[] = [
       s('deploy:hub', 'מרכז הגרסה'),
       s('screen:prep', 'פרטים ותוכנית'), s('deploy:proposals', 'הגשות צוותים'), s('deploy:cr-review', 'סקירת CR'),
       s('deploy:release-assignment', 'שיבוץ לתוכנית'), s('deploy:unified-plan', 'תוכנית מאוחדת'),
-      s('deploy:implementation-plans', 'תוכניות הטמעה'),
       s('screen:night', 'חמ"ל — לוח בקרה'), s('deploy:board', 'לוח ביצוע'), s('deploy:overview', 'סקירת צוותים'),
       s('screen:timeline', 'ציר זמן'),
       s('deploy:summary-rehearsal', 'סיכום חזרה'), s('screen:summary', 'סיכום לילה'),

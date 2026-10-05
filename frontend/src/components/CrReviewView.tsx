@@ -1046,6 +1046,9 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
   const [loading, setLoading]         = useState(!!propVersionId);
   const [selectedCr, setSelectedCr]   = useState<string | null>(null);
   const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved'>('all');
+  // team plan submission counts - moved here from the retired "תוכניות הטמעה"
+  // screen (2026-10-05), which duplicated this screen's approve/return actions
+  const [planStats, setPlanStats] = useState<{ draft: number; submitted: number; returned: number; approved: number } | null>(null);
   const headers = { Authorization: `Bearer ${token}` };
 
   const load = useCallback(() => {
@@ -1068,6 +1071,8 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
       }
       setSubPhaseOpts(opts);
     }).finally(() => setLoading(false));
+    axios.get(`${API}/cr-plans/version/${propVersionId}/dashboard-stats`, { headers })
+      .then(r => setPlanStats(r.data)).catch(() => setPlanStats(null));
   }, [propVersionId]); // eslint-disable-line
 
   useEffect(() => { load(); }, [load]);
@@ -1117,6 +1122,32 @@ export const CrReviewView: React.FC<Props> = ({ token, versionId: propVersionId,
           ))}
         </div>
       </div>
+
+      {/* ── Team plan submission status ── */}
+      {planStats && (() => {
+        const planTotal = planStats.draft + planStats.submitted + planStats.returned + planStats.approved;
+        if (planTotal === 0) return null;
+        const pct = Math.round(planStats.approved / planTotal * 100);
+        return (
+          <div className="bg-card border border-border shadow-xs rounded-lg px-5 py-3 mb-[18px] flex items-center gap-4 flex-wrap">
+            <span className="text-sm font-bold text-foreground">תוכניות הצוותים</span>
+            {[
+              { val: planStats.draft, lbl: 'טיוטה', color: C.textMuted },
+              { val: planStats.submitted, lbl: 'הוגשו', color: C.info },
+              { val: planStats.returned, lbl: 'הוחזרו לתיקון', color: C.warning },
+              { val: planStats.approved, lbl: 'אושרו', color: C.success },
+            ].map(s => (
+              <span key={s.lbl} className="text-sm font-semibold" style={{ color: s.color }}>
+                <span className="text-lg font-extrabold">{s.val}</span> {s.lbl}
+              </span>
+            ))}
+            <div className="flex-1 min-w-[120px] h-[7px] rounded overflow-hidden" style={{ background: C.border }}>
+              <div className="h-full rounded transition-[width] duration-300" style={{ width: `${pct}%`, background: pct === 100 ? C.success : C.info }} />
+            </div>
+            <span className="text-sm font-bold whitespace-nowrap" style={{ color: pct === 100 ? C.success : C.textMuted }}>{planStats.approved}/{planTotal} אושרו</span>
+          </div>
+        );
+      })()}
 
       {/* ── Empty state ── */}
       {data.length === 0 && (

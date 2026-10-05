@@ -43,7 +43,6 @@ import { CrHandoffView } from './CrHandoffView';
 import { CrReviewView } from './CrReviewView';
 import { ReleaseAssignmentView } from './ReleaseAssignmentView';
 import { UnifiedGoLivePlanView } from './UnifiedGoLivePlanView';
-import { ImplementationPlansView } from './ImplementationPlansView';
 import { CrManagerView } from './CrManagerView';
 import { QaSeasonsView } from './qa/QaSeasonsView';
 import { QaLeavesView } from './qa/QaLeavesView';
@@ -81,7 +80,7 @@ interface ToastItem {
 
 export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, onDeepLinkConsumed }) => {
   const appDialog = useDialog();
-  type Tab = 'home' | 'list' | 'hub' | 'templates' | 'version-detail' | 'proposals' | 'cr-review' | 'release-assignment' | 'unified-plan' | 'board' | 'overview' | 'timeline' | 'dashboard' | 'summary-rehearsal' | 'summary-night' | 'rehearsal-board' | 'admin' | 'implementation-plans' | 'cr-manager';
+  type Tab = 'home' | 'list' | 'hub' | 'templates' | 'version-detail' | 'proposals' | 'cr-review' | 'release-assignment' | 'unified-plan' | 'board' | 'overview' | 'timeline' | 'dashboard' | 'summary-rehearsal' | 'summary-night' | 'rehearsal-board' | 'admin' | 'cr-manager';
   const [activeTab, setActiveTab]               = useState<Tab>(() => {
     try { return JSON.parse(atob(token.split('.')[1])).role === 'CR_MANAGER' ? 'cr-manager' : 'home'; }
     catch { return 'home'; }
@@ -561,7 +560,6 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
     { key: 'dashboard', label: isRehearsal ? 'לוח חזרה' : 'לוח בקרה', icon: '🎛' },
     { key: 'summary-rehearsal',    label: 'סיכום חזרה',   icon: '🎭' },
     { key: 'summary-night',       label: 'סיכום לילה',   icon: '🌙' },
-    { key: 'implementation-plans', label: 'תוכניות הטמעה', icon: '📁' },
     { key: 'cr-manager',          label: 'לוח מנהל CR',   icon: '🛡' },
   ];
 
@@ -571,13 +569,12 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
   // work stage, each behind its own permission (catalog deploy:* / screen:*).
   // Stage relevance only enables / disables an item (with when it opens).
   const POST_CR = ['CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED', 'REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'];
-  const POST_COLLECT = ['COLLECTING', ...POST_CR];
   const st = vStatus ?? '';
   const stageGroup = ['REHEARSAL', 'ACTIVE', 'MORNING_AFTER'].includes(st) ? 'run'
     : ['COMPLETED', 'ROLLED_BACK'].includes(st) ? 'summary' : 'plan';
   const DEPLOY_TAB_PERM: Partial<Record<Tab, string>> = {
     'hub': 'deploy:hub', 'version-detail': 'screen:prep', 'proposals': 'deploy:proposals', 'cr-review': 'deploy:cr-review',
-    'release-assignment': 'deploy:release-assignment', 'unified-plan': 'deploy:unified-plan', 'implementation-plans': 'deploy:implementation-plans',
+    'release-assignment': 'deploy:release-assignment', 'unified-plan': 'deploy:unified-plan', 
     'dashboard': 'screen:night', 'board': 'deploy:board', 'overview': 'deploy:overview', 'timeline': 'screen:timeline',
     'summary-rehearsal': 'deploy:summary-rehearsal', 'summary-night': 'screen:summary', 'cr-manager': 'deploy:cr-manager', 'templates': 'deploy:templates',
   };
@@ -587,11 +584,10 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
       { id: 'top', label: '', items: [mi('hub', 'מרכז הגרסה', '🏠', true, '')] },
       { id: 'plan', label: 'תכנון', current: stageGroup === 'plan', items: [
         mi('version-detail', 'פרטים ותוכנית', '📋', true, ''),
-        mi('proposals', 'הגשות צוותים', '📝', ['COLLECTING', 'CR_REVIEW', ...(payload.role === 'TEAM_LEAD' ? [] : ['REFINING'])].includes(st), 'זמין בשלבי איסוף משימות וסקירת CR'),
+        mi('proposals', 'הגשות צוותים', '📝', ['COLLECTING', 'CR_REVIEW', 'REFINING'].includes(st), 'זמין בשלבי איסוף משימות וסקירת CR'),
         mi('cr-review', 'סקירת CR', '🔍', POST_CR.includes(st), 'זמין משלב סקירת CR'),
         mi('release-assignment', 'שיבוץ לתוכנית', '📥', POST_CR.includes(st), 'זמין משלב סקירת CR'),
         mi('unified-plan', 'תוכנית מאוחדת', '📜', POST_CR.includes(st), 'זמין משלב סקירת CR'),
-        mi('implementation-plans', 'תוכניות הטמעה', '📁', POST_COLLECT.includes(st), 'זמין משלב איסוף משימות'),
       ] },
       { id: 'run', label: 'ביצוע', current: stageGroup === 'run', items: [
         mi('dashboard', 'חמ"ל — לוח בקרה', '🎛', isExecution, 'זמין בזמן חזרה גנרלית ועלייה לאוויר', true),
@@ -630,7 +626,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
         case 'list':           return true;
         case 'version-detail': return can('screen:prep');
         case 'proposals': return payload.role === 'TEAM_LEAD'
-          ? ['COLLECTING', 'CR_REVIEW'].includes(vStatus ?? '')
+          ? ['COLLECTING', 'CR_REVIEW', 'REFINING'].includes(vStatus ?? '')
           : ['COLLECTING', 'CR_REVIEW', 'REFINING'].includes(vStatus ?? '') && can('screen:prep');
         case 'cr-review': return ['CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED', 'REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(vStatus ?? '') &&
                                  ['RELEASE_MANAGER', 'ADMIN'].includes(payload.role);
@@ -644,8 +640,6 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
         case 'dashboard': return isExecution && can('screen:night');
         case 'summary-rehearsal': return can('screen:summary') && (!!selectedVersion?.lastRehearsalAt || (vStatus === 'REHEARSAL' && summaryReady));
         case 'summary-night':    return can('screen:summary') && vStatus !== 'REHEARSAL' && !!(selectedVersion?.actualStart || ['ACTIVE','MORNING_AFTER','COMPLETED','ROLLED_BACK'].includes(vStatus ?? ''));
-        case 'implementation-plans': return ['COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED', 'REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'].includes(vStatus ?? '') &&
-                                            ['RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'].includes(payload.role);
         default:          return false;
       }
     }) : []),
@@ -1072,7 +1066,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
               return <NoVersionsForFilter filter={versionFilter} />;
 
             const EXEC_STATUSES = ['REHEARSAL', 'ACTIVE', 'MORNING_AFTER', 'COMPLETED', 'ROLLED_BACK'];
-            // TEAM_LEAD sees VersionHub in planning statuses too (to reach implementation-plans card)
+            // TEAM_LEAD sees VersionHub in planning statuses too (to reach the proposals card)
             const TEAM_LEAD_HUB_STATUSES = ['COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED'];
             const isExecVersion = selectedVersion && (
               EXEC_STATUSES.includes(selectedVersion.status) ||
@@ -1681,27 +1675,6 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           )}
 
           {/* ── Tab: תוכניות הטמעה ── */}
-          {activeTab === 'implementation-plans' && (
-            noVersionGuard ? <NoVersionsForFilter filter={versionFilter} /> :
-            selectedVersionId && selectedVersion ? (
-              <div>
-                <div style={{ background: C.bgCard, borderRadius: '10px', padding: '12px 18px', marginBottom: '16px', border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span style={{ fontSize: '22px' }}>📁</span>
-                  <div>
-                    <div style={{ fontWeight: '700', color: C.textPrimary, fontSize: '16px' }}>תוכניות הטמעה — {selectedVersion.name}</div>
-                    <div style={{ fontSize: '14px', color: C.textMuted, marginTop: '2px' }}>הגשה, סקירה ואישור תוכניות מנהל CR</div>
-                  </div>
-                </div>
-                <ImplementationPlansView
-                  token={token}
-                  versionId={selectedVersionId}
-                  versionStatus={selectedVersion.status}
-                  userRole={payload.role}
-                  userId={payload.sub}
-                />
-              </div>
-            ) : <EmptyVersionMessage />
-          )}
 
           </>)}
 
