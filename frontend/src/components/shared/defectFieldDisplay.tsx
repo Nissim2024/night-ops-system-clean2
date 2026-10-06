@@ -6,6 +6,7 @@ import { formatDateTime } from '../../utils/dateFormat';
 import { cn } from '../../lib/utils';
 import { useDialog } from '../../context/DialogContext';
 import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from '../ui/BrandedDialog';
+import { parseNoteEntries } from './noteEntries';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -232,38 +233,27 @@ export function IssueKeyLink({ id }: { id: string | number }) {
 // English). A chunk that doesn't match the header shape (e.g. legacy free
 // text before the first separator) falls back to plain hasHebrew-based
 // alignment.
-const NOTE_ENTRY_HEADER_RE = /^\s*(.+?)\s*<([^<>]+)>\s*,\s*(\d{1,2}\/\d{1,2}\/\d{2,4})\s*:\s*/;
+// parser lives in a pure module (unit-testable without the UI imports)
+export { parseNoteEntries } from './noteEntries';
+export type { NoteEntry } from './noteEntries';
+
 export function renderNotesField(raw: string | null | undefined) {
-  if (!raw?.trim()) return '—';
-  const chunks = raw.split(/_{5,}/).map(c => c.trim()).filter(Boolean);
-  if (chunks.length === 0) return '—';
+  const entries = parseNoteEntries(raw);
+  if (entries.length === 0) return '—';
   return (
     <div className="flex flex-col gap-3.5">
-      {chunks.map((chunk, i) => {
-        const m = chunk.match(NOTE_ENTRY_HEADER_RE);
-        if (m) {
-          const header = `${m[1]} <${m[2]}>, ${m[3]}:`;
-          const body = chunk.slice(m[0].length).trim();
-          const bodyRtl = hasHebrew(body);
-          return (
-            <div key={i} className={cn(i > 0 && 'border-t border-dashed border-border pt-2.5')}>
-              <div className="text-left text-sm font-semibold text-subtle-foreground [direction:ltr]">{header}</div>
-              <div className={cn(
-                'mt-1 whitespace-pre-wrap break-words',
-                bodyRtl ? 'text-right text-base [direction:rtl]' : 'text-left [direction:ltr]'
-              )}>
-                {body || '—'}
-              </div>
-            </div>
-          );
-        }
-        const rtl = hasHebrew(chunk);
+      {entries.map((e, i) => {
+        const bodyRtl = hasHebrew(e.body);
         return (
-          <div key={i} className={cn(
-            'whitespace-pre-wrap break-words',
-            rtl ? 'text-right text-base [direction:rtl]' : 'text-left [direction:ltr]'
-          )}>
-            {chunk}
+          <div key={i} className={cn(i > 0 && 'border-t border-dashed border-border pt-2.5')}>
+            {e.header && <div className="text-left text-sm font-semibold text-subtle-foreground [direction:ltr]">{e.header}</div>}
+            <div className={cn(
+              e.header && 'mt-1',
+              'whitespace-pre-wrap break-words',
+              bodyRtl ? 'text-right text-base [direction:rtl]' : 'text-left [direction:ltr]',
+            )}>
+              {e.body || '—'}
+            </div>
           </div>
         );
       })}
@@ -649,7 +639,9 @@ function AttachmentPreviewModal({ defectId, fileName, token, onClose }: { defect
   );
 }
 
-export function AttachmentsSection({ defectId, token }: { defectId: string; token: string }) {
+// compact: rendered as an item inside a form panel (2026-10-06) — small
+// file chips (👁️ preview / ⬇️ download), no heading or top rule of its own.
+export function AttachmentsSection({ defectId, token, compact }: { defectId: string; token: string; compact?: boolean }) {
   const dialog = useDialog();
   const [attachments, setAttachments] = useState<DefectAttachment[] | null>(null);
   const [previewFile, setPreviewFile] = useState<string | null>(null);
@@ -679,6 +671,36 @@ export function AttachmentsSection({ defectId, token }: { defectId: string; toke
       dialog.alert('שגיאה בהורדת הקובץ מ-QC', 'שגיאה', 'danger');
     }
   };
+
+  if (compact) {
+    return (
+      <div className="flex w-full min-w-0 flex-wrap gap-1.5">
+        {attachments === null ? (
+          <span className="text-xs text-subtle-foreground">טוען…</span>
+        ) : attachments.length === 0 ? (
+          <span className="text-xs text-subtle-foreground">אין קבצים מצורפים</span>
+        ) : attachments.map(a => {
+          const ext = fileExt(a.name);
+          const canPreview = PREVIEWABLE_EXT.has(ext);
+          return (
+            <span key={a.name} title={`${a.name} · ${formatFileSize(a.fileSize)}${a.uploadDate ? ` · ${formatDateTime(a.uploadDate)}` : ''}${a.owner ? ` · ${a.owner}` : ''}`}
+              className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-xs [direction:ltr]">
+              <span className="shrink-0">📎</span>
+              <button onClick={() => (canPreview ? setPreviewFile(a.name) : download(a.name))}
+                className="min-w-0 flex-1 cursor-pointer truncate border-none bg-transparent p-0 text-left text-xs font-semibold text-primary hover:underline">
+                {a.name}
+              </button>
+              {canPreview && <button onClick={() => setPreviewFile(a.name)} title="צפייה ישירה" className="shrink-0 cursor-pointer border-none bg-transparent p-0 text-xs">👁️</button>}
+              <button onClick={() => download(a.name)} title="הורדה" className="shrink-0 cursor-pointer border-none bg-transparent p-0 text-xs">⬇️</button>
+            </span>
+          );
+        })}
+        {previewFile && (
+          <AttachmentPreviewModal defectId={defectId} fileName={previewFile} token={token} onClose={() => setPreviewFile(null)} />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="border-t border-border pt-3">

@@ -2,10 +2,10 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { C, FONT, JIRA } from '../../theme';
 import { Card, Badge, BackLink } from '../ui';
-import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, BUILTIN_ALWAYS_SHOWN_FIELDS } from './openProdDefectsFields';
+import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, BUILTIN_ALWAYS_SHOWN_FIELDS, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF } from './openProdDefectsFields';
 import {
   hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroup,
-  FieldChangeHistorySection, AttachmentsSection, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
+  FieldChangeHistorySection, AttachmentsSection, parseNoteEntries, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
   IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, SEVERITY_COLOR, SelectColumnsDialog, SavedFilterState, splitTeams, PERSON_FIELDS } from '../shared/defectFieldDisplay';
 import { formatDate, formatDateTime } from '../../utils/dateFormat';
 import { cn } from '../../lib/utils';
@@ -798,9 +798,13 @@ export const DefectDetailScreen: React.FC<{
     return () => { alive = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
-  const detailGroups: DetailGroup[] = serverLayout
+  const baseGroups: DetailGroup[] = serverLayout
     ? serverLayout.panels.map(pn => ({ title: pn.name, fields: pn.fields, wide: pn.wide }))
     : defaultGroups;
+  // 📎 attachments: wherever the layout placed it, else end of the first panel (full row).
+  const detailGroups: DetailGroup[] = baseGroups.some(g => g.fields.includes(ATTACHMENTS_FIELD)) || baseGroups.length === 0
+    ? baseGroups
+    : baseGroups.map((g, i) => (i === 0 ? { ...g, fields: [...g.fields, ATTACHMENTS_FIELD], wide: [...(g.wide ?? []), ATTACHMENTS_FIELD] } : g));
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   // Long-text boxes open to full height on demand (less scrolling, user ask 2026-10-04).
   const [expandedText, setExpandedText] = useState<{ description: boolean; notes: boolean }>({ description: false, notes: false });
@@ -887,7 +891,7 @@ export const DefectDetailScreen: React.FC<{
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, direction: 'ltr' }}>
             {(() => {
               const groups = detailGroups
-                .map(g => ({ ...g, fields: g.fields.filter(k => detail[k] !== undefined) }))
+                .map(g => ({ ...g, fields: g.fields.filter(k => k === ATTACHMENTS_FIELD || detail[k] !== undefined) }))
                 .filter(g => g.fields.length > 0);
               return groups.map(group => (
                 <div
@@ -904,6 +908,15 @@ export const DefectDetailScreen: React.FC<{
                       each sized to its value - create-form layout (2026-10-04). */}
                   <div className="flex flex-wrap items-end gap-x-4 gap-y-3" style={{ direction: 'ltr', justifyContent: 'flex-start' }}>
                     {group.fields.map(key => {
+                      if (key === ATTACHMENTS_FIELD) {
+                        return (
+                          <div key={key} className="flex w-full min-w-0 max-w-full flex-col items-start gap-1.5 px-1 py-0.5"
+                            style={{ flexBasis: group.wide?.includes(key) ? '100%' : undefined }}>
+                            <span className="text-xs font-bold tracking-wide" style={{ color: JIRA.textSubtle }}>{ATTACHMENTS_FIELD_DEF.label}</span>
+                            <AttachmentsSection defectId={defectId} token={token} compact />
+                          </div>
+                        );
+                      }
                       const isRefField = refEditableFieldKeys.has(key);
                       const isDirty = isRefField ? pendingRefEdits[key] !== undefined : pendingEdits[key] !== undefined;
                       const displayValue = isRefField
@@ -982,17 +995,20 @@ export const DefectDetailScreen: React.FC<{
           {/* Description + Comments share one card, as in the create form;
               each opens to full height on demand so long text needs as
               little scrolling as possible (user ask 2026-10-04). */}
+          {/* Side by side (user ask 2026-10-06): Description on the left,
+              Comments to its right; stacks on narrow screens. */}
           {(showDescription || showNotes) && (
-            <div className="flex flex-col gap-5 rounded-xl px-6 py-5" style={{ background: '#fff' }}>
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 460px), 1fr))', direction: 'ltr' }}>
               {([
                 showDescription && { key: 'description' as const, label: DETAIL_FIELD_LABEL.description ?? 'Description', max: 'max-h-[280px]' },
                 showNotes && { key: 'notes' as const, label: DETAIL_FIELD_LABEL.notes ?? 'Comments', max: 'max-h-[440px]' },
               ].filter(Boolean) as { key: 'description' | 'notes'; label: string; max: string }[]).map(sec => {
                 const expanded = expandedText[sec.key];
-                const noteCount = sec.key === 'notes' ? String(detail.notes ?? '').split(/_{5,}/).map(x => x.trim()).filter(Boolean).length : 0;
+                const noteCount = sec.key === 'notes' ? parseNoteEntries(String(detail.notes ?? '')).length : 0;
                 return (
-                  <section key={sec.key}>
-                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <section key={sec.key} dir="rtl" className="min-w-0 rounded-xl px-6 py-5" style={{ background: '#fff' }}>
+                    {/* English title on the left, expand toggle on the right */}
+                    <div className="mb-1.5 flex items-center justify-between gap-2" style={{ direction: 'ltr' }}>
                       <label className="text-xs font-bold text-subtle-foreground" style={{ direction: 'ltr', textAlign: 'left' }}>
                         {sec.label}{noteCount > 1 ? ` · ${noteCount}` : ''}
                       </label>
@@ -1019,24 +1035,13 @@ export const DefectDetailScreen: React.FC<{
             </div>
           )}
 
-          {/* קבצים מצורפים + היסטוריית שינויים — נשארים יחד בחלונית אחת,
-              לא חלק מהבקשה להפרדה (זו לא "תיאור מול הערות"). */}
+          {/* Attachments moved into a form panel and the history link out of
+              any panel (user ask 2026-10-06) — this card keeps only the QC
+              write-back panel. */}
           <div
-            className="min-w-0 flex flex-col gap-6 rounded-lg px-6 py-5"
+            className="min-w-0 flex flex-col rounded-lg px-6 pb-5"
             style={{ background: '#fff' }}
           >
-            <section>
-              <div className={DETAIL_SECTION_HEADING_CLASS} style={{ color: JIRA.textSubtle }}>קבצים מצורפים</div>
-              <AttachmentsSection defectId={defectId} token={token} />
-            </section>
-            <button
-              onClick={() => setHistoryModalOpen(true)}
-              className="flex w-full items-center justify-between bg-transparent border-none cursor-pointer p-0 text-[13px] font-bold"
-              style={{ color: JIRA.blue }}
-            >
-              <span>🕘 היסטוריית שינויים</span>
-              <span aria-hidden>←</span>
-            </button>
 
             {/* עדכון ישיר ל-QC — פתוח כברירת מחדל (spec 2026-09-07) */}
             <QcWriteBackPanel
@@ -1054,6 +1059,15 @@ export const DefectDetailScreen: React.FC<{
               blocked={blocked}
               allowedTransitions={allowedTransitions}
             />
+          </div>
+          <div dir="rtl" className="flex">
+            <button
+              onClick={() => setHistoryModalOpen(true)}
+              className="cursor-pointer border-none bg-transparent p-0 text-[13px] font-bold hover:underline"
+              style={{ color: JIRA.blue }}
+            >
+              🕘 היסטוריית שינויים ←
+            </button>
           </div>
         </div>
       )}

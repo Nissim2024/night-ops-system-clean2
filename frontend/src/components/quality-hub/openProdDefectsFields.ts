@@ -135,6 +135,12 @@ export const DEFAULT_OPEN_PROD_DETAIL_GROUPS: { title: string; fields: string[];
 ];
 export const DEFECT_FORM_FIXED_FIELDS = new Set(['title', 'description', 'notes']);
 
+// Attachments as a placeable form item (user ask 2026-10-06): the layout
+// editor can put it in any panel; a layout that doesn't mention it shows it
+// at the end of the FIRST panel. Not a real QC field — never sent to QC.
+export const ATTACHMENTS_FIELD = '__attachments';
+export const ATTACHMENTS_FIELD_DEF = { key: ATTACHMENTS_FIELD, label: '📎 קבצים מצורפים' };
+
 // Shown in the built-in panels even when an older saved detail-field list
 // (OpenProdDefectsConfigPanel) predates them.
 export const BUILTIN_ALWAYS_SHOWN_FIELDS = ['detectedApkVersion', 'detectedHotAppApk', 'targetHotAppApk'];

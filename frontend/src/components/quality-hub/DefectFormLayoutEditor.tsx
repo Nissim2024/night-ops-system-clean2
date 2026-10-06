@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, DEFECT_FORM_FIXED_FIELDS } from './openProdDefectsFields';
+import { DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, DEFECT_FORM_FIXED_FIELDS, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF } from './openProdDefectsFields';
 import { useDialog } from '../../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -84,8 +84,9 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
   };
 
   const usedFields = new Set(draft?.panels.flatMap(p => p.fields) ?? []);
-  const availableFields = DETAIL_FIELDS.filter(f => !DEFECT_FORM_FIXED_FIELDS.has(f.key) && !usedFields.has(f.key));
-  const label = (k: string) => DETAIL_FIELD_LABEL[k] ?? k;
+  // 📎 attachments is placeable too; when no panel has it, the form shows it in the first panel
+  const availableFields = [...DETAIL_FIELDS, ATTACHMENTS_FIELD_DEF].filter(f => !DEFECT_FORM_FIXED_FIELDS.has(f.key) && !usedFields.has(f.key));
+  const label = (k: string) => (k === ATTACHMENTS_FIELD ? ATTACHMENTS_FIELD_DEF.label : DETAIL_FIELD_LABEL[k] ?? k);
 
   const save = async (nextDraft: Layout | null) => {
     if (!layouts) return;
