@@ -106,6 +106,8 @@ export class QaController {
     @Query('versionId') versionId: string,
     @Query('crNumber')  crNumber:  string,
   ) {
+    // missing params used to surface as a 500 (regression smoke 2026-10-06)
+    if (!versionId || !crNumber) throw new BadRequestException('חסרים versionId / crNumber');
     return this.qa.getCrChangeDetail(versionId, crNumber);
   }
 
@@ -114,6 +116,7 @@ export class QaController {
     @Query('versionId') versionId: string,
     @Query('crNumber')  crNumber:  string,
   ) {
+    if (!versionId || !crNumber) throw new BadRequestException('חסרים versionId / crNumber');
     return this.qa.suggestSecondaryTesters(versionId, crNumber);
   }
 
