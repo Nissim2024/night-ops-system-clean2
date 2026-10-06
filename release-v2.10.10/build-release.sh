@@ -59,6 +59,14 @@ docker build \
   "$REPO_ROOT/frontend"
 echo "      Frontend image OK"
 
+# ── Migration gate (2026-10-06) ──────────────────────────
+# Stops the build if any migration would not reach / apply in production:
+# schema without migration, image missing a migration, upgrade from the
+# previous release image failing, or a clean install failing.
+echo "[3b/6] Verifying migrations (schema / image / upgrade / clean install)..."
+bash "$REPO_ROOT/deploy/verify-migrations.sh" "$VERSION"
+echo "      Migrations OK"
+
 # ── Pull postgres (if not already present) ───────────────
 echo "[4/6] Pulling postgres:16-alpine (if needed)..."
 docker pull postgres:16-alpine
