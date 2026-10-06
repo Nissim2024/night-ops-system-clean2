@@ -4,6 +4,7 @@ import { cn } from '../lib/utils';
 import pkg from '../../package.json';
 import { VersionSwitcher } from './shared/VersionSwitcher';
 import { usePermissions } from '../context/PermissionsContext';
+import { IS_TEST } from '../runtimeEnv';
 const APP_VERSION: string = pkg.version;
 
 export interface DeployMenuItem { key: string; label: string; icon: string; enabled: boolean; reason?: string; pulse?: boolean }
@@ -47,7 +48,6 @@ interface Props {
   onHomeClick?: () => void;
 }
 
-const IS_TEST = process.env.REACT_APP_ENV === 'test';
 
 
 export const QA_VIEWS = [

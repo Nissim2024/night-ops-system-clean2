@@ -12,4 +12,8 @@ RUN npm run build
 FROM nginx:1.26-alpine
 COPY --from=builder /app/build /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+# runtime setup (2026-10-06): env marker + opt-in HTTPS — see docker/40-dc-runtime.sh
+COPY docker/dc-locations.conf /etc/nginx/dc-locations.conf
+COPY docker/40-dc-runtime.sh /docker-entrypoint.d/40-dc-runtime.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.d/40-dc-runtime.sh /etc/nginx/dc-locations.conf && chmod +x /docker-entrypoint.d/40-dc-runtime.sh
 EXPOSE 80 443

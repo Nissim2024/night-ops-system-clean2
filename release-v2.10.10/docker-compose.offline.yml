@@ -36,7 +36,7 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    container_name: dc-postgres
+    container_name: ${DC_PREFIX:-dc}-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER:     dcuser
@@ -56,13 +56,13 @@ services:
 
   api:
     image: deploycenter-api:2.10.10
-    container_name: dc-api
+    container_name: ${DC_PREFIX:-dc}-api
     restart: unless-stopped
     pull_policy: never
     environment:
       NODE_ENV:     prod
       PORT:         3000
-      DATABASE_URL: postgresql://dcuser:${DB_PASSWORD}@dc-postgres:5432/deploycenter
+      DATABASE_URL: postgresql://dcuser:${DB_PASSWORD}@${DC_PREFIX:-dc}-postgres:5432/deploycenter
       JWT_SECRET:   ${JWT_SECRET}
       CORS_ORIGINS: ${CORS_ORIGINS}
 
@@ -111,11 +111,22 @@ services:
 
   frontend:
     image: deploycenter-frontend:2.10.10
-    container_name: dc-frontend
+    container_name: ${DC_PREFIX:-dc}-frontend
     restart: unless-stopped
     pull_policy: never
+    environment:
+      # prod | test — shown as the TEST badge in the app (2026-10-06)
+      DC_ENV: ${DC_ENV:-prod}
+      # HTTPS port users type, for the HTTP->HTTPS redirect (only with a certificate)
+      DC_PUBLIC_HTTPS_PORT: ${DC_PUBLIC_HTTPS_PORT:-443}
     ports:
-      - "80:80"
+      - "${DC_HTTP_PORT:-80}:80"
+      # HTTPS — only listens when a certificate is in ${DC_CERTS_DIR}. Until
+      # HTTPS is turned on it stays bound to localhost on an unused port.
+      - "${DC_HTTPS_BIND:-127.0.0.1:44399}:443"
+    volumes:
+      # server.crt + server.key (PEM). Missing / empty directory = HTTP only.
+      - ${DC_CERTS_DIR:-/opt/deploycenter/certs}:/etc/nginx/certs:ro
     depends_on:
       - api
     networks:

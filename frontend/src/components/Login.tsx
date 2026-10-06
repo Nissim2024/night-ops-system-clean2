@@ -5,10 +5,10 @@ import { C, FONT, RADIUS, SHADOW } from '../theme';
 import { TextField, Alert, Spinner } from './ui';
 import { cn } from '../lib/utils';
 import pkg from '../../package.json';
+import { IS_TEST } from '../runtimeEnv';
 const APP_VERSION: string = pkg.version;
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
-const IS_TEST = process.env.REACT_APP_ENV === 'test';
 
 interface Props {
   onLogin: (token: string) => void;

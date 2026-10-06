@@ -16,6 +16,7 @@ import { QaTestersView } from './qa/QaTestersView';
 import { MyQaTasksView, MyQaTask, TargetDefectGroup } from './qa/MyQaTasksView';
 import { FocusModeModal } from './FocusModeModal';
 import { RUNBOOKS } from './qa/RunbookModal';
+import { IS_TEST } from '../runtimeEnv';
 
 // Same order used by VersionProgressChain — picks the most-advanced planning
 // version when several exist, instead of whichever happens to come first in the API response.
@@ -36,7 +37,6 @@ const isSeasonLocked = (dates: { date: string }[]): boolean => {
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
-const IS_TEST = process.env.REACT_APP_ENV === 'test';
 
 interface ToastItem {
   id: number;
