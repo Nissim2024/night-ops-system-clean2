@@ -2630,6 +2630,207 @@ function computeAllDefectsDashboard(rows: AllDefectsRawRow[]): AllDefectsDashboa
   };
 }
 
+// ── Defects analytics dataset (investigation dashboard, 2026-10-06) ─────────
+// One compact row per defect for the "🪲 תקלות" module's investigation
+// dashboard: the browser does every grouping / filter / chart itself (instant
+// "הצג לפי" switching, per-user pinned charts, heat map) and drills down by
+// sending back the exact matching ids (POST /qc/defects-by-ids), so a list
+// can never disagree with the number that was clicked. Field mapping
+// confirmed by the user 2026-10-06: מערכת = BG_USER_49, מודול = Sub Module
+// (BG_USER_14), team = BG_USER_03, owner = BG_RESPONSIBLE. "נושא" dropped.
+// Pre-12c Oracle + ASCII-only SQL text (see QC notes): no FETCH FIRST.
+const DEFECTS_ANALYTICS_SQL = `
+  SELECT
+    BG_BUG_ID            AS DEFECT_ID,
+    BG_USER_04           AS DEFECT_STATUS,
+    BG_SEVERITY          AS SEVERITY,
+    BG_USER_03           AS RESPONSIBILITY,
+    BG_USER_49           AS SYSTEM_NAME,
+    BG_USER_14           AS SUB_MODULE,
+    BG_USER_02           AS ENVIRONMENT,
+    BG_RESPONSIBLE       AS ASSIGNED_TO,
+    BG_DETECTED_BY       AS DETECTED_BY,
+    detected_rel.REL_NAME AS DETECTED_IN_RELEASE,
+    BG_DETECTION_DATE    AS DETECTED_ON_DATE,
+    BG_VTS               AS MODIFIED
+  FROM BUG
+  LEFT JOIN RELEASES detected_rel ON detected_rel.REL_ID = BUG.BG_DETECTED_IN_REL
+`;
+
+// Close date = the LAST time the status became Closed/Canceled, from the
+// status history (user, 2026-10-06: "תאריך הסגירה קיים בהיסטוריה"). Same
+// AUDIT_LOG/AUDIT_PROPERTIES + 'Bug Status' property as
+// DEFECT_STATUS_HISTORY_SQL. Both spellings of Canceled are accepted.
+const DEFECTS_CLOSE_DATES_SQL = `
+  SELECT audit_log.AU_ENTITY_ID AS DEFECT_ID, MAX(audit_log.AU_TIME) AS CLOSED_AT
+  FROM AUDIT_LOG audit_log
+  JOIN AUDIT_PROPERTIES audit_property ON audit_log.AU_ACTION_ID = audit_property.AP_ACTION_ID
+  WHERE audit_log.AU_ENTITY_TYPE = 'BUG'
+    AND audit_property.AP_PROPERTY_NAME = 'Bug Status'
+    AND TRIM(audit_property.AP_NEW_VALUE) IN ('Closed', 'Canceled', 'Cancelled')
+  GROUP BY audit_log.AU_ENTITY_ID
+`;
+
+interface AnalyticsRawRow {
+  DEFECT_ID: string | number;
+  DEFECT_STATUS: string | null;
+  SEVERITY: string | null;
+  RESPONSIBILITY: string | null;
+  SYSTEM_NAME: string | null;
+  SUB_MODULE: string | null;
+  ENVIRONMENT: string | null;       // BG_USER_02 — "prod" in it = production defect (isProductionEnvironment)
+  ASSIGNED_TO: string | null;
+  DETECTED_BY: string | null;
+  DETECTED_IN_RELEASE: string | null;
+  DETECTED_ON_DATE: string | Date | null;
+  MODIFIED: string | Date | null;
+  CLOSED_AT?: string | Date | null;
+}
+
+const ANALYTICS_CLOSED_STATUSES = ['closed', 'canceled', 'cancelled'];
+const isClosedStatus = (s: string | null) => ANALYTICS_CLOSED_STATUSES.includes((s ?? '').trim().toLowerCase());
+
+// Columnar + dictionary-encoded: every text value is an index into `dict`,
+// every date a day number (days since 1970-01-01, UTC). -1 / null = empty.
+export interface DefectsAnalyticsDto {
+  generatedAt: string;
+  mock: boolean;
+  closeDate: { fromHistory: number; fallback: number };   // closed defects whose close date came from history vs BG_VTS fallback
+  dict: { status: string[]; severity: string[]; team: string[]; system: string[]; module: string[]; release: string[]; person: string[]; env: string[] };
+  id: number[];
+  env: number[];          // index into dict.env (BG_USER_02)
+  status: number[];
+  severity: number[];
+  teams: number[][];      // BG_USER_03 may hold several teams joined by ';'
+  system: number[];
+  module: number[];
+  release: number[];
+  owner: number[];        // index into dict.person
+  creator: number[];      // index into dict.person
+  detected: (number | null)[];
+  closed: (number | null)[];
+  updated: (number | null)[];
+}
+
+const toDayNum = (v: string | Date | null | undefined): number | null => {
+  if (v == null || v === '') return null;
+  const d = v instanceof Date ? v : new Date(v);
+  const t = d.getTime();
+  return isNaN(t) ? null : Math.floor(t / 86400000);
+};
+
+function encodeDefectsAnalytics(rows: AnalyticsRawRow[], personName: (login: string) => string, mock: boolean): DefectsAnalyticsDto {
+  const dicts: Record<keyof DefectsAnalyticsDto['dict'], Map<string, number>> = {
+    status: new Map(), severity: new Map(), team: new Map(), system: new Map(), module: new Map(), release: new Map(), person: new Map(), env: new Map(),
+  };
+  const enc = (k: keyof DefectsAnalyticsDto['dict'], raw: string | null | undefined): number => {
+    const v = (raw ?? '').trim();
+    if (!v) return -1;
+    const m = dicts[k];
+    let i = m.get(v);
+    if (i === undefined) { i = m.size; m.set(v, i); }
+    return i;
+  };
+  const out: DefectsAnalyticsDto = {
+    generatedAt: new Date().toISOString(), mock, closeDate: { fromHistory: 0, fallback: 0 },
+    dict: { status: [], severity: [], team: [], system: [], module: [], release: [], person: [], env: [] },
+    id: [], env: [], status: [], severity: [], teams: [], system: [], module: [], release: [], owner: [], creator: [], detected: [], closed: [], updated: [],
+  };
+  for (const r of rows) {
+    out.id.push(Number(r.DEFECT_ID));
+    out.status.push(enc('status', r.DEFECT_STATUS));
+    out.severity.push(enc('severity', r.SEVERITY));
+    out.teams.push((r.RESPONSIBILITY ?? '').split(';').map(s => s.trim()).filter(Boolean).map(t => enc('team', t)));
+    out.system.push(enc('system', r.SYSTEM_NAME));
+    out.module.push(enc('module', r.SUB_MODULE));
+    out.env.push(enc('env', r.ENVIRONMENT));
+    out.release.push(enc('release', r.DETECTED_IN_RELEASE));
+    out.owner.push(enc('person', r.ASSIGNED_TO ? personName(r.ASSIGNED_TO.trim()) : null));
+    out.creator.push(enc('person', r.DETECTED_BY ? personName(r.DETECTED_BY.trim()) : null));
+    const detected = toDayNum(r.DETECTED_ON_DATE);
+    const updated = toDayNum(r.MODIFIED);
+    out.detected.push(detected);
+    out.updated.push(updated);
+    // A close date only for defects that are closed NOW (a reopened one is open).
+    let closed: number | null = null;
+    if (isClosedStatus(r.DEFECT_STATUS)) {
+      closed = toDayNum(r.CLOSED_AT ?? null);
+      if (closed != null) out.closeDate.fromHistory++;
+      else { closed = updated; out.closeDate.fallback++; }   // no history row → last-modified as best proxy
+    }
+    out.closed.push(closed);
+  }
+  for (const k of Object.keys(dicts) as (keyof DefectsAnalyticsDto['dict'])[]) {
+    out.dict[k] = Array.from(dicts[k].keys());
+  }
+  return out;
+}
+
+// Dev-mode fixture: ~600 deterministic defects over 21 months, so trend,
+// aging, heat map and top-10 have something meaningful to show.
+function buildMockAnalyticsRows(): AnalyticsRawRow[] {
+  let seed = 20261006;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  const pick = <T,>(arr: T[], weights?: number[]): T => {
+    if (!weights) return arr[Math.floor(rnd() * arr.length)];
+    const total = weights.reduce((s, w) => s + w, 0);
+    let x = rnd() * total;
+    for (let i = 0; i < arr.length; i++) { x -= weights[i]; if (x <= 0) return arr[i]; }
+    return arr[arr.length - 1];
+  };
+  const systems = ['CRM', 'Billing', 'Provisioning', 'IVR', 'WEB-HOT', 'OSB', 'BI', 'ERP', 'CONNECT', 'REMEDY', 'NIFI', 'MEDIATION'];
+  const modules = ['Customer 360', 'Orders', 'Invoices', 'Payments', 'Activation', 'Self Care', 'Reports', 'Interfaces', 'Login', 'Catalog', 'Tickets', 'Usage'];
+  const teams = ['CRM Team', 'OSS Team', 'NETC-DT team', 'HOT Design Team', 'BI Team', 'Web Dev Team', 'IVR Team', 'DBA Team'];
+  const people = ['dlevi', 'ncohen', 'ymizrahi', 'raviv', 'mgabay', 'aamar', 'tbenami', 'skatz', 'olevi', 'rpeled'];
+  const openStatuses = ['New', 'Open', 'At Work', 'Fixed_Dev', 'Fixed_Test', 'Reopen', 'Pending'];
+  const rows: AnalyticsRawRow[] = [];
+  const start = Date.UTC(2025, 0, 1);
+  const today = Date.now();
+  const span = today - start;
+  for (let i = 0; i < 600; i++) {
+    const detected = start + Math.floor(Math.pow(rnd(), 0.8) * span);
+    const ageDays = (today - detected) / 86400000;
+    const closedProb = Math.min(0.92, ageDays / 120);
+    const closed = rnd() < closedProb;
+    const closeAt = closed ? Math.min(today - 86400000, detected + (2 + rnd() * Math.min(90, ageDays)) * 86400000) : null;
+    const status = closed ? pick(['Closed', 'Canceled'], [9, 1]) : pick(openStatuses, [2, 5, 4, 2, 2, 1, 1]);
+    const lastTouch = closed ? closeAt! : today - rnd() * Math.min(ageDays, 120) * 86400000;
+    const relIdx = Math.min(9, Math.floor((detected - start) / span * 10));
+    rows.push({
+      DEFECT_ID: 61000 + i,
+      DEFECT_STATUS: status,
+      SEVERITY: pick(['Show Stopper', 'Severe', 'Medium', 'Low'], [1, 4, 9, 6]),
+      RESPONSIBILITY: rnd() < 0.08 ? `${pick(teams)};${pick(teams)}` : pick(teams),
+      SYSTEM_NAME: pick(systems, [14, 10, 8, 5, 6, 4, 3, 3, 2, 2, 1, 1]),
+      SUB_MODULE: rnd() < 0.05 ? null : pick(modules),
+      ENVIRONMENT: rnd() < 0.04 ? null : pick(['Integration', 'QA', 'Test', 'UAT', 'Production', 'PROD-Like'], [5, 6, 4, 2, 3, 1]),
+      ASSIGNED_TO: pick(people),
+      DETECTED_BY: pick(people),
+      DETECTED_IN_RELEASE: `ITv${String((relIdx % 10) + 1).padStart(2, '0')}-${relIdx < 5 ? 2025 : 2026}`,
+      DETECTED_ON_DATE: new Date(detected).toISOString(),
+      MODIFIED: new Date(lastTouch).toISOString(),
+      CLOSED_AT: closed && rnd() < 0.95 ? new Date(closeAt!).toISOString() : null,   // ~5% exercise the fallback
+    });
+  }
+  return rows;
+}
+
+let analyticsCache: { at: number; rows: AnalyticsRawRow[]; mock: boolean } | null = null;
+const ANALYTICS_CACHE_MS = 10 * 60 * 1000;
+
+// SLA — not defined yet (user, 2026-10-06: "להכין משהו שיתמוך בזה בעתיד").
+// Target days per severity + where the clock stops; stays off until an admin
+// enables it. Stored in SystemParam DEFECT_SLA_CONFIG as JSON.
+export interface DefectSlaConfig {
+  enabled: boolean;
+  stopAt: 'closed';                                 // clock stops when the defect is closed (history close date)
+  targetDays: Record<string, number | null>;        // severity -> days; null = no SLA for that severity
+}
+const DEFAULT_SLA_CONFIG: DefectSlaConfig = {
+  enabled: false, stopAt: 'closed',
+  targetDays: { 'Show Stopper': null, 'Severe': null, 'Medium': null, 'Low': null },
+};
+
 function computeBugDashboard(
   rows: BugRawRow[], reopenedIds: Set<string>, targetRows: BugRawRow[] = [], reopenTimes: Map<string, Date> = new Map(),
 ): BugDashboardDto {
@@ -4121,6 +4322,129 @@ export class QcService {
 
     const { sql: scopeSql, binds: scopeBinds } = buildDefectScopeSql(scope);
     return this.runDefectsQuery(buildAllDefectsFilteredSql(filterField, scopeSql), { value, ...scopeBinds });
+  }
+
+  // ── Defects analytics (investigation dashboard, 2026-10-06) ────────────────
+  private async loadAnalyticsRows(force = false): Promise<{ rows: AnalyticsRawRow[]; mock: boolean }> {
+    if (!force && analyticsCache && Date.now() - analyticsCache.at < ANALYTICS_CACHE_MS) return analyticsCache;
+    const { enabled } = await getOracleConfig();
+    if (!enabled) {
+      analyticsCache = { at: Date.now(), rows: buildMockAnalyticsRows(), mock: true };
+      return analyticsCache;
+    }
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const res = await conn.execute(DEFECTS_ANALYTICS_SQL, {});
+      const rows = (res.rows ?? []) as AnalyticsRawRow[];
+      // Close dates are best-effort: if the audit query fails the dashboard
+      // still loads, closed defects just fall back to last-modified.
+      try {
+        const closeRes = await conn.execute(DEFECTS_CLOSE_DATES_SQL, {});
+        const closeById = new Map<string, any>((closeRes.rows ?? []).map((r: any) => [String(r.DEFECT_ID), r.CLOSED_AT]));
+        for (const r of rows) r.CLOSED_AT = closeById.get(String(r.DEFECT_ID)) ?? null;
+      } catch (err: any) {
+        this.logger.warn(`Oracle defects close-dates (AUDIT_LOG) failed, using BG_VTS fallback: ${err.message}`);
+      }
+      analyticsCache = { at: Date.now(), rows, mock: false };
+      return analyticsCache;
+    } catch (err: any) {
+      this.logger.error(`Oracle getDefectsAnalytics: ${err.message}`);
+      throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
+  }
+
+  // Same role scoping as the rest of the defects module (resolveDefectScope):
+  // TEAM_LEAD → their teams' Responsibility, EMPLOYEE → assigned to them.
+  private scopeAnalyticsRows(rows: AnalyticsRawRow[], scope: DefectScope): AnalyticsRawRow[] {
+    if (scope.kind === 'all') return rows;
+    if (scope.kind === 'team') {
+      const set = new Set(scope.values.map(v => v.trim()));
+      return rows.filter(r => (r.RESPONSIBILITY ?? '').split(';').some(t => set.has(t.trim())));
+    }
+    if (!scope.qcLogin) return [];
+    const login = scope.qcLogin.trim().toLowerCase();
+    return rows.filter(r => (r.ASSIGNED_TO ?? '').trim().toLowerCase() === login);
+  }
+
+  async getDefectsAnalytics(user: { sub: string; role: string }, force = false): Promise<DefectsAnalyticsDto> {
+    const [{ rows, mock }, scope] = await Promise.all([this.loadAnalyticsRows(force), resolveDefectScope(user)]);
+    const scoped = this.scopeAnalyticsRows(rows, scope);
+    // QC logins → full names (same rule as PersonNamesInterceptor: show the
+    // person, write the login). Unknown logins stay as-is.
+    const users = await prisma.user.findMany({ where: { qcLogin: { not: null } }, select: { qcLogin: true, fullName: true } });
+    const nameByLogin = new Map(users.map(u => [String(u.qcLogin).trim().toLowerCase(), u.fullName]));
+    return encodeDefectsAnalytics(scoped, login => nameByLogin.get(login.toLowerCase()) ?? login, mock);
+  }
+
+  // Full rows for a drill-down page. Ids outside the caller's scope are
+  // dropped (the ids come from the browser, so never trust them blindly).
+  async getDefectsByIdsScoped(user: { sub: string; role: string }, ids: string[]): Promise<DefectDto[]> {
+    const want = Array.from(new Set((ids ?? []).map(String))).slice(0, 500);
+    if (want.length === 0) return [];
+    const [{ rows, mock }, scope] = await Promise.all([this.loadAnalyticsRows(), resolveDefectScope(user)]);
+    const allowed = new Set(this.scopeAnalyticsRows(rows, scope).map(r => String(r.DEFECT_ID)));
+    const permitted = want.filter(id => allowed.has(id));
+    if (permitted.length === 0) return [];
+    let out: DefectDto[];
+    if (mock) {
+      const byId = new Map(rows.map(r => [String(r.DEFECT_ID), r]));
+      out = permitted.map(id => byId.get(id)!).filter(Boolean).map(r => ({
+        ...allDefectsRawRowToDefectDto({
+          DEFECT_ID: r.DEFECT_ID, DEFECT_STATUS: r.DEFECT_STATUS, SEVERITY: r.SEVERITY, MAIN_MODULE: null,
+          RESPONSIBILITY: r.RESPONSIBILITY, ASSIGNED_TO: r.ASSIGNED_TO, REOPEN_YN: null,
+          DETECTED_IN_RELEASE: r.DETECTED_IN_RELEASE, DETECTED_ON_DATE: r.DETECTED_ON_DATE, ENVIRONMENT_COMPONENT: r.SYSTEM_NAME,
+          TITLE: `תקלה לדוגמה #${r.DEFECT_ID} — ${r.SYSTEM_NAME ?? ''}`,
+        }),
+        subModule: r.SUB_MODULE ?? '', reporter: r.DETECTED_BY ?? '',
+        environment: r.ENVIRONMENT ?? '',
+        modified: r.MODIFIED ? new Date(r.MODIFIED as any).toLocaleDateString('he-IL') : '',
+      }));
+    } else {
+      out = await this.getDefectsByIds(permitted);
+    }
+    // Keep the caller's order (e.g. "oldest first").
+    const pos = new Map(permitted.map((id, i) => [id, i]));
+    return out.sort((a, b) => (pos.get(a.id) ?? 0) - (pos.get(b.id) ?? 0));
+  }
+
+  async getDefectSlaConfig(): Promise<DefectSlaConfig> {
+    const row = await prisma.systemParam.findUnique({ where: { key: 'DEFECT_SLA_CONFIG' } });
+    if (!row?.value) return DEFAULT_SLA_CONFIG;
+    try { return { ...DEFAULT_SLA_CONFIG, ...JSON.parse(row.value) }; } catch { return DEFAULT_SLA_CONFIG; }
+  }
+
+  async setDefectSlaConfig(cfg: Partial<DefectSlaConfig>): Promise<DefectSlaConfig> {
+    const targetDays: Record<string, number | null> = {};
+    for (const [sev, d] of Object.entries(cfg.targetDays ?? {})) {
+      const n = d == null || (d as any) === '' ? null : Number(d);
+      targetDays[sev] = n != null && Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+    }
+    const next: DefectSlaConfig = { enabled: !!cfg.enabled, stopAt: 'closed', targetDays: { ...DEFAULT_SLA_CONFIG.targetDays, ...targetDays } };
+    await prisma.systemParam.upsert({
+      where: { key: 'DEFECT_SLA_CONFIG' },
+      update: { value: JSON.stringify(next) },
+      create: { key: 'DEFECT_SLA_CONFIG', value: JSON.stringify(next), label: 'SLA לתקלות — יעד בימים לפי חומרה (מודול תקלות)' } as any,
+    });
+    return next;
+  }
+
+  async getUserPreference(userId: string, key: string): Promise<any> {
+    const row = await prisma.userPreference.findUnique({ where: { userId_key: { userId, key } } });
+    return row?.value ?? null;
+  }
+
+  async setUserPreference(userId: string, key: string, value: any): Promise<any> {
+    const json = JSON.stringify(value ?? null);
+    if (json.length > 50000) throw new BadRequestException('ההגדרה גדולה מדי');
+    const row = await prisma.userPreference.upsert({
+      where: { userId_key: { userId, key } },
+      update: { value: value ?? null },
+      create: { userId, key, value: value ?? null },
+    });
+    return row.value;
   }
 
   async getBugDashboard(versionId: string): Promise<BugDashboardDto> {

@@ -1675,3 +1675,17 @@ model ActionItem {
 
   @@index([incidentId])
 }
+
+// Per-user UI preferences (2026-10-06) — first use: the defects module's
+// pinned charts ("הדאשבורד שלי"). Generic key/value so later per-user layouts
+// don't need their own table. No FK on purpose (keeps User untouched); rows
+// of a deleted user are harmless leftovers.
+model UserPreference {
+  id        String   @id @default(cuid())
+  userId    String
+  key       String
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, key])
+}

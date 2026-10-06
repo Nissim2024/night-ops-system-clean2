@@ -747,11 +747,13 @@ export function useColumnWidths(storageKey: string, defaultWidth = 140) {
 
   const getWidth = useCallback((key: string) => widths[key] ?? defaultWidth, [widths, defaultWidth]);
 
-  const startResize = useCallback((key: string, e: React.MouseEvent) => {
+  // currentWidth: the width the column is actually drawn at (auto-fitted
+  // tables), so a drag starts from what the user sees instead of jumping.
+  const startResize = useCallback((key: string, e: React.MouseEvent, currentWidth?: number) => {
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
-    const startWidth = widthsRef.current[key] ?? defaultWidth;
+    const startWidth = widthsRef.current[key] ?? currentWidth ?? defaultWidth;
     const onMove = (ev: MouseEvent) => {
       const delta = ev.clientX - startX;
       const next = Math.max(MIN_COLUMN_WIDTH, Math.round(startWidth - delta));
@@ -766,7 +768,16 @@ export function useColumnWidths(storageKey: string, defaultWidth = 140) {
     document.addEventListener('mouseup', onUp);
   }, [storageKey, defaultWidth]);
 
-  return { getWidth, startResize };
+  // For auto-fitting tables (2026-10-06): which columns the user sized by
+  // hand (those keep their width), and a reset back to automatic.
+  const hasManual = useCallback((key: string) => widths[key] != null, [widths]);
+  const manualCount = Object.keys(widths).length;
+  const resetAll = useCallback(() => {
+    setWidths({});
+    try { localStorage.removeItem(storageKey); } catch { /* ignore */ }
+  }, [storageKey]);
+
+  return { getWidth, startResize, hasManual, manualCount, resetAll };
 }
 
 // Thin drag handle on a header cell's left edge (see RTL note above). The

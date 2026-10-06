@@ -11,6 +11,7 @@ import { formatDate, formatDateTime } from '../../utils/dateFormat';
 import { cn } from '../../lib/utils';
 import { CreateDefectScreen } from './CreateDefectScreen';
 import { useDialog } from '../../context/DialogContext';
+import { useAutoFitTable, WRAP_CLAMP_STYLE } from '../shared/useAutoFitTable';
 import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from '../ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -895,7 +896,8 @@ export const DefectDetailScreen: React.FC<{
                   className="rounded-xl overflow-hidden px-6 py-6"
                   style={{ background: '#fff', height: '100%' }}
                 >
-                  <div className="text-sm font-bold mb-3 text-foreground">
+                  {/* dir="auto" + text-start: a Hebrew title sits right, an English one left (user ask 2026-10-06) */}
+                  <div dir="auto" className="text-sm font-bold mb-3 text-foreground text-start">
                     {group.title}
                   </div>
                   {/* Fields flow side by side and wrap at the panel's width,
@@ -1465,7 +1467,8 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
     [monthRows, presetSeverity],
   );
 
-  const { getWidth: getMonthColWidth, startResize: startMonthColResize } = useColumnWidths('deploycenter_openprod_defect_column_widths');
+  const monthWidthsApi = useColumnWidths('deploycenter_openprod_defect_column_widths');
+  const { startResize: startMonthColResize, manualCount: monthManualCount, resetAll: resetMonthWidths } = monthWidthsApi;
   const monthFilters = useColumnFilters(baseRows as any, tableColumns);
 
   // Saved views — capture/restore columns+sort+filters together as one named
@@ -1508,6 +1511,15 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
       return av.localeCompare(bv, 'he') * dir;
     });
   }, [baseRows, sortKey, sortDir, monthFilters.matches]);
+  // Auto-fit to the card (2026-10-06) — same as every other defect table.
+  const monthFit = useAutoFitTable({
+    rows: sortedMonthRows,
+    columns: tableColumns.map(key => ({ key, label: TABLE_FIELD_LABEL[key] ?? key })),
+    getValue: (r, key) => (r as any)[key],
+    widths: monthWidthsApi,
+    extra: key => (key === 'severity' || key === 'statusAtMonth' || key === 'currentStatus' ? 22 : key === 'defectId' ? 30 : PERSON_BADGE_FIELDS.has(key) ? 30 : 0),
+    leadingWidth: 32,
+  });
 
   if (showCreateScreen) {
     return (
@@ -1597,8 +1609,13 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
             </div>
           )}
           <div className="bg-card rounded-lg overflow-hidden" style={{ border: `1px solid ${JIRA.greyN40}` }}>
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-xs" style={{ tableLayout: 'fixed' }}>
+            {monthManualCount > 0 && (
+              <div className="flex justify-end border-b border-border px-2 py-1">
+                <button onClick={resetMonthWidths} title="בטל רוחבים שנקבעו ידנית והתאם אוטומטית" className="cursor-pointer border-none bg-transparent text-xs font-semibold text-primary">↔ התאם רוחב</button>
+              </div>
+            )}
+            <div ref={monthFit.boxRef} className="overflow-x-auto">
+              <table className="border-collapse text-xs" style={monthFit.tableStyle}>
                 <thead>
                   <tr>
                     <th className="px-2 py-2 text-center" style={{ borderBottom: `2px solid ${JIRA.greyN40}`, width: 32 }}>
@@ -1612,18 +1629,18 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
                       <th
                         key={key}
                         onClick={() => toggleSort(key)}
-                        className="relative px-2 py-2 text-right font-bold text-[11px] tracking-wide cursor-pointer select-none whitespace-nowrap overflow-hidden text-ellipsis"
-                        style={{ color: JIRA.textSubtle, borderBottom: `2px solid ${JIRA.greyN40}`, width: getMonthColWidth(key) }}
+                        className="relative px-2 py-2 text-right font-bold text-[11px] tracking-wide cursor-pointer select-none whitespace-normal break-words align-bottom leading-tight"
+                        style={{ color: JIRA.textSubtle, borderBottom: `2px solid ${JIRA.greyN40}`, width: monthFit.colWidth(key) }}
                       >
                         {TABLE_FIELD_LABEL[key] ?? key}
                         {sortKey === key && <span className="me-1 text-primary">{sortDir === 'asc' ? '▲' : '▼'}</span>}
-                        <ColumnResizeHandle onMouseDown={e => startMonthColResize(key, e)} />
+                        <ColumnResizeHandle onMouseDown={e => startMonthColResize(key, e, monthFit.colWidth(key))} />
                       </th>
                     ))}
                   </tr>
                   <ColumnFilterRow
                     columns={tableColumns.map(key => ({ key, label: TABLE_FIELD_LABEL[key] ?? key }))}
-                    getWidth={getMonthColWidth}
+                    getWidth={monthFit.colWidth}
                     filters={monthFilters}
                   />
                 </thead>
@@ -1648,21 +1665,24 @@ export const OpenProdDefectsView: React.FC<Props> = ({ token }) => {
                         const isDefectCol = key === 'defectId';
                         const isSeverityCol = key === 'severity';
                         const isStatusCol = key === 'statusAtMonth' || key === 'currentStatus';
+                        const wraps = monthFit.wraps(key);
+                        const content = isDefectCol ? (value ? <IssueKeyLink id={value} /> : '—')
+                          : isSeverityCol ? <SeverityBadge severity={value ?? ''} />
+                          : isStatusCol ? <StatusBadge status={value ?? ''} />
+                          : PERSON_BADGE_FIELDS.has(key) && value ? <PersonAvatar name={String(value)} />
+                          : (value ?? '—');
                         return (
                           <td
                             key={key}
-                            className={`px-2 py-[7px] overflow-hidden text-ellipsis whitespace-nowrap ${isDefectCol || isSeverityCol || isStatusCol ? 'text-center' : ''} ${isDefectCol ? 'font-semibold' : 'font-normal'}`}
+                            title={wraps ? String(value ?? '') : undefined}
+                            className={`px-2 py-[7px] ${wraps ? '' : 'overflow-hidden text-ellipsis whitespace-nowrap'} ${isDefectCol || isSeverityCol || isStatusCol ? 'text-center' : ''} ${isDefectCol ? 'font-semibold' : 'font-normal'}`}
                             style={{
                               borderBottom: `1px solid ${JIRA.greyN40}`,
-                              width: getMonthColWidth(key),
+                              width: monthFit.colWidth(key), verticalAlign: 'top', lineHeight: 1.45,
                               color: isDefectCol || isSeverityCol || isStatusCol ? undefined : JIRA.text,
                             }}
                           >
-                            {isDefectCol ? (value ? <IssueKeyLink id={value} /> : '—')
-                              : isSeverityCol ? <SeverityBadge severity={value ?? ''} />
-                              : isStatusCol ? <StatusBadge status={value ?? ''} />
-                              : PERSON_BADGE_FIELDS.has(key) && value ? <PersonAvatar name={String(value)} />
-                              : (value ?? '—')}
+                            {wraps ? <div style={WRAP_CLAMP_STYLE}>{content}</div> : content}
                           </td>
                         );
                       })}

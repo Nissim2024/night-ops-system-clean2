@@ -32,7 +32,7 @@ interface VersionOption { id: string; name: string; status: string; }
 // 2026-09-22 memory for the full history of what was tried and rejected).
 const SectionBox: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <Card style={{ height: '100%' }}>
-    <div className="mb-3 text-sm font-bold text-foreground">{title}</div>
+    <div dir="auto" className="mb-3 text-start text-sm font-bold text-foreground">{title}</div>
     <div className="flex flex-wrap items-end gap-4" style={{ direction: 'ltr', justifyContent: 'flex-start' }}>
       {children}
     </div>

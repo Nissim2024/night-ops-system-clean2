@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { JIRA } from '../../theme';
+import { useAutoFitTable, WRAP_CLAMP_STYLE } from '../shared/useAutoFitTable';
 import { DefectDetailScreen } from '../quality-hub/OpenProdDefectsView';
 import {
   hasHebrew, PersonAvatar, NameBadge, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
@@ -108,6 +109,11 @@ const ALL_COLUMNS: { key: ColumnKey; label: string }[] = [
 ];
 const DEFAULT_COLUMNS: ColumnKey[] = ['id', 'title', 'severity', 'status', 'assignedTo', 'discoveryDate'];
 const COLUMNS_STORAGE_KEY = 'deploycenter_defect_drilldown_columns_v1';
+// Investigation-dashboard drill-downs (idList mode) have their own default set
+// (spec 2026-10-06: ID, Summary, Severity, Status, Owner, Created, Last Update,
+// Release, Team) and their own saved choice, so the other screens' lists keep theirs.
+const INVESTIGATION_DEFAULT_COLUMNS: ColumnKey[] = ['id', 'title', 'severity', 'status', 'assignedTo', 'discoveryDate', 'modified', 'detectedInRelease', 'responsibility'];
+const INVESTIGATION_COLUMNS_STORAGE_KEY = 'deploycenter_defect_drilldown_columns_investigation_v1';
 
 
 interface Props {
@@ -150,6 +156,10 @@ interface Props {
   // first (2026-10-05) - with the defects module's year / release filters
   // and an optional search (defect id or title text).
   crossVersion?: { years?: number[]; releases?: string[]; search?: string };
+  // Investigation-dashboard mode (2026-10-06): the dashboard already knows the
+  // exact defect ids behind the number that was clicked — page through them
+  // (POST /qc/defects-by-ids, server re-checks the caller's scope).
+  idList?: string[];
 }
 
 const PAGE_SIZE = 100;
@@ -196,29 +206,31 @@ function renderCellValue(key: ColumnKey, value: unknown) {
 // browser via localStorage, same convention as IncidentsView's import-column
 // picker; sort state is session-only (not worth persisting — the filter/list
 // changes every time this opens).
-export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen, filter, value, endpoint, title, onClose, selection, crossVersion }) => {
+export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen, filter, value, endpoint, title, onClose, selection, crossVersion, idList }) => {
   const headers = { Authorization: `Bearer ${token}` };
   const [defects, setDefects] = useState<Defect[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const paged = !endpoint && !versionId;
+  const paged = !!idList || (!endpoint && !versionId);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [searchInput, setSearchInput] = useState(crossVersion?.search ?? '');
   const [search, setSearch] = useState(crossVersion?.search ?? '');
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: ColumnKey; dir: 'asc' | 'desc' } | null>(null);
-  const { getWidth: getColWidth, startResize } = useColumnWidths(COLUMN_WIDTHS_STORAGE_KEY, DEFAULT_COLUMN_WIDTH);
+  const colWidthsApi = useColumnWidths(COLUMN_WIDTHS_STORAGE_KEY, DEFAULT_COLUMN_WIDTH);
+  const { startResize, manualCount, resetAll: resetColWidths } = colWidthsApi;
   const [showColumnPicker, setShowColumnPicker] = useState(false);
+  const columnsKey = idList ? INVESTIGATION_COLUMNS_STORAGE_KEY : COLUMNS_STORAGE_KEY;
   const [columns, setColumns] = useState<ColumnKey[]>(() => {
     try {
-      const saved = localStorage.getItem(COLUMNS_STORAGE_KEY);
+      const saved = localStorage.getItem(columnsKey);
       if (saved) return JSON.parse(saved);
     } catch { /* ignore malformed storage */ }
-    return DEFAULT_COLUMNS;
+    return idList ? INVESTIGATION_DEFAULT_COLUMNS : DEFAULT_COLUMNS;
   });
   const applyColumns = (keys: ColumnKey[]) => {
     setColumns(keys);
-    try { localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(keys)); } catch { /* ignore quota errors */ }
+    try { localStorage.setItem(columnsKey, JSON.stringify(keys)); } catch { /* ignore quota errors */ }
     setShowColumnPicker(false);
   };
 
@@ -238,7 +250,10 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
   useEffect(() => {
     setLoading(true);
     setError(null);
-    const request = endpoint
+    const request = idList
+      ? axios.post(`${API}/qc/defects-by-ids`, { ids: idList.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) }, { headers })
+          .then(res => ({ data: { rows: res.data ?? [], total: idList.length } }))
+      : endpoint
       ? axios.get(endpoint, { headers })
       : versionId
       ? axios.get(`${API}/release-intelligence/defects-drilldown/${versionId}`, { headers, params: { screen, filter, value } })
@@ -255,7 +270,7 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
       .catch(e => setError(e?.response?.data?.message || e.message || 'שגיאה בטעינת התקלות'))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [endpoint, versionId, screen, filter, value, token, page, search, crossVersion?.years?.join(','), crossVersion?.releases?.join(',')]);
+  }, [endpoint, versionId, screen, filter, value, token, page, search, crossVersion?.years?.join(','), crossVersion?.releases?.join(','), idList]);
 
   const filters = useColumnFilters(defects as any, columns);
   const [hoverRow, setHoverRow] = useState<string | null>(null);
@@ -285,6 +300,17 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
   const visibleColumns = columns
     .map(key => ALL_COLUMNS.find(c => c.key === key))
     .filter((c): c is { key: ColumnKey; label: string } => !!c);
+
+  // Auto-fit to the card (2026-10-06) — shared with every defect table.
+  const fit = useAutoFitTable({
+    rows: sorted,
+    columns: visibleColumns,
+    getValue: (d, key) => d[key as ColumnKey],
+    widths: colWidthsApi,
+    extra: key => (PERSON_BADGE_FIELDS.has(key) ? 30 : TEAM_BADGE_FIELDS.has(key as ColumnKey) ? 20 : STATUS_LIKE_FIELDS.has(key as ColumnKey) ? 22 : key === 'id' ? 30 : 0),
+    leadingWidth: selection ? 36 : 0,
+  });
+  const colWidth = fit.colWidth;
 
   if (selectedDefectId) {
     // DefectDetailScreen has no fixed positioning of its own — in
@@ -323,6 +349,12 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
         >
           ⚙ בחירת עמודות
         </button>
+        {manualCount > 0 && (
+          <button onClick={resetColWidths} title="בטל רוחבים שנקבעו ידנית והתאם את כל העמודות אוטומטית לרוחב המסך"
+            className="cursor-pointer rounded-md border border-border bg-muted px-3.5 py-1.5 font-sans text-xs font-semibold text-muted-foreground">
+            ↔ התאם רוחב
+          </button>
+        )}
         {selection && (
           <>
             <button onClick={onClose} className="cursor-pointer rounded-md border border-border bg-transparent px-4 py-1.5 font-sans text-xs text-subtle-foreground">
@@ -343,7 +375,11 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
           background (bg-background on the outer shell) — Jira's "card & panel
           surfaces" convention (feedback 2026-09-10), matching how the
           TARGET-defect list and OpenProdDefectsView already present theirs. */}
-      <div className="flex-1 overflow-auto p-5">
+      {/* The table card itself is the scroll area (both axes) — it used to be
+          overflow-hidden for its rounded corners, which silently CLIPPED every
+          column past the screen width (user report 2026-10-06: "לא מופיעות כל
+          העמודות שנבחרו"). Header row stays frozen while scrolling down. */}
+      <div className="flex min-h-0 flex-1 flex-col p-5">
           {loading ? (
             <div className="p-6 text-center text-sm text-subtle-foreground">טוען...</div>
           ) : error ? (
@@ -351,9 +387,9 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
           ) : !sorted || sorted.length === 0 ? (
             <div className="p-6 text-center text-sm text-subtle-foreground">אין תקלות ברשימה זו</div>
           ) : (
-            <div className="overflow-hidden rounded-lg bg-card" style={{ border: `1px solid ${JIRA.greyN40}` }}>
-              <table className="w-full border-collapse text-[13px]" style={{ tableLayout: 'auto', color: JIRA.text }}>
-                <thead>
+            <div ref={fit.boxRef} className="min-h-0 flex-1 overflow-auto rounded-lg bg-card" style={{ border: `1px solid ${JIRA.greyN40}` }}>
+              <table className="border-collapse text-[13px]" style={{ ...fit.tableStyle, color: JIRA.text }}>
+                <thead className="sticky top-0 z-[3] bg-card" style={{ boxShadow: `0 1px 0 ${JIRA.greyN40}` }}>
                   <tr>
                     {selection && (() => {
                       // Select-all acts on the rows currently shown (after column filters).
@@ -376,19 +412,19 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
                       <th
                         key={c.key}
                         onClick={() => toggleSort(c.key)}
-                        className="relative cursor-pointer select-none overflow-hidden text-ellipsis whitespace-nowrap px-2.5 py-2 text-end text-[11px] font-bold tracking-wide"
+                        className="relative cursor-pointer select-none px-2.5 py-2 text-end text-[11px] font-bold tracking-wide whitespace-normal break-words align-bottom leading-tight"
                         style={{
                           color: JIRA.textSubtle,
                           borderBottom: `2px solid ${JIRA.greyN40}`,
-                          width: c.key === 'title' ? undefined : getColWidth(c.key), minWidth: c.key === 'title' ? '300px' : undefined,
+                          width: colWidth(c.key),
                         }}
                       >
                         {c.label}{sort?.key === c.key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
-                        {c.key !== 'title' && <ColumnResizeHandle onMouseDown={e => startResize(c.key, e)} />}
+                        <ColumnResizeHandle onMouseDown={e => startResize(c.key, e, colWidth(c.key))} />
                       </th>
                     ))}
                   </tr>
-                  <ColumnFilterRow columns={visibleColumns} getWidth={getColWidth} filters={filters} leadingCell={!!selection} />
+                  <ColumnFilterRow columns={visibleColumns} getWidth={colWidth} filters={filters} leadingCell={!!selection} />
                 </thead>
                 <tbody>
                   {sorted.map(d => (
@@ -417,25 +453,28 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
                         const isTitle = c.key === 'title';
                         const raw = String(d[c.key] ?? '');
                         const rtl = isBadge || isCentered ? false : hasHebrew(raw);
+                        // Long free text wraps (up to 3 lines, full text on hover);
+                        // short columns stay one compact line (auto-fit sizes them to fit).
+                        const wraps = fit.wraps(c.key);
                         return (
                           <td
                             key={c.key}
-                            title={isTitle ? raw : undefined}
+                            title={wraps || isTitle ? raw : undefined}
                             className={isTitle ? 'font-semibold' : 'font-normal'}
                             style={{
                               padding: '8px 10px', borderBottom: `1px solid ${JIRA.greyN40}`,
-                              width: isTitle ? undefined : getColWidth(c.key), minWidth: isTitle ? '300px' : undefined,
-                              // Title wraps (2-line clamp + native tooltip for the rest);
-                              // every other column stays a single compact line.
-                              ...(isTitle
-                                ? { whiteSpace: 'normal', wordBreak: 'break-word', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.4 }
-                                : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
+                              width: colWidth(c.key), verticalAlign: 'top', lineHeight: 1.45,
+                              ...(wraps ? {} : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
                               color: isBadge || c.key === 'severity' || c.key === 'id' || c.key === 'priority' ? undefined : JIRA.text,
                               direction: isCentered ? undefined : (rtl ? 'rtl' : 'ltr'),
                               textAlign: isCentered ? 'center' : (rtl ? 'right' : 'left'),
                             }}
                           >
-                            {renderCellValue(c.key, d[c.key])}
+                            {wraps ? (
+                              <div style={WRAP_CLAMP_STYLE}>
+                                {renderCellValue(c.key, d[c.key])}
+                              </div>
+                            ) : renderCellValue(c.key, d[c.key])}
                           </td>
                         );
                       })}
@@ -450,14 +489,14 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
       <div className="flex-shrink-0 border-t border-border px-5 py-3 text-start text-xs text-subtle-foreground">
         {paged ? (
           <div className="flex flex-wrap items-center gap-3">
-            <form onSubmit={e => { e.preventDefault(); setPage(1); setSearch(searchInput.trim()); }} className="flex items-center gap-1.5">
+            {!idList && <form onSubmit={e => { e.preventDefault(); setPage(1); setSearch(searchInput.trim()); }} className="flex items-center gap-1.5">
               <input value={searchInput} onChange={e => setSearchInput(e.target.value)} placeholder="חיפוש: מספר תקלה או טקסט בכותרת"
                 className="w-[240px] rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground" />
               <button type="submit" className="cursor-pointer rounded-md border border-border bg-card px-2 py-1 text-xs">🔍 חפש</button>
               {search && <button type="button" onClick={() => { setSearchInput(''); setSearch(''); setPage(1); }} className="cursor-pointer border-none bg-transparent text-xs text-primary">נקה</button>}
-            </form>
+            </form>}
             <span>
-              {total === 0 ? '0 תקלות' : `מציג ${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, total)} מתוך ${total.toLocaleString()} תקלות · מהחדשה לישנה`}
+              {total === 0 ? '0 תקלות' : `מציג ${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, total)} מתוך ${total.toLocaleString()} תקלות${idList ? '' : ' · מהחדשה לישנה'}`}
             </span>
             <div className="flex items-center gap-1">
               <button type="button" disabled={page <= 1 || loading} onClick={() => setPage(p => p - 1)}

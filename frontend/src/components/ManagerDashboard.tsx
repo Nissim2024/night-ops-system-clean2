@@ -1006,7 +1006,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           )}
 
           {activeModule === 'defects' && (
-            <DefectsHubView token={token} />
+            <DefectsHubView token={token} role={payload.role} />
           )}
 
           {/* ── Module: בית — decoupled from Deployments (2026-09-25); no

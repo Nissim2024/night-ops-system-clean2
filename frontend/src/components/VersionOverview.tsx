@@ -13,6 +13,7 @@ import {
 // read-only, drifting copy.
 import { DefectDetailScreen } from './quality-hub/OpenProdDefectsView';
 import { formatDateTime } from '../utils/dateFormat';
+import { useAutoFitTable, WRAP_CLAMP_STYLE } from './shared/useAutoFitTable';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -339,7 +340,8 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
   const toggleTargetDefectSort = (key: keyof TargetDefect) => {
     setTargetDefectSort(prev => prev?.key === key ? (prev.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' });
   };
-  const { getWidth: getTargetColWidth, startResize: startTargetColResize } = useColumnWidths('deploycenter_target_defect_column_widths');
+  const targetWidthsApi = useColumnWidths('deploycenter_target_defect_column_widths');
+  const { startResize: startTargetColResize, manualCount: targetManualCount, resetAll: resetTargetWidths } = targetWidthsApi;
   const targetFilters = useColumnFilters(targetSummary?.defects as any, targetDefectColumns);
 
   const sortedTargetDefects = React.useMemo(() => {
@@ -352,6 +354,15 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
       return dir === 'asc' ? cmp : -cmp;
     });
   }, [targetSummary, targetDefectSort, targetFilters.matches]);
+
+  // Auto-fit to the card (2026-10-06) — same as every other defect table.
+  const targetFit = useAutoFitTable({
+    rows: targetSummary ? sortedTargetDefects : null,
+    columns: targetDefectColumns.map(key => ({ key, label: TARGET_DEFECT_COLUMNS.find(c => c.key === key)?.label ?? key })),
+    getValue: (d, key) => d[key as keyof TargetDefect],
+    widths: targetWidthsApi,
+    extra: key => (PERSON_BADGE_FIELDS.has(key) ? 30 : TEAM_BADGE_FIELDS.has(key as keyof TargetDefect) ? 20 : TARGET_STATUS_LIKE_FIELDS.has(key as keyof TargetDefect) ? 22 : key === 'id' ? 30 : 0),
+  });
 
   useEffect(() => {
     setScreenStack([{ type: 'overview' }]);
@@ -540,6 +551,10 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
               >
                 ⚙ בחירת עמודות
               </button>
+              {targetManualCount > 0 && (
+                <button onClick={resetTargetWidths} title="בטל רוחבים שנקבעו ידנית והתאם אוטומטית"
+                  className="cursor-pointer border-none bg-transparent text-xs font-semibold text-primary">↔ התאם רוחב</button>
+              )}
             </div>
             {!targetSummary ? (
               <div className="p-8 text-center text-subtle-foreground">טוען...</div>
@@ -552,8 +567,8 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
               // overflow-hidden would silently clip every column past the viewport with
               // no way to reach it (caught live-testing 2026-09-18 — the default TARGET
               // column set is 21 columns, ~3050px wide).
-              <div className="overflow-x-auto rounded-lg bg-card" style={{ border: `1px solid ${JIRA.greyN40}` }}>
-                <table className="w-full border-collapse text-[13px]" style={{ tableLayout: 'auto', color: JIRA.text }} dir="rtl">
+              <div ref={targetFit.boxRef} className="overflow-x-auto rounded-lg bg-card" style={{ border: `1px solid ${JIRA.greyN40}` }}>
+                <table className="border-collapse text-[13px]" style={{ ...targetFit.tableStyle, color: JIRA.text }} dir="rtl">
                   <thead>
                     <tr>
                       {targetDefectColumns.map(key => {
@@ -562,22 +577,22 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
                           <th
                             key={key}
                             onClick={() => toggleTargetDefectSort(key)}
-                            className="relative cursor-pointer select-none overflow-hidden text-ellipsis whitespace-nowrap px-2.5 py-2 text-end text-[11px] font-bold tracking-wide"
+                            className="relative cursor-pointer select-none px-2.5 py-2 text-end text-[11px] font-bold tracking-wide whitespace-normal break-words align-bottom leading-tight"
                             style={{
                               color: JIRA.textSubtle, borderBottom: `2px solid ${JIRA.greyN40}`,
-                              width: isTitle ? undefined : getTargetColWidth(key), minWidth: isTitle ? '300px' : undefined,
+                              width: targetFit.colWidth(key),
                             }}
                           >
                             {TARGET_DEFECT_COLUMNS.find(c => c.key === key)?.label ?? key}
                             {targetDefectSort?.key === key ? (targetDefectSort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
-                            {!isTitle && <ColumnResizeHandle onMouseDown={e => startTargetColResize(key, e)} />}
+                            <ColumnResizeHandle onMouseDown={e => startTargetColResize(key, e, targetFit.colWidth(key))} />
                           </th>
                         );
                       })}
                     </tr>
                     <ColumnFilterRow
                       columns={targetDefectColumns.map(key => ({ key, label: TARGET_DEFECT_COLUMNS.find(c => c.key === key)?.label ?? key }))}
-                      getWidth={getTargetColWidth}
+                      getWidth={targetFit.colWidth}
                       filters={targetFilters}
                     />
                   </thead>
@@ -597,23 +612,24 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
                           const isTitle = key === 'summary';
                           const raw = String(d[key] ?? '');
                           const rtl = isBadge || isCentered ? false : hasHebrew(raw);
+                          const wraps = targetFit.wraps(key);
                           return (
                             <td
                               key={key}
-                              title={isTitle ? raw : undefined}
+                              title={wraps || isTitle ? raw : undefined}
                               className={isTitle ? 'font-semibold' : 'font-normal'}
                               style={{
                                 padding: '8px 10px', borderBottom: `1px solid ${JIRA.greyN40}`,
-                                width: isTitle ? undefined : getTargetColWidth(key), minWidth: isTitle ? '300px' : undefined,
-                                ...(isTitle
-                                  ? { whiteSpace: 'normal', wordBreak: 'break-word', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.4 }
-                                  : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
+                                width: targetFit.colWidth(key), verticalAlign: 'top', lineHeight: 1.45,
+                                ...(wraps ? {} : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
                                 color: isBadge || key === 'severity' || key === 'id' || key === 'priority' ? undefined : JIRA.text,
                                 direction: isCentered ? undefined : (rtl ? 'rtl' : 'ltr'),
                                 textAlign: isCentered ? 'center' : (rtl ? 'right' : 'left'),
                               }}
                             >
-                              {renderTargetDefectValue(key, d[key], targetSummary.qcUserNames)}
+                              {wraps
+                                ? <div style={WRAP_CLAMP_STYLE}>{renderTargetDefectValue(key, d[key], targetSummary.qcUserNames)}</div>
+                                : renderTargetDefectValue(key, d[key], targetSummary.qcUserNames)}
                             </td>
                           );
                         })}

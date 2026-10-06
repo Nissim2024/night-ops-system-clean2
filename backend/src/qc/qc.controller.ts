@@ -114,6 +114,47 @@ export class QcController {
   }
 
 
+  // Investigation dashboard (2026-10-06): one compact, role-scoped dataset;
+  // the browser computes every chart. ?refresh=1 bypasses the 10-min cache.
+  @ModuleAccess('module:defects')
+  @Get('defects-analytics')
+  getDefectsAnalytics(@Request() req: any, @Query('refresh') refresh?: string) {
+    return this.qcService.getDefectsAnalytics(req.user, refresh === '1');
+  }
+
+  // Drill-down page: full rows for the ids the dashboard matched (scope-checked).
+  @ModuleAccess('module:defects')
+  @Post('defects-by-ids')
+  getDefectsByIds(@Request() req: any, @Body('ids') ids: string[]) {
+    return this.qcService.getDefectsByIdsScoped(req.user, Array.isArray(ids) ? ids : []);
+  }
+
+  @ModuleAccess('module:defects')
+  @Get('defects-analytics/sla-config')
+  getDefectSlaConfig() {
+    return this.qcService.getDefectSlaConfig();
+  }
+
+  @ModuleAccess('module:defects')
+  @Put('defects-analytics/sla-config')
+  setDefectSlaConfig(@Request() req: any, @Body() body: any) {
+    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול להגדיר SLA');
+    return this.qcService.setDefectSlaConfig(body ?? {});
+  }
+
+  // Per-user pinned charts ("הדאשבורד שלי").
+  @ModuleAccess('module:defects')
+  @Get('defects-analytics/layout')
+  getDefectsLayout(@Request() req: any) {
+    return this.qcService.getUserPreference(req.user.sub, 'defects-dashboard-layout');
+  }
+
+  @ModuleAccess('module:defects')
+  @Put('defects-analytics/layout')
+  setDefectsLayout(@Request() req: any, @Body('layout') layout: any) {
+    return this.qcService.setUserPreference(req.user.sub, 'defects-dashboard-layout', layout);
+  }
+
   @ModuleAccess('module:defects')
 
   @Get('all-defects-filtered')
