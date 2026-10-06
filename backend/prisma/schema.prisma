@@ -262,6 +262,7 @@ model Version {
   dailyActionItems     DailyActionItem[]
   dailyQaSnapshots     DailyQaSnapshot[]
   releaseInsights      ReleaseInsight[]
+  releaseInsightHides   ReleaseInsightHide[]
   releaseHealth        ReleaseHealth?
   releaseForecast      ReleaseForecast?
   goNoGoDecision       GoNoGoDecision?
@@ -1301,8 +1302,30 @@ model ReleaseInsight {
   source         String   @default("AUTO") // AUTO | MANUAL
   createdBy      String? // manual messages only
   createdAt      DateTime @default(now())
+  // תובנות גרסה (2026-10-06) — manual findings: CRITICAL | WARNING | INFO | POSITIVE,
+  // plus an optional link to an entity (cr / defect / risks / kpi / a testing screen)
+  level          String?
+  linkType       String?
+  linkValue      String?
 
   version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
+}
+
+// A finding hidden ("deleted") for one version only, with a reason. Keyed by
+// the finding's stable key (auto rule key, or MANUAL:<id>). An auto finding
+// comes back by itself when its level is worse than levelAtHide.
+model ReleaseInsightHide {
+  id          String   @id @default(uuid())
+  versionId   String
+  insightKey  String
+  reason      String
+  hiddenBy    String?
+  levelAtHide String
+  hiddenAt    DateTime @default(now())
+
+  version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, insightKey])
 }
 
 model ReleaseHealth {

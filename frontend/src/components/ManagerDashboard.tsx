@@ -50,6 +50,7 @@ import { QaSkillsView } from './qa/QaSkillsView';
 import { QaTestersView } from './qa/QaTestersView';
 import QaAssignmentView from './qa/QaAssignmentView';
 import QcBugDashboardView from './release-intelligence/QcBugDashboardView';
+import { ReleaseInsightsView } from './release-intelligence/ReleaseInsightsView';
 import QaWorkPlanView from './qa/QaWorkPlanView';
 import { FEATURES } from '../featureFlags';
 import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
@@ -956,6 +957,14 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'go-no-go' && (
             <GoNoGoView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
+          )}
+          {activeModule === 'release-intelligence' && activeRiView === 'insights' && (
+            <ReleaseInsightsView token={token} versionId={selectedVersionId || undefined} versionName={selectedVersion?.name}
+              onNavigate={(module, view) => {
+                setActiveModule(module as any);
+                if (module === 'release-intelligence') setActiveRiView(view);
+                else if (module === 'quality-hub') setActiveQhView(view);
+              }} />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'incidents' && (
             <IncidentsView token={token} versionId={selectedVersionId || undefined} role={payload.role} />

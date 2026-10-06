@@ -254,7 +254,7 @@ export class ReleaseIntelligenceService {
   // left out (see isProductionEnvironment). The one exception is the Home
   // page's own "production defects since go-live" line (drill-down 'home' /
   // 'productionDefects'), which reads qcService.getDefects directly.
-  private async getTestingDefects(versionId: string): Promise<DefectDto[]> {
+  async getTestingDefects(versionId: string): Promise<DefectDto[]> {
     return (await this.qcService.getDefects(versionId)).filter(d => !isProductionEnvironment(d.environment));
   }
   private async getTestingDefectsByRelId(relId: number): Promise<DefectDto[]> {

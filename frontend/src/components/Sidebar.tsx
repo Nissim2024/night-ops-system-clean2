@@ -78,6 +78,7 @@ export const RI_VIEWS = [
   { key: 'bug-dashboard', label: 'לוח באגים (QC)', icon: '🐞' },
   { key: 'timeline-activities', label: 'ציר זמן ופעילויות', icon: '🗓️' },
   { key: 'incidents', label: 'תקלות ו-RCA', icon: '🧯' },
+  { key: 'insights', label: 'תובנות גרסה', icon: '🧭' },
 ];
 
 export const QH_VIEWS = [

@@ -5,7 +5,9 @@
 // historical names (screen:*, action:*) where they existed, so stored grants
 // and the backend checks that already use them keep working.
 
-export interface CatalogItem { key: string; label: string; kind: 'screen' | 'action' }
+// explicit: granted only by name — a module-wide grant (module:x) does NOT include
+// it, so the page can be kept for a few people (תובנות גרסה, 2026-10-06)
+export interface CatalogItem { key: string; label: string; kind: 'screen' | 'action'; explicit?: boolean }
 export interface CatalogModule { id: string; key: string; label: string; icon: string; items: CatalogItem[] }
 
 const s = (key: string, label: string): CatalogItem => ({ key, label, kind: 'screen' });
@@ -49,6 +51,7 @@ export const PERMISSION_CATALOG: CatalogModule[] = [
       s('ri:home', 'דף הבית'), s('ri:risks', 'ניהול סיכונים'), s('ri:suggested-risks', 'הצעות סיכונים (AI)'),
       s('ri:daily-qa', 'ניהול QA יומי'), s('ri:coverage-readiness', 'כיסוי ומוכנות'), s('ri:bug-dashboard', 'לוח באגים (QC)'),
       s('ri:timeline-activities', 'ציר זמן ופעילויות'), s('ri:incidents', 'תקלות ו-RCA'),
+      { key: 'ri:insights', label: 'תובנות גרסה (סיכום הגרסה)', kind: 'screen', explicit: true },
     ],
   },
   {
@@ -110,7 +113,7 @@ export function expandGrants(keys: string[]): string[] {
   for (const k of normalizeGrants(keys)) {
     out.add(k);
     const mod = PERMISSION_CATALOG.find(m => m.key === k);
-    if (mod) mod.items.forEach(i => out.add(i.key));
+    if (mod) mod.items.filter(i => !i.explicit).forEach(i => out.add(i.key));
     const parent = MODULE_OF.get(k);
     if (parent && KIND_OF.get(k) === 'screen') out.add(`partial:${parent}`);
   }

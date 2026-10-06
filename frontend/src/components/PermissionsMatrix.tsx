@@ -11,7 +11,7 @@ const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${win
 // leads / members) - a user gets their role's grants plus every team's they
 // belong to. One save for everything changed.
 
-interface CatalogItem { key: string; label: string; kind: 'screen' | 'action' }
+interface CatalogItem { key: string; label: string; kind: 'screen' | 'action'; explicit?: boolean }
 interface CatalogModule { id: string; key: string; label: string; icon: string; items: CatalogItem[] }
 interface TeamGrant { ALL: string[]; LEAD: string[]; MEMBER: string[] }
 type Grants = Record<string, string[]>;   // column id -> granted keys
@@ -81,23 +81,29 @@ export const PermissionsMatrix: React.FC<{ token: string }> = ({ token }) => {
 
   const moduleState = (m: CatalogModule, col: string): State => {
     const g = grantsOf(col);
+    // explicit-only components (e.g. תובנות גרסה) aren't part of a module-wide grant
+    const regular = m.items.filter(i => !i.explicit);
     if (g.includes(m.key)) return 'all';
-    const n = m.items.filter(i => g.includes(i.key)).length;
-    return n === 0 ? 'none' : n === m.items.length ? 'all' : 'some';
+    const n = regular.filter(i => g.includes(i.key)).length;
+    return n === 0 ? 'none' : n === regular.length ? 'all' : 'some';
   };
   const itemOn = (m: CatalogModule, i: CatalogItem, col: string) => {
     const g = grantsOf(col);
-    return g.includes(m.key) || g.includes(i.key);
+    return i.explicit ? g.includes(i.key) : (g.includes(m.key) || g.includes(i.key));
   };
   const toggleModule = (m: CatalogModule, col: string) => {
-    const g = grantsOf(col).filter(k => k !== m.key && !m.items.some(i => i.key === k));
+    const g = grantsOf(col).filter(k => k !== m.key && !m.items.some(i => i.key === k && !i.explicit));
     setGrantsOf(col, moduleState(m, col) === 'all' ? g : [...g, m.key]);
   };
   const toggleItem = (m: CatalogModule, i: CatalogItem, col: string) => {
     const g = grantsOf(col);
+    if (i.explicit) {
+      setGrantsOf(col, g.includes(i.key) ? g.filter(k => k !== i.key) : [...g, i.key]);
+      return;
+    }
     if (g.includes(m.key)) {
       // whole module -> every component except this one
-      setGrantsOf(col, [...g.filter(k => k !== m.key), ...m.items.filter(x => x.key !== i.key).map(x => x.key)]);
+      setGrantsOf(col, [...g.filter(k => k !== m.key), ...m.items.filter(x => x.key !== i.key && !x.explicit).map(x => x.key)]);
     } else if (g.includes(i.key)) {
       setGrantsOf(col, g.filter(k => k !== i.key));
     } else {
@@ -189,6 +195,7 @@ export const PermissionsMatrix: React.FC<{ token: string }> = ({ token }) => {
                       <td className={`${td} text-right text-sm text-foreground`} style={{ paddingRight: 40 }}>
                         {i.label}
                         <span className="mr-2 text-[11px] text-subtle-foreground">{i.kind === 'screen' ? 'מסך' : 'פעולה'}</span>
+                        {i.explicit && <span className="mr-2 text-[11px] font-semibold text-warning" title="לא נכלל בהרשאה לכל המודול — יש לסמן במפורש">🔒 הרשאה נפרדת</span>}
                       </td>
                       {columns.map(c => (
                         <td key={c.id} className={td}>

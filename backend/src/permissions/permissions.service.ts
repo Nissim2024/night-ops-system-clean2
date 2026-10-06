@@ -9,6 +9,8 @@ const prisma = new PrismaClient({
 // Kept for existing importers: every grantable key (module + component).
 export const ALL_PERMISSIONS = ALL_CATALOG_KEYS;
 
+const EXPLICIT_KEYS = PERMISSION_CATALOG.flatMap(m => m.items.filter(i => i.explicit).map(i => i.key));
+
 const screens = (id: string) => PERMISSION_CATALOG.find(m => m.id === id)!.items.filter(i => i.kind === 'screen').map(i => i.key);
 
 // Defaults for a fresh install, in catalog keys (same reach as the old
@@ -131,7 +133,8 @@ export class PermissionsService {
   // A user's effective keys, expanded (module key -> all its components,
   // plus `partial:module:x` whenever any part of module x is granted).
   async getEffective(user: { sub: string; role: string }): Promise<string[]> {
-    if (user.role === 'ADMIN') return expandGrants(MODULE_KEYS);
+    // ADMIN: every module + the explicit-only components a module grant leaves out
+    if (user.role === 'ADMIN') return expandGrants([...MODULE_KEYS, ...EXPLICIT_KEYS]);
     const cacheKey = `${user.sub}|${user.role}`;
     const hit = effectiveCache.get(cacheKey);
     if (hit && Date.now() - hit.at < EFFECTIVE_TTL_MS) return hit.keys;
