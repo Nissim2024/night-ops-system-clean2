@@ -1,0 +1,6 @@
+# Scripts and configs that run on the Linux server / inside containers must
+# keep LF line endings even on a Windows checkout (core.autocrlf=true here).
+*.sh text eol=lf
+*.yml text eol=lf
+*.conf text eol=lf
+Dockerfile text eol=lf
