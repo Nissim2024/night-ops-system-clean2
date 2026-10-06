@@ -266,7 +266,7 @@ export const KpiDetailView: React.FC<Props> = ({ token, role, kpiName, releaseNa
   };
 
   // Arrived here via a direct click on the matrix row's Total-Defects/
-  // severity cell (KpiMatrixView) — skip the intermediate "🪲 צפה בתקלות"
+  // severity cell (KpiMatrixView) — skip the intermediate "🐞 צפה בתקלות"
   // click and land straight on the expanded list, same as if the user had
   // clicked it themselves. Guarded on qcLink resolving (async) and only
   // fires once.

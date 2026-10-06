@@ -8,7 +8,7 @@ import { DefectsInvestigationDashboard } from './defects/DefectsInvestigationDas
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
-interface Props { token: string; role: string; }
+interface Props { token: string; role: string; initialRelease?: string; }
 
 // Investigation dashboard (2026-10-06): the old KPI tiles / 6 breakdown
 // panels / monthly chart were replaced by defects/DefectsInvestigationDashboard
@@ -22,7 +22,7 @@ interface Props { token: string; role: string; }
 // Defects" screen but laid out as a KPI+breakdown dashboard instead of a
 // table. Reuses CreateDefectScreen/DefectDetailScreen so create+update behave
 // identically everywhere else in the app already does.
-export const DefectsHubView: React.FC<Props> = ({ token, role }) => {
+export const DefectsHubView: React.FC<Props> = ({ token, role, initialRelease }) => {
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const [qcMock, setQcMock] = useState(true);
   // versionId omitted → DefectDrilldownModal's cross-version / id-list modes.
@@ -79,7 +79,7 @@ export const DefectsHubView: React.FC<Props> = ({ token, role }) => {
     <div className="flex flex-col gap-4 px-7 py-5">
       <Card>
         <div className="flex flex-wrap items-center gap-2.5">
-          <span className="text-[22px]">🪲</span>
+          <span className="text-[22px]">🐞</span>
           <div className="text-lg font-bold text-foreground">מודול תקלות</div>
           <div className="text-xs text-subtle-foreground">דאשבורד ניהול ותחקור — כל התקלות, כל הגרסאות</div>
           {qcMock && (
@@ -104,6 +104,7 @@ export const DefectsHubView: React.FC<Props> = ({ token, role }) => {
         key={reloadKey}
         token={token}
         role={role}
+        initialRelease={initialRelease}
         onDrill={(title, ids) => setDrilldown({ filter: '__ids__', value: '', title, idList: ids })}
         onOpenDefect={setSelectedDefectId}
       />

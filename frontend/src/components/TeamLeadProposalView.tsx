@@ -2340,7 +2340,7 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
           return (
             <div className="mb-3 rounded-md border border-border px-[14px] py-[10px]" style={{ background: C.bgNested }}>
               <div className="flex flex-wrap items-center gap-[18px] text-xs">
-                <span className="font-semibold text-subtle-foreground">🪲 תקלות מול CR זה:</span>
+                <span className="font-semibold text-subtle-foreground">🐞 תקלות מול CR זה:</span>
                 {indLoading && !ind ? (
                   <span className="text-subtle-foreground">טוען...</span>
                 ) : ind && buckets.map(b => (

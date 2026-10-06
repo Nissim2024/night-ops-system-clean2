@@ -342,7 +342,7 @@ export const DefectDrilldownModal: React.FC<Props> = ({ token, versionId, screen
     <div dir="rtl" className="fixed inset-0 z-[1001] flex flex-col bg-background font-sans">
       <div className="flex flex-shrink-0 items-center gap-3 border-b border-border bg-card px-5 py-3">
         <BackLink onClick={onClose} />
-        <div className="flex-1 text-lg font-bold text-foreground">🪲 {title}</div>
+        <div className="flex-1 text-lg font-bold text-foreground">🐞 {title}</div>
         <button
           onClick={() => setShowColumnPicker(true)}
           className="cursor-pointer rounded-md border border-border bg-muted px-3.5 py-1.5 font-sans text-xs font-semibold text-muted-foreground"

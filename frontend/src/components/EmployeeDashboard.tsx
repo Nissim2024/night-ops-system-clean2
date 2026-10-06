@@ -56,7 +56,7 @@ const NAV_ITEMS: { key: NavView; label: string; icon: string }[] = [
   { key: 'home',    label: 'דף הבית',           icon: '🏠' },
   { key: 'tasks',   label: 'משימות הרצה',      icon: '🌙' },
   { key: 'qaTasks', label: 'המשימות שלי (QA)', icon: '🧪' },
-  { key: 'defects', label: 'תקלות שלי',        icon: '🪲' },
+  { key: 'defects', label: 'תקלות שלי',        icon: '🐞' },
   { key: 'leaves',  label: 'חופשות',            icon: '📅' },
   { key: 'skills',  label: 'מטריצת מיומנויות',  icon: '🎯' },
 ];

@@ -1161,7 +1161,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
         {(
           <div className="rounded-xl border border-border bg-card p-5">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-base text-foreground">🪲 תקלות שדווחו (QC)</h3>
+              <h3 className="text-base text-foreground">🐞 תקלות שדווחו (QC)</h3>
               {qcMock ? (
                 <span className="rounded-xl bg-warning/10 px-2.5 py-1 text-[13px] text-warning" style={{ border: `1px solid ${C.statusInProgress}44` }}>Mock — ממתין לחיבור QC</span>
               ) : (
@@ -1617,7 +1617,7 @@ export const NightSummary: React.FC<Props> = ({ token, versionId, versionName, i
             {(
               <div className="mb-5">
                 <h3 className="mb-3 ps-2.5 text-[17px]" style={{ color: '#1a2332', borderInlineStart: '4px solid #9b59b6' }}>
-                  🪲 תקלות שדווחו (QC)
+                  🐞 תקלות שדווחו (QC)
                   {qcMock && <span className="me-2 text-[13px] font-normal" style={{ color: '#e67e22' }}>נתוני Mock</span>}
                 </h3>
                 {defects.length === 0 ? (

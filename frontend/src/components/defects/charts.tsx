@@ -43,6 +43,8 @@ function useWidth(ref: React.RefObject<HTMLDivElement | null>, fallback = 600): 
 }
 
 // ── Tooltip ────────────────────────────────────────────────────────────────
+// exported for other dashboards (bug dashboard, 2026-10-06)
+export function useChartTooltip() { return useTip(); }
 function useTip() {
   const ref = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<{ x: number; y: number; text: React.ReactNode } | null>(null);

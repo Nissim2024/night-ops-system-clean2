@@ -268,7 +268,7 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
 
       <Card>
         <div className="flex items-center gap-2.5">
-          <span className="text-[22px]">🪲</span>
+          <span className="text-[22px]">🐞</span>
           <div className="text-lg font-bold text-foreground">תקלה חדשה ב-QC</div>
           <div className="text-xs text-subtle-foreground">
             טופס זה עדיין לא נבדק מול QC אמיתי — ייבדק בהעברת הגרסה הבאה לייצור

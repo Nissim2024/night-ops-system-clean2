@@ -16,7 +16,7 @@ import {
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
-// Investigation dashboard for the "🪲 תקלות" module (spec 2026-10-06 — see
+// Investigation dashboard for the "🐞 תקלות" module (spec 2026-10-06 — see
 // memory project-defects-investigation-dashboard-2026-10-06). Everything is
 // computed in the browser from one role-scoped dataset; every number drills
 // down to exactly the defects behind it (onDrill gets their ids).
@@ -37,15 +37,18 @@ interface Props {
   role: string;
   onDrill: (title: string, ids: string[]) => void;
   onOpenDefect: (id: string) => void;
+  /** Deep link from the testing bug dashboard: start filtered to this release (low environments, like that dashboard). */
+  initialRelease?: string;
 }
 
-export const DefectsInvestigationDashboard: React.FC<Props> = ({ token, role, onDrill, onOpenDefect }) => {
+export const DefectsInvestigationDashboard: React.FC<Props> = ({ token, role, onDrill, onOpenDefect, initialRelease }) => {
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const dialog = useDialog();
   const [data, setData] = useState<DefectsAnalyticsDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<Filters>(() =>
+    initialRelease ? { ...EMPTY_FILTERS, release: [initialRelease], envScope: ['low'] } : EMPTY_FILTERS);
   const [sla, setSla] = useState<DefectSlaConfig | null>(null);
   const [slaEditorOpen, setSlaEditorOpen] = useState(false);
   const [pinned, setPinned] = useState<ChartConfig[]>([]);

@@ -28,7 +28,7 @@ export const EmployeeDefectsView: React.FC<Props> = ({ versionName, overridden, 
   if (loading) {
     return (
       <div className="text-center p-20 text-subtle-foreground">
-        <div className="text-5xl">🪲</div>
+        <div className="text-5xl">🐞</div>
         <p className="text-[17px] mt-3">טוען...</p>
       </div>
     );
@@ -37,7 +37,7 @@ export const EmployeeDefectsView: React.FC<Props> = ({ versionName, overridden, 
   if (!summary) {
     return (
       <div className="text-center p-20 text-subtle-foreground bg-card rounded-2xl border border-border">
-        <div className="text-6xl">🪲</div>
+        <div className="text-6xl">🐞</div>
         <h2 className="text-foreground mt-4">אין מידע על תקלות כרגע</h2>
         <p>לא נמצאה גרסה פעילה עם נתוני תקלות</p>
       </div>
@@ -48,7 +48,7 @@ export const EmployeeDefectsView: React.FC<Props> = ({ versionName, overridden, 
 
   return (
     <div className="max-w-2xl">
-      <h2 className="text-lg font-bold text-foreground mb-1">🪲 תקלות{versionName ? ` — ${versionName}` : ''}</h2>
+      <h2 className="text-lg font-bold text-foreground mb-1">🐞 תקלות{versionName ? ` — ${versionName}` : ''}</h2>
       <p className="text-sm text-subtle-foreground mb-5">
         {overridden
           ? 'נתוני תקלות מוצגים עבור הגרסה שכבר עלתה לייצור (COMPLETED האחרונה) — לא הגרסה שנבחרה למעלה.'

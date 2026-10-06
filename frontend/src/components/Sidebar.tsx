@@ -74,7 +74,7 @@ export const RI_VIEWS = [
   { key: 'suggested-risks', label: 'הצעות סיכונים (AI)', icon: '💡' },
   { key: 'daily-qa', label: 'ניהול QA יומי', icon: '📋' },
   { key: 'coverage-readiness', label: 'כיסוי ומוכנות', icon: '✅' },
-  { key: 'bug-dashboard', label: 'לוח באגים (QC)', icon: '🪲' },
+  { key: 'bug-dashboard', label: 'לוח באגים (QC)', icon: '🐞' },
   { key: 'timeline-activities', label: 'ציר זמן ופעילויות', icon: '🗓️' },
   { key: 'incidents', label: 'תקלות ו-RCA', icon: '🧯' },
 ];
@@ -159,7 +159,7 @@ export const Sidebar: React.FC<Props> = ({
             { key: 'deployments' as const,         label: 'הטמעות',      icon: '🌙', active: isDeployments, show: canAccessDeployments },
             { key: 'release-intelligence' as const, label: 'ניהול בדיקות', icon: '🧠', active: isRi,        show: canAccessReleaseIntelligence },
             { key: 'quality-hub' as const,         label: 'איכות גרסה',  icon: '🏆', active: isQh,          show: canAccessQualityHub },
-            { key: 'defects' as const,             label: 'תקלות',       icon: '🪲', active: isDefects,     show: canAccessDefects },
+            { key: 'defects' as const,             label: 'תקלות',       icon: '🐞', active: isDefects,     show: canAccessDefects },
           ].filter(m => m.show).map(m => (
             <button
               key={m.key}

@@ -408,6 +408,17 @@ export interface BugDashboardDto {
   // breakdown above is computed from, so its total is never inconsistent with
   // the "open" KPI tile.
   oldestOpen: { id: string; title: string; severity: string; status: string; discoveryDate: string; ageDays: number }[];
+  // 2026-10-06 (aligned with the defects module): one row per defect for the
+  // browser-side trend/backlog (detected / closed as YYYY-MM-DD; closed only
+  // when the defect is closed NOW), every "stuck open" defect's age (same
+  // reopen-reset rule as oldestOpen) for the aging chart, and the QC release
+  // name for the "open in the defects module" link.
+  timeline?: { id: string; detected: string | null; closed: string | null }[];
+  closeDateFallback?: number;
+  agingOpen?: { id: string; ageDays: number; ageHours: number; severity: string }[];
+  /** Testing-phase fix SLA in hours per severity (TESTING_DEFECT_SLA_HOURS). */
+  testingSlaHours?: Record<string, number>;
+  releaseName?: string | null;
 }
 
 // ── SQL Queries ───────────────────────────────────────────────────────────────
@@ -1362,11 +1373,28 @@ const BUG_DASHBOARD_SQL = `
     BG_TARGET_REL   AS TARGET_REL,
     BG_DETECTION_DATE AS DETECTED_ON_DATE,
     BG_SEVERITY     AS SEVERITY,
-    NVL(BG_SUMMARY, BG_SUBJECT) AS TITLE
+    NVL(BG_SUMMARY, BG_SUBJECT) AS TITLE,
+    BG_VTS          AS MODIFIED
   FROM BUG
   WHERE BG_DETECTED_IN_REL = :releaseId
     AND UPPER(NVL(BG_USER_02, ' ')) NOT LIKE '%PROD%'
 `;
+
+// Close dates for the bug dashboard's trend (2026-10-06, aligned with the
+// defects module): the LAST change of status to Closed/Canceled, from the
+// status history, for defects detected in this release. ASCII-only, pre-12c.
+const BUG_DASHBOARD_CLOSE_DATES_SQL = `
+  SELECT audit_log.AU_ENTITY_ID AS DEFECT_ID, MAX(audit_log.AU_TIME) AS CLOSED_AT
+  FROM AUDIT_LOG audit_log
+  JOIN AUDIT_PROPERTIES audit_property ON audit_log.AU_ACTION_ID = audit_property.AP_ACTION_ID
+  JOIN BUG defect ON defect.BG_BUG_ID = audit_log.AU_ENTITY_ID
+  WHERE audit_log.AU_ENTITY_TYPE = 'BUG'
+    AND audit_property.AP_PROPERTY_NAME = 'Bug Status'
+    AND TRIM(audit_property.AP_NEW_VALUE) IN ('Closed', 'Canceled', 'Cancelled')
+    AND defect.BG_DETECTED_IN_REL = :releaseId
+  GROUP BY audit_log.AU_ENTITY_ID
+`;
+const RELEASE_NAME_SQL = `SELECT REL_NAME FROM RELEASES WHERE REL_ID = :releaseId`;
 
 // TARGET card — defects opened in a PREVIOUS release whose BG_TARGET_REL points
 // at the current one (i.e. carried into this release to be fixed/retested).
@@ -2128,6 +2156,7 @@ interface BugRawRow {
   DETECTED_ON_DATE: string | Date | null;
   SEVERITY: string | null;
   TITLE?: string | null;   // NVL(BG_SUMMARY, BG_SUBJECT) — absent from mock rows, defaults to '' (see bugRawRowToDefectDto)
+  MODIFIED?: string | Date | null;   // BG_VTS — close-date fallback for the trend
 }
 
 // BG_USER_10 (CATEGORY_REF) is overloaded in real QC: it holds either
@@ -2631,7 +2660,7 @@ function computeAllDefectsDashboard(rows: AllDefectsRawRow[]): AllDefectsDashboa
 }
 
 // ── Defects analytics dataset (investigation dashboard, 2026-10-06) ─────────
-// One compact row per defect for the "🪲 תקלות" module's investigation
+// One compact row per defect for the "🐞 תקלות" module's investigation
 // dashboard: the browser does every grouping / filter / chart itself (instant
 // "הצג לפי" switching, per-user pinned charts, heat map) and drills down by
 // sending back the exact matching ids (POST /qc/defects-by-ids), so a list
@@ -2831,8 +2860,19 @@ const DEFAULT_SLA_CONFIG: DefectSlaConfig = {
   targetDays: { 'Show Stopper': null, 'Severe': null, 'Medium': null, 'Low': null },
 };
 
+// Fix SLA for defects found during a version's testing phases (user,
+// 2026-10-06) — much stricter than production: Show Stopper within 24h,
+// Severe 2 days, Medium 3, Low 4 — or a decision not to handle it, which
+// cancels it. The clock runs from detection (or the latest reopen) and stops
+// at Fixed / Closed / Canceled or once deferred to another release (TARGET) —
+// exactly the "still stuck" set below. Calendar hours.
+export const TESTING_DEFECT_SLA_HOURS: Record<string, number> = {
+  'Show Stopper': 24, 'Severe': 48, 'Medium': 72, 'Low': 96,
+};
+
 function computeBugDashboard(
   rows: BugRawRow[], reopenedIds: Set<string>, targetRows: BugRawRow[] = [], reopenTimes: Map<string, Date> = new Map(),
+  closeTimes: Map<string, Date> = new Map(),
 ): BugDashboardDto {
   // BG_TARGET_REL set = it's been decided this defect won't be handled in the
   // current version at all (deferred to a later release) — used both to
@@ -2951,6 +2991,35 @@ function computeBugDashboard(
 
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
   const now = Date.now();
+
+  // trend/backlog rows — closed date from history, else last-modified
+  let closeDateFallback = 0;
+  const timeline = rows.map(r => {
+    const id = String(r.DEFECT_ID);
+    let closed: string | null = null;
+    if (['closed', 'canceled', 'cancelled'].includes((r.DEFECT_STATUS ?? '').trim().toLowerCase())) {
+      const fromHistory = closeTimes.get(id);
+      if (fromHistory) closed = localIsoDay(fromHistory);
+      else { closed = localIsoDay(r.MODIFIED ?? null) || localIsoDay(r.DETECTED_ON_DATE) || null; closeDateFallback++; }
+    }
+    return { id, detected: localIsoDay(r.DETECTED_ON_DATE), closed };
+  });
+
+  const stuckMs = (r: BugRawRow) => {
+    const detected = new Date(r.DETECTED_ON_DATE!);
+    const reopenedAt = reopenTimes.get(String(r.DEFECT_ID));
+    const openSince = reopenedAt && reopenedAt.getTime() > detected.getTime() ? reopenedAt : detected;
+    return Math.max(0, now - openSince.getTime());
+  };
+  const ageOfStuck = (r: BugRawRow) => Math.floor(stuckMs(r) / MS_PER_DAY);
+  const agingOpen = rows
+    .filter(isStuckOpen)
+    .filter(r => !!r.DETECTED_ON_DATE && !isNaN(new Date(r.DETECTED_ON_DATE).getTime()))
+    .map(r => ({
+      id: String(r.DEFECT_ID), ageDays: ageOfStuck(r),
+      ageHours: Math.floor(stuckMs(r) / 3600000), severity: r.SEVERITY || 'ללא סיווג',
+    }));
+
   const oldestOpen = rows
     .filter(isStuckOpen)
     .filter(r => !!r.DETECTED_ON_DATE && !isNaN(new Date(r.DETECTED_ON_DATE).getTime()))
@@ -2999,6 +3068,10 @@ function computeBugDashboard(
     // "קריטי" = Show Stopper only (user-confirmed 2026-09-09)
     criticalByCr:         groupCount(open.filter(r => (r.SEVERITY ?? '') === 'Show Stopper'), r => r.CR_REFERENCE_NUMBER),
     oldestOpen,
+    timeline,
+    closeDateFallback,
+    agingOpen,
+    testingSlaHours: TESTING_DEFECT_SLA_HOURS,
   };
 }
 
@@ -4481,12 +4554,27 @@ export class QcService {
         this.getReopenedDefectIds(relId),
         this.getLatestReopenTimes(relId),
       ]);
-      return computeBugDashboard(
-        (result.rows ?? []) as BugRawRow[],
-        reopenedIds,
-        (targetResult.rows ?? []) as BugRawRow[],
-        reopenTimes,
-      );
+      // Best-effort extras: the dashboard still loads if either fails.
+      const closeTimes = new Map<string, Date>();
+      try {
+        const cr = await conn.execute(BUG_DASHBOARD_CLOSE_DATES_SQL, { releaseId: relId });
+        for (const r of (cr.rows ?? []) as any[]) if (r.CLOSED_AT) closeTimes.set(String(r.DEFECT_ID), new Date(r.CLOSED_AT));
+      } catch (err: any) { this.logger.warn(`Oracle bug-dashboard close dates failed, using BG_VTS: ${err.message}`); }
+      let releaseName: string | null = null;
+      try {
+        const rn = await conn.execute(RELEASE_NAME_SQL, { releaseId: relId });
+        releaseName = ((rn.rows ?? [])[0] as any)?.REL_NAME ?? null;
+      } catch { /* name is only for the deep link */ }
+      return {
+        ...computeBugDashboard(
+          (result.rows ?? []) as BugRawRow[],
+          reopenedIds,
+          (targetResult.rows ?? []) as BugRawRow[],
+          reopenTimes,
+          closeTimes,
+        ),
+        releaseName,
+      };
     } catch (err: any) {
       this.logger.error(`Oracle getBugDashboardByRelId: ${err.message}`);
       throw err;

@@ -65,7 +65,7 @@ const TABS: { key: HistoryTab; label: string }[] = [
   { key: 'overview', label: '🏠 סקירה' },
   { key: 'cycle-progress', label: '📊 התקדמות סבבים' },
   { key: 'defects-breakdown', label: '🐞 פירוט תקלות' },
-  { key: 'bug-dashboard', label: '🪲 לוח באגים' },
+  { key: 'bug-dashboard', label: '🐞 לוח באגים' },
   { key: 'reopen', label: '♻️ ניתוח Reopen' },
   { key: 'defects', label: '📋 רשימת תקלות' },
 ];
@@ -240,7 +240,7 @@ const ReleaseOverview: React.FC<{
             </div>
           )}
           <div className="flex gap-2 flex-wrap mt-4">
-            <button onClick={() => onGoTab('bug-dashboard')} className="rounded-md border border-border bg-transparent px-2.5 py-1 text-[12px] text-foreground cursor-pointer">🪲 לוח באגים</button>
+            <button onClick={() => onGoTab('bug-dashboard')} className="rounded-md border border-border bg-transparent px-2.5 py-1 text-[12px] text-foreground cursor-pointer">🐞 לוח באגים</button>
             <button onClick={() => onGoTab('reopen')} className="rounded-md border border-border bg-transparent px-2.5 py-1 text-[12px] text-foreground cursor-pointer">♻️ Reopen</button>
             <button onClick={() => onGoTab('defects')} className="rounded-md border border-border bg-transparent px-2.5 py-1 text-[12px] text-foreground cursor-pointer">📋 כל התקלות</button>
           </div>

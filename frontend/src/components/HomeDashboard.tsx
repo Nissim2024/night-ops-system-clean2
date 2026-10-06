@@ -1410,7 +1410,7 @@ export const HomeDashboard: React.FC<Props> = ({
                 screen:defects (not a view into the module itself). */}
             {homeDefects && (
               <KpiTile
-                icon="🪲" accent={C.danger} moduleLabel="תקלות"
+                icon="🐞" accent={C.danger} moduleLabel="תקלות"
                 value={String(homeDefects.total)}
                 label="סה״כ תקלות בגרסה"
                 sub="בכל הצוותים"
@@ -1426,7 +1426,7 @@ export const HomeDashboard: React.FC<Props> = ({
                 stays 0 with nothing meaningful to show). */}
             {canAccessDefects && homeDefects && homeDefects.scopeKind !== 'all' && homeDefects.scopedTotal > 0 && (
               <KpiTile
-                icon="🪲" accent={C.danger} moduleLabel="תקלות"
+                icon="🐞" accent={C.danger} moduleLabel="תקלות"
                 value={String(homeDefects.scopedTotal)}
                 label={homeDefects.scopeKind === 'team' ? 'תקלות הצוות שלי' : 'התקלות שלי'}
                 sub={homeDefects.scopedOpen > 0 ? `${homeDefects.scopedOpen} פתוחות` : 'הכל סגור'}

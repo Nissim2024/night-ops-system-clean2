@@ -173,7 +173,7 @@ export const UnifiedGoLivePlanView: React.FC<Props> = ({ token, versionId, versi
       {/* ── Per-CR defect indicators — counted across all teams (spec 2026-08-29) ── */}
       {entries.length > 0 && (
         <div className="mb-8 flex flex-col gap-2">
-          <div className="text-sm font-semibold text-subtle-foreground">🪲 תקלות מול כל CR — כלל הצוותים</div>
+          <div className="text-sm font-semibold text-subtle-foreground">🐞 תקלות מול כל CR — כלל הצוותים</div>
           {entries.map(e => {
             const ind = crDefects[e.crNumber];
             const indLoading = crDefectsLoading[e.crNumber];

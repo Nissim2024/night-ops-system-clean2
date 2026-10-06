@@ -88,6 +88,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
   const [myTasksMode, setMyTasksMode]           = useState(false);
   const [versions, setVersions]                 = useState<any[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState('');
+  // "פתח במודול תקלות" from the testing bug dashboard (2026-10-06); `n` remounts the hub on each click
+  const [defectsDeepLink, setDefectsDeepLink] = useState<{ release: string; n: number } | null>(null);
   const [onlineUsers, setOnlineUsers]           = useState<any[]>([]);
 
   const [endNightLoading, setEndNightLoading]       = useState(false);
@@ -945,7 +947,9 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
             />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'bug-dashboard' && (
-            <QcBugDashboardView token={token} initialVersionId={selectedVersionId || undefined} />
+            <QcBugDashboardView token={token} initialVersionId={selectedVersionId || undefined}
+              versionName={versions.find((x: any) => x.id === selectedVersionId)?.name}
+              onOpenInDefects={release => { setDefectsDeepLink({ release, n: Date.now() }); setActiveModule('defects'); }} />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'reopen-analysis' && (
             <ReopenAnalysisView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
@@ -1006,7 +1010,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           )}
 
           {activeModule === 'defects' && (
-            <DefectsHubView token={token} role={payload.role} />
+            <DefectsHubView key={defectsDeepLink?.n ?? 0} token={token} role={payload.role} initialRelease={defectsDeepLink?.release} />
           )}
 
           {/* ── Module: בית — decoupled from Deployments (2026-09-25); no

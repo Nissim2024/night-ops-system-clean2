@@ -2627,7 +2627,7 @@ export class ReleaseIntelligenceService {
     // DIFFERENT column and, in dev, from a disjoint mock set — so pull the
     // Bug Dashboard's own row set here, exactly what the KPI numbers were
     // computed from (spec 2026-09-07).
-    if (['responsibility', 'cr', 'status', 'production', 'regression', 'day', 'moved-to-next'].includes(filter)) {
+    if (['responsibility', 'cr', 'status', 'production', 'regression', 'day', 'moved-to-next', 'ids'].includes(filter)) {
       const bdDefects = await src.bdDefects().catch((): DefectDto[] => []);
       const bdOpenRows = bdDefects.filter(d => !['Closed', 'Canceled'].includes(d.status));
       if (filter === 'responsibility' && value) return bdOpenRows.filter(d => (d.responsibility || 'ללא סיווג') === value);
@@ -2642,6 +2642,12 @@ export class ReleaseIntelligenceService {
       // "דיווח יומי" chart — every defect REPORTED on that calendar day
       // (matches the chart's own per-day tally, which counts all rows).
       if (filter === 'day' && value) return bdDefects.filter(d => (d.discoveryDate || '').slice(0, 10) === value);
+      // aging buckets / trend points / backlog (2026-10-06): the dashboard
+      // sends the exact ids behind the number, from its own row set.
+      if (filter === 'ids' && value) {
+        const want = new Set(value.split(',').map(x => x.trim()).filter(Boolean));
+        return bdDefects.filter(d => want.has(String(d.id)));
+      }
       return [];
     }
     // TARGET card — defects detected in an earlier release, targeted at this one.

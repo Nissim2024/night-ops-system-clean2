@@ -88,7 +88,7 @@ export const KpiMatrixView: React.FC<Props> = ({ token, role, initialRelease, on
   const [detailKpi, setDetailKpi] = useState<string | null>(null);
   // Clicking the Total-Defects/severity cells specifically (not the rest of
   // the row) should land straight on the expanded defect list, not just the
-  // KPI detail screen with a "🪲 צפה בתקלות" button still to click (user
+  // KPI detail screen with a "🐞 צפה בתקלות" button still to click (user
   // feedback 2026-09-18: "אני רוצה ממש דריל משורת הסיכום העליונה").
   const [autoOpenDrilldown, setAutoOpenDrilldown] = useState(false);
 

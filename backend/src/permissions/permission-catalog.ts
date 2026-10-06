@@ -61,7 +61,7 @@ export const PERMISSION_CATALOG: CatalogModule[] = [
     ],
   },
   {
-    id: 'defects', key: 'module:defects', label: 'תקלות', icon: '🪲',
+    id: 'defects', key: 'module:defects', label: 'תקלות', icon: '🐞',
     items: [
       s('defects:view', 'צפייה בתקלות'),
       a('action:qc_write', 'כתיבה ל-QC: הערות וסטטוס'),
