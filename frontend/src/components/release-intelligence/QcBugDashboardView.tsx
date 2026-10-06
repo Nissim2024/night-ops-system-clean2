@@ -38,6 +38,7 @@ interface BugDashboardDto {
   agingOpen?: { id: string; ageDays: number; ageHours: number; severity: string }[];
   testingSlaHours?: Record<string, number>;
   releaseName?: string | null;
+  testingPeriod?: { from: string | null; to: string | null; source: 'version' | 'qc-release' };
 }
 
 // `initialRelId` (2026-09-20) — an alternative entry point for a QC-only
@@ -248,19 +249,28 @@ const OldestOpenPanel: React.FC<{ rows: OldestOpenRow[]; onSelect: (id: string) 
 // (backlog line, its own chart — never a second y-axis). Built from the
 // per-defect timeline; every point drills down to its exact ids.
 const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-function buildDailyTrend(timeline: NonNullable<BugDashboardDto['timeline']>) {
-  const detectedDays = timeline.map(t => t.detected).filter((d): d is string => !!d).sort();
-  if (detectedDays.length === 0) return [];
-  // Window = the version's own activity: first detection → today while
-  // anything is still open, else → the last open/close day. Capped to the
-  // last 120 days of that window so the bars stay readable.
-  const start = new Date(detectedDays[0] + 'T12:00:00');
+type TrendPoint = { key: string; label: string; opened: number[]; closed: number[]; openAtEnd: number; openIds: number[] };
+// Window (user, 2026-10-06) = the version's testing period: integration start
+// → go-live day, capped at today while it's still running. Defects opened
+// before the window are already in the backlog's first point; ones opened
+// after go-live are outside it. Without dates: the defects' own activity span.
+function buildDailyTrend(timeline: NonNullable<BugDashboardDto['timeline']>, period?: BugDashboardDto['testingPeriod']) {
+  const days = timeline.flatMap(t => [t.detected, t.closed]).filter((d): d is string => !!d).sort();
+  const today = isoDay(new Date());
   const stillOpen = timeline.some(t => t.detected && !t.closed);
-  const lastDay = timeline.flatMap(t => [t.detected, t.closed]).filter((d): d is string => !!d).sort().pop()!;
-  const end = stillOpen ? new Date() : new Date(lastDay + 'T12:00:00');
-  const from = new Date(Math.max(start.getTime(), end.getTime() - 119 * 86400000));
-  const points: { key: string; label: string; opened: number[]; closed: number[]; openAtEnd: number; openIds: number[] }[] = [];
-  for (let d = new Date(from); d <= end; d = new Date(d.getTime() + 86400000)) {
+  let from = period?.from ?? days[0] ?? null;
+  let to = period?.to ?? (stillOpen ? today : days[days.length - 1] ?? null);
+  const res = { points: [] as TrendPoint[], from, to, endsToday: false, notStarted: false, afterGoLive: 0 };
+  if (!from || !to) return res;
+  if (from > today) { res.notStarted = true; return res; }
+  if (to > today) { to = today; res.endsToday = true; }
+  if (!period?.from && !period?.to) {
+    // no dates: keep the last 120 days of the activity span readable
+    const min = isoDay(new Date(new Date(to + 'T12:00:00').getTime() - 119 * 86400000));
+    if (from < min) from = min;
+  }
+  if (period?.to) res.afterGoLive = timeline.filter(t => t.detected && t.detected > period.to!).length;
+  for (let d = new Date(from + 'T12:00:00'); isoDay(d) <= to; d = new Date(d.getTime() + 86400000)) {
     const key = isoDay(d);
     const opened: number[] = [], closed: number[] = [], openIds: number[] = [];
     timeline.forEach((t, i) => {
@@ -268,10 +278,11 @@ function buildDailyTrend(timeline: NonNullable<BugDashboardDto['timeline']>) {
       if (t.closed === key) closed.push(i);
       if (t.detected && t.detected <= key && (!t.closed || t.closed > key)) openIds.push(i);
     });
-    points.push({ key, label: `${key.slice(8, 10)}/${key.slice(5, 7)}`, opened, closed, openAtEnd: openIds.length, openIds });
+    res.points.push({ key, label: `${key.slice(8, 10)}/${key.slice(5, 7)}`, opened, closed, openAtEnd: openIds.length, openIds });
   }
-  return points;
+  return res;
 }
+const dm = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(2, 4)}` : '—');
 
 // Testing-phase fix SLA (user, 2026-10-06): SS 24h, Severe 2d, Medium 3d,
 // Low 4d — or decide not to handle it and cancel. Per severity: open defects
@@ -490,17 +501,33 @@ export const QcBugDashboardView: React.FC<Props> = ({ token, initialVersionId, i
             </div>
             {dashboard.timeline && dashboard.timeline.length > 0 ? (() => {
               const tl = dashboard.timeline!;
-              const points = buildDailyTrend(tl);
+              const trend = buildDailyTrend(tl, dashboard.testingPeriod);
+              const points = trend.points;
               const ids = (idx: number[]) => idx.map(i => tl[i].id);
+              const tp = dashboard.testingPeriod;
               return (
                 <>
+                  <div className="mb-2 text-xs text-subtle-foreground">
+                    {tp ? <>תקופת הבדיקות: <b className="text-foreground">{dm(tp.from)} – {dm(tp.to)}</b> ({tp.source === 'version' ? 'תחילת אינטגרציה → עלייה לאוויר, מניהול גרסה' : 'תאריכי הגרסה ב-QC'})</>
+                      : <>לגרסה אין תאריכי אינטגרציה / עלייה לאוויר — מוצג טווח פעילות התקלות</>}
+                    {trend.endsToday && ' · מוצג עד היום'}
+                    {trend.afterGoLive > 0 && ` · ${trend.afterGoLive} תקלות נפתחו אחרי העלייה ואינן בגרף`}
+                  </div>
                   {(dashboard.closeDateFallback ?? 0) > 0 && (
                     <div className="mb-2 text-[11px] text-subtle-foreground">ל-{dashboard.closeDateFallback} תקלות סגורות לא נמצא מועד סגירה בהיסטוריה — נלקח תאריך העדכון האחרון (או הפתיחה)</div>
                   )}
-                  <TrendBars points={points} onPick={(title, idx) => drillIds(title, ids(idx))} height={200} />
-                  <div className="mb-1 mt-3 text-xs font-semibold text-subtle-foreground">Backlog — פתוחות בסוף כל יום</div>
-                  <BacklogLine points={points} height={140}
-                    onPick={p => { const pt = points.find(x => x.label === p.label); if (pt) drillIds(`פתוחות בסוף ${p.label}`, ids(pt.openIds)); }} />
+                  {trend.notStarted ? (
+                    <div className="p-5 text-center text-xs text-subtle-foreground">תקופת הבדיקות מתחילה ב-{dm(trend.from)} — אין עדיין נתונים להצגה</div>
+                  ) : points.length === 0 ? (
+                    <div className="p-5 text-center text-xs text-subtle-foreground">אין נתוני מגמה</div>
+                  ) : (
+                    <>
+                      <TrendBars points={points} onPick={(title, idx) => drillIds(title, ids(idx))} height={200} />
+                      <div className="mb-1 mt-3 text-xs font-semibold text-subtle-foreground">Backlog — פתוחות בסוף כל יום (כולל מה שנפתח לפני תחילת התקופה)</div>
+                      <BacklogLine points={points} height={140}
+                        onPick={p => { const pt = points.find(x => x.label === p.label); if (pt) drillIds(`פתוחות בסוף ${p.label}`, ids(pt.openIds)); }} />
+                    </>
+                  )}
                 </>
               );
             })() : (

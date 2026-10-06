@@ -418,6 +418,9 @@ export interface BugDashboardDto {
   agingOpen?: { id: string; ageDays: number; ageHours: number; severity: string }[];
   /** Testing-phase fix SLA in hours per severity (TESTING_DEFECT_SLA_HOURS). */
   testingSlaHours?: Record<string, number>;
+  /** The version's testing window (user, 2026-10-06): integration start → go-live day.
+   *  Drives the opened-vs-closed and backlog charts; null ends = unknown. */
+  testingPeriod?: { from: string | null; to: string | null; source: 'version' | 'qc-release' };
   releaseName?: string | null;
 }
 
@@ -3304,6 +3307,14 @@ export class QcService {
   // to be resolved even though the SQL never references cycleId — a version
   // whose QcRelease is linked but hasn't had its cycle assigned yet would
   // silently fall back to all-zero/empty results despite having real data.
+  // Historical QC release with no local Version: its synced start → go-live dates.
+  private async qcReleaseTestingPeriod(relId: number): Promise<BugDashboardDto['testingPeriod'] | undefined> {
+    const rel = await prisma.qcRelease.findUnique({ where: { relId }, select: { relStartDate: true, goLiveDate: true, relEndDate: true } });
+    const to = rel?.goLiveDate ?? rel?.relEndDate ?? null;
+    if (!rel?.relStartDate && !to) return undefined;
+    return { from: rel?.relStartDate ? localIsoDay(rel.relStartDate) : null, to: to ? localIsoDay(to) : null, source: 'qc-release' };
+  }
+
   private async getRelId(versionId: string): Promise<number | null> {
     const version = await prisma.version.findUnique({
       where: { id: versionId },
@@ -4522,14 +4533,29 @@ export class QcService {
 
   async getBugDashboard(versionId: string): Promise<BugDashboardDto> {
     const { enabled } = await getOracleConfig();
-    if (!enabled) return MOCK_BUG_DASHBOARD;
+    const period = await this.versionTestingPeriod(versionId);
+    if (!enabled) return { ...MOCK_BUG_DASHBOARD, ...(period ? { testingPeriod: period } : {}) };
 
     const relId = await this.getRelId(versionId);
     if (!relId) {
       this.logger.warn(`No QC release linked to version ${versionId}`);
-      return computeBugDashboard([], new Set());
+      return { ...computeBugDashboard([], new Set()), ...(period ? { testingPeriod: period } : {}) };
     }
-    return this.getBugDashboardByRelId(relId);
+    const res = await this.getBugDashboardByRelId(relId);
+    // the version's own dates win; the QC release's dates are only the fallback
+    return period ? { ...res, testingPeriod: period } : res;
+  }
+
+  // Testing window = integration start (else QA start) → go-live (plannedStart),
+  // both owned by version management. null when the version has neither.
+  private async versionTestingPeriod(versionId: string): Promise<BugDashboardDto['testingPeriod'] | null> {
+    const v = await prisma.version.findUnique({
+      where: { id: versionId }, select: { integrationStart: true, qaStart: true, plannedStart: true },
+    });
+    const from = v?.integrationStart ?? v?.qaStart ?? null;
+    const to = v?.plannedStart ?? null;
+    if (!from && !to) return null;
+    return { from: from ? localIsoDay(from) : null, to: to ? localIsoDay(to) : null, source: 'version' };
   }
 
   // relId-direct variant (2026-09-20) — same pattern as getDefectsByRelId:
@@ -4574,6 +4600,7 @@ export class QcService {
           closeTimes,
         ),
         releaseName,
+        testingPeriod: await this.qcReleaseTestingPeriod(relId),
       };
     } catch (err: any) {
       this.logger.error(`Oracle getBugDashboardByRelId: ${err.message}`);
