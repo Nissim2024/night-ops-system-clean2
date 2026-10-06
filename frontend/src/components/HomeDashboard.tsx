@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import axios from 'axios';
 import { C, FONT, FONT_MONO, TEXT, WEIGHT, RADIUS, SHADOW, EASE, severityColor, severityBg, severityLabel } from '../theme';
-import { VersionStatusChip } from './ui';
+import { VersionStageChip } from './ui';
 import RunbookModal, { RUNBOOKS, getRunbookTrigger, getRunbookPlanId, RunbookTrigger } from './qa/RunbookModal';
 import { DefectDetailScreen } from './quality-hub/OpenProdDefectsView';
 import { VersionMilestoneTimeline } from './shared/VersionMilestoneTimeline';
@@ -321,7 +321,7 @@ function VersionRow({ v, isPrimary, onSelect, qaSummary, role }: { v: any; isPri
           🧪 {qaSummary.assignedCrs}/{qaSummary.totalCrs}
         </span>
       )}
-      <VersionStatusChip status={v.status} size="xs" />
+      <VersionStageChip version={v} size="xs" />
       <span style={{ ...TEXT.xs, color: ph.color, fontWeight: WEIGHT.medium, flexShrink: 0 }}>פתח ←</span>
     </div>
   );

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { C, JIRA } from '../theme';
-import { VersionStatusChip, BackLink } from './ui';
+import { BackLink, VersionStageChip } from './ui';
 import {
   hasHebrew, NameBadge, PersonAvatar, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
   IssueKeyLink, StatusBadge, SeverityBadge, PriorityCell, SelectColumnsDialog, PERSON_FIELDS } from './shared/defectFieldDisplay';
@@ -437,7 +437,7 @@ export const VersionOverview: React.FC<Props> = ({ version, token, onJumpToStep,
         <div className="mb-4 rounded-2xl border border-border bg-card px-6 py-[18px] shadow-sm">
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-lg font-bold text-foreground">{version.name}</span>
-            <VersionStatusChip status={version.status} size="md" />
+            <VersionStageChip version={version} size="md" />
             {goLiveLabel && (
               <span
                 className="rounded-full px-3 py-[3px] text-[13px] font-bold"

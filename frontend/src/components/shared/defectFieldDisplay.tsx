@@ -504,67 +504,111 @@ export function FieldChangeHistorySection({ defectId, token, defaultOpen = false
       .catch(() => setFieldHistory([]));
   }, [expanded, fieldHistory, defectId, token]);
 
+  const rows = (fieldHistory ?? []).filter(h => !historyFieldFilter || h.propertyName === historyFieldFilter);
+  const fieldFilter = fieldHistory && fieldHistory.length > 0 && (
+    <select
+      value={historyFieldFilter}
+      onClick={e => e.stopPropagation()}
+      onChange={e => setHistoryFieldFilter(e.target.value)}
+      className="cursor-pointer rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+    >
+      <option value="">כל השדות</option>
+      {Array.from(new Set(fieldHistory.map(h => h.propertyName))).sort().map(p => (
+        <option key={p} value={p}>{p}</option>
+      ))}
+    </select>
+  );
+
   return (
-    <div className="border-t border-border pt-3">
-      <div
-        onClick={() => setExpanded(v => !v)}
-        className={cn('flex cursor-pointer select-none items-center justify-between', expanded && 'mb-2')}
-      >
-        <div className="flex items-center gap-1.5 text-sm font-bold text-subtle-foreground">
-          <span className={cn('inline-block transition-transform duration-150', expanded && 'rotate-90')}>▶</span>
-          היסטוריית שינויים
+    <div className={cn(!defaultOpen && 'border-t border-border pt-3')}>
+      {defaultOpen ? (
+        // inside its own dialog (title already says what this is): just a toolbar
+        fieldHistory && fieldHistory.length > 0 && (
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-xs text-subtle-foreground">{rows.length} שינויים</span>
+            {fieldFilter}
+          </div>
+        )
+      ) : (
+        <div
+          onClick={() => setExpanded(v => !v)}
+          className={cn('flex cursor-pointer select-none items-center justify-between', expanded && 'mb-2')}
+        >
+          <div className="flex items-center gap-1.5 text-sm font-bold text-subtle-foreground">
+            <span className={cn('inline-block transition-transform duration-150', expanded && 'rotate-90')}>▶</span>
+            היסטוריית שינויים
+          </div>
+          {expanded && fieldFilter}
         </div>
-        {expanded && fieldHistory && fieldHistory.length > 0 && (
-          <select
-            value={historyFieldFilter}
-            onClick={e => e.stopPropagation()}
-            onChange={e => setHistoryFieldFilter(e.target.value)}
-            className="rounded-sm border border-border px-2 py-1 text-[13px]"
-          >
-            <option value="">כל השדות</option>
-            {Array.from(new Set(fieldHistory.map(h => h.propertyName))).sort().map(p => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
-        )}
-      </div>
+      )}
       {expanded && (
         !fieldHistory ? (
           <div className="p-4 text-center text-[13px] text-subtle-foreground">טוען...</div>
         ) : fieldHistory.length === 0 ? (
           <div className="p-4 text-center text-[13px] text-subtle-foreground">אין היסטוריית שינויים זמינה לתקלה זו</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-[13px]">
+          // Same table language as the defect lists (2026-10-06): fixed
+          // columns, every header aligned exactly like its cells, one block
+          // per "same moment + same person", values shown the way the form
+          // shows them (status/severity badges, people as avatar + name).
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full table-fixed border-collapse text-[13px]">
+              <colgroup>
+                <col style={{ width: 128 }} /><col style={{ width: 170 }} /><col style={{ width: 140 }} /><col /><col />
+              </colgroup>
               <thead>
                 <tr className="bg-muted">
-                  {['מתי השתנה', 'מי שינה', 'שדה', 'ערך ישן', 'ערך חדש'].map(h => (
-                    <th key={h} className="whitespace-nowrap border-b border-border px-2.5 py-1.5 text-right font-semibold text-subtle-foreground">{h}</th>
+                  {['מתי', 'מי שינה', 'שדה', 'ערך קודם', 'ערך חדש'].map(h => (
+                    <th key={h} className="sticky top-0 whitespace-nowrap border-b border-border bg-muted px-2.5 py-2 text-right text-xs font-semibold text-subtle-foreground">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {fieldHistory
-                  .filter(h => !historyFieldFilter || h.propertyName === historyFieldFilter)
-                  .map((h, i) => {
-                    const oldRtl = hasHebrew(h.oldValue);
-                    const newRtl = hasHebrew(h.newValue);
-                    return (
-                      <tr key={i} className="border-b border-border">
-                        <td className="whitespace-nowrap px-2.5 py-1.5 text-left text-muted-foreground [direction:ltr]">{formatDateTime(h.changeTime)}</td>
-                        <td className="whitespace-nowrap px-2.5 py-1.5 text-left text-muted-foreground [direction:ltr]">{h.changedBy || '—'}</td>
-                        <td className="whitespace-nowrap px-2.5 py-1.5 text-left font-semibold text-foreground [direction:ltr]">{h.propertyName || '—'}</td>
-                        <td className={cn('px-2.5 py-1.5 text-muted-foreground', oldRtl ? 'text-right [direction:rtl]' : 'text-left [direction:ltr]')}>{h.oldValue || '—'}</td>
-                        <td className={cn('px-2.5 py-1.5 text-muted-foreground', newRtl ? 'text-right [direction:rtl]' : 'text-left [direction:ltr]')}>{h.newValue || '—'}</td>
-                      </tr>
-                    );
-                  })}
+                {rows.map((h, i) => {
+                  const prev = rows[i - 1];
+                  const sameGroup = !!prev && prev.changeTime === h.changeTime && prev.changedBy === h.changedBy;
+                  return (
+                    <tr key={i} className={cn('hover:bg-muted/60', !sameGroup && i > 0 && 'border-t border-border')}>
+                      <td className="whitespace-nowrap px-2.5 py-1.5 text-right align-top tabular-nums text-muted-foreground">
+                        {!sameGroup && <span dir="ltr">{formatDateTime(h.changeTime)}</span>}
+                      </td>
+                      <td className="overflow-hidden px-2.5 py-1.5 text-right align-top">
+                        {!sameGroup && (h.changedBy ? <PersonAvatar name={h.changedBy} /> : <span className="text-subtle-foreground">—</span>)}
+                      </td>
+                      <td className="truncate px-2.5 py-1.5 text-right align-top font-semibold text-foreground" title={h.propertyName}>
+                        <span dir="auto">{h.propertyName || '—'}</span>
+                      </td>
+                      <td className="px-2.5 py-1.5 text-right align-top text-subtle-foreground">
+                        <HistoryValue field={h.propertyName} value={h.oldValue} old />
+                      </td>
+                      <td className="px-2.5 py-1.5 text-right align-top text-foreground">
+                        <HistoryValue field={h.propertyName} value={h.newValue} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )
       )}
     </div>
+  );
+}
+
+// One old/new value in the change-history table, rendered like the form
+// renders that field.
+function HistoryValue({ field, value, old }: { field: string; value: string; old?: boolean }) {
+  if (!value) return <span className="text-subtle-foreground">—</span>;
+  const f = (field || '').toLowerCase();
+  const faded = old ? 'opacity-60' : '';
+  if (f.includes('status')) return <span className={faded}><StatusBadge status={value} /></span>;
+  if (f.includes('severity')) return <span className={faded}><SeverityBadge severity={value} /></span>;
+  if (PERSON_FIELDS.has(field) || /assigned|responsible|detected by|closed by|owner/.test(f)) {
+    return <span className={faded}><PersonAvatar name={value} /></span>;
+  }
+  return (
+    <span dir="auto" className={cn('block break-words', old && 'line-through decoration-1', !old && 'font-medium')}>{value}</span>
   );
 }
 

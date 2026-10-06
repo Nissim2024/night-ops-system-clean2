@@ -312,12 +312,23 @@ function CycleCard({ c, onShowDetail, onShowDefects }: { c: CycleTimelineItem; o
           not-completed/not-run/not-ready), QG target marked as a line over it
           — replaces the earlier two-separate-bars design (spec confirmed
           2026-08-31). */}
-      <SegmentedProgressBar {...agg} targetPct={c.qgTargetPct} />
-      <div className="text-xs font-semibold text-center whitespace-nowrap" style={{ color: successColor }}>
-        {hasSuccess
-          ? `${c.successPct}% הצלחה${c.qgTargetPct != null ? ` (יעד: ${c.qgTargetPct}%)` : ''}`
-          : 'אין נתוני הצלחה'}
-      </div>
+      {/* A cycle that hasn't started has no results yet — "0% הצלחה" in red
+          read as a failure (user, 2026-10-06), so no bar / percent at all. */}
+      {c.state === 'upcoming' ? (
+        <div className="text-xs font-semibold text-center whitespace-nowrap text-subtle-foreground py-[3px]">
+          ⏳ הסבב טרם החל{c.plannedStart ? ` · ייפתח ב-${fmtDate(c.plannedStart)}` : ''}
+          {c.qgTargetPct != null && <div className="font-normal mt-0.5">יעד הצלחה: {c.qgTargetPct}%</div>}
+        </div>
+      ) : (
+        <>
+          <SegmentedProgressBar {...agg} targetPct={c.qgTargetPct} />
+          <div className="text-xs font-semibold text-center whitespace-nowrap" style={{ color: successColor }}>
+            {hasSuccess
+              ? `${c.successPct}% הצלחה${c.qgTargetPct != null ? ` (יעד: ${c.qgTargetPct}%)` : ''}`
+              : 'אין נתוני הצלחה'}
+          </div>
+        </>
+      )}
 
       <button
         onClick={() => onShowDetail(c.cycleType)}

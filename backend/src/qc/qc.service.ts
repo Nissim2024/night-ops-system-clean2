@@ -2141,6 +2141,8 @@ const MOCK_DEFECT_FIELD_HISTORY: Record<string, DefectFieldChangeDto[]> = {
     { changeTime: '2025-12-07T09:12:00', changedBy: 'bat-7', propertyName: 'Bug Status', oldValue: 'New', newValue: 'Open' },
     { changeTime: '2025-12-22T14:05:00', changedBy: 'limork', propertyName: 'Assigned To', oldValue: 'hsupport', newValue: 'limork' },
     { changeTime: '2026-01-21T11:40:00', changedBy: 'roiv', propertyName: 'Bug Status', oldValue: 'Open', newValue: 'Fixed_Dev' },
+    { changeTime: '2026-01-21T11:40:00', changedBy: 'roiv', propertyName: 'Severity', oldValue: 'Medium', newValue: 'Severe' },
+    { changeTime: '2026-01-21T11:40:00', changedBy: 'roiv', propertyName: 'Summary', oldValue: 'שגיאה בטעינת מסך לקוח', newValue: 'שגיאה בטעינת מסך לקוח - Wizard 360' },
     { changeTime: '2026-02-04T15:41:00', changedBy: 'roiv', propertyName: 'Bug Status', oldValue: 'Fixed_Dev', newValue: 'Closed' },
   ],
 };
@@ -3197,6 +3199,28 @@ async function personNameMap(logins: Set<string>): Promise<Record<string, string
 // known login. Anything else (Dates, Buffers, streams) passes through as-is;
 // input is never mutated.
 const isPlainObject = (v: any) => v !== null && typeof v === 'object' && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null);
+// Change history (2026-10-06): who made the change, and the old/new values of
+// person fields (Assigned To, Tester, ...), come out of AUDIT_LOG as logins —
+// the generic key-based resolver can't see them (the key is "oldValue").
+const HISTORY_PERSON_PROPERTY = /assigned|tester|detected by|closed by|responsible|reporter|owner/i;
+export async function withHistoryPersonNames(rows: DefectFieldChangeDto[]): Promise<DefectFieldChangeDto[]> {
+  const logins = new Set<string>();
+  for (const r of rows) {
+    if (r.changedBy?.trim()) logins.add(r.changedBy.trim().toLowerCase());
+    if (HISTORY_PERSON_PROPERTY.test(r.propertyName)) {
+      for (const v of [r.oldValue, r.newValue]) if (v?.trim()) logins.add(v.trim().toLowerCase());
+    }
+  }
+  if (logins.size === 0) return rows;
+  const map = await personNameMap(logins);
+  const name = (v: string) => (v ? map[v.trim().toLowerCase()] ?? v : v);
+  return rows.map(r => ({
+    ...r,
+    changedBy: name(r.changedBy),
+    ...(HISTORY_PERSON_PROPERTY.test(r.propertyName) ? { oldValue: name(r.oldValue), newValue: name(r.newValue) } : {}),
+  }));
+}
+
 export async function resolvePersonNamesDeep<T>(data: T): Promise<T> {
   const logins = new Set<string>();
   const collect = (v: any) => {
@@ -4798,6 +4822,10 @@ export class QcService {
   // AP_OLD_VALUE are unverified against this real instance — see the note on
   // DEFECT_FIELD_HISTORY_SQL above.
   async getDefectFieldHistory(defectId: string): Promise<DefectFieldChangeDto[]> {
+    return withHistoryPersonNames(await this.getDefectFieldHistoryRaw(defectId));
+  }
+
+  private async getDefectFieldHistoryRaw(defectId: string): Promise<DefectFieldChangeDto[]> {
     const { enabled } = await getOracleConfig();
     if (!enabled) return MOCK_DEFECT_FIELD_HISTORY[defectId] ?? [];
 

@@ -94,12 +94,22 @@ export class VersionsService {
     });
     if (!version) throw new NotFoundException('Version not found');
 
-    const involvedPlans = await (prisma.crPlan as any).findMany({
-      where: { versionId: id },
-      distinct: ['teamId'],
-      select: { teamId: true },
-    });
-    return { ...version, involvedTeamIds: involvedPlans.map((p: any) => p.teamId) };
+    const [involvedPlans, lc, hasKpi] = await Promise.all([
+      (prisma.crPlan as any).findMany({
+        where: { versionId: id },
+        distinct: ['teamId'],
+        select: { teamId: true },
+      }),
+      // same lifecycle/stage as the list (2026-10-06) — screens that load one
+      // version show its stage too, not the deployment-plan status
+      prisma.version.findUnique({ where: { id }, include: { ...LIFECYCLE_INCLUDE } }),
+      prisma.releaseKpiScore.findFirst({ where: { releaseName: version.name }, select: { id: true } }),
+    ]);
+    const lifecycle = lifecycleFromVersionRow(
+      { ...lc, _count: { phases: version.phases.length } },
+      new Set(hasKpi ? [version.name] : []),
+    );
+    return { ...version, involvedTeamIds: involvedPlans.map((p: any) => p.teamId), lifecycle };
   }
 
   async create(data: {

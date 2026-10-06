@@ -38,9 +38,85 @@ export const PHASE_LABEL_HE: Record<VersionPhase, string> = {
   ROLLED_BACK:    'בוטל',
 };
 
+// ── Stage — where the version is on the testing calendar (user, 2026-10-06:
+// "להציג את השלב של הגרסה ולא את שלב תוכנית ההטמעה"). Date-driven from the
+// version's integration window, the QA plan's cycles, the rehearsal and the
+// go-live day; between two of them it's "היערכות ל<the next one>".
+export type VersionStageKey =
+  | 'PREP' | 'INTEGRATION' | 'CYCLE' | 'PREP_CYCLE' | 'REHEARSAL' | 'PREP_REHEARSAL'
+  | 'GO_LIVE' | 'PREP_GO_LIVE' | 'GO_LIVE_OVERDUE' | 'PRODUCTION' | 'ROLLED_BACK';
+
+export interface VersionStage {
+  key: VersionStageKey;
+  label: string;          // e.g. "בבדיקות סבב 2", "היערכות לסבב 2"
+  cycle?: number;         // 1..3 for CYCLE / PREP_CYCLE
+  parallel: string[];     // non-core cycles running at the same time (Stand Alone, UAT…)
+}
+
+export interface StageSignals {
+  status: string;
+  integrationStart: Date | null;
+  integrationEnd: Date | null;
+  rehearsalStart: Date | null;    // Version.plannedRehearsalStart — fallback when the plan has no REHEARSAL cycle
+  rehearsalEnd: Date | null;
+  goLive: Date | null;            // Version.plannedStart
+  cycles: { cycleType: string; plannedStart: Date; plannedEnd: Date }[];
+}
+
+const PARALLEL_LABEL: Record<string, string> = { STAND_ALONE: 'Stand Alone', UAT: 'UAT' };
+const DAY_MS = 86400000;
+
+export function deriveVersionStage(s: StageSignals, now: Date = new Date()): VersionStage {
+  const t = now.getTime();
+  const within = (a: Date | null, b: Date | null) => !!a && a.getTime() <= t && (!b || t <= b.getTime());
+  const cyc = (type: string) => s.cycles.find(c => c.cycleType === type) ?? null;
+  const parallel = s.cycles
+    .filter(c => !['CYCLE_1', 'CYCLE_2', 'CYCLE_3', 'REHEARSAL', 'GO_LIVE'].includes(c.cycleType) && within(c.plannedStart, c.plannedEnd))
+    .map(c => PARALLEL_LABEL[c.cycleType] ?? c.cycleType);
+  const mk = (key: VersionStageKey, label: string, cycle?: number): VersionStage => ({ key, label, cycle, parallel });
+
+  if (s.status === 'ROLLED_BACK') return mk('ROLLED_BACK', 'בוטלה');
+  if (s.status === 'COMPLETED') return mk('PRODUCTION', 'בייצור');
+  if (s.status === 'ACTIVE' || s.status === 'MORNING_AFTER') return mk('GO_LIVE', 'בעלייה לאוויר');
+  if (s.status === 'REHEARSAL') return mk('REHEARSAL', 'בחזרה גנרלית');
+
+  // go-live window = the GO_LIVE cycle, else the go-live calendar day
+  const glCycle = cyc('GO_LIVE');
+  const glStart = glCycle?.plannedStart ?? (s.goLive ? new Date(new Date(s.goLive).setHours(0, 0, 0, 0)) : null);
+  const glEnd = glCycle?.plannedEnd ?? (glStart ? new Date(glStart.getTime() + DAY_MS - 1) : null);
+  // Past the go-live day but the night was never run/closed here: don't claim
+  // "בייצור" from a date alone — flag that the dates or the status are stale.
+  if (glEnd && t > glEnd.getTime()) return mk('GO_LIVE_OVERDUE', 'עבר מועד העלייה');
+  if (within(glStart, glEnd)) return mk('GO_LIVE', 'בעלייה לאוויר');
+
+  const rh = cyc('REHEARSAL');
+  const rhStart = rh?.plannedStart ?? s.rehearsalStart;
+  const rhEnd = rh?.plannedEnd ?? s.rehearsalEnd;
+  if (within(rhStart, rhEnd)) return mk('REHEARSAL', 'בחזרה גנרלית');
+
+  for (const n of [3, 2, 1]) {
+    const c = cyc(`CYCLE_${n}`);
+    if (c && within(c.plannedStart, c.plannedEnd)) return mk('CYCLE', `בבדיקות סבב ${n}`, n);
+  }
+  if (within(s.integrationStart, s.integrationEnd)) return mk('INTEGRATION', 'בבדיקות אינטגרציה');
+
+  // Nothing running → getting ready for whatever comes next.
+  if (!s.integrationStart || t < s.integrationStart.getTime()) return mk('PREP', 'בהיערכות');
+  const next: { at: number; stage: VersionStage }[] = [];
+  for (const n of [1, 2, 3]) {
+    const c = cyc(`CYCLE_${n}`);
+    if (c && c.plannedStart.getTime() > t) next.push({ at: c.plannedStart.getTime(), stage: mk('PREP_CYCLE', `היערכות לסבב ${n}`, n) });
+  }
+  if (rhStart && rhStart.getTime() > t) next.push({ at: rhStart.getTime(), stage: mk('PREP_REHEARSAL', 'היערכות לחזרה גנרלית') });
+  if (glStart && glStart.getTime() > t) next.push({ at: glStart.getTime(), stage: mk('PREP_GO_LIVE', 'היערכות לעלייה לאוויר') });
+  next.sort((a, b) => a.at - b.at);
+  return next[0]?.stage ?? mk('PREP', 'בהיערכות');
+}
+
 export interface VersionLifecycle {
   phase: VersionPhase;
   phaseLabel: string;
+  stage: VersionStage;
   perModule: {
     versionManagement: string;
     qa: string;
@@ -65,6 +141,7 @@ export interface LifecycleSignals {
   // exists to hold the live system recommendation).
   goNoGoDecided: boolean;
   hasKpiScores: boolean;
+  stage?: StageSignals;
 }
 
 export function deriveVersionLifecycle(s: LifecycleSignals, now: Date = new Date()): VersionLifecycle {
@@ -131,6 +208,9 @@ export function deriveVersionLifecycle(s: LifecycleSignals, now: Date = new Date
   return {
     phase,
     phaseLabel: PHASE_LABEL_HE[phase],
+    stage: s.stage ? deriveVersionStage(s.stage, now) : deriveVersionStage({
+      status: s.status, integrationStart: null, integrationEnd: null, rehearsalStart: null, rehearsalEnd: null, goLive: null, cycles: [],
+    }, now),
     perModule: { versionManagement, qa, deployments, releaseIntelligence, quality },
   };
 }
@@ -169,5 +249,13 @@ export function lifecycleFromVersionRow(
     coreCycles,
     goNoGoDecided: goNoGoDecided(v.goNoGoDecision),
     hasKpiScores: kpiScoreNames.has(v.name),
+    stage: {
+      status: v.status,
+      integrationStart: v.integrationStart ?? null, integrationEnd: v.integrationEnd ?? null,
+      rehearsalStart: v.plannedRehearsalStart ?? null, rehearsalEnd: v.plannedRehearsalEnd ?? null,
+      goLive: v.plannedStart ?? null,
+      cycles: (v.qaWorkPlan?.cycles ?? []).filter((c: any) => c.plannedStart && c.plannedEnd)
+        .map((c: any) => ({ cycleType: c.cycleType, plannedStart: new Date(c.plannedStart), plannedEnd: new Date(c.plannedEnd) })),
+    },
   }, now);
 }

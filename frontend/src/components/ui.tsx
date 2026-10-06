@@ -205,6 +205,50 @@ export const VersionStatusChip: React.FC<{ status: string; size?: 'xs' | 'sm' | 
   );
 };
 
+// Version STAGE (2026-10-06) — where the version is on the testing calendar
+// ("בבדיקות סבב 2", "היערכות לסבב 2", "בייצור"…), computed server-side in
+// version-lifecycle.ts. Shown wherever the version itself is named; the
+// deployment-plan status chip stays only on the deployment-plan screens.
+// Falls back to the plan status for a payload without lifecycle.
+const STAGE_COLOR: Record<string, [string, string]> = {
+  PREP:           [C.textSecondary, C.bgNested],
+  PREP_CYCLE:     [C.statusOpen, C.bgOpen],
+  PREP_REHEARSAL: [C.statusWaiting, C.bgWaiting],
+  PREP_GO_LIVE:   [C.warning, C.warningBg],
+  INTEGRATION:    [C.info, C.infoBg],
+  CYCLE:          [C.statusOpen, C.bgOpen],
+  REHEARSAL:      [C.statusWaiting, C.bgWaiting],
+  GO_LIVE:        [C.warning, C.warningBg],
+  GO_LIVE_OVERDUE: [C.warning, C.warningBg],
+  PRODUCTION:     [C.success, C.successBg],
+  ROLLED_BACK:    [C.danger, C.dangerBg],
+};
+export function versionStageLabel(v: any): string | null {
+  const st = v?.lifecycle?.stage;
+  if (!st) return null;
+  return st.parallel?.length ? `${st.label} · ${st.parallel.join(' / ')}` : st.label;
+}
+export function versionStageColor(v: any): string | null {
+  const st = v?.lifecycle?.stage;
+  return st ? (STAGE_COLOR[st.key]?.[0] ?? C.textSecondary) : null;
+}
+export const VersionStageChip: React.FC<{ version: any; size?: 'xs' | 'sm' | 'md'; style?: React.CSSProperties }> = ({ version, size = 'sm', style }) => {
+  const st = version?.lifecycle?.stage;
+  if (!st) return <VersionStatusChip status={version?.status} size={size} style={style} />;
+  const [color, bg] = STAGE_COLOR[st.key] ?? [C.textSecondary, C.bgNested];
+  return (
+    <span
+      className={cn('inline-flex items-center gap-[5px] rounded-full border', VERSION_STATUS_CHIP_SIZE_CLASS[size])}
+      style={{ color, background: bg, borderColor: `${color}30`, ...style }}
+      title={st.parallel?.length ? `במקביל: ${st.parallel.join(', ')}` : undefined}
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: color }} />
+      {st.label}
+      {st.parallel?.length > 0 && <span className="font-normal opacity-75">· {st.parallel.join(' / ')}</span>}
+    </span>
+  );
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PriorityChip — Asana-style High/Medium/Low
 // ─────────────────────────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { BrandedDialog } from '../ui/BrandedDialog';
 import { C, versionStatusColor, versionStatusLabel, lifecyclePhaseLabel, lifecyclePhaseColor, lifecyclePhaseGroup } from '../../theme';
 import { cn } from '../../lib/utils';
+import { versionStageLabel, versionStageColor } from '../ui';
 
 // Extracted out of Sidebar.tsx (2026-09-29) so EmployeeDashboard can offer
 // the exact same picker — pixel-for-pixel, not a re-implementation — instead
@@ -34,11 +35,15 @@ function versionGroup(v: any): string {
   return 'planning';
 }
 function versionPhaseLabel(v: any): string {
+  const stage = versionStageLabel(v);
+  if (stage) return stage;
   if (v.lifecycle?.phaseLabel) return v.lifecycle.phaseLabel;
   if (v.lifecycle?.phase && lifecyclePhaseLabel[v.lifecycle.phase]) return lifecyclePhaseLabel[v.lifecycle.phase];
   return versionStatusLabel[v.status] ?? v.status;
 }
 function versionPhaseColor(v: any): string {
+  const stageColor = versionStageColor(v);
+  if (stageColor) return stageColor;
   if (v.lifecycle?.phase && lifecyclePhaseColor[v.lifecycle.phase]) return lifecyclePhaseColor[v.lifecycle.phase];
   return versionStatusColor[v.status] ?? C.sidebarTextMuted;
 }

@@ -56,7 +56,7 @@ import { ConfirmDialog, DialogConfig } from './ConfirmDialog';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS, SHADOW, EASE, versionStatusColor, versionStatusLabel } from '../theme';
 import { formatDateTime } from '../utils/dateFormat';
 import { useDialog } from '../context/DialogContext';
-import { Avatar, Badge, VersionStatusChip, BackLink } from './ui';
+import { Avatar, Badge, BackLink, VersionStageChip } from './ui';
 import { VersionTemplatesView } from './VersionTemplatesView';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -690,7 +690,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
               >
                 {selectedVersion.name}
               </span>
-              <VersionStatusChip status={selectedVersion.status} size="xs" />
+              <VersionStageChip version={selectedVersion} size="xs" />
             </>
           )}
         </div>

@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import axios from 'axios';
 import { C, SHADOW } from '../theme';
 import { useDialog } from '../context/DialogContext';
-import { VersionStatusChip } from './ui';
+import { VersionStageChip } from './ui';
 import { formatDate as fmtDateShared, formatDateTime as fmtDateTimeShared } from '../utils/dateFormat';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -438,7 +438,7 @@ export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, tok
         <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
           <div className="flex items-center gap-2.5">
             <h2 className="m-0 text-xl font-bold text-foreground">{version.name}</h2>
-            <VersionStatusChip status={version.status} size="sm" />
+            <VersionStageChip version={version} size="sm" />
             {version.creator?.fullName && (
               <span className="text-sm text-subtle-foreground">👤 {version.creator.fullName}</span>
             )}
