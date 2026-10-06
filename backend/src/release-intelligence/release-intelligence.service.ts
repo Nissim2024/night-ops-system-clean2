@@ -2195,7 +2195,7 @@ export class ReleaseIntelligenceService {
   // ── Capacity — spec section 19 ──────────────────────────────────────────────
   async getCapacity(versionId: string) {
     const [vcaRows, qaAssignments, teams] = await Promise.all([
-      prisma.versionCrAssignment.findMany({ where: { versionId }, select: { crNumber: true, teamId: true, teamEstimateDays: true } }),
+      prisma.versionCrAssignment.findMany({ where: { versionId, manuallyRemoved: false }, select: { crNumber: true, teamId: true, teamEstimateDays: true } }),
       prisma.qaAssignment.findMany({ where: { versionId }, select: { crNumber: true, qaEffort: true } }),
       prisma.team.findMany({ select: { id: true, name: true } }),
     ]);

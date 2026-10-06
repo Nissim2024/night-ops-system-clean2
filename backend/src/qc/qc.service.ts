@@ -4892,7 +4892,7 @@ export class QcService {
   async getCrItems(_releaseId?: string, versionId?: string): Promise<CrItemDto[]> {
     if (versionId) {
       const rows = await prisma.versionCrAssignment.findMany({
-        where: { versionId },
+        where: { versionId, manuallyRemoved: false },
         select: { crNumber: true, crLabel: true },
         orderBy: { crNumber: 'asc' },
       });

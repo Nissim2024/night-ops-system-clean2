@@ -20,5 +20,6 @@ import { QaWorkPlanService } from './qa-workplan.service';
   ],
   controllers: [QaController, QaStatsController, QaMyTasksController],
   providers:   [QaService, QaAdminGuard, QaWorkPlanService],
+  exports:     [QaWorkPlanService],
 })
 export class QaModule {}

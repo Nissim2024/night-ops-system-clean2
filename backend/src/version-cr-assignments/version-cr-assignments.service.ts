@@ -5,6 +5,9 @@ import * as XLSX from 'xlsx';
 import * as fs from 'fs';
 import { TEAM_COLUMNS, EXCLUDED_CR_STATUSES, TARGET_CR_PATTERN } from '../common/team-columns';
 import { readQcFile, resolveQcFilePath, SmbAccessError } from '../qc-releases/smb-file-reader';
+import { QcService } from '../qc/qc.service';
+import { QaWorkPlanService } from '../qa/qa-workplan.service';
+import { defectCr } from '../release-intelligence/release-intelligence.service';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
@@ -28,6 +31,8 @@ export class VersionCrAssignmentsService {
   // needed) since mtime/size no longer match.
   private sheetCache: { filePath: string; mtimeMs: number; size: number; parsed: LoadedSheet } | null = null;
   private readonly logger = new Logger(VersionCrAssignmentsService.name);
+
+  constructor(private readonly qc: QcService, private readonly qaWorkPlan: QaWorkPlanService) {}
 
   // Guards against firing twice within the same target minute (the tick
   // below runs every minute, so without this it would keep re-triggering
@@ -535,7 +540,9 @@ export class VersionCrAssignmentsService {
     removed:   { crNumber: string; crLabel: string; teamName: string }[];
     unchanged: number;
   }> {
-    const { assignments, allTeams } = await this.parseExcelAssignments(versionId);
+    const { assignments: parsed, allTeams } = await this.parseExcelAssignments(versionId);
+    const manual = await this.manuallyRemovedCrs(versionId);
+    const assignments = parsed.filter(a => !manual.has(a.crNumber));
     const teamNameById: Record<string, string> = {};
     allTeams.forEach(t => { teamNameById[t.id] = t.name; });
 
@@ -564,7 +571,10 @@ export class VersionCrAssignmentsService {
   // before applying — e.g. a CR that legitimately spans several teams'
   // columns in the Excel and shouldn't be picked up this round for any of them.
   async syncApply(versionId: string, excludeCrNumbers: string[] = []): Promise<{ added: number; removed: number; unchanged: number }> {
-    const { assignments: allAssignments } = await this.parseExcelAssignments(versionId);
+    const { assignments: parsedAssignments } = await this.parseExcelAssignments(versionId);
+    // removed by a manager with a reason — stays out even though the file still lists it
+    const manual = await this.manuallyRemovedCrs(versionId);
+    const allAssignments = parsedAssignments.filter(a => !manual.has(a.crNumber));
 
     // If scope was already approved, any add/remove from here on is a genuine
     // post-approval scope change — flag it instead of silently absorbing it.
@@ -682,6 +692,94 @@ export class VersionCrAssignmentsService {
     }
 
     return { added, removed: stale.length, unchanged };
+  }
+
+  private async manuallyRemovedCrs(versionId: string): Promise<Set<string>> {
+    const rows = await prisma.versionCrAssignment.findMany({
+      where: { versionId, manuallyRemoved: true }, select: { crNumber: true }, distinct: ['crNumber'],
+    });
+    return new Set(rows.map(r => r.crNumber));
+  }
+
+  // ── Remove a CR from the version with a reason (user, 2026-10-06) ─────────
+  // Works even while CR_LIST still lists it. Every team row → REMOVED (all
+  // modules already drop REMOVED rows), CR plans → not needed, QA work →
+  // archived with the reason. If defects were already opened on the CR it's
+  // ARCHIVED rather than just removed: the defects stay in the library and in
+  // every metric, and Release Insights raises an automatic finding about it.
+  async removeCr(versionId: string, crNumber: string, reason: string, user: { sub: string; email?: string }) {
+    const why = (reason ?? '').trim();
+    if (why.length < 3) throw new BadRequestException('יש לפרט סיבה להסרת ה-CR');
+    const rows = await prisma.versionCrAssignment.findMany({ where: { versionId, crNumber } });
+    if (rows.length === 0) throw new NotFoundException('CR לא נמצא בגרסה זו');
+    if (rows.every(r => r.manuallyRemoved)) throw new BadRequestException('ה-CR כבר הוסר מהגרסה');
+
+    // defects opened on this CR in the version (testing environments and prod alike)
+    let defectCount = 0;
+    try {
+      const defects = await this.qc.getDefects(versionId);
+      defectCount = defects.filter(d => defectCr(d) === crNumber.trim()).length;
+    } catch (err: any) {
+      this.logger.warn(`removeCr: defect lookup failed for ${crNumber}: ${err.message}`);
+    }
+
+    const [version, actor] = await Promise.all([
+      prisma.version.findUnique({ where: { id: versionId }, select: { scopeApprovedAt: true } }),
+      prisma.user.findUnique({ where: { id: user.sub }, select: { fullName: true, email: true } }),
+    ]);
+    const by = actor?.fullName || actor?.email || user.email || user.sub;
+    const archiveReason = defectCount > 0
+      ? `הוסר מהגרסה — ${why} (נפתחו ${defectCount} תקלות, הועבר לארכיון)`
+      : `הוסר מהגרסה — ${why}`;
+    const now = new Date();
+
+    // QA work first (archives the cycle tasks + flags the rows isArchived)
+    await this.qaWorkPlan.archiveCr(versionId, crNumber, archiveReason, actor?.email ?? user.email).catch(err =>
+      this.logger.warn(`removeCr: QA archive failed for ${crNumber}: ${err.message}`));
+    await prisma.versionCrAssignment.updateMany({
+      where: { versionId, crNumber },
+      data: {
+        syncStatus: 'REMOVED', manuallyRemoved: true, removedReason: why, removedBy: by, removedAt: now,
+        removedDefectCount: defectCount, needsAttention: !!version?.scopeApprovedAt,
+        isArchived: true, archivedAt: now, archivedReason: archiveReason,
+      },
+    });
+    await prisma.crPlan.updateMany({ where: { versionId, crNumber, notNeededForPlan: false }, data: { notNeededForPlan: true } });
+    await prisma.crChangeEvent.createMany({
+      data: rows.map(r => ({
+        versionId, crNumber, crLabel: r.crLabel, teamId: r.teamId,
+        field: 'SCOPE_REMOVED', oldValue: r.crLabel, newValue: null,
+        reason: `הוסר ידנית ע"י ${by}: ${why}${defectCount > 0 ? ` — ${defectCount} תקלות נשארות בספרייה (ארכיון)` : ''}`,
+        sourceSyncedAt: now,
+      })),
+    });
+    return { crNumber, removed: true, archived: defectCount > 0, defectCount };
+  }
+
+  async restoreRemovedCr(versionId: string, crNumber: string, user: { sub: string; email?: string }) {
+    const rows = await prisma.versionCrAssignment.findMany({ where: { versionId, crNumber, manuallyRemoved: true } });
+    if (rows.length === 0) throw new NotFoundException('ה-CR לא הוסר ידנית מגרסה זו');
+    const actor = await prisma.user.findUnique({ where: { id: user.sub }, select: { fullName: true, email: true } });
+    const by = actor?.fullName || actor?.email || user.email || user.sub;
+    const now = new Date();
+    await this.qaWorkPlan.restoreCr(versionId, crNumber, `הוחזר לגרסה ע"י ${by}`, actor?.email ?? user.email).catch(err =>
+      this.logger.warn(`restoreRemovedCr: QA restore failed for ${crNumber}: ${err.message}`));
+    await prisma.versionCrAssignment.updateMany({
+      where: { versionId, crNumber },
+      data: {
+        syncStatus: 'ACTIVE', manuallyRemoved: false, removedReason: null, removedBy: null, removedAt: null, removedDefectCount: null,
+        isArchived: false, archivedAt: null, archivedReason: null,
+      },
+    });
+    await prisma.crPlan.updateMany({ where: { versionId, crNumber, notNeededForPlan: true }, data: { notNeededForPlan: false } });
+    await prisma.crChangeEvent.createMany({
+      data: rows.map(r => ({
+        versionId, crNumber, crLabel: r.crLabel, teamId: r.teamId,
+        field: 'SCOPE_ADDED', oldValue: null, newValue: r.crLabel,
+        reason: `הוחזר לגרסה ע"י ${by} (בוטלה הסרה ידנית)`, sourceSyncedAt: now,
+      })),
+    });
+    return { crNumber, restored: true };
   }
 
   // ── Explain why a CR is tagged NEW / REMOVED — reads the live CR_LIST file

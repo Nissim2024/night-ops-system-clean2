@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, UseGuards, ForbiddenException } from '@nestjs/common';
 import { VersionCrAssignmentsService } from './version-cr-assignments.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
+import { PermissionsService } from '../permissions/permissions.service';
 
 const LEADS_UP = ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'];
 const MANAGERS  = ['RELEASE_MANAGER', 'ADMIN'];
@@ -8,7 +9,25 @@ const MANAGERS  = ['RELEASE_MANAGER', 'ADMIN'];
 @UseGuards(JwtGuard)
 @Controller('version-cr-assignments')
 export class VersionCrAssignmentsController {
-  constructor(private service: VersionCrAssignmentsService) {}
+  constructor(private service: VersionCrAssignmentsService, private permissions: PermissionsService) {}
+
+  // Remove a CR from the version with a reason, even while CR_LIST still has
+  // it (2026-10-06). Permission component action:vm_remove_cr (default: RM via
+  // the ניהול גרסה module + CR_MANAGER).
+  @Post('cr/:versionId/:crNumber/remove')
+  async removeCr(
+    @Param('versionId') versionId: string, @Param('crNumber') crNumber: string,
+    @Body() body: { reason: string }, @Request() req: any,
+  ) {
+    if (!(await this.permissions.userHas(req.user, 'action:vm_remove_cr'))) throw new ForbiddenException('אין הרשאה להסיר CR מהגרסה');
+    return this.service.removeCr(versionId, crNumber, body?.reason, req.user);
+  }
+
+  @Post('cr/:versionId/:crNumber/restore')
+  async restoreCr(@Param('versionId') versionId: string, @Param('crNumber') crNumber: string, @Request() req: any) {
+    if (!(await this.permissions.userHas(req.user, 'action:vm_remove_cr'))) throw new ForbiddenException('אין הרשאה להחזיר CR לגרסה');
+    return this.service.restoreRemovedCr(versionId, crNumber, req.user);
+  }
 
   // Backs the version-creation picker (2026-09-19) — version names that
   // already appear in CR_LIST (sourced from Clarity) but don't exist as a

@@ -54,7 +54,7 @@ export class QaWorkPlanService {
 
   private async buildCrInputs(versionId: string): Promise<{ crInputs: CrInput[]; unassigned: string[] }> {
     // 2. Load all CR assignments
-    const vcas = await prisma.versionCrAssignment.findMany({ where: { versionId } });
+    const vcas = await prisma.versionCrAssignment.findMany({ where: { versionId, manuallyRemoved: false } });
     // Deduplicated metadata (first occurrence wins for label, application, etc.)
     const crMap = new Map<string, typeof vcas[0]>();
     vcas.forEach(v => { if (!crMap.has(v.crNumber)) crMap.set(v.crNumber, v); });
@@ -1373,7 +1373,7 @@ export class QaWorkPlanService {
 
     // ── Load VCA data: crManager, crDescription, team assignments per CR ─────
     const vcas = await prisma.versionCrAssignment.findMany({
-      where:   { versionId },
+      where:   { versionId, manuallyRemoved: false },
       include: { team: { select: { name: true } } },
     });
     const vcaFirstMap = new Map<string, typeof vcas[0]>();  // crNumber → first VCA

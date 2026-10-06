@@ -766,6 +766,14 @@ model VersionCrAssignment {
   isArchived            Boolean   @default(false) // RM archived this CR's QA work (see QaWorkPlanService.archiveCr) — hidden from active assignment views and excluded from tester load/capacity calcs, but the row and its QaAssignment/QaCycleTask history are kept, not deleted
   archivedAt            DateTime?
   archivedReason        String?
+  // Removed by a manager with a reason while still in CR_LIST (2026-10-06) —
+  // syncStatus is set to REMOVED (so every module drops it) and the nightly
+  // sync must never bring it back while this is true. Restorable.
+  manuallyRemoved       Boolean   @default(false)
+  removedReason         String?
+  removedBy             String?
+  removedAt             DateTime?
+  removedDefectCount    Int? // defects already opened on the CR when it was removed (>0 = archived, not just removed)
 
   version Version @relation(fields: [versionId], references: [id])
   team    Team    @relation(fields: [teamId], references: [id])

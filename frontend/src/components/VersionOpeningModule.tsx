@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { DateField, DateTimeField } from './DatePicker';
-import { formatDate } from '../utils/dateFormat';
+import { formatDate, formatDateTime } from '../utils/dateFormat';
+import { usePermissions } from '../context/PermissionsContext';
+import { BrandedDialog, DialogButton } from './ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -12,6 +14,12 @@ interface CrRow {
   teams: { id: string; name: string; needsAttention: boolean }[];
   needsAttention: boolean;
   syncStatus: string;
+  // removed by a manager with a reason (2026-10-06)
+  manuallyRemoved?: boolean;
+  removedReason?: string | null;
+  removedBy?: string | null;
+  removedAt?: string | null;
+  removedDefectCount?: number | null;
 }
 
 interface VersionOpeningModuleProps {
@@ -86,6 +94,7 @@ function connectorClass(done: boolean): string {
 }
 
 export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ version, token, isManager, onRefresh, onStatusChange, focusStep }) => {
+  const { can } = usePermissions();
   const headers = { Authorization: `Bearer ${token}` };
   const [error, setError] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
@@ -166,6 +175,8 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
             teamNames: r.team?.name ? [r.team.name] : [],
             teams: r.team?.id ? [{ id: r.team.id, name: r.team.name, needsAttention: r.needsAttention }] : [],
             needsAttention: r.needsAttention, syncStatus: r.syncStatus,
+            manuallyRemoved: r.manuallyRemoved, removedReason: r.removedReason, removedBy: r.removedBy,
+            removedAt: r.removedAt, removedDefectCount: r.removedDefectCount,
           });
         }
       }
@@ -462,7 +473,8 @@ export const VersionOpeningModule: React.FC<VersionOpeningModuleProps> = ({ vers
                 </div>
               </div>
               {loadingRows ? <div className="text-subtle-foreground">טוען...</div> : (
-                <CrList rows={rows} versionId={version.id} headers={headers} />
+                <CrList rows={rows} versionId={version.id} headers={headers}
+                  canRemove={openStep === 'manage' && can('action:vm_remove_cr')} onChanged={loadRows} />
               )}
 
               {estimateStats && (
@@ -601,8 +613,10 @@ const EstimateBreakdown: React.FC<{
 // duplicated, just surfaced inline instead of as a separate screen.
 type ChangeDetail = { teamName: string; reason: string };
 
-const CrList: React.FC<{ rows: CrRow[]; versionId: string; headers: Record<string, string> }> = ({ rows, versionId, headers }) => {
+const CrList: React.FC<{ rows: CrRow[]; versionId: string; headers: Record<string, string>; canRemove?: boolean; onChanged?: () => void }> = ({ rows, versionId, headers, canRemove, onChanged }) => {
   const [expandedCr, setExpandedCr] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<CrRow | null>(null);
+  const [restoring, setRestoring] = useState<CrRow | null>(null);
   const [details, setDetails] = useState<ChangeDetail[] | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
@@ -640,13 +654,38 @@ const CrList: React.FC<{ rows: CrRow[]; versionId: string; headers: Record<strin
             <span className={`flex-1 text-muted-foreground ${r.syncStatus === 'REMOVED' ? 'line-through' : ''}`}>{r.crLabel?.replace(/^\d+\s*-\s*/, '') ?? '—'}</span>
             <span className="text-[13px] text-subtle-foreground">{r.teamNames.join(', ')}</span>
             {r.syncStatus === 'NEW' && <span className="text-xs font-bold text-primary">חדש</span>}
-            {r.syncStatus === 'REMOVED' && <span className="text-xs font-bold text-danger">הוסר</span>}
+            {r.syncStatus === 'REMOVED' && !r.manuallyRemoved && <span className="text-xs font-bold text-danger">הוסר</span>}
+            {r.manuallyRemoved && (
+              <span className="text-xs font-bold text-danger">
+                {(r.removedDefectCount ?? 0) > 0 ? `🗄 בארכיון · ${r.removedDefectCount} תקלות` : 'הוסר ידנית'}
+              </span>
+            )}
+            {canRemove && !r.manuallyRemoved && r.syncStatus !== 'REMOVED' && (
+              <button onClick={e => { e.stopPropagation(); setRemoving(r); }}
+                className="cursor-pointer rounded-md border border-border bg-card px-2 py-0.5 text-xs font-semibold text-danger hover:bg-danger-bg">
+                הסר מהגרסה
+              </button>
+            )}
+            {canRemove && r.manuallyRemoved && (
+              <button onClick={e => { e.stopPropagation(); setRestoring(r); }}
+                className="cursor-pointer rounded-md border border-border bg-card px-2 py-0.5 text-xs font-semibold text-primary">
+                ↩ החזר לגרסה
+              </button>
+            )}
             {r.needsAttention && (
               <span className="text-xs font-bold text-warning">
                 ⚠ דורש תשומת לב · {expandedCr === r.crNumber ? 'הסתר פירוט ▲' : 'מה השתנה? ▾'}
               </span>
             )}
           </div>
+          {r.manuallyRemoved && (
+            <div className="px-3 pb-2 text-xs text-muted-foreground">
+              סיבה: <span className="font-semibold text-foreground">{r.removedReason}</span>
+              {r.removedBy && <> · {r.removedBy}</>}
+              {r.removedAt && <> · <span dir="ltr">{formatDateTime(r.removedAt)}</span></>}
+              {(r.removedDefectCount ?? 0) > 0 && <> · התקלות נשארות בספרייה ובמדדים</>}
+            </div>
+          )}
           {expandedCr === r.crNumber && (
             <div className="border-t border-warning/25 px-3 pb-2.5 pt-1">
               {loadingDetail ? (
@@ -663,6 +702,89 @@ const CrList: React.FC<{ rows: CrRow[]; versionId: string; headers: Record<strin
         </div>
       ))}
       {rows.length === 0 && <div className="text-subtle-foreground">אין CR-ים בתכולת הגרסה. יש לסנכרן מקובץ CR_LIST.</div>}
+      {removing && (
+        <RemoveCrDialog row={removing} versionId={versionId} headers={headers}
+          onClose={() => setRemoving(null)} onDone={() => { setRemoving(null); onChanged?.(); }} />
+      )}
+      {restoring && (
+        <RestoreCrDialog row={restoring} versionId={versionId} headers={headers}
+          onClose={() => setRestoring(null)} onDone={() => { setRestoring(null); onChanged?.(); }} />
+      )}
     </div>
+  );
+};
+
+// Remove a CR from the version with a reason (2026-10-06) — even while it is
+// still in CR_LIST. Says up front what happens in the other modules.
+const RemoveCrDialog: React.FC<{ row: CrRow; versionId: string; headers: Record<string, string>; onClose: () => void; onDone: () => void }> = ({ row, versionId, headers, onClose, onDone }) => {
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [result, setResult] = useState<{ archived: boolean; defectCount: number } | null>(null);
+  const submit = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const r = await axios.post(`${API}/version-cr-assignments/cr/${versionId}/${encodeURIComponent(row.crNumber)}/remove`, { reason: reason.trim() }, { headers });
+      setResult({ archived: r.data.archived, defectCount: r.data.defectCount });
+    } catch (e: any) {
+      setErr(e?.response?.data?.message ?? 'ההסרה נכשלה');
+    } finally { setBusy(false); }
+  };
+  return (
+    <BrandedDialog onClose={result ? onDone : onClose} title={`הסרת CR ${row.crNumber}`} icon="🗑" width="sm" busy={busy} closeOnBackdrop={false}
+      footer={result ? <DialogButton onClick={onDone}>סגור</DialogButton> : (
+        <>
+          <DialogButton variant="secondary" onClick={onClose} disabled={busy}>ביטול</DialogButton>
+          <DialogButton variant="danger" onClick={submit} disabled={busy || reason.trim().length < 3}>{busy ? 'מסיר...' : 'הסר מהגרסה'}</DialogButton>
+        </>
+      )}>
+      {result ? (
+        <div className="text-sm text-foreground">
+          {result.archived
+            ? <>ה-CR הועבר לארכיון. נפתחו עליו <b>{result.defectCount}</b> תקלות — הן נשארות בספריית התקלות ובכל המדדים, ותופיע על כך תובנה אוטומטית.</>
+            : <>ה-CR הוסר מהגרסה ומכל המודולים.</>}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3 text-sm">
+          <div className="text-foreground">{row.crLabel ?? row.crNumber}</div>
+          <div className="rounded-md bg-muted p-3 text-xs leading-relaxed text-muted-foreground">
+            ההסרה תקפה גם אם ה-CR עדיין מופיע בקובץ ה-CR_LIST — הסנכרון לא יחזיר אותו.
+            הוא ייצא משיבוץ ה-QA, מתוכניות ה-CR והגשות הצוותים, מכיסוי ומוכנות וממדדי הגרסה.
+            אם כבר נפתחו עליו תקלות — הוא יועבר לארכיון עם הסיבה, והתקלות יישארו בספרייה ובמדדים.
+            ניתן להחזיר אותו לגרסה בכל עת.
+          </div>
+          <label className="text-xs font-semibold text-muted-foreground">סיבת ההסרה (חובה)</label>
+          <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} autoFocus
+            className="w-full resize-y rounded-md border border-border bg-card p-2 text-sm text-foreground" placeholder="למשל: הפיתוח נדחה לגרסה הבאה" />
+          {err && <div className="text-xs text-danger">⚠️ {err}</div>}
+        </div>
+      )}
+    </BrandedDialog>
+  );
+};
+
+const RestoreCrDialog: React.FC<{ row: CrRow; versionId: string; headers: Record<string, string>; onClose: () => void; onDone: () => void }> = ({ row, versionId, headers, onClose, onDone }) => {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const submit = async () => {
+    setBusy(true); setErr(null);
+    try {
+      await axios.post(`${API}/version-cr-assignments/cr/${versionId}/${encodeURIComponent(row.crNumber)}/restore`, {}, { headers });
+      onDone();
+    } catch (e: any) {
+      setErr(e?.response?.data?.message ?? 'ההחזרה נכשלה'); setBusy(false);
+    }
+  };
+  return (
+    <BrandedDialog onClose={onClose} title={`החזרת CR ${row.crNumber}`} icon="↩" width="sm" busy={busy}
+      footer={<>
+        <DialogButton variant="secondary" onClick={onClose} disabled={busy}>ביטול</DialogButton>
+        <DialogButton onClick={submit} disabled={busy}>{busy ? 'מחזיר...' : 'החזר לגרסה'}</DialogButton>
+      </>}>
+      <div className="text-sm text-foreground">
+        ה-CR יחזור לתכולה ולכל המודולים, ועבודת ה-QA שלו תשוחזר מהארכיון.
+        {err && <div className="mt-2 text-xs text-danger">⚠️ {err}</div>}
+      </div>
+    </BrandedDialog>
   );
 };

@@ -19,7 +19,7 @@ const DEFAULTS: Record<string, string[]> = {
   RELEASE_MANAGER: ['module:version-management', ...screens('deployments'), 'action:import', 'action:gonogo', 'action:task_status',
                     'action:open_task_for_execution', 'action:override_version_edit', 'action:select_all_tasks', 'defects:view',
                     'action:qa_leave_request'],
-  CR_MANAGER:      ['defects:view', 'action:qa_leave_request', 'deploy:hub', 'deploy:board', 'deploy:overview', 'deploy:cr-manager'],
+  CR_MANAGER:      ['defects:view', 'action:vm_remove_cr', 'action:qa_leave_request', 'deploy:hub', 'deploy:board', 'deploy:overview', 'deploy:cr-manager'],
   TEAM_LEAD:       ['deploy:hub', 'screen:prep', 'deploy:proposals', 'screen:night', 'deploy:board', 'deploy:overview',
                     'screen:timeline', 'deploy:summary-rehearsal', 'screen:summary', 'action:task_status', 'action:qa_leave_request', 'defects:view'],
   EMPLOYEE:        ['action:task_status', 'action:qc_defect_create', 'action:qc_attachment_upload', 'defects:view', 'action:qa_leave_request',
@@ -62,6 +62,10 @@ const DEPLOY_SCREENS_V4: { key: string; roles?: string[]; ifHas?: string; always
   { key: 'deploy:cr-manager', roles: ['RELEASE_MANAGER', 'CR_MANAGER'] },
   { key: 'deploy:summary-rehearsal', ifHas: 'screen:summary' },
 ];
+
+// "הסרת CR" (2026-10-06): RELEASE_MANAGER already has it through
+// module:version-management; CR_MANAGER gets it once, explicitly.
+const VM_REMOVE_CR_MIGRATED_KEY = 'PERMISSIONS_VM_REMOVE_CR_V5_MIGRATED';
 
 // Team grants (user ask 2026-10-05: "לפי צוות ולפי תפקיד"): per team, keys for
 // all its members, for its leads only, and for non-lead members only. A
@@ -200,6 +204,24 @@ export class PermissionsService {
     await this.migrateToCatalogOnce();
     await this.migrateWiredActionsOnce();
     await this.migrateDeployScreensOnce();
+    await this.migrateVmRemoveCrOnce();
+  }
+
+  private async migrateVmRemoveCrOnce() {
+    const done = await prisma.systemParam.findUnique({ where: { key: VM_REMOVE_CR_MIGRATED_KEY } });
+    if (done?.value === 'true') return;
+    const row = await prisma.rolePermissions.findUnique({ where: { role: 'CR_MANAGER' as Role } });
+    if (row) {
+      const keys = new Set(normalizeGrants(row.permissions as string[]));
+      keys.add('action:vm_remove_cr');
+      await prisma.rolePermissions.update({ where: { role: 'CR_MANAGER' as Role }, data: { permissions: Array.from(keys) } });
+    }
+    await prisma.systemParam.upsert({
+      where: { key: VM_REMOVE_CR_MIGRATED_KEY },
+      update: { value: 'true' },
+      create: { key: VM_REMOVE_CR_MIGRATED_KEY, label: 'הרשאת הסרת CR הוענקה למנהל CR', value: 'true', type: 'text' },
+    });
+    clearEffectiveCache();
   }
 
   private async migrateDeployScreensOnce() {

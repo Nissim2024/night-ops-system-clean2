@@ -6,7 +6,9 @@ import { addWorkDays, nextWorkDay, getFirstWorkDay, dateKey } from './qa.schedul
 import { VersionCrAssignmentsService } from '../version-cr-assignments/version-cr-assignments.service';
 
 const prisma = new PrismaClient();
-const vcaService = new VersionCrAssignmentsService();
+// Only getChangeDetail (a pure CR_LIST file read) is used from here, so the
+// injected QC / QA-plan services (needed only by removeCr/restore) are absent.
+const vcaService = new VersionCrAssignmentsService(null as any, null as any);
 
 @Injectable()
 export class QaService {
@@ -237,7 +239,7 @@ export class QaService {
 
   async recommendTesters(versionId: string) {
     const [vcaRows, plans, testers] = await Promise.all([
-      prisma.versionCrAssignment.findMany({ where: { versionId } }),
+      prisma.versionCrAssignment.findMany({ where: { versionId, manuallyRemoved: false } }),
       prisma.crPlan.findMany({ where: { versionId }, select: { crNumber: true, systems: true, riskLevel: true } }),
       this.getTesters(),
     ]);
