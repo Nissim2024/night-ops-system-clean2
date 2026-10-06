@@ -20,6 +20,19 @@ export class VersionCrAssignmentsController {
     return this.service.listFutureVersionNames();
   }
 
+  // CR search across the whole CR_LIST (ניהול גרסה, 2026-10-06) — read-only
+  @Get('cr-search')
+  searchCrList(@Query('q') q: string, @Request() req: any) {
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.searchCrList(q);
+  }
+
+  @Get('cr-card/:crNumber')
+  getCrCard(@Param('crNumber') crNumber: string, @Request() req: any) {
+    if (!LEADS_UP.includes(req.user.role)) throw new ForbiddenException('נדרשת הרשאת ראש צוות לפחות');
+    return this.service.getCrCard(crNumber);
+  }
+
   @Get('version/:versionId')
   findForVersion(
     @Param('versionId') versionId: string,

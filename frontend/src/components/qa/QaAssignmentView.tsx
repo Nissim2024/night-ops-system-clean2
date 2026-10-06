@@ -99,7 +99,7 @@ interface CrArchiveHistoryEntry {
 
 interface CrDetail {
   crNumber: string; crLabel: string; crDescription: string | null; crManager: string | null;
-  application: string | null; estimateDays: number | null; notes: string | null;
+  application: string | null; characterizer?: string | null; estimateDays: number | null; notes: string | null;
   versionName: string; teams: string[]; status: string;
   archiveHistory: CrArchiveHistoryEntry[];
 }
@@ -3471,7 +3471,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                   )}
                   <div className="grid grid-cols-3 gap-4 rounded-lg bg-muted p-4">
                     <DetailField label="מנהל CR" value={crDetail.crManager} />
-                    <DetailField label="מאפיין" value={crDetail.application} />
+                    <DetailField label="מאפיין" value={crDetail.characterizer ?? crDetail.application} />
                     <DetailField label="סך כל הערכות" value={crDetail.estimateDays != null ? `${crDetail.estimateDays} ימים` : null} />
                     <DetailField label="סטטוס" value={crDetail.status} />
                     <DetailField label="צוותים מעורבים" value={crDetail.teams.length > 0 ? crDetail.teams.join(', ') : null} />

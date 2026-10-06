@@ -14,7 +14,7 @@ const a = (key: string, label: string): CatalogItem => ({ key, label, kind: 'act
 export const PERMISSION_CATALOG: CatalogModule[] = [
   {
     id: 'version-management', key: 'module:version-management', label: 'ניהול גרסה', icon: '🧭',
-    items: [s('vm:overview', 'סקירה כללית'), s('vm:manage', 'ניהול תכולה'), s('vm:changes', 'ניהול שינויים')],
+    items: [s('vm:overview', 'סקירה כללית'), s('vm:manage', 'ניהול תכולה'), s('vm:changes', 'ניהול שינויים'), s('vm:cr-search', 'חיפוש CR')],
   },
   {
     id: 'qa', key: 'module:qa', label: 'ניהול QA', icon: '👥',

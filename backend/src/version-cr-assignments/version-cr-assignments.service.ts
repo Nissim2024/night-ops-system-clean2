@@ -149,6 +149,131 @@ export class VersionCrAssignmentsService {
     return { totalCrs, classifiedCrs };
   }
 
+  // ── CR search across the whole CR_LIST (user, 2026-10-06) ─────────────────
+  // Searches the live file — not only CRs already synced into a version — so a
+  // CR that isn't scheduled anywhere yet is found too. A query that is exactly
+  // one CR number returns its card; otherwise up to 30 matches by number or
+  // title (the UI then opens the card of the picked one).
+  async searchCrList(q: string) {
+    const query = (q ?? '').trim();
+    if (query.length < 2) return { matches: [] };
+    const { rows, headerRowIdx, crCol, titleCol, verCol, statusCol } = await this.loadSheet();
+    const lower = query.toLowerCase();
+    const seen = new Set<string>();
+    const matches: { crNumber: string; title: string; version: string; status: string }[] = [];
+    for (let r = headerRowIdx + 1; r < rows.length && matches.length < 30; r++) {
+      const row = rows[r] as any[];
+      const crNumber = String(row[crCol] ?? '').trim();
+      if (!crNumber || seen.has(crNumber)) continue;
+      const title = titleCol !== -1 ? String(row[titleCol] ?? '').trim() : '';
+      if (!crNumber.includes(query) && !title.toLowerCase().includes(lower)) continue;
+      seen.add(crNumber);
+      matches.push({
+        crNumber, title,
+        version: verCol !== -1 ? String(row[verCol] ?? '').trim() : '',
+        status: statusCol !== -1 ? String(row[statusCol] ?? '').trim() : '',
+      });
+    }
+    // an exact CR number first
+    matches.sort((a, b) => Number(b.crNumber === query) - Number(a.crNumber === query));
+    return { matches };
+  }
+
+  async getCrCard(crNumber: string) {
+    const cr = (crNumber ?? '').trim();
+    const { rows, headerRowIdx, crCol, titleCol, verCol, statusCol, appCol, projectCol, estimateCol, actualsCol, colIdx, parseDay } = await this.loadSheet();
+    const headers: string[] = (rows[headerRowIdx] as any[]).map(h => String(h ?? '').trim());
+    const lines = rows.slice(headerRowIdx + 1).filter(row => String((row as any[])[crCol] ?? '').trim() === cr) as any[][];
+    if (lines.length === 0) throw new NotFoundException(`CR ${cr} לא נמצא בקובץ ה-CR_LIST`);
+    const first = lines[0];
+    // Excel export leaves line breaks as "&#10;"
+    const clean = (v: string) => v.replace(/&#10;|&#13;/g, String.fromCharCode(10)).trim();
+    const cell = (i: number) => (i === -1 ? '' : clean(String(first[i] ?? '')));
+    const COL_DESCRIPTION = 5;
+    const COL_MANAGER = 9;
+    // "מאפיין" holds the characterizing group (e.g. A&A); the person is in "שם מאפיין"
+    const charNameCol = colIdx('שם מאפיין');
+
+    // effort per team = that team's CR_LIST columns (WIZ, CRM, QA…), summed over the CR's rows
+    const teamColIdx = new Set<number>();
+    const teamEfforts = Object.entries(TEAM_COLUMNS).map(([team, cols]) => {
+      const idx = cols.map(colIdx).filter(i => i !== -1);
+      idx.forEach(i => teamColIdx.add(i));
+      const days = lines.reduce((s, row) => s + idx.reduce((t, i) => t + parseDay(row[i]), 0), 0);
+      return { team, columns: cols.filter(c => colIdx(c) !== -1), days: Math.round(days * 100) / 100 };
+    }).filter(t => t.days > 0).sort((a, b) => b.days - a.days);
+
+    // every other non-empty column of the row ("ועוד")
+    const shown = new Set([crCol, titleCol, verCol, statusCol, appCol, charNameCol, projectCol, estimateCol, actualsCol, COL_DESCRIPTION, COL_MANAGER]);
+    const otherFields = headers.map((label, i) => ({ label, i }))
+      .filter(({ label, i }) => label && !shown.has(i) && !teamColIdx.has(i))
+      .map(({ label, i }) => {
+        const v = first[i];
+        const value = v instanceof Date ? v.toISOString().slice(0, 10) : clean(String(v ?? ''));
+        return { label, value };
+      })
+      .filter(f => f.value && f.value !== '0');
+
+    const versionsInFile = [...new Set(lines.map(row => String(row[verCol] ?? '').trim()).filter(Boolean))];
+
+    // what DeployCenter already knows about it, per version
+    const assigned = await prisma.versionCrAssignment.findMany({
+      where: { crNumber: cr },
+      include: { team: { select: { name: true } }, version: { select: { id: true, name: true, status: true, isArchived: true } } },
+      orderBy: { syncedAt: 'asc' },
+    });
+    const versionIds = [...new Set(assigned.map(a => a.versionId))];
+    const [plans, testers, events] = await Promise.all([
+      prisma.crPlan.findMany({
+        where: { crNumber: cr, versionId: { in: versionIds } },
+        select: { versionId: true, planApproved: true, notNeededForPlan: true, team: { select: { name: true } } },
+      }),
+      prisma.qaAssignment.findMany({
+        where: { crNumber: cr, versionId: { in: versionIds } },
+        select: { versionId: true, user: { select: { fullName: true } } },
+      }).catch(() => [] as any[]),
+      prisma.crChangeEvent.findMany({
+        where: { crNumber: cr }, orderBy: { detectedAt: 'desc' }, take: 30,
+        include: { version: { select: { name: true } }, team: { select: { name: true } } },
+      }),
+    ]);
+    const inSystem = versionIds.map(vid => {
+      const rowsOf = assigned.filter(a => a.versionId === vid);
+      const v = rowsOf[0].version;
+      return {
+        versionId: vid, versionName: v.name, versionStatus: v.status, versionArchived: v.isArchived,
+        teams: rowsOf.map(a => ({
+          team: a.team.name, teamEstimateDays: a.teamEstimateDays, syncStatus: a.syncStatus,
+          isArchived: a.isArchived, archivedReason: a.archivedReason,
+        })),
+        isCore: rowsOf.some(a => a.isCore), isStandAlone: rowsOf.some(a => a.isStandAlone),
+        plans: plans.filter(p => p.versionId === vid).map(p => ({ team: p.team?.name ?? '', approved: p.planApproved, notNeeded: p.notNeededForPlan })),
+        testers: [...new Set(testers.filter((t: any) => t.versionId === vid).map((t: any) => t.user?.fullName).filter(Boolean))],
+      };
+    });
+
+    return {
+      crNumber: cr,
+      title: cell(titleCol),
+      description: cell(COL_DESCRIPTION),
+      versionsInFile,
+      status: cell(statusCol),
+      characterizer: cell(charNameCol) || cell(appCol),   // the person who characterized the CR
+      characterizerGroup: charNameCol !== -1 ? cell(appCol) : '',
+      crManager: cell(COL_MANAGER),
+      project: cell(projectCol),
+      totalEstimateDays: estimateCol !== -1 ? parseDay(first[estimateCol]) || null : null,
+      actuals: cell(actualsCol) || null,
+      teamEfforts,
+      otherFields,
+      inSystem,
+      history: events.map(e => ({
+        at: e.detectedAt, version: e.version?.name ?? '', team: e.team?.name ?? '', field: e.field, reason: e.reason,
+        oldValue: e.oldValue, newValue: e.newValue,
+      })),
+    };
+  }
+
   // ── Private: load raw CR_LIST sheet + resolved column indices (shared by
   // parseExcelAssignments and getChangeDetail) ──────────────────────────────
   private async loadSheet(): Promise<LoadedSheet> {
@@ -746,18 +871,21 @@ export class VersionCrAssignmentsService {
     const version = await prisma.version.findUnique({ where: { id: versionId }, select: { name: true } });
 
     let status = '';
+    let characterizer = '';
     try {
-      const { rows: sheetRows, headerRowIdx, crCol, statusCol } = await this.loadSheet();
-      if (crCol !== -1 && statusCol !== -1) {
+      const { rows: sheetRows, headerRowIdx, crCol, statusCol, colIdx } = await this.loadSheet();
+      const charNameCol = colIdx('שם מאפיין');   // the person; "מאפיין" (= .application) is the group
+      if (crCol !== -1) {
         for (let r = headerRowIdx + 1; r < sheetRows.length; r++) {
           const line = sheetRows[r] as any[];
           if (String(line[crCol] ?? '').trim() === crNumber) {
-            status = String(line[statusCol] ?? '').trim();
+            if (statusCol !== -1) status = String(line[statusCol] ?? '').trim();
+            if (charNameCol !== -1) characterizer = String(line[charNameCol] ?? '').trim();
             break;
           }
         }
       }
-    } catch { /* CR_LIST file unavailable — status stays blank */ }
+    } catch { /* CR_LIST file unavailable — status / characterizer stay blank */ }
 
     // Archive/restore history for this CR's QA work-plan tasks (see
     // qa-workplan.service.ts's archiveTask/restoreTask) — surfaced here so a
@@ -811,6 +939,7 @@ export class VersionCrAssignmentsService {
       crDescription: first.crDescription,
       crManager:     first.crManager,
       application:   first.application,
+      characterizer: characterizer || first.application,
       estimateDays:  first.estimateDays,
       notes:         first.notes,
       versionName:   version?.name ?? '',

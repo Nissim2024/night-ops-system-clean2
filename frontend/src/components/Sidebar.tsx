@@ -61,6 +61,7 @@ export const VM_VIEWS = [
   { key: 'overview', label: 'סקירה כללית',      icon: '📊' },
   { key: 'manage',   label: 'ניהול תכולה',      icon: '📋' },
   { key: 'changes',  label: 'ניהול שינויים',    icon: '🔄' },
+  { key: 'cr-search', label: 'חיפוש CR',        icon: '🔎' },
 ];
 
 // Trimmed 2026-09-07: removed סקירה כללית / באגים / לוח מצב (duplicated by the

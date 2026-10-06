@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { VersionOpeningModule, StepKey } from './VersionOpeningModule';
 import { VersionOverview } from './VersionOverview';
+import { CrSearchView } from './CrSearchView';
 import { useVersionCreation } from '../hooks/useVersionCreation';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -108,7 +109,10 @@ export const VersionManagementModuleView: React.FC<Props> = ({
         </div>
       )}
 
-      {!selectedVersion ? (
+      {activeView === 'cr-search' ? (
+        // not version-scoped — searches the whole CR_LIST
+        <CrSearchView token={token} versions={versions} />
+      ) : !selectedVersion ? (
         <div className="p-10 text-center text-subtle-foreground">
           {openVersions.length === 0 ? 'אין גרסאות פתוחות — לחץ "+ יצירת גרסה" למעלה כדי להתחיל.' : 'בחר גרסה בבורר הגרסאות בתפריט הצד.'}
         </div>
