@@ -1410,17 +1410,59 @@ const BUG_DASHBOARD_SQL = `
 // Close dates for the bug dashboard's trend (2026-10-06, aligned with the
 // defects module): the LAST change of status to Closed/Canceled, from the
 // status history, for defects detected in this release. ASCII-only, pre-12c.
-const BUG_DASHBOARD_CLOSE_DATES_SQL = `
-  SELECT audit_log.AU_ENTITY_ID AS DEFECT_ID, MAX(audit_log.AU_TIME) AS CLOSED_AT
-  FROM AUDIT_LOG audit_log
+// Every Reopen / Closed / Canceled status change of one release's defects, in
+// ONE pass over AUDIT_LOG (2026-10-07). The reopened-ids set, the latest
+// reopen per defect and the close dates used to be three separate scans of
+// the audit tables for the same release; they're now derived from these rows
+// in code (getReleaseStatusEvents) with exactly the old filters.
+// Driven from the release's defects; AU_ENTITY_ID is compared with the id as
+// text so its index stays usable (ALM stores it as VARCHAR2).
+const RELEASE_STATUS_EVENTS_SQL = `
+  SELECT defect.BG_BUG_ID      AS DEFECT_ID,
+         audit_property.AP_NEW_VALUE AS NEW_VALUE,
+         audit_log.AU_TIME     AS CHANGE_TIME,
+         defect.BG_USER_29     AS REOPEN_YN,
+         defect.BG_USER_04     AS CURRENT_STATUS,
+         defect.BG_USER_05     AS TEST_PHASE
+  FROM BUG defect
+  JOIN AUDIT_LOG audit_log ON audit_log.AU_ENTITY_ID = TO_CHAR(defect.BG_BUG_ID)
   JOIN AUDIT_PROPERTIES audit_property ON audit_log.AU_ACTION_ID = audit_property.AP_ACTION_ID
-  JOIN BUG defect ON defect.BG_BUG_ID = audit_log.AU_ENTITY_ID
-  WHERE audit_log.AU_ENTITY_TYPE = 'BUG'
+  WHERE defect.BG_DETECTED_IN_REL = :releaseId
+    AND audit_log.AU_ENTITY_TYPE = 'BUG'
     AND audit_property.AP_PROPERTY_NAME = 'Bug Status'
-    AND TRIM(audit_property.AP_NEW_VALUE) IN ('Closed', 'Canceled', 'Cancelled')
-    AND defect.BG_DETECTED_IN_REL = :releaseId
-  GROUP BY audit_log.AU_ENTITY_ID
+    AND (audit_property.AP_NEW_VALUE = 'Reopen'
+         OR TRIM(audit_property.AP_NEW_VALUE) IN ('Closed', 'Canceled', 'Cancelled'))
 `;
+
+export interface ReleaseStatusEvent {
+  defectId: string; newValue: string; at: Date;
+  reopenYn: string | null; currentStatus: string | null; testPhase: string | null;
+}
+// Same rules the three old SQL statements applied:
+//  reopened ids  = REOPENED_DEFECT_IDS_SQL (AP_NEW_VALUE = 'Reopen', NVL(BG_USER_29,'Y')='Y',
+//                  BG_USER_04 != 'Canceled' [NULL excluded, as in SQL], BG_USER_05 = 'System Test')
+//  latest reopen = LATEST_REOPEN_TIME_SQL (MAX time of AP_NEW_VALUE = 'Reopen')
+//  close date    = BUG_DASHBOARD_CLOSE_DATES_SQL (MAX time of TRIM(value) in Closed/Canceled/Cancelled)
+export function deriveReleaseStatusFacts(events: ReleaseStatusEvent[]) {
+  const reopenedIds = new Set<string>();
+  const latestReopen = new Map<string, Date>();
+  const closeTimes = new Map<string, Date>();
+  for (const e of events) {
+    if (isNaN(e.at.getTime())) continue;
+    if (e.newValue === 'Reopen') {
+      const prev = latestReopen.get(e.defectId);
+      if (!prev || e.at > prev) latestReopen.set(e.defectId, e.at);
+      if ((e.reopenYn ?? 'Y') === 'Y' && e.currentStatus != null && e.currentStatus !== 'Canceled' && e.testPhase === 'System Test') {
+        reopenedIds.add(e.defectId);
+      }
+    } else if (['Closed', 'Canceled', 'Cancelled'].includes((e.newValue ?? '').trim())) {
+      const prev = closeTimes.get(e.defectId);
+      if (!prev || e.at > prev) closeTimes.set(e.defectId, e.at);
+    }
+  }
+  return { reopenedIds, latestReopen, closeTimes };
+}
+
 const RELEASE_NAME_SQL = `SELECT REL_NAME FROM RELEASES WHERE REL_ID = :releaseId`;
 
 // TARGET card — defects opened in a PREVIOUS release whose BG_TARGET_REL points
@@ -1503,7 +1545,7 @@ WITH qc_defects_history AS (
         audit_property.AP_NEW_VALUE AS status,
         audit_log.AU_TIME           AS change_time
     FROM BUG defect
-    INNER JOIN AUDIT_LOG        audit_log      ON defect.BG_BUG_ID       = audit_log.AU_ENTITY_ID
+    INNER JOIN AUDIT_LOG        audit_log      ON audit_log.AU_ENTITY_ID       = TO_CHAR(defect.BG_BUG_ID)
     INNER JOIN AUDIT_PROPERTIES audit_property ON audit_log.AU_ACTION_ID  = audit_property.AP_ACTION_ID
     WHERE audit_log.AU_ENTITY_TYPE        = 'BUG'
       AND audit_property.AP_PROPERTY_NAME = 'Bug Status'
@@ -1643,7 +1685,7 @@ const DEFECT_STATUS_HISTORY_SQL = `
 const DEFECT_FIX_RATE_SQL = `
   SELECT COUNT(DISTINCT audit_log.AU_ENTITY_ID) AS FIXED_COUNT
   FROM BUG defect
-  INNER JOIN AUDIT_LOG audit_log ON defect.BG_BUG_ID = audit_log.AU_ENTITY_ID
+  INNER JOIN AUDIT_LOG audit_log ON audit_log.AU_ENTITY_ID = TO_CHAR(defect.BG_BUG_ID)
   INNER JOIN AUDIT_PROPERTIES audit_property ON audit_log.AU_ACTION_ID = audit_property.AP_ACTION_ID
   WHERE audit_log.AU_ENTITY_TYPE = 'BUG'
     AND audit_property.AP_PROPERTY_NAME = 'Bug Status'
@@ -1680,19 +1722,6 @@ const DEFECT_FIELD_HISTORY_SQL = `
 // real QC "Reopen KPI" Favorite filter (2026-08-27); NVL(...,'Y')='Y' is
 // intentional — it excludes only rows where reopenYn is explicitly not 'Y',
 // same permissive-null treatment as the original.
-const REOPENED_DEFECT_IDS_SQL = `
-  SELECT DISTINCT defect.BG_BUG_ID AS DEFECT_ID
-  FROM BUG defect
-  INNER JOIN AUDIT_LOG audit_log ON defect.BG_BUG_ID = audit_log.AU_ENTITY_ID
-  INNER JOIN AUDIT_PROPERTIES audit_property ON audit_log.AU_ACTION_ID = audit_property.AP_ACTION_ID
-  WHERE audit_log.AU_ENTITY_TYPE = 'BUG'
-    AND audit_property.AP_PROPERTY_NAME = 'Bug Status'
-    AND audit_property.AP_NEW_VALUE = 'Reopen'
-    AND NVL(defect.BG_USER_29, 'Y') = 'Y'
-    AND defect.BG_DETECTED_IN_REL = :releaseId
-    AND defect.BG_USER_04 != 'Canceled'
-    AND defect.BG_USER_05 = 'System Test'
-`;
 
 // Latest real reopen timestamp per defect (2026-09-19, spec-2026-09-19-aging) —
 // backs the "oldest still-open" list's age calculation: the clock restarts
@@ -1704,17 +1733,6 @@ const REOPENED_DEFECT_IDS_SQL = `
 // purposes, so excluding it here would silently under-reset an age. UNVERIFIED
 // against the real instance — same audit-log tables as DEFECT_FIELD_HISTORY_SQL
 // and REOPENED_DEFECT_IDS_SQL, just grouped/maxed instead of one row per change.
-const LATEST_REOPEN_TIME_SQL = `
-  SELECT defect.BG_BUG_ID AS DEFECT_ID, MAX(audit_log.AU_TIME) AS REOPEN_TIME
-  FROM BUG defect
-  INNER JOIN AUDIT_LOG audit_log ON defect.BG_BUG_ID = audit_log.AU_ENTITY_ID
-  INNER JOIN AUDIT_PROPERTIES audit_property ON audit_log.AU_ACTION_ID = audit_property.AP_ACTION_ID
-  WHERE audit_log.AU_ENTITY_TYPE = 'BUG'
-    AND audit_property.AP_PROPERTY_NAME = 'Bug Status'
-    AND audit_property.AP_NEW_VALUE = 'Reopen'
-    AND defect.BG_DETECTED_IN_REL = :releaseId
-  GROUP BY defect.BG_BUG_ID
-`;
 
 // ── Mock data (used when ORACLE_ENABLED=false) ────────────────────────────────
 
@@ -3916,17 +3934,28 @@ export class QcService implements OnApplicationBootstrap {
     if (!enabled) {
       return new Set(MOCK_DEFECTS.filter(d => d.reopenYn === 'Y').map(d => d.id));
     }
-    let conn: any;
-    try {
-      conn = await oracleConnect();
-      const result = await conn.execute(REOPENED_DEFECT_IDS_SQL, { releaseId: relId });
-      return new Set((result.rows ?? []).map((r: any) => String(r.DEFECT_ID)));
-    } catch (err: any) {
-      this.logger.error(`Oracle getReopenedDefectIds: ${err.message}`);
-      throw err;
-    } finally {
-      if (conn) await conn.close().catch(() => {});
-    }
+    return deriveReleaseStatusFacts(await this.getReleaseStatusEvents(relId)).reopenedIds;
+  }
+
+  // One AUDIT_LOG pass per release, shared (qcMemo) by the reopened set, the
+  // latest-reopen times and the bug dashboard's close dates.
+  async getReleaseStatusEvents(relId: number): Promise<ReleaseStatusEvent[]> {
+    return qcMemo(`statusEvents|${relId}`, async () => {
+      let conn: any;
+      try {
+        conn = await oracleConnect();
+        const result = await conn.execute(RELEASE_STATUS_EVENTS_SQL, { releaseId: relId });
+        return ((result.rows ?? []) as any[]).map(r => ({
+          defectId: String(r.DEFECT_ID), newValue: r.NEW_VALUE ?? '', at: new Date(r.CHANGE_TIME),
+          reopenYn: r.REOPEN_YN ?? null, currentStatus: r.CURRENT_STATUS ?? null, testPhase: r.TEST_PHASE ?? null,
+        }));
+      } catch (err: any) {
+        this.logger.error(`Oracle getReleaseStatusEvents: ${err.message}`);
+        throw err;
+      } finally {
+        if (conn) await conn.close().catch(() => {});
+      }
+    });
   }
 
   // Latest real reopen timestamp per defect (2026-09-19) — backs the
@@ -3940,23 +3969,7 @@ export class QcService implements OnApplicationBootstrap {
   private async getLatestReopenTimesUncached(relId: number): Promise<Map<string, Date>> {
     const { enabled } = await getOracleConfig();
     if (!enabled) return MOCK_REOPEN_TIMES;
-    let conn: any;
-    try {
-      conn = await oracleConnect();
-      const result = await conn.execute(LATEST_REOPEN_TIME_SQL, { releaseId: relId });
-      const map = new Map<string, Date>();
-      for (const r of (result.rows ?? []) as any[]) {
-        if (!r.REOPEN_TIME) continue;
-        const d = new Date(r.REOPEN_TIME);
-        if (!isNaN(d.getTime())) map.set(String(r.DEFECT_ID), d);
-      }
-      return map;
-    } catch (err: any) {
-      this.logger.error(`Oracle getLatestReopenTimes: ${err.message}`);
-      throw err;
-    } finally {
-      if (conn) await conn.close().catch(() => {});
-    }
+    return deriveReleaseStatusFacts(await this.getReleaseStatusEvents(relId)).latestReopen;
   }
 
   // Public wrapper — getReopenedDefectIds/getRelId are both private (used
@@ -4761,10 +4774,10 @@ export class QcService implements OnApplicationBootstrap {
         this.getLatestReopenTimes(relId),
       ]);
       // Best-effort extras: the dashboard still loads if either fails.
-      const closeTimes = new Map<string, Date>();
+      // close dates come from the same single status-history pass (already shared)
+      let closeTimes = new Map<string, Date>();
       try {
-        const cr = await conn.execute(BUG_DASHBOARD_CLOSE_DATES_SQL, { releaseId: relId });
-        for (const r of (cr.rows ?? []) as any[]) if (r.CLOSED_AT) closeTimes.set(String(r.DEFECT_ID), new Date(r.CLOSED_AT));
+        closeTimes = deriveReleaseStatusFacts(await this.getReleaseStatusEvents(relId)).closeTimes;
       } catch (err: any) { this.logger.warn(`Oracle bug-dashboard close dates failed, using BG_VTS: ${err.message}`); }
       let releaseName: string | null = null;
       try {
