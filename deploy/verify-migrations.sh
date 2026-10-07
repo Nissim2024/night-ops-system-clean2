@@ -34,8 +34,15 @@ trap cleanup EXIT
 
 echo "      starting throwaway postgres ($PG on :$PORT)..."
 docker run -d --rm --name "$PG" -p ${PORT}:5432 -e POSTGRES_USER=mig -e POSTGRES_PASSWORD=mig -e POSTGRES_DB=mig postgres:16-alpine >/dev/null
-for i in $(seq 1 60); do docker exec "$PG" pg_isready -U mig >/dev/null 2>&1 && break; sleep 1; done
-sleep 2
+# pg_isready is already true for the temporary server postgres runs during
+# init (before POSTGRES_DB exists) — wait for the init to finish, then for the
+# real server to accept a query on the mig database.
+READY=""
+for i in $(seq 1 90); do
+  if docker logs "$PG" 2>&1 | grep "PostgreSQL init process complete" >/dev/null      && docker exec "$PG" psql -U mig -d mig -qtAc "select 1" >/dev/null 2>&1; then READY=1; break; fi
+  sleep 1
+done
+[ -n "$READY" ] || fail "throwaway postgres did not become ready"
 mkdb() { docker exec "$PG" psql -U mig -d mig -qc "CREATE DATABASE $1;" >/dev/null; }
 mkdb shadow1; mkdb upgrade; mkdb fresh
 
