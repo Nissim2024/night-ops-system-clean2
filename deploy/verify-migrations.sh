@@ -51,7 +51,7 @@ cd "$REPO_ROOT/backend"
 # 1. schema vs migration chain
 out=$(npx prisma migrate diff --from-migrations ./prisma/migrations --to-schema-datamodel ./prisma/schema.prisma \
       --shadow-database-url "$PGURL_HOST/shadow1" --script 2>&1) || fail "migrate diff error: $out"
-echo "$out" | grep -q "This is an empty migration" || { echo "$out" | head -30; fail "schema.prisma has changes with NO migration (see SQL above)"; }
+grep -q "This is an empty migration" <<< "$out" || { echo "$out" | head -30; fail "schema.prisma has changes with NO migration (see SQL above)"; }
 echo "      [1/4] schema == migrations ✓"
 
 # 2. image carries the repo's migrations, byte-identical
@@ -70,12 +70,14 @@ if [ -n "$PREV" ]; then
     || fail "previous image $PREV could not migrate an empty DB (baseline)"
   up=$(docker run --rm -e DATABASE_URL="$PGURL_CONT/upgrade" --entrypoint sh "$IMAGE" -c "$PRISMA migrate deploy" 2>&1) \
     || { echo "$up" | tail -20; fail "upgrade $PREV -> $VERSION failed"; }
-  applied=$(echo "$up" | grep -oE '^\s+└─ [0-9A-Za-z_]+/' | sed 's/[ └─/]//g' | tr '\n' ' ')
+  # no pending migration is a valid upgrade (same migrations as the previous release)
+  applied=$( { grep -oE '^\s+└─ [0-9A-Za-z_]+/' <<< "$up" || true; } | sed 's/[ └─/]//g' | tr '\n' ' ')
   st=$(docker run --rm -e DATABASE_URL="$PGURL_CONT/upgrade" --entrypoint sh "$IMAGE" -c "$PRISMA migrate status" 2>&1) || true
-  echo "$st" | grep -q "Database schema is up to date" || { echo "$st" | tail -10; fail "after upgrade the DB is not up to date"; }
+  # here-strings, not "echo | grep -q": with pipefail a long echo cut off by grep -q reads as a failure
+  grep -q "Database schema is up to date" <<< "$st" || { echo "$st" | tail -10; fail "after upgrade the DB is not up to date"; }
   d=$(npx prisma migrate diff --from-url "$PGURL_HOST/upgrade" --to-schema-datamodel ./prisma/schema.prisma --script 2>&1)
-  echo "$d" | grep -q "This is an empty migration" || { echo "$d" | head -30; fail "upgraded DB does not match schema.prisma"; }
-  echo "      [3/4] upgrade $PREV -> $VERSION applied: ${applied:-none} ✓"
+  grep -q "This is an empty migration" <<< "$d" || { echo "$d" | head -30; fail "upgraded DB does not match schema.prisma"; }
+  echo "      [3/4] upgrade $PREV -> $VERSION applied: ${applied:-none (same migrations)} ✓"
 else
   echo "      [3/4] no previous deploycenter-api image found locally — upgrade check skipped"
 fi
