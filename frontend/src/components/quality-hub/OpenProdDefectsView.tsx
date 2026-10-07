@@ -13,6 +13,7 @@ import { CreateDefectScreen } from './CreateDefectScreen';
 import { useDialog } from '../../context/DialogContext';
 import { useAutoFitTable, WRAP_CLAMP_STYLE } from '../shared/useAutoFitTable';
 import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from '../ui/BrandedDialog';
+import { decodeNoteEntities } from '../shared/noteEntries';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -95,7 +96,8 @@ const DATETIME_FIELDS = new Set(['modified']); // BG_VTS — QC's own last-modif
 // &nbsp;/&lt;) — decode to plain readable text with real line breaks instead
 // of rendering the raw escaped markup (UX spec 2026-09-06).
 function decodeDefectText(raw: string): string {
-  let t = raw
+  // broken / double-encoded entities ("&nbsp>", "&amp;nbsp;") first — see decodeNoteEntities
+  let t = decodeNoteEntities(raw)
     .replace(/<\s*br\s*\/?\s*>/gi, '\n')
     .replace(/<\s*\/\s*(p|div|li|tr|h[1-6])\s*>/gi, '\n')
     .replace(/<[^>]+>/g, '');

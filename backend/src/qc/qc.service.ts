@@ -1938,6 +1938,49 @@ function normalizeTeamName(s: string): string {
 // back to the synthetic generator below when missing. Loaded once and
 // cached; the file never changes at runtime.
 let realTargetDefectsCache: TargetDefectDto[] | null | undefined;
+// DEV ONLY (2026-10-07): real defects exported from production QC ("AllBugs"
+// Excel = the defects SQL's own columns), converted by
+// scripts/import-real-defects-seed.js into the git-ignored seed folder. When
+// present and Oracle is disabled, the mock defects module / search / lists /
+// defect form use these instead of synthetic defects. Never used with Oracle.
+let realAllBugsCache: any[] | null | undefined;
+let realAllBugsMtime = -1;
+function loadRealAllBugs(): any[] | null {
+  const filePath = path.join(process.cwd(), 'src', 'qc', 'seed-data', 'allbugs.local.json');
+  let mtime = 0;
+  try { mtime = fs.statSync(filePath).mtimeMs; } catch { mtime = 0; }
+  // re-read when the file is regenerated (no server restart needed)
+  if (realAllBugsCache !== undefined && mtime === realAllBugsMtime) return realAllBugsCache;
+  realAllBugsMtime = mtime;
+  realAllBugsByIdCache = null;
+  try {
+    const rows = mtime ? JSON.parse(fs.readFileSync(filePath, 'utf-8')) : null;
+    realAllBugsCache = Array.isArray(rows) && rows.length > 0 ? rows : null;
+  } catch {
+    realAllBugsCache = null;
+  }
+  return realAllBugsCache;
+}
+let realAllBugsByIdCache: Map<string, any> | null = null;
+function realAllBugById(id: string): any | null {
+  const rows = loadRealAllBugs();
+  if (!rows) return null;
+  if (!realAllBugsByIdCache) realAllBugsByIdCache = new Map(rows.map(r => [String(r.DEFECT_ID), r]));
+  return realAllBugsByIdCache.get(String(id)) ?? null;
+}
+// mock-mode rows for the defects module's dashboard / page / filtered list
+function mockAllDefectsRows(): AllDefectsRawRow[] {
+  const real = loadRealAllBugs();
+  if (!real) return MOCK_ALL_DEFECTS_ROWS;
+  return real.map(r => ({
+    DEFECT_ID: r.DEFECT_ID, DEFECT_STATUS: r.DEFECT_STATUS ?? null, SEVERITY: r.SEVERITY ?? null,
+    MAIN_MODULE: r.MAIN_MODULE ?? null, RESPONSIBILITY: r.RESPONSIBILITY ?? null, ASSIGNED_TO: r.ASSIGNED_TO ?? null,
+    REOPEN_YN: r.REOPEN_Y_N ?? null, DETECTED_IN_RELEASE: r.DETECTED_IN_RELEASE ?? null,
+    DETECTED_ON_DATE: r.DETECTED_ON_DATE ?? null, ENVIRONMENT_COMPONENT: r.ENVIRONMENT_COMPONNENT ?? null,
+    TITLE: r.SUMMARY || r.SUBJECT || null,
+  }));
+}
+
 function loadRealTargetDefects(): TargetDefectDto[] | null {
   if (realTargetDefectsCache !== undefined) return realTargetDefectsCache;
   try {
@@ -2865,6 +2908,16 @@ function encodeDefectsAnalytics(rows: AnalyticsRawRow[], personName: (login: str
 // Dev-mode fixture: ~600 deterministic defects over 21 months, so trend,
 // aging, heat map and top-10 have something meaningful to show.
 function buildMockAnalyticsRows(): AnalyticsRawRow[] {
+  const real = loadRealAllBugs();
+  if (real) {
+    return real.map(r => ({
+      DEFECT_ID: r.DEFECT_ID, DEFECT_STATUS: r.DEFECT_STATUS ?? null, SEVERITY: r.SEVERITY ?? null,
+      RESPONSIBILITY: r.RESPONSIBILITY ?? null, SYSTEM_NAME: r.ENVIRONMENT_COMPONNENT ?? null, SUB_MODULE: r.SUB_MODULE ?? null,
+      ENVIRONMENT: r.ENVIRONMENT ?? null, ASSIGNED_TO: r.ASSIGNED_TO ?? null, DETECTED_BY: r.DETECTED_BY ?? null,
+      DETECTED_IN_RELEASE: r.DETECTED_IN_RELEASE ?? null, DETECTED_ON_DATE: r.DETECTED_ON_DATE ?? null,
+      MODIFIED: r.MODIFIED ?? null, CLOSED_AT: null,
+    }));
+  }
   let seed = 20261006;
   const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
   const pick = <T,>(arr: T[], weights?: number[]): T => {
@@ -4139,6 +4192,8 @@ export class QcService implements OnApplicationBootstrap {
       }
     }
 
+    const realBug = realAllBugById(defectId);
+    if (realBug) return mapRowToTargetDefect(realBug);
     const real = loadRealTargetDefects();
     const fromSeed = real?.find(d => d.id === defectId);
     if (fromSeed) return fromSeed;
@@ -4451,7 +4506,7 @@ export class QcService implements OnApplicationBootstrap {
     const { enabled } = await getOracleConfig();
 
     if (!enabled) {
-      let rows = filterMockRowsByScope(MOCK_ALL_DEFECTS_ROWS, scope).filter(r => matchesHubFilter(r, q));
+      let rows = filterMockRowsByScope(mockAllDefectsRows(), scope).filter(r => matchesHubFilter(r, q));
       if (kpi) rows = rows.filter(ALL_DEFECTS_KPI_PREDICATE[kpi]);
       if (q.field && q.field !== '__kpi__') {
         const key = MOCK_FILTER_KEY[q.field];
@@ -4501,7 +4556,7 @@ export class QcService implements OnApplicationBootstrap {
   private async getAllDefectsRawRows(user: { sub: string; role: string }): Promise<AllDefectsRawRow[]> {
     const scope = await resolveDefectScope(user);
     const { enabled } = await getOracleConfig();
-    if (!enabled) return filterMockRowsByScope(MOCK_ALL_DEFECTS_ROWS, scope);
+    if (!enabled) return filterMockRowsByScope(mockAllDefectsRows(), scope);
 
     let conn: any;
     try {
@@ -4538,7 +4593,7 @@ export class QcService implements OnApplicationBootstrap {
     if (filterField === '__kpi__') {
       const predicate = ALL_DEFECTS_KPI_PREDICATE[value];
       if (!predicate) throw new BadRequestException(`KPI לא מוכר: ${value}`);
-      if (!enabled) return filterMockRowsByScope(MOCK_ALL_DEFECTS_ROWS, scope).filter(predicate).map(allDefectsRawRowToDefectDto);
+      if (!enabled) return filterMockRowsByScope(mockAllDefectsRows(), scope).filter(predicate).map(allDefectsRawRowToDefectDto);
       const { sql: scopeSql, binds: scopeBinds } = buildDefectScopeSql(scope);
       return this.runDefectsQuery(buildAllDefectsKpiSql(value, scopeSql), scopeBinds);
     }
@@ -4551,7 +4606,7 @@ export class QcService implements OnApplicationBootstrap {
       };
       const key = keyOf[filterField];
       if (!key) throw new BadRequestException(`שדה סינון לא מוכר: ${filterField}`);
-      return filterMockRowsByScope(MOCK_ALL_DEFECTS_ROWS, scope)
+      return filterMockRowsByScope(mockAllDefectsRows(), scope)
         .filter(r => String(r[key] ?? '').trim() === value.trim())
         .map(allDefectsRawRowToDefectDto);
     }
@@ -4662,10 +4717,10 @@ export class QcService implements OnApplicationBootstrap {
       const byId = new Map(rows.map(r => [String(r.DEFECT_ID), r]));
       out = permitted.map(id => byId.get(id)!).filter(Boolean).map(r => ({
         ...allDefectsRawRowToDefectDto({
-          DEFECT_ID: r.DEFECT_ID, DEFECT_STATUS: r.DEFECT_STATUS, SEVERITY: r.SEVERITY, MAIN_MODULE: null,
+          DEFECT_ID: r.DEFECT_ID, DEFECT_STATUS: r.DEFECT_STATUS, SEVERITY: r.SEVERITY, MAIN_MODULE: realAllBugById(String(r.DEFECT_ID))?.MAIN_MODULE ?? null,
           RESPONSIBILITY: r.RESPONSIBILITY, ASSIGNED_TO: r.ASSIGNED_TO, REOPEN_YN: null,
           DETECTED_IN_RELEASE: r.DETECTED_IN_RELEASE, DETECTED_ON_DATE: r.DETECTED_ON_DATE, ENVIRONMENT_COMPONENT: r.SYSTEM_NAME,
-          TITLE: `תקלה לדוגמה #${r.DEFECT_ID} — ${r.SYSTEM_NAME ?? ''}`,
+          TITLE: realAllBugById(String(r.DEFECT_ID))?.SUMMARY || realAllBugById(String(r.DEFECT_ID))?.SUBJECT || `תקלה לדוגמה #${r.DEFECT_ID} — ${r.SYSTEM_NAME ?? ''}`,
         }),
         subModule: r.SUB_MODULE ?? '', reporter: r.DETECTED_BY ?? '',
         environment: r.ENVIRONMENT ?? '',

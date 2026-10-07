@@ -33,6 +33,28 @@ const isCsvRow = (l: string) => {
 const isDataLine = (l: string) => isCsvRow(l) || SHELL_RE.test(l);
 const startsOwnLine = (l: string) => LIST_ITEM_RE.test(l) || CODE_LINE_RE.test(l) || LABEL_LINE_RE.test(l) || SQL_RE.test(l) || isDataLine(l);
 
+// HTML entities left in QC text (found on real production defects, 2026-10-07):
+// "&nbsp;", double-encoded "&amp;nbsp;", and a broken form whose ";" became
+// ">" ("&nbsp>", "&lt>ksenian&gt>") — ~130k of them across 8,681 defects. The
+// ">"/";" terminator is consumed with the entity, so "&lt>login&gt>" becomes
+// "<login>" again (which is also what lets the comment headers be recognised).
+// An entity cut in half by the 4000-byte list limit ("…&nbs") is dropped.
+export function decodeNoteEntities(text: string): string {
+  let t = text;
+  for (let i = 0; i < 3 && /&(amp|nbsp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+)/i.test(t); i++) {
+    t = t
+      .replace(/&amp[;>]?/gi, '&')
+      .replace(/&nbsp[;>]?/gi, ' ')
+      .replace(/&lt[;>]?/gi, '<')
+      .replace(/&gt[;>]?/gi, '>')
+      .replace(/&quot[;>]?/gi, '"')
+      .replace(/&(apos|#39)[;>]?/gi, "'")
+      .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+      .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  }
+  return t.replace(/&(n|nb|nbs|g|l|q|qu|quo|a|am)$/i, '');
+}
+
 export const TRAILING_HTML_FRAGMENT_RE = /<\/?(div|span|font|p|br|b|i|u|a|html|body|table|tr|td|strong|em|li|ul|ol)\b[^<>\n]{0,200}$/i;
 
 export function reflowNoteText(text: string): string {
@@ -72,7 +94,7 @@ export function parseNoteEntries(raw: string | null | undefined): NoteEntry[] {
     const y = yy < 100 ? 2000 + yy : yy;
     return y * 10000 + mm * 100 + dd;
   };
-  for (const chunk of (raw ?? '').split(/_{5,}/).map(c => c.trim()).filter(Boolean)) {
+  for (const chunk of decodeNoteEntities(raw ?? '').split(/_{5,}/).map(c => c.trim()).filter(Boolean)) {
     const matches = Array.from(chunk.matchAll(NOTE_HEADER_ANYWHERE_RE));
     if (matches.length === 0) {
       const m = chunk.match(NOTE_ENTRY_HEADER_RE);   // non-Latin name at the very start

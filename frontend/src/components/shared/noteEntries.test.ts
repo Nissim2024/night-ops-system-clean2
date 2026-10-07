@@ -1,4 +1,19 @@
-import { parseNoteEntries, reflowNoteText } from './noteEntries';
+import { parseNoteEntries, reflowNoteText, decodeNoteEntities } from './noteEntries';
+
+// Real production text (defect 57953, AllBugs export 2026-10-07)
+describe('decodeNoteEntities', () => {
+  it('decodes the broken ">"-terminated form so headers are recognised', () => {
+    const raw = '&nbsp>&nbsp>\r\nKsenia Nazarov &lt>ksenian&gt>, 20/03/2024: \r\nCR 11257 \r\n________________________________________Yossi Siton &lt>yossis&gt>, 03/04/2024: \r\nבכדי לטפל בנושא \r\n1. שינוי ב EAI &nbsp> - הגדרת קודי שגיאה';
+    const e = parseNoteEntries(raw);
+    expect(e.map(x => x.header)).toEqual(['Ksenia Nazarov <ksenian>, 20/03/2024:', 'Yossi Siton <yossis>, 03/04/2024:']);
+    expect(e[1].body).toBe('בכדי לטפל בנושא\n1. שינוי ב EAI - הגדרת קודי שגיאה');
+    expect(e.some(x => /&(nbsp|lt|gt)/.test(x.body + (x.header ?? '')))).toBe(false);
+  });
+
+  it('handles proper, double-encoded and numeric entities, and a cut fragment at the end', () => {
+    expect(decodeNoteEntities('a&nbsp;b &amp;nbsp; c &quot;x&quot; &#39;y&#39; &#1488; end&nbs')).toBe("a b   c \"x\" 'y' א end");
+  });
+});
 
 // Comments field parsing (user report 2026-10-06: a header showed up on the
 // right, inside the previous comment, and comments weren't in date order).
