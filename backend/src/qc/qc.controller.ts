@@ -1,3 +1,4 @@
+import { QcWriteInvalidateInterceptor } from './qc-write-invalidate.interceptor';
 import { Controller, Get, Post, Patch, Put, Query, Param, Body, Request, Res, UseGuards, ForbiddenException, BadRequestException, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { ModuleAccess, ModuleAccessGuard } from '../permissions/module-access.guard';
 import { PersonNamesInterceptor } from './person-names.interceptor';
@@ -19,7 +20,7 @@ function requireRole(req: any, roles: string[], msg = 'אין הרשאה לבצ�
   if (!roles.includes(req.user.role)) throw new ForbiddenException(msg);
 }
 
-@UseInterceptors(PersonNamesInterceptor)
+@UseInterceptors(PersonNamesInterceptor, QcWriteInvalidateInterceptor)
 @Controller('qc')
 @UseGuards(JwtGuard, ModuleAccessGuard)
 export class QcController {

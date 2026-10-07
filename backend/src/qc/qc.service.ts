@@ -1,4 +1,5 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { qcMemo } from './qc-cache';
+import { Injectable, Logger, BadRequestException, OnApplicationBootstrap } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -2238,12 +2239,32 @@ async function oracleConnect(): Promise<any> {
     );
   }
   oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
-  return oracledb.getConnection({
-    user:          cfg.user,
-    password:      cfg.password,
-    connectString: cfg.connectString,
-  });
+  // Pooled (2026-10-07): every query used to open a brand-new Oracle session
+  // (network + login) and close it — ~20 of them per home-page load. The pool
+  // keeps a few sessions open and hands them out; conn.close() returns the
+  // session to the pool. Re-created when the connection settings change; if
+  // the pool can't be created, fall back to a direct connection as before.
+  const key = `${cfg.user}|${cfg.connectString}|${cfg.password}`;
+  if (!oraclePool || oraclePoolKey !== key) {
+    const old = oraclePool;
+    oraclePoolKey = key;
+    oraclePool = oracledb.createPool({
+      user: cfg.user, password: cfg.password, connectString: cfg.connectString,
+      poolMin: 1, poolMax: 8, poolIncrement: 1, poolTimeout: 300, queueTimeout: 120000, stmtCacheSize: 40,
+    });
+    oraclePool!.catch(() => { oraclePool = null; oraclePoolKey = ''; });
+    if (old) old.then((p: any) => p.close(30)).catch(() => {});
+  }
+  try {
+    const pool = await oraclePool!;
+    return await pool.getConnection();
+  } catch (err: any) {
+    console.warn(`[oracle] pool unavailable (${err?.message}) — direct connection`);
+    return oracledb.getConnection({ user: cfg.user, password: cfg.password, connectString: cfg.connectString });
+  }
 }
+let oraclePool: Promise<any> | null = null;
+let oraclePoolKey = '';
 
 // Bucket definitions confirmed against the team's PBIRS reports (2026-07-06):
 //   Open       = status NOT IN (Closed, Canceled) — a DB-status "Rejected" row
@@ -2873,6 +2894,7 @@ function buildMockAnalyticsRows(): AnalyticsRawRow[] {
 }
 
 let analyticsCache: { at: number; rows: AnalyticsRawRow[]; mock: boolean } | null = null;
+let analyticsLoading: Promise<{ rows: AnalyticsRawRow[]; mock: boolean }> | null = null;
 const ANALYTICS_CACHE_MS = 10 * 60 * 1000;
 
 // SLA — not defined yet (user, 2026-10-06: "להכין משהו שיתמוך בזה בעתיד").
@@ -3307,7 +3329,9 @@ export interface DefectFormLayouts {
 // ── Service ───────────────────────────────────────────────────────────────────
 
 @Injectable()
-export class QcService {
+export class QcService implements OnApplicationBootstrap {
+  onApplicationBootstrap() { this.warmUpAnalytics(); }
+
   private readonly logger = new Logger(QcService.name);
 
   private async getQcIds(versionId: string): Promise<{ relId: number; cycleId: number } | null> {
@@ -3394,6 +3418,10 @@ export class QcService {
   // resolves under half of real coverage rows to a CR; walking the full
   // chain is what actually finds it.
   async getCrCoverage(crNumbers: string[], versionId?: string): Promise<CrCoverageDto[]> {
+    return qcMemo(`crCoverage|${versionId ?? ''}|${[...crNumbers].sort().join(',')}`, () => this.getCrCoverageUncached(crNumbers, versionId));
+  }
+
+  private async getCrCoverageUncached(crNumbers: string[], versionId?: string): Promise<CrCoverageDto[]> {
     const { enabled } = await getOracleConfig();
     if (!enabled) {
       const real = loadRealCrCoverage();
@@ -3529,6 +3557,10 @@ export class QcService {
   // unlinked/never-synced release; getCycleProgress falls back to its old
   // per-CR sum in that case, unchanged from before this method existed.
   async getCycleTestTotals(versionId: string): Promise<CycleTestTotalsDto[]> {
+    return qcMemo(`cycleTotals|${versionId}`, () => this.getCycleTestTotalsUncached(versionId));
+  }
+
+  private async getCycleTestTotalsUncached(versionId: string): Promise<CycleTestTotalsDto[]> {
     const { enabled } = await getOracleConfig();
     if (!enabled) return [];
 
@@ -3575,6 +3607,10 @@ export class QcService {
   // silently emptied the Cycle Progress screen's QG Summary/target-marker
   // in production (caught live on ITv06-2026, 2026-07-30).
   async getCycleQgTargets(versionId: string): Promise<CycleQgTargetDto[]> {
+    return qcMemo(`cycleQg|${versionId}`, () => this.getCycleQgTargetsUncached(versionId));
+  }
+
+  private async getCycleQgTargetsUncached(versionId: string): Promise<CycleQgTargetDto[]> {
     const { enabled } = await getOracleConfig();
     if (!enabled) return loadRealCycleQgTargets() ?? [];
 
@@ -3666,7 +3702,12 @@ export class QcService {
   // every other caller (release-intelligence's live "open defects" tile,
   // Quality Hub) omits it and keeps getting the release-wide, all-cycles
   // list, unchanged from today's behavior.
+  // shared for a minute across the parallel requests of one page (see qc-cache.ts)
   async getDefects(versionId: string, cyclePreference?: 'REHEARSAL' | 'GO_LIVE'): Promise<DefectDto[]> {
+    return qcMemo(`defects|${versionId}|${cyclePreference ?? ''}`, () => this.getDefectsUncached(versionId, cyclePreference));
+  }
+
+  private async getDefectsUncached(versionId: string, cyclePreference?: 'REHEARSAL' | 'GO_LIVE'): Promise<DefectDto[]> {
     const { enabled } = await getOracleConfig();
     if (!enabled) return MOCK_DEFECTS;
 
@@ -3867,6 +3908,10 @@ export class QcService {
   // 2026-08-27). A static reopenYn flag alone isn't what QC's own definition
   // checks, so this can't reuse the plain field-filter map above.
   async getReopenedDefectIds(relId: number): Promise<Set<string>> {
+    return qcMemo(`reopened|${relId}`, () => this.getReopenedDefectIdsUncached(relId));
+  }
+
+  private async getReopenedDefectIdsUncached(relId: number): Promise<Set<string>> {
     const { enabled } = await getOracleConfig();
     if (!enabled) {
       return new Set(MOCK_DEFECTS.filter(d => d.reopenYn === 'Y').map(d => d.id));
@@ -3889,6 +3934,10 @@ export class QcService {
   // LATEST_REOPEN_TIME_SQL's own comment for why this doesn't reuse
   // REOPENED_DEFECT_IDS_SQL's narrower KPI-matching filters.
   private async getLatestReopenTimes(relId: number): Promise<Map<string, Date>> {
+    return qcMemo(`reopenTimes|${relId}`, () => this.getLatestReopenTimesUncached(relId));
+  }
+
+  private async getLatestReopenTimesUncached(relId: number): Promise<Map<string, Date>> {
     const { enabled } = await getOracleConfig();
     if (!enabled) return MOCK_REOPEN_TIMES;
     let conn: any;
@@ -3951,6 +4000,10 @@ export class QcService {
   // QC cycle — reuses getDefectsByCycleByRelId's id→cycle map rather than a
   // second SQL query, same join DEFECTS_BY_CYCLE_SQL already does.
   async getDefectsByRelId(relId: number, cycleName?: string): Promise<DefectDto[]> {
+    return qcMemo(`defectsByRel|${relId}|${cycleName ?? ''}`, () => this.getDefectsByRelIdUncached(relId, cycleName));
+  }
+
+  private async getDefectsByRelIdUncached(relId: number, cycleName?: string): Promise<DefectDto[]> {
     const { enabled } = await getOracleConfig();
     const defects = enabled ? await this.runDefectsQuery(DEFECTS_SQL, { releaseId: relId }) : MOCK_DEFECTS;
     if (!cycleName) return defects;
@@ -4293,6 +4346,10 @@ export class QcService {
   // detectedInRelease/detectedInCycle for every row, just filtered here by
   // the release that DETECTED the defect rather than the one it TARGETS.
   async getDefectsByCycle(versionId: string): Promise<DefectByCycleDto[]> {
+    return qcMemo(`defectsByCycle|${versionId}`, () => this.getDefectsByCycleUncached(versionId));
+  }
+
+  private async getDefectsByCycleUncached(versionId: string): Promise<DefectByCycleDto[]> {
     const { enabled } = await getOracleConfig();
     if (!enabled) {
       const version = await prisma.version.findUnique({ where: { id: versionId }, include: { qcRelease: true } });
@@ -4340,6 +4397,10 @@ export class QcService {
   // (2026-09-22) — see computeAllDefectsDashboard's own comment for the
   // scoping/performance caveat (unbounded query, unverified at real volume).
   async getAllDefectsDashboard(user: { sub: string; role: string }, filter: DefectsHubFilter = {}): Promise<AllDefectsDashboardDto & { options: { years: number[]; releases: string[] } }> {
+    return qcMemo(`allDash|${user.sub}|${user.role}|${JSON.stringify(filter)}`, () => this.getAllDefectsDashboardUncached(user, filter));
+  }
+
+  private async getAllDefectsDashboardUncached(user: { sub: string; role: string }, filter: DefectsHubFilter = {}): Promise<AllDefectsDashboardDto & { options: { years: number[]; releases: string[] } }> {
     const rows = await this.getAllDefectsRawRows(user);
     const years = new Set<number>(), releases = new Set<string>();
     for (const r of rows) {
@@ -4359,6 +4420,12 @@ export class QcService {
   // with no ORDER BY, which returned an arbitrary slice - a defect that
   // certainly exists in QC "wasn't there". Pre-12c Oracle: ROWNUM paging.
   async getAllDefectsPage(user: { sub: string; role: string }, q: {
+    field?: string; value?: string; kpi?: string; search?: string; page?: number; pageSize?: number;
+  } & DefectsHubFilter): Promise<{ rows: DefectDto[]; total: number; page: number; pageSize: number }> {
+    return qcMemo(`allPage|${user.sub}|${user.role}|${JSON.stringify(q)}`, () => this.getAllDefectsPageUncached(user, q));
+  }
+
+  private async getAllDefectsPageUncached(user: { sub: string; role: string }, q: {
     field?: string; value?: string; kpi?: string; search?: string; page?: number; pageSize?: number;
   } & DefectsHubFilter): Promise<{ rows: DefectDto[]; total: number; page: number; pageSize: number }> {
     const page = Math.max(1, Math.floor(Number(q.page) || 1));
@@ -4449,6 +4516,10 @@ export class QcService {
   // '__kpi__' is the compound-predicate path for the 5 headline tiles — see
   // ALL_DEFECTS_KPI_WHERE/_PREDICATE above.
   async getAllDefectsFiltered(filterField: string, value: string, user: { sub: string; role: string }): Promise<DefectDto[]> {
+    return qcMemo(`allFiltered|${user.sub}|${user.role}|${filterField}|${value}`, () => this.getAllDefectsFilteredUncached(filterField, value, user));
+  }
+
+  private async getAllDefectsFilteredUncached(filterField: string, value: string, user: { sub: string; role: string }): Promise<DefectDto[]> {
     const scope = await resolveDefectScope(user);
     const { enabled } = await getOracleConfig();
     if (filterField === '__kpi__') {
@@ -4477,34 +4548,67 @@ export class QcService {
   }
 
   // ── Defects analytics (investigation dashboard, 2026-10-06) ────────────────
+  // Defects-module rows: every defect in QC + close dates from AUDIT_LOG, the
+  // heaviest read in the system. Served stale-while-revalidate (2026-10-07):
+  // once loaded, an expired cache is returned immediately and ONE background
+  // refresh replaces it — nobody waits on the full scan except the very first
+  // load after a restart (and the warm-up below takes that one too). "force"
+  // (the refresh button) waits for fresh rows, still shared by all callers.
   private async loadAnalyticsRows(force = false): Promise<{ rows: AnalyticsRawRow[]; mock: boolean }> {
-    if (!force && analyticsCache && Date.now() - analyticsCache.at < ANALYTICS_CACHE_MS) return analyticsCache;
+    const fresh = analyticsCache && Date.now() - analyticsCache.at < ANALYTICS_CACHE_MS;
+    if (!force && fresh) return analyticsCache!;
+    if (!force && analyticsCache) {
+      this.refreshAnalyticsRows().catch(err => this.logger.warn(`defects analytics background refresh failed: ${err.message}`));
+      return analyticsCache;
+    }
+    return this.refreshAnalyticsRows();
+  }
+
+  private refreshAnalyticsRows(): Promise<{ rows: AnalyticsRawRow[]; mock: boolean }> {
+    if (!analyticsLoading) {
+      analyticsLoading = this.loadAnalyticsRowsFromDb().finally(() => { analyticsLoading = null; });
+    }
+    return analyticsLoading;
+  }
+
+  // Fill the defects-module cache shortly after startup so the first user
+  // doesn't wait on the full scan (only when Oracle is enabled).
+  warmUpAnalytics(): void {
+    setTimeout(() => {
+      getOracleConfig().then(({ enabled }) => {
+        if (enabled) this.refreshAnalyticsRows().catch(err => this.logger.warn(`defects analytics warm-up failed: ${err.message}`));
+      }).catch(() => {});
+    }, 20_000);
+  }
+
+  private async loadAnalyticsRowsFromDb(): Promise<{ rows: AnalyticsRawRow[]; mock: boolean }> {
     const { enabled } = await getOracleConfig();
     if (!enabled) {
       analyticsCache = { at: Date.now(), rows: buildMockAnalyticsRows(), mock: true };
       return analyticsCache;
     }
-    let conn: any;
+    // the two scans run in parallel on two pooled sessions
+    const run = async (sql: string) => {
+      const conn = await oracleConnect();
+      try { return (await conn.execute(sql, {})).rows ?? []; } finally { await conn.close().catch(() => {}); }
+    };
     try {
-      conn = await oracleConnect();
-      const res = await conn.execute(DEFECTS_ANALYTICS_SQL, {});
-      const rows = (res.rows ?? []) as AnalyticsRawRow[];
+      const [rowsRes, closeRes] = await Promise.allSettled([run(DEFECTS_ANALYTICS_SQL), run(DEFECTS_CLOSE_DATES_SQL)]);
+      if (rowsRes.status === 'rejected') throw rowsRes.reason;
+      const rows = rowsRes.value as AnalyticsRawRow[];
       // Close dates are best-effort: if the audit query fails the dashboard
       // still loads, closed defects just fall back to last-modified.
-      try {
-        const closeRes = await conn.execute(DEFECTS_CLOSE_DATES_SQL, {});
-        const closeById = new Map<string, any>((closeRes.rows ?? []).map((r: any) => [String(r.DEFECT_ID), r.CLOSED_AT]));
+      if (closeRes.status === 'fulfilled') {
+        const closeById = new Map<string, any>((closeRes.value as any[]).map((r: any) => [String(r.DEFECT_ID), r.CLOSED_AT]));
         for (const r of rows) r.CLOSED_AT = closeById.get(String(r.DEFECT_ID)) ?? null;
-      } catch (err: any) {
-        this.logger.warn(`Oracle defects close-dates (AUDIT_LOG) failed, using BG_VTS fallback: ${err.message}`);
+      } else {
+        this.logger.warn(`Oracle defects close-dates (AUDIT_LOG) failed, using BG_VTS fallback: ${closeRes.reason?.message}`);
       }
       analyticsCache = { at: Date.now(), rows, mock: false };
       return analyticsCache;
     } catch (err: any) {
       this.logger.error(`Oracle getDefectsAnalytics: ${err.message}`);
       throw err;
-    } finally {
-      if (conn) await conn.close().catch(() => {});
     }
   }
 
@@ -4600,6 +4704,10 @@ export class QcService {
   }
 
   async getBugDashboard(versionId: string): Promise<BugDashboardDto> {
+    return qcMemo(`bugDash|${versionId}`, () => this.getBugDashboardUncached(versionId));
+  }
+
+  private async getBugDashboardUncached(versionId: string): Promise<BugDashboardDto> {
     const { enabled } = await getOracleConfig();
     const period = await this.versionTestingPeriod(versionId);
     if (!enabled) return { ...MOCK_BUG_DASHBOARD, ...(period ? { testingPeriod: period } : {}) };
@@ -4636,6 +4744,10 @@ export class QcService {
   // real synced QcRelease row, so falling back to the versionId-flavored mock
   // here would be misleading rather than helpful).
   async getBugDashboardByRelId(relId: number): Promise<BugDashboardDto> {
+    return qcMemo(`bugDashRel|${relId}`, () => this.getBugDashboardByRelIdUncached(relId));
+  }
+
+  private async getBugDashboardByRelIdUncached(relId: number): Promise<BugDashboardDto> {
     const { enabled } = await getOracleConfig();
     if (!enabled) return computeBugDashboard([], new Set());
 
