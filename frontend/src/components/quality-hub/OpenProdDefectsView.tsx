@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import axios from 'axios';
 import { C, FONT, JIRA } from '../../theme';
 import { Card, Badge, BackLink } from '../ui';
@@ -14,6 +15,7 @@ import { useDialog } from '../../context/DialogContext';
 import { useAutoFitTable, WRAP_CLAMP_STYLE } from '../shared/useAutoFitTable';
 import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from '../ui/BrandedDialog';
 import { decodeNoteEntities } from '../shared/noteEntries';
+import { usePermissions } from '../../context/PermissionsContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -159,14 +161,130 @@ const TIER2_FIELD_OPTIONS: Record<string, string[]> = {
 };
 
 
-// Inline field editor (spec 2026-09-19; one-button form 2026-10-07) — swapped
-// in for one field's display span on click. Renders a
-// select for a closed value-list (status via allowedTransitions, else the
-// old datalist fallback; severity/priority via TIER2_FIELD_OPTIONS), a plain
-// text input otherwise. A select commits immediately on change (choosing IS
-// finishing); a text input commits on blur/Enter and reverts on Escape
-// without saving — `onCommit` itself is a no-op if the value didn't actually
-// change (see commitInlineField).
+// ── Field editing (user, 2026-10-07) ─────────────────────────────────────
+// Opens in a floating panel UNDER the field — the field keeps its size and
+// nothing around it moves. Every list-like field (value lists, people,
+// status) uses PickList: it opens on the WHOLE list (the browser's datalist
+// only showed options matching the value already typed — i.e. just the
+// current name), typing filters, ↑/↓ + Enter or a click picks.
+
+type PickOption = { value: string; label: string; hint?: string };
+
+const PickList: React.FC<{
+  options: PickOption[]; current: string; onPick: (v: string) => void; onCancel: () => void;
+  allowCustom?: boolean; placeholder?: string;
+}> = ({ options, current, onPick, onCancel, allowCustom, placeholder }) => {
+  const [q, setQ] = useState('');
+  const [hi, setHi] = useState(0);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => { inputRef.current?.focus({ preventScroll: true }); }, []);   // no page jump
+  const filtered = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    return t ? options.filter(o => o.label.toLowerCase().includes(t) || o.value.toLowerCase().includes(t)) : options;
+  }, [q, options]);
+  const shown = filtered.slice(0, 400);
+  useEffect(() => { setHi(0); }, [q]);
+  // keep the highlighted row visible by scrolling the LIST only — scrollIntoView
+  // also scrolled the page, which made the whole form jump
+  useEffect(() => {
+    const box = listRef.current;
+    const el = box?.querySelector<HTMLElement>(`[data-i="${hi}"]`);
+    if (!box || !el) return;
+    if (el.offsetTop < box.scrollTop) box.scrollTop = el.offsetTop;
+    else if (el.offsetTop + el.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = el.offsetTop + el.offsetHeight - box.clientHeight;
+  }, [hi]);
+  const pick = (v: string) => onPick(v);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <input
+        ref={inputRef} value={q} onChange={e => setQ(e.target.value)} dir="auto"
+        placeholder={placeholder ?? `חיפוש מתוך ${options.length}…`}
+        onKeyDown={e => {
+          if (e.key === 'ArrowDown') { e.preventDefault(); setHi(h => Math.min(h + 1, shown.length - 1)); }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(h => Math.max(h - 1, 0)); }
+          else if (e.key === 'Enter') { e.preventDefault(); if (shown[hi]) pick(shown[hi].value); else if (allowCustom && q.trim()) pick(q.trim()); }
+          else if (e.key === 'Escape') onCancel();
+        }}
+        className="w-full rounded-sm border border-border bg-card px-2 py-1.5 text-[13px] text-foreground"
+      />
+      <div ref={listRef} className="max-h-64 overflow-y-auto rounded-sm border border-border bg-card" dir="ltr">
+        {shown.length === 0 && (
+          <div className="px-2 py-2 text-xs text-subtle-foreground">
+            {allowCustom && q.trim() ? <>Enter — להשתמש ב-"{q.trim()}"</> : 'אין התאמות'}
+          </div>
+        )}
+        {shown.map((o, i) => (
+          <div
+            key={`${o.value}|${i}`} data-i={i}
+            onMouseDown={e => { e.preventDefault(); pick(o.value); }}
+            onMouseEnter={() => setHi(i)}
+            className={cn('flex cursor-pointer items-center justify-between gap-2 px-2 py-1 text-[13px]', i === hi && 'bg-muted', o.value === current && 'font-bold')}
+            style={{ color: JIRA.text }}
+          >
+            <span className="truncate" dir="auto">{o.label}</span>
+            {o.hint && <span className="shrink-0 text-[11px] text-subtle-foreground">{o.hint}</span>}
+          </div>
+        ))}
+        {filtered.length > shown.length && (
+          <div className="px-2 py-1 text-[11px] text-subtle-foreground">מוצגים {shown.length} מתוך {filtered.length} — הקלד כדי לצמצם</div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Floating panel under a field (or above it when there's no room), drawn in
+// a portal on <body> so no card / panel edge can clip it. Closes on an outside
+// click (= cancel); follows the field when the page scrolls.
+const EditPopover: React.FC<{ onClose: () => void; children: React.ReactNode }> = ({ onClose, children }) => {
+  const markRef = useRef<HTMLSpanElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; up: boolean } | null>(null);
+  const place = useCallback(() => {
+    const anchor = markRef.current?.parentElement;
+    if (!anchor) return;
+    const r = anchor.getBoundingClientRect();
+    const h = panelRef.current?.offsetHeight || 330;
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - 316));
+    const up = r.bottom + 4 + h > window.innerHeight - 8 && r.top - 4 - h > 8;
+    setPos({ top: up ? r.top - 4 : r.bottom + 4, left, up });
+  }, []);
+  React.useLayoutEffect(() => { place(); }, [place]);
+  useEffect(() => {
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (panelRef.current?.contains(t) || markRef.current?.parentElement?.contains(t)) return;
+      onClose();
+    };
+    document.addEventListener('mousedown', onDown);
+    // focus the editor without scrolling the page
+    panelRef.current?.querySelector<HTMLElement>('input,textarea,select')?.focus({ preventScroll: true });
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+      document.removeEventListener('mousedown', onDown);
+    };
+  }, [onClose, place]);
+  return (
+    <>
+      <span ref={markRef} style={{ display: 'none' }} />
+      {ReactDOM.createPortal(
+        <div ref={panelRef} data-edit-popover="" onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}
+          className="fixed z-[5000] w-[300px] max-w-[90vw] rounded-lg border border-border bg-card p-2 shadow-lg"
+          style={pos
+            ? { left: pos.left, ...(pos.up ? { bottom: window.innerHeight - pos.top } : { top: pos.top }) }
+            : { left: -9999, top: 0 }}>
+          {children}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+};
+
 const InlineFieldEditor: React.FC<{
   fieldKey: string; initialValue: string; currentStatus: string; allowedTransitions: string[] | null;
   dynamicOptions?: string[]; onCommit: (value: string) => void; onCancel: () => void;
@@ -175,143 +293,72 @@ const InlineFieldEditor: React.FC<{
   fieldKind?: string;
 }> = ({ fieldKey, initialValue, currentStatus, allowedTransitions, dynamicOptions, onCommit, onCancel, personOptions, fieldKind }) => {
   const [value, setValue] = useState(initialValue);
-  const fieldClass = 'w-full box-border px-1.5 py-1 rounded-sm border border-border text-[13px] bg-card text-foreground';
+  const fieldClass = 'w-full box-border px-2 py-1.5 rounded-sm border border-border text-[13px] bg-card text-foreground';
+  const withCurrent = (opts: PickOption[]) => (initialValue && !opts.some(o => o.value === initialValue)
+    ? [{ value: initialValue, label: initialValue, hint: 'נוכחי' }, ...opts] : opts);
 
   if (fieldKey === 'status') {
-    if (allowedTransitions) {
-      return (
-        <select autoFocus value={value} onChange={e => onCommit(e.target.value)} onBlur={onCancel}
-          onKeyDown={e => { if (e.key === 'Escape') onCancel(); }} className={fieldClass} dir="ltr">
-          <option value={currentStatus}>{currentStatus} (נוכחי)</option>
-          {allowedTransitions.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-      );
-    }
-    // no lifecycle mapping for this user — never fall back to free text
-    if (fieldKey === 'status') {
-      return <span className="text-xs text-subtle-foreground">אין מעברי סטטוס זמינים</span>;
-    }
+    if (!allowedTransitions) return <div className="p-1 text-xs text-subtle-foreground">אין מעברי סטטוס זמינים</div>;
+    if (allowedTransitions.length === 0) return <div className="p-1 text-xs text-subtle-foreground">אין מעבר אפשרי מ-"{currentStatus}" לפי מחזור החיים</div>;
     return (
-      <>
-        <input autoFocus list="qc-status-options-inline" value={value} onChange={e => setValue(e.target.value)}
-          onBlur={() => onCommit(value)} onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }}
-          className={fieldClass} dir="ltr" />
-        <datalist id="qc-status-options-inline">{QC_STATUS_OPTIONS.map(s => <option key={s} value={s} />)}</datalist>
-      </>
+      <PickList current={currentStatus} onPick={onCommit} onCancel={onCancel} placeholder="בחר סטטוס…"
+        options={[{ value: currentStatus, label: currentStatus, hint: 'נוכחי' }, ...allowedTransitions.map(s => ({ value: s, label: s }))]} />
     );
   }
 
-  // Static hardcoded lists (Severity/Priority, confirmed 2026-09-18) take
-  // priority; dynamicOptions (fetched from QcPicklistCache, fixes-batch A.6)
-  // covers everything else that has a real QC List-Id behind it.
-  // Person fields: pick a person; the value is "Full Name (login)" and the
-  // server writes only the login to QC (QcRestService.toQcLogin, 2026-10-05).
+  // people: the whole directory, shown as "Full Name (login)" — the server
+  // writes only the login to QC (QcRestService.toQcLogin)
   if (PERSON_FIELDS.has(fieldKey) || fieldKind === 'person') {
-    const listId = `qc-people-${fieldKey}`;
-    return (
-      <>
-        <input autoFocus list={listId} value={value} placeholder="חפש שם או משתמש…"
-          onChange={e => setValue(e.target.value)} onFocus={e => e.target.select()}
-          onBlur={() => onCommit(value)} onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }}
-          className={fieldClass} dir="ltr" />
-        <datalist id={listId}>{(personOptions ?? []).map(p => <option key={p.login} value={`${p.fullName} (${p.login})`} />)}</datalist>
-      </>
-    );
-  }
-
-  // APK fields: QC accepts values outside the list (Verify=false) and new
-  // versions show up all the time - type freely, list as suggestions.
-  if (FREE_ENTRY_LIST_FIELDS.has(fieldKey)) {
-    const listId = `qc-free-list-${fieldKey}`;
-    return (
-      <>
-        <input autoFocus list={listId} value={value} onChange={e => setValue(e.target.value)}
-          onBlur={() => onCommit(value)} onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }}
-          className={fieldClass} dir="ltr" />
-        <datalist id={listId}>{(dynamicOptions ?? []).map(o => <option key={o} value={o} />)}</datalist>
-      </>
-    );
+    const people = (personOptions ?? []).map(p => ({ value: `${p.fullName} (${p.login})`, label: p.fullName, hint: p.login }));
+    return <PickList current={initialValue} onPick={onCommit} onCancel={onCancel} placeholder="חפש שם או משתמש…"
+      options={[{ value: '', label: '— ללא —' }, ...withCurrent(people)]} />;
   }
 
   if (fieldKind === 'date') {
-    // QC dates are yyyy-mm-dd; a dd/mm/yyyy display value is converted for the picker
     const dmy = /^(\d{1,2})[/.](\d{1,2})[/.](\d{4})/.exec(value);
     const iso = dmy ? `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}` : value.slice(0, 10);
     return (
-      <input autoFocus type="date" value={iso} onChange={e => setValue(e.target.value)}
-        onBlur={() => onCommit(value === initialValue ? initialValue : value)}
-        onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }}
-        className={fieldClass} dir="ltr" />
+      <div className="flex gap-1.5">
+        <input type="date" value={iso} onChange={e => setValue(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }}
+          className={fieldClass} dir="ltr" />
+        <button type="button" onClick={() => onCommit(value)} className="shrink-0 cursor-pointer rounded-sm border-none bg-primary px-2 text-xs font-semibold text-white">אישור</button>
+      </div>
     );
   }
-  if (fieldKind === 'number') {
+  if (fieldKind === 'number' || fieldKind === 'memo' || (!(dynamicOptions && dynamicOptions.length) && !TIER2_FIELD_OPTIONS[fieldKey])) {
+    const isMemo = fieldKind === 'memo';
     return (
-      <input autoFocus type="number" step="any" value={value} onChange={e => setValue(e.target.value)}
-        onBlur={() => onCommit(value)} onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }}
-        className={fieldClass} dir="ltr" />
-    );
-  }
-  if (fieldKind === 'memo') {
-    return (
-      <textarea autoFocus value={value} rows={4} dir="auto" onChange={e => setValue(e.target.value)}
-        onBlur={() => onCommit(value)} onKeyDown={e => { if (e.key === 'Escape') onCancel(); }}
-        className={`${fieldClass} min-w-[260px] resize-y`} />
+      <div className="flex flex-col gap-1.5">
+        {isMemo
+          ? <textarea value={value} rows={5} dir="auto" onChange={e => setValue(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Escape') onCancel(); }} className={`${fieldClass} resize-y`} />
+          : <input type={fieldKind === 'number' ? 'number' : 'text'} step="any" value={value} dir="auto"
+              onChange={e => setValue(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }} className={fieldClass} />}
+        <div className="flex justify-end gap-1.5">
+          <button type="button" onClick={onCancel} className="cursor-pointer rounded-sm border border-border bg-card px-2 py-0.5 text-xs">ביטול</button>
+          <button type="button" onClick={() => onCommit(value)} className="cursor-pointer rounded-sm border-none bg-primary px-2.5 py-0.5 text-xs font-semibold text-white">אישור</button>
+        </div>
+      </div>
     );
   }
 
-  const options = TIER2_FIELD_OPTIONS[fieldKey] ?? dynamicOptions;
-  if (options) {
-    // a current value QC holds but the list no longer has stays selectable
-    const all = value && !options.includes(value) ? [value, ...options] : options;
-    // long lists (CR Reference: ~3,400 values, Sub Module, Environment…) —
-    // type to search instead of scrolling a giant dropdown
-    if (all.length > 150) {
-      const dl = `qc-long-list-${fieldKey}`;
-      return (
-        <>
-          <input autoFocus list={dl} value={value} placeholder="הקלד לחיפוש…" onChange={e => setValue(e.target.value)}
-            onFocus={e => e.target.select()} onBlur={() => onCommit(value)}
-            onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }}
-            className={`${fieldClass} min-w-[240px]`} dir="auto" />
-          <datalist id={dl}>{all.map(o => <option key={o} value={o} />)}</datalist>
-        </>
-      );
-    }
-    return (
-      <select autoFocus value={value} onChange={e => onCommit(e.target.value)} onBlur={onCancel}
-        onKeyDown={e => { if (e.key === 'Escape') onCancel(); }} className={fieldClass} dir="ltr">
-        <option value="">—</option>
-        {all.map(o => <option key={o} value={o}>{o}</option>)}
-      </select>
-    );
-  }
-
-  return (
-    <input autoFocus value={value} onChange={e => setValue(e.target.value)}
-      onBlur={() => onCommit(value)} onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }}
-      className={fieldClass} dir="ltr" />
-  );
+  // value lists (Severity/Priority static, everything else from QC's own lists)
+  // QC's own list first (Priority there also has "Test Blocker"); the hardcoded
+  // Severity/Priority values are only a fallback while no list is cached
+  const opts = ((dynamicOptions && dynamicOptions.length ? dynamicOptions : TIER2_FIELD_OPTIONS[fieldKey]) ?? []).map(o => ({ value: o, label: o }));
+  return <PickList current={initialValue} onPick={onCommit} onCancel={onCancel}
+    allowCustom={FREE_ENTRY_LIST_FIELDS.has(fieldKey)}
+    options={[{ value: '', label: '— ללא —' }, ...withCurrent(opts)]} />;
 };
 
-// Same mapping as CycleProgressView's own CYCLE_LABEL — duplicated locally
-// (rather than imported cross-module) just to label the cycle picker's
-// options in RefFieldEditor below with the same Hebrew names used everywhere
-// else in the app, instead of raw enum values like "CYCLE_1".
+// Real QC cycle types → display labels for the cycle picker
 const CYCLE_LABEL_FALLBACK: Record<string, string> = {
   CYCLE_1: 'סבב 1', CYCLE_2: 'סבב 2', CYCLE_3: 'סבב 3',
   STAND_ALONE: 'Stand Alone Items', UAT: 'UAT', REHEARSAL: 'חזרה גנרלית', GO_LIVE: 'עליה לאוויר',
 };
 
-// Editor for reference-type fields (Detected in Release/Cycle, 2026-09-23,
-// fixes-batch A.5) — unlike every other field, these need a real QC id, not
-// just display text, so double-click opens a small release/cycle picker
-// instead of a plain input. Reuses the exact same "in-flight versions" +
-// defect-create-defaults endpoints CreateDefectScreen already uses for the
-// same purpose at creation time — scoped to in-flight versions only (not an
-// arbitrary historical release picker; see project-fixes-batch-2026-09-23
-// memory for why). For "Detected in Cycle" a version must be picked first
-// (to know which cycles it has); best-effort pre-selects the version whose
-// name matches the field's current display text.
 const RefFieldEditor: React.FC<{
   fieldKey: string; currentLabel: string; token: string;
   onCommit: (value: { id: string; label: string } | null) => void; onCancel: () => void;
@@ -451,6 +498,12 @@ export const DefectDetailScreen: React.FC<{
   // below needs the exact same write-permission probe and workflow-transition
   // list to gate its own "✏️ ערוך" button and status editor, so both surfaces
   // share one fetch each instead of two independent ones.
+  // Status + comments are editable by PERMISSION (action:qc_write), not by the
+  // live QC probe below (user, 2026-10-07: an admin in a mapped QA team got a
+  // locked status because the probe failed). A failed probe is shown as a
+  // notice instead — the save itself reports QC's real error.
+  const { can } = usePermissions();
+  const canQcWrite = can('action:qc_write');
   const [blocked, setBlocked] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
@@ -678,11 +731,15 @@ export const DefectDetailScreen: React.FC<{
   return (
     <div className="px-7 py-5">
       {/* ── סרגל פעולות עליון — כפתורי משנה קומפקטיים ── */}
-      <div className="flex items-center justify-between mb-[18px]">
+      {/* fixed height: the save buttons appearing must not push the form down */}
+      <div className="flex min-h-[34px] items-center justify-between mb-[18px]">
         <BackLink onClick={onBack} label="חזרה לטבלה" />
         <div className="flex items-center gap-2">
           {inlineMsg && (
             <span className={`text-[13px] font-semibold ${inlineMsg.kind === 'ok' ? 'text-success' : 'text-danger'}`}>{inlineMsg.text}</span>
+          )}
+          {canQcWrite && blocked && (
+            <span className="text-xs text-warning" title={blocked}>⚠ חיבור הכתיבה ל-QC לא זמין כרגע — שמירה עלולה להיכשל</span>
           )}
           {pendingCount > 0 && (
             <>
@@ -782,9 +839,9 @@ export const DefectDetailScreen: React.FC<{
                         || key === 'id' || key === 'status' || key === 'severity' || key === 'priority' || key === 'secondaryPriority';
                       const valRtl = !isAtomic && !!displayValue && hasHebrew(displayValue);
                       const isEditable = !LOCKED_DETAIL_FIELDS.has(key) && (key === 'status'
-                        ? !blocked && allowedTransitions !== null
+                        ? canQcWrite && allowedTransitions !== null
                         : (editableFieldKeys.has(key) || isRefField));
-                      const lockReason = key === 'status' && !blocked && allowedTransitions === null
+                      const lockReason = key === 'status' && canQcWrite && allowedTransitions === null
                         ? 'הצוות שלך לא משויך לקבוצת QC — לא ניתן לשנות סטטוס מכאן'
                         : LOCKED_DETAIL_FIELDS.has(key) ? 'שדה נעול — לא משתנה אחרי פתיחת התקלה' : undefined;
                       const isEditingThis = editingField === key;
@@ -800,11 +857,11 @@ export const DefectDetailScreen: React.FC<{
                           key={key}
                           onClick={() => { if (isEditable && !isEditingThis) setEditingField(key); }}
                           title={isEditable && !isEditingThis ? 'לחץ לעריכה' : lockReason}
-                          className="flex max-w-full flex-col items-start gap-1.5 rounded-sm px-1 py-0.5"
+                          className="relative flex max-w-full flex-col items-start gap-1.5 rounded-sm px-1 py-0.5"
                           style={{
                             // full-row field (template's ↔ toggle): long values get their own line
                             flexBasis: group.wide?.includes(key) ? '100%' : undefined,
-                            border: isEditable && !isEditingThis ? `1px dashed ${JIRA.blue}` : '1px solid transparent',
+                            border: isEditingThis ? `1px solid ${JIRA.blue}` : isEditable ? `1px dashed ${JIRA.blue}` : '1px solid transparent',
                             cursor: isEditable && !isEditingThis ? 'pointer' : undefined,
                             background: isDirty ? '#fffbe6' : undefined,
                           }}
@@ -812,8 +869,20 @@ export const DefectDetailScreen: React.FC<{
                           <span className="text-xs font-bold tracking-wide" style={{ color: JIRA.textSubtle, direction: 'ltr', textAlign: 'left' }}>
                             {DETAIL_FIELD_LABEL[key] ?? key}
                           </span>
-                          {isEditingThis ? (
-                            isRefField ? (
+                            {/* self-stretch: box is at least as wide as its label
+                                (wider when the value is longer); text sits on the
+                                label's side unless the value is Hebrew. Stays in place
+                                while editing — the editor floats under it. */}
+                            <span
+                              className="inline-flex min-w-[2.75rem] max-w-full self-stretch items-center flex-wrap gap-1 break-words px-2.5 py-1.5 text-[13px] font-medium"
+                              style={{ color: JIRA.text, direction: valRtl ? 'rtl' : 'ltr', ...VALUE_BOX_STYLE }}
+                            >
+                              {isDirty && <span title="שינוי לא שמור" style={{ color: JIRA.blue }}>●</span>}
+                              {renderFieldValue(key, displayValue)}
+                            </span>
+                          {isEditingThis && (
+                            <EditPopover onClose={() => setEditingField(null)}>
+                            {isRefField ? (
                               <RefFieldEditor
                                 fieldKey={key}
                                 currentLabel={displayValue}
@@ -833,18 +902,9 @@ export const DefectDetailScreen: React.FC<{
                                 onCommit={v => commitInlineField(key, v)}
                                 onCancel={() => setEditingField(null)}
                               />
-                            )
-                          ) : (
-                            // self-stretch: box is at least as wide as its label
-                            // (wider when the value is longer); text sits on the
-                            // label's side unless the value is Hebrew.
-                            <span
-                              className="inline-flex min-w-[2.75rem] max-w-full self-stretch items-center flex-wrap gap-1 break-words px-2.5 py-1.5 text-[13px] font-medium"
-                              style={{ color: JIRA.text, direction: valRtl ? 'rtl' : 'ltr', ...VALUE_BOX_STYLE }}
-                            >
-                              {isDirty && <span title="שינוי לא שמור" style={{ color: JIRA.blue }}>●</span>}
-                              {renderFieldValue(key, displayValue)}
-                            </span>
+                            )}
+                          
+                            </EditPopover>
                           )}
                         </div>
                       );
@@ -892,7 +952,7 @@ export const DefectDetailScreen: React.FC<{
                         ? <div className="text-[15px] text-right whitespace-pre-wrap break-words">{detail.description ? decodeDefectText(String(detail.description)) : NOT_SET}</div>
                         : (String(detail.notes ?? '').replace(/_{5,}/g, '').trim() ? renderNotesField(detail.notes) : NOT_SET)}
                     </div>
-                    {sec.key === 'notes' && !blocked && (
+                    {sec.key === 'notes' && canQcWrite && (
                       newComment === null ? (
                         <button type="button" onClick={openNewComment}
                           className="mt-2 cursor-pointer rounded-md border border-border bg-card px-3 py-1 text-xs font-semibold text-primary">
