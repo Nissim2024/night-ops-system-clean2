@@ -6,6 +6,7 @@ import { QG_CYCLE_DEFAULTS } from '../qa/qa-workplan.service';
 import { CycleType } from '../qa/qa.scheduler';
 import { getQcPersonDirectory } from './qc.service';
 import { appendQcComment, qcCommentSignature } from './qc-comment-entry';
+import { QC_DEFECT_FIELDS } from './qc-defect-fields';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
@@ -534,7 +535,7 @@ export class QcRestService {
       this.logger.warn(`QC field→list discovery failed, keeping the confirmed lists only: ${err.message}`);
     }
     const allLists = await this.probeProjectLists(userId);
-    const neededIds = new Set([...Object.values(QcRestService.FIELD_LIST_ID), ...Object.values(fieldMap)]);
+    const neededIds = new Set([...Object.values(await this.effectiveFieldListIds()), ...Object.values(fieldMap)]);
     const relevant = allLists.filter(l => neededIds.has(l.id));
     for (const list of relevant) {
       await prisma.qcPicklistCache.upsert({
@@ -572,8 +573,7 @@ export class QcRestService {
   // (2026-09-23, fixes-batch A.6) — what the create/edit forms actually
   // fetch; never touches QC directly.
   async getDefectFieldPicklists(): Promise<Record<string, { values: string[]; lastSyncAt: Date } | null>> {
-    const { map: auto } = await this.readFieldListMap();
-    const fieldToList: Record<string, string> = { ...auto, ...QcRestService.FIELD_LIST_ID };
+    const fieldToList = await this.effectiveFieldListIds();
     const listIds = Object.values(fieldToList);
     const rows = await prisma.qcPicklistCache.findMany({ where: { listId: { in: listIds } } });
     const byListId = new Map(rows.map(r => [r.listId, r]));
@@ -855,16 +855,30 @@ export class QcRestService {
   private async personFieldsToLogins(fields: Record<string, string>): Promise<Record<string, string>> {
     const out = { ...fields };
     for (const k of Object.keys(out)) {
-      if (QcRestService.PERSON_FIELD_KEYS.has(k) && out[k]?.trim()) out[k] = await this.toQcLogin(out[k], k);
+      const isPerson = QcRestService.PERSON_FIELD_KEYS.has(k) || QC_DEFECT_FIELDS[k]?.kind === 'person';
+      if (isPerson && out[k]?.trim()) out[k] = await this.toQcLogin(out[k], k);
     }
     return out;
   }
 
-  getEditableDefectFieldKeys(): { fields: string[]; refFields: string[] } {
-    return {
-      fields: Object.keys(QcRestService.TIER2_FIELD_PARAM_KEYS),
-      refFields: ['detectedInRelease', 'detectedInCycle'],
-    };
+  // Every field the form can write (2026-10-07): the Tier-2 ones plus every
+  // Active + Editable field of the production QC field dump (qc-defect-fields.ts).
+  // `kinds` lets the form pick the right editor (list / person / date / …).
+  getEditableDefectFieldKeys(): { fields: string[]; refFields: string[]; kinds: Record<string, string> } {
+    const keys = new Set([...Object.keys(QcRestService.TIER2_FIELD_PARAM_KEYS), ...Object.keys(QC_DEFECT_FIELDS)]);
+    keys.delete('status');   // status goes through the lifecycle editor
+    const kinds: Record<string, string> = {};
+    for (const k of keys) kinds[k] = QC_DEFECT_FIELDS[k]?.kind ?? 'text';
+    return { fields: [...keys], refFields: ['detectedInRelease', 'detectedInCycle'], kinds };
+  }
+
+  // field → QC list id: the production field dump, then the discovered map,
+  // then the hand-confirmed FIELD_LIST_ID (last one wins)
+  private async effectiveFieldListIds(): Promise<Record<string, string>> {
+    const fromDump: Record<string, string> = {};
+    for (const [k, d] of Object.entries(QC_DEFECT_FIELDS)) if (d.kind === 'list' && d.listId && k !== 'status') fromDump[k] = d.listId;
+    const { map: auto } = await this.readFieldListMap();
+    return { ...fromDump, ...auto, ...QcRestService.FIELD_LIST_ID };
   }
 
   // Reference-field counterpart to updateDefectTier2Fields — same allowlist/
@@ -935,7 +949,7 @@ export class QcRestService {
 
   private async translateTier2Fields(fields: Record<string, string>): Promise<Record<string, string>> {
     if (Object.keys(fields).length === 0) return {};
-    const unknownKeys = Object.keys(fields).filter(k => !(k in QcRestService.TIER2_FIELD_PARAM_KEYS));
+    const unknownKeys = Object.keys(fields).filter(k => !(k in QcRestService.TIER2_FIELD_PARAM_KEYS) && !(k in QC_DEFECT_FIELDS));
     if (unknownKeys.length > 0) throw new BadRequestException(`שדה/ות לא מוכרים: ${unknownKeys.join(', ')}`);
     const asLogins = await this.personFieldsToLogins(fields);
     const rows = await prisma.systemParam.findMany({ where: { key: { in: Object.values(QcRestService.TIER2_FIELD_PARAM_KEYS) } } });
@@ -943,7 +957,7 @@ export class QcRestService {
     const out: Record<string, string> = {};
     const unconfigured: string[] = [];
     for (const [k, v] of Object.entries(asLogins)) {
-      const n = restName.get(QcRestService.TIER2_FIELD_PARAM_KEYS[k]);
+      const n = (QcRestService.TIER2_FIELD_PARAM_KEYS[k] && restName.get(QcRestService.TIER2_FIELD_PARAM_KEYS[k])) || QC_DEFECT_FIELDS[k]?.rest;
       if (!n) unconfigured.push(k); else out[n] = v;
     }
     if (unconfigured.length > 0) throw new BadRequestException(`שם שדה ה-REST עדיין לא הוגדר עבור: ${unconfigured.join(', ')}`);
@@ -1912,6 +1926,26 @@ function parseEntityFieldsXml(xml: string): EntityFieldMeta[] {
 // resources in this file), but always populate `raw` with every attribute
 // and child this specific <List> element actually has, so a wrong guess
 // about tag names still surfaces the real data instead of an empty result.
+// Real shape (production dump 2026-09-23): <Items><Item value="x"/>…</Items>,
+// and tree lists nest <Item value="folder"><Item value="leaf"/></Item>. The
+// value is the "value" ATTRIBUTE (@_value) — the old reader looked for element
+// text, so every list synced with no values. Walks the whole tree, keeps
+// QC's order, drops duplicates.
+export function listItemValues(items: any): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const walk = (node: any) => {
+    if (node == null) return;
+    if (Array.isArray(node)) { node.forEach(walk); return; }
+    if (typeof node !== 'object') { const s = String(node).trim(); if (s && !seen.has(s)) { seen.add(s); out.push(s); } return; }
+    const v = node['@_value'] ?? node['@_Value'] ?? node['#text'];
+    if (v != null && String(v).trim() && !seen.has(String(v).trim())) { seen.add(String(v).trim()); out.push(String(v).trim()); }
+    if (node.Item) walk(node.Item);
+  };
+  walk(items);
+  return out;
+}
+
 function parseProjectListsXml(xml: string): ProjectListMeta[] {
   const parsed = xmlParser.parse(xml);
   const list = parsed?.Lists?.List ?? parsed?.ProjectLists?.List ?? [];
@@ -1923,11 +1957,10 @@ function parseProjectListsXml(xml: string): ProjectListMeta[] {
       raw[k] = Array.isArray(v) ? v.map(String).join(' | ') : typeof v === 'object' ? JSON.stringify(v) : String(v);
     }
     const items = l?.Items?.Item ?? l?.Values?.Value ?? l?.ListItems?.Item ?? [];
-    const itemArr = Array.isArray(items) ? items : (items ? [items] : []);
     return {
       id: String(l?.Id ?? l?.['@_Id'] ?? l?.['@_id'] ?? ''),
       name: String(l?.Name ?? l?.['@_Name'] ?? l?.['@_name'] ?? ''),
-      values: itemArr.map((v: any) => extractValueText(v)).filter(Boolean),
+      values: listItemValues(items),
       raw,
     };
   }).filter((l: ProjectListMeta) => l.id || l.name);

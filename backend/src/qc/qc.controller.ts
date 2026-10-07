@@ -1,3 +1,4 @@
+import { QC_DEFECT_FIELDS } from './qc-defect-fields';
 import { QcWriteInvalidateInterceptor } from './qc-write-invalidate.interceptor';
 import { Controller, Get, Post, Patch, Put, Query, Param, Body, Request, Res, UseGuards, ForbiddenException, BadRequestException, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { ModuleAccess, ModuleAccessGuard } from '../permissions/module-access.guard';
@@ -5,7 +6,7 @@ import { PersonNamesInterceptor } from './person-names.interceptor';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
-import { QcService, isProductionEnvironment, getQcPersonDirectory } from './qc.service';
+import { QcService, isProductionEnvironment, getQcPersonDirectory, getOracleConfig, devPicklistsFromRealSeed } from './qc.service';
 import { QcRestService } from './qc-rest.service';
 import { PermissionsService } from '../permissions/permissions.service';
 
@@ -301,8 +302,17 @@ export class QcController {
   @Get('defect-field-picklists')
   async getDefectFieldPicklists(@Request() req: any) {
     await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה מורחבים — פנה למנהל מערכת');
+    const lists = await this.qcRestService.getDefectFieldPicklists();
+    const { enabled } = await getOracleConfig();
+    if (!enabled) {
+      // dev without QC: fill the list fields from the real export (never in production)
+      const listKeys = Object.entries(QC_DEFECT_FIELDS).filter(([k, d]) => d.kind === 'list' && k !== 'status').map(([k]) => k);
+      const dev = devPicklistsFromRealSeed(listKeys);
+      for (const [k, v] of Object.entries(dev)) if (!lists[k]) lists[k] = v as { values: string[]; lastSyncAt: Date };
+      return lists;
+    }
     this.qcRestService.refreshPicklistsIfStale(req.user.sub).catch(() => {});   // background, daily
-    return this.qcRestService.getDefectFieldPicklists();
+    return lists;
   }
 
   // Site Administration probe (2026-09-23) — ADMIN-only, not the general

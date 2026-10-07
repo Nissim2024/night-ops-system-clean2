@@ -1,4 +1,5 @@
 import { qcMemo } from './qc-cache';
+import { QC_DEFECT_FIELDS } from './qc-defect-fields';
 import { Injectable, Logger, BadRequestException, OnApplicationBootstrap } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
@@ -1968,6 +1969,31 @@ function realAllBugById(id: string): any | null {
   if (!realAllBugsByIdCache) realAllBugsByIdCache = new Map(rows.map(r => [String(r.DEFECT_ID), r]));
   return realAllBugsByIdCache.get(String(id)) ?? null;
 }
+// DEV ONLY: value lists for the form's dropdowns while there's no QC — the
+// distinct values each list field really has across the real export.
+export function devPicklistsFromRealSeed(listKeys: string[]): Record<string, { values: string[]; lastSyncAt: Date }> {
+  const out: Record<string, { values: string[]; lastSyncAt: Date }> = {};
+  // 1. the real QC Project Lists (production dump, seed-data/qc-lists.local.json)
+  try {
+    const lists = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'src', 'qc', 'seed-data', 'qc-lists.local.json'), 'utf-8'));
+    for (const k of listKeys) {
+      const id = QC_DEFECT_FIELDS[k]?.listId;
+      const vals: string[] = id && lists[id] ? Array.from(new Set<string>(lists[id].values.map((v: string) => String(v).trim()).filter(Boolean))) : [];
+      if (vals.length) out[k] = { values: vals, lastSyncAt: new Date() };
+    }
+  } catch { /* no lists snapshot */ }
+  // 2. otherwise the distinct values the real defects export holds
+  const rows = loadRealAllBugs();
+  if (!rows) return out;
+  const sets: Record<string, Set<string>> = Object.fromEntries(listKeys.filter(k => !out[k]).map(k => [k, new Set<string>()]));
+  for (const r of rows) {
+    const d: any = mapRowToTargetDefect(r);
+    for (const k of Object.keys(sets)) { const v = String(d[k] ?? '').trim(); if (v) sets[k].add(v); }
+  }
+  for (const [k, s] of Object.entries(sets)) if (s.size > 0) out[k] = { values: [...s].sort((a, b) => a.localeCompare(b)), lastSyncAt: new Date() };
+  return out;
+}
+
 // mock-mode rows for the defects module's dashboard / page / filtered list
 function mockAllDefectsRows(): AllDefectsRawRow[] {
   const real = loadRealAllBugs();

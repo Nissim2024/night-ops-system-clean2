@@ -171,7 +171,9 @@ const InlineFieldEditor: React.FC<{
   fieldKey: string; initialValue: string; currentStatus: string; allowedTransitions: string[] | null;
   dynamicOptions?: string[]; onCommit: (value: string) => void; onCancel: () => void;
   personOptions?: { login: string; fullName: string }[];
-}> = ({ fieldKey, initialValue, currentStatus, allowedTransitions, dynamicOptions, onCommit, onCancel, personOptions }) => {
+  /** list / person / date / number / text / memo — from the production QC field dump */
+  fieldKind?: string;
+}> = ({ fieldKey, initialValue, currentStatus, allowedTransitions, dynamicOptions, onCommit, onCancel, personOptions, fieldKind }) => {
   const [value, setValue] = useState(initialValue);
   const fieldClass = 'w-full box-border px-1.5 py-1 rounded-sm border border-border text-[13px] bg-card text-foreground';
 
@@ -204,7 +206,7 @@ const InlineFieldEditor: React.FC<{
   // covers everything else that has a real QC List-Id behind it.
   // Person fields: pick a person; the value is "Full Name (login)" and the
   // server writes only the login to QC (QcRestService.toQcLogin, 2026-10-05).
-  if (PERSON_FIELDS.has(fieldKey)) {
+  if (PERSON_FIELDS.has(fieldKey) || fieldKind === 'person') {
     const listId = `qc-people-${fieldKey}`;
     return (
       <>
@@ -231,13 +233,55 @@ const InlineFieldEditor: React.FC<{
     );
   }
 
+  if (fieldKind === 'date') {
+    // QC dates are yyyy-mm-dd; a dd/mm/yyyy display value is converted for the picker
+    const dmy = /^(\d{1,2})[/.](\d{1,2})[/.](\d{4})/.exec(value);
+    const iso = dmy ? `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}` : value.slice(0, 10);
+    return (
+      <input autoFocus type="date" value={iso} onChange={e => setValue(e.target.value)}
+        onBlur={() => onCommit(value === initialValue ? initialValue : value)}
+        onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }}
+        className={fieldClass} dir="ltr" />
+    );
+  }
+  if (fieldKind === 'number') {
+    return (
+      <input autoFocus type="number" step="any" value={value} onChange={e => setValue(e.target.value)}
+        onBlur={() => onCommit(value)} onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }}
+        className={fieldClass} dir="ltr" />
+    );
+  }
+  if (fieldKind === 'memo') {
+    return (
+      <textarea autoFocus value={value} rows={4} dir="auto" onChange={e => setValue(e.target.value)}
+        onBlur={() => onCommit(value)} onKeyDown={e => { if (e.key === 'Escape') onCancel(); }}
+        className={`${fieldClass} min-w-[260px] resize-y`} />
+    );
+  }
+
   const options = TIER2_FIELD_OPTIONS[fieldKey] ?? dynamicOptions;
   if (options) {
+    // a current value QC holds but the list no longer has stays selectable
+    const all = value && !options.includes(value) ? [value, ...options] : options;
+    // long lists (CR Reference: ~3,400 values, Sub Module, Environment…) —
+    // type to search instead of scrolling a giant dropdown
+    if (all.length > 150) {
+      const dl = `qc-long-list-${fieldKey}`;
+      return (
+        <>
+          <input autoFocus list={dl} value={value} placeholder="הקלד לחיפוש…" onChange={e => setValue(e.target.value)}
+            onFocus={e => e.target.select()} onBlur={() => onCommit(value)}
+            onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }}
+            className={`${fieldClass} min-w-[240px]`} dir="auto" />
+          <datalist id={dl}>{all.map(o => <option key={o} value={o} />)}</datalist>
+        </>
+      );
+    }
     return (
       <select autoFocus value={value} onChange={e => onCommit(e.target.value)} onBlur={onCancel}
         onKeyDown={e => { if (e.key === 'Escape') onCancel(); }} className={fieldClass} dir="ltr">
         <option value="">—</option>
-        {options.map(o => <option key={o} value={o}>{o}</option>)}
+        {all.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
     );
   }
@@ -432,6 +476,7 @@ export const DefectDetailScreen: React.FC<{
   // picker (RefFieldEditor below), not the plain text/select InlineFieldEditor
   // every other field uses (2026-09-23, fixes-batch A.5).
   const [refEditableFieldKeys, setRefEditableFieldKeys] = useState<Set<string>>(new Set());
+  const [fieldKinds, setFieldKinds] = useState<Record<string, string>>({});
   useEffect(() => {
     let alive = true;
     axios.get(`${API}/qc/defect-editable-fields`, { headers })
@@ -439,6 +484,7 @@ export const DefectDetailScreen: React.FC<{
         if (!alive) return;
         setEditableFieldKeys(new Set(['status', ...(r.data?.fields ?? [])]));
         setRefEditableFieldKeys(new Set(r.data?.refFields ?? []));
+        setFieldKinds(r.data?.kinds ?? {});
       })
       .catch(() => { if (alive) setEditableFieldKeys(new Set(['status'])); });
     return () => { alive = false; };
@@ -783,6 +829,7 @@ export const DefectDetailScreen: React.FC<{
                                 allowedTransitions={allowedTransitions}
                                 dynamicOptions={fieldPicklists[key]}
                                 personOptions={personDirectory}
+                                fieldKind={fieldKinds[key]}
                                 onCommit={v => commitInlineField(key, v)}
                                 onCancel={() => setEditingField(null)}
                               />

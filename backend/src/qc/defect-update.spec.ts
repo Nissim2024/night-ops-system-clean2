@@ -59,3 +59,20 @@ describe('status lifecycle by role (2026-10-07)', () => {
     expect(getAllowedTransitionsForUser('EMPLOYEE', ['QATesters_New'], 'Fixed_Test').allowed.sort()).toEqual(['Closed', 'Reopen']);
   });
 });
+
+import { listItemValues } from './qc-rest.service';
+
+// Real Project-Lists shape (production dump 2026-09-23): the value is the
+// "value" attribute, tree lists nest Items.
+describe('listItemValues', () => {
+  it('reads @_value (flat list)', () => {
+    expect(listItemValues([{ '@_value': 'Checked_In' }, { '@_value': 'Checked_Out' }])).toEqual(['Checked_In', 'Checked_Out']);
+  });
+  it('walks a tree list in order, no duplicates', () => {
+    const items = [{ '@_value': '2016 Releases', Item: [{ '@_value': 'V1-2016', Item: { '@_value': '2142 - לא לחייב' } }] }, { '@_value': 'V1-2016' }];
+    expect(listItemValues(items)).toEqual(['2016 Releases', 'V1-2016', '2142 - לא לחייב']);
+  });
+  it('a single item (not an array)', () => {
+    expect(listItemValues({ '@_value': 'Y' })).toEqual(['Y']);
+  });
+});
