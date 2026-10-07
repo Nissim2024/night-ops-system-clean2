@@ -1157,6 +1157,29 @@ const CR_DEFECT_INDICATORS_SQL = `
 // has the ~15-field monthly-history projection (OPEN_PROD_DEFECTS_HISTORY_SQL)
 // available — that query is a multi-CTE audit-log join and isn't a sensible
 // place to also select the other ~35 BUG columns.
+// Full (uncut) description + comments of one defect, for the defect form —
+// the driver turns the CLOBs into strings (fetchInfo), so no 4000-byte limit.
+const DEFECT_FULL_TEXT_SQL = `
+  SELECT BG_DESCRIPTION AS FULL_DESCRIPTION, BG_DEV_COMMENTS AS FULL_COMMENTS
+  FROM BUG WHERE BG_BUG_ID = :defectId
+`;
+// Same cleanup the SQL applies to the cut versions (keep in step with the
+// REGEXP_REPLACE chains in DEFECT_BY_ID_SQL / DEFECTS_SQL_SELECT).
+export function cleanClobDescription(v: string): string {
+  return v.replace(/<[^>]*>/g, '');
+}
+export function cleanClobComments(v: string): string {
+  return v
+    .replace(/<[^>]*>/g, '')
+    .trim()
+    .replace(/&gt;/g, '>')
+    .replace(/&lt;/g, '<')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '')
+    .replace(/[ ]{2,}/g, ' ');
+}
+
 const DEFECT_BY_ID_SQL = `
   SELECT
     BG_BUG_ID AS Defect_ID,
@@ -4020,7 +4043,28 @@ export class QcService {
         conn = await oracleConnect();
         const result = await conn.execute(DEFECT_BY_ID_SQL, { defectId });
         const rows = (result.rows ?? []).map(mapRowToTargetDefect);
-        return rows[0] ?? null;
+        const row = rows[0] ?? null;
+        if (row) {
+          // The form shows ONE defect, so read description + comments in full.
+          // DEFECT_BY_ID_SQL (like every list query) takes DBMS_LOB.SUBSTR(...,
+          // 4000) of these CLOBs — a 4000-BYTE limit in SQL, i.e. ~2000 Hebrew
+          // characters — which cut long comment threads (user report
+          // 2026-10-07). Fetched as a string by the driver, no length limit,
+          // then cleaned exactly like the SQL does.
+          try {
+            const full = await conn.execute(DEFECT_FULL_TEXT_SQL, { defectId }, {
+              fetchInfo: { FULL_DESCRIPTION: { type: require('oracledb').STRING }, FULL_COMMENTS: { type: require('oracledb').STRING } },
+            });
+            const f = (full.rows ?? [])[0] as any;
+            if (f) {
+              if (f.FULL_DESCRIPTION != null) row.description = cleanClobDescription(String(f.FULL_DESCRIPTION));
+              if (f.FULL_COMMENTS != null) row.notes = cleanClobComments(String(f.FULL_COMMENTS));
+            }
+          } catch (err: any) {
+            this.logger.warn(`Oracle full CLOB text for defect ${defectId} failed, keeping the 4000-byte cut: ${err.message}`);
+          }
+        }
+        return row;
       } catch (err: any) {
         this.logger.error(`Oracle getDefectFullDetail: ${err.message}`);
         throw err;
