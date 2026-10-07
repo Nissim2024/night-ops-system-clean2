@@ -3,7 +3,7 @@ import { Injectable, Logger, BadRequestException, OnApplicationBootstrap } from 
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getAllowedTransitions } from './qc-workflow-transitions';
+import { getAllowedTransitionsForUser } from './qc-workflow-transitions';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
@@ -5231,10 +5231,10 @@ export class QcService implements OnApplicationBootstrap {
   // caller none of the user's teams have a QC group configured yet, so it
   // should fall back to the old free-text status field instead of showing
   // an empty/wrong dropdown.
-  async getAllowedStatusTransitions(userId: string, currentStatus: string): Promise<{ hasMapping: boolean; allowed: string[] }> {
+  async getAllowedStatusTransitions(userId: string, currentStatus: string, role = ''): Promise<{ hasMapping: boolean; allowed: string[] }> {
     const memberships = await prisma.teamMember.findMany({ where: { userId }, include: { team: { select: { qcGroupName: true } } } });
     const qcGroupNames = Array.from(new Set(memberships.map(m => m.team.qcGroupName).filter((g): g is string => !!g)));
-    if (qcGroupNames.length === 0) return { hasMapping: false, allowed: [] };
-    return { hasMapping: true, allowed: getAllowedTransitions(qcGroupNames, currentStatus) };
+    // ADMIN / RELEASE_MANAGER: everything incl. Pending; CR_MANAGER: developers' rules
+    return getAllowedTransitionsForUser(role, qcGroupNames, currentStatus);
   }
 }

@@ -5,6 +5,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { QG_CYCLE_DEFAULTS } from '../qa/qa-workplan.service';
 import { CycleType } from '../qa/qa.scheduler';
 import { getQcPersonDirectory } from './qc.service';
+import { appendQcComment, qcCommentSignature } from './qc-comment-entry';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
@@ -254,9 +255,8 @@ export class QcRestService {
       if (getRes.status === 404) throw new BadRequestException(`תקלה ${defectId} לא נמצאה ב-QC`);
       if (getRes.status !== 200) throw new BadRequestException(`שגיאה בקריאת תקלה מ-QC (status ${getRes.status})`);
       const currentValue = parseFields(getRes.data)[COMMENT_FIELD] ?? '';
-
-      const stamp = buildStampLine(fullName);
-      const newValue = currentValue ? `${currentValue}\n---\n${stamp}\n${note.trim()}` : `${stamp}\n${note.trim()}`;
+      // QC's own comment format (2026-10-07) — separator + "Name <login>, date:"
+      const newValue = appendQcComment(currentValue, fullName, qcLogin, note);
 
       const putRes = await axios.put(
         this.entityUrl(config, defectId),
@@ -496,9 +496,45 @@ export class QcRestService {
   // QC REST call here does a full login+logout dance). Only caches the lists
   // this app actually maps a field to (FIELD_LIST_ID above), not every list
   // in the project — QC projects commonly have hundreds of unrelated lists.
-  async syncQcPicklists(userId: string): Promise<{ synced: number; listIds: string[] }> {
+  // Automatic field → list discovery (user, 2026-10-07: "every field that has
+  // a value list should show it"). Reads QC's defect field definitions, takes
+  // the List-Id of every field the form can write (TIER2 business key → its
+  // configured REST name), and stores that map + the lists' values. The
+  // hand-confirmed FIELD_LIST_ID entries still win where both exist.
+  static readonly FIELD_LIST_MAP_PARAM = 'QC_DEFECT_FIELD_LIST_MAP';
+
+  private static listIdOfField(raw: Record<string, string> | string): string | null {
+    if (typeof raw !== 'object' || !raw) return null;
+    for (const [k, v] of Object.entries(raw)) {
+      if (/list[-_ ]?id/i.test(k) && String(v).trim() && /^\d+$/.test(String(v).trim())) return String(v).trim();
+    }
+    return null;
+  }
+
+  async syncQcPicklists(userId: string): Promise<{ synced: number; listIds: string[]; fieldMap: Record<string, string> }> {
+    // 1. which form fields are list fields in QC
+    const fieldMap: Record<string, string> = {};
+    try {
+      const meta = await this.probeEntityFields('defects', userId);
+      const listByRestName = new Map<string, string>();
+      for (const f of meta) { const id = QcRestService.listIdOfField(f.raw); if (id) listByRestName.set(f.name, id); }
+      const rows = await prisma.systemParam.findMany({ where: { key: { in: Object.values(QcRestService.TIER2_FIELD_PARAM_KEYS) } } });
+      const restName = new Map(rows.map(r => [r.key, (r.value ?? '').trim()]));
+      for (const [businessKey, paramKey] of Object.entries(QcRestService.TIER2_FIELD_PARAM_KEYS)) {
+        const n = restName.get(paramKey);
+        const id = n ? listByRestName.get(n) : undefined;
+        if (id) fieldMap[businessKey] = id;
+      }
+      await prisma.systemParam.upsert({
+        where: { key: QcRestService.FIELD_LIST_MAP_PARAM },
+        update: { value: JSON.stringify({ at: new Date().toISOString(), map: fieldMap }) },
+        create: { key: QcRestService.FIELD_LIST_MAP_PARAM, label: 'מיפוי שדות תקלה לרשימות ערכים ב-QC (אוטומטי)', value: JSON.stringify({ at: new Date().toISOString(), map: fieldMap }), type: 'text' },
+      });
+    } catch (err: any) {
+      this.logger.warn(`QC field→list discovery failed, keeping the confirmed lists only: ${err.message}`);
+    }
     const allLists = await this.probeProjectLists(userId);
-    const neededIds = new Set(Object.values(QcRestService.FIELD_LIST_ID));
+    const neededIds = new Set([...Object.values(QcRestService.FIELD_LIST_ID), ...Object.values(fieldMap)]);
     const relevant = allLists.filter(l => neededIds.has(l.id));
     for (const list of relevant) {
       await prisma.qcPicklistCache.upsert({
@@ -507,18 +543,42 @@ export class QcRestService {
         update: { listName: list.name, values: list.values, lastSyncAt: new Date() },
       });
     }
-    return { synced: relevant.length, listIds: relevant.map(l => l.id) };
+    return { synced: relevant.length, listIds: relevant.map(l => l.id), fieldMap };
+  }
+
+  // The automatic map + when it was built (null = never)
+  private async readFieldListMap(): Promise<{ at: Date | null; map: Record<string, string> }> {
+    const row = await prisma.systemParam.findUnique({ where: { key: QcRestService.FIELD_LIST_MAP_PARAM } });
+    try {
+      const v = row?.value ? JSON.parse(row.value) : null;
+      return { at: v?.at ? new Date(v.at) : null, map: v?.map ?? {} };
+    } catch { return { at: null, map: {} }; }
+  }
+
+  // Lists older than a day are refreshed in the background by whoever opens
+  // a defect form next (their own QC session) — the form never waits on QC.
+  private picklistRefreshRunning = false;
+  async refreshPicklistsIfStale(userId: string): Promise<void> {
+    if (this.picklistRefreshRunning) return;
+    const { at } = await this.readFieldListMap();
+    if (at && Date.now() - at.getTime() < 24 * 3600 * 1000) return;
+    this.picklistRefreshRunning = true;
+    this.syncQcPicklists(userId)
+      .catch(err => this.logger.warn(`background picklist refresh failed: ${err.message}`))
+      .finally(() => { this.picklistRefreshRunning = false; });
   }
 
   // Reads the cache built by syncQcPicklists, keyed by business field name
   // (2026-09-23, fixes-batch A.6) — what the create/edit forms actually
   // fetch; never touches QC directly.
   async getDefectFieldPicklists(): Promise<Record<string, { values: string[]; lastSyncAt: Date } | null>> {
-    const listIds = Object.values(QcRestService.FIELD_LIST_ID);
+    const { map: auto } = await this.readFieldListMap();
+    const fieldToList: Record<string, string> = { ...auto, ...QcRestService.FIELD_LIST_ID };
+    const listIds = Object.values(fieldToList);
     const rows = await prisma.qcPicklistCache.findMany({ where: { listId: { in: listIds } } });
     const byListId = new Map(rows.map(r => [r.listId, r]));
     const out: Record<string, { values: string[]; lastSyncAt: Date } | null> = {};
-    for (const [fieldKey, listId] of Object.entries(QcRestService.FIELD_LIST_ID)) {
+    for (const [fieldKey, listId] of Object.entries(fieldToList)) {
       const row = byListId.get(listId);
       out[fieldKey] = row ? { values: row.values, lastSyncAt: row.lastSyncAt } : null;
     }
@@ -810,6 +870,102 @@ export class QcRestService {
   // Reference-field counterpart to updateDefectTier2Fields — same allowlist/
   // discover-then-configure discipline, but for QC entity-link fields that
   // need both a real id and a display label (2026-09-23, fixes-batch A.5).
+  // ── One-button defect update (user, 2026-10-07) ─────────────────────────
+  // Fields + reference fields + status + a new comment, written in ONE QC
+  // session with ONE PUT (instead of up to four logins/PUTs). The comment is
+  // appended to the FULL current value read from QC in that same session, in
+  // QC's own signature format (qc-comment-entry.ts). QC still enforces its
+  // workflow; a rejection comes back as the error message, nothing partial.
+  async updateDefectAll(
+    defectId: string,
+    input: { fields?: Record<string, string>; refFields?: Record<string, { id: string; label: string }>; status?: string | null; comment?: string | null },
+    userId: string,
+  ): Promise<{ ok: true; status: string | null; commentAdded: boolean; changedFields: string[] }> {
+    const fields = input.fields ?? {};
+    const refFields = input.refFields ?? {};
+    const status = (input.status ?? '').trim();
+    const comment = (input.comment ?? '').trim();
+    if (Object.keys(fields).length === 0 && Object.keys(refFields).length === 0 && !status && !comment) {
+      throw new BadRequestException('אין שינויים לשמירה');
+    }
+    const restFields = await this.translateTier2Fields(fields);
+    const restRefFields = await this.translateTier2RefFields(refFields);
+    const config = await this.getConfig();
+    if (status && !config.bugStatusField) {
+      throw new BadRequestException('שדה ה-Bug Status (QC_REST_BUG_STATUS_FIELD) עדיין לא הוגדר — לא ניתן לעדכן סטטוס');
+    }
+    const qcLogin = await this.resolveQcLogin(userId);
+    const fullName = await this.resolveFullName(userId);
+    const cookie = await this.loginAsUser(config, qcLogin);
+    try {
+      const getRes = await axios.get(this.entityUrl(config, defectId), {
+        headers: { Cookie: cookie, Accept: 'application/xml' }, validateStatus: () => true,
+      });
+      if (getRes.status === 404) throw new BadRequestException(`תקלה ${defectId} לא נמצאה ב-QC`);
+      if (getRes.status !== 200) throw new BadRequestException(`שגיאה בקריאת תקלה מ-QC (status ${getRes.status})`);
+      const current = parseFields(getRes.data);
+      const payload: Record<string, string> = { ...restFields };
+      if (status && status !== (current[config.bugStatusField] ?? '')) payload[config.bugStatusField] = status;
+      if (comment) payload[COMMENT_FIELD] = appendQcComment(current[COMMENT_FIELD] ?? '', fullName, qcLogin, comment);
+      if (Object.keys(payload).length === 0 && Object.keys(restRefFields).length === 0) {
+        return { ok: true, status: current[config.bugStatusField] ?? null, commentAdded: false, changedFields: [] };
+      }
+      const putRes = await axios.put(
+        this.entityUrl(config, defectId),
+        buildFieldsPayload(payload, 'defect', restRefFields),
+        { headers: { Cookie: cookie, 'Content-Type': 'application/xml; charset=utf-8', Accept: 'application/xml' }, validateStatus: () => true },
+      );
+      if (putRes.status >= 300) {
+        throw new BadRequestException(`עדכון התקלה ב-QC נכשל (status ${putRes.status}): ${String(putRes.data).slice(0, 800)}`);
+      }
+      return {
+        ok: true, status: payload[config.bugStatusField] ?? current[config.bugStatusField] ?? null,
+        commentAdded: !!comment, changedFields: [...Object.keys(fields), ...Object.keys(refFields), ...(payload[config.bugStatusField] ? ['status'] : [])],
+      };
+    } finally {
+      await this.logout(config, cookie);
+    }
+  }
+
+  // The exact signature a new comment will get (shown in the form while typing)
+  async commentSignaturePreview(userId: string): Promise<{ signature: string }> {
+    const [login, fullName] = await Promise.all([this.resolveQcLogin(userId), this.resolveFullName(userId)]);
+    return { signature: qcCommentSignature(fullName, login) };
+  }
+
+  private async translateTier2Fields(fields: Record<string, string>): Promise<Record<string, string>> {
+    if (Object.keys(fields).length === 0) return {};
+    const unknownKeys = Object.keys(fields).filter(k => !(k in QcRestService.TIER2_FIELD_PARAM_KEYS));
+    if (unknownKeys.length > 0) throw new BadRequestException(`שדה/ות לא מוכרים: ${unknownKeys.join(', ')}`);
+    const asLogins = await this.personFieldsToLogins(fields);
+    const rows = await prisma.systemParam.findMany({ where: { key: { in: Object.values(QcRestService.TIER2_FIELD_PARAM_KEYS) } } });
+    const restName = new Map(rows.map(r => [r.key, (r.value ?? '').trim()]));
+    const out: Record<string, string> = {};
+    const unconfigured: string[] = [];
+    for (const [k, v] of Object.entries(asLogins)) {
+      const n = restName.get(QcRestService.TIER2_FIELD_PARAM_KEYS[k]);
+      if (!n) unconfigured.push(k); else out[n] = v;
+    }
+    if (unconfigured.length > 0) throw new BadRequestException(`שם שדה ה-REST עדיין לא הוגדר עבור: ${unconfigured.join(', ')}`);
+    return out;
+  }
+
+  private async translateTier2RefFields(refFields: Record<string, { id: string; label: string }>): Promise<Record<string, { id: string; label: string }>> {
+    if (Object.keys(refFields).length === 0) return {};
+    const unknownKeys = Object.keys(refFields).filter(k => !(k in QcRestService.TIER2_REF_FIELD_PARAM_KEYS));
+    if (unknownKeys.length > 0) throw new BadRequestException(`שדה/ות הפניה לא מוכרים: ${unknownKeys.join(', ')}`);
+    const rows = await prisma.systemParam.findMany({ where: { key: { in: Object.values(QcRestService.TIER2_REF_FIELD_PARAM_KEYS) } } });
+    const restName = new Map(rows.map(r => [r.key, (r.value ?? '').trim()]));
+    const out: Record<string, { id: string; label: string }> = {};
+    const unconfigured: string[] = [];
+    for (const [k, v] of Object.entries(refFields)) {
+      const n = restName.get(QcRestService.TIER2_REF_FIELD_PARAM_KEYS[k]);
+      if (!n) unconfigured.push(k); else out[n] = v;
+    }
+    if (unconfigured.length > 0) throw new BadRequestException(`שם שדה ה-REST עדיין לא הוגדר עבור: ${unconfigured.join(', ')}`);
+    return out;
+  }
+
   async updateDefectTier2RefFields(
     defectId: string, refFields: Record<string, { id: string; label: string }>, userId: string,
   ): Promise<{ ok: true; putStatus: number }> {

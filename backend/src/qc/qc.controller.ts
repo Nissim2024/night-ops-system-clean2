@@ -301,6 +301,7 @@ export class QcController {
   @Get('defect-field-picklists')
   async getDefectFieldPicklists(@Request() req: any) {
     await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה מורחבים — פנה למנהל מערכת');
+    this.qcRestService.refreshPicklistsIfStale(req.user.sub).catch(() => {});   // background, daily
     return this.qcRestService.getDefectFieldPicklists();
   }
 
@@ -459,6 +460,26 @@ export class QcController {
   // SystemParam-configured REST names (see updateDefectTier2Fields's own
   // comment) — refuses per-field while any mapping is still unconfigured,
   // never guesses.
+  @Get('comment-signature')
+  async getCommentSignature(@Request() req: any) {
+    await this.requireQcWrite(req);
+    return this.qcRestService.commentSignaturePreview(req.user.sub);
+  }
+
+  // One-button update (2026-10-07): fields + ref fields + status + new
+  // comment in one QC write. Each part needs the permission it always had.
+  @Patch('defects/:id')
+  async updateDefectAll(
+    @Request() req: any, @Param('id') id: string,
+    @Body() body: { fields?: Record<string, string>; refFields?: Record<string, { id: string; label: string }>; status?: string | null; comment?: string | null },
+  ) {
+    if (Object.keys(body?.fields ?? {}).length > 0 || Object.keys(body?.refFields ?? {}).length > 0) {
+      await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה — פנה למנהל מערכת');
+    }
+    if ((body?.status ?? '').trim() || (body?.comment ?? '').trim()) await this.requireQcWrite(req);
+    return this.qcRestService.updateDefectAll(id, body ?? {}, req.user.sub);
+  }
+
   @Patch('defects/:id/fields')
   async updateDefectFields(@Request() req: any, @Param('id') id: string, @Body('fields') fields: Record<string, string>) {
     await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה מורחבים — פנה למנהל מערכת');
@@ -531,7 +552,7 @@ export class QcController {
   // which statuses are reachable, it doesn't write anything.
   @Get('defects/allowed-transitions')
   getAllowedStatusTransitions(@Request() req: any, @Query('currentStatus') currentStatus: string) {
-    return this.qcService.getAllowedStatusTransitions(req.user.sub, currentStatus ?? '');
+    return this.qcService.getAllowedStatusTransitions(req.user.sub, currentStatus ?? '', req.user.role);
   }
 
   // ── Defect attachments (spec confirmed 2026-09-03) — read-only, so no

@@ -62,16 +62,42 @@ export const QC_GROUP_TRANSITIONS: Record<string, { from: string; to: string }[]
   ],
 };
 
+// Role overrides (user, 2026-10-07):
+//  - ADMIN and RELEASE_MANAGER: every transition of every group, and ONLY
+//    they may move a defect to Pending (all other Pending transitions were
+//    removed in QC on purpose).
+//  - CR_MANAGER: the developers' rules (Developer_New).
+// Enforcement stays in QC for now — this only decides what the form offers.
+export const PENDING_STATUS = 'Pending';
+const PRIVILEGED_ROLES = ['ADMIN', 'RELEASE_MANAGER'];
+
+export function getAllowedTransitionsForUser(
+  role: string, teamGroups: string[], currentStatus: string,
+  rules: Record<string, { from: string; to: string }[]> = QC_GROUP_TRANSITIONS,
+): { hasMapping: boolean; allowed: string[] } {
+  if (PRIVILEGED_ROLES.includes(role)) {
+    const all = getAllowedTransitions(Object.keys(rules), currentStatus, rules);
+    if (currentStatus.toLowerCase() !== PENDING_STATUS.toLowerCase() && !all.some(s => s.toLowerCase() === 'pending')) all.push(PENDING_STATUS);
+    return { hasMapping: true, allowed: all };
+  }
+  const groups = [...teamGroups, ...(role === 'CR_MANAGER' ? ['Developer_New'] : [])];
+  if (groups.length === 0) return { hasMapping: false, allowed: [] };
+  return { hasMapping: true, allowed: getAllowedTransitions(groups, currentStatus, rules) };
+}
+
 // Union across every group the user belongs to (a user in more than one
 // mapped team gets the combined set — matches how QC's own group
 // permissions are additive when a user is in more than one group there).
-export function getAllowedTransitions(qcGroupNames: string[], currentStatus: string): string[] {
+export function getAllowedTransitions(
+  qcGroupNames: string[], currentStatus: string,
+  rules: Record<string, { from: string; to: string }[]> = QC_GROUP_TRANSITIONS,
+): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const groupName of qcGroupNames) {
-    const rules = QC_GROUP_TRANSITIONS[groupName];
-    if (!rules) continue;
-    for (const rule of rules) {
+    const groupRules = rules[groupName];
+    if (!groupRules) continue;
+    for (const rule of groupRules) {
       if (rule.from.toLowerCase() !== currentStatus.toLowerCase()) continue;
       const key = rule.to.toLowerCase();
       if (seen.has(key)) continue;

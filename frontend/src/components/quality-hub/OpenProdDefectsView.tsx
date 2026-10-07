@@ -135,30 +135,11 @@ function renderFieldValue(key: string, value: unknown) {
 // Inline on purpose: a stylesheet reset zeroes Tailwind's `border` here.
 const VALUE_BOX_STYLE: React.CSSProperties = { border: `1px solid ${JIRA.greyN40}`, background: '#fff', borderRadius: 3 };
 const DETAIL_TOP_BTN_CLASS = 'px-3.5 py-1.5 bg-muted text-muted-foreground border border-border rounded-md cursor-pointer text-[13px]';
-const DETAIL_SECTION_HEADING_CLASS = 'text-xs font-bold mb-2 tracking-wide';
 
 // Common BG_STATUS values in this QC instance — a `datalist` (not a hard
 // `<select>`) so a real status the list doesn't yet know still typeable.
 const QC_STATUS_OPTIONS = ['New', 'Open', 'At Work', 'Fixed_Dev', 'Fixed_Test', 'Pending', 'Reopen', 'Rejected', 'Closed', 'Canceled'];
 
-// Direct write-back to QC — status + a dev-comment append — shown expanded by
-// default inside the defect detail screen (spec 2026-09-07). Every call goes
-// through /qc/rest-test/* which authenticates as the acting user's own QC
-// identity; a 403 (no action:qc_write permission or no linked qcLogin) is
-// rendered as a quiet inline note instead of an input form.
-// The Tier 2 ("safe") field set confirmed with the user 2026-09-18
-// (docs/spec-defects-module.md §6) — business keys match exactly what
-// qc-rest.service.ts::updateDefectTier2Fields expects; the real REST field
-// name behind each is configured separately (SystemParam, empty until
-// discovered) and stays entirely server-side.
-const TIER2_FIELDS: { key: string; label: string }[] = [
-  { key: 'assignedTo', label: 'Assigned To' },
-  { key: 'priority', label: 'Priority' },
-  { key: 'severity', label: 'Severity' },
-  { key: 'estimatedFixTime', label: 'Estimated Fix Time' },
-  { key: 'subModule', label: 'Sub Module' },
-  { key: 'mainModule', label: 'Main Module' },
-];
 
 // Real closed value-lists confirmed from live Oracle reads (SEVERITY_COLOR /
 // PriorityCell already used app-wide for these exact same values — see
@@ -169,190 +150,17 @@ const TIER2_FIELDS: { key: string; label: string }[] = [
 // Tuesday's QC metadata probe.
 const FREE_ENTRY_LIST_FIELDS = new Set(['detectedApkVersion', 'detectedHotAppApk', 'targetHotAppApk']);
 
+// Fields that don't change after the defect was opened (user, 2026-10-07)
+const LOCKED_DETAIL_FIELDS = new Set(['id', 'detectedBy', 'detectedOnDate', 'detectedInRelease', 'detectedInCycle', 'reporter', 'modified']);
+
 const TIER2_FIELD_OPTIONS: Record<string, string[]> = {
   severity: ['Show Stopper', 'Severe', 'Medium', 'Low'],
   priority: ['High', 'Medium', 'Low'],
 };
 
 
-// `blocked`/`allowedTransitions` are now owned by the parent DefectDetailScreen
-// (2026-09-19) — the new inline sidebar editor needs the exact same two
-// pieces of state to gate its own "✏️ ערוך" button and status dropdown, so
-// they're fetched once and passed down instead of each surface probing QC
-// independently.
-const QcWriteBackPanel: React.FC<{
-  defectId: string; token: string; currentStatus: string; currentValues: Record<string, string>;
-  blocked: string | null; allowedTransitions: string[] | null;
-}> = ({ defectId, token, currentStatus, currentValues, blocked, allowedTransitions }) => {
-  const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
-  const [status, setStatus] = useState(currentStatus);
-  const [note, setNote] = useState('');
-  const [savingStatus, setSavingStatus] = useState(false);
-  const [savingNote, setSavingNote] = useState(false);
-  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
-  const [tier2Values, setTier2Values] = useState<Record<string, string>>(currentValues);
-  const [savingTier2, setSavingTier2] = useState(false);
-  const [tier2Msg, setTier2Msg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
-
-  useEffect(() => { setTier2Values(currentValues); }, [currentValues]);
-
-  useEffect(() => { setStatus(currentStatus); }, [currentStatus]);
-
-  const saveStatus = async () => {
-    if (!status.trim() || status.trim() === currentStatus.trim()) return;
-    setSavingStatus(true); setMsg(null);
-    try {
-      const r = await axios.patch(`${API}/qc/rest-test/defect/${encodeURIComponent(defectId)}/status`, { status: status.trim() }, { headers });
-      setMsg({ kind: 'ok', text: `הסטטוס עודכן ב-QC: "${r.data?.oldStatus ?? currentStatus}" ← "${r.data?.newStatus ?? status}"` });
-    } catch (err: any) {
-      setMsg({ kind: 'err', text: err?.response?.data?.message || 'עדכון הסטטוס נכשל' });
-    } finally { setSavingStatus(false); }
-  };
-
-  const saveNote = async () => {
-    if (!note.trim()) return;
-    setSavingNote(true); setMsg(null);
-    try {
-      await axios.post(`${API}/qc/rest-test/defect/${encodeURIComponent(defectId)}/append-note`, { note: note.trim() }, { headers });
-      setMsg({ kind: 'ok', text: 'ההערה נוספה ל-QC' });
-      setNote('');
-    } catch (err: any) {
-      setMsg({ kind: 'err', text: err?.response?.data?.message || 'הוספת ההערה נכשלה' });
-    } finally { setSavingNote(false); }
-  };
-
-  // Only sends fields that actually changed from what QC last reported —
-  // avoids re-writing (and re-triggering any workflow side-effect on) a
-  // field the user didn't touch. A per-field REST-name mapping that's still
-  // unconfigured surfaces as a clear inline error from the backend (never
-  // silently skipped), same as the status/note actions above.
-  const saveTier2 = async () => {
-    const changed: Record<string, string> = {};
-    for (const f of TIER2_FIELDS) {
-      const next = (tier2Values[f.key] ?? '').trim();
-      const prev = (currentValues[f.key] ?? '').trim();
-      if (next !== prev) changed[f.key] = next;
-    }
-    if (Object.keys(changed).length === 0) return;
-    setSavingTier2(true); setTier2Msg(null);
-    try {
-      await axios.patch(`${API}/qc/defects/${encodeURIComponent(defectId)}/fields`, { fields: changed }, { headers });
-      setTier2Msg({ kind: 'ok', text: `עודכן ב-QC: ${Object.keys(changed).join(', ')}` });
-    } catch (err: any) {
-      setTier2Msg({ kind: 'err', text: err?.response?.data?.message || 'עדכון השדות נכשל' });
-    } finally { setSavingTier2(false); }
-  };
-  const tier2Dirty = TIER2_FIELDS.some(f => (tier2Values[f.key] ?? '').trim() !== (currentValues[f.key] ?? '').trim());
-
-  const inputClass = 'w-full box-border px-2.5 py-2 rounded-sm border border-border text-sm bg-card text-foreground';
-  const btnClass = 'px-4 py-[7px] bg-primary text-white border-none rounded-sm cursor-pointer text-[13px] font-semibold';
-
-  return (
-    // Explicit dir="rtl" — this whole panel is Hebrew UI text with no other
-    // per-element direction marking, so it must not depend on whatever
-    // ambient direction its container happens to use (the parent screen now
-    // forces dir="ltr" on itself for its own macro layout — see
-    // DefectDetailScreen).
-    <section dir="rtl" className="mt-6 border border-border rounded-md bg-muted px-[18px] py-4">
-      <div className={`${DETAIL_SECTION_HEADING_CLASS} text-subtle-foreground`}>
-        ✏️ עדכון ישיר ל-QC <span className="font-normal opacity-70">(גיבוי — ניתן גם לערוך ישירות בסרגל הצד)</span>
-      </div>
-      {blocked ? (
-        <div className="text-[13px] text-subtle-foreground leading-relaxed">{blocked}</div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          <div>
-            <label className="text-[13px] text-subtle-foreground block mb-1.5">
-              סטטוס תקלה{allowedTransitions && <span className="text-success"> · לפי workflow אמיתי של הצוות שלך</span>}
-            </label>
-            <div className="flex gap-2 items-center flex-wrap">
-              {allowedTransitions ? (
-                allowedTransitions.length > 0 ? (
-                  <select value={status} onChange={e => setStatus(e.target.value)} className={`${inputClass} flex-1 min-w-[160px]`} dir="ltr">
-                    <option value={currentStatus}>{currentStatus} (נוכחי)</option>
-                    {allowedTransitions.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                ) : (
-                  <div className="text-[13px] text-subtle-foreground flex-1">אין מעבר סטטוס אפשרי מ-"{currentStatus}" לצוות שלך</div>
-                )
-              ) : (
-                <>
-                  <input list="qc-status-options" value={status} onChange={e => setStatus(e.target.value)} className={`${inputClass} flex-1 min-w-[160px]`} dir="ltr" />
-                  <datalist id="qc-status-options">
-                    {QC_STATUS_OPTIONS.map(s => <option key={s} value={s} />)}
-                  </datalist>
-                </>
-              )}
-              <button onClick={saveStatus} disabled={savingStatus || !status.trim() || status.trim() === currentStatus.trim()} className={`${btnClass} ${(savingStatus || status.trim() === currentStatus.trim()) ? 'opacity-50' : 'opacity-100'}`}>
-                {savingStatus ? 'מעדכן…' : 'עדכן סטטוס'}
-              </button>
-            </div>
-          </div>
-          <div>
-            <label className="text-[13px] text-subtle-foreground block mb-1.5">הוספת הערה (Dev Comments)</label>
-            <textarea value={note} onChange={e => setNote(e.target.value)} rows={3} placeholder="הטקסט יתווסף לסוף שדה ההערות ב-QC, ולא ידרוס אותו" className={`${inputClass} resize-y`} />
-            <div className="mt-1.5 text-left">
-              <button onClick={saveNote} disabled={savingNote || !note.trim()} className={`${btnClass} ${(savingNote || !note.trim()) ? 'opacity-50' : 'opacity-100'}`}>
-                {savingNote ? 'מוסיף…' : 'הוסף הערה ל-QC'}
-              </button>
-            </div>
-          </div>
-          {msg && (
-            <div className={`text-[13px] font-semibold ${msg.kind === 'ok' ? 'text-success' : 'text-danger'}`}>
-              {msg.text}
-            </div>
-          )}
-
-          <div className="border-t border-border pt-4">
-            <div className="text-[13px] text-subtle-foreground mb-2.5">שדות נוספים (Assigned To / Priority / Severity / Estimated Fix Time / Sub Module / Main Module)</div>
-            <div className="grid grid-cols-2 gap-3">
-              {TIER2_FIELDS.map(f => {
-                const options = TIER2_FIELD_OPTIONS[f.key];
-                return (
-                  <div key={f.key}>
-                    <label className="text-[13px] text-subtle-foreground block mb-1.5">{f.label}</label>
-                    {options ? (
-                      <select
-                        value={tier2Values[f.key] ?? ''}
-                        onChange={e => setTier2Values(prev => ({ ...prev, [f.key]: e.target.value }))}
-                        className={inputClass}
-                        dir="ltr"
-                      >
-                        <option value="">—</option>
-                        {options.map(o => <option key={o} value={o}>{o}</option>)}
-                      </select>
-                    ) : (
-                      <input
-                        value={tier2Values[f.key] ?? ''}
-                        onChange={e => setTier2Values(prev => ({ ...prev, [f.key]: e.target.value }))}
-                        className={inputClass}
-                        dir="ltr"
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            <div className="mt-2.5 flex items-center gap-2.5">
-              <button onClick={saveTier2} disabled={savingTier2 || !tier2Dirty} className={`${btnClass} ${(savingTier2 || !tier2Dirty) ? 'opacity-50' : 'opacity-100'}`}>
-                {savingTier2 ? 'מעדכן…' : 'שמור שינויים ב-QC'}
-              </button>
-              {tier2Msg && (
-                <div className={`text-[13px] font-semibold ${tier2Msg.kind === 'ok' ? 'text-success' : 'text-danger'}`}>
-                  {tier2Msg.text}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </section>
-  );
-};
-
-
-// Inline sidebar editor (spec 2026-09-19) — swapped in for one field's
-// display span on double-click while the sidebar is in edit mode. Renders a
+// Inline field editor (spec 2026-09-19; one-button form 2026-10-07) — swapped
+// in for one field's display span on click. Renders a
 // select for a closed value-list (status via allowedTransitions, else the
 // old datalist fallback; severity/priority via TIER2_FIELD_OPTIONS), a plain
 // text input otherwise. A select commits immediately on change (choosing IS
@@ -376,6 +184,10 @@ const InlineFieldEditor: React.FC<{
           {allowedTransitions.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
       );
+    }
+    // no lifecycle mapping for this user — never fall back to free text
+    if (fieldKey === 'status') {
+      return <span className="text-xs text-subtle-foreground">אין מעברי סטטוס זמינים</span>;
     }
     return (
       <>
@@ -577,6 +389,7 @@ export const DefectDetailScreen: React.FC<{
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const [detail, setDetail] = useState<DefectFullDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(true);
+  const [detailReload, setDetailReload] = useState(0);   // bumped after a save → re-read from QC
 
   useEffect(() => {
     setDetail(null);
@@ -586,7 +399,7 @@ export const DefectDetailScreen: React.FC<{
       .catch(() => setDetail(null))
       .finally(() => setDetailLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [defectId, token]);
+  }, [defectId, token, detailReload]);
 
   const currentStatus = String(detail?.status ?? '');
 
@@ -668,13 +481,28 @@ export const DefectDetailScreen: React.FC<{
   // value-list, text otherwise); one "💾 שמור" batches every pending field
   // into the minimum number of PATCH calls. The older "עדכון ישיר ל-QC" panel
   // below stays as a fallback (user's explicit call) rather than being removed.
-  const [editMode, setEditMode] = useState(false);
+  // One-button update (user, 2026-10-07): no "edit mode" any more — every
+  // field the user may change is editable straight away (click it), changes
+  // pile up, and ONE "עדכן תקלה" writes fields + status + new comment to QC
+  // together. Status / comment need QC write access (`blocked`), the other
+  // fields the field-edit permission (editableFieldKeys).
   const [personDirectory, setPersonDirectory] = useState<{ login: string; fullName: string }[]>([]);
   useEffect(() => {
-    if (!editMode || personDirectory.length > 0) return;
+    if (personDirectory.length > 0) return;
     axios.get(`${API}/qc/person-directory`, { headers }).then(r => setPersonDirectory(r.data ?? [])).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editMode]);
+  }, [token]);
+  // a new comment in QC's own format (signature added by the server on save)
+  const [newComment, setNewComment] = useState<string | null>(null);
+  const [commentSignature, setCommentSignature] = useState('');
+  const openNewComment = () => {
+    setNewComment(prev => prev ?? '');
+    if (!commentSignature) {
+      axios.get(`${API}/qc/comment-signature`, { headers })
+        .then(r => setCommentSignature(r.data?.signature ?? ''))
+        .catch(err => setInlineMsg({ kind: 'err', text: err?.response?.data?.message || 'לא ניתן לזהות את משתמש ה-QC שלך' }));
+    }
+  };
   const [editingField, setEditingField] = useState<string | null>(null);
   const [pendingEdits, setPendingEdits] = useState<Record<string, string>>({});
   // Reference-field pending edits (Detected in Release/Cycle) — a real
@@ -687,12 +515,12 @@ export const DefectDetailScreen: React.FC<{
   useEffect(() => {
     // A freshly opened/changed defect starts clean — no stale edits carried
     // over from whatever was previously viewed.
-    setEditMode(false); setEditingField(null); setPendingEdits({}); setPendingRefEdits({}); setInlineMsg(null);
+    setEditingField(null); setPendingEdits({}); setPendingRefEdits({}); setInlineMsg(null); setNewComment(null);
   }, [defectId]);
 
   const cancelInlineEdit = async () => {
-    if ((Object.keys(pendingEdits).length > 0 || Object.keys(pendingRefEdits).length > 0) && !await dialog.confirm('לבטל את השינויים שלא נשמרו?', 'ביטול שינויים', 'warning')) return;
-    setEditMode(false); setEditingField(null); setPendingEdits({}); setPendingRefEdits({}); setInlineMsg(null);
+    if (pendingCount > 0 && !await dialog.confirm('לבטל את השינויים שלא נשמרו?', 'ביטול שינויים', 'warning')) return;
+    setEditingField(null); setPendingEdits({}); setPendingRefEdits({}); setInlineMsg(null); setNewComment(null);
   };
 
   const commitInlineField = (key: string, value: string) => {
@@ -715,39 +543,26 @@ export const DefectDetailScreen: React.FC<{
     setEditingField(null);
   };
 
+  const pendingCount = Object.keys(pendingEdits).length + Object.keys(pendingRefEdits).length + (newComment?.trim() ? 1 : 0);
+
   const saveInlineEdits = async () => {
-    if (Object.keys(pendingEdits).length === 0 && Object.keys(pendingRefEdits).length === 0) return;
+    if (pendingCount === 0) return;
     setSavingInline(true); setInlineMsg(null);
-    const errors: string[] = [];
     const { status: pendingStatus, ...restFields } = pendingEdits;
-    if (pendingStatus !== undefined) {
-      try {
-        await axios.patch(`${API}/qc/rest-test/defect/${encodeURIComponent(defectId)}/status`, { status: pendingStatus }, { headers });
-      } catch (err: any) {
-        errors.push(err?.response?.data?.message || 'עדכון הסטטוס נכשל');
-      }
+    try {
+      const r = await axios.patch(`${API}/qc/defects/${encodeURIComponent(defectId)}`, {
+        fields: restFields, refFields: pendingRefEdits,
+        status: pendingStatus ?? null, comment: newComment?.trim() || null,
+      }, { headers });
+      setPendingEdits({}); setPendingRefEdits({}); setNewComment(null); setEditingField(null);
+      setInlineMsg({ kind: 'ok', text: `✓ התקלה עודכנה ב-QC${r.data?.commentAdded ? ' · ההערה נוספה' : ''}` });
+      setDetailReload(n => n + 1);    // show what QC now holds
+    } catch (err: any) {
+      // nothing was written — the changes stay on screen to fix and retry
+      setInlineMsg({ kind: 'err', text: err?.response?.data?.message || 'עדכון התקלה נכשל' });
+    } finally {
+      setSavingInline(false);
     }
-    if (Object.keys(restFields).length > 0) {
-      try {
-        await axios.patch(`${API}/qc/defects/${encodeURIComponent(defectId)}/fields`, { fields: restFields }, { headers });
-      } catch (err: any) {
-        errors.push(err?.response?.data?.message || 'עדכון השדות נכשל');
-      }
-    }
-    if (Object.keys(pendingRefEdits).length > 0) {
-      try {
-        await axios.patch(`${API}/qc/defects/${encodeURIComponent(defectId)}/ref-fields`, { refFields: pendingRefEdits }, { headers });
-      } catch (err: any) {
-        errors.push(err?.response?.data?.message || 'עדכון שדות ההפניה נכשל');
-      }
-    }
-    setSavingInline(false);
-    if (errors.length > 0) { setInlineMsg({ kind: 'err', text: errors.join(' · ') }); return; }
-    const refUpdates = Object.fromEntries(Object.entries(pendingRefEdits).map(([k, v]) => [k, v.label]));
-    setDetail(prev => (prev ? ({ ...prev, ...pendingEdits, ...refUpdates } as DefectFullDetail) : prev));
-    setPendingEdits({});
-    setPendingRefEdits({});
-    setEditMode(false);
   };
 
   // The admin-configured field pool (AdminPanel's "עמודות תקלות ייצור" panel)
@@ -823,24 +638,17 @@ export const DefectDetailScreen: React.FC<{
           {inlineMsg && (
             <span className={`text-[13px] font-semibold ${inlineMsg.kind === 'ok' ? 'text-success' : 'text-danger'}`}>{inlineMsg.text}</span>
           )}
-          {!blocked && (
-            editMode ? (
-              <>
-                <button onClick={cancelInlineEdit} className={DETAIL_TOP_BTN_CLASS}>ביטול</button>
-                <button
-                  onClick={saveInlineEdits}
-                  disabled={savingInline || (Object.keys(pendingEdits).length === 0 && Object.keys(pendingRefEdits).length === 0)}
-                  className={`px-3.5 py-1.5 rounded-md border-none cursor-pointer text-[13px] font-semibold bg-primary text-white ${(savingInline || (Object.keys(pendingEdits).length === 0 && Object.keys(pendingRefEdits).length === 0)) ? 'opacity-50' : 'opacity-100'}`}
-                >
-                  {(() => {
-                    const n = Object.keys(pendingEdits).length + Object.keys(pendingRefEdits).length;
-                    return savingInline ? 'שומר…' : `💾 שמור${n > 0 ? ` (${n})` : ''}`;
-                  })()}
-                </button>
-              </>
-            ) : (
-              <button onClick={() => setEditMode(true)} className={DETAIL_TOP_BTN_CLASS}>✏️ ערוך</button>
-            )
+          {pendingCount > 0 && (
+            <>
+              <button onClick={cancelInlineEdit} disabled={savingInline} className={DETAIL_TOP_BTN_CLASS}>בטל שינויים</button>
+              <button
+                onClick={saveInlineEdits}
+                disabled={savingInline}
+                className={`px-4 py-1.5 rounded-md border-none cursor-pointer text-[13px] font-bold bg-primary text-white ${savingInline ? 'opacity-50' : 'opacity-100'}`}
+              >
+                {savingInline ? 'מעדכן ב-QC…' : `✔ עדכן תקלה (${pendingCount})`}
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -927,7 +735,12 @@ export const DefectDetailScreen: React.FC<{
                       const isAtomic = PERSON_BADGE_FIELDS.has(key) || TEAM_BADGE_FIELDS.has(key)
                         || key === 'id' || key === 'status' || key === 'severity' || key === 'priority' || key === 'secondaryPriority';
                       const valRtl = !isAtomic && !!displayValue && hasHebrew(displayValue);
-                      const isEditable = editMode && (editableFieldKeys.has(key) || isRefField);
+                      const isEditable = !LOCKED_DETAIL_FIELDS.has(key) && (key === 'status'
+                        ? !blocked && allowedTransitions !== null
+                        : (editableFieldKeys.has(key) || isRefField));
+                      const lockReason = key === 'status' && !blocked && allowedTransitions === null
+                        ? 'הצוות שלך לא משויך לקבוצת QC — לא ניתן לשנות סטטוס מכאן'
+                        : LOCKED_DETAIL_FIELDS.has(key) ? 'שדה נעול — לא משתנה אחרי פתיחת התקלה' : undefined;
                       const isEditingThis = editingField === key;
                       // Label above value, matching CreateDefectScreen's Field
                       // component (switched from the prior side-by-side row per
@@ -939,7 +752,8 @@ export const DefectDetailScreen: React.FC<{
                       return (
                         <div
                           key={key}
-                          onDoubleClick={() => { if (isEditable && !isEditingThis) setEditingField(key); }}
+                          onClick={() => { if (isEditable && !isEditingThis) setEditingField(key); }}
+                          title={isEditable && !isEditingThis ? 'לחץ לעריכה' : lockReason}
                           className="flex max-w-full flex-col items-start gap-1.5 rounded-sm px-1 py-0.5"
                           style={{
                             // full-row field (template's ↔ toggle): long values get their own line
@@ -1031,37 +845,36 @@ export const DefectDetailScreen: React.FC<{
                         ? <div className="text-[15px] text-right whitespace-pre-wrap break-words">{detail.description ? decodeDefectText(String(detail.description)) : NOT_SET}</div>
                         : (String(detail.notes ?? '').replace(/_{5,}/g, '').trim() ? renderNotesField(detail.notes) : NOT_SET)}
                     </div>
+                    {sec.key === 'notes' && !blocked && (
+                      newComment === null ? (
+                        <button type="button" onClick={openNewComment}
+                          className="mt-2 cursor-pointer rounded-md border border-border bg-card px-3 py-1 text-xs font-semibold text-primary">
+                          ➕ הוסף הערה
+                        </button>
+                      ) : (
+                        // QC's own add-comment format: signature line, then the text
+                        <div className="mt-2 rounded-md border p-2.5" style={{ borderColor: JIRA.blue, background: '#f7faff' }}>
+                          <div className="text-left text-sm font-semibold" style={{ color: JIRA.textSubtle, direction: 'ltr' }}>
+                            {commentSignature || '…'}
+                          </div>
+                          <textarea
+                            autoFocus value={newComment} onChange={e => setNewComment(e.target.value)} rows={4} dir="auto"
+                            placeholder="כתוב את ההערה…"
+                            className="mt-1 w-full resize-y rounded-sm border border-border bg-white p-2 text-[14px] text-foreground"
+                          />
+                          <div className="mt-1 flex items-center justify-between text-[11px] text-subtle-foreground">
+                            <span>תתווסף בסוף ההערות בלחיצה על "עדכן תקלה"</span>
+                            <button type="button" onClick={() => setNewComment(null)} className="cursor-pointer border-none bg-transparent p-0 text-xs text-subtle-foreground hover:text-danger">הסר</button>
+                          </div>
+                        </div>
+                      )
+                    )}
                   </section>
                 );
               })}
             </div>
           )}
 
-          {/* Attachments moved into a form panel and the history link out of
-              any panel (user ask 2026-10-06) — this card keeps only the QC
-              write-back panel. */}
-          <div
-            className="min-w-0 flex flex-col rounded-lg px-6 pb-5"
-            style={{ background: '#fff' }}
-          >
-
-            {/* עדכון ישיר ל-QC — פתוח כברירת מחדל (spec 2026-09-07) */}
-            <QcWriteBackPanel
-              defectId={defectId}
-              token={token}
-              currentStatus={currentStatus}
-              currentValues={{
-                assignedTo: String(detail.assignedTo ?? ''),
-                priority: String(detail.priority ?? ''),
-                severity: String(detail.severity ?? ''),
-                estimatedFixTime: String(detail.estimatedFixTime ?? ''),
-                subModule: String(detail.subModule ?? ''),
-                mainModule: String(detail.mainModule ?? ''),
-              }}
-              blocked={blocked}
-              allowedTransitions={allowedTransitions}
-            />
-          </div>
           <div dir="rtl" className="flex">
             <button
               onClick={() => setHistoryModalOpen(true)}
