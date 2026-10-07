@@ -4,3 +4,5 @@ dist
 .env.dev
 .env.test
 *.log
+# real production data for dev mock mode (git-ignored too) — never in an image
+src/qc/seed-data
