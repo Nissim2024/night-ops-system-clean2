@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import axios from 'axios';
 import { C, FONT, JIRA } from '../../theme';
 import { Card, Badge, BackLink, Avatar } from '../ui';
-import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, BUILTIN_ALWAYS_SHOWN_FIELDS, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, testPhaseFor } from './openProdDefectsFields';
+import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, BUILTIN_ALWAYS_SHOWN_FIELDS, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, testPhaseFor, CREATE_REQUIRED_FIELDS } from './openProdDefectsFields';
 import {
   hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroup,
   FieldChangeHistorySection, AttachmentsSection, parseNoteEntries, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
@@ -1015,6 +1015,7 @@ export const DefectDetailScreen: React.FC<{
     setEditingField(null);
   };
 
+  const [missingRequired, setMissingRequired] = useState<Set<string>>(new Set());
   const pendingCount = Object.keys(pendingEdits).length
     + new Set(Object.keys(pendingRefEdits).map(k => REF_PAIR_OF[k]?.[0] ?? k)).size
     + (newComment?.trim() ? 1 : 0);
@@ -1097,6 +1098,20 @@ export const DefectDetailScreen: React.FC<{
 
   const saveInlineEdits = async (): Promise<boolean> => {
     if (pendingCount === 0) return true;
+    // a QC-required field that had a value must not be emptied (2026-10-09);
+    // one that was already empty (old defects) never blocks other changes
+    const emptied = Array.from(CREATE_REQUIRED_FIELDS).filter(k => {
+      const before = String((detail as any)?.[k] ?? '').trim();
+      const after = refEditableFieldKeys.has(k)
+        ? (pendingRefEdits[k] ? pendingRefEdits[k].label : before)
+        : (pendingEdits[k] !== undefined ? pendingEdits[k] : before);
+      return !!before && !String(after ?? '').trim();
+    });
+    setMissingRequired(new Set(emptied));
+    if (emptied.length) {
+      setInlineMsg({ kind: 'err', text: `שדות חובה ב-QC לא יכולים להישאר ריקים: ${emptied.map(k => DETAIL_FIELD_LABEL[k] ?? k).join(', ')}` });
+      return false;
+    }
     setSavingInline(true); setInlineMsg(null);
     const { status: pendingStatus, ...restFields } = pendingEdits;
     try {
@@ -1227,7 +1242,10 @@ export const DefectDetailScreen: React.FC<{
       ? 'הצוות שלך לא משויך לקבוצת QC — לא ניתן לשנות סטטוס מכאן'
       : LOCKED_DETAIL_FIELDS.has(k) ? 'שדה נעול — לא משתנה אחרי פתיחת התקלה' : undefined),
     editingField, setEditingField,
-    commitField: commitInlineField, commitPair: commitRefPair, outsideCommit,
+    commitField: (k, v) => { setMissingRequired(m => { if (!m.has(k)) return m; const n = new Set(m); n.delete(k); return n; }); commitInlineField(k, v); },
+    commitPair: (rk, ck, rel, cyc) => { setMissingRequired(m => { const n = new Set(m); n.delete(rk); n.delete(ck); return n; }); commitRefPair(rk, ck, rel, cyc); },
+    outsideCommit,
+    required: CREATE_REQUIRED_FIELDS, missing: missingRequired,
     teamEnv, fieldPicklists, fieldKinds, personDirectory, personTeams, releaseOptions,
     currentStatus, allowedTransitions,
     loadScoped: (k, release, cr) => loadReleaseScopedOptions(headers, k, release, cr),

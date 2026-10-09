@@ -166,7 +166,9 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
 
   const groups = useMemo(() => (panels ?? DEFAULT_OPEN_PROD_DETAIL_GROUPS.map(g => ({ name: g.title, fields: g.fields, wide: g.wide })))
     .map(p => ({ ...p, fields: p.fields.filter(f => f !== ATTACHMENTS_FIELD) })), [panels]);
-  const shownPanels = groups.map(p => ({ ...p, fields: createFieldsOf(p) })).filter(p => p.fields.length > 0);
+  // every panel keeps its place (same columns as the update form, user
+  // 2026-10-09); a panel with nothing to fill at creation says so
+  const shownPanels = groups.map(p => ({ ...p, fields: createFieldsOf(p) }));
   const shownSet = new Set(shownPanels.flatMap(p => p.fields));
   // required fields the layout left out still have to be there
   const requiredOutside = [...Array.from(CREATE_REQUIRED_FIELDS), 'testPhase'].filter(f => !shownSet.has(f));
@@ -295,12 +297,12 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
   };
 
   const fieldGrid = (fields: string[], wide?: string[]) => (
-    <div className="grid gap-x-3 gap-y-3" style={{ direction: 'ltr', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))' }}>
+    <div className="grid gap-x-3 gap-y-3" style={{ direction: 'ltr', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 170px), 1fr))' }}>
       {fields.map(f => <DefectFieldCell key={f} fieldKey={f} wide={!!wide?.includes(f)} ctx={ctx} />)}
     </div>
   );
   const panelCard = (name: string, body: React.ReactNode, key: string) => (
-    <div key={key} dir="rtl" className="rounded-xl px-6 py-6" style={{ background: '#fff', height: '100%' }}>
+    <div key={key} dir="rtl" className="rounded-xl px-4 py-5" style={{ background: '#fff', height: '100%' }}>
       <div dir="auto" className="mb-3 text-start text-sm font-bold text-foreground">{name}</div>
       {body}
     </div>
@@ -334,8 +336,12 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
       )}
 
       {/* the same panels, fields and pickers as the update form */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, direction: 'ltr' }}>
-        {shownPanels.map((p, i) => panelCard(p.name, fieldGrid(p.fields, p.wide), `p${i}`))}
+      {/* the panels side by side as in the update form — this screen sits next
+          to the sidebar (narrower), so the panels may shrink further */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, direction: 'ltr' }}>
+        {shownPanels.map((p, i) => panelCard(p.name, p.fields.length
+          ? fieldGrid(p.fields, p.wide)
+          : <div className="text-[13px] text-subtle-foreground">יתמלא בהמשך הטיפול בתקלה</div>, `p${i}`))}
         {requiredOutside.length > 0 && panelCard('שדות לפתיחת תקלה', fieldGrid(requiredOutside), 'req')}
       </div>
 
