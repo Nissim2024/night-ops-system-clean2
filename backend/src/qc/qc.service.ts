@@ -1994,6 +1994,100 @@ export function devPicklistsFromRealSeed(listKeys: string[]): Record<string, { v
   return out;
 }
 
+// ── Paired defect fields (user, 2026-10-08) ────────────────────────────────
+// Release + cycle are pairs (Detected in Release/Cycle, Target Release/Cycle):
+// the form offers only the chosen release's own cycles. Every QC release
+// since 2022 with its cycles, newest first; releases a DeployCenter version is
+// running right now are flagged `inFlight` (shown on top). Names, never ids,
+// are what the user sees; the ids go to QC.
+export interface ReleaseCycleOption { id: string; name: string; startDate: string | null; inFlight: boolean; cycles: { id: string; name: string; startDate: string | null }[] }
+
+const RELEASE_CYCLE_OPTIONS_SQL = `
+  SELECT RR.REL_ID, RR.REL_NAME, TO_CHAR(RR.REL_START_DATE, 'YYYY-MM-DD') AS REL_START,
+         RC.RCYC_ID, RC.RCYC_NAME, TO_CHAR(RC.RCYC_START_DATE, 'YYYY-MM-DD') AS RCYC_START
+  FROM RELEASES RR
+  LEFT JOIN RELEASE_CYCLES RC ON RC.RCYC_PARENT_ID = RR.REL_ID
+  WHERE RR.REL_START_DATE > TO_DATE('2022-01-01', 'YYYY-MM-DD')
+  ORDER BY RR.REL_START_DATE DESC, RC.RCYC_START_DATE, RC.RCYC_ID
+`;
+
+const byStartThenId = (a: { startDate: string | null; id: string }, b: { startDate: string | null; id: string }) =>
+  String(a.startDate ?? '').localeCompare(String(b.startDate ?? '')) || Number(a.id) - Number(b.id);
+
+export async function getReleaseCycleOptions(): Promise<ReleaseCycleOption[]> {
+  const { enabled } = await getOracleConfig();
+  let releases: Omit<ReleaseCycleOption, 'inFlight'>[] = [];
+  if (enabled) {
+    releases = await qcMemo('release-cycle-options', async () => {
+      const conn = await oracleConnect();
+      try {
+        const res = await conn.execute(RELEASE_CYCLE_OPTIONS_SQL);
+        const byId = new Map<string, Omit<ReleaseCycleOption, 'inFlight'>>();
+        for (const r of (res.rows ?? []) as any[]) {
+          const id = String(r.REL_ID);
+          if (!byId.has(id)) byId.set(id, { id, name: String(r.REL_NAME ?? '').trim(), startDate: r.REL_START ?? null, cycles: [] });
+          if (r.RCYC_ID != null) byId.get(id)!.cycles.push({ id: String(r.RCYC_ID), name: String(r.RCYC_NAME ?? '').trim(), startDate: r.RCYC_START ?? null });
+        }
+        return [...byId.values()];
+      } finally {
+        await conn.close().catch(() => {});
+      }
+    }, 10 * 60_000);
+  } else {
+    // dev: the real RELEASES/CYCLES exports (scripts/import-real-defects-seed.js)
+    try {
+      releases = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'src', 'qc', 'seed-data', 'release-cycles.local.json'), 'utf-8'));
+    } catch {
+      const rows = await prisma.qcRelease.findMany({ orderBy: { relStartDate: 'desc' } });
+      releases = rows.map(r => ({
+        id: String(r.relId), name: r.relName, startDate: r.relStartDate?.toISOString().slice(0, 10) ?? null,
+        cycles: [
+          r.rehearsalCycleId ? { id: String(r.rehearsalCycleId), name: 'Dress Rehearsal', startDate: r.rehearsalDate?.toISOString().slice(0, 10) ?? null } : null,
+          r.goLiveCycleId ? { id: String(r.goLiveCycleId), name: 'Go Live', startDate: r.goLiveDate?.toISOString().slice(0, 10) ?? null } : null,
+        ].filter(Boolean) as ReleaseCycleOption['cycles'],
+      }));
+    }
+  }
+  // by QC id, or by name (the version is named after its QC release)
+  const running = await prisma.version.findMany({
+    where: { isQcHistorical: false, status: { notIn: ['DRAFT', 'COMPLETED', 'ROLLED_BACK'] } },
+    select: { name: true, qcRelease: { select: { relId: true, relName: true } } },
+  });
+  const ids = new Set(running.map(v => v.qcRelease ? String(v.qcRelease.relId) : '').filter(Boolean));
+  const names = new Set(running.flatMap(v => [v.name, v.qcRelease?.relName ?? '']).map(n => n.trim().toLowerCase()).filter(Boolean));
+  return releases.map(r => ({ ...r, cycles: [...r.cycles].sort(byStartThenId), inFlight: ids.has(r.id) || names.has(r.name.trim().toLowerCase()) }));
+}
+
+// Team (Responsibility) + Environment Component are a pair too: a team's
+// components are its "QC Environment Components" (AdminPanel), else its
+// systems (apps — what the deployments module uses); a team with neither
+// gets the full list. `all` = every team's components + values already used.
+export async function getTeamEnvironmentComponents(): Promise<{ teams: { name: string; responsibility: string | null; components: string[] }[]; all: string[] }> {
+  const teams = await prisma.team.findMany({ where: { active: true }, select: { name: true, qcResponsibilityValue: true, qcEnvironmentComponents: true, apps: true } });
+  const out = teams.map(t => ({
+    name: t.name,
+    responsibility: t.qcResponsibilityValue?.trim() || null,
+    components: (t.qcEnvironmentComponents.length > 0 ? t.qcEnvironmentComponents : t.apps).map(s => s.trim()).filter(Boolean),
+  }));
+  const all = new Set<string>(out.flatMap(t => t.components));
+  const { enabled } = await getOracleConfig();
+  if (enabled) {
+    const used = await qcMemo('environment-component-values', async () => {
+      const conn = await oracleConnect();
+      try {
+        const res = await conn.execute(`SELECT DISTINCT BG_USER_49 AS V FROM BUG WHERE BG_USER_49 IS NOT NULL`);
+        return ((res.rows ?? []) as any[]).map(r => String(r.V ?? '').trim()).filter(Boolean);
+      } finally {
+        await conn.close().catch(() => {});
+      }
+    }, 10 * 60_000).catch(() => [] as string[]);
+    for (const v of used) all.add(v);
+  } else {
+    for (const r of loadRealAllBugs() ?? []) { const v = String(r.ENVIRONMENT_COMPONNENT ?? '').trim(); if (v) all.add(v); }
+  }
+  return { teams: out, all: [...all].sort((a, b) => a.localeCompare(b)) };
+}
+
 // mock-mode rows for the defects module's dashboard / page / filtered list
 function mockAllDefectsRows(): AllDefectsRawRow[] {
   const real = loadRealAllBugs();

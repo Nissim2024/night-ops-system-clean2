@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import ReactDOM from 'react-dom';
 import axios from 'axios';
 import { C, FONT, JIRA } from '../../theme';
-import { Card, Badge, BackLink } from '../ui';
+import { Card, Badge, BackLink, Avatar } from '../ui';
 import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, BUILTIN_ALWAYS_SHOWN_FIELDS, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF } from './openProdDefectsFields';
 import {
   hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroup,
@@ -153,7 +153,9 @@ const QC_STATUS_OPTIONS = ['New', 'Open', 'At Work', 'Fixed_Dev', 'Fixed_Test', 
 const FREE_ENTRY_LIST_FIELDS = new Set(['detectedApkVersion', 'detectedHotAppApk', 'targetHotAppApk']);
 
 // Fields that don't change after the defect was opened (user, 2026-10-07)
-const LOCKED_DETAIL_FIELDS = new Set(['id', 'detectedBy', 'detectedOnDate', 'detectedInRelease', 'detectedInCycle', 'reporter', 'modified']);
+// Detected By / on Date are editable for ADMIN + RELEASE_MANAGER only — the
+// server leaves them out of the editable list for everyone else (2026-10-08).
+const LOCKED_DETAIL_FIELDS = new Set(['id', 'reporter', 'modified']);
 
 const TIER2_FIELD_OPTIONS: Record<string, string[]> = {
   severity: ['Show Stopper', 'Severe', 'Medium', 'Low'],
@@ -161,14 +163,19 @@ const TIER2_FIELD_OPTIONS: Record<string, string[]> = {
 };
 
 
-// ── Field editing (user, 2026-10-07) ─────────────────────────────────────
+// ── Field editing (user, 2026-10-07 / 2026-10-08) ─────────────────────────
 // Opens in a floating panel UNDER the field — the field keeps its size and
 // nothing around it moves. Every list-like field (value lists, people,
-// status) uses PickList: it opens on the WHOLE list (the browser's datalist
-// only showed options matching the value already typed — i.e. just the
-// current name), typing filters, ↑/↓ + Enter or a click picks.
+// status, release/cycle) uses PickList: it opens on the WHOLE list, typing
+// filters, ↑/↓ + Enter or a click picks; the current value carries a ✓.
 
-type PickOption = { value: string; label: string; hint?: string };
+type PickOption = {
+  value: string; label: string; hint?: string;
+  /** person name → avatar in the row */
+  person?: string;
+  /** section heading shown above the first option of each group */
+  group?: string;
+};
 
 const PickList: React.FC<{
   options: PickOption[]; current: string; onPick: (v: string) => void; onCancel: () => void;
@@ -181,10 +188,17 @@ const PickList: React.FC<{
   useEffect(() => { inputRef.current?.focus({ preventScroll: true }); }, []);   // no page jump
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
-    return t ? options.filter(o => o.label.toLowerCase().includes(t) || o.value.toLowerCase().includes(t)) : options;
+    return t ? options.filter(o => o.label.toLowerCase().includes(t) || o.value.toLowerCase().includes(t) || (o.hint ?? '').toLowerCase().includes(t)) : options;
   }, [q, options]);
   const shown = filtered.slice(0, 400);
+  const isCurrent = (o: PickOption) => o.value === current || (!!current && o.label === current);
   useEffect(() => { setHi(0); }, [q]);
+  // open on the current value (highlighted + scrolled into the list's view)
+  useEffect(() => {
+    const i = shown.findIndex(isCurrent);
+    if (i > 0) setHi(i);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // keep the highlighted row visible by scrolling the LIST only — scrollIntoView
   // also scrolled the page, which made the whole form jump
   useEffect(() => {
@@ -194,40 +208,50 @@ const PickList: React.FC<{
     if (el.offsetTop < box.scrollTop) box.scrollTop = el.offsetTop;
     else if (el.offsetTop + el.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = el.offsetTop + el.offsetHeight - box.clientHeight;
   }, [hi]);
-  const pick = (v: string) => onPick(v);
   return (
-    <div className="flex flex-col gap-1.5">
-      <input
-        ref={inputRef} value={q} onChange={e => setQ(e.target.value)} dir="auto"
-        placeholder={placeholder ?? `חיפוש מתוך ${options.length}…`}
-        onKeyDown={e => {
-          if (e.key === 'ArrowDown') { e.preventDefault(); setHi(h => Math.min(h + 1, shown.length - 1)); }
-          else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(h => Math.max(h - 1, 0)); }
-          else if (e.key === 'Enter') { e.preventDefault(); if (shown[hi]) pick(shown[hi].value); else if (allowCustom && q.trim()) pick(q.trim()); }
-          else if (e.key === 'Escape') onCancel();
-        }}
-        className="w-full rounded-sm border border-border bg-card px-2 py-1.5 text-[13px] text-foreground"
-      />
-      <div ref={listRef} className="max-h-64 overflow-y-auto rounded-sm border border-border bg-card" dir="ltr">
+    <div className="flex flex-col gap-2">
+      <div className="relative">
+        <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] text-subtle-foreground">🔍</span>
+        <input
+          ref={inputRef} value={q} onChange={e => setQ(e.target.value)} dir="auto"
+          placeholder={placeholder ?? `חיפוש מתוך ${options.length}…`}
+          onKeyDown={e => {
+            if (e.key === 'ArrowDown') { e.preventDefault(); setHi(h => Math.min(h + 1, shown.length - 1)); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(h => Math.max(h - 1, 0)); }
+            else if (e.key === 'Enter') { e.preventDefault(); if (shown[hi]) onPick(shown[hi].value); else if (allowCustom && q.trim()) onPick(q.trim()); }
+            else if (e.key === 'Escape') onCancel();
+          }}
+          className="w-full rounded-md border border-border bg-card py-1.5 pl-8 pr-2.5 text-[13px] text-foreground outline-none focus:border-primary"
+        />
+      </div>
+      <div ref={listRef} className="relative max-h-72 overflow-y-auto" dir="ltr">
         {shown.length === 0 && (
-          <div className="px-2 py-2 text-xs text-subtle-foreground">
+          <div className="px-2.5 py-2 text-xs text-subtle-foreground">
             {allowCustom && q.trim() ? <>Enter — להשתמש ב-"{q.trim()}"</> : 'אין התאמות'}
           </div>
         )}
         {shown.map((o, i) => (
-          <div
-            key={`${o.value}|${i}`} data-i={i}
-            onMouseDown={e => { e.preventDefault(); pick(o.value); }}
-            onMouseEnter={() => setHi(i)}
-            className={cn('flex cursor-pointer items-center justify-between gap-2 px-2 py-1 text-[13px]', i === hi && 'bg-muted', o.value === current && 'font-bold')}
-            style={{ color: JIRA.text }}
-          >
-            <span className="truncate" dir="auto">{o.label}</span>
-            {o.hint && <span className="shrink-0 text-[11px] text-subtle-foreground">{o.hint}</span>}
-          </div>
+          <React.Fragment key={`${o.value}|${i}`}>
+            {o.group && o.group !== shown[i - 1]?.group && (
+              <div className="px-2.5 pb-1 pt-2 text-[11px] font-bold uppercase tracking-wide text-subtle-foreground" dir="rtl">{o.group}</div>
+            )}
+            <div
+              data-i={i}
+              onMouseDown={e => { e.preventDefault(); onPick(o.value); }}
+              onMouseEnter={() => setHi(i)}
+              title={o.label}
+              className={cn('flex min-h-[32px] cursor-pointer items-center gap-2 rounded-md px-2.5 py-1 text-[13px]', i === hi && 'bg-muted', isCurrent(o) && 'font-semibold')}
+              style={{ color: JIRA.text }}
+            >
+              <span className="w-3.5 shrink-0 text-center text-primary">{isCurrent(o) ? '✓' : ''}</span>
+              {o.person && <Avatar name={o.person} size={22} />}
+              <span className="min-w-0 flex-1 truncate" dir="auto">{o.label}</span>
+              {o.hint && <span className="shrink-0 text-[11px] font-normal text-subtle-foreground">{o.hint}</span>}
+            </div>
+          </React.Fragment>
         ))}
         {filtered.length > shown.length && (
-          <div className="px-2 py-1 text-[11px] text-subtle-foreground">מוצגים {shown.length} מתוך {filtered.length} — הקלד כדי לצמצם</div>
+          <div className="px-2.5 py-1.5 text-[11px] text-subtle-foreground">מוצגים {shown.length} מתוך {filtered.length} — הקלד כדי לצמצם</div>
         )}
       </div>
     </div>
@@ -235,21 +259,24 @@ const PickList: React.FC<{
 };
 
 // Floating panel under a field (or above it when there's no room), drawn in
-// a portal on <body> so no card / panel edge can clip it. Closes on an outside
-// click (= cancel); follows the field when the page scrolls.
-const EditPopover: React.FC<{ onClose: () => void; children: React.ReactNode }> = ({ onClose, children }) => {
+// a portal on <body> so no card / panel edge can clip it — z above the
+// full-screen defect overlay (z-1001). At least as wide as the field; long
+// value lists (CR/HBR reference, …) ask for more. Closes on an outside click
+// (= cancel); follows the field when the page scrolls.
+const EditPopover: React.FC<{ onClose: () => void; title?: string; subtitle?: string; width?: number; children: React.ReactNode }> = ({ onClose, title, subtitle, width = 320, children }) => {
   const markRef = useRef<HTMLSpanElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState<{ top: number; left: number; up: boolean } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; up: boolean; w: number } | null>(null);
   const place = useCallback(() => {
     const anchor = markRef.current?.parentElement;
     if (!anchor) return;
     const r = anchor.getBoundingClientRect();
-    const h = panelRef.current?.offsetHeight || 330;
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - 316));
+    const w = Math.min(window.innerWidth - 16, Math.max(r.width, width));
+    const h = panelRef.current?.offsetHeight || 360;
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
     const up = r.bottom + 4 + h > window.innerHeight - 8 && r.top - 4 - h > 8;
-    setPos({ top: up ? r.top - 4 : r.bottom + 4, left, up });
-  }, []);
+    setPos({ top: up ? r.top - 4 : r.bottom + 4, left, up, w });
+  }, [width]);
   React.useLayoutEffect(() => { place(); }, [place]);
   useEffect(() => {
     window.addEventListener('scroll', place, true);
@@ -272,11 +299,19 @@ const EditPopover: React.FC<{ onClose: () => void; children: React.ReactNode }> 
     <>
       <span ref={markRef} style={{ display: 'none' }} />
       {ReactDOM.createPortal(
-        <div ref={panelRef} data-edit-popover="" onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}
-          className="fixed z-[5000] w-[300px] max-w-[90vw] rounded-lg border border-border bg-card p-2 shadow-lg"
+        <div ref={panelRef} data-edit-popover="" dir="rtl" onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}
+          className="fixed z-[5000] flex flex-col gap-2 rounded-xl border border-border bg-card p-3 shadow-xl"
           style={pos
-            ? { left: pos.left, ...(pos.up ? { bottom: window.innerHeight - pos.top } : { top: pos.top }) }
-            : { left: -9999, top: 0 }}>
+            ? { left: pos.left, width: pos.w, ...(pos.up ? { bottom: window.innerHeight - pos.top } : { top: pos.top }) }
+            : { left: -9999, top: 0, width }}>
+          {title && (
+            <div className="flex items-center justify-between gap-2" dir="ltr">
+              <span className="truncate text-xs font-bold tracking-wide" style={{ color: JIRA.textSubtle }}>{title}</span>
+              <button type="button" onClick={onClose} title="סגור (Esc)"
+                className="cursor-pointer border-none bg-transparent p-0 text-sm leading-none text-subtle-foreground hover:text-foreground">✕</button>
+            </div>
+          )}
+          {subtitle && <div className="-mt-1 text-[11px] text-subtle-foreground">{subtitle}</div>}
           {children}
         </div>,
         document.body,
@@ -284,6 +319,8 @@ const EditPopover: React.FC<{ onClose: () => void; children: React.ReactNode }> 
     </>
   );
 };
+
+const POPOVER_BTN = 'cursor-pointer rounded-md px-3 py-1 text-xs';
 
 const InlineFieldEditor: React.FC<{
   fieldKey: string; initialValue: string; currentStatus: string; allowedTransitions: string[] | null;
@@ -293,9 +330,15 @@ const InlineFieldEditor: React.FC<{
   fieldKind?: string;
 }> = ({ fieldKey, initialValue, currentStatus, allowedTransitions, dynamicOptions, onCommit, onCancel, personOptions, fieldKind }) => {
   const [value, setValue] = useState(initialValue);
-  const fieldClass = 'w-full box-border px-2 py-1.5 rounded-sm border border-border text-[13px] bg-card text-foreground';
-  const withCurrent = (opts: PickOption[]) => (initialValue && !opts.some(o => o.value === initialValue)
+  const fieldClass = 'w-full box-border px-2.5 py-1.5 rounded-md border border-border text-[13px] bg-card text-foreground outline-none focus:border-primary';
+  const withCurrent = (opts: PickOption[]) => (initialValue && !opts.some(o => o.value === initialValue || o.label === initialValue)
     ? [{ value: initialValue, label: initialValue, hint: 'נוכחי' }, ...opts] : opts);
+  const buttons = (
+    <div className="flex justify-end gap-1.5">
+      <button type="button" onClick={onCancel} className={`${POPOVER_BTN} border border-border bg-card`}>ביטול</button>
+      <button type="button" onClick={() => onCommit(value)} className={`${POPOVER_BTN} border-none bg-primary font-semibold text-white`}>אישור</button>
+    </div>
+  );
 
   if (fieldKey === 'status') {
     if (!allowedTransitions) return <div className="p-1 text-xs text-subtle-foreground">אין מעברי סטטוס זמינים</div>;
@@ -306,10 +349,10 @@ const InlineFieldEditor: React.FC<{
     );
   }
 
-  // people: the whole directory, shown as "Full Name (login)" — the server
-  // writes only the login to QC (QcRestService.toQcLogin)
+  // people: the whole directory with avatars, "Full Name (login)" as the
+  // value — the server writes only the login to QC (QcRestService.toQcLogin)
   if (PERSON_FIELDS.has(fieldKey) || fieldKind === 'person') {
-    const people = (personOptions ?? []).map(p => ({ value: `${p.fullName} (${p.login})`, label: p.fullName, hint: p.login }));
+    const people = (personOptions ?? []).map(p => ({ value: `${p.fullName} (${p.login})`, label: p.fullName, hint: p.login, person: p.fullName }));
     return <PickList current={initialValue} onPick={onCommit} onCancel={onCancel} placeholder="חפש שם או משתמש…"
       options={[{ value: '', label: '— ללא —' }, ...withCurrent(people)]} />;
   }
@@ -318,147 +361,117 @@ const InlineFieldEditor: React.FC<{
     const dmy = /^(\d{1,2})[/.](\d{1,2})[/.](\d{4})/.exec(value);
     const iso = dmy ? `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}` : value.slice(0, 10);
     return (
-      <div className="flex gap-1.5">
+      <div className="flex flex-col gap-2">
         <input type="date" value={iso} onChange={e => setValue(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }}
           className={fieldClass} dir="ltr" />
-        <button type="button" onClick={() => onCommit(value)} className="shrink-0 cursor-pointer rounded-sm border-none bg-primary px-2 text-xs font-semibold text-white">אישור</button>
+        {buttons}
       </div>
     );
   }
   if (fieldKind === 'number' || fieldKind === 'memo' || (!(dynamicOptions && dynamicOptions.length) && !TIER2_FIELD_OPTIONS[fieldKey])) {
     const isMemo = fieldKind === 'memo';
     return (
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-2">
         {isMemo
           ? <textarea value={value} rows={5} dir="auto" onChange={e => setValue(e.target.value)}
               onKeyDown={e => { if (e.key === 'Escape') onCancel(); }} className={`${fieldClass} resize-y`} />
           : <input type={fieldKind === 'number' ? 'number' : 'text'} step="any" value={value} dir="auto"
               onChange={e => setValue(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') onCommit(value); if (e.key === 'Escape') onCancel(); }} className={fieldClass} />}
-        <div className="flex justify-end gap-1.5">
-          <button type="button" onClick={onCancel} className="cursor-pointer rounded-sm border border-border bg-card px-2 py-0.5 text-xs">ביטול</button>
-          <button type="button" onClick={() => onCommit(value)} className="cursor-pointer rounded-sm border-none bg-primary px-2.5 py-0.5 text-xs font-semibold text-white">אישור</button>
-        </div>
+        {buttons}
       </div>
     );
   }
 
-  // value lists (Severity/Priority static, everything else from QC's own lists)
-  // QC's own list first (Priority there also has "Test Blocker"); the hardcoded
-  // Severity/Priority values are only a fallback while no list is cached
+  // value lists — QC's own list first (Priority there also has "Test Blocker");
+  // the hardcoded Severity/Priority values are only a fallback while no list is cached
   const opts = ((dynamicOptions && dynamicOptions.length ? dynamicOptions : TIER2_FIELD_OPTIONS[fieldKey]) ?? []).map(o => ({ value: o, label: o }));
   return <PickList current={initialValue} onPick={onCommit} onCancel={onCancel}
     allowCustom={FREE_ENTRY_LIST_FIELDS.has(fieldKey)}
     options={[{ value: '', label: '— ללא —' }, ...withCurrent(opts)]} />;
 };
 
-// Real QC cycle types → display labels for the cycle picker
-const CYCLE_LABEL_FALLBACK: Record<string, string> = {
-  CYCLE_1: 'סבב 1', CYCLE_2: 'סבב 2', CYCLE_3: 'סבב 3',
-  STAND_ALONE: 'Stand Alone Items', UAT: 'UAT', REHEARSAL: 'חזרה גנרלית', GO_LIVE: 'עליה לאוויר',
-};
+// Release + cycle are pairs (user, 2026-10-08): pick the release, then one of
+// ITS cycles — a cycle of another release can't be chosen (the server checks
+// it again before writing). Names on screen, ids to QC. Releases a DeployCenter
+// version is running come first, then every QC release.
+type ReleaseCycleOptionT = { id: string; name: string; startDate: string | null; inFlight: boolean; cycles: { id: string; name: string; startDate: string | null }[] };
+type RefValue = { id: string; label: string };
 
-const RefFieldEditor: React.FC<{
-  fieldKey: string; currentLabel: string; token: string;
-  onCommit: (value: { id: string; label: string } | null) => void; onCancel: () => void;
-}> = ({ fieldKey, currentLabel, token, onCommit, onCancel }) => {
-  const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
-  const [versions, setVersions] = useState<{ id: string; name: string }[]>([]);
-  const [versionId, setVersionId] = useState('');
-  const [cycleOptions, setCycleOptions] = useState<{ qcCycleId: string; cycleType: string; label: string }[]>([]);
-  const [cycleQcId, setCycleQcId] = useState('');
-  const [loading, setLoading] = useState(false);
+const ReleaseCycleEditor: React.FC<{
+  releases: ReleaseCycleOptionT[] | null; startOnCycle: boolean;
+  currentRelease: string; currentCycle: string;
+  onCommit: (release: RefValue, cycle: RefValue) => void; onCancel: () => void;
+}> = ({ releases, startOnCycle, currentRelease, currentCycle, onCommit, onCancel }) => {
+  const matched = releases?.find(r => r.name === currentRelease) ?? null;
+  const [rel, setRel] = useState<ReleaseCycleOptionT | null>(startOnCycle ? matched : null);
+  if (!releases) return <div className="p-1 text-xs text-subtle-foreground">טוען גרסאות…</div>;
+  if (releases.length === 0) return <div className="p-1 text-xs text-subtle-foreground">לא נמצאו גרסאות ב-QC</div>;
 
-  useEffect(() => {
-    axios.get(`${API}/versions`, { headers })
-      .then(r => {
-        const inFlight = (r.data ?? []).filter((v: any) => !['DRAFT', 'COMPLETED', 'ROLLED_BACK'].includes(v.status));
-        const list = inFlight.map((v: any) => ({ id: v.id, name: v.name }));
-        setVersions(list);
-        const guess = list.find((v: any) => currentLabel.includes(v.name) || v.name.includes(currentLabel));
-        if (guess) setVersionId(guess.id);
-      })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const loadForVersion = (vId: string) => {
-    if (!vId) { setCycleOptions([]); return; }
-    setLoading(true);
-    axios.get(`${API}/release-intelligence/defect-create-defaults/${vId}`, { headers })
-      .then(r => {
-        if (fieldKey === 'detectedInRelease' && r.data?.targetRelease) {
-          onCommit({ id: r.data.targetRelease.id, label: r.data.targetRelease.label });
-          return;
-        }
-        const opts = r.data?.cycleOptions ?? [];
-        setCycleOptions(opts);
-        const guess = opts.find((c: any) => currentLabel.includes(c.cycleType) || c.cycleType.includes(currentLabel));
-        if (guess) setCycleQcId(guess.qcCycleId);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    if (fieldKey === 'detectedInCycle' && versionId) loadForVersion(versionId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [versionId]);
-
-  const selectClass = 'w-full box-border px-1.5 py-1 rounded-sm border border-border text-[13px] bg-card text-foreground';
-
-  if (fieldKey === 'detectedInRelease') {
+  if (!rel) {
+    const opts: PickOption[] = [...releases].sort((a, b) => Number(b.inFlight) - Number(a.inFlight)).map(r => ({
+      value: r.id, label: r.name,
+      hint: r.cycles.length ? `${r.cycles.length} סבבים` : 'ללא סבבים',
+      group: r.inFlight ? 'גרסאות פעילות' : 'כל הגרסאות ב-QC',
+    }));
     return (
-      <div className="flex flex-col gap-1">
-        <select
-          autoFocus value={versionId}
-          onChange={e => { setVersionId(e.target.value); loadForVersion(e.target.value); }}
-          className={selectClass} dir="ltr"
-        >
-          <option value="">— בחר גרסה —</option>
-          {versions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-        </select>
-        <button onClick={onCancel} className="self-start text-[11px] text-subtle-foreground bg-transparent border-none cursor-pointer p-0">ביטול</button>
+      <div className="flex flex-col gap-2">
+        <StepHeader step={1} text="בחר גרסה" />
+        <PickList options={opts} current={matched?.id ?? ''} onCancel={onCancel} placeholder="חפש גרסה…"
+          onPick={id => {
+            const r = releases.find(x => x.id === id);
+            if (!r) return;
+            if (r.cycles.length === 0) onCommit({ id: r.id, label: r.name }, { id: '', label: '' });
+            else setRel(r);
+          }} />
       </div>
     );
   }
 
-  // detectedInCycle — needs a version first, then its cycle list.
+  const cycleOpts: PickOption[] = [
+    { value: '', label: '— ללא סבב —' },
+    ...rel.cycles.map(c => ({ value: c.id, label: c.name, hint: c.startDate ? formatDate(c.startDate) : undefined })),
+  ];
+  const curCycle = rel.name === currentRelease ? (rel.cycles.find(c => c.name === currentCycle)?.id ?? '') : '\u0000';
   return (
-    <div className="flex flex-col gap-1">
-      <select autoFocus value={versionId} onChange={e => setVersionId(e.target.value)} className={selectClass} dir="ltr">
-        <option value="">— בחר גרסה —</option>
-        {versions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-      </select>
-      {versionId && (
-        loading ? <span className="text-[11px] text-subtle-foreground">טוען סבבים...</span> : (
-          <select
-            value={cycleQcId}
-            onChange={e => setCycleQcId(e.target.value)}
-            className={selectClass} dir="ltr"
-          >
-            <option value="">— בחר סבב —</option>
-            {cycleOptions.map(c => <option key={c.qcCycleId} value={c.qcCycleId}>{CYCLE_LABEL_FALLBACK[c.cycleType] ?? c.cycleType}</option>)}
-          </select>
-        )
-      )}
-      <div className="flex gap-2">
-        <button
-          disabled={!cycleQcId}
-          onClick={() => {
-            const chosen = cycleOptions.find(c => c.qcCycleId === cycleQcId);
-            if (chosen) onCommit({ id: chosen.qcCycleId, label: CYCLE_LABEL_FALLBACK[chosen.cycleType] ?? chosen.cycleType });
-          }}
-          className="text-[11px] font-semibold text-primary bg-transparent border-none cursor-pointer p-0 disabled:opacity-40"
-        >
-          אישור
-        </button>
-        <button onClick={onCancel} className="text-[11px] text-subtle-foreground bg-transparent border-none cursor-pointer p-0">ביטול</button>
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-[13px]" style={{ background: JIRA.greyN20 }}>
+        <span className="truncate" dir="rtl"><span style={{ color: JIRA.textSubtle }}>גרסה: </span><b dir="ltr" style={{ color: JIRA.text }}>{rel.name}</b></span>
+        <button type="button" onClick={() => setRel(null)} className="shrink-0 cursor-pointer border-none bg-transparent p-0 text-xs font-semibold text-primary">החלף גרסה</button>
       </div>
+      <StepHeader step={2} text={`בחר סבב של ${rel.name}`} />
+      <PickList options={cycleOpts} current={curCycle} onCancel={onCancel} placeholder="חפש סבב…"
+        onPick={id => {
+          const c = rel.cycles.find(x => x.id === id);
+          onCommit({ id: rel.id, label: rel.name }, { id: c?.id ?? '', label: c?.name ?? '' });
+        }} />
     </div>
   );
 };
+
+const StepHeader: React.FC<{ step: number; text: string }> = ({ step, text }) => (
+  <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] text-white">{step}</span>
+    {text}
+  </div>
+);
+
+// release ↔ cycle pairs of the defect form
+const REF_PAIR_OF: Record<string, [string, string]> = {
+  detectedInRelease: ['detectedInRelease', 'detectedInCycle'], detectedInCycle: ['detectedInRelease', 'detectedInCycle'],
+  targetRelease: ['targetRelease', 'targetCycle'], targetCycle: ['targetRelease', 'targetCycle'],
+};
+
+// Team (Responsibility) ↔ Environment Component: the team's own components,
+// or every value when the team has none defined (user, 2026-10-08).
+type TeamEnvComponents = { teams: { name: string; responsibility: string | null; components: string[] }[]; all: string[] };
+function teamComponentsFor(data: TeamEnvComponents | null, team: string): string[] {
+  const t = team.trim().toLowerCase();
+  if (!data || !t) return [];
+  const hit = data.teams.find(x => (x.responsibility ?? '').toLowerCase() === t) ?? data.teams.find(x => x.name.toLowerCase() === t);
+  return hit?.components ?? [];
+}
 
 // Full-screen drill-down for one defect — replaces the table view entirely
 // (back button, same pattern as CycleProgressView's CycleDetailScreen)
@@ -563,6 +576,17 @@ export const DefectDetailScreen: React.FC<{
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
+  // release -> cycles (paired pickers) and team -> environment components
+  const [releaseOptions, setReleaseOptions] = useState<ReleaseCycleOptionT[] | null>(null);
+  const [teamEnv, setTeamEnv] = useState<TeamEnvComponents | null>(null);
+  useEffect(() => {
+    let alive = true;
+    axios.get(`${API}/qc/release-cycle-options`, { headers }).then(r => { if (alive) setReleaseOptions(r.data ?? []); }).catch(() => { if (alive) setReleaseOptions([]); });
+    axios.get(`${API}/qc/team-environment-components`, { headers }).then(r => { if (alive) setTeamEnv(r.data ?? null); }).catch(() => {});
+    return () => { alive = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
   const [allowedTransitions, setAllowedTransitions] = useState<string[] | null>(null);
   useEffect(() => {
     if (!currentStatus) { setAllowedTransitions(null); return; }
@@ -632,17 +656,21 @@ export const DefectDetailScreen: React.FC<{
     setEditingField(null);
   };
 
-  const commitInlineRefField = (key: string, value: { id: string; label: string } | null) => {
+  // a release and its cycle are always sent together (the server checks the pair)
+  const commitRefPair = (relKey: string, cycKey: string, rel: RefValue, cyc: RefValue) => {
+    const same = (k: string, v: RefValue) => v.label.trim() === String((detail as any)?.[k] ?? '').trim();
     setPendingRefEdits(prev => {
       const next = { ...prev };
-      if (!value || value.label.trim() === String((detail as any)?.[key] ?? '').trim()) delete next[key];
-      else next[key] = value;
+      if (same(relKey, rel) && same(cycKey, cyc)) { delete next[relKey]; delete next[cycKey]; }
+      else { next[relKey] = rel; next[cycKey] = cyc; }
       return next;
     });
     setEditingField(null);
   };
 
-  const pendingCount = Object.keys(pendingEdits).length + Object.keys(pendingRefEdits).length + (newComment?.trim() ? 1 : 0);
+  const pendingCount = Object.keys(pendingEdits).length
+    + new Set(Object.keys(pendingRefEdits).map(k => REF_PAIR_OF[k]?.[0] ?? k)).size
+    + (newComment?.trim() ? 1 : 0);
 
   const saveInlineEdits = async () => {
     if (pendingCount === 0) return;
@@ -817,14 +845,15 @@ export const DefectDetailScreen: React.FC<{
                   <div dir="auto" className="text-sm font-bold mb-3 text-foreground text-start">
                     {group.title}
                   </div>
-                  {/* Fields flow side by side and wrap at the panel's width,
-                      each sized to its value - create-form layout (2026-10-04). */}
-                  <div className="flex flex-wrap items-end gap-x-4 gap-y-3" style={{ direction: 'ltr', justifyContent: 'flex-start' }}>
+                  {/* Aligned grid (user, 2026-10-08): every field box in a column has
+                      the same width, values stay on one line (full value on hover);
+                      a "wide" field (layout ↔) takes the whole row and may wrap. */}
+                  <div className="grid gap-x-3 gap-y-3" style={{ direction: 'ltr', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))' }}>
                     {group.fields.map(key => {
+                      const isWide = !!group.wide?.includes(key);
                       if (key === ATTACHMENTS_FIELD) {
                         return (
-                          <div key={key} className="flex w-full min-w-0 max-w-full flex-col items-start gap-1.5 px-1 py-0.5"
-                            style={{ flexBasis: group.wide?.includes(key) ? '100%' : undefined }}>
+                          <div key={key} className="flex min-w-0 flex-col items-start gap-1 px-1 py-0.5" style={{ gridColumn: '1 / -1' }}>
                             <span className="text-xs font-bold tracking-wide" style={{ color: JIRA.textSubtle }}>{ATTACHMENTS_FIELD_DEF.label}</span>
                             <AttachmentsSection defectId={defectId} token={token} compact />
                           </div>
@@ -845,65 +874,76 @@ export const DefectDetailScreen: React.FC<{
                         ? 'הצוות שלך לא משויך לקבוצת QC — לא ניתן לשנות סטטוס מכאן'
                         : LOCKED_DETAIL_FIELDS.has(key) ? 'שדה נעול — לא משתנה אחרי פתיחת התקלה' : undefined;
                       const isEditingThis = editingField === key;
-                      // Label above value, matching CreateDefectScreen's Field
-                      // component (switched from the prior side-by-side row per
-                      // user request 2026-09-22, to bring visual parity between
-                      // the create and detail screens). A dashed outline marks
-                      // which fields double-click opens while in edit mode (spec
-                      // 2026-09-19); a dot flags an edit that's committed locally
-                      // but not yet sent to QC via "💾 שמור".
+                      const label = DETAIL_FIELD_LABEL[key] ?? key;
+                      // Environment Component follows the (possibly just changed) team
+                      const team = pendingEdits.responsibility ?? String(detail.responsibility ?? '');
+                      const teamComps = key === 'environmentComponent' ? teamComponentsFor(teamEnv, team) : [];
+                      const envMismatch = key === 'environmentComponent' && teamComps.length > 0 && !!displayValue && !teamComps.includes(displayValue);
+                      const listOptions = key === 'environmentComponent'
+                        ? (teamComps.length ? teamComps : (teamEnv?.all ?? []))
+                        : fieldPicklists[key];
+                      const pair = REF_PAIR_OF[key];
+                      // popover width: release/cycle and people a bit wider, long value lists (CR/HBR reference…) wide
+                      const popWidth = pair ? 380
+                        : (PERSON_FIELDS.has(key) || fieldKinds[key] === 'person') ? 340
+                        : (listOptions ?? []).some(o => o.length > 30) ? 520 : 320;
+                      const plainValue = PERSON_BADGE_FIELDS.has(key) ? displayValue.replace(/\s*\([^()]*\)\s*$/, '') : displayValue;
                       return (
                         <div
                           key={key}
                           onClick={() => { if (isEditable && !isEditingThis) setEditingField(key); }}
                           title={isEditable && !isEditingThis ? 'לחץ לעריכה' : lockReason}
-                          className="relative flex max-w-full flex-col items-start gap-1.5 rounded-sm px-1 py-0.5"
+                          className="relative flex min-w-0 flex-col gap-1 rounded-md px-1.5 py-1"
                           style={{
-                            // full-row field (template's ↔ toggle): long values get their own line
-                            flexBasis: group.wide?.includes(key) ? '100%' : undefined,
+                            gridColumn: isWide ? '1 / -1' : undefined,
                             border: isEditingThis ? `1px solid ${JIRA.blue}` : isEditable ? `1px dashed ${JIRA.blue}` : '1px solid transparent',
                             cursor: isEditable && !isEditingThis ? 'pointer' : undefined,
                             background: isDirty ? '#fffbe6' : undefined,
                           }}
                         >
-                          <span className="text-xs font-bold tracking-wide" style={{ color: JIRA.textSubtle, direction: 'ltr', textAlign: 'left' }}>
-                            {DETAIL_FIELD_LABEL[key] ?? key}
+                          <span className="truncate text-xs font-bold tracking-wide" title={label} style={{ color: JIRA.textSubtle, direction: 'ltr', textAlign: 'left' }}>
+                            {label}
                           </span>
-                            {/* self-stretch: box is at least as wide as its label
-                                (wider when the value is longer); text sits on the
-                                label's side unless the value is Hebrew. Stays in place
-                                while editing — the editor floats under it. */}
-                            <span
-                              className="inline-flex min-w-[2.75rem] max-w-full self-stretch items-center flex-wrap gap-1 break-words px-2.5 py-1.5 text-[13px] font-medium"
-                              style={{ color: JIRA.text, direction: valRtl ? 'rtl' : 'ltr', ...VALUE_BOX_STYLE }}
-                            >
-                              {isDirty && <span title="שינוי לא שמור" style={{ color: JIRA.blue }}>●</span>}
-                              {renderFieldValue(key, displayValue)}
-                            </span>
+                          {/* same height in every box; one line unless the field is wide.
+                              Stays in place while editing — the editor floats under it. */}
+                          <span
+                            className={cn('flex min-h-[32px] w-full min-w-0 items-center gap-1.5 px-2.5 py-1 text-[13px] font-medium',
+                              isWide ? 'flex-wrap break-words' : 'overflow-hidden whitespace-nowrap')}
+                            title={plainValue || undefined}
+                            style={{ color: JIRA.text, direction: valRtl ? 'rtl' : 'ltr', ...VALUE_BOX_STYLE }}
+                          >
+                            {isDirty && <span title="שינוי לא שמור" className="shrink-0" style={{ color: JIRA.blue }}>●</span>}
+                            {envMismatch && <span className="shrink-0" title={`לא שייך לרכיבי הצוות ${team}`}>⚠</span>}
+                            <span className={isWide ? 'min-w-0' : 'min-w-0 truncate'}>{renderFieldValue(key, displayValue)}</span>
+                          </span>
                           {isEditingThis && (
-                            <EditPopover onClose={() => setEditingField(null)}>
-                            {isRefField ? (
-                              <RefFieldEditor
-                                fieldKey={key}
-                                currentLabel={displayValue}
-                                token={token}
-                                onCommit={v => commitInlineRefField(key, v)}
-                                onCancel={() => setEditingField(null)}
-                              />
-                            ) : (
-                              <InlineFieldEditor
-                                fieldKey={key}
-                                initialValue={displayValue}
-                                currentStatus={currentStatus}
-                                allowedTransitions={allowedTransitions}
-                                dynamicOptions={fieldPicklists[key]}
-                                personOptions={personDirectory}
-                                fieldKind={fieldKinds[key]}
-                                onCommit={v => commitInlineField(key, v)}
-                                onCancel={() => setEditingField(null)}
-                              />
-                            )}
-                          
+                            <EditPopover onClose={() => setEditingField(null)} width={popWidth}
+                              title={label}
+                              subtitle={key === 'environmentComponent'
+                                ? (teamComps.length ? `רכיבי הצוות ${team}` : team ? `לצוות ${team} לא הוגדרו רכיבים — מוצגים כל הערכים` : undefined)
+                                : undefined}>
+                              {pair ? (
+                                <ReleaseCycleEditor
+                                  releases={releaseOptions}
+                                  startOnCycle={key === pair[1]}
+                                  currentRelease={pendingRefEdits[pair[0]]?.label ?? String(detail[pair[0]] ?? '')}
+                                  currentCycle={pendingRefEdits[pair[1]]?.label ?? String(detail[pair[1]] ?? '')}
+                                  onCommit={(rel, cyc) => commitRefPair(pair[0], pair[1], rel, cyc)}
+                                  onCancel={() => setEditingField(null)}
+                                />
+                              ) : (
+                                <InlineFieldEditor
+                                  fieldKey={key}
+                                  initialValue={displayValue}
+                                  currentStatus={currentStatus}
+                                  allowedTransitions={allowedTransitions}
+                                  dynamicOptions={listOptions}
+                                  personOptions={personDirectory}
+                                  fieldKind={key === 'environmentComponent' ? 'list' : fieldKinds[key]}
+                                  onCommit={v => commitInlineField(key, v)}
+                                  onCancel={() => setEditingField(null)}
+                                />
+                              )}
                             </EditPopover>
                           )}
                         </div>

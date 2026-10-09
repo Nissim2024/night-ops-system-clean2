@@ -4,7 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { XMLParser } from 'fast-xml-parser';
 import { QG_CYCLE_DEFAULTS } from '../qa/qa-workplan.service';
 import { CycleType } from '../qa/qa.scheduler';
-import { getQcPersonDirectory } from './qc.service';
+import { getQcPersonDirectory, getReleaseCycleOptions } from './qc.service';
 import { appendQcComment, qcCommentSignature } from './qc-comment-entry';
 import { QC_DEFECT_FIELDS } from './qc-defect-fields';
 
@@ -784,7 +784,40 @@ export class QcRestService {
     // were to avoid touching that already-working call site.
     detectedInRelease: 'QC_REST_FIELD_DETECTED_RELEASE',
     detectedInCycle: 'QC_REST_FIELD_DETECTED_CYCLE',
+    // Target Release / Cycle on the defect form (user, 2026-10-08)
+    targetRelease: 'QC_REST_FIELD_TARGET_RELEASE',
+    targetCycle: 'QC_REST_FIELD_TARGET_CYCLE',
   };
+
+  // REST names from the production defect field dump (restresults.docx) —
+  // used when the SystemParam above is empty.
+  private static readonly REF_REST_DEFAULTS: Record<string, string> = {
+    detectedRelease: 'detected-in-rel', detectedCycle: 'detected-in-rcyc', targetVersion: 'target-rel',
+    detectedInRelease: 'detected-in-rel', detectedInCycle: 'detected-in-rcyc',
+    targetRelease: 'target-rel', targetCycle: 'target-rcyc',
+  };
+
+  // Release + cycle are written together; the cycle must be one of that
+  // release's own cycles (user, 2026-10-08). Checked against QC's own
+  // RELEASES x RELEASE_CYCLES before anything is sent. An empty cycle (id '')
+  // = no cycle.
+  static readonly REF_PAIRS: [string, string][] = [['detectedInRelease', 'detectedInCycle'], ['targetRelease', 'targetCycle']];
+
+  private async validateRefPairs(refFields: Record<string, { id: string; label: string }>): Promise<void> {
+    const pairs = QcRestService.REF_PAIRS.filter(([r, c]) => refFields[r] || refFields[c]);
+    if (pairs.length === 0) return;
+    const releases = await getReleaseCycleOptions();
+    for (const [relKey, cycKey] of pairs) {
+      const rel = refFields[relKey];
+      const cyc = refFields[cycKey];
+      if (!rel || !cyc) throw new BadRequestException('גרסה וסבב מתעדכנים יחד — בחר גרסה ואז סבב מתוכה');
+      const release = releases.find(r => r.id === String(rel.id));
+      if (!release) throw new BadRequestException(`הגרסה "${rel.label}" לא נמצאה ב-QC`);
+      if (cyc.id && !release.cycles.some(c => c.id === String(cyc.id))) {
+        throw new BadRequestException(`הסבב "${cyc.label}" לא שייך לגרסה ${release.name} — לא נכתב דבר ל-QC`);
+      }
+    }
+  }
 
   private static readonly TIER2_FIELD_PARAM_KEYS: Record<string, string> = {
     assignedTo: 'QC_REST_FIELD_ASSIGNED_TO',
@@ -864,12 +897,17 @@ export class QcRestService {
   // Every field the form can write (2026-10-07): the Tier-2 ones plus every
   // Active + Editable field of the production QC field dump (qc-defect-fields.ts).
   // `kinds` lets the form pick the right editor (list / person / date / …).
-  getEditableDefectFieldKeys(): { fields: string[]; refFields: string[]; kinds: Record<string, string> } {
+  static readonly DETECTION_FIELDS = ['detectedBy', 'detectedOnDate'];
+  static readonly DETECTION_EDIT_ROLES = ['ADMIN', 'RELEASE_MANAGER'];
+
+  getEditableDefectFieldKeys(role?: string): { fields: string[]; refFields: string[]; kinds: Record<string, string> } {
     const keys = new Set([...Object.keys(QcRestService.TIER2_FIELD_PARAM_KEYS), ...Object.keys(QC_DEFECT_FIELDS)]);
     keys.delete('status');   // status goes through the lifecycle editor
     const kinds: Record<string, string> = {};
     for (const k of keys) kinds[k] = QC_DEFECT_FIELDS[k]?.kind ?? 'text';
-    return { fields: [...keys], refFields: ['detectedInRelease', 'detectedInCycle'], kinds };
+    // who found it / when: only ADMIN and RELEASE_MANAGER may correct them (user, 2026-10-08)
+    if (!QcRestService.DETECTION_EDIT_ROLES.includes(role ?? '')) for (const k of QcRestService.DETECTION_FIELDS) keys.delete(k);
+    return { fields: [...keys], refFields: ['detectedInRelease', 'detectedInCycle', 'targetRelease', 'targetCycle'], kinds };
   }
 
   // field → QC list id: the production field dump, then the discovered map,
@@ -903,6 +941,7 @@ export class QcRestService {
       throw new BadRequestException('אין שינויים לשמירה');
     }
     const restFields = await this.translateTier2Fields(fields);
+    await this.validateRefPairs(refFields);
     const restRefFields = await this.translateTier2RefFields(refFields);
     const config = await this.getConfig();
     if (status && !config.bugStatusField) {
@@ -973,7 +1012,7 @@ export class QcRestService {
     const out: Record<string, { id: string; label: string }> = {};
     const unconfigured: string[] = [];
     for (const [k, v] of Object.entries(refFields)) {
-      const n = restName.get(QcRestService.TIER2_REF_FIELD_PARAM_KEYS[k]);
+      const n = restName.get(QcRestService.TIER2_REF_FIELD_PARAM_KEYS[k]) || QcRestService.REF_REST_DEFAULTS[k];
       if (!n) unconfigured.push(k); else out[n] = v;
     }
     if (unconfigured.length > 0) throw new BadRequestException(`שם שדה ה-REST עדיין לא הוגדר עבור: ${unconfigured.join(', ')}`);

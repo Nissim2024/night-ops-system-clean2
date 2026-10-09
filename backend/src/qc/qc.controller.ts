@@ -6,7 +6,7 @@ import { PersonNamesInterceptor } from './person-names.interceptor';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
-import { QcService, isProductionEnvironment, getQcPersonDirectory, getOracleConfig, devPicklistsFromRealSeed } from './qc.service';
+import { QcService, isProductionEnvironment, getQcPersonDirectory, getOracleConfig, devPicklistsFromRealSeed, getReleaseCycleOptions, getTeamEnvironmentComponents } from './qc.service';
 import { QcRestService } from './qc-rest.service';
 import { PermissionsService } from '../permissions/permissions.service';
 
@@ -486,6 +486,9 @@ export class QcController {
     if (Object.keys(body?.fields ?? {}).length > 0 || Object.keys(body?.refFields ?? {}).length > 0) {
       await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה — פנה למנהל מערכת');
     }
+    if (QcRestService.DETECTION_FIELDS.some(k => k in (body?.fields ?? {})) && !QcRestService.DETECTION_EDIT_ROLES.includes(req.user?.role)) {
+      throw new ForbiddenException('רק מנהל מערכת או מנהל שחרור יכולים לשנות את Detected By / Detected on Date');
+    }
     if ((body?.status ?? '').trim() || (body?.comment ?? '').trim()) await this.requireQcWrite(req);
     return this.qcRestService.updateDefectAll(id, body ?? {}, req.user.sub);
   }
@@ -518,7 +521,21 @@ export class QcController {
   @Get('defect-editable-fields')
   async getDefectEditableFields(@Request() req: any) {
     await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה מורחבים — פנה למנהל מערכת');
-    return this.qcRestService.getEditableDefectFieldKeys();
+    return this.qcRestService.getEditableDefectFieldKeys(req.user?.role);
+  }
+
+  // Release -> its cycles, for the paired release/cycle pickers (2026-10-08)
+  @Get('release-cycle-options')
+  async getReleaseCycleOptions(@Request() req: any) {
+    await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה מורחבים — פנה למנהל מערכת');
+    return getReleaseCycleOptions();
+  }
+
+  // Team -> its Environment Components, for the paired Responsibility / Environment Component pickers
+  @Get('team-environment-components')
+  async getTeamEnvironmentComponents(@Request() req: any) {
+    await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה מורחבים — פנה למנהל מערכת');
+    return getTeamEnvironmentComponents();
   }
 
   // Defect creation (§5), permission-gated for "every QA" instead of

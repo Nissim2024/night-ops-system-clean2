@@ -143,4 +143,6 @@ export const ATTACHMENTS_FIELD_DEF = { key: ATTACHMENTS_FIELD, label: '📎 קב
 
 // Shown in the built-in panels even when an older saved detail-field list
 // (OpenProdDefectsConfigPanel) predates them.
-export const BUILTIN_ALWAYS_SHOWN_FIELDS = ['detectedApkVersion', 'detectedHotAppApk', 'targetHotAppApk'];
+export const BUILTIN_ALWAYS_SHOWN_FIELDS = ['detectedApkVersion', 'detectedHotAppApk', 'targetHotAppApk',
+  // release/cycle pairs + team component (2026-10-08) - a pair is never shown half
+  'detectedInRelease', 'detectedInCycle', 'targetRelease', 'targetCycle', 'environmentComponent'];

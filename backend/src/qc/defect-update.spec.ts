@@ -76,3 +76,36 @@ describe('listItemValues', () => {
     expect(listItemValues({ '@_value': 'Y' })).toEqual(['Y']);
   });
 });
+
+// Paired release/cycle fields + detection-field roles (2026-10-08)
+jest.mock('./qc.service', () => ({
+  getQcPersonDirectory: jest.fn(async () => []),
+  getReleaseCycleOptions: jest.fn(async () => [
+    { id: '347', name: 'ITv01-2024', startDate: null, inFlight: false, cycles: [{ id: '1073', name: 'Cycle 1', startDate: null }] },
+    { id: '378', name: 'ITv07-2026', startDate: null, inFlight: true, cycles: [{ id: '1305', name: 'Cycle 2', startDate: null }] },
+  ]),
+}));
+import { QcRestService } from './qc-rest.service';
+
+describe('release/cycle pairs', () => {
+  const svc: any = new (QcRestService as any)();
+  it('accepts a cycle of the chosen release, and "no cycle"', async () => {
+    await expect(svc.validateRefPairs({ detectedInRelease: { id: '347', label: 'ITv01-2024' }, detectedInCycle: { id: '1073', label: 'Cycle 1' } })).resolves.toBeUndefined();
+    await expect(svc.validateRefPairs({ targetRelease: { id: '378', label: 'ITv07-2026' }, targetCycle: { id: '', label: '' } })).resolves.toBeUndefined();
+  });
+  it('refuses a cycle of another release', async () => {
+    await expect(svc.validateRefPairs({ detectedInRelease: { id: '347', label: 'ITv01-2024' }, detectedInCycle: { id: '1305', label: 'Cycle 2' } }))
+      .rejects.toThrow('לא שייך לגרסה ITv01-2024');
+  });
+  it('refuses half a pair and an unknown release', async () => {
+    await expect(svc.validateRefPairs({ targetCycle: { id: '1305', label: 'Cycle 2' } })).rejects.toThrow('מתעדכנים יחד');
+    await expect(svc.validateRefPairs({ targetRelease: { id: '999', label: 'X' }, targetCycle: { id: '', label: '' } })).rejects.toThrow('לא נמצאה');
+  });
+  it('Detected By / on Date: editable for ADMIN and RELEASE_MANAGER only', () => {
+    expect(svc.getEditableDefectFieldKeys('ADMIN').fields).toEqual(expect.arrayContaining(['detectedBy', 'detectedOnDate']));
+    expect(svc.getEditableDefectFieldKeys('RELEASE_MANAGER').fields).toContain('detectedBy');
+    expect(svc.getEditableDefectFieldKeys('TEAM_LEAD').fields).not.toContain('detectedBy');
+    expect(svc.getEditableDefectFieldKeys('EMPLOYEE').fields).not.toContain('detectedOnDate');
+    expect(svc.getEditableDefectFieldKeys('ADMIN').refFields).toEqual(['detectedInRelease', 'detectedInCycle', 'targetRelease', 'targetCycle']);
+  });
+});
