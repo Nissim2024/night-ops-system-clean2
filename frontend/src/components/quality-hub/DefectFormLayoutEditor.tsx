@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, DEFECT_FORM_FIXED_FIELDS, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF } from './openProdDefectsFields';
+import { DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, DEFECT_FORM_FIXED_FIELDS, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, CREATE_REQUIRED_FIELDS, createFieldsOf } from './openProdDefectsFields';
 import { useDialog } from '../../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -12,7 +12,7 @@ const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${win
 // resolveDefectFormLayout). The editor mirrors the form itself: panels and
 // fields flow left-to-right, so "first" = leftmost, exactly as rendered.
 
-interface Panel { name: string; fields: string[]; wide?: string[]; }
+interface Panel { name: string; fields: string[]; wide?: string[]; create?: string[]; }
 interface Layout { panels: Panel[]; }
 interface Layouts { default: Layout | null; roles: Record<string, Layout>; teams: Record<string, Layout>; }
 interface TeamRow { id: string; name: string; }
@@ -25,7 +25,9 @@ const ROLE_LABEL: Record<string, string> = {
 const builtinLayout = (): Layout => ({
   panels: DEFAULT_OPEN_PROD_DETAIL_GROUPS.map(g => ({ name: g.title, fields: [...g.fields], wide: [...(g.wide ?? [])] })),
 });
-const cloneLayout = (l: Layout): Layout => ({ panels: l.panels.map(p => ({ name: p.name, fields: [...p.fields], wide: [...(p.wide ?? [])] })) });
+const cloneLayout = (l: Layout): Layout => ({ panels: l.panels.map(p => ({ name: p.name, fields: [...p.fields], wide: [...(p.wide ?? [])], ...(p.create ? { create: [...p.create] } : {}) })) });
+// also shown when OPENING a new defect (2026-10-09); required ones always are
+const toggleCreate = (p: Panel, f: string) => { const c = p.create ?? createFieldsOf(p); p.create = c.includes(f) ? c.filter(x => x !== f) : [...c, f]; };
 const toggleWide = (p: Panel, f: string) => { const w = p.wide ?? []; p.wide = w.includes(f) ? w.filter(x => x !== f) : [...w, f]; };
 
 const btn = 'cursor-pointer rounded-sm border border-border bg-card px-1.5 py-0.5 text-[11px] text-muted-foreground disabled:cursor-default disabled:opacity-30';
@@ -117,6 +119,7 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
         <div className="mt-1 text-xs leading-relaxed text-subtle-foreground">
           קובעים אילו שדות יופיעו בטופס תצוגת/עדכון התקלה, באיזה סדר, ובאילו חלוניות. משתמש מקבל את תבנית הצוות שלו; אם אין — את תבנית התפקיד; אם אין — את ברירת המחדל.
           החלוניות והשדות מוצגים כאן כמו בטופס עצמו: הראשון משמאל. Title, Description ו-Comments קבועים מחוץ לחלוניות.
+          אותה תבנית משמשת גם לפתיחת תקלה חדשה: 🆕 ירוק = השדה מוצג גם בפתיחת תקלה (שדות חובה של QC — תמיד); השאר זמינים שם תחת "שדות נוספים".
         </div>
       </div>
 
@@ -200,6 +203,16 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
                           {draft.panels.map((tp, ti) => ti !== pi && <option key={ti} value={ti}>← {tp.name || `חלונית ${ti + 1}`}</option>)}
                         </select>
                       )}
+                      {(() => {
+                        const req = CREATE_REQUIRED_FIELDS.has(f);
+                        const on = req || createFieldsOf(p).includes(f);
+                        return (
+                          <button className={btn} disabled={req}
+                            title={req ? 'שדה חובה ב-QC — תמיד מוצג בפתיחת תקלה' : on ? 'מוצג גם בפתיחת תקלה חדשה — לחץ להסתרה' : 'לא מוצג בפתיחת תקלה (נמצא תחת "שדות נוספים") — לחץ להצגה'}
+                            style={on ? { background: '#E3FCEF', color: '#006644', borderColor: '#36B37E', opacity: 1 } : undefined}
+                            onClick={() => update(l => toggleCreate(l.panels[pi], f))}>🆕</button>
+                        );
+                      })()}
                       <button className={btn} title="הסר מהטופס" onClick={() => update(l => { l.panels[pi].fields.splice(fi, 1); })}>✕</button>
                     </div>
                   ))}

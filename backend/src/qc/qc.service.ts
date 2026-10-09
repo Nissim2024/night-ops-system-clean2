@@ -3653,7 +3653,7 @@ export async function resolveDefectPersonNames<T extends Record<string, any>>(ro
 // Defect detail-form layouts (see QcService.getDefectFormLayouts). Key keeps
 // the OPEN_PROD_DEFECTS_ prefix so AdminPanel's generic Params tab hides it.
 const DEFECT_FORM_LAYOUTS_KEY = 'OPEN_PROD_DEFECTS_FORM_LAYOUTS';
-export interface DefectFormLayout { panels: { name: string; fields: string[]; wide?: string[] }[]; }
+export interface DefectFormLayout { panels: { name: string; fields: string[]; wide?: string[]; create?: string[] }[]; }
 export interface DefectFormLayouts {
   default: DefectFormLayout | null;
   roles: Record<string, DefectFormLayout>;
@@ -5432,7 +5432,9 @@ export class QcService implements OnApplicationBootstrap {
           const fields: string[] = Array.from(new Set((p.fields as any[]).filter(f => typeof f === 'string' && /^[A-Za-z0-9_]{1,60}$/.test(f))));
           // full-row fields: only ones actually in this panel
           const wide = Array.isArray(p.wide) ? fields.filter(f => p.wide.includes(f)) : [];
-          return { name: p.name.trim().slice(0, 60) || 'חלונית', fields, ...(wide.length ? { wide } : {}) };
+          // shown in the NEW-defect form too (2026-10-09); absent = the built-in choice
+          const create = Array.isArray(p.create) ? fields.filter(f => p.create.includes(f)) : undefined;
+          return { name: p.name.trim().slice(0, 60) || 'חלונית', fields, ...(wide.length ? { wide } : {}), ...(create ? { create } : {}) };
         });
       return { panels };
     };

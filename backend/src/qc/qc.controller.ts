@@ -581,6 +581,14 @@ export class QcController {
     @Body('fields') legacyFields?: Record<string, string>,
   ) {
     await this.requirePermission(req, 'action:qc_defect_create', 'אין לך הרשאה לפתוח תקלה חדשה ב-QC — פנה למנהל מערכת');
+    // the unified create form (2026-10-09): same field vocabulary as the update form
+    if (req.body?.form === true) {
+      const f = req.body?.fields ?? {};
+      if (QcRestService.DETECTION_FIELDS.some(k => k in f && f[k]) && !QcRestService.DETECTION_EDIT_ROLES.includes(req.user?.role)) {
+        for (const k of QcRestService.DETECTION_FIELDS) delete f[k];   // others get the defaults (themselves, today)
+      }
+      return this.qcRestService.createDefectFromForm({ ...req.body, fields: f }, req.user.sub);
+    }
     if (title) {
       return this.qcRestService.createDefectWithFields(title, businessFields ?? {}, businessRefFields ?? {}, rawFields ?? {}, req.user.sub);
     }

@@ -1,61 +1,30 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
-import { C } from '../../theme';
-import { Card, Button, TextField, BackLink } from '../ui';
-import { FieldRow, FieldRowsEditor } from '../QcWriteTestPanel';
-
+import { C, JIRA } from '../../theme';
+import { Card, Button, BackLink } from '../ui';
 import { useLeaveGuard, useUnsavedChanges } from '../../context/UnsavedChangesContext';
+import {
+  DefectFieldCell, DefectFieldsCtx, PersonTeam, ReleaseCycleOptionT, RefValue, TeamEnvComponents,
+} from './OpenProdDefectsView';
+import {
+  DEFAULT_OPEN_PROD_DETAIL_GROUPS, ATTACHMENTS_FIELD, CREATE_REQUIRED_FIELDS, createFieldsOf, DETAIL_FIELD_LABEL,
+} from './openProdDefectsFields';
+
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
-// Real business-key sets already established this session (qc-rest.service.ts's
-// TIER2_FIELD_PARAM_KEYS / TIER2_REF_FIELD_PARAM_KEYS) — kept in sync by hand
-// since the backend allowlist is server-side anyway (this is just what the
-// form offers, not what's actually permitted).
-const SEVERITY_OPTIONS = ['Show Stopper', 'Severe', 'Medium', 'Low'];
-const PRIORITY_OPTIONS = ['High', 'Medium', 'Low'];
-const BUG_TYPE_OPTIONS = ['Functional', 'Change Requests', 'Design', 'Crash', 'GUI', 'Information', 'Configuration', 'Security', 'DB Issue', 'Environment issue', 'Performance'];
-const TEST_PHASE_OPTIONS = ['System Test', 'Integration Test', 'Regression Test', 'Sanity Test', 'UAT', 'Production'];
-// The 6 real environment names the user confirmed (2026-09-22) — not the ~40
-// messy historical values found in real seed data, which turned out to be
-// closer to free text than a clean picklist.
-const ENVIRONMENT_OPTIONS = ['Production', 'Test', 'Integration', 'Plike', 'Dev', 'Train'];
+// ── New defect (2026-10-09: same structure as the update form) ─────────────
+// The panels and field order come from the same admin layout ("תבנית טופס
+// תקלה"); every field is the same DefectFieldCell with the same pickers (value
+// lists, people + team grouping, release ↔ cycle, team ↔ component). What
+// differs is the process:
+//   - Detected By / on Date / in Release / in Cycle are filled in for you
+//     (you, today, the running version's release and cycle);
+//   - the fields QC marks Required carry "*" and must be filled before creating;
+//   - fields the layout doesn't mark 🆕 are under "שדות נוספים";
+//   - Title, Description, the first comment (required by QC) and files.
 
-interface RefValue { id: string; label: string; }
-interface CrOption { id: string; label: string; }
-interface ResponsibilityOption { teamId: string; teamName: string; qcResponsibilityValue: string; environmentComponents: string[]; }
-interface TeamMemberRow { userId: string; user: { id: string; fullName: string; qcLogin?: string | null } }
-interface VersionOption { id: string; name: string; status: string; }
-
-// Section box, symmetric with its siblings via the parent grid's row-stretch
-// — same visual language as the approved mockup
-// (https://claude.ai/artifact/AiqwpAcgZrX39jUQA7YiwR, co-designed with the
-// user across several rounds — see project-defect-create-form-redesign-
-// 2026-09-22 memory for the full history of what was tried and rejected).
-const SectionBox: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <Card style={{ height: '100%' }}>
-    <div dir="auto" className="mb-3 text-start text-sm font-bold text-foreground">{title}</div>
-    <div className="flex flex-wrap items-end gap-4" style={{ direction: 'ltr', justifyContent: 'flex-start' }}>
-      {children}
-    </div>
-  </Card>
-);
-
-// Compact by default (shrinks to its select/input's own content width, per
-// the user's explicit "field width should match value width" correction);
-// pass `full` for the handful of genuinely long fields (CR reference,
-// Responsibility, Assigned To, Defect ID placeholder).
-const Field: React.FC<{ label: string; hint?: string; full?: boolean; children: React.ReactNode }> = ({ label, hint, full, children }) => (
-  <div className="flex flex-col gap-1.5" style={full ? { flex: '1 1 100%' } : undefined}>
-    <label className="flex items-baseline gap-1.5 text-xs font-bold text-subtle-foreground" style={{ direction: 'ltr', textAlign: 'left' }}>
-      {label}
-      {hint && <span className="text-[11px] font-normal text-subtle-foreground/70">{hint}</span>}
-    </label>
-    {children}
-  </div>
-);
-
-const selectClass = "rounded-sm border border-border bg-card px-2.5 py-2 text-[13px] text-foreground";
-const autoRowClass = "inline-flex items-center gap-2 rounded-sm border border-dashed border-border bg-muted px-3 py-2 text-[13px]";
+const REF_KEYS = new Set(['detectedInRelease', 'detectedInCycle', 'targetRelease', 'targetCycle']);
+const DETECTION_KEYS = new Set(['detectedBy', 'detectedOnDate']);
 
 interface Props {
   token: string;
@@ -64,180 +33,177 @@ interface Props {
   onCreated: (id: string) => void;
 }
 
-// The real create-defect form (2026-09-22), replacing the old generic
-// Tier2-grid CreateDefectModal — a full page, not a modal, because the
-// whole point of this redesign was "fill the page" (the modal's fixed
-// width was exactly what the user rejected first). Fields are ordered to
-// "tell the story" (co-designed with the user via an interactive mockup,
-// several corrected rounds — see project-defect-create-form-redesign-
-// 2026-09-22 memory): Title, then גילוי/זיהוי/אחריות as three symmetric
-// boxes matching DefectDetailScreen's own real section names, then
-// Description/Comments.
 export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, onBack, onCreated }) => {
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
-  const currentUserName = localStorage.getItem('deploycenter_fullName') || '';
 
-  const [versions, setVersions] = useState<VersionOption[]>([]);
-  const [versionId, setVersionId] = useState<string>(initialVersionId || '');
-  const [defaultsLoading, setDefaultsLoading] = useState(false);
-  const [targetRelease, setTargetRelease] = useState<RefValue | null>(null);
-  const [currentCycle, setCurrentCycle] = useState<{ cycleType: string; qcCycleId: string | null; label: string } | null>(null);
-  const [crOptions, setCrOptions] = useState<CrOption[]>([]);
-  const [crId, setCrId] = useState('');
+  // ── the same data the update form loads ────────────────────────────────
+  const [panels, setPanels] = useState<{ name: string; fields: string[]; wide?: string[]; create?: string[] }[] | null>(null);
+  const [fieldPicklists, setFieldPicklists] = useState<Record<string, string[]>>({});
+  const [editable, setEditable] = useState<{ fields: Set<string>; refFields: Set<string>; kinds: Record<string, string> }>({ fields: new Set(), refFields: new Set(), kinds: {} });
+  const [personDirectory, setPersonDirectory] = useState<{ login: string; fullName: string }[]>([]);
+  const [personTeams, setPersonTeams] = useState<PersonTeam[]>([]);
+  const [releaseOptions, setReleaseOptions] = useState<ReleaseCycleOptionT[] | null>(null);
+  const [teamEnv, setTeamEnv] = useState<TeamEnvComponents | null>(null);
+  const [versionCrs, setVersionCrs] = useState<string[]>([]);
+  const [signature, setSignature] = useState('');
 
-  const [responsibilityOptions, setResponsibilityOptions] = useState<ResponsibilityOption[]>([]);
-  const [teamId, setTeamId] = useState('');
-  const [teamMembers, setTeamMembers] = useState<TeamMemberRow[]>([]);
-  const [memberId, setMemberId] = useState('');
-
+  // ── what the user fills in ─────────────────────────────────────────────
+  const [values, setValues] = useState<Record<string, string>>({ severity: 'Severe', priority: 'Medium', detectedOnDate: new Date().toISOString().slice(0, 10) });
+  const [refValues, setRefValues] = useState<Record<string, RefValue>>({});
   const [title, setTitle] = useState('');
-  const [severity, setSeverity] = useState('Severe');
-  const [priority, setPriority] = useState('Medium');
-  const [bugType, setBugType] = useState('Functional');
-  const [testPhase, setTestPhase] = useState('System Test');
-  const [environment, setEnvironment] = useState('Test');
-  const [envComponent, setEnvComponent] = useState('');
   const [description, setDescription] = useState('');
-  const [comments, setComments] = useState('');
-  const [extraRows, setExtraRows] = useState<FieldRow[]>([{ name: '', value: '' }]);
-  // Attachments (2026-09-22, user request: "חסר אפשרות לצרף קבצים") — can
-  // only upload AFTER the defect exists in QC (attachments hang off a real
-  // defect id), so these just sit as pending File objects until submit()
-  // creates the defect, then get uploaded one by one against its real id.
+  const [comment, setComment] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [failedFiles, setFailedFiles] = useState<{ file: File; message: string }[]>([]);
   const [createdIdPendingAttachments, setCreatedIdPendingAttachments] = useState<string | null>(null);
-
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const outsideCommit = useRef<(() => void) | null>(null);
+  const [showMore, setShowMore] = useState(false);
+  const [missing, setMissing] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const touched = useRef(false);
 
-  // Every version still "in flight" (past CR-list import, not yet closed
-  // out) — the pool the "Detected in Release" picker offers, per the
-  // original requirement ("אוטומטי בהתאם לגרסה הפעילה, אם יש יותר מאחת
-  // תפתח רשימה לבחירה"). DRAFT is excluded: a version that hasn't even
-  // collected its CR list yet can't have real QaAssignment rows to test
-  // "my CRs in this release" against.
   useEffect(() => {
-    axios.get(`${API}/versions`, { headers })
-      .then(r => {
-        const inFlight = (r.data ?? []).filter((v: any) =>
-          !['DRAFT', 'COMPLETED', 'ROLLED_BACK'].includes(v.status),
-        );
-        setVersions(inFlight.map((v: any) => ({ id: v.id, name: v.name, status: v.status })));
-        if (!versionId && inFlight.length > 0) setVersionId(inFlight[0].id);
-      })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const get = (url: string) => axios.get(`${API}${url}`, { headers }).then(r => r.data);
+    get('/qc/defect-form-layout').then(d => setPanels(d?.layout?.panels ?? null)).catch(() => setPanels(null));
+    get('/qc/defect-field-picklists').then(d => {
+      const out: Record<string, string[]> = {};
+      for (const [k, e] of Object.entries<any>(d ?? {})) if (e?.values) out[k] = e.values;
+      setFieldPicklists(out);
+    }).catch(() => {});
+    get('/qc/defect-editable-fields').then(d => setEditable({ fields: new Set(d?.fields ?? []), refFields: new Set(d?.refFields ?? []), kinds: d?.kinds ?? {} })).catch(() => {});
+    get('/qc/person-directory').then(d => setPersonDirectory(d ?? [])).catch(() => {});
+    get('/qc/person-teams').then(d => setPersonTeams(d ?? [])).catch(() => {});
+    get('/qc/release-cycle-options').then(d => setReleaseOptions(d ?? [])).catch(() => setReleaseOptions([]));
+    get('/qc/team-environment-components').then(d => setTeamEnv(d ?? null)).catch(() => {});
+    // you = Detected By (name + login from your QC signature)
+    get('/qc/comment-signature').then(d => {
+      const sig = String(d?.signature ?? '');
+      setSignature(sig);
+      const m = /^(.*)\s<([^>]+)>/.exec(sig);
+      if (m) setValues(v => (v.detectedBy ? v : { ...v, detectedBy: `${m[1].trim()} (${m[2].trim()})` }));
+    }).catch(() => {});
+    // the running version → Detected in Release / Cycle + its CRs first in the CR list
+    get('/versions').then((vs: any[]) => {
+      const inFlight = (vs ?? []).filter(v => !['DRAFT', 'COMPLETED', 'ROLLED_BACK'].includes(v.status));
+      const vId = initialVersionId || inFlight[0]?.id;
+      if (!vId) return;
+      get(`/release-intelligence/defect-create-defaults/${vId}`).then(d => {
+        setRefValues(rv => {
+          if (rv.detectedInRelease) return rv;
+          const next = { ...rv };
+          if (d?.targetRelease?.id) next.detectedInRelease = { id: String(d.targetRelease.id), label: d.targetRelease.label };
+          if (d?.currentCycle?.qcCycleId) next.detectedInCycle = { id: String(d.currentCycle.qcCycleId), label: d.currentCycle.label };
+          return next;
+        });
+        setVersionCrs((d?.crOptions ?? []).map((c: any) => String(c.id)));
+      }).catch(() => {});
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
-  const loadDefaults = useCallback((vId: string) => {
-    if (!vId) return;
-    setDefaultsLoading(true);
-    axios.get(`${API}/release-intelligence/defect-create-defaults/${vId}`, { headers })
-      .then(r => {
-        setTargetRelease(r.data?.targetRelease ?? null);
-        setCurrentCycle(r.data?.currentCycle ?? null);
-        setCrOptions(r.data?.crOptions ?? []);
-        setCrId('');
-        setTeamId(''); setResponsibilityOptions([]); setTeamMembers([]); setMemberId('');
-      })
-      .catch(() => { setTargetRelease(null); setCurrentCycle(null); setCrOptions([]); })
-      .finally(() => setDefaultsLoading(false));
-  }, [headers]);
+  // no defaults from the version → the running release from QC's own list,
+  // and its cycle that started most recently (by today's date)
+  useEffect(() => {
+    if (!releaseOptions?.length || refValues.detectedInRelease) return;
+    const timer = setTimeout(() => {
+      setRefValues(rv => {
+        if (rv.detectedInRelease) return rv;
+        const rel = releaseOptions.find(r => r.inFlight);
+        if (!rel) return rv;
+        const today = new Date().toISOString().slice(0, 10);
+        const started = rel.cycles.filter(c => (c.startDate ?? '') <= today);
+        const cyc = started[started.length - 1] ?? rel.cycles[0];
+        return { ...rv, detectedInRelease: { id: rel.id, label: rel.name }, ...(cyc ? { detectedInCycle: { id: cyc.id, label: cyc.name } } : {}) };
+      });
+    }, 1500);   // give the version's own defaults the first chance
+    return () => clearTimeout(timer);
+  }, [releaseOptions, refValues.detectedInRelease]);
 
-  useEffect(() => { if (versionId) loadDefaults(versionId); }, [versionId, loadDefaults]);
+  // the version's own CRs first in the CR/HBR list
+  const picklists = useMemo(() => {
+    const list = fieldPicklists.crHbrNumberReference;
+    if (!list?.length || !versionCrs.length) return fieldPicklists;
+    const num = (v: string) => (/^\s*(\d+)/.exec(v)?.[1] ?? '');
+    const mine = list.filter(v => versionCrs.includes(num(v)));
+    return { ...fieldPicklists, crHbrNumberReference: [...mine, ...list.filter(v => !mine.includes(v))] };
+  }, [fieldPicklists, versionCrs]);
 
-  const onCrChange = (newCrId: string) => {
-    setCrId(newCrId);
-    setTeamId(''); setTeamMembers([]); setMemberId(''); setEnvComponent('');
-    if (!newCrId) { setResponsibilityOptions([]); return; }
-    axios.get(`${API}/release-intelligence/defect-create-responsibility-options/${versionId}/${encodeURIComponent(newCrId)}`, { headers })
-      .then(r => {
-        const opts: ResponsibilityOption[] = r.data ?? [];
-        setResponsibilityOptions(opts);
-        if (opts.length === 1) onTeamChange(opts[0].teamId, opts);
-      })
-      .catch(() => setResponsibilityOptions([]));
+  const groups = useMemo(() => (panels ?? DEFAULT_OPEN_PROD_DETAIL_GROUPS.map(g => ({ name: g.title, fields: g.fields, wide: g.wide })))
+    .map(p => ({ ...p, fields: p.fields.filter(f => f !== ATTACHMENTS_FIELD) })), [panels]);
+  const shownPanels = groups.map(p => ({ ...p, fields: createFieldsOf(p) })).filter(p => p.fields.length > 0);
+  const shownSet = new Set(shownPanels.flatMap(p => p.fields));
+  // required fields the layout left out still have to be there
+  const requiredOutside = Array.from(CREATE_REQUIRED_FIELDS).filter(f => !shownSet.has(f));
+  const moreFields = groups.flatMap(p => p.fields).filter(f => !shownSet.has(f) && !CREATE_REQUIRED_FIELDS.has(f) && f !== 'id');
+
+  const me = (() => { try { return localStorage.getItem('deploycenter_fullName') ?? ''; } catch { return ''; } })();
+  const valueOf = (k: string) => (k === 'status' ? 'New' : k === 'id' ? ''
+    : REF_KEYS.has(k) ? (refValues[k]?.label ?? '')
+    : k === 'detectedBy' ? (values.detectedBy || me)   // the server writes you when nothing is chosen
+    : (values[k] ?? ''));
+  const isEditable = (k: string) => k !== 'status' && k !== 'id' && (REF_KEYS.has(k) ? editable.refFields.has(k) : editable.fields.has(k));
+  const ctx: DefectFieldsCtx = {
+    valueOf,
+    isDirty: () => false,
+    isEditable,
+    lockReason: k => (k === 'status' ? 'נקבע ב-QC בפתיחת התקלה'
+      : k === 'id' ? 'יוקצה ע"י QC עם השמירה'
+      : DETECTION_KEYS.has(k) ? 'ממולא אוטומטית — שינוי רק למנהל מערכת / מנהל שחרור' : undefined),
+    required: CREATE_REQUIRED_FIELDS,
+    missing,
+    editingField, setEditingField,
+    commitField: (k, v) => { touched.current = true; setValues(prev => ({ ...prev, [k]: v })); setEditingField(null); setMissing(m => { const n = new Set(m); n.delete(k); return n; }); },
+    commitPair: (rk, ck, rel, cyc) => {
+      touched.current = true;
+      setRefValues(prev => ({ ...prev, [rk]: rel, [ck]: cyc }));
+      setEditingField(null);
+      setMissing(m => { const n = new Set(m); n.delete(rk); n.delete(ck); return n; });
+    },
+    outsideCommit,
+    teamEnv, fieldPicklists: picklists, fieldKinds: editable.kinds, personDirectory, personTeams, releaseOptions,
+    currentStatus: 'New', allowedTransitions: null,
   };
 
-  const onTeamChange = (newTeamId: string, opts: ResponsibilityOption[] = responsibilityOptions) => {
-    setTeamId(newTeamId);
-    setMemberId('');
-    const teamOpt = opts.find(o => o.teamId === newTeamId);
-    setEnvComponent(teamOpt?.environmentComponents[0] ?? '');
-    if (!newTeamId) { setTeamMembers([]); return; }
-    axios.get(`${API}/teams/${newTeamId}`, { headers })
-      .then(r => setTeamMembers(r.data?.members ?? []))
-      .catch(() => setTeamMembers([]));
-  };
-
-  const selectedTeamOption = responsibilityOptions.find(o => o.teamId === teamId) || null;
-  const canSubmit = title.trim().length > 0 && !creating;
-
-  // Leave guard (user, 2026-10-09): leaving a filled-in form that was not yet
-  // created in QC asks first — back, cancel, sidebar, top bar, refresh.
-  const typedCount = !createdIdPendingAttachments ? [
-    title.trim(), description.trim(), comments.trim(), envComponent, crId, memberId,
-    attachedFiles.length > 0, extraRows.some(r => r.name.trim()),
-    severity !== 'Severe', priority !== 'Medium', bugType !== 'Functional', testPhase !== 'System Test', environment !== 'Test',
-  ].filter(Boolean).length : 0;
+  // ── leave guard (2026-10-09) ────────────────────────────────────────────
+  const typedCount = !createdIdPendingAttachments
+    ? [title.trim(), description.trim(), comment.trim(), attachedFiles.length > 0, touched.current].filter(Boolean).length : 0;
   const { confirmLeave } = useUnsavedChanges();
   useLeaveGuard({ count: () => (creating ? 0 : typedCount), label: () => 'תקלה חדשה שטרם נוצרה' });
   const leave = async () => { if (await confirmLeave()) onBack(); };
 
   const submit = async () => {
-    if (!title.trim()) { setError('יש להזין כותרת (Summary)'); return; }
+    // Detected By / on Date: the server writes you / today when they are empty
+    const miss = new Set(Array.from(CREATE_REQUIRED_FIELDS).filter(k => !DETECTION_KEYS.has(k) && !valueOf(k).trim()));
+    const missText = [
+      ...(title.trim() ? [] : ['Title']),
+      ...Array.from(miss).map(k => DETAIL_FIELD_LABEL[k] ?? k),
+      ...(comment.trim() ? [] : ['Comments']),
+    ];
+    setMissing(miss);
+    if (missText.length) { setError(`חסרים שדות חובה: ${missText.join(', ')}`); return; }
     setCreating(true); setError(null);
     try {
-      const businessFields: Record<string, string> = { severity, priority, bugType, testPhase, environment };
-      if (envComponent) businessFields.environmentComponent = envComponent;
-      const member = teamMembers.find(m => m.userId === memberId);
-      if (member) businessFields.assignedTo = member.user?.qcLogin ? `${memberName(member)} (${member.user.qcLogin})` : memberName(member);
-      if (selectedTeamOption) businessFields.responsibility = selectedTeamOption.qcResponsibilityValue;
-      if (crId) businessFields.crHbrReference = crId === 'regression' || crId === 'production'
-        ? crId.charAt(0).toUpperCase() + crId.slice(1)
-        : crId;
-
-      const businessRefFields: Record<string, RefValue> = {};
-      if (targetRelease) businessRefFields.detectedRelease = targetRelease;
-      if (currentCycle?.qcCycleId) businessRefFields.detectedCycle = { id: currentCycle.qcCycleId, label: currentCycle.label };
-
-      const rawFields: Record<string, string> = {};
-      if (description.trim()) rawFields.description = description.trim();
-      if (comments.trim()) rawFields['dev-comments'] = comments.trim();
-      for (const row of extraRows) if (row.name.trim()) rawFields[row.name.trim()] = row.value;
-
-      const res = await axios.post(`${API}/qc/defects`, { title: title.trim(), businessFields, businessRefFields, rawFields }, { headers });
-      if (!res.data?.id) {
-        setError('התקלה נוצרה ב-QC אך לא זוהה מזהה בתשובה — בדוק ידנית ב-QC UI');
-        return;
-      }
-      const newId = res.data.id;
-
-      // Files can only be attached once the defect exists — upload one at a
-      // time against the real id we just got back. A failure here doesn't
-      // undo the (already-created) defect — but rather than silently
-      // navigating away with the failure only visible in a state nobody
-      // will see (this screen is about to unmount), stay put and show it,
-      // letting the user retry or continue on to the defect regardless.
+      const fields: Record<string, string> = {};
+      for (const [k, v] of Object.entries(values)) if (v?.trim() && editable.fields.has(k)) fields[k] = v;
+      const refFields: Record<string, RefValue> = {};
+      for (const [k, v] of Object.entries(refValues)) if (v?.id) refFields[k] = v;
+      const res = await axios.post(`${API}/qc/defects`, {
+        form: true, title: title.trim(), description: description.trim(), comment: comment.trim(), fields, refFields,
+      }, { headers });
+      const newId = res.data?.id;
+      if (!newId) { setError('התקלה נוצרה ב-QC אך לא זוהה מזהה בתשובה — בדוק ידנית ב-QC'); return; }
       if (attachedFiles.length > 0) {
         const failures: { file: File; message: string }[] = [];
         for (const file of attachedFiles) {
           const form = new FormData();
           form.append('file', file);
-          try {
-            await axios.post(`${API}/qc/defect/${encodeURIComponent(newId)}/attachments`, form, { headers });
-          } catch (err: any) {
-            failures.push({ file, message: err?.response?.data?.message || 'העלאה נכשלה' });
-          }
+          try { await axios.post(`${API}/qc/defect/${encodeURIComponent(newId)}/attachments`, form, { headers }); }
+          catch (err: any) { failures.push({ file, message: err?.response?.data?.message || 'העלאה נכשלה' }); }
         }
-        if (failures.length > 0) {
-          setFailedFiles(failures);
-          setCreatedIdPendingAttachments(newId);
-          return;
-        }
+        if (failures.length > 0) { setFailedFiles(failures); setCreatedIdPendingAttachments(newId); return; }
       }
-
       onCreated(newId);
     } catch (err: any) {
       setError(err?.response?.data?.message || 'יצירת התקלה נכשלה');
@@ -246,12 +212,6 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
     }
   };
 
-  const addFiles = (files: FileList | null) => {
-    if (!files) return;
-    setAttachedFiles(prev => [...prev, ...Array.from(files)]);
-  };
-  const removeFile = (idx: number) => setAttachedFiles(prev => prev.filter((_, i) => i !== idx));
-
   const retryAttachments = async () => {
     if (!createdIdPendingAttachments) return;
     setCreating(true);
@@ -259,201 +219,107 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
     for (const { file } of failedFiles) {
       const form = new FormData();
       form.append('file', file);
-      try {
-        await axios.post(`${API}/qc/defect/${encodeURIComponent(createdIdPendingAttachments)}/attachments`, form, { headers });
-      } catch (err: any) {
-        stillFailing.push({ file, message: err?.response?.data?.message || 'העלאה נכשלה' });
-      }
+      try { await axios.post(`${API}/qc/defect/${encodeURIComponent(createdIdPendingAttachments)}/attachments`, form, { headers }); }
+      catch (err: any) { stillFailing.push({ file, message: err?.response?.data?.message || 'העלאה נכשלה' }); }
     }
     setFailedFiles(stillFailing);
     setCreating(false);
     if (stillFailing.length === 0) onCreated(createdIdPendingAttachments);
   };
 
-  const memberName = (m: TeamMemberRow) => m.user?.fullName ?? '';
-  const selectedCrLabel = crOptions.find(c => c.id === crId)?.label?.split(' — ')[0] ?? '—';
-  const selectedMemberName = teamMembers.find(m => m.userId === memberId) ? memberName(teamMembers.find(m => m.userId === memberId)!) : '—';
+  const fieldGrid = (fields: string[], wide?: string[]) => (
+    <div className="grid gap-x-3 gap-y-3" style={{ direction: 'ltr', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))' }}>
+      {fields.map(f => <DefectFieldCell key={f} fieldKey={f} wide={!!wide?.includes(f)} ctx={ctx} />)}
+    </div>
+  );
+  const panelCard = (name: string, body: React.ReactNode, key: string) => (
+    <div key={key} dir="rtl" className="rounded-xl px-6 py-6" style={{ background: '#fff', height: '100%' }}>
+      <div dir="auto" className="mb-3 text-start text-sm font-bold text-foreground">{name}</div>
+      {body}
+    </div>
+  );
+  const textBox = 'w-full resize-y rounded-sm bg-card px-3 py-2 text-[13px] text-foreground outline-none';
+  const reqMark = <span style={{ color: '#DE350B' }} title="שדה חובה ב-QC">*</span>;
 
   return (
     <div className="flex flex-col gap-4 px-7 py-5" dir="rtl">
-      <BackLink onClick={leave} label="חזרה" />
+      <div className="flex min-h-[34px] items-center justify-between">
+        <BackLink onClick={leave} label="חזרה" />
+        <span className="text-lg font-bold text-foreground">🐞 תקלה חדשה ב-QC</span>
+      </div>
 
-      <Card>
-        <div className="flex items-center gap-2.5">
-          <span className="text-[22px]">🐞</span>
-          <div className="text-lg font-bold text-foreground">תקלה חדשה ב-QC</div>
-          <div className="text-xs text-subtle-foreground">
-            טופס זה עדיין לא נבדק מול QC אמיתי — ייבדק בהעברת הגרסה הבאה לייצור
-          </div>
+      {/* Title — as in the update form */}
+      <div className="rounded-xl px-6 py-5" style={{ background: '#fff' }}>
+        <label className="block text-xs font-bold text-subtle-foreground" style={{ direction: 'ltr', textAlign: 'left' }}>Title {reqMark}</label>
+        <input value={title} onChange={e => setTitle(e.target.value)} dir="auto" placeholder="כותרת קצרה וברורה של התקלה"
+          className="mt-1.5 w-full rounded-sm px-3 py-2 text-[15px] font-semibold text-foreground outline-none"
+          style={{ border: `1px solid ${error && !title.trim() ? '#DE350B' : JIRA.greyN40}` }} />
+      </div>
+
+      {/* the same panels, fields and pickers as the update form */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, direction: 'ltr' }}>
+        {shownPanels.map((p, i) => panelCard(p.name, fieldGrid(p.fields, p.wide), `p${i}`))}
+        {requiredOutside.length > 0 && panelCard('שדות חובה', fieldGrid(requiredOutside), 'req')}
+      </div>
+
+      {moreFields.length > 0 && (
+        <div className="rounded-xl px-6 py-4" style={{ background: '#fff' }}>
+          <button type="button" onClick={() => setShowMore(v => !v)} className="cursor-pointer border-none bg-transparent p-0 text-sm font-bold text-foreground">
+            {showMore ? '▾' : '▸'} שדות נוספים ({moreFields.length}) <span className="text-xs font-normal text-subtle-foreground">— לא נדרשים בפתיחת תקלה</span>
+          </button>
+          {showMore && <div className="mt-3">{fieldGrid(moreFields)}</div>}
         </div>
-      </Card>
+      )}
 
-      <div className="rounded-md border border-primary/30 bg-primary-100 px-4 py-3 text-[13px] leading-7 text-foreground">
-        📖 <b>תקלה (חדשה)</b> נפתחת בגרסה <b>{versions.find(v => v.id === versionId)?.name ?? '—'}</b>,
-        {' '}בסבב <b>{currentCycle?.label ?? '—'}</b>, עבור <b>{selectedCrLabel}</b>.
-        {' '}האחראי לטיפול: צוות <b>{selectedTeamOption?.teamName ?? '—'}</b> — <b>{selectedMemberName}</b>
-        {title && <> .<br />כותרת: <b>&quot;{title}&quot;</b>, חומרה <b>{severity}</b></>}.
+      {/* Description + the first comment, side by side as in the update form */}
+      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 460px), 1fr))', direction: 'ltr' }}>
+        <div dir="rtl" className="flex flex-col gap-1.5 rounded-xl px-6 py-5" style={{ background: '#fff' }}>
+          <label className="text-xs font-bold text-subtle-foreground" style={{ direction: 'ltr', textAlign: 'left' }}>Description</label>
+          <textarea dir="auto" rows={6} value={description} onChange={e => setDescription(e.target.value)}
+            placeholder="שלבי שחזור, התנהגות שהתקבלה מול הצפויה" className={textBox} style={{ border: `1px solid ${JIRA.greyN40}` }} />
+        </div>
+        <div dir="rtl" className="flex flex-col gap-1.5 rounded-xl px-6 py-5" style={{ background: '#fff' }}>
+          <label className="text-xs font-bold text-subtle-foreground" style={{ direction: 'ltr', textAlign: 'left' }}>Comments {reqMark}</label>
+          {signature && <div className="text-[11px] text-subtle-foreground" dir="ltr" style={{ textAlign: 'left' }}>{signature}</div>}
+          <textarea dir="auto" rows={6} value={comment} onChange={e => setComment(e.target.value)}
+            placeholder="הערה ראשונה — חובה ב-QC (למשל: היכן שוחזר, נתוני בדיקה)" className={textBox}
+            style={{ border: `1px solid ${error && !comment.trim() ? '#DE350B' : JIRA.greyN40}` }} />
+        </div>
       </div>
 
       <Card>
-        <Field label="Title *" full>
-          <TextField value={title} onChange={e => setTitle(e.target.value)} dir="auto" placeholder="כותרת קצרה וברורה של התקלה" fullWidth />
-        </Field>
-      </Card>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
-
-        <SectionBox title="גילוי">
-          <Field label="Detected in Release" hint="(אוטומטי)">
-            <select className={selectClass} style={{ direction: 'ltr' }} value={versionId} onChange={e => setVersionId(e.target.value)}>
-              {versions.map(v => <option key={v.id} value={v.id}>{v.name} ({v.status})</option>)}
-            </select>
-          </Field>
-          <Field label="Detected in Cycle" hint="(אוטומטי)">
-            <div className={autoRowClass} style={{ direction: 'ltr' }}>
-              <b>{defaultsLoading ? '…' : (currentCycle?.label ?? '—')}</b>
-            </div>
-          </Field>
-          <Field label="Detected on Date" hint="(אוטומטי)">
-            <div className={autoRowClass} style={{ direction: 'ltr' }}><b>{new Date().toLocaleDateString('he-IL')}</b></div>
-          </Field>
-          <Field label="Detected By" hint="(אוטומטי)">
-            <div className={autoRowClass} style={{ direction: 'ltr' }}><b>{currentUserName || '—'}</b></div>
-          </Field>
-          <Field label="CR / HBR Number reference" hint='* שייך ל"יעד וגרסה" בטופס הקיים — כאן לפי סדר הסיפור' full>
-            <select className={selectClass} style={{ direction: 'ltr', width: '100%' }} value={crId} onChange={e => onCrChange(e.target.value)}>
-              <option value="" disabled>בחר CR...</option>
-              {crOptions.map(cr => <option key={cr.id} value={cr.id}>{cr.label}</option>)}
-            </select>
-          </Field>
-          <Field label="Test Phase">
-            <select className={selectClass} style={{ direction: 'ltr' }} value={testPhase} onChange={e => setTestPhase(e.target.value)}>
-              {TEST_PHASE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-          </Field>
-          <Field label="Environment">
-            <select className={selectClass} style={{ direction: 'ltr' }} value={environment} onChange={e => setEnvironment(e.target.value)}>
-              {ENVIRONMENT_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-          </Field>
-          <Field label="Environment Component" hint={selectedTeamOption ? `לפי ${selectedTeamOption.teamName}` : 'לפי הצוות'}>
-            <select className={selectClass} style={{ direction: 'ltr' }} value={envComponent} onChange={e => setEnvComponent(e.target.value)} disabled={!selectedTeamOption}>
-              {!selectedTeamOption && <option value="">— Responsibility —</option>}
-              {(selectedTeamOption?.environmentComponents ?? []).map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </Field>
-        </SectionBox>
-
-        <SectionBox title="זיהוי">
-          <Field label="Defect ID" hint="(אוטומטי מ-QC)" full>
-            <div className={autoRowClass} style={{ direction: 'ltr' }}><span className="text-subtle-foreground">יוקצה עם השמירה</span></div>
-          </Field>
-          <Field label="Severity">
-            <select className={selectClass} style={{ direction: 'ltr' }} value={severity} onChange={e => setSeverity(e.target.value)}>
-              {SEVERITY_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-          </Field>
-          <Field label="Priority">
-            <select className={selectClass} style={{ direction: 'ltr' }} value={priority} onChange={e => setPriority(e.target.value)}>
-              {PRIORITY_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-          </Field>
-          <Field label="Bug Type">
-            <select className={selectClass} style={{ direction: 'ltr' }} value={bugType} onChange={e => setBugType(e.target.value)}>
-              {BUG_TYPE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-          </Field>
-          <Field label="Bug Status" hint="(אוטומטי)">
-            <div className="rounded-sm bg-success/15 px-2.5 py-1.5 text-[13px] font-bold text-success">Open</div>
-          </Field>
-        </SectionBox>
-
-        <SectionBox title="אחריות">
-          <Field label="Responsibility" hint={crId ? undefined : 'בחר CR תחילה'} full>
-            <select
-              className={selectClass} style={{ direction: 'ltr', width: '100%' }}
-              value={teamId} onChange={e => onTeamChange(e.target.value)} disabled={!crId || responsibilityOptions.length === 0}
-            >
-              <option value="">{crId ? (responsibilityOptions.length === 0 ? '— אין צוות ממופה ל-CR זה —' : 'בחר צוות...') : '— בחר CR תחילה —'}</option>
-              {responsibilityOptions.map(o => <option key={o.teamId} value={o.teamId}>{o.teamName}</option>)}
-            </select>
-          </Field>
-          <Field label="Assigned To" full>
-            <select
-              className={selectClass} style={{ direction: 'ltr', width: '100%' }} dir="auto"
-              value={memberId} onChange={e => setMemberId(e.target.value)} disabled={!teamId}
-            >
-              <option value="">{teamId ? 'בחר איש צוות...' : '— בחר Responsibility —'}</option>
-              {teamMembers.map(m => <option key={m.userId} value={m.userId}>{memberName(m)}</option>)}
-            </select>
-          </Field>
-        </SectionBox>
-
-      </div>
-
-      <Card>
-        <div className="flex flex-col gap-4">
-          <Field label="Description" full>
-            <textarea
-              dir="auto" rows={3} value={description} onChange={e => setDescription(e.target.value)}
-              placeholder="תיאור מפורט: שלבי שחזור, התנהגות שהתקבלה מול הצפויה"
-              className="w-full resize-y rounded-sm border border-border bg-card px-3 py-2 text-[13px] text-foreground"
-            />
-          </Field>
-          <Field label="Comments" full>
-            <textarea
-              dir="auto" rows={2} value={comments} onChange={e => setComments(e.target.value)}
-              placeholder="הערות נוספות (אופציונלי)"
-              className="w-full resize-y rounded-sm border border-border bg-card px-3 py-2 text-[13px] text-foreground"
-            />
-          </Field>
-        </div>
-      </Card>
-
-      <Card>
-        <div className="mb-2 text-sm font-bold text-foreground">קבצים מצורפים <span className="text-xs font-normal text-subtle-foreground">(אופציונלי — יועלו ל-QC לאחר יצירת התקלה)</span></div>
+        <div className="mb-2 text-sm font-bold text-foreground">📎 קבצים מצורפים <span className="text-xs font-normal text-subtle-foreground">(יועלו ל-QC מיד אחרי יצירת התקלה)</span></div>
         <div className="flex flex-col gap-2">
           {attachedFiles.map((f, i) => (
-            <div key={`${f.name}-${i}`} className="flex items-center justify-between gap-2 rounded-sm border border-border bg-muted px-3 py-1.5 text-[13px]">
+            <div key={`${f.name}-${i}`} className="flex items-center justify-between gap-2 rounded-sm bg-muted px-3 py-1.5 text-[13px]">
               <span dir="auto" className="min-w-0 flex-1 truncate">{f.name}</span>
               <span className="flex-shrink-0 text-subtle-foreground">{(f.size / 1024).toFixed(0)} KB</span>
-              <button type="button" onClick={() => removeFile(i)} className="flex-shrink-0 cursor-pointer text-danger">✕</button>
+              <button type="button" onClick={() => setAttachedFiles(prev => prev.filter((_, j) => j !== i))} className="flex-shrink-0 cursor-pointer border-none bg-transparent text-danger">✕</button>
             </div>
           ))}
-          <label className="w-fit cursor-pointer rounded-sm border border-dashed border-border px-3 py-2 text-[13px] font-semibold text-primary hover:bg-muted">
+          <label className="w-fit cursor-pointer rounded-sm px-3 py-2 text-[13px] font-semibold text-primary hover:bg-muted" style={{ border: `1px dashed ${JIRA.greyN40}` }}>
             + הוסף קובץ
-            <input type="file" multiple className="hidden" onChange={e => { addFiles(e.target.files); e.target.value = ''; }} />
+            <input type="file" multiple className="hidden" onChange={e => { const fl = e.target.files; if (fl) setAttachedFiles(prev => [...prev, ...Array.from(fl)]); e.target.value = ''; }} />
           </label>
         </div>
       </Card>
 
-      <Card>
-        <div className="mb-2 text-xs font-semibold text-subtle-foreground">שדות נוספים לפי שם REST (אופציונלי — למשל שדות שעדיין לא ממופים)</div>
-        <FieldRowsEditor rows={extraRows} onChange={setExtraRows} />
-      </Card>
-
-      {error && <div className="text-[13px] font-semibold text-danger">{error}</div>}
+      {error && <div className="rounded-md px-4 py-2.5 text-[13px] font-semibold text-danger" style={{ background: C.bgBlocked }}>{error}</div>}
 
       {createdIdPendingAttachments ? (
-        // Reached only when the defect itself was created successfully but
-        // one or more attachments failed to upload — don't lose that
-        // context by navigating away silently (see submit()'s own comment).
         <Card style={{ borderColor: C.warning }}>
-          <div className="mb-2 text-[13px] font-semibold text-warning">
-            התקלה {createdIdPendingAttachments} נוצרה בהצלחה, אך {failedFiles.length} קבצים לא הועלו:
-          </div>
-          <ul className="mb-3 list-inside list-disc text-[13px] text-danger">
-            {failedFiles.map((f, i) => <li key={i}>{f.message}</li>)}
-          </ul>
+          <div className="mb-2 text-[13px] font-semibold text-warning">התקלה {createdIdPendingAttachments} נוצרה בהצלחה, אך {failedFiles.length} קבצים לא הועלו:</div>
+          <ul className="mb-3 list-inside list-disc text-[13px] text-danger">{failedFiles.map((f, i) => <li key={i}>{f.file.name}: {f.message}</li>)}</ul>
           <div className="flex justify-end gap-2.5">
             <Button variant="outline" onClick={() => onCreated(createdIdPendingAttachments)}>המשך בלי הקבצים</Button>
             <Button onClick={retryAttachments} disabled={creating}>{creating ? 'מנסה שוב…' : '↺ נסה שוב להעלות'}</Button>
           </div>
         </Card>
       ) : (
-        <div className="flex justify-end gap-2.5">
+        <div className="flex items-center justify-end gap-2.5">
+          <span className="text-xs text-subtle-foreground"><span style={{ color: '#DE350B' }}>*</span> שדה חובה ב-QC</span>
           <Button variant="outline" onClick={leave}>ביטול</Button>
-          <Button onClick={submit} disabled={!canSubmit}>{creating ? 'יוצר…' : '✓ פתח תקלה ב-QC'}</Button>
+          <Button onClick={submit} disabled={creating}>{creating ? 'יוצר ב-QC…' : '✓ צור תקלה ב-QC'}</Button>
         </div>
       )}
     </div>

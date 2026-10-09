@@ -331,7 +331,7 @@ const POPOVER_BTN = 'cursor-pointer rounded-md px-3 py-1 text-xs';
 // People picker (user, 2026-10-09): the whole directory, or — with "קבץ לפי
 // צוות" ticked (remembered in this browser) — the teams first, and a team's
 // members only after clicking it.
-type PersonTeam = { id: string; name: string; logins: string[] };
+export type PersonTeam = { id: string; name: string; logins: string[] };
 const GROUP_BY_TEAM_KEY = 'dc_person_picker_by_team';
 
 const PersonPicker: React.FC<{
@@ -477,8 +477,8 @@ const InlineFieldEditor: React.FC<{
 // ITS cycles — a cycle of another release can't be chosen (the server checks
 // it again before writing). Names on screen, ids to QC. Releases a DeployCenter
 // version is running come first, then every QC release.
-type ReleaseCycleOptionT = { id: string; name: string; startDate: string | null; inFlight: boolean; cycles: { id: string; name: string; startDate: string | null }[] };
-type RefValue = { id: string; label: string };
+export type ReleaseCycleOptionT = { id: string; name: string; startDate: string | null; inFlight: boolean; cycles: { id: string; name: string; startDate: string | null }[] };
+export type RefValue = { id: string; label: string };
 
 const ReleaseCycleEditor: React.FC<{
   releases: ReleaseCycleOptionT[] | null; startOnCycle: boolean;
@@ -555,13 +555,143 @@ const REF_PAIR_OF: Record<string, [string, string]> = {
 
 // Team (Responsibility) ↔ Environment Component: the team's own components,
 // or every value when the team has none defined (user, 2026-10-08).
-type TeamEnvComponents = { teams: { name: string; responsibility: string | null; components: string[] }[]; all: string[] };
+export type TeamEnvComponents = { teams: { name: string; responsibility: string | null; components: string[] }[]; all: string[] };
 function teamComponentsFor(data: TeamEnvComponents | null, team: string): string[] {
   const t = team.trim().toLowerCase();
   if (!data || !t) return [];
   const hit = data.teams.find(x => (x.responsibility ?? '').toLowerCase() === t) ?? data.teams.find(x => x.name.toLowerCase() === t);
   return hit?.components ?? [];
 }
+
+
+// ── One field of a defect form (2026-10-09) ────────────────────────────────
+// Shared by the edit form (DefectDetailScreen) and the create form
+// (CreateDefectScreen): label, value box, editable/locked marking, required
+// "*", and the floating editor. Each form supplies its values and rules in ctx.
+export interface DefectFieldsCtx {
+  valueOf: (key: string) => string;
+  isDirty: (key: string) => boolean;
+  isEditable: (key: string) => boolean;
+  lockReason: (key: string) => string | undefined;
+  /** create form: fields QC requires (marked *) and, after a failed submit, the missing ones (red) */
+  required?: Set<string>;
+  missing?: Set<string>;
+  editingField: string | null;
+  setEditingField: (key: string | null) => void;
+  commitField: (key: string, value: string) => void;
+  commitPair: (relKey: string, cycKey: string, rel: RefValue, cyc: RefValue) => void;
+  outsideCommit: React.MutableRefObject<(() => void) | null>;
+  teamEnv: TeamEnvComponents | null;
+  fieldPicklists: Record<string, string[]>;
+  fieldKinds: Record<string, string>;
+  personDirectory: { login: string; fullName: string }[];
+  personTeams: PersonTeam[];
+  releaseOptions: ReleaseCycleOptionT[] | null;
+  currentStatus: string;
+  allowedTransitions: string[] | null;
+}
+
+export const DefectFieldCell: React.FC<{ fieldKey: string; wide: boolean; ctx: DefectFieldsCtx }> = ({ fieldKey: key, wide: isWide, ctx }) => {
+                      const isDirty = ctx.isDirty(key);
+                      const displayValue = ctx.valueOf(key);
+                      const isAtomic = PERSON_BADGE_FIELDS.has(key) || TEAM_BADGE_FIELDS.has(key)
+                        || key === 'id' || key === 'status' || key === 'severity' || key === 'priority' || key === 'secondaryPriority';
+                      const valRtl = !isAtomic && !!displayValue && hasHebrew(displayValue);
+                      const isEditable = ctx.isEditable(key);
+                      const lockReason = ctx.lockReason(key);
+                      const isEditingThis = ctx.editingField === key;
+                      const isRequired = !!ctx.required?.has(key);
+                      const isMissing = !!ctx.missing?.has(key);
+                      const label = DETAIL_FIELD_LABEL[key] ?? key;
+                      // Environment Component follows the (possibly just changed) team
+                      const team = ctx.valueOf('responsibility');
+                      const teamComps = key === 'environmentComponent' ? teamComponentsFor(ctx.teamEnv, team) : [];
+                      const envMismatch = key === 'environmentComponent' && teamComps.length > 0 && !!displayValue && !teamComps.includes(displayValue);
+                      const listOptions = key === 'environmentComponent'
+                        ? (teamComps.length ? teamComps : (ctx.teamEnv?.all ?? []))
+                        : ctx.fieldPicklists[key];
+                      const pair = REF_PAIR_OF[key];
+                      // popover width: release/cycle and people a bit wider, long value lists (CR/HBR reference…) wide
+                      const popWidth = pair ? 380
+                        : (PERSON_FIELDS.has(key) || ctx.fieldKinds[key] === 'person') ? 340
+                        : (listOptions ?? []).some(o => o.length > 30) ? 520 : 320;
+                      const plainValue = PERSON_BADGE_FIELDS.has(key) ? displayValue.replace(/\s*\([^()]*\)\s*$/, '') : displayValue;
+                      return (
+                        <div
+                          
+                          onClick={() => { if (isEditable && !isEditingThis) ctx.setEditingField(key); }}
+                          title={isEditable && !isEditingThis ? 'לחץ לעריכה' : lockReason}
+                          // Editable = a light blue wash + ✏️ on hover (user, 2026-10-09:
+                          // the dashed frame on every field was noise); locked = 🔒 by
+                          // the label; editing = solid blue frame; unsaved = yellow.
+                          className={cn('group relative flex min-w-0 flex-col gap-1 rounded-md px-1.5 py-1 transition-colors',
+                            isEditable && !isEditingThis && !isDirty && 'hover:bg-[#eef4ff]')}
+                          style={{
+                            gridColumn: isWide ? '1 / -1' : undefined,
+                            border: isEditingThis ? `1px solid ${JIRA.blue}` : isMissing ? '1px solid #DE350B' : '1px solid transparent',
+                            cursor: isEditable && !isEditingThis ? 'pointer' : undefined,
+                            background: isDirty ? '#fffbe6' : undefined,
+                          }}
+                        >
+                          <span className="flex min-w-0 items-center gap-1 text-xs font-bold tracking-wide" style={{ color: JIRA.textSubtle, direction: 'ltr' }}>
+                            <span className="truncate" title={label}>{label}</span>
+                            {isRequired && <span className="shrink-0" style={{ color: '#DE350B' }} title="שדה חובה ב-QC">*</span>}
+                            {!isEditable && <span className="shrink-0 text-[10px] opacity-60" title={lockReason ?? 'שדה לקריאה בלבד'}>🔒</span>}
+                            {isEditable && !isEditingThis && <span className="pointer-events-none absolute right-1.5 top-1 text-[11px] opacity-0 transition-opacity group-hover:opacity-100" aria-hidden>✏️</span>}
+                          </span>
+                          {/* same height in every box; one line unless the field is wide.
+                              Stays in place while editing — the editor floats under it. */}
+                          <span
+                            className={cn('flex min-h-[32px] w-full min-w-0 items-center gap-1.5 px-2.5 py-1 text-[13px] font-medium',
+                              isWide ? 'flex-wrap break-words' : 'overflow-hidden whitespace-nowrap')}
+                            title={plainValue || undefined}
+                            style={{ color: JIRA.text, direction: valRtl ? 'rtl' : 'ltr', ...VALUE_BOX_STYLE }}
+                          >
+                            {isDirty && <span title="שינוי לא שמור" className="shrink-0" style={{ color: JIRA.blue }}>●</span>}
+                            {envMismatch && <span className="shrink-0" title={`לא שייך לרכיבי הצוות ${team}`}>⚠</span>}
+                            <span className={isWide ? 'min-w-0' : 'min-w-0 truncate'}>{renderFieldValue(key, displayValue)}</span>
+                          </span>
+                          {isEditingThis && (
+                            <EditPopover onClose={() => ctx.setEditingField(null)} width={popWidth}
+                              onOutside={() => { if (ctx.outsideCommit.current) ctx.outsideCommit.current(); else ctx.setEditingField(null); }}
+                              title={label}
+                              subtitle={key === 'environmentComponent'
+                                ? (teamComps.length ? `רכיבי הצוות ${team}` : team ? `לצוות ${team} לא הוגדרו רכיבים — מוצגים כל הערכים` : undefined)
+                                : undefined}>
+                              {pair ? (
+                                <ReleaseCycleEditor
+                                  releases={ctx.releaseOptions}
+                                  startOnCycle={key === pair[1]}
+                                  laterThan={pair[0] === 'targetRelease' ? (() => {
+                                    const detName = ctx.valueOf('detectedInRelease');
+                                    const det = (ctx.releaseOptions ?? []).find(r => r.name === detName);
+                                    return { name: det ? det.name : null, startDate: det?.startDate ?? null };
+                                  })() : undefined}
+                                  currentRelease={ctx.valueOf(pair[0])}
+                                  currentCycle={ctx.valueOf(pair[1])}
+                                  onCommit={(rel, cyc) => ctx.commitPair(pair[0], pair[1], rel, cyc)}
+                                  onCancel={() => ctx.setEditingField(null)}
+                                />
+                              ) : (
+                                <InlineFieldEditor
+                                  fieldKey={key}
+                                  initialValue={displayValue}
+                                  currentStatus={ctx.currentStatus}
+                                  allowedTransitions={ctx.allowedTransitions}
+                                  dynamicOptions={listOptions}
+                                  personOptions={ctx.personDirectory}
+                                  personTeams={ctx.personTeams}
+                                  fieldKind={key === 'environmentComponent' ? 'list' : ctx.fieldKinds[key]}
+                                  outsideCommitRef={ctx.outsideCommit}
+                                  onCommit={v => ctx.commitField(key, v)}
+                                  onCancel={() => ctx.setEditingField(null)}
+                                />
+                              )}
+                            </EditPopover>
+                          )}
+                        </div>
+                      );
+};
 
 // Unsaved defect-form changes kept in this browser (see DefectDetailScreen)
 type DefectDraft = { pendingEdits: Record<string, string>; pendingRefEdits: Record<string, RefValue>; newComment: string | null; at: number };
@@ -980,6 +1110,24 @@ export const DefectDetailScreen: React.FC<{
   // Long-text boxes open to full height on demand (less scrolling, user ask 2026-10-04).
   const [expandedText, setExpandedText] = useState<{ description: boolean; notes: boolean }>({ description: false, notes: false });
 
+
+  // Everything a field cell needs — the same cell renders the create form
+  // (CreateDefectScreen), so both forms always look and behave alike.
+  const refValueOf = (k: string) => pendingRefEdits[k]?.label ?? String((detail as any)?.[k] ?? '');
+  const fieldCtx: DefectFieldsCtx = {
+    valueOf: k => (refEditableFieldKeys.has(k) ? refValueOf(k) : (pendingEdits[k] !== undefined ? pendingEdits[k] : String((detail as any)?.[k] ?? ''))),
+    isDirty: k => (refEditableFieldKeys.has(k) ? pendingRefEdits[k] !== undefined : pendingEdits[k] !== undefined),
+    isEditable: k => !LOCKED_DETAIL_FIELDS.has(k) && (k === 'status'
+      ? canQcWrite && allowedTransitions !== null
+      : (editableFieldKeys.has(k) || refEditableFieldKeys.has(k))),
+    lockReason: k => (k === 'status' && canQcWrite && allowedTransitions === null
+      ? 'הצוות שלך לא משויך לקבוצת QC — לא ניתן לשנות סטטוס מכאן'
+      : LOCKED_DETAIL_FIELDS.has(k) ? 'שדה נעול — לא משתנה אחרי פתיחת התקלה' : undefined),
+    editingField, setEditingField,
+    commitField: commitInlineField, commitPair: commitRefPair, outsideCommit,
+    teamEnv, fieldPicklists, fieldKinds, personDirectory, personTeams, releaseOptions,
+    currentStatus, allowedTransitions,
+  };
   const showDescription = fieldsToShow.includes('description');
   const showNotes = fieldsToShow.includes('notes');
 
@@ -1137,109 +1285,7 @@ export const DefectDetailScreen: React.FC<{
                           </div>
                         );
                       }
-                      const isRefField = refEditableFieldKeys.has(key);
-                      const isDirty = isRefField ? pendingRefEdits[key] !== undefined : pendingEdits[key] !== undefined;
-                      const displayValue = isRefField
-                        ? (pendingRefEdits[key]?.label ?? String(detail[key] ?? ''))
-                        : (pendingEdits[key] !== undefined ? pendingEdits[key] : String(detail[key] ?? ''));
-                      const isAtomic = PERSON_BADGE_FIELDS.has(key) || TEAM_BADGE_FIELDS.has(key)
-                        || key === 'id' || key === 'status' || key === 'severity' || key === 'priority' || key === 'secondaryPriority';
-                      const valRtl = !isAtomic && !!displayValue && hasHebrew(displayValue);
-                      const isEditable = !LOCKED_DETAIL_FIELDS.has(key) && (key === 'status'
-                        ? canQcWrite && allowedTransitions !== null
-                        : (editableFieldKeys.has(key) || isRefField));
-                      const lockReason = key === 'status' && canQcWrite && allowedTransitions === null
-                        ? 'הצוות שלך לא משויך לקבוצת QC — לא ניתן לשנות סטטוס מכאן'
-                        : LOCKED_DETAIL_FIELDS.has(key) ? 'שדה נעול — לא משתנה אחרי פתיחת התקלה' : undefined;
-                      const isEditingThis = editingField === key;
-                      const label = DETAIL_FIELD_LABEL[key] ?? key;
-                      // Environment Component follows the (possibly just changed) team
-                      const team = pendingEdits.responsibility ?? String(detail.responsibility ?? '');
-                      const teamComps = key === 'environmentComponent' ? teamComponentsFor(teamEnv, team) : [];
-                      const envMismatch = key === 'environmentComponent' && teamComps.length > 0 && !!displayValue && !teamComps.includes(displayValue);
-                      const listOptions = key === 'environmentComponent'
-                        ? (teamComps.length ? teamComps : (teamEnv?.all ?? []))
-                        : fieldPicklists[key];
-                      const pair = REF_PAIR_OF[key];
-                      // popover width: release/cycle and people a bit wider, long value lists (CR/HBR reference…) wide
-                      const popWidth = pair ? 380
-                        : (PERSON_FIELDS.has(key) || fieldKinds[key] === 'person') ? 340
-                        : (listOptions ?? []).some(o => o.length > 30) ? 520 : 320;
-                      const plainValue = PERSON_BADGE_FIELDS.has(key) ? displayValue.replace(/\s*\([^()]*\)\s*$/, '') : displayValue;
-                      return (
-                        <div
-                          key={key}
-                          onClick={() => { if (isEditable && !isEditingThis) setEditingField(key); }}
-                          title={isEditable && !isEditingThis ? 'לחץ לעריכה' : lockReason}
-                          // Editable = a light blue wash + ✏️ on hover (user, 2026-10-09:
-                          // the dashed frame on every field was noise); locked = 🔒 by
-                          // the label; editing = solid blue frame; unsaved = yellow.
-                          className={cn('group relative flex min-w-0 flex-col gap-1 rounded-md px-1.5 py-1 transition-colors',
-                            isEditable && !isEditingThis && !isDirty && 'hover:bg-[#eef4ff]')}
-                          style={{
-                            gridColumn: isWide ? '1 / -1' : undefined,
-                            border: isEditingThis ? `1px solid ${JIRA.blue}` : '1px solid transparent',
-                            cursor: isEditable && !isEditingThis ? 'pointer' : undefined,
-                            background: isDirty ? '#fffbe6' : undefined,
-                          }}
-                        >
-                          <span className="flex min-w-0 items-center gap-1 text-xs font-bold tracking-wide" style={{ color: JIRA.textSubtle, direction: 'ltr' }}>
-                            <span className="truncate" title={label}>{label}</span>
-                            {!isEditable && <span className="shrink-0 text-[10px] opacity-60" title={lockReason ?? 'שדה לקריאה בלבד'}>🔒</span>}
-                            {isEditable && !isEditingThis && <span className="pointer-events-none absolute right-1.5 top-1 text-[11px] opacity-0 transition-opacity group-hover:opacity-100" aria-hidden>✏️</span>}
-                          </span>
-                          {/* same height in every box; one line unless the field is wide.
-                              Stays in place while editing — the editor floats under it. */}
-                          <span
-                            className={cn('flex min-h-[32px] w-full min-w-0 items-center gap-1.5 px-2.5 py-1 text-[13px] font-medium',
-                              isWide ? 'flex-wrap break-words' : 'overflow-hidden whitespace-nowrap')}
-                            title={plainValue || undefined}
-                            style={{ color: JIRA.text, direction: valRtl ? 'rtl' : 'ltr', ...VALUE_BOX_STYLE }}
-                          >
-                            {isDirty && <span title="שינוי לא שמור" className="shrink-0" style={{ color: JIRA.blue }}>●</span>}
-                            {envMismatch && <span className="shrink-0" title={`לא שייך לרכיבי הצוות ${team}`}>⚠</span>}
-                            <span className={isWide ? 'min-w-0' : 'min-w-0 truncate'}>{renderFieldValue(key, displayValue)}</span>
-                          </span>
-                          {isEditingThis && (
-                            <EditPopover onClose={() => setEditingField(null)} width={popWidth}
-                              onOutside={() => { if (outsideCommit.current) outsideCommit.current(); else setEditingField(null); }}
-                              title={label}
-                              subtitle={key === 'environmentComponent'
-                                ? (teamComps.length ? `רכיבי הצוות ${team}` : team ? `לצוות ${team} לא הוגדרו רכיבים — מוצגים כל הערכים` : undefined)
-                                : undefined}>
-                              {pair ? (
-                                <ReleaseCycleEditor
-                                  releases={releaseOptions}
-                                  startOnCycle={key === pair[1]}
-                                  laterThan={pair[0] === 'targetRelease' ? (() => {
-                                    const detName = pendingRefEdits.detectedInRelease?.label ?? String(detail.detectedInRelease ?? '');
-                                    const det = (releaseOptions ?? []).find(r => r.name === detName);
-                                    return { name: det ? det.name : null, startDate: det?.startDate ?? null };
-                                  })() : undefined}
-                                  currentRelease={pendingRefEdits[pair[0]]?.label ?? String(detail[pair[0]] ?? '')}
-                                  currentCycle={pendingRefEdits[pair[1]]?.label ?? String(detail[pair[1]] ?? '')}
-                                  onCommit={(rel, cyc) => commitRefPair(pair[0], pair[1], rel, cyc)}
-                                  onCancel={() => setEditingField(null)}
-                                />
-                              ) : (
-                                <InlineFieldEditor
-                                  fieldKey={key}
-                                  initialValue={displayValue}
-                                  currentStatus={currentStatus}
-                                  allowedTransitions={allowedTransitions}
-                                  dynamicOptions={listOptions}
-                                  personOptions={personDirectory}
-                                  personTeams={personTeams}
-                                  fieldKind={key === 'environmentComponent' ? 'list' : fieldKinds[key]}
-                                  outsideCommitRef={outsideCommit}
-                                  onCommit={v => commitInlineField(key, v)}
-                                  onCancel={() => setEditingField(null)}
-                                />
-                              )}
-                            </EditPopover>
-                          )}
-                        </div>
-                      );
+                      return <DefectFieldCell key={key} fieldKey={key} wide={isWide} ctx={fieldCtx} />;
                     })}
                   </div>
                 </div>

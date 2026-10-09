@@ -146,3 +146,21 @@ export const ATTACHMENTS_FIELD_DEF = { key: ATTACHMENTS_FIELD, label: '📎 קב
 export const BUILTIN_ALWAYS_SHOWN_FIELDS = ['detectedApkVersion', 'detectedHotAppApk', 'targetHotAppApk',
   // release/cycle pairs + team component (2026-10-08) - a pair is never shown half
   'detectedInRelease', 'detectedInCycle', 'targetRelease', 'targetCycle', 'environmentComponent'];
+
+// ── New-defect form (2026-10-09) ─────────────────────────────────────────
+// The create form uses the same layout as the update form; per panel the
+// layout may list which fields also show when OPENING a defect (`create`).
+// Fields QC marks Required (production field dump) always show there.
+export const CREATE_REQUIRED_FIELDS = new Set([
+  'severity', 'priority', 'detectedBy', 'detectedOnDate', 'detectedInRelease', 'detectedInCycle',
+  'environment', 'responsibility', 'system', 'crHbrNumberReference',
+]);
+// built-in choice for a panel that never set `create`
+export const DEFAULT_CREATE_FIELDS = new Set([
+  'status', 'assignedTo', 'qaTester', 'defectType', 'testPhase', 'environmentComponent', 'reproducible',
+  'detectedApkVersion', 'detectedHotAppApk', 'subModule', 'mainModule', 'platform',
+]);
+export function createFieldsOf(panel: { fields: string[]; create?: string[] }): string[] {
+  return panel.fields.filter(f => CREATE_REQUIRED_FIELDS.has(f)
+    || (panel.create ? panel.create.includes(f) : DEFAULT_CREATE_FIELDS.has(f)));
+}

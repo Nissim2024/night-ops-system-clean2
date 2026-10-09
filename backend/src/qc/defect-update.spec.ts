@@ -127,3 +127,36 @@ describe('parseQcError', () => {
     expect(e).toMatchObject({ isLock: false, title: 'Required field Severity is missing' });
   });
 });
+
+// Unified create form (2026-10-09): QC's Required fields are checked first
+jest.mock('./qc-project-context', () => ({
+  assertQcProjectWritable: jest.fn(async () => undefined),
+  currentQcProject: jest.fn(async () => null),
+  projectParamKey: jest.fn(async (k: string) => k),
+}));
+describe('createDefectFromForm — required fields', () => {
+  const svc: any = new (QcRestService as any)();
+  svc.resolveQcLogin = async () => 'nissimp';
+  svc.resolveFullName = async () => 'Nissim P';
+  svc.createDefectRaw = jest.fn(async () => ({ id: '70001', raw: {}, postStatus: 201 }));
+  it('names every missing required field, creates nothing', async () => {
+    await expect(svc.createDefectFromForm({ title: '', fields: { severity: 'Low' } }, 'u1'))
+      .rejects.toThrow(/Summary.*Priority.*Detected in Release.*Environment.*Responsibility.*Project.*CR\/HBR.*Comments/);
+    expect(svc.createDefectRaw).not.toHaveBeenCalled();
+  });
+  it('Detected By / on Date default to the creator and today', async () => {
+    svc.translateTier2Fields = jest.fn(async (f: any) => f);
+    svc.translateTier2RefFields = jest.fn(async (f: any) => f);
+    svc.validateRefPairs = jest.fn(async () => undefined);
+    await svc.createDefectFromForm({
+      title: 'x', comment: 'נמצא בבדיקה',
+      fields: { severity: 'Low', priority: 'Low', environment: 'Test', responsibility: 'CRM Team', system: 'Wizard', crHbrNumberReference: '12714 - x' },
+      refFields: { detectedInRelease: { id: '347', label: 'ITv01-2024' }, detectedInCycle: { id: '1073', label: 'Cycle 1' } },
+    }, 'u1');
+    const sent = svc.translateTier2Fields.mock.calls[0][0];
+    expect(sent.detectedBy).toBe('nissimp');
+    expect(sent.detectedOnDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const payload = svc.createDefectRaw.mock.calls[0][0];
+    expect(payload['dev-comments']).toContain('Nissim P <nissimp>');
+  });
+});

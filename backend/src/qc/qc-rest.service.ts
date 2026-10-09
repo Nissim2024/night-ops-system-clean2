@@ -1236,6 +1236,51 @@ export class QcRestService {
   // required to open a defect); only a *filled* business field whose REST
   // name isn't configured yet is rejected, so opening a bare "title-only"
   // defect always works even before the rest of the mapping is confirmed.
+  // ── Create from the unified defect form (user, 2026-10-09) ──────────────
+  // Same field vocabulary and rules as the one-button update: any field of
+  // the production field map, release/cycle pairs (checked), people written
+  // as logins, the first comment in QC's own signature format. The fields
+  // QC marks Required (production field dump) are checked here first, so a
+  // missing one is named in Hebrew instead of QC's raw error.
+  static readonly CREATE_REQUIRED: Record<string, string> = {
+    severity: 'Severity', priority: 'Priority', detectedBy: 'Detected By', detectedOnDate: 'Detected on Date',
+    detectedInRelease: 'Detected in Release', detectedInCycle: 'Detected in Cycle', environment: 'Environment',
+    responsibility: 'Responsibility', system: 'Project', crHbrNumberReference: 'CR/HBR Number reference',
+  };
+
+  async createDefectFromForm(
+    input: { title?: string; description?: string; comment?: string; fields?: Record<string, string>; refFields?: Record<string, { id: string; label: string }> },
+    userId: string,
+  ): Promise<{ id: string | null; raw: Record<string, string>; postStatus: number }> {
+    await assertQcProjectWritable();
+    const title = (input.title ?? '').trim();
+    const comment = (input.comment ?? '').trim();
+    let fields = { ...(input.fields ?? {}) };
+    const refFields = { ...(input.refFields ?? {}) };
+    const qcLogin = await this.resolveQcLogin(userId);
+    const fullName = await this.resolveFullName(userId);
+    if (!fields.detectedBy?.trim()) fields.detectedBy = qcLogin;
+    if (!fields.detectedOnDate?.trim()) fields.detectedOnDate = new Date().toISOString().slice(0, 10);
+
+    const missing = [
+      ...(title ? [] : ['Summary (כותרת)']),
+      ...Object.entries(QcRestService.CREATE_REQUIRED)
+        .filter(([k]) => !(k in refFields ? refFields[k]?.id : fields[k]?.trim()))
+        .map(([, label]) => label),
+      ...(comment ? [] : ['Comments (הערה ראשונה)']),
+    ];
+    if (missing.length) throw new BadRequestException(`חסרים שדות חובה: ${missing.join(', ')} — לא נוצרה תקלה.`);
+
+    await this.validateRefPairs(refFields);
+    delete fields.status;   // a new defect gets QC's own initial status
+    const restFields = await this.translateTier2Fields(fields);
+    const restRefFields = await this.translateTier2RefFields(refFields);
+    const payload: Record<string, string> = { ...restFields, [REST_FIELD.title]: title };
+    if (input.description?.trim()) payload.description = input.description.trim();
+    payload[COMMENT_FIELD] = appendQcComment('', fullName, qcLogin, comment);
+    return this.createDefectRaw(payload, userId, restRefFields);
+  }
+
   async createDefectWithFields(
     title: string,
     businessFields: Record<string, string>,
