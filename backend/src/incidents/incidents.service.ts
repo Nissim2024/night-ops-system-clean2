@@ -5,6 +5,8 @@ import { QcService, resolveDefectPersonNames } from '../qc/qc.service';
 import { ROOT_CAUSE_TAXONOMY, ROOT_CAUSE_CATEGORIES } from './root-cause-taxonomy';
 import { GUIDED_TREE_NODES, GUIDED_TREE_LEAVES, GUIDED_TREE_START, buildAutoFiveWhy, GuidedTreePathEntry } from './guided-investigation-tree';
 
+import { aiComplete, parseAiJson } from '../ai/ai-provider';
+import { renderPrompt } from '../ai/ai-prompts';
 const GUIDED_TIMING_VALUES = Object.keys(GUIDED_TREE_START);
 const GUIDED_REPRODUCIBILITY_VALUES = ['ALWAYS', 'PARTIAL', 'RANDOM'];
 
@@ -55,32 +57,14 @@ function buildTaxonomyBlock(): string {
   return `רשימת קטגוריות גורם שורש (Root Cause Category) וגורמים ספציפיים (Root Cause) תחת כל קטגוריה:\n${lines.join('\n')}`;
 }
 
-function buildAnalyzePrompt(incident: any, evidence: any[], teams: { id: string; name: string }[], teamsScoped: boolean): string {
-  const evidenceText = evidence.map(e => `- [${e.type}] ${e.content}`).join('\n') || '(אין ראיות שנאספו)';
-  return `אתה מהנדס DevOps/Release בכיר שמבצע ניתוח שורש-בעיה (RCA) לתקלה שהתגלתה בליל גרסה.
-
-${buildIncidentContextBlock(incident)}
-
-${buildTeamsBlock(teams, teamsScoped)}
-
-${buildTaxonomyBlock()}
-
-ראיות שנאספו:
-${evidenceText}
-
-החזר אך ורק JSON תקין (ללא טקסט נוסף) במבנה הבא:
-{
-  "rootCause": "תקציר קצר של הגורם השורשי",
-  "description": "תיאור מפורט של הסיבה לשורש התקלה, כולל ההקשר והתנאים שהובילו לה",
-  "category": "<קטגוריה בדיוק מהרשימה למעלה>",
-  "rootCauseReason": "<גורם ספציפי בדיוק מהרשימה, תחת הקטגוריה שנבחרה>",
-  "severity": "LOW" | "MEDIUM" | "HIGH" | "CRITICAL",
-  "lessons": [ { "team": "<שם צוות מהרשימה למעלה, בדיוק כפי שנכתב>", "text": "..." } ],
-  "actions": [ { "team": "<שם צוות מהרשימה למעלה, בדיוק כפי שנכתב>", "title": "...", "priority": "LOW"|"MEDIUM"|"HIGH"|"CRITICAL", "dueDays": 3 } ],
-  "confidence": 0.0
-}
-
-הנחיות: lessons/actions חייבים להשתמש בשם צוות מהרשימה שסופקה למעלה בדיוק (לא לבדות שם חדש). category/rootCauseReason חייבים להיות מדויקים מרשימת הטקסונומיה שסופקה — rootCauseReason חייב להיות אחד מהגורמים שרשומים תחת ה-category שנבחר. כלול רק צוותים שבאמת רלוונטיים ללקח או לפעולה — לא כל צוות מהרשימה חייב להופיע. actions צריך לכלול לפחות פעולה אחת. confidence הוא מספר בין 0 ל-1 המשקף עד כמה אתה בטוח באבחנה בהינתן הראיות שסופקו.`;
+// The data blocks the RCA prompts (ai-prompts.ts) are filled with
+function rcaPromptVars(incident: any, evidence: any[], teams: { id: string; name: string }[], teamsScoped: boolean): Record<string, string> {
+  return {
+    incidentContext: buildIncidentContextBlock(incident),
+    teams: buildTeamsBlock(teams, teamsScoped),
+    taxonomy: buildTaxonomyBlock(),
+    evidence: evidence.map(e => `- [${e.type}] ${e.content}`).join('\n') || '(אין ראיות שנאספו)',
+  };
 }
 
 // QC's CR-reference field (BG_USER_58) is free text — sometimes a bare
@@ -568,16 +552,9 @@ export class IncidentsService {
     return prisma.rca.findUnique({ where: { incidentId }, include: { answers: true, lessons: true } });
   }
 
-  // Same SystemParam-lookup + env-var-fallback pattern as versions.service.ts's
-  // generateUnifiedCrSummary — shared by aiAnalyze and suggestNextWhyQuestion
-  // below so the key lookup/error message stays in one place.
-  private async getAnthropicClient() {
-    const apiKeyParam = await prisma.systemParam.findUnique({ where: { key: 'ANTHROPIC_API_KEY' } });
-    const apiKey = apiKeyParam?.value?.trim() || process.env.ANTHROPIC_API_KEY || '';
-    if (!apiKey) throw new BadRequestException('מפתח ANTHROPIC_API_KEY לא מוגדר בפרמטרי המערכת');
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    return new Anthropic({ apiKey });
-  }
+  // AI calls go through the shared AI layer (src/ai, 2026-10-09): the provider
+  // (Claude / Gemini / OpenAI / Azure) is chosen in AdminPanel, and every
+  // prompt's wording lives in src/ai/ai-prompts.ts (editable there too).
 
   // Suggests the next 5-Why question given the chain of answers so far — the
   // question field stays a free-text input in the UI either way (5-Why has
@@ -589,21 +566,10 @@ export class IncidentsService {
     if (!incident) throw new NotFoundException('תקלה לא נמצאה');
     if (!answersSoFar.length) throw new BadRequestException('נדרשת לפחות תשובה אחת כדי להציע את השאלה הבאה');
 
-    const client = await this.getAnthropicClient();
     const chain = answersSoFar.map(a => `שאלה ${a.step}: ${a.question}\nתשובה: ${a.answer}`).join('\n\n');
-    const prompt = `אתה מנחה ניתוח שורש-בעיה בשיטת 5-Why לתקלה: "${incident.title}".
-
-שרשרת השאלות-תשובות עד כה:
-${chain}
-
-בהתבסס על התשובה האחרונה, נסח את שאלת ה"למה" הבאה בשרשרת — שאלה אחת בלבד, ממוקדת וקצרה, שתעמיק לכיוון הגורם השורשי (לא חוזרת על שאלה קודמת). החזר רק את השאלה עצמה, ללא מספור, ללא הסבר, ללא מרכאות.`;
-
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 200,
-      messages: [{ role: 'user', content: prompt }],
-    });
-    const question = ((message.content[0] as any).text ?? '').trim().replace(/^["']|["']$/g, '');
+    const { prompt } = await renderPrompt('rca.nextWhy', { incidentTitle: incident.title, chain });
+    const res = await aiComplete({ feature: 'RCA — שאלת למה הבאה', prompt, maxTokens: 200 });
+    const question = res.text.trim().replace(/^["']|["']$/g, '');
     if (!question) throw new BadRequestException('ה-AI לא החזיר שאלה — נסה שוב');
     return { question };
   }
@@ -619,20 +585,12 @@ ${chain}
     if (!evidence.length) evidence = await this.collectEvidence(incidentId) as any;
 
     const { teams, scoped } = await this.getRelevantTeams(incidentId);
-    const client = await this.getAnthropicClient();
-
-    const prompt = buildAnalyzePrompt(incident, evidence, teams, scoped);
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1500,
-      messages: [{ role: 'user', content: prompt }],
-    });
-    const raw = (message.content[0] as any).text ?? '{}';
+    const { prompt } = await renderPrompt('rca.analyze', rcaPromptVars(incident, evidence, teams, scoped));
+    const res = await aiComplete({ feature: 'RCA — ניתוח אוטומטי', prompt, maxTokens: 1500, json: true });
 
     let parsed: any;
     try {
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+      parsed = parseAiJson(res.text || '{}');
     } catch {
       throw new BadRequestException('תשובת ה-AI לא הייתה JSON תקין — נסה שוב');
     }
@@ -703,25 +661,9 @@ ${chain}
   // (RCA_CONCLUSION:<json>) rather than always-JSON, so ordinary turns stay
   // natural chat text instead of forcing structured output on every reply.
 
-  private buildChatSystemContext(incident: any, evidence: any[], teams: { id: string; name: string }[], teamsScoped: boolean): string {
-    const evidenceText = evidence.map(e => `- [${e.type}] ${e.content}`).join('\n') || '(אין ראיות)';
-    return `אתה מהנדס DevOps/Release בכיר שמנהל שיחה עם מנהל לילה כדי לבצע ניתוח שורש-בעיה (RCA) לתקלה שהתגלתה בליל גרסה. אתה מוביל את כל התהליך — שואל שאלות ממוקדות אחת בכל פעם (בסגנון "5 למה", אך לא נוקשה), ומגיע למסקנה כשיש לך מספיק מידע.
-
-${buildIncidentContextBlock(incident)}
-
-${buildTeamsBlock(teams, teamsScoped)}
-
-${buildTaxonomyBlock()}
-
-ראיות שנאספו אוטומטית:
-${evidenceText}
-
-כללי השיחה:
-1. בכל תור, אם עדיין אין לך מספיק מידע לגורם שורש ברור — כתוב תגובה קצרה וטבעית (לא רשמית מדי) שמסתיימת בשאלת "למה" אחת וממוקדת. אל תשאל כמה שאלות בבת אחת.
-2. ברגע שאתה בטוח בגורם השורש (בדרך כלל אחרי 3-6 סבבים, לפי שיקול דעתך) — אל תשאל עוד שאלות. במקום זאת החזר **אך ורק** את הטקסט הבא, ללא שום דבר נוסף לפניו או אחריו:
-RCA_CONCLUSION:{"rootCause":"...","description":"תיאור מפורט של הסיבה לשורש התקלה, כולל ההקשר והתנאים שהובילו לה","category":"<קטגוריה בדיוק מהרשימה למעלה>","rootCauseReason":"<גורם ספציפי בדיוק מהרשימה, תחת הקטגוריה שנבחרה>","severity":"LOW|MEDIUM|HIGH|CRITICAL","lessons":[{"team":"<שם צוות מהרשימה למעלה>","text":"..."}],"actions":[{"team":"<שם צוות מהרשימה למעלה>","title":"...","priority":"LOW|MEDIUM|HIGH|CRITICAL","dueDays":3}],"confidence":0.0,"summaryForUser":"סיכום קצר וידידותי למנהל הלילה, 2-3 משפטים"}
-3. lessons/actions: השתמש בשם צוות מהרשימה שסופקה למעלה בדיוק (לא לבדות שם חדש), וכלול רק צוותים שבאמת רלוונטיים. actions צריך לכלול לפחות פעולה אחת. category/rootCauseReason חייבים להיות מדויקים מרשימת הטקסונומיה שסופקה למעלה. confidence: 0 עד 1. summaryForUser הוא מה שיוצג בצ'אט למשתמש — לא ה-JSON עצמו.
-4. כתוב תמיד בעברית.`;
+  private async chatPrompt(incident: any, evidence: any[], teams: { id: string; name: string }[], teamsScoped: boolean): Promise<{ system: string; kickoff: string }> {
+    const r = await renderPrompt('rca.chat', rcaPromptVars(incident, evidence, teams, teamsScoped));
+    return { system: r.system ?? '', kickoff: r.prompt };
   }
 
   async startChat(incidentId: string) {
@@ -735,15 +677,9 @@ RCA_CONCLUSION:{"rootCause":"...","description":"תיאור מפורט של הס
     if (!evidence.length) evidence = await this.collectEvidence(incidentId) as any;
 
     const { teams, scoped } = await this.getRelevantTeams(incidentId);
-    const client = await this.getAnthropicClient();
-    const system = this.buildChatSystemContext(incident, evidence, teams, scoped);
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 500,
-      system,
-      messages: [{ role: 'user', content: 'התחל את השיחה: סכם בקצרה מה אתה יודע מהראיות שנאספו, ואז שאל את שאלת ה"למה" הראשונה.' }],
-    });
-    const content = ((message.content[0] as any).text ?? '').trim();
+    const { system, kickoff } = await this.chatPrompt(incident, evidence, teams, scoped);
+    const res = await aiComplete({ feature: 'RCA — שיחה', system, prompt: kickoff, maxTokens: 500 });
+    const content = res.text.trim();
 
     return [await prisma.incidentChatMessage.create({ data: { incidentId, role: 'AI', content } })];
   }
@@ -760,15 +696,12 @@ RCA_CONCLUSION:{"rootCause":"...","description":"תיאור מפורט של הס
     const userMsg = await prisma.incidentChatMessage.create({ data: { incidentId, role: 'USER', content: userMessage.trim() } });
 
     const { teams, scoped } = await this.getRelevantTeams(incidentId);
-    const client = await this.getAnthropicClient();
-    const system = this.buildChatSystemContext(incident, evidence, teams, scoped);
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 800,
-      system,
+    const { system } = await this.chatPrompt(incident, evidence, teams, scoped);
+    const res = await aiComplete({
+      feature: 'RCA — שיחה', system, maxTokens: 800,
       messages: [...history, userMsg].map(m => ({ role: m.role === 'AI' ? 'assistant' as const : 'user' as const, content: m.content })),
     });
-    const raw = ((message.content[0] as any).text ?? '').trim();
+    const raw = res.text.trim();
 
     if (raw.startsWith('RCA_CONCLUSION:')) {
       let parsed: any;

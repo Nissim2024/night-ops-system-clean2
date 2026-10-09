@@ -6,6 +6,8 @@ import * as path from 'path';
 import { readQcFile, resolveQcFilePath, SmbAccessError } from '../qc-releases/smb-file-reader';
 import { QcService, DefectDto } from '../qc/qc.service';
 
+import { aiComplete, parseAiJson } from '../ai/ai-provider';
+import { renderPrompt } from '../ai/ai-prompts';
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
 });
@@ -67,29 +69,6 @@ export interface ReleaseSummary {
 // (Hebrew system framing, explicit "return ONLY JSON" instruction, exact
 // output schema spelled out) — kept as a plain module-level function for the
 // same reason: no per-request state, easy to unit-test independently later.
-function buildImprovementAnalysisPrompt(kpiName: string, releaseName: string, kpiPurpose: string | null, defects: DefectDto[]): string {
-  const defectsText = defects.map(d =>
-    `- [${d.id}] (${d.severity}, ${d.status}, CR: ${d.crHbrNumberReference || '—'}, אחראי: ${d.responsibility || '—'}) ${d.title}${d.description ? ' — ' + d.description.slice(0, 300) : ''}`
-  ).join('\n');
-
-  return `אתה אנליסט איכות תוכנה בכיר שמנתח תקלות מתוך גרסת תוכנה, במטרה לזהות דפוסים חוזרים ולהציע שיפורים קונקרטיים לתהליך.
-
-KPI: ${kpiName}${kpiPurpose ? ` — ${kpiPurpose}` : ''}
-גרסה: ${releaseName}
-מספר תקלות: ${defects.length}
-
-רשימת התקלות:
-${defectsText}
-
-נתח את התקלות וזהה דפוסים חוזרים (למשל: ריכוז סביב CR מסוים, סוג שגיאה חוזר, שלב תהליך בעייתי). החזר אך ורק JSON תקין (ללא טקסט נוסף) במבנה הבא:
-{
-  "problemNotes": [ { "problemCharacteristics": "תיאור דפוס/מאפיין חוזר, כולל אזכור ה-CR-ים הרלוונטיים אם יש", "defectCount": <כמות התקלות שתומכות בדפוס הזה> } ],
-  "improvementTasks": [ { "requiredImprovement": "שיפור תהליכי קונקרטי הנובע מהדפוס", "mainDevelopments": "מה נדרש לפתח/לעדכן בפועל", "responsibility": "צוות/תפקיד מוצע לאחריות" } ]
-}
-
-הנחיות: אל תמציא CR-ים או שמות תקלות שלא מופיעים ברשימה. problemNotes צריך לשקף דפוסים אמיתיים שנתמכים על ידי כמה תקלות, לא תקלה בודדת. improvementTasks צריך להיות קונקרטי וישים, לא כללי ("לשפר תהליכים"). אל תחזיר יותר מ-6 problemNotes או 6 improvementTasks.`;
-}
-
 @Injectable()
 export class QualityHubService {
   private readonly logger = new Logger(QualityHubService.name);
@@ -650,15 +629,6 @@ export class QualityHubService {
     return { success: true };
   }
 
-  // Same SystemParam-lookup + env-var-fallback pattern as incidents.service.ts
-  // (getAnthropicClient) / versions.service.ts (generateUnifiedCrSummary).
-  private async getAnthropicClient() {
-    const apiKeyParam = await prisma.systemParam.findUnique({ where: { key: 'ANTHROPIC_API_KEY' } });
-    const apiKey = apiKeyParam?.value?.trim() || process.env.ANTHROPIC_API_KEY || '';
-    if (!apiKey) throw new BadRequestException('מפתח ANTHROPIC_API_KEY לא מוגדר בפרמטרי המערכת');
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    return new Anthropic({ apiKey });
-  }
 
   // Returns suggested problem notes / improvement tasks WITHOUT writing them
   // — the caller (UI) shows them for review and creates only the ones the
@@ -679,19 +649,18 @@ export class QualityHubService {
     if (defects.length === 0) throw new BadRequestException('אין תקלות התואמות KPI זה בגרסה זו');
 
     const def = await prisma.kpiDefinition.findUnique({ where: { kpiName } });
-    const client = await this.getAnthropicClient();
-    const prompt = buildImprovementAnalysisPrompt(kpiName, releaseName, def?.purpose ?? null, defects);
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 2000,
-      messages: [{ role: 'user', content: prompt }],
+    // shared AI layer + editable prompt (src/ai, 2026-10-09)
+    const { prompt } = await renderPrompt('defects.kpiPatterns', {
+      kpiName, kpiPurpose: def?.purpose ? ` — ${def.purpose}` : '', releaseName, defectCount: String(defects.length),
+      defects: defects.map(d =>
+        `- [${d.id}] (${d.severity}, ${d.status}, CR: ${d.crHbrNumberReference || '—'}, אחראי: ${d.responsibility || '—'}) ${d.title}${d.description ? ' — ' + d.description.slice(0, 300) : ''}`,
+      ).join('\n'),
     });
-    const raw = (message.content[0] as any).text ?? '{}';
+    const res = await aiComplete({ feature: 'ניתוח תקלות לפי KPI', prompt, maxTokens: 2000, json: true });
 
     let parsed: any;
     try {
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+      parsed = parseAiJson(res.text || '{}');
     } catch {
       throw new BadRequestException('תשובת ה-AI לא הייתה JSON תקין — נסה שוב');
     }

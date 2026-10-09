@@ -14,6 +14,7 @@ import { QcWriteTestPanel } from './QcWriteTestPanel';
 import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from './ui/BrandedDialog';
 
 import { QcProjectsPanel } from './QcProjectsPanel';
+import { AiSettingsPanel } from './AiSettingsPanel';
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 const APPS = [
@@ -74,7 +75,7 @@ interface QcRelease {
 }
 
 export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
-  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'versions' | 'ldap' | 'oracle' | 'email' | 'notifications' | 'qc-rest' | 'quality-hub' | 'open-prod-defects-config' | 'defect-form-layout' | 'qc-write-test'>('users');
+  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'versions' | 'ldap' | 'oracle' | 'email' | 'notifications' | 'qc-rest' | 'ai' | 'quality-hub' | 'open-prod-defects-config' | 'defect-form-layout' | 'qc-write-test'>('users');
   const [users, setUsers]     = useState<any[]>([]);
   const [teams, setTeams]     = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -623,6 +624,7 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
     { key: 'email',         label: 'מייל',          icon: '📧' },
     { key: 'notifications', label: 'התראות',        icon: '🔔' },
     { key: 'qc-rest',       label: 'QC REST',       icon: '🔗' },
+    { key: 'ai',            label: 'AI',            icon: '🤖' },
     { key: 'quality-hub',   label: 'איכות גרסה',    icon: '🏆' },
     { key: 'open-prod-defects-config', label: 'עמודות תקלות ייצור', icon: '📆' },
     { key: 'defect-form-layout', label: 'תבנית טופס תקלה', icon: '🧩' },
@@ -637,7 +639,7 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
   // clicking a category jumps to its first tab.
   const TAB_CATEGORIES = [
     { key: 'users',        label: 'משתמשים והרשאות',    icon: '👤', tabs: ['users', 'teams', 'permissions'] },
-    { key: 'integrations', label: 'אינטגרציות',          icon: '🔌', tabs: ['ldap', 'oracle', 'email', 'notifications', 'qc-rest', 'qc-releases', 'qc-users', 'qc-write-test'] },
+    { key: 'integrations', label: 'אינטגרציות',          icon: '🔌', tabs: ['ldap', 'oracle', 'email', 'notifications', 'qc-rest', 'ai', 'qc-releases', 'qc-users', 'qc-write-test'] },
     { key: 'config',       label: 'פרמטרים ותצורה',      icon: '⚙️', tabs: ['params', 'templates', 'quality-hub', 'open-prod-defects-config', 'defect-form-layout'] },
     { key: 'maintenance',  label: 'תחזוקה',              icon: '🗑️', tabs: ['versions'] },
   ] as const;
@@ -2362,6 +2364,9 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
             </div>
           )}
 
+          {/* ── AI TAB (2026-10-09): provider, prompts, firewall, call log ── */}
+          {tab === 'ai' && <AiSettingsPanel token={token} />}
+
           {/* ── QUALITY HUB TAB ── */}
           {tab === 'quality-hub' && (() => {
             const uploadCard = (opts: {
@@ -2513,9 +2518,9 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
               'SUMMARY_OVERRUN_THRESHOLD_MINS', 'QA_EFFORT_THRESHOLD_DAYS', 'QA_SECOND_TESTER_THRESHOLD_DAYS',
               'DEFAULT_TEST_DURATION_MINUTES', 'FORECAST_ALERT_DAYS', 'RELEASE_QUALITY_TARGET_SCORE',
               'WIZARD_AUTO_OPEN', 'USER_DEPS_CROSS_PHASE',
-              'APP_PUBLIC_URL', 'ANTHROPIC_API_KEY',
+              'APP_PUBLIC_URL',
             ]);
-            const EXCLUDED_PREFIXES = ['EMAIL_', 'LDAP_', 'TEAMS_', 'TELEGRAM_', 'ORACLE_', 'QC_REST_', 'QC_SITE_ADMIN_', 'QC_ADMIN_', 'OPEN_PROD_DEFECTS_', 'PERMISSIONS_'];
+            const EXCLUDED_PREFIXES = ['AI_', 'ANTHROPIC_', 'EMAIL_', 'LDAP_', 'TEAMS_', 'TELEGRAM_', 'ORACLE_', 'QC_REST_', 'QC_SITE_ADMIN_', 'QC_ADMIN_', 'OPEN_PROD_DEFECTS_', 'PERMISSIONS_'];
             const isExcluded = (key: string) => EXCLUDED_PREFIXES.some(pre => key.startsWith(pre));
             return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -2547,7 +2552,7 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
             {paramGroupCard(
               '🌐 כללי',
               'הגדרות שלא שייכות לקטגוריה ספציפית.',
-              key => ['APP_PUBLIC_URL', 'ANTHROPIC_API_KEY'].includes(key),
+              key => ['APP_PUBLIC_URL'].includes(key),
             )}
             {paramGroupCard(
               '❓ אחר',

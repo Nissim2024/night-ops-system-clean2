@@ -4,6 +4,8 @@ import { EmailService } from '../email/email.service';
 import { EventsGateway } from '../events/events.gateway';
 import { LIFECYCLE_INCLUDE, lifecycleFromVersionRow } from './version-lifecycle';
 
+import { aiComplete } from '../ai/ai-provider';
+import { renderPrompt } from '../ai/ai-prompts';
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_URL } },
 });
@@ -1907,47 +1909,13 @@ async addTask(subPhaseId: string, data: {
 
     if (!sections.length) return { summary: '' };
 
-    const apiKeyParam = await prisma.systemParam.findUnique({ where: { key: 'ANTHROPIC_API_KEY' } });
-    const apiKey = apiKeyParam?.value?.trim() || process.env.ANTHROPIC_API_KEY || '';
-    if (!apiKey) throw new Error('מפתח ANTHROPIC_API_KEY לא מוגדר בפרמטרי המערכת');
-
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    const client = new Anthropic({ apiKey });
-
-    const prompt = `אתה מנהל פרויקטים טכני בכיר בחברת תוכנה. אתה מכין תוכנית עבודה מאוחדת לישיבת מעבר (CR Review) לפני לילה גרסה.
-
-CR מספר: ${crNumber}
-כותרת: ${crTitle}${crDesc ? `\nרקע ותיאור: ${crDesc}` : ''}
-
-קיבלת תוכניות שהוגשו על ידי מספר צוותי פיתוח. המשימה שלך: אחד אותן לתוכנית מקצועית אחת.
-
-הנחיות:
-- כתוב בעברית תקנית ומקצועית
-- אחד מידע כפול — אל תחזור על אותו מידע פעמיים
-- שמור על כל הפרטים הטכניים (שמות סקריפטים, זמנים, מערכות, שמות שדות)
-- כתוב כאילו כל הצוותים פועלים בתיאום מלא כגוף אחד
-- אם צוות אחד כתב "אין מה לבדוק/לבקר" — ציין זאת בתמציתיות
-- אם שדה מכיל תוכן שנראה כנתון בדיקה (אותיות אקראיות, חסר משמעות) — הוסף הערה ⚠️ לצד הסעיף
-- חלק לסעיפים (רק אם יש תוכן רלוונטי):
-  📋 תוכנית עבודה — סדר הפעולות לביצוע
-  ⚙️ סקריפטים / קבצים — מה להריץ ומתי
-  ⏱️ זמני הרצה — משך כל פעולה
-  💡 בדיקות ליל גרסה — מה לבדוק אחרי ההטמעה
-  🌅 ניטור בוקר שלאחר גרסה — מה לבדוק למחרת
-  📈 עלייה מדורגת — אם רלוונטי
-  🛡️ תוכנית Rollback — צעדי החזרה לאחור אם נדרש
-
-תוכניות הצוותים:
-${sections.join('\n\n')}`;
-
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1500,
-      messages: [{ role: 'user', content: prompt }],
+    // shared AI layer + editable prompt 'cr.unifiedPlan' (src/ai, 2026-10-09)
+    const { prompt } = await renderPrompt('cr.unifiedPlan', {
+      crNumber: String(crNumber), crTitle: String(crTitle), crDescription: crDesc ? `\nרקע ותיאור: ${crDesc}` : '',
+      teamPlans: sections.join('\n\n'),
     });
-
-    const summary = (message.content[0] as any).text ?? '';
-    return { summary };
+    const res = await aiComplete({ feature: 'סיכום CR מאוחד', prompt, maxTokens: 1500 });
+    return { summary: res.text ?? '' };
   }
 
   async fixTaskOrder(versionId: string) {

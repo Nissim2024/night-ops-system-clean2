@@ -35,8 +35,10 @@ import { TargetCrModule } from './target-cr/target-cr.module';
 import { IncidentsModule } from './incidents/incidents.module';
 import { SuggestedRisksModule } from './suggested-risks/suggested-risks.module';
 
+import { AiModule } from './ai/ai.controller';
 @Module({
   imports: [
+    AiModule,
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: `.env.${process.env.NODE_ENV || 'dev'}`,
