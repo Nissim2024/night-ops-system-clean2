@@ -328,6 +328,50 @@ const EditPopover: React.FC<{
 
 const POPOVER_BTN = 'cursor-pointer rounded-md px-3 py-1 text-xs';
 
+// Release-scoped list (user, 2026-10-09): CR/HBR Number reference = the CRs
+// of the defect's Detected in Release + Regression / Production / Environment
+// issue; Project = the systems of that release's CRs in DeployCenter. "הצג את
+// כל הרשימה" opens the whole QC list (search works on whatever is shown).
+export interface ScopedOptions { scoped: string[]; fixed: string[]; all: string[]; note?: string }
+const ScopedListPicker: React.FC<{
+  release: string; scopeLabel: string; load: () => Promise<ScopedOptions>;
+  current: string; onPick: (v: string) => void; onCancel: () => void;
+}> = ({ release, scopeLabel, load, current, onPick, onCancel }) => {
+  const [data, setData] = useState<ScopedOptions | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  useEffect(() => { load().then(setData).catch(() => setFailed(true)); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  if (failed) return <div className="p-1 text-xs text-danger">טעינת הרשימה נכשלה</div>;
+  if (!data) return <div className="p-1 text-xs text-subtle-foreground">טוען…</div>;
+  const nothingScoped = data.scoped.length === 0;
+  const all = showAll || nothingScoped;
+  const withCur = (opts: PickOption[]) => (current && !opts.some(o => o.value === current) ? [{ value: current, label: current, hint: 'נוכחי' }, ...opts] : opts);
+  const options: PickOption[] = all
+    ? withCur(data.all.map(v => ({ value: v, label: v })))
+    : withCur([
+      ...data.scoped.map(v => ({ value: v, label: v, group: `${scopeLabel} ${release}` })),
+      ...data.fixed.map(v => ({ value: v, label: v, group: 'ערכים קבועים' })),
+    ]);
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-foreground">
+        <input type="checkbox" checked={all} disabled={nothingScoped} onChange={e => setShowAll(e.target.checked)} />
+        הצג את כל הרשימה ({data.all.length})
+      </label>
+      {nothingScoped && (
+        <div className="text-[11px] text-subtle-foreground">
+          {release ? `לא נמצאו ${scopeLabel} ${release} — מוצגת כל הרשימה` : 'לא נבחרה גרסת גילוי — מוצגת כל הרשימה'}
+        </div>
+      )}
+      {!all && data.note && <div className="text-[11px] text-subtle-foreground">{data.note}</div>}
+      <PickList key={all ? 'all' : 'scoped'} current={current} onPick={onPick} onCancel={onCancel}
+        placeholder={all ? `חיפוש בכל ${data.all.length} הערכים…` : 'חיפוש…'}
+        options={[{ value: '', label: '— ללא —' }, ...options]} />
+    </div>
+  );
+};
+
 // People picker (user, 2026-10-09): the whole directory, or — with "קבץ לפי
 // צוות" ticked (remembered in this browser) — the teams first, and a team's
 // members only after clicking it.
@@ -589,7 +633,12 @@ export interface DefectFieldsCtx {
   releaseOptions: ReleaseCycleOptionT[] | null;
   currentStatus: string;
   allowedTransitions: string[] | null;
+  /** CR/HBR reference + Project: options scoped to the defect's Detected in Release */
+  loadScoped?: (key: string, release: string) => Promise<ScopedOptions>;
 }
+
+// fields whose list is scoped to the defect's release (2026-10-09)
+const RELEASE_SCOPED_FIELDS: Record<string, string> = { crHbrNumberReference: 'ה-CR-ים של', system: 'המערכות של' };
 
 export const DefectFieldCell: React.FC<{ fieldKey: string; wide: boolean; ctx: DefectFieldsCtx }> = ({ fieldKey: key, wide: isWide, ctx }) => {
                       const isDirty = ctx.isDirty(key);
@@ -658,7 +707,16 @@ export const DefectFieldCell: React.FC<{ fieldKey: string; wide: boolean; ctx: D
                               subtitle={key === 'environmentComponent'
                                 ? (teamComps.length ? `רכיבי הצוות ${team}` : team ? `לצוות ${team} לא הוגדרו רכיבים — מוצגים כל הערכים` : undefined)
                                 : undefined}>
-                              {pair ? (
+                              {RELEASE_SCOPED_FIELDS[key] && ctx.loadScoped ? (
+                                <ScopedListPicker
+                                  release={ctx.valueOf('detectedInRelease')}
+                                  scopeLabel={RELEASE_SCOPED_FIELDS[key]}
+                                  load={() => ctx.loadScoped!(key, ctx.valueOf('detectedInRelease'))}
+                                  current={displayValue}
+                                  onPick={v => ctx.commitField(key, v)}
+                                  onCancel={() => ctx.setEditingField(null)}
+                                />
+                              ) : pair ? (
                                 <ReleaseCycleEditor
                                   releases={ctx.releaseOptions}
                                   startOnCycle={key === pair[1]}
@@ -692,6 +750,20 @@ export const DefectFieldCell: React.FC<{ fieldKey: string; wide: boolean; ctx: D
                         </div>
                       );
 };
+
+// CR/HBR reference → the release's CRs + fixed values; Project → the
+// release's systems in DeployCenter (both forms)
+export async function loadReleaseScopedOptions(headers: Record<string, string>, key: string, release: string): Promise<ScopedOptions> {
+  if (key === 'crHbrNumberReference') {
+    const d = (await axios.get(`${API}/qc/cr-reference-options`, { headers, params: { release } })).data;
+    return { scoped: d?.versionCrs ?? [], fixed: d?.fixed ?? [], all: d?.all ?? [] };
+  }
+  const d = (await axios.get(`${API}/qc/project-options`, { headers, params: { release } })).data;
+  return {
+    scoped: d?.versionProjects ?? [], fixed: [], all: d?.all ?? [],
+    note: d?.systems?.length ? `לפי מערכות ה-CR-ים בגרסה: ${d.systems.join(', ')}` : undefined,
+  };
+}
 
 // Unsaved defect-form changes kept in this browser (see DefectDetailScreen)
 type DefectDraft = { pendingEdits: Record<string, string>; pendingRefEdits: Record<string, RefValue>; newComment: string | null; at: number };
@@ -1127,6 +1199,7 @@ export const DefectDetailScreen: React.FC<{
     commitField: commitInlineField, commitPair: commitRefPair, outsideCommit,
     teamEnv, fieldPicklists, fieldKinds, personDirectory, personTeams, releaseOptions,
     currentStatus, allowedTransitions,
+    loadScoped: (k, release) => loadReleaseScopedOptions(headers, k, release),
   };
   const showDescription = fieldsToShow.includes('description');
   const showNotes = fieldsToShow.includes('notes');

@@ -555,6 +555,15 @@ export class QcRestService {
     const neededIds = new Set([...Object.values(await this.effectiveFieldListIds()), ...Object.values(fieldMap)]);
     const relevant = allLists.filter(l => neededIds.has(l.id));
     for (const list of relevant) {
+      // nested lists also keep their tree (per project)
+      if (list.tree?.some(n => n.children.length > 0)) {
+        const treeKey = await projectParamKey(`QC_LIST_TREE_${list.id}`);
+        await prisma.systemParam.upsert({
+          where: { key: treeKey },
+          update: { value: JSON.stringify(list.tree) },
+          create: { key: treeKey, label: `עץ רשימת QC ${list.name}`, value: JSON.stringify(list.tree), type: 'text' },
+        });
+      }
       const cacheId = await picklistCacheId(list.id);
       await prisma.qcPicklistCache.upsert({
         where: { listId: cacheId },
@@ -563,6 +572,89 @@ export class QcRestService {
       });
     }
     return { synced: relevant.length, listIds: relevant.map(l => l.id), fieldMap };
+  }
+
+  // CR/HBR Number reference options for a defect of `release` (user, 2026-10-09):
+  // the CRs under that release's node in QC's tree list, plus the fixed
+  // top-level values Regression / Production / Environment issue, plus the
+  // whole list for "show everything" / search.
+  static readonly CR_REF_FIXED = ['Regression', 'Production', 'Environment issue'];
+  async getCrReferenceOptions(release: string | undefined): Promise<{ release: string | null; versionCrs: string[]; fixed: string[]; all: string[] }> {
+    const listId = (await this.effectiveFieldListIds()).crHbrNumberReference ?? QC_DEFECT_FIELDS.crHbrNumberReference.listId!;
+    const tree = await readListTree(listId);
+    const flat: string[] = [];
+    const walk = (ns: ListNode[]) => ns.forEach(n => { flat.push(n.value); walk(n.children); });
+    walk(tree);
+    const rel = (release ?? '').trim().toLowerCase();
+    let versionCrs: string[] = [];
+    if (rel) {
+      const find = (ns: ListNode[]): ListNode | null => {
+        for (const n of ns) { if (n.value.trim().toLowerCase() === rel) return n; const f = find(n.children); if (f) return f; }
+        return null;
+      };
+      const node = find(tree);
+      if (node) { const acc: string[] = []; const w = (ns: ListNode[]) => ns.forEach(n => { acc.push(n.value); w(n.children); }); w(node.children); versionCrs = acc; }
+    }
+    const top = new Map(tree.map(n => [n.value.trim().toLowerCase(), n.value]));
+    const fixed = QcRestService.CR_REF_FIXED.map(f => top.get(f.toLowerCase())).filter((x): x is string => !!x);
+    return { release: release?.trim() || null, versionCrs, fixed, all: Array.from(new Set(flat)) };
+  }
+
+  // Project options for a defect of `release` (user, 2026-10-09; source =
+  // DeployCenter): the systems of that version's CRs — what the teams wrote
+  // in their CR plans, plus the systems of the teams assigned to its CRs —
+  // matched to QC's Project list (exact, or one name containing the other:
+  // "Wizard" ↔ "Wizard / IRB"). A matched parent brings its children.
+  async getProjectOptions(release: string | undefined): Promise<{ release: string | null; versionProjects: string[]; systems: string[]; unmatched: string[]; all: string[] }> {
+    const listId = (await this.effectiveFieldListIds()).system ?? QC_DEFECT_FIELDS.system.listId!;
+    const tree = await readListTree(listId);
+    const all: string[] = [];
+    const walk = (ns: ListNode[]) => ns.forEach(n => { all.push(n.value); walk(n.children); });
+    walk(tree);
+    const rel = (release ?? '').trim();
+    if (!rel) return { release: null, versionProjects: [], systems: [], unmatched: [], all: Array.from(new Set(all)) };
+
+    const version = await prisma.version.findFirst({
+      where: { OR: [{ name: { equals: rel, mode: 'insensitive' } }, { qcRelease: { relName: { equals: rel, mode: 'insensitive' } } }] },
+      select: { id: true },
+    });
+    let systems: string[] = [];
+    if (version) {
+      const [plans, assigns] = await Promise.all([
+        prisma.crPlan.findMany({ where: { versionId: version.id }, select: { systems: true, team: { select: { apps: true } } } }),
+        prisma.versionCrAssignment.findMany({ where: { versionId: version.id }, select: { team: { select: { apps: true } } } }),
+      ]);
+      systems = Array.from(new Set([
+        ...plans.flatMap(p => [...p.systems, ...(p.team?.apps ?? [])]),
+        ...assigns.flatMap(a => a.team?.apps ?? []),
+      ].map(s => s.trim()).filter(Boolean)));
+    }
+    // word-start matching: every word of the system starts a word of the value
+    // ("WIZ" → "Wizard / IRB", "TOP" → "TOP FRONT"), never mid-word ("BILI" ≠ "AccessiBILIty")
+    const words = (s: string) => s.toLowerCase().split(/[^a-z0-9֐-׿]+/).filter(Boolean);
+    const matches = (sys: string, val: string) => {
+      const sw = words(sys); const vw = words(val);
+      if (!sw.length || !vw.length) return false;
+      if (sw.join('') === vw.join('')) return true;
+      return sw.every(w => (w.length >= 3 ? vw.some(v => v.startsWith(w)) : vw.includes(w)));
+    };
+    const picked = new Set<string>();
+    const matched = new Set<string>();
+    const visit = (ns: ListNode[]) => ns.forEach(n => {
+      const hit = systems.filter(sy => matches(sy, n.value));
+      if (hit.length) {
+        hit.forEach(h => matched.add(h));
+        picked.add(n.value);
+        const addAll = (cs: ListNode[]) => cs.forEach(c => { picked.add(c.value); addAll(c.children); });
+        addAll(n.children);
+      }
+      visit(n.children);
+    });
+    visit(tree);
+    return {
+      release: rel, versionProjects: all.filter(v => picked.has(v)).filter((v, i, a) => a.indexOf(v) === i),
+      systems, unmatched: systems.filter(s => !matched.has(s)), all: Array.from(new Set(all)),
+    };
   }
 
   // The automatic map + when it was built (null = never)
@@ -2006,7 +2098,7 @@ export interface AttachmentMeta {
 }
 
 export interface EntityFieldMeta { name: string; label: string; type: string; required: boolean; raw: Record<string, string> | string; }
-export interface ProjectListMeta { id: string; name: string; values: string[]; raw: Record<string, string> | string; }
+export interface ProjectListMeta { id: string; name: string; values: string[]; tree?: ListNode[]; raw: Record<string, string> | string; }
 
 function extractCookies(res: any): string {
   const raw: string[] = res.headers?.['set-cookie'] ?? [];
@@ -2138,6 +2230,22 @@ export function listItemValues(items: any): string[] {
   return out;
 }
 
+// The same list as a tree (tree lists: "2026 Releases" → "ITv07-2026" → CRs).
+// The flat `values` above keep their order; this keeps who is under whom
+// (2026-10-09: the CR/HBR picker shows the defect's own release's CRs).
+export interface ListNode { value: string; children: ListNode[] }
+export function listItemTree(items: any): ListNode[] {
+  const build = (node: any): ListNode[] => {
+    if (node == null) return [];
+    if (Array.isArray(node)) return node.flatMap(build);
+    if (typeof node !== 'object') { const s = String(node).trim(); return s ? [{ value: s, children: [] }] : []; }
+    const v = String(node['@_value'] ?? node['@_Value'] ?? node['#text'] ?? '').trim();
+    const children = node.Item ? build(node.Item) : [];
+    return v ? [{ value: v, children }] : children;
+  };
+  return build(items);
+}
+
 function parseProjectListsXml(xml: string): ProjectListMeta[] {
   const parsed = xmlParser.parse(xml);
   const list = parsed?.Lists?.List ?? parsed?.ProjectLists?.List ?? [];
@@ -2153,6 +2261,7 @@ function parseProjectListsXml(xml: string): ProjectListMeta[] {
       id: String(l?.Id ?? l?.['@_Id'] ?? l?.['@_id'] ?? ''),
       name: String(l?.Name ?? l?.['@_Name'] ?? l?.['@_name'] ?? ''),
       values: listItemValues(items),
+      tree: listItemTree(items),
       raw,
     };
   }).filter((l: ProjectListMeta) => l.id || l.name);
@@ -2244,6 +2353,27 @@ function xmlEscape(s: string): string {
 async function picklistCacheId(listId: string): Promise<string> {
   const p = await currentQcProject();
   return !p || p.isDefault ? listId : `${p.key}:${listId}`;
+}
+
+// A tree list as cached by syncQcPicklists; without one (dev / not synced
+// yet) the local QC lists snapshot, whose values are indented 2 spaces per level.
+async function readListTree(listId: string): Promise<ListNode[]> {
+  const row = await prisma.systemParam.findUnique({ where: { key: await projectParamKey(`QC_LIST_TREE_${listId}`) } });
+  if (row?.value) { try { return JSON.parse(row.value); } catch { /* fall through */ } }
+  try {
+    const lists = JSON.parse(require('fs').readFileSync(require('path').join(process.cwd(), 'src', 'qc', 'seed-data', 'qc-lists.local.json'), 'utf-8'));
+    const values: string[] = lists[listId]?.values ?? [];
+    const root: ListNode[] = [];
+    const stack: { depth: number; node: ListNode }[] = [];
+    for (const raw of values) {
+      const depth = Math.floor((raw.length - raw.replace(/^ +/, '').length) / 2);
+      const node: ListNode = { value: raw.trim(), children: [] };
+      while (stack.length && stack[stack.length - 1].depth >= depth) stack.pop();
+      if (stack.length) stack[stack.length - 1].node.children.push(node); else root.push(node);
+      stack.push({ depth, node });
+    }
+    return root;
+  } catch { return []; }
 }
 
 // First matching <Tag>value</Tag> in an XML string

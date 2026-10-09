@@ -518,6 +518,18 @@ export class QcController {
     return getQcPersonDirectory();
   }
 
+  // Project picker: the systems of the release's CRs in DeployCenter, matched to QC's Project list
+  @Get('project-options')
+  getProjectOptions(@Query('release') release?: string) {
+    return this.qcRestService.getProjectOptions(release);
+  }
+
+  // CR/HBR Number reference picker: the release's CRs + Regression / Production / Environment issue
+  @Get('cr-reference-options')
+  getCrReferenceOptions(@Query('release') release?: string) {
+    return this.qcRestService.getCrReferenceOptions(release);
+  }
+
   // People pickers "group by team" (user, 2026-10-09): each active team with
   // its members' QC logins (from DeployCenter's team membership + User.qcLogin)
   @Get('person-teams')

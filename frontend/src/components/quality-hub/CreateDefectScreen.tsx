@@ -4,7 +4,7 @@ import { C, JIRA } from '../../theme';
 import { Card, Button, BackLink } from '../ui';
 import { useLeaveGuard, useUnsavedChanges } from '../../context/UnsavedChangesContext';
 import {
-  DefectFieldCell, DefectFieldsCtx, PersonTeam, ReleaseCycleOptionT, RefValue, TeamEnvComponents,
+  DefectFieldCell, DefectFieldsCtx, PersonTeam, ReleaseCycleOptionT, RefValue, TeamEnvComponents, loadReleaseScopedOptions,
 } from './OpenProdDefectsView';
 import {
   DEFAULT_OPEN_PROD_DETAIL_GROUPS, ATTACHMENTS_FIELD, CREATE_REQUIRED_FIELDS, createFieldsOf, DETAIL_FIELD_LABEL,
@@ -164,6 +164,7 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
     outsideCommit,
     teamEnv, fieldPicklists: picklists, fieldKinds: editable.kinds, personDirectory, personTeams, releaseOptions,
     currentStatus: 'New', allowedTransitions: null,
+    loadScoped: (k, release) => loadReleaseScopedOptions(headers, k, release),
   };
 
   // ── leave guard (2026-10-09) ────────────────────────────────────────────

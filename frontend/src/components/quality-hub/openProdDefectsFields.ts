@@ -145,7 +145,9 @@ export const ATTACHMENTS_FIELD_DEF = { key: ATTACHMENTS_FIELD, label: '📎 קב
 // (OpenProdDefectsConfigPanel) predates them.
 export const BUILTIN_ALWAYS_SHOWN_FIELDS = ['detectedApkVersion', 'detectedHotAppApk', 'targetHotAppApk',
   // release/cycle pairs + team component (2026-10-08) - a pair is never shown half
-  'detectedInRelease', 'detectedInCycle', 'targetRelease', 'targetCycle', 'environmentComponent'];
+  'detectedInRelease', 'detectedInCycle', 'targetRelease', 'targetCycle', 'environmentComponent',
+  // QC-required, release-scoped pickers (2026-10-09)
+  'crHbrNumberReference', 'system'];
 
 // ── New-defect form (2026-10-09) ─────────────────────────────────────────
 // The create form uses the same layout as the update form; per panel the

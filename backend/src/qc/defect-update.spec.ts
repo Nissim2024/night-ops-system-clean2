@@ -160,3 +160,16 @@ describe('createDefectFromForm — required fields', () => {
     expect(payload['dev-comments']).toContain('Nissim P <nissimp>');
   });
 });
+
+import { listItemTree } from './qc-rest.service';
+// QC tree lists keep who is under whom (2026-10-09: CRs under their release)
+describe('listItemTree', () => {
+  it('keeps the release → CR nesting', () => {
+    const items = [{ '@_value': '2026 Releases', Item: [{ '@_value': 'ITv07-2026', Item: [{ '@_value': '12902 - x' }, { '@_value': '12917 - y' }] }] }, { '@_value': 'Regression', Item: { '@_value': 'CRM Regression' } }];
+    const t = listItemTree(items);
+    expect(t.map(n => n.value)).toEqual(['2026 Releases', 'Regression']);
+    expect(t[0].children[0].value).toBe('ITv07-2026');
+    expect(t[0].children[0].children.map(n => n.value)).toEqual(['12902 - x', '12917 - y']);
+    expect(t[1].children[0].value).toBe('CRM Regression');
+  });
+});
