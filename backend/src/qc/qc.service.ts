@@ -2221,14 +2221,15 @@ export async function getDefectLock(defectId: string): Promise<DefectLock> {
 
 // Teams with their members' QC logins — for the people pickers' "group by
 // team" (2026-10-09). A member without a QC login can't be picked anyway.
-export async function getQcPersonTeams(): Promise<{ id: string; name: string; logins: string[] }[]> {
+export async function getQcPersonTeams(): Promise<{ id: string; name: string; category: string | null; logins: string[] }[]> {
   const teams = await prisma.team.findMany({
     where: { active: true },
-    select: { id: true, name: true, members: { select: { user: { select: { qcLogin: true, active: true } } } } },
+    // category: Tester picks only from QA teams (2026-10-10)
+    select: { id: true, name: true, category: true, members: { select: { user: { select: { qcLogin: true, active: true } } } } },
     orderBy: { name: 'asc' },
   });
   return teams
-    .map(t => ({ id: t.id, name: t.name, logins: Array.from(new Set(t.members.filter(m => m.user.active && m.user.qcLogin?.trim()).map(m => m.user.qcLogin!.trim().toLowerCase()))) }))
+    .map(t => ({ id: t.id, name: t.name, category: t.category ?? null, logins: Array.from(new Set(t.members.filter(m => m.user.active && m.user.qcLogin?.trim()).map(m => m.user.qcLogin!.trim().toLowerCase()))) }))
     .filter(t => t.logins.length > 0);
 }
 

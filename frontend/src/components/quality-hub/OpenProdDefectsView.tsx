@@ -375,7 +375,7 @@ const ScopedListPicker: React.FC<{
 // People picker (user, 2026-10-09): the whole directory, or — with "קבץ לפי
 // צוות" ticked (remembered in this browser) — the teams first, and a team's
 // members only after clicking it.
-export type PersonTeam = { id: string; name: string; logins: string[] };
+export type PersonTeam = { id: string; name: string; category?: string | null; logins: string[] };
 const GROUP_BY_TEAM_KEY = 'dc_person_picker_by_team';
 
 const PersonPicker: React.FC<{
@@ -667,6 +667,15 @@ export const DefectFieldCell: React.FC<{ fieldKey: string; wide: boolean; ctx: D
                         ? (teamComps.length ? teamComps : (ctx.teamEnv?.all ?? []))
                         : ctx.fieldPicklists[key];
                       const pair = REF_PAIR_OF[key];
+                      // Tester = testers only: members of the QA-category teams (2026-10-10);
+                      // no QA team set up → everyone, as before
+                      const testerScope = (() => {
+                        if (key !== 'qaTester') return null;
+                        const qaTeams = ctx.personTeams.filter(t => t.category === 'QA');
+                        if (!qaTeams.length) return null;
+                        const logins = new Set(qaTeams.flatMap(t => t.logins));
+                        return { teams: qaTeams, people: ctx.personDirectory.filter(p => logins.has(p.login.trim().toLowerCase())) };
+                      })();
                       // popover width: release/cycle and people a bit wider, long value lists (CR/HBR reference…) wide
                       const popWidth = pair ? 380
                         : (PERSON_FIELDS.has(key) || ctx.fieldKinds[key] === 'person') ? 340
@@ -719,7 +728,7 @@ export const DefectFieldCell: React.FC<{ fieldKey: string; wide: boolean; ctx: D
                             <EditPopover onClose={() => ctx.setEditingField(null)} width={popWidth}
                               onOutside={() => { if (ctx.outsideCommit.current) ctx.outsideCommit.current(); else ctx.setEditingField(null); }}
                               title={label}
-                              subtitle={key === 'environmentComponent'
+                              subtitle={testerScope ? `בודקים מצוותי QA: ${testerScope.teams.map(t => t.name).join(', ')}` : key === 'environmentComponent'
                                 ? (teamComps.length ? `רכיבי הצוות ${team}` : team ? `לצוות ${team} לא הוגדרו רכיבים — מוצגים כל הערכים` : undefined)
                                 : undefined}>
                               {RELEASE_SCOPED_FIELDS[key] && ctx.loadScoped ? (
@@ -751,8 +760,8 @@ export const DefectFieldCell: React.FC<{ fieldKey: string; wide: boolean; ctx: D
                                   currentStatus={ctx.currentStatus}
                                   allowedTransitions={ctx.allowedTransitions}
                                   dynamicOptions={listOptions}
-                                  personOptions={ctx.personDirectory}
-                                  personTeams={ctx.personTeams}
+                                  personOptions={testerScope ? testerScope.people : ctx.personDirectory}
+                                  personTeams={testerScope ? testerScope.teams : ctx.personTeams}
                                   fieldKind={key === 'environmentComponent' ? 'list' : ctx.fieldKinds[key]}
                                   outsideCommitRef={ctx.outsideCommit}
                                   onCommit={v => ctx.commitField(key, v)}
