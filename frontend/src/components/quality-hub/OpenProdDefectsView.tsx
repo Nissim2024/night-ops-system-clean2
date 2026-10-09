@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import axios from 'axios';
 import { C, FONT, JIRA } from '../../theme';
 import { Card, Badge, BackLink, Avatar } from '../ui';
-import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, BUILTIN_ALWAYS_SHOWN_FIELDS, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, testPhaseFor, CREATE_REQUIRED_FIELDS } from './openProdDefectsFields';
+import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, testPhaseFor, CREATE_REQUIRED_FIELDS, withRequiredFields, builtinPanels } from './openProdDefectsFields';
 import {
   hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroup,
   FieldChangeHistorySection, AttachmentsSection, parseNoteEntries, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
@@ -1197,13 +1197,11 @@ export const DefectDetailScreen: React.FC<{
   // Default groups stay lean — only the admin-configured / default field set,
   // NOT the full picker vocabulary (which would fill the panel with empty
   // "—" rows). The "התאמת שדות" dialog is where the rest live.
-  const defaultGroups = useMemo(() => {
-    // + fields added after an admin saved the old field list (APK, 2026-10-04)
-    const allowed = new Set([...fieldsToShow, ...BUILTIN_ALWAYS_SHOWN_FIELDS]);
-    return DEFAULT_OPEN_PROD_DETAIL_GROUPS
-      .map(g => ({ ...g, fields: g.fields.filter(k => allowed.has(k)) }))
-      .filter(g => g.fields.length > 0);
-  }, [fieldsToShow]);
+  // + fields added after an admin saved the old field list (APK, 2026-10-04);
+  // the create form falls back to the same panels (builtinPanels)
+  const defaultGroups: DetailGroup[] = useMemo(
+    () => builtinPanels(effectiveDetailFields).map(g => ({ title: g.name, fields: g.fields, wide: g.wide })),
+    [effectiveDetailFields]);
 
   // Panels come from the admin-designed layout for this user (team -> role ->
   // default, AdminPanel "תבנית טופס תקלה", 2026-10-04) - replaces the old
@@ -1217,9 +1215,10 @@ export const DefectDetailScreen: React.FC<{
     return () => { alive = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
-  const baseGroups: DetailGroup[] = serverLayout
+  // + QC-required fields a saved layout predates, as in the create form
+  const baseGroups: DetailGroup[] = withRequiredFields(serverLayout
     ? serverLayout.panels.map(pn => ({ title: pn.name, fields: pn.fields, wide: pn.wide }))
-    : defaultGroups;
+    : defaultGroups);
   // 📎 attachments: wherever the layout placed it, else end of the first panel (full row).
   const detailGroups: DetailGroup[] = baseGroups.some(g => g.fields.includes(ATTACHMENTS_FIELD)) || baseGroups.length === 0
     ? baseGroups

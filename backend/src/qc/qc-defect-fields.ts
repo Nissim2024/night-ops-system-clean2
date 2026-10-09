@@ -42,6 +42,7 @@ export const QC_DEFECT_FIELDS: Record<string, QcDefectFieldDef> = {
   estimateFixTime: { rest: 'user-23', column: 'BG_USER_23', label: 'Estimate fix time', kind: 'text', listId: null, verify: false },
   platform: { rest: 'user-24', column: 'BG_USER_24', label: 'Platform', kind: 'list', listId: '10468', verify: false },
   crStatus: { rest: 'user-27', column: 'BG_USER_27', label: 'CR Status', kind: 'list', listId: '10279', verify: true },
+  dropNumber: { rest: 'user-28', column: 'BG_USER_28', label: 'Drop#', kind: 'list', listId: '20858', verify: true },
   detectedApkVersion: { rest: 'user-30', column: 'BG_USER_30', label: 'Detected At APK Version', kind: 'list', listId: '21224', verify: false },
   detectedHotAppApk: { rest: 'user-41', column: 'BG_USER_41', label: 'Detected in HOT APP APK', kind: 'list', listId: '21833', verify: false },
   targetHotAppApk: { rest: 'user-42', column: 'BG_USER_42', label: 'Target HOT APP APK', kind: 'list', listId: '21833', verify: false },

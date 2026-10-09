@@ -8,7 +8,8 @@ import {
   DefectFieldCell, DefectFieldsCtx, PersonTeam, ReleaseCycleOptionT, RefValue, TeamEnvComponents, loadReleaseScopedOptions, singleProjectForCr,
 } from './OpenProdDefectsView';
 import {
-  DEFAULT_OPEN_PROD_DETAIL_GROUPS, ATTACHMENTS_FIELD, CREATE_REQUIRED_FIELDS, createFieldsOf, DETAIL_FIELD_LABEL, testPhaseFor,
+  ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, CREATE_REQUIRED_FIELDS, createFieldsOf, DETAIL_FIELD_LABEL, testPhaseFor,
+  withRequiredFields, builtinPanels,
 } from './openProdDefectsFields';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -21,7 +22,8 @@ const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${win
 //   - Detected By / on Date / in Release / in Cycle are filled in for you
 //     (you, today, the running version's release and cycle);
 //   - the fields QC marks Required carry "*" and must be filled before creating;
-//   - fields the layout doesn't mark 🆕 are under "שדות נוספים";
+//   - every field sits where it sits in the update form; one the layout
+//     doesn't mark 🆕 is shown locked — it is filled later in the handling;
 //   - Title, Description, the first comment (required by QC) and files.
 
 type ReleaseContext = {
@@ -45,6 +47,7 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
 
   // ── the same data the update form loads ────────────────────────────────
   const [panels, setPanels] = useState<{ name: string; fields: string[]; wide?: string[]; create?: string[] }[] | null>(null);
+  const [detailFields, setDetailFields] = useState<string[]>([]);
   const [fieldPicklists, setFieldPicklists] = useState<Record<string, string[]>>({});
   const [editable, setEditable] = useState<{ fields: Set<string>; refFields: Set<string>; kinds: Record<string, string> }>({ fields: new Set(), refFields: new Set(), kinds: {} });
   const [personDirectory, setPersonDirectory] = useState<{ login: string; fullName: string }[]>([]);
@@ -64,7 +67,6 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
   const [createdIdPendingAttachments, setCreatedIdPendingAttachments] = useState<string | null>(null);
   const [editingField, setEditingField] = useState<string | null>(null);
   const outsideCommit = useRef<(() => void) | null>(null);
-  const [showMore, setShowMore] = useState(false);
   const [missing, setMissing] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +75,7 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
   useEffect(() => {
     const get = (url: string) => axios.get(`${API}${url}`, { headers }).then(r => r.data);
     get('/qc/defect-form-layout').then(d => setPanels(d?.layout?.panels ?? null)).catch(() => setPanels(null));
+    get('/qc/open-prod-defects-config').then(d => setDetailFields(Array.isArray(d?.detailFields) ? d.detailFields : [])).catch(() => {});
     get('/qc/defect-field-picklists').then(d => {
       const out: Record<string, string[]> = {};
       for (const [k, e] of Object.entries<any>(d ?? {})) if (e?.values) out[k] = e.values;
@@ -164,29 +167,33 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [relCtx, isProd, cr, releaseManual]);
 
-  const groups = useMemo(() => (panels ?? DEFAULT_OPEN_PROD_DETAIL_GROUPS.map(g => ({ name: g.title, fields: g.fields, wide: g.wide })))
-    .map(p => ({ ...p, fields: p.fields.filter(f => f !== ATTACHMENTS_FIELD) })), [panels]);
-  // every panel keeps its place (same columns as the update form, user
-  // 2026-10-09); a panel with nothing to fill at creation says so
-  const shownPanels = groups.map(p => ({ ...p, fields: createFieldsOf(p) }));
-  const shownSet = new Set(shownPanels.flatMap(p => p.fields));
-  // required fields the layout left out still have to be there
-  const requiredOutside = [...Array.from(CREATE_REQUIRED_FIELDS), 'testPhase'].filter(f => !shownSet.has(f));
-  const moreFields = groups.flatMap(p => p.fields).filter(f => !shownSet.has(f) && !CREATE_REQUIRED_FIELDS.has(f) && f !== 'id');
+  // The update form's panels exactly (user, 2026-10-09: "they look
+  // different"): same panels, same fields in the same places, 📎 where the
+  // layout puts it (else end of the first panel), QC-required fields a saved
+  // layout predates added the same way as there.
+  const groups = useMemo(() => {
+    const base = withRequiredFields((panels ?? builtinPanels(detailFields))
+      .map(p => ({ ...p, wide: p.wide ?? [] })));
+    return base.some(p => p.fields.includes(ATTACHMENTS_FIELD)) || base.length === 0 ? base
+      : base.map((p, i) => (i === 0 ? { ...p, fields: [...p.fields, ATTACHMENTS_FIELD], wide: [...p.wide, ATTACHMENTS_FIELD] } : p));
+  }, [panels, detailFields]);
+  // fillable when opening: the layout's 🆕 fields, QC-required ones, Test Phase
+  const createSet = useMemo(() => new Set([...groups.flatMap(p => createFieldsOf(p)), ...Array.from(CREATE_REQUIRED_FIELDS), 'testPhase']), [groups]);
 
   const me = (() => { try { return localStorage.getItem('deploycenter_fullName') ?? ''; } catch { return ''; } })();
   const valueOf = (k: string) => (k === 'status' ? 'New' : k === 'id' ? ''
     : REF_KEYS.has(k) ? (refValues[k]?.label ?? '')
     : k === 'detectedBy' ? (values.detectedBy || me)   // the server writes you when nothing is chosen
     : (values[k] ?? ''));
-  const isEditable = (k: string) => k !== 'status' && k !== 'id' && (REF_KEYS.has(k) ? editable.refFields.has(k) : editable.fields.has(k));
+  const isEditable = (k: string) => k !== 'status' && k !== 'id' && createSet.has(k) && (REF_KEYS.has(k) ? editable.refFields.has(k) : editable.fields.has(k));
   const ctx: DefectFieldsCtx = {
     valueOf,
     isDirty: () => false,
     isEditable,
     lockReason: k => (k === 'status' ? 'נקבע ב-QC בפתיחת התקלה'
       : k === 'id' ? 'יוקצה ע"י QC עם השמירה'
-      : DETECTION_KEYS.has(k) ? 'ממולא אוטומטית — שינוי רק למנהל מערכת / מנהל שחרור' : undefined),
+      : DETECTION_KEYS.has(k) ? 'ממולא אוטומטית — שינוי רק למנהל מערכת / מנהל שחרור'
+      : !createSet.has(k) ? 'ממולא בהמשך הטיפול בתקלה (לפתיחה בתבנית הטופס: 🆕)' : undefined),
     required: CREATE_REQUIRED_FIELDS,
     missing,
     editingField, setEditingField,
@@ -296,15 +303,22 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
     if (stillFailing.length === 0) onCreated(createdIdPendingAttachments);
   };
 
-  const fieldGrid = (fields: string[], wide?: string[]) => (
-    <div className="grid gap-x-3 gap-y-3" style={{ direction: 'ltr', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 170px), 1fr))' }}>
-      {fields.map(f => <DefectFieldCell key={f} fieldKey={f} wide={!!wide?.includes(f)} ctx={ctx} />)}
-    </div>
-  );
-  const panelCard = (name: string, body: React.ReactNode, key: string) => (
-    <div key={key} dir="rtl" className="rounded-xl px-4 py-5" style={{ background: '#fff', height: '100%' }}>
-      <div dir="auto" className="mb-3 text-start text-sm font-bold text-foreground">{name}</div>
-      {body}
+  const attachmentsCell = (
+    <div key={ATTACHMENTS_FIELD} className="flex min-w-0 flex-col items-start gap-1 px-1 py-0.5" style={{ gridColumn: '1 / -1' }}>
+      <span className="text-xs font-bold tracking-wide" style={{ color: JIRA.textSubtle }}>{ATTACHMENTS_FIELD_DEF.label}</span>
+      <div dir="rtl" className="flex w-full flex-col gap-1.5">
+        {attachedFiles.map((f, i) => (
+          <div key={`${f.name}-${i}`} className="flex items-center justify-between gap-2 rounded-sm bg-muted px-3 py-1 text-[13px]">
+            <span dir="auto" className="min-w-0 flex-1 truncate">{f.name}</span>
+            <span className="flex-shrink-0 text-subtle-foreground">{(f.size / 1024).toFixed(0)} KB</span>
+            <button type="button" onClick={() => setAttachedFiles(prev => prev.filter((_, j) => j !== i))} className="flex-shrink-0 cursor-pointer border-none bg-transparent text-danger">✕</button>
+          </div>
+        ))}
+        <label className="w-fit cursor-pointer rounded-sm px-3 py-1 text-[13px] font-semibold text-primary hover:bg-muted" title="יועלו ל-QC מיד אחרי יצירת התקלה">
+          + הוסף קובץ
+          <input type="file" multiple className="hidden" onChange={e => { const fl = e.target.files; if (fl) setAttachedFiles(prev => [...prev, ...Array.from(fl)]); e.target.value = ''; }} />
+        </label>
+      </div>
     </div>
   );
   const textBox = 'w-full resize-y rounded-sm bg-card px-3 py-2 text-[13px] text-foreground outline-none';
@@ -335,24 +349,18 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
         </div>
       )}
 
-      {/* the same panels, fields and pickers as the update form */}
-      {/* the panels side by side as in the update form — this screen sits next
-          to the sidebar (narrower), so the panels may shrink further */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, direction: 'ltr' }}>
-        {shownPanels.map((p, i) => panelCard(p.name, p.fields.length
-          ? fieldGrid(p.fields, p.wide)
-          : <div className="text-[13px] text-subtle-foreground">יתמלא בהמשך הטיפול בתקלה</div>, `p${i}`))}
-        {requiredOutside.length > 0 && panelCard('שדות לפתיחת תקלה', fieldGrid(requiredOutside), 'req')}
+      {/* the update form's panel grid, cell for cell */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, direction: 'ltr' }}>
+        {groups.map((p, i) => (
+          <div key={`p${i}`} dir="rtl" className="overflow-hidden rounded-xl px-6 py-6" style={{ background: '#fff', height: '100%' }}>
+            <div dir="auto" className="mb-3 text-start text-sm font-bold text-foreground">{p.name}</div>
+            <div className="grid gap-x-3 gap-y-3" style={{ direction: 'ltr', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))' }}>
+              {p.fields.map(f => (f === ATTACHMENTS_FIELD ? attachmentsCell
+                : <DefectFieldCell key={f} fieldKey={f} wide={!!p.wide?.includes(f)} ctx={ctx} />))}
+            </div>
+          </div>
+        ))}
       </div>
-
-      {moreFields.length > 0 && (
-        <div className="rounded-xl px-6 py-4" style={{ background: '#fff' }}>
-          <button type="button" onClick={() => setShowMore(v => !v)} className="cursor-pointer border-none bg-transparent p-0 text-sm font-bold text-foreground">
-            {showMore ? '▾' : '▸'} שדות נוספים ({moreFields.length}) <span className="text-xs font-normal text-subtle-foreground">— לא נדרשים בפתיחת תקלה</span>
-          </button>
-          {showMore && <div className="mt-3">{fieldGrid(moreFields)}</div>}
-        </div>
-      )}
 
       {/* Description + the first comment, side by side as in the update form */}
       <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 460px), 1fr))', direction: 'ltr' }}>
@@ -369,23 +377,6 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
             style={{ border: `1px solid ${error && !comment.trim() ? '#DE350B' : JIRA.greyN40}` }} />
         </div>
       </div>
-
-      <Card>
-        <div className="mb-2 text-sm font-bold text-foreground">📎 קבצים מצורפים <span className="text-xs font-normal text-subtle-foreground">(יועלו ל-QC מיד אחרי יצירת התקלה)</span></div>
-        <div className="flex flex-col gap-2">
-          {attachedFiles.map((f, i) => (
-            <div key={`${f.name}-${i}`} className="flex items-center justify-between gap-2 rounded-sm bg-muted px-3 py-1.5 text-[13px]">
-              <span dir="auto" className="min-w-0 flex-1 truncate">{f.name}</span>
-              <span className="flex-shrink-0 text-subtle-foreground">{(f.size / 1024).toFixed(0)} KB</span>
-              <button type="button" onClick={() => setAttachedFiles(prev => prev.filter((_, j) => j !== i))} className="flex-shrink-0 cursor-pointer border-none bg-transparent text-danger">✕</button>
-            </div>
-          ))}
-          <label className="w-fit cursor-pointer rounded-sm px-3 py-2 text-[13px] font-semibold text-primary hover:bg-muted" style={{ border: `1px dashed ${JIRA.greyN40}` }}>
-            + הוסף קובץ
-            <input type="file" multiple className="hidden" onChange={e => { const fl = e.target.files; if (fl) setAttachedFiles(prev => [...prev, ...Array.from(fl)]); e.target.value = ''; }} />
-          </label>
-        </div>
-      </Card>
 
       {error && <div className="rounded-md px-4 py-2.5 text-[13px] font-semibold text-danger" style={{ background: C.bgBlocked }}>{error}</div>}
 

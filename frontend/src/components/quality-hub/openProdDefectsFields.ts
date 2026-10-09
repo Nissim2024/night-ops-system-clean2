@@ -180,6 +180,41 @@ export function testPhaseFor(cycle: string, environment: string): string | null 
   return null;
 }
 
+// No admin layout anywhere → the built-in panels, trimmed to the admin's
+// field list (open-prod-defects-config) — the same in both forms.
+export function builtinPanels(detailFields: string[]): { name: string; fields: string[]; wide?: string[] }[] {
+  const allowed = new Set([...(detailFields.length ? detailFields : DETAIL_FIELDS.map(f => f.key)), ...BUILTIN_ALWAYS_SHOWN_FIELDS]);
+  return DEFAULT_OPEN_PROD_DETAIL_GROUPS
+    .map(g => ({ name: g.title, fields: g.fields.filter(k => allowed.has(k)), wide: g.wide }))
+    .filter(g => g.fields.length > 0);
+}
+
+// A saved layout may predate a QC-required field (Project, 2026-10-09): both
+// forms then show it in the panel that holds most of its built-in neighbours,
+// right after the nearest one — so the create and update forms stay alike.
+export function withRequiredFields<P extends { fields: string[] }>(panels: P[]): P[] {
+  if (panels.length === 0) return panels;
+  const out = panels.map(p => ({ ...p, fields: [...p.fields] }));
+  const present = new Set(out.flatMap(p => p.fields));
+  for (const f of [...Array.from(CREATE_REQUIRED_FIELDS), 'testPhase']) {
+    if (present.has(f)) continue;
+    const home = DEFAULT_OPEN_PROD_DETAIL_GROUPS.find(g => g.fields.includes(f));
+    let target = out[0];
+    if (home) {
+      let best = 0;
+      for (const p of out) {
+        const n = p.fields.filter(x => home.fields.includes(x)).length;
+        if (n > best) { best = n; target = p; }
+      }
+      const before = home.fields.slice(0, home.fields.indexOf(f)).reverse().find(x => target.fields.includes(x));
+      if (before) { target.fields.splice(target.fields.indexOf(before) + 1, 0, f); present.add(f); continue; }
+    }
+    target.fields.push(f);
+    present.add(f);
+  }
+  return out;
+}
+
 export function createFieldsOf(panel: { fields: string[]; create?: string[] }): string[] {
   return panel.fields.filter(f => CREATE_REQUIRED_FIELDS.has(f)
     || (panel.create ? panel.create.includes(f) : DEFAULT_CREATE_FIELDS.has(f)));

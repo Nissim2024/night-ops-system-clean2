@@ -29,6 +29,22 @@ const cloneLayout = (l: Layout): Layout => ({ panels: l.panels.map(p => ({ name:
 // also shown when OPENING a new defect (2026-10-09); required ones always are
 const toggleCreate = (p: Panel, f: string) => { const c = p.create ?? createFieldsOf(p); p.create = c.includes(f) ? c.filter(x => x !== f) : [...c, f]; };
 const toggleWide = (p: Panel, f: string) => { const w = p.wide ?? []; p.wide = w.includes(f) ? w.filter(x => x !== f) : [...w, f]; };
+// Move a field to another place / panel (drag & drop or "העבר ל…", 2026-10-09);
+// its ↔ full row and 🆕 settings go with it.
+const moveField = (l: Layout, fromPi: number, fi: number, toPi: number, toIdx?: number) => {
+  const src = l.panels[fromPi], dst = l.panels[toPi];
+  const f = src.fields[fi];
+  const wasWide = !!src.wide?.includes(f);
+  const wasOn = createFieldsOf(src).includes(f);
+  src.fields.splice(fi, 1);
+  if (wasWide) toggleWide(src, f);
+  if (src.create) src.create = src.create.filter(x => x !== f);
+  let idx = toIdx ?? dst.fields.length;
+  if (fromPi === toPi && toIdx !== undefined && fi < toIdx) idx--;
+  dst.fields.splice(idx, 0, f);
+  if (wasWide !== !!dst.wide?.includes(f)) toggleWide(dst, f);
+  if (wasOn !== createFieldsOf(dst).includes(f)) toggleCreate(dst, f);
+};
 
 const btn = 'cursor-pointer rounded-sm border border-border bg-card px-1.5 py-0.5 text-[11px] text-muted-foreground disabled:cursor-default disabled:opacity-30';
 
@@ -42,6 +58,8 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [drag, setDrag] = useState<{ pi: number; fi: number } | null>(null);
+  const [dropAt, setDropAt] = useState<string | null>(null); // "pi" or "pi:fi"
 
   useEffect(() => {
     axios.get(`${API}/qc/defect-form-layouts`, { headers }).then(r => setLayouts(r.data)).catch(() => setLayouts({ default: null, roles: {}, teams: {} }));
@@ -119,7 +137,8 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
         <div className="mt-1 text-xs leading-relaxed text-subtle-foreground">
           קובעים אילו שדות יופיעו בטופס תצוגת/עדכון התקלה, באיזה סדר, ובאילו חלוניות. משתמש מקבל את תבנית הצוות שלו; אם אין — את תבנית התפקיד; אם אין — את ברירת המחדל.
           החלוניות והשדות מוצגים כאן כמו בטופס עצמו: הראשון משמאל. Title, Description ו-Comments קבועים מחוץ לחלוניות.
-          אותה תבנית משמשת גם לפתיחת תקלה חדשה: 🆕 ירוק = השדה מוצג גם בפתיחת תקלה (שדות חובה של QC — תמיד); השאר זמינים שם תחת "שדות נוספים".
+          להעברת שדה בין חלוניות: גרור אותו לחלונית אחרת (או למקום בין שדות), או בחר "העבר ל…" בשדה עצמו.
+          אותה תבנית משמשת גם לפתיחת תקלה חדשה — באותן חלוניות ובאותם מקומות: 🆕 ירוק = ניתן למלא כבר בפתיחת התקלה (שדות חובה של QC — תמיד); שדה בלי 🆕 מוצג שם נעול וממולא בהמשך הטיפול.
         </div>
       </div>
 
@@ -155,9 +174,12 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
       ) : (
         <>
           {/* ── panels, laid out like the form (first = leftmost) ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, direction: 'ltr' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 14, direction: 'ltr' }}>
             {draft.panels.map((p, pi) => (
-              <div key={pi} dir="rtl" className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+              <div key={pi} dir="rtl" className="flex flex-col gap-3 rounded-xl border bg-card p-4"
+                style={{ borderColor: drag && dropAt === String(pi) ? '#0052CC' : undefined, borderWidth: drag && dropAt === String(pi) ? 2 : 1 }}
+                onDragOver={e => { if (!drag) return; e.preventDefault(); if (dropAt !== String(pi) && !dropAt?.startsWith(`${pi}:`)) setDropAt(String(pi)); }}
+                onDrop={e => { e.preventDefault(); if (drag) update(l => moveField(l, drag.pi, drag.fi, pi)); setDrag(null); setDropAt(null); }}>
                 <div className="flex items-center gap-1.5">
                   <input
                     value={p.name}
@@ -173,16 +195,28 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
                     onClick={async () => { if (p.fields.length === 0 || await dialog.confirm(`למחוק את "${p.name}"? השדות יחזרו לרשימת הזמינים.`, 'מחיקת חלונית', 'danger')) update(l => { l.panels.splice(pi, 1); }); }}>🗑</button>
                 </div>
 
-                <div className="flex flex-wrap gap-1.5" style={{ direction: 'ltr' }}>
+                <div className="flex flex-col gap-1" style={{ direction: 'ltr' }}>
                   {p.fields.length === 0 && <span className="text-xs text-subtle-foreground" dir="rtl">אין שדות בחלונית</span>}
                   {p.fields.map((f, fi) => (
-                    <div key={f} className="inline-flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-1 text-xs"
-                      style={p.wide?.includes(f) ? { flexBasis: '100%' } : undefined}>
-                      <button className={btn} title="מוקדם יותר" disabled={fi === 0}
-                        onClick={() => update(l => { const a = l.panels[pi].fields; [a[fi - 1], a[fi]] = [a[fi], a[fi - 1]]; })}>◀</button>
-                      <span className="font-semibold text-foreground">{label(f)}</span>
-                      <button className={btn} title="מאוחר יותר" disabled={fi === p.fields.length - 1}
-                        onClick={() => update(l => { const a = l.panels[pi].fields; [a[fi + 1], a[fi]] = [a[fi], a[fi + 1]]; })}>▶</button>
+                    <div key={f} className="flex w-full items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-1 text-xs"
+                      draggable
+                      onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', f); setDrag({ pi, fi }); }}
+                      onDragEnd={() => { setDrag(null); setDropAt(null); }}
+                      onDragOver={e => { if (!drag) return; e.preventDefault(); e.stopPropagation(); if (dropAt !== `${pi}:${fi}`) setDropAt(`${pi}:${fi}`); }}
+                      onDrop={e => { e.preventDefault(); e.stopPropagation(); if (drag) update(l => moveField(l, drag.pi, drag.fi, pi, fi)); setDrag(null); setDropAt(null); }}
+                      title="גרור לחלונית אחרת או למקום אחר"
+                      style={{
+                        ...(p.wide?.includes(f) ? { borderColor: '#0052CC' } : {}),
+                        cursor: 'grab',
+                        opacity: drag && drag.pi === pi && drag.fi === fi ? 0.4 : 1,
+                        boxShadow: drag && dropAt === `${pi}:${fi}` ? '0 -3px 0 0 #0052CC' : undefined,
+                      }}>
+                      <span className="select-none text-subtle-foreground" aria-hidden>⋮⋮</span>
+                      <span className="min-w-0 flex-1 truncate whitespace-nowrap font-semibold text-foreground" title={label(f)}>{label(f)}</span>
+                      <button className={btn} title="למעלה (מוקדם יותר)" disabled={fi === 0}
+                        onClick={() => update(l => { const a = l.panels[pi].fields; [a[fi - 1], a[fi]] = [a[fi], a[fi - 1]]; })}>▲</button>
+                      <button className={btn} title="למטה (מאוחר יותר)" disabled={fi === p.fields.length - 1}
+                        onClick={() => update(l => { const a = l.panels[pi].fields; [a[fi + 1], a[fi]] = [a[fi], a[fi + 1]]; })}>▼</button>
                       <button
                         className={btn}
                         title={p.wide?.includes(f) ? 'שורה מלאה — לחץ לביטול' : 'תן לשדה שורה מלאה בחלונית (לערכים ארוכים)'}
@@ -193,14 +227,11 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
                         <select
                           value=""
                           title="העבר לחלונית אחרת"
-                          onChange={e => {
-                            const to = Number(e.target.value);
-                            update(l => { const wasWide = !!l.panels[pi].wide?.includes(f); l.panels[pi].fields.splice(fi, 1); l.panels[to].fields.push(f); if (wasWide) { toggleWide(l.panels[pi], f); toggleWide(l.panels[to], f); } });
-                          }}
-                          className="max-w-[22px] cursor-pointer rounded-sm border border-border bg-card text-[11px]"
+                          onChange={e => { const to = Number(e.target.value); if (e.target.value !== '') update(l => moveField(l, pi, fi, to)); }}
+                          className="w-[74px] cursor-pointer rounded-sm border border-border bg-card px-0.5 text-[11px] text-muted-foreground"
                         >
-                          <option value="">⇄</option>
-                          {draft.panels.map((tp, ti) => ti !== pi && <option key={ti} value={ti}>← {tp.name || `חלונית ${ti + 1}`}</option>)}
+                          <option value="">⇄ העבר ל…</option>
+                          {draft.panels.map((tp, ti) => ti !== pi && <option key={ti} value={ti}>{tp.name || `חלונית ${ti + 1}`}</option>)}
                         </select>
                       )}
                       {(() => {
@@ -208,7 +239,7 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
                         const on = req || createFieldsOf(p).includes(f);
                         return (
                           <button className={btn} disabled={req}
-                            title={req ? 'שדה חובה ב-QC — תמיד מוצג בפתיחת תקלה' : on ? 'מוצג גם בפתיחת תקלה חדשה — לחץ להסתרה' : 'לא מוצג בפתיחת תקלה (נמצא תחת "שדות נוספים") — לחץ להצגה'}
+                            title={req ? 'שדה חובה ב-QC — תמיד ממולא בפתיחת תקלה' : on ? 'ניתן למלא כבר בפתיחת תקלה חדשה — לחץ כדי לנעול אותו בפתיחה' : 'נעול בפתיחת תקלה (ממולא בהמשך הטיפול) — לחץ כדי לאפשר מילוי בפתיחה'}
                             style={on ? { background: '#E3FCEF', color: '#006644', borderColor: '#36B37E', opacity: 1 } : undefined}
                             onClick={() => update(l => toggleCreate(l.panels[pi], f))}>🆕</button>
                         );
