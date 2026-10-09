@@ -6,7 +6,7 @@ import { PersonNamesInterceptor } from './person-names.interceptor';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
-import { QcService, isProductionEnvironment, getQcPersonDirectory, getOracleConfig, devPicklistsFromRealSeed, getReleaseCycleOptions, getTeamEnvironmentComponents, getDefectLock, probeLocksTable, getQcPersonTeams } from './qc.service';
+import { QcService, isProductionEnvironment, getQcPersonDirectory, getOracleConfig, devPicklistsFromRealSeed, getReleaseCycleOptions, getTeamEnvironmentComponents, getDefectLock, probeLocksTable, getQcPersonTeams, getDefectReleaseContext } from './qc.service';
 import { QcRestService } from './qc-rest.service';
 import { PermissionsService } from '../permissions/permissions.service';
 
@@ -516,6 +516,17 @@ export class QcController {
   @Get('person-directory')
   getPersonDirectory() {
     return getQcPersonDirectory();
+  }
+
+  // New defect: the release/cycle to fill in — production (by date) or the
+  // versions in testing (each with its CRs, so picking a CR can pick the version)
+  @Get('defect-release-context')
+  async getDefectReleaseContext(@Request() req: any, @Query('date') date?: string) {
+    const ctx = await getDefectReleaseContext(req.user.sub, date);
+    const testing = await Promise.all(ctx.testing.map(async t => ({
+      ...t, crs: t.release ? (await this.qcRestService.getCrReferenceOptions(t.release.label).catch(() => null))?.versionCrs ?? [] : [],
+    })));
+    return { ...ctx, testing };
   }
 
   // Project picker: the systems of the release's CRs in DeployCenter, matched to QC's Project list

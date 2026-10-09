@@ -2070,6 +2070,70 @@ export async function getReleaseCycleOptions(): Promise<ReleaseCycleOption[]> {
   return releases.map(r => ({ ...r, cycles: [...r.cycles].sort(byStartThenId), inFlight: ids.has(r.id) || names.has(r.name.trim().toLowerCase()) }));
 }
 
+// ── Which release a NEW defect belongs to (user, 2026-10-09) ───────────────
+// No "testing / production" switch — the Environment field decides:
+//   production environment (contains "prod", e.g. "4 - Production") → the
+//     release in production on the detection date = the latest release whose
+//     Go Live cycle started on or before it, cycle = its Go Live;
+//   anything else → the version in testing: one → it; several → the screen
+//     picks by the version it was opened from, by the CR chosen, by the
+//     tester's own assignments — or asks.
+// An OPS-team user starts with Environment "4 - Production".
+export interface DefectReleaseContext {
+  date: string;
+  isOpsUser: boolean;
+  production: { release: { id: string; label: string }; cycle: { id: string; label: string } | null; goLiveDate: string | null } | null;
+  testing: { versionId: string; name: string; mine: boolean; release: { id: string; label: string } | null; cycle: { id: string; label: string } | null }[];
+}
+
+const isGoLiveCycle = (name: string) => /^go\s*live$/i.test(name.trim());
+
+export async function getDefectReleaseContext(userId: string, date?: string): Promise<DefectReleaseContext> {
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(date ?? '') ? date! : new Date().toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  const releases = await getReleaseCycleOptions();
+  const goLiveOf = (r: ReleaseCycleOption) => r.cycles.find(c => isGoLiveCycle(c.name)) ?? null;
+
+  // in production on `day`: the latest release whose Go Live started on or before it
+  const live = releases
+    .map(r => ({ r, gl: goLiveOf(r) }))
+    .filter(x => x.gl?.startDate && x.gl.startDate <= day)
+    .sort((a, b) => String(b.gl!.startDate).localeCompare(String(a.gl!.startDate)))[0];
+  const production = live
+    ? { release: { id: live.r.id, label: live.r.name }, cycle: { id: live.gl!.id, label: live.gl!.name }, goLiveDate: live.gl!.startDate }
+    : null;
+
+  // in testing: running DeployCenter versions whose release hasn't gone live yet
+  const versions = await prisma.version.findMany({
+    where: { isQcHistorical: false, status: { notIn: ['DRAFT', 'COMPLETED', 'ROLLED_BACK'] } },
+    select: { id: true, name: true, qcRelease: { select: { relId: true, relName: true } } },
+    orderBy: { createdAt: 'asc' },
+  });
+  const mineRows = await prisma.qaAssignment.findMany({
+    where: { versionId: { in: versions.map(v => v.id) }, OR: [{ userId }, { secondaryTesterId: userId }] },
+    select: { versionId: true }, distinct: ['versionId'],
+  });
+  const mine = new Set(mineRows.map(r => r.versionId));
+  const testing = versions.map(v => {
+    const names = [v.qcRelease?.relName, v.name].filter(Boolean).map(n => n!.trim().toLowerCase());
+    const rel = releases.find(r => names.includes(r.name.trim().toLowerCase())) ?? null;
+    const gl = rel ? goLiveOf(rel) : null;
+    if (gl?.startDate && gl.startDate <= today) return null;   // already in production
+    // the test cycle running on the detection date (the latest that started; not Go Live)
+    const testCycles = (rel?.cycles ?? []).filter(c => !isGoLiveCycle(c.name));
+    const started = testCycles.filter(c => (c.startDate ?? '') <= day);
+    const cyc = started[started.length - 1] ?? testCycles[0] ?? null;   // none started yet → the first one
+    return {
+      versionId: v.id, name: v.name, mine: mine.has(v.id),
+      release: rel ? { id: rel.id, label: rel.name } : null,
+      cycle: cyc ? { id: cyc.id, label: cyc.name } : null,
+    };
+  }).filter((x): x is NonNullable<typeof x> => !!x);
+
+  const ops = await prisma.teamMember.count({ where: { userId, team: { category: 'OPS' } } });
+  return { date: day, isOpsUser: ops > 0, production, testing };
+}
+
 // Team (Responsibility) + Environment Component are a pair too: a team's
 // components are its "QC Environment Components" (AdminPanel), else its
 // systems (apps — what the deployments module uses); a team with neither

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { C, JIRA } from '../../theme';
 import { Card, Button, BackLink } from '../ui';
+import { formatDate } from '../../utils/dateFormat';
 import { useLeaveGuard, useUnsavedChanges } from '../../context/UnsavedChangesContext';
 import {
   DefectFieldCell, DefectFieldsCtx, PersonTeam, ReleaseCycleOptionT, RefValue, TeamEnvComponents, loadReleaseScopedOptions,
@@ -22,6 +23,12 @@ const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${win
 //   - the fields QC marks Required carry "*" and must be filled before creating;
 //   - fields the layout doesn't mark 🆕 are under "שדות נוספים";
 //   - Title, Description, the first comment (required by QC) and files.
+
+type ReleaseContext = {
+  date: string; isOpsUser: boolean;
+  production: { release: RefValue; cycle: RefValue | null; goLiveDate: string | null } | null;
+  testing: { versionId: string; name: string; mine: boolean; release: RefValue | null; cycle: RefValue | null; crs: string[] }[];
+};
 
 const REF_KEYS = new Set(['detectedInRelease', 'detectedInCycle', 'targetRelease', 'targetCycle']);
 const DETECTION_KEYS = new Set(['detectedBy', 'detectedOnDate']);
@@ -44,7 +51,6 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
   const [personTeams, setPersonTeams] = useState<PersonTeam[]>([]);
   const [releaseOptions, setReleaseOptions] = useState<ReleaseCycleOptionT[] | null>(null);
   const [teamEnv, setTeamEnv] = useState<TeamEnvComponents | null>(null);
-  const [versionCrs, setVersionCrs] = useState<string[]>([]);
   const [signature, setSignature] = useState('');
 
   // ── what the user fills in ─────────────────────────────────────────────
@@ -84,51 +90,77 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
       const m = /^(.*)\s<([^>]+)>/.exec(sig);
       if (m) setValues(v => (v.detectedBy ? v : { ...v, detectedBy: `${m[1].trim()} (${m[2].trim()})` }));
     }).catch(() => {});
-    // the running version → Detected in Release / Cycle + its CRs first in the CR list
-    get('/versions').then((vs: any[]) => {
-      const inFlight = (vs ?? []).filter(v => !['DRAFT', 'COMPLETED', 'ROLLED_BACK'].includes(v.status));
-      const vId = initialVersionId || inFlight[0]?.id;
-      if (!vId) return;
-      get(`/release-intelligence/defect-create-defaults/${vId}`).then(d => {
-        setRefValues(rv => {
-          if (rv.detectedInRelease) return rv;
-          const next = { ...rv };
-          if (d?.targetRelease?.id) next.detectedInRelease = { id: String(d.targetRelease.id), label: d.targetRelease.label };
-          if (d?.currentCycle?.qcCycleId) next.detectedInCycle = { id: String(d.currentCycle.qcCycleId), label: d.currentCycle.label };
-          return next;
-        });
-        setVersionCrs((d?.crOptions ?? []).map((c: any) => String(c.id)));
-      }).catch(() => {});
-    }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  // no defaults from the version → the running release from QC's own list,
-  // and its cycle that started most recently (by today's date)
+  // ── Which release the defect belongs to (user, 2026-10-09) ──────────────
+  // No testing/production switch: a production Environment ("4 - Production",
+  // anything with "prod") → the release in production on the detection date,
+  // cycle Go Live; otherwise the version in testing — the one the form was
+  // opened from, the only one, the one the CR belongs to, or the tester's own
+  // — else the user picks. An OPS-team user starts in production. A manual
+  // pick is kept until the Environment switches between test and production.
+  const [relCtx, setRelCtx] = useState<ReleaseContext | null>(null);
+  const [relReason, setRelReason] = useState<string>('');
+  const [releaseManual, setReleaseManual] = useState(false);
+  const isProd = /prod/i.test(values.environment ?? '');
+  const detectionDay = (values.detectedOnDate ?? '').slice(0, 10) || new Date().toISOString().slice(0, 10);
   useEffect(() => {
-    if (!releaseOptions?.length || refValues.detectedInRelease) return;
-    const timer = setTimeout(() => {
+    axios.get(`${API}/qc/defect-release-context`, { headers, params: { date: detectionDay } })
+      .then(r => setRelCtx(r.data ?? null)).catch(() => setRelCtx(null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detectionDay]);
+  // operations people open production defects
+  const opsDefaulted = useRef(false);
+  useEffect(() => {
+    if (!relCtx || opsDefaulted.current) return;
+    opsDefaulted.current = true;
+    if (relCtx.isOpsUser && !values.environment) {
+      const envList = fieldPicklists.environment ?? [];
+      const prodValue = envList.find(v => /^\s*4\s*-\s*production\s*$/i.test(v)) ?? '4 - Production';
+      setValues(v => ({ ...v, environment: prodValue }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [relCtx]);
+  // switching between test and production re-picks the release
+  const lastMode = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (lastMode.current !== null && lastMode.current !== isProd) setReleaseManual(false);
+    lastMode.current = isProd;
+  }, [isProd]);
+  const cr = values.crHbrNumberReference ?? '';
+  useEffect(() => {
+    if (!relCtx || releaseManual) return;
+    const apply = (rel: RefValue | null, cyc: RefValue | null, reason: string) => {
       setRefValues(rv => {
-        if (rv.detectedInRelease) return rv;
-        const rel = releaseOptions.find(r => r.inFlight);
-        if (!rel) return rv;
-        const today = new Date().toISOString().slice(0, 10);
-        const started = rel.cycles.filter(c => (c.startDate ?? '') <= today);
-        const cyc = started[started.length - 1] ?? rel.cycles[0];
-        return { ...rv, detectedInRelease: { id: rel.id, label: rel.name }, ...(cyc ? { detectedInCycle: { id: cyc.id, label: cyc.name } } : {}) };
+        const next = { ...rv };
+        if (rel) next.detectedInRelease = rel; else delete next.detectedInRelease;
+        if (cyc) next.detectedInCycle = cyc; else delete next.detectedInCycle;
+        return next;
       });
-    }, 1500);   // give the version's own defaults the first chance
-    return () => clearTimeout(timer);
-  }, [releaseOptions, refValues.detectedInRelease]);
-
-  // the version's own CRs first in the CR/HBR list
-  const picklists = useMemo(() => {
-    const list = fieldPicklists.crHbrNumberReference;
-    if (!list?.length || !versionCrs.length) return fieldPicklists;
-    const num = (v: string) => (/^\s*(\d+)/.exec(v)?.[1] ?? '');
-    const mine = list.filter(v => versionCrs.includes(num(v)));
-    return { ...fieldPicklists, crHbrNumberReference: [...mine, ...list.filter(v => !mine.includes(v))] };
-  }, [fieldPicklists, versionCrs]);
+      setRelReason(reason);
+    };
+    if (isProd) {
+      const p = relCtx.production;
+      apply(p?.release ?? null, p?.cycle ?? null, p
+        ? `תקלת ייצור — הגרסה שבייצור ב-${formatDate(relCtx.date)}${p.goLiveDate ? ` (עלתה ${formatDate(p.goLiveDate)})` : ''}`
+        : 'לא נמצאה גרסה שעלתה לייצור עד תאריך הגילוי — בחר גרסה');
+      return;
+    }
+    const withRel = relCtx.testing.filter(t => t.release);
+    const pick = (t: ReleaseContext['testing'][number], reason: string) => apply(t.release, t.cycle, reason);
+    const byCr = cr ? withRel.find(t => t.crs.includes(cr)) : undefined;
+    const opened = initialVersionId ? withRel.find(t => t.versionId === initialVersionId) : undefined;
+    const mine = withRel.filter(t => t.mine);
+    if (byCr) pick(byCr, `ה-CR שנבחר שייך ל-${byCr.name}`);
+    else if (opened) pick(opened, 'הגרסה שממנה נפתח הטופס');
+    else if (withRel.length === 1) pick(withRel[0], 'הגרסה היחידה בבדיקות');
+    else if (mine.length === 1) pick(mine[0], 'הגרסה שבה אתה משובץ לבדיקות');
+    else apply(null, null, withRel.length
+      ? `יש ${withRel.length} גרסאות בבדיקות (${withRel.map(t => t.name).join(', ')}) — בחר CR או גרסה`
+      : 'אין גרסה בבדיקות — בחר גרסה');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [relCtx, isProd, cr, releaseManual]);
 
   const groups = useMemo(() => (panels ?? DEFAULT_OPEN_PROD_DETAIL_GROUPS.map(g => ({ name: g.title, fields: g.fields, wide: g.wide })))
     .map(p => ({ ...p, fields: p.fields.filter(f => f !== ATTACHMENTS_FIELD) })), [panels]);
@@ -157,12 +189,13 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
     commitField: (k, v) => { touched.current = true; setValues(prev => ({ ...prev, [k]: v })); setEditingField(null); setMissing(m => { const n = new Set(m); n.delete(k); return n; }); },
     commitPair: (rk, ck, rel, cyc) => {
       touched.current = true;
+      if (rk === 'detectedInRelease') { setReleaseManual(true); setRelReason('נבחרה ידנית'); }
       setRefValues(prev => ({ ...prev, [rk]: rel, [ck]: cyc }));
       setEditingField(null);
       setMissing(m => { const n = new Set(m); n.delete(rk); n.delete(ck); return n; });
     },
     outsideCommit,
-    teamEnv, fieldPicklists: picklists, fieldKinds: editable.kinds, personDirectory, personTeams, releaseOptions,
+    teamEnv, fieldPicklists, fieldKinds: editable.kinds, personDirectory, personTeams, releaseOptions,
     currentStatus: 'New', allowedTransitions: null,
     loadScoped: (k, release) => loadReleaseScopedOptions(headers, k, release),
   };
@@ -256,6 +289,14 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
           className="mt-1.5 w-full rounded-sm px-3 py-2 text-[15px] font-semibold text-foreground outline-none"
           style={{ border: `1px solid ${error && !title.trim() ? '#DE350B' : JIRA.greyN40}` }} />
       </div>
+
+      {relReason && (
+        <div className="rounded-md px-4 py-2 text-[13px]" style={{ background: refValues.detectedInRelease ? '#eef4ff' : C.warningBg, color: JIRA.text }}>
+          📍 {refValues.detectedInRelease
+            ? <>גרסת הגילוי: <b dir="ltr">{refValues.detectedInRelease.label}</b>{refValues.detectedInCycle ? <> · סבב <b dir="ltr">{refValues.detectedInCycle.label}</b></> : null} — {relReason}</>
+            : <>{relReason}</>}
+        </div>
+      )}
 
       {/* the same panels, fields and pickers as the update form */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, direction: 'ltr' }}>
