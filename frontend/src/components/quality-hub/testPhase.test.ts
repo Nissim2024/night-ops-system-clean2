@@ -1,4 +1,4 @@
-import { testPhaseFor, withRequiredFields, CREATE_REQUIRED_FIELDS, normalizeLayout } from './openProdDefectsFields';
+import { testPhaseFor, withRequiredFields, CREATE_REQUIRED_FIELDS, normalizeLayout, pairUp, keepPairsTogether } from './openProdDefectsFields';
 
 // Test Phase follows the cycle (user, 2026-10-09)
 describe('testPhaseFor', () => {
@@ -37,8 +37,10 @@ describe('withRequiredFields', () => {
     { name: 'Target', fields: ['targetRelease', 'targetCycle', 'dropNumber'] },
   ];
   it('adds a missing required field next to its built-in neighbour', () => {
-    const out = withRequiredFields(layout());
-    expect(out[1].fields).toEqual(['detectedBy', 'detectedOnDate', 'detectedInRelease', 'detectedInCycle', 'testPhase', 'environmentComponent', 'system', 'subModule']);
+    const l = layout();
+    l[0].fields = l[0].fields.filter(f => f !== 'crHbrNumberReference');   // CR/HBR is added in front of its partner
+    const out = withRequiredFields(l);
+    expect(out[1].fields).toEqual(['detectedBy', 'detectedOnDate', 'detectedInRelease', 'detectedInCycle', 'testPhase', 'environmentComponent', 'crHbrNumberReference', 'system', 'subModule']);
     expect(out.flatMap(p => p.fields).filter(f => f === 'system')).toHaveLength(1);
   });
   it('every required field ends up in the form, nothing is duplicated', () => {
@@ -58,11 +60,11 @@ describe('normalizeLayout', () => {
   it('an older layout keeps 3 panels on top and merges the rest below', () => {
     const out = normalizeLayout([
       { name: 'Identification', fields: ['id'] }, { name: 'Detection', fields: ['detectedBy'] },
-      { name: 'Responsibility', fields: ['assignedTo'] }, { name: 'Target', fields: ['targetRelease', 'targetCycle'], wide: ['targetCycle'] },
+      { name: 'Responsibility', fields: ['assignedTo'] }, { name: 'Target', fields: ['targetRelease', 'targetCycle', 'dropNumber'], wide: ['dropNumber'] },
       { name: 'Impact', fields: ['impact'] },
     ]);
     expect(out.map(p => p.name)).toEqual(['Identification', 'Detection', 'Responsibility', 'שדות נוספים']);
-    expect(out[3]).toMatchObject({ below: true, fields: ['targetRelease', 'targetCycle', 'impact'], wide: ['targetCycle'] });
+    expect(out[3]).toMatchObject({ below: true, fields: ['targetRelease', 'targetCycle', 'dropNumber', 'impact'], wide: ['dropNumber'] });
   });
   it('a layout that already marks a panel below is kept as is', () => {
     const l = [{ name: 'A', fields: ['id'] }, { name: 'B', fields: ['x'] }, { name: 'C', fields: [] }, { name: 'D', fields: [] }, { name: 'More', fields: ['y'], below: true }];
@@ -70,5 +72,38 @@ describe('normalizeLayout', () => {
   });
   it('three panels or fewer → nothing below', () => {
     expect(normalizeLayout([{ name: 'A', fields: ['id'] }]).some(p => p.below)).toBe(false);
+  });
+});
+
+// related fields side by side (2026-10-09)
+describe('field pairs', () => {
+  it('pairUp groups a pair only when both are there, first member first', () => {
+    expect(pairUp(['detectedInCycle', 'severity', 'detectedInRelease', 'environment']))
+      .toEqual([['detectedInRelease', 'detectedInCycle'], 'severity', 'environment']);
+  });
+  it('keepPairsTogether brings the partner next to the first field, across panels, and drops ↔', () => {
+    const l = [
+      { name: 'A', fields: ['environment', 'severity'], wide: ['environment'] },
+      { name: 'B', fields: ['priority', 'environmentComponent'] },
+    ];
+    keepPairsTogether(l);
+    expect(l[0].fields).toEqual(['environment', 'environmentComponent', 'severity']);
+    expect(l[1].fields).toEqual(['priority']);
+    expect(l[0].wide).toEqual([]);
+  });
+  it('the field just moved is followed by its partner', () => {
+    const l = [{ name: 'A', fields: ['environment', 'x'] }, { name: 'B', fields: ['y', 'environmentComponent'] }];
+    keepPairsTogether(l, 'environmentComponent');
+    expect(l[0].fields).toEqual(['x']);
+    expect(l[1].fields).toEqual(['y', 'environment', 'environmentComponent']);
+  });
+  it('a required field joins its partner (Project next to CR/HBR)', () => {
+    const out = withRequiredFields([{ name: 'A', fields: ['severity', 'crHbrNumberReference', 'priority'] }, { name: 'B', fields: ['detectedBy'] }]);
+    const a = out[0].fields;
+    expect(a[a.indexOf('crHbrNumberReference') + 1]).toBe('system');
+  });
+  it('an older layout comes out with its pairs together', () => {
+    const out = normalizeLayout([{ name: 'A', fields: ['detectedInRelease', 'severity', 'detectedInCycle'] }]);
+    expect(out[0].fields).toEqual(['detectedInRelease', 'detectedInCycle', 'severity']);
   });
 });

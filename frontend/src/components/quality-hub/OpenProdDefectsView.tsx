@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import axios from 'axios';
 import { C, FONT, JIRA } from '../../theme';
 import { Card, Badge, BackLink, Avatar } from '../ui';
-import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, testPhaseFor, CREATE_REQUIRED_FIELDS, withRequiredFields, builtinPanels, normalizeLayout } from './openProdDefectsFields';
+import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, testPhaseFor, CREATE_REQUIRED_FIELDS, withRequiredFields, builtinPanels, normalizeLayout, pairUp } from './openProdDefectsFields';
 import {
   hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroup,
   FieldChangeHistorySection, AttachmentsSection, parseNoteEntries, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
@@ -680,19 +680,27 @@ export const DefectFieldCell: React.FC<{ fieldKey: string; wide: boolean; ctx: D
                           // Editable = a light blue wash + ✏️ on hover (user, 2026-10-09:
                           // the dashed frame on every field was noise); locked = 🔒 by
                           // the label; editing = solid blue frame; unsaved = yellow.
-                          className={cn('group relative flex min-w-0 flex-col gap-1 rounded-md px-1.5 py-1 transition-colors',
+                          className={cn('group relative min-w-0 rounded-md px-1.5 py-1 transition-colors',
                             isEditable && !isEditingThis && !isDirty && 'hover:bg-[#eef4ff]')}
                           style={{
                             gridColumn: isWide ? '1 / -1' : undefined,
+                            // label + value on the field grid's own row tracks (DefectFieldGrid):
+                            // a label that wraps makes its whole row taller, values stay aligned
+                            display: 'grid', gridRow: 'span 2', gridTemplateRows: 'subgrid', rowGap: 4,
                             border: isEditingThis ? `1px solid ${JIRA.blue}` : isMissing ? '1px solid #DE350B' : '1px solid transparent',
                             cursor: isEditable && !isEditingThis ? 'pointer' : undefined,
                             background: isDirty ? '#fffbe6' : undefined,
                           }}
                         >
-                          <span className="flex min-w-0 items-center gap-1 text-xs font-bold tracking-wide" style={{ color: JIRA.textSubtle, direction: 'ltr' }}>
-                            <span className="truncate" title={label}>{label}</span>
-                            {isRequired && <span className="shrink-0" style={{ color: '#DE350B' }} title="שדה חובה ב-QC">*</span>}
-                            {!isEditable && <span className="shrink-0 text-[10px] opacity-60" title={lockReason ?? 'שדה לקריאה בלבד'}>🔒</span>}
+                          {/* the full label — wraps instead of "…" (user, 2026-10-09) */}
+                          <span className="min-w-0 self-end break-words pe-3 text-xs font-bold leading-snug tracking-wide" style={{ color: JIRA.textSubtle, direction: 'ltr' }}>
+                            {/* the last word keeps its * / 🔒 on the same line */}
+                            {label.includes(' ') ? `${label.slice(0, label.lastIndexOf(' '))} ` : ''}
+                            <span className="whitespace-nowrap">
+                              {label.slice(label.lastIndexOf(' ') + 1)}
+                              {isRequired && <span style={{ color: '#DE350B' }} title="שדה חובה ב-QC">{' '}*</span>}
+                              {!isEditable && <span className="text-[10px] opacity-60" title={lockReason ?? 'שדה לקריאה בלבד'}>{' '}🔒</span>}
+                            </span>
                             {isEditable && !isEditingThis && <span className="pointer-events-none absolute right-1.5 top-1 text-[11px] opacity-0 transition-opacity group-hover:opacity-100" aria-hidden>✏️</span>}
                           </span>
                           {/* same height in every box; one line unless the field is wide.
@@ -756,6 +764,31 @@ export const DefectFieldCell: React.FC<{ fieldKey: string; wide: boolean; ctx: D
                         </div>
                       );
 };
+
+// The field grid of both defect forms (user, 2026-10-09): equal columns, the
+// FULL label of every field (a long one wraps and its row of fields lines up
+// — CSS subgrid), and related fields always side by side: a pair is one
+// two-column item, so one that would start in the last column moves to the
+// next row together. At least two columns, so a pair always fits.
+export const DefectFieldGrid: React.FC<{
+  fields: string[]; wide?: string[]; ctx: DefectFieldsCtx;
+  special?: (key: string) => React.ReactNode;   // e.g. 📎 attachments
+}> = ({ fields, wide, ctx, special }) => (
+  <div style={{ display: 'grid', direction: 'ltr', columnGap: 12, rowGap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(min(170px, calc(50% - 6px)), 1fr))' }}>
+    {pairUp(fields).map(item => {
+      if (Array.isArray(item)) {
+        return (
+          <div key={item.join('+')} style={{ gridColumn: 'span 2', gridRow: 'span 2', display: 'grid', gridTemplateColumns: 'subgrid', gridTemplateRows: 'subgrid', rowGap: 4 }}>
+            {item.map(k => <DefectFieldCell key={k} fieldKey={k} wide={false} ctx={ctx} />)}
+          </div>
+        );
+      }
+      const sp = special?.(item);
+      if (sp) return <div key={item} style={{ gridColumn: '1 / -1', gridRow: 'span 2' }}>{sp}</div>;
+      return <DefectFieldCell key={item} fieldKey={item} wide={!!wide?.includes(item)} ctx={ctx} />;
+    })}
+  </div>
+);
 
 // CR/HBR reference → the release's CRs + fixed values; Project → the
 // release's systems in DeployCenter (both forms)
@@ -1393,23 +1426,14 @@ export const DefectDetailScreen: React.FC<{
                   <div dir="auto" className="text-sm font-bold mb-3 text-foreground text-start">
                     {group.title}
                   </div>
-                  {/* Aligned grid (user, 2026-10-08): every field box in a column has
-                      the same width, values stay on one line (full value on hover);
-                      a "wide" field (layout ↔) takes the whole row and may wrap. */}
-                  <div className="grid gap-x-3 gap-y-3" style={{ direction: 'ltr', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))' }}>
-                    {group.fields.map(key => {
-                      const isWide = !!group.wide?.includes(key);
-                      if (key === ATTACHMENTS_FIELD) {
-                        return (
-                          <div key={key} className="flex min-w-0 flex-col items-start gap-1 px-1 py-0.5" style={{ gridColumn: '1 / -1' }}>
-                            <span className="text-xs font-bold tracking-wide" style={{ color: JIRA.textSubtle }}>{ATTACHMENTS_FIELD_DEF.label}</span>
-                            <AttachmentsSection defectId={defectId} token={token} compact />
-                          </div>
-                        );
-                      }
-                      return <DefectFieldCell key={key} fieldKey={key} wide={isWide} ctx={fieldCtx} />;
-                    })}
-                  </div>
+                  {/* equal columns, full labels, related fields side by side (DefectFieldGrid) */}
+                  <DefectFieldGrid fields={group.fields} wide={group.wide} ctx={fieldCtx}
+                    special={key => key === ATTACHMENTS_FIELD && (
+                      <div className="flex min-w-0 flex-col items-start gap-1 px-1 py-0.5">
+                        <span className="text-xs font-bold tracking-wide" style={{ color: JIRA.textSubtle }}>{ATTACHMENTS_FIELD_DEF.label}</span>
+                        <AttachmentsSection defectId={defectId} token={token} compact />
+                      </div>
+                    )} />
                 </div>
               );
               // top panels side by side, the full-width ones under them

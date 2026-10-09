@@ -184,6 +184,56 @@ export function builtinPanels(detailFields: string[]): { name: string; fields: s
     .filter(g => g.fields.length > 0);
 }
 
+// ── Related fields sit side by side (user, 2026-10-09) ────────────────────
+// Both forms render a pair as one two-column item (a pair never splits over
+// two rows); layouts keep the two together in one panel, partner right after.
+// A pair takes one column each — it overrides the ↔ full-row setting.
+export const FIELD_PAIRS: [string, string][] = [
+  ['detectedBy', 'detectedOnDate'],
+  ['detectedInRelease', 'detectedInCycle'],
+  ['targetRelease', 'targetCycle'],
+  ['environment', 'environmentComponent'],
+  ['responsibility', 'assignedTo'],
+  ['crHbrNumberReference', 'system'],
+];
+export const pairPartnerOf = (f: string): string | null => {
+  const p = FIELD_PAIRS.find(([a, b]) => a === f || b === f);
+  return p ? (p[0] === f ? p[1] : p[0]) : null;
+};
+// fields → render items: a field, or a pair [first, second] when both are there
+export function pairUp(fields: string[]): (string | [string, string])[] {
+  const out: (string | [string, string])[] = [];
+  const used = new Set<string>();
+  for (const f of fields) {
+    if (used.has(f)) continue;
+    const pair = FIELD_PAIRS.find(([a, b]) => a === f || b === f);
+    if (pair && fields.includes(pair[0]) && fields.includes(pair[1])) {
+      out.push(pair); used.add(pair[0]); used.add(pair[1]);
+      continue;
+    }
+    out.push(f); used.add(f);
+  }
+  return out;
+}
+// Puts each pair's partner right next to it (same panel). `moved` = the field
+// just moved in the layout editor: its partner follows it; otherwise the
+// pair's first field stays and the second joins it. Mutates `panels`.
+export function keepPairsTogether<P extends { fields: string[]; wide?: string[] }>(panels: P[], moved?: string): P[] {
+  for (const [a, b] of FIELD_PAIRS) {
+    const pa = panels.find(p => p.fields.includes(a));
+    const pb = panels.find(p => p.fields.includes(b));
+    if (!pa || !pb) continue;
+    const anchorIsB = moved === b;
+    const anchor = anchorIsB ? b : a, other = anchorIsB ? a : b;
+    const anchorP = anchorIsB ? pb : pa, otherP = anchorIsB ? pa : pb;
+    otherP.fields.splice(otherP.fields.indexOf(other), 1);
+    const i = anchorP.fields.indexOf(anchor);
+    anchorP.fields.splice(anchorIsB ? i : i + 1, 0, other);
+    for (const p of [pa, pb]) if (p.wide) p.wide = p.wide.filter(x => x !== a && x !== b);
+  }
+  return panels;
+}
+
 // A saved layout may predate a QC-required field (Project, 2026-10-09): both
 // forms then show it in the panel that holds most of its built-in neighbours,
 // right after the nearest one — so the create and update forms stay alike.
@@ -193,6 +243,14 @@ export function withRequiredFields<P extends { fields: string[] }>(panels: P[]):
   const present = new Set(out.flatMap(p => p.fields));
   for (const f of [...Array.from(CREATE_REQUIRED_FIELDS), 'testPhase']) {
     if (present.has(f)) continue;
+    const partner = pairPartnerOf(f);
+    const partnerPanel = partner ? out.find(p => p.fields.includes(partner)) : undefined;
+    if (partner && partnerPanel) {
+      const i = partnerPanel.fields.indexOf(partner);
+      partnerPanel.fields.splice(FIELD_PAIRS.some(([a]) => a === f) ? i : i + 1, 0, f);
+      present.add(f);
+      continue;
+    }
     const home = DEFAULT_OPEN_PROD_DETAIL_GROUPS.find(g => g.fields.includes(f));
     let target = out[0];
     if (home) {
@@ -220,14 +278,14 @@ export const TOP_PANEL_COUNT = 3;
 export const MORE_FIELDS_PANEL = 'שדות נוספים';
 export type LayoutPanel = { name: string; fields: string[]; wide?: string[]; below?: boolean };
 export function normalizeLayout<P extends LayoutPanel>(panels: P[]): LayoutPanel[] {
-  if (panels.some(p => p.below)) return panels.map(p => ({ ...p, fields: [...p.fields], wide: [...(p.wide ?? [])] }));
-  const top = panels.slice(0, TOP_PANEL_COUNT).map(p => ({ ...p, fields: [...p.fields], wide: [...(p.wide ?? [])] }));
+  if (panels.some(p => p.below)) return keepPairsTogether(panels.map(p => ({ ...p, fields: [...p.fields], wide: [...(p.wide ?? [])] })));
+  const top: LayoutPanel[] = panels.slice(0, TOP_PANEL_COUNT).map(p => ({ ...p, fields: [...p.fields], wide: [...(p.wide ?? [])] }));
   const rest = panels.slice(TOP_PANEL_COUNT);
-  if (rest.length === 0) return top;
-  return [...top, {
+  if (rest.length === 0) return keepPairsTogether(top);
+  return keepPairsTogether([...top, {
     name: MORE_FIELDS_PANEL,
     fields: rest.flatMap(p => p.fields),
     wide: rest.flatMap(p => p.wide ?? []),
     below: true,
-  }];
+  }]);
 }

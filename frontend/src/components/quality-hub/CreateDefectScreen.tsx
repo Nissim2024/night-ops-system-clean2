@@ -5,7 +5,7 @@ import { Card, Button, BackLink } from '../ui';
 import { formatDate } from '../../utils/dateFormat';
 import { useLeaveGuard, useUnsavedChanges } from '../../context/UnsavedChangesContext';
 import {
-  DefectFieldCell, DefectFieldsCtx, PersonTeam, ReleaseCycleOptionT, RefValue, TeamEnvComponents, loadReleaseScopedOptions, singleProjectForCr,
+  DefectFieldGrid, DefectFieldsCtx, PersonTeam, ReleaseCycleOptionT, RefValue, TeamEnvComponents, loadReleaseScopedOptions, singleProjectForCr,
 } from './OpenProdDefectsView';
 import {
   ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, CREATE_REQUIRED_FIELDS, DETAIL_FIELD_LABEL, testPhaseFor, normalizeLayout,
@@ -306,7 +306,7 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
   };
 
   const attachmentsCell = (
-    <div key={ATTACHMENTS_FIELD} className="flex min-w-0 flex-col items-start gap-1 px-1 py-0.5" style={{ gridColumn: '1 / -1' }}>
+    <div className="flex min-w-0 flex-col items-start gap-1 px-1 py-0.5">
       <span className="text-xs font-bold tracking-wide" style={{ color: JIRA.textSubtle }}>{ATTACHMENTS_FIELD_DEF.label}</span>
       <div dir="rtl" className="flex w-full flex-col gap-1.5">
         {attachedFiles.map((f, i) => (
@@ -354,10 +354,7 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
       {/* the update form's panels, cell for cell: top row + full-width ones under it */}
       {(() => {
         const fieldsGrid = (p: typeof groups[number]) => (
-          <div className="grid gap-x-3 gap-y-3" style={{ direction: 'ltr', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))' }}>
-            {p.fields.map(f => (f === ATTACHMENTS_FIELD ? attachmentsCell
-              : <DefectFieldCell key={f} fieldKey={f} wide={!!p.wide?.includes(f)} ctx={ctx} />))}
-          </div>
+          <DefectFieldGrid fields={p.fields} wide={p.wide} ctx={ctx} special={f => f === ATTACHMENTS_FIELD && attachmentsCell} />
         );
         return (
           <>
