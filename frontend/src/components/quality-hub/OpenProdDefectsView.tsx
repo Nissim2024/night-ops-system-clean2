@@ -418,7 +418,14 @@ const ReleaseCycleEditor: React.FC<{
   releases: ReleaseCycleOptionT[] | null; startOnCycle: boolean;
   currentRelease: string; currentCycle: string;
   onCommit: (release: RefValue, cycle: RefValue) => void; onCancel: () => void;
-}> = ({ releases, startOnCycle, currentRelease, currentCycle, onCommit, onCancel }) => {
+  /** Target Release (user, 2026-10-09): only releases that start after this one
+   *  (the defect's Detected in Release); none known = from today on */
+  laterThan?: { name: string | null; startDate: string | null };
+}> = ({ releases: allReleases, startOnCycle, currentRelease, currentCycle, onCommit, onCancel, laterThan }) => {
+  const floor = laterThan ? (laterThan.startDate ?? new Date().toISOString().slice(0, 10)) : null;
+  const releases = allReleases && floor
+    ? allReleases.filter(r => r.name === currentRelease || (!!r.startDate && r.startDate > floor))
+    : allReleases;
   const matched = releases?.find(r => r.name === currentRelease) ?? null;
   const [rel, setRel] = useState<ReleaseCycleOptionT | null>(startOnCycle ? matched : null);
   if (!releases) return <div className="p-1 text-xs text-subtle-foreground">טוען גרסאות…</div>;
@@ -432,7 +439,9 @@ const ReleaseCycleEditor: React.FC<{
     }));
     return (
       <div className="flex flex-col gap-2">
-        <StepHeader step={1} text="בחר גרסה" />
+        <StepHeader step={1} text={laterThan
+          ? (laterThan.name ? `בחר גרסה — מוצגות גרסאות מאוחרות מ-${laterThan.name}` : 'בחר גרסה — מוצגות גרסאות מהיום והלאה')
+          : 'בחר גרסה'} />
         <PickList options={opts} current={matched?.id ?? ''} onCancel={onCancel} placeholder="חפש גרסה…"
           onPick={id => {
             const r = releases.find(x => x.id === id);
@@ -1124,6 +1133,11 @@ export const DefectDetailScreen: React.FC<{
                                 <ReleaseCycleEditor
                                   releases={releaseOptions}
                                   startOnCycle={key === pair[1]}
+                                  laterThan={pair[0] === 'targetRelease' ? (() => {
+                                    const detName = pendingRefEdits.detectedInRelease?.label ?? String(detail.detectedInRelease ?? '');
+                                    const det = (releaseOptions ?? []).find(r => r.name === detName);
+                                    return { name: det ? det.name : null, startDate: det?.startDate ?? null };
+                                  })() : undefined}
                                   currentRelease={pendingRefEdits[pair[0]]?.label ?? String(detail[pair[0]] ?? '')}
                                   currentCycle={pendingRefEdits[pair[1]]?.label ?? String(detail[pair[1]] ?? '')}
                                   onCommit={(rel, cyc) => commitRefPair(pair[0], pair[1], rel, cyc)}
