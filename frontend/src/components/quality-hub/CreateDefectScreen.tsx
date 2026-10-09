@@ -4,6 +4,7 @@ import { C } from '../../theme';
 import { Card, Button, TextField, BackLink } from '../ui';
 import { FieldRow, FieldRowsEditor } from '../QcWriteTestPanel';
 
+import { useLeaveGuard, useUnsavedChanges } from '../../context/UnsavedChangesContext';
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 // Real business-key sets already established this session (qc-rest.service.ts's
@@ -173,6 +174,17 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
   const selectedTeamOption = responsibilityOptions.find(o => o.teamId === teamId) || null;
   const canSubmit = title.trim().length > 0 && !creating;
 
+  // Leave guard (user, 2026-10-09): leaving a filled-in form that was not yet
+  // created in QC asks first — back, cancel, sidebar, top bar, refresh.
+  const typedCount = !createdIdPendingAttachments ? [
+    title.trim(), description.trim(), comments.trim(), envComponent, crId, memberId,
+    attachedFiles.length > 0, extraRows.some(r => r.name.trim()),
+    severity !== 'Severe', priority !== 'Medium', bugType !== 'Functional', testPhase !== 'System Test', environment !== 'Test',
+  ].filter(Boolean).length : 0;
+  const { confirmLeave } = useUnsavedChanges();
+  useLeaveGuard({ count: () => (creating ? 0 : typedCount), label: () => 'תקלה חדשה שטרם נוצרה' });
+  const leave = async () => { if (await confirmLeave()) onBack(); };
+
   const submit = async () => {
     if (!title.trim()) { setError('יש להזין כותרת (Summary)'); return; }
     setCreating(true); setError(null);
@@ -264,7 +276,7 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
 
   return (
     <div className="flex flex-col gap-4 px-7 py-5" dir="rtl">
-      <BackLink onClick={onBack} label="חזרה" />
+      <BackLink onClick={leave} label="חזרה" />
 
       <Card>
         <div className="flex items-center gap-2.5">
@@ -440,7 +452,7 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
         </Card>
       ) : (
         <div className="flex justify-end gap-2.5">
-          <Button variant="outline" onClick={onBack}>ביטול</Button>
+          <Button variant="outline" onClick={leave}>ביטול</Button>
           <Button onClick={submit} disabled={!canSubmit}>{creating ? 'יוצר…' : '✓ פתח תקלה ב-QC'}</Button>
         </div>
       )}

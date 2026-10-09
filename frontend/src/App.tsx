@@ -4,6 +4,7 @@ import { ManagerDashboard } from './components/ManagerDashboard';
 import { EmployeeDashboard } from './components/EmployeeDashboard';
 import { PermissionsProvider } from './context/PermissionsContext';
 import { DialogProvider } from './context/DialogContext';
+import { UnsavedChangesProvider } from './context/UnsavedChangesContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 // Deep link (e.g. from a "copy Home to email" link): ?go=ri-home&versionId=<id>.
@@ -63,12 +64,14 @@ function App() {
   return (
     <ErrorBoundary>
       <DialogProvider>
-        <PermissionsProvider token={token} role={payload.role}>
-          {isManager
-            ? <ManagerDashboard token={token} onLogout={handleLogout} deepLink={deepLink} onDeepLinkConsumed={() => setDeepLink(null)} />
-            : <EmployeeDashboard token={token} onLogout={handleLogout} />
-          }
-        </PermissionsProvider>
+        <UnsavedChangesProvider>
+          <PermissionsProvider token={token} role={payload.role}>
+            {isManager
+              ? <ManagerDashboard token={token} onLogout={handleLogout} deepLink={deepLink} onDeepLinkConsumed={() => setDeepLink(null)} />
+              : <EmployeeDashboard token={token} onLogout={handleLogout} />
+            }
+          </PermissionsProvider>
+        </UnsavedChangesProvider>
       </DialogProvider>
     </ErrorBoundary>
   );

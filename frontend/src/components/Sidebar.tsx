@@ -141,6 +141,7 @@ export const Sidebar: React.FC<Props> = ({
 
   return (
     <div
+      data-leave-guard=""
       className="flex w-[280px] min-w-[280px] flex-col overflow-y-auto"
       style={{ background: C.sidebarBg, borderLeft: `1px solid ${C.sidebarBorder}` }}
     >

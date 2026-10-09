@@ -661,8 +661,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
   return (
     <div style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', background: C.bgApp, fontFamily: FONT, direction: 'rtl', color: C.textPrimary }}>
 
-      {/* ─── Header ─── */}
-      <div style={{
+      {/* ─── Header ─── (data-leave-guard: a click here asks first when a form has unsaved changes) */}
+      <div data-leave-guard="" style={{
         background: C.headerBg,
         padding: `0 ${SP[6]}`,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -1749,7 +1749,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
             };
             const c = colors[toast.type];
             return (
-              <div key={toast.id} className="toast-slide-in" style={{
+              <div key={toast.id} data-leave-guard="" className="toast-slide-in" style={{
                 pointerEvents: 'auto',
                 minWidth: '300px', maxWidth: '440px',
                 background: c.bg,

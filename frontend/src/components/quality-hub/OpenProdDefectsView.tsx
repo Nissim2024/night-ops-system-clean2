@@ -16,6 +16,8 @@ import { useAutoFitTable, WRAP_CLAMP_STYLE } from '../shared/useAutoFitTable';
 import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from '../ui/BrandedDialog';
 import { decodeNoteEntities } from '../shared/noteEntries';
 import { usePermissions } from '../../context/PermissionsContext';
+import { useLeaveGuard, useUnsavedChanges } from '../../context/UnsavedChangesContext';
+import { BrandedDialog, DialogButton } from '../ui/BrandedDialog';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -263,7 +265,11 @@ const PickList: React.FC<{
 // full-screen defect overlay (z-1001). At least as wide as the field; long
 // value lists (CR/HBR reference, …) ask for more. Closes on an outside click
 // (= cancel); follows the field when the page scrolls.
-const EditPopover: React.FC<{ onClose: () => void; title?: string; subtitle?: string; width?: number; children: React.ReactNode }> = ({ onClose, title, subtitle, width = 320, children }) => {
+const EditPopover: React.FC<{
+  onClose: () => void; title?: string; subtitle?: string; width?: number; children: React.ReactNode;
+  /** a click outside the panel — defaults to onClose (cancel); text editors keep what was typed */
+  onOutside?: () => void;
+}> = ({ onClose, onOutside, title, subtitle, width = 320, children }) => {
   const markRef = useRef<HTMLSpanElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number; up: boolean; w: number } | null>(null);
@@ -284,7 +290,7 @@ const EditPopover: React.FC<{ onClose: () => void; title?: string; subtitle?: st
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node;
       if (panelRef.current?.contains(t) || markRef.current?.parentElement?.contains(t)) return;
-      onClose();
+      (onOutside ?? onClose)();
     };
     document.addEventListener('mousedown', onDown);
     // focus the editor without scrolling the page
@@ -294,7 +300,7 @@ const EditPopover: React.FC<{ onClose: () => void; title?: string; subtitle?: st
       window.removeEventListener('resize', place);
       document.removeEventListener('mousedown', onDown);
     };
-  }, [onClose, place]);
+  }, [onClose, onOutside, place]);
   return (
     <>
       <span ref={markRef} style={{ display: 'none' }} />
@@ -328,8 +334,17 @@ const InlineFieldEditor: React.FC<{
   personOptions?: { login: string; fullName: string }[];
   /** list / person / date / number / text / memo — from the production QC field dump */
   fieldKind?: string;
-}> = ({ fieldKey, initialValue, currentStatus, allowedTransitions, dynamicOptions, onCommit, onCancel, personOptions, fieldKind }) => {
+  /** set while a text-like editor is open: a click outside keeps what was typed (user, 2026-10-09) */
+  outsideCommitRef?: React.MutableRefObject<(() => void) | null>;
+}> = ({ fieldKey, initialValue, currentStatus, allowedTransitions, dynamicOptions, onCommit, onCancel, personOptions, fieldKind, outsideCommitRef }) => {
   const [value, setValue] = useState(initialValue);
+  const isPickList = fieldKey === 'status' || PERSON_FIELDS.has(fieldKey) || fieldKind === 'person'
+    || (fieldKind !== 'date' && fieldKind !== 'number' && fieldKind !== 'memo' && (!!(dynamicOptions && dynamicOptions.length) || !!TIER2_FIELD_OPTIONS[fieldKey]));
+  useEffect(() => {
+    if (!outsideCommitRef) return;
+    outsideCommitRef.current = isPickList ? null : () => onCommit(value);
+    return () => { outsideCommitRef.current = null; };
+  });
   const fieldClass = 'w-full box-border px-2.5 py-1.5 rounded-md border border-border text-[13px] bg-card text-foreground outline-none focus:border-primary';
   const withCurrent = (opts: PickOption[]) => (initialValue && !opts.some(o => o.value === initialValue || o.label === initialValue)
     ? [{ value: initialValue, label: initialValue, hint: 'נוכחי' }, ...opts] : opts);
@@ -473,6 +488,21 @@ function teamComponentsFor(data: TeamEnvComponents | null, team: string): string
   return hit?.components ?? [];
 }
 
+// Unsaved defect-form changes kept in this browser (see DefectDetailScreen)
+type DefectDraft = { pendingEdits: Record<string, string>; pendingRefEdits: Record<string, RefValue>; newComment: string | null; at: number };
+type DefectChange = { key: string; label: string; mine: boolean; before: string; after: string; by?: string; at?: string };
+function readDefectDraft(key: string): DefectDraft | null {
+  try {
+    const d = JSON.parse(localStorage.getItem(key) ?? 'null');
+    return d && typeof d === 'object' && draftChangeCount(d) > 0 ? d : null;
+  } catch { return null; }
+}
+function draftChangeCount(d: DefectDraft): number {
+  return Object.keys(d.pendingEdits ?? {}).length
+    + new Set(Object.keys(d.pendingRefEdits ?? {}).map(k => REF_PAIR_OF[k]?.[0] ?? k)).size
+    + (d.newComment?.trim() ? 1 : 0);
+}
+
 // Full-screen drill-down for one defect — replaces the table view entirely
 // (back button, same pattern as CycleProgressView's CycleDetailScreen)
 // rather than an inline expand, per the explicit "מסך חדש" requirement.
@@ -499,11 +529,14 @@ export const DefectDetailScreen: React.FC<{
     setDetail(null);
     setDetailLoading(true);
     axios.get(`${API}/qc/open-prod-defect-detail/${encodeURIComponent(defectId)}`, { headers })
-      .then(r => setDetail(r.data ?? null))
+      .then(r => { setDetail(r.data ?? null); baseDetailRef.current = r.data ?? null; })
       .catch(() => setDetail(null))
       .finally(() => setDetailLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defectId, token, detailReload]);
+  // what the form showed when it was loaded — compared with QC again right
+  // before saving, to catch someone else's change in between (2026-10-09)
+  const baseDetailRef = useRef<DefectFullDetail | null>(null);
 
   const currentStatus = String(detail?.status ?? '');
 
@@ -672,11 +705,85 @@ export const DefectDetailScreen: React.FC<{
     + new Set(Object.keys(pendingRefEdits).map(k => REF_PAIR_OF[k]?.[0] ?? k)).size
     + (newComment?.trim() ? 1 : 0);
 
-  const saveInlineEdits = async () => {
-    if (pendingCount === 0) return;
+  // ── Draft (user, 2026-10-09): every change is kept in this browser per
+  // defect until it reaches QC, so a refresh, a closed tab or an expired
+  // login doesn't lose it; reopening the defect offers to restore it.
+  const draftKey = `dc_defect_draft_${defectId}`;
+  const [draftOffer, setDraftOffer] = useState<DefectDraft | null>(null);
+  const draftReady = useRef(false);   // false while a found draft waits for restore / discard
+  useEffect(() => {
+    const d = readDefectDraft(draftKey);
+    draftReady.current = !d;
+    setDraftOffer(d);
+  }, [draftKey]);
+  useEffect(() => {
+    if (!draftReady.current) return;
+    try {
+      if (pendingCount === 0 && !newComment) localStorage.removeItem(draftKey);
+      else localStorage.setItem(draftKey, JSON.stringify({ pendingEdits, pendingRefEdits, newComment, at: Date.now() }));
+    } catch { /* storage unavailable — the leave guard still protects */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingEdits, pendingRefEdits, newComment]);
+  const restoreDraft = () => {
+    if (!draftOffer) return;
+    setPendingEdits(draftOffer.pendingEdits ?? {}); setPendingRefEdits(draftOffer.pendingRefEdits ?? {}); setNewComment(draftOffer.newComment ?? null);
+    draftReady.current = true; setDraftOffer(null);
+  };
+  const dropDraft = () => {
+    try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
+    draftReady.current = true; setDraftOffer(null);
+  };
+
+  // An expired login: the changes stay (draft); "leave without saving" then keeps the draft too.
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  // ── Someone else changed the defect in QC since it was opened (2026-10-09)
+  const [conflict, setConflict] = useState<{ fresh: DefectFullDetail; changes: DefectChange[] } | null>(null);
+  const conflictResolve = useRef<((choice: 'overwrite' | 'review' | 'cancel') => void) | null>(null);
+  const findConflicts = async (): Promise<{ fresh: DefectFullDetail; changes: DefectChange[] } | null> => {
+    const base = baseDetailRef.current;
+    if (!base) return null;
+    const fresh: DefectFullDetail | null = (await axios.get(`${API}/qc/open-prod-defect-detail/${encodeURIComponent(defectId)}`, { headers })).data ?? null;
+    if (!fresh) return null;
+    const mine = new Set([...Object.keys(pendingEdits), ...Object.keys(pendingRefEdits)]);
+    const changed = Object.keys({ ...base, ...fresh }).filter(k => k !== 'modified' && typeof (fresh as any)[k] !== 'object'
+      && String((base as any)[k] ?? '').trim() !== String((fresh as any)[k] ?? '').trim());
+    if (changed.length === 0) return null;
+    // who / when, from QC's audit log (best effort)
+    let history: { changeTime: string; changedBy: string; propertyName: string }[] = [];
+    try { history = (await axios.get(`${API}/qc/defect-field-history`, { headers, params: { defectId } })).data ?? []; } catch { /* no history */ }
+    const changes = changed.map(k => {
+      const label = DETAIL_FIELD_LABEL[k] ?? k;
+      const h = history.filter(x => x.propertyName?.toLowerCase() === label.toLowerCase())
+        .sort((a, b) => String(b.changeTime).localeCompare(String(a.changeTime)))[0];
+      return {
+        key: k, label, mine: mine.has(k),
+        before: String((base as any)[k] ?? ''), after: String((fresh as any)[k] ?? ''),
+        by: h?.changedBy, at: h?.changeTime,
+      };
+    }).sort((a, b) => Number(b.mine) - Number(a.mine));
+    return { fresh, changes };
+  };
+
+  const saveInlineEdits = async (): Promise<boolean> => {
+    if (pendingCount === 0) return true;
     setSavingInline(true); setInlineMsg(null);
     const { status: pendingStatus, ...restFields } = pendingEdits;
     try {
+      const found = await findConflicts().catch(() => null);
+      if (found) {
+        setSavingInline(false);
+        const choice = await new Promise<'overwrite' | 'review' | 'cancel'>(res => { conflictResolve.current = res; setConflict(found); });
+        setConflict(null); conflictResolve.current = null;
+        if (choice === 'review') {
+          // show QC's current values under the pending changes; save again after a look
+          setDetail(found.fresh); baseDetailRef.current = found.fresh;
+          setInlineMsg({ kind: 'err', text: 'הטופס עודכן לפי QC — השינויים שלך נשמרו בו. בדוק ולחץ שוב "עדכן תקלה".' });
+          return false;
+        }
+        if (choice === 'cancel') return false;
+        setSavingInline(true);
+      }
       const r = await axios.patch(`${API}/qc/defects/${encodeURIComponent(defectId)}`, {
         fields: restFields, refFields: pendingRefEdits,
         status: pendingStatus ?? null, comment: newComment?.trim() || null,
@@ -684,13 +791,32 @@ export const DefectDetailScreen: React.FC<{
       setPendingEdits({}); setPendingRefEdits({}); setNewComment(null); setEditingField(null);
       setInlineMsg({ kind: 'ok', text: `✓ התקלה עודכנה ב-QC${r.data?.commentAdded ? ' · ההערה נוספה' : ''}` });
       setDetailReload(n => n + 1);    // show what QC now holds
+      return true;
     } catch (err: any) {
-      // nothing was written — the changes stay on screen to fix and retry
-      setInlineMsg({ kind: 'err', text: err?.response?.data?.message || 'עדכון התקלה נכשל' });
+      // nothing was written — the changes stay on screen (and in the draft) to fix and retry
+      if (err?.response?.status === 401) {
+        setSessionExpired(true);
+        setInlineMsg({ kind: 'err', text: 'ההתחברות פגה — התחבר מחדש. השינויים שמורים כטיוטה ויוצעו לשחזור כשתפתח את התקלה.' });
+      } else {
+        setInlineMsg({ kind: 'err', text: err?.response?.data?.message || 'עדכון התקלה נכשל' });
+      }
+      return false;
     } finally {
       setSavingInline(false);
     }
   };
+
+  // ── Leave guard: back, sidebar, top bar, logout, refresh / close tab
+  const { confirmLeave } = useUnsavedChanges();
+  useLeaveGuard({
+    count: () => pendingCount,
+    label: () => `תקלה #${defectId}`,
+    save: saveInlineEdits,
+    discard: () => { if (!sessionExpired) { try { localStorage.removeItem(draftKey); } catch { /* ignore */ } } },
+  });
+  const goBack = async () => { if (await confirmLeave()) onBack(); };
+  // a text editor that is open: a click outside keeps what was typed
+  const outsideCommit = useRef<(() => void) | null>(null);
 
   // The admin-configured field pool (AdminPanel's "עמודות תקלות ייצור" panel)
   // decides which fields are even available; the per-user category picker
@@ -761,7 +887,7 @@ export const DefectDetailScreen: React.FC<{
       {/* ── סרגל פעולות עליון — כפתורי משנה קומפקטיים ── */}
       {/* fixed height: the save buttons appearing must not push the form down */}
       <div className="flex min-h-[34px] items-center justify-between mb-[18px]">
-        <BackLink onClick={onBack} label="חזרה לטבלה" />
+        <BackLink onClick={goBack} label="חזרה לטבלה" />
         <div className="flex items-center gap-2">
           {inlineMsg && (
             <span className={`text-[13px] font-semibold ${inlineMsg.kind === 'ok' ? 'text-success' : 'text-danger'}`}>{inlineMsg.text}</span>
@@ -783,6 +909,46 @@ export const DefectDetailScreen: React.FC<{
           )}
         </div>
       </div>
+
+      {draftOffer && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border px-4 py-2.5 text-[13px]" style={{ borderColor: JIRA.blue, background: '#eef4ff' }}>
+          <span>📝 נמצאו שינויים שלא נשמרו ב-QC מ-{formatDateTime(new Date(draftOffer.at).toISOString())}
+            {' '}({draftChangeCount(draftOffer)} {draftChangeCount(draftOffer) === 1 ? 'שינוי' : 'שינויים'})</span>
+          <button type="button" onClick={restoreDraft} className="cursor-pointer rounded-md border-none bg-primary px-3 py-1 text-xs font-semibold text-white">שחזר</button>
+          <button type="button" onClick={dropDraft} className="cursor-pointer rounded-md border border-border bg-card px-3 py-1 text-xs">מחק</button>
+        </div>
+      )}
+      <BrandedDialog
+        open={!!conflict} onClose={() => conflictResolve.current?.('cancel')} closeOnBackdrop={false} zIndex={7000} width="md"
+        icon="⚠" title="התקלה עודכנה ב-QC בינתיים"
+        footer={<>
+          <DialogButton variant="warning" onClick={() => conflictResolve.current?.('overwrite')}>שמור בכל זאת</DialogButton>
+          <DialogButton variant="primary" onClick={() => conflictResolve.current?.('review')}>טען את הנתונים מ-QC ובדוק</DialogButton>
+          <DialogButton variant="secondary" onClick={() => conflictResolve.current?.('cancel')}>ביטול</DialogButton>
+        </>}
+      >
+        <div className="flex flex-col gap-3 text-sm text-foreground">
+          {conflict?.changes.some(c => c.mine) && (
+            <div className="font-semibold text-danger">בשדות המסומנים ⚠ גם אתה שינית — "שמור בכל זאת" ידרוס את השינוי של המשתמש האחר.</div>
+          )}
+          <table className="w-full border-collapse text-[13px]">
+            <thead><tr className="text-right text-xs text-subtle-foreground">
+              <th className="py-1 pl-2">שדה</th><th className="py-1 pl-2">היה</th><th className="py-1 pl-2">עכשיו ב-QC</th><th className="py-1">מי / מתי</th>
+            </tr></thead>
+            <tbody>
+              {conflict?.changes.map(c => (
+                <tr key={c.key} className="border-t border-border align-top">
+                  <td className="py-1.5 pl-2 font-semibold" dir="ltr" style={{ textAlign: 'right' }}>{c.mine && <span title="גם אתה שינית את השדה הזה">⚠ </span>}{c.label}</td>
+                  <td className="max-w-[180px] truncate py-1.5 pl-2 text-muted-foreground" title={c.before} dir="auto">{c.key === 'notes' || c.key === 'description' ? '…' : (c.before || '—')}</td>
+                  <td className="max-w-[180px] truncate py-1.5 pl-2" title={c.after} dir="auto">{c.key === 'notes' ? 'נוספה / שונתה הערה' : c.key === 'description' ? 'התיאור שונה' : (c.after || '—')}</td>
+                  <td className="py-1.5 text-xs text-muted-foreground">{c.by ? <>{c.by}{c.at ? <> · {formatDateTime(c.at)}</> : null}</> : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="text-xs text-muted-foreground">השדות שלא שינית לא נדרסים — רק השדות ששינית נכתבים ל-QC. ההערה החדשה תמיד מתווספת לסוף.</div>
+        </div>
+      </BrandedDialog>
 
       {detailLoading && <div className="text-center p-10 text-subtle-foreground">טוען...</div>}
       {!detailLoading && !detail && (
@@ -918,6 +1084,7 @@ export const DefectDetailScreen: React.FC<{
                           </span>
                           {isEditingThis && (
                             <EditPopover onClose={() => setEditingField(null)} width={popWidth}
+                              onOutside={() => { if (outsideCommit.current) outsideCommit.current(); else setEditingField(null); }}
                               title={label}
                               subtitle={key === 'environmentComponent'
                                 ? (teamComps.length ? `רכיבי הצוות ${team}` : team ? `לצוות ${team} לא הוגדרו רכיבים — מוצגים כל הערכים` : undefined)
@@ -940,6 +1107,7 @@ export const DefectDetailScreen: React.FC<{
                                   dynamicOptions={listOptions}
                                   personOptions={personDirectory}
                                   fieldKind={key === 'environmentComponent' ? 'list' : fieldKinds[key]}
+                                  outsideCommitRef={outsideCommit}
                                   onCommit={v => commitInlineField(key, v)}
                                   onCancel={() => setEditingField(null)}
                                 />
