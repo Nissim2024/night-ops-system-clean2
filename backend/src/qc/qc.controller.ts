@@ -6,7 +6,7 @@ import { PersonNamesInterceptor } from './person-names.interceptor';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
-import { QcService, isProductionEnvironment, getQcPersonDirectory, getOracleConfig, devPicklistsFromRealSeed, getReleaseCycleOptions, getTeamEnvironmentComponents, getDefectLock, probeLocksTable } from './qc.service';
+import { QcService, isProductionEnvironment, getQcPersonDirectory, getOracleConfig, devPicklistsFromRealSeed, getReleaseCycleOptions, getTeamEnvironmentComponents, getDefectLock, probeLocksTable, getQcPersonTeams } from './qc.service';
 import { QcRestService } from './qc-rest.service';
 import { PermissionsService } from '../permissions/permissions.service';
 
@@ -516,6 +516,13 @@ export class QcController {
   @Get('person-directory')
   getPersonDirectory() {
     return getQcPersonDirectory();
+  }
+
+  // People pickers "group by team" (user, 2026-10-09): each active team with
+  // its members' QC logins (from DeployCenter's team membership + User.qcLogin)
+  @Get('person-teams')
+  getPersonTeams() {
+    return getQcPersonTeams();
   }
 
   @Get('defect-editable-fields')

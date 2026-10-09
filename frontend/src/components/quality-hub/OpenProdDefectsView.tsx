@@ -328,6 +328,70 @@ const EditPopover: React.FC<{
 
 const POPOVER_BTN = 'cursor-pointer rounded-md px-3 py-1 text-xs';
 
+// People picker (user, 2026-10-09): the whole directory, or — with "קבץ לפי
+// צוות" ticked (remembered in this browser) — the teams first, and a team's
+// members only after clicking it.
+type PersonTeam = { id: string; name: string; logins: string[] };
+const GROUP_BY_TEAM_KEY = 'dc_person_picker_by_team';
+
+const PersonPicker: React.FC<{
+  people: PickOption[]; teams: PersonTeam[]; current: string;
+  onPick: (v: string) => void; onCancel: () => void;
+}> = ({ people, teams, current, onPick, onCancel }) => {
+  const [byTeam, setByTeam] = useState<boolean>(() => {
+    try { return localStorage.getItem(GROUP_BY_TEAM_KEY) === '1'; } catch { return false; }
+  });
+  const [team, setTeam] = useState<PersonTeam | 'none' | null>(null);
+  const toggle = (on: boolean) => {
+    setByTeam(on); setTeam(null);
+    try { localStorage.setItem(GROUP_BY_TEAM_KEY, on ? '1' : '0'); } catch { /* storage unavailable */ }
+  };
+  const loginOf = (o: PickOption) => (o.hint ?? '').toLowerCase();
+  const inAnyTeam = useMemo(() => new Set(teams.flatMap(t => t.logins)), [teams]);
+  const noTeam = people.filter(o => o.hint && !inAnyTeam.has(loginOf(o)));
+
+  const header = (
+    <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-foreground">
+      <input type="checkbox" checked={byTeam} onChange={e => toggle(e.target.checked)} />
+      קבץ לפי צוות
+    </label>
+  );
+
+  if (!byTeam) {
+    return (
+      <div className="flex flex-col gap-2">
+        {header}
+        <PickList current={current} onPick={onPick} onCancel={onCancel} placeholder="חפש שם או משתמש…" options={people} />
+      </div>
+    );
+  }
+  if (!team) {
+    const teamOpts: PickOption[] = [
+      ...teams.map(t => ({ value: t.id, label: t.name, hint: `${people.filter(o => t.logins.includes(loginOf(o))).length} עובדים` })),
+      ...(noTeam.length ? [{ value: '__none__', label: 'ללא שיוך לצוות', hint: `${noTeam.length} עובדים` }] : []),
+    ];
+    return (
+      <div className="flex flex-col gap-2">
+        {header}
+        <PickList key="teams" current="" onCancel={onCancel} placeholder="חפש צוות…" options={teamOpts}
+          onPick={id => setTeam(id === '__none__' ? 'none' : (teams.find(t => t.id === id) ?? null))} />
+      </div>
+    );
+  }
+  const members = team === 'none' ? noTeam : people.filter(o => team.logins.includes(loginOf(o)));
+  return (
+    <div className="flex flex-col gap-2">
+      {header}
+      <div className="flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-[13px]" style={{ background: JIRA.greyN20 }}>
+        <span className="truncate"><span style={{ color: JIRA.textSubtle }}>צוות: </span><b style={{ color: JIRA.text }} dir="auto">{team === 'none' ? 'ללא שיוך לצוות' : team.name}</b></span>
+        <button type="button" onClick={() => setTeam(null)} className="shrink-0 cursor-pointer border-none bg-transparent p-0 text-xs font-semibold text-primary">← כל הצוותים</button>
+      </div>
+      <PickList key={team === 'none' ? 'none' : team.id} current={current} onPick={onPick} onCancel={onCancel}
+        placeholder="חפש בצוות…" options={[{ value: '', label: '— ללא —' }, ...members]} />
+    </div>
+  );
+};
+
 const InlineFieldEditor: React.FC<{
   fieldKey: string; initialValue: string; currentStatus: string; allowedTransitions: string[] | null;
   dynamicOptions?: string[]; onCommit: (value: string) => void; onCancel: () => void;
@@ -336,7 +400,9 @@ const InlineFieldEditor: React.FC<{
   fieldKind?: string;
   /** set while a text-like editor is open: a click outside keeps what was typed (user, 2026-10-09) */
   outsideCommitRef?: React.MutableRefObject<(() => void) | null>;
-}> = ({ fieldKey, initialValue, currentStatus, allowedTransitions, dynamicOptions, onCommit, onCancel, personOptions, fieldKind, outsideCommitRef }) => {
+  /** teams + their members' QC logins, for the people picker's "group by team" */
+  personTeams?: PersonTeam[];
+}> = ({ fieldKey, initialValue, currentStatus, allowedTransitions, dynamicOptions, onCommit, onCancel, personOptions, fieldKind, outsideCommitRef, personTeams }) => {
   const [value, setValue] = useState(initialValue);
   const isPickList = fieldKey === 'status' || PERSON_FIELDS.has(fieldKey) || fieldKind === 'person'
     || (fieldKind !== 'date' && fieldKind !== 'number' && fieldKind !== 'memo' && (!!(dynamicOptions && dynamicOptions.length) || !!TIER2_FIELD_OPTIONS[fieldKey]));
@@ -368,8 +434,8 @@ const InlineFieldEditor: React.FC<{
   // value — the server writes only the login to QC (QcRestService.toQcLogin)
   if (PERSON_FIELDS.has(fieldKey) || fieldKind === 'person') {
     const people = (personOptions ?? []).map(p => ({ value: `${p.fullName} (${p.login})`, label: p.fullName, hint: p.login, person: p.fullName }));
-    return <PickList current={initialValue} onPick={onCommit} onCancel={onCancel} placeholder="חפש שם או משתמש…"
-      options={[{ value: '', label: '— ללא —' }, ...withCurrent(people)]} />;
+    return <PersonPicker current={initialValue} onPick={onCommit} onCancel={onCancel} teams={personTeams ?? []}
+      people={[{ value: '', label: '— ללא —' }, ...withCurrent(people)]} />;
   }
 
   if (fieldKind === 'date') {
@@ -655,6 +721,12 @@ export const DefectDetailScreen: React.FC<{
   useEffect(() => {
     if (personDirectory.length > 0) return;
     axios.get(`${API}/qc/person-directory`, { headers }).then(r => setPersonDirectory(r.data ?? [])).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+  // teams → members' QC logins, for "group by team" in the people pickers
+  const [personTeams, setPersonTeams] = useState<PersonTeam[]>([]);
+  useEffect(() => {
+    axios.get(`${API}/qc/person-teams`, { headers }).then(r => setPersonTeams(r.data ?? [])).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
   // a new comment in QC's own format (signature added by the server on save)
@@ -1099,16 +1171,22 @@ export const DefectDetailScreen: React.FC<{
                           key={key}
                           onClick={() => { if (isEditable && !isEditingThis) setEditingField(key); }}
                           title={isEditable && !isEditingThis ? 'לחץ לעריכה' : lockReason}
-                          className="relative flex min-w-0 flex-col gap-1 rounded-md px-1.5 py-1"
+                          // Editable = a light blue wash + ✏️ on hover (user, 2026-10-09:
+                          // the dashed frame on every field was noise); locked = 🔒 by
+                          // the label; editing = solid blue frame; unsaved = yellow.
+                          className={cn('group relative flex min-w-0 flex-col gap-1 rounded-md px-1.5 py-1 transition-colors',
+                            isEditable && !isEditingThis && !isDirty && 'hover:bg-[#eef4ff]')}
                           style={{
                             gridColumn: isWide ? '1 / -1' : undefined,
-                            border: isEditingThis ? `1px solid ${JIRA.blue}` : isEditable ? `1px dashed ${JIRA.blue}` : '1px solid transparent',
+                            border: isEditingThis ? `1px solid ${JIRA.blue}` : '1px solid transparent',
                             cursor: isEditable && !isEditingThis ? 'pointer' : undefined,
                             background: isDirty ? '#fffbe6' : undefined,
                           }}
                         >
-                          <span className="truncate text-xs font-bold tracking-wide" title={label} style={{ color: JIRA.textSubtle, direction: 'ltr', textAlign: 'left' }}>
-                            {label}
+                          <span className="flex min-w-0 items-center gap-1 text-xs font-bold tracking-wide" style={{ color: JIRA.textSubtle, direction: 'ltr' }}>
+                            <span className="truncate" title={label}>{label}</span>
+                            {!isEditable && <span className="shrink-0 text-[10px] opacity-60" title={lockReason ?? 'שדה לקריאה בלבד'}>🔒</span>}
+                            {isEditable && !isEditingThis && <span className="pointer-events-none absolute right-1.5 top-1 text-[11px] opacity-0 transition-opacity group-hover:opacity-100" aria-hidden>✏️</span>}
                           </span>
                           {/* same height in every box; one line unless the field is wide.
                               Stays in place while editing — the editor floats under it. */}
@@ -1151,6 +1229,7 @@ export const DefectDetailScreen: React.FC<{
                                   allowedTransitions={allowedTransitions}
                                   dynamicOptions={listOptions}
                                   personOptions={personDirectory}
+                                  personTeams={personTeams}
                                   fieldKind={key === 'environmentComponent' ? 'list' : fieldKinds[key]}
                                   outsideCommitRef={outsideCommit}
                                   onCommit={v => commitInlineField(key, v)}

@@ -2155,6 +2155,19 @@ export async function getDefectLock(defectId: string): Promise<DefectLock> {
   }
 }
 
+// Teams with their members' QC logins — for the people pickers' "group by
+// team" (2026-10-09). A member without a QC login can't be picked anyway.
+export async function getQcPersonTeams(): Promise<{ id: string; name: string; logins: string[] }[]> {
+  const teams = await prisma.team.findMany({
+    where: { active: true },
+    select: { id: true, name: true, members: { select: { user: { select: { qcLogin: true, active: true } } } } },
+    orderBy: { name: 'asc' },
+  });
+  return teams
+    .map(t => ({ id: t.id, name: t.name, logins: Array.from(new Set(t.members.filter(m => m.user.active && m.user.qcLogin?.trim()).map(m => m.user.qcLogin!.trim().toLowerCase()))) }))
+    .filter(t => t.logins.length > 0);
+}
+
 // QC projects admin: can this request's project schema be read? (2026-10-09)
 export async function testQcProjectOracle(): Promise<{ ok: boolean; message: string }> {
   let conn: any;
