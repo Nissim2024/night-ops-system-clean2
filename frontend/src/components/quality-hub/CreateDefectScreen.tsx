@@ -148,7 +148,9 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
       return;
     }
     const withRel = relCtx.testing.filter(t => t.release);
-    const pick = (t: ReleaseContext['testing'][number], reason: string) => apply(t.release, t.cycle, reason);
+    // testing: the release only — several cycles can run in parallel, so the
+    // user picks the cycle (user, 2026-10-09); production keeps Go Live
+    const pick = (t: ReleaseContext['testing'][number], reason: string) => apply(t.release, null, reason);
     const byCr = cr ? withRel.find(t => t.crs.includes(cr)) : undefined;
     const opened = initialVersionId ? withRel.find(t => t.versionId === initialVersionId) : undefined;
     const mine = withRel.filter(t => t.mine);
@@ -293,7 +295,8 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
       {relReason && (
         <div className="rounded-md px-4 py-2 text-[13px]" style={{ background: refValues.detectedInRelease ? '#eef4ff' : C.warningBg, color: JIRA.text }}>
           📍 {refValues.detectedInRelease
-            ? <>גרסת הגילוי: <b dir="ltr">{refValues.detectedInRelease.label}</b>{refValues.detectedInCycle ? <> · סבב <b dir="ltr">{refValues.detectedInCycle.label}</b></> : null} — {relReason}</>
+            ? <>גרסת הגילוי: <b dir="ltr">{refValues.detectedInRelease.label}</b>{refValues.detectedInCycle ? <> · סבב <b dir="ltr">{refValues.detectedInCycle.label}</b></> : null} — {relReason}
+              {!refValues.detectedInCycle && <span className="font-semibold" style={{ color: C.warning }}> · בחר סבב בשדה Detected in Cycle</span>}</>
             : <>{relReason}</>}
         </div>
       )}
