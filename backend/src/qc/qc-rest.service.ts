@@ -600,61 +600,31 @@ export class QcRestService {
     return { release: release?.trim() || null, versionCrs, fixed, all: Array.from(new Set(flat)) };
   }
 
-  // Project options for a defect of `release` (user, 2026-10-09; source =
-  // DeployCenter): the systems of that version's CRs — what the teams wrote
-  // in their CR plans, plus the systems of the teams assigned to its CRs —
-  // matched to QC's Project list (exact, or one name containing the other:
-  // "Wizard" ↔ "Wizard / IRB"). A matched parent brings its children.
-  async getProjectOptions(release: string | undefined): Promise<{ release: string | null; versionProjects: string[]; systems: string[]; unmatched: string[]; all: string[] }> {
-    const listId = (await this.effectiveFieldListIds()).system ?? QC_DEFECT_FIELDS.system.listId!;
-    const tree = await readListTree(listId);
-    const all: string[] = [];
-    const walk = (ns: ListNode[]) => ns.forEach(n => { all.push(n.value); walk(n.children); });
-    walk(tree);
+  // Project options (user, 2026-10-09): the BUSINESS project of the CRs —
+  // the "פרויקט" column of the imported CR list (VersionCrAssignment.project:
+  // HOT ENERGY, HBO, שדרוג סיבים…), NOT QC's Project list (which holds systems).
+  // QC's Project field doesn't verify against its list, so these are written as is.
+  //   CR chosen → that CR's project (the form fills it in);
+  //   otherwise → the projects of the release's CRs; "all" = every known project.
+  async getProjectOptions(release: string | undefined, cr?: string): Promise<{ release: string | null; cr: string | null; crProject: string | null; versionProjects: string[]; all: string[] }> {
     const rel = (release ?? '').trim();
-    if (!rel) return { release: null, versionProjects: [], systems: [], unmatched: [], all: Array.from(new Set(all)) };
-
-    const version = await prisma.version.findFirst({
+    const crNumber = /^\s*(\d{3,})/.exec(cr ?? '')?.[1] ?? null;
+    const clean = (xs: (string | null)[]) => Array.from(new Set(xs.map(x => (x ?? '').trim()).filter(Boolean))).sort((x, y) => x.localeCompare(y));
+    const allRows = await prisma.versionCrAssignment.findMany({ where: { project: { not: null } }, select: { project: true }, distinct: ['project'] });
+    const version = rel ? await prisma.version.findFirst({
       where: { OR: [{ name: { equals: rel, mode: 'insensitive' } }, { qcRelease: { relName: { equals: rel, mode: 'insensitive' } } }] },
       select: { id: true },
-    });
-    let systems: string[] = [];
-    if (version) {
-      const [plans, assigns] = await Promise.all([
-        prisma.crPlan.findMany({ where: { versionId: version.id }, select: { systems: true, team: { select: { apps: true } } } }),
-        prisma.versionCrAssignment.findMany({ where: { versionId: version.id }, select: { team: { select: { apps: true } } } }),
-      ]);
-      systems = Array.from(new Set([
-        ...plans.flatMap(p => [...p.systems, ...(p.team?.apps ?? [])]),
-        ...assigns.flatMap(a => a.team?.apps ?? []),
-      ].map(s => s.trim()).filter(Boolean)));
+    }) : null;
+    const versionRows = version
+      ? await prisma.versionCrAssignment.findMany({ where: { versionId: version.id }, select: { crNumber: true, project: true } })
+      : [];
+    let crProject: string | null = null;
+    if (crNumber) {
+      crProject = versionRows.find(r => r.crNumber === crNumber)?.project?.trim()
+        || (await prisma.versionCrAssignment.findFirst({ where: { crNumber, project: { not: null } }, orderBy: { syncedAt: 'desc' }, select: { project: true } }))?.project?.trim()
+        || null;
     }
-    // word-start matching: every word of the system starts a word of the value
-    // ("WIZ" → "Wizard / IRB", "TOP" → "TOP FRONT"), never mid-word ("BILI" ≠ "AccessiBILIty")
-    const words = (s: string) => s.toLowerCase().split(/[^a-z0-9֐-׿]+/).filter(Boolean);
-    const matches = (sys: string, val: string) => {
-      const sw = words(sys); const vw = words(val);
-      if (!sw.length || !vw.length) return false;
-      if (sw.join('') === vw.join('')) return true;
-      return sw.every(w => (w.length >= 3 ? vw.some(v => v.startsWith(w)) : vw.includes(w)));
-    };
-    const picked = new Set<string>();
-    const matched = new Set<string>();
-    const visit = (ns: ListNode[]) => ns.forEach(n => {
-      const hit = systems.filter(sy => matches(sy, n.value));
-      if (hit.length) {
-        hit.forEach(h => matched.add(h));
-        picked.add(n.value);
-        const addAll = (cs: ListNode[]) => cs.forEach(c => { picked.add(c.value); addAll(c.children); });
-        addAll(n.children);
-      }
-      visit(n.children);
-    });
-    visit(tree);
-    return {
-      release: rel, versionProjects: all.filter(v => picked.has(v)).filter((v, i, a) => a.indexOf(v) === i),
-      systems, unmatched: systems.filter(s => !matched.has(s)), all: Array.from(new Set(all)),
-    };
+    return { release: rel || null, cr: crNumber, crProject, versionProjects: clean(versionRows.map(r => r.project)), all: clean(allRows.map(r => r.project)) };
   }
 
   // The automatic map + when it was built (null = never)

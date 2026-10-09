@@ -531,8 +531,8 @@ export class QcController {
 
   // Project picker: the systems of the release's CRs in DeployCenter, matched to QC's Project list
   @Get('project-options')
-  getProjectOptions(@Query('release') release?: string) {
-    return this.qcRestService.getProjectOptions(release);
+  getProjectOptions(@Query('release') release?: string, @Query('cr') cr?: string) {
+    return this.qcRestService.getProjectOptions(release, cr);
   }
 
   // CR/HBR Number reference picker: the release's CRs + Regression / Production / Environment issue

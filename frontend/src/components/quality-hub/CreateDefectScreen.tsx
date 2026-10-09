@@ -5,7 +5,7 @@ import { Card, Button, BackLink } from '../ui';
 import { formatDate } from '../../utils/dateFormat';
 import { useLeaveGuard, useUnsavedChanges } from '../../context/UnsavedChangesContext';
 import {
-  DefectFieldCell, DefectFieldsCtx, PersonTeam, ReleaseCycleOptionT, RefValue, TeamEnvComponents, loadReleaseScopedOptions,
+  DefectFieldCell, DefectFieldsCtx, PersonTeam, ReleaseCycleOptionT, RefValue, TeamEnvComponents, loadReleaseScopedOptions, singleProjectForCr,
 } from './OpenProdDefectsView';
 import {
   DEFAULT_OPEN_PROD_DETAIL_GROUPS, ATTACHMENTS_FIELD, CREATE_REQUIRED_FIELDS, createFieldsOf, DETAIL_FIELD_LABEL,
@@ -188,7 +188,7 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
     required: CREATE_REQUIRED_FIELDS,
     missing,
     editingField, setEditingField,
-    commitField: (k, v) => { touched.current = true; setValues(prev => ({ ...prev, [k]: v })); setEditingField(null); setMissing(m => { const n = new Set(m); n.delete(k); return n; }); },
+    commitField: (k, v) => { touched.current = true; if (k === 'system') projectAuto.current = false; setValues(prev => ({ ...prev, [k]: v })); setEditingField(null); setMissing(m => { const n = new Set(m); n.delete(k); return n; }); },
     commitPair: (rk, ck, rel, cyc) => {
       touched.current = true;
       if (rk === 'detectedInRelease') { setReleaseManual(true); setRelReason('נבחרה ידנית'); }
@@ -199,8 +199,21 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
     outsideCommit,
     teamEnv, fieldPicklists, fieldKinds: editable.kinds, personDirectory, personTeams, releaseOptions,
     currentStatus: 'New', allowedTransitions: null,
-    loadScoped: (k, release) => loadReleaseScopedOptions(headers, k, release),
+    loadScoped: (k, release, cr) => loadReleaseScopedOptions(headers, k, release, cr),
   };
+
+  // Picking a CR fills Project with that CR's project (CR list "פרויקט");
+  // a Project the user picked themselves is never replaced (2026-10-09)
+  const projectAuto = useRef(true);
+  useEffect(() => {
+    if (!cr || !projectAuto.current) return;
+    let alive = true;
+    singleProjectForCr(headers, refValues.detectedInRelease?.label ?? '', cr).then(p => {
+      if (alive && p && projectAuto.current) setValues(v => ({ ...v, system: p }));
+    });
+    return () => { alive = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cr]);
 
   // ── leave guard (2026-10-09) ────────────────────────────────────────────
   const typedCount = !createdIdPendingAttachments
